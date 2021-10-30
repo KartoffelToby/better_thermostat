@@ -1,0 +1,6 @@
+{
+  "name": "AI Thermostat",
+  "render_readme": true,
+  "domains": ["climate"],
+  "iot_class": "Local Push"
+}
