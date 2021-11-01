@@ -162,14 +162,15 @@ class AIThermostat(ClimateEntity, RestoreEntity):
         # Add listener
         self.async_on_remove(
             async_track_state_change_event(
-                self.hass, [self.temperature_sensor_entity_id], self._async_sensor_changed
+                self.hass, self.temperature_sensor_entity_id, self._async_sensor_changed
             )
         )
         self.async_on_remove(
             async_track_state_change_event(
-                self.hass, [self.heater_entity_id], self._async_tvr_changed
+                self.hass, self.heater_entity_id, self._async_tvr_changed
             )
         )
+        
 
         @callback
         def _async_startup(*_):
