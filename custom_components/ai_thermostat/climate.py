@@ -159,7 +159,10 @@ class AIThermostat(ClimateEntity, RestoreEntity):
         """Run when entity about to be added."""
         await super().async_added_to_hass()
 
+        _LOGGER.debug("entity: %s", self.temperature_sensor_entity_id) #SPZB: log for debugging
+
         # Add listener
+        """
         self.async_on_remove(
             async_track_state_change_event(
                 self.hass, self.temperature_sensor_entity_id, self._async_sensor_changed
@@ -170,7 +173,7 @@ class AIThermostat(ClimateEntity, RestoreEntity):
                 self.hass, self.heater_entity_id, self._async_tvr_changed
             )
         )
-        
+        """
 
         @callback
         def _async_startup(*_):
