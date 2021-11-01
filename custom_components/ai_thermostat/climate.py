@@ -81,7 +81,7 @@ async def async_setup_platform(hass, config, async_add_entities, discovery_info=
 
     name = config.get(CONF_NAME)
     heater_entity_id = config.get(CONF_HEATER)
-    temperature_temperature_sensor_entity_id = config.get(CONF_SENSOR)
+    temperature_sensor_entity_id = config.get(CONF_SENSOR)
     window_sensors_entity_ids = config.get(CONF_SENSOR_WINDOW)
     thermostat_type = config.get(CONF_TYPE)
     min_temp = 5.0  # SPZB: hard coded temperature for EUROTRONIC thermostats due to the implementation in deCONZ
@@ -97,7 +97,7 @@ async def async_setup_platform(hass, config, async_add_entities, discovery_info=
             AIThermostat(
                 name,
                 heater_entity_id,
-                temperature_temperature_sensor_entity_id,
+                temperature_sensor_entity_id,
                 window_sensors_entity_ids,
                 thermostat_type,
                 min_temp,
@@ -120,6 +120,8 @@ class AIThermostat(ClimateEntity, RestoreEntity):
         name,
         heater_entity_id,
         temperature_sensor_entity_id,
+        window_sensors_entity_ids,
+        thermostat_type,
         min_temp,
         max_temp,
         target_temp,
@@ -131,7 +133,10 @@ class AIThermostat(ClimateEntity, RestoreEntity):
         """Initialize the thermostat."""
         self._name = name
         self.heater_entity_id = heater_entity_id
-        self.temperature_sensor_entity_id = temperature_sensor_entity_id
+        self.temperature_sensor_entity_id = temperature_sensor_entity_id,
+        self.window_sensors_entity_ids = window_sensors_entity_ids,
+        self.thermostat_type = thermostat_type,
+
         self._hvac_mode = initial_hvac_mode
         self._saved_target_temp = target_temp or away_temp
         self._temp_precision = precision

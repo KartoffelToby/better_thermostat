@@ -13,9 +13,7 @@ climate:
     thermostat: climate.tvr
     type: SPZB // for EUROTRONIC SPZB0001 Zigbee
     temperature_sensor: sensor.temperature
-    window_sensors:
-     - sensor.window1
-     - sensor.window2
+    window_sensors: group.office_windows
     initial_hvac_mode: "off"
     away_temp: 15
 ```
