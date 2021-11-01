@@ -312,6 +312,7 @@ class AIThermostat(ClimateEntity, RestoreEntity):
 
         _LOGGER.debug("_async_sensor_changed runs for %s with state %s", new_state.name, new_state) #SPZB: log for debugging
         _LOGGER.debug("_async_sensor_changed runs for %s", new_state.name) #SPZB: log for debugging
+        self.async_write_ha_state()
 
     @callback
     # SPZB: made async to be able to call async functions for EUROTRONIC thermostat
