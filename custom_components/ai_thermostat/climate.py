@@ -1,6 +1,7 @@
 """Special support for AI thermostat units."""
 import asyncio
 import logging
+import math
 
 import voluptuous as vol
 
@@ -36,9 +37,12 @@ from homeassistant.const import (
     STATE_UNKNOWN,
 )
 from homeassistant.core import DOMAIN as HA_DOMAIN, CoreState, callback
+from homeassistant.exceptions import ConditionError
+from homeassistant.helpers import condition
 import homeassistant.helpers.config_validation as cv
 from homeassistant.helpers.event import (
     async_track_state_change_event,
+    async_track_time_interval,
 )
 from homeassistant.helpers.reload import async_setup_reload_service
 from homeassistant.helpers.restore_state import RestoreEntity
@@ -47,6 +51,7 @@ from . import DOMAIN, PLATFORMS
 
 _LOGGER = logging.getLogger(__name__)
 
+DEFAULT_TOLERANCE = 0.3
 DEFAULT_NAME = "AI Thermostat"
 DEFAULT_TYPE = "SPZB"
 
@@ -162,18 +167,16 @@ class AIThermostat(ClimateEntity, RestoreEntity):
         _LOGGER.debug("entity: %s", self.temperature_sensor_entity_id) #SPZB: log for debugging
 
         # Add listener
-        """
         self.async_on_remove(
             async_track_state_change_event(
-                self.hass, self.temperature_sensor_entity_id, self._async_sensor_changed
+                self.hass, [self.temperature_sensor_entity_id], self._async_sensor_changed
             )
         )
         self.async_on_remove(
             async_track_state_change_event(
-                self.hass, self.heater_entity_id, self._async_tvr_changed
+                self.hass, [self.heater_entity_id], self._async_tvr_changed
             )
         )
-        """
 
         @callback
         def _async_startup(*_):
@@ -316,6 +319,7 @@ class AIThermostat(ClimateEntity, RestoreEntity):
 
         _LOGGER.debug("_async_sensor_changed runs for %s with state %s", new_state.name, new_state) #SPZB: log for debugging
         _LOGGER.debug("_async_sensor_changed runs for %s", new_state.name) #SPZB: log for debugging
+        self._async_update_temp(new_state)
         self.async_write_ha_state()
 
     @callback
@@ -332,7 +336,7 @@ class AIThermostat(ClimateEntity, RestoreEntity):
         # SPZB: Service set HVAC mode back to auto if set from auto to heat (e.g. manually)
         # if old_state.state != new_state.state: #SPZB: log for debugging (needs this and next line to work properly)
         _LOGGER.debug("Changed state from %s to %s for %s.", old_state.state, new_state.state, new_state.name) #SPZB: log for debugging
-
+        self.async_write_ha_state()
 
     @callback
     def _async_update_temp(self, state):
