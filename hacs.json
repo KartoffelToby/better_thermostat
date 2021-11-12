@@ -1,5 +1,5 @@
 {
-  "name": "AI Thermostat",
+  "name": "AI Thermostat for Zigbee2MQTT",
   "render_readme": true,
   "domains": ["climate"],
   "iot_class": "Local Push"
