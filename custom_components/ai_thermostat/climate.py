@@ -1,5 +1,5 @@
 """Special support for AI thermostat units."""
-""" ZHA version 0.1 """
+""" Z2M version """
 import asyncio
 import logging
 import json
@@ -467,22 +467,28 @@ class AIThermostat(ClimateEntity, RestoreEntity):
                     mqtt_setpoint = {"current_heating_setpoint": int(target_temp)}
                     payload = json.dumps(mqtt_setpoint, cls=JSONEncoder)
                     self.mqtt.async_publish('zigbee2mqtt/'+self.hass.states.get(self.heater_entity_id).attributes.get('friendly_name')+'/set', payload, 0, False)
-                
                 if new_calibration != local_temperature_calibration: 
                     mqtt_calibration = {"local_temperature_calibration": int(new_calibration),"system_mode": "'"+converted_hvac_mode+"'"}
                     payload = json.dumps(mqtt_calibration, cls=JSONEncoder)
                     self.mqtt.async_publish('zigbee2mqtt/'+self.hass.states.get(self.heater_entity_id).attributes.get('friendly_name')+'/set', payload, 0, False)
-
+                    await asyncio.sleep(
+                        1 #5
+                    )
                 if converted_hvac_mode != self.hass.states.get(self.heater_entity_id).attributes.get('system_mode') or not self.window_open:
                     self.mqtt.async_publish('zigbee2mqtt/'+self.hass.states.get(self.heater_entity_id).attributes.get('friendly_name')+'/set/system_mode', converted_hvac_mode, 0, False)
-
+                    await asyncio.sleep(
+                        1 #5
+                    )
+                await asyncio.sleep(
+                    1 #5
+                )
     @property
     def _is_device_active(self):
         state_off = self.hass.states.is_state(self.heater_entity_id, "off")
         state_heat = self.hass.states.is_state(self.heater_entity_id, "heat")
         state_auto = self.hass.states.is_state(self.heater_entity_id, "auto")
         state_temp = self.hass.states.get(self.heater_entity_id)
-        _LOGGER.debug("%s.state = %s", self.heater_entity_id, state_temp)
+        #_LOGGER.debug("%s.state = %s", self.heater_entity_id, state_temp)
         if not self.hass.states.get(self.heater_entity_id):
             return None
         if state_off:
