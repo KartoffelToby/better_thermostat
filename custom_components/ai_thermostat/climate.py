@@ -413,6 +413,13 @@ class AIThermostat(ClimateEntity, RestoreEntity):
             ):
                 self._active = True
 
+                mqtt_get = {"local_temperature_calibration": ""}
+                payload = json.dumps(mqtt_get, cls=JSONEncoder)
+                self.mqtt.async_publish('zigbee2mqtt/'+self.hass.states.get(self.heater_entity_id).attributes.get('friendly_name')+'/get', payload, 0, False)
+                await asyncio.sleep(
+                    1 #5
+                )
+
                 forcast = self.hass.states.get(self.weather).attributes.get('forecast')
                 max_forcast_temp = int(round(float(forcast[0]['temperature']) + float(forcast[1]['temperature']) / 2))
                 is_cold = max_forcast_temp < self.off_temperature
@@ -486,7 +493,7 @@ class AIThermostat(ClimateEntity, RestoreEntity):
                         1 #5
                     )
                 await asyncio.sleep(
-                    2 #5
+                    1 #5
                 )
     @property
     def _is_device_active(self):
