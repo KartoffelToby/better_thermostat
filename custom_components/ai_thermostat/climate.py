@@ -172,6 +172,7 @@ class AIThermostat(ClimateEntity, RestoreEntity):
         self.startup = True
         self.beforeClosed = HVAC_MODE_OFF
         self.model = "-"
+        self.internalTemp = 0
 
     async def async_added_to_hass(self):
         """Run when entity about to be added."""
@@ -455,6 +456,11 @@ class AIThermostat(ClimateEntity, RestoreEntity):
                     if self.beforeClosed != HVAC_MODE_OFF:
                         converted_hvac_mode = self.beforeClosed
 
+                doCalibration = False
+                if self.internalTemp != thermostat_temp:
+                    doCalibration = True
+                    self.internalTemp = thermostat_temp
+
                 _LOGGER.debug(
                     "ai_thermostat triggerd, States > Window closed: %s | Mode: %s | Calibration: %s | Model: %s",
                     self.window_open,
@@ -467,7 +473,7 @@ class AIThermostat(ClimateEntity, RestoreEntity):
                     mqtt_setpoint = {"current_heating_setpoint": int(target_temp)}
                     payload = json.dumps(mqtt_setpoint, cls=JSONEncoder)
                     self.mqtt.async_publish('zigbee2mqtt/'+self.hass.states.get(self.heater_entity_id).attributes.get('friendly_name')+'/set', payload, 0, False)
-                if new_calibration != local_temperature_calibration: 
+                if new_calibration != local_temperature_calibration and doCalibration: 
                     mqtt_calibration = {"local_temperature_calibration": int(new_calibration),"system_mode": "'"+converted_hvac_mode+"'"}
                     payload = json.dumps(mqtt_calibration, cls=JSONEncoder)
                     self.mqtt.async_publish('zigbee2mqtt/'+self.hass.states.get(self.heater_entity_id).attributes.get('friendly_name')+'/set', payload, 0, False)
@@ -480,7 +486,7 @@ class AIThermostat(ClimateEntity, RestoreEntity):
                         1 #5
                     )
                 await asyncio.sleep(
-                    1 #5
+                    2 #5
                 )
     @property
     def _is_device_active(self):
