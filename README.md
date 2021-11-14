@@ -1,6 +1,6 @@
 # AI THERMOSTAT for Zigbee2MQTT
 
-This Integration brings some Smartness in your TRV Zigbee2MQTT setup. 
+This Integration brings some Smartness in your TRV Zigbee2MQTT setup.
 
 What does it? Basically, it combines a external temperature sensor, window/door Sensors and a weather-Entity, so your TRV is calibrateted with the temperature from the external sensor and turned of if some window is open. It also trun off the termostat if a configured outside tempature is reached for two days in a row, so if its outside warm enoth you didn't need usless heating your rooms.
 
@@ -20,6 +20,8 @@ The SPZB0001 is Special, it uses the "heat" mode for boost and the auto mode for
 If you have a special Thermostat like the SPZB0001 feel free to open an issue.
 
 The Intigration gets the Model identfyer automatic, nothing to do here.
+
+**IMPORTANT: be sure to enable "legacy" in Zigbee2MQTT on the TRV devices and settings if you havent the key local_temperature_calibration in your HA instance**
 
 ## SETUP
 You need to configure a "virtual" thermostat for every used thermostat.
