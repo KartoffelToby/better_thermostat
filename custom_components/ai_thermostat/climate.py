@@ -445,7 +445,7 @@ class AIThermostat(ClimateEntity, RestoreEntity):
                 except TypeError:
                     current_heating_setpoint = 0
 
-                new_calibration = current_temp - thermostat_temp - local_temperature_calibration;
+                new_calibration = round(current_temp - (thermostat_temp - local_temperature_calibration));
 
                 target_temp = self._target_temp
 
