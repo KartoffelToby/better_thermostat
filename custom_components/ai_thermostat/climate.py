@@ -468,6 +468,14 @@ class AIThermostat(ClimateEntity, RestoreEntity):
                 converted_hvac_mode = HVAC_MODE_OFF
                 converted_hvac_mode = self._hvac_mode
 
+                # Window open detection. Force turn TVR off
+                if not self.window_open or not is_cold:
+                    self.beforeClosed = converted_hvac_mode
+                    converted_hvac_mode = HVAC_MODE_OFF
+                else:
+                    if self.beforeClosed != HVAC_MODE_OFF:
+                        converted_hvac_mode = self.beforeClosed
+
 
                 # SPECIAL DEVICES:
                 # if a TVR needs a special handling add it here
@@ -477,14 +485,11 @@ class AIThermostat(ClimateEntity, RestoreEntity):
                         converted_hvac_mode = HVAC_MODE_AUTO
 
 
+                if self.model == 'BRT-100-TRV':
+                    converted_hvac_mode = False
+                    if self._hvac_mode == HVAC_MODE_OFF:
+                        target_temp = 0
 
-                # Window open detection. Force turn TVR off
-                if not self.window_open or not is_cold:
-                    self.beforeClosed = converted_hvac_mode
-                    converted_hvac_mode = HVAC_MODE_OFF
-                else:
-                    if self.beforeClosed != HVAC_MODE_OFF:
-                        converted_hvac_mode = self.beforeClosed
 
                 # Only send the local_temperature_calibration to z2m if it's needed to avoid bugs
                 doCalibration = False
