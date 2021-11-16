@@ -21,7 +21,7 @@ If you have a special Thermostat like the SPZB0001 feel free to open an issue.
 
 The Intigration gets the Model identfyer automatic, nothing to do here.
 
-**IMPORTANT: be sure to enable "legacy" in Zigbee2MQTT on the TRV devices and settings if you havent the key local_temperature_calibration in your HA instance**
+**IMPORTANT: be sure to enable "legacy" in Zigbee2MQTT on the TRV devices and settings if you havent the key local_temperature_calibration in your HA instance and include_device_information in the Zigbee2MQTT MQTT settings**
 
 ## SETUP
 You need to configure a "virtual" thermostat for every used thermostat.
@@ -61,3 +61,5 @@ livingroom_windows:
     - binary_sensor.openclose_2
     - binary_sensor.openclose_3
 ```
+
+<a href="https://www.buymeacoffee.com/kartoffeltoby" target="_blank"><img src="https://cdn.buymeacoffee.com/buttons/v2/default-green.png" alt="Buy Me A Coffee" style="height: 60px !important;width: 217px !important;" ></a>
