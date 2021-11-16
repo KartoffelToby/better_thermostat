@@ -1,32 +1,32 @@
 # AI THERMOSTAT for Zigbee2MQTT
 
-This Integration brings some Smartness in your TRV Zigbee2MQTT setup.
+This integration brings some smartness to your TRV Zigbee2MQTT setup.
 
-What does it? Basically, it combines a external temperature sensor, window/door Sensors and a weather-Entity, so your TRV is calibrateted with the temperature from the external sensor and turned of if some window is open. It also trun off the termostat if a configured outside tempature is reached for two days in a row, so if its outside warm enoth you didn't need usless heating your rooms.
+What does it? Basically, it combines an external temperature sensor, window/door Sensors, and a weather-Entity, so your TRV is calibrated with the temperature from the external sensor and turned off if some window is open. It also turns off the thermostat if a configured outside temperature is reached for two days in a row, so if it's outside warm enough you didn't need useless heating in your rooms.
 
-Its also usefull for those they only need a off and heating state and controlled the room themperature with a settet target temperature based on external temperature sensor.
+It's also useful for those who only need an off and heating state and controlled the room temperature with a set target temperature based on an external temperature sensor.
 
-So if you use the Google Assistant Intigration to controll your Thermostat you not longer get into an issue of incombatible modes. or the problem that a target temp can't be set because the devices is in "auto" mode thats remapped to eco
+So if you use the Google Assistant integration to control your thermostat you no longer get into an issue of incompatible modes or the problem that a target temp can't be set because the device is in "auto" mode that's remapped to eco.
 
-Youst set your Target Heat point with your voice or the Google Home app and your good to go.
+Youst set your Target Heat point with your voice or the Google Home app and you are good to go.
 
-At this time i testet it with two models: (but basaclly all zigbee2mqtt trv should work.)
+At this time I tested it with two models: (but basically all zigbee2mqtt TRV should work.)
 
 - Eurotronic Spirit Zigbee (SPZB0001)
 - Moes SEA801-Zigbee/SEA802-Zigbee
 
-The SPZB0001 is Special, it uses the "heat" mode for boost and the auto mode for the "normal" operation, to avoid that it remaps heat with auto internaly, the boost mode is lost with this configuration.
+The SPZB0001 is Special, it uses the "heat" mode for boost and the auto mode for the "normal" operation, to avoid that it remaps heat with auto internally, the boost mode is lost with this configuration.
 
 If you have a special Thermostat like the SPZB0001 feel free to open an issue.
 
-The Intigration gets the Model identfyer automatic, nothing to do here.
+The integration gets the Model identifier automatic, nothing to do here.
 
-**IMPORTANT: be sure to enable "legacy" in Zigbee2MQTT on the TRV devices and settings if you havent the key local_temperature_calibration in your HA instance and include_device_information in the Zigbee2MQTT MQTT settings**
+**IMPORTANT: be sure to enable "legacy" in Zigbee2MQTT on the TRV devices and settings if you haven't the key local_temperature_calibration in your HA instance and include_device_information in the Zigbee2MQTT MQTT settings**
 
 ## SETUP
 You need to configure a "virtual" thermostat for every used thermostat.
 
-Here is a example configuration.
+Here is an example configuration.
 ```yaml
 climate:
   - platform: ai_thermostat
@@ -47,7 +47,7 @@ Key | Value | Required? | Description
 ***temperature_sensor*** | `sensor.temperature` | *yes* | a zigbee2mqtt sensor entity that is used for the actual temperature input of the thermostat.
 ***window_sensors*** | `group.livingroom_windows` | *yes* | a group of window/door - sensors (see below) that is used for the open window detection of the thermostat (the termostat dosn't need to support a open window detection for that feature).
 ***weather*** | `weather.xxx` | *yes* | a weather entity from Home Assistent to check the forcast to detect if heating is needed. (Meteorologisk institutt (Metno))
-***off_temperature*** | `20` | *yes* | a int number as an temperature if the forcast outside temperature is above it the thermostat is turend off.
+***off_temperature*** | `20` | *yes* | an int number as an temperature if the forcast outside temperature is above it the thermostat is turend off.
 
 ### Example Window/Door - Sensor config
 
