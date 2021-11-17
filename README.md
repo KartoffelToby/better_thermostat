@@ -14,10 +14,12 @@ At this time I tested it with two models: (but basically all zigbee2mqtt TRV sho
 
 - Eurotronic Spirit Zigbee (SPZB0001)
 - Moes SEA801-Zigbee/SEA802-Zigbee
+- TuYa TS0601_thermostat (TS0601)
+- BRT-100-TRV (didn't work at all because of this [issue](https://github.com/Koenkk/zigbee2mqtt/issues/9486)) 
 
 The SPZB0001 is Special, it uses the "heat" mode for boost and the auto mode for the "normal" operation, to avoid that it remaps heat with auto internally, the boost mode is lost with this configuration.
 
-If you have a special Thermostat like the SPZB0001 feel free to open an issue.
+If you have a special Thermostat like the SPZB0001 feel free to open an issue or pull request.
 
 The integration gets the Model identifier automatic, nothing to do here.
 

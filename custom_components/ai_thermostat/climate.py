@@ -5,6 +5,7 @@ import logging
 import json
 
 import voluptuous as vol
+from custom_components.ai_thermostat.models.models import convert_inbound_states, convert_outbound_states
 from homeassistant.components.mqtt import valid_publish_topic
 from homeassistant.helpers.json import JSONEncoder
 
@@ -370,25 +371,17 @@ class AIThermostat(ClimateEntity, RestoreEntity):
             return
 
         if self.hass.states.get(self.heater_entity_id).attributes.get('device').get('model') is not None:
-            self.model = self.hass.states.get(self.heater_entity_id).attributes.get('device').get('model') 
+            self.model = self.hass.states.get(self.heater_entity_id).attributes.get('device').get('model')
 
-        if new_state.attributes.get('system_mode') is not None:
-            if self.model == 'SPZB0001':
-                if new_state.attributes.get('system_mode') == HVAC_MODE_AUTO:
-                    self._hvac_mode  = HVAC_MODE_HEAT
-                else:
-                    self._hvac_mode  = new_state.attributes.get('system_mode')
-            else:
-                self._hvac_mode  = new_state.attributes.get('system_mode')
+        if new_state.attributes is not None:
+            try:
+                remappedstate = convert_inbound_states(self,new_state.attributes)
+                self._hvac_mode  = remappedstate.system_mode
+            except TypeError:
+                _LOGGER.debug("ai_thermostat entity not ready")
 
-        tvr_model_settempkey = "occupied_heating_setpoint"
-        if hasattr(new_state.attributes, "occupied_heating_setpoint"):
-            tvr_model_settempkey = "occupied_heating_setpoint"
-        else:
-            tvr_model_settempkey = "current_heating_setpoint"
-
-        if new_state.attributes.get(tvr_model_settempkey) is not None and self._hvac_mode is not HVAC_MODE_OFF:
-            self._target_temp = new_state.attributes.get(tvr_model_settempkey)
+        if new_state.attributes.get('current_heating_setpoint') is not None and self._hvac_mode is not HVAC_MODE_OFF:
+            self._target_temp = new_state.attributes.get('current_heating_setpoint')
 
         self.async_write_ha_state()
 
@@ -405,7 +398,7 @@ class AIThermostat(ClimateEntity, RestoreEntity):
     def _async_update_temp(self, state):
         """Update thermostat with latest state from sensor."""
         try:
-            self._cur_temp = float(state.state)
+            self._cur_temp = int(round(float(state.state)))
         except ValueError as ex:
             _LOGGER.debug("Unable to update from sensor: %s", ex)
 
@@ -416,59 +409,46 @@ class AIThermostat(ClimateEntity, RestoreEntity):
                 self._target_temp,
                 self._hvac_mode,
                 self._is_device_active,
-            ):
+            ) and self.hass.states.get(self.heater_entity_id).attributes is not None:
                 self._active = True
 
-                # Need to force the local_temperature_calibration get updated in HA
-                mqtt_get = {"local_temperature_calibration": ""}
-                payload = json.dumps(mqtt_get, cls=JSONEncoder)
-                self.mqtt.async_publish('zigbee2mqtt/'+self.hass.states.get(self.heater_entity_id).attributes.get('friendly_name')+'/get', payload, 0, False)
-                await asyncio.sleep(
-                    1 #5
-                )
-
-                # Get the forecast from the weather entity for two days in a row and round and split it for compare
-                forcast = self.hass.states.get(self.weather).attributes.get('forecast')
-                max_forcast_temp = int(round(float(forcast[0]['temperature']) + float(forcast[1]['temperature']) / 2))
-                is_cold = max_forcast_temp < self.off_temperature
-
-                tvr_model_settempkey = "occupied_heating_setpoint"
-                if hasattr(self.hass.states.get(self.heater_entity_id).attributes, "occupied_heating_setpoint"):
-                    tvr_model_settempkey = "occupied_heating_setpoint"
+                # Use the same precision and min and max as the TVR
+                if hasattr(self.hass.states.get(self.heater_entity_id).attributes, "target_temp_step"):
+                    self._temp_precision = float(self.hass.states.get(self.heater_entity_id).attributes.get('target_temp_step'))
                 else:
-                    tvr_model_settempkey = "current_heating_setpoint"
+                    self._temp_precision = 1
+                if hasattr(self.hass.states.get(self.heater_entity_id).attributes, "min_temp"):
+                    self._min_temp = float(self.hass.states.get(self.heater_entity_id).attributes.get('min_temp'))
+                else:
+                    self._min_temp = 5
+                if hasattr(self.hass.states.get(self.heater_entity_id).attributes, "max_temp"):
+                    self._max_temp = float(self.hass.states.get(self.heater_entity_id).attributes.get('max_temp'))
+                else:
+                    self._max_temp = 30
 
-                try:
-                    if self.hass.states.get(self.heater_entity_id).attributes.get('device').get('model') is not None:
-                        self.model = self.hass.states.get(self.heater_entity_id).attributes.get('device').get('model') 
-                except TypeError:
-                    _LOGGER.exception("Can't read the device model of TVR, Enable include_device_information in z2m or checkout issue #1")
 
+                # Need to force the local_temperature_calibration get updated in HA only for SPZB0001
+                if(self.model == "SPZB0001"):
+                    mqtt_get = {"local_temperature_calibration": ""}
+                    payload = json.dumps(mqtt_get, cls=JSONEncoder)
+                    self.mqtt.async_publish('zigbee2mqtt/'+self.hass.states.get(self.heater_entity_id).attributes.get('friendly_name')+'/get', payload, 0, False)
+                    await asyncio.sleep(
+                        1 #5
+                    )
+                # Get the forecast from the weather entity for two days in a row and round and split it for compare
                 try:
-                    current_temp = int(self._cur_temp)
+                    forcast = self.hass.states.get(self.weather).attributes.get('forecast')
+                    if len(forcast) > 0:
+                        max_forcast_temp = int(round(float(forcast[0]['temperature']) + float(forcast[1]['temperature']) / 2))
+                        is_cold = max_forcast_temp < self.off_temperature
+                    else:
+                        is_cold = True
                 except TypeError:
-                    current_temp = 0
-                try:
-                    thermostat_temp = int(self.hass.states.get(self.heater_entity_id).attributes.get('local_temperature'))
-                except TypeError:
-                    thermostat_temp = 0
-                try:
-                    local_temperature_calibration = int(self.hass.states.get(self.heater_entity_id).attributes.get('local_temperature_calibration'))
-                except TypeError:
-                    local_temperature_calibration = 0
-                try:
-                    current_heating_setpoint = int(self.hass.states.get(self.heater_entity_id).attributes.get(tvr_model_settempkey))
-                except TypeError:
-                    current_heating_setpoint = 0
+                    is_cold = True
+                    _LOGGER.debug("ai_thermostat no weather data")
 
-                new_calibration = round(current_temp - (thermostat_temp - local_temperature_calibration));
-
-                target_temp = self._target_temp
-
-                converted_hvac_mode = HVAC_MODE_OFF
+                # Window open detection and Weather detection force turn TVR off
                 converted_hvac_mode = self._hvac_mode
-
-                # Window open detection. Force turn TVR off
                 if not self.window_open or not is_cold:
                     self.beforeClosed = converted_hvac_mode
                     converted_hvac_mode = HVAC_MODE_OFF
@@ -476,54 +456,60 @@ class AIThermostat(ClimateEntity, RestoreEntity):
                     if self.beforeClosed != HVAC_MODE_OFF:
                         converted_hvac_mode = self.beforeClosed
 
+                # NEW SPECIAL STUFF :)
+                try:
+                    remappedstates = convert_outbound_states(self,converted_hvac_mode)
 
-                # SPECIAL DEVICES:
-                # if a TVR needs a special handling add it here
-
-                if self.model == 'SPZB0001':
-                    if self._hvac_mode == HVAC_MODE_HEAT:
-                        converted_hvac_mode = HVAC_MODE_AUTO
-
-
-                if self.model == 'BRT-100-TRV':
-                    converted_hvac_mode = False
-                    if self._hvac_mode == HVAC_MODE_OFF:
-                        target_temp = 0
+                    converted_hvac_mode = remappedstates.system_mode
+                    local_temperature = remappedstates.local_temperature
+                    local_temperature_calibration = remappedstates.local_temperature_calibration
+                    current_heating_setpoint = remappedstates.current_temperature
+                    has_real_mode = remappedstates.has_real_mode
+                    try:
+                        current_temp = int(round(self._cur_temp))
+                    except TypeError:
+                        current_temp = 0
 
 
-                # Only send the local_temperature_calibration to z2m if it's needed to avoid bugs
-                doCalibration = False
-                if self.internalTemp != thermostat_temp:
-                    doCalibration = True
-                    self.internalTemp = thermostat_temp
+                    new_calibration = float(round(current_temp - (local_temperature - local_temperature_calibration),1))
 
-                _LOGGER.debug(
-                    "ai_thermostat triggerd, States > Window closed: %s | Mode: %s | Calibration: %s | Model: %s",
-                    self.window_open,
-                    converted_hvac_mode,
-                    new_calibration,
-                    self.model
-                )
+                    # Only send the local_temperature_calibration to z2m if it's needed to avoid bugs
+                    doCalibration = False
+                    if self.internalTemp != local_temperature:
+                        doCalibration = True
+                        self.internalTemp = local_temperature
 
-                if current_heating_setpoint !=  int(self._target_temp) and converted_hvac_mode != HVAC_MODE_OFF and int(target_temp) != 5 and is_cold:
-                    mqtt_setpoint = {tvr_model_settempkey: int(target_temp)}
-                    payload = json.dumps(mqtt_setpoint, cls=JSONEncoder)
-                    self.mqtt.async_publish('zigbee2mqtt/'+self.hass.states.get(self.heater_entity_id).attributes.get('friendly_name')+'/set', payload, 0, False)
-                if new_calibration != local_temperature_calibration and doCalibration: 
-                    mqtt_calibration = {"local_temperature_calibration": int(new_calibration),"system_mode": "'"+converted_hvac_mode+"'"}
-                    payload = json.dumps(mqtt_calibration, cls=JSONEncoder)
-                    self.mqtt.async_publish('zigbee2mqtt/'+self.hass.states.get(self.heater_entity_id).attributes.get('friendly_name')+'/set', payload, 0, False)
+                    _LOGGER.debug(
+                        "ai_thermostat triggerd, States > Window closed: %s | Mode: %s | Calibration: %s - %s | settemp: %s | curtemp: %s | Model: %s",
+                        self.window_open,
+                        converted_hvac_mode,
+                        new_calibration,
+                        doCalibration,
+                        current_heating_setpoint,
+                        self._cur_temp,
+                        self.model
+                    )
+
+                    if new_calibration != local_temperature_calibration and doCalibration:
+                        if has_real_mode:
+                            mqtt_calibration = {"local_temperature_calibration": new_calibration, "system_mode": converted_hvac_mode}
+                        else:
+                            mqtt_calibration = {"local_temperature_calibration": new_calibration}
+                        payload = json.dumps(mqtt_calibration, cls=JSONEncoder)
+                        self.mqtt.async_publish('zigbee2mqtt/'+self.hass.states.get(self.heater_entity_id).attributes.get('friendly_name')+'/set', payload, 0, False)
+                        await asyncio.sleep(
+                            1 #5
+                        )
+                    if has_real_mode and converted_hvac_mode != self.hass.states.get(self.heater_entity_id).attributes.get('system_mode') or not self.window_open:
+                        self.mqtt.async_publish('zigbee2mqtt/'+self.hass.states.get(self.heater_entity_id).attributes.get('friendly_name')+'/set/system_mode', converted_hvac_mode, 0, False)
+                    if self.hass.states.get(self.heater_entity_id).attributes.get('current_heating_setpoint') != float(current_heating_setpoint) and converted_hvac_mode != HVAC_MODE_OFF and float(current_heating_setpoint) > 5.0 and is_cold:
+                        self.mqtt.async_publish('zigbee2mqtt/'+self.hass.states.get(self.heater_entity_id).attributes.get('friendly_name')+'/set/current_heating_setpoint', float(current_heating_setpoint), 0, False)
+                    
                     await asyncio.sleep(
                         1 #5
                     )
-                if converted_hvac_mode != self.hass.states.get(self.heater_entity_id).attributes.get('system_mode') or not self.window_open:
-                    self.mqtt.async_publish('zigbee2mqtt/'+self.hass.states.get(self.heater_entity_id).attributes.get('friendly_name')+'/set/system_mode', converted_hvac_mode, 0, False)
-                    await asyncio.sleep(
-                        1 #5
-                    )
-                await asyncio.sleep(
-                    1 #5
-                )
+                except TypeError as fatal:
+                    _LOGGER.debug("ai_thermostat entity not ready")
     @property
     def _is_device_active(self):
         state_off = self.hass.states.is_state(self.heater_entity_id, "off")
