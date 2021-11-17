@@ -490,6 +490,14 @@ class AIThermostat(ClimateEntity, RestoreEntity):
                         self.model
                     )
 
+                    _LOGGER.debug(
+                        "ai_thermostat therms %s",
+                        self.hass.states.get(self.sensor_entity_id)
+                    )
+
+                    if self.hass.states.get(self.heater_entity_id).attributes.get('current_heating_setpoint') != float(current_heating_setpoint) and converted_hvac_mode != HVAC_MODE_OFF and float(current_heating_setpoint) > 5.0 and is_cold:
+                        self.mqtt.async_publish('zigbee2mqtt/'+self.hass.states.get(self.heater_entity_id).attributes.get('friendly_name')+'/set/current_heating_setpoint', float(current_heating_setpoint), 0, False)
+                    
                     if new_calibration != local_temperature_calibration and doCalibration:
                         if has_real_mode:
                             mqtt_calibration = {"local_temperature_calibration": new_calibration, "system_mode": converted_hvac_mode}
@@ -500,11 +508,11 @@ class AIThermostat(ClimateEntity, RestoreEntity):
                         await asyncio.sleep(
                             1 #5
                         )
+
                     if has_real_mode and converted_hvac_mode != self.hass.states.get(self.heater_entity_id).attributes.get('system_mode') or not self.window_open:
                         self.mqtt.async_publish('zigbee2mqtt/'+self.hass.states.get(self.heater_entity_id).attributes.get('friendly_name')+'/set/system_mode', converted_hvac_mode, 0, False)
-                    if self.hass.states.get(self.heater_entity_id).attributes.get('current_heating_setpoint') != float(current_heating_setpoint) and converted_hvac_mode != HVAC_MODE_OFF and float(current_heating_setpoint) > 5.0 and is_cold:
-                        self.mqtt.async_publish('zigbee2mqtt/'+self.hass.states.get(self.heater_entity_id).attributes.get('friendly_name')+'/set/current_heating_setpoint', float(current_heating_setpoint), 0, False)
                     
+
                     await asyncio.sleep(
                         1 #5
                     )
