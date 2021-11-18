@@ -38,6 +38,7 @@ climate:
     window_sensors: group.office_windows
     weather: weather.xxx
     off_temperature: 20
+    window_off_delay: 0
 ```
 
 
@@ -48,7 +49,8 @@ Key | Value | Required? | Description
 ***thermostat*** | `climate.tvr` | *yes* | a zigbee2mqtt climate entity.
 ***temperature_sensor*** | `sensor.temperature` | *yes* | a zigbee2mqtt sensor entity that is used for the actual temperature input of the thermostat.
 ***window_sensors*** | `group.livingroom_windows` | *yes* | a group of window/door - sensors (see below) that is used for the open window detection of the thermostat (the termostat dosn't need to support a open window detection for that feature).
-***weather*** | `weather.xxx` | *yes* | a weather entity from Home Assistent to check the forcast to detect if heating is needed. (Meteorologisk institutt (Metno))
+***window_off_delay*** | `10` | *no* | Only set the thermostat to OFF state if the window/door - sensors are open for X seconds. Default ist 0 for instand turn off.
+***weather*** | `weather.xxx` | *no* | a weather entity from Home Assistent to check the forcast to detect if heating is needed. (Meteorologisk institutt (Metno))
 ***off_temperature*** | `20` | *yes* | an int number as an temperature if the forcast outside temperature is above it the thermostat is turend off.
 
 ### Example Window/Door - Sensor config
