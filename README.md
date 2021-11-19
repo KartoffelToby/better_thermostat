@@ -36,7 +36,8 @@ climate:
     thermostat: climate.tvr
     temperature_sensor: sensor.temperature
     window_sensors: group.office_windows
-    weather: weather.xxx
+    weather: weather.xxx #if this is set, the outdoor_sensor is ignored, remove the outdoor_sensor config!
+    outdoor_sensor: sensor.outdoor_temperature #if you want to use it, remove the weather config!
     off_temperature: 20
     window_off_delay: 0
 ```
@@ -50,8 +51,9 @@ Key | Value | Required? | Description
 ***temperature_sensor*** | `sensor.temperature` | *yes* | a zigbee2mqtt sensor entity that is used for the actual temperature input of the thermostat.
 ***window_sensors*** | `group.livingroom_windows` | *yes* | a group of window/door - sensors (see below) that is used for the open window detection of the thermostat (the termostat dosn't need to support a open window detection for that feature).
 ***window_off_delay*** | `10` | *no* | Only set the thermostat to OFF state if the window/door - sensors are open for X seconds. Default ist 0 for instand turn off.
-***weather*** | `weather.xxx` | *no* | a weather entity from Home Assistent to check the forcast to detect if heating is needed. (Meteorologisk institutt (Metno))
-***off_temperature*** | `20` | *yes* | an int number as an temperature if the forcast outside temperature is above it the thermostat is turend off.
+***weather*** | `weather.xxx` | *no* | a weather entity from Home Assistent to check the forcast to detect if heating is needed in use of the off_temperature (Meteorologisk institutt (Metno)) if this is set the outdoor_sensor is ignored
+***outdoor_sensor*** | `sensor.outdoor_temperature` | *no* | a zigbee2mqtt sensor entity that is used for the outdoor temperature calculation in use of the off_temperature for the avg of the last two days.
+***off_temperature*** | `20` | *no* | an int number as an temperature if the forcast outside temperature is above it the thermostat is turend off.
 
 ### Example Window/Door - Sensor config
 
