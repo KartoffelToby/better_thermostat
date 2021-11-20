@@ -67,7 +67,7 @@ PLATFORM_SCHEMA = PLATFORM_SCHEMA.extend(
         vol.Optional(CONF_OUTDOOR_SENSOR): cv.entity_id,
         vol.Optional(CONF_OFF_TEMPERATURE, default=20): vol.Coerce(int),
         vol.Optional(CONF_WINDOW_TIMEOUT, default=0): vol.Coerce(int),
-        vol.Optional(CONF_VALVE_MAINTENANCE, default=False): vol.boolean,
+        vol.Optional(CONF_VALVE_MAINTENANCE, default=False): cv.boolean,
         vol.Optional(CONF_NAME, default=DEFAULT_NAME): cv.string,
         vol.Optional(CONF_TARGET_TEMP): vol.Coerce(float),
         vol.Optional(CONF_INITIAL_HVAC_MODE): vol.In([HVAC_MODE_HEAT, HVAC_MODE_OFF]),
