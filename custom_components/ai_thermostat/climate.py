@@ -526,7 +526,7 @@ class AIThermostat(ClimateEntity, RestoreEntity):
                         1 #5
                     )
                 # Get the forecast from the weather entity for two days in a row and round and split it for compare
-                is_cold = await self.check_if_is_winter()
+                is_cold = self.check_if_is_winter()
 
                 # Window open detection and Weather detection force turn TVR off
                 converted_hvac_mode = self._hvac_mode
