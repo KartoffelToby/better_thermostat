@@ -1,3 +1,4 @@
+[![Active installations - 12](https://badge.t-haber.de/badge/ai_thermostat)](https://)
 # AI THERMOSTAT for Zigbee2MQTT
 
 This integration brings some smartness to your TRV Zigbee2MQTT setup.
