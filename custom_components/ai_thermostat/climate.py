@@ -55,6 +55,7 @@ CONF_WEATHER = "weather"
 CONF_OFF_TEMPERATURE = "off_temperature"
 CONF_WINDOW_TIMEOUT = "window_off_delay"
 CONF_OUTDOOR_SENSOR = "outdoor_sensor"
+CONF_VALVE_MAINTENANCE = "valve_maintenance"
 SUPPORT_FLAGS = SUPPORT_TARGET_TEMPERATURE
 
 PLATFORM_SCHEMA = PLATFORM_SCHEMA.extend(
@@ -66,6 +67,7 @@ PLATFORM_SCHEMA = PLATFORM_SCHEMA.extend(
         vol.Optional(CONF_OUTDOOR_SENSOR): cv.entity_id,
         vol.Optional(CONF_OFF_TEMPERATURE, default=20): vol.Coerce(int),
         vol.Optional(CONF_WINDOW_TIMEOUT, default=0): vol.Coerce(int),
+        vol.Optional(CONF_VALVE_MAINTENANCE, default=False): vol.boolean,
         vol.Optional(CONF_NAME, default=DEFAULT_NAME): cv.string,
         vol.Optional(CONF_TARGET_TEMP): vol.Coerce(float),
         vol.Optional(CONF_INITIAL_HVAC_MODE): vol.In([HVAC_MODE_HEAT, HVAC_MODE_OFF]),
@@ -88,6 +90,7 @@ async def async_setup_platform(hass, config, async_add_entities, discovery_info=
     weather = config.get(CONF_WEATHER)
     outdoor_sensor = config.get(CONF_OUTDOOR_SENSOR)
     off_temperature = config.get(CONF_OFF_TEMPERATURE)
+    valve_maintenance = config.get(CONF_VALVE_MAINTENANCE)
     min_temp = 5.0
     max_temp = 30.0
     target_temp = config.get(CONF_TARGET_TEMP)
@@ -108,6 +111,7 @@ async def async_setup_platform(hass, config, async_add_entities, discovery_info=
                 weather,
                 outdoor_sensor,
                 off_temperature,
+                valve_maintenance,
                 min_temp,
                 max_temp,
                 target_temp,
@@ -135,6 +139,7 @@ class AIThermostat(ClimateEntity, RestoreEntity):
         weather,
         outdoor_sensor,
         off_temperature,
+        valve_maintenance,
         min_temp,
         max_temp,
         target_temp,
@@ -154,6 +159,7 @@ class AIThermostat(ClimateEntity, RestoreEntity):
         self.weather = weather
         self.outdoor_sensor = outdoor_sensor
         self.off_temperature = off_temperature
+        self.valve_maintenance = valve_maintenance
         self._hvac_mode = initial_hvac_mode
         self._saved_target_temp = target_temp or away_temp
         self._temp_precision = precision
@@ -176,6 +182,8 @@ class AIThermostat(ClimateEntity, RestoreEntity):
         self.beforeClosed = HVAC_MODE_OFF
         self.model = "-"
         self.internalTemp = 0
+        self.last_valve_maintenance = datetime.now() + timedelta(days = 5)
+        self.isDoingMaintenance = False
 
     async def async_added_to_hass(self):
         """Run when entity about to be added."""
@@ -387,6 +395,53 @@ class AIThermostat(ClimateEntity, RestoreEntity):
 
         self.async_write_ha_state()
 
+
+    async def trv_valve_maintenance(self):
+        self.isDoingMaintenance = True
+        if self.hass.states.get(self.heater_entity_id).attributes.get('trv_mode') is not None and self.hass.states.get(self.heater_entity_id).attributes.get('valve_position'):
+            mqtt_trv_mode = {"trv_mode": 1}
+            payload = json.dumps(mqtt_trv_mode, cls=JSONEncoder)
+            await self.mqtt.async_publish('zigbee2mqtt/'+self.hass.states.get(self.heater_entity_id).attributes.get('friendly_name')+'/set', payload, 0, False)
+            await asyncio.sleep(5)
+            mqtt_trv_valve = {"valve_position": 255}
+            payload = json.dumps(mqtt_trv_valve, cls=JSONEncoder)
+            await self.mqtt.async_publish('zigbee2mqtt/'+self.hass.states.get(self.heater_entity_id).attributes.get('friendly_name')+'/set', payload, 0, False)
+            await asyncio.sleep(60)
+            mqtt_trv_valve = {"valve_position": 0}
+            payload = json.dumps(mqtt_trv_valve, cls=JSONEncoder)
+            await self.mqtt.async_publish('zigbee2mqtt/'+self.hass.states.get(self.heater_entity_id).attributes.get('friendly_name')+'/set', payload, 0, False)
+            await asyncio.sleep(60)
+            mqtt_trv_valve = {"valve_position": 255}
+            payload = json.dumps(mqtt_trv_valve, cls=JSONEncoder)
+            await self.mqtt.async_publish('zigbee2mqtt/'+self.hass.states.get(self.heater_entity_id).attributes.get('friendly_name')+'/set', payload, 0, False)
+            await asyncio.sleep(60)
+            mqtt_trv_valve = {"valve_position": 0}
+            payload = json.dumps(mqtt_trv_valve, cls=JSONEncoder)
+            await self.mqtt.async_publish('zigbee2mqtt/'+self.hass.states.get(self.heater_entity_id).attributes.get('friendly_name')+'/set', payload, 0, False)
+            await asyncio.sleep(5)
+            mqtt_trv_mode = {"trv_mode": 2}
+            payload = json.dumps(mqtt_trv_mode, cls=JSONEncoder)
+            await self.mqtt.async_publish('zigbee2mqtt/'+self.hass.states.get(self.heater_entity_id).attributes.get('friendly_name')+'/set', payload, 0, False)
+        else:
+            mqtt_trv_valve = {"current_heating_setpoint": 30}
+            payload = json.dumps(mqtt_trv_valve, cls=JSONEncoder)
+            await self.mqtt.async_publish('zigbee2mqtt/'+self.hass.states.get(self.heater_entity_id).attributes.get('friendly_name')+'/set', payload, 0, False)
+            await asyncio.sleep(60)
+            mqtt_trv_valve = {"current_heating_setpoint": 5}
+            payload = json.dumps(mqtt_trv_valve, cls=JSONEncoder)
+            await self.mqtt.async_publish('zigbee2mqtt/'+self.hass.states.get(self.heater_entity_id).attributes.get('friendly_name')+'/set', payload, 0, False)
+            await asyncio.sleep(60)
+            mqtt_trv_valve = {"current_heating_setpoint": 30}
+            payload = json.dumps(mqtt_trv_valve, cls=JSONEncoder)
+            await self.mqtt.async_publish('zigbee2mqtt/'+self.hass.states.get(self.heater_entity_id).attributes.get('friendly_name')+'/set', payload, 0, False)
+            await asyncio.sleep(60)
+            mqtt_trv_valve = {"current_heating_setpoint": float(self._target_temp)}
+            payload = json.dumps(mqtt_trv_valve, cls=JSONEncoder)
+            await self.mqtt.async_publish('zigbee2mqtt/'+self.hass.states.get(self.heater_entity_id).attributes.get('friendly_name')+'/set', payload, 0, False)
+            await asyncio.sleep(5)
+        self.isDoingMaintenance = False
+        self._async_control_heating()
+
     async def window_closed_timer(self,isopen):
         await asyncio.sleep(self.window_delay)
         check = self.hass.states.get(self.window_sensors_entity_ids).state
@@ -436,6 +491,8 @@ class AIThermostat(ClimateEntity, RestoreEntity):
             _LOGGER.debug("Unable to update from sensor: %s", ex)
 
     async def _async_control_heating(self):
+        if self.isDoingMaintenance:
+            return
         async with self._temp_lock:
             if None not in (
                 self._cur_temp,
@@ -536,6 +593,15 @@ class AIThermostat(ClimateEntity, RestoreEntity):
                     await asyncio.sleep(
                         1 #5
                     )
+
+                    ### Check if a valve_maintenance is needed
+                    if self.valve_maintenance:
+                        currentTime = datetime.now()
+                        if currentTime > self.next_valve_maintenance:
+                            _LOGGER.debug("ai_thermostat: valve_maintenance triggerd")
+                            await self.trv_valve_maintenance()
+                            self.next_valve_maintenance = datetime.now() + timedelta(days = 5)
+
                 except TypeError as fatal:
                     _LOGGER.debug("ai_thermostat entity not ready")
 
