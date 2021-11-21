@@ -20,7 +20,7 @@ At this time I tested it with two models: (but basically all zigbee2mqtt TRV sho
 - TuYa TS0601_thermostat (TS0601) **target temperature calibration**
 - BRT-100-TRV **target temperature calibration** (will be switched to normal calibration if this is fixed [issue](https://github.com/Koenkk/zigbee2mqtt/issues/9486))
 
-*All models that are not listed here uses the default wich is the **normal calibration** and expecs that the TRV has system_modes*
+*All models that are not listed here uses the default wich is the **normal calibration** and expects that the TRV has system modes*
 
  **normal calibration**: means that the local_temperature_calibration setting in the TRV is used to sync the TRV internal current temperature with the connected room temperature sensor. The target temperature is settable over HA or directly on the TRV there are no restrictions
 
