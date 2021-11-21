@@ -182,7 +182,7 @@ class AIThermostat(ClimateEntity, RestoreEntity):
         self.beforeClosed = HVAC_MODE_OFF
         self.model = "-"
         self.internalTemp = 0
-        self.last_valve_maintenance = datetime.now() + timedelta(days = 5)
+        self.next_valve_maintenance = datetime.now() + timedelta(days = 5)
         self.isDoingMaintenance = False
 
     async def async_added_to_hass(self):
