@@ -5,10 +5,11 @@ from homeassistant.components.climate.const import (
 )
 
 def BRT_100_TRV_inbound(self,state):
+    self.calibration_type = 1
     temp_system_mode = HVAC_MODE_HEAT
-    if state.get('current_heating_setpoint') == 0:
+    if state.get('current_heating_setpoint') <= 5:
         temp_system_mode = HVAC_MODE_OFF
-    return cleanState(state.get('current_heating_setpoint'),state.get('local_temperature'),state.get('local_temperature_calibration'),temp_system_mode,False)
+    return cleanState(self._target_temp,state.get('local_temperature'),state.get('local_temperature_calibration'),temp_system_mode,False)
 
 def BRT_100_TRV_outbound(self,hvac_mode):
     state = self.hass.states.get(self.heater_entity_id).attributes
@@ -18,5 +19,9 @@ def BRT_100_TRV_outbound(self,hvac_mode):
         hvac_mode = HVAC_MODE_HEAT
 
     self.calibration_type = 1
-    new_calibration = float(round(float(self._target_temp) - float(self._cur_temp) - float(state.get('local_temperature')),1))
+    new_calibration = abs(float(round(float(self._target_temp) - (float(self._cur_temp) - float(state.get('local_temperature'))),1)))
+    if new_calibration < float(self._min_temp):
+        new_calibration = float(self._min_temp)
+    if new_calibration > float(self._max_temp):
+        new_calibration = float(self._max_temp)
     return cleanState(temp_target_temp,state.get('local_temperature'),state.get('local_temperature_calibration'),hvac_mode,False,new_calibration)

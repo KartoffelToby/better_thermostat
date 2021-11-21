@@ -13,10 +13,20 @@ Youst set your Target Heat point with your voice or the Google Home app and you 
 
 At this time I tested it with two models: (but basically all zigbee2mqtt TRV should work.)
 
-- Eurotronic Spirit Zigbee (SPZB0001)
-- Moes SEA801-Zigbee/SEA802-Zigbee
-- TuYa TS0601_thermostat (TS0601)
-- BRT-100-TRV (didn't work at all because of this [issue](https://github.com/Koenkk/zigbee2mqtt/issues/9486)) 
+---
+
+- Eurotronic Spirit Zigbee (SPZB0001) **normal calibration**
+- Moes SEA801-Zigbee/SEA802-Zigbee **normal calibration**
+- TuYa TS0601_thermostat (TS0601) **target temperature calibration**
+- BRT-100-TRV **target temperature calibration** (will be switched to normal calibration if this is fixed [issue](https://github.com/Koenkk/zigbee2mqtt/issues/9486))
+
+*All models that are not listed here uses the default wich is the **normal calibration** and expecs that the TRV has system_modes*
+
+ **normal calibration**: means that the local_temperature_calibration setting in the TRV is used to sync the TRV internal current temperature with the connected room temperature sensor. The target temperature is settable over HA or directly on the TRV there are no restrictions
+
+ **target temperature calibration**: means that the temperature sync is accomplished with a special target temperatur on the TRV, thats the reason why the target temperature displayed on the TRV is not the same as in HA, you only can ajust the target temperature via HA not the TRV itself. If you want more infos why, read #15
+
+---
 
 The SPZB0001 is Special, it uses the "heat" mode for boost and the auto mode for the "normal" operation, to avoid that it remaps heat with auto internally, the boost mode is lost with this configuration.
 

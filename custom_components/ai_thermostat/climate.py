@@ -27,7 +27,7 @@ from homeassistant.const import (
     ATTR_TEMPERATURE,
     CONF_NAME,
     CONF_UNIQUE_ID,
-    EVENT_HOMEASSISTANT_STARTED,
+    EVENT_HOMEASSISTANT_START,
     STATE_UNAVAILABLE,
     STATE_UNKNOWN,
 )
@@ -210,11 +210,24 @@ class AIThermostat(ClimateEntity, RestoreEntity):
         def _async_startup(*_):
             """Init on startup."""
             sensor_state = self.hass.states.get(self.sensor_entity_id)
-            if self.startup and self.hass.states.get(self.heater_entity_id) is not None:
+            trv_state = self.hass.states.get(self.heater_entity_id)
+            window_state = self.hass.states.get(self.window_sensors_entity_ids)
+
+            if sensor_state and sensor_state.state not in (
+                STATE_UNAVAILABLE,
+                STATE_UNKNOWN,
+            ) and trv_state and trv_state.state not in (
+                STATE_UNAVAILABLE,
+                STATE_UNKNOWN,
+            ) and window_state and window_state.state not in (
+                STATE_UNAVAILABLE,
+                STATE_UNKNOWN,
+            ) and self.startup:
                 self.startup = False
-                mqtt_calibration = {"local_temperature_calibration": 0}
-                payload = json.dumps(mqtt_calibration, cls=JSONEncoder)
-                self.mqtt.async_publish('zigbee2mqtt/'+self.hass.states.get(self.heater_entity_id).attributes.get('friendly_name')+'/set', payload, 0, False)
+                if self.hass.states.get(self.heater_entity_id).attributes.get('local_temperature_calibration') is not None:
+                    mqtt_calibration = {"local_temperature_calibration": 0}
+                    payload = json.dumps(mqtt_calibration, cls=JSONEncoder)
+                    self.mqtt.async_publish('zigbee2mqtt/'+self.hass.states.get(self.heater_entity_id).attributes.get('friendly_name')+'/set', payload, 0, False)
                 _LOGGER.debug(
                     "Register ai_thermostat: %s v0.6.0",
                     self.hass.states.get(self.heater_entity_id).attributes.get('friendly_name'),
@@ -225,7 +238,7 @@ class AIThermostat(ClimateEntity, RestoreEntity):
         if self.hass.state == CoreState.running:
             _async_startup()
         else:
-            self.hass.bus.async_listen_once(EVENT_HOMEASSISTANT_STARTED, _async_startup)
+            self.hass.bus.async_listen_once(EVENT_HOMEASSISTANT_START, _async_startup)
 
         # Check If we have an old state
         old_state = await self.async_get_last_state()
@@ -396,7 +409,7 @@ class AIThermostat(ClimateEntity, RestoreEntity):
             except TypeError:
                 _LOGGER.debug("ai_thermostat entity not ready")
 
-        if new_state.attributes.get('current_heating_setpoint') is not None and self._hvac_mode is not HVAC_MODE_OFF:
+        if new_state.attributes.get('current_heating_setpoint') is not None and self._hvac_mode is not HVAC_MODE_OFF and self.calibration_type == 0:
             self._target_temp = new_state.attributes.get('current_heating_setpoint')
 
         self.async_write_ha_state()
@@ -553,11 +566,6 @@ class AIThermostat(ClimateEntity, RestoreEntity):
                     current_heating_setpoint = remappedstates.current_temperature
                     has_real_mode = remappedstates.has_real_mode
                     calibration = remappedstates.calibration
-                    try:
-                        current_temp = int(round(self._cur_temp))
-                    except TypeError:
-                        current_temp = 0
-
 
                     #new_calibration = float(round(current_temp - (local_temperature - local_temperature_calibration),1))
 
@@ -568,7 +576,7 @@ class AIThermostat(ClimateEntity, RestoreEntity):
                         self.internalTemp = local_temperature
 
                     _LOGGER.debug(
-                        "ai_thermostat triggerd, States > Window closed: %s | Mode: %s | Setted: | hasmode: %s | Calibration: %s - %s | settemp: %s | curtemp: %s | Model: %s | Calibration type: %s",
+                        "ai_thermostat triggerd, States > Window closed: %s | Mode: %s | Setted: %s | hasmode: %s | Calibration: %s - %s | settemp: %s | curtemp: %s | Model: %s | Calibration type: %s",
                         self.window_open,
                         converted_hvac_mode,
                         self._hvac_mode,
@@ -583,8 +591,9 @@ class AIThermostat(ClimateEntity, RestoreEntity):
 
                     if self.calibration_type == 1:
                         current_heating_setpoint = calibration
+                        self.mqtt.async_publish('zigbee2mqtt/'+self.hass.states.get(self.heater_entity_id).attributes.get('friendly_name')+'/set/current_heating_setpoint', float(current_heating_setpoint), 0, False)
 
-                    if self.hass.states.get(self.heater_entity_id).attributes.get('current_heating_setpoint') != float(current_heating_setpoint) and converted_hvac_mode != HVAC_MODE_OFF and float(current_heating_setpoint) != 5.0 and is_cold:
+                    if self.calibration_type == 0 and self.hass.states.get(self.heater_entity_id).attributes.get('current_heating_setpoint') != float(current_heating_setpoint) and converted_hvac_mode != HVAC_MODE_OFF and float(current_heating_setpoint) != 5.0 and is_cold:
                         self.mqtt.async_publish('zigbee2mqtt/'+self.hass.states.get(self.heater_entity_id).attributes.get('friendly_name')+'/set/current_heating_setpoint', float(current_heating_setpoint), 0, False)
                     
                     # Calibration stuff
