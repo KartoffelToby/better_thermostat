@@ -1,4 +1,4 @@
-from custom_components.ai_thermostat.models.utils import cleanState
+from custom_components.better_thermostat.models.utils import cleanState
 from homeassistant.components.climate.const import (
     HVAC_MODE_AUTO,
     HVAC_MODE_HEAT,

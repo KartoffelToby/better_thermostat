@@ -1,5 +1,5 @@
-[![Active installations - 12](https://badge.t-haber.de/badge/ai_thermostat?kill_cache=1)](https://github.com/KartoffelToby/ai_thermostat/)
-# AI THERMOSTAT for Zigbee2MQTT
+[![Active installations - 12](https://badge.t-haber.de/badge/better_thermostat?kill_cache=1)](https://github.com/KartoffelToby/better_thermostat/)
+# Better THERMOSTAT for Zigbee2MQTT
 
 This integration brings some smartness to your TRV Zigbee2MQTT setup.
 
@@ -42,7 +42,7 @@ You need to configure a "virtual" thermostat for every used thermostat.
 Here is an example configuration.
 ```yaml
 climate:
-  - platform: ai_thermostat
+  - platform: better_thermostat
     name: room
     thermostat: climate.tvr
     temperature_sensor: sensor.temperature
@@ -57,7 +57,7 @@ climate:
 
 Key | Example Value | Required? | Description
 --- | --- | --- | ---
-***platform*** | `ai_thermostat` | *yes* |
+***platform*** | `better_thermostat` | *yes* |
 ***name*** | `Thermostat - Livingroom` | *no* | Used to name the virtual thermostat
 ***thermostat*** | `climate.tvr` | *yes* | a zigbee2mqtt climate entity.
 ***temperature_sensor*** | `sensor.temperature` | *yes* | a zigbee2mqtt sensor entity that is used for the actual temperature input of the thermostat.

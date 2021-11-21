@@ -1,4 +1,4 @@
-"""The ai_thermostat component."""
+"""The better_thermostat component."""
 
-DOMAIN = "ai_thermostat"
+DOMAIN = "better_thermostat"
 PLATFORMS = ["climate"]
