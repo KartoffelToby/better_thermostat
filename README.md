@@ -1,3 +1,4 @@
+
 # AI THERMOSTAT for Zigbee2MQTT
 
 This integration brings some smartness to your TRV Zigbee2MQTT setup.

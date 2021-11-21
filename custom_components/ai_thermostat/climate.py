@@ -215,7 +215,7 @@ class AIThermostat(ClimateEntity, RestoreEntity):
                 payload = json.dumps(mqtt_calibration, cls=JSONEncoder)
                 self.mqtt.async_publish('zigbee2mqtt/'+self.hass.states.get(self.heater_entity_id).attributes.get('friendly_name')+'/set', payload, 0, False)
                 _LOGGER.debug(
-                    "Register ai_thermostat: %s",
+                    "Register ai_thermostat: %s v0.6.0",
                     self.hass.states.get(self.heater_entity_id).attributes.get('friendly_name'),
                 )
                 self._async_update_temp(sensor_state)
@@ -561,9 +561,10 @@ class AIThermostat(ClimateEntity, RestoreEntity):
                         self.internalTemp = local_temperature
 
                     _LOGGER.debug(
-                        "ai_thermostat triggerd, States > Window closed: %s | Mode: %s | hasmode: %s | Calibration: %s - %s | settemp: %s | curtemp: %s | Model: %s",
+                        "ai_thermostat triggerd, States > Window closed: %s | Mode: %s | Setted: | hasmode: %s | Calibration: %s - %s | settemp: %s | curtemp: %s | Model: %s",
                         self.window_open,
                         converted_hvac_mode,
+                        self._hvac_mode,
                         has_real_mode,
                         new_calibration,
                         doCalibration,
@@ -586,7 +587,7 @@ class AIThermostat(ClimateEntity, RestoreEntity):
                             1 #5
                         )
 
-                    if has_real_mode and converted_hvac_mode != self.hass.states.get(self.heater_entity_id).attributes.get('system_mode') and not self.window_open:
+                    if has_real_mode and converted_hvac_mode != self.hass.states.get(self.heater_entity_id).attributes.get('system_mode'):
                         self.mqtt.async_publish('zigbee2mqtt/'+self.hass.states.get(self.heater_entity_id).attributes.get('friendly_name')+'/set/system_mode', converted_hvac_mode, 0, False)
                     
 
