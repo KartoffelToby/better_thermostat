@@ -216,7 +216,7 @@ class AIThermostat(ClimateEntity, RestoreEntity):
                 payload = json.dumps(mqtt_calibration, cls=JSONEncoder)
                 self.mqtt.async_publish('zigbee2mqtt/'+self.hass.states.get(self.heater_entity_id).attributes.get('friendly_name')+'/set', payload, 0, False)
                 _LOGGER.debug(
-                    "Register ai_thermostat: %s v0.5.1",
+                    "Register ai_thermostat: %s v0.6.0",
                     self.hass.states.get(self.heater_entity_id).attributes.get('friendly_name'),
                 )
                 self._async_update_temp(sensor_state)
@@ -381,8 +381,13 @@ class AIThermostat(ClimateEntity, RestoreEntity):
         if new_state is None or old_state is None:
             return
 
-        if self.hass.states.get(self.heater_entity_id).attributes.get('device').get('model') is not None:
-            self.model = self.hass.states.get(self.heater_entity_id).attributes.get('device').get('model')
+        try:
+            if self.hass.states.get(self.heater_entity_id).attributes.get('device') is not None:
+                self.model = self.hass.states.get(self.heater_entity_id).attributes.get('device').get('model')
+            else:
+                _LOGGER.debug("ai_thermostat: can't read the device model of TVR, Enable include_device_information in z2m or checkout issue #1")
+        except RuntimeError:
+            _LOGGER.debug("ai_thermostat: error can't get the TRV model")
 
         if new_state.attributes is not None:
             try:
