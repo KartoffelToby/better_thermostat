@@ -1,5 +1,5 @@
-[![Active installations - 12](https://badge.t-haber.de/badge/ai_thermostat)](https://)
-s# AI THERMOSTAT for Zigbee2MQTT
+[![Active installations - 12](https://badge.t-haber.de/badge/ai_thermostat)](https://github.com/KartoffelToby/ai_thermostat/)
+# AI THERMOSTAT for Zigbee2MQTT
 
 This integration brings some smartness to your TRV Zigbee2MQTT setup.
 
@@ -45,18 +45,18 @@ climate:
 ```
 
 
-Key | Value | Required? | Description
+Key | Example Value | Required? | Description
 --- | --- | --- | ---
 ***platform*** | `ai_thermostat` | *yes* |
 ***name*** | `Thermostat - Livingroom` | *no* | Used to name the virtual thermostat
 ***thermostat*** | `climate.tvr` | *yes* | a zigbee2mqtt climate entity.
 ***temperature_sensor*** | `sensor.temperature` | *yes* | a zigbee2mqtt sensor entity that is used for the actual temperature input of the thermostat.
-***window_sensors*** | `group.livingroom_windows` | *yes* | a group of window/door - sensors (see below) that is used for the open window detection of the thermostat (the termostat dosn't need to support a open window detection for that feature).
-***window_off_delay*** | `10` | *no* | Only set the thermostat to OFF state if the window/door - sensors are open for X seconds. Default ist 0 for instand turn off.
-***weather*** | `weather.xxx` | *no* | a weather entity from Home Assistent to check the forcast to detect if heating is needed in use of the off_temperature (Meteorologisk institutt (Metno)) if this is set the outdoor_sensor is ignored
+***window_sensors*** | `group.livingroom_windows` | *yes* | a group of window/door - sensors (see below) that are used for the open window detection of the thermostat (the thermostat doesn't need to support an open window detection for that feature).
+***window_off_delay*** | `10` | *no* | Only set the thermostat to an OFF state if the window/door - sensors are open for X seconds. Default is 0 for an instant turnoff.
+***weather*** | `weather.xxx` | *no* | a weather entity from Home Assistant to check the forecast to detect if heating is needed in use of the off_temperature (Meteorologisk Institutt (Metno)) if this is set the outdoor_sensor will be ignored
 ***outdoor_sensor*** | `sensor.outdoor_temperature` | *no* | a zigbee2mqtt sensor entity that is used for the outdoor temperature calculation in use of the off_temperature for the avg of the last two days.
-***off_temperature*** | `20` | *no* | an int number as an temperature if the forcast outside temperature is above it the thermostat is turend off.
-***valve_maintenance*** | `false` | *no* | This is a maintenance function that will prevent the valve to get stuck or make annoying sounds, default ist off if it set to true it will perform a valve open close procedure every 5 days
+***off_temperature*** | `20` | *no* | an int number as a temperature if the forecast outside temperature is above it the thermostat is turned off.
+***valve_maintenance*** | `false` | *no* | This is a maintenance function that will prevent the valve to get stuck or make annoying sounds, the default is `false`. If set to `true` it will perform a valve open-close-procedure every five days
 
 ### Example Window/Door - Sensor config
 
