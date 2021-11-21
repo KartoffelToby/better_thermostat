@@ -16,4 +16,7 @@ def BRT_100_TRV_outbound(self,hvac_mode):
     if hvac_mode == HVAC_MODE_OFF:
         temp_target_temp = 0
         hvac_mode = HVAC_MODE_HEAT
-    return cleanState(temp_target_temp,state.get('local_temperature'),state.get('local_temperature_calibration'),hvac_mode,False)
+
+    self.calibration_type = 1
+    new_calibration = float(round(float(self._target_temp) - float(self._cur_temp) - float(state.get('local_temperature')),1))
+    return cleanState(temp_target_temp,state.get('local_temperature'),state.get('local_temperature_calibration'),hvac_mode,False,new_calibration)

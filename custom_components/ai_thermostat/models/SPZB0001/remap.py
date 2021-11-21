@@ -19,4 +19,6 @@ def SPZB0001_outbound(self,hvac_mode):
     temp_system_mode = hvac_mode
     if hvac_mode == HVAC_MODE_HEAT:
         temp_system_mode = HVAC_MODE_AUTO
-    return cleanState(self._target_temp,state.get('local_temperature'),state.get('local_temperature_calibration'),temp_system_mode,True)
+    self.calibration_type = 0
+    new_calibration = float(round(float(self._cur_temp) - (float(state.get('local_temperature')) - float(state.get('local_temperature_calibration'))),1))
+    return cleanState(self._target_temp,state.get('local_temperature'),state.get('local_temperature_calibration'),temp_system_mode,True,new_calibration)
