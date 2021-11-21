@@ -27,7 +27,7 @@ from homeassistant.const import (
     ATTR_TEMPERATURE,
     CONF_NAME,
     CONF_UNIQUE_ID,
-    EVENT_HOMEASSISTANT_START,
+    EVENT_HOMEASSISTANT_STARTED,
     STATE_UNAVAILABLE,
     STATE_UNKNOWN,
 )
@@ -209,13 +209,13 @@ class AIThermostat(ClimateEntity, RestoreEntity):
         def _async_startup(*_):
             """Init on startup."""
             sensor_state = self.hass.states.get(self.sensor_entity_id)
-            if self.startup and self.hass.states.get(self.heater_entity_id).attributes is not None:
+            if self.startup and self.hass.states.get(self.heater_entity_id) is not None:
                 self.startup = False
                 mqtt_calibration = {"local_temperature_calibration": 0}
                 payload = json.dumps(mqtt_calibration, cls=JSONEncoder)
                 self.mqtt.async_publish('zigbee2mqtt/'+self.hass.states.get(self.heater_entity_id).attributes.get('friendly_name')+'/set', payload, 0, False)
                 _LOGGER.debug(
-                    "Register ai_thermostat: %s v0.6.0",
+                    "Register ai_thermostat: %s v0.5.1",
                     self.hass.states.get(self.heater_entity_id).attributes.get('friendly_name'),
                 )
                 self._async_update_temp(sensor_state)
@@ -224,7 +224,7 @@ class AIThermostat(ClimateEntity, RestoreEntity):
         if self.hass.state == CoreState.running:
             _async_startup()
         else:
-            self.hass.bus.async_listen_once(EVENT_HOMEASSISTANT_START, _async_startup)
+            self.hass.bus.async_listen_once(EVENT_HOMEASSISTANT_STARTED, _async_startup)
 
         # Check If we have an old state
         old_state = await self.async_get_last_state()
