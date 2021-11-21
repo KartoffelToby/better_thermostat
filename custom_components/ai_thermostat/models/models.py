@@ -52,5 +52,7 @@ def convert_outbound_states(self,hvac_mode):
     elif(self.model == "TS0601_thermostat"):
         return TS0601_thermostat_outbound(self,hvac_mode)
     else:
+        self.calibration_type = 0
         state = self.hass.states.get(self.heater_entity_id).attributes
-        return cleanState(self._target_temp,state.get('local_temperature'),state.get('local_temperature_calibration'),hvac_mode,True)
+        new_calibration = float(round(float(self._cur_temp) - (float(state.get('local_temperature')) - float(state.get('local_temperature_calibration'))),1))
+        return cleanState(self._target_temp,state.get('local_temperature'),state.get('local_temperature_calibration'),hvac_mode,True,new_calibration)

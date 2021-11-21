@@ -16,6 +16,5 @@
 | HA needed exposes | Z2M Exposes | Remapping |
 |-----|-----|-----|
 | system_mode | NO  | current_heating_setpoint is set to 0 if HVAC_MODE_OFF and back to target on HVAC_MODE_HEAT |
-| local_temperature_calibration | YES | Same |
 | current_heating_setpoint | YES | Same |
-| local_temperature | YES | isn't updated when calibration is set, there is a open [issue](https://github.com/Koenkk/zigbee2mqtt/issues/9486) |
+| local_temperature | YES | isn't updated when calibration is set, there is a open [issue](https://github.com/Koenkk/zigbee2mqtt/issues/9486) we use a current_heating_setpoint calibration |
