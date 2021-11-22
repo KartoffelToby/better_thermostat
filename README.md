@@ -3,6 +3,8 @@
 
 ## DEPRECATION NOTICE: ai_thermostat will be now better_thermostat, please make sure you install the new integration and switch the platform name in your config to better_thermostat
 
+<img src="assets/better_thermostat.svg" width="256px">
+
 ### Core features:
 
 *Talke to me! What makes the better_thermostat better?*
