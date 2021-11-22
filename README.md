@@ -1,7 +1,7 @@
 [![Active installations - 12](https://badge.t-haber.de/badge/better_thermostat?kill_cache=1)](https://github.com/KartoffelToby/better_thermostat/)
 # Better THERMOSTAT for Zigbee2MQTT
 
-## DEPRECATION NOTICE: ai_thermostat will be now better_thermostat, please make sure you install the new integration and switch the platform name in your config to better thermostat
+## DEPRECATION NOTICE: ai_thermostat will be now better_thermostat, please make sure you install the new integration and switch the platform name in your config to better_thermostat
 
 ### Core features:
 
