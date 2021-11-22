@@ -1,6 +1,19 @@
 [![Active installations - 12](https://badge.t-haber.de/badge/better_thermostat?kill_cache=1)](https://github.com/KartoffelToby/better_thermostat/)
 # Better THERMOSTAT for Zigbee2MQTT
 
+## DEPRECATION NOTICE: ai_thermostat will be now better_thermostat, please make sure you install the new integration and switch the platform name in your config to better thermostat
+
+### Core features:
+
+*Talke to me! What makes the better_thermostat better?*
+
+- simplifies your TRVs modes
+- makes your TRVs full compatible to Google Home
+- adds a window open detection with an external open/close sensor
+- adds a summer shutdown with a weather entity or outdoor temperature sensor
+- adds "better" room temperature based calibration with an external room termperature sensor, because it works moste of the time not good on the TRV.
+- adds a scheduler for valve maintanance to prevent the valve to get stucked or noisy
+
 This integration brings some smartness to your TRV Zigbee2MQTT setup.
 
 What does it? Basically, it combines an external temperature sensor, window/door Sensors, and a weather-Entity, so your TRV is calibrated with the temperature from the external sensor and turned off if some window is open. It also turns off the thermostat if a configured outside temperature is reached for two days in a row, so if it's outside warm enough you didn't need useless heating in your rooms.
