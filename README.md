@@ -15,10 +15,10 @@ At this time I tested it with two models: (but basically all zigbee2mqtt TRV sho
 
 ---
 
-- Eurotronic Spirit Zigbee (SPZB0001) **normal calibration**
-- Moes SEA801-Zigbee/SEA802-Zigbee **normal calibration**
+- Eurotronic Spirit Zigbee (SPZB0001) (In Z2M device settings, set legacy to true) **normal calibration**
+- Moes SEA801-Zigbee/SEA802-Zigbee (In Z2M device settings, set legacy to true) **normal calibration**
 - TuYa TS0601_thermostat (TS0601) **target temperature calibration**
-- BRT-100-TRV **target temperature calibration** (will be switched to normal calibration if this is fixed [issue](https://github.com/Koenkk/zigbee2mqtt/issues/9486))
+- BRT-100-TRV (In Z2M device settings, set min temp to 0 and program mode to manual) **target temperature calibration** (will be switched to normal calibration if this is fixed [issue](https://github.com/Koenkk/zigbee2mqtt/issues/9486))
 
 *All models that are not listed here uses the default wich is the **normal calibration** and expects that the TRV has system modes*
 
