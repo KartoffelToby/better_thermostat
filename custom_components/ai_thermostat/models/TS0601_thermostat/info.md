@@ -17,5 +17,5 @@
 | HA needed exposes | Z2M Exposes | Remapping |
 |-----|-----|-----|
 | system_mode | YES | HVAC_MODE_HEAT are remapped to HVAC_MODE_AUTO in HA HVAC_MODE_OFF is the same |
-| current_heating_setpoint | YES | use a as calibration |
+| current_heating_setpoint | YES | used for calibration |
 | local_temperature | YES | Same |

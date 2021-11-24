@@ -1,4 +1,4 @@
-from custom_components.ai_thermostat.models.utils import cleanState
+from custom_components.ai_thermostat.models.utils import cleanState, default_calibration
 from homeassistant.components.climate.const import (
     HVAC_MODE_AUTO,
     HVAC_MODE_HEAT,
@@ -20,5 +20,5 @@ def SPZB0001_outbound(self,hvac_mode):
     if hvac_mode == HVAC_MODE_HEAT:
         temp_system_mode = HVAC_MODE_AUTO
     self.calibration_type = 0
-    new_calibration = float(round(float(self._cur_temp) - (float(state.get('local_temperature')) - float(state.get('local_temperature_calibration'))),1))
+    new_calibration = default_calibration(self)
     return cleanState(self._target_temp,state.get('local_temperature'),state.get('local_temperature_calibration'),temp_system_mode,True,new_calibration)

@@ -1,4 +1,4 @@
-from custom_components.ai_thermostat.models.utils import cleanState
+from custom_components.ai_thermostat.models.utils import cleanState, temperature_calibration
 from homeassistant.components.climate.const import (
     HVAC_MODE_AUTO,
     HVAC_MODE_HEAT,
@@ -22,9 +22,5 @@ def TS0601_thermostat_outbound(self,hvac_mode):
         temp_system_mode = HVAC_MODE_AUTO
 
     self.calibration_type = 1
-    new_calibration = abs(float(round(float(self._target_temp) - (float(self._cur_temp) - float(state.get('local_temperature'))),1)))
-    if new_calibration < float(self._min_temp):
-        new_calibration = float(self._min_temp)
-    if new_calibration > float(self._max_temp):
-        new_calibration = float(self._max_temp)
+    new_calibration = temperature_calibration(self)
     return cleanState(self._target_temp,state.get('local_temperature'),state.get('local_temperature_calibration'),temp_system_mode,True,new_calibration)
