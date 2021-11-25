@@ -561,15 +561,8 @@ class AIThermostat(ClimateEntity, RestoreEntity):
                     self.startup = False
                     await self.window_closed_timer()
 
-                # Window open detection and Weather detection force turn TVR off
                 converted_hvac_mode = self._hvac_mode
-                
-                if self.window_open or not is_cold:
-                    self.beforeClosed = converted_hvac_mode
-                    converted_hvac_mode = HVAC_MODE_OFF
-                else:
-                    if self.beforeClosed != HVAC_MODE_OFF:
-                        converted_hvac_mode = self.beforeClosed
+
 
                 # NEW SPECIAL STUFF :)
                 try:
@@ -587,6 +580,15 @@ class AIThermostat(ClimateEntity, RestoreEntity):
                     if self.internalTemp != local_temperature:
                         doCalibration = True
                         self.internalTemp = local_temperature
+
+
+                    # Window open detection and Weather detection force turn TVR off
+                    if self.window_open or not is_cold:
+                        self.beforeClosed = converted_hvac_mode
+                        converted_hvac_mode = HVAC_MODE_OFF
+                    else:
+                        if self.beforeClosed != HVAC_MODE_OFF:
+                            converted_hvac_mode = self.beforeClosed
 
                     _LOGGER.debug(
                         "ai_thermostat triggerd, States > Window open: %s | Mode: %s | Setted: %s | hasmode: %s | Calibration: %s - send: %s | settemp: %s | curtemp: %s | Model: %s | Calibration type: %s | Winter: %s | TRV: %s",
