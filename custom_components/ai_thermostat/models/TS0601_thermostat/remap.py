@@ -5,7 +5,7 @@ from homeassistant.components.climate.const import (
     HVAC_MODE_OFF
 )
 
-def TS0601_thermostat_inbound(self,state,):
+def TS0601_thermostat_inbound(self,state):
     self.calibration_type = 1
     if state.get('system_mode') is not None:
         temp_system_mode = state.get('system_mode')

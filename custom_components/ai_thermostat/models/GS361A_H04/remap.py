@@ -1,6 +1,6 @@
 from custom_components.ai_thermostat.models.utils import cleanState, temperature_calibration
 
-def GS361A_H04_thermostat_inbound(self,state,):
+def GS361A_H04_thermostat_inbound(self,state):
     self.calibration_type = 1
     return cleanState(self._target_temp,state.get('local_temperature'),state.get('local_temperature_calibration'),state.get('system_mode'),True)
 

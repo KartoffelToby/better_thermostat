@@ -5,7 +5,7 @@ from homeassistant.components.climate.const import (
     HVAC_MODE_OFF
 )
 
-def SPZB0001_inbound(self,state,):
+def SPZB0001_inbound(self,state):
     if state.get('system_mode') is not None:
         temp_system_mode = state.get('system_mode')
         if state.get('system_mode') == HVAC_MODE_AUTO:
