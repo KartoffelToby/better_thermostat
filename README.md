@@ -45,6 +45,7 @@ Here is an example configuration.
 climate:
   - platform: ai_thermostat
     name: room
+    unique_id: 1637927441 # Its important for consistently 
     thermostat: climate.tvr
     temperature_sensor: sensor.temperature
     window_sensors: group.office_windows #if this is not set, the window open detection is off

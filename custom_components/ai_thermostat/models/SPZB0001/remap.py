@@ -11,8 +11,6 @@ def SPZB0001_inbound(self,state):
         if state.get('system_mode') == HVAC_MODE_AUTO:
             temp_system_mode = HVAC_MODE_HEAT
         return cleanState(state.get('current_heating_setpoint'),state.get('local_temperature'),state.get('local_temperature_calibration'),temp_system_mode,True)
-    else:
-        return cleanState(state.get('current_heating_setpoint'),state.get('local_temperature'),state.get('local_temperature_calibration'),HVAC_MODE_OFF,True)
 
 def SPZB0001_outbound(self,hvac_mode):
     state = self.hass.states.get(self.heater_entity_id).attributes

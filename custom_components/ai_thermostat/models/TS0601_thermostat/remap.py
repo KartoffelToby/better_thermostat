@@ -12,8 +12,6 @@ def TS0601_thermostat_inbound(self,state):
         if state.get('system_mode') == HVAC_MODE_AUTO:
             temp_system_mode = HVAC_MODE_HEAT
         return cleanState(self._target_temp,state.get('local_temperature'),state.get('local_temperature_calibration'),temp_system_mode,True)
-    else:
-        return cleanState(self._target_temp,state.get('local_temperature'),state.get('local_temperature_calibration'),HVAC_MODE_OFF,True)
 
 def TS0601_thermostat_outbound(self,hvac_mode):
     state = self.hass.states.get(self.heater_entity_id).attributes
