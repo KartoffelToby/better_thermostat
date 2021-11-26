@@ -173,7 +173,7 @@ class AIThermostat(ClimateEntity, RestoreEntity):
         self.night_temp = night_temp
         self.night_start = night_start
         self.night_end = night_end
-        self._hvac_mode = HVAC_MODE_OFF
+        self._hvac_mode = HVAC_MODE_HEAT
         self._saved_target_temp = target_temp or 5.0
         self._temp_precision = precision
         self._hvac_list = [HVAC_MODE_HEAT, HVAC_MODE_OFF]
@@ -590,18 +590,18 @@ class AIThermostat(ClimateEntity, RestoreEntity):
                         self.hass.states.get(self.heater_entity_id).attributes.get('friendly_name')
                     )
 
-                    if self.calibration_type == 1:
+                    if self.calibration_type == 1 and not self.window_open:
                         current_heating_setpoint = calibration
                         self.mqtt.async_publish('zigbee2mqtt/'+self.hass.states.get(self.heater_entity_id).attributes.get('friendly_name')+'/set/current_heating_setpoint', float(current_heating_setpoint), 0, False)
 
-                    if self.calibration_type == 0 and self.hass.states.get(self.heater_entity_id).attributes.get('current_heating_setpoint') != float(current_heating_setpoint) and converted_hvac_mode != HVAC_MODE_OFF and float(current_heating_setpoint) != 5.0 and is_cold:
+                    if self.calibration_type == 0 and not self.window_open and self.hass.states.get(self.heater_entity_id).attributes.get('current_heating_setpoint') != float(current_heating_setpoint) and converted_hvac_mode != HVAC_MODE_OFF and float(current_heating_setpoint) != 5.0 and is_cold:
                         self.mqtt.async_publish('zigbee2mqtt/'+self.hass.states.get(self.heater_entity_id).attributes.get('friendly_name')+'/set/current_heating_setpoint', float(current_heating_setpoint), 0, False)
                     
                     await asyncio.sleep(
                         1 #5
                     )  
                     # Calibration stuff
-                    if self.calibration_type == 0:
+                    if self.calibration_type == 0 and not self.window_open:
                         if calibration != local_temperature_calibration and doCalibration:
                             if has_real_mode:
                                 mqtt_calibration = {"local_temperature_calibration": calibration, "system_mode": converted_hvac_mode}
