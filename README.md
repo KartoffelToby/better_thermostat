@@ -35,7 +35,23 @@ If you have a special Thermostat like the SPZB0001 feel free to open an issue or
 
 The integration gets the Model identifier automatic, nothing to do here.
 
+
+<br>
+<br>
+
+## Important config in Zigbee2Mqtt
+
 **IMPORTANT: be sure to enable "legacy" in Zigbee2MQTT on the TRV devices and settings if you haven't the key local_temperature_calibration in your HA instance and include_device_information in the Zigbee2MQTT MQTT settings**
+
+Switch on the global **include_device_information** under Settings > Mqtt > include_device_information
+<br>
+<img src="assets/z2m_include_device_informations.png" width="900px">
+
+Switch on the legacy setting in each of your TRV
+<br>
+<img src="assets/z2m_legacy.png" width="900px">
+
+
 
 ## SETUP
 You need to configure a "virtual" thermostat for every used thermostat.
@@ -59,6 +75,7 @@ climate:
     night_end: '06:00'
 ```
 
+**IMPORTANT: the weather and outdoor_sensor are not required, but you need one of them!**
 
 Key | Example Value | Required? | Description
 --- | --- | --- | ---
