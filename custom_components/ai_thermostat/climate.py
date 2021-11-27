@@ -196,6 +196,7 @@ class AIThermostat(ClimateEntity, RestoreEntity):
         self.isDoingMaintenance = False
         self.calibration_type = 2
         self.daytemp = 0
+        self.closed_window_triggerd = False
     async def async_added_to_hass(self):
         """Run when entity about to be added."""
         await super().async_added_to_hass()
@@ -387,12 +388,13 @@ class AIThermostat(ClimateEntity, RestoreEntity):
         if self.startup:
             return self.startUp()
         if self.hass.states.get(self.heater_entity_id) is not None:
-            await asyncio.sleep(int(self.window_delay)+1)
+            await asyncio.sleep(int(self.window_delay))
             check = self.hass.states.get(self.window_sensors_entity_ids).state
             if check == 'on':
                 self.window_open = True
             else:
                 self.window_open = False
+                self.closed_window_triggerd = False
             _LOGGER.debug("ai_thermostat: Window %s",self.window_open)
             self.async_write_ha_state()
             await self._async_control_heating()
@@ -566,10 +568,11 @@ class AIThermostat(ClimateEntity, RestoreEntity):
 
 
                     # Window open detection and Weather detection force turn TVR off
-                    if (self.window_open or not is_cold) and converted_hvac_mode != HVAC_MODE_OFF:
+                    if (self.window_open or not is_cold) and not self.closed_window_triggerd:
                         self.beforeClosed = converted_hvac_mode
                         converted_hvac_mode = HVAC_MODE_OFF
                         self._hvac_mode = HVAC_MODE_OFF
+                        self.closed_window_triggerd = True
                     else:
                         if self.beforeClosed != HVAC_MODE_OFF:
                             converted_hvac_mode = self.beforeClosed
