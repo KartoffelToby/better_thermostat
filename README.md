@@ -15,10 +15,11 @@ At this time I tested it with two models: (but basically all zigbee2mqtt TRV sho
 
 ---
 
-- Eurotronic Spirit Zigbee (SPZB0001) **normal calibration**
-- Moes SEA801-Zigbee/SEA802-Zigbee **normal calibration**
+- Eurotronic Spirit Zigbee (SPZB0001) (In Z2M device settings, set legacy to true) **normal calibration**
+- Moes SEA801-Zigbee/SEA802-Zigbee (In Z2M device settings, set legacy to true) **normal calibration**
 - TuYa TS0601_thermostat (TS0601) **target temperature calibration**
-- BRT-100-TRV **target temperature calibration** (will be switched to normal calibration if this is fixed [issue](https://github.com/Koenkk/zigbee2mqtt/issues/9486))
+- Siterwell GS361A-H04 (GS361A-H04) **target temperature calibration**
+- BRT-100-TRV (In Z2M device settings, set min temp to 0 and program mode to manual) **target temperature calibration** (will be switched to normal calibration if this is fixed [issue](https://github.com/Koenkk/zigbee2mqtt/issues/9486))
 
 *All models that are not listed here uses the default wich is the **normal calibration** and expects that the TRV has system modes*
 
@@ -34,7 +35,23 @@ If you have a special Thermostat like the SPZB0001 feel free to open an issue or
 
 The integration gets the Model identifier automatic, nothing to do here.
 
+
+<br>
+<br>
+
+## Important config in Zigbee2Mqtt
+
 **IMPORTANT: be sure to enable "legacy" in Zigbee2MQTT on the TRV devices and settings if you haven't the key local_temperature_calibration in your HA instance and include_device_information in the Zigbee2MQTT MQTT settings**
+
+Switch on the global **include_device_information** under Settings > Mqtt > include_device_information
+<br>
+<img src="assets/z2m_include_device_informations.png" width="900px">
+
+Switch on the legacy setting in each of your TRV
+<br>
+<img src="assets/z2m_legacy.png" width="900px">
+
+
 
 ## SETUP
 You need to configure a "virtual" thermostat for every used thermostat.
@@ -44,16 +61,21 @@ Here is an example configuration.
 climate:
   - platform: ai_thermostat
     name: room
+    unique_id: 1637927441 # Its important for Google Home
     thermostat: climate.tvr
     temperature_sensor: sensor.temperature
-    window_sensors: group.office_windows
+    window_sensors: group.office_windows #if this is not set, the window open detection is off
     weather: weather.xxx #if this is set, the outdoor_sensor is ignored, remove the outdoor_sensor config!
     outdoor_sensor: sensor.outdoor_temperature #if you want to use it, remove the weather config!
     off_temperature: 20
     window_off_delay: 0
     valve_maintenance: false
+    night_temp: 18
+    night_start: '22:00'
+    night_end: '06:00'
 ```
 
+**IMPORTANT: the weather and outdoor_sensor are not required, but you need one of them!**
 
 Key | Example Value | Required? | Description
 --- | --- | --- | ---
@@ -61,12 +83,15 @@ Key | Example Value | Required? | Description
 ***name*** | `Thermostat - Livingroom` | *no* | Used to name the virtual thermostat
 ***thermostat*** | `climate.tvr` | *yes* | a zigbee2mqtt climate entity.
 ***temperature_sensor*** | `sensor.temperature` | *yes* | a zigbee2mqtt sensor entity that is used for the actual temperature input of the thermostat.
-***window_sensors*** | `group.livingroom_windows` | *yes* | a group of window/door - sensors (see below) that are used for the open window detection of the thermostat (the thermostat doesn't need to support an open window detection for that feature).
+***window_sensors*** | `group.livingroom_windows` | *no* | a group of window/door - sensors (see below) that are used for the open window detection of the thermostat (the thermostat doesn't need to support an open window detection for that feature). If you have only one window, you can pass the entity without the group.
 ***window_off_delay*** | `10` | *no* | Only set the thermostat to an OFF state if the window/door - sensors are open for X seconds. Default is 0 for an instant turnoff.
 ***weather*** | `weather.xxx` | *no* | a weather entity from Home Assistant to check the forecast to detect if heating is needed in use of the off_temperature (Meteorologisk Institutt (Metno)) if this is set the outdoor_sensor will be ignored
 ***outdoor_sensor*** | `sensor.outdoor_temperature` | *no* | a zigbee2mqtt sensor entity that is used for the outdoor temperature calculation in use of the off_temperature for the avg of the last two days.
 ***off_temperature*** | `20` | *no* | an int number as a temperature if the forecast outside temperature is above it the thermostat is turned off.
 ***valve_maintenance*** | `false` | *no* | This is a maintenance function that will prevent the valve to get stuck or make annoying sounds, the default is `false`. If set to `true` it will perform a valve open-close-procedure every five days
+***night_temp*** | `18` | *no* | if this value is set, the night temperature reduction is active and set it to the temperature at night (to disable it, remove this setting or set it to -1) see also  night_start and night_end
+***night_start*** | `23:00` | *no* | define the start time of the night for the night reduction (night_temp must be set) the TRV will be setted to the night temp
+***night_end*** | `07:00` | *no* | define the end time of the night for the night reduction (night_temp must be set) the TRV will be setted back to the last active temp
 
 ### Example Window/Door - Sensor config
 
