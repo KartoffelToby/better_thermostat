@@ -1,4 +1,4 @@
-import datetime
+from datetime import datetime
 
 
 def check_float(potential_float):
