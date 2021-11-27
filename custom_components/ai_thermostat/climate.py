@@ -617,7 +617,16 @@ class AIThermostat(ClimateEntity, RestoreEntity):
                         mqtt_sys_mode = {"system_mode": converted_hvac_mode}
                         payload = json.dumps(mqtt_sys_mode, cls=JSONEncoder)
                         self.mqtt.async_publish('zigbee2mqtt/'+self.hass.states.get(self.heater_entity_id).attributes.get('friendly_name')+'/set', payload, 0, False)
-                    
+                        await asyncio.sleep(
+                            1 #5
+                        )    
+
+                    # Make sure its turned off!
+                    if self.window_open or not is_cold:
+                        mqtt_sys_mode = {"system_mode": HVAC_MODE_OFF}
+                        payload = json.dumps(mqtt_sys_mode, cls=JSONEncoder)
+                        self.mqtt.async_publish('zigbee2mqtt/'+self.hass.states.get(self.heater_entity_id).attributes.get('friendly_name')+'/set', payload, 0, False)
+
                     ### Check if a valve_maintenance is needed
                     if self.valve_maintenance:
                         currentTime = datetime.now()
