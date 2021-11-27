@@ -195,8 +195,9 @@ class AIThermostat(ClimateEntity, RestoreEntity):
         self.next_valve_maintenance = datetime.now() + timedelta(days = 5)
         self.isDoingMaintenance = False
         self.calibration_type = 2
-        self.daytemp = 0
+        self.daytemp = 5
         self.closed_window_triggerd = False
+        self.night_status = False
     async def async_added_to_hass(self):
         """Run when entity about to be added."""
         await super().async_added_to_hass()
@@ -265,19 +266,25 @@ class AIThermostat(ClimateEntity, RestoreEntity):
             STATE_UNAVAILABLE,
             STATE_UNKNOWN,
         ) and self.startup:
-            self.startup = False
-            if self.hass.states.get(self.window_sensors_entity_ids) is not None:
-                check = self.hass.states.get(self.window_sensors_entity_ids).state
-                if check == 'on':
-                    self.window_open = True
-                else:
-                    self.window_open = False
-            _LOGGER.info(
-                "Register ai_thermostat with TRV: %s",
-                self.hass.states.get(self.heater_entity_id).attributes.get('friendly_name'),
-            )
-            self._async_update_temp(sensor_state)
-            self.async_write_ha_state()
+            if self.hass.states.get(self.heater_entity_id).attributes.get('device') is not None:
+                if self.window_sensors_entity_ids is not None:
+                    check = self.hass.states.get(self.window_sensors_entity_ids).state
+                    if check == 'on':
+                        self.window_open = True
+                    else:
+                        self.window_open = False
+                _LOGGER.info(
+                    "Register ai_thermostat with TRV: %s",
+                    self.hass.states.get(self.heater_entity_id).attributes.get('friendly_name'),
+                )
+                self._async_update_temp(sensor_state)
+                self.async_write_ha_state()
+                self.startup = False
+
+    @property
+    def available(self):
+        """Return if thermostat is available."""
+        return not self.startup
 
     @property
     def should_poll(self):
@@ -443,12 +450,15 @@ class AIThermostat(ClimateEntity, RestoreEntity):
 
         if new_state.attributes is not None:
             try:
+                remappedstate = convert_inbound_states(self,new_state.attributes)
                 if old_state.attributes.get('system_mode') != new_state.attributes.get('system_mode'):
-                    remappedstate = convert_inbound_states(self,new_state.attributes)
                     self._hvac_mode  = remappedstate.system_mode
                     if self._hvac_mode != HVAC_MODE_OFF and self.window_open:
                         self._hvac_mode = HVAC_MODE_OFF
                         await self._async_control_heating()
+
+                if not remappedstate.has_real_mode:
+                    self._hvac_mode = remappedstate.system_mode
 
             except TypeError:
                 _LOGGER.debug("ai_thermostat entity not ready or device is currently not supported")
@@ -507,7 +517,6 @@ class AIThermostat(ClimateEntity, RestoreEntity):
                 self._cur_temp,
                 self._target_temp,
                 self._hvac_mode,
-                self._is_device_active,
             ) and self.hass.states.get(self.heater_entity_id).attributes is not None and not self.startup:
                 self._active = True
 
@@ -525,14 +534,20 @@ class AIThermostat(ClimateEntity, RestoreEntity):
                 else:
                     self._max_temp = 30
 
+
                 #night mode
                 if int(self.night_temp) != -1:
-                    if convert_time(self.night_start).time() < datetime.now().time() and convert_time(self.night_end).time() > datetime.now().time():
+                    if not self.night_status and convert_time(self.night_start).time() < datetime.now().time() and convert_time(self.night_end).time() > datetime.now().time():
                         _LOGGER.debug("night mode active override with: %s",float(self.night_temp))
                         self.daytemp = self._target_temp
                         self._target_temp = float(self.night_temp)
-                    else:
+                        self.night_status = True
+                    elif self.night_status:
                         self._target_temp = self.daytemp
+                        self.night_status = False
+
+
+
 
                 # Need to force the local_temperature_calibration get updated in HA only for SPZB0001
                 if(self.model == "SPZB0001"):
@@ -542,6 +557,8 @@ class AIThermostat(ClimateEntity, RestoreEntity):
                     await asyncio.sleep(
                         1 #5
                     )
+
+
                 # Get the forecast from the weather entity for two days in a row and round and split it for compare
                 is_cold = self.check_if_is_winter()
                     
@@ -573,13 +590,16 @@ class AIThermostat(ClimateEntity, RestoreEntity):
                         converted_hvac_mode = HVAC_MODE_OFF
                         self._hvac_mode = HVAC_MODE_OFF
                         self.closed_window_triggerd = True
+                        if self.calibration_type == 1:
+                            calibration = 5
                     else:
                         if self.beforeClosed != HVAC_MODE_OFF:
                             converted_hvac_mode = self.beforeClosed
 
                     _LOGGER.debug(
-                        "ai_thermostat triggerd, States > Window open: %s | Mode: %s | Setted: %s | hasmode: %s | Calibration: %s - send: %s | settemp: %s | curtemp: %s | Model: %s | Calibration type: %s | Winter: %s | TRV: %s",
+                        "ai_thermostat triggerd, States > Window open: %s | Night mode: % | Mode: %s | Setted: %s | hasmode: %s | Calibration: %s - send: %s | settemp: %s | curtemp: %s | Model: %s | Calibration type: %s | Winter: %s | TRV: %s",
                         self.window_open,
+                        self.night_status,
                         converted_hvac_mode,
                         self._hvac_mode,
                         has_real_mode,
@@ -593,9 +613,13 @@ class AIThermostat(ClimateEntity, RestoreEntity):
                         self.hass.states.get(self.heater_entity_id).attributes.get('friendly_name')
                     )
 
-                    if self.calibration_type == 1 and not self.window_open:
-                        current_heating_setpoint = calibration
-                        self.mqtt.async_publish('zigbee2mqtt/'+self.hass.states.get(self.heater_entity_id).attributes.get('friendly_name')+'/set/current_heating_setpoint', float(current_heating_setpoint), 0, False)
+                    if self.calibration_type == 1:
+                        if has_real_mode and not self.window_open:
+                            current_heating_setpoint = calibration
+                            self.mqtt.async_publish('zigbee2mqtt/'+self.hass.states.get(self.heater_entity_id).attributes.get('friendly_name')+'/set/current_heating_setpoint', float(calibration), 0, False)
+                        elif not has_real_mode:
+                            current_heating_setpoint = calibration
+                            self.mqtt.async_publish('zigbee2mqtt/'+self.hass.states.get(self.heater_entity_id).attributes.get('friendly_name')+'/set/current_heating_setpoint', float(calibration), 0, False)
 
                     if self.calibration_type == 0 and not self.window_open and self.hass.states.get(self.heater_entity_id).attributes.get('current_heating_setpoint') != float(current_heating_setpoint) and converted_hvac_mode != HVAC_MODE_OFF and float(current_heating_setpoint) != 5.0 and is_cold:
                         self.mqtt.async_publish('zigbee2mqtt/'+self.hass.states.get(self.heater_entity_id).attributes.get('friendly_name')+'/set/current_heating_setpoint', float(current_heating_setpoint), 0, False)
@@ -625,7 +649,7 @@ class AIThermostat(ClimateEntity, RestoreEntity):
                         )    
 
                     # Make sure its turned off!
-                    if self.window_open or not is_cold:
+                    if (self.window_open or not is_cold) and has_real_mode:
                         mqtt_sys_mode = {"system_mode": HVAC_MODE_OFF}
                         payload = json.dumps(mqtt_sys_mode, cls=JSONEncoder)
                         self.mqtt.async_publish('zigbee2mqtt/'+self.hass.states.get(self.heater_entity_id).attributes.get('friendly_name')+'/set', payload, 0, False)

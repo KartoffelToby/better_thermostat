@@ -20,7 +20,7 @@ def default_calibration(self):
 def temperature_calibration(self):
   state = self.hass.states.get(self.heater_entity_id).attributes
   mqtt = self.hass.components.mqtt
-  new_calibration = abs(float(round(float(self._target_temp) - (float(self._cur_temp) - float(state.get('local_temperature'))),1)))
+  new_calibration = abs(float(round(float(self._target_temp) + (float(self._cur_temp) - float(state.get('local_temperature'))),1)))
   if new_calibration < float(self._min_temp):
       new_calibration = float(self._min_temp)
   if new_calibration > float(self._max_temp):
@@ -29,8 +29,7 @@ def temperature_calibration(self):
   if state.get('system_mode') is not None and self._target_temp is not None and self._cur_temp is not None:
       check_overswing = (float(self._target_temp) - 0.5) < float(self._cur_temp)
       if check_overswing:
-        mqtt.async_publish('zigbee2mqtt/'+state.get('friendly_name')+'/set/current_heating_setpoint', float(0), 0, False)
+        mqtt.async_publish('zigbee2mqtt/'+state.get('friendly_name')+'/set/current_heating_setpoint', float(5), 0, False)
         time.sleep(30)
         mqtt.async_publish('zigbee2mqtt/'+state.get('friendly_name')+'/set/current_heating_setpoint', float(new_calibration), 0, False)
-
   return new_calibration
