@@ -20,7 +20,7 @@ def default_calibration(self):
 def temperature_calibration(self):
   state = self.hass.states.get(self.heater_entity_id).attributes
   mqtt = self.hass.components.mqtt
-  new_calibration = abs(float(round(float(self._target_temp) - (float(self._cur_temp) + float(state.get('local_temperature'))),1)))
+  new_calibration = abs(float(round((float(self._target_temp) - float(self._cur_temp)) + float(state.get('local_temperature')),1)))
   if new_calibration < float(self._min_temp):
       new_calibration = float(self._min_temp)
   if new_calibration > float(self._max_temp):
