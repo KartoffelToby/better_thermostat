@@ -217,9 +217,10 @@ class AIThermostat(ClimateEntity, RestoreEntity):
         @callback
         def _async_startup(*_):
             """Init on startup."""
-            _LOGGER.info("Starting ai_thermostat with version: 0.7.0 waiting for entity to be ready...")
-
-            self.startUp()
+            _LOGGER.info("Starting ai_thermostat for %s with version: 0.7.3 waiting for entity to be ready...",self.name)
+            loop = asyncio.get_event_loop()
+            loop.create_task(self.startUp())
+            
 
         if self.hass.state == CoreState.running:
             _async_startup()
@@ -255,7 +256,7 @@ class AIThermostat(ClimateEntity, RestoreEntity):
         if not self._hvac_mode:
             self._hvac_mode = HVAC_MODE_OFF
 
-    def startUp(self):
+    async def startUp(self):
         sensor_state = self.hass.states.get(self.sensor_entity_id)
         trv_state = self.hass.states.get(self.heater_entity_id)
 
@@ -277,9 +278,27 @@ class AIThermostat(ClimateEntity, RestoreEntity):
                     "Register ai_thermostat with TRV: %s",
                     self.hass.states.get(self.heater_entity_id).attributes.get('friendly_name'),
                 )
+                self.startup = False
+                self._active = True
+                self._target_temp = float(self.hass.states.get(self.heater_entity_id).attributes.get('current_heating_setpoint'))
                 self._async_update_temp(sensor_state)
                 self.async_write_ha_state()
-                self.startup = False
+                return
+        else:
+            if sensor_state and sensor_state.state in (
+                STATE_UNAVAILABLE,
+                STATE_UNKNOWN,
+            ):
+                _LOGGER.info("ai_thermostat %s still waiting for %s to be available",self.hass.states.get(self.heater_entity_id).attributes.get('friendly_name'),self.sensor_entity_id)
+            if trv_state and trv_state.state in (
+                STATE_UNAVAILABLE,
+                STATE_UNKNOWN,
+            ):
+                _LOGGER.info("ai_thermostat %s still waiting for %s to be available",self.hass.states.get(self.heater_entity_id).attributes.get('friendly_name'),self.heater_entity_id)
+
+            _LOGGER.info("retry in 30s...")
+            await asyncio.sleep(30)
+            return await self.startUp()
 
     @property
     def available(self):
@@ -393,7 +412,7 @@ class AIThermostat(ClimateEntity, RestoreEntity):
     @callback
     async def _async_window_changed(self, state):
         if self.startup:
-            return self.startUp()
+            return
         if self.hass.states.get(self.heater_entity_id) is not None:
             await asyncio.sleep(int(self.window_delay))
             check = self.hass.states.get(self.window_sensors_entity_ids).state
@@ -410,7 +429,7 @@ class AIThermostat(ClimateEntity, RestoreEntity):
     async def _async_sensor_changed(self, event):
         """Handle temperature changes."""
         if self.startup:
-            return self.startUp()
+            return
         new_state = event.data.get("new_state")
         if new_state is None or new_state.state in (STATE_UNAVAILABLE, STATE_UNKNOWN):
             return
@@ -431,7 +450,6 @@ class AIThermostat(ClimateEntity, RestoreEntity):
     @callback
     async def _async_tvr_changed(self, event):
         if self.startup:
-            self.startUp()
             return
 
         old_state = event.data.get("old_state")
@@ -685,7 +703,7 @@ class AIThermostat(ClimateEntity, RestoreEntity):
             last_two_days_date_time = datetime.now() - timedelta(days = 2)
             start = dt_util.as_utc(last_two_days_date_time)
             history_list = history.state_changes_during_period(
-                self.hass, start, None, self.outdoor_sensor
+                self.hass, start, dt_util.as_utc(datetime.noe()), self.outdoor_sensor
             )
 
             # calculate the avg temp from the sensor data of the last two days to avoid peaks
