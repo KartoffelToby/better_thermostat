@@ -703,7 +703,7 @@ class AIThermostat(ClimateEntity, RestoreEntity):
             last_two_days_date_time = datetime.now() - timedelta(days = 2)
             start = dt_util.as_utc(last_two_days_date_time)
             history_list = history.state_changes_during_period(
-                self.hass, start, dt_util.as_utc(datetime.noe()), self.outdoor_sensor
+                self.hass, start, dt_util.as_utc(datetime.now()), self.outdoor_sensor
             )
 
             # calculate the avg temp from the sensor data of the last two days to avoid peaks
