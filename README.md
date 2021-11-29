@@ -43,7 +43,8 @@ The integration gets the Model identifier automatic, nothing to do here.
 
 **IMPORTANT: be sure to enable "legacy" in Zigbee2MQTT on the TRV devices and settings if you haven't the key local_temperature_calibration in your HA instance and include_device_information in the Zigbee2MQTT MQTT settings**
 
-If you use Z2M with the HA Supervisor, make sure you set it in the configuration. otherwise it reset this option on every restart.
+If you use Z2M with the HA Supervisor, make sure you set it in the configuration. otherwise it reset this option on every restart. #57
+
 ```yaml
 mqtt:
   base_topic: zigbee2mqtt
