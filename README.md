@@ -25,7 +25,7 @@ At this time I tested it with two models: (but basically all zigbee2mqtt TRV sho
 
  **normal calibration**: means that the local_temperature_calibration setting in the TRV is used to sync the TRV internal current temperature with the connected room temperature sensor. The target temperature is settable over HA or directly on the TRV there are no restrictions
 
- **target temperature calibration**: means that the temperature sync is accomplished with a special target temperatur on the TRV, thats the reason why the target temperature displayed on the TRV is not the same as in HA, you only can ajust the target temperature via HA not the TRV itself. If you want more infos why, read #15
+ **target temperature calibration**: means that the temperature sync is accomplished with a special target temperatur on the TRV, thats the reason why the target temperature displayed on the TRV is not the same as in HA, you only can ajust the target temperature via HA not the TRV itself. If you want more infos why, read [#15](/../../issues/15)
 
 ---
 
@@ -43,7 +43,7 @@ The integration gets the Model identifier automatic, nothing to do here.
 
 **IMPORTANT: be sure to enable "legacy" in Zigbee2MQTT on the TRV devices and settings if you haven't the key local_temperature_calibration in your HA instance and include_device_information in the Zigbee2MQTT MQTT settings**
 
-If you use Z2M with the HA Supervisor, make sure you set it in the configuration. otherwise it reset this option on every restart. #57
+If you use Z2M with the HA Supervisor, make sure you set it in the configuration. otherwise it reset this option on every restart. [#57](/../../issues/57)
 
 ```yaml
 mqtt:
