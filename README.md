@@ -19,13 +19,13 @@ At this time I tested it with two models: (but basically all zigbee2mqtt TRV sho
 - Moes SEA801-Zigbee/SEA802-Zigbee (In Z2M device settings, set legacy to true) **normal calibration**
 - TuYa TS0601_thermostat (TS0601) **target temperature calibration**
 - Siterwell GS361A-H04 (GS361A-H04) **target temperature calibration**
-- BRT-100-TRV (In Z2M device settings, set min temp to 0 and program mode to manual) **target temperature calibration** (will be switched to normal calibration if this is fixed [issue](https://github.com/Koenkk/zigbee2mqtt/issues/9486))
+- BRT-100-TRV (In Z2M device settings, set min temp to 5 and program mode to manual) **target temperature calibration** (will be switched to normal calibration if this is fixed [issue](https://github.com/Koenkk/zigbee2mqtt/issues/9486))
 
 *All models that are not listed here uses the default wich is the **normal calibration** and expects that the TRV has system modes*
 
  **normal calibration**: means that the local_temperature_calibration setting in the TRV is used to sync the TRV internal current temperature with the connected room temperature sensor. The target temperature is settable over HA or directly on the TRV there are no restrictions
 
- **target temperature calibration**: means that the temperature sync is accomplished with a special target temperatur on the TRV, thats the reason why the target temperature displayed on the TRV is not the same as in HA, you only can ajust the target temperature via HA not the TRV itself. If you want more infos why, read #15
+ **target temperature calibration**: means that the temperature sync is accomplished with a special target temperatur on the TRV, thats the reason why the target temperature displayed on the TRV is not the same as in HA, you only can ajust the target temperature via HA not the TRV itself. If you want more infos why, read [#15](/../../issues/15)
 
 ---
 
@@ -43,11 +43,21 @@ The integration gets the Model identifier automatic, nothing to do here.
 
 **IMPORTANT: be sure to enable "legacy" in Zigbee2MQTT on the TRV devices and settings if you haven't the key local_temperature_calibration in your HA instance and include_device_information in the Zigbee2MQTT MQTT settings**
 
-Switch on the global **include_device_information** under Settings > Mqtt > include_device_information
+If you use Z2M with the HA Supervisor, make sure you set it in the configuration. otherwise it reset this option on every restart. [#57](/../../issues/57)
+
+```yaml
+mqtt:
+  base_topic: zigbee2mqtt
+  include_device_information: true
+```
+
+
+Switch on the global **include_device_information** under Settings > Mqtt > include_device_information.
 <br>
 <img src="assets/z2m_include_device_informations.png" width="900px">
 
-Switch on the legacy setting in each of your TRV
+Switch on the legacy setting in each of your TRV (if your TRV has this option, otherwise it should work out of the box)
+Make sure to disable the window detection and child protection modes, also make sure your TRV is not in a program mode
 <br>
 <img src="assets/z2m_legacy.png" width="900px">
 
@@ -75,7 +85,7 @@ climate:
     night_end: '06:00'
 ```
 
-**IMPORTANT: the weather and outdoor_sensor are not required, but you need one of them!**
+**IMPORTANT: the weather and outdoor_sensor are not required, but you need one of them, if you want to use this function, if not remove them**
 
 Key | Example Value | Required? | Description
 --- | --- | --- | ---
