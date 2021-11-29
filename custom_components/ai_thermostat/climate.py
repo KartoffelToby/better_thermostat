@@ -297,8 +297,8 @@ class AIThermostat(ClimateEntity, RestoreEntity):
             ):
                 _LOGGER.info("ai_thermostat %s still waiting for %s to be available",self.name,self.heater_entity_id)
 
-            _LOGGER.info("retry in 30s...")
-            await asyncio.sleep(30)
+            _LOGGER.info("retry in 15s...")
+            await asyncio.sleep(15)
             return await self.startUp()
 
     @property
@@ -442,6 +442,8 @@ class AIThermostat(ClimateEntity, RestoreEntity):
 
         self._async_update_temp(new_state)
         self.async_write_ha_state()
+        if self.closed_window_triggerd or self.ignoreStates:
+            return
         await self._async_control_heating()
 
     @callback
