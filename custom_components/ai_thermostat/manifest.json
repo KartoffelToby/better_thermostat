@@ -4,7 +4,11 @@
   "documentation": "https://github.com/KartoffelToby/better_thermostat",
   "issue_tracker": "https://github.com/KartoffelToby/better_thermostat/issues",
   "iot_class": "local_push",
+<<<<<<< HEAD
   "version": "1.0.0",
+=======
+  "version": "0.7.5",
+>>>>>>> 9f12a49c59114c22a6b3fcbf7e2d8db4b608852a
   "dependencies": [
     "sensor",
     "climate",
