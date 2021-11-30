@@ -1,7 +1,3 @@
 reload:
-<<<<<<< HEAD
-  description: Reload all better_thermostat entities.
-=======
-  name: AI Thermostat
+  name: Better Thermostat
   description: Reload all ai_thermostat entities.
->>>>>>> 9f12a49c59114c22a6b3fcbf7e2d8db4b608852a
