@@ -2,6 +2,9 @@
 # AI THERMOSTAT for Zigbee2MQTT
 
 **NICE TO KNOW: This, is still a kind of beta version if the main functions are stable it will be released as 1.0.0 version under the final name better_thermostat.**
+**After 1.0 we swtich to Monthly releases**
+
+**Tested with: HA: 2021.11.5 and Z2M: 1.22.1-1**
 
 This integration brings some smartness to your TRV Zigbee2MQTT setup.
 
