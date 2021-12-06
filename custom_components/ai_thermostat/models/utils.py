@@ -1,5 +1,5 @@
 import asyncio
-import time
+import math
 from homeassistant.helpers.json import JSONEncoder
 import logging
 _LOGGER = logging.getLogger(__name__)
@@ -14,11 +14,10 @@ class cleanState:
     self.has_real_mode = has_real_mode
     self.calibration = calibration
 
-
 def default_calibration(self):
   state = self.hass.states.get(self.heater_entity_id).attributes
   #new_calibration = float(round((float(self._cur_temp) - float(state.get('local_temperature'))) + float(state.get('local_temperature_calibration')),2))
-  new_calibration = int(round((round(float(self._cur_temp),1) - round(float(state.get('local_temperature')),1)) + round(float(state.get('local_temperature_calibration')),1) ,1))
+  new_calibration = int(math.ceil((math.floor(float(self._cur_temp)) - round(float(state.get('local_temperature')))) + round(float(state.get('local_temperature_calibration'))) ,1))
 
   return new_calibration
 
