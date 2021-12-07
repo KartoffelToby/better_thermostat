@@ -61,11 +61,15 @@ Switch on the global **include_device_information** under Settings > Mqtt > incl
 <br>
 <img src="assets/z2m_include_device_informations.png" width="900px">
 
-Switch on the legacy setting in each of your TRV (if your TRV has this option, otherwise it should work out of the box)
+Switch on the legacy setting in each of your TRV (if your TRV has this option, otherwise skip this step)
 Make sure to disable the window detection and child protection modes, also make sure your TRV is not in a program mode
 <br>
 <img src="assets/z2m_legacy.png" width="900px">
 
+Switch on Home Assistant lagacy mode
+<br>
+<img src="assets/z2m_legacy_global_1.png" width="900px">
+<img src="assets/z2m_legacy_global_2.png" width="900px">
 
 
 ## SETUP
@@ -120,5 +124,26 @@ livingroom_windows:
     - binary_sensor.openclose_2
     - binary_sensor.openclose_3
 ```
+
+---
+
+## ☕ Supporters
+
+If you want to support this project, you can ☕ [**buy a coffee here**](https://www.buymeacoffee.com/kartoffeltoby).
+
+| User                                             | Donation |
+| :----------------------------------------------- | :------- |
+| Someone                                          | ☕ x 3  |
+| Someone                                          | ☕ x 1  |
+
+---
+
+## ‎‍💻 Code Contributors
+
+| User                                             |
+| :----------------------------------------------- |
+| [@RubenKelevra](https://github.com/RubenKelevra) |
+| [@bruvv](https://github.com/bruvv)               |
+
 
 <a href="https://www.buymeacoffee.com/kartoffeltoby" target="_blank"><img src="https://cdn.buymeacoffee.com/buttons/v2/default-green.png" alt="Buy Me A Coffee" style="height: 60px !important;width: 217px !important;" ></a>
