@@ -203,6 +203,8 @@ class AIThermostat(ClimateEntity, RestoreEntity):
         self.night_status = False
         self.ignoreStates = False
         self.lastCalibration = datetime.now() - timedelta(minutes = 5)
+        self.lastOverswing = datetime.now()
+
     async def async_added_to_hass(self):
         """Run when entity about to be added."""
         await super().async_added_to_hass()
@@ -223,7 +225,7 @@ class AIThermostat(ClimateEntity, RestoreEntity):
         def _async_startup(*_):
             """Init on startup."""
 
-            _LOGGER.info("Starting ai_thermostat for %s with version: 0.7.9 waiting for entity to be ready...",self.name)
+            _LOGGER.info("Starting ai_thermostat for %s with version: 0.8.0 waiting for entity to be ready...",self.name)
 
             loop = asyncio.get_event_loop()
             loop.create_task(self.startUp())
@@ -389,6 +391,23 @@ class AIThermostat(ClimateEntity, RestoreEntity):
         """
         if self._hvac_mode == HVAC_MODE_OFF:
             return CURRENT_HVAC_OFF
+
+        if self.hass.states.get(self.heater_entity_id).attributes.get('position') is not None:
+            if check_float(self.hass.states.get(self.heater_entity_id).attributes.get('position')):
+                valve = float(self.hass.states.get(self.heater_entity_id).attributes.get('position'))
+                if valve > 0:
+                    return CURRENT_HVAC_HEAT
+                else:
+                    return CURRENT_HVAC_IDLE
+                
+        if self.hass.states.get(self.heater_entity_id).attributes.get('pi_heating_demand') is not None:
+            if check_float(self.hass.states.get(self.heater_entity_id).attributes.get('pi_heating_demand')):
+                valve = float(self.hass.states.get(self.heater_entity_id).attributes.get('pi_heating_demand'))
+                if valve > 0:
+                    return CURRENT_HVAC_HEAT
+                else:
+                    return CURRENT_HVAC_IDLE
+
         if not self._is_device_active:
             return CURRENT_HVAC_IDLE
         return CURRENT_HVAC_HEAT
@@ -507,19 +526,16 @@ class AIThermostat(ClimateEntity, RestoreEntity):
         if new_state.attributes is not None:
             try:
                 remappedstate = convert_inbound_states(self,new_state.attributes)
+
                 if old_state.attributes.get('system_mode') != new_state.attributes.get('system_mode'):
-                    self._hvac_mode  = remappedstate.system_mode
+                    self._hvac_mode = remappedstate.system_mode
 
                     if self._hvac_mode != HVAC_MODE_OFF and self.window_open:
                         self._hvac_mode = HVAC_MODE_OFF
                         _LOGGER.debug("ai_thermostat: Window is still open, turn force off the TRV")
                         await self._async_control_heating()
-
-                if not remappedstate.has_real_mode:
-                    self._hvac_mode = remappedstate.system_mode
-
                 
-                if not self.ignoreStates and new_state.attributes.get('current_heating_setpoint') is not None and self._hvac_mode is not HVAC_MODE_OFF and self.calibration_type == 0:
+                if not self.ignoreStates and new_state.attributes.get('current_heating_setpoint') is not None and self._hvac_mode != HVAC_MODE_OFF and self.calibration_type == 0:
                     self._target_temp = new_state.attributes.get('current_heating_setpoint')
 
             except TypeError as e:
