@@ -1,10 +1,29 @@
-[![Active installations - 12](https://badge.t-haber.de/badge/ai_thermostat?kill_cache=1)](https://github.com/KartoffelToby/ai_thermostat/)
+[![Active installations](https://badge.t-haber.de/badge/ai_thermostat?kill_cache=1)](https://github.com/KartoffelToby/ai_thermostat/)
+[![GitHub issues](https://img.shields.io/github/issues/KartoffelToby/ai_thermostat?style=for-the-badge)](https://github.com/KartoffelToby/ai_thermostat/issues)
+[![Version - 0.8.0](https://img.shields.io/badge/Version-0.8.0-009688?style=for-the-badge)](https://github.com/KartoffelToby/ai_thermostat/releases)
 # AI THERMOSTAT for Zigbee2MQTT
 
 **NICE TO KNOW: This, is still a kind of beta version if the main functions are stable it will be released as 1.0.0 version under the final name better_thermostat.**
 **After 1.0 we swtich to Monthly releases**
 
 **Tested with: HA: 2021.11.5 and Z2M: 1.22.1-1**
+
+### Advance information:
+
+- If you have a question or need help please create a new [discussion](https://github.com/KartoffelToby/ai_thermostat/discussions) or check if your question is already answered.
+- If you have a suggestion, found a bug or want to add a new device or function create a new [issue](https://github.com/KartoffelToby/ai_thermostat/issues)
+- If you want to contribute to this project create a new [pull request](https://github.com/KartoffelToby/ai_thermostat/pulls)
+
+### Core features:
+
+*Talke to me! What makes the ai_thermostat better?*
+
+- simplifies your TRVs modes
+- makes your TRVs full compatible to Google Home
+- adds a window open detection with an external open/close sensor
+- adds a summer shutdown with a weather entity or outdoor temperature sensor
+- adds "better" room temperature based calibration with an external room termperature sensor, because it works moste of the time not good on the TRV.
+- adds a scheduler for valve maintanance to prevent the valve to get stucked or noisy
 
 This integration brings some smartness to your TRV Zigbee2MQTT setup.
 
@@ -16,7 +35,7 @@ So if you use the Google Assistant integration to control your thermostat you no
 
 Youst set your Target Heat point with your voice or the Google Home app and you are good to go.
 
-At this time I tested it with two models: (but basically all zigbee2mqtt TRV should work.)
+At this time following models are supported: (but basically all zigbee2mqtt TRV should work.)
 
 ---
 
@@ -75,12 +94,21 @@ Switch on Home Assistant lagacy mode
 ## SETUP
 You need to configure a "virtual" thermostat for every used thermostat.
 
-Here is an example configuration.
+Here is an example minimal configuration.
 ```yaml
 climate:
   - platform: ai_thermostat
     name: room
-    unique_id: 1637927441 # Its important for Google Home
+    thermostat: climate.tvr
+    temperature_sensor: sensor.temperature
+    window_sensors: group.office_windows
+```
+
+Here is an example full configuration.
+```yaml
+climate:
+  - platform: ai_thermostat
+    name: room
     thermostat: climate.tvr
     temperature_sensor: sensor.temperature
     window_sensors: group.office_windows #if this is not set, the window open detection is off
@@ -101,7 +129,7 @@ Key | Example Value | Required? | Description
 ***platform*** | `ai_thermostat` | *yes* |
 ***name*** | `Thermostat - Livingroom` | *no* | Used to name the virtual thermostat
 ***thermostat*** | `climate.tvr` | *yes* | a zigbee2mqtt climate entity.
-***unique_id*** | `392049` | *no* | A unique_id mostly needed when using google.
+***unique_id*** | `392049` | *no* | A unique_id (e.g. UNIX timestamp) mostly needed when using google home.
 ***temperature_sensor*** | `sensor.temperature` | *yes* | a zigbee2mqtt sensor entity that is used for the actual temperature input of the thermostat.
 ***window_sensors*** | `group.livingroom_windows` | *no* | a group of window/door - sensors (see below) that are used for the open window detection of the thermostat (the thermostat doesn't need to support an open window detection for that feature). If you have only one window, you can pass the entity without the group.
 ***window_off_delay*** | `10` | *no* | Only set the thermostat to an OFF state if the window/door - sensors are open for X seconds. Default is 0 for an instant turnoff.
@@ -124,6 +152,40 @@ livingroom_windows:
     - binary_sensor.openclose_1
     - binary_sensor.openclose_2
     - binary_sensor.openclose_3
+```
+
+### Combine multiple TRV to one
+
+Install the HACS [climate_group](https://github.com/daenny/climate_group) from @daenny
+
+As each TRV has its own local_temperature and must be induvidually calibrated, you need to create a ai_thermostat for each TRV and then Groupe them:
+
+Example:
+
+```yaml
+climate:
+  - platform: ai_thermostat
+    name: Ai - TRV - Office - 1
+    thermostat: climate.real_trv_office_1
+    temperature_sensor: sensor.temperatur_office_temperature
+    window_sensors: group.office_windows
+    weather: weather.home
+    off_temperature: 20
+    unique_id: 1
+  - platform: ai_thermostat
+    name: Ai - TRV - Office - 2
+    thermostat: climate.real_trv_office_2
+    temperature_sensor: sensor.temperatur_office_temperature
+    window_sensors: group.office_windows
+    weather: weather.home
+    off_temperature: 20
+    unique_id: 2
+  - platform: climate_group
+    name: "TRV - Office"
+    temperature_unit: C
+    entities:
+      - climate.ai_trv_office_1
+      - climate.ai_trv_office_2
 ```
 
 ---

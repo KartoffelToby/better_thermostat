@@ -203,6 +203,8 @@ class AIThermostat(ClimateEntity, RestoreEntity):
         self.night_status = False
         self.ignoreStates = False
         self.lastCalibration = datetime.now() - timedelta(minutes = 5)
+        self.lastOverswing = datetime.now()
+
     async def async_added_to_hass(self):
         """Run when entity about to be added."""
         await super().async_added_to_hass()
@@ -525,7 +527,7 @@ class AIThermostat(ClimateEntity, RestoreEntity):
             try:
                 remappedstate = convert_inbound_states(self,new_state.attributes)
 
-                if not self.ignoreStates:
+                if old_state.attributes.get('system_mode') != new_state.attributes.get('system_mode'):
                     self._hvac_mode = remappedstate.system_mode
 
                     if self._hvac_mode != HVAC_MODE_OFF and self.window_open:
