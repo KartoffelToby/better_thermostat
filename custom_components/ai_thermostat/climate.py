@@ -34,7 +34,7 @@ from homeassistant.const import (
     ATTR_TEMPERATURE,
     CONF_NAME,
     CONF_UNIQUE_ID,
-    EVENT_HOMEASSISTANT_STARTED,
+    EVENT_HOMEASSISTANT_START,
     STATE_UNAVAILABLE,
     STATE_UNKNOWN,
 )
@@ -225,7 +225,7 @@ class AIThermostat(ClimateEntity, RestoreEntity):
         def _async_startup(*_):
             """Init on startup."""
 
-            _LOGGER.info("Starting ai_thermostat for %s with version: 0.8.0 waiting for entity to be ready...",self.name)
+            _LOGGER.info("Starting ai_thermostat for %s with version: 0.8.1 waiting for entity to be ready...",self.name)
 
             loop = asyncio.get_event_loop()
             loop.create_task(self.startUp())
@@ -233,7 +233,7 @@ class AIThermostat(ClimateEntity, RestoreEntity):
         if self.hass.state == CoreState.running:
             _async_startup()
         else:
-            self.hass.bus.async_listen_once(EVENT_HOMEASSISTANT_STARTED, _async_startup)
+            self.hass.bus.async_listen_once(EVENT_HOMEASSISTANT_START, _async_startup)
 
         # Check If we have an old state
         old_state = await self.async_get_last_state()
@@ -279,21 +279,9 @@ class AIThermostat(ClimateEntity, RestoreEntity):
             None 
         ) and self.startup:
             if self.hass.states.get(self.heater_entity_id).attributes.get('device') is not None:
-                _LOGGER.info(
-                    "Register ai_thermostat with name: %s",
-                    self.name,
-                )
-                self.startup = False
-                self._active = True
-                self._async_update_temp(sensor_state)
                 if self.window_sensors_entity_ids:
                     window = self.hass.states.get(self.window_sensors_entity_ids)
-                    if window in (STATE_UNAVAILABLE,STATE_UNKNOWN,None):
-                        _LOGGER.info("ai_thermostat %s still waiting for %s to be available",self.name,self.window_sensors_entity_ids)
-                        _LOGGER.info("retry in 15s...")
-                        await asyncio.sleep(10)
-                        return await self.startUp()
-                    else:
+                    if window not in (STATE_UNAVAILABLE,STATE_UNKNOWN,None):
                         check = window.state
                         if check == 'on':
                             self.window_open = True
@@ -302,6 +290,18 @@ class AIThermostat(ClimateEntity, RestoreEntity):
                             self.window_open = False
                             self.closed_window_triggerd = False
                         _LOGGER.debug("ai_thermostat: Window %s",self.window_open)
+                    else:
+                        _LOGGER.info("ai_thermostat %s still waiting for %s to be available",self.name,self.window_sensors_entity_ids)
+                        _LOGGER.info("retry in 15s...")
+                        await asyncio.sleep(10)
+                        return await self.startUp()
+                _LOGGER.info(
+                    "Register ai_thermostat with name: %s",
+                    self.name,
+                )
+                self.startup = False
+                self._active = True
+                self._async_update_temp(sensor_state)
                 self.async_write_ha_state()
                 await asyncio.sleep(5)
                 await self._async_control_heating()
@@ -309,20 +309,17 @@ class AIThermostat(ClimateEntity, RestoreEntity):
             else:
                 _LOGGER.info("ai_thermostat %s still waiting for %s to be available",self.name,self.heater_entity_id)
                 _LOGGER.info("retry in 15s...")
-                mqtt_settemp = {"current_heating_setpoint": float(self.hass.states.get(self.heater_entity_id).attributes.get('current_heating_setpoint'))}
-                payload = json.dumps(mqtt_settemp, cls=JSONEncoder)
-                self.mqtt.async_publish('zigbee2mqtt/'+self.hass.states.get(self.heater_entity_id).attributes.get('device').get('friendlyName')+'/set', payload, 0, False)
                 await asyncio.sleep(10)
                 return await self.startUp()
         else:
 
-            if sensor_state or sensor_state.state in (
+            if sensor_state and sensor_state.state in (
                 STATE_UNAVAILABLE,
                 STATE_UNKNOWN,
                 None
             ):
                 _LOGGER.info("ai_thermostat %s still waiting for %s to be available",self.name,self.sensor_entity_id)
-            if trv_state or trv_state.state in (
+            if trv_state and trv_state.state in (
                 STATE_UNAVAILABLE,
                 STATE_UNKNOWN,
                 None
