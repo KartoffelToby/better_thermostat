@@ -497,7 +497,7 @@ class AIThermostat(ClimateEntity, RestoreEntity):
         """Update thermostat with latest state from sensor."""
         try:
             if check_float(state.state):
-                self._cur_temp = float(round(float(state.state)))
+                self._cur_temp = float(state.state)
         except ValueError as ex:
             _LOGGER.debug("Unable to update from sensor: %s", ex)
 
