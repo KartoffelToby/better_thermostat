@@ -595,9 +595,9 @@ class AIThermostat(ClimateEntity, RestoreEntity):
                 self.ignoreStates = True
                 # Use the same precision and min and max as the TVR
                 if self.hass.states.get(self.heater_entity_id).attributes.get('target_temp_step') is not None:
-                    self.target_temp_step = float(self.hass.states.get(self.heater_entity_id).attributes.get('target_temp_step'))
+                    self._target_temp_step = float(self.hass.states.get(self.heater_entity_id).attributes.get('target_temp_step'))
                 else:
-                    self.target_temp_step = 1
+                    self._target_temp_step = 1
                 if self.hass.states.get(self.heater_entity_id).attributes.get('min_temp') is not None:
                     self._min_temp = float(self.hass.states.get(self.heater_entity_id).attributes.get('min_temp'))
                 else:
