@@ -5,7 +5,7 @@ from asyncio.tasks import wait
 import logging
 import json
 from time import sleep
-from custom_components.ai_thermostat.helpers import check_float, convert_time
+from custom_components.ai_thermostat.helpers import check_float, convert_decimal, convert_time
 import homeassistant.util.dt as dt_util
 from datetime import datetime, timedelta
 
@@ -67,6 +67,10 @@ CONF_NIGHT_START = "night_start"
 CONF_NIGHT_END = "night_end"
 
 SUPPORT_FLAGS = SUPPORT_TARGET_TEMPERATURE
+
+PRESET_WINDOW_OPEN = "window_open"
+PRESET_NIGHT_MODE = "night_mode"
+PRESET_SUMMER_MODE = "summer_mode"
 
 PLATFORM_SCHEMA = PLATFORM_SCHEMA.extend(
     {
@@ -205,7 +209,7 @@ class AIThermostat(ClimateEntity, RestoreEntity):
         self.ignoreStates = False
         self.lastCalibration = datetime.now() - timedelta(minutes = 5)
         self.lastOverswing = datetime.now()
-        self._attr_preset_modes = [PRESET_NONE,"WINDOW_OPEN","NIGHT_MODE","SUMMER"]
+        self._attr_preset_modes = [PRESET_NONE,PRESET_WINDOW_OPEN,PRESET_NIGHT_MODE,PRESET_SUMMER_MODE]
         self._attr_preset_mode = PRESET_NONE
 
     async def async_added_to_hass(self):
@@ -511,7 +515,7 @@ class AIThermostat(ClimateEntity, RestoreEntity):
         """Update thermostat with latest state from sensor."""
         try:
             if check_float(state.state):
-                self._cur_temp = float(state.state)
+                self._cur_temp = convert_decimal(state.state)
         except ValueError as ex:
             _LOGGER.debug("Unable to update from sensor: %s", ex)
 
@@ -624,17 +628,17 @@ class AIThermostat(ClimateEntity, RestoreEntity):
 
                 #night mode
                 if int(self.night_temp) != -1:
-                    nstart = convert_time(self.night_start).time()
-                    nend = convert_time(self.night_end).time()
-                    if nend < nstart:
+                    nstart = convert_time(self.night_start)
+                    nend = convert_time(self.night_end)
+                    if nend.time() < nstart.time():
                         nend = nend + timedelta(days=1)
-                    if nstart < datetime.now().time() and nend > datetime.now().time() and not self.night_status:
+                    if nstart.time() < datetime.now().time() and nend.time() > datetime.now().time() and not self.night_status:
                         _LOGGER.debug("night mode active override with: %s",float(self.night_temp))
                         self.daytemp = self._target_temp
                         self._target_temp = float(self.night_temp)
                         self.night_status = True
-                        self._attr_preset_mode = "NIGHT_MODE"
-                    elif nstart > datetime.now().time() and nend < datetime.now().time() and self.night_status:
+                        self._attr_preset_mode = PRESET_NIGHT_MODE
+                    elif nstart.time() > datetime.now().time() and nend.time() < datetime.now().time() and self.night_status:
                         self._target_temp = self.daytemp
                         self.night_status = False
                         self._attr_preset_mode = PRESET_NONE
@@ -656,7 +660,7 @@ class AIThermostat(ClimateEntity, RestoreEntity):
                 is_cold = self.check_if_is_winter()
                     
                 if not is_cold:
-                    self._attr_preset_mode = "SUMMER_MODE"
+                    self._attr_preset_mode = PRESET_SUMMER_MODE
 
 
                 converted_hvac_mode = self._hvac_mode
@@ -667,7 +671,7 @@ class AIThermostat(ClimateEntity, RestoreEntity):
                     converted_hvac_mode = HVAC_MODE_OFF
                     self._hvac_mode = HVAC_MODE_OFF
                     self.closed_window_triggerd = True
-                    self._attr_preset_mode = "WINDOW_OPEN"
+                    self._attr_preset_mode = PRESET_WINDOW_OPEN
                 else:
                     if self.beforeClosed != HVAC_MODE_OFF:
                         converted_hvac_mode = self.beforeClosed
@@ -699,7 +703,7 @@ class AIThermostat(ClimateEntity, RestoreEntity):
                     
                     # Only send the local_temperature_calibration if not instandly following
                     doCalibration = False
-                    if (datetime.now() > (self.lastCalibration + timedelta(seconds = 30))):
+                    if (datetime.now() > (self.lastCalibration + timedelta(seconds = 20))):
                         doCalibration = True
                         self.internalTemp = local_temperature
                         self.lastCalibration = datetime.now()

@@ -1,5 +1,6 @@
 import asyncio
 import math
+from custom_components.ai_thermostat.helpers import convert_decimal
 from homeassistant.helpers.json import JSONEncoder
 import logging
 from datetime import datetime, timedelta
@@ -17,13 +18,17 @@ class cleanState:
 
 def default_calibration(self):
   state = self.hass.states.get(self.heater_entity_id).attributes
-  new_calibration = int(math.ceil((math.floor(float(self._cur_temp)) - round(float(state.get('local_temperature')))) + round(float(state.get('local_temperature_calibration')))))
+  #new_calibration = int(math.ceil((math.floor(float(self._cur_temp)) - round(float(state.get('local_temperature')))) + round(float(state.get('local_temperature_calibration')))))
   # temp range fix
-  if new_calibration < -6:
-      new_calibration = -6
-  if new_calibration > 6:
-      new_calibration = 6 
-  return new_calibration
+  new_calibration = float((float(self._cur_temp) - float(state.get('local_temperature'))) + float(state.get('local_temperature_calibration')))
+  if new_calibration > 0 and new_calibration < 1:
+    new_calibration = round(new_calibration)
+  if new_calibration < -30:
+      new_calibration = -30
+  if new_calibration > 30:
+      new_calibration = 30
+
+  return convert_decimal(new_calibration)
 
 async def overswing(self,calibration):
   state = self.hass.states.get(self.heater_entity_id).attributes
