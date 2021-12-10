@@ -324,6 +324,23 @@ class AIThermostat(ClimateEntity, RestoreEntity):
                 STATE_UNAVAILABLE,
                 STATE_UNKNOWN,
                 None
+            ) and trv_state and trv_state.state in (
+                STATE_UNAVAILABLE,
+                STATE_UNKNOWN,
+                None
+            ):
+                _LOGGER.debug("ai_thermostat not ready...")
+            else:
+                self.startup = False
+                self._active = True
+                self._async_update_temp(sensor_state)
+                self.async_write_ha_state()
+                await self._async_control_heating()
+                return
+            if sensor_state and sensor_state.state in (
+                STATE_UNAVAILABLE,
+                STATE_UNKNOWN,
+                None
             ):
                 _LOGGER.info("ai_thermostat %s still waiting for %s to be available",self.name,self.sensor_entity_id)
             if trv_state and trv_state.state in (
