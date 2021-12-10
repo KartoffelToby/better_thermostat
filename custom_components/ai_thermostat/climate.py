@@ -312,7 +312,24 @@ class AIThermostat(ClimateEntity, RestoreEntity):
                 await asyncio.sleep(10)
                 return await self.startUp()
         else:
-
+            if sensor_state and sensor_state.state in (
+                STATE_UNAVAILABLE,
+                STATE_UNKNOWN,
+                None
+            ) and trv_state and trv_state.state in (
+                STATE_UNAVAILABLE,
+                STATE_UNKNOWN,
+                None
+            ):
+                _LOGGER.debug("ai_thermostat not ready...")
+            else:
+                self.startup = False
+                self._active = True
+                self._async_update_temp(sensor_state)
+                self.async_write_ha_state()
+                await self._async_control_heating()
+                return
+            
             if sensor_state and sensor_state.state in (
                 STATE_UNAVAILABLE,
                 STATE_UNKNOWN,
