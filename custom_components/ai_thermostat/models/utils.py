@@ -18,7 +18,11 @@ class cleanState:
 def default_calibration(self):
   state = self.hass.states.get(self.heater_entity_id).attributes
   new_calibration = int(math.ceil((math.floor(float(self._cur_temp)) - round(float(state.get('local_temperature')))) + round(float(state.get('local_temperature_calibration')))))
-
+  # temp range fix
+  if new_calibration < -6:
+      new_calibration = -6
+  if new_calibration > 6:
+      new_calibration = 6 
   return new_calibration
 
 async def overswing(self,calibration):

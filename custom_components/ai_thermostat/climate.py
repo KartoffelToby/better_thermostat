@@ -28,6 +28,8 @@ from homeassistant.components.climate.const import (
     SUPPORT_TARGET_TEMPERATURE,
     SERVICE_SET_TEMPERATURE,
     SERVICE_SET_HVAC_MODE,
+    PRESET_NONE,
+    SUPPORT_PRESET_MODE,
 )
 from homeassistant.const import (
     ATTR_ENTITY_ID,
@@ -188,7 +190,7 @@ class AIThermostat(ClimateEntity, RestoreEntity):
         self._target_temp = target_temp
         self._unit = unit
         self._unique_id = unique_id
-        self._support_flags = SUPPORT_FLAGS
+        self._support_flags = SUPPORT_FLAGS | SUPPORT_PRESET_MODE
         self.window_open = False
         self._is_away = False
         self.startup = True
@@ -204,6 +206,8 @@ class AIThermostat(ClimateEntity, RestoreEntity):
         self.ignoreStates = False
         self.lastCalibration = datetime.now() - timedelta(minutes = 5)
         self.lastOverswing = datetime.now()
+        self._attr_preset_modes = [PRESET_NONE,"WINDOW_OPEN","NIGHT_MODE","SUMMER"]
+        self._attr_preset_mode = PRESET_NONE
 
     async def async_added_to_hass(self):
         """Run when entity about to be added."""
@@ -409,6 +413,16 @@ class AIThermostat(ClimateEntity, RestoreEntity):
             return CURRENT_HVAC_IDLE
         return CURRENT_HVAC_HEAT
 
+    async def async_set_preset_mode(self, preset_mode: str):
+        """Set new preset mode."""
+        if preset_mode not in (self._attr_preset_modes or []):
+            raise ValueError(
+                f"Got unsupported preset_mode {preset_mode}. Must be one of {self._attr_preset_modes}"
+            )
+        #self._attr_preset_mode = PRESET_NONE
+        self._attr_preset_mode = PRESET_NONE
+        await self.async_write_ha_state()
+
     @property
     def target_temperature(self):
         """Return the temperature we try to reach."""
@@ -473,6 +487,7 @@ class AIThermostat(ClimateEntity, RestoreEntity):
             else:
                 self.window_open = False
                 self.closed_window_triggerd = False
+                self._attr_preset_mode = PRESET_NONE
             _LOGGER.debug("ai_thermostat: Window %s",self.window_open)
             self.async_write_ha_state()
             await self._async_control_heating()
@@ -615,9 +630,11 @@ class AIThermostat(ClimateEntity, RestoreEntity):
                         self.daytemp = self._target_temp
                         self._target_temp = float(self.night_temp)
                         self.night_status = True
+                        self._attr_preset_mode = "NIGHT_MODE"
                     elif convert_time(self.night_start).time() > datetime.now().time() and convert_time(self.night_end).time() < datetime.now().time() and self.night_status:
                         self._target_temp = self.daytemp
                         self.night_status = False
+                        self._attr_preset_mode = PRESET_NONE
 
 
 
@@ -635,6 +652,9 @@ class AIThermostat(ClimateEntity, RestoreEntity):
                 # Get the forecast from the weather entity for two days in a row and round and split it for compare
                 is_cold = self.check_if_is_winter()
                     
+                if not is_cold:
+                    self._attr_preset_mode = "SUMMER_MODE"
+
 
                 converted_hvac_mode = self._hvac_mode
 
@@ -644,6 +664,7 @@ class AIThermostat(ClimateEntity, RestoreEntity):
                     converted_hvac_mode = HVAC_MODE_OFF
                     self._hvac_mode = HVAC_MODE_OFF
                     self.closed_window_triggerd = True
+                    self._attr_preset_mode = "WINDOW_OPEN"
                 else:
                     if self.beforeClosed != HVAC_MODE_OFF:
                         converted_hvac_mode = self.beforeClosed
@@ -675,7 +696,7 @@ class AIThermostat(ClimateEntity, RestoreEntity):
                     
                     # Only send the local_temperature_calibration if not instandly following
                     doCalibration = False
-                    if (datetime.now() > (self.lastCalibration + timedelta(seconds = 10))):
+                    if (datetime.now() > (self.lastCalibration + timedelta(seconds = 30))):
                         doCalibration = True
                         self.internalTemp = local_temperature
                         self.lastCalibration = datetime.now()
@@ -724,7 +745,7 @@ class AIThermostat(ClimateEntity, RestoreEntity):
                     # Calibration stuff
                     if self.calibration_type == 0 and not self.window_open:
                         if doCalibration:
-                            mqtt_calibration = {"local_temperature_calibration": int(calibration)}
+                            mqtt_calibration = {"local_temperature_calibration": calibration}
                             payload = json.dumps(mqtt_calibration, cls=JSONEncoder)
                             self.mqtt.async_publish('zigbee2mqtt/'+self.hass.states.get(self.heater_entity_id).attributes.get('device').get('friendlyName')+'/set', payload, 0, False)
                             await asyncio.sleep(
