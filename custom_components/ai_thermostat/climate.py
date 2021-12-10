@@ -180,7 +180,7 @@ class AIThermostat(ClimateEntity, RestoreEntity):
         self.night_end = night_end
         self._hvac_mode = HVAC_MODE_HEAT
         self._saved_target_temp = target_temp or 5.0
-        self._temp_precision = precision
+        self._target_temp_step = precision
         self._hvac_list = [HVAC_MODE_HEAT, HVAC_MODE_OFF]
         self._active = False
         self._cur_temp = None
@@ -358,16 +358,16 @@ class AIThermostat(ClimateEntity, RestoreEntity):
     @property
     def precision(self):
         """Return the precision of the system."""
-        if self._temp_precision is not None:
-            return self._temp_precision
         return super().precision
 
     @property
     def target_temperature_step(self):
         """Return the supported step of target temperature."""
-        # Since this integration does not yet have a step size parameter
-        # we have to re-use the precision as the step size for now.
-        return self.precision
+        if self._target_temp_step is not None:
+            return self._target_temp_step
+            
+        return super().precision
+
 
     @property
     def temperature_unit(self):
@@ -512,7 +512,7 @@ class AIThermostat(ClimateEntity, RestoreEntity):
         """Update thermostat with latest state from sensor."""
         try:
             if check_float(state.state):
-                self._cur_temp = float(round(float(state.state)))
+                self._cur_temp = float(state.state)
         except ValueError as ex:
             _LOGGER.debug("Unable to update from sensor: %s", ex)
 
@@ -610,9 +610,9 @@ class AIThermostat(ClimateEntity, RestoreEntity):
                 self.ignoreStates = True
                 # Use the same precision and min and max as the TVR
                 if self.hass.states.get(self.heater_entity_id).attributes.get('target_temp_step') is not None:
-                    self._temp_precision = float(self.hass.states.get(self.heater_entity_id).attributes.get('target_temp_step'))
+                    self._target_temp_step = float(self.hass.states.get(self.heater_entity_id).attributes.get('target_temp_step'))
                 else:
-                    self._temp_precision = 1
+                    self._target_temp_step = 1
                 if self.hass.states.get(self.heater_entity_id).attributes.get('min_temp') is not None:
                     self._min_temp = float(self.hass.states.get(self.heater_entity_id).attributes.get('min_temp'))
                 else:
