@@ -4,7 +4,6 @@ import asyncio
 from asyncio.tasks import wait
 import logging
 import json
-import math
 from time import sleep
 from custom_components.ai_thermostat.helpers import check_float, convert_time
 import homeassistant.util.dt as dt_util
@@ -625,13 +624,17 @@ class AIThermostat(ClimateEntity, RestoreEntity):
 
                 #night mode
                 if int(self.night_temp) != -1:
-                    if convert_time(self.night_start).time() < datetime.now().time() and convert_time(self.night_end).time() > datetime.now().time() and not self.night_status:
+                    nstart = convert_time(self.night_start).time()
+                    nend = convert_time(self.night_end).time()
+                    if nend < nstart:
+                        nend = nend + timedelta(days=1)
+                    if nstart < datetime.now().time() and nend > datetime.now().time() and not self.night_status:
                         _LOGGER.debug("night mode active override with: %s",float(self.night_temp))
                         self.daytemp = self._target_temp
                         self._target_temp = float(self.night_temp)
                         self.night_status = True
                         self._attr_preset_mode = "NIGHT_MODE"
-                    elif convert_time(self.night_start).time() > datetime.now().time() and convert_time(self.night_end).time() < datetime.now().time() and self.night_status:
+                    elif nstart > datetime.now().time() and nend < datetime.now().time() and self.night_status:
                         self._target_temp = self.daytemp
                         self.night_status = False
                         self._attr_preset_mode = PRESET_NONE
