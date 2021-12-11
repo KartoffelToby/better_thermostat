@@ -413,21 +413,24 @@ class AIThermostat(ClimateEntity, RestoreEntity):
         if self._hvac_mode == HVAC_MODE_OFF:
             return CURRENT_HVAC_OFF
 
-        if self.hass.states.get(self.heater_entity_id).attributes.get('position') is not None:
-            if check_float(self.hass.states.get(self.heater_entity_id).attributes.get('position')):
-                valve = float(self.hass.states.get(self.heater_entity_id).attributes.get('position'))
-                if valve > 0:
-                    return CURRENT_HVAC_HEAT
-                else:
-                    return CURRENT_HVAC_IDLE
-                
-        if self.hass.states.get(self.heater_entity_id).attributes.get('pi_heating_demand') is not None:
-            if check_float(self.hass.states.get(self.heater_entity_id).attributes.get('pi_heating_demand')):
-                valve = float(self.hass.states.get(self.heater_entity_id).attributes.get('pi_heating_demand'))
-                if valve > 0:
-                    return CURRENT_HVAC_HEAT
-                else:
-                    return CURRENT_HVAC_IDLE
+        try:
+            if self.hass.states.get(self.heater_entity_id).attributes.get('position') is not None:
+                if check_float(self.hass.states.get(self.heater_entity_id).attributes.get('position')):
+                    valve = float(self.hass.states.get(self.heater_entity_id).attributes.get('position'))
+                    if valve > 0:
+                        return CURRENT_HVAC_HEAT
+                    else:
+                        return CURRENT_HVAC_IDLE
+                    
+            if self.hass.states.get(self.heater_entity_id).attributes.get('pi_heating_demand') is not None:
+                if check_float(self.hass.states.get(self.heater_entity_id).attributes.get('pi_heating_demand')):
+                    valve = float(self.hass.states.get(self.heater_entity_id).attributes.get('pi_heating_demand'))
+                    if valve > 0:
+                        return CURRENT_HVAC_HEAT
+                    else:
+                        return CURRENT_HVAC_IDLE
+        except RuntimeError:
+            _LOGGER.debug("ai_thermostat: currently can't get the TRV")
 
         if not self._is_device_active:
             return CURRENT_HVAC_IDLE
