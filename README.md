@@ -207,6 +207,7 @@ If you want to support this project, you can ☕ [**buy a coffee here**](https:/
 | :----------------------------------------------- |
 | [@RubenKelevra](https://github.com/RubenKelevra) |
 | [@bruvv](https://github.com/bruvv)               |
+| [@Cycor](https://github.com/Cycor)               |
 
 
 <a href="https://www.buymeacoffee.com/kartoffeltoby" target="_blank"><img src="https://cdn.buymeacoffee.com/buttons/v2/default-green.png" alt="Buy Me A Coffee" style="height: 60px !important;width: 217px !important;" ></a>
