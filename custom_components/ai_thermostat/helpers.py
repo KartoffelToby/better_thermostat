@@ -13,3 +13,9 @@ def convert_time(time_string):
         return datetime.strptime(time_string, "%H:%M")
     except ValueError:
         return None
+
+def convert_decimal(decimal_string):
+    try:
+        return float(format(float(decimal_string), '.1f'))
+    except ValueError:
+        return None
