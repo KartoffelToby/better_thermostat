@@ -232,7 +232,7 @@ class AIThermostat(ClimateEntity, RestoreEntity):
         def _async_startup(*_):
             """Init on startup."""
 
-            _LOGGER.info("Starting ai_thermostat for %s with version: 0.8.1 waiting for entity to be ready...",self.name)
+            _LOGGER.info("Starting ai_thermostat for %s with version: 0.8.2 waiting for entity to be ready...",self.name)
 
             loop = asyncio.get_event_loop()
             loop.create_task(self.startUp())
@@ -293,7 +293,7 @@ class AIThermostat(ClimateEntity, RestoreEntity):
                         if check == 'on':
                             self.window_open = True
                             self._hvac_mode = HVAC_MODE_OFF
-                            #self._attr_preset_mode = PRESET_WINDOW_OPEN
+                            self._attr_preset_mode = PRESET_WINDOW_OPEN
                         else:
                             self.window_open = False
                             self.closed_window_triggerd = False
@@ -443,7 +443,6 @@ class AIThermostat(ClimateEntity, RestoreEntity):
             raise ValueError(
                 f"Got unsupported preset_mode {preset_mode}. Must be one of {self._attr_preset_modes}"
             )
-        #self._attr_preset_mode = PRESET_NONE
         self._attr_preset_mode = PRESET_NONE
         await self.async_write_ha_state()
 
@@ -511,8 +510,8 @@ class AIThermostat(ClimateEntity, RestoreEntity):
             else:
                 self.window_open = False
                 self.closed_window_triggerd = False
-                #if self._attr_preset_mode == PRESET_WINDOW_OPEN:
-                    #self._attr_preset_mode = PRESET_NONE
+                if self._attr_preset_mode == PRESET_WINDOW_OPEN:
+                    self._attr_preset_mode = PRESET_NONE
             _LOGGER.debug("ai_thermostat: Window %s",self.window_open)
             self.async_write_ha_state()
             await self._async_control_heating()
@@ -659,12 +658,12 @@ class AIThermostat(ClimateEntity, RestoreEntity):
                         self.daytemp = self._target_temp
                         self._target_temp = float(self.night_temp)
                         self.night_status = True
-                        #self._attr_preset_mode = PRESET_NIGHT_MODE
+                        self._attr_preset_mode = PRESET_NIGHT_MODE
                     elif nstart.time() > datetime.now().time() and nend.time() < datetime.now().time() and self.night_status:
                         self._target_temp = self.daytemp
                         self.night_status = False
-                        #if self._attr_preset_mode == PRESET_NIGHT_MODE:
-                        #    self._attr_preset_mode = PRESET_NONE
+                        if self._attr_preset_mode == PRESET_NIGHT_MODE:
+                            self._attr_preset_mode = PRESET_NONE
 
 
 
@@ -698,7 +697,7 @@ class AIThermostat(ClimateEntity, RestoreEntity):
                     converted_hvac_mode = HVAC_MODE_OFF
                     self._hvac_mode = HVAC_MODE_OFF
                     self.closed_window_triggerd = True
-                    #self._attr_preset_mode = PRESET_WINDOW_OPEN
+                    self._attr_preset_mode = PRESET_WINDOW_OPEN
                 else:
                     if self.beforeClosed != HVAC_MODE_OFF:
                         converted_hvac_mode = self.beforeClosed
@@ -779,7 +778,7 @@ class AIThermostat(ClimateEntity, RestoreEntity):
                     # Calibration stuff
                     if self.calibration_type == 0 and not self.window_open:
                         if doCalibration:
-                            mqtt_calibration = {"local_temperature_calibration": int(round(calibration))}
+                            mqtt_calibration = {"local_temperature_calibration": calibration}
                             payload = json.dumps(mqtt_calibration, cls=JSONEncoder)
                             self.mqtt.async_publish('zigbee2mqtt/'+self.hass.states.get(self.heater_entity_id).attributes.get('device').get('friendlyName')+'/set', payload, 0, False)
                             await asyncio.sleep(
