@@ -1,6 +1,5 @@
 from datetime import datetime
 
-
 def check_float(potential_float):
     try:
         float(potential_float)
