@@ -2,5 +2,6 @@
   "name": "AI Thermostat for Zigbee2MQTT",
   "render_readme": true,
   "domains": ["climate"],
-  "iot_class": "Local Push"
+  "iot_class": "Local Push",
+  "homeassistant": "2021.12.0"
 }
