@@ -11,6 +11,11 @@
     "mqtt",
     "recorder"
   ],
+  "after_dependencies": [
+    "mqtt",
+    "climate",
+    "sensor"
+  ],
   "codeowners": [
     "@kartoffeltoby"
   ],
