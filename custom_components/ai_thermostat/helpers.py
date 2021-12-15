@@ -9,7 +9,9 @@ def check_float(potential_float):
 
 def convert_time(time_string):
     try:
-        return datetime.strptime(time_string, "%H:%M")
+        currentTime = datetime.now()
+        getHoursMinutes = datetime.strptime(time_string, "%H:%M")
+        return currentTime.replace(hour=getHoursMinutes.hour, minute=getHoursMinutes.minute,second=0, microsecond=0)
     except ValueError:
         return None
 

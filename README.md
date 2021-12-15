@@ -1,12 +1,14 @@
 [![Active installations](https://badge.t-haber.de/badge/ai_thermostat?kill_cache=1)](https://github.com/KartoffelToby/ai_thermostat/)
 [![GitHub issues](https://img.shields.io/github/issues/KartoffelToby/ai_thermostat?style=for-the-badge)](https://github.com/KartoffelToby/ai_thermostat/issues)
-[![Version - 0.8.0](https://img.shields.io/badge/Version-0.8.0-009688?style=for-the-badge)](https://github.com/KartoffelToby/ai_thermostat/releases)
+[![Version - 0.8.2](https://img.shields.io/badge/Version-0.8.2-009688?style=for-the-badge)](https://github.com/KartoffelToby/ai_thermostat/releases)
 # AI THERMOSTAT for Zigbee2MQTT
 
 **NICE TO KNOW: This, is still a kind of beta version if the main functions are stable it will be released as 1.0.0 version under the final name better_thermostat.**
 **After 1.0 we swtich to Monthly releases**
 
-**Tested with: HA: 2021.11.5 and Z2M: 1.22.1-1**
+**Tested with: HA: 2021.12.1 and Z2M: 1.22.1-1**
+
+**You need at least HA: 2021.12 for 0.8.2 or higher**
 
 ### Advance information:
 
@@ -207,6 +209,7 @@ If you want to support this project, you can ☕ [**buy a coffee here**](https:/
 | :----------------------------------------------- |
 | [@RubenKelevra](https://github.com/RubenKelevra) |
 | [@bruvv](https://github.com/bruvv)               |
+| [@Cycor](https://github.com/Cycor)               |
 
 
 <a href="https://www.buymeacoffee.com/kartoffeltoby" target="_blank"><img src="https://cdn.buymeacoffee.com/buttons/v2/default-green.png" alt="Buy Me A Coffee" style="height: 60px !important;width: 217px !important;" ></a>
