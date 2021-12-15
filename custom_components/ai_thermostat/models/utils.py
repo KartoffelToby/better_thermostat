@@ -1,5 +1,4 @@
 import asyncio
-import math
 from custom_components.ai_thermostat.helpers import convert_decimal
 from homeassistant.helpers.json import JSONEncoder
 import logging
@@ -23,10 +22,10 @@ def default_calibration(self):
   new_calibration = float((float(self._cur_temp) - float(state.get('local_temperature'))) + float(state.get('local_temperature_calibration')))
   if new_calibration > 0 and new_calibration < 1:
     new_calibration = round(new_calibration)
-  if new_calibration < -6:
-      new_calibration = -6
-  if new_calibration > 6:
-      new_calibration = 6
+  if new_calibration < -30:
+      new_calibration = -30
+  if new_calibration > 30:
+      new_calibration = 30
 
   return convert_decimal(new_calibration)
 
