@@ -8,6 +8,7 @@ from time import sleep
 from custom_components.ai_thermostat.helpers import check_float, convert_decimal, convert_time
 import homeassistant.util.dt as dt_util
 from datetime import datetime, timedelta
+import math
 
 import voluptuous as vol
 from custom_components.ai_thermostat.models.models import convert_inbound_states, convert_outbound_states
@@ -639,9 +640,6 @@ class AIThermostat(ClimateEntity, RestoreEntity):
                 if int(self.night_temp) != -1:
                     nstart = convert_time(self.night_start)
                     nend = convert_time(self.night_end)
-                    _LOGGER.debug("night mode: %s - %s", nstart.timestamp(), nend.timestamp())
-                    _LOGGER.debug("night mode: %s - %s", datetime.now().timestamp(), (nstart.timestamp() < datetime.now().timestamp()))
-
                     if nend.timestamp() < nstart.timestamp():
                         nend = nend + timedelta(days=1)
                     if nstart.timestamp() < datetime.now().timestamp() and nend.timestamp() > datetime.now().timestamp() and not self.night_status:
@@ -762,7 +760,7 @@ class AIThermostat(ClimateEntity, RestoreEntity):
                     # Calibration stuff
                     if self.calibration_type == 0 and not self.window_open:
                         if doCalibration:
-                            mqtt_calibration = {"local_temperature_calibration": calibration}
+                            mqtt_calibration = {"local_temperature_calibration": math.ceil(calibration)}
                             payload = json.dumps(mqtt_calibration, cls=JSONEncoder)
                             await self.mqtt.async_publish(self.hass,'zigbee2mqtt/'+self.hass.states.get(self.heater_entity_id).attributes.get('device').get('friendlyName')+'/set', payload, 0, False)
                             await asyncio.sleep(

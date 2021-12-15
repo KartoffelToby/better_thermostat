@@ -1,5 +1,4 @@
 import asyncio
-import math
 from custom_components.ai_thermostat.helpers import convert_decimal
 from homeassistant.helpers.json import JSONEncoder
 import logging
