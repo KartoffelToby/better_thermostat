@@ -8,8 +8,6 @@ from time import sleep
 from custom_components.ai_thermostat.helpers import check_float, convert_decimal, convert_time
 import homeassistant.util.dt as dt_util
 from datetime import datetime, timedelta
-import math
-
 import voluptuous as vol
 from custom_components.ai_thermostat.models.models import convert_inbound_states, convert_outbound_states
 from homeassistant.helpers.json import JSONEncoder
@@ -42,6 +40,7 @@ from homeassistant.core import DOMAIN as HA_DOMAIN, CoreState, callback
 import homeassistant.helpers.config_validation as cv
 from homeassistant.helpers.event import (
     async_track_state_change_event,
+    async_track_time_change
 )
 from homeassistant.helpers.reload import async_setup_reload_service
 from homeassistant.helpers.restore_state import RestoreEntity
@@ -216,6 +215,7 @@ class AIThermostat(ClimateEntity, RestoreEntity):
         self.lastOverswing = datetime.now()
         self._device_class = device_class
         self._state_class = state_class
+        self._today_nightmode_end = datetime.now()
 
     async def async_added_to_hass(self):
         """Run when entity about to be added."""
@@ -233,11 +233,29 @@ class AIThermostat(ClimateEntity, RestoreEntity):
                 self.hass, [self.window_sensors_entity_ids], self._async_window_changed
             )
 
+        if self.night_temp != -1:
+            starttime = dt_util.parse_time(self.night_start)
+            endtime = dt_util.parse_time(self.night_end)
+            async_track_time_change(
+                self.hass,
+                self._async_timer_trigger,
+                starttime.hour,
+                starttime.minute,
+                starttime.second,
+            )
+            async_track_time_change(
+                self.hass,
+                self._async_timer_trigger,
+                endtime.hour,
+                endtime.minute,
+                endtime.second,
+            )
+
         @callback
         def _async_startup(*_):
             """Init on startup."""
 
-            _LOGGER.info("Starting ai_thermostat for %s with version: 0.8.3 waiting for entity to be ready...",self.name)
+            _LOGGER.info("Starting ai_thermostat for %s with version: 0.8.4 waiting for entity to be ready...",self.name)
 
             loop = asyncio.get_event_loop()
             loop.create_task(self.startUp())
@@ -490,6 +508,24 @@ class AIThermostat(ClimateEntity, RestoreEntity):
         return super().max_temp
 
     @callback
+    async def _async_timer_trigger(self,state):
+        starttime = dt_util.parse_time(self.night_start)
+        endtime = dt_util.parse_time(self.night_end)
+        _LOGGER.debug("test %s %s",starttime.hour,state)
+        if starttime.hour == state.hour and starttime.minute == state.minute:
+            _LOGGER.debug("night mode active override with: %s",float(self.night_temp))
+            self.daytemp = self._target_temp
+            self._target_temp = float(self.night_temp)
+            self.night_status = True
+
+        if endtime.hour == state.hour and endtime.minute == state.minute:
+            _LOGGER.debug("night mode inactive override with: %s",float(self.daytemp))
+            self._target_temp = self.daytemp
+            self.night_status = False   
+        #night mode
+        await self._async_control_heating()
+
+    @callback
     async def _async_window_changed(self, state):
         if self.startup:
             return
@@ -636,24 +672,6 @@ class AIThermostat(ClimateEntity, RestoreEntity):
                     self._max_temp = 30
 
 
-                #night mode
-                if int(self.night_temp) != -1:
-                    nstart = convert_time(self.night_start)
-                    nend = convert_time(self.night_end)
-                    if nend.timestamp() < nstart.timestamp():
-                        nend = nend + timedelta(days=1)
-                    if nstart.timestamp() < datetime.now().timestamp() and nend.timestamp() > datetime.now().timestamp() and not self.night_status:
-                        _LOGGER.debug("night mode active override with: %s",float(self.night_temp))
-                        self.daytemp = self._target_temp
-                        self._target_temp = float(self.night_temp)
-                        self.night_status = True
-                    elif nstart.timestamp() > datetime.now().timestamp() and nend.timestamp() < datetime.now().timestamp() and self.night_status:
-                        self._target_temp = self.daytemp
-                        self.night_status = False
-
-
-
-
                 # Need to force the local_temperature_calibration get updated in HA only for SPZB0001
                 if(self.model == "SPZB0001"):
                     mqtt_get = {"local_temperature_calibration": ""}
@@ -760,7 +778,7 @@ class AIThermostat(ClimateEntity, RestoreEntity):
                     # Calibration stuff
                     if self.calibration_type == 0 and not self.window_open:
                         if doCalibration:
-                            mqtt_calibration = {"local_temperature_calibration": math.ceil(calibration)}
+                            mqtt_calibration = {"local_temperature_calibration": calibration}
                             payload = json.dumps(mqtt_calibration, cls=JSONEncoder)
                             await self.mqtt.async_publish(self.hass,'zigbee2mqtt/'+self.hass.states.get(self.heater_entity_id).attributes.get('device').get('friendlyName')+'/set', payload, 0, False)
                             await asyncio.sleep(
@@ -799,6 +817,7 @@ class AIThermostat(ClimateEntity, RestoreEntity):
                     _LOGGER.debug("ai_thermostat entity not ready or device is currently not supported")
                     _LOGGER.debug("fatal %s",fatal)
                     self.ignoreStates = False
+
 
     def check_if_is_winter(self):
         if self.weather is not None:
