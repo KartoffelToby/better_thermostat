@@ -1,4 +1,5 @@
 import logging
+import math
 from custom_components.ai_thermostat.models.BRT_100_TRV.remap import BRT_100_TRV_inbound, BRT_100_TRV_outbound
 from custom_components.ai_thermostat.models.GS361A_H04.remap import GS361A_H04_thermostat_inbound, GS361A_H04_thermostat_outbound
 from custom_components.ai_thermostat.models.SPZB0001.remap import SPZB0001_inbound, SPZB0001_outbound
@@ -59,5 +60,5 @@ def convert_outbound_states(self,hvac_mode):
     else:
         self.calibration_type = 0
         state = self.hass.states.get(self.heater_entity_id).attributes
-        new_calibration = default_calibration(self)
+        new_calibration = int(math.ceil(default_calibration(self)))
         return cleanState(self._target_temp,state.get('local_temperature'),state.get('local_temperature_calibration'),hvac_mode,True,new_calibration)
