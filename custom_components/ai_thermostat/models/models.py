@@ -60,5 +60,5 @@ def convert_outbound_states(self,hvac_mode):
     else:
         self.calibration_type = 0
         state = self.hass.states.get(self.heater_entity_id).attributes
-        new_calibration = int(math.ceil(default_calibration(self)))
+        new_calibration = int(math.floor(default_calibration(self)))
         return cleanState(self._target_temp,state.get('local_temperature'),state.get('local_temperature_calibration'),hvac_mode,True,new_calibration)

@@ -255,7 +255,7 @@ class AIThermostat(ClimateEntity, RestoreEntity):
         def _async_startup(*_):
             """Init on startup."""
 
-            _LOGGER.info("Starting ai_thermostat for %s with version: 0.8.4 waiting for entity to be ready...",self.name)
+            _LOGGER.info("Starting ai_thermostat for %s with version: 0.8.5 waiting for entity to be ready...",self.name)
 
             loop = asyncio.get_event_loop()
             loop.create_task(self.startUp())
@@ -671,16 +671,16 @@ class AIThermostat(ClimateEntity, RestoreEntity):
                 else:
                     self._max_temp = 30
 
-
+                """
                 # Need to force the local_temperature_calibration get updated in HA only for SPZB0001
                 if(self.model == "SPZB0001"):
                     mqtt_get = {"local_temperature_calibration": ""}
                     payload = json.dumps(mqtt_get, cls=JSONEncoder)
                     await self.mqtt.async_publish(self.hass,'zigbee2mqtt/'+self.hass.states.get(self.heater_entity_id).attributes.get('device').get('friendlyName')+'/get', payload, 0, False)
-                    #await asyncio.sleep(
-                    #    1 #5
-                    #)
-
+                    await asyncio.sleep(
+                        1 #5
+                    )
+                """
 
                 # Get the forecast from the weather entity for two days in a row and round and split it for compare
                 is_cold = self.check_if_is_winter()
@@ -801,7 +801,7 @@ class AIThermostat(ClimateEntity, RestoreEntity):
                         await self.hass.services.async_call('climate', SERVICE_SET_HVAC_MODE, data)
 
                     await asyncio.sleep(
-                        5 #5
+                        2 #5
                     )    
                     self.ignoreStates = False
 
