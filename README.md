@@ -1,6 +1,6 @@
 [![Active installations](https://badge.t-haber.de/badge/ai_thermostat?kill_cache=1)](https://github.com/KartoffelToby/ai_thermostat/)
 [![GitHub issues](https://img.shields.io/github/issues/KartoffelToby/ai_thermostat?style=for-the-badge)](https://github.com/KartoffelToby/ai_thermostat/issues)
-[![Version - 0.8.4](https://img.shields.io/badge/Version-0.8.4-009688?style=for-the-badge)](https://github.com/KartoffelToby/ai_thermostat/releases)
+[![Version - 0.8.5](https://img.shields.io/badge/Version-0.8.5-009688?style=for-the-badge)](https://github.com/KartoffelToby/ai_thermostat/releases)
 # AI THERMOSTAT for Zigbee2MQTT
 
 **NICE TO KNOW: This, is still a kind of beta version if the main functions are stable it will be released as 1.0.0 version under the final name better_thermostat.**
@@ -9,6 +9,8 @@
 **Tested with: HA: 2021.12.1 and Z2M: 1.22.1-1**
 
 **You need at least HA: 2021.12 for 0.8.2 or higher**
+
+**NEW: if you looking for a better thermostat ui too, checkout the [better-thermostat-ui-card](https://github.com/KartoffelToby/better-thermostat-ui-card) lovelace hacs frontend card.**
 
 ### Advance information:
 
