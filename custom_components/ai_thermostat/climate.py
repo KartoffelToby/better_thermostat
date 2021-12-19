@@ -311,6 +311,9 @@ class AIThermostat(ClimateEntity, RestoreEntity):
             if self.hass.states.get(self.heater_entity_id).attributes.get('device') is not None:
                 if self.window_sensors_entity_ids:
                     window = self.hass.states.get(self.window_sensors_entity_ids)
+                    if window is None:
+                        _LOGGER.error("ai_thermostat %s window sensor: %s is not in HA or wrong spelled",self.name,self.window_sensors_entity_ids)
+                        return
                     if window.state not in (STATE_UNAVAILABLE,STATE_UNKNOWN,None):
                         check = window.state
                         if check == 'on':
