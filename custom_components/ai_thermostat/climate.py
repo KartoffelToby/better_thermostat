@@ -298,6 +298,14 @@ class AIThermostat(ClimateEntity, RestoreEntity):
         await asyncio.sleep(5)
         sensor_state = self.hass.states.get(self.sensor_entity_id)
         trv_state = self.hass.states.get(self.heater_entity_id)
+        
+        if sensor_state is None:
+            _LOGGER.error("ai_thermostat %s temperatur sensor: %s is not in HA or wrong spelled",self.name,self.sensor_entity_id)
+            return
+        
+        if trv_state is None:
+            _LOGGER.error("ai_thermostat %s TRV: %s is not in HA or wrong spelled",self.name,self.heater_entity_id)
+            return
 
         if sensor_state.state not in (
             STATE_UNAVAILABLE,
