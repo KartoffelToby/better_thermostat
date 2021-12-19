@@ -793,7 +793,7 @@ class AIThermostat(ClimateEntity, RestoreEntity):
                         await self.hass.services.async_call('climate', SERVICE_SET_HVAC_MODE, data)
  
                     # Make sure its turned off!
-                    if (self.window_open or not is_cold) and has_real_mode:
+                    if (self._hvac_mode == HVAC_MODE_OFF or self.window_open or not is_cold) and has_real_mode:
                         mqtt_sys_mode = {"system_mode": HVAC_MODE_OFF}
                         payload = json.dumps(mqtt_sys_mode, cls=JSONEncoder)
                         await self.mqtt.async_publish(self.hass,'zigbee2mqtt/'+self.hass.states.get(self.heater_entity_id).attributes.get('device').get('friendlyName')+'/set', payload, 0, False)
