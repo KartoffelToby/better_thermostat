@@ -212,7 +212,7 @@ class AIThermostat(ClimateEntity, RestoreEntity):
         self.summer = False
         self.ignoreStates = False
         self.lastCalibration = datetime.now() - timedelta(minutes = 5)
-        self.lastOverswing = datetime.now()
+        self.start_dampening_event = None
         self._device_class = device_class
         self._state_class = state_class
         self._today_nightmode_end = datetime.now()
