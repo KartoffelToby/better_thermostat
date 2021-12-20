@@ -711,7 +711,6 @@ class AIThermostat(ClimateEntity, RestoreEntity):
                 # NEW SPECIAL STUFF :)
                 try:
                     remappedstates = convert_outbound_states(self,converted_hvac_mode)
-                    local_temperature_calibration = remappedstates.local_temperature_calibration
                     converted_hvac_mode = remappedstates.system_mode
                     local_temperature = remappedstates.local_temperature
                     current_heating_setpoint = remappedstates.current_temperature
