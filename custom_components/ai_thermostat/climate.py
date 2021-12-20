@@ -1,22 +1,14 @@
 """Special support for AI thermostat units."""
 """ Z2M version """
 import asyncio
-from asyncio.tasks import wait
-import logging
 import json
-from time import sleep
-from custom_components.ai_thermostat.helpers import check_float, convert_decimal, convert_time
-import homeassistant.util.dt as dt_util
+import logging
 from datetime import datetime, timedelta
+
+import homeassistant.helpers.config_validation as cv
+import homeassistant.util.dt as dt_util
 import voluptuous as vol
-from custom_components.ai_thermostat.models.models import convert_inbound_states, convert_outbound_states
-from homeassistant.helpers.json import JSONEncoder
-
 from homeassistant.components.climate import PLATFORM_SCHEMA, ClimateEntity
-
-from homeassistant.components.recorder import history
-
-
 from homeassistant.components.climate.const import (
     CURRENT_HVAC_HEAT,
     CURRENT_HVAC_IDLE,
@@ -27,6 +19,7 @@ from homeassistant.components.climate.const import (
     SERVICE_SET_TEMPERATURE,
     SERVICE_SET_HVAC_MODE,
 )
+from homeassistant.components.recorder import history
 from homeassistant.const import (
     ATTR_ENTITY_ID,
     ATTR_TEMPERATURE,
@@ -36,15 +29,17 @@ from homeassistant.const import (
     STATE_UNAVAILABLE,
     STATE_UNKNOWN,
 )
-from homeassistant.core import DOMAIN as HA_DOMAIN, CoreState, callback
-import homeassistant.helpers.config_validation as cv
+from homeassistant.core import CoreState, callback
 from homeassistant.helpers.event import (
     async_track_state_change_event,
     async_track_time_change
 )
+from homeassistant.helpers.json import JSONEncoder
 from homeassistant.helpers.reload import async_setup_reload_service
 from homeassistant.helpers.restore_state import RestoreEntity
 
+from custom_components.ai_thermostat.helpers import check_float, convert_decimal
+from custom_components.ai_thermostat.models.models import convert_inbound_states, convert_outbound_states
 from . import DOMAIN, PLATFORMS
 
 _LOGGER = logging.getLogger(__name__)
