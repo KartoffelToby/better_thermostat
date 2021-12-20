@@ -195,9 +195,9 @@ class AIThermostat(ClimateEntity, RestoreEntity):
         self.window_open = False
         self._is_away = False
         self.startup = True
-        self.beforeClosed = HVAC_MODE_OFF
+        self.heating_active_pre_window_opened = None
         self.model = "-"
-        self.internalTemp = 0
+        self.internalTemp = None
         self.next_valve_maintenance = datetime.now() + timedelta(days = 5)
         self.isDoingMaintenance = False
         self.calibration_type = 2
@@ -696,18 +696,15 @@ class AIThermostat(ClimateEntity, RestoreEntity):
                 else:
                     self.summer = False
 
-                converted_hvac_mode = self._hvac_mode
-
                 # Window open detection and Weather detection force turn TVR off
                 if (self.window_open or not is_cold) and not self.closed_window_triggerd:
-                    self.beforeClosed = converted_hvac_mode
-                    converted_hvac_mode = HVAC_MODE_OFF
+                    self.heating_active_pre_window_opened = False
+                    if self._hvac_mode == HVAC_MODE_HEAT:
+                        self.heating_active_pre_window_opened = True
                     self._hvac_mode = HVAC_MODE_OFF
                     self.closed_window_triggerd = True
-                else:
-                    if self.beforeClosed != HVAC_MODE_OFF:
-                        converted_hvac_mode = self.beforeClosed
-                        self._hvac_mode = HVAC_MODE_HEAT
+                elif self.heating_active_pre_window_opened:
+                    self._hvac_mode = HVAC_MODE_HEAT
 
 
 
