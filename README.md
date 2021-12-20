@@ -116,8 +116,8 @@ climate:
     thermostat: climate.trv
     temperature_sensor: sensor.temperature
     window_sensors: group.office_windows #if this is not set, the window open detection is off
-    weather: weather.xxx #if this is set, the outdoor_sensor is ignored, remove the outdoor_sensor config!
-    outdoor_sensor: sensor.outdoor_temperature #if you want to use it, remove the weather config!
+    weather: weather.home #if this is set, the outdoor_sensor is ignored, remove the outdoor_sensor config!
+    outdoor_sensor: sensor.outdoor_temperature #if you want to use it, remove the weather entity from the config!
     off_temperature: 20
     window_off_delay: 0
     valve_maintenance: false
@@ -128,22 +128,22 @@ climate:
 
 **IMPORTANT: the weather and outdoor_sensor are not required, but you need one of them if you want to use this function, if not remove them**
 
-Key | Example Value | Required? | Description
---- | --- | --- | ---
-***platform*** | `ai_thermostat` | *yes* |
-***name*** | `Thermostat - Livingroom` | *no* | Used to name the virtual thermostat
-***thermostat*** | `climate.trv` | *yes* | a zigbee2mqtt climate entity.
-***unique_id*** | `392049` | *no* | A unique_id (e.g. UNIX timestamp) mostly needed when using google home.
-***temperature_sensor*** | `sensor.temperature` | *yes* | a zigbee2mqtt sensor entity that is used for the actual temperature input of the thermostat.
-***window_sensors*** | `group.livingroom_windows` | *no* | a group of window/door - sensors (see below) that are used for the open window detection of the thermostat (the thermostat doesn't need to support an open window detection for that feature). If you have only one window, you can pass the entity without the group.
-***window_off_delay*** | `10` | *no* | Only set the thermostat to an OFF state if the window/door - sensors are open for X seconds. Default is 0 for an instant turnoff.
-***weather*** | `weather.home` | *no* | a weather entity (e.g. by the  Meteorologisk Institutt - Metno integration) within Home Assistant to check the forecast to detect if heating is needed. The threshold is set by the off_temperature. This setting overwrites the outdoor_sensor.
-***outdoor_sensor*** | `sensor.outdoor_temperature` | *no* | A temperature sensor entity within Home Assistant that is used to determine if the heating should be switched off. The threshold is set by the off_temperature. If a weather entity is configured this setting is ignored.
-***off_temperature*** | `20` | *no* | An integer as a temperature cutoff in case the weather is warm. This setting requires either a weather or an outdoor_sensor setting to work.
-***valve_maintenance*** | `false` | *no* | This is a maintenance function that will prevent the valve to get stuck or make annoying sounds, the default is `false`. If set to `true` it will perform a valve open-close-procedure every five days
-***night_temp*** | `18` | *no* | if this value is set, the night temperature reduction is active and set it to the temperature at night (to disable it, remove this setting or set it to -1) see also  night_start and night_end
-***night_start*** | `23:00` | *no* | define the start time of the night for the night reduction (night_temp must be set) the TRV will be set to the night temp
-***night_end*** | `07:00` | *no* | define the end time of the night for the night reduction (night_temp must be set) the TRV will be set back to the last active temp
+| Key                      | Example Value                | Required? | Description                                                                                                                                                                                                                                                            |
+|--------------------------|------------------------------|-----------|------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| ***platform***           | `ai_thermostat`              | *yes*     |                                                                                                                                                                                                                                                                        |
+| ***name***               | `Thermostat - Livingroom`    | *no*      | Used to name the virtual thermostat                                                                                                                                                                                                                                    |
+| ***thermostat***         | `climate.trv`                | *yes*     | a zigbee2mqtt climate entity.                                                                                                                                                                                                                                          |
+| ***unique_id***          | `392049`                     | *no*      | A unique_id (e.g. UNIX timestamp) mostly needed when using google home.                                                                                                                                                                                                |
+| ***temperature_sensor*** | `sensor.temperature`         | *yes*     | a zigbee2mqtt sensor entity that is used for the actual temperature input of the thermostat.                                                                                                                                                                           |
+| ***window_sensors***     | `group.livingroom_windows`   | *no*      | a group of window/door - sensors (see below) that are used for the open window detection of the thermostat (the thermostat doesn't need to support an open window detection for that feature). If you have only one window, you can pass the entity without the group. |
+| ***window_off_delay***   | `10`                         | *no*      | Only set the thermostat to an OFF state if the window/door - sensors are open for X seconds. Default is 0 for an instant turnoff.                                                                                                                                      |
+| ***weather***            | `weather.home`               | *no*      | a weather entity (e.g. by the  Meteorologisk Institutt - Metno integration) within Home Assistant to check the forecast to detect if heating is needed. The threshold is set by the off_temperature. This setting overwrites the outdoor_sensor.                       |
+| ***outdoor_sensor***     | `sensor.outdoor_temperature` | *no*      | A temperature sensor entity within Home Assistant that is used to determine if the heating should be switched off. The threshold is set by the off_temperature. If a weather entity is configured this setting is ignored.                                             |
+| ***off_temperature***    | `20`                         | *no*      | An integer as a temperature cutoff in case the weather is warm. This setting requires either a weather or an outdoor_sensor setting to work.                                                                                                                           |
+| ***valve_maintenance***  | `false`                      | *no*      | This is a maintenance function that will prevent the valve to get stuck or make annoying sounds, the default is `false`. If set to `true` it will perform a valve open-close-procedure every five days                                                                 |
+| ***night_temp***         | `18`                         | *no*      | if this value is set, the night temperature reduction is active and set it to the temperature at night (to disable it, remove this setting or set it to -1) see also  night_start and night_end                                                                        |
+| ***night_start***        | `23:00`                      | *no*      | define the start time of the night for the night reduction (night_temp must be set) the TRV will be set to the night temp                                                                                                                                              |
+| ***night_end***          | `07:00`                      | *no*      | define the end time of the night for the night reduction (night_temp must be set) the TRV will be set back to the last active temp                                                                                                                                     |
 
 ### Example Window/Door - Sensor config
 
@@ -198,17 +198,17 @@ climate:
 
 If you want to support this project, you can ☕ [**buy a coffee here**](https://www.buymeacoffee.com/kartoffeltoby).
 
-| User                                             | Donation |
-| :----------------------------------------------- | :------- |
-| Someone                                          | ☕ x 3  |
-| Someone                                          | ☕ x 1  |
+| User    | Donation |
+|:--------|:---------|
+| Someone | ☕ x 3    |
+| Someone | ☕ x 1    |
 
 ---
 
 ## ‎‍💻 Code Contributors
 
 | User                                             |
-| :----------------------------------------------- |
+|:-------------------------------------------------|
 | [@RubenKelevra](https://github.com/RubenKelevra) |
 | [@bruvv](https://github.com/bruvv)               |
 | [@Cycor](https://github.com/Cycor)               |
