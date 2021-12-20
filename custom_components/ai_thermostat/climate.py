@@ -200,7 +200,7 @@ class AIThermostat(ClimateEntity, RestoreEntity):
         self.next_valve_maintenance = datetime.now() + timedelta(days = 5)
         self.calibration_type = 2
         self.daytime_temp = 5
-        self.closed_window_triggerd = False
+        self.closed_window_triggered = False
         self.night_status = False
         self.summer = False
         self.ignoreStates = False
@@ -322,7 +322,7 @@ class AIThermostat(ClimateEntity, RestoreEntity):
                             self._hvac_mode = HVAC_MODE_OFF
                         else:
                             self.window_open = False
-                            self.closed_window_triggerd = False
+                            self.closed_window_triggered = False
                         _LOGGER.debug("ai_thermostat: Window %s",self.window_open)
                     else:
                         _LOGGER.info("ai_thermostat %s still waiting for %s to be available",self.name,self.window_sensors_entity_ids)
@@ -478,7 +478,7 @@ class AIThermostat(ClimateEntity, RestoreEntity):
         else:
             _LOGGER.debug("Unrecognized hvac mode: %s", hvac_mode)
         self.async_write_ha_state()
-        if self.closed_window_triggerd or self.ignoreStates:
+        if self.closed_window_triggered or self.ignoreStates:
             return
         await self._async_control_heating()
 
@@ -489,7 +489,7 @@ class AIThermostat(ClimateEntity, RestoreEntity):
             return
         self._target_temp = temperature
         self.async_write_ha_state()
-        if self.closed_window_triggerd or self.ignoreStates:
+        if self.closed_window_triggered or self.ignoreStates:
             return
         await self._async_control_heating()
 
@@ -540,7 +540,7 @@ class AIThermostat(ClimateEntity, RestoreEntity):
                 self.window_open = True
             else:
                 self.window_open = False
-                self.closed_window_triggerd = False
+                self.closed_window_triggered = False
             _LOGGER.debug("ai_thermostat: Window %s",self.window_open)
             self.async_write_ha_state()
             await self._async_control_heating()
@@ -556,7 +556,7 @@ class AIThermostat(ClimateEntity, RestoreEntity):
 
         self._async_update_temp(new_state)
         self.async_write_ha_state()
-        if self.closed_window_triggerd or self.ignoreStates:
+        if self.closed_window_triggered or self.ignoreStates:
             return
         await self._async_control_heating()
 
@@ -695,12 +695,12 @@ class AIThermostat(ClimateEntity, RestoreEntity):
                     self.summer = False
 
                 # Window open detection and Weather detection force turn TVR off
-                if (self.window_open or not is_cold) and not self.closed_window_triggerd:
+                if (self.window_open or not is_cold) and not self.closed_window_triggered:
                     self.heating_active_pre_window_opened = False
                     if self._hvac_mode == HVAC_MODE_HEAT:
                         self.heating_active_pre_window_opened = True
                     self._hvac_mode = HVAC_MODE_OFF
-                    self.closed_window_triggerd = True
+                    self.closed_window_triggered = True
                 elif self.heating_active_pre_window_opened:
                     self._hvac_mode = HVAC_MODE_HEAT
 
@@ -716,7 +716,7 @@ class AIThermostat(ClimateEntity, RestoreEntity):
                     calibration = float(remappedstates.calibration)                       
 
                     #if off do nothing
-                    if self.closed_window_triggerd or self._hvac_mode == HVAC_MODE_OFF:
+                    if self.closed_window_triggered or self._hvac_mode == HVAC_MODE_OFF:
                         if has_real_mode:
                             if self.hass.states.get(self.heater_entity_id).attributes.get('system_mode') == HVAC_MODE_OFF:
                                 self.ignoreStates = False
