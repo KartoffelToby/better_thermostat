@@ -1,13 +1,13 @@
 ---
 name: Bug report
-about: Create a report to help us improve
+about: Create a report to let us know of any issues you encountered
 
 ---
 
 ### Prerequisites
 
 * [ ] Model name of your Devices from Zigbee2Mqtt
-* [ ] Output from Home Assistent Developer Tools state e.g.
+* [ ] Output from Home Assistant Developer Tools state e.g.
 ```yaml
 hvac_modes:
   - auto
@@ -86,7 +86,7 @@ supported_features: 17
 
 **Actual behavior:**
 
-<!-- What actually happens -->
+<!-- What happens -->
 
 ### Versions
 
@@ -94,4 +94,4 @@ supported_features: 17
 
 ### Additional Information
 
-<!-- Any additional information, configuration or data that might be necessary to reproduce the issue. -->
+<!-- Any additional information, configuration, or data that might be necessary to reproduce the issue. -->
