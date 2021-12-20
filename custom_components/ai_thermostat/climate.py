@@ -198,7 +198,6 @@ class AIThermostat(ClimateEntity, RestoreEntity):
         self.heating_active_pre_window_opened = None
         self.model = "-"
         self.next_valve_maintenance = datetime.now() + timedelta(days = 5)
-        self.isDoingMaintenance = False
         self.calibration_type = 2
         self.daytemp = 5
         self.closed_window_triggerd = False
