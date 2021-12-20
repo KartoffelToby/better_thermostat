@@ -100,7 +100,7 @@ async def async_setup_platform(hass, config, async_add_entities, discovery_info=
     sensor_entity_id = config.get(CONF_SENSOR)
     window_sensors_entity_ids = config.get(CONF_SENSOR_WINDOW)
     window_delay = config.get(CONF_WINDOW_TIMEOUT)
-    weather = config.get(CONF_WEATHER)
+    weather_entity = config.get(CONF_WEATHER)
     outdoor_sensor = config.get(CONF_OUTDOOR_SENSOR)
     off_temperature = config.get(CONF_OFF_TEMPERATURE)
     valve_maintenance = config.get(CONF_VALVE_MAINTENANCE)
@@ -123,7 +123,7 @@ async def async_setup_platform(hass, config, async_add_entities, discovery_info=
                 sensor_entity_id,
                 window_sensors_entity_ids,
                 window_delay,
-                weather,
+                weather_entity,
                 outdoor_sensor,
                 off_temperature,
                 valve_maintenance,
@@ -154,7 +154,7 @@ class AIThermostat(ClimateEntity, RestoreEntity):
         sensor_entity_id,
         window_sensors_entity_ids,
         window_delay,
-        weather,
+        weather_entity,
         outdoor_sensor,
         off_temperature,
         valve_maintenance,
@@ -177,7 +177,7 @@ class AIThermostat(ClimateEntity, RestoreEntity):
         self.sensor_entity_id = sensor_entity_id
         self.window_sensors_entity_ids = window_sensors_entity_ids
         self.window_delay = window_delay or 0
-        self.weather = weather
+        self.weather_entity = weather_entity
         self.outdoor_sensor = outdoor_sensor
         self.off_temperature = off_temperature
         self.valve_maintenance = valve_maintenance
@@ -831,17 +831,17 @@ class AIThermostat(ClimateEntity, RestoreEntity):
 
 
     def check_if_is_winter(self):
-        if self.weather is not None:
+        if self.weather_entity is not None:
             try:
-                forcast = self.hass.states.get(self.weather).attributes.get('forecast')
+                forcast = self.hass.states.get(self.weather_entity).attributes.get('forecast')
                 if len(forcast) > 0:
                     max_forcast_temp = int(round(float(forcast[0]['temperature']) + float(forcast[1]['temperature']) / 2))
                     return max_forcast_temp < self.off_temperature
                 else:
-                    _LOGGER.warn("ai_thermostat: no weather data found.")
+                    _LOGGER.warn("ai_thermostat: no weather entity data found.")
                     return True
             except TypeError:
-                _LOGGER.warn("ai_thermostat: no weather data found.")
+                _LOGGER.warn("ai_thermostat: no weather entity data found.")
                 return True
 
         elif self.outdoor_sensor is not None:
