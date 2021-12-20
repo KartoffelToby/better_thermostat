@@ -818,10 +818,10 @@ class AIThermostat(ClimateEntity, RestoreEntity):
                     max_forcast_temp = int(round(float(forcast[0]['temperature']) + float(forcast[1]['temperature']) / 2))
                     return max_forcast_temp < self.off_temperature
                 else:
-                    _LOGGER.warn("ai_thermostat: no weather entity data found.")
+                    _LOGGER.warning("ai_thermostat: no weather entity data found.")
                     return True
             except TypeError:
-                _LOGGER.warn("ai_thermostat: no weather entity data found.")
+                _LOGGER.warning("ai_thermostat: no weather entity data found.")
                 return True
 
         elif self.outdoor_sensor is not None:
