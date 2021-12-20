@@ -197,7 +197,6 @@ class AIThermostat(ClimateEntity, RestoreEntity):
         self.startup = True
         self.heating_active_pre_window_opened = None
         self.model = "-"
-        self.internalTemp = None
         self.next_valve_maintenance = datetime.now() + timedelta(days = 5)
         self.isDoingMaintenance = False
         self.calibration_type = 2
@@ -734,7 +733,6 @@ class AIThermostat(ClimateEntity, RestoreEntity):
                     doCalibration = False
                     if (datetime.now() > (self.lastCalibration + timedelta(seconds = 20))):
                         doCalibration = True
-                        self.internalTemp = local_temperature
                         self.lastCalibration = datetime.now()
 
 
