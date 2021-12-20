@@ -36,13 +36,13 @@ async def overswing(self,calibration):
   if (datetime.now() > (self.lastOverswing + timedelta(minutes = 15))) and state.get('system_mode') is not None and self._target_temp is not None and self._cur_temp is not None and not self.night_status:
     check_overswing = (float(self._target_temp) - 0.5) < float(self._cur_temp)
     if check_overswing:
-      self.ignoreStates = True
+      self.ignore_states = True
       _LOGGER.debug("Overswing detected")
       await mqtt.async_publish(self.hass,'zigbee2mqtt/'+state.get('device').get('friendlyName')+'/set/current_heating_setpoint', float(5), 0, False)
       await asyncio.sleep(60)
       await mqtt.async_publish(self.hass,'zigbee2mqtt/'+state.get('device').get('friendlyName')+'/set/current_heating_setpoint', float(calibration), 0, False)
       self.lastOverswing = datetime.now()
-      self.ignoreStates = False
+      self.ignore_states = False
 
 def temperature_calibration(self):
   state = self.hass.states.get(self.heater_entity_id).attributes
