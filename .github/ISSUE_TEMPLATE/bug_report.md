@@ -1,6 +1,5 @@
 ---
-name: Bug report
-about: Create a report to let us know of any issues you encountered
+name: Bug report about: Create a report to let us know of any issues you encountered
 
 ---
 
@@ -8,6 +7,7 @@ about: Create a report to let us know of any issues you encountered
 
 * [ ] Model name of your Devices from Zigbee2Mqtt
 * [ ] Output from Home Assistant Developer Tools state e.g.
+
 ```yaml
 hvac_modes:
   - auto
