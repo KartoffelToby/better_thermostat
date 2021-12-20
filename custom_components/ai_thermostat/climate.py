@@ -199,7 +199,7 @@ class AIThermostat(ClimateEntity, RestoreEntity):
         self.model = "-"
         self.next_valve_maintenance = datetime.now() + timedelta(days = 5)
         self.calibration_type = 2
-        self.daytemp = 5
+        self.daytime_temp = 5
         self.closed_window_triggerd = False
         self.night_status = False
         self.summer = False
@@ -518,13 +518,13 @@ class AIThermostat(ClimateEntity, RestoreEntity):
         _LOGGER.debug("test %s %s",starttime.hour,state)
         if starttime.hour == state.hour and starttime.minute == state.minute:
             _LOGGER.debug("night mode active override with: %s",float(self.night_temp))
-            self.daytemp = self._target_temp
+            self.daytime_temp = self._target_temp
             self._target_temp = float(self.night_temp)
             self.night_status = True
 
         if endtime.hour == state.hour and endtime.minute == state.minute:
-            _LOGGER.debug("night mode inactive override with: %s",float(self.daytemp))
-            self._target_temp = self.daytemp
+            _LOGGER.debug("night mode inactive override with: %s", float(self.daytime_temp))
+            self._target_temp = self.daytime_temp
             self.night_status = False   
         #night mode
         await self._async_control_heating()
