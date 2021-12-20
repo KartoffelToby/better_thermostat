@@ -1,5 +1,6 @@
 ---
-name: Bug report about: Create a report to let us know of any issues you encountered
+- name: Bug report 
+- about: Create a report to let us know of any issues you encountered
 
 ---
 
