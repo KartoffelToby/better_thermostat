@@ -650,10 +650,10 @@ class AIThermostat(ClimateEntity, RestoreEntity):
             payload = json.dumps(mqtt_trv_valve, cls=JSONEncoder)
             await self.mqtt.async_publish(self.hass,'zigbee2mqtt/'+self.hass.states.get(self.heater_entity_id).attributes.get('device').get('friendlyName')+'/set', payload, 0, False)
             await asyncio.sleep(60)
-            mqtt_trv_valve = {"current_heating_setpoint": float(self._target_temp)}
+            mqtt_trv_valve = {"current_heating_setpoint": 5}
             payload = json.dumps(mqtt_trv_valve, cls=JSONEncoder)
             await self.mqtt.async_publish(self.hass,'zigbee2mqtt/'+self.hass.states.get(self.heater_entity_id).attributes.get('device').get('friendlyName')+'/set', payload, 0, False)
-            await asyncio.sleep(5)
+            await asyncio.sleep(60)
         self.ignoreStates = False
         self._async_control_heating()
 
