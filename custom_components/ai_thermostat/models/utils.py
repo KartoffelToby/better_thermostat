@@ -29,18 +29,18 @@ def default_calibration(self):
 
   return convert_decimal(new_calibration)
 
-async def overswing(self,calibration):
+async def dampening(self, calibration):
   state = self.hass.states.get(self.heater_entity_id).attributes
   mqtt = self.hass.components.mqtt
-  if (datetime.now() > (self.lastOverswing + timedelta(minutes = 15))) and state.get('system_mode') is not None and self._target_temp is not None and self._cur_temp is not None and not self.night_status:
-    check_overswing = (float(self._target_temp) - 0.5) < float(self._cur_temp)
-    if check_overswing:
+  if (datetime.now() > (self.start_dampening_event + timedelta(minutes = 15))) and state.get('system_mode') is not None and self._target_temp is not None and self._cur_temp is not None and not self.night_status:
+    # check if dampening is needed
+    if (float(self._target_temp) - 0.5) < float(self._cur_temp):
       self.ignoreStates = True
-      _LOGGER.debug("Overswing detected")
+      _LOGGER.debug("Dampening event started")
       await mqtt.async_publish(self.hass,'zigbee2mqtt/'+state.get('device').get('friendlyName')+'/set/current_heating_setpoint', float(5), 0, False)
       await asyncio.sleep(60)
       await mqtt.async_publish(self.hass,'zigbee2mqtt/'+state.get('device').get('friendlyName')+'/set/current_heating_setpoint', float(calibration), 0, False)
-      self.lastOverswing = datetime.now()
+      self.start_dampening_event = datetime.now()
       self.ignoreStates = False
 
 def temperature_calibration(self):
@@ -52,6 +52,6 @@ def temperature_calibration(self):
       new_calibration = float(self._max_temp)
 
   #loop = asyncio.get_event_loop()
-  #loop.create_task(overswing(self,new_calibration))
+  #loop.create_task(dampening(self,new_calibration))
             
   return new_calibration
