@@ -204,7 +204,7 @@ class AIThermostat(ClimateEntity, RestoreEntity):
         self.night_status = False
         self.summer = False
         self.ignore_states = False
-        self.lastCalibration = datetime.now() - timedelta(minutes = 5)
+        self.last_calibration = datetime.now() - timedelta(minutes = 5)
         self.lastOverswing = datetime.now()
         self._device_class = device_class
         self._state_class = state_class
@@ -728,9 +728,9 @@ class AIThermostat(ClimateEntity, RestoreEntity):
                     
                     # Only send the local_temperature_calibration if not instandly following
                     doCalibration = False
-                    if (datetime.now() > (self.lastCalibration + timedelta(seconds = 20))):
+                    if (datetime.now() > (self.last_calibration + timedelta(seconds = 20))):
                         doCalibration = True
-                        self.lastCalibration = datetime.now()
+                        self.last_calibration = datetime.now()
 
 
 
