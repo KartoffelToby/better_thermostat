@@ -195,7 +195,7 @@ class AIThermostat(ClimateEntity, RestoreEntity):
 		self._support_flags = SUPPORT_FLAGS
 		self.window_open = False
 		self._is_away = False
-		self.startup = True
+		self.startup_running = True
 		self.heating_active_pre_window_opened = None
 		self.model = "-"
 		self.next_valve_maintenance = datetime.now() + timedelta(days=5)
@@ -309,7 +309,7 @@ class AIThermostat(ClimateEntity, RestoreEntity):
 				STATE_UNAVAILABLE,
 				STATE_UNKNOWN,
 				None
-		) and self.startup:
+		) and self.startup_running:
 			if self.hass.states.get(self.heater_entity_id).attributes.get('device') is not None:
 				if self.window_sensors_entity_ids:
 					window = self.hass.states.get(self.window_sensors_entity_ids)
@@ -334,7 +334,7 @@ class AIThermostat(ClimateEntity, RestoreEntity):
 						"Register ai_thermostat with name: %s",
 						self.name,
 				)
-				self.startup = False
+				self.startup_running = False
 				self._active = True
 				self._async_update_temp(sensor_state)
 				self.async_write_ha_state()
@@ -382,7 +382,7 @@ class AIThermostat(ClimateEntity, RestoreEntity):
 	@property
 	def available(self):
 		"""Return if thermostat is available."""
-		return not self.startup
+		return not self.startup_running
 	
 	@property
 	def should_poll(self):
@@ -531,7 +531,7 @@ class AIThermostat(ClimateEntity, RestoreEntity):
 	
 	@callback
 	async def _async_window_changed(self, state):
-		if self.startup:
+		if self.startup_running:
 			return
 		if self.hass.states.get(self.heater_entity_id) is not None:
 			await asyncio.sleep(int(self.window_delay))
@@ -548,7 +548,7 @@ class AIThermostat(ClimateEntity, RestoreEntity):
 	@callback
 	async def _async_sensor_changed(self, event):
 		"""Handle temperature changes."""
-		if self.startup:
+		if self.startup_running:
 			return
 		new_state = event.data.get("new_state")
 		if new_state is None or new_state.state in (STATE_UNAVAILABLE, STATE_UNKNOWN):
@@ -571,7 +571,7 @@ class AIThermostat(ClimateEntity, RestoreEntity):
 	
 	@callback
 	async def _async_trv_changed(self, event):
-		if self.startup:
+		if self.startup_running:
 			return
 		
 		old_state = event.data.get("old_state")
@@ -649,14 +649,14 @@ class AIThermostat(ClimateEntity, RestoreEntity):
 		self._async_control_heating()
 	
 	async def _async_control_heating(self):
-		if self.ignore_states or self.startup:
+		if self.ignore_states or self.startup_running:
 			return
 		async with self._temp_lock:
 			if None not in (
 					self._cur_temp,
 					self._target_temp,
 					self._hvac_mode,
-			) and self.hass.states.get(self.heater_entity_id).attributes is not None and not self.startup:
+			) and self.hass.states.get(self.heater_entity_id).attributes is not None and not self.startup_running:
 				self._active = True
 				self.ignore_states = True
 				# Use the same precision and min and max as the TRV
