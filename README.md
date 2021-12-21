@@ -6,7 +6,7 @@
 **Important Notice: This software is still in beta. When all main functions are stable there will be a 1.0 release under the new name: better_thermostat.**
 **After 1.0 we switch to Monthly releases**
 
-**Tested with: HA: 2021.12.1 and Z2M: 1.22.1-1**
+**Tested with: HA: 2021.12.3 and Z2M: 1.22.1-1**
 
 **You need at least HA: 2021.12 for 0.8.2 or higher**
 

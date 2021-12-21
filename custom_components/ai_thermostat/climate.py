@@ -600,7 +600,7 @@ class AIThermostat(ClimateEntity, RestoreEntity):
                 remappedstate = convert_inbound_states(self,new_state.attributes)
 
                 if old_state.attributes.get('system_mode') != new_state.attributes.get('system_mode'):
-                    self._hvac_mode = remappedstate.system_mode
+                    self._hvac_mode = remappedstate.get('system_mode')
 
                     if self._hvac_mode != HVAC_MODE_OFF and self.window_open:
                         self._hvac_mode = HVAC_MODE_OFF
@@ -720,12 +720,11 @@ class AIThermostat(ClimateEntity, RestoreEntity):
                 # NEW SPECIAL STUFF :)
                 try:
                     remappedstates = convert_outbound_states(self,converted_hvac_mode)
-                    local_temperature_calibration = remappedstates.local_temperature_calibration
-                    converted_hvac_mode = remappedstates.system_mode
-                    local_temperature = remappedstates.local_temperature
-                    current_heating_setpoint = remappedstates.current_temperature
-                    has_real_mode = remappedstates.has_real_mode
-                    calibration = float(remappedstates.calibration)                       
+                    converted_hvac_mode = remappedstates.get('system_mode')
+                    local_temperature = remappedstates.get('local_temperature')
+                    current_heating_setpoint = remappedstates.get('current_heating_setpoint')
+                    has_real_mode = True if self.hass.states.get(self.heater_entity_id).attributes.get('system_mode') is not None else False
+                    calibration = remappedstates.get('local_temperature_calibration')
 
                     #if off do nothing
                     if self.closed_window_triggerd or self._hvac_mode == HVAC_MODE_OFF:

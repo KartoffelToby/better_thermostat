@@ -1,10 +1,9 @@
 import logging
 import math
-from custom_components.ai_thermostat.models.BRT_100_TRV.remap import BRT_100_TRV_inbound, BRT_100_TRV_outbound
-from custom_components.ai_thermostat.models.GS361A_H04.remap import GS361A_H04_thermostat_inbound, GS361A_H04_thermostat_outbound
-from custom_components.ai_thermostat.models.SPZB0001.remap import SPZB0001_inbound, SPZB0001_outbound
-from custom_components.ai_thermostat.models.TS0601_thermostat.remap import TS0601_thermostat_inbound, TS0601_thermostat_outbound
-from custom_components.ai_thermostat.models.utils import cleanState, default_calibration
+import os
+from pathlib import Path
+from custom_components.ai_thermostat.models.utils import calibration, mode_remap, swapList
+from homeassistant.util import yaml
 from homeassistant.components.climate.const import (
     HVAC_MODE_HEAT,
     HVAC_MODE_OFF
@@ -20,22 +19,33 @@ def convert_inbound_states(self,state):
     except RuntimeError:
         _LOGGER.exception("ai_thermostat: error can't get the TRV")
 
-
-
-    if(self.model == "SPZB0001"):
-        return SPZB0001_inbound(self,state)
-    elif(self.model == "BRT-100-TRV"):
-        return BRT_100_TRV_inbound(self,state)
-    elif(self.model == "TS0601_thermostat"):
-        return TS0601_thermostat_inbound(self,state)
-    elif(self.model == "GS361A-H04"):
-        return GS361A_H04_thermostat_inbound(self,state)
+    config_file = os.path.dirname(os.path.realpath(__file__))+'/devices/'+self.model.replace("/", "_")+'.yaml'
+    
+    if state.get('system_mode') is not None:
+        hvac_mode = state.get('system_mode')
     else:
-        if state.get('system_mode') == HVAC_MODE_HEAT or state.get('system_mode') == HVAC_MODE_OFF:
-            temp_system_mode = state.get('system_mode')
-        else:
-            temp_system_mode = HVAC_MODE_HEAT
-        return cleanState(self._target_temp,state.get('local_temperature'),state.get('local_temperature_calibration'),temp_system_mode,True)
+        hvac_mode = HVAC_MODE_HEAT
+        if state.get('current_heating_setpoint') == 5:
+            hvac_mode = HVAC_MODE_OFF
+
+    if Path(config_file).is_file():
+        config = yaml.load_yaml(config_file)
+        self.calibration_type = config.get('calibration_type')
+        if(config.get('calibration_type') == 0):
+            current_heating_setpoint = state.get('current_heating_setpoint')
+        elif(config.get('calibration_type') == 1):
+            current_heating_setpoint = self._target_temp
+        if config.get('mode_map') is not None and state.get('system_mode') is not None:
+            hvac_mode = mode_remap(hvac_mode,swapList(config.get('mode_map')))
+    else:
+        current_heating_setpoint = self._target_temp
+
+    return {
+        "current_heating_setpoint": current_heating_setpoint,
+        "local_temperature": state.get('local_temperature'),
+        "local_temperature_calibration": state.get('local_temperature_calibration'),
+        "system_mode": hvac_mode
+    }
     
 
 def convert_outbound_states(self,hvac_mode):
@@ -47,18 +57,35 @@ def convert_outbound_states(self,hvac_mode):
     except RuntimeError:
         _LOGGER.exception("ai_thermostat: error can't get the TRV")
 
+    state = self.hass.states.get(self.heater_entity_id).attributes
 
+    config_file = os.path.dirname(os.path.realpath(__file__))+'/devices/'+self.model.replace("/", "_")+'.yaml'
 
-    if(self.model == "SPZB0001"):
-        return SPZB0001_outbound(self,hvac_mode)
-    elif(self.model == "BRT-100-TRV"):
-        return BRT_100_TRV_outbound(self,hvac_mode)
-    elif(self.model == "TS0601_thermostat"):
-        return TS0601_thermostat_outbound(self,hvac_mode)
-    elif(self.model == "GS361A-H04"):
-        return GS361A_H04_thermostat_outbound(self,hvac_mode)
+    if Path(config_file).is_file():
+        config = yaml.load_yaml(config_file)
+        local_temperature_calibration = calibration(self,config.get('calibration_type'))
+        self.calibration_type = config.get('calibration_type')
+        if(config.get('calibration_round')):
+            local_temperature_calibration = int(math.floor(local_temperature_calibration))
+        if(config.get('calibration_type') == 0):
+            current_heating_setpoint = state.get('current_heating_setpoint')
+        elif(config.get('calibration_type') == 1):
+            current_heating_setpoint = local_temperature_calibration
+
+        if state.get('system_mode') is not None:
+            if config.get('mode_map') is not None:
+                hvac_mode = mode_remap(hvac_mode,config.get('mode_map'))
+        else:
+            if hvac_mode == HVAC_MODE_OFF:
+                current_heating_setpoint = 5
+
     else:
-        self.calibration_type = 0
-        state = self.hass.states.get(self.heater_entity_id).attributes
-        new_calibration = int(math.floor(default_calibration(self)))
-        return cleanState(self._target_temp,state.get('local_temperature'),state.get('local_temperature_calibration'),hvac_mode,True,new_calibration)
+        current_heating_setpoint = self._target_temp
+        local_temperature_calibration = int(math.floor(calibration(self,0)))
+
+    return {
+        "current_heating_setpoint": current_heating_setpoint,
+        "local_temperature": state.get('local_temperature'),
+        "system_mode": hvac_mode,
+        "local_temperature_calibration": local_temperature_calibration
+    }
