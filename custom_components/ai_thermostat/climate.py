@@ -503,7 +503,6 @@ class AIThermostat(ClimateEntity, RestoreEntity):
 	async def _async_timer_trigger(self, state):
 		start_time = dt_util.parse_time(self.night_start)
 		end_time = dt_util.parse_time(self.night_end)
-		_LOGGER.debug("test %s %s", start_time.hour, state)
 		if start_time.hour == state.hour and start_time.minute == state.minute:
 			_LOGGER.debug("night mode active override with: %s", float(self.night_temp))
 			self.daytime_temp = self._target_temp
