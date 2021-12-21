@@ -252,7 +252,7 @@ class AIThermostat(ClimateEntity, RestoreEntity):
 			_LOGGER.info("Starting ai_thermostat for %s with version: 0.8.6 waiting for entity to be ready...", self.name)
 			
 			loop = asyncio.get_event_loop()
-			loop.create_task(self.startUp())
+			loop.create_task(self.startup())
 		
 		if self.hass.state == CoreState.running:
 			_async_startup()
@@ -288,7 +288,7 @@ class AIThermostat(ClimateEntity, RestoreEntity):
 		if not self._hvac_mode:
 			self._hvac_mode = HVAC_MODE_OFF
 	
-	async def startUp(self):
+	async def startup(self):
 		await asyncio.sleep(5)
 		sensor_state = self.hass.states.get(self.sensor_entity_id)
 		trv_state = self.hass.states.get(self.heater_entity_id)
@@ -329,7 +329,7 @@ class AIThermostat(ClimateEntity, RestoreEntity):
 						_LOGGER.info("ai_thermostat %s still waiting for %s to be available", self.name, self.window_sensors_entity_ids)
 						_LOGGER.info("retry in 15s...")
 						await asyncio.sleep(10)
-						return await self.startUp()
+						return await self.startup()
 				_LOGGER.info(
 						"Register ai_thermostat with name: %s",
 						self.name,
@@ -345,7 +345,7 @@ class AIThermostat(ClimateEntity, RestoreEntity):
 				_LOGGER.info("ai_thermostat %s still waiting for %s to be available", self.name, self.heater_entity_id)
 				_LOGGER.info("retry in 15s...")
 				await asyncio.sleep(10)
-				return await self.startUp()
+				return await self.startup()
 		else:
 			if sensor_state.state in (
 					STATE_UNAVAILABLE,
@@ -362,7 +362,7 @@ class AIThermostat(ClimateEntity, RestoreEntity):
 			
 			_LOGGER.info("retry in 15s...")
 			await asyncio.sleep(10)
-			return await self.startUp()
+			return await self.startup()
 	
 	@property
 	def device_class(self):
