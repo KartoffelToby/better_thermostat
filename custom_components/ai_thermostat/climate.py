@@ -290,7 +290,7 @@ class AIThermostat(ClimateEntity, RestoreEntity):
 	
 	async def startup(self):
 		await asyncio.sleep(5)
-
+		
 		while self.startup_running:
 			sensor_state = self.hass.states.get(self.sensor_entity_id)
 			trv_state = self.hass.states.get(self.heater_entity_id)
@@ -316,7 +316,7 @@ class AIThermostat(ClimateEntity, RestoreEntity):
 			if trv_state.state in (STATE_UNAVAILABLE, STATE_UNKNOWN):
 				_LOGGER.info("ai_thermostat %s still waiting for %s to be available", self.name, self.heater_entity_id)
 				_ready = False
-
+			
 			if self.hass.states.get(self.heater_entity_id).attributes.get('device') is None:
 				_LOGGER.info("ai_thermostat %s still waiting for %s to be available", self.name, self.heater_entity_id)
 				_ready = False
@@ -329,7 +329,7 @@ class AIThermostat(ClimateEntity, RestoreEntity):
 				_LOGGER.info("retry in 15s...")
 				await asyncio.sleep(15)
 				continue
-				
+			
 			if self.window_sensors_entity_ids:
 				window = self.hass.states.get(self.window_sensors_entity_ids)
 				
@@ -341,7 +341,7 @@ class AIThermostat(ClimateEntity, RestoreEntity):
 					self.window_open = False
 					self.closed_window_triggered = False
 				_LOGGER.debug("ai_thermostat: Window %s", self.window_open)
-				
+			
 			_LOGGER.info("Register ai_thermostat with name: %s", self.name)
 			self.startup_running = False
 			self._active = True
