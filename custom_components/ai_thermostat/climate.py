@@ -178,8 +178,8 @@ class AIThermostat(ClimateEntity, RestoreEntity):
 		self.off_temperature = off_temperature
 		self.valve_maintenance = valve_maintenance
 		self.night_temp = night_temp
-		self.night_start = night_start
-		self.night_end = night_end
+		self.night_start = dt_util.parse_time(night_start)
+		self.night_end = dt_util.parse_time(night_end)
 		self._hvac_mode = HVAC_MODE_HEAT
 		self._saved_target_temp = target_temp or 5.0
 		self._target_temp_step = precision
@@ -228,21 +228,19 @@ class AIThermostat(ClimateEntity, RestoreEntity):
 			)
 		
 		if self.night_temp != -1:
-			start_time = dt_util.parse_time(self.night_start)
-			end_time = dt_util.parse_time(self.night_end)
 			async_track_time_change(
 					self.hass,
 					self._async_timer_trigger,
-					start_time.hour,
-					start_time.minute,
-					start_time.second,
+					self.night_start.hour,
+					self.night_start.minute,
+					self.night_start.second,
 			)
 			async_track_time_change(
 					self.hass,
 					self._async_timer_trigger,
-					end_time.hour,
-					end_time.minute,
-					end_time.second,
+					self.night_end.hour,
+					self.night_end.minute,
+					self.night_end.second,
 			)
 		
 		@callback
@@ -501,19 +499,18 @@ class AIThermostat(ClimateEntity, RestoreEntity):
 	
 	@callback
 	async def _async_timer_trigger(self, state):
-		start_time = dt_util.parse_time(self.night_start)
-		end_time = dt_util.parse_time(self.night_end)
-		if start_time.hour == state.hour and start_time.minute == state.minute:
+		
+		if self.night_start.hour == state.hour and self.night_start.minute == state.minute:
 			_LOGGER.debug("night mode active override with: %s", float(self.night_temp))
 			self.daytime_temp = self._target_temp
 			self._target_temp = float(self.night_temp)
 			self.night_status = True
 		
-		if end_time.hour == state.hour and end_time.minute == state.minute:
+		if self.night_end.hour == state.hour and self.night_end.minute == state.minute:
 			_LOGGER.debug("night mode inactive override with: %s", float(self.daytime_temp))
 			self._target_temp = self.daytime_temp
 			self.night_status = False
-		# night mode
+		
 		await self._async_control_heating()
 	
 	@callback
