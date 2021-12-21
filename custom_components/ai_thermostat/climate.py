@@ -308,10 +308,10 @@ class AIThermostat(ClimateEntity, RestoreEntity):
 			
 			_ready = True
 			
-			if sensor_state.state in (STATE_UNAVAILABLE, STATE_UNKNOWN):
+			if sensor_state.state in (STATE_UNAVAILABLE, STATE_UNKNOWN, None):
 				_LOGGER.info("ai_thermostat %s still waiting for %s to be available", self.name, self.sensor_entity_id)
 				_ready = False
-			if trv_state.state in (STATE_UNAVAILABLE, STATE_UNKNOWN):
+			if trv_state.state in (STATE_UNAVAILABLE, STATE_UNKNOWN, None):
 				_LOGGER.info("ai_thermostat %s still waiting for %s to be available", self.name, self.heater_entity_id)
 				_ready = False
 			
@@ -319,7 +319,7 @@ class AIThermostat(ClimateEntity, RestoreEntity):
 				_LOGGER.info("ai_thermostat %s still waiting for %s to be available", self.name, self.heater_entity_id)
 				_ready = False
 			
-			if self.window_sensors_entity_ids and window.state in (STATE_UNAVAILABLE, STATE_UNKNOWN):
+			if self.window_sensors_entity_ids and window.state in (STATE_UNAVAILABLE, STATE_UNKNOWN, None):
 				_LOGGER.info("ai_thermostat %s still waiting for %s to be available", self.name, self.window_sensors_entity_ids)
 				_ready = False
 			
