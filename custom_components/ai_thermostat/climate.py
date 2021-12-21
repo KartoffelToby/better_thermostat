@@ -290,79 +290,67 @@ class AIThermostat(ClimateEntity, RestoreEntity):
 	
 	async def startup(self):
 		await asyncio.sleep(5)
-		sensor_state = self.hass.states.get(self.sensor_entity_id)
-		trv_state = self.hass.states.get(self.heater_entity_id)
-		
-		if sensor_state is None:
-			_LOGGER.error("ai_thermostat %s temperature sensor: %s is not in HA or wrong spelled", self.name, self.sensor_entity_id)
-			return
-		
-		if trv_state is None:
-			_LOGGER.error("ai_thermostat %s TRV: %s is not in HA or wrong spelled", self.name, self.heater_entity_id)
-			return
-		
-		if sensor_state.state not in (
-				STATE_UNAVAILABLE,
-				STATE_UNKNOWN,
-				None
-		) and trv_state.state not in (
-				STATE_UNAVAILABLE,
-				STATE_UNKNOWN,
-				None
-		) and self.startup_running:
-			if self.hass.states.get(self.heater_entity_id).attributes.get('device') is not None:
-				if self.window_sensors_entity_ids:
-					window = self.hass.states.get(self.window_sensors_entity_ids)
-					if window is None:
-						_LOGGER.error("ai_thermostat %s window sensor: %s is not in HA or wrong spelled", self.name, self.window_sensors_entity_ids)
-						return
-					if window.state not in (STATE_UNAVAILABLE, STATE_UNKNOWN, None):
-						check = window.state
-						if check == 'on':
-							self.window_open = True
-							self._hvac_mode = HVAC_MODE_OFF
-						else:
-							self.window_open = False
-							self.closed_window_triggered = False
-						_LOGGER.debug("ai_thermostat: Window %s", self.window_open)
-					else:
-						_LOGGER.info("ai_thermostat %s still waiting for %s to be available", self.name, self.window_sensors_entity_ids)
-						_LOGGER.info("retry in 15s...")
-						await asyncio.sleep(10)
-						return await self.startup()
-				_LOGGER.info(
-						"Register ai_thermostat with name: %s",
-						self.name,
-				)
-				self.startup_running = False
-				self._active = True
-				self._async_update_temp(sensor_state)
-				self.async_write_ha_state()
-				await asyncio.sleep(5)
-				await self._async_control_heating()
-				return
-			else:
-				_LOGGER.info("ai_thermostat %s still waiting for %s to be available", self.name, self.heater_entity_id)
-				_LOGGER.info("retry in 15s...")
-				await asyncio.sleep(10)
-				return await self.startup()
-		else:
-			if sensor_state.state in (
-					STATE_UNAVAILABLE,
-					STATE_UNKNOWN,
-					None
-			):
-				_LOGGER.info("ai_thermostat %s still waiting for %s to be available", self.name, self.sensor_entity_id)
-			if trv_state.state in (
-					STATE_UNAVAILABLE,
-					STATE_UNKNOWN,
-					None
-			):
-				_LOGGER.info("ai_thermostat %s still waiting for %s to be available", self.name, self.heater_entity_id)
+
+		while self.startup_running:
+			sensor_state = self.hass.states.get(self.sensor_entity_id)
+			trv_state = self.hass.states.get(self.heater_entity_id)
 			
-			_LOGGER.info("retry in 15s...")
-			await asyncio.sleep(10)
-			return await self.startup()
+			if sensor_state is None:
+				_LOGGER.error("ai_thermostat %s temperature sensor: %s is not in HA or wrong spelled", self.name, self.sensor_entity_id)
+				return False
+			if trv_state is None:
+				_LOGGER.error("ai_thermostat %s TRV: %s is not in HA or wrong spelled", self.name, self.heater_entity_id)
+				return False
+			if self.window_sensors_entity_ids:
+				window = self.hass.states.get(self.window_sensors_entity_ids)
+				
+				if window is None:
+					_LOGGER.error("ai_thermostat %s window sensor: %s is not in HA or wrong spelled", self.name, self.window_sensors_entity_ids)
+					return False
+			
+			_ready = True
+			
+			if sensor_state.state in (STATE_UNAVAILABLE, STATE_UNKNOWN):
+				_LOGGER.info("ai_thermostat %s still waiting for %s to be available", self.name, self.sensor_entity_id)
+				_ready = False
+			if trv_state.state in (STATE_UNAVAILABLE, STATE_UNKNOWN):
+				_LOGGER.info("ai_thermostat %s still waiting for %s to be available", self.name, self.heater_entity_id)
+				_ready = False
+
+			if self.hass.states.get(self.heater_entity_id).attributes.get('device') is None:
+				_LOGGER.info("ai_thermostat %s still waiting for %s to be available", self.name, self.heater_entity_id)
+				_ready = False
+			
+			if self.window_sensors_entity_ids and window.state in (STATE_UNAVAILABLE, STATE_UNKNOWN):
+				_LOGGER.info("ai_thermostat %s still waiting for %s to be available", self.name, self.window_sensors_entity_ids)
+				_ready = False
+			
+			if not _ready:
+				_LOGGER.info("retry in 15s...")
+				await asyncio.sleep(15)
+				continue
+				
+			if self.window_sensors_entity_ids:
+				window = self.hass.states.get(self.window_sensors_entity_ids)
+				
+				check = window.state
+				if check == 'on':
+					self.window_open = True
+					self._hvac_mode = HVAC_MODE_OFF
+				else:
+					self.window_open = False
+					self.closed_window_triggered = False
+				_LOGGER.debug("ai_thermostat: Window %s", self.window_open)
+				
+			_LOGGER.info("Register ai_thermostat with name: %s", self.name)
+			self.startup_running = False
+			self._active = True
+			self._async_update_temp(sensor_state)
+			self.async_write_ha_state()
+			await asyncio.sleep(5)
+			await self._async_control_heating()
+		
+		return True
 	
 	@property
 	def device_class(self):
