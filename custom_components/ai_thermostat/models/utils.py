@@ -27,13 +27,13 @@ async def dampening(self, calibration):
   if (datetime.now() > (self.start_dampening_event + timedelta(minutes = 15))) and state.get('system_mode') is not None and self._target_temp is not None and self._cur_temp is not None and not self.night_status:
     # check if dampening is needed
     if (float(self._target_temp) - 0.5) < float(self._cur_temp):
-      self.ignoreStates = True
+      self.ignore_states = True
       _LOGGER.debug("Dampening event started")
       await mqtt.async_publish(self.hass,'zigbee2mqtt/'+state.get('device').get('friendlyName')+'/set/current_heating_setpoint', float(5), 0, False)
       await asyncio.sleep(60)
       await mqtt.async_publish(self.hass,'zigbee2mqtt/'+state.get('device').get('friendlyName')+'/set/current_heating_setpoint', float(calibration), 0, False)
       self.start_dampening_event = datetime.now()
-      self.ignoreStates = False
+      self.ignore_states = False
 
 def calibration(self,type):
   if type == 1:

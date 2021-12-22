@@ -207,7 +207,6 @@ class AIThermostat(ClimateEntity, RestoreEntity, ABC):
 		self.summer = False
 		self.ignore_states = False
 		self.last_calibration = datetime.now() - timedelta(minutes=5)
-		self.lastOverswing = datetime.now()
 		self._device_class = device_class
 		self._state_class = state_class
 		self._today_nightmode_end = datetime.now()
@@ -575,10 +574,10 @@ class AIThermostat(ClimateEntity, RestoreEntity, ABC):
 		
 		if new_state.attributes is not None:
 			try:
-				remappedstate = convert_inbound_states(self, new_state.attributes)
+				remapped_states = convert_inbound_states(self, new_state.attributes)
 				
 				if old_state.attributes.get('system_mode') != new_state.attributes.get('system_mode'):
-					self._hvac_mode = remappedstate.system_mode
+					self._hvac_mode = remapped_states.get('system_mode')
 					
 					if self._hvac_mode != HVAC_MODE_OFF and self.window_open:
 						self._hvac_mode = HVAC_MODE_OFF
