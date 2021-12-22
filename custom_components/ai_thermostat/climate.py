@@ -658,17 +658,6 @@ class AIThermostat(ClimateEntity, RestoreEntity, ABC):
 				else:
 					self._max_temp = 30
 				
-				"""
-				# Need to force the local_temperature_calibration get updated in HA only for SPZB0001
-				if(self.model == "SPZB0001"):
-					mqtt_get = {"local_temperature_calibration": ""}
-					payload = json.dumps(mqtt_get, cls=JSONEncoder)
-					await self.mqtt.async_publish(self.hass,'zigbee2mqtt/'+self.hass.states.get(self.heater_entity_id).attributes.get('device').get('friendlyName')+'/get', payload, 0, False)
-					await asyncio.sleep(
-						1 #5
-					)
-				"""
-				
 				# Get the forecast from the weather entity for two days in a row and round and split it for compare
 				is_cold = self.check_if_is_winter()
 				
