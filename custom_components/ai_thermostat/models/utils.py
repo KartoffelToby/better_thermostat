@@ -15,31 +15,11 @@ def mode_remap(hvac_mode,modes):
   else:
     return hvac_mode
 
-def swapList(list):
-  changedDict = {}
-  for key, value in list.items():
-    changedDict[value] = key
-  return changedDict
-
-def calibration(self,type):
-  if type == 1:
-    return temperature_calibration(self)
-  if type == 0:
-    return default_calibration(self)
-
-def default_calibration(self):
-  state = self.hass.states.get(self.heater_entity_id).attributes
-  #new_calibration = int(math.ceil((math.floor(float(self._cur_temp)) - round(float(state.get('local_temperature')))) + round(float(state.get('local_temperature_calibration')))))
-  # temp range fix
-  new_calibration = float((float(self._cur_temp) - float(state.get('local_temperature'))) + float(state.get('local_temperature_calibration')))
-  if new_calibration > 0 and new_calibration < 1:
-    new_calibration = round(new_calibration)
-  if new_calibration < -30:
-      new_calibration = -30
-  if new_calibration > 30:
-      new_calibration = 30
-
-  return convert_decimal(new_calibration)
+def reverse_modes(modes):
+  changed_dict = {}
+  for key, value in modes.items():
+    changed_dict[value] = key
+  return changed_dict
 
 async def dampening(self, calibration):
   state = self.hass.states.get(self.heater_entity_id).attributes
@@ -55,6 +35,24 @@ async def dampening(self, calibration):
       self.start_dampening_event = datetime.now()
       self.ignoreStates = False
 
+def calibration(self,type):
+  if type == 1:
+    return temperature_calibration(self)
+  if type == 0:
+    return default_calibration(self)
+
+def default_calibration(self):
+  state = self.hass.states.get(self.heater_entity_id).attributes
+  new_calibration = float((float(self._cur_temp) - float(state.get('local_temperature'))) + float(state.get('local_temperature_calibration')))
+  if new_calibration > 0 and new_calibration < 1:
+    new_calibration = round(new_calibration)
+  if new_calibration < -30:
+      new_calibration = -30
+  if new_calibration > 30:
+      new_calibration = 30
+
+  return convert_decimal(new_calibration)
+
 def temperature_calibration(self):
   state = self.hass.states.get(self.heater_entity_id).attributes
   new_calibration = abs(float(round((float(self._target_temp) - float(self._cur_temp)) + float(state.get('local_temperature')),2)))
@@ -63,7 +61,7 @@ def temperature_calibration(self):
   if new_calibration > float(self._max_temp):
       new_calibration = float(self._max_temp)
 
-  #loop = asyncio.get_event_loop()
-  #loop.create_task(dampening(self,new_calibration))
+  loop = asyncio.get_event_loop()
+  loop.create_task(dampening(self,new_calibration))
             
   return new_calibration

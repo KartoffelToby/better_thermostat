@@ -2,7 +2,7 @@ import logging
 import math
 import os
 from pathlib import Path
-from custom_components.ai_thermostat.models.utils import calibration, mode_remap, swapList
+from custom_components.ai_thermostat.models.utils import calibration, mode_remap, reverse_modes
 from homeassistant.util import yaml
 from homeassistant.components.climate.const import (
     HVAC_MODE_HEAT,
@@ -36,7 +36,7 @@ def convert_inbound_states(self,state):
         elif(config.get('calibration_type') == 1):
             current_heating_setpoint = self._target_temp
         if config.get('mode_map') is not None and state.get('system_mode') is not None:
-            hvac_mode = mode_remap(hvac_mode,swapList(config.get('mode_map')))
+            hvac_mode = mode_remap(hvac_mode,reverse_modes(config.get('mode_map')))
     else:
         current_heating_setpoint = self._target_temp
 
