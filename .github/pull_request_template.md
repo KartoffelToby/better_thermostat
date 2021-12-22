@@ -24,13 +24,7 @@ TRV Hardware:
 
 <!-- If there was a new device mapping added, please make sure to fill in this checklist: -->
 
-<<<<<<< HEAD
   - [ ] I avoided any changes to other device mappings
   - [ ] There are no changes in `climate.py`
-=======
-- [ ] an `info.md` is added to the device folder.
-- [ ] I avoided any changes to other device mappings
-- [ ] There are no changes in `climate.py`
->>>>>>> 280060691274368e765b027a13dc646e0698edcf
 
 <!-- If you did change the `climate.py` please create a dedicated PR for this. -->

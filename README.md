@@ -1,11 +1,6 @@
 [![Active installations](https://badge.t-haber.de/badge/ai_thermostat?kill_cache=1)](https://github.com/KartoffelToby/ai_thermostat/)
 [![GitHub issues](https://img.shields.io/github/issues/KartoffelToby/ai_thermostat?style=for-the-badge)](https://github.com/KartoffelToby/ai_thermostat/issues)
-<<<<<<< HEAD
 [![Version - 0.9.0](https://img.shields.io/badge/Version-0.9.0-009688?style=for-the-badge)](https://github.com/KartoffelToby/ai_thermostat/releases)
-=======
-[![Version - 0.8.6](https://img.shields.io/badge/Version-0.8.6-009688?style=for-the-badge)](https://github.com/KartoffelToby/ai_thermostat/releases)
-
->>>>>>> 280060691274368e765b027a13dc646e0698edcf
 # AI THERMOSTAT for Zigbee2MQTT
 
 **Important Notice: This software is still in beta. When all main functions are stable there will be a 1.0 release under the new name: better_thermostat.**
