@@ -4,6 +4,7 @@ Z2M version """
 import asyncio
 import json
 import logging
+from abc import ABC
 from datetime import datetime, timedelta
 
 import homeassistant.helpers.config_validation as cv
@@ -139,7 +140,7 @@ async def async_setup_platform(hass, config, async_add_entities, discovery_info=
 	)
 
 
-class AIThermostat(ClimateEntity, RestoreEntity):
+class AIThermostat(ClimateEntity, RestoreEntity, ABC):
 	"""Representation of an AI Thermostat device."""
 	
 	def __init__(
