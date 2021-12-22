@@ -1,0 +1,4 @@
+calibration_type: 0 # Calibration Type: 0 for local calibration 1 for temperature based calibration
+calibration_round: false # Only needed if calibration_type is 0, true for devices that can't handle float values, false for devices that can handle float clibration values
+mode_map: # If a devices has auto as heat or something else
+  heat: auto
