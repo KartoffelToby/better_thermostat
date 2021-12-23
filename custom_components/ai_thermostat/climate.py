@@ -40,7 +40,7 @@ from homeassistant.helpers.json import JSONEncoder
 from homeassistant.helpers.reload import async_setup_reload_service
 from homeassistant.helpers.restore_state import RestoreEntity
 
-from custom_components.ai_thermostat.helpers import check_float, convert_decimal
+from custom_components.ai_thermostat.helpers import check_float, convert_decimal, get_calibration_entity
 from custom_components.ai_thermostat.models.models import convert_inbound_states, convert_outbound_states
 from . import DOMAIN, PLATFORMS
 
@@ -247,8 +247,7 @@ class AIThermostat(ClimateEntity, RestoreEntity, ABC):
 		def _async_startup(*_):
 			"""Init on startup."""
 			
-			_LOGGER.info("Starting ai_thermostat for %s with version: 0.8.6 waiting for entity to be ready...", self.name)
-			
+			_LOGGER.info("Starting ai_thermostat for %s with version: 0.8.6 waiting for entity to be ready...", self.name)			
 			loop = asyncio.get_event_loop()
 			loop.create_task(self.startup())
 		
@@ -288,7 +287,7 @@ class AIThermostat(ClimateEntity, RestoreEntity, ABC):
 	
 	async def startup(self):
 		await asyncio.sleep(5)
-		
+
 		while self.startup_running:
 			sensor_state = self.hass.states.get(self.sensor_entity_id)
 			trv_state = self.hass.states.get(self.heater_entity_id)
@@ -717,46 +716,30 @@ class AIThermostat(ClimateEntity, RestoreEntity, ABC):
 					)
 					
 					if self.calibration_type == 1 and float(self.hass.states.get(self.heater_entity_id).attributes.get('current_heating_setpoint')) != float(calibration):
-						current_heating_setpoint = calibration
-						mqtt_settemp = {"current_heating_setpoint": float(calibration)}
-						payload = json.dumps(mqtt_settemp, cls=JSONEncoder)
-						await self.mqtt.async_publish(self.hass, 'zigbee2mqtt/' + self.hass.states.get(self.heater_entity_id).attributes.get('device').get('friendlyName') + '/set', payload, 0, False)
 						data = {ATTR_ENTITY_ID: self.heater_entity_id, "temperature": float(calibration)}
 						await self.hass.services.async_call('climate', SERVICE_SET_TEMPERATURE, data)
-						await asyncio.sleep(2)
 					
 					if self.calibration_type == 0 and not self.window_open and self.hass.states.get(self.heater_entity_id).attributes.get('current_heating_setpoint') != float(
 							current_heating_setpoint) and converted_hvac_mode != HVAC_MODE_OFF and float(current_heating_setpoint) != 5.0 and is_cold:
-						mqtt_settemp = {"current_heating_setpoint": float(current_heating_setpoint)}
-						payload = json.dumps(mqtt_settemp, cls=JSONEncoder)
-						await self.mqtt.async_publish(self.hass, 'zigbee2mqtt/' + self.hass.states.get(self.heater_entity_id).attributes.get('device').get('friendlyName') + '/set', payload, 0, False)
 						data = {ATTR_ENTITY_ID: self.heater_entity_id, "temperature": float(current_heating_setpoint)}
 						await self.hass.services.async_call('climate', SERVICE_SET_TEMPERATURE, data)
-						await asyncio.sleep(2)
-					
+									
 					# Calibration stuff
 					if self.calibration_type == 0 and not self.window_open and do_calibration:
-						mqtt_calibration = {"local_temperature_calibration": calibration}
-						payload = json.dumps(mqtt_calibration, cls=JSONEncoder)
-						await self.mqtt.async_publish(self.hass, 'zigbee2mqtt/' + self.hass.states.get(self.heater_entity_id).attributes.get('device').get('friendlyName') + '/set', payload, 0, False)
-						await asyncio.sleep(2)
-					
+						local_calibration_entity = self.heater_entity_id.replace('climate.', 'number.')+'_local_temperature_calibration'
+						data = {ATTR_ENTITY_ID: local_calibration_entity, "value": calibration}
+						await self.hass.services.async_call('number', 'set_value', data)
+
 					if has_real_mode and (converted_hvac_mode != self.hass.states.get(self.heater_entity_id).attributes.get('system_mode') or converted_hvac_mode == HVAC_MODE_OFF):
-						mqtt_sys_mode = {"system_mode": converted_hvac_mode}
-						payload = json.dumps(mqtt_sys_mode, cls=JSONEncoder)
-						await self.mqtt.async_publish(self.hass, 'zigbee2mqtt/' + self.hass.states.get(self.heater_entity_id).attributes.get('device').get('friendlyName') + '/set', payload, 0, False)
 						data = {ATTR_ENTITY_ID: self.heater_entity_id, "hvac_mode": converted_hvac_mode}
 						await self.hass.services.async_call('climate', SERVICE_SET_HVAC_MODE, data)
 					
 					# Make sure it's turned off!
 					if (self._hvac_mode == HVAC_MODE_OFF or self.window_open or not is_cold) and has_real_mode:
-						mqtt_sys_mode = {"system_mode": HVAC_MODE_OFF}
-						payload = json.dumps(mqtt_sys_mode, cls=JSONEncoder)
-						await self.mqtt.async_publish(self.hass, 'zigbee2mqtt/' + self.hass.states.get(self.heater_entity_id).attributes.get('device').get('friendlyName') + '/set', payload, 0, False)
 						data = {ATTR_ENTITY_ID: self.heater_entity_id, "hvac_mode": converted_hvac_mode}
 						await self.hass.services.async_call('climate', SERVICE_SET_HVAC_MODE, data)
 					
-					await asyncio.sleep(2)
+					await asyncio.sleep(1)
 					self.ignore_states = False
 					
 					# Check if a valve_maintenance is needed
