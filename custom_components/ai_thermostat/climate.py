@@ -40,7 +40,7 @@ from homeassistant.helpers.json import JSONEncoder
 from homeassistant.helpers.reload import async_setup_reload_service
 from homeassistant.helpers.restore_state import RestoreEntity
 
-from custom_components.ai_thermostat.helpers import check_float, convert_decimal, get_calibration_entity
+from custom_components.ai_thermostat.helpers import check_float, convert_decimal
 from custom_components.ai_thermostat.models.models import convert_inbound_states, convert_outbound_states
 from . import DOMAIN, PLATFORMS
 
@@ -676,9 +676,9 @@ class AIThermostat(ClimateEntity, RestoreEntity, ABC):
 				try:
 					remapped_states = convert_outbound_states(self, self._hvac_mode)
 					converted_hvac_mode = remapped_states.get('system_mode')
-					current_heating_setpoint = remapped_states.get('current_temperature')
+					current_heating_setpoint = remapped_states.get('current_heating_setpoint')
 					has_real_mode = True if self.hass.states.get(self.heater_entity_id).attributes.get('system_mode') is not None else False
-					calibration = remapped_states.get('calibration')
+					calibration = remapped_states.get('local_temperature_calibration')
 					
 					# if off do nothing
 					if self.closed_window_triggered or self._hvac_mode == HVAC_MODE_OFF:
