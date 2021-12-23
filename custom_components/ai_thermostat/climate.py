@@ -608,7 +608,7 @@ class AIThermostat(ClimateEntity, RestoreEntity):
                         await self._async_control_heating()
                 
                 if not self.ignoreStates and new_state.attributes.get('current_heating_setpoint') is not None and self._hvac_mode != HVAC_MODE_OFF and self.calibration_type == 0:
-                    self._target_temp = new_state.attributes.get('current_heating_setpoint')
+                    self._target_temp = float(new_state.attributes.get('current_heating_setpoint'))
 
             except TypeError as e:
                 _LOGGER.debug("ai_thermostat entity not ready or device is currently not supported %s", e)
