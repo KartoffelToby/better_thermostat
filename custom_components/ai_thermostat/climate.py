@@ -6,6 +6,7 @@ import json
 import logging
 from abc import ABC
 from datetime import datetime, timedelta
+from random import randint
 
 import homeassistant.helpers.config_validation as cv
 import homeassistant.util.dt as dt_util
@@ -199,7 +200,7 @@ class AIThermostat(ClimateEntity, RestoreEntity, ABC):
 		self.startup_running = True
 		self.heating_active_pre_window_opened = None
 		self.model = "-"
-		self.next_valve_maintenance = datetime.now() + timedelta(days=5)
+		self.next_valve_maintenance = datetime.now() + timedelta(hours=randint(1, 24*5))
 		self.calibration_type = 2
 		self.daytime_temp = 5
 		self.closed_window_triggered = False
