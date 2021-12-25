@@ -610,9 +610,6 @@ class AIThermostat(ClimateEntity, RestoreEntity, ABC):
 			except TypeError as e:
 				_LOGGER.debug("ai_thermostat entity not ready or device is currently not supported %s", e)
 			
-			# _LOGGER.debug("ai_thermostat %s something changed W: %s | %s - %s | %s - %s", new_state.attributes.get('device').get('friendlyName'), self.window_open,
-			#              new_state.attributes.get('system_mode'), old_state.attributes.get('system_mode'), new_state.attributes.get('current_heating_setpoint'),
-			#              old_state.attributes.get('current_heating_setpoint'))
 			self.async_write_ha_state()
 	
 	async def trv_valve_maintenance(self):
@@ -703,7 +700,6 @@ class AIThermostat(ClimateEntity, RestoreEntity, ABC):
 				elif self.heating_active_pre_window_opened:
 					self._hvac_mode = HVAC_MODE_HEAT
 				
-				# NEW SPECIAL STUFF :)
 				try:
 					remapped_states = convert_outbound_states(self, self._hvac_mode)
 					converted_hvac_mode = remapped_states.get('system_mode')
