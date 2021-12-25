@@ -2,7 +2,6 @@
 Z2M version """
 
 import asyncio
-import json
 import logging
 from abc import ABC
 from datetime import datetime, timedelta
@@ -22,9 +21,11 @@ from homeassistant.components.climate.const import (
 	SERVICE_SET_TEMPERATURE,
 	SERVICE_SET_HVAC_MODE,
 )
+from homeassistant.components.number.const import (
+	SERVICE_SET_VALUE,
+)
 from homeassistant.components.recorder import history
 from homeassistant.const import (
-	ATTR_ENTITY_ID,
 	ATTR_TEMPERATURE,
 	CONF_NAME,
 	CONF_UNIQUE_ID,
@@ -37,7 +38,6 @@ from homeassistant.helpers.event import (
 	async_track_state_change_event,
 	async_track_time_change
 )
-from homeassistant.helpers.json import JSONEncoder
 from homeassistant.helpers.reload import async_setup_reload_service
 from homeassistant.helpers.restore_state import RestoreEntity
 
@@ -92,7 +92,6 @@ async def async_setup_platform(hass, config, async_add_entities, discovery_info=
 	"""Set up the AI thermostat platform."""
 	
 	await async_setup_reload_service(hass, DOMAIN, PLATFORMS)
-	mqtt = hass.components.mqtt
 	name = config.get(CONF_NAME)
 	heater_entity_id = config.get(CONF_HEATER)
 	sensor_entity_id = config.get(CONF_SENSOR)
@@ -115,7 +114,6 @@ async def async_setup_platform(hass, config, async_add_entities, discovery_info=
 	async_add_entities(
 			[
 				AIThermostat(
-						mqtt,
 						name,
 						heater_entity_id,
 						sensor_entity_id,
@@ -146,7 +144,6 @@ class AIThermostat(ClimateEntity, RestoreEntity, ABC):
 	
 	def __init__(
 			self,
-			mqtt,
 			name,
 			heater_entity_id,
 			sensor_entity_id,
@@ -169,7 +166,6 @@ class AIThermostat(ClimateEntity, RestoreEntity, ABC):
 			state_class,
 	):
 		"""Initialize the thermostat."""
-		self.mqtt = mqtt
 		self._name = name
 		self.heater_entity_id = heater_entity_id
 		self.sensor_entity_id = sensor_entity_id
@@ -616,38 +612,22 @@ class AIThermostat(ClimateEntity, RestoreEntity, ABC):
 		"""Maintenance of the TRV valve."""
 		self.ignore_states = True
 		if self.hass.states.get(self.heater_entity_id).attributes.get('valve_position'):
-			mqtt_trv_valve = {"valve_position": 255}
-			payload = json.dumps(mqtt_trv_valve, cls=JSONEncoder)
-			await self.mqtt.async_publish(self.hass, 'zigbee2mqtt/' + self.hass.states.get(self.heater_entity_id).attributes.get('device').get('friendlyName') + '/set', payload, 0, False)
+			await self.set_trv_values('valve_position', 255)
 			await asyncio.sleep(60)
-			mqtt_trv_valve = {"valve_position": 0}
-			payload = json.dumps(mqtt_trv_valve, cls=JSONEncoder)
-			await self.mqtt.async_publish(self.hass, 'zigbee2mqtt/' + self.hass.states.get(self.heater_entity_id).attributes.get('device').get('friendlyName') + '/set', payload, 0, False)
+			await self.set_trv_values('valve_position', 0)
 			await asyncio.sleep(60)
-			mqtt_trv_valve = {"valve_position": 255}
-			payload = json.dumps(mqtt_trv_valve, cls=JSONEncoder)
-			await self.mqtt.async_publish(self.hass, 'zigbee2mqtt/' + self.hass.states.get(self.heater_entity_id).attributes.get('device').get('friendlyName') + '/set', payload, 0, False)
+			await self.set_trv_values('valve_position', 255)
 			await asyncio.sleep(60)
-			mqtt_trv_valve = {"valve_position": 0}
-			payload = json.dumps(mqtt_trv_valve, cls=JSONEncoder)
-			await self.mqtt.async_publish(self.hass, 'zigbee2mqtt/' + self.hass.states.get(self.heater_entity_id).attributes.get('device').get('friendlyName') + '/set', payload, 0, False)
-			await asyncio.sleep(5)
+			await self.set_trv_values('valve_position', 0)
+			await asyncio.sleep(60)
 		else:
-			mqtt_trv_valve = {"current_heating_setpoint": 30}
-			payload = json.dumps(mqtt_trv_valve, cls=JSONEncoder)
-			await self.mqtt.async_publish(self.hass, 'zigbee2mqtt/' + self.hass.states.get(self.heater_entity_id).attributes.get('device').get('friendlyName') + '/set', payload, 0, False)
+			await self.set_trv_values('temperature', 30)
 			await asyncio.sleep(60)
-			mqtt_trv_valve = {"current_heating_setpoint": 5}
-			payload = json.dumps(mqtt_trv_valve, cls=JSONEncoder)
-			await self.mqtt.async_publish(self.hass, 'zigbee2mqtt/' + self.hass.states.get(self.heater_entity_id).attributes.get('device').get('friendlyName') + '/set', payload, 0, False)
+			await self.set_trv_values('temperature', 5)
 			await asyncio.sleep(60)
-			mqtt_trv_valve = {"current_heating_setpoint": 30}
-			payload = json.dumps(mqtt_trv_valve, cls=JSONEncoder)
-			await self.mqtt.async_publish(self.hass, 'zigbee2mqtt/' + self.hass.states.get(self.heater_entity_id).attributes.get('device').get('friendlyName') + '/set', payload, 0, False)
+			await self.set_trv_values('temperature', 30)
 			await asyncio.sleep(60)
-			mqtt_trv_valve = {"current_heating_setpoint": 5}
-			payload = json.dumps(mqtt_trv_valve, cls=JSONEncoder)
-			await self.mqtt.async_publish(self.hass, 'zigbee2mqtt/' + self.hass.states.get(self.heater_entity_id).attributes.get('device').get('friendlyName') + '/set', payload, 0, False)
+			await self.set_trv_values('temperature', 5)
 			await asyncio.sleep(60)
 		self.ignore_states = False
 		await self._async_control_heating()
@@ -703,8 +683,7 @@ class AIThermostat(ClimateEntity, RestoreEntity, ABC):
 				try:
 					remapped_states = convert_outbound_states(self, self._hvac_mode)
 					converted_hvac_mode = remapped_states.get('system_mode')
-					local_temperature = remapped_states.get('local_temperature')
-					current_heating_setpoint = remapped_states.get('current_heating_setpoint')
+					current_heating_setpoint = self._target_temp
 					has_real_mode = True if self.hass.states.get(self.heater_entity_id).attributes.get('system_mode') is not None else False
 					calibration = float(remapped_states.get('local_temperature_calibration'))
 					
@@ -750,38 +729,20 @@ class AIThermostat(ClimateEntity, RestoreEntity, ABC):
 					
 					# FIXME: this if is waaaay to complex
 					if self.calibration_type == 1 and float(self.hass.states.get(self.heater_entity_id).attributes.get('current_heating_setpoint')) != float(calibration):
-						data = {ATTR_ENTITY_ID: self.heater_entity_id, "temperature": float(calibration)}
-						await self.hass.services.async_call('climate', SERVICE_SET_TEMPERATURE, data)
+						await self.set_trv_values('temperature', float(calibration))
 					
 					# FIXME: this if is waaaay to complex
-					if self.calibration_type == 0 and not self.window_open and self.hass.states.get(self.heater_entity_id).attributes.get('current_heating_setpoint') != float(
-							current_heating_setpoint) and converted_hvac_mode != HVAC_MODE_OFF and float(current_heating_setpoint) != 5.0 and self.call_for_heat:
-						data = {ATTR_ENTITY_ID: self.heater_entity_id, "temperature": float(current_heating_setpoint)}
-						await self.hass.services.async_call('climate', SERVICE_SET_TEMPERATURE, data)
+					if self.calibration_type == 0 and not self.window_open and converted_hvac_mode != HVAC_MODE_OFF and float(current_heating_setpoint) != 5.0 and self.call_for_heat:
+						await self.set_trv_values('temperature', float(current_heating_setpoint))
 					
 					# Calibration stuff
 					if self.calibration_type == 0 and not self.window_open and do_calibration:
-						local_calibration_entity = self.heater_entity_id.replace('climate.', 'number.') + '_local_temperature_calibration'
-						max_calibration = self.hass.states.get(local_calibration_entity).attributes.get('max')
-						min_calibration = self.hass.states.get(local_calibration_entity).attributes.get('min')
-						if calibration > max_calibration:
-							calibration = max_calibration
-						if calibration < min_calibration:
-							calibration = min_calibration
-						data = {ATTR_ENTITY_ID: local_calibration_entity, "value": calibration}
-						await self.hass.services.async_call('number', 'set_value', data)
+						await self.set_trv_values('local_temperature_calibration', calibration)
 					
 					# FIXME: this if is waaaay to complex
 					if has_real_mode and (converted_hvac_mode != self.hass.states.get(self.heater_entity_id).attributes.get('system_mode') or converted_hvac_mode == HVAC_MODE_OFF):
-						data = {ATTR_ENTITY_ID: self.heater_entity_id, "hvac_mode": converted_hvac_mode}
-						await self.hass.services.async_call('climate', SERVICE_SET_HVAC_MODE, data)
+						await self.set_trv_values('system_mode', converted_hvac_mode)
 					
-					# Make sure it's turned off!
-					if (self._hvac_mode == HVAC_MODE_OFF or self.window_open or not self.call_for_heat) and has_real_mode:
-						data = {ATTR_ENTITY_ID: self.heater_entity_id, "hvac_mode": converted_hvac_mode}
-						await self.hass.services.async_call('climate', SERVICE_SET_HVAC_MODE, data)
-					
-					await asyncio.sleep(1)
 					self.ignore_states = False
 					
 					# Check if a valve_maintenance is needed
@@ -796,6 +757,25 @@ class AIThermostat(ClimateEntity, RestoreEntity, ABC):
 					_LOGGER.debug("ai_thermostat entity not ready or device is currently not supported")
 					_LOGGER.debug("fatal %s", fatal)
 					self.ignore_states = False
+	
+	async def set_trv_values(self, key, value):
+		if key == 'temperature':
+			await self.hass.services.async_call('climate', SERVICE_SET_TEMPERATURE, {'entity_id': self.heater_entity_id, 'temperature': value}, blocking=True)
+		elif key == 'system_mode':
+			await self.hass.services.async_call('climate', SERVICE_SET_HVAC_MODE, {'entity_id': self.heater_entity_id, 'hvac_mode': value}, blocking=True)
+		elif key == 'local_temperature_calibration':
+			local_calibration_entity = self.heater_entity_id.replace('climate.', 'number.') + '_local_temperature_calibration'
+			max_calibration = self.hass.states.get(local_calibration_entity).attributes.get('max')
+			min_calibration = self.hass.states.get(local_calibration_entity).attributes.get('min')
+			if value > max_calibration:
+				value = max_calibration
+			if value < min_calibration:
+				value = min_calibration
+			await self.hass.services.async_call('number', SERVICE_SET_VALUE, {'entity_id': local_calibration_entity, 'value': value}, blocking=True)
+		elif key == 'valve_position':
+			valve_position_entity = self.heater_entity_id.replace('climate.', 'number.') + '_valve_position'
+			await self.hass.services.async_call('number', SERVICE_SET_VALUE, {'entity_id': valve_position_entity, 'value': value}, blocking=True)
+		await asyncio.sleep(1)
 	
 	def check_weather_prediction(self):
 		"""

@@ -28,20 +28,17 @@ def convert_inbound_states(self, state):
 		hvac_mode = state.get('system_mode')
 	else:
 		hvac_mode = HVAC_MODE_HEAT
-		if state.get('current_heating_setpoint') == 5:
-			hvac_mode = HVAC_MODE_OFF
+	
+	current_heating_setpoint = self._target_temp
 	
 	if Path(config_file).is_file():
 		config = yaml.load_yaml(config_file)
 		self.calibration_type = config.get('calibration_type')
-		if (config.get('calibration_type') == 0):
-			current_heating_setpoint = state.get('current_heating_setpoint')
-		elif (config.get('calibration_type') == 1):
-			current_heating_setpoint = self._target_temp
+		if (config.get('calibration_type') == 1):
+			if state.get('current_heating_setpoint') == 5:
+				hvac_mode = HVAC_MODE_OFF
 		if config.get('mode_map') is not None and state.get('system_mode') is not None:
 			hvac_mode = mode_remap(hvac_mode, reverse_modes(config.get('mode_map')))
-	else:
-		current_heating_setpoint = self._target_temp
 	
 	return {
 		"current_heating_setpoint"     : current_heating_setpoint,
