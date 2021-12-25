@@ -762,6 +762,12 @@ class AIThermostat(ClimateEntity, RestoreEntity, ABC):
 					# Calibration stuff
 					if self.calibration_type == 0 and not self.window_open and do_calibration:
 						local_calibration_entity = self.heater_entity_id.replace('climate.', 'number.') + '_local_temperature_calibration'
+						max_calibration = self.hass.states.get(local_calibration_entity).attributes.get('max')
+						min_calibration = self.hass.states.get(local_calibration_entity).attributes.get('min')
+						if calibration > max_calibration:
+							calibration = max_calibration
+						if calibration < min_calibration:
+							calibration = min_calibration
 						data = {ATTR_ENTITY_ID: local_calibration_entity, "value": calibration}
 						await self.hass.services.async_call('number', 'set_value', data)
 					
