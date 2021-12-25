@@ -7,14 +7,27 @@ from custom_components.ai_thermostat.helpers import convert_decimal
 _LOGGER = logging.getLogger(__name__)
 
 
-class cleanState:
-	def __init__(self, current_temperature, local_temperature, local_temperature_calibration, system_mode, has_real_mode=True, calibration=0):
-		self.current_temperature = current_temperature
-		self.local_temperature = local_temperature
-		self.local_temperature_calibration = local_temperature_calibration
-		self.system_mode = system_mode
-		self.has_real_mode = has_real_mode
-		self.calibration = calibration
+def mode_remap(hvac_mode, modes):
+	if modes is None:
+		return hvac_mode
+	if modes.get(hvac_mode) is not None:
+		return modes.get(hvac_mode)
+	else:
+		return hvac_mode
+
+
+def swapList(list):
+	changedDict = {}
+	for key, value in list.items():
+		changedDict[value] = key
+	return changedDict
+
+
+def calibration(self, type):
+	if type == 1:
+		return temperature_calibration(self)
+	if type == 0:
+		return default_calibration(self)
 
 
 def default_calibration(self):
