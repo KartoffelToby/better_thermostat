@@ -2,7 +2,7 @@ import asyncio
 import logging
 from datetime import datetime, timedelta
 
-from custom_components.ai_thermostat.helpers import convert_decimal
+from custom_components.ai_thermostat.helpers import convert_decimal, set_trv_values
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -37,16 +37,15 @@ def default_calibration(self):
 
 async def evaluate_dampening(self, calibration):
 	state = self.hass.states.get(self.heater_entity_id).attributes
-	mqtt = self.hass.components.mqtt
 	if (datetime.now() > (self.last_dampening_timestamp + timedelta(minutes=15))) and state.get(
 			'system_mode') is not None and self._target_temp is not None and self._cur_temp is not None and not self.night_status:
 		check_dampening = (float(self._target_temp) - 0.5) < float(self._cur_temp)
 		if check_dampening:
 			self.ignore_states = True
 			_LOGGER.debug("Dampening started")
-			await mqtt.async_publish(self.hass, 'zigbee2mqtt/' + state.get('device').get('friendlyName') + '/set/current_heating_setpoint', float(5), 0, False)
+			await set_trv_values(self,'temperature', float(5))
 			await asyncio.sleep(60)
-			await mqtt.async_publish(self.hass, 'zigbee2mqtt/' + state.get('device').get('friendlyName') + '/set/current_heating_setpoint', float(calibration), 0, False)
+			await set_trv_values(self,'temperature', float(calibration))
 			self.last_dampening_timestamp = datetime.now()
 			self.ignore_states = False
 
