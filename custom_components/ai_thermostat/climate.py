@@ -108,6 +108,7 @@ async def async_setup_platform(hass, config, async_add_entities, discovery_info=
 	precision = 0.5
 	unit = hass.config.units.temperature_unit
 	unique_id = config.get(CONF_UNIQUE_ID)
+
 	async_add_entities(
 			[
 				AIThermostat(
@@ -173,8 +174,8 @@ class AIThermostat(ClimateEntity, RestoreEntity, ABC):
 		self.off_temperature = off_temperature or None
 		self.valve_maintenance = valve_maintenance
 		self.night_temp = night_temp or None
-		self.night_start = dt_util.parse_time(night_start)
-		self.night_end = dt_util.parse_time(night_end)
+		self.night_start = dt_util.parse_time(night_start) or None
+		self.night_end = dt_util.parse_time(night_end) or None
 		self._hvac_mode = HVAC_MODE_HEAT
 		self._saved_target_temp = target_temp or None
 		self._target_temp_step = precision
@@ -207,6 +208,7 @@ class AIThermostat(ClimateEntity, RestoreEntity, ABC):
 		self._today_nightmode_end = datetime.now()
 		self.local_temperature_calibration_entity = None
 		self.valve_position_entity = None
+		self.version = "0.9.0"
 	
 	async def async_added_to_hass(self):
 		"""Run when entity about to be added."""
@@ -225,7 +227,8 @@ class AIThermostat(ClimateEntity, RestoreEntity, ABC):
 			)
 		
 		# check if night mode was configured
-		if not all([self.night_start, self.night_end is None]):		
+		if not all([self.night_start is None, self.night_end is None]):
+			_LOGGER.debug("Night mode configured")	
 			async_track_time_change(
 					self.hass,
 					self._async_timer_trigger,
@@ -245,7 +248,7 @@ class AIThermostat(ClimateEntity, RestoreEntity, ABC):
 		def _async_startup(*_):
 			"""Init on startup."""
 			
-			_LOGGER.info("Starting ai_thermostat for %s with version: 0.9.0 waiting for entity to be ready...", self.name)
+			_LOGGER.info("Starting ai_thermostat for %s with version: %s waiting for entity to be ready...", self.name,self.version)
 			
 			loop = asyncio.get_event_loop()
 			loop.create_task(self.startup())
@@ -348,7 +351,6 @@ class AIThermostat(ClimateEntity, RestoreEntity, ABC):
 					self.closed_window_triggered = False
 				_LOGGER.debug("ai_thermostat: Window %s", self.window_open)
 			
-			_LOGGER.info("Register ai_thermostat with name: %s", self.name)
 			self.startup_running = False
 			self._active = True
 			entity_registry = await self.hass.helpers.entity_registry.async_get_registry()
@@ -363,13 +365,9 @@ class AIThermostat(ClimateEntity, RestoreEntity, ABC):
 			self._async_update_temp(sensor_state)
 			self.async_write_ha_state()
 			await asyncio.sleep(5)
+			_LOGGER.info("Register ai_thermostat with name: %s", self.name)
 			await self._async_control_heating()
-		
 		return True
-	
-	@property
-	def device_class(self):
-		return self._device_class
 	
 	@property
 	def extra_state_attributes(self):
@@ -687,7 +685,7 @@ class AIThermostat(ClimateEntity, RestoreEntity, ABC):
 					converted_hvac_mode = remapped_states.get('system_mode')
 					current_heating_setpoint = self._target_temp
 					has_real_mode = True if self.hass.states.get(self.heater_entity_id).attributes.get('system_mode') is not None else False
-					calibration = float(remapped_states.get('local_temperature_calibration'))
+					calibration = remapped_states.get('local_temperature_calibration')
 					
 					# if off do nothing
 					if self.closed_window_triggered or self._hvac_mode == HVAC_MODE_OFF:
