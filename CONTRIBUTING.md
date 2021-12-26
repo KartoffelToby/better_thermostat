@@ -9,12 +9,12 @@ document in a pull request.
 
 ### Reporting Bugs
 
-You can create a issue if you have any kind of bug or error but please use the issue tempalte.
+You can create an issue if you have any kind of bug or error but please use the issue template.
 
 ### Add a new device "remapping"
 
-If you have a Devices thats not supported feel free to create a pull request.
+If you have a Devices that's not supported feel free to create a pull request.
 
 #### How it works
 
-Just look at a existing model and ajust the remapping for your devices, a info.md and a remap.py is required. Don't forget to add it in the models.py
+Just look at an existing model and adjust the remapping for your devices, an info.md and a remap.py is required. Don't forget to add it in the models.py
