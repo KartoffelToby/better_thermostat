@@ -213,7 +213,7 @@ class AIThermostat(ClimateEntity, RestoreEntity, ABC):
 	async def async_added_to_hass(self):
 		"""Run when entity about to be added."""
 		await super().async_added_to_hass()
-		
+		# register device
 		# Add listener
 		async_track_state_change_event(
 				self.hass, [self.sensor_entity_id], self._async_sensor_changed
