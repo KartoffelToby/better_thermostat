@@ -37,15 +37,13 @@ async def set_trv_values(self, key, value):
 	elif key == 'system_mode':
 		await self.hass.services.async_call('climate', SERVICE_SET_HVAC_MODE, {'entity_id': self.heater_entity_id, 'hvac_mode': value}, blocking=True)
 	elif key == 'local_temperature_calibration':
-		local_calibration_entity = self.heater_entity_id.replace('climate.', 'number.') + '_local_temperature_calibration'
-		max_calibration = self.hass.states.get(local_calibration_entity).attributes.get('max')
-		min_calibration = self.hass.states.get(local_calibration_entity).attributes.get('min')
+		max_calibration = self.hass.states.get(self.local_temperature_calibration_entity).attributes.get('max')
+		min_calibration = self.hass.states.get(self.local_temperature_calibration_entity).attributes.get('min')
 		if value > max_calibration:
 			value = max_calibration
 		if value < min_calibration:
 			value = min_calibration
-		await self.hass.services.async_call('number', SERVICE_SET_VALUE, {'entity_id': local_calibration_entity, 'value': value}, blocking=True)
+		await self.hass.services.async_call('number', SERVICE_SET_VALUE, {'entity_id': self.local_temperature_calibration_entity, 'value': value}, blocking=True)
 	elif key == 'valve_position':
-		valve_position_entity = self.heater_entity_id.replace('climate.', 'number.') + '_valve_position'
-		await self.hass.services.async_call('number', SERVICE_SET_VALUE, {'entity_id': valve_position_entity, 'value': value}, blocking=True)
+		await self.hass.services.async_call('number', SERVICE_SET_VALUE, {'entity_id': self.valve_position_entity, 'value': value}, blocking=True)
 	await asyncio.sleep(1)

@@ -35,7 +35,9 @@ from homeassistant.helpers.event import (
 )
 from homeassistant.helpers.reload import async_setup_reload_service
 from homeassistant.helpers.restore_state import RestoreEntity
-
+from homeassistant.helpers.entity_registry import (
+	async_entries_for_config_entry,
+)
 from custom_components.ai_thermostat.helpers import check_float, convert_decimal, set_trv_values
 from custom_components.ai_thermostat.models.models import convert_inbound_states, convert_outbound_states
 from . import DOMAIN, PLATFORMS
@@ -70,12 +72,12 @@ PLATFORM_SCHEMA = PLATFORM_SCHEMA.extend(
 			vol.Optional(CONF_SENSOR_WINDOW)                   : cv.entity_id,
 			vol.Optional(CONF_WEATHER)                         : cv.entity_id,
 			vol.Optional(CONF_OUTDOOR_SENSOR)                  : cv.entity_id,
-			vol.Optional(CONF_OFF_TEMPERATURE, default=None)   : vol.Coerce(float),
+			vol.Optional(CONF_OFF_TEMPERATURE, default=20.0)   : vol.Coerce(float),
 			vol.Optional(CONF_WINDOW_TIMEOUT, default=0)       : vol.Coerce(int),
 			vol.Optional(CONF_VALVE_MAINTENANCE, default=False): cv.boolean,
-			vol.Optional(CONF_NIGHT_TEMP, default=None)        : vol.Coerce(float),
-			vol.Optional(CONF_NIGHT_START, default=None)       : cv.string,
-			vol.Optional(CONF_NIGHT_END, default=None)         : cv.string,
+			vol.Optional(CONF_NIGHT_TEMP, default=18.0)         : vol.Coerce(float),
+			vol.Optional(CONF_NIGHT_START, default=None)       : vol.Coerce(str),
+			vol.Optional(CONF_NIGHT_END, default=None)         : vol.Coerce(str),
 			vol.Optional(CONF_NAME, default=DEFAULT_NAME)      : cv.string,
 			vol.Optional(CONF_TARGET_TEMP)                     : vol.Coerce(float),
 			vol.Optional(CONF_UNIQUE_ID)                       : cv.string,
@@ -203,6 +205,8 @@ class AIThermostat(ClimateEntity, RestoreEntity, ABC):
 		self._device_class = device_class
 		self._state_class = state_class
 		self._today_nightmode_end = datetime.now()
+		self.local_temperature_calibration_entity = None
+		self.valve_position_entity = None
 	
 	async def async_added_to_hass(self):
 		"""Run when entity about to be added."""
@@ -221,23 +225,21 @@ class AIThermostat(ClimateEntity, RestoreEntity, ABC):
 			)
 		
 		# check if night mode was configured
-		if not all([self.night_start, self.night_end, self.night_temp is None]):
-			return
-		
-		async_track_time_change(
-				self.hass,
-				self._async_timer_trigger,
-				self.night_start.hour,
-				self.night_start.minute,
-				self.night_start.second,
-		)
-		async_track_time_change(
-				self.hass,
-				self._async_timer_trigger,
-				self.night_end.hour,
-				self.night_end.minute,
-				self.night_end.second,
-		)
+		if not all([self.night_start, self.night_end is None]):		
+			async_track_time_change(
+					self.hass,
+					self._async_timer_trigger,
+					self.night_start.hour,
+					self.night_start.minute,
+					self.night_start.second,
+			)
+			async_track_time_change(
+					self.hass,
+					self._async_timer_trigger,
+					self.night_end.hour,
+					self.night_end.minute,
+					self.night_end.second,
+			)
 		
 		@callback
 		def _async_startup(*_):
@@ -286,7 +288,7 @@ class AIThermostat(ClimateEntity, RestoreEntity, ABC):
 		"""Run startup tasks."""
 		window = None
 		await asyncio.sleep(5)
-		
+
 		while self.startup_running:
 			sensor_state = self.hass.states.get(self.sensor_entity_id)
 			trv_state = self.hass.states.get(self.heater_entity_id)
@@ -349,6 +351,15 @@ class AIThermostat(ClimateEntity, RestoreEntity, ABC):
 			_LOGGER.info("Register ai_thermostat with name: %s", self.name)
 			self.startup_running = False
 			self._active = True
+			entity_registry = await self.hass.helpers.entity_registry.async_get_registry()
+			reg_entity = entity_registry.async_get(self.heater_entity_id)
+			entity_entries = async_entries_for_config_entry(entity_registry, reg_entity.config_entry_id)
+			for entity in entity_entries:
+				uid = entity.unique_id
+				if "local_temperature_calibration" in uid: 
+					self.local_temperature_calibration_entity = entity.entity_id
+				if "valve_position" in uid:
+					self.valve_position_entity = entity.entity_id
 			self._async_update_temp(sensor_state)
 			self.async_write_ha_state()
 			await asyncio.sleep(5)
@@ -506,10 +517,6 @@ class AIThermostat(ClimateEntity, RestoreEntity, ABC):
 	@callback
 	async def _async_timer_trigger(self, state):
 		"""Triggered by temperature timer to check if it's time to heat."""
-		# check if night mode was configured
-		if not all([self.night_start, self.night_end, self.night_temp is None]):
-			return
-		
 		if self.night_start.hour == state.hour and self.night_start.minute == state.minute:
 			_LOGGER.debug("night mode active override with: %s", float(self.night_temp))
 			self.daytime_temp = self._target_temp
@@ -524,7 +531,7 @@ class AIThermostat(ClimateEntity, RestoreEntity, ABC):
 		await self._async_control_heating()
 	
 	@callback
-	async def _async_window_changed(self):
+	async def _async_window_changed(self,event):
 		if self.startup_running:
 			return
 		if self.hass.states.get(self.heater_entity_id) is not None:
