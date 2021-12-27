@@ -66,7 +66,7 @@ def convert_outbound_states(self, hvac_mode):
 		local_temperature_calibration = calibration(self, config.get('calibration_type'))
 		self.calibration_type = config.get('calibration_type')
 		if (config.get('calibration_round')):
-			local_temperature_calibration = int(math.floor(local_temperature_calibration))
+			local_temperature_calibration = int(math.ceil(local_temperature_calibration))
 		if (config.get('calibration_type') == 0):
 			current_heating_setpoint = state.get('current_heating_setpoint')
 		elif (config.get('calibration_type') == 1):
@@ -81,7 +81,7 @@ def convert_outbound_states(self, hvac_mode):
 	
 	else:
 		current_heating_setpoint = self._target_temp
-		local_temperature_calibration = int(math.floor(calibration(self, 0)))
+		local_temperature_calibration = int(math.ceil(calibration(self, 0)))
 	
 	return {
 		"current_heating_setpoint"     : current_heating_setpoint,
