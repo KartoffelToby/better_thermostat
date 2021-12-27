@@ -58,7 +58,7 @@ def temperature_calibration(self):
 	if new_calibration > float(self._max_temp):
 		new_calibration = float(self._max_temp)
 	
-	loop = asyncio.get_event_loop()
-	loop.create_task(evaluate_dampening(self, new_calibration))
+	#loop = asyncio.get_event_loop()
+	#loop.create_task(evaluate_dampening(self, new_calibration))
 	
 	return new_calibration
