@@ -208,7 +208,7 @@ class AIThermostat(ClimateEntity, RestoreEntity, ABC):
 		self._today_nightmode_end = datetime.now()
 		self.local_temperature_calibration_entity = None
 		self.valve_position_entity = None
-		self.version = "0.9.0"
+		self.version = "0.9.1"
 	
 	async def async_added_to_hass(self):
 		"""Run when entity about to be added."""
