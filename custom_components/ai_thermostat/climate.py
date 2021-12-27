@@ -202,7 +202,7 @@ class AIThermostat(ClimateEntity, RestoreEntity, ABC):
 		self.call_for_heat = None
 		self.ignore_states = False
 		self.last_calibration = None
-		self.last_dampening_timestamp = None
+		self.last_dampening_timestamp = datetime.now()
 		self._device_class = device_class
 		self._state_class = state_class
 		self._today_nightmode_end = datetime.now()
