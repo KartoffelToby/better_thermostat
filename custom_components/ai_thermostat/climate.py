@@ -775,7 +775,7 @@ class AIThermostat(ClimateEntity, RestoreEntity, ABC):
 			forcast = self.hass.states.get(self.weather_entity).attributes.get('forecast')
 			if len(forcast) > 0:
 				max_forcast_temp = int(round(float(forcast[0]['temperature']) + float(forcast[1]['temperature']) / 2))
-				return max_forcast_temp < self.off_temperature
+				return max_forcast_temp >= self.off_temperature
 			else:
 				raise TypeError
 		except TypeError:
@@ -827,7 +827,7 @@ class AIThermostat(ClimateEntity, RestoreEntity, ABC):
 		# calculate the average temperature
 		avg_temp = sum(valid_historic_sensor_data) / len(valid_historic_sensor_data)
 		_LOGGER.debug("ai_thermostat: avg outdoor temp: %s", avg_temp)
-		return avg_temp < self.off_temperature
+		return avg_temp >= self.off_temperature
 	
 	@property
 	def _is_device_active(self):
