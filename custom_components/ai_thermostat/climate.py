@@ -6,6 +6,7 @@ import logging
 from abc import ABC
 from datetime import datetime, timedelta
 from random import randint
+import math
 
 import homeassistant.helpers.config_validation as cv
 import homeassistant.util.dt as dt_util
@@ -208,7 +209,7 @@ class AIThermostat(ClimateEntity, RestoreEntity, ABC):
 		self._today_nightmode_end = datetime.now()
 		self.local_temperature_calibration_entity = None
 		self.valve_position_entity = None
-		self.version = "0.9.2"
+		self.version = "0.9.3"
 	
 	async def async_added_to_hass(self):
 		"""Run when entity about to be added."""
@@ -670,6 +671,7 @@ class AIThermostat(ClimateEntity, RestoreEntity, ABC):
 					_LOGGER.warning("ai_thermostat: call for heat decision: could not evaluate sensor/weather entity data, force heat on")
 					self.call_for_heat = True
 				
+				_LOGGER.debug("ai_thermostat %s",self.call_for_heat)
 				# window open detection and weather detection force turn TRV off
 				if (self.window_open or not self.call_for_heat) and not self.closed_window_triggered:
 					self.heating_active_pre_window_opened = False
@@ -710,7 +712,7 @@ class AIThermostat(ClimateEntity, RestoreEntity, ABC):
 						self.last_calibration = datetime.now()
 					
 					_LOGGER.debug(
-							"ai_thermostat triggered states > window open: %s night mode: %s Mode: %s set: %s has_mode: %s Calibration: %s - send: %s set_temp: %s cur_temp: %s Model: %s Calibration "
+							"ai_thermostat triggered states > window open: %s night mode: %s Mode: %s set: %s has_mode: %s Calibration: %s set_temp: %s cur_temp: %s Model: %s Calibration "
 							"type: %s call for heat: %s TRV: %s",
 							self.window_open,
 							self.night_status,
@@ -718,7 +720,6 @@ class AIThermostat(ClimateEntity, RestoreEntity, ABC):
 							self._hvac_mode,
 							has_real_mode,
 							calibration,
-							do_calibration,
 							current_heating_setpoint,
 							self._cur_temp,
 							self.model,
@@ -774,8 +775,9 @@ class AIThermostat(ClimateEntity, RestoreEntity, ABC):
 		try:
 			forcast = self.hass.states.get(self.weather_entity).attributes.get('forecast')
 			if len(forcast) > 0:
-				max_forcast_temp = int(round(float(forcast[0]['temperature']) + float(forcast[1]['temperature']) / 2))
-				return max_forcast_temp >= self.off_temperature
+				max_forcast_temp = math.ceil((float(forcast[0]['temperature']) + float(forcast[1]['temperature'])) / 2)
+				_LOGGER.debug("ai_thermostat: avg weather temp: %s",max_forcast_temp)
+				return float(max_forcast_temp) < float(self.off_temperature)
 			else:
 				raise TypeError
 		except TypeError:
@@ -825,9 +827,9 @@ class AIThermostat(ClimateEntity, RestoreEntity, ABC):
 			return None
 		
 		# calculate the average temperature
-		avg_temp = sum(valid_historic_sensor_data) / len(valid_historic_sensor_data)
+		avg_temp = math.ceil(sum(valid_historic_sensor_data) / len(valid_historic_sensor_data))
 		_LOGGER.debug("ai_thermostat: avg outdoor temp: %s", avg_temp)
-		return avg_temp >= self.off_temperature
+		return float(avg_temp) < float(self.off_temperature)
 	
 	@property
 	def _is_device_active(self):
