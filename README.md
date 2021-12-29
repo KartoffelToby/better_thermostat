@@ -1,6 +1,7 @@
 [![Active installations](https://badge.t-haber.de/badge/ai_thermostat?kill_cache=1)](https://github.com/KartoffelToby/ai_thermostat/)
 [![GitHub issues](https://img.shields.io/github/issues/KartoffelToby/ai_thermostat?style=for-the-badge)](https://github.com/KartoffelToby/ai_thermostat/issues)
 [![Version - 0.9.3](https://img.shields.io/badge/Version-0.9.3-009688?style=for-the-badge)](https://github.com/KartoffelToby/ai_thermostat/releases)
+[![Discord](https://img.shields.io/discord/925725316540923914.svg?style=for-the-badge)](https://discord.gg/9BUegWTG3K)
 
 # AI THERMOSTAT for Zigbee2MQTT
 
