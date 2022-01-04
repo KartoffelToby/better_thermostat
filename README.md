@@ -204,6 +204,7 @@ If you want to support this project, you can ☕ [**buy a coffee here**](https:/
 | User    | Donation |
 |:--------|:---------|
 | Someone | ☕ x 3    |
+| Someone | ☕ x 3    |
 | Someone | ☕ x 1    |
 
 ---
