@@ -372,7 +372,7 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
 		dev_specific = {
 			ATTR_STATE_WINDOW_OPEN  : self.window_open,
 			ATTR_STATE_NIGHT_MODE   : self.night_status,
-			ATTR_STATE_CALL_FOR_HEAT: not self.call_for_heat,
+			ATTR_STATE_CALL_FOR_HEAT: self.call_for_heat,
 			ATTR_STATE_LAST_CHANGE  : self.last_change,
 			ATTR_STATE_DAY_TEMP     : self.daytime_temp,
 		}
