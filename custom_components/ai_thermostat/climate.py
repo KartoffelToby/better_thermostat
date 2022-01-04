@@ -48,7 +48,7 @@ SUPPORT_FLAGS = SUPPORT_TARGET_TEMPERATURE
 
 ATTR_STATE_WINDOW_OPEN = "window_open"
 ATTR_STATE_NIGHT_MODE = "night_mode"
-ATTR_STATE_CALL_FOR_HEAT = "winter"
+ATTR_STATE_SUMMER = "summer"
 ATTR_STATE_LAST_CHANGE = "last_change"
 ATTR_STATE_DAY_TEMP = "last_day_temp"
 
@@ -267,6 +267,8 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
 				self.window_open = old_state.attributes.get(ATTR_STATE_WINDOW_OPEN)
 			if old_state.attributes.get(ATTR_STATE_DAY_TEMP) is not None:
 				self.daytime_temp = old_state.attributes.get(ATTR_STATE_DAY_TEMP)
+			if old_state.attributes.get(ATTR_STATE_SUMMER) is not None:
+				self.is_summer = old_state.attributes.get(ATTR_STATE_SUMMER)
 			if old_state.attributes.get(ATTR_STATE_NIGHT_MODE) is not None:
 				self.night_status = old_state.attributes.get(ATTR_STATE_NIGHT_MODE)
 				if self.night_status:
@@ -372,7 +374,7 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
 		dev_specific = {
 			ATTR_STATE_WINDOW_OPEN  : self.window_open,
 			ATTR_STATE_NIGHT_MODE   : self.night_status,
-			ATTR_STATE_CALL_FOR_HEAT: self.call_for_heat,
+			ATTR_STATE_SUMMER       : self.is_summer,
 			ATTR_STATE_LAST_CHANGE  : self.last_change,
 			ATTR_STATE_DAY_TEMP     : self.daytime_temp,
 		}
@@ -678,11 +680,12 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
 				elif not self.window_open and self.closed_window_triggered:
 					self._hvac_mode = self.last_change
 
-				# check ifs warm outside
-				if self._hvac_mode != HVAC_MODE_OFF and not self.call_for_heat:
+				# check if's summer
+				if self._hvac_mode != HVAC_MODE_OFF and not self.call_for_heat and not self.is_summer and not self.window_open:
 					self.last_change = self._hvac_mode
 					self._hvac_mode = HVAC_MODE_OFF
-				elif self._hvac_mode != HVAC_MODE_OFF and self.call_for_heat:
+					self.is_summer = True
+				elif self._hvac_mode != HVAC_MODE_OFF and self.call_for_heat and self.is_summer and not self.window_open:
 					self._hvac_mode = self.last_change
 
 				
