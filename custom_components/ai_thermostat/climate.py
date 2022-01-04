@@ -50,6 +50,7 @@ ATTR_STATE_WINDOW_OPEN = "window_open"
 ATTR_STATE_NIGHT_MODE = "night_mode"
 ATTR_STATE_CALL_FOR_HEAT = "winter"
 ATTR_STATE_LAST_CHANGE = "last_change"
+ATTR_STATE_DAY_TEMP = "last_day_temp"
 
 PLATFORM_SCHEMA = PLATFORM_SCHEMA.extend(
 		{
@@ -264,8 +265,12 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
 				self.last_change = old_state.attributes.get(ATTR_STATE_LAST_CHANGE)
 			if old_state.attributes.get(ATTR_STATE_WINDOW_OPEN) is not None:
 				self.window_open = old_state.attributes.get(ATTR_STATE_WINDOW_OPEN)
+			if old_state.attributes.get(ATTR_STATE_DAY_TEMP) is not None:
+				self.daytime_temp = old_state.attributes.get(ATTR_STATE_DAY_TEMP)
 			if old_state.attributes.get(ATTR_STATE_NIGHT_MODE) is not None:
 				self.night_status = old_state.attributes.get(ATTR_STATE_NIGHT_MODE)
+				if self.night_status:
+					self._target_temp = float(self.night_temp)				
 
 		else:
 			# No previous state, try and restore defaults
@@ -369,6 +374,7 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
 			ATTR_STATE_NIGHT_MODE   : self.night_status,
 			ATTR_STATE_CALL_FOR_HEAT: not self.call_for_heat,
 			ATTR_STATE_LAST_CHANGE  : self.last_change,
+			ATTR_STATE_DAY_TEMP     : self.daytime_temp,
 		}
 		
 		return dev_specific
