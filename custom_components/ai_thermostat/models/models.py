@@ -9,7 +9,7 @@ from homeassistant.components.climate.const import (
 )
 from homeassistant.util import yaml
 
-from custom_components.ai_thermostat.models.utils import calibration, mode_remap, reverse_modes
+from custom_components.better_thermostat.models.utils import calibration, mode_remap, reverse_modes
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -18,9 +18,9 @@ def convert_inbound_states(self, state):
 		if self.hass.states.get(self.heater_entity_id).attributes.get('device') is not None:
 			self.model = self.hass.states.get(self.heater_entity_id).attributes.get('device').get('model')
 		else:
-			_LOGGER.exception("ai_thermostat: can't read the device model of TVR, Enable include_device_information in z2m or checkout issue #1")
+			_LOGGER.exception("better_thermostat: can't read the device model of TVR, Enable include_device_information in z2m or checkout issue #1")
 	except RuntimeError:
-		_LOGGER.exception("ai_thermostat: error can't get the TRV")
+		_LOGGER.exception("better_thermostat: error can't get the TRV")
 	
 	config_file = os.path.dirname(os.path.realpath(__file__)) + '/devices/' + self.model.replace("/", "_") + '.yaml'
 	
@@ -53,9 +53,9 @@ def convert_outbound_states(self, hvac_mode):
 		if self.hass.states.get(self.heater_entity_id).attributes.get('device') is not None:
 			self.model = self.hass.states.get(self.heater_entity_id).attributes.get('device').get('model')
 		else:
-			_LOGGER.exception("ai_thermostat: can't read the device model of TVR, Enable include_device_information in z2m or checkout issue #1")
+			_LOGGER.exception("better_thermostat: can't read the device model of TVR, Enable include_device_information in z2m or checkout issue #1")
 	except RuntimeError:
-		_LOGGER.exception("ai_thermostat: error can't get the TRV")
+		_LOGGER.exception("better_thermostat: error can't get the TRV")
 	
 	state = self.hass.states.get(self.heater_entity_id).attributes
 	

@@ -1,6 +1,6 @@
 import logging
 
-from custom_components.ai_thermostat.helpers import convert_decimal
+from custom_components.better_thermostat.helpers import convert_decimal
 
 _LOGGER = logging.getLogger(__name__)
 

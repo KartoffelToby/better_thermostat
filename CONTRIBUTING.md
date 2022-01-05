@@ -1,8 +1,8 @@
-# Contributing to AI Thermostat
+# Contributing to Better Thermostat
 
 :+1::tada: First off, thanks for taking the time to contribute! :tada::+1:
 
-The following is a set of guidelines for contributing to AI Thermostat. These are mostly guidelines, not rules. Use your best judgment, and feel free to propose changes to this
+The following is a set of guidelines for contributing to Better Thermostat. These are mostly guidelines, not rules. Use your best judgment, and feel free to propose changes to this
 document in a pull request.
 
 ## How Can I Contribute?
