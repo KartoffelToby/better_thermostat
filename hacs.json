@@ -1,5 +1,5 @@
 {
-  "name": "AI Thermostat for Zigbee2MQTT",
+  "name": "Better Thermostat for Zigbee2MQTT",
   "render_readme": true,
   "domains": [
     "climate"
