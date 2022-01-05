@@ -3,7 +3,7 @@
 [![Version - 1.0.0](https://img.shields.io/badge/Version-1.0.0-009688?style=for-the-badge)](https://github.com/KartoffelToby/better_thermostat/releases)
 [![Discord](https://img.shields.io/discord/925725316540923914.svg?style=for-the-badge)](https://discord.gg/9BUegWTG3K)
 
-# Better Thermostat for Zigbee2MQTT
+# Better Thermostat
 
 **Important Notice: This software is still in beta. When all main functions are stable there will be a 1.0 release under the new name: better_thermostat.**
 **After 1.0 we switch to Monthly releases**

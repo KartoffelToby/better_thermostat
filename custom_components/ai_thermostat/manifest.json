@@ -1,6 +1,6 @@
 {
   "domain": "better_thermostat",
-  "name": "Better Thermostat for Zigbee2MQTT",
+  "name": "Better Thermostat",
   "documentation": "https://github.com/KartoffelToby/better_thermostat",
   "issue_tracker": "https://github.com/KartoffelToby/better_thermostat/issues",
   "iot_class": "local_push",
