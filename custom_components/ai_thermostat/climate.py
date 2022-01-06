@@ -3,42 +3,24 @@ Z2M version """
 
 import asyncio
 import logging
+import math
 from abc import ABC
 from datetime import datetime, timedelta
 from random import randint
-import math
 
 import homeassistant.helpers.config_validation as cv
 import homeassistant.util.dt as dt_util
 import voluptuous as vol
 from homeassistant.components.climate import PLATFORM_SCHEMA, ClimateEntity
-from homeassistant.components.climate.const import (
-	CURRENT_HVAC_HEAT,
-	CURRENT_HVAC_IDLE,
-	CURRENT_HVAC_OFF,
-	HVAC_MODE_HEAT,
-	HVAC_MODE_OFF,
-	SUPPORT_TARGET_TEMPERATURE,
-)
+from homeassistant.components.climate.const import (CURRENT_HVAC_HEAT, CURRENT_HVAC_IDLE, CURRENT_HVAC_OFF, HVAC_MODE_HEAT, HVAC_MODE_OFF, SUPPORT_TARGET_TEMPERATURE, )
 from homeassistant.components.recorder import history
-from homeassistant.const import (
-	ATTR_TEMPERATURE,
-	CONF_NAME,
-	CONF_UNIQUE_ID,
-	EVENT_HOMEASSISTANT_START,
-	STATE_UNAVAILABLE,
-	STATE_UNKNOWN,
-)
+from homeassistant.const import (ATTR_TEMPERATURE, CONF_NAME, CONF_UNIQUE_ID, EVENT_HOMEASSISTANT_START, STATE_UNAVAILABLE, STATE_UNKNOWN, )
 from homeassistant.core import CoreState, callback
-from homeassistant.helpers.event import (
-	async_track_state_change_event,
-	async_track_time_change
-)
+from homeassistant.helpers.entity_registry import (async_entries_for_config_entry, )
+from homeassistant.helpers.event import (async_track_state_change_event, async_track_time_change)
 from homeassistant.helpers.reload import async_setup_reload_service
 from homeassistant.helpers.restore_state import RestoreEntity
-from homeassistant.helpers.entity_registry import (
-	async_entries_for_config_entry,
-)
+
 from custom_components.ai_thermostat.helpers import check_float, convert_decimal, set_trv_values
 from custom_components.ai_thermostat.models.models import convert_inbound_states, convert_outbound_states
 from . import DOMAIN, PLATFORMS
@@ -728,15 +710,15 @@ class AIThermostat(ClimateEntity, RestoreEntity, ABC):
 							self.hass.states.get(self.heater_entity_id).attributes.get('device').get('friendlyName')
 					)
 					
-					# Using on temperature based calibration, dont update the temp if its the same
+					# Using on temperature based calibration, don't update the temp if it's the same
 					if self.calibration_type == 1 and float(self.hass.states.get(self.heater_entity_id).attributes.get('current_heating_setpoint')) != float(calibration):
 						await set_trv_values(self,'temperature', float(calibration))
 					
-					# Using on local calbiration, dont update the temp if its off, some TRV changed to 5°C when off after a while, don't update the temp
+					# Using on local calibration, don't update the temp if its off, some TRV changed to 5°C when off after a while, don't update the temp
 					if self.calibration_type == 0 and not self.window_open and converted_hvac_mode != HVAC_MODE_OFF and float(current_heating_setpoint) != 5.0 and self.call_for_heat:
 						await set_trv_values(self,'temperature', float(current_heating_setpoint))
 					
-					# Using on local calbiration, update only if the TRV is not in window open mode
+					# Using on local calibration, update only if the TRV is not in window open mode
 					if self.calibration_type == 0 and not self.window_open and do_calibration:
 						await set_trv_values(self,'local_temperature_calibration', calibration)
 					
