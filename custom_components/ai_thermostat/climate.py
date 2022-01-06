@@ -513,7 +513,7 @@ class AIThermostat(ClimateEntity, RestoreEntity, ABC):
 	
 	
 	@callback
-	async def _async_window_changed(self, event):
+	async def _async_window_changed(self):
 		if self.startup_running:
 			return
 		if self.hass.states.get(self.heater_entity_id) is not None:
