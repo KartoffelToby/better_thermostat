@@ -713,7 +713,7 @@ class AIThermostat(ClimateEntity, RestoreEntity, ABC):
 					
 					# Using on temperature based calibration, dont update the temp if its the same
 					if self.calibration_type == 1 and float(self.hass.states.get(self.heater_entity_id).attributes.get('current_heating_setpoint')) != float(calibration):
-						await set_trv_values(self,, float(calibration))
+						await set_trv_values(self, 'temperature', float(calibration))
 						
 						# Using on local calbiration, dont update the temp if its off, some TRV changed to 5°C when off after a while, don't update the temp
 						if self.calibration_type == 0 and not self.window_open and converted_hvac_mode != HVAC_MODE_OFF and float(current_heating_setpoint) != 5.0 and self.call_for_heat:
