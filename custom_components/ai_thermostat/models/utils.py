@@ -15,6 +15,7 @@ def mode_remap(hvac_mode, modes):
 	else:
 		return hvac_mode
 
+
 def reverse_modes(modes):
 	changed_dict = {}
 	for key, value in modes.items():
@@ -43,9 +44,9 @@ async def evaluate_dampening(self, calibration):
 		if check_dampening:
 			self.ignore_states = True
 			_LOGGER.debug("Dampening started")
-			await set_trv_values(self,'temperature', float(5))
+			await set_trv_values(self, 'temperature', float(5))
 			await asyncio.sleep(60)
-			await set_trv_values(self,'temperature', float(calibration))
+			await set_trv_values(self, 'temperature', float(calibration))
 			self.last_dampening_timestamp = datetime.now()
 			self.ignore_states = False
 
@@ -58,7 +59,7 @@ def temperature_calibration(self):
 	if new_calibration > float(self._max_temp):
 		new_calibration = float(self._max_temp)
 	
-	#loop = asyncio.get_event_loop()
-	#loop.create_task(evaluate_dampening(self, new_calibration))
+	# loop = asyncio.get_event_loop()
+	# loop.create_task(evaluate_dampening(self, new_calibration))
 	
 	return new_calibration

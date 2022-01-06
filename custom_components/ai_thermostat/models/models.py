@@ -10,6 +10,7 @@ from custom_components.ai_thermostat.models.utils import calibration, mode_remap
 
 _LOGGER = logging.getLogger(__name__)
 
+
 def convert_inbound_states(self, state):
 	try:
 		if self.hass.states.get(self.heater_entity_id).attributes.get('device') is not None:
