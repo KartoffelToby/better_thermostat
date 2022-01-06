@@ -59,6 +59,8 @@ def convert_outbound_states(self, hvac_mode):
 	
 	config_file = os.path.dirname(os.path.realpath(__file__)) + '/devices/' + self.model.replace("/", "_") + '.yaml'
 	
+	current_heating_setpoint = None
+	
 	if Path(config_file).is_file():
 		config = yaml.load_yaml(config_file)
 		local_temperature_calibration = calibration(self, config.get('calibration_type'))
