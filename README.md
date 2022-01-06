@@ -33,8 +33,8 @@ This integration brings some smartness to your connected radiator thermostats se
 
 At this time following models are tested and reported to work:
 
-- Eurotronic Spirit Zigbee (SPZB0001) (In Z2M device settings, set legacy to true) **local calibration functionality**
-- Moes SEA801-Zigbee/SEA802-Zigbee (In Z2M device settings, set legacy to true) **normal calibration**
+- Eurotronic Spirit Zigbee (SPZB0001) **local calibration functionality**
+- Moes SEA801-Zigbee/SEA802-Zigbee **normal calibration**
 - TuYa TS0601_thermostat (TS0601) **target temperature calibration**
 - Siterwell GS361A-H04 (GS361A-H04) **target temperature calibration**
 - BRT-100-TRV (In Z2M device settings, set min temp to 5 and program mode to manual) **target temperature calibration** (will be switched to normal calibration if this is fixed [issue](https://github.com/Koenkk/zigbee2mqtt/issues/9486))
@@ -146,7 +146,7 @@ climate:
 
 ### Zigbee2Mqtt config requirements
 
-**IMPORTANT: be sure to enable "legacy" in Zigbee2MQTT on the TRV devices and settings if you haven't the key local_temperature_calibration in your HA instance and include_device_information in the Zigbee2MQTT MQTT settings**
+**IMPORTANT: If you use Zigbee2MQTT to connect to your the TRV devices make sure to enable the include_device_information in the Zigbee2MQTT MQTT settings**
 
 If you use Z2M with the HA Supervisor, make sure you set it in the configuration. otherwise, it reset this option on every restart. [#57](/../../issues/57)
 
@@ -159,16 +159,6 @@ mqtt:
 Switch on the global **include_device_information** under Settings > Mqtt > include_device_information.
 <br>
 <img src="assets/z2m_include_device_informations.png" width="900px">
-
-Switch on the Legacy Setting in each of your TRV (if your TRV has this option, otherwise skip this step)
-Make sure to disable the window detection and child protection modes, also make sure your TRV is not in a program mode
-<br>
-<img src="assets/z2m_legacy.png" width="900px">
-
-Switch on Home Assistant legacy mode
-<br>
-<img src="assets/z2m_legacy_global_1.png" width="900px">
-<img src="assets/z2m_legacy_global_2.png" width="900px">
 
 ---
 
