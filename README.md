@@ -165,7 +165,7 @@ livingroom_windows:
 
 Install the HACS [climate_group](https://github.com/daenny/climate_group) from @daenny
 
-As each TRV has an individual local_temperature and must be individually calibrated, you need to create an better_thermostat entity for each TRV and then group them:
+As each TRV has an individual local_temperature and must be individually calibrated, you need to create a better_thermostat entity for each TRV and then group them:
 
 Example:
 

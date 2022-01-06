@@ -3,14 +3,16 @@ Z2M version """
 
 import asyncio
 import logging
+import math
 from abc import ABC
 from datetime import datetime, timedelta
 from random import randint
-import math
 
 import homeassistant.helpers.config_validation as cv
 import homeassistant.util.dt as dt_util
 import voluptuous as vol
+from custom_components.better_thermostat.helpers import check_float, convert_decimal, set_trv_values
+from custom_components.better_thermostat.models.models import convert_inbound_states, convert_outbound_states
 from homeassistant.components.climate import PLATFORM_SCHEMA, ClimateEntity
 from homeassistant.components.climate.const import (
 	CURRENT_HVAC_HEAT,
@@ -30,17 +32,16 @@ from homeassistant.const import (
 	STATE_UNKNOWN,
 )
 from homeassistant.core import CoreState, callback
+from homeassistant.helpers.entity_registry import (
+	async_entries_for_config_entry,
+)
 from homeassistant.helpers.event import (
 	async_track_state_change_event,
 	async_track_time_change
 )
 from homeassistant.helpers.reload import async_setup_reload_service
 from homeassistant.helpers.restore_state import RestoreEntity
-from homeassistant.helpers.entity_registry import (
-	async_entries_for_config_entry,
-)
-from custom_components.better_thermostat.helpers import check_float, convert_decimal, set_trv_values
-from custom_components.better_thermostat.models.models import convert_inbound_states, convert_outbound_states
+
 from . import DOMAIN, PLATFORMS
 
 _LOGGER = logging.getLogger(__name__)
@@ -139,7 +140,7 @@ async def async_setup_platform(hass, config, async_add_entities, discovery_info=
 
 
 class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
-	"""Representation of an Better Thermostat device."""
+	"""Representation of a Better Thermostat device."""
 	
 	def __init__(
 			self,
