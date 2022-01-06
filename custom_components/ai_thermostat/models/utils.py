@@ -23,10 +23,10 @@ def reverse_modes(modes):
 	return changed_dict
 
 
-def calibration(self, type):
-	if type == 1:
+def calibration(self, calibration_type):
+	if calibration_type == 1:
 		return temperature_calibration(self)
-	if type == 0:
+	if calibration_type == 0:
 		return default_calibration(self)
 
 
