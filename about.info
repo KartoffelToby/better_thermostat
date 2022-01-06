@@ -1,0 +1,1 @@
+This HACS Integration brings some Smartness to your TRV Zigbee2MQTT HA setup. What does it? It combines an external temperature sensor, window/door Sensors, and a weather-Entity, so your TRV is calibrated with the temperature from the external sensor and turned off if some window is open. It also turns off the thermostat if a configured outside …
