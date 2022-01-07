@@ -24,10 +24,10 @@ This integration brings some smartness to your connected radiator thermostats se
 
 - Uses a temperature sensor far away from the radiators to measure the real room temperature
 - Makes your TRVs fully compatible with Google Home
-- Let your windows disable your heating (avoids to program this via automations)
+- Let your windows disable your heating (avoids programing this via automations)
 - Your weather forcast provider will turn your heat on/off
 - Or an outside air temperature sensor can do this as well
-- Does some valve maintaince automatically, to avoid that they will get stuck closed over summer
+- Does some valve-maintaince automatically, to avoid that they will get stuck closed over summer
  
 ### Which hardware do we support?
 
@@ -146,7 +146,7 @@ climate:
 
 ### Zigbee2Mqtt config requirements
 
-**IMPORTANT: If you use Zigbee2MQTT to connect to your the TRV devices make sure to enable the include_device_information in the Zigbee2MQTT MQTT settings**
+**IMPORTANT: If you use Zigbee2MQTT to connect to your TRV devices make sure to enable the include_device_information in the Zigbee2MQTT MQTT settings**
 
 If you use Z2M with the HA Supervisor, make sure you set it in the configuration. otherwise, it reset this option on every restart. [#57](/../../issues/57)
 
