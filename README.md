@@ -5,101 +5,53 @@
 
 # Better Thermostat
 
-**Important Notice: This software is still in beta. When all main functions are stable there will be a 1.0 release under the new name: better_thermostat.**
-**After 1.0 we switch to Monthly releases**
+**Important Notice: Consider this software as unfinished as it has not reached version 1.0.**
 
-**Tested with: HA: 2021.12.5 and Z2M: 1.22.1-1**
+### Requirements
 
-**You need at least HA: 2021.12 for 0.8.2 or higher**
+- Minimum required Home Assistant version: `2021.12`
+ (_Latest tested version: `2021.12.5`_)
+- Zigbee2MQTT in case you use Zigbee Thermostats
+ (_Latest tested version: `1.22.1-1`_)
 
-**NEW: if you're looking for a better thermostat UI too, check out the [better-thermostat-ui-card](https://github.com/KartoffelToby/better-thermostat-ui-card) Lovelace hacs frontend card.**
+### Companion UI
 
-### Advance information:
+We've created a companion UI element which can display more information that the default thermostat element in Home Assistant. Check it out via HACS: [better-thermostat-ui-card](https://github.com/KartoffelToby/better-thermostat-ui-card)
 
 - If you have a question or need help please create a new [discussion](https://github.com/KartoffelToby/better_thermostat/discussions) or check if your question is already answered.
 - If you have a suggestion, found a bug, or want to add a new device or function create a new [issue](https://github.com/KartoffelToby/better_thermostat/issues)
 - If you want to contribute to this project create a new [pull request](https://github.com/KartoffelToby/better_thermostat/pulls)
 
-### Core features:
+### Featureset
 
-*Talke to me! What makes the better_thermostat better?*
+This integration brings some smartness to your connected radiator thermostats setup:
 
-- simplifies your TRVs modes
-- makes your TRVs full compatible with Google Home
-- adds a window open detection with an external open/close sensor
-- adds a summer shutdown with a weather entity or outdoor temperature sensor
-- adds "better" room temperature-based calibration with an external room-temperature sensor, because it works most of the time not good on the TRV.
-- adds a scheduler for valve maintenance to prevent the valve to get stuck or noisy
+- Uses a temperature sensor far away from the radiators to measure the real room temperature
+- Makes your TRVs fully compatible with Google Home
+- Let your windows disable your heating (avoids programing this via automations)
+- Your weather forcast provider will turn your heat on/off
+- Or an outside air temperature sensor can do this as well
+- Does some valve-maintaince automatically, to avoid that they will get stuck closed over summer
+ 
+### Which hardware do we support?
 
-This integration brings some smartness to your TRV Zigbee2MQTT setup.
+At this time following models are tested and reported to work:
 
-What does it? It combines an external temperature sensor, window/door Sensors, and a weather-Entity, so your TRV is calibrated with the temperature from the external sensor and turned off if some window is open. It also turns off the thermostat if a configured outside temperature is reached for two days in a row, so if it's outside warm enough you didn't need useless heating in your rooms.
-
-It's also useful for those who only need an off and heating state and controlled the room temperature with a set target temperature based on an external temperature sensor.
-
-So if you use the Google Assistant integration to control your thermostat you no longer get into an issue of incompatible modes or the problem that a target temp can't be set because the device is in "auto" mode that's remapped to eco.
-
-You just set the desired temperature with your voice or the Google Home app, and you are good to go.
-
-At this time following models are supported: (but all zigbee2mqtt TRV should work.)
-
----
-
-- Eurotronic Spirit Zigbee (SPZB0001) (In Z2M device settings, set legacy to true) **normal calibration**
-- Moes SEA801-Zigbee/SEA802-Zigbee (In Z2M device settings, set legacy to true) **normal calibration**
+- Eurotronic Spirit Zigbee (SPZB0001) **local calibration functionality**
+- Moes SEA801-Zigbee/SEA802-Zigbee **normal calibration**
 - TuYa TS0601_thermostat (TS0601) **target temperature calibration**
 - Siterwell GS361A-H04 (GS361A-H04) **target temperature calibration**
 - BRT-100-TRV (In Z2M device settings, set min temp to 5 and program mode to manual) **target temperature calibration** (will be switched to normal calibration if this is fixed [issue](https://github.com/Koenkk/zigbee2mqtt/issues/9486))
 
-*All models that are not listed here use the default which is the **normal calibration** and expects that the TRV has system modes*
+Is your hardware not listed? Shoot us a [ticket](https://github.com/KartoffelToby/ai_thermostat/issues)!
 
-**normal calibration**: means that the local_temperature_calibration setting in the TRV is used to sync the TRV internal current temperature with the connected room temperature sensor. The target temperature is settable over HA or directly on the TRV there are no restrictions
+### Howto Setup
 
-**target temperature calibration**: This means that the temperature sync is accomplished with a special target temperature on the TRV, that's the reason why the target temperature displayed on the TRV is not the same as in HA, you only can adjust the target temperature via HA, not the TRV itself. If you want more info why, read [#15](/../../issues/15)
+This custom component requires a manual edit of the configuration.yaml of Home Assistant.
 
----
+After you opend the configuration file, you'll create one virtual AI Thermostat entity for each room you like us to control. This will create a secondary climate entity which controls the original climate entity of your thermostat.
 
-The SPZB0001 is Special, it uses the "heat" mode for boost and the auto mode for the "normal" operation, to avoid that it remaps heat with auto internally, the boost mode is lost with this configuration.
-
-If you have a special Thermostat like the SPZB0001 feel free to open an issue or pull a request.
-
-The integration gets the Model identifier automatic, nothing to do here.
-
-
-<br>
-<br>
-
-## Important config in Zigbee2Mqtt
-
-**IMPORTANT: be sure to enable "legacy" in Zigbee2MQTT on the TRV devices and settings if you haven't the key local_temperature_calibration in your HA instance and include_device_information in the Zigbee2MQTT MQTT settings**
-
-If you use Z2M with the HA Supervisor, make sure you set it in the configuration. otherwise, it reset this option on every restart. [#57](/../../issues/57)
-
-```yaml
-mqtt:
-  base_topic: zigbee2mqtt
-  include_device_information: true
-```
-
-Switch on the global **include_device_information** under Settings > Mqtt > include_device_information.
-<br>
-<img src="assets/z2m_include_device_informations.png" width="900px">
-
-Switch on the Legacy Setting in each of your TRV (if your TRV has this option, otherwise skip this step)
-Make sure to disable the window detection and child protection modes, also make sure your TRV is not in a program mode
-<br>
-<img src="assets/z2m_legacy.png" width="900px">
-
-Switch on Home Assistant legacy mode
-<br>
-<img src="assets/z2m_legacy_global_1.png" width="900px">
-<img src="assets/z2m_legacy_global_2.png" width="900px">
-
-## SETUP
-
-You need to configure a "virtual" thermostat for every used thermostat.
-
-Here is an example of the minimal configuration.
+Here is a minimal configuration example
 
 ```yaml
 climate:
@@ -110,7 +62,7 @@ climate:
     window_sensors: group.office_windows
 ```
 
-Here is an example full configuration.
+Here is a full configuration example
 
 ```yaml
 climate:
@@ -122,12 +74,13 @@ climate:
     weather: weather.home # if this is set, the outdoor_sensor is ignored, remove the outdoor_sensor config!
     outdoor_sensor: sensor.outdoor_temperature # if you want to use it, remove the weather entity from the config!
     off_temperature: 17.5
-    window_off_delay: 15 # seconds
+    window_off_delay: 15 # in seconds
     valve_maintenance: false
     night_temp: 18.5
     night_start: '22:00'
     night_end: '06:00'
 ```
+
 
 **IMPORTANT: the weather and outdoor_sensor are not required, but you need one of them if you want to use this function, if not remove them**
 
@@ -135,9 +88,9 @@ climate:
 |--------------------------|------------------------------|-----------|------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
 | ***platform***           | `better_thermostat`              | *yes*     |                                                                                                                                                                                                                                                                        |
 | ***name***               | `Thermostat - Livingroom`    | *no*      | Used to name the virtual thermostat                                                                                                                                                                                                                                    |
-| ***thermostat***         | `climate.trv`                | *yes*     | a zigbee2mqtt climate entity.                                                                                                                                                                                                                                          |
+| ***thermostat***         | `climate.trv`                | *yes*     | a climate entity.                                                                                                                                                                                                                                                      |
 | ***unique_id***          | `392049`                     | *no*      | A unique_id (e.g. UNIX timestamp) mostly needed when using google home.                                                                                                                                                                                                |
-| ***temperature_sensor*** | `sensor.temperature`         | *yes*     | a zigbee2mqtt sensor entity that is used for the actual temperature input of the thermostat.                                                                                                                                                                           |
+| ***temperature_sensor*** | `sensor.temperature`         | *yes*     | a sensor entity that is used for the actual temperature input of the thermostat.                                                                                                                                                                                       |
 | ***window_sensors***     | `group.livingroom_windows`   | *no*      | a group of window/door - sensors (see below) that are used for the open window detection of the thermostat (the thermostat doesn't need to support an open window detection for that feature). If you have only one window, you can pass the entity without the group. |
 | ***window_off_delay***   | `15`                         | *no*      | Only set the thermostat to an OFF state if the window/door - sensors are open for X seconds. Default is 0 for an instant turnoff.                                                                                                                                      |
 | ***weather***            | `weather.home`               | *no*      | a weather entity (e.g. by the  Meteorologisk Institutt - Metno integration) within Home Assistant to check the forecast to detect if heating is needed. The threshold is set by the off_temperature. This setting overwrites the outdoor_sensor.                       |
@@ -194,6 +147,22 @@ climate:
       - climate.ai_trv_office_1
       - climate.ai_trv_office_2
 ```
+
+### Zigbee2Mqtt config requirements
+
+**IMPORTANT: If you use Zigbee2MQTT to connect to your TRV devices make sure to enable the include_device_information in the Zigbee2MQTT MQTT settings**
+
+If you use Z2M with the HA Supervisor, make sure you set it in the configuration. otherwise, it reset this option on every restart. [#57](/../../issues/57)
+
+```yaml
+mqtt:
+  base_topic: zigbee2mqtt
+  include_device_information: true
+```
+
+Switch on the global **include_device_information** under Settings > Mqtt > include_device_information.
+<br>
+<img src="assets/z2m_include_device_informations.png" width="900px">
 
 ---
 

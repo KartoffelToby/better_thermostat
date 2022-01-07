@@ -2,25 +2,15 @@ import logging
 import math
 import os
 from pathlib import Path
-
-from homeassistant.components.climate.const import (
-	HVAC_MODE_HEAT,
-	HVAC_MODE_OFF
-)
+from homeassistant.components.climate.const import (HVAC_MODE_HEAT, HVAC_MODE_OFF)
 from homeassistant.util import yaml
-
 from custom_components.better_thermostat.models.utils import calibration, mode_remap, reverse_modes
 
 _LOGGER = logging.getLogger(__name__)
 
+
 def convert_inbound_states(self, state):
-	try:
-		if self.hass.states.get(self.heater_entity_id).attributes.get('device') is not None:
-			self.model = self.hass.states.get(self.heater_entity_id).attributes.get('device').get('model')
-		else:
-			_LOGGER.exception("better_thermostat: can't read the device model of TVR, Enable include_device_information in z2m or checkout issue #1")
-	except RuntimeError:
-		_LOGGER.exception("better_thermostat: error can't get the TRV")
+	get_device_model(self)
 	
 	config_file = os.path.dirname(os.path.realpath(__file__)) + '/devices/' + self.model.replace("/", "_") + '.yaml'
 	
@@ -34,21 +24,17 @@ def convert_inbound_states(self, state):
 	if Path(config_file).is_file():
 		config = yaml.load_yaml(config_file)
 		self.calibration_type = config.get('calibration_type')
-		if (config.get('calibration_type') == 1):
+		if config.get('calibration_type') == 1:
 			if state.get('current_heating_setpoint') == 5:
 				hvac_mode = HVAC_MODE_OFF
 		if config.get('mode_map') is not None and state.get('system_mode') is not None:
 			hvac_mode = mode_remap(hvac_mode, reverse_modes(config.get('mode_map')))
 	
-	return {
-		"current_heating_setpoint"     : current_heating_setpoint,
-		"local_temperature"            : state.get('local_temperature'),
-		"local_temperature_calibration": state.get('local_temperature_calibration'),
-		"system_mode"                  : hvac_mode
-	}
+	return {"current_heating_setpoint": current_heating_setpoint, "local_temperature": state.get('local_temperature'), "local_temperature_calibration": state.get('local_temperature_calibration'),
+		"system_mode"                 : hvac_mode}
 
 
-def convert_outbound_states(self, hvac_mode):
+def get_device_model(self):
 	try:
 		if self.hass.states.get(self.heater_entity_id).attributes.get('device') is not None:
 			self.model = self.hass.states.get(self.heater_entity_id).attributes.get('device').get('model')
@@ -56,20 +42,26 @@ def convert_outbound_states(self, hvac_mode):
 			_LOGGER.exception("better_thermostat: can't read the device model of TVR, Enable include_device_information in z2m or checkout issue #1")
 	except RuntimeError:
 		_LOGGER.exception("better_thermostat: error can't get the TRV")
+
+
+def convert_outbound_states(self, hvac_mode):
+	get_device_model(self)
 	
 	state = self.hass.states.get(self.heater_entity_id).attributes
 	
 	config_file = os.path.dirname(os.path.realpath(__file__)) + '/devices/' + self.model.replace("/", "_") + '.yaml'
 	
+	current_heating_setpoint = None
+	
 	if Path(config_file).is_file():
 		config = yaml.load_yaml(config_file)
 		local_temperature_calibration = calibration(self, config.get('calibration_type'))
 		self.calibration_type = config.get('calibration_type')
-		if (config.get('calibration_round')):
+		if config.get('calibration_round'):
 			local_temperature_calibration = int(math.ceil(local_temperature_calibration))
-		if (config.get('calibration_type') == 0):
+		if config.get('calibration_type') == 0:
 			current_heating_setpoint = state.get('current_heating_setpoint')
-		elif (config.get('calibration_type') == 1):
+		elif config.get('calibration_type') == 1:
 			current_heating_setpoint = local_temperature_calibration
 		
 		if state.get('system_mode') is not None:

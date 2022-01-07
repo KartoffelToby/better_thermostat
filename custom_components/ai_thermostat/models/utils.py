@@ -1,9 +1,4 @@
-import logging
-
 from custom_components.better_thermostat.helpers import convert_decimal
-
-_LOGGER = logging.getLogger(__name__)
-
 
 def mode_remap(hvac_mode, modes):
 	if modes is None:
@@ -19,13 +14,11 @@ def reverse_modes(modes):
 		changed_dict[value] = key
 	return changed_dict
 
-
-def calibration(self, type):
-	if type == 1:
+def calibration(self, calibration_type):
+	if calibration_type == 1:
 		return temperature_calibration(self)
-	if type == 0:
+	if calibration_type == 0:
 		return default_calibration(self)
-
 
 def default_calibration(self):
 	state = self.hass.states.get(self.heater_entity_id).attributes
