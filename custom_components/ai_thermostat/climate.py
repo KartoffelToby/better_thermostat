@@ -4,6 +4,7 @@ Z2M version """
 import asyncio
 import logging
 import math
+import numbers
 from abc import ABC
 from datetime import datetime, timedelta
 from random import randint
@@ -50,7 +51,7 @@ ATTR_STATE_WINDOW_OPEN = "window_open"
 ATTR_STATE_NIGHT_MODE = "night_mode"
 ATTR_STATE_CALL_FOR_HEAT = "call_for_heat"
 ATTR_STATE_LAST_CHANGE = "last_change"
-ATTR_STATE_DAY_TEMP = "last_day_temp"
+ATTR_STATE_DAY_SET_TEMP = "last_day_set_temp"
 
 PLATFORM_SCHEMA = PLATFORM_SCHEMA.extend(
 		{
@@ -268,14 +269,17 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
 				self.last_change = HVAC_MODE_OFF
 			if not old_state.attributes.get(ATTR_STATE_WINDOW_OPEN):
 				self.window_open = old_state.attributes.get(ATTR_STATE_WINDOW_OPEN)
-			if not old_state.attributes.get(ATTR_STATE_DAY_TEMP):
-				self.daytime_temp = old_state.attributes.get(ATTR_STATE_DAY_TEMP)
+			if not old_state.attributes.get(ATTR_STATE_DAY_SET_TEMP):
+				self.daytime_temp = old_state.attributes.get(ATTR_STATE_DAY_SET_TEMP)
 			if not old_state.attributes.get(ATTR_STATE_CALL_FOR_HEAT):
 				self.call_for_heat = old_state.attributes.get(ATTR_STATE_CALL_FOR_HEAT)
 			if not old_state.attributes.get(ATTR_STATE_NIGHT_MODE):
 				self.night_status = old_state.attributes.get(ATTR_STATE_NIGHT_MODE)
 				if self.night_status:
-					self._target_temp = float(self.night_temp)				
+					if self.night_temp and isinstance(self.night_temp, numbers.Number):
+						self._target_temp = float(self.night_temp)				
+					else:
+						_LOGGER.error("Night temp is not a number")
 
 		else:
 			# No previous state, try and restore defaults
