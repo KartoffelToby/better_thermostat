@@ -1,6 +1,6 @@
 [![Active installations](https://badge.t-haber.de/badge/ai_thermostat?kill_cache=1)](https://github.com/KartoffelToby/ai_thermostat/)
 [![GitHub issues](https://img.shields.io/github/issues/KartoffelToby/ai_thermostat?style=for-the-badge)](https://github.com/KartoffelToby/ai_thermostat/issues)
-[![Version - 0.9.3](https://img.shields.io/badge/Version-0.9.3-009688?style=for-the-badge)](https://github.com/KartoffelToby/ai_thermostat/releases)
+[![Version - 1.0.0](https://img.shields.io/badge/Version-1.0.0-009688?style=for-the-badge)](https://github.com/KartoffelToby/ai_thermostat/releases)
 [![Discord](https://img.shields.io/discord/925725316540923914.svg?style=for-the-badge)](https://discord.gg/9BUegWTG3K)
 
 # AI THERMOSTAT
@@ -24,10 +24,10 @@ This integration brings some smartness to your connected radiator thermostats se
 
 - Uses a temperature sensor far away from the radiators to measure the real room temperature
 - Makes your TRVs fully compatible with Google Home
-- Let your windows disable your heating (avoids to program this via automations)
+- Let your windows disable your heating (avoids programing this via automations)
 - Your weather forcast provider will turn your heat on/off
 - Or an outside air temperature sensor can do this as well
-- Does some valve maintaince automatically, to avoid that they will get stuck closed over summer
+- Does some valve-maintaince automatically, to avoid that they will get stuck closed over summer
  
 ### Which hardware do we support?
 
@@ -86,7 +86,7 @@ climate:
 | ***name***               | `Thermostat - Livingroom`    | *no*      | Used to name the virtual thermostat                                                                                                                                                                                                                                    |
 | ***thermostat***         | `climate.trv`                | *yes*     | a climate entity.                                                                                                                                                                                                                                                      |
 | ***unique_id***          | `392049`                     | *no*      | A unique_id (e.g. UNIX timestamp) mostly needed when using google home.                                                                                                                                                                                                |
-| ***temperature_sensor*** | `sensor.temperature`         | *yes*     | a sensor entity that is used for the actual temperature input of the thermostat.                                                                                                                                                                                        |
+| ***temperature_sensor*** | `sensor.temperature`         | *yes*     | a sensor entity that is used for the actual temperature input of the thermostat.                                                                                                                                                                                       |
 | ***window_sensors***     | `group.livingroom_windows`   | *no*      | a group of window/door - sensors (see below) that are used for the open window detection of the thermostat (the thermostat doesn't need to support an open window detection for that feature). If you have only one window, you can pass the entity without the group. |
 | ***window_off_delay***   | `15`                         | *no*      | Only set the thermostat to an OFF state if the window/door - sensors are open for X seconds. Default is 0 for an instant turnoff.                                                                                                                                      |
 | ***weather***            | `weather.home`               | *no*      | a weather entity (e.g. by the  Meteorologisk Institutt - Metno integration) within Home Assistant to check the forecast to detect if heating is needed. The threshold is set by the off_temperature. This setting overwrites the outdoor_sensor.                       |
@@ -146,7 +146,7 @@ climate:
 
 ### Zigbee2Mqtt config requirements
 
-**IMPORTANT: If you use Zigbee2MQTT to connect to your the TRV devices make sure to enable the include_device_information in the Zigbee2MQTT MQTT settings**
+**IMPORTANT: If you use Zigbee2MQTT to connect to your TRV devices make sure to enable the include_device_information in the Zigbee2MQTT MQTT settings**
 
 If you use Z2M with the HA Supervisor, make sure you set it in the configuration. otherwise, it reset this option on every restart. [#57](/../../issues/57)
 
