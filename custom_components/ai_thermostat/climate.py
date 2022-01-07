@@ -68,7 +68,7 @@ PLATFORM_SCHEMA = PLATFORM_SCHEMA.extend(
 )
 
 
-async def async_setup_platform(hass, config, async_add_entities, discovery_info=None):
+async def async_setup_platform(hass, config, async_add_entities):
 	"""Set up the AI thermostat platform."""
 	
 	await async_setup_reload_service(hass, DOMAIN, PLATFORMS)
@@ -231,7 +231,7 @@ class AIThermostat(ClimateEntity, RestoreEntity, ABC):
 		def _async_startup(*_):
 			"""Init on startup."""
 			
-			_LOGGER.info("Starting ai_thermostat for %s with version: %s waiting for entity to be ready...", self.name,self.version)
+			_LOGGER.info("Starting ai_thermostat for %s with version: %s waiting for entity to be ready...", self.name, self.version)
 			
 			loop = asyncio.get_event_loop()
 			loop.create_task(self.startup())
@@ -511,8 +511,9 @@ class AIThermostat(ClimateEntity, RestoreEntity, ABC):
 		
 		await self._async_control_heating()
 	
+	
 	@callback
-	async def _async_window_changed(self,event):
+	async def _async_window_changed(self):
 		if self.startup_running:
 			return
 		if self.hass.states.get(self.heater_entity_id) is not None:
@@ -595,22 +596,22 @@ class AIThermostat(ClimateEntity, RestoreEntity, ABC):
 		"""Maintenance of the TRV valve."""
 		self.ignore_states = True
 		if self.hass.states.get(self.heater_entity_id).attributes.get('valve_position'):
-			await set_trv_values(self,'valve_position', 255)
+			await set_trv_values(self, 'valve_position', 255)
 			await asyncio.sleep(60)
-			await set_trv_values(self,'valve_position', 0)
+			await set_trv_values(self, 'valve_position', 0)
 			await asyncio.sleep(60)
-			await set_trv_values(self,'valve_position', 255)
+			await set_trv_values(self, 'valve_position', 255)
 			await asyncio.sleep(60)
-			await set_trv_values(self,'valve_position', 0)
+			await set_trv_values(self, 'valve_position', 0)
 			await asyncio.sleep(60)
 		else:
-			await set_trv_values(self,'temperature', 30)
+			await set_trv_values(self, 'temperature', 30)
 			await asyncio.sleep(60)
-			await set_trv_values(self,'temperature', 5)
+			await set_trv_values(self, 'temperature', 5)
 			await asyncio.sleep(60)
-			await set_trv_values(self,'temperature', 30)
+			await set_trv_values(self, 'temperature', 30)
 			await asyncio.sleep(60)
-			await set_trv_values(self,'temperature', 5)
+			await set_trv_values(self, 'temperature', 5)
 			await asyncio.sleep(60)
 		self.ignore_states = False
 		await self._async_control_heating()
@@ -653,7 +654,7 @@ class AIThermostat(ClimateEntity, RestoreEntity, ABC):
 					_LOGGER.warning("ai_thermostat: call for heat decision: could not evaluate sensor/weather entity data, force heat on")
 					self.call_for_heat = True
 				
-				_LOGGER.debug("ai_thermostat %s",self.call_for_heat)
+				_LOGGER.debug("ai_thermostat %s", self.call_for_heat)
 				# window open detection and weather detection force turn TRV off
 				if (self.window_open or not self.call_for_heat) and not self.closed_window_triggered:
 					self.heating_active_pre_window_opened = False
@@ -712,19 +713,19 @@ class AIThermostat(ClimateEntity, RestoreEntity, ABC):
 					
 					# Using on temperature based calibration, don't update the temp if it's the same
 					if self.calibration_type == 1 and float(self.hass.states.get(self.heater_entity_id).attributes.get('current_heating_setpoint')) != float(calibration):
-						await set_trv_values(self,'temperature', float(calibration))
-					
-					# Using on local calibration, don't update the temp if its off, some TRV changed to 5°C when off after a while, don't update the temp
-					if self.calibration_type == 0 and not self.window_open and converted_hvac_mode != HVAC_MODE_OFF and float(current_heating_setpoint) != 5.0 and self.call_for_heat:
-						await set_trv_values(self,'temperature', float(current_heating_setpoint))
-					
-					# Using on local calibration, update only if the TRV is not in window open mode
-					if self.calibration_type == 0 and not self.window_open and do_calibration:
-						await set_trv_values(self,'local_temperature_calibration', calibration)
-					
-					# Only set the system mode if the TRV has this option
+						await set_trv_values(self, 'temperature', float(calibration))
+						
+						# Using on local calbiration, dont update the temp if its off, some TRV changed to 5°C when off after a while, don't update the temp
+						if self.calibration_type == 0 and not self.window_open and converted_hvac_mode != HVAC_MODE_OFF and float(current_heating_setpoint) != 5.0 and self.call_for_heat:
+							await set_trv_values(self, 'temperature', float(current_heating_setpoint))
+						
+						# Using on local calbiration, update only if the TRV is not in window open mode
+						if self.calibration_type == 0 and not self.window_open and do_calibration:
+							await set_trv_values(self, 'local_temperature_calibration', calibration)
+						
+						# Only set the system mode if the TRV has this option
 					if has_real_mode:
-						await set_trv_values(self,'system_mode', converted_hvac_mode)
+						await set_trv_values(self, 'system_mode', converted_hvac_mode)
 					
 					self.ignore_states = False
 					
@@ -758,7 +759,7 @@ class AIThermostat(ClimateEntity, RestoreEntity, ABC):
 			forcast = self.hass.states.get(self.weather_entity).attributes.get('forecast')
 			if len(forcast) > 0:
 				max_forcast_temp = math.ceil((float(forcast[0]['temperature']) + float(forcast[1]['temperature'])) / 2)
-				_LOGGER.debug("ai_thermostat: avg weather temp: %s",max_forcast_temp)
+				_LOGGER.debug("ai_thermostat: avg weather temp: %s", max_forcast_temp)
 				return float(max_forcast_temp) < float(self.off_temperature)
 			else:
 				raise TypeError
