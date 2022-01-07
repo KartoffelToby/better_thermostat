@@ -191,7 +191,7 @@ class AIThermostat(ClimateEntity, RestoreEntity, ABC):
 		self._today_nightmode_end = datetime.now()
 		self.local_temperature_calibration_entity = None
 		self.valve_position_entity = None
-		self.version = "0.9.3"
+		self.version = "1.0.0"
 	
 	async def async_added_to_hass(self):
 		"""Run when entity about to be added."""
@@ -711,7 +711,7 @@ class AIThermostat(ClimateEntity, RestoreEntity, ABC):
 							self.hass.states.get(self.heater_entity_id).attributes.get('device').get('friendlyName')
 					)
 					
-					# Using on temperature based calibration, dont update the temp if its the same
+					# Using on temperature based calibration, don't update the temp if it's the same
 					if self.calibration_type == 1 and float(self.hass.states.get(self.heater_entity_id).attributes.get('current_heating_setpoint')) != float(calibration):
 						await set_trv_values(self, 'temperature', float(calibration))
 						
