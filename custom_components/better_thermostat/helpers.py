@@ -38,7 +38,7 @@ async def set_trv_values(self, key, value):
 		_LOGGER.debug("better_thermostat send %s %s", key, value)
 	elif key == 'system_mode':
 		await self.hass.services.async_call('climate', SERVICE_SET_HVAC_MODE, {'entity_id': self.heater_entity_id, 'hvac_mode': value}, blocking=True)
-		_LOGGER.debug("ai_thermostat send %s %s", key, value)
+		_LOGGER.debug("better_thermostat send %s %s", key, value)
 	elif key == 'local_temperature_calibration':
 		max_calibration = self.hass.states.get(self.local_temperature_calibration_entity).attributes.get('max')
 		min_calibration = self.hass.states.get(self.local_temperature_calibration_entity).attributes.get('min')
@@ -50,5 +50,5 @@ async def set_trv_values(self, key, value):
 		_LOGGER.debug("better_thermostat send %s %s", key, value)
 	elif key == 'valve_position':
 		await self.hass.services.async_call('number', SERVICE_SET_VALUE, {'entity_id': self.valve_position_entity, 'value': value}, blocking=True)
-		_LOGGER.debug("ai_thermostat send %s %s", key, value)
+		_LOGGER.debug("better_thermostat send %s %s", key, value)
 	await asyncio.sleep(1)
