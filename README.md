@@ -27,7 +27,7 @@ This integration brings some smartness to your connected radiator thermostats se
 - Let your windows disable your heating (avoids programing this via automations)
 - Your weather forcast provider will turn your heat on/off
 - Or an outside air temperature sensor can do this as well
-- Does some valve-maintaince automatically, to avoid that they will get stuck closed over summer
+- Does some valve-maintenance automatically, to avoid that they will get stuck closed over summer
  
 ### Which hardware do we support?
 
