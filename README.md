@@ -33,11 +33,15 @@ This integration brings some smartness to your connected radiator thermostats se
 
 At this time following models are tested and reported to work:
 
-- Eurotronic Spirit Zigbee (SPZB0001) **local calibration functionality**
-- Moes SEA801-Zigbee/SEA802-Zigbee **normal calibration**
-- TuYa TS0601_thermostat (TS0601) **target temperature calibration**
-- Siterwell GS361A-H04 (GS361A-H04) **target temperature calibration**
-- BRT-100-TRV (In Z2M device settings, set min temp to 5 and program mode to manual) **target temperature calibration** (will be switched to normal calibration if this is fixed [issue](https://github.com/Koenkk/zigbee2mqtt/issues/9486))
+| Vendor     | Product Name         | Product Number    | HA Manufacturer | HA Model                                             | Whitelabel                                                |
+|------------|----------------------|-------------------|-----------------|------------------------------------------------------|-----------------------------------------------------------|
+| Eurotronic | Spirit Zigbee        | SPZB0001          |                 |                                                      |                                                           |
+| Moes       | ZigBee3.0 Thermostat | SEA801-Zigbee     |                 |                                                      |                                                           | 
+| Moes       | ZigBee3.0 Thermostat | SEA802-Zigbee     |                 |                                                      |                                                           | 
+| TuYa       | TS0601               | TS0601_thermostat | "TuYa"          | "Radiator valve with thermostat (TS0601_thermostat)" | Moes HY368, Moes HY369RT, SHOJZJ 378RT, Silvercrest TVR01 |
+| Siterwell  | Radiator Thermostat  | GS361A-H04        |                 |                                                      |                                                           | 
+| BECA       | BRT-100 ZB           | BRT-100-TRV       |                 |                                                      |                                                           |
+
 
 Is your hardware not listed? Shoot us a [ticket](https://github.com/KartoffelToby/ai_thermostat/issues)!
 
