@@ -2,11 +2,9 @@ import logging
 import math
 import os
 from pathlib import Path
-
 from homeassistant.components.climate.const import (HVAC_MODE_HEAT, HVAC_MODE_OFF)
 from homeassistant.util import yaml
-
-from custom_components.ai_thermostat.models.utils import calibration, mode_remap, reverse_modes
+from custom_components.better_thermostat.models.utils import calibration, mode_remap, reverse_modes
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -41,9 +39,9 @@ def get_device_model(self):
 		if self.hass.states.get(self.heater_entity_id).attributes.get('device') is not None:
 			self.model = self.hass.states.get(self.heater_entity_id).attributes.get('device').get('model')
 		else:
-			_LOGGER.exception("ai_thermostat: can't read the device model of TVR, Enable include_device_information in z2m or checkout issue #1")
+			_LOGGER.exception("better_thermostat: can't read the device model of TVR, Enable include_device_information in z2m or checkout issue #1")
 	except RuntimeError:
-		_LOGGER.exception("ai_thermostat: error can't get the TRV")
+		_LOGGER.exception("better_thermostat: error can't get the TRV")
 
 
 def convert_outbound_states(self, hvac_mode):

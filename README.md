@@ -1,9 +1,9 @@
-[![Active installations](https://badge.t-haber.de/badge/ai_thermostat?kill_cache=1)](https://github.com/KartoffelToby/ai_thermostat/)
-[![GitHub issues](https://img.shields.io/github/issues/KartoffelToby/ai_thermostat?style=for-the-badge)](https://github.com/KartoffelToby/ai_thermostat/issues)
-[![Version - 1.0.0](https://img.shields.io/badge/Version-1.0.0-009688?style=for-the-badge)](https://github.com/KartoffelToby/ai_thermostat/releases)
+[![Active installations](https://badge.t-haber.de/badge/better_thermostat?kill_cache=1)](https://github.com/KartoffelToby/better_thermostat/)
+[![GitHub issues](https://img.shields.io/github/issues/KartoffelToby/better_thermostat?style=for-the-badge)](https://github.com/KartoffelToby/better_thermostat/issues)
+[![Version - 1.0.0](https://img.shields.io/badge/Version-1.0.0-009688?style=for-the-badge)](https://github.com/KartoffelToby/better_thermostat/releases)
 [![Discord](https://img.shields.io/discord/925725316540923914.svg?style=for-the-badge)](https://discord.gg/9BUegWTG3K)
 
-# AI THERMOSTAT
+# Better Thermostat
 
 **Important Notice: Consider this software as unfinished as it has not reached version 1.0.**
 
@@ -17,6 +17,10 @@
 ### Companion UI
 
 We've created a companion UI element which can display more information that the default thermostat element in Home Assistant. Check it out via HACS: [better-thermostat-ui-card](https://github.com/KartoffelToby/better-thermostat-ui-card)
+
+- If you have a question or need help please create a new [discussion](https://github.com/KartoffelToby/better_thermostat/discussions) or check if your question is already answered.
+- If you have a suggestion, found a bug, or want to add a new device or function create a new [issue](https://github.com/KartoffelToby/better_thermostat/issues)
+- If you want to contribute to this project create a new [pull request](https://github.com/KartoffelToby/better_thermostat/pulls)
 
 ### Featureset
 
@@ -51,7 +55,7 @@ Here is a minimal configuration example
 
 ```yaml
 climate:
-  - platform: ai_thermostat
+  - platform: better_thermostat
     name: room
     thermostat: climate.trv
     temperature_sensor: sensor.temperature
@@ -62,7 +66,7 @@ Here is a full configuration example
 
 ```yaml
 climate:
-  - platform: ai_thermostat
+  - platform: better_thermostat
     name: room
     thermostat: climate.trv
     temperature_sensor: sensor.temperature
@@ -82,7 +86,7 @@ climate:
 
 | Key                      | Example Value                | Required? | Description                                                                                                                                                                                                                                                            |
 |--------------------------|------------------------------|-----------|------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
-| ***platform***           | `ai_thermostat`              | *yes*     |                                                                                                                                                                                                                                                                        |
+| ***platform***           | `better_thermostat`              | *yes*     |                                                                                                                                                                                                                                                                        |
 | ***name***               | `Thermostat - Livingroom`    | *no*      | Used to name the virtual thermostat                                                                                                                                                                                                                                    |
 | ***thermostat***         | `climate.trv`                | *yes*     | a climate entity.                                                                                                                                                                                                                                                      |
 | ***unique_id***          | `392049`                     | *no*      | A unique_id (e.g. UNIX timestamp) mostly needed when using google home.                                                                                                                                                                                                |
@@ -114,13 +118,13 @@ livingroom_windows:
 
 Install the HACS [climate_group](https://github.com/daenny/climate_group) from @daenny
 
-As each TRV has an individual local_temperature and must be individually calibrated, you need to create an ai_thermostat entity for each TRV and then group them:
+As each TRV has an individual local_temperature and must be individually calibrated, you need to create a better_thermostat entity for each TRV and then group them:
 
 Example:
 
 ```yaml
 climate:
-  - platform: ai_thermostat
+  - platform: better_thermostat
     name: Ai - TRV - Office - 1
     thermostat: climate.real_trv_office_1
     temperature_sensor: sensor.temperatur_office_temperature
@@ -128,7 +132,7 @@ climate:
     weather: weather.home
     off_temperature: 19.5
     unique_id: 1
-  - platform: ai_thermostat
+  - platform: better_thermostat
     name: Ai - TRV - Office - 2
     thermostat: climate.real_trv_office_2
     temperature_sensor: sensor.temperatur_office_temperature

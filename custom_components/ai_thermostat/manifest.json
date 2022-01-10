@@ -1,8 +1,8 @@
 {
-  "domain": "ai_thermostat",
-  "name": "AI Thermostat for Zigbee2MQTT",
-  "documentation": "https://github.com/KartoffelToby/ai_thermostat",
-  "issue_tracker": "https://github.com/KartoffelToby/ai_thermostat/issues",
+  "domain": "better_thermostat",
+  "name": "Better Thermostat",
+  "documentation": "https://github.com/KartoffelToby/better_thermostat",
+  "issue_tracker": "https://github.com/KartoffelToby/better_thermostat/issues",
   "iot_class": "local_push",
   "version": "1.0.0",
   "dependencies": [
