@@ -4,6 +4,7 @@ Z2M version """
 import asyncio
 import logging
 import math
+import numbers
 from abc import ABC
 from datetime import datetime, timedelta
 from random import randint
@@ -48,7 +49,9 @@ SUPPORT_FLAGS = SUPPORT_TARGET_TEMPERATURE
 
 ATTR_STATE_WINDOW_OPEN = "window_open"
 ATTR_STATE_NIGHT_MODE = "night_mode"
-ATTR_STATE_CALL_FOR_HEAT = "summer"
+ATTR_STATE_CALL_FOR_HEAT = "call_for_heat"
+ATTR_STATE_LAST_CHANGE = "last_change"
+ATTR_STATE_DAY_SET_TEMP = "last_day_set_temp"
 
 PLATFORM_SCHEMA = PLATFORM_SCHEMA.extend(
 		{
@@ -174,10 +177,9 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
 		self._unit = unit
 		self._unique_id = unique_id
 		self._support_flags = SUPPORT_FLAGS
-		self.window_open = False
+		self.window_open = None
 		self._is_away = False
 		self.startup_running = True
-		self.heating_active_pre_window_opened = None
 		self.model = "-"
 		self.next_valve_maintenance = datetime.now() + timedelta(hours=randint(1, 24 * 5))
 		self.calibration_type = 2
@@ -194,6 +196,8 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
 		self.local_temperature_calibration_entity = None
 		self.valve_position_entity = None
 		self.version = "1.0.0"
+		self.last_change = None
+		self.load_saved_state = False
 	
 	async def async_added_to_hass(self):
 		"""Run when entity about to be added."""
@@ -259,7 +263,24 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
 					self._target_temp = float(old_state.attributes[ATTR_TEMPERATURE])
 			if not self._hvac_mode and old_state.state:
 				self._hvac_mode = old_state.state
-		
+			if not old_state.attributes.get(ATTR_STATE_LAST_CHANGE):
+				self.last_change = old_state.attributes.get(ATTR_STATE_LAST_CHANGE)
+			else: 
+				self.last_change = HVAC_MODE_OFF
+			if not old_state.attributes.get(ATTR_STATE_WINDOW_OPEN):
+				self.window_open = old_state.attributes.get(ATTR_STATE_WINDOW_OPEN)
+			if not old_state.attributes.get(ATTR_STATE_DAY_SET_TEMP):
+				self.daytime_temp = old_state.attributes.get(ATTR_STATE_DAY_SET_TEMP)
+			if not old_state.attributes.get(ATTR_STATE_CALL_FOR_HEAT):
+				self.call_for_heat = old_state.attributes.get(ATTR_STATE_CALL_FOR_HEAT)
+			if not old_state.attributes.get(ATTR_STATE_NIGHT_MODE):
+				self.night_status = old_state.attributes.get(ATTR_STATE_NIGHT_MODE)
+				if self.night_status:
+					if self.night_temp and isinstance(self.night_temp, numbers.Number):
+						self._target_temp = float(self.night_temp)				
+					else:
+						_LOGGER.error("Night temp is not a number")
+
 		else:
 			# No previous state, try and restore defaults
 			if self._target_temp is None:
@@ -358,9 +379,11 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
 	def extra_state_attributes(self):
 		"""Return the device specific state attributes."""
 		dev_specific = {
-			ATTR_STATE_WINDOW_OPEN  : self.window_open,
-			ATTR_STATE_NIGHT_MODE   : self.night_status,
-			ATTR_STATE_CALL_FOR_HEAT: self.call_for_heat
+			ATTR_STATE_WINDOW_OPEN   : self.window_open,
+			ATTR_STATE_NIGHT_MODE    : self.night_status,
+			ATTR_STATE_CALL_FOR_HEAT : self.call_for_heat,
+			ATTR_STATE_LAST_CHANGE   : self.last_change,
+			ATTR_STATE_DAY_TEMP      : self.daytime_temp,
 		}
 		
 		return dev_specific
@@ -656,16 +679,23 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
 					_LOGGER.warning("better_thermostat: call for heat decision: could not evaluate sensor/weather entity data, force heat on")
 					self.call_for_heat = True
 				
-				_LOGGER.debug("better_thermostat %s",self.call_for_heat)
 				# window open detection and weather detection force turn TRV off
-				if (self.window_open or not self.call_for_heat) and not self.closed_window_triggered:
-					self.heating_active_pre_window_opened = False
-					if self._hvac_mode == HVAC_MODE_HEAT:
-						self.heating_active_pre_window_opened = True
+				if self.window_open and not self.closed_window_triggered:
+					self.last_change = self._hvac_mode
 					self._hvac_mode = HVAC_MODE_OFF
 					self.closed_window_triggered = True
-				elif self.heating_active_pre_window_opened:
-					self._hvac_mode = HVAC_MODE_HEAT
+				elif not self.window_open and self.closed_window_triggered:
+					self._hvac_mode = self.last_change
+
+				# check if's summer
+				if self._hvac_mode != HVAC_MODE_OFF and not self.window_open and not self.call_for_heat and not self.load_saved_state:
+					self.last_change = self._hvac_mode
+					self._hvac_mode = HVAC_MODE_OFF
+					self.load_saved_state = True
+				elif self.load_saved_state and self.call_for_heat and not self.window_open:
+					self._hvac_mode = self.last_change
+					self.load_saved_state = False
+
 				
 				try:
 					remapped_states = convert_outbound_states(self, self._hvac_mode)
