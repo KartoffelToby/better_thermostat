@@ -12,8 +12,8 @@ from random import randint
 import homeassistant.helpers.config_validation as cv
 import homeassistant.util.dt as dt_util
 import voluptuous as vol
-from custom_components.better_thermostat.helpers import check_float, convert_decimal, set_trv_values
-from custom_components.better_thermostat.models.models import convert_inbound_states, convert_outbound_states
+from .helpers import check_float, convert_decimal, set_trv_values
+from .models.models import convert_inbound_states, convert_outbound_states
 from homeassistant.components.climate import PLATFORM_SCHEMA, ClimateEntity
 from homeassistant.components.climate.const import (CURRENT_HVAC_HEAT, CURRENT_HVAC_IDLE, CURRENT_HVAC_OFF, HVAC_MODE_HEAT, HVAC_MODE_OFF, SUPPORT_TARGET_TEMPERATURE, )
 from homeassistant.components.recorder import history
