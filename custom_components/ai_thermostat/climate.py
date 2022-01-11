@@ -383,7 +383,8 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
 			ATTR_STATE_NIGHT_MODE   : self.night_status,
 			ATTR_STATE_CALL_FOR_HEAT: self.call_for_heat,
 			ATTR_STATE_LAST_CHANGE  : self.last_change,
-			ATTR_STATE_DAY_SET_TEMP : self.daytime_temp, }
+			ATTR_STATE_DAY_SET_TEMP : self.daytime_temp,
+		}
 		
 		return dev_specific
 	
