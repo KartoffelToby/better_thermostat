@@ -1,4 +1,4 @@
-from custom_components.better_thermostat.helpers import convert_decimal
+from ..helpers import convert_decimal
 
 def mode_remap(hvac_mode, modes):
 	if modes is None:

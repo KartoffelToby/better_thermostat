@@ -4,7 +4,7 @@ import os
 from pathlib import Path
 from homeassistant.components.climate.const import (HVAC_MODE_HEAT, HVAC_MODE_OFF)
 from homeassistant.util import yaml
-from custom_components.better_thermostat.models.utils import calibration, mode_remap, reverse_modes
+from .utils import calibration, mode_remap, reverse_modes
 
 _LOGGER = logging.getLogger(__name__)
 

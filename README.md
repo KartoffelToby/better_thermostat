@@ -47,13 +47,13 @@ At this time following models are tested and reported to work:
 | BECA       | BRT-100 ZB           | BRT-100-TRV       |                 |                                                      |                                                           |
 
 
-Is your hardware not listed? Shoot us a [ticket](https://github.com/KartoffelToby/ai_thermostat/issues)!
+Is your hardware not listed? Shoot us a [ticket](https://github.com/KartoffelToby/better_thermostat/issues)!
 
 ### Howto Setup
 
 This custom component requires a manual edit of the configuration.yaml of Home Assistant.
 
-After you opend the configuration file, you'll create one virtual AI Thermostat entity for each room you like us to control. This will create a secondary climate entity which controls the original climate entity of your thermostat.
+After you opened the configuration file, you'll create one virtual Better Thermostat entity for each room you like us to control. This will create a secondary climate entity which controls the original climate entity of your thermostat.
 
 Here is a minimal configuration example
 
@@ -90,7 +90,7 @@ climate:
 
 | Key                      | Example Value                | Required? | Description                                                                                                                                                                                                                                                            |
 |--------------------------|------------------------------|-----------|------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
-| ***platform***           | `better_thermostat`              | *yes*     |                                                                                                                                                                                                                                                                        |
+| ***platform***           | `better_thermostat`          | *yes*     |                                                                                                                                                                                                                                                                        |
 | ***name***               | `Thermostat - Livingroom`    | *no*      | Used to name the virtual thermostat                                                                                                                                                                                                                                    |
 | ***thermostat***         | `climate.trv`                | *yes*     | a climate entity.                                                                                                                                                                                                                                                      |
 | ***unique_id***          | `392049`                     | *no*      | A unique_id (e.g. UNIX timestamp) mostly needed when using google home.                                                                                                                                                                                                |
