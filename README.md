@@ -39,9 +39,9 @@ At this time following models are tested and reported to work:
 
 | Vendor     | Product Name         | Product Number    | HA Manufacturer | HA Model                                             | Whitelabel                                                |
 |------------|----------------------|-------------------|-----------------|------------------------------------------------------|-----------------------------------------------------------|
-| Eurotronic | Spirit Zigbee        | SPZB0001          |                 |                                                      |                                                           |
-| Moes       | ZigBee3.0 Thermostat | SEA801-Zigbee     |                 |                                                      |                                                           | 
-| Moes       | ZigBee3.0 Thermostat | SEA802-Zigbee     |                 |                                                      |                                                           | 
+| Eurotronic | Spirit Zigbee        | SPZB0001          | "Eurotronic"    | "Spirit Zigbee wireless heater thermostat (SPZB0001)" | -                                                          |
+| Moes       | ZigBee3.0 Thermostat | SEA801-Zigbee     | "Saswell"       | "Thermostatic radiator valve (SEA801-Zigbee/SEA802-Zigbee)" | HiHome WZB-TRVL, Hama 00176592, RTX ZB-RT1                                                           | 
+| Moes       | ZigBee3.0 Thermostat | SEA802-Zigbee     | "Saswell"       | "Thermostatic radiator valve (SEA801-Zigbee/SEA802-Zigbee)" | HiHome WZB-TRVL, Hama 00176592, RTX ZB-RT1                                                           | 
 | TuYa       | TS0601               | TS0601_thermostat | "TuYa"          | "Radiator valve with thermostat (TS0601_thermostat)" | Moes HY368, Moes HY369RT, SHOJZJ 378RT, Silvercrest TVR01 |
 | Siterwell  | Radiator Thermostat  | GS361A-H04        |                 |                                                      |                                                           | 
 | BECA       | BRT-100 ZB           | BRT-100-TRV       |                 |                                                      |                                                           |
