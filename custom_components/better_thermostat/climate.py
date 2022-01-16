@@ -43,6 +43,9 @@ CONF_VALVE_MAINTENANCE = "valve_maintenance"
 CONF_NIGHT_TEMP = "night_temp"
 CONF_NIGHT_START = "night_start"
 CONF_NIGHT_END = "night_end"
+CONF_MIN_TEMP = "min_temp"
+CONF_MAX_TEMP = "max_temp"
+CONF_PRECISION = "precision"
 
 SUPPORT_FLAGS = SUPPORT_TARGET_TEMPERATURE
 
@@ -70,6 +73,9 @@ PLATFORM_SCHEMA = PLATFORM_SCHEMA.extend(
 			vol.Optional(CONF_NAME, default=DEFAULT_NAME)      : cv.string,
 			vol.Optional(CONF_TARGET_TEMP)                     : vol.Coerce(float),
 			vol.Optional(CONF_UNIQUE_ID)                       : cv.string,
+			vol.Optional(CONF_MIN_TEMP, default=5.0)           : vol.Coerce(float),
+			vol.Optional(CONF_MAX_TEMP, default=35.0)          : vol.Coerce(float),
+			vol.Optional(CONF_PRECISION, default=0.5)          : vol.Coerce(float),
 		}
 )
 
@@ -91,10 +97,10 @@ async def async_setup_platform(hass, config, async_add_entities, discovery_info=
 	night_start = config.get(CONF_NIGHT_START)
 	night_end = config.get(CONF_NIGHT_END)
 	
-	min_temp = 5.0
-	max_temp = 30.0
+	min_temp = config.get(CONF_MIN_TEMP)
+	max_temp = config.get(CONF_MAX_TEMP)
 	target_temp = config.get(CONF_TARGET_TEMP)
-	precision = 0.5
+	precision = config.get(CONF_PRECISION)
 	unit = hass.config.units.temperature_unit
 	unique_id = config.get(CONF_UNIQUE_ID)
 
