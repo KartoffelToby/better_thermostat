@@ -37,14 +37,14 @@ This integration brings some smartness to your connected radiator thermostats se
 
 At this time following models are tested and reported to work:
 
-| Vendor     | Product Name         | Product Number    | HA Manufacturer | HA Model                                             | Whitelabel                                                |
-|------------|----------------------|-------------------|-----------------|------------------------------------------------------|-----------------------------------------------------------|
-| Eurotronic | Spirit Zigbee        | SPZB0001          | "Eurotronic"    | "Spirit Zigbee wireless heater thermostat (SPZB0001)" | -                                                          |
-| Moes       | ZigBee3.0 Thermostat | SEA801-Zigbee     | "Saswell"       | "Thermostatic radiator valve (SEA801-Zigbee/SEA802-Zigbee)" | HiHome WZB-TRVL, Hama 00176592, RTX ZB-RT1                                                           | 
-| Moes       | ZigBee3.0 Thermostat | SEA802-Zigbee     | "Saswell"       | "Thermostatic radiator valve (SEA801-Zigbee/SEA802-Zigbee)" | HiHome WZB-TRVL, Hama 00176592, RTX ZB-RT1                                                           | 
-| TuYa       | TS0601               | TS0601_thermostat | "TuYa"          | "Radiator valve with thermostat (TS0601_thermostat)" | Moes HY368, Moes HY369RT, SHOJZJ 378RT, Silvercrest TVR01 |
-| Siterwell  | Radiator Thermostat  | GS361A-H04        |                 |                                                      |                                                           | 
-| BECA       | BRT-100 ZB           | BRT-100-TRV       |                 |                                                      |                                                           |
+| Vendor     | Product Name         | Product Number          | HA Manufacturer | HA Model                                                    | Whitelabel                                                                                                      |
+|------------|----------------------|-------------------------|-----------------|-------------------------------------------------------------|-----------------------------------------------------------------------------------------------------------------|
+| Eurotronic | Spirit Zigbee        | SPZB0001                | `Eurotronic`    | `Spirit Zigbee wireless heater thermostat (SPZB0001)`       |                                                                                                                 |
+| Moes       | ZigBee3.0 Thermostat | SEA801&#8209;Zigbee     | `Saswell`       | `Thermostatic radiator valve (SEA801-Zigbee/SEA802-Zigbee)` | -&nbsp;HiHome&nbsp;WZB&#8209;TRVL<br>-&nbsp;Hama&nbsp;00176592<br>-&nbsp;RTX&nbsp;ZB&#8209;RT1                  | 
+| Moes       | ZigBee3.0 Thermostat | SEA802&#8209;Zigbee     | `Saswell`       | `Thermostatic radiator valve (SEA801-Zigbee/SEA802-Zigbee)` | -&nbsp;HiHome&nbsp;WZB&#8209;TRVL<br>-&nbsp;Hama&nbsp;00176592<br>-&nbsp;RTX&nbsp;ZB&#8209;RT1                  | 
+| TuYa       | TS0601               | TS0601_thermostat       | `TuYa`          | `Radiator valve with thermostat (TS0601_thermostat)`        | -&nbsp;Moes&nbsp;HY368<br>-&nbsp;Moes&nbsp;HY369RT<br>-&nbsp;SHOJZJ&nbsp;378RT<br>-&nbsp;Silvercrest&nbsp;TVR01 |
+| Siterwell  | Radiator Thermostat  | GS361A&#8209;H04        |                 |                                                             |                                                                                                                 | 
+| BECA       | BRT-100 ZB           | BRT&#8209;100&#8209;TRV |                 |                                                             |                                                                                                                 |
 
 
 Is your hardware not listed? Shoot us a [ticket](https://github.com/KartoffelToby/better_thermostat/issues)!
