@@ -2,8 +2,8 @@ import asyncio
 import logging
 from datetime import datetime
 
-from homeassistant.components.climate.const import (SERVICE_SET_TEMPERATURE, SERVICE_SET_HVAC_MODE, )
-from homeassistant.components.number.const import (SERVICE_SET_VALUE, )
+from homeassistant.components.climate.const import (SERVICE_SET_TEMPERATURE, SERVICE_SET_HVAC_MODE)
+from homeassistant.components.number.const import (SERVICE_SET_VALUE)
 
 _LOGGER = logging.getLogger(__name__)
 
