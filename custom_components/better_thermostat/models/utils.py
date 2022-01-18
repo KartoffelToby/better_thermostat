@@ -1,7 +1,10 @@
+"""Utility functions for the Better Thermostat."""
+
 from ..helpers import convert_decimal
 
 
 def mode_remap(hvac_mode, modes):
+	"""Remap HVAC mode to better mode."""
 	if modes is None:
 		return hvac_mode
 	if modes.get(hvac_mode) is not None:
@@ -11,6 +14,7 @@ def mode_remap(hvac_mode, modes):
 
 
 def reverse_modes(modes):
+	"""Reverse HVAC modes."""
 	changed_dict = {}
 	for key, value in modes.items():
 		changed_dict[value] = key
@@ -18,6 +22,7 @@ def reverse_modes(modes):
 
 
 def calibration(self, calibration_type):
+	"""Select calibration function based on calibration type."""
 	if calibration_type == 1:
 		return temperature_calibration(self)
 	if calibration_type == 0:
@@ -25,6 +30,8 @@ def calibration(self, calibration_type):
 
 
 def default_calibration(self):
+	# FIXME: Write docstring
+	
 	state = self.hass.states.get(self.heater_entity_id).attributes
 	new_calibration = float(
 		(float(self._cur_temp) - float(state.get('local_temperature'))) + float(state.get('local_temperature_calibration'))
@@ -33,6 +40,8 @@ def default_calibration(self):
 
 
 def temperature_calibration(self):
+	# FIXME: Write docstring
+	
 	state = self.hass.states.get(self.heater_entity_id).attributes
 	new_calibration = abs(float(round((float(self._target_temp) - float(self._cur_temp)) + float(state.get('local_temperature')), 2)))
 	if new_calibration < float(self._min_temp):

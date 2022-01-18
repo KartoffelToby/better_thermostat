@@ -1,3 +1,5 @@
+"""Device model handing and quirk detection."""
+
 import logging
 import math
 import os
@@ -12,6 +14,7 @@ _LOGGER = logging.getLogger(__name__)
 
 
 def convert_inbound_states(self, state):
+	"""Convert inbound thermostat state to HA state."""
 	get_device_model(self)
 	
 	config_file = os.path.dirname(os.path.realpath(__file__)) + '/devices/' + self.model.replace("/", "_") + '.yaml'
@@ -40,6 +43,7 @@ def convert_inbound_states(self, state):
 
 
 def get_device_model(self):
+	"""Fetches the device model from HA."""
 	try:
 		if self.hass.states.get(self.heater_entity_id).attributes.get('device') is not None:
 			self.model = self.hass.states.get(self.heater_entity_id).attributes.get('device').get('model')
@@ -52,6 +56,7 @@ def get_device_model(self):
 
 
 def convert_outbound_states(self, hvac_mode):
+	"""Convert HA state to outbound thermostat state."""
 	get_device_model(self)
 	
 	state = self.hass.states.get(self.heater_entity_id).attributes
