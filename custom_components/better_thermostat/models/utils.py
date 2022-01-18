@@ -32,9 +32,9 @@ def calibration(self, calibration_type):
 def default_calibration(self):
 	# FIXME: Write docstring
 	
-	state = self.hass.states.get(self.heater_entity_id).attributes
+	state = self.hass.states.get(self.config_heater_entity).attributes
 	new_calibration = float(
-		(float(self._cur_temp) - float(state.get('local_temperature'))) + float(state.get('local_temperature_calibration'))
+		(float(self._current_room_temperature_sensor_value) - float(state.get('local_temperature'))) + float(state.get('local_temperature_calibration'))
 	)
 	return convert_decimal(new_calibration)
 
@@ -42,11 +42,11 @@ def default_calibration(self):
 def temperature_calibration(self):
 	# FIXME: Write docstring
 	
-	state = self.hass.states.get(self.heater_entity_id).attributes
-	new_calibration = abs(float(round((float(self._target_temp) - float(self._cur_temp)) + float(state.get('local_temperature')), 2)))
-	if new_calibration < float(self._min_temp):
-		new_calibration = float(self._min_temp)
-	if new_calibration > float(self._max_temp):
-		new_calibration = float(self._max_temp)
+	state = self.hass.states.get(self.config_heater_entity).attributes
+	new_calibration = abs(float(round((float(self._current_temperature_setpoint) - float(self._current_room_temperature_sensor_value)) + float(state.get('local_temperature')), 2)))
+	if new_calibration < float(self._minimal_set_temperature):
+		new_calibration = float(self._minimal_set_temperature)
+	if new_calibration > float(self._maximal_set_temperature):
+		new_calibration = float(self._maximal_set_temperature)
 	
 	return new_calibration

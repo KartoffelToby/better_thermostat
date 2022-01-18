@@ -41,12 +41,12 @@ async def set_trv_values(self, key, value):
 	"""Do necessary actions to set the TRV values."""
 	if key == 'temperature':
 		await self.hass.services.async_call(
-			'climate', SERVICE_SET_TEMPERATURE, {'entity_id': self.heater_entity_id, 'temperature': value}, blocking=True
+			'climate', SERVICE_SET_TEMPERATURE, {'entity_id': self.config_heater_entity, 'temperature': value}, blocking=True
 		)
 		_LOGGER.debug("better_thermostat send %s %s", key, value)
 	elif key == 'system_mode':
 		await self.hass.services.async_call(
-			'climate', SERVICE_SET_HVAC_MODE, {'entity_id': self.heater_entity_id, 'hvac_mode': value}, blocking=True
+			'climate', SERVICE_SET_HVAC_MODE, {'entity_id': self.config_heater_entity, 'hvac_mode': value}, blocking=True
 		)
 		_LOGGER.debug("better_thermostat send %s %s", key, value)
 	elif key == 'local_temperature_calibration':

@@ -24,7 +24,7 @@ def convert_inbound_states(self, state):
 	else:
 		hvac_mode = HVAC_MODE_HEAT
 	
-	current_heating_setpoint = self._target_temp
+	current_heating_setpoint = self._current_temperature_setpoint
 	
 	if Path(config_file).is_file():
 		config = yaml.load_yaml(config_file)
@@ -47,8 +47,8 @@ def get_device_model(self):
 	
 	if self.model is None:
 		try:
-			if self.hass.states.get(self.heater_entity_id).attributes.get('device') is not None:
-				self.model = self.hass.states.get(self.heater_entity_id).attributes.get('device').get('model')
+			if self.hass.states.get(self.config_heater_entity).attributes.get('device') is not None:
+				self.model = self.hass.states.get(self.config_heater_entity).attributes.get('device').get('model')
 			else:
 				raise ValueError
 		except (RuntimeError, ValueError, AttributeError, KeyError, TypeError, NameError, IndexError) as e:
@@ -65,7 +65,7 @@ def convert_outbound_states(self, hvac_mode):
 	"""Convert HA state to outbound thermostat state."""
 	get_device_model(self)
 	
-	state = self.hass.states.get(self.heater_entity_id).attributes
+	state = self.hass.states.get(self.config_heater_entity).attributes
 	
 	config_file = os.path.dirname(os.path.realpath(__file__)) + '/devices/' + self.model.replace("/", "_") + '.yaml'
 	
@@ -90,7 +90,7 @@ def convert_outbound_states(self, hvac_mode):
 				current_heating_setpoint = 5
 	
 	else:
-		current_heating_setpoint = self._target_temp
+		current_heating_setpoint = self._current_temperature_setpoint
 		local_temperature_calibration = int(math.ceil(calibration(self, 0)))
 	
 	return {
