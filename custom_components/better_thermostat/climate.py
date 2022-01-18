@@ -247,13 +247,20 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
 		else:
 			# No previous state, try and restore defaults
 			if self._target_temp is None:
+				_LOGGER.warning(
+					"better_thermostat %s: No previously saved temperature found on startup, setting default value %s and turn heat off",
+					self.name,
+					self._target_temp
+				)
 				self._target_temp = self.min_temp
-			_LOGGER.debug(
-				"No previously saved temperature, setting to %s", self._target_temp
-			)
-		
-		# Set default state to off
+				self._hvac_mode = HVAC_MODE_OFF
+				
+		# if hvac mode could not be restored, turn heat off
 		if not self._hvac_mode:
+			_LOGGER.warning(
+				"better_thermostat %s: No previously hvac mode found on startup, turn heat off",
+				self.name
+			)
 			self._hvac_mode = HVAC_MODE_OFF
 	
 	async def startup(self):
