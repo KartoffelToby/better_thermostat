@@ -14,7 +14,8 @@ import homeassistant.util.dt as dt_util
 import voluptuous as vol
 from homeassistant.components.climate import ClimateEntity, PLATFORM_SCHEMA
 from homeassistant.components.climate.const import (
-	CURRENT_HVAC_HEAT, CURRENT_HVAC_IDLE, CURRENT_HVAC_OFF, HVAC_MODE_HEAT, HVAC_MODE_OFF, SUPPORT_TARGET_TEMPERATURE
+	CURRENT_HVAC_HEAT, CURRENT_HVAC_IDLE, CURRENT_HVAC_OFF, HVAC_MODE_HEAT, HVAC_MODE_OFF,
+	SERVICE_SET_HVAC_MODE, SUPPORT_TARGET_TEMPERATURE
 )
 from homeassistant.components.recorder import history
 from homeassistant.const import (ATTR_TEMPERATURE, CONF_NAME, CONF_UNIQUE_ID, EVENT_HOMEASSISTANT_START, STATE_UNAVAILABLE, STATE_UNKNOWN)
@@ -26,7 +27,7 @@ from homeassistant.helpers.restore_state import RestoreEntity
 
 from . import DOMAIN, PLATFORMS
 from .helpers import check_float, convert_decimal, set_trv_values
-from .models.models import convert_inbound_states, convert_outbound_states
+from .models.models import convert_inbound_states, convert_outbound_states, get_device_model
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -52,6 +53,8 @@ ATTR_STATE_NIGHT_MODE = "night_mode"
 ATTR_STATE_CALL_FOR_HEAT = "call_for_heat"
 ATTR_STATE_LAST_CHANGE = "last_change"
 ATTR_STATE_DAY_SET_TEMP = "last_day_set_temp"
+
+ATTR_VALVE_POSITION = "valve_position"
 
 PLATFORM_SCHEMA = PLATFORM_SCHEMA.extend(
 	{
@@ -172,6 +175,8 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
 		self.version = "1.0.0"
 		self.last_change = None
 		self.load_saved_state = False
+		self._last_reported_valve_position = None
+		self._last_reported_valve_position_update_wait_lock = asyncio.Lock()
 	
 	# noinspection PyTypeChecker
 	async def async_added_to_hass(self):
@@ -619,6 +624,11 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
 			try:
 				remapped_state = convert_inbound_states(self, new_state.attributes)
 				
+				# write valve position to local variable
+				if remapped_state.get(ATTR_VALVE_POSITION) is not None:
+					self._last_reported_valve_position = remapped_state.get(ATTR_VALVE_POSITION)
+					self._last_reported_valve_position_update_wait_lock.release()
+				
 				if old_state.attributes.get('system_mode') != new_state.attributes.get('system_mode'):
 					self._hvac_mode = remapped_state.get('system_mode')
 					
@@ -639,26 +649,115 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
 	
 	async def trv_valve_maintenance(self):
 		"""Maintenance of the TRV valve."""
+		
+		_LOGGER.info("better_thermostat %s: maintenance started", self.name)
+		
 		self.ignore_states = True
-		if self.hass.states.get(self.heater_entity_id).attributes.get('valve_position'):
-			await set_trv_values(self, 'valve_position', 255)
-			await asyncio.sleep(60)
-			await set_trv_values(self, 'valve_position', 0)
-			await asyncio.sleep(60)
-			await set_trv_values(self, 'valve_position', 255)
-			await asyncio.sleep(60)
-			await set_trv_values(self, 'valve_position', 0)
-			await asyncio.sleep(60)
+		
+		if self.model == "TS0601_thermostat":
+			_LOGGER.debug("better_thermostat %s: maintenance will run TS0601_thermostat variant of cycle", self.name)
+			
+			# get current HVAC mode from HA
+			try:
+				_last_hvac_mode = self.hass.states.get(self.heater_entity_id).state
+			except:
+				_LOGGER.error("better_thermostat %s: Could not load current HVAC mode", self.name)
+				self.ignore_states = False
+				return
+			
+			_i = 0
+			_retry_limit_reached = False
+			
+			while True:
+				# close valve
+				_set_HVAC_mode_retry = 0
+				while not self._last_reported_valve_position == 0:
+					# send close valve command and wait for the valve to close
+					await set_trv_values(self, 'system_mode', 'off')
+					# wait for an update by the TRV on the valve position
+					await self._last_reported_valve_position_update_wait_lock.acquire()
+					if not self._last_reported_valve_position == 0 and _set_HVAC_mode_retry < 3:
+						_set_HVAC_mode_retry += 1
+						continue
+					elif _set_HVAC_mode_retry == 3:
+						_LOGGER.error("better_thermostat %s: maintenance could not close valve after 3 retries", self.name)
+						_retry_limit_reached = True
+						break
+					# wait 60 seconds to not overheat the motor
+					await asyncio.sleep(60)
+				
+				if _retry_limit_reached:
+					_LOGGER.error("better_thermostat %s: maintenance was aborted prematurely due to errors", self.name)
+					break
+				
+				# end loop after 3 opening cycles
+				elif _i > 3:
+					_LOGGER.info("better_thermostat %s: maintenance completed", self.name)
+					break
+				
+				# open valve
+				_set_HVAC_mode_retry = 0
+				while not self._last_reported_valve_position == 100:
+					# send open valve command and wait for the valve to open
+					await self.hass.services.async_call(
+						'climate', SERVICE_SET_HVAC_MODE, {'entity_id': self.heater_entity_id, 'hvac_mode': 'heat'}, blocking=True
+					)
+					await self._last_reported_valve_position_update_wait_lock.acquire()
+					if not self._last_reported_valve_position == 0 and _set_HVAC_mode_retry < 3:
+						_set_HVAC_mode_retry += 1
+						continue
+					elif _set_HVAC_mode_retry == 3:
+						_LOGGER.error("better_thermostat %s: maintenance could not open valve after 3 retries", self.name)
+						_retry_limit_reached = True
+						break
+					# wait 60 seconds to not overheat the motor
+					await asyncio.sleep(60)
+				
+				if _retry_limit_reached:
+					_LOGGER.error("better_thermostat %s: maintenance was aborted prematurely due to errors", self.name)
+					break
+				
+				_i += 1
+			
+			# returning the TRV to the previous HVAC mode
+			await self.hass.services.async_call(
+				'climate', SERVICE_SET_HVAC_MODE, {'entity_id': self.heater_entity_id, 'hvac_mode': _last_hvac_mode}, blocking=True
+			)
+			# give the TRV time to process the mode change and report back to HA
+			await asyncio.sleep(120)
+		
 		else:
-			await set_trv_values(self, 'temperature', 30)
-			await asyncio.sleep(60)
-			await set_trv_values(self, 'temperature', 5)
-			await asyncio.sleep(60)
-			await set_trv_values(self, 'temperature', 30)
-			await asyncio.sleep(60)
-			await set_trv_values(self, 'temperature', 5)
-			await asyncio.sleep(60)
+			
+			valve_position_available = False
+			# check if there's a valve_position field
+			try:
+				self.hass.states.get(self.heater_entity_id).attributes.get('valve_position')
+				valve_position_available = True
+			except:
+				pass
+			
+			if valve_position_available:
+				await set_trv_values(self, 'valve_position', 255)
+				await asyncio.sleep(60)
+				await set_trv_values(self, 'valve_position', 0)
+				await asyncio.sleep(60)
+				await set_trv_values(self, 'valve_position', 255)
+				await asyncio.sleep(60)
+				await set_trv_values(self, 'valve_position', 0)
+				await asyncio.sleep(60)
+			else:
+				await set_trv_values(self, 'temperature', 30)
+				await asyncio.sleep(60)
+				await set_trv_values(self, 'temperature', 5)
+				await asyncio.sleep(60)
+				await set_trv_values(self, 'temperature', 30)
+				await asyncio.sleep(60)
+				await set_trv_values(self, 'temperature', 5)
+				await asyncio.sleep(60)
+		
 		self.ignore_states = False
+		
+		# restarting normal heating control immediately
 		await self._async_control_heating()
 	
 	async def _async_control_heating(self):
