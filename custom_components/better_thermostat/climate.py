@@ -26,7 +26,7 @@ from homeassistant.helpers.reload import async_setup_reload_service
 from homeassistant.helpers.restore_state import RestoreEntity
 
 from . import DOMAIN, PLATFORMS
-from .helpers import check_float, convert_decimal, set_trv_values
+from .helpers import check_float, set_trv_values
 from .models.models import convert_inbound_states, convert_outbound_states, get_device_model
 
 _LOGGER = logging.getLogger(__name__)
@@ -632,10 +632,12 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
 	def _async_update_temp(self, state):
 		"""Update thermostat with the latest state from sensor."""
 		try:
-			if check_float(state.state):
-				self._cur_temp = convert_decimal(state.state)
-		except ValueError as e:
-			_LOGGER.error("better_thermostat %s: Unable to update temperature sensor status: %s", self.name, e)
+			self._cur_temp = float(state.state)
+		except (ValueError, AttributeError, KeyError, TypeError, NameError, IndexError):
+			_LOGGER.error(
+				"better_thermostat %s: Unable to update temperature sensor status from status update, current temperature not a number",
+				self.name
+				)
 	
 	@callback
 	async def _async_trv_changed(self, event):
@@ -674,8 +676,8 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
 				) is not None and self._hvac_mode != HVAC_MODE_OFF and self.calibration_type == 0:
 					self._target_temp = float(new_state.attributes.get('current_heating_setpoint'))
 			
-			except TypeError as e:
-				_LOGGER.debug("better_thermostat entity not ready or device is currently not supported %s", e)
+			except TypeError:
+				_LOGGER.debug("better_thermostat entity not ready or device is currently not supported")
 			
 			self.async_write_ha_state()
 	
@@ -922,9 +924,8 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
 							await self.trv_valve_maintenance()
 							self.next_valve_maintenance = datetime.now() + timedelta(days=5)
 				
-				except TypeError as fatal:
+				except TypeError:
 					_LOGGER.debug("better_thermostat entity not ready or device is currently not supported")
-					_LOGGER.debug("fatal %s", fatal)
 					self.ignore_states = False
 	
 	def check_weather_prediction(self):
