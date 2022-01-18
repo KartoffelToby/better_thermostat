@@ -663,10 +663,12 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
 	def _async_update_temp(self, state):
 		"""Update thermostat with the latest state from sensor."""
 		try:
-			if check_float(state.state):
-				self._cur_temp = convert_decimal(state.state)
-		except ValueError as e:
-			_LOGGER.error("better_thermostat %s: Unable to update temperature sensor status: %s", self.name, e)
+			self._cur_temp = float(state.state)
+		except (ValueError, AttributeError, KeyError, TypeError, NameError, IndexError):
+			_LOGGER.error(
+				"better_thermostat %s: Unable to update temperature sensor status from status update, current temperature not a number",
+				self.name
+				)
 	
 	@callback
 	async def _async_trv_changed(self, event):
