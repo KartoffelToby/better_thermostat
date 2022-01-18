@@ -17,9 +17,9 @@ from homeassistant.components.climate.const import (
 	CURRENT_HVAC_HEAT, CURRENT_HVAC_IDLE, CURRENT_HVAC_OFF, HVAC_MODE_HEAT, HVAC_MODE_OFF, SUPPORT_TARGET_TEMPERATURE
 )
 from homeassistant.components.recorder import history
-from homeassistant.const import (ATTR_TEMPERATURE, CONF_NAME, CONF_UNIQUE_ID, EVENT_HOMEASSISTANT_START, STATE_UNAVAILABLE, STATE_UNKNOWN, )
+from homeassistant.const import (ATTR_TEMPERATURE, CONF_NAME, CONF_UNIQUE_ID, EVENT_HOMEASSISTANT_START, STATE_UNAVAILABLE, STATE_UNKNOWN)
 from homeassistant.core import callback, CoreState
-from homeassistant.helpers.entity_registry import (async_entries_for_config_entry, )
+from homeassistant.helpers.entity_registry import (async_entries_for_config_entry)
 from homeassistant.helpers.event import (async_track_state_change_event, async_track_time_change)
 from homeassistant.helpers.reload import async_setup_reload_service
 from homeassistant.helpers.restore_state import RestoreEntity
