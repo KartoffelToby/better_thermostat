@@ -654,7 +654,9 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
 						_LOGGER.debug("better_thermostat: Window is still open, turn force off the TRV")
 						await self._async_control_heating()
 				
-				if not self.ignore_states and new_state.attributes.get('current_heating_setpoint') is not None and self._hvac_mode != HVAC_MODE_OFF and self.calibration_type == 0:
+				if not self.ignore_states and new_state.attributes.get(
+						'current_heating_setpoint'
+						) is not None and self._hvac_mode != HVAC_MODE_OFF and self.calibration_type == 0:
 					self._target_temp = float(new_state.attributes.get('current_heating_setpoint'))
 			
 			except TypeError as e:
@@ -691,7 +693,9 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
 		if self.ignore_states or self.startup_running:
 			return
 		async with self._temp_lock:
-			if all([self._cur_temp, self._target_temp, self._hvac_mode, self.hass.states.get(self.heater_entity_id).attributes]) and not self.startup_running:
+			if all(
+					[self._cur_temp, self._target_temp, self._hvac_mode, self.hass.states.get(self.heater_entity_id).attributes]
+					) and not self.startup_running:
 				self.ignore_states = True
 				# Use the same precision and min and max as the TRV
 				if self.hass.states.get(self.heater_entity_id).attributes.get('target_temp_step') is not None:
@@ -766,29 +770,33 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
 						self.last_calibration = datetime.now()
 					
 					_LOGGER.debug(
-							"better_thermostat triggered states > window open: %s night mode: %s Mode: %s set: %s has_mode: %s Calibration: %s set_temp: %s cur_temp: %s Model: %s Calibration "
-							"type: %s call for heat: %s TRV: %s",
-							self.window_open,
-							self.night_mode_active,
-							converted_hvac_mode,
-							self._hvac_mode,
-							has_real_mode,
-							calibration,
-							current_heating_setpoint,
-							self._cur_temp,
-							self.model,
-							self.calibration_type,
-							self.call_for_heat,
-							self.hass.states.get(self.heater_entity_id).attributes.get('device').get('friendlyName')
+						"better_thermostat triggered states > window open: %s night mode: %s Mode: %s set: %s has_mode: %s calibration: %s "
+						"set_temp: %s cur_temp: %s Model: %s calibration type: %s call for heat: %s TRV: %s",
+						self.window_open,
+						self.night_mode_active,
+						converted_hvac_mode,
+						self._hvac_mode,
+						has_real_mode,
+						calibration,
+						current_heating_setpoint,
+						self._cur_temp,
+						self.model,
+						self.calibration_type,
+						self.call_for_heat,
+						self.hass.states.get(self.heater_entity_id).attributes.get('device').get('friendlyName')
 					)
 					
 					# Using on temperature based calibration, don't update the temp if it's the same
-					if self.calibration_type == 1 and float(self.hass.states.get(self.heater_entity_id).attributes.get('current_heating_setpoint')) != float(calibration):
+					if self.calibration_type == 1 and float(
+							self.hass.states.get(self.heater_entity_id).attributes.get('current_heating_setpoint')
+							) != float(calibration):
 						await set_trv_values(self, 'temperature', float(calibration))
 						
 						# Using on local calibration, don't update the temp if its off, some TRV changed to 5°C when
 						# off after a while, don't update the temp
-						if self.calibration_type == 0 and not self.window_open and converted_hvac_mode != HVAC_MODE_OFF and float(current_heating_setpoint) != 5.0 and self.call_for_heat:
+						if self.calibration_type == 0 and not self.window_open and converted_hvac_mode != HVAC_MODE_OFF and float(
+								current_heating_setpoint
+								) != 5.0 and self.call_for_heat:
 							await set_trv_values(self, 'temperature', float(current_heating_setpoint))
 						
 						# Using on local calibration, update only if the TRV is not in window open mode
@@ -875,7 +883,8 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
 		
 		# remove the upper and lower 5% of the data
 		valid_historic_sensor_data.sort()
-		valid_historic_sensor_data = valid_historic_sensor_data[int(len(valid_historic_sensor_data) * 0.05):int(len(valid_historic_sensor_data) * 0.95)]
+		valid_historic_sensor_data = valid_historic_sensor_data[
+		                             int(len(valid_historic_sensor_data) * 0.05):int(len(valid_historic_sensor_data) * 0.95)]
 		
 		if len(valid_historic_sensor_data) == 0:
 			_LOGGER.warning("better_thermostat: no valid outdoor sensor data found.")

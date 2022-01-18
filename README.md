@@ -16,10 +16,13 @@
 
 ### Companion UI
 
-We've created a companion UI element which can display more information that the default thermostat element in Home Assistant. Check it out via HACS: [better-thermostat-ui-card](https://github.com/KartoffelToby/better-thermostat-ui-card)
+We've created a companion UI element which can display more information that the default thermostat element in Home Assistant. Check it out
+via HACS: [better-thermostat-ui-card](https://github.com/KartoffelToby/better-thermostat-ui-card)
 
-- If you have a question or need help please create a new [discussion](https://github.com/KartoffelToby/better_thermostat/discussions) or check if your question is already answered.
-- If you have a suggestion, found a bug, or want to add a new device or function create a new [issue](https://github.com/KartoffelToby/better_thermostat/issues)
+- If you have a question or need help please create a new [discussion](https://github.com/KartoffelToby/better_thermostat/discussions) or
+  check if your question is already answered.
+- If you have a suggestion, found a bug, or want to add a new device or function create a
+  new [issue](https://github.com/KartoffelToby/better_thermostat/issues)
 - If you want to contribute to this project create a new [pull request](https://github.com/KartoffelToby/better_thermostat/pulls)
 
 ### Featureset
@@ -53,7 +56,8 @@ Is your hardware not listed? Shoot us a [ticket](https://github.com/KartoffelTob
 
 This custom component requires a manual edit of the configuration.yaml of Home Assistant.
 
-After you opened the configuration file, you'll create one virtual Better Thermostat entity for each room you like us to control. This will create a secondary climate entity which controls the original climate entity of your thermostat.
+After you opened the configuration file, you'll create one virtual Better Thermostat entity for each room you like us to control. This will
+create a secondary climate entity which controls the original climate entity of your thermostat.
 
 Here is a minimal configuration example
 
@@ -122,7 +126,8 @@ livingroom_windows:
 
 Install the HACS [climate_group](https://github.com/daenny/climate_group) from @daenny
 
-As each TRV has an individual local_temperature and must be individually calibrated, you need to create a better_thermostat entity for each TRV and then group them:
+As each TRV has an individual local_temperature and must be individually calibrated, you need to create a better_thermostat entity for each
+TRV and then group them:
 
 Example:
 
@@ -154,7 +159,8 @@ climate:
 
 ### Zigbee2Mqtt config requirements
 
-**IMPORTANT: If you use Zigbee2MQTT to connect to your TRV devices make sure to enable the include_device_information in the Zigbee2MQTT MQTT settings**
+**IMPORTANT: If you use Zigbee2MQTT to connect to your TRV devices make sure to enable the include_device_information in the Zigbee2MQTT
+MQTT settings**
 
 If you use Z2M with the HA Supervisor, make sure you set it in the configuration. otherwise, it reset this option on every restart. [#57](/../../issues/57)
 

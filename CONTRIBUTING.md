@@ -2,8 +2,8 @@
 
 :+1::tada: First off, thanks for taking the time to contribute! :tada::+1:
 
-The following is a set of guidelines for contributing to Better Thermostat. These are mostly guidelines, not rules. Use your best judgment, and feel free to propose changes to this
-document in a pull request.
+The following is a set of guidelines for contributing to Better Thermostat. These are mostly guidelines, not rules. Use your best judgment,
+and feel free to propose changes to this document in a pull request.
 
 ## How Can I Contribute?
 
@@ -17,4 +17,5 @@ If you have a Devices that's not supported feel free to create a pull request.
 
 #### How it works
 
-Just look at an existing model and adjust the remapping for your devices, an info.md and a remap.py is required. Don't forget to add it in the models.py
+Just look at an existing model and adjust the remapping for your devices, an info.md and a remap.py is required. Don't forget to add it in
+the models.py
