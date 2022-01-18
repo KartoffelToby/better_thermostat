@@ -261,7 +261,7 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
 				self._hvac_mode = old_state.state
 			if not old_state.attributes.get(ATTR_STATE_LAST_CHANGE):
 				self.last_change = old_state.attributes.get(ATTR_STATE_LAST_CHANGE)
-			else: 
+			else:
 				self.last_change = HVAC_MODE_OFF
 			if not old_state.attributes.get(ATTR_STATE_WINDOW_OPEN):
 				self.window_open = old_state.attributes.get(ATTR_STATE_WINDOW_OPEN)
@@ -273,20 +273,27 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
 				self.night_mode_active = old_state.attributes.get(ATTR_STATE_NIGHT_MODE)
 				if self.night_mode_active:
 					if self.night_temp and isinstance(self.night_temp, numbers.Number):
-						self._target_temp = float(self.night_temp)				
+						self._target_temp = float(self.night_temp)
 					else:
 						_LOGGER.error("Night temp is not a number")
 
 		else:
 			# No previous state, try and restore defaults
 			if self._target_temp is None:
+				_LOGGER.warning(
+					"better_thermostat %s: No previously saved temperature found on startup, setting default value %s and turn heat off",
+					self.name,
+					self._target_temp
+				)
 				self._target_temp = self.min_temp
-			_LOGGER.debug(
-					"No previously saved temperature, setting to %s", self._target_temp
-			)
-		
-		# Set default state to off
+				self._hvac_mode = HVAC_MODE_OFF
+				
+		# if hvac mode could not be restored, turn heat off
 		if not self._hvac_mode:
+			_LOGGER.warning(
+				"better_thermostat %s: No previously hvac mode found on startup, turn heat off",
+				self.name
+			)
 			self._hvac_mode = HVAC_MODE_OFF
 	
 	async def startup(self):
@@ -359,7 +366,7 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
 			entity_entries = async_entries_for_config_entry(entity_registry, reg_entity.config_entry_id)
 			for entity in entity_entries:
 				uid = entity.unique_id
-				if "local_temperature_calibration" in uid: 
+				if "local_temperature_calibration" in uid:
 					self.local_temperature_calibration_entity = entity.entity_id
 				if "valve_position" in uid:
 					self.valve_position_entity = entity.entity_id
