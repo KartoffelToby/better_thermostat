@@ -755,7 +755,6 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
 								self.ignore_states = False
 								return
 					
-					# FIXME: "Only send the local_temperature_calibration if not instantly following" doesn't make sense
 					do_calibration = False
 					if self.last_calibration is None:
 						do_calibration = True
