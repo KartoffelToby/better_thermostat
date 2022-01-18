@@ -44,15 +44,17 @@ def convert_inbound_states(self, state):
 
 def get_device_model(self):
 	"""Fetches the device model from HA."""
-	try:
-		if self.hass.states.get(self.heater_entity_id).attributes.get('device') is not None:
-			self.model = self.hass.states.get(self.heater_entity_id).attributes.get('device').get('model')
-		else:
-			_LOGGER.exception(
-				"better_thermostat: can't read the device model of TVR, Enable include_device_information in z2m or checkout issue #1"
-			)
-	except RuntimeError:
-		_LOGGER.exception("better_thermostat: error can't get the TRV")
+	
+	if self.model is None:
+		try:
+			if self.hass.states.get(self.heater_entity_id).attributes.get('device') is not None:
+				self.model = self.hass.states.get(self.heater_entity_id).attributes.get('device').get('model')
+			else:
+				raise ValueError
+		except (RuntimeError, ValueError, AttributeError, KeyError, TypeError, NameError, IndexError) as e:
+			_LOGGER.error("better_thermostat %s: can't read the device model of TVR. enable include_device_information in z2m or checkout issue #1", self.name)
+	else:
+		return self.model
 
 
 def convert_outbound_states(self, hvac_mode):

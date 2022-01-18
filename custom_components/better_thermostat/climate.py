@@ -155,7 +155,7 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
 		self.window_open = None
 		self._is_away = False
 		self.startup_running = True
-		self.model = "-"
+		self.model = None
 		self.next_valve_maintenance = datetime.now() + timedelta(hours=randint(1, 24 * 5))
 		self.calibration_type = 2
 		self.last_daytime_temp = None
