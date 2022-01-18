@@ -54,22 +54,21 @@ ATTR_STATE_LAST_CHANGE = "last_change"
 ATTR_STATE_DAY_SET_TEMP = "last_day_set_temp"
 
 PLATFORM_SCHEMA = PLATFORM_SCHEMA.extend(
-		{
-			vol.Required(CONF_HEATER)                          : cv.entity_id,
-			vol.Required(CONF_SENSOR)                          : cv.entity_id,
-			vol.Optional(CONF_SENSOR_WINDOW)                   : cv.entity_id,
-			vol.Optional(CONF_WEATHER)                         : cv.entity_id,
-			vol.Optional(CONF_OUTDOOR_SENSOR)                  : cv.entity_id,
-			vol.Optional(CONF_OFF_TEMPERATURE, default=20.0)   : vol.Coerce(float),
-			vol.Optional(CONF_WINDOW_TIMEOUT, default=0)       : vol.Coerce(int),
-			vol.Optional(CONF_VALVE_MAINTENANCE, default=False): cv.boolean,
-			vol.Optional(CONF_NIGHT_TEMP, default=18.0)         : vol.Coerce(float),
-			vol.Optional(CONF_NIGHT_START, default=None)       : vol.Coerce(str),
-			vol.Optional(CONF_NIGHT_END, default=None)         : vol.Coerce(str),
-			vol.Optional(CONF_NAME, default=DEFAULT_NAME)      : cv.string,
-			vol.Optional(CONF_TARGET_TEMP)                     : vol.Coerce(float),
-			vol.Optional(CONF_UNIQUE_ID)                       : cv.string,
-		}
+	{
+		vol.Required(CONF_HEATER)                          : cv.entity_id,
+		vol.Required(CONF_SENSOR)                          : cv.entity_id,
+		vol.Optional(CONF_SENSOR_WINDOW)                   : cv.entity_id,
+		vol.Optional(CONF_WEATHER)                         : cv.entity_id,
+		vol.Optional(CONF_OUTDOOR_SENSOR)                  : cv.entity_id,
+		vol.Optional(CONF_OFF_TEMPERATURE, default=20.0)   : vol.Coerce(float),
+		vol.Optional(CONF_WINDOW_TIMEOUT, default=0)       : vol.Coerce(int),
+		vol.Optional(CONF_VALVE_MAINTENANCE, default=False): cv.boolean,
+		vol.Optional(CONF_NIGHT_TEMP, default=18.0)        : vol.Coerce(float),
+		vol.Optional(CONF_NIGHT_START, default=None)       : vol.Coerce(str),
+		vol.Optional(CONF_NIGHT_END, default=None)         : vol.Coerce(str),
+		vol.Optional(CONF_NAME, default=DEFAULT_NAME)      : cv.string,
+		vol.Optional(CONF_TARGET_TEMP)                     : vol.Coerce(float),
+		vol.Optional(CONF_UNIQUE_ID)                       : cv.string, }
 )
 
 
