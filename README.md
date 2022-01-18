@@ -10,9 +10,9 @@
 ### Requirements
 
 - Minimum required Home Assistant version: `2021.12`
- (_Latest tested version: `2021.12.5`_)
+  (_Latest tested version: `2021.12.5`_)
 - Zigbee2MQTT in case you use Zigbee Thermostats
- (_Latest tested version: `1.22.1-1`_)
+  (_Latest tested version: `1.22.1-1`_)
 
 ### Companion UI
 
@@ -35,7 +35,7 @@ This integration brings some smartness to your connected radiator thermostats se
 - Your weather forcast provider will turn your heat on/off
 - Or an outside air temperature sensor can do this as well
 - Does some valve-maintenance automatically, to avoid that they will get stuck closed over summer
- 
+
 ### Which hardware do we support?
 
 At this time following models are tested and reported to work:
@@ -48,7 +48,6 @@ At this time following models are tested and reported to work:
 | TuYa       | TS0601               | TS0601_thermostat       | `TuYa`          | `Radiator valve with thermostat (TS0601_thermostat)`        | -&nbsp;Moes&nbsp;HY368<br>-&nbsp;Moes&nbsp;HY369RT<br>-&nbsp;SHOJZJ&nbsp;378RT<br>-&nbsp;Silvercrest&nbsp;TVR01 |
 | Siterwell  | Radiator Thermostat  | GS361A&#8209;H04        |                 |                                                             |                                                                                                                 | 
 | BECA       | BRT-100 ZB           | BRT&#8209;100&#8209;TRV |                 |                                                             |                                                                                                                 |
-
 
 Is your hardware not listed? Shoot us a [ticket](https://github.com/KartoffelToby/better_thermostat/issues)!
 
@@ -63,34 +62,34 @@ Here is a minimal configuration example
 
 ```yaml
 climate:
-  - platform: better_thermostat
-    name: room
-    thermostat: climate.trv
+  - platform          : better_thermostat
+    name              : room
+    thermostat        : climate.trv
     temperature_sensor: sensor.temperature
-    window_sensors: group.office_windows
+    window_sensors    : group.office_windows
 ```
 
 Here is a full configuration example
 
 ```yaml
 climate:
-  - platform: better_thermostat
-    name: room
-    thermostat: climate.trv
+  - platform          : better_thermostat
+    name              : room
+    thermostat        : climate.trv
     temperature_sensor: sensor.temperature
-    window_sensors: group.office_windows # if this is not set, the window open detection is off
-    weather: weather.home # if this is set, the outdoor_sensor is ignored, remove the outdoor_sensor config!
-    outdoor_sensor: sensor.outdoor_temperature # if you want to use it, remove the weather entity from the config!
-    off_temperature: 17.5
-    window_off_delay: 15 # in seconds
-    valve_maintenance: false
-    night_temp: 18.5
-    night_start: '22:00'
-    night_end: '06:00'
+    window_sensors    : group.office_windows # if this is not set, the window open detection is off
+    weather           : weather.home # if this is set, the outdoor_sensor is ignored, remove the outdoor_sensor config!
+    outdoor_sensor    : sensor.outdoor_temperature # if you want to use it, remove the weather entity from the config!
+    off_temperature   : 17.5
+    window_off_delay  : 15 # in seconds
+    valve_maintenance : false
+    night_temp        : 18.5
+    night_start       : '22:00'
+    night_end         : '06:00'
 ```
 
-
-**IMPORTANT: the weather and outdoor_sensor are not required, but you need one of them if you want to use this function, if not remove them**
+**IMPORTANT: the weather and outdoor_sensor are not required, but you need one of them if you want to use this function, if not remove
+them**
 
 | Key                      | Example Value                | Required? | Description                                                                                                                                                                                                                                                            |
 |--------------------------|------------------------------|-----------|------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
@@ -113,9 +112,9 @@ climate:
 
 ```yaml
 livingroom_windows:
-  name: Livingroom Windows
-  icon: mdi:window-open-variant
-  all: false
+  name    : Livingroom Windows
+  icon    : mdi:window-open-variant
+  all     : false
   entities:
     - binary_sensor.openclose_1
     - binary_sensor.openclose_2
@@ -133,26 +132,26 @@ Example:
 
 ```yaml
 climate:
-  - platform: better_thermostat
-    name: Ai - TRV - Office - 1
-    thermostat: climate.real_trv_office_1
+  - platform          : better_thermostat
+    name              : Ai - TRV - Office - 1
+    thermostat        : climate.real_trv_office_1
     temperature_sensor: sensor.temperatur_office_temperature
-    window_sensors: group.office_windows
-    weather: weather.home
-    off_temperature: 19.5
-    unique_id: 1
-  - platform: better_thermostat
-    name: Ai - TRV - Office - 2
-    thermostat: climate.real_trv_office_2
+    window_sensors    : group.office_windows
+    weather           : weather.home
+    off_temperature   : 19.5
+    unique_id         : 1
+  - platform          : better_thermostat
+    name              : Ai - TRV - Office - 2
+    thermostat        : climate.real_trv_office_2
     temperature_sensor: sensor.temperatur_office_temperature
-    window_sensors: group.office_windows
-    weather: weather.home
-    off_temperature: 19.5
-    unique_id: 2
-  - platform: climate_group
-    name: "TRV - Office"
+    window_sensors    : group.office_windows
+    weather           : weather.home
+    off_temperature   : 19.5
+    unique_id         : 2
+  - platform        : climate_group
+    name            : "TRV - Office"
     temperature_unit: C
-    entities:
+    entities        :
       - climate.ai_trv_office_1
       - climate.ai_trv_office_2
 ```
@@ -162,11 +161,12 @@ climate:
 **IMPORTANT: If you use Zigbee2MQTT to connect to your TRV devices make sure to enable the include_device_information in the Zigbee2MQTT
 MQTT settings**
 
-If you use Z2M with the HA Supervisor, make sure you set it in the configuration. otherwise, it reset this option on every restart. [#57](/../../issues/57)
+If you use Z2M with the HA Supervisor, make sure you set it in the configuration. otherwise, it reset this option on every
+restart. [#57](/../../issues/57)
 
 ```yaml
 mqtt:
-  base_topic: zigbee2mqtt
+  base_topic                : zigbee2mqtt
   include_device_information: true
 ```
 

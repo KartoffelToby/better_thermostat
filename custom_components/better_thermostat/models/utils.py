@@ -28,7 +28,7 @@ def default_calibration(self):
 	state = self.hass.states.get(self.heater_entity_id).attributes
 	new_calibration = float(
 		(float(self._cur_temp) - float(state.get('local_temperature'))) + float(state.get('local_temperature_calibration'))
-		)
+	)
 	return convert_decimal(new_calibration)
 
 

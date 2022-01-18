@@ -46,7 +46,7 @@ def get_device_model(self):
 		else:
 			_LOGGER.exception(
 				"better_thermostat: can't read the device model of TVR, Enable include_device_information in z2m or checkout issue #1"
-				)
+			)
 	except RuntimeError:
 		_LOGGER.exception("better_thermostat: error can't get the TRV")
 
@@ -86,5 +86,4 @@ def convert_outbound_states(self, hvac_mode):
 		"current_heating_setpoint"     : current_heating_setpoint,
 		"local_temperature"            : state.get('local_temperature'),
 		"system_mode"                  : hvac_mode,
-		"local_temperature_calibration": local_temperature_calibration
-	}
+		"local_temperature_calibration": local_temperature_calibration}
