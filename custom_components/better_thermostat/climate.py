@@ -266,12 +266,12 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
 			if not old_state.attributes.get(ATTR_STATE_WINDOW_OPEN):
 				self.window_open = old_state.attributes.get(ATTR_STATE_WINDOW_OPEN)
 			if not old_state.attributes.get(ATTR_STATE_DAY_SET_TEMP):
-				self.daytime_temp = old_state.attributes.get(ATTR_STATE_DAY_SET_TEMP)
+				self.last_daytime_temp = old_state.attributes.get(ATTR_STATE_DAY_SET_TEMP)
 			if not old_state.attributes.get(ATTR_STATE_CALL_FOR_HEAT):
 				self.call_for_heat = old_state.attributes.get(ATTR_STATE_CALL_FOR_HEAT)
 			if not old_state.attributes.get(ATTR_STATE_NIGHT_MODE):
-				self.night_status = old_state.attributes.get(ATTR_STATE_NIGHT_MODE)
-				if self.night_status:
+				self.night_mode_active = old_state.attributes.get(ATTR_STATE_NIGHT_MODE)
+				if self.night_mode_active:
 					if self.night_temp and isinstance(self.night_temp, numbers.Number):
 						self._target_temp = float(self.night_temp)				
 					else:
@@ -378,7 +378,7 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
 			ATTR_STATE_NIGHT_MODE   : self.night_mode_active,
 			ATTR_STATE_CALL_FOR_HEAT: self.call_for_heat,
 			ATTR_STATE_LAST_CHANGE  : self.last_change,
-			ATTR_STATE_DAY_SET_TEMP : self.daytime_temp,
+			ATTR_STATE_DAY_SET_TEMP : self.last_daytime_temp,
 		}
 		
 		return dev_specific
