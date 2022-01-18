@@ -622,8 +622,6 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
 		else:
 			_LOGGER.error("better_thermostat %s: Unsupported hvac_mode %s", self.name, hvac_mode)
 		self.async_write_ha_state()
-		if self.closed_window_triggered or self.ignore_states:
-			return
 		await self._async_control_heating()
 	
 	async def async_set_temperature(self, **kwargs):
@@ -633,8 +631,6 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
 			return
 		self._target_temp = temperature
 		self.async_write_ha_state()
-		if self.closed_window_triggered or self.ignore_states:
-			return
 		await self._async_control_heating()
 	
 	@property
@@ -711,8 +707,6 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
 		
 		self._async_update_temp(new_state)
 		self.async_write_ha_state()
-		if self.closed_window_triggered or self.ignore_states:
-			return
 		await self._async_control_heating()
 	
 	@callback
