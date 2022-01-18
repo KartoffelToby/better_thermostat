@@ -166,7 +166,6 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
 		self._saved_target_temp = target_temp or None
 		self._target_temp_step = precision
 		self._hvac_list = [HVAC_MODE_HEAT, HVAC_MODE_OFF]
-		self._active = False
 		self._cur_temp = None
 		self._temp_lock = asyncio.Lock()
 		self._min_temp = min_temp
@@ -356,7 +355,6 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
 				_LOGGER.debug("better_thermostat: Window %s", self.window_open)
 			
 			self.startup_running = False
-			self._active = True
 			entity_registry = await self.hass.helpers.entity_registry.async_get_registry()
 			reg_entity = entity_registry.async_get(self.heater_entity_id)
 			entity_entries = async_entries_for_config_entry(entity_registry, reg_entity.config_entry_id)
@@ -649,7 +647,6 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
 					self._target_temp,
 					self._hvac_mode,
 			) and self.hass.states.get(self.heater_entity_id).attributes is not None and not self.startup_running:
-				self._active = True
 				self.ignore_states = True
 				# Use the same precision and min and max as the TRV
 				if self.hass.states.get(self.heater_entity_id).attributes.get('target_temp_step') is not None:
