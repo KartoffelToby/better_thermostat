@@ -190,7 +190,6 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
 		self.last_dampening_timestamp = None
 		self._device_class = device_class
 		self._state_class = state_class
-		self._today_nightmode_end = datetime.now()
 		self.local_temperature_calibration_entity = None
 		self.valve_position_entity = None
 		self.version = "1.0.0"
