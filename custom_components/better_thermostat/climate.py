@@ -650,7 +650,7 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
 			return
 		
 		# fetch device model from HA if necessary
-		get_device_model()
+		get_device_model(self)
 		
 		if new_state.attributes is not None:
 			try:
