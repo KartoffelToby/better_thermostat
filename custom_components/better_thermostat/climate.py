@@ -470,8 +470,8 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
 						return CURRENT_HVAC_HEAT
 					else:
 						return CURRENT_HVAC_IDLE
-		except RuntimeError:
-			_LOGGER.debug("better_thermostat: currently can't get the TRV")
+		except (RuntimeError, ValueError, AttributeError, KeyError, TypeError, NameError, IndexError) as e:
+			_LOGGER.error("better_thermostat %s: RuntimeError occurred while running TRV operation, %s", self.name, e)
 		
 		if not self._is_device_active:
 			return CURRENT_HVAC_IDLE

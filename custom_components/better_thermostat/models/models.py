@@ -52,7 +52,11 @@ def get_device_model(self):
 			else:
 				raise ValueError
 		except (RuntimeError, ValueError, AttributeError, KeyError, TypeError, NameError, IndexError) as e:
-			_LOGGER.error("better_thermostat %s: can't read the device model of TVR. enable include_device_information in z2m or checkout issue #1", self.name)
+			_LOGGER.error(
+				"better_thermostat %s: can't read the device model of TVR. enable include_device_information in z2m or checkout issue #1, %s",
+				self.name,
+				e
+			)
 	else:
 		return self.model
 
