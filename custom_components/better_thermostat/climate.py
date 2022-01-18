@@ -180,9 +180,9 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
 		self.model = "-"
 		self.next_valve_maintenance = datetime.now() + timedelta(hours=randint(1, 24 * 5))
 		self.calibration_type = 2
-		self.daytime_temp = 5
+		self.last_daytime_temp = None
 		self.closed_window_triggered = False
-		self.night_status = False
+		self.night_mode_active = None
 		self.call_for_heat = None
 		self.ignore_states = False
 		self.last_calibration = None
@@ -212,8 +212,8 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
 			)
 		
 		# check if night mode was configured
-		if not all([self.night_start is None, self.night_end is None]):
-			_LOGGER.debug("Night mode configured")	
+		if all([self.night_start, self.night_end, self.night_temp]):
+			_LOGGER.debug("Night mode configured")
 			async_track_time_change(
 					self.hass,
 					self._async_timer_trigger,
@@ -375,13 +375,49 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
 		"""Return the device specific state attributes."""
 		dev_specific = {
 			ATTR_STATE_WINDOW_OPEN  : self.window_open,
-			ATTR_STATE_NIGHT_MODE   : self.night_status,
+			ATTR_STATE_NIGHT_MODE   : self.night_mode_active,
 			ATTR_STATE_CALL_FOR_HEAT: self.call_for_heat,
 			ATTR_STATE_LAST_CHANGE  : self.last_change,
 			ATTR_STATE_DAY_SET_TEMP : self.daytime_temp,
 		}
 		
 		return dev_specific
+	
+	@callback
+	def _nighttime(self, current_time):
+		"""
+		Return whether it is nighttime.
+		@param current_time: time.time()
+		@return: bool True if it is nighttime; None if not configured
+		"""
+		_return_value = None
+		
+		# one or more of the inputs is None or empty
+		if not all([self.night_start, self.night_end, current_time]):
+			return _return_value
+		
+		# fetch to instance variables, since we might want to swap them
+		start_time, end_time = self.night_start, self.night_end
+		
+		# if later set to true we'll swap the variables and output boolean, 'cause we use the logic backwards
+		#   if the nighttime passes not over midnight, like (01:00 to 05:00) we use the inverted logic
+		#   while something like 23:00 to 05:00 would use the default
+		_reverse = False
+		
+		if start_time.hour < end_time.hour or (start_time.hour == end_time.hour and start_time.minute < end_time.minute):
+			# not passing midnight, so we use the inverted logic
+			_reverse = True
+			start_time, end_time = end_time, start_time
+		
+		# if we are after the start time, but before the end time, we are in the night
+		if (current_time.hour > start_time.hour or (current_time.hour == start_time.hour and current_time.minute >= start_time.minute)) and \
+				current_time.hour < end_time.hour or (current_time.hour == end_time.hour and current_time.minute < end_time.minute):
+			_return_value = True
+		
+		# flip output, since we flipped the start/end time
+		if _reverse:
+			return not _return_value
+		return _return_value
 	
 	@property
 	def available(self):
@@ -516,19 +552,32 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
 		return super().max_temp
 	
 	@callback
-	async def _async_timer_trigger(self, state):
-		"""Triggered by temperature timer to check if it's time to heat."""
-		if self.night_start.hour == state.hour and self.night_start.minute == state.minute:
-			_LOGGER.debug("night mode active override with: %s", float(self.night_temp))
-			self.daytime_temp = self._target_temp
-			self._target_temp = float(self.night_temp)
-			self.night_status = True
+	async def _async_timer_trigger(self, current_time):
+		"""
+		Triggered by night mode timer.
+		@param current_time:
+		"""
 		
-		if self.night_end.hour == state.hour and self.night_end.minute == state.minute:
-			_LOGGER.debug("night mode inactive override with: %s", float(self.daytime_temp))
-			self._target_temp = self.daytime_temp
-			self.night_status = False
+		_is_night = self._nighttime(current_time)
 		
+		if _is_night is None:
+			_LOGGER.error("ai_thermostat %s: timer for night mode was running, but it wasn't configured", self.name)
+			return
+		elif _is_night:
+			_LOGGER.debug("ai_thermostat %s: Night mode activated", self.name)
+			self.last_daytime_temp = self._target_temp
+			self._target_temp = self.night_temp
+			self.night_mode_active = True
+		
+		else:
+			_LOGGER.debug("ai_thermostat %s: Day mode activated", self.name)
+			if self.last_daytime_temp is None:
+				_LOGGER.error("ai_thermostat %s: Day mode activated, but last_daytime_temp is None; continue using the current setpoint", self.name)
+			else:
+				self._target_temp = self.last_daytime_temp
+			self.night_mode_active = False
+		
+		self.async_write_ha_state()
 		await self._async_control_heating()
 	
 	
@@ -641,11 +690,7 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
 		if self.ignore_states or self.startup_running:
 			return
 		async with self._temp_lock:
-			if None not in (
-					self._cur_temp,
-					self._target_temp,
-					self._hvac_mode,
-			) and self.hass.states.get(self.heater_entity_id).attributes is not None and not self.startup_running:
+			if all([self._cur_temp, self._target_temp, self._hvac_mode, self.hass.states.get(self.heater_entity_id).attributes]) and not self.startup_running:
 				self.ignore_states = True
 				# Use the same precision and min and max as the TRV
 				if self.hass.states.get(self.heater_entity_id).attributes.get('target_temp_step') is not None:
@@ -724,7 +769,7 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
 							"better_thermostat triggered states > window open: %s night mode: %s Mode: %s set: %s has_mode: %s Calibration: %s set_temp: %s cur_temp: %s Model: %s Calibration "
 							"type: %s call for heat: %s TRV: %s",
 							self.window_open,
-							self.night_status,
+							self.night_mode_active,
 							converted_hvac_mode,
 							self._hvac_mode,
 							has_real_mode,
