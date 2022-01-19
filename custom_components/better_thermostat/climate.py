@@ -633,13 +633,8 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
 		if new_state is None or old_state is None:
 			return
 		
-		try:
-			if self.hass.states.get(self.heater_entity_id).attributes.get('device') is not None:
-				self.model = self.hass.states.get(self.heater_entity_id).attributes.get('device').get('model')
-			else:
-				_LOGGER.debug("better_thermostat: can't read the device model of TRV, Enable include_device_information in z2m or checkout issue #1")
-		except RuntimeError:
-			_LOGGER.debug("better_thermostat: error can't get the TRV model")
+		# fetch device model from HA if necessary
+		get_device_model(self)
 		
 		if new_state.attributes is not None:
 			try:
