@@ -235,7 +235,7 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
 		def _async_startup(*_):
 			"""Init on startup."""
 			
-			_LOGGER.info("Starting better_thermostat for %s with version: %s waiting for entity to be ready...", self.name,self.version)
+			_LOGGER.info("Starting better_thermostat for %s with version: %s waiting for entity to be ready...", self.name, self.version)
 			
 			loop = asyncio.get_event_loop()
 			loop.create_task(self.startup())
