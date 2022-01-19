@@ -581,7 +581,6 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
 		self.async_write_ha_state()
 		await self._async_control_heating()
 	
-	
 	@callback
 	async def _async_window_changed(self):
 		if self.startup_running:
@@ -737,7 +736,6 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
 					self._hvac_mode = self.last_change
 					self.load_saved_state = False
 
-				
 				try:
 					remapped_states = convert_outbound_states(self, self._hvac_mode)
 					converted_hvac_mode = remapped_states.get('system_mode')
