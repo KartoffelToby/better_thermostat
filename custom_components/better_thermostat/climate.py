@@ -7,6 +7,7 @@ import math
 import numbers
 from abc import ABC
 from datetime import datetime, timedelta
+from pathlib import Path
 from random import randint
 
 import homeassistant.helpers.config_validation as cv
@@ -193,7 +194,7 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
 		self._state_class = state_class
 		self.local_temperature_calibration_entity = None
 		self.valve_position_entity = None
-		self.version = "1.0.0"
+		self.version = Path("VERSION").read_text() or "unknown"
 		self.last_change = None
 		self.load_saved_state = False
 		self._last_reported_valve_position = None
