@@ -66,7 +66,7 @@ PLATFORM_SCHEMA = PLATFORM_SCHEMA.extend(
 			vol.Optional(CONF_OFF_TEMPERATURE, default=20.0)   : vol.Coerce(float),
 			vol.Optional(CONF_WINDOW_TIMEOUT, default=0)       : vol.Coerce(int),
 			vol.Optional(CONF_VALVE_MAINTENANCE, default=False): cv.boolean,
-			vol.Optional(CONF_NIGHT_TEMP, default=18.0)         : vol.Coerce(float),
+			vol.Optional(CONF_NIGHT_TEMP, default=18.0)        : vol.Coerce(float),
 			vol.Optional(CONF_NIGHT_START, default=None)       : vol.Coerce(str),
 			vol.Optional(CONF_NIGHT_END, default=None)         : vol.Coerce(str),
 			vol.Optional(CONF_NAME, default=DEFAULT_NAME)      : cv.string,
@@ -173,11 +173,14 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
 		self._hvac_mode = HVAC_MODE_HEAT
 		self._saved_target_temp = target_temp or None
 		self._target_temp_step = precision
+		self._TRV_target_temp_step = 0.5
 		self._hvac_list = [HVAC_MODE_HEAT, HVAC_MODE_OFF]
 		self._cur_temp = None
 		self._temp_lock = asyncio.Lock()
 		self._min_temp = min_temp
+		self._TRV_min_temp = 5.0
 		self._max_temp = max_temp
+		self._TRV_max_temp = 30.0
 		self._target_temp = target_temp
 		self._unit = unit
 		self._unique_id = unique_id
@@ -265,7 +268,25 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
 						"better_thermostat %s: Undefined target temperature, falling back to %s", self.name, self._target_temp
 					)
 				else:
-					self._target_temp = float(old_state.attributes[ATTR_TEMPERATURE])
+					_old_target_temperature = float(old_state.attributes.get([ATTR_TEMPERATURE]))
+					# if the saved temperature is lower than the min_temp, set it to min_temp
+					if _old_target_temperature < self.min_temp:
+						_LOGGER.warning(
+							"better_thermostat %s: Saved target temperature %s is lower than min_temp %s, setting to min_temp",
+							self.name,
+							_old_target_temperature,
+							self.min_temp
+						)
+						self._target_temp = self.min_temp
+					# if the saved temperature is higher than the max_temp, set it to max_temp
+					elif _old_target_temperature > self.max_temp:
+						_LOGGER.warning(
+							"better_thermostat %s: Saved target temperature %s is higher than max_temp %s, setting to max_temp",
+							self.name,
+							_old_target_temperature,
+							self.min_temp
+						)
+						self._target_temp = self.max_temp
 			if not self._hvac_mode and old_state.state:
 				self._hvac_mode = old_state.state
 			if not old_state.attributes.get(ATTR_STATE_LAST_CHANGE):
@@ -282,7 +303,25 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
 				self.night_mode_active = old_state.attributes.get(ATTR_STATE_NIGHT_MODE)
 				if self.night_mode_active:
 					if self.night_temp and isinstance(self.night_temp, numbers.Number):
-						self._target_temp = float(self.night_temp)
+						_night_temp = float(self.night_temp)
+						# if the night temperature is lower than min_temp, set it to min_temp
+						if _night_temp < self.min_temp:
+							_LOGGER.error(
+								"better_thermostat %s: Night temperature %s is lower than min_temp %s, setting to min_temp",
+								self.name,
+								_night_temp,
+								self.min_temp
+							)
+							self._target_temp = self.min_temp
+						# if the night temperature is higher than the max_temp, set it to max_temp
+						elif _night_temp > self.max_temp:
+							_LOGGER.warning(
+								"better_thermostat %s: Night temperature %s is higher than max_temp %s, setting to max_temp",
+								self.name,
+								_night_temp,
+								self.min_temp
+							)
+							self._target_temp = self.max_temp
 					else:
 						_LOGGER.error("better_thermostat %s: Night temp '%s' is not a number", self.name, str(self.night_temp))
 		
@@ -556,6 +595,12 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
 	@property
 	def target_temperature(self):
 		"""Return the temperature we try to reach."""
+		# if target temp is below minimum, return minimum
+		if self._target_temp < self._min_temp:
+			return self._min_temp
+		# if target temp is above maximum, return maximum
+		if self._target_temp > self._max_temp:
+			return self._max_temp
 		return self._target_temp
 	
 	@property
@@ -708,8 +753,35 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
 						_LOGGER.debug("better_thermostat %s: Window open, turn off the heater", self.name)
 						await self._async_control_heating()
 				
-				if not self.ignore_states and new_state.attributes.get('current_heating_setpoint') is not None and self._hvac_mode != HVAC_MODE_OFF and self.calibration_type == 0:
-					self._target_temp = float(new_state.attributes.get('current_heating_setpoint'))
+				if not self.ignore_states and new_state.attributes.get(
+						'current_heating_setpoint'
+				) is not None and self._hvac_mode != HVAC_MODE_OFF and self.calibration_type == 0:
+					_new_heating_setpoint = float(new_state.attributes.get('current_heating_setpoint'))
+					# if new setpoint is lower than the min setpoint, set it to the min setpoint
+					_overwrite_thermostat_update = False
+					if _new_heating_setpoint < self._min_temp:
+						_new_heating_setpoint = self.min_temp
+						_overwrite_thermostat_update = True
+					# if new setpoint is higher than the max setpoint, set it to the max setpoint
+					if _new_heating_setpoint > self.max_temp:
+						_new_heating_setpoint = self.max_temp
+						_overwrite_thermostat_update = True
+					if self._target_temp != _new_heating_setpoint:
+						self._target_temp = _new_heating_setpoint
+					else:
+						_overwrite_thermostat_update = False
+						
+					# if the user has changed the setpoint to a value that is not in the allowed range,
+					# overwrite the change with an TRV update
+					if _overwrite_thermostat_update:
+						_LOGGER.warning(
+							"better_thermostat %s: Overwriting setpoint %s with %s, as the new setpoint is out of bound (min/max temperature)",
+							self.name,
+							new_state.attributes.get('current_heating_setpoint'),
+							_new_heating_setpoint
+							)
+						await self._async_control_heating()
+					
 			
 			except TypeError as e:
 				_LOGGER.debug("better_thermostat entity not ready or device is currently not supported %s", e)
@@ -839,17 +911,17 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
 				self.ignore_states = True
 				# Use the same precision and min and max as the TRV
 				if self.hass.states.get(self.heater_entity_id).attributes.get('target_temp_step') is not None:
-					self._target_temp_step = float(self.hass.states.get(self.heater_entity_id).attributes.get('target_temp_step'))
+					self._TRV_target_temp_step = float(self.hass.states.get(self.heater_entity_id).attributes.get('target_temp_step'))
 				else:
-					self._target_temp_step = 1
+					self._TRV_target_temp_step = 1
 				if self.hass.states.get(self.heater_entity_id).attributes.get('min_temp') is not None:
-					self._min_temp = float(self.hass.states.get(self.heater_entity_id).attributes.get('min_temp'))
+					self._TRV_min_temp = float(self.hass.states.get(self.heater_entity_id).attributes.get('min_temp'))
 				else:
-					self._min_temp = 5
+					self._TRV_min_temp = 5
 				if self.hass.states.get(self.heater_entity_id).attributes.get('max_temp') is not None:
-					self._max_temp = float(self.hass.states.get(self.heater_entity_id).attributes.get('max_temp'))
+					self._TRV_max_temp = float(self.hass.states.get(self.heater_entity_id).attributes.get('max_temp'))
 				else:
-					self._max_temp = 30
+					self._TRV_max_temp = 30
 				
 				# check weather predictions or ambient air temperature if available
 				if self.weather_entity is not None:
