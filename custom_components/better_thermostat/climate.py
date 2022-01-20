@@ -1,51 +1,34 @@
-"""Special support for AI thermostat units.
+"""Special support for Better Thermostat units.
 Z2M version """
 
 import asyncio
 import logging
+import math
+import numbers
 from abc import ABC
 from datetime import datetime, timedelta
 from random import randint
-import math
 
 import homeassistant.helpers.config_validation as cv
 import homeassistant.util.dt as dt_util
 import voluptuous as vol
+from .helpers import check_float, convert_decimal, set_trv_values
+from .models.models import convert_inbound_states, convert_outbound_states
 from homeassistant.components.climate import PLATFORM_SCHEMA, ClimateEntity
-from homeassistant.components.climate.const import (
-	CURRENT_HVAC_HEAT,
-	CURRENT_HVAC_IDLE,
-	CURRENT_HVAC_OFF,
-	HVAC_MODE_HEAT,
-	HVAC_MODE_OFF,
-	SUPPORT_TARGET_TEMPERATURE,
-)
+from homeassistant.components.climate.const import (CURRENT_HVAC_HEAT, CURRENT_HVAC_IDLE, CURRENT_HVAC_OFF, HVAC_MODE_HEAT, HVAC_MODE_OFF, SUPPORT_TARGET_TEMPERATURE, )
 from homeassistant.components.recorder import history
-from homeassistant.const import (
-	ATTR_TEMPERATURE,
-	CONF_NAME,
-	CONF_UNIQUE_ID,
-	EVENT_HOMEASSISTANT_START,
-	STATE_UNAVAILABLE,
-	STATE_UNKNOWN,
-)
+from homeassistant.const import (ATTR_TEMPERATURE, CONF_NAME, CONF_UNIQUE_ID, EVENT_HOMEASSISTANT_START, STATE_UNAVAILABLE, STATE_UNKNOWN, )
 from homeassistant.core import CoreState, callback
-from homeassistant.helpers.event import (
-	async_track_state_change_event,
-	async_track_time_change
-)
+from homeassistant.helpers.entity_registry import (async_entries_for_config_entry, )
+from homeassistant.helpers.event import (async_track_state_change_event, async_track_time_change)
 from homeassistant.helpers.reload import async_setup_reload_service
 from homeassistant.helpers.restore_state import RestoreEntity
-from homeassistant.helpers.entity_registry import (
-	async_entries_for_config_entry,
-)
-from custom_components.ai_thermostat.helpers import check_float, convert_decimal, set_trv_values
-from custom_components.ai_thermostat.models.models import convert_inbound_states, convert_outbound_states
+
 from . import DOMAIN, PLATFORMS
 
 _LOGGER = logging.getLogger(__name__)
 
-DEFAULT_NAME = "AI Thermostat"
+DEFAULT_NAME = "Better Thermostat"
 
 CONF_HEATER = "thermostat"
 CONF_SENSOR = "temperature_sensor"
@@ -67,7 +50,9 @@ SUPPORT_FLAGS = SUPPORT_TARGET_TEMPERATURE
 
 ATTR_STATE_WINDOW_OPEN = "window_open"
 ATTR_STATE_NIGHT_MODE = "night_mode"
-ATTR_STATE_CALL_FOR_HEAT = "summer"
+ATTR_STATE_CALL_FOR_HEAT = "call_for_heat"
+ATTR_STATE_LAST_CHANGE = "last_change"
+ATTR_STATE_DAY_SET_TEMP = "last_day_set_temp"
 
 PLATFORM_SCHEMA = PLATFORM_SCHEMA.extend(
 		{
@@ -85,15 +70,15 @@ PLATFORM_SCHEMA = PLATFORM_SCHEMA.extend(
 			vol.Optional(CONF_NAME, default=DEFAULT_NAME)      : cv.string,
 			vol.Optional(CONF_TARGET_TEMP)                     : vol.Coerce(float),
 			vol.Optional(CONF_UNIQUE_ID)                       : cv.string,
-        	vol.Optional(CONF_MIN_TEMP, default=5.0)         : vol.Coerce(float),
-        	vol.Optional(CONF_MAX_TEMP, default=35.0)         : vol.Coerce(float),
-        	vol.Optional(CONF_PRECISION, default=0.5)         : vol.Coerce(float),
+			vol.Optional(CONF_MIN_TEMP, default=5.0)         : vol.Coerce(float),
+        		vol.Optional(CONF_MAX_TEMP, default=35.0)         : vol.Coerce(float),
+        		vol.Optional(CONF_PRECISION, default=0.5)         : vol.Coerce(float),
 		}
 )
 
 
 async def async_setup_platform(hass, config, async_add_entities, discovery_info=None):
-	"""Set up the AI thermostat platform."""
+	"""Set up the Better Thermostat platform."""
 	
 	await async_setup_reload_service(hass, DOMAIN, PLATFORMS)
 	name = config.get(CONF_NAME)
@@ -118,7 +103,7 @@ async def async_setup_platform(hass, config, async_add_entities, discovery_info=
 
 	async_add_entities(
 			[
-				AIThermostat(
+				BetterThermostat(
 						name,
 						heater_entity_id,
 						sensor_entity_id,
@@ -144,8 +129,8 @@ async def async_setup_platform(hass, config, async_add_entities, discovery_info=
 	)
 
 
-class AIThermostat(ClimateEntity, RestoreEntity, ABC):
-	"""Representation of an AI Thermostat device."""
+class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
+	"""Representation of a Better Thermostat device."""
 	
 	def __init__(
 			self,
@@ -196,10 +181,9 @@ class AIThermostat(ClimateEntity, RestoreEntity, ABC):
 		self._unit = unit
 		self._unique_id = unique_id
 		self._support_flags = SUPPORT_FLAGS
-		self.window_open = False
+		self.window_open = None
 		self._is_away = False
 		self.startup_running = True
-		self.heating_active_pre_window_opened = None
 		self.model = "-"
 		self.next_valve_maintenance = datetime.now() + timedelta(hours=randint(1, 24 * 5))
 		self.calibration_type = 2
@@ -209,13 +193,15 @@ class AIThermostat(ClimateEntity, RestoreEntity, ABC):
 		self.call_for_heat = None
 		self.ignore_states = False
 		self.last_calibration = None
-		self.last_dampening_timestamp = datetime.now()
+		self.last_dampening_timestamp = None
 		self._device_class = device_class
 		self._state_class = state_class
 		self._today_nightmode_end = datetime.now()
 		self.local_temperature_calibration_entity = None
 		self.valve_position_entity = None
-		self.version = "0.9.3"
+		self.version = "1.0.0"
+		self.last_change = None
+		self.load_saved_state = False
 	
 	async def async_added_to_hass(self):
 		"""Run when entity about to be added."""
@@ -255,7 +241,7 @@ class AIThermostat(ClimateEntity, RestoreEntity, ABC):
 		def _async_startup(*_):
 			"""Init on startup."""
 			
-			_LOGGER.info("Starting ai_thermostat for %s with version: %s waiting for entity to be ready...", self.name,self.version)
+			_LOGGER.info("Starting better_thermostat for %s with version: %s waiting for entity to be ready...", self.name,self.version)
 			
 			loop = asyncio.get_event_loop()
 			loop.create_task(self.startup())
@@ -281,7 +267,24 @@ class AIThermostat(ClimateEntity, RestoreEntity, ABC):
 					self._target_temp = float(old_state.attributes[ATTR_TEMPERATURE])
 			if not self._hvac_mode and old_state.state:
 				self._hvac_mode = old_state.state
-		
+			if not old_state.attributes.get(ATTR_STATE_LAST_CHANGE):
+				self.last_change = old_state.attributes.get(ATTR_STATE_LAST_CHANGE)
+			else: 
+				self.last_change = HVAC_MODE_OFF
+			if not old_state.attributes.get(ATTR_STATE_WINDOW_OPEN):
+				self.window_open = old_state.attributes.get(ATTR_STATE_WINDOW_OPEN)
+			if not old_state.attributes.get(ATTR_STATE_DAY_SET_TEMP):
+				self.daytime_temp = old_state.attributes.get(ATTR_STATE_DAY_SET_TEMP)
+			if not old_state.attributes.get(ATTR_STATE_CALL_FOR_HEAT):
+				self.call_for_heat = old_state.attributes.get(ATTR_STATE_CALL_FOR_HEAT)
+			if not old_state.attributes.get(ATTR_STATE_NIGHT_MODE):
+				self.night_status = old_state.attributes.get(ATTR_STATE_NIGHT_MODE)
+				if self.night_status:
+					if self.night_temp and isinstance(self.night_temp, numbers.Number):
+						self._target_temp = float(self.night_temp)				
+					else:
+						_LOGGER.error("Night temp is not a number")
+
 		else:
 			# No previous state, try and restore defaults
 			if self._target_temp is None:
@@ -304,16 +307,16 @@ class AIThermostat(ClimateEntity, RestoreEntity, ABC):
 			trv_state = self.hass.states.get(self.heater_entity_id)
 			
 			if sensor_state is None:
-				_LOGGER.error("ai_thermostat %s temperature sensor: %s is not in HA or wrong spelled", self.name, self.sensor_entity_id)
+				_LOGGER.error("better_thermostat %s temperature sensor: %s is not in HA or wrong spelled", self.name, self.sensor_entity_id)
 				return False
 			if trv_state is None:
-				_LOGGER.error("ai_thermostat %s TRV: %s is not in HA or wrong spelled", self.name, self.heater_entity_id)
+				_LOGGER.error("better_thermostat %s TRV: %s is not in HA or wrong spelled", self.name, self.heater_entity_id)
 				return False
 			if self.window_sensors_entity_ids:
 				window = self.hass.states.get(self.window_sensors_entity_ids)
 				
 				if window is None:
-					_LOGGER.error("ai_thermostat %s window sensor: %s is not in HA or wrong spelled", self.name, self.window_sensors_entity_ids)
+					_LOGGER.error("better_thermostat %s window sensor: %s is not in HA or wrong spelled", self.name, self.window_sensors_entity_ids)
 					return False
 				
 				# make sure window has a state variable
@@ -321,24 +324,24 @@ class AIThermostat(ClimateEntity, RestoreEntity, ABC):
 					if window.state:
 						pass
 				except (ValueError, NameError, AttributeError):
-					_LOGGER.error("ai_thermostat %s window sensor: %s is not in HA or wrong spelled", self.name, self.window_sensors_entity_ids)
+					_LOGGER.error("better_thermostat %s window sensor: %s is not in HA or wrong spelled", self.name, self.window_sensors_entity_ids)
 					return False
 			
 			_ready = True
 			
 			if sensor_state.state in (STATE_UNAVAILABLE, STATE_UNKNOWN, None):
-				_LOGGER.info("ai_thermostat %s still waiting for %s to be available", self.name, self.sensor_entity_id)
+				_LOGGER.info("better_thermostat %s still waiting for %s to be available", self.name, self.sensor_entity_id)
 				_ready = False
 			if trv_state.state in (STATE_UNAVAILABLE, STATE_UNKNOWN, None):
-				_LOGGER.info("ai_thermostat %s still waiting for %s to be available", self.name, self.heater_entity_id)
+				_LOGGER.info("better_thermostat %s still waiting for %s to be available", self.name, self.heater_entity_id)
 				_ready = False
 			
 			if self.hass.states.get(self.heater_entity_id).attributes.get('device') is None:
-				_LOGGER.info("ai_thermostat %s still waiting for %s to be available", self.name, self.heater_entity_id)
+				_LOGGER.info("better_thermostat %s still waiting for %s to be available", self.name, self.heater_entity_id)
 				_ready = False
 			
 			if self.window_sensors_entity_ids and window.state in (STATE_UNAVAILABLE, STATE_UNKNOWN, None):
-				_LOGGER.info("ai_thermostat %s still waiting for %s to be available", self.name, self.window_sensors_entity_ids)
+				_LOGGER.info("better_thermostat %s still waiting for %s to be available", self.name, self.window_sensors_entity_ids)
 				_ready = False
 			
 			if not _ready:
@@ -356,7 +359,7 @@ class AIThermostat(ClimateEntity, RestoreEntity, ABC):
 				else:
 					self.window_open = False
 					self.closed_window_triggered = False
-				_LOGGER.debug("ai_thermostat: Window %s", self.window_open)
+				_LOGGER.debug("better_thermostat: Window %s", self.window_open)
 			
 			self.startup_running = False
 			self._active = True
@@ -372,7 +375,7 @@ class AIThermostat(ClimateEntity, RestoreEntity, ABC):
 			self._async_update_temp(sensor_state)
 			self.async_write_ha_state()
 			await asyncio.sleep(5)
-			_LOGGER.info("Register ai_thermostat with name: %s", self.name)
+			_LOGGER.info("Register better_thermostat with name: %s", self.name)
 			await self._async_control_heating()
 		return True
 	
@@ -382,7 +385,9 @@ class AIThermostat(ClimateEntity, RestoreEntity, ABC):
 		dev_specific = {
 			ATTR_STATE_WINDOW_OPEN  : self.window_open,
 			ATTR_STATE_NIGHT_MODE   : self.night_status,
-			ATTR_STATE_CALL_FOR_HEAT: self.call_for_heat
+			ATTR_STATE_CALL_FOR_HEAT: self.call_for_heat,
+			ATTR_STATE_LAST_CHANGE  : self.last_change,
+			ATTR_STATE_DAY_SET_TEMP : self.daytime_temp,
 		}
 		
 		return dev_specific
@@ -438,7 +443,6 @@ class AIThermostat(ClimateEntity, RestoreEntity, ABC):
 	@property
 	def hvac_action(self):
 		"""Return the current running hvac operation if supported.
-
 		Need to be one of CURRENT_HVAC_*.
 		"""
 		if self._hvac_mode == HVAC_MODE_OFF:
@@ -461,7 +465,7 @@ class AIThermostat(ClimateEntity, RestoreEntity, ABC):
 					else:
 						return CURRENT_HVAC_IDLE
 		except RuntimeError:
-			_LOGGER.debug("ai_thermostat: currently can't get the TRV")
+			_LOGGER.debug("better_thermostat: currently can't get the TRV")
 		
 		if not self._is_device_active:
 			return CURRENT_HVAC_IDLE
@@ -535,8 +539,9 @@ class AIThermostat(ClimateEntity, RestoreEntity, ABC):
 		
 		await self._async_control_heating()
 	
+	
 	@callback
-	async def _async_window_changed(self,event):
+	async def _async_window_changed(self):
 		if self.startup_running:
 			return
 		if self.hass.states.get(self.heater_entity_id) is not None:
@@ -547,7 +552,7 @@ class AIThermostat(ClimateEntity, RestoreEntity, ABC):
 			else:
 				self.window_open = False
 				self.closed_window_triggered = False
-			_LOGGER.debug("ai_thermostat: Window %s", self.window_open)
+			_LOGGER.debug("better_thermostat: Window %s", self.window_open)
 			self.async_write_ha_state()
 			await self._async_control_heating()
 	
@@ -591,9 +596,9 @@ class AIThermostat(ClimateEntity, RestoreEntity, ABC):
 			if self.hass.states.get(self.heater_entity_id).attributes.get('device') is not None:
 				self.model = self.hass.states.get(self.heater_entity_id).attributes.get('device').get('model')
 			else:
-				_LOGGER.debug("ai_thermostat: can't read the device model of TRV, Enable include_device_information in z2m or checkout issue #1")
+				_LOGGER.debug("better_thermostat: can't read the device model of TRV, Enable include_device_information in z2m or checkout issue #1")
 		except RuntimeError:
-			_LOGGER.debug("ai_thermostat: error can't get the TRV model")
+			_LOGGER.debug("better_thermostat: error can't get the TRV model")
 		
 		if new_state.attributes is not None:
 			try:
@@ -604,14 +609,14 @@ class AIThermostat(ClimateEntity, RestoreEntity, ABC):
 					
 					if self._hvac_mode != HVAC_MODE_OFF and self.window_open:
 						self._hvac_mode = HVAC_MODE_OFF
-						_LOGGER.debug("ai_thermostat: Window is still open, turn force off the TRV")
+						_LOGGER.debug("better_thermostat: Window is still open, turn force off the TRV")
 						await self._async_control_heating()
 				
 				if not self.ignore_states and new_state.attributes.get('current_heating_setpoint') is not None and self._hvac_mode != HVAC_MODE_OFF and self.calibration_type == 0:
 					self._target_temp = float(new_state.attributes.get('current_heating_setpoint'))
 			
 			except TypeError as e:
-				_LOGGER.debug("ai_thermostat entity not ready or device is currently not supported %s", e)
+				_LOGGER.debug("better_thermostat entity not ready or device is currently not supported %s", e)
 			
 			self.async_write_ha_state()
 	
@@ -619,22 +624,22 @@ class AIThermostat(ClimateEntity, RestoreEntity, ABC):
 		"""Maintenance of the TRV valve."""
 		self.ignore_states = True
 		if self.hass.states.get(self.heater_entity_id).attributes.get('valve_position'):
-			await set_trv_values(self,'valve_position', 255)
+			await set_trv_values(self, 'valve_position', 255)
 			await asyncio.sleep(60)
-			await set_trv_values(self,'valve_position', 0)
+			await set_trv_values(self, 'valve_position', 0)
 			await asyncio.sleep(60)
-			await set_trv_values(self,'valve_position', 255)
+			await set_trv_values(self, 'valve_position', 255)
 			await asyncio.sleep(60)
-			await set_trv_values(self,'valve_position', 0)
+			await set_trv_values(self, 'valve_position', 0)
 			await asyncio.sleep(60)
 		else:
-			await set_trv_values(self,'temperature', 30)
+			await set_trv_values(self, 'temperature', 30)
 			await asyncio.sleep(60)
-			await set_trv_values(self,'temperature', 5)
+			await set_trv_values(self, 'temperature', 5)
 			await asyncio.sleep(60)
-			await set_trv_values(self,'temperature', 30)
+			await set_trv_values(self, 'temperature', 30)
 			await asyncio.sleep(60)
-			await set_trv_values(self,'temperature', 5)
+			await set_trv_values(self, 'temperature', 5)
 			await asyncio.sleep(60)
 		self.ignore_states = False
 		await self._async_control_heating()
@@ -674,19 +679,26 @@ class AIThermostat(ClimateEntity, RestoreEntity, ABC):
 					self.call_for_heat = True
 				
 				if self.call_for_heat is None:
-					_LOGGER.warning("ai_thermostat: call for heat decision: could not evaluate sensor/weather entity data, force heat on")
+					_LOGGER.warning("better_thermostat: call for heat decision: could not evaluate sensor/weather entity data, force heat on")
 					self.call_for_heat = True
 				
-				_LOGGER.debug("ai_thermostat %s",self.call_for_heat)
 				# window open detection and weather detection force turn TRV off
-				if (self.window_open or not self.call_for_heat) and not self.closed_window_triggered:
-					self.heating_active_pre_window_opened = False
-					if self._hvac_mode == HVAC_MODE_HEAT:
-						self.heating_active_pre_window_opened = True
+				if self.window_open and not self.closed_window_triggered:
+					self.last_change = self._hvac_mode
 					self._hvac_mode = HVAC_MODE_OFF
 					self.closed_window_triggered = True
-				elif self.heating_active_pre_window_opened:
-					self._hvac_mode = HVAC_MODE_HEAT
+				elif not self.window_open and self.closed_window_triggered:
+					self._hvac_mode = self.last_change
+
+				# check if's summer
+				if self._hvac_mode != HVAC_MODE_OFF and not self.window_open and not self.call_for_heat and not self.load_saved_state:
+					self.last_change = self._hvac_mode
+					self._hvac_mode = HVAC_MODE_OFF
+					self.load_saved_state = True
+				elif self.load_saved_state and self.call_for_heat and not self.window_open:
+					self._hvac_mode = self.last_change
+					self.load_saved_state = False
+
 				
 				try:
 					remapped_states = convert_outbound_states(self, self._hvac_mode)
@@ -714,11 +726,11 @@ class AIThermostat(ClimateEntity, RestoreEntity, ABC):
 						do_calibration = True
 					
 					if do_calibration:
-						_LOGGER.debug("ai_thermostat: running calibration")
+						_LOGGER.debug("better_thermostat: running calibration")
 						self.last_calibration = datetime.now()
 					
 					_LOGGER.debug(
-							"ai_thermostat triggered states > window open: %s night mode: %s Mode: %s set: %s has_mode: %s Calibration: %s set_temp: %s cur_temp: %s Model: %s Calibration "
+							"better_thermostat triggered states > window open: %s night mode: %s Mode: %s set: %s has_mode: %s Calibration: %s set_temp: %s cur_temp: %s Model: %s Calibration "
 							"type: %s call for heat: %s TRV: %s",
 							self.window_open,
 							self.night_status,
@@ -734,21 +746,21 @@ class AIThermostat(ClimateEntity, RestoreEntity, ABC):
 							self.hass.states.get(self.heater_entity_id).attributes.get('device').get('friendlyName')
 					)
 					
-					# Using on temperature based calibration, dont update the temp if its the same
+					# Using on temperature based calibration, don't update the temp if it's the same
 					if self.calibration_type == 1 and float(self.hass.states.get(self.heater_entity_id).attributes.get('current_heating_setpoint')) != float(calibration):
-						await set_trv_values(self,'temperature', float(calibration))
-					
-					# Using on local calbiration, dont update the temp if its off, some TRV changed to 5°C when off after a while, don't update the temp
-					if self.calibration_type == 0 and not self.window_open and converted_hvac_mode != HVAC_MODE_OFF and float(current_heating_setpoint) != 5.0 and self.call_for_heat:
-						await set_trv_values(self,'temperature', float(current_heating_setpoint))
-					
-					# Using on local calbiration, update only if the TRV is not in window open mode
-					if self.calibration_type == 0 and not self.window_open and do_calibration:
-						await set_trv_values(self,'local_temperature_calibration', calibration)
-					
-					# Only set the system mode if the TRV has this option
+						await set_trv_values(self, 'temperature', float(calibration))
+						
+						# Using on local calbiration, dont update the temp if its off, some TRV changed to 5°C when off after a while, don't update the temp
+						if self.calibration_type == 0 and not self.window_open and converted_hvac_mode != HVAC_MODE_OFF and float(current_heating_setpoint) != 5.0 and self.call_for_heat:
+							await set_trv_values(self, 'temperature', float(current_heating_setpoint))
+						
+						# Using on local calbiration, update only if the TRV is not in window open mode
+						if self.calibration_type == 0 and not self.window_open and do_calibration:
+							await set_trv_values(self, 'local_temperature_calibration', calibration)
+						
+						# Only set the system mode if the TRV has this option
 					if has_real_mode:
-						await set_trv_values(self,'system_mode', converted_hvac_mode)
+						await set_trv_values(self, 'system_mode', converted_hvac_mode)
 					
 					self.ignore_states = False
 					
@@ -756,12 +768,12 @@ class AIThermostat(ClimateEntity, RestoreEntity, ABC):
 					if self.valve_maintenance:
 						current_time = datetime.now()
 						if current_time > self.next_valve_maintenance:
-							_LOGGER.debug("ai_thermostat: valve_maintenance triggerd")
+							_LOGGER.debug("better_thermostat: valve_maintenance triggerd")
 							await self.trv_valve_maintenance()
 							self.next_valve_maintenance = datetime.now() + timedelta(days=5)
 				
 				except TypeError as fatal:
-					_LOGGER.debug("ai_thermostat entity not ready or device is currently not supported")
+					_LOGGER.debug("better_thermostat entity not ready or device is currently not supported")
 					_LOGGER.debug("fatal %s", fatal)
 					self.ignore_states = False
 	
@@ -771,23 +783,23 @@ class AIThermostat(ClimateEntity, RestoreEntity, ABC):
 		@return: True if the maximum forcast temperature is lower than the off temperature; None if not successful
 		"""
 		if self.weather_entity is None:
-			_LOGGER.warning("ai_thermostat: weather entity not available.")
+			_LOGGER.warning("better_thermostat: weather entity not available.")
 			return None
 		
 		if self.off_temperature is None or not isinstance(self.off_temperature, float):
-			_LOGGER.warning("ai_thermostat: off_temperature not set or not a float.")
+			_LOGGER.warning("better_thermostat: off_temperature not set or not a float.")
 			return None
 		
 		try:
 			forcast = self.hass.states.get(self.weather_entity).attributes.get('forecast')
 			if len(forcast) > 0:
 				max_forcast_temp = math.ceil((float(forcast[0]['temperature']) + float(forcast[1]['temperature'])) / 2)
-				_LOGGER.debug("ai_thermostat: avg weather temp: %s",max_forcast_temp)
+				_LOGGER.debug("better_thermostat: avg weather temp: %s", max_forcast_temp)
 				return float(max_forcast_temp) < float(self.off_temperature)
 			else:
 				raise TypeError
 		except TypeError:
-			_LOGGER.warning("ai_thermostat: no weather entity data found.")
+			_LOGGER.warning("better_thermostat: no weather entity data found.")
 			return None
 	
 	def check_ambient_air_temperature(self):
@@ -799,7 +811,7 @@ class AIThermostat(ClimateEntity, RestoreEntity, ABC):
 			return None
 		
 		if self.off_temperature is None or not isinstance(self.off_temperature, float):
-			_LOGGER.warning("ai_thermostat: off_temperature not set or not a float.")
+			_LOGGER.warning("better_thermostat: off_temperature not set or not a float.")
 			return None
 		
 		try:
@@ -810,7 +822,7 @@ class AIThermostat(ClimateEntity, RestoreEntity, ABC):
 			)
 			historic_sensor_data = history_list.get(self.outdoor_sensor)
 		except TypeError:
-			_LOGGER.warning("ai_thermostat: no outdoor sensor data found.")
+			_LOGGER.warning("better_thermostat: no outdoor sensor data found.")
 			return None
 		
 		# create a list from valid data in historic_sensor_data
@@ -829,12 +841,12 @@ class AIThermostat(ClimateEntity, RestoreEntity, ABC):
 		valid_historic_sensor_data = valid_historic_sensor_data[int(len(valid_historic_sensor_data) * 0.05):int(len(valid_historic_sensor_data) * 0.95)]
 		
 		if len(valid_historic_sensor_data) == 0:
-			_LOGGER.warning("ai_thermostat: no valid outdoor sensor data found.")
+			_LOGGER.warning("better_thermostat: no valid outdoor sensor data found.")
 			return None
 		
 		# calculate the average temperature
 		avg_temp = math.ceil(sum(valid_historic_sensor_data) / len(valid_historic_sensor_data))
-		_LOGGER.debug("ai_thermostat: avg outdoor temp: %s", avg_temp)
+		_LOGGER.debug("better_thermostat: avg outdoor temp: %s", avg_temp)
 		return float(avg_temp) < float(self.off_temperature)
 	
 	@property
@@ -856,4 +868,3 @@ class AIThermostat(ClimateEntity, RestoreEntity, ABC):
 	def supported_features(self):
 		"""Return the list of supported features."""
 		return self._support_flags
-
