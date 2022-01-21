@@ -672,7 +672,7 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
 	
 	@callback
 	async def _async_trv_changed(self, event):
-		"""Handle temperature changes."""
+		"""Process TRV status updates"""
 		if self.startup_running:
 			return
 		
