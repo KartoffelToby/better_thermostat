@@ -8,11 +8,9 @@
   "dependencies": [
     "sensor",
     "climate",
-    "mqtt",
     "recorder"
   ],
   "after_dependencies": [
-    "mqtt",
     "climate",
     "sensor"
   ],

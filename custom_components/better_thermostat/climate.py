@@ -212,6 +212,9 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
 		"""Run when entity about to be added."""
 		await super().async_added_to_hass()
 		
+		# fetch device model from HA if necessary
+		await get_device_model(self)
+				
 		# Add listener
 		async_track_state_change_event(
 				self.hass, [self.sensor_entity_id], self._async_sensor_changed
@@ -255,7 +258,7 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
 			_async_startup()
 		else:
 			self.hass.bus.async_listen_once(EVENT_HOMEASSISTANT_START, _async_startup)
-		
+
 		# Check If we have an old state
 		old_state = await self.async_get_last_state()
 		if old_state is not None:
@@ -732,9 +735,6 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
 		
 		if new_state is None or old_state is None:
 			return
-		
-		# fetch device model from HA if necessary
-		get_device_model(self)
 		
 		if new_state.attributes is not None:
 			try:
