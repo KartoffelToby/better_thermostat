@@ -4,6 +4,7 @@ import logging
 import math
 import os
 from pathlib import Path
+from custom_components.better_thermostat.helpers import get_trv_model
 from homeassistant.components.climate.const import (HVAC_MODE_HEAT, HVAC_MODE_OFF)
 from homeassistant.util import yaml
 from .utils import calibration, mode_remap, reverse_modes
@@ -12,9 +13,7 @@ _LOGGER = logging.getLogger(__name__)
 
 
 def convert_inbound_states(self, state):
-	"""Convert inbound thermostat state to HA state."""
-	get_device_model(self)
-	
+	"""Convert inbound thermostat state to HA state."""	
 	config_file = os.path.dirname(os.path.realpath(__file__)) + '/devices/' + self.model.replace("/", "_") + '.yaml'
 	
 	if state.get('system_mode') is not None:
@@ -37,14 +36,13 @@ def convert_inbound_states(self, state):
 		"system_mode"                 : hvac_mode}
 
 
-def get_device_model(self):
+async def get_device_model(self):
 	"""Fetches the device model from HA."""
 	
 	if self.model is None:
 		try:
-			if self.hass.states.get(self.heater_entity_id).attributes.get('device') is not None:
-				self.model = self.hass.states.get(self.heater_entity_id).attributes.get('device').get('model')
-			else:
+			self.model = await get_trv_model(self)
+			if self.model is None:
 				raise ValueError
 		except (RuntimeError, ValueError, AttributeError, KeyError, TypeError, NameError, IndexError) as e:
 			_LOGGER.error("better_thermostat %s: can't read the device model of TVR. enable include_device_information in z2m or checkout issue #1", self.name)
@@ -54,8 +52,7 @@ def get_device_model(self):
 
 def convert_outbound_states(self, hvac_mode):
 	"""Convert HA state to outbound thermostat state."""
-	get_device_model(self)
-	
+
 	state = self.hass.states.get(self.heater_entity_id).attributes
 	
 	config_file = os.path.dirname(os.path.realpath(__file__)) + '/devices/' + self.model.replace("/", "_") + '.yaml'

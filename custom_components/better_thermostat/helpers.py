@@ -3,7 +3,9 @@
 import asyncio
 import logging
 from datetime import datetime
-
+import re
+from homeassistant.helpers import entity_registry as er
+from homeassistant.helpers import device_registry as dr
 from homeassistant.components.climate.const import (SERVICE_SET_TEMPERATURE, SERVICE_SET_HVAC_MODE)
 from homeassistant.components.number.const import (SERVICE_SET_VALUE)
 
@@ -36,6 +38,19 @@ def convert_decimal(decimal_string):
 	except ValueError:
 		return None
 
+async def get_trv_model(self):
+	"""Returns the HA device model string"""
+	try:
+		entity_reg = await er.async_get_registry(self.hass)
+		entry = entity_reg.async_get(self.heater_entity_id)
+		dev_reg = await dr.async_get_registry(self.hass)
+		device = dev_reg.async_get(entry.device_id)
+		try:
+			return re.search('\((.+?)\)', device.model).group(1)
+		except AttributeError:
+			return None
+	except ValueError:
+		return None
 
 async def set_trv_values(self, key, value):
 	"""Do necessary actions to set the TRV values."""
