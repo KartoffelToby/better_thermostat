@@ -262,41 +262,30 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
 			if self._target_temp is None:
 				# If we have a previously saved temperature
 				if old_state.attributes.get(ATTR_TEMPERATURE) is None:
-					self._target_temp = self._TRV_min_temp
+					self._target_temp = self.min_temp
 					_LOGGER.debug(
 						"better_thermostat %s: Undefined target temperature, falling back to %s", self.name, self._target_temp
 					)
 				else:
-					_old_target_temperature = float(old_state.attributes.get(ATTR_TEMPERATURE))
-					self._target_temp = _old_target_temperature
-					# if the min_temp is setted by the config, use it
-					if self._min_temp is not None:
-						self._TRV_min_temp = self._min_temp
-					# if the max_temp is setted by the config, use it
-					if self._max_temp is not None:
-						self._TRV_max_temp = self._max_temp
-					# if the target steps is setted by the config, use it
-					if self._target_temp_step is not None:
-						self._TRV_target_temp_step = self._target_temp_step
-
+					_old_target_temperature = float(old_state.attributes.get([ATTR_TEMPERATURE]))
 					# if the saved temperature is lower than the min_temp, set it to min_temp
-					if _old_target_temperature < self._TRV_min_temp:
+					if _old_target_temperature < self.min_temp:
 						_LOGGER.warning(
 							"better_thermostat %s: Saved target temperature %s is lower than min_temp %s, setting to min_temp",
 							self.name,
 							_old_target_temperature,
-							self._TRV_min_temp
+							self.min_temp
 						)
-						self._target_temp = self._TRV_min_temp
+						self._target_temp = self.min_temp
 					# if the saved temperature is higher than the max_temp, set it to max_temp
-					elif _old_target_temperature > self._TRV_max_temp:
+					elif _old_target_temperature > self.max_temp:
 						_LOGGER.warning(
 							"better_thermostat %s: Saved target temperature %s is higher than max_temp %s, setting to max_temp",
 							self.name,
 							_old_target_temperature,
-							self._TRV_max_temp
+							self.min_temp
 						)
-						self._target_temp = self._TRV_max_temp
+						self._target_temp = self.max_temp
 			if not self._hvac_mode and old_state.state:
 				self._hvac_mode = old_state.state
 			if not old_state.attributes.get(ATTR_STATE_LAST_CHANGE):
@@ -315,23 +304,23 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
 					if self.night_temp and isinstance(self.night_temp, numbers.Number):
 						_night_temp = float(self.night_temp)
 						# if the night temperature is lower than min_temp, set it to min_temp
-						if _night_temp < self._TRV_min_temp:
+						if _night_temp < self.min_temp:
 							_LOGGER.error(
 								"better_thermostat %s: Night temperature %s is lower than min_temp %s, setting to min_temp",
 								self.name,
 								_night_temp,
-								self._TRV_min_temp
+								self.min_temp
 							)
-							self._target_temp = self._TRV_min_temp
+							self._target_temp = self.min_temp
 						# if the night temperature is higher than the max_temp, set it to max_temp
-						elif _night_temp > self._TRV_max_temp:
+						elif _night_temp > self.max_temp:
 							_LOGGER.warning(
 								"better_thermostat %s: Night temperature %s is higher than max_temp %s, setting to max_temp",
 								self.name,
 								_night_temp,
-								self._TRV_min_temp
+								self.min_temp
 							)
-							self._target_temp = self._TRV_max_temp
+							self._target_temp = self.max_temp
 					else:
 						_LOGGER.error("better_thermostat %s: Night temp '%s' is not a number", self.name, str(self.night_temp))
 		
@@ -343,7 +332,7 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
 					self.name,
 					self._target_temp
 				)
-				self._target_temp = self._TRV_min_temp
+				self._target_temp = self.min_temp
 				self._hvac_mode = HVAC_MODE_OFF
 				
 		# if hvac mode could not be restored, turn heat off
@@ -550,8 +539,8 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
 	@property
 	def target_temperature_step(self):
 		"""Return the supported step of target temperature."""
-		if self._TRV_target_temp_step is not None:
-			return self._TRV_target_temp_step
+		if self._target_temp_step is not None:
+			return self._target_temp_step
 		
 		return super().precision
 	
@@ -606,11 +595,11 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
 	def target_temperature(self):
 		"""Return the temperature we try to reach."""
 		# if target temp is below minimum, return minimum
-		if self._target_temp < self._TRV_min_temp:
-			return self._TRV_min_temp
+		if self._target_temp < self._min_temp:
+			return self._min_temp
 		# if target temp is above maximum, return maximum
-		if self._target_temp > self._TRV_max_temp:
-			return self._TRV_max_temp
+		if self._target_temp > self._max_temp:
+			return self._max_temp
 		return self._target_temp
 	
 	@property
@@ -645,8 +634,8 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
 	@property
 	def min_temp(self):
 		"""Return the minimum temperature."""
-		if self._TRV_min_temp is not None:
-			return self._TRV_min_temp
+		if self._min_temp is not None:
+			return self._min_temp
 		
 		# get default temp from super class
 		return super().min_temp
@@ -654,8 +643,8 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
 	@property
 	def max_temp(self):
 		"""Return the maximum temperature."""
-		if self._TRV_max_temp is not None:
-			return self._TRV_max_temp
+		if self._max_temp is not None:
+			return self._max_temp
 		
 		# Get default temp from super class
 		return super().max_temp
@@ -919,12 +908,18 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
 				self._active = True
 				self.ignore_states = True
 				# Use the same precision and min and max as the TRV
-				if self.hass.states.get(self.heater_entity_id).attributes.get('target_temp_step') is not None and self.target_temperature_step is None:
+				if self.hass.states.get(self.heater_entity_id).attributes.get('target_temp_step') is not None:
 					self._TRV_target_temp_step = float(self.hass.states.get(self.heater_entity_id).attributes.get('target_temp_step'))
-				if self.hass.states.get(self.heater_entity_id).attributes.get('min_temp') is not None and self._min_temp is None:
+				else:
+					self._TRV_target_temp_step = 1
+				if self.hass.states.get(self.heater_entity_id).attributes.get('min_temp') is not None:
 					self._TRV_min_temp = float(self.hass.states.get(self.heater_entity_id).attributes.get('min_temp'))
-				if self.hass.states.get(self.heater_entity_id).attributes.get('max_temp') is not None and self._max_temp is None:
+				else:
+					self._TRV_min_temp = 5
+				if self.hass.states.get(self.heater_entity_id).attributes.get('max_temp') is not None:
 					self._TRV_max_temp = float(self.hass.states.get(self.heater_entity_id).attributes.get('max_temp'))
+				else:
+					self._TRV_max_temp = 30
 				
 				# check weather predictions or ambient air temperature if available
 				if self.weather_entity is not None:
