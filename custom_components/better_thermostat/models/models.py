@@ -5,7 +5,7 @@ import math
 import os
 from pathlib import Path
 
-from custom_components.better_thermostat.helpers import get_trv_model
+from ..helpers import get_trv_model
 from homeassistant.components.climate.const import (HVAC_MODE_HEAT, HVAC_MODE_OFF)
 from homeassistant.util import yaml
 
