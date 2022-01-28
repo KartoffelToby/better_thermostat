@@ -2,12 +2,9 @@
 
 import asyncio
 import logging
-import re
 from datetime import datetime
-
-from homeassistant.components.climate.const import (SERVICE_SET_HVAC_MODE, SERVICE_SET_TEMPERATURE)
+from homeassistant.components.climate.const import (SERVICE_SET_TEMPERATURE, SERVICE_SET_HVAC_MODE)
 from homeassistant.components.number.const import (SERVICE_SET_VALUE)
-from homeassistant.helpers import device_registry as dr, entity_registry as er
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -35,20 +32,6 @@ def convert_decimal(decimal_string):
 	"""Convert a decimal string to a float."""
 	try:
 		return float(format(float(decimal_string), '.1f'))
-	except ValueError:
-		return None
-
-async def get_trv_model(self):
-	"""Returns the HA device model string"""
-	try:
-		entity_reg = await er.async_get_registry(self.hass)
-		entry = entity_reg.async_get(self.heater_entity_id)
-		dev_reg = await dr.async_get_registry(self.hass)
-		device = dev_reg.async_get(entry.device_id)
-		try:
-			return re.search('\((.+?)\)', device.model).group(1)
-		except AttributeError:
-			return None
 	except ValueError:
 		return None
 
