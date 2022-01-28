@@ -58,7 +58,6 @@ async def get_device_model(self):
 
 def convert_outbound_states(self, hvac_mode):
 	"""Convert HA state to outbound thermostat state."""
-
 	state = self.hass.states.get(self.heater_entity_id).attributes
 	
 	config_file = os.path.dirname(os.path.realpath(__file__)) + '/devices/' + self.model.replace("/", "_") + '.yaml'
