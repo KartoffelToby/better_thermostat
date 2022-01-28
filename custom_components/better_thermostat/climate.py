@@ -1,5 +1,4 @@
-"""Special support for Better Thermostat units.
-Z2M version """
+"""Better Thermostat"""
 
 import asyncio
 import logging
@@ -8,6 +7,7 @@ import numbers
 from abc import ABC
 from datetime import datetime, timedelta
 from random import randint
+from time import sleep
 
 import homeassistant.helpers.config_validation as cv
 import homeassistant.util.dt as dt_util
@@ -213,8 +213,11 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
 		await super().async_added_to_hass()
 		
 		# fetch device model from HA if necessary
-		await get_device_model(self)
-				
+		self.model = await get_device_model(self)
+		if self.model is None:
+			_LOGGER.error("better_thermostat %s: can't read the device model of TVR. please check if you have a device in HA", self.name)
+			return
+
 		# Add listener
 		async_track_state_change_event(
 				self.hass, [self.sensor_entity_id], self._async_sensor_changed

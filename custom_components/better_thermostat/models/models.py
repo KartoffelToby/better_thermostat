@@ -3,12 +3,13 @@
 import logging
 import math
 import os
+import re
 from pathlib import Path
-from custom_components.better_thermostat.helpers import get_trv_model
 from homeassistant.components.climate.const import (HVAC_MODE_HEAT, HVAC_MODE_OFF)
 from homeassistant.util import yaml
 from .utils import calibration, mode_remap, reverse_modes
-
+from homeassistant.helpers import entity_registry as er
+from homeassistant.helpers import device_registry as dr
 _LOGGER = logging.getLogger(__name__)
 
 
@@ -38,14 +39,18 @@ def convert_inbound_states(self, state):
 
 async def get_device_model(self):
 	"""Fetches the device model from HA."""
-	
 	if self.model is None:
 		try:
-			self.model = await get_trv_model(self)
-			if self.model is None:
-				raise ValueError
+			entity_reg = await er.async_get_registry(self.hass)
+			entry = entity_reg.async_get(self.heater_entity_id)
+			dev_reg = await dr.async_get_registry(self.hass)
+			device = dev_reg.async_get(entry.device_id)
+			try:
+				return re.search('\((.+?)\)', device.model).group(1)
+			except AttributeError:
+				return device.model
 		except (RuntimeError, ValueError, AttributeError, KeyError, TypeError, NameError, IndexError) as e:
-			_LOGGER.error("better_thermostat %s: can't read the device model of TVR. enable include_device_information in z2m or checkout issue #1", self.name)
+				_LOGGER.error("better_thermostat %s: can't read the device model of TVR. please check if you have a device in HA", self.name)
 	else:
 		return self.model
 
