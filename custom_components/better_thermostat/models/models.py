@@ -55,7 +55,7 @@ async def get_device_model(self):
 			except AttributeError:
 				return device.model
 		except (RuntimeError, ValueError, AttributeError, KeyError, TypeError, NameError, IndexError) as e:
-			_LOGGER.error("better_thermostat %s: can't read the device model of TVR. please check if you have a device in HA", self.name)
+			_LOGGER.error("better_thermostat %s: could not read device model of your TVR. Make sure this device exists in Home Assistant.", self.name)
 	else:
 		return self.model
 
