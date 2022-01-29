@@ -35,8 +35,11 @@ def convert_inbound_states(self, state):
 		if config.get('mode_map') is not None and state.get('system_mode') is not None:
 			hvac_mode = mode_remap(hvac_mode, reverse_modes(config.get('mode_map')))
 	
-	return {"current_heating_setpoint": current_heating_setpoint, "local_temperature": state.get('local_temperature'), "local_temperature_calibration": state.get('local_temperature_calibration'),
-		"system_mode"                 : hvac_mode}
+	return {
+		"current_heating_setpoint"     : current_heating_setpoint,
+		"local_temperature"            : state.get('local_temperature'),
+		"local_temperature_calibration": state.get('local_temperature_calibration'),
+		"system_mode"                  : hvac_mode}
 
 
 async def get_device_model(self):
