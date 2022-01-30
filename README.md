@@ -184,8 +184,8 @@ If you want to support this project, you can ☕ [**buy a coffee here**](https:/
 
 # Maintainers
 
-- @KartoffelToby
-- @RubenKelevra
+- [@KartoffelToby](https://github.com/KartoffelToby)
+- [@RubenKelevra](https://github.com/RubenKelevra)
 
 ## ‎‍💻 Code Contributors
 
