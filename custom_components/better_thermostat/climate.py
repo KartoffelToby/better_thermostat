@@ -2,34 +2,32 @@
 Z2M version """
 
 import asyncio
+import json
 import logging
 import math
 import numbers
-import os
-import sys
 from abc import ABC
 from datetime import datetime, timedelta
-from pathlib import Path
 from random import randint
 
 import homeassistant.helpers.config_validation as cv
 import homeassistant.util.dt as dt_util
 import voluptuous as vol
-from .helpers import check_float, convert_decimal, set_trv_values
-from .models.models import convert_inbound_states, convert_outbound_states, get_device_model
-from homeassistant.components.climate import PLATFORM_SCHEMA, ClimateEntity
+from homeassistant.components.climate import ClimateEntity, PLATFORM_SCHEMA
 from homeassistant.components.climate.const import (
 	CURRENT_HVAC_HEAT, CURRENT_HVAC_IDLE, CURRENT_HVAC_OFF, HVAC_MODE_HEAT, HVAC_MODE_OFF, SUPPORT_TARGET_TEMPERATURE
 )
 from homeassistant.components.recorder import history
 from homeassistant.const import (ATTR_TEMPERATURE, CONF_NAME, CONF_UNIQUE_ID, EVENT_HOMEASSISTANT_START, STATE_UNAVAILABLE, STATE_UNKNOWN)
-from homeassistant.core import CoreState, callback
+from homeassistant.core import callback, CoreState
 from homeassistant.helpers.entity_registry import (async_entries_for_config_entry)
 from homeassistant.helpers.event import (async_track_state_change_event, async_track_time_change)
 from homeassistant.helpers.reload import async_setup_reload_service
 from homeassistant.helpers.restore_state import RestoreEntity
 
 from . import DOMAIN, PLATFORMS
+from .helpers import check_float, set_trv_values
+from .models.models import convert_inbound_states, convert_outbound_states, get_device_model
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -207,7 +205,13 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
 		self._state_class = state_class
 		self.local_temperature_calibration_entity = None
 		self.valve_position_entity = None
-		self.version = Path(os.path.join(sys.path[0], "VERSION")).read_text() or "unknown"
+		try:
+			with open("/config/custom_components/better_thermostat/manifest.json") as manifest_file:
+				manifest = json.load(manifest_file)
+				self.version = manifest["version"]
+		except (FileNotFoundError, KeyError) as e:
+			_LOGGER.error("better_thermostat %s: could not read version from manifest file - %s", not self._name, e)
+			self.version = "unknown"
 		self.last_change = None
 		self.load_saved_state = False
 		self._last_reported_valve_position = None
