@@ -51,8 +51,10 @@ async def get_device_model(self):
 			dev_reg = await dr.async_get_registry(self.hass)
 			device = dev_reg.async_get(entry.device_id)
 			try:
+				# Z2M reports the device name as a long string with the actual model name in braces, we need to extract it
 				return re.search('\((.+?)\)', device.model).group(1)
 			except AttributeError:
+				# Other climate integrations might report the model name plainly, need more infos on this
 				return device.model
 		except (RuntimeError, ValueError, AttributeError, KeyError, TypeError, NameError, IndexError) as e:
 			_LOGGER.error("better_thermostat %s: could not read device model of your TVR. Make sure this device exists in Home Assistant.", self.name)
