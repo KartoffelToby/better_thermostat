@@ -3,9 +3,13 @@
 import logging
 import math
 import os
+import re
 from pathlib import Path
+
 from homeassistant.components.climate.const import (HVAC_MODE_HEAT, HVAC_MODE_OFF)
+from homeassistant.helpers import device_registry as dr, entity_registry as er
 from homeassistant.util import yaml
+
 from .utils import calibration, mode_remap, reverse_modes
 
 _LOGGER = logging.getLogger(__name__)
@@ -13,8 +17,6 @@ _LOGGER = logging.getLogger(__name__)
 
 def convert_inbound_states(self, state):
 	"""Convert inbound thermostat state to HA state."""
-	get_device_model(self)
-	
 	config_file = os.path.dirname(os.path.realpath(__file__)) + '/devices/' + self.model.replace("/", "_") + '.yaml'
 	
 	if state.get('system_mode') is not None:
@@ -33,29 +35,35 @@ def convert_inbound_states(self, state):
 		if config.get('mode_map') is not None and state.get('system_mode') is not None:
 			hvac_mode = mode_remap(hvac_mode, reverse_modes(config.get('mode_map')))
 	
-	return {"current_heating_setpoint": current_heating_setpoint, "local_temperature": state.get('local_temperature'), "local_temperature_calibration": state.get('local_temperature_calibration'),
-		"system_mode"                 : hvac_mode}
+	return {
+		"current_heating_setpoint"     : current_heating_setpoint,
+		"local_temperature"            : state.get('local_temperature'),
+		"local_temperature_calibration": state.get('local_temperature_calibration'),
+		"system_mode"                  : hvac_mode}
 
 
-def get_device_model(self):
+async def get_device_model(self):
 	"""Fetches the device model from HA."""
-	
 	if self.model is None:
 		try:
-			if self.hass.states.get(self.heater_entity_id).attributes.get('device') is not None:
-				self.model = self.hass.states.get(self.heater_entity_id).attributes.get('device').get('model')
-			else:
-				raise ValueError
+			entity_reg = await er.async_get_registry(self.hass)
+			entry = entity_reg.async_get(self.heater_entity_id)
+			dev_reg = await dr.async_get_registry(self.hass)
+			device = dev_reg.async_get(entry.device_id)
+			try:
+				# Z2M reports the device name as a long string with the actual model name in braces, we need to extract it
+				return re.search('\((.+?)\)', device.model).group(1)
+			except AttributeError:
+				# Other climate integrations might report the model name plainly, need more infos on this
+				return device.model
 		except (RuntimeError, ValueError, AttributeError, KeyError, TypeError, NameError, IndexError) as e:
-			_LOGGER.error("better_thermostat %s: can't read the device model of TVR. enable include_device_information in z2m or checkout issue #1", self.name)
+			_LOGGER.error("better_thermostat %s: could not read device model of your TVR. Make sure this device exists in Home Assistant.", self.name)
 	else:
 		return self.model
 
 
 def convert_outbound_states(self, hvac_mode):
 	"""Convert HA state to outbound thermostat state."""
-	get_device_model(self)
-	
 	state = self.hass.states.get(self.heater_entity_id).attributes
 	
 	config_file = os.path.dirname(os.path.realpath(__file__)) + '/devices/' + self.model.replace("/", "_") + '.yaml'

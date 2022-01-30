@@ -4,7 +4,7 @@ import asyncio
 import logging
 from datetime import datetime
 
-from homeassistant.components.climate.const import (SERVICE_SET_TEMPERATURE, SERVICE_SET_HVAC_MODE)
+from homeassistant.components.climate.const import (SERVICE_SET_HVAC_MODE, SERVICE_SET_TEMPERATURE)
 from homeassistant.components.number.const import (SERVICE_SET_VALUE)
 
 _LOGGER = logging.getLogger(__name__)
@@ -35,7 +35,6 @@ def convert_decimal(decimal_string):
 		return float(format(float(decimal_string), '.1f'))
 	except ValueError:
 		return None
-
 
 async def set_trv_values(self, key, value):
 	"""Do necessary actions to set the TRV values."""
