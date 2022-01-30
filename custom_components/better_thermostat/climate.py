@@ -266,36 +266,35 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
 			self.hass.bus.async_listen_once(EVENT_HOMEASSISTANT_START, _async_startup)
 		
 		# Check If we have an old state
-		old_state = await self.async_get_last_state()
-		if old_state is not None:
+		if (old_state := await self.async_get_last_state()) is not None:
 			# If we have no initial temperature, restore
 			if self._target_temp is None:
 				# If we have a previously saved temperature
 				if old_state.attributes.get(ATTR_TEMPERATURE) is None:
-					self._target_temp = self.min_temp
+					self._target_temp = self._min_temp
 					_LOGGER.debug(
 						"better_thermostat %s: Undefined target temperature, falling back to %s", self.name, self._target_temp
 					)
 				else:
 					_old_target_temperature = float(old_state.attributes.get([ATTR_TEMPERATURE]))
-					# if the saved temperature is lower than the min_temp, set it to min_temp
-					if _old_target_temperature < self.min_temp:
+					# if the saved temperature is lower than the _min_temp, set it to _min_temp
+					if _old_target_temperature < self._min_temp:
 						_LOGGER.warning(
-							"better_thermostat %s: Saved target temperature %s is lower than min_temp %s, setting to min_temp",
+							"better_thermostat %s: Saved target temperature %s is lower than _min_temp %s, setting to _min_temp",
 							self.name,
 							_old_target_temperature,
-							self.min_temp
+							self._min_temp
 						)
-						self._target_temp = self.min_temp
-					# if the saved temperature is higher than the max_temp, set it to max_temp
-					elif _old_target_temperature > self.max_temp:
+						self._target_temp = self._min_temp
+					# if the saved temperature is higher than the _max_temp, set it to _max_temp
+					elif _old_target_temperature > self._max_temp:
 						_LOGGER.warning(
-							"better_thermostat %s: Saved target temperature %s is higher than max_temp %s, setting to max_temp",
+							"better_thermostat %s: Saved target temperature %s is higher than _max_temp %s, setting to _max_temp",
 							self.name,
 							_old_target_temperature,
-							self.min_temp
+							self._min_temp
 						)
-						self._target_temp = self.max_temp
+						self._target_temp = self._max_temp
 			if not self._hvac_mode and old_state.state:
 				self._hvac_mode = old_state.state
 			if not old_state.attributes.get(ATTR_STATE_LAST_CHANGE):
@@ -313,24 +312,24 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
 				if self.night_mode_active:
 					if self.night_temp and isinstance(self.night_temp, numbers.Number):
 						_night_temp = float(self.night_temp)
-						# if the night temperature is lower than min_temp, set it to min_temp
-						if _night_temp < self.min_temp:
+						# if the night temperature is lower than _min_temp, set it to _min_temp
+						if _night_temp < self._min_temp:
 							_LOGGER.error(
-								"better_thermostat %s: Night temperature %s is lower than min_temp %s, setting to min_temp",
+								"better_thermostat %s: Night temperature %s is lower than _min_temp %s, setting to _min_temp",
 								self.name,
 								_night_temp,
-								self.min_temp
+								self._min_temp
 							)
-							self._target_temp = self.min_temp
-						# if the night temperature is higher than the max_temp, set it to max_temp
-						elif _night_temp > self.max_temp:
+							self._target_temp = self._min_temp
+						# if the night temperature is higher than the _max_temp, set it to max_temp
+						elif _night_temp > self._max_temp:
 							_LOGGER.warning(
-								"better_thermostat %s: Night temperature %s is higher than max_temp %s, setting to max_temp",
+								"better_thermostat %s: Night temperature %s is higher than _max_temp %s, setting to _max_temp",
 								self.name,
 								_night_temp,
-								self.min_temp
+								self._min_temp
 							)
-							self._target_temp = self.max_temp
+							self._target_temp = self._max_temp
 					else:
 						_LOGGER.error("better_thermostat %s: Night temp '%s' is not a number", self.name, str(self.night_temp))
 		
@@ -342,7 +341,7 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
 					self.name,
 					self._target_temp
 				)
-				self._target_temp = self.min_temp
+				self._target_temp = self._min_temp
 				self._hvac_mode = HVAC_MODE_OFF
 		
 		# if hvac mode could not be restored, turn heat off
@@ -626,8 +625,6 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
 		else:
 			_LOGGER.error("better_thermostat %s: Unsupported hvac_mode %s", self.name, hvac_mode)
 		self.async_write_ha_state()
-		if self.closed_window_triggered or self.ignore_states:
-			return
 		await self._async_control_heating()
 	
 	async def async_set_temperature(self, **kwargs):
@@ -637,8 +634,6 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
 			return
 		self._target_temp = temperature
 		self.async_write_ha_state()
-		if self.closed_window_triggered or self.ignore_states:
-			return
 		await self._async_control_heating()
 	
 	@property
@@ -689,7 +684,7 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
 		await self._async_control_heating()
 	
 	@callback
-	async def _async_window_changed(self):
+	async def _async_window_changed(self, event):
 		if self.startup_running:
 			return
 		if self.hass.states.get(self.heater_entity_id) is not None:
@@ -699,7 +694,6 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
 				self.window_open = True
 			else:
 				self.window_open = False
-				self.closed_window_triggered = False
 			_LOGGER.debug("better_thermostat %s: Window (group) state changed to %s", self.name, "open" if self.window_open else "closed")
 			self.async_write_ha_state()
 			await self._async_control_heating()
@@ -715,8 +709,6 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
 		
 		self._async_update_temp(new_state)
 		self.async_write_ha_state()
-		if self.closed_window_triggered or self.ignore_states:
-			return
 		await self._async_control_heating()
 	
 	@callback
@@ -769,11 +761,11 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
 					# if new setpoint is lower than the min setpoint, set it to the min setpoint
 					_overwrite_thermostat_update = False
 					if _new_heating_setpoint < self._min_temp:
-						_new_heating_setpoint = self.min_temp
+						_new_heating_setpoint = self._min_temp
 						_overwrite_thermostat_update = True
 					# if new setpoint is higher than the max setpoint, set it to the max setpoint
-					if _new_heating_setpoint > self.max_temp:
-						_new_heating_setpoint = self.max_temp
+					if _new_heating_setpoint > self._max_temp:
+						_new_heating_setpoint = self._max_temp
 						_overwrite_thermostat_update = True
 					if self._target_temp != _new_heating_setpoint:
 						self._target_temp = _new_heating_setpoint
@@ -955,7 +947,8 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
 					self.closed_window_triggered = True
 				elif not self.window_open and self.closed_window_triggered:
 					self._hvac_mode = self.last_change
-				
+					self.closed_window_triggered = False
+
 				# check if's summer
 				if self._hvac_mode != HVAC_MODE_OFF and not self.window_open and not self.call_for_heat and not self.load_saved_state:
 					self.last_change = self._hvac_mode
@@ -971,19 +964,8 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
 					current_heating_setpoint = self._target_temp
 					has_real_mode = True if self.hass.states.get(self.heater_entity_id).attributes.get('system_mode') is not None else False
 					calibration = remapped_states.get('local_temperature_calibration')
-					
-					# if off do nothing
-					if self.closed_window_triggered or self._hvac_mode == HVAC_MODE_OFF:
-						if has_real_mode:
-							if self.hass.states.get(self.heater_entity_id).attributes.get('system_mode') == HVAC_MODE_OFF:
-								self.ignore_states = False
-								return
-						if self.calibration_type == 1:
-							if float(self.hass.states.get(self.heater_entity_id).attributes.get('current_heating_setpoint')) <= 5.0:
-								self.ignore_states = False
-								return
-					
-					# FIXME: "Only send the local_temperature_calibration if not instantly following" doesn't make sense
+
+					# Some TRVs need some time to calculate the new local_temperature from the last calibration so set a timeout to avoid a calibration loop.
 					do_calibration = False
 					if self.last_calibration is None:
 						do_calibration = True
@@ -1016,18 +998,15 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
 							self.hass.states.get(self.heater_entity_id).attributes.get('current_heating_setpoint')
 							) != float(calibration):
 						await set_trv_values(self, 'temperature', float(calibration))
-						
-						# Using on local calibration, don't update the temp if its off, some TRV changed to 5°C when
-						# off after a while, don't update the temp
-						if self.calibration_type == 0 and not self.window_open and converted_hvac_mode != HVAC_MODE_OFF and float(
-								current_heating_setpoint
-								) != 5.0 and self.call_for_heat:
-							await set_trv_values(self, 'temperature', float(current_heating_setpoint))
-						
-						# Using on local calibration, update only if the TRV is not in window open mode
-						if self.calibration_type == 0 and not self.window_open and do_calibration:
-							await set_trv_values(self, 'local_temperature_calibration', calibration)
 					
+					# Using on local calbiration, dont update the temp if its off, some TRV changed to 5°C when off after a while, don't update the temp
+					if self.calibration_type == 0 and not self.window_open and converted_hvac_mode != HVAC_MODE_OFF and float(current_heating_setpoint) != 5.0 and self.call_for_heat:
+						await set_trv_values(self, 'temperature', float(current_heating_setpoint))
+					
+					# Using on local calbiration, update only if the TRV is not in window open mode
+					if self.calibration_type == 0 and not self.window_open and do_calibration:
+						await set_trv_values(self, 'local_temperature_calibration', calibration)
+	
 					# Only set the system mode if the TRV has this option
 					if has_real_mode:
 						await set_trv_values(self, 'system_mode', converted_hvac_mode)
