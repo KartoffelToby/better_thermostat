@@ -2,6 +2,7 @@
 Z2M version """
 
 import asyncio
+import json
 import logging
 import math
 import numbers
@@ -12,19 +13,21 @@ from random import randint
 import homeassistant.helpers.config_validation as cv
 import homeassistant.util.dt as dt_util
 import voluptuous as vol
-from .helpers import check_float, convert_decimal, set_trv_values
-from .models.models import convert_inbound_states, convert_outbound_states, get_device_model
-from homeassistant.components.climate import PLATFORM_SCHEMA, ClimateEntity
-from homeassistant.components.climate.const import (CURRENT_HVAC_HEAT, CURRENT_HVAC_IDLE, CURRENT_HVAC_OFF, HVAC_MODE_HEAT, HVAC_MODE_OFF, SUPPORT_TARGET_TEMPERATURE)
+from homeassistant.components.climate import ClimateEntity, PLATFORM_SCHEMA
+from homeassistant.components.climate.const import (
+	CURRENT_HVAC_HEAT, CURRENT_HVAC_IDLE, CURRENT_HVAC_OFF, HVAC_MODE_HEAT, HVAC_MODE_OFF, SUPPORT_TARGET_TEMPERATURE
+)
 from homeassistant.components.recorder import history
 from homeassistant.const import (ATTR_TEMPERATURE, CONF_NAME, CONF_UNIQUE_ID, EVENT_HOMEASSISTANT_START, STATE_UNAVAILABLE, STATE_UNKNOWN)
-from homeassistant.core import CoreState, callback
+from homeassistant.core import callback, CoreState
 from homeassistant.helpers.entity_registry import (async_entries_for_config_entry)
 from homeassistant.helpers.event import (async_track_state_change_event, async_track_time_change)
 from homeassistant.helpers.reload import async_setup_reload_service
 from homeassistant.helpers.restore_state import RestoreEntity
 
 from . import DOMAIN, PLATFORMS
+from .helpers import check_float, set_trv_values
+from .models.models import convert_inbound_states, convert_outbound_states, get_device_model
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -57,25 +60,25 @@ ATTR_STATE_DAY_SET_TEMP = "last_day_set_temp"
 ATTR_VALVE_POSITION = "valve_position"
 
 PLATFORM_SCHEMA = PLATFORM_SCHEMA.extend(
-		{
-			vol.Required(CONF_HEATER)                          : cv.entity_id,
-			vol.Required(CONF_SENSOR)                          : cv.entity_id,
-			vol.Optional(CONF_SENSOR_WINDOW)                   : cv.entity_id,
-			vol.Optional(CONF_WEATHER)                         : cv.entity_id,
-			vol.Optional(CONF_OUTDOOR_SENSOR)                  : cv.entity_id,
-			vol.Optional(CONF_OFF_TEMPERATURE, default=20.0)   : vol.Coerce(float),
-			vol.Optional(CONF_WINDOW_TIMEOUT, default=0)       : vol.Coerce(int),
-			vol.Optional(CONF_VALVE_MAINTENANCE, default=False): cv.boolean,
-			vol.Optional(CONF_NIGHT_TEMP, default=18.0)        : vol.Coerce(float),
-			vol.Optional(CONF_NIGHT_START, default=None)       : vol.Coerce(str),
-			vol.Optional(CONF_NIGHT_END, default=None)         : vol.Coerce(str),
-			vol.Optional(CONF_NAME, default=DEFAULT_NAME)      : cv.string,
-			vol.Optional(CONF_TARGET_TEMP)                     : vol.Coerce(float),
-			vol.Optional(CONF_UNIQUE_ID)                       : cv.string,
-			vol.Optional(CONF_MIN_TEMP, default=5.0)           : vol.Coerce(float),
-			vol.Optional(CONF_MAX_TEMP, default=35.0)          : vol.Coerce(float),
-			vol.Optional(CONF_PRECISION, default=0.5)          : vol.Coerce(float),
-		}
+	{
+		vol.Required(CONF_HEATER)                          : cv.entity_id,
+		vol.Required(CONF_SENSOR)                          : cv.entity_id,
+		vol.Optional(CONF_SENSOR_WINDOW)                   : cv.entity_id,
+		vol.Optional(CONF_WEATHER)                         : cv.entity_id,
+		vol.Optional(CONF_OUTDOOR_SENSOR)                  : cv.entity_id,
+		vol.Optional(CONF_OFF_TEMPERATURE, default=20.0)   : vol.Coerce(float),
+		vol.Optional(CONF_WINDOW_TIMEOUT, default=0)       : vol.Coerce(int),
+		vol.Optional(CONF_VALVE_MAINTENANCE, default=False): cv.boolean,
+		vol.Optional(CONF_NIGHT_TEMP, default=18.0)        : vol.Coerce(float),
+		vol.Optional(CONF_NIGHT_START, default=None)       : vol.Coerce(str),
+		vol.Optional(CONF_NIGHT_END, default=None)         : vol.Coerce(str),
+		vol.Optional(CONF_NAME, default=DEFAULT_NAME)      : cv.string,
+		vol.Optional(CONF_TARGET_TEMP)                     : vol.Coerce(float),
+		vol.Optional(CONF_UNIQUE_ID)                       : cv.string,
+		vol.Optional(CONF_MIN_TEMP, default=5.0)           : vol.Coerce(float),
+		vol.Optional(CONF_MAX_TEMP, default=35.0)          : vol.Coerce(float),
+		vol.Optional(CONF_PRECISION, default=0.5)          : vol.Coerce(float),
+	}
 )
 
 
@@ -102,32 +105,32 @@ async def async_setup_platform(hass, config, async_add_entities, discovery_info=
 	precision = config.get(CONF_PRECISION)
 	unit = hass.config.units.temperature_unit
 	unique_id = config.get(CONF_UNIQUE_ID)
-
+	
 	async_add_entities(
-			[
-				BetterThermostat(
-						name,
-						heater_entity_id,
-						sensor_entity_id,
-						window_sensors_entity_ids,
-						window_delay,
-						weather_entity,
-						outdoor_sensor,
-						off_temperature,
-						valve_maintenance,
-						night_temp,
-						night_start,
-						night_end,
-						min_temp,
-						max_temp,
-						target_temp,
-						precision,
-						unit,
-						unique_id,
-						device_class="better_thermostat",
-						state_class="better_thermostat_state",
-				)
-			]
+		[
+			BetterThermostat(
+				name,
+				heater_entity_id,
+				sensor_entity_id,
+				window_sensors_entity_ids,
+				window_delay,
+				weather_entity,
+				outdoor_sensor,
+				off_temperature,
+				valve_maintenance,
+				night_temp,
+				night_start,
+				night_end,
+				min_temp,
+				max_temp,
+				target_temp,
+				precision,
+				unit,
+				unique_id,
+				device_class="better_thermostat",
+				state_class="better_thermostat_state",
+			)
+		]
 	)
 
 
@@ -202,7 +205,13 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
 		self._state_class = state_class
 		self.local_temperature_calibration_entity = None
 		self.valve_position_entity = None
-		self.version = "1.0.0"
+		try:
+			with open("/config/custom_components/better_thermostat/manifest.json") as manifest_file:
+				manifest = json.load(manifest_file)
+				self.version = manifest["version"]
+		except (FileNotFoundError, KeyError, json.JSONDecodeError) as e:
+			_LOGGER.error("better_thermostat %s: could not read version from manifest file - %s", not self._name, e)
+			self.version = "unknown"
 		self.last_change = None
 		self.load_saved_state = False
 		self._last_reported_valve_position = None
@@ -214,32 +223,32 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
 		
 		# Add listener
 		async_track_state_change_event(
-				self.hass, [self.sensor_entity_id], self._async_sensor_changed
+			self.hass, [self.sensor_entity_id], self._async_sensor_changed
 		)
 		async_track_state_change_event(
-				self.hass, [self.heater_entity_id], self._async_trv_changed
+			self.hass, [self.heater_entity_id], self._async_trv_changed
 		)
 		if self.window_sensors_entity_ids:
 			async_track_state_change_event(
-					self.hass, [self.window_sensors_entity_ids], self._async_window_changed
+				self.hass, [self.window_sensors_entity_ids], self._async_window_changed
 			)
 		
 		# check if night mode was configured
 		if all([self.night_start, self.night_end, self.night_temp]):
 			_LOGGER.debug("Night mode configured")
 			async_track_time_change(
-					self.hass,
-					self._async_timer_trigger,
-					self.night_start.hour,
-					self.night_start.minute,
-					self.night_start.second,
+				self.hass,
+				self._async_timer_trigger,
+				self.night_start.hour,
+				self.night_start.minute,
+				self.night_start.second,
 			)
 			async_track_time_change(
-					self.hass,
-					self._async_timer_trigger,
-					self.night_end.hour,
-					self.night_end.minute,
-					self.night_end.second,
+				self.hass,
+				self._async_timer_trigger,
+				self.night_end.hour,
+				self.night_end.minute,
+				self.night_end.second,
 			)
 		
 		@callback
@@ -335,7 +344,7 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
 				)
 				self._target_temp = self.min_temp
 				self._hvac_mode = HVAC_MODE_OFF
-				
+		
 		# if hvac mode could not be restored, turn heat off
 		if not self._hvac_mode:
 			_LOGGER.warning(
@@ -348,7 +357,7 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
 		"""Run startup tasks."""
 		window = None
 		await asyncio.sleep(5)
-
+		
 		while self.startup_running:
 			sensor_state = self.hass.states.get(self.sensor_entity_id)
 			trv_state = self.hass.states.get(self.heater_entity_id)
@@ -719,7 +728,7 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
 			_LOGGER.error(
 				"better_thermostat %s: Unable to update temperature sensor status from status update, current temperature not a number",
 				self.name
-				)
+			)
 	
 	@callback
 	async def _async_trv_changed(self, event):
@@ -770,7 +779,7 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
 						self._target_temp = _new_heating_setpoint
 					else:
 						_overwrite_thermostat_update = False
-						
+					
 					# if the user has changed the setpoint to a value that is not in the allowed range,
 					# overwrite the change with an TRV update
 					if _overwrite_thermostat_update:
@@ -779,9 +788,9 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
 							self.name,
 							new_state.attributes.get('current_heating_setpoint'),
 							_new_heating_setpoint
-							)
+						)
 						await self._async_control_heating()
-					
+			
 			
 			except TypeError as e:
 				_LOGGER.debug("better_thermostat entity not ready or device is currently not supported %s", e)
@@ -906,7 +915,9 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
 		if self.ignore_states or self.startup_running:
 			return
 		async with self._temp_lock:
-			if all([self._cur_temp, self._target_temp, self._hvac_mode, self.hass.states.get(self.heater_entity_id).attributes]) and not self.startup_running:
+			if all(
+					[self._cur_temp, self._target_temp, self._hvac_mode, self.hass.states.get(self.heater_entity_id).attributes]
+					) and not self.startup_running:
 				self._active = True
 				self.ignore_states = True
 				# Use the same precision and min and max as the TRV
@@ -932,7 +943,9 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
 					self.call_for_heat = True
 				
 				if self.call_for_heat is None:
-					_LOGGER.warning("better_thermostat: call for heat decision: could not evaluate sensor/weather entity data, force heat on")
+					_LOGGER.warning(
+						"better_thermostat: call for heat decision: could not evaluate sensor/weather entity data, force heat on"
+						)
 					self.call_for_heat = True
 				
 				# window open detection and weather detection force turn TRV off
@@ -942,7 +955,7 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
 					self.closed_window_triggered = True
 				elif not self.window_open and self.closed_window_triggered:
 					self._hvac_mode = self.last_change
-
+				
 				# check if's summer
 				if self._hvac_mode != HVAC_MODE_OFF and not self.window_open and not self.call_for_heat and not self.load_saved_state:
 					self.last_change = self._hvac_mode
@@ -951,7 +964,7 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
 				elif self.load_saved_state and self.call_for_heat and not self.window_open:
 					self._hvac_mode = self.last_change
 					self.load_saved_state = False
-
+				
 				try:
 					remapped_states = convert_outbound_states(self, self._hvac_mode)
 					converted_hvac_mode = remapped_states.get('system_mode')
@@ -982,36 +995,40 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
 						self.last_calibration = datetime.now()
 					
 					_LOGGER.debug(
-							"better_thermostat triggered states > window open: %s night mode: %s Mode: %s set: %s has_mode: %s Calibration: %s set_temp: %s cur_temp: %s Model: %s Calibration "
-							"type: %s call for heat: %s TRV: %s",
-							self.window_open,
-							self.night_mode_active,
-							converted_hvac_mode,
-							self._hvac_mode,
-							has_real_mode,
-							calibration,
-							current_heating_setpoint,
-							self._cur_temp,
-							self.model,
-							self.calibration_type,
-							self.call_for_heat,
-							self.hass.states.get(self.heater_entity_id).attributes.get('device').get('friendlyName')
+						"better_thermostat triggered states > window open: %s night mode: %s Mode: %s set: %s has_mode: %s Calibration: %s set_temp: %s cur_temp: %s Model: %s Calibration "
+						"type: %s call for heat: %s TRV: %s",
+						self.window_open,
+						self.night_mode_active,
+						converted_hvac_mode,
+						self._hvac_mode,
+						has_real_mode,
+						calibration,
+						current_heating_setpoint,
+						self._cur_temp,
+						self.model,
+						self.calibration_type,
+						self.call_for_heat,
+						self.hass.states.get(self.heater_entity_id).attributes.get('device').get('friendlyName')
 					)
 					
 					# Using on temperature based calibration, don't update the temp if it's the same
-					if self.calibration_type == 1 and float(self.hass.states.get(self.heater_entity_id).attributes.get('current_heating_setpoint')) != float(calibration):
+					if self.calibration_type == 1 and float(
+							self.hass.states.get(self.heater_entity_id).attributes.get('current_heating_setpoint')
+							) != float(calibration):
 						await set_trv_values(self, 'temperature', float(calibration))
 						
 						# Using on local calibration, don't update the temp if its off, some TRV changed to 5°C when
 						# off after a while, don't update the temp
-						if self.calibration_type == 0 and not self.window_open and converted_hvac_mode != HVAC_MODE_OFF and float(current_heating_setpoint) != 5.0 and self.call_for_heat:
+						if self.calibration_type == 0 and not self.window_open and converted_hvac_mode != HVAC_MODE_OFF and float(
+								current_heating_setpoint
+								) != 5.0 and self.call_for_heat:
 							await set_trv_values(self, 'temperature', float(current_heating_setpoint))
 						
 						# Using on local calibration, update only if the TRV is not in window open mode
 						if self.calibration_type == 0 and not self.window_open and do_calibration:
 							await set_trv_values(self, 'local_temperature_calibration', calibration)
-						
-						# Only set the system mode if the TRV has this option
+					
+					# Only set the system mode if the TRV has this option
 					if has_real_mode:
 						await set_trv_values(self, 'system_mode', converted_hvac_mode)
 					
@@ -1071,7 +1088,7 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
 			last_two_days_date_time = datetime.now() - timedelta(days=2)
 			start = dt_util.as_utc(last_two_days_date_time)
 			history_list = history.state_changes_during_period(
-					self.hass, start, dt_util.as_utc(datetime.now()), self.outdoor_sensor
+				self.hass, start, dt_util.as_utc(datetime.now()), self.outdoor_sensor
 			)
 			historic_sensor_data = history_list.get(self.outdoor_sensor)
 		except TypeError:
@@ -1091,7 +1108,8 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
 		
 		# remove the upper and lower 5% of the data
 		valid_historic_sensor_data.sort()
-		valid_historic_sensor_data = valid_historic_sensor_data[int(len(valid_historic_sensor_data) * 0.05):int(len(valid_historic_sensor_data) * 0.95)]
+		valid_historic_sensor_data = valid_historic_sensor_data[
+		                             int(len(valid_historic_sensor_data) * 0.05):int(len(valid_historic_sensor_data) * 0.95)]
 		
 		if len(valid_historic_sensor_data) == 0:
 			_LOGGER.warning("better_thermostat: no valid outdoor sensor data found.")
