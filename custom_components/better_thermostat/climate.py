@@ -209,7 +209,7 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
 			with open("/config/custom_components/better_thermostat/manifest.json") as manifest_file:
 				manifest = json.load(manifest_file)
 				self.version = manifest["version"]
-		except (FileNotFoundError, KeyError) as e:
+		except (FileNotFoundError, KeyError, json.JSONDecodeError) as e:
 			_LOGGER.error("better_thermostat %s: could not read version from manifest file - %s", not self._name, e)
 			self.version = "unknown"
 		self.last_change = None
