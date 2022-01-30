@@ -611,7 +611,7 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
 	def target_temperature(self):
 		"""Return the temperature we try to reach."""
 		if not all([self._max_temp, self._min_temp, self._target_temp]):
-			return None
+			return self._target_temp
 		# if target temp is below minimum, return minimum
 		if self._target_temp < self._min_temp:
 			return self._min_temp
