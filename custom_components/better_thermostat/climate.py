@@ -357,7 +357,8 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
 				self.name
 			)
 			self._hvac_mode = HVAC_MODE_OFF
-	
+		self.async_write_ha_state()
+
 	async def startup(self):
 		"""Run startup tasks."""
 		window = None
