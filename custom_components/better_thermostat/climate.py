@@ -262,30 +262,30 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
 			if self._target_temp is None:
 				# If we have a previously saved temperature
 				if old_state.attributes.get(ATTR_TEMPERATURE) is None:
-					self._target_temp = self.min_temp
+					self._target_temp = self._min_temp
 					_LOGGER.debug(
 						"better_thermostat %s: Undefined target temperature, falling back to %s", self.name, self._target_temp
 					)
 				else:
 					_old_target_temperature = float(old_state.attributes.get([ATTR_TEMPERATURE]))
 					# if the saved temperature is lower than the min_temp, set it to min_temp
-					if _old_target_temperature < self.min_temp:
+					if _old_target_temperature < self._min_temp:
 						_LOGGER.warning(
 							"better_thermostat %s: Saved target temperature %s is lower than min_temp %s, setting to min_temp",
 							self.name,
 							_old_target_temperature,
-							self.min_temp
+							self._min_temp
 						)
-						self._target_temp = self.min_temp
+						self._target_temp = self._min_temp
 					# if the saved temperature is higher than the max_temp, set it to max_temp
-					elif _old_target_temperature > self.max_temp:
+					elif _old_target_temperature > self._max_temp:
 						_LOGGER.warning(
 							"better_thermostat %s: Saved target temperature %s is higher than max_temp %s, setting to max_temp",
 							self.name,
 							_old_target_temperature,
-							self.min_temp
+							self._min_temp
 						)
-						self._target_temp = self.max_temp
+						self._target_temp = self._max_temp
 			if not self._hvac_mode and old_state.state:
 				self._hvac_mode = old_state.state
 			if not old_state.attributes.get(ATTR_STATE_LAST_CHANGE):
@@ -304,23 +304,23 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
 					if self.night_temp and isinstance(self.night_temp, numbers.Number):
 						_night_temp = float(self.night_temp)
 						# if the night temperature is lower than min_temp, set it to min_temp
-						if _night_temp < self.min_temp:
+						if _night_temp < self._min_temp:
 							_LOGGER.error(
 								"better_thermostat %s: Night temperature %s is lower than min_temp %s, setting to min_temp",
 								self.name,
 								_night_temp,
-								self.min_temp
+								self._min_temp
 							)
-							self._target_temp = self.min_temp
+							self._target_temp = self._min_temp
 						# if the night temperature is higher than the max_temp, set it to max_temp
-						elif _night_temp > self.max_temp:
+						elif _night_temp > self._max_temp:
 							_LOGGER.warning(
 								"better_thermostat %s: Night temperature %s is higher than max_temp %s, setting to max_temp",
 								self.name,
 								_night_temp,
-								self.min_temp
+								self._min_temp
 							)
-							self._target_temp = self.max_temp
+							self._target_temp = self._max_temp
 					else:
 						_LOGGER.error("better_thermostat %s: Night temp '%s' is not a number", self.name, str(self.night_temp))
 		
@@ -332,7 +332,7 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
 					self.name,
 					self._target_temp
 				)
-				self._target_temp = self.min_temp
+				self._target_temp = self._min_temp
 				self._hvac_mode = HVAC_MODE_OFF
 				
 		# if hvac mode could not be restored, turn heat off
