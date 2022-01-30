@@ -17,7 +17,8 @@
     "sensor"
   ],
   "codeowners": [
-    "@kartoffeltoby"
+    "@kartoffeltoby",
+    "@RubenKelevra"
   ],
   "requirements": []
 }

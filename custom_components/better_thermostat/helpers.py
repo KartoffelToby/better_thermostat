@@ -1,14 +1,17 @@
+"""Helper functions for the Better Thermostat component."""
+
 import asyncio
 import logging
 from datetime import datetime
 
-from homeassistant.components.climate.const import (SERVICE_SET_TEMPERATURE, SERVICE_SET_HVAC_MODE, )
-from homeassistant.components.number.const import (SERVICE_SET_VALUE, )
+from homeassistant.components.climate.const import (SERVICE_SET_TEMPERATURE, SERVICE_SET_HVAC_MODE)
+from homeassistant.components.number.const import (SERVICE_SET_VALUE)
 
 _LOGGER = logging.getLogger(__name__)
 
 
 def check_float(potential_float):
+	"""Check if a string is a float."""
 	try:
 		float(potential_float)
 		return True
@@ -17,6 +20,7 @@ def check_float(potential_float):
 
 
 def convert_time(time_string):
+	"""Convert a time string to a datetime object."""
 	try:
 		_current_time = datetime.now()
 		_get_hours_minutes = datetime.strptime(time_string, "%H:%M")
@@ -26,6 +30,7 @@ def convert_time(time_string):
 
 
 def convert_decimal(decimal_string):
+	"""Convert a decimal string to a float."""
 	try:
 		return float(format(float(decimal_string), '.1f'))
 	except ValueError:
@@ -33,6 +38,7 @@ def convert_decimal(decimal_string):
 
 
 async def set_trv_values(self, key, value):
+	"""Do necessary actions to set the TRV values."""
 	if key == 'temperature':
 		await self.hass.services.async_call('climate', SERVICE_SET_TEMPERATURE, {'entity_id': self.heater_entity_id, 'temperature': value}, blocking=True)
 		_LOGGER.debug("better_thermostat send %s %s", key, value)
