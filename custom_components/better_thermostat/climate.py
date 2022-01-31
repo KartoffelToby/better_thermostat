@@ -455,7 +455,7 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
 					self.window_open = False
 					self.closed_window_triggered = False
 				_LOGGER.debug(
-					"better_thermostat %s: detected window state st startup: %s",
+					"better_thermostat %s: detected window state at startup: %s",
 					self.name,
 					"Open" if self.window_open else "Closed"
 				)
