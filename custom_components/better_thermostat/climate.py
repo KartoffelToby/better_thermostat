@@ -791,7 +791,7 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
 			
 			
 			except TypeError as e:
-				_LOGGER.debug("better_thermostat entity not ready or device is currently not supported %s", e)
+				_LOGGER.error("better_thermostat entity not ready or device is currently not supported %s", e)
 			
 			self.async_write_ha_state()
 	
