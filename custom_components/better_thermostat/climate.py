@@ -342,12 +342,10 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
 		else:
 			# No previous state, try and restore defaults
 			if self._target_temp is None:
-				_LOGGER.warning(
-					"better_thermostat %s: No previously saved temperature found on startup, setting default value %s and turn heat off",
-					self.name,
-					self._target_temp
+				_LOGGER.info(
+					"better_thermostat %s: No previously saved temperature found on startup, turning heat off",
+					self.name
 				)
-				self._target_temp = self._min_temp
 				self._hvac_mode = HVAC_MODE_OFF
 		
 		# if hvac mode could not be restored, turn heat off
@@ -422,14 +420,6 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
 				)
 				_ready = False
 			
-			if self.hass.states.get(self.heater_entity_id).attributes.get('device') is None:
-				_LOGGER.info(
-					"better_thermostat %s: waiting for TRV/climate entity with id '%s' to become fully available...",
-					self.name,
-					self.heater_entity_id
-				)
-				_ready = False
-			
 			if self.window_sensors_entity_ids in (STATE_UNAVAILABLE, STATE_UNKNOWN, None) or window.state in (
 					STATE_UNAVAILABLE, STATE_UNKNOWN, None):
 				_LOGGER.info(
@@ -455,7 +445,7 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
 					self.window_open = False
 					self.closed_window_triggered = False
 				_LOGGER.debug(
-					"better_thermostat %s: detected window state st startup: %s",
+					"better_thermostat %s: detected window state at startup: %s",
 					self.name,
 					"Open" if self.window_open else "Closed"
 				)
