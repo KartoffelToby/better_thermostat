@@ -1,0 +1,19 @@
+device:
+  vendor: Eurotronic
+  product_name: Spirit Zigbee
+  product_number: SPZB0001
+  ha_device_info:
+    manufacturer: "Eurotronic"
+    model: "Spirit Zigbee wireless heater thermostat (SPZB0001)"
+  temperature_correction_mode: local_setpoint_delta
+  device_features:
+    local_setpoint_delta:
+      supported: unknown
+      temperature_step: unknown
+    system_modes: unknown
+    boost_mode: unknown
+    temperature_step: unknown
+    temperature_unit: celsius
+  quirks:
+    heat_mode: "auto"
+    calibration_round: false

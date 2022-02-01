@@ -1,0 +1,17 @@
+device:
+  vendor: BECA
+  product_name: BRT-100 ZB
+  product_number: BRT‑100‑TRV
+  ha_device_info:
+    manufacturer: unknown
+    model: unknown
+  temperature_correction_mode: setpoint_override
+  device_features:
+    local_setpoint_delta:
+      supported: unknown
+      temperature_step: unknown
+    system_modes: unknown
+    boost_mode: unknown
+    temperature_step: unknown
+    temperature_unit: celsius
+  quirks:

@@ -1,0 +1,18 @@
+device:
+  vendor: TuYa
+  product_name: TS0601
+  product_number: TS0601_thermostat
+  ha_device_info:
+    manufacturer: "TuYa"
+    model: "Radiator valve with thermostat (TS0601_thermostat)"
+  temperature_correction_mode: setpoint_override
+  device_features:
+    local_setpoint_delta:
+      supported: true
+      temperature_step: half_degree
+    system_modes: true
+    boost_mode: true
+    temperature_step: half_degree
+    temperature_unit: celsius
+  quirks:
+    heat_mode: "auto"
