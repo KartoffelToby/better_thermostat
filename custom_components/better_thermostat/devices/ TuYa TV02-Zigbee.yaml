@@ -1,0 +1,19 @@
+device:
+  vendor: TuYa
+  product_name: TV02-Zigbee
+  product_number: TV02-Zigbee
+  ha_device_info:
+    manufacturer: "TuYa"
+    model: "Thermostat radiator valve (TV02-Zigbee)"
+  temperature_correction_mode: local_setpoint_delta
+  device_features:
+    local_setpoint_delta:
+      supported: true
+      temperature_step: half_degree
+    system_modes: true
+    presets:
+      supported: false
+      setpoint_mode: "manual"
+    temperature_step: half_degree
+    temperature_unit: celsius
+  quirks:
