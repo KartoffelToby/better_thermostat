@@ -1,0 +1,23 @@
+device:
+  vendor: Netatmo
+  product_name: Smart Thermostat
+  product_number: unknown
+  ha_device_info:
+    manufacturer: Netatmo
+    model: Smart Radiator Valves
+  temperature_correction_mode: unknown
+  device_features:
+    local_setpoint_delta:
+      supported: unknown
+      temperature_step: unknown
+    system_modes: unknown
+    presets:
+      supported: unknown
+      boost_mode: unknown
+      setpoint_mode: unknown
+    boost_mode: unknown
+    temperature_step: unknown
+    temperature_unit: celsius
+  quirks:
+    heat_mode: unknown
+    boost_countdown_field: unknown
