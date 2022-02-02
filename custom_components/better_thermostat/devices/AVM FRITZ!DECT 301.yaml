@@ -1,0 +1,18 @@
+device:
+  vendor: AVM
+  product_name: FRITZ!DECT 301
+  product_number: FRITZ!DECT 301
+  ha_device_info:
+    manufacturer: "AVM"
+    model: "FRITZ!DECT 301"
+  temperature_correction_mode: setpoint_override
+  device_features:
+    local_setpoint_delta:
+      supported: false
+    system_modes: true
+    presets:
+      supported: false
+    boost_mode: false
+    temperature_step: half_degree
+    temperature_unit: celsius
+  quirks:
