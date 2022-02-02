@@ -14,6 +14,8 @@ device:
     presets:
       supported: false
       setpoint_mode: "manual"
+    boost_mode: boost_countdown_field
     temperature_step: half_degree
     temperature_unit: celsius
   quirks:
+    boost_countdown_field: "boost_timeset_countdown"
