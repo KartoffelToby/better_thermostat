@@ -1,0 +1,22 @@
+device:
+  vendor: Drayton
+  product_name: Wiser iTRV
+  product_number: Wiser iTRV
+  ha_device_info:
+    manufacturer: unknown
+    model: unknown
+  temperature_correction_mode: unknown
+  device_features:
+    local_setpoint_delta:
+      supported: unknown
+      temperature_step: half_degree
+    system_modes: true
+    presets:
+      supported: true
+      boost_mode: "Boost 30m"
+      setpoint_mode: "None"
+    boost_mode: system_preset
+    temperature_step: half_degree
+    temperature_unit: celsius
+  quirks:
+    heat_mode: unknown
