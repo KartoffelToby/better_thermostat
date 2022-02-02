@@ -11,7 +11,11 @@ device:
       supported: true
       temperature_step: half_degree
     system_modes: true
-    boost_mode: true
+    presets:
+      supported: true
+      boost_mode: "Boost"
+      setpoint_mode: "manual"
+    boost_mode: system_preset
     temperature_step: half_degree
     temperature_unit: celsius
   quirks:

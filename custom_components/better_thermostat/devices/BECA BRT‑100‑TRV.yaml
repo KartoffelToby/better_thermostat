@@ -11,6 +11,8 @@ device:
       supported: unknown
       temperature_step: unknown
     system_modes: unknown
+    presets:
+      supported: unknown
     boost_mode: unknown
     temperature_step: unknown
     temperature_unit: celsius
