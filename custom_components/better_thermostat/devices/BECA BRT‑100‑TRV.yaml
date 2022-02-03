@@ -3,8 +3,8 @@ device:
   product_name: BRT-100 ZB
   product_number: BRT‑100‑TRV
   ha_device_info:
-    manufacturer: unknown
-    model: unknown
+    manufacturer: "Moes"
+    model: "Thermostatic radiator valve (BRT-100-TRV)"
   temperature_correction_mode: setpoint_override
   device_features:
     local_setpoint_delta:
