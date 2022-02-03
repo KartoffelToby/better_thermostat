@@ -3,8 +3,8 @@ device:
   product_name: Radiator Thermostat
   product_number: GS361A‑H04
   ha_device_info:
-    manufacturer: unknown
-    model: unknown
+    manufacturer: "Siterwell"
+    model: "Radiator valve with thermostat (GS361A-H04)"
   temperature_correction_mode: setpoint_override
   device_features:
     local_setpoint_delta:
