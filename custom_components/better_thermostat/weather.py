@@ -11,22 +11,12 @@ _LOGGER = logging.getLogger(__name__)
 async def check_weather(self):
 	# check weather predictions or ambient air temperature if available
 	if self.weather_entity is not None:
-		return check_weather_prediction()
+		return check_weather_prediction(self)
 	elif self.outdoor_sensor is not None:
-		return check_ambient_air_temperature()
+		return check_ambient_air_temperature(self)
 	else:
 		_LOGGER.warning("better_thermostat: call for heat decision: could not evaluate sensor/weather entity data, force heat on")
 		return True
-
-async def check_summer_state(self):
-	# check if's summer
-	if self._hvac_mode != HVAC_MODE_OFF and not self.window_open and not self.call_for_heat and not self.load_saved_state:
-		self.last_change = self._hvac_mode
-		self._hvac_mode = HVAC_MODE_OFF
-		self.load_saved_state = True
-	elif self.load_saved_state and self.call_for_heat and not self.window_open:
-		self._hvac_mode = self.last_change
-		self.load_saved_state = False
 
 def check_weather_prediction(self):
 	"""
@@ -45,7 +35,6 @@ def check_weather_prediction(self):
 		forcast = self.hass.states.get(self.weather_entity).attributes.get('forecast')
 		if len(forcast) > 0:
 			max_forcast_temp = math.ceil((float(forcast[0]['temperature']) + float(forcast[1]['temperature'])) / 2)
-			_LOGGER.debug("better_thermostat: avg weather temp: %s", max_forcast_temp)
 			return float(max_forcast_temp) < float(self.off_temperature)
 		else:
 			raise TypeError

@@ -1,7 +1,5 @@
 """Utility functions for the Better Thermostat."""
 
-from ..helpers import convert_decimal
-
 def mode_remap(hvac_mode, modes):
 	"""Remap HVAC mode to better mode."""
 	if modes is None:
@@ -43,3 +41,11 @@ def temperature_calibration(self):
 		new_calibration = float(self._TRV_max_temp)
 	
 	return new_calibration
+
+
+def convert_decimal(decimal_string):
+	"""Convert a decimal string to a float."""
+	try:
+		return float(format(float(decimal_string), '.1f'))
+	except ValueError:
+		return None
