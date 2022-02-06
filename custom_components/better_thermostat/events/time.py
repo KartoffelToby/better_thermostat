@@ -1,4 +1,6 @@
 import logging
+
+from ..controlling import controll_trv
 from homeassistant.core import callback
 
 _LOGGER = logging.getLogger(__name__)
@@ -30,7 +32,7 @@ async def trigger_time(self, current_time):
         self.night_mode_active = False
     
     self.async_write_ha_state()
-    await self._async_control_heating()
+    await controll_trv(self)
 
 @callback
 def _nighttime(self, current_time):

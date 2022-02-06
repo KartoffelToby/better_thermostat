@@ -4,11 +4,23 @@ import asyncio
 import logging
 
 from datetime import datetime
+
+from .events.temperature import _async_update_temp
+from .controlling import controll_trv
 from homeassistant.helpers.entity_registry import (async_entries_for_config_entry)
 from homeassistant.const import (STATE_UNAVAILABLE, STATE_UNKNOWN)
 from homeassistant.components.climate.const import (HVAC_MODE_OFF)
 
 _LOGGER = logging.getLogger(__name__)
+
+def log_info(self, message):
+	"""Log a message to the info log."""
+	_LOGGER.debug(
+		"better_thermostat with config name: %s, %s TRV: %s",
+		self.name,
+		message,
+		self.hass.states.get(self.heater_entity_id).attributes.get('device').get('friendlyName')
+	)
 
 async def startup(self):
 	"""Run startup tasks."""
@@ -113,11 +125,24 @@ async def startup(self):
 				self.local_temperature_calibration_entity = entity.entity_id
 			if "valve_position" in uid:
 				self.valve_position_entity = entity.entity_id
-		self._async_update_temp(sensor_state)
+		_async_update_temp(self,sensor_state)
 		self.async_write_ha_state()
 		await asyncio.sleep(5)
+		# Use the same precision and min and max as the TRV
+		if self.hass.states.get(self.heater_entity_id).attributes.get('target_temp_step') is not None:
+			self._TRV_target_temp_step = float(self.hass.states.get(self.heater_entity_id).attributes.get('target_temp_step'))
+		else:
+			self._TRV_target_temp_step = 1
+		if self.hass.states.get(self.heater_entity_id).attributes.get('min_temp') is not None:
+			self._TRV_min_temp = float(self.hass.states.get(self.heater_entity_id).attributes.get('min_temp'))
+		else:
+			self._TRV_min_temp = 5
+		if self.hass.states.get(self.heater_entity_id).attributes.get('max_temp') is not None:
+			self._TRV_max_temp = float(self.hass.states.get(self.heater_entity_id).attributes.get('max_temp'))
+		else:
+			self._TRV_max_temp = 30
 		_LOGGER.info("better_thermostat %s: startup completed.", self.name)
-		await self._async_control_heating()
+		await controll_trv(self)
 	return True
 
 def check_float(potential_float):
@@ -137,12 +162,3 @@ def convert_time(time_string):
 		return _current_time.replace(hour=_get_hours_minutes.hour, minute=_get_hours_minutes.minute, second=0, microsecond=0)
 	except ValueError:
 		return None
-
-
-def convert_decimal(decimal_string):
-	"""Convert a decimal string to a float."""
-	try:
-		return float(format(float(decimal_string), '.1f'))
-	except ValueError:
-		return None
-
