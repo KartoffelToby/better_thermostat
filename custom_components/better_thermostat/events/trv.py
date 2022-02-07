@@ -1,6 +1,6 @@
 import logging
 
-from ..controlling import controll_trv
+from ..controlling import control_trv
 from ..const import ATTR_VALVE_POSITION
 from ..models.models import convert_inbound_states
 from homeassistant.components.climate.const import (HVAC_MODE_OFF)
@@ -35,7 +35,7 @@ async def trigger_trv_change(self, event):
 							if self._hvac_mode != HVAC_MODE_OFF and self.window_open:
 									self._hvac_mode = HVAC_MODE_OFF
 									_LOGGER.debug("better_thermostat %s: Window open, turn off the heater", self.name)
-									await controll_trv(self)
+									await control_trv(self)
 					
 					if not self.ignore_states and new_state.attributes.get(
 									'current_heating_setpoint'
@@ -64,7 +64,7 @@ async def trigger_trv_change(self, event):
 											new_state.attributes.get('current_heating_setpoint'),
 											_new_heating_setpoint
 									)
-									await controll_trv(self)
+									await control_trv(self)
 			
 			
 			except TypeError as e:
