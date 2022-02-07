@@ -11,7 +11,7 @@ from homeassistant.const import (ATTR_TEMPERATURE)
 
 _LOGGER = logging.getLogger(__name__)
 
-async def controll_trv(self):
+async def control_trv(self):
 	"""This is the main controller for the real TRV"""
 	if self.startup_running:
 		return
@@ -64,7 +64,7 @@ async def set_target_temperature(self, **kwargs):
 		return
 	self._target_temp = temperature
 	self.async_write_ha_state()
-	await controll_trv(self)
+	await control_trv(self)
 
 async def set_hvac_mode(self, hvac_mode):
 	if hvac_mode == HVAC_MODE_HEAT:
@@ -74,7 +74,7 @@ async def set_hvac_mode(self, hvac_mode):
 	else:
 		_LOGGER.error("better_thermostat %s: Unsupported hvac_mode %s", self.name, hvac_mode)
 	self.async_write_ha_state()
-	await controll_trv(self)
+	await control_trv(self)
 
 async def change_hvac_mode(self,hvac_mode):
 	# Check if the TRV has a real hvac mode before set it.
@@ -230,4 +230,4 @@ async def trv_valve_maintenance(self):
 	self.ignore_states = False
 	
 	# restarting normal heating control immediately
-	await controll_trv(self)
+	await control_trv(self)

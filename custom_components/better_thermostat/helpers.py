@@ -6,7 +6,7 @@ import logging
 from datetime import datetime
 
 from .events.temperature import _async_update_temp
-from .controlling import controll_trv
+from .controlling import control_trv
 from homeassistant.helpers.entity_registry import (async_entries_for_config_entry)
 from homeassistant.const import (STATE_UNAVAILABLE, STATE_UNKNOWN)
 from homeassistant.components.climate.const import (HVAC_MODE_OFF)
@@ -142,7 +142,7 @@ async def startup(self):
 		else:
 			self._TRV_max_temp = 30
 		_LOGGER.info("better_thermostat %s: startup completed.", self.name)
-		await controll_trv(self)
+		await control_trv(self)
 	return True
 
 def check_float(potential_float):

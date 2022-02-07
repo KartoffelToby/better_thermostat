@@ -1,7 +1,7 @@
 import logging
 import asyncio
 
-from ..controlling import controll_trv
+from ..controlling import control_trv
 from homeassistant.core import callback
 from homeassistant.components.climate.const import (HVAC_MODE_OFF)
 
@@ -20,4 +20,4 @@ async def trigger_window_change(self):
 			self.window_open = False
 		_LOGGER.debug("better_thermostat %s: Window (group) state changed to %s", self.name, "open" if self.window_open else "closed")
 		self.async_write_ha_state()
-		await controll_trv(self)
+		await control_trv(self)
