@@ -208,14 +208,14 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
 			_LOGGER.debug("Night mode configured")
 			async_track_time_change(
 				self.hass,
-				trigger_time,
+				self._trigger_time,
 				self.night_start.hour,
 				self.night_start.minute,
 				self.night_start.second,
 			)
 			async_track_time_change(
 				self.hass,
-				trigger_time,
+				self._trigger_time,
 				self.night_end.hour,
 				self.night_end.minute,
 				self.night_end.second,
@@ -320,6 +320,9 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
 			)
 			self._hvac_mode = HVAC_MODE_OFF
 		self.async_write_ha_state()
+
+	async def _trigger_time(self,event):
+		await trigger_time(self,event)
 
 	async def _trigger_temperature_change(self,event):
 		await trigger_temperature_change(self,event)
