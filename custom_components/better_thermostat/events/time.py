@@ -12,7 +12,7 @@ async def trigger_time(self, current_time):
     @param current_time:
     """
     
-    _is_night = _nighttime(current_time)
+    _is_night = _nighttime(self,current_time)
     
     if _is_night is None:
         _LOGGER.error("better_thermostat %s: Error while checking if it is night", self.name)
@@ -39,7 +39,7 @@ def _nighttime(self, current_time):
     """
     Return whether it is nighttime.
     @param current_time: time.time()
-    @return: bool True if it is nighttime; None if not configured
+    @return: bool True if it is nighttime; True if not configured
     """
     _return_value = None
     
@@ -47,26 +47,10 @@ def _nighttime(self, current_time):
     if not all([self.night_start, self.night_end, current_time]):
         return _return_value
     
-    # fetch to instance variables, since we might want to swap them
-    start_time, end_time = self.night_start, self.night_end
-    
-    # if later set to true we'll swap the variables and output boolean, 'cause we use the logic backwards
-    #   if the nighttime passes not over midnight, like (01:00 to 05:00) we use the inverted logic
-    #   while something like 23:00 to 05:00 would use the default
-    _reverse = False
-    
-    if start_time.hour < end_time.hour or (start_time.hour == end_time.hour and start_time.minute < end_time.minute):
-        # not passing midnight, so we use the inverted logic
-        _reverse = True
-        start_time, end_time = end_time, start_time
-    
-    # if we are after the start time, but before the end time, we are in the night
-    if (current_time.hour > start_time.hour or (
-            current_time.hour == start_time.hour and current_time.minute >= start_time.minute)) and current_time.hour < end_time.hour or (
-            current_time.hour == end_time.hour and current_time.minute < end_time.minute):
+    if self.night_start.hour == current_time.hour and self.night_start.minute == current_time.minute:
         _return_value = True
     
-    # flip output, since we flipped the start/end time
-    if _reverse:
-        return not _return_value
+    if self.night_end.hour == current_time.hour and self.night_end.minute == current_time.minute:
+        _return_value = False
+    
     return _return_value

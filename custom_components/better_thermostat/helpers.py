@@ -84,15 +84,15 @@ async def startup(self):
 				self.heater_entity_id
 			)
 			_ready = False
-		
-		if self.window_sensors_entity_ids in (STATE_UNAVAILABLE, STATE_UNKNOWN, None) or window.state in (
-				STATE_UNAVAILABLE, STATE_UNKNOWN, None):
-			_LOGGER.info(
-				"better_thermostat %s: waiting for window sensor entity with id '%s' to become fully available...",
-				self.name,
-				self.window_sensors_entity_ids
-			)
-			_ready = False
+		if self.window_sensors_entity_ids:
+			if self.window_sensors_entity_ids in (STATE_UNAVAILABLE, STATE_UNKNOWN, None) or window.state in (
+					STATE_UNAVAILABLE, STATE_UNKNOWN, None):
+				_LOGGER.info(
+					"better_thermostat %s: waiting for window sensor entity with id '%s' to become fully available...",
+					self.name,
+					self.window_sensors_entity_ids
+				)
+				_ready = False
 		
 		if not _ready:
 			_LOGGER.info("better_thermostat %s: retry startup in 15 seconds...", self.name)
@@ -114,6 +114,8 @@ async def startup(self):
 				self.name,
 				"Open" if self.window_open else "Closed"
 			)
+		if not self.window_sensors_entity_ids:
+			self.window_open = False
 		
 		self.startup_running = False
 		entity_registry = await self.hass.helpers.entity_registry.async_get_registry()
