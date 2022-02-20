@@ -29,19 +29,19 @@ def default_calibration(self):
 	# FIXME: Write docstring
 	
 	state = self.hass.states.get(self.heater_entity_id).attributes
-	new_calibration = float((float(self._cur_temp) - float(state.get('local_temperature'))) + float(state.get('local_temperature_calibration')))
+	new_calibration = float((float(self._cur_temp) - float(state.get('current_temperature'))) + float(state.get('local_temperature_calibration')))
 	return convert_decimal(new_calibration)
 
 def temperature_calibration(self):
 	# FIXME: Write docstring
 	
 	state = self.hass.states.get(self.heater_entity_id).attributes
-	if not all([self._target_temp, self._cur_temp, state.get('local_temperature')]):
+	if not all([self._target_temp, self._cur_temp, state.get('current_temperature')]):
 		if not self._target_temp:
 			return float(self._TRV_min_temp)
 		return float(self._target_temp)
 	else:
-		new_calibration = abs(float(round((float(self._target_temp) - float(self._cur_temp)) + float(state.get('local_temperature')), 2)))
+		new_calibration = abs(float(round((float(self._target_temp) - float(self._cur_temp)) + float(state.get('current_temperature')), 2)))
 		if new_calibration < float(self._TRV_min_temp):
 			new_calibration = float(self._TRV_min_temp)
 		if new_calibration > float(self._TRV_max_temp):

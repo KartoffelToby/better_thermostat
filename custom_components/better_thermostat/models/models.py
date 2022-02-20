@@ -38,7 +38,7 @@ def convert_inbound_states(self, state):
 	
 	return {
 		"current_heating_setpoint"     : current_heating_setpoint,
-		"local_temperature"            : state.get('local_temperature'),
+		"local_temperature"            : state.get('current_temperature'),
 		"local_temperature_calibration": state.get('local_temperature_calibration'),
 		"system_mode"                  : hvac_mode}
 
@@ -96,7 +96,7 @@ def convert_outbound_states(self, hvac_mode):
 	
 	return {
 		"current_heating_setpoint"     : current_heating_setpoint,
-		"local_temperature"            : state.get('local_temperature'),
+		"local_temperature"            : state.get('current_temperature'),
 		"system_mode"                  : hvac_mode,
 		"local_temperature_calibration": local_temperature_calibration
 	}
