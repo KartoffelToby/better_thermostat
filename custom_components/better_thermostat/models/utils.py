@@ -19,33 +19,42 @@ def reverse_modes(modes):
 def calibration(self, calibration_type):
 	"""Select calibration function based on calibration type."""
 	if calibration_type == 1:
-		return temperature_calibration(self)
+		return calculate_setpoint_override(self)
 	if calibration_type == 0:
-		return default_calibration(self)
+		return calculate_local_setpoint_delta(self)
 
-def default_calibration(self):
+def calculate_local_setpoint_delta(self):
 	# FIXME: Write docstring
 	
 	state = self.hass.states.get(self.heater_entity_id).attributes
-	new_calibration = float((float(self._cur_temp) - float(state.get('local_temperature'))) + float(state.get('local_temperature_calibration')))
-	return convert_decimal(new_calibration)
+	
+	if _local_temp := state.get('local_temperature') is None:
+		_local_temp = 0
+	else:
+		_local_temp = float(_local_temp)
+		
+	if _local_temp_calibration := state.get('local_temperature_calibration') is None:
+		_local_temp_calibration = 0
+	else:
+		_local_temp_calibration = float(_local_temp_calibration)
+		
+	new_local_calibration = self._cur_temp - _local_temp + _local_temp_calibration
+	return new_local_calibration
 
-def temperature_calibration(self):
+def calculate_setpoint_override(self):
 	# FIXME: Write docstring
 	
 	state = self.hass.states.get(self.heater_entity_id).attributes
-	new_calibration = abs(float(round((float(self._target_temp) - float(self._cur_temp)) + float(state.get('local_temperature')), 2)))
-	if new_calibration < float(self._TRV_min_temp):
-		new_calibration = float(self._TRV_min_temp)
-	if new_calibration > float(self._TRV_max_temp):
-		new_calibration = float(self._TRV_max_temp)
 	
-	return new_calibration
-
-
-def convert_decimal(decimal_string):
-	"""Convert a decimal string to a float."""
-	try:
-		return float(format(float(decimal_string), '.1f'))
-	except ValueError:
-		return None
+	if _local_temp := state.get('local_temperature') is None:
+		_local_temp = 0
+	else:
+		_local_temp = float(_local_temp)
+		
+	calibrated_setpoint = self._target_temp - self._cur_temp + _local_temp
+	if calibrated_setpoint < float(self._TRV_min_temp):
+		calibrated_setpoint = float(self._TRV_min_temp)
+	if calibrated_setpoint > float(self._TRV_max_temp):
+		calibrated_setpoint = float(self._TRV_max_temp)
+	
+	return calibrated_setpoint
