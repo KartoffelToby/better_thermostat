@@ -28,33 +28,33 @@ def calculate_local_setpoint_delta(self):
 	
 	state = self.hass.states.get(self.heater_entity_id).attributes
 	
-	if _local_temp := state.get('local_temperature') is None:
-		_local_temp = 0
+	if _current_trv_temp := state.get('current_temperature') is None:
+		_current_trv_temp = 0
 	else:
-		_local_temp = float(_local_temp)
+		_current_trv_temp = float(_current_trv_temp)
 		
-	if _local_temp_calibration := state.get('local_temperature_calibration') is None:
-		_local_temp_calibration = 0
+	if _current_trv_calibration := state.get('current_temperature_calibration') is None:
+		_current_trv_calibration = 0
 	else:
-		_local_temp_calibration = float(_local_temp_calibration)
+		_current_trv_calibration = float(_current_trv_calibration)
 		
-	new_local_calibration = self._cur_temp - _local_temp + _local_temp_calibration
-	return new_local_calibration
+	_new_local_calibration = self._cur_temp - _current_trv_temp + _current_trv_calibration
+	return _new_local_calibration
 
 def calculate_setpoint_override(self):
 	# FIXME: Write docstring
 	
 	state = self.hass.states.get(self.heater_entity_id).attributes
 	
-	if _local_temp := state.get('local_temperature') is None:
-		_local_temp = 0
+	if _current_trv_temp := state.get('current_temperature') is None:
+		_current_trv_temp = 0
 	else:
-		_local_temp = float(_local_temp)
+		_current_trv_temp = float(_current_trv_temp)
 		
-	calibrated_setpoint = self._target_temp - self._cur_temp + _local_temp
-	if calibrated_setpoint < float(self._TRV_min_temp):
-		calibrated_setpoint = float(self._TRV_min_temp)
-	if calibrated_setpoint > float(self._TRV_max_temp):
-		calibrated_setpoint = float(self._TRV_max_temp)
+	_calibrated_setpoint = self._target_temp - self._cur_temp + _current_trv_temp
+	if _calibrated_setpoint < float(self._TRV_min_temp):
+		_calibrated_setpoint = float(self._TRV_min_temp)
+	if _calibrated_setpoint > float(self._TRV_max_temp):
+		_calibrated_setpoint = float(self._TRV_max_temp)
 	
-	return calibrated_setpoint
+	return _calibrated_setpoint
