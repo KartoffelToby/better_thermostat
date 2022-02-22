@@ -209,23 +209,13 @@ async def trv_valve_maintenance(self):
 			pass
 		
 		if valve_position_available:
-			await set_trv_values(self, 'valve_position', 255)
-			await asyncio.sleep(60)
-			await set_trv_values(self, 'valve_position', 0)
-			await asyncio.sleep(60)
-			await set_trv_values(self, 'valve_position', 255)
-			await asyncio.sleep(60)
-			await set_trv_values(self, 'valve_position', 0)
-			await asyncio.sleep(60)
+			for position in (255, 0, 255, 0):
+				await set_trv_values(self, 'valve_position', position)
+				await asyncio.sleep(60)
 		else:
-			await set_trv_values(self, 'temperature', 30)
-			await asyncio.sleep(60)
-			await set_trv_values(self, 'temperature', 5)
-			await asyncio.sleep(60)
-			await set_trv_values(self, 'temperature', 30)
-			await asyncio.sleep(60)
-			await set_trv_values(self, 'temperature', 5)
-			await asyncio.sleep(60)
+			for temperature in (30, 5, 30, 5):
+				await set_trv_values(self, 'temperature', temperature)
+				await asyncio.sleep(60)
 	
 	self.ignore_states = False
 	
