@@ -53,7 +53,7 @@ async def get_device_model(self):
 			except AttributeError:
 				# Other climate integrations might report the model name plainly, need more infos on this
 				return device.model
-		except (RuntimeError, ValueError, AttributeError, KeyError, TypeError, NameError, IndexError) as e:
+		except (RuntimeError, ValueError, AttributeError, KeyError, TypeError, NameError, IndexError):
 			_LOGGER.error(
 				"better_thermostat %s: could not read device model of your TVR. Make sure this device exists in Home Assistant.",
 				self.name
