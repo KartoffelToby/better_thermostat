@@ -9,7 +9,7 @@ from homeassistant.components.climate.const import (HVAC_MODE_HEAT, HVAC_MODE_OF
 from homeassistant.helpers import device_registry as dr, entity_registry as er
 from homeassistant.util import yaml
 
-from .utils import calibration, mode_remap, reverse_modes
+from .utils import calculate_local_setpoint_delta, calculate_setpoint_override, mode_remap, reverse_modes
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -85,37 +85,90 @@ def load_device_config(self) -> bool:
 		return False
 
 
-def convert_outbound_states(self, hvac_mode) -> dict:
-	"""Convert HA state to outbound thermostat state."""
+def convert_outbound_states(self, hvac_mode) -> Union[dict, None]:
+	"""Creates the new outbound thermostat state.
+	
+	Returns: either a dictionary or None in case of a failure"""
 	state = self.hass.states.get(self.heater_entity_id).attributes
 	
+	_new_local_calibration = None
+	_new_heating_setpoint = None
+	
 	if self._config is None:
-		current_heating_setpoint = self._target_temp
-		local_temperature_calibration = round(calibration(self, 0))
+		_LOGGER.warning("better_thermostat %s: no matching device config loaded, talking to the TRV using fallback mode", self.name)
+		_new_heating_setpoint = self._target_temp
+		_new_local_calibration = round(calculate_local_setpoint_delta(self))
 	
 	else:
-		current_heating_setpoint = None
+		_calibration_type = self._config.get('calibration_type')
 		
-		local_temperature_calibration = calibration(self, self._config.get('calibration_type'))
-		self.calibration_type = self._config.get('calibration_type')
-		if self._config.get('calibration_round'):
-			local_temperature_calibration = round(local_temperature_calibration)
-		if self._config.get('calibration_type') == 0:
-			current_heating_setpoint = self._target_temp
-		elif self._config.get('calibration_type') == 1:
-			current_heating_setpoint = local_temperature_calibration
-			local_temperature_calibration = None
+		if _calibration_type is None:
+			_LOGGER.warning(
+				"better_thermostat %s: no calibration type found in device config, talking to the TRV using fallback mode",
+				self.name
+				)
+			_new_heating_setpoint = self._target_temp
+			_new_local_calibration = round(calculate_local_setpoint_delta(self))
 		
-		if state.get('system_mode') is not None:
-			if self._config.get('mode_map') is not None:
-				hvac_mode = mode_remap(hvac_mode, self._config.get('mode_map'))
 		else:
-			if hvac_mode == HVAC_MODE_OFF:
-				current_heating_setpoint = 5
+			_calibration_type = self._config.get('calibration_type')
+			
+			if _calibration_type == 0:
+				_round_calibration = self._config.get('calibration_round')
+				
+				if _round_calibration is not None and ((isinstance(_round_calibration, str) and _round_calibration.lower() == 'true') or _round_calibration is True):
+					_new_local_calibration = round(calculate_local_setpoint_delta(self))
+				else:
+					_new_local_calibration = calculate_local_setpoint_delta(self)
+				
+				_new_heating_setpoint = self._target_temp
+			
+			elif _calibration_type == 1:
+				_new_setpoint = calculate_setpoint_override(self)
+				
+			_has_system_mode = self._config.get('has_system_mode')
+			_system_mode = self._config.get('system_mode')
+			
+			if isinstance(_has_system_mode, str) and _has_system_mode.lower() == 'false':
+				# we expect no system mode
+				_has_system_mode = False
+			elif isinstance(_has_system_mode, str) and _has_system_mode.lower() == 'true':
+				# we expect a system mode
+				_has_system_mode = True
+			
+			# Handling different devices with or without system mode reported or contained in the device config
+			
+			if _has_system_mode is True or (_has_system_mode is None and _system_mode is not None):
+				if self._config.get('mode_map') is not None:
+					hvac_mode = mode_remap(hvac_mode, self._config.get('mode_map'))
+			
+			elif _has_system_mode is True and _system_mode is None:
+				_LOGGER.error(
+					f"better_thermostat {self.name}: device reports no system mode, while device config expects one. No changes to TRV "
+					f"will be made until device reports a system mode (again)"
+					)
+				return None
+			
+			elif _has_system_mode is False:
+				if _system_mode is not None:
+					_LOGGER.warning(
+						f"better_thermostat {self.name}: device config expects no system mode, while the device has one. Device system mode will be ignored"
+					)
+				hvac_mode = None
+				if hvac_mode == HVAC_MODE_OFF:
+					_new_heating_setpoint = 5
+			
+			elif _has_system_mode is None and _system_mode is None:
+				hvac_mode = None
+				if hvac_mode == HVAC_MODE_OFF:
+					_LOGGER.info(
+						f"better_thermostat {self.name}: sending 5°C to the TRV because this device has no system mode and heater should be off"
+					)
+					_new_heating_setpoint = 5
 	
 	return {
-		"current_heating_setpoint"     : current_heating_setpoint,
+		"current_heating_setpoint"     : _new_heating_setpoint,
 		"local_temperature"            : state.get('current_temperature'),
 		"system_mode"                  : hvac_mode,
-		"local_temperature_calibration": local_temperature_calibration
+		"local_temperature_calibration": _new_local_calibration
 	}
