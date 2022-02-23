@@ -1,6 +1,8 @@
 """Utility functions for the Better Thermostat."""
 import logging
+
 _LOGGER = logging.getLogger(__name__)
+
 
 def mode_remap(hvac_mode, modes):
 	"""Remap HVAC mode to better mode."""
@@ -11,12 +13,14 @@ def mode_remap(hvac_mode, modes):
 	else:
 		return hvac_mode
 
+
 def reverse_modes(modes):
 	"""Reverse HVAC modes."""
 	changed_dict = {}
 	for key, value in modes.items():
 		changed_dict[value] = key
 	return changed_dict
+
 
 def calibration(self, calibration_type):
 	"""Select calibration function based on calibration type."""
@@ -25,16 +29,27 @@ def calibration(self, calibration_type):
 	if calibration_type == 0:
 		return default_calibration(self)
 
+
 def default_calibration(self):
-	# This calibration is for devices with local calibration option, it syncs the current temperature of the TRV to the target temperature of the external sensor.
+	"""Calculate local delta to adjust the setpoint of the TRV based on the air temperature of the external sensor.
+	
+	This calibration is for devices with local calibration option, it syncs the current temperature of the TRV to the target temperature of
+	the external sensor.
+	"""
 	
 	state = self.hass.states.get(self.heater_entity_id).attributes
-	new_calibration = float((float(self._cur_temp) - float(state.get('current_temperature'))) + float(state.get('local_temperature_calibration')))
+	new_calibration = float(
+		(float(self._cur_temp) - float(state.get('current_temperature'))) + float(state.get('local_temperature_calibration'))
+	)
 	return convert_decimal(new_calibration)
 
+
 def temperature_calibration(self):
-	# This calibration is for devices with no local calibration option, it syncs the target temperature of the TRV to a new target temperature based on the current temperature of the external sensor.
+	"""Calculate new setpoint for the TRV based on its own temperature measurement and the air temperature of the external sensor.
 	
+	This calibration is for devices with no local calibration option, it syncs the target temperature of the TRV to a new target
+	temperature based on the current temperature of the external sensor.
+	"""
 	state = self.hass.states.get(self.heater_entity_id).attributes
 	if not all([self._target_temp, self._cur_temp, state.get('current_temperature')]):
 		if not self._target_temp:
