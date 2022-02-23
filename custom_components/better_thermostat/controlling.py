@@ -88,12 +88,12 @@ async def change_hvac_mode(self,hvac_mode):
 		await change_target_temperature(self,5.0)
 
 async def change_target_temperature(self,target_temp):
-	# Using on local calbiration, dont update the temp if its off, some TRV changed to 5°C when off after a while, don't update the temp
+	# Using on local calibration, don't update the temp if its off, some TRV changed to 5 °C when off after a while, don't update the temp
 	if not self.window_open and self._hvac_mode != HVAC_MODE_OFF and self.call_for_heat:
 		await set_trv_values(self, 'temperature', float(target_temp))
 
 async def change_local_calibration(self, calibration):
-	# Using on local calbiration, update only if the TRV is not in window open mode
+	# Using on local calibration, update only if the TRV is not in window open mode
 	if self.calibration_type == 0 and not self.window_open and self._hvac_mode != HVAC_MODE_OFF:
 		await set_trv_values(self, 'local_temperature_calibration', calibration)
 
