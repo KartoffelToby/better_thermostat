@@ -8,6 +8,7 @@ import homeassistant.util.dt as dt_util
 import voluptuous as vol
 from abc import ABC
 
+from pathlib import Path
 from datetime import datetime, timedelta
 from random import randint
 from homeassistant.components.climate import ClimateEntity, PLATFORM_SCHEMA
@@ -20,7 +21,7 @@ from homeassistant.helpers.restore_state import RestoreEntity
 from . import DOMAIN, PLATFORMS
 from .const import (VERSION,SUPPORT_FLAGS,CONF_HEATER,CONF_SENSOR,CONF_SENSOR_WINDOW,CONF_WEATHER,CONF_OUTDOOR_SENSOR,CONF_OFF_TEMPERATURE,CONF_WINDOW_TIMEOUT,CONF_VALVE_MAINTENANCE,CONF_NIGHT_TEMP,CONF_NIGHT_START,CONF_NIGHT_END,CONF_MIN_TEMP,CONF_MAX_TEMP,CONF_PRECISION,CONF_TARGET_TEMP,ATTR_STATE_CALL_FOR_HEAT,ATTR_STATE_DAY_SET_TEMP,ATTR_STATE_LAST_CHANGE,ATTR_STATE_NIGHT_MODE,ATTR_STATE_WINDOW_OPEN,DEFAULT_NAME)
 from .helpers import check_float, startup
-from .models.models import get_device_model
+from .models.models import get_device_model, load_device_config
 from .controlling import set_hvac_mode, set_target_temperature
 from .events.temperature import trigger_temperature_change
 from .events.time import trigger_time
@@ -187,10 +188,13 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
 		
 		# fetch device model from HA if necessary
 		self.model = await get_device_model(self)
+	
 		if self.model is None:
 			_LOGGER.error("better_thermostat %s: can't read the device model of TVR. please check if you have a device in HA", self.name)
 			return
-
+		else:
+			load_device_config(self)
+			
 		# Add listener
 		async_track_state_change_event(
 			self.hass, [self.sensor_entity_id], self._trigger_temperature_change
