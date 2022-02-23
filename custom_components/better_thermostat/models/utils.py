@@ -1,5 +1,6 @@
 """Utility functions for the Better Thermostat."""
 import logging
+from typing import Union
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -22,15 +23,15 @@ def reverse_modes(modes):
 	return changed_dict
 
 
-def calibration(self, calibration_type):
+def calibration(self, calibration_type: int) -> Union[float, None]:
 	"""Select calibration function based on calibration type."""
 	if calibration_type == 1:
-		return temperature_calibration(self)
+		return calculate_setpoint_override(self)
 	if calibration_type == 0:
-		return default_calibration(self)
+		return calculate_local_setpoint_delta(self)
 
 
-def default_calibration(self):
+def calculate_local_setpoint_delta(self) -> Union[float, None]:
 	"""Calculate local delta to adjust the setpoint of the TRV based on the air temperature of the external sensor.
 	
 	This calibration is for devices with local calibration option, it syncs the current temperature of the TRV to the target temperature of
@@ -38,36 +39,52 @@ def default_calibration(self):
 	"""
 	
 	state = self.hass.states.get(self.heater_entity_id).attributes
-	new_calibration = float(
-		(float(self._cur_temp) - float(state.get('current_temperature'))) + float(state.get('local_temperature_calibration'))
-	)
-	return convert_decimal(new_calibration)
+	
+	_context = "calculate_local_setpoint_delta()"
+	
+	_current_trv_temp = convert_to_float(state.get('current_temperature'), self.name, _context)
+	_current_trv_calibration = convert_to_float(state.get('current_temperature_calibration'), self.name, _context)
+	
+	if not all([self._target_temp, self._cur_temp, _current_trv_temp]):
+		return None
+	
+	_new_local_calibration = self._cur_temp - _current_trv_temp + _current_trv_calibration
+	return _new_local_calibration
 
 
-def temperature_calibration(self):
+def calculate_setpoint_override(self) -> Union[float, None]:
 	"""Calculate new setpoint for the TRV based on its own temperature measurement and the air temperature of the external sensor.
 	
 	This calibration is for devices with no local calibration option, it syncs the target temperature of the TRV to a new target
 	temperature based on the current temperature of the external sensor.
 	"""
 	state = self.hass.states.get(self.heater_entity_id).attributes
-	if not all([self._target_temp, self._cur_temp, state.get('current_temperature')]):
-		if not self._target_temp:
-			return float(self._TRV_min_temp)
-		return float(self._target_temp)
-	else:
-		new_calibration = float(round((float(self._target_temp) - float(self._cur_temp)) + float(state.get('current_temperature')), 2))
-		if new_calibration < float(self._TRV_min_temp):
-			new_calibration = float(self._TRV_min_temp)
-		if new_calibration > float(self._TRV_max_temp):
-			new_calibration = float(self._TRV_max_temp)
-		
-		return new_calibration
-
-
-def convert_decimal(decimal_string):
-	"""Convert a decimal string to a float."""
-	try:
-		return float(format(float(decimal_string), '.1f'))
-	except ValueError:
+	
+	_context = "calculate_setpoint_override()"
+	
+	_current_trv_temp = convert_to_float(state.get('current_temperature'), self.name, _context)
+	
+	if not all([self._target_temp, self._cur_temp, _current_trv_temp]):
 		return None
+	
+	_calibrated_setpoint = self._target_temp - self._cur_temp + _current_trv_temp
+	
+	# check if new setpoint is inside the TRV's range, else set to min or max
+	if _calibrated_setpoint < self._TRV_min_temp:
+		_calibrated_setpoint = self._TRV_min_temp
+	if _calibrated_setpoint > self._TRV_max_temp:
+		_calibrated_setpoint = self._TRV_max_temp
+	
+	return _calibrated_setpoint
+
+
+def convert_to_float(value: Union[str, int, float], instance_name: str, context: str) -> Union[float, None]:
+	"""Convert value to float or print error message."""
+	if isinstance(value, float):
+		return value
+	else:
+		try:
+			return float(value)
+		except (ValueError, TypeError, AttributeError, KeyError):
+			_LOGGER.error(f"better thermostat {instance_name}: Could not convert '{value}' to float in {context}")
+			return None

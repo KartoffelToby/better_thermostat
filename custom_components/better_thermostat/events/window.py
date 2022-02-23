@@ -3,7 +3,6 @@ import asyncio
 
 from ..controlling import control_trv
 from homeassistant.core import callback
-from homeassistant.components.climate.const import (HVAC_MODE_OFF)
 
 _LOGGER = logging.getLogger(__name__)
 
