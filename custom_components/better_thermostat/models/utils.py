@@ -23,14 +23,6 @@ def reverse_modes(modes):
 	return changed_dict
 
 
-def calibration(self, calibration_type: int) -> Union[float, None]:
-	"""Select calibration function based on calibration type."""
-	if calibration_type == 1:
-		return calculate_setpoint_override(self)
-	if calibration_type == 0:
-		return calculate_local_setpoint_delta(self)
-
-
 def calculate_local_setpoint_delta(self) -> Union[float, None]:
 	"""Calculate local delta to adjust the setpoint of the TRV based on the air temperature of the external sensor.
 	

@@ -25,6 +25,9 @@ async def control_trv(self):
 				return await change_hvac_mode(self, HVAC_MODE_OFF)
 			else:
 				remapped_states = convert_outbound_states(self, self._hvac_mode)
+				if remapped_states is None:
+					return None
+				
 				converted_hvac_mode = remapped_states.get('system_mode') or None
 				current_heating_setpoint = remapped_states.get('current_heating_setpoint') or None
 				calibration = remapped_states.get('local_temperature_calibration') or None
