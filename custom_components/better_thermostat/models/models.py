@@ -1,7 +1,6 @@
 """Device model handing and quirk detection."""
 
 import logging
-import math
 import os
 import re
 from pathlib import Path
@@ -92,7 +91,7 @@ def convert_outbound_states(self, hvac_mode) -> dict:
 	
 	if self._config is None:
 		current_heating_setpoint = self._target_temp
-		local_temperature_calibration = int(math.ceil(calibration(self, 0)))
+		local_temperature_calibration = round(calibration(self, 0))
 	
 	else:
 		current_heating_setpoint = None
@@ -100,7 +99,7 @@ def convert_outbound_states(self, hvac_mode) -> dict:
 		local_temperature_calibration = calibration(self, self._config.get('calibration_type'))
 		self.calibration_type = self._config.get('calibration_type')
 		if self._config.get('calibration_round'):
-			local_temperature_calibration = int(math.ceil(local_temperature_calibration))
+			local_temperature_calibration = round(local_temperature_calibration)
 		if self._config.get('calibration_type') == 0:
 			current_heating_setpoint = self._target_temp
 		elif self._config.get('calibration_type') == 1:
