@@ -117,7 +117,7 @@ async def set_trv_values(self, key, value):
 	elif key == 'valve_position':
 		await self.hass.services.async_call('number', SERVICE_SET_VALUE, {'entity_id': self.valve_position_entity, 'value': value}, blocking=False)
 		_LOGGER.debug("better_thermostat %s send %s %s",self.name, key, value)
-	#await asyncio.sleep(2)
+	await asyncio.sleep(1)
 
 async def trv_valve_maintenance(self):
 	"""Maintenance of the TRV valve."""
