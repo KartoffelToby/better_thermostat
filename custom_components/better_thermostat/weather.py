@@ -3,7 +3,6 @@ import math
 import homeassistant.util.dt as dt_util
 
 from homeassistant.components.recorder import history
-from homeassistant.components.climate.const import (HVAC_MODE_OFF)
 from datetime import datetime, timedelta
 
 _LOGGER = logging.getLogger(__name__)
