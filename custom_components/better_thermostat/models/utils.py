@@ -36,7 +36,7 @@ def calculate_local_setpoint_delta(self) -> Union[float, None]:
 	_context = "calculate_local_setpoint_delta()"
 	
 	_current_trv_temp = convert_to_float(state.get('current_temperature'), self.name, _context)
-	_current_trv_calibration = convert_to_float(state.get('current_temperature_calibration'), self.name, _context)
+	_current_trv_calibration = convert_to_float(state.get('local_temperature_calibration'), self.name, _context)
 	
 	if not all([_current_trv_calibration, self._cur_temp, _current_trv_temp]):
 		_LOGGER.warning(
