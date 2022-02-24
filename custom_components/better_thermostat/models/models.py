@@ -122,7 +122,7 @@ def convert_outbound_states(self, hvac_mode) -> Union[dict, None]:
 				_new_heating_setpoint = self._target_temp
 			
 			elif _calibration_type == 1:
-				_new_setpoint = calculate_setpoint_override(self)
+				_new_heating_setpoint = calculate_setpoint_override(self)
 				
 			_has_system_mode = self._config.get('has_system_mode')
 			_system_mode = self._config.get('system_mode')
