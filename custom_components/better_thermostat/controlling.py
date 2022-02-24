@@ -1,15 +1,16 @@
-import logging
 import asyncio
+import logging
 
-from .models.models import convert_outbound_states
-from .weather import check_weather
-
-from homeassistant.components.climate.const import (SERVICE_SET_HVAC_MODE, SERVICE_SET_TEMPERATURE)
+from homeassistant.components.climate.const import HVAC_MODE_HEAT, HVAC_MODE_OFF, SERVICE_SET_HVAC_MODE, SERVICE_SET_TEMPERATURE
 from homeassistant.components.number.const import (SERVICE_SET_VALUE)
-from homeassistant.components.climate.const import (HVAC_MODE_HEAT, HVAC_MODE_OFF)
 from homeassistant.const import (ATTR_TEMPERATURE)
 
+from .models.models import convert_outbound_states
+from .models.utils import convert_to_float
+from .weather import check_weather
+
 _LOGGER = logging.getLogger(__name__)
+
 
 async def control_trv(self):
 	"""This is the main controller for the real TRV"""
@@ -41,6 +42,7 @@ async def control_trv(self):
 			_LOGGER.error("better_thermostat %s: ValueError %s", self.name, e)
 		self.ignore_states = False
 
+
 async def check_window_state(self):
 	# window open detection and weather detection force turn TRV off
 	if self.window_open and not self.closed_window_triggered:
@@ -50,6 +52,7 @@ async def check_window_state(self):
 	elif not self.window_open and self.closed_window_triggered:
 		self._hvac_mode = self.last_change
 		self.closed_window_triggered = False
+
 
 async def check_summer_state(self):
 	# check if's summer
@@ -61,50 +64,62 @@ async def check_summer_state(self):
 		self._hvac_mode = self.last_change
 		self.load_saved_state = False
 
+
 async def set_target_temperature(self, **kwargs):
-	temperature = kwargs.get(ATTR_TEMPERATURE)
-	if temperature is None:
+	_new_setpoint = convert_to_float(kwargs.get(ATTR_TEMPERATURE), self.name, "controlling.set_target_temperature()")
+	if _new_setpoint is None:
+		_LOGGER.info(f"better_thermostat {self.name}: received a new setpoint from HA, but temperature attribute was not set, ignoring")
 		return
-	self._target_temp = temperature
+	_LOGGER.info(f"better_thermostat {self.name}: received a new setpoint from HA: {_new_setpoint}")
+	self._target_temp = _new_setpoint
 	self.async_write_ha_state()
 	await control_trv(self)
 
+
 async def set_hvac_mode(self, hvac_mode):
-	if hvac_mode == HVAC_MODE_HEAT:
-		self._hvac_mode = HVAC_MODE_HEAT
-	elif hvac_mode == HVAC_MODE_OFF:
-		self._hvac_mode = HVAC_MODE_OFF
+	if hvac_mode in (HVAC_MODE_HEAT, HVAC_MODE_OFF):
+		_LOGGER.debug(f"better_thermostat {self.name}: received new HVAC mode {hvac_mode}")
+		self._hvac_mode = hvac_mode
 	else:
 		_LOGGER.error("better_thermostat %s: Unsupported hvac_mode %s", self.name, hvac_mode)
 	self.async_write_ha_state()
 	await control_trv(self)
 
-async def change_hvac_mode(self,hvac_mode):
-	# Check if the TRV has a real hvac mode before set it.
-	has_real_mode = True if self.hass.states.get(self.heater_entity_id).attributes.get('system_mode') is not None else False
-	if has_real_mode:
-		await set_trv_values(self, 'system_mode', hvac_mode)
-	else:
-		await change_target_temperature(self,5.0)
 
-async def change_target_temperature(self,target_temp):
+async def change_hvac_mode(self, hvac_mode):
+	await set_trv_values(self, 'system_mode', hvac_mode)
+
+
+async def change_target_temperature(self, target_temp):
 	# Using on local calibration, don't update the temp if its off, some TRV changed to 5 °C when off after a while, don't update the temp
 	if not self.window_open and self._hvac_mode != HVAC_MODE_OFF and self.call_for_heat:
-		await set_trv_values(self, 'temperature', float(target_temp))
+		await set_trv_values(self, 'temperature', target_temp)
+
 
 async def change_local_calibration(self, calibration):
 	# Using on local calibration, update only if the TRV is not in window open mode
 	if self.calibration_type == 0 and not self.window_open and self._hvac_mode != HVAC_MODE_OFF:
 		await set_trv_values(self, 'local_temperature_calibration', calibration)
 
+
 async def set_trv_values(self, key, value):
 	"""Do necessary actions to set the TRV values."""
 	if key == 'temperature':
-		await self.hass.services.async_call('climate', SERVICE_SET_TEMPERATURE, {'entity_id': self.heater_entity_id, 'temperature': value}, blocking=False)
-		_LOGGER.debug("better_thermostat %s send %s %s",self.name, key, value)
+		await self.hass.services.async_call(
+			'climate',
+			SERVICE_SET_TEMPERATURE,
+			{'entity_id': self.heater_entity_id, 'temperature': value},
+			blocking=False
+		)
+		_LOGGER.debug("better_thermostat %s send %s %s", self.name, key, value)
 	elif key == 'system_mode':
-		await self.hass.services.async_call('climate', SERVICE_SET_HVAC_MODE, {'entity_id': self.heater_entity_id, 'hvac_mode': value}, blocking=False)
-		_LOGGER.debug("better_thermostat %s send %s %s",self.name, key, value)
+		await self.hass.services.async_call(
+			'climate',
+			SERVICE_SET_HVAC_MODE,
+			{'entity_id': self.heater_entity_id, 'hvac_mode': value},
+			blocking=False
+		)
+		_LOGGER.debug("better_thermostat %s send %s %s", self.name, key, value)
 	elif key == 'local_temperature_calibration':
 		max_calibration = self.hass.states.get(self.local_temperature_calibration_entity).attributes.get('max')
 		min_calibration = self.hass.states.get(self.local_temperature_calibration_entity).attributes.get('min')
@@ -112,12 +127,23 @@ async def set_trv_values(self, key, value):
 			value = max_calibration
 		if value < min_calibration:
 			value = min_calibration
-		await self.hass.services.async_call('number', SERVICE_SET_VALUE, {'entity_id': self.local_temperature_calibration_entity, 'value': value}, blocking=False)
-		_LOGGER.debug("better_thermostat %s send %s %s",self.name, key, value)
+		await self.hass.services.async_call(
+			'number',
+			SERVICE_SET_VALUE,
+			{'entity_id': self.local_temperature_calibration_entity, 'value': value},
+			blocking=False
+		)
+		_LOGGER.debug("better_thermostat %s send %s %s", self.name, key, value)
 	elif key == 'valve_position':
-		await self.hass.services.async_call('number', SERVICE_SET_VALUE, {'entity_id': self.valve_position_entity, 'value': value}, blocking=False)
-		_LOGGER.debug("better_thermostat %s send %s %s",self.name, key, value)
+		await self.hass.services.async_call(
+			'number',
+			SERVICE_SET_VALUE,
+			{'entity_id': self.valve_position_entity, 'value': value},
+			blocking=False
+		)
+		_LOGGER.debug("better_thermostat %s send %s %s", self.name, key, value)
 	await asyncio.sleep(1)
+
 
 async def trv_valve_maintenance(self):
 	"""Maintenance of the TRV valve."""
