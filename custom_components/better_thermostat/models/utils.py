@@ -38,7 +38,11 @@ def calculate_local_setpoint_delta(self) -> Union[float, None]:
 	_current_trv_temp = convert_to_float(state.get('current_temperature'), self.name, _context)
 	_current_trv_calibration = convert_to_float(state.get('current_temperature_calibration'), self.name, _context)
 	
-	if not all([self._target_temp, self._cur_temp, _current_trv_temp]):
+	if not all([_current_trv_calibration, self._cur_temp, _current_trv_temp]):
+		_LOGGER.warning(
+			f"better thermostat {self.name}: Could not calculate local setpoint delta in {_context}:"
+			f" current_trv_calibration: {_current_trv_calibration}, current_trv_temp: {_current_trv_temp}, cur_temp: {self._cur_temp}"
+			)
 		return None
 	
 	_new_local_calibration = self._cur_temp - _current_trv_temp + _current_trv_calibration
