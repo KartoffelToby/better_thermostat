@@ -22,7 +22,7 @@ async def control_trv(self):
 			self.call_for_heat = await check_weather(self)
 			_LOGGER.debug(f"better_thermostat {self.name}: Call for heat decision: {self.call_for_heat}")
 			await check_window_state(self)
-			await check_summer_state(self)
+			await check_call_for_heat(self)
 			if not self.call_for_heat:
 				return await change_hvac_mode(self, HVAC_MODE_OFF)
 			else:
@@ -55,8 +55,8 @@ async def check_window_state(self):
 		self.closed_window_triggered = False
 
 
-async def check_summer_state(self):
-	# check if's summer
+async def check_call_for_heat(self):
+	# check if there's a call for heat based on the weather
 	if self._hvac_mode != HVAC_MODE_OFF and not self.window_open and not self.call_for_heat and not self.load_saved_state:
 		self.last_change = self._hvac_mode
 		self._hvac_mode = HVAC_MODE_OFF
