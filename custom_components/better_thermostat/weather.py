@@ -7,6 +7,7 @@ from datetime import datetime, timedelta
 
 _LOGGER = logging.getLogger(__name__)
 
+
 async def check_weather(self):
 	# check weather predictions or ambient air temperature if available
 	if self.weather_entity is not None:
@@ -14,8 +15,9 @@ async def check_weather(self):
 	elif self.outdoor_sensor is not None:
 		return check_ambient_air_temperature(self)
 	else:
-		_LOGGER.warning("better_thermostat: call for heat decision: could not evaluate sensor/weather entity data, force heat on")
+		# no weather evaluation: call for heat is always true
 		return True
+
 
 def check_weather_prediction(self):
 	"""
@@ -40,6 +42,7 @@ def check_weather_prediction(self):
 	except TypeError:
 		_LOGGER.warning("better_thermostat: no weather entity data found.")
 		return None
+
 
 def check_ambient_air_temperature(self):
 	"""
@@ -78,7 +81,7 @@ def check_ambient_air_temperature(self):
 	# remove the upper and lower 5% of the data
 	valid_historic_sensor_data.sort()
 	valid_historic_sensor_data = valid_historic_sensor_data[
-									int(len(valid_historic_sensor_data) * 0.05):int(len(valid_historic_sensor_data) * 0.95)]
+	                             int(len(valid_historic_sensor_data) * 0.05):int(len(valid_historic_sensor_data) * 0.95)]
 	
 	if len(valid_historic_sensor_data) == 0:
 		_LOGGER.warning("better_thermostat: no valid outdoor sensor data found.")
