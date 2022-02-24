@@ -8,7 +8,6 @@ import homeassistant.util.dt as dt_util
 import voluptuous as vol
 from abc import ABC
 
-from pathlib import Path
 from datetime import datetime, timedelta
 from random import randint
 from homeassistant.components.climate import ClimateEntity, PLATFORM_SCHEMA
