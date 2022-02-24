@@ -10,7 +10,7 @@ from homeassistant.components.climate.const import (HVAC_MODE_HEAT, HVAC_MODE_OF
 from homeassistant.helpers import device_registry as dr, entity_registry as er
 from homeassistant.util import yaml
 
-from .utils import calculate_local_setpoint_delta, calculate_setpoint_override, mode_remap, reverse_modes
+from .utils import calculate_local_setpoint_delta, calculate_setpoint_override, mode_remap, reverse_modes, round_to_half_degree
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -98,7 +98,9 @@ def convert_outbound_states(self, hvac_mode) -> Union[dict, None]:
 	if self._config is None:
 		_LOGGER.warning("better_thermostat %s: no matching device config loaded, talking to the TRV using fallback mode", self.name)
 		_new_heating_setpoint = self._target_temp
-		_new_local_calibration = round(calculate_local_setpoint_delta(self))
+		_new_local_calibration = round_to_half_degree(calculate_local_setpoint_delta(self))
+		if _new_local_calibration is None:
+			return None
 	
 	else:
 		_calibration_type = self._config.get('calibration_type')
@@ -107,16 +109,21 @@ def convert_outbound_states(self, hvac_mode) -> Union[dict, None]:
 			_LOGGER.warning(
 				"better_thermostat %s: no calibration type found in device config, talking to the TRV using fallback mode",
 				self.name
-				)
+			)
 			_new_heating_setpoint = self._target_temp
-			_new_local_calibration = round(calculate_local_setpoint_delta(self))
+			_new_local_calibration = round_to_half_degree(calculate_local_setpoint_delta(self))
+			if _new_local_calibration is None:
+				return None
 		
 		else:
 			if _calibration_type == 0:
 				_round_calibration = self._config.get('calibration_round')
 				
-				if _round_calibration is not None and ((isinstance(_round_calibration, str) and _round_calibration.lower() == 'true') or _round_calibration is True):
-					_new_local_calibration = round(calculate_local_setpoint_delta(self))
+				if _round_calibration is not None and (
+					(isinstance(_round_calibration, str) and _round_calibration.lower() == 'true') or _round_calibration is True):
+					_new_local_calibration = round_to_half_degree(calculate_local_setpoint_delta(self))
+					if _new_local_calibration is None:
+						return None
 				else:
 					_new_local_calibration = calculate_local_setpoint_delta(self)
 				
