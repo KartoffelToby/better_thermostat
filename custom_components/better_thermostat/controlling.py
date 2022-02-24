@@ -20,6 +20,7 @@ async def control_trv(self):
 		self.ignore_states = True
 		try:
 			self.call_for_heat = await check_weather(self)
+			_LOGGER.debug(f"better_thermostat {self.name}: Call for heat decision: {self.call_for_heat}")
 			await check_window_state(self)
 			await check_summer_state(self)
 			if not self.call_for_heat:
