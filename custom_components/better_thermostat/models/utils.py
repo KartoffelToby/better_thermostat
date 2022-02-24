@@ -83,7 +83,7 @@ def convert_to_float(value: Union[str, int, float], instance_name: str, context:
 			return None
 
 
-def round_to_half_degree(value: Union[int, float]) -> Union[float, int]:
+def round_to_half_degree(value: Union[int, float, None]) -> Union[float, int, None]:
 	"""Rounds numbers to the nearest n.5/n.0
 
 	Parameters
@@ -97,7 +97,9 @@ def round_to_half_degree(value: Union[int, float]) -> Union[float, int]:
 		either an int, if input was an int, or a float rounded to n.5/n.0
 
 	"""
-	if isinstance(value, float):
+	if value is None:
+		return None
+	elif isinstance(value, float):
 		return round(value * 2) / 2
 	elif isinstance(value, int):
 		return value
