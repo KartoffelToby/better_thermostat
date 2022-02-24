@@ -1,4 +1,5 @@
 """Utility functions for the Better Thermostat."""
+import decimal
 import logging
 from typing import Union
 
@@ -59,7 +60,7 @@ def calculate_setpoint_override(self) -> Union[float, None]:
 	if not all([self._target_temp, self._cur_temp, _current_trv_temp]):
 		return None
 	
-	_calibrated_setpoint = self._target_temp - self._cur_temp + _current_trv_temp
+	_calibrated_setpoint = round_to_half_degree(self._target_temp - self._cur_temp + _current_trv_temp)
 	
 	# check if new setpoint is inside the TRV's range, else set to min or max
 	if _calibrated_setpoint < self._TRV_min_temp:
@@ -80,3 +81,23 @@ def convert_to_float(value: Union[str, int, float], instance_name: str, context:
 		except (ValueError, TypeError, AttributeError, KeyError):
 			_LOGGER.error(f"better thermostat {instance_name}: Could not convert '{value}' to float in {context}")
 			return None
+
+
+def round_to_half_degree(value: Union[int, float]) -> Union[float, int]:
+	"""Rounds numbers to the nearest n.5/n.0
+
+	Parameters
+	----------
+	value : int, float
+		input value
+
+	Returns
+	-------
+	float, int
+		either an int, if input was an int, or a float rounded to n.5/n.0
+
+	"""
+	if isinstance(value, float):
+		return round(value * 2) / 2
+	elif isinstance(value, int):
+		return value
