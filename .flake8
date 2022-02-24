@@ -1,0 +1,25 @@
+[flake8]
+max-line-length = 140
+max-complexity = 10
+
+# We use tabs, not spaces
+use-flake8-tabs = true
+
+# continuation lines should be aligned
+continuation-style = aligned
+
+# Final bracket should match indentation of the start of the line of the opening bracket
+hang-closing = False
+
+ignore =
+	W191,  # indentation contains tabs
+
+exclude = # don't bother looking in the following subdirectories / files.
+	.git,
+	__pycache__,
+	assets,
+	.github,
+
+filename =
+	*.py,
+	*.pyw
