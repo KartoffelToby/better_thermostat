@@ -10,7 +10,7 @@
 ### Requirements
 
 - Minimum required Home Assistant version: `2021.12`
- (_Latest tested version: `2021.12.5`_)
+ (_Latest tested version: `2022.2.9`_)
 - Zigbee2MQTT in case you use Zigbee Thermostats
  (_Latest tested version: `1.22.1-1`_)
 
