@@ -111,8 +111,6 @@ def convert_outbound_states(self, hvac_mode) -> Union[dict, None]:
 			_new_local_calibration = round(calculate_local_setpoint_delta(self))
 		
 		else:
-			_calibration_type = self._config.get('calibration_type')
-			
 			if _calibration_type == 0:
 				_round_calibration = self._config.get('calibration_round')
 				
