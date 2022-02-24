@@ -1,9 +1,9 @@
 import logging
 import math
-import homeassistant.util.dt as dt_util
-
-from homeassistant.components.recorder import history
 from datetime import datetime, timedelta
+
+import homeassistant.util.dt as dt_util
+from homeassistant.components.recorder import history
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -25,11 +25,11 @@ def check_weather_prediction(self):
 	@return: True if the maximum forcast temperature is lower than the off temperature; None if not successful
 	"""
 	if self.weather_entity is None:
-		_LOGGER.warning("better_thermostat: weather entity not available.")
+		_LOGGER.warning(f"better_thermostat {self.name}: weather entity not available.")
 		return None
 	
 	if self.off_temperature is None or not isinstance(self.off_temperature, float):
-		_LOGGER.warning("better_thermostat: off_temperature not set or not a float.")
+		_LOGGER.warning(f"better_thermostat {self.name}: off_temperature not set or not a float.")
 		return None
 	
 	try:
@@ -40,7 +40,7 @@ def check_weather_prediction(self):
 		else:
 			raise TypeError
 	except TypeError:
-		_LOGGER.warning("better_thermostat: no weather entity data found.")
+		_LOGGER.warning(f"better_thermostat {self.name}: no weather entity data found.")
 		return None
 
 
@@ -53,7 +53,7 @@ def check_ambient_air_temperature(self):
 		return None
 	
 	if self.off_temperature is None or not isinstance(self.off_temperature, float):
-		_LOGGER.warning("better_thermostat: off_temperature not set or not a float.")
+		_LOGGER.warning(f"better_thermostat {self.name}: off_temperature not set or not a float.")
 		return None
 	
 	try:
@@ -64,7 +64,7 @@ def check_ambient_air_temperature(self):
 		)
 		historic_sensor_data = history_list.get(self.outdoor_sensor)
 	except TypeError:
-		_LOGGER.warning("better_thermostat: no outdoor sensor data found.")
+		_LOGGER.warning(f"better_thermostat {self.name}: no outdoor sensor data found.")
 		return None
 	
 	# create a list from valid data in historic_sensor_data
@@ -84,10 +84,10 @@ def check_ambient_air_temperature(self):
 	                             int(len(valid_historic_sensor_data) * 0.05):int(len(valid_historic_sensor_data) * 0.95)]
 	
 	if len(valid_historic_sensor_data) == 0:
-		_LOGGER.warning("better_thermostat: no valid outdoor sensor data found.")
+		_LOGGER.warning(f"better_thermostat {self.name}: no valid outdoor sensor data found.")
 		return None
 	
 	# calculate the average temperature
 	avg_temp = math.ceil(sum(valid_historic_sensor_data) / len(valid_historic_sensor_data))
-	_LOGGER.debug("better_thermostat: avg outdoor temp: %s", avg_temp)
+	_LOGGER.debug(f"better_thermostat {self.name}: avg outdoor temp: %s", avg_temp)
 	return float(avg_temp) < float(self.off_temperature)
