@@ -45,7 +45,7 @@ async def control_trv(self):
 
 
 async def check_window_state(self):
-	# window open detection and weather detection force turn TRV off
+	# window open detection
 	if self.window_open and not self.closed_window_triggered:
 		self.last_change = self._hvac_mode
 		self._hvac_mode = HVAC_MODE_OFF
