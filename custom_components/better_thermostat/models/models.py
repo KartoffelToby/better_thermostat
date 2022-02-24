@@ -4,6 +4,7 @@ import logging
 import os
 import re
 from pathlib import Path
+from typing import Union
 
 from homeassistant.components.climate.const import (HVAC_MODE_HEAT, HVAC_MODE_OFF)
 from homeassistant.helpers import device_registry as dr, entity_registry as er
