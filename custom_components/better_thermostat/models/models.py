@@ -107,9 +107,12 @@ def convert_outbound_states(self, hvac_mode) -> Union[dict, None]:
 			_LOGGER.warning(
 				"better_thermostat %s: no calibration type found in device config, talking to the TRV using fallback mode",
 				self.name
-				)
+			)
 			_new_heating_setpoint = self._target_temp
-			_new_local_calibration = round(calculate_local_setpoint_delta(self))
+			_new_local_calibration = calculate_local_setpoint_delta(self)
+			if _new_local_calibration is None:
+				return None
+			_new_local_calibration = round(_new_local_calibration)
 		
 		else:
 			if _calibration_type == 0:
