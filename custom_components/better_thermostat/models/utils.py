@@ -1,5 +1,5 @@
 """Utility functions for the Better Thermostat."""
-import decimal
+
 import logging
 from typing import Union
 
