@@ -1,9 +1,10 @@
 import logging
-import math
 from datetime import datetime, timedelta
 
 import homeassistant.util.dt as dt_util
 from homeassistant.components.recorder import history
+
+from .models.utils import convert_to_float
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -35,8 +36,13 @@ def check_weather_prediction(self):
 	try:
 		forcast = self.hass.states.get(self.weather_entity).attributes.get('forecast')
 		if len(forcast) > 0:
-			max_forcast_temp = math.ceil((float(forcast[0]['temperature']) + float(forcast[1]['temperature'])) / 2)
-			return float(max_forcast_temp) < float(self.off_temperature)
+			max_forcast_temp = int(
+				round(
+					(convert_to_float(forcast[0]['temperature'], self.name, "check_weather_prediction()")
+					 + convert_to_float(forcast[1]['temperature'], self.name, "check_weather_prediction()")) / 2
+				)
+			)
+			return max_forcast_temp < self.off_temperature
 		else:
 			raise TypeError
 	except TypeError:
@@ -72,22 +78,26 @@ def check_ambient_air_temperature(self):
 	for measurement in historic_sensor_data:
 		if measurement.state is not None:
 			try:
-				valid_historic_sensor_data.append(float(measurement.state))
+				valid_historic_sensor_data.append(convert_to_float(measurement.state, self.name, "check_ambient_air_temperature()"))
 			except ValueError:
 				pass
 			except TypeError:
 				pass
 	
+	if len(valid_historic_sensor_data) == 0:
+		_LOGGER.warning(f"better_thermostat {self.name}: no valid outdoor sensor data found.")
+		return None
+	
 	# remove the upper and lower 5% of the data
 	valid_historic_sensor_data.sort()
 	valid_historic_sensor_data = valid_historic_sensor_data[
-	                             int(len(valid_historic_sensor_data) * 0.05):int(len(valid_historic_sensor_data) * 0.95)]
+	                             int(round(len(valid_historic_sensor_data) * 0.05)):int(round(len(valid_historic_sensor_data) * 0.95))]
 	
 	if len(valid_historic_sensor_data) == 0:
 		_LOGGER.warning(f"better_thermostat {self.name}: no valid outdoor sensor data found.")
 		return None
 	
 	# calculate the average temperature
-	avg_temp = math.ceil(sum(valid_historic_sensor_data) / len(valid_historic_sensor_data))
+	avg_temp = int(round(sum(valid_historic_sensor_data) / len(valid_historic_sensor_data)))
 	_LOGGER.debug(f"better_thermostat {self.name}: avg outdoor temp: %s", avg_temp)
-	return float(avg_temp) < float(self.off_temperature)
+	return avg_temp < self.off_temperature
