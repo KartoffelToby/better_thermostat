@@ -123,9 +123,9 @@ async def startup(self):
 		entity_entries = async_entries_for_config_entry(entity_registry, reg_entity.config_entry_id)
 		for entity in entity_entries:
 			uid = entity.unique_id
-			if "local_temperature_calibration" in uid:
+			if "local_temperature_calibration" in uid and entity.device_id == reg_entity.device_id:
 				self.local_temperature_calibration_entity = entity.entity_id
-			if "valve_position" in uid:
+			if "valve_position" in uid and entity.device_id == reg_entity.device_id:
 				self.valve_position_entity = entity.entity_id
 		_async_update_temp(self,sensor_state)
 		self.async_write_ha_state()
