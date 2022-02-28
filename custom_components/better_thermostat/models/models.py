@@ -160,17 +160,17 @@ def convert_outbound_states(self, hvac_mode) -> Union[dict, None]:
 					_LOGGER.warning(
 						f"better_thermostat {self.name}: device config expects no system mode, while the device has one. Device system mode will be ignored"
 					)
-				hvac_mode = None
 				if hvac_mode == HVAC_MODE_OFF:
 					_new_heating_setpoint = 5
+				hvac_mode = None
 			
 			elif _has_system_mode is None and _system_mode is None:
-				hvac_mode = None
 				if hvac_mode == HVAC_MODE_OFF:
 					_LOGGER.info(
 						f"better_thermostat {self.name}: sending 5°C to the TRV because this device has no system mode and heater should be off"
 					)
 					_new_heating_setpoint = 5
+				hvac_mode = None
 	
 	return {
 		"current_heating_setpoint"     : _new_heating_setpoint,
