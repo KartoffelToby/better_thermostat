@@ -47,7 +47,16 @@ def convert_inbound_states(self, state: State):
 
 
 async def get_device_model(self):
-	"""Fetches the device model from HA."""
+	"""Fetches the device model from HA.
+
+	Parameters
+	----------
+	self : 
+
+	Returns
+	-------
+
+	"""
 	if self.model is None:
 		try:
 			entity_reg = await er.async_get_registry(self.hass)
@@ -72,10 +81,17 @@ async def get_device_model(self):
 
 def load_device_config(self) -> bool:
 	"""Load device config from file.
-	
-	Returns: True if config was loaded, False if not.
+
+	Parameters
+	----------
+	self : 
+
+	Returns
+	-------
+	bool
+		True if config was loaded, False if not.
+
 	"""
-	
 	if self.model is None:
 		return False
 	
@@ -95,7 +111,19 @@ def load_device_config(self) -> bool:
 def convert_outbound_states(self, hvac_mode) -> Union[dict, None]:
 	"""Creates the new outbound thermostat state.
 	
-	Returns: either a dictionary or None in case of a failure"""
+	Parameters
+	----------
+	self : 
+	hvac_mode : 
+
+	Returns
+	-------
+	dict
+		A dictionary containing the new outbound thermostat state.
+	None
+		In case of an error.
+
+	"""
 	state = self.hass.states.get(self.heater_entity_id).attributes
 	
 	_new_local_calibration = None
