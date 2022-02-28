@@ -49,6 +49,7 @@ def mode_remap(self, hvac_mode: str) -> str:
 	Parameters
 	----------
 	self : 
+		FIXME
 	hvac_mode : str
 		HVAC mode to be remapped
 
@@ -77,10 +78,12 @@ def calculate_local_setpoint_delta(self) -> Union[float, None]:
 	Parameters
 	----------
 	self : 
+		FIXME
 
 	Returns
 	-------
-
+	FIXME
+		FIXME
 	"""
 	state = self.hass.states.get(self.heater_entity_id).attributes
 	
@@ -109,10 +112,12 @@ def calculate_setpoint_override(self) -> Union[float, None]:
 	Parameters
 	----------
 	self : 
+		FIXME
 
 	Returns
 	-------
-
+	FIXME
+		FIXME
 	"""
 	state = self.hass.states.get(self.heater_entity_id).attributes
 	
@@ -140,12 +145,16 @@ def convert_to_float(value: Union[str, int, float], instance_name: str, context:
 	Parameters
 	----------
 	value : 
-	instance_name : 
-	context : 
+		FIXME
+	instance_name :
+		FIXME 
+	context :
+		FIXME 
 
 	Returns
 	-------
-
+	FIXME
+		FIXME
 	"""
 	if isinstance(value, float):
 		return value
