@@ -15,7 +15,17 @@ from homeassistant.components.climate.const import (HVAC_MODE_OFF)
 _LOGGER = logging.getLogger(__name__)
 
 def log_info(self, message):
-	"""Log a message to the info log."""
+	"""Log a message to the info log.
+
+	Parameters
+	----------
+	self : 
+	message : 
+
+	Returns
+	-------
+	
+	"""
 	_LOGGER.debug(
 		"better_thermostat with config name: %s, %s TRV: %s",
 		self.name,
@@ -23,8 +33,18 @@ def log_info(self, message):
 		self.hass.states.get(self.heater_entity_id).attributes.get('device').get('friendlyName')
 	)
 
+
 async def startup(self):
-	"""Run startup tasks."""
+	"""Run startup tasks.
+
+	Parameters
+	----------
+	self : 
+
+	Returns
+	-------
+	
+	"""
 	window = None
 	await asyncio.sleep(5)
 	
@@ -233,8 +253,19 @@ async def startup(self):
 		await control_trv(self)
 	return True
 
+
 def check_float(potential_float):
-	"""Check if a string is a float."""
+	"""Check if a string is a float.
+
+	Parameters
+	----------
+	potential_float : 
+
+	Returns
+	-------
+	bool
+		
+	"""
 	try:
 		float(potential_float)
 		return True
@@ -243,7 +274,19 @@ def check_float(potential_float):
 
 
 def convert_time(time_string):
-	"""Convert a time string to a datetime object."""
+	"""Convert a time string to a datetime object.
+
+	Parameters
+	----------
+	time_string : 
+
+	Returns
+	-------
+	datetime
+	
+	None
+	
+	"""
 	try:
 		_current_time = datetime.now()
 		_get_hours_minutes = datetime.strptime(time_string, "%H:%M")
