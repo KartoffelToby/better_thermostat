@@ -15,11 +15,14 @@ async def trigger_temperature_change(self, event):
 	Parameters
 	----------
 	self : 
+		FIXME
 	event : 
+		FIXME
 
 	Returns
 	-------
-
+	FIXME
+		FIXME
 	"""
 	if self.startup_running:
 		return
@@ -39,11 +42,14 @@ def _async_update_temp(self, state):
 	Parameters
 	----------
 	self : 
+		FIXME
 	state : 
+		FIXME
 	
 	Returns
 	-------
-
+	FIXME
+		FIXME
 	"""
 	try:
 		self._cur_temp = float(state.state)
