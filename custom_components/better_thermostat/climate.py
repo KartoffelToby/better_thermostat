@@ -2,13 +2,13 @@
 
 import asyncio
 import logging
+from abc import ABC
+from datetime import datetime, timedelta
+from random import randint
+
 import homeassistant.helpers.config_validation as cv
 import homeassistant.util.dt as dt_util
 import voluptuous as vol
-from abc import ABC
-
-from datetime import datetime, timedelta
-from random import randint
 from homeassistant.components.climate import ClimateEntity, PLATFORM_SCHEMA
 from homeassistant.components.climate.const import (CURRENT_HVAC_HEAT, CURRENT_HVAC_IDLE, CURRENT_HVAC_OFF, HVAC_MODE_HEAT, HVAC_MODE_OFF)
 from homeassistant.const import (CONF_NAME, CONF_UNIQUE_ID, EVENT_HOMEASSISTANT_START)
@@ -16,15 +16,21 @@ from homeassistant.core import callback, CoreState
 from homeassistant.helpers.event import (async_track_state_change_event, async_track_time_change)
 from homeassistant.helpers.reload import async_setup_reload_service
 from homeassistant.helpers.restore_state import RestoreEntity
+
 from . import DOMAIN, PLATFORMS
-from .const import (VERSION,SUPPORT_FLAGS,CONF_HEATER,CONF_SENSOR,CONF_SENSOR_WINDOW,CONF_WEATHER,CONF_OUTDOOR_SENSOR,CONF_OFF_TEMPERATURE,CONF_WINDOW_TIMEOUT,CONF_VALVE_MAINTENANCE,CONF_NIGHT_TEMP,CONF_NIGHT_START,CONF_NIGHT_END,CONF_MIN_TEMP,CONF_MAX_TEMP,CONF_PRECISION,CONF_TARGET_TEMP,ATTR_STATE_CALL_FOR_HEAT,ATTR_STATE_DAY_SET_TEMP,ATTR_STATE_LAST_CHANGE,ATTR_STATE_NIGHT_MODE,ATTR_STATE_WINDOW_OPEN,DEFAULT_NAME)
-from .helpers import check_float, startup
-from .models.models import get_device_model, load_device_config
+from .const import (
+	ATTR_STATE_CALL_FOR_HEAT, ATTR_STATE_DAY_SET_TEMP, ATTR_STATE_LAST_CHANGE, ATTR_STATE_NIGHT_MODE, ATTR_STATE_WINDOW_OPEN, CONF_HEATER,
+	CONF_MAX_TEMP, CONF_MIN_TEMP, CONF_NIGHT_END, CONF_NIGHT_START, CONF_NIGHT_TEMP, CONF_OFF_TEMPERATURE, CONF_OUTDOOR_SENSOR,
+	CONF_PRECISION, CONF_SENSOR, CONF_SENSOR_WINDOW, CONF_TARGET_TEMP, CONF_VALVE_MAINTENANCE, CONF_WEATHER, CONF_WINDOW_TIMEOUT,
+	DEFAULT_NAME, SUPPORT_FLAGS, VERSION
+)
 from .controlling import set_hvac_mode, set_target_temperature
 from .events.temperature import trigger_temperature_change
 from .events.time import trigger_time
 from .events.trv import trigger_trv_change
 from .events.window import trigger_window_change
+from .helpers import check_float, startup
+from .models.models import get_device_model, load_device_config
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -57,12 +63,18 @@ async def async_setup_platform(hass, config, async_add_entities, discovery_info=
 	Parameters
 	----------
 	hass : 
+		FIXME
 	config : 
-	async_add_entities : 
-	discovery_info : 
+		FIXME
+	async_add_entities :
+		FIXME 
+	discovery_info :
+		FIXME 
 	
 	Returns
 	-------
+	FIXME
+		FIXME
 	"""
 	await async_setup_reload_service(hass, DOMAIN, PLATFORMS)
 	name = config.get(CONF_NAME)
@@ -219,7 +231,8 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
 
 		Returns
 		-------
-
+		FIXME
+			FIXME
 		"""
 		await super().async_added_to_hass()
 		
@@ -269,6 +282,7 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
 			Parameters
 			----------
 			_ : 
+				FIXME
 			"""
 			_LOGGER.info("better_thermostat %s: Starting version %s. Waiting for entity to be ready...", self.name, self.version)
 			
@@ -298,7 +312,8 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
 
 		Returns
 		-------
-
+		FIXME
+			FIXME
 		"""
 		dev_specific = {
 			ATTR_STATE_WINDOW_OPEN  : self.window_open,
@@ -316,7 +331,8 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
 
 		Returns
 		-------
-
+		FIXME
+			FIXME
 		"""
 		return not self.startup_running
 	
@@ -326,7 +342,8 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
 
 		Returns
 		-------
-
+		FIXME
+			FIXME
 		"""
 		return False
 	
@@ -336,7 +353,8 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
 
 		Returns
 		-------
-
+		FIXME
+			FIXME
 		"""
 		return self._name
 	
@@ -346,7 +364,8 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
 
 		Returns
 		-------
-
+		FIXME
+			FIXME
 		"""
 		return self._unique_id
 	
@@ -356,7 +375,8 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
 
 		Returns
 		-------
-
+		FIXME
+			FIXME
 		"""
 		return super().precision
 	
@@ -366,7 +386,8 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
 
 		Returns
 		-------
-		
+		FIXME
+			FIXME
 		"""
 		if self._target_temp_step is not None:
 			return self._target_temp_step
@@ -379,7 +400,8 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
 
 		Returns
 		-------
-		
+		FIXME
+			FIXME
 		"""
 		return self._unit
 	
@@ -389,7 +411,8 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
 
 		Returns
 		-------
-		
+		FIXME
+			FIXME
 		"""
 		return self._cur_temp
 	
@@ -399,7 +422,8 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
 
 		Returns
 		-------
-		
+		FIXME
+			FIXME
 		"""
 		return self._hvac_mode
 	
@@ -445,7 +469,8 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
 
 		Returns
 		-------
-		
+		FIXME
+			FIXME
 		"""
 		if not all([self._max_temp, self._min_temp, self._target_temp]):
 			return self._target_temp
@@ -463,7 +488,8 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
 
 		Returns
 		-------
-		
+		FIXME
+			FIXME
 		"""
 		return self._hvac_list
 	
@@ -472,12 +498,24 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
 
 		Returns
 		-------
-		
+		FIXME
+			FIXME
 		"""
 		await set_hvac_mode(self, hvac_mode)
 	
 	async def async_set_temperature(self, **kwargs):
-		"""Set new target temperature."""
+		"""Set new target temperature.
+
+		Parameters
+		----------
+		kwargs : 
+			FIXME
+
+		Returns
+		-------
+		FIXME
+			FIXME
+		"""
 		await set_target_temperature(self, **kwargs)
 	
 	@property
@@ -486,7 +524,8 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
 
 		Returns
 		-------
-		
+		FIXME
+			FIXME
 		"""
 		if self._min_temp is not None:
 			return self._min_temp
@@ -500,7 +539,8 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
 
 		Returns
 		-------
-		
+		FIXME
+			FIXME
 		"""
 		if self._max_temp is not None:
 			return self._max_temp
@@ -510,11 +550,12 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
 	
 	@property
 	def _is_device_active(self):
-		"""
+		"""FIXME
 
 		Returns
 		-------
-
+		FIXME
+			FIXME
 		"""
 		state_off = self.hass.states.is_state(self.heater_entity_id, "off")
 		state_heat = self.hass.states.is_state(self.heater_entity_id, "heat")
@@ -535,6 +576,7 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
 
 		Returns
 		-------
-		
+		FIXME
+			FIXME
 		"""
 		return self._support_flags
