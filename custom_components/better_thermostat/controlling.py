@@ -17,7 +17,8 @@ async def control_trv(self):
 
 	Returns
 	-------
-	
+	FIXME
+		FIXME
 	"""
 	if self.startup_running:
 		return
@@ -100,11 +101,14 @@ async def set_target_temperature(self, **kwargs):
 	Parameters
 	----------
 	self : 
+		FIXME
 	kwargs : 
+		FIXME
 
 	Returns
 	-------
-
+	FIXME
+		FIXME
 	"""
 	_new_setpoint = convert_to_float(kwargs.get(ATTR_TEMPERATURE), self.name, "controlling.set_target_temperature()")
 	if _new_setpoint is None:
@@ -117,12 +121,19 @@ async def set_target_temperature(self, **kwargs):
 
 
 async def set_hvac_mode(self, hvac_mode):
-	"""
+	"""FIXME
 
 	Parameters
 	----------
 	self : 
+		FIXME
 	hvac_mode : 
+		FIXME
+
+	Returns
+	-------
+	FIXME   
+		FIXME
 	"""
 	if hvac_mode in (HVAC_MODE_HEAT, HVAC_MODE_OFF):
 		_LOGGER.debug(f"better_thermostat {self.name}: received new HVAC mode {hvac_mode} from HA")
@@ -139,12 +150,16 @@ async def set_trv_values(self, key, value):
 	Parameters
 	----------
 	self : 
+		FIXME
 	key : 
+		FIXME
 	value : 
+		FIXME
 
 	Returns
 	-------
-
+	FIXME
+		FIXME
 	"""
 	
 	if key in ('temperature', 'hvac_mode'):
@@ -185,7 +200,8 @@ async def trv_valve_maintenance(self):
 
 	Returns
 	-------
-	
+	FIXME
+		FIXME
 	"""
 	
 	_LOGGER.info("better_thermostat %s: maintenance started", self.name)
