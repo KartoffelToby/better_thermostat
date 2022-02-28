@@ -20,11 +20,14 @@ def log_info(self, message):
 	Parameters
 	----------
 	self : 
+		FIXME
 	message : 
+		FIXME 
 
 	Returns
 	-------
-	
+	FIXME
+		FIXME
 	"""
 	_LOGGER.debug(
 		"better_thermostat with config name: %s, %s TRV: %s",
@@ -40,10 +43,12 @@ async def startup(self):
 	Parameters
 	----------
 	self : 
+		FIXME
 
 	Returns
 	-------
-	
+	FIXME
+		FIXME
 	"""
 	window = None
 	await asyncio.sleep(5)
@@ -260,10 +265,12 @@ def check_float(potential_float):
 	Parameters
 	----------
 	potential_float : 
+		FIXME
 
 	Returns
 	-------
 	bool
+		FIXME
 		
 	"""
 	try:
@@ -279,13 +286,14 @@ def convert_time(time_string):
 	Parameters
 	----------
 	time_string : 
+		FIXME
 
 	Returns
 	-------
 	datetime
-	
+		FIXME
 	None
-	
+		FIXME
 	"""
 	try:
 		_current_time = datetime.now()
