@@ -73,8 +73,15 @@ def calculate_local_setpoint_delta(self) -> Union[float, None]:
 	
 	This calibration is for devices with local calibration option, it syncs the current temperature of the TRV to the target temperature of
 	the external sensor.
+
+	Parameters
+	----------
+	self : 
+
+	Returns
+	-------
+
 	"""
-	
 	state = self.hass.states.get(self.heater_entity_id).attributes
 	
 	_context = "calculate_local_setpoint_delta()"
@@ -98,6 +105,14 @@ def calculate_setpoint_override(self) -> Union[float, None]:
 	
 	This calibration is for devices with no local calibration option, it syncs the target temperature of the TRV to a new target
 	temperature based on the current temperature of the external sensor.
+
+	Parameters
+	----------
+	self : 
+
+	Returns
+	-------
+
 	"""
 	state = self.hass.states.get(self.heater_entity_id).attributes
 	
@@ -120,7 +135,18 @@ def calculate_setpoint_override(self) -> Union[float, None]:
 
 
 def convert_to_float(value: Union[str, int, float], instance_name: str, context: str) -> Union[float, None]:
-	"""Convert value to float or print error message."""
+	"""Convert value to float or print error message.
+
+	Parameters
+	----------
+	value : 
+	instance_name : 
+	context : 
+
+	Returns
+	-------
+
+	"""
 	if isinstance(value, float):
 		return value
 	else:
