@@ -22,6 +22,7 @@ def convert_inbound_states(self, state: State):
 	Parameters
 	----------
 	self : 
+		FIXME
 	state : State
 		Inbound thermostat state, which will be modified
 
@@ -52,10 +53,12 @@ async def get_device_model(self):
 	Parameters
 	----------
 	self : 
+		FIXME
 
 	Returns
 	-------
-
+	FIXME
+		FIXME
 	"""
 	if self.model is None:
 		try:
@@ -85,6 +88,7 @@ def load_device_config(self) -> bool:
 	Parameters
 	----------
 	self : 
+		FIXME
 
 	Returns
 	-------
@@ -114,7 +118,9 @@ def convert_outbound_states(self, hvac_mode) -> Union[dict, None]:
 	Parameters
 	----------
 	self : 
+		FIXME
 	hvac_mode : 
+		FIXME
 
 	Returns
 	-------
