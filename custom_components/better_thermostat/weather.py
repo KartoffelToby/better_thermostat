@@ -14,7 +14,8 @@ def check_weather(self) -> bool:
 
 	Parameters
 	----------
-	self : 
+	self :
+		FIXME 
 
 	Returns
 	-------
