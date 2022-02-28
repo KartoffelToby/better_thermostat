@@ -10,15 +10,17 @@ _LOGGER = logging.getLogger(__name__)
 
 @callback
 async def trigger_window_change(self):
-	"""
+	"""FIXME
 
 	Parameters
 	----------
 	self : 
+		FIXME
 
 	Returns
 	-------
-
+	FIXME
+		FIXME
 	"""
 	if self.startup_running:
 		return
