@@ -14,12 +14,14 @@ async def trigger_time(self, current_time):
 	Parameters
 	----------
 	self : 
+		FIXME
 	current_time :
-		time.time()
+		FIXME: time.time()
 
 	Returns
 	-------
-
+	FIXME
+		FIXME
 	"""
 	_is_night = _nighttime(self, current_time)
 	
@@ -51,13 +53,16 @@ def _nighttime(self, current_time):
 	Parameters
 	----------
 	self : 
+		FIXME
 	current_time :
-		time.time()
+		FIXME: time.time()
 
 	Returns
 	-------
 	bool
-		True if it is nighttime; True if not configured
+		True if it is nighttime
+	None
+		if not configured
 	"""
 	_return_value = None
 	
