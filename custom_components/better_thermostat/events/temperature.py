@@ -10,7 +10,17 @@ _LOGGER = logging.getLogger(__name__)
 
 @callback
 async def trigger_temperature_change(self, event):
-	"""Handle temperature changes."""
+	"""Handle temperature changes.
+
+	Parameters
+	----------
+	self : 
+	event : 
+
+	Returns
+	-------
+
+	"""
 	if self.startup_running:
 		return
 	new_state = event.data.get("new_state")
@@ -24,7 +34,17 @@ async def trigger_temperature_change(self, event):
 
 @callback
 def _async_update_temp(self, state):
-	"""Update thermostat with the latest state from sensor."""
+	"""Update thermostat with the latest state from sensor.
+
+	Parameters
+	----------
+	self : 
+	state : 
+	
+	Returns
+	-------
+
+	"""
 	try:
 		self._cur_temp = float(state.state)
 	except (ValueError, AttributeError, KeyError, TypeError, NameError, IndexError):
