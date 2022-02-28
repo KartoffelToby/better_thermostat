@@ -27,7 +27,7 @@ async def control_trv(self):
 				return await change_hvac_mode(self, HVAC_MODE_OFF)
 			else:
 				remapped_states = convert_outbound_states(self, self._hvac_mode)
-				if remapped_states is None:
+				if not isinstance(remapped_states, dict):
 					return None
 				
 				converted_hvac_mode = remapped_states.get('system_mode') or None
