@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import Union
 
 from homeassistant.components.climate.const import (HVAC_MODE_OFF)
+from homeassistant.core import State
 from homeassistant.helpers import device_registry as dr, entity_registry as er
 from homeassistant.util import yaml
 
@@ -15,18 +16,18 @@ from .utils import calculate_local_setpoint_delta, calculate_setpoint_override, 
 _LOGGER = logging.getLogger(__name__)
 
 
-def convert_inbound_states(self, state: State) -> Union[None, dict]:
+def convert_inbound_states(self, state: State) -> Union[None, State]:
 	"""Convert inbound thermostat state to HA state.
 
 	Parameters
 	----------
 	self : 
 	state : State
-		Inbound thermostat state. 
+		Inbound thermostat state.
 
 	Returns
 	-------
-	dict
+	State
 		the converted thermostat state
 	None
 	if the state is not supported
@@ -39,27 +40,18 @@ def convert_inbound_states(self, state: State) -> Union[None, dict]:
 	if state.attributes is None or state.state is None:
 		_LOGGER.error(
 			f"better_thermostat {self.name}: convert_inbound_states() received None state for the state attributes, cannot convert"
-			)
+		)
 		return None
 	
 	_decoded_hvac_mode = None
-	
-	current_heating_setpoint = self._target_temp
 	
 	if self._config is None:
 		_LOGGER.error(f"better_thermostat {self.name}: convert_inbound_states() could not load config, cannot convert")
 	
 	if self._config.get('mode_map') is not None:
-		_hvac_mode = mode_remap(str(state.state), reverse_modes(self._config.get('mode_map')))
-	else:
-		# No mode map, decoding not necessary
-		_decoded_hvac_mode = state.state
+		state.state = mode_remap(str(state.state), reverse_modes(self._config.get('mode_map')))
 	
-	return {
-		"current_heating_setpoint": current_heating_setpoint,
-		"local_temperature": state.attributes.get('current_temperature'),
-		"local_temperature_calibration": state.attributes.get('local_temperature_calibration'),
-		"system_mode": _decoded_hvac_mode}
+	return state
 
 
 async def get_device_model(self):
