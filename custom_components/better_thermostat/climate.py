@@ -3,13 +3,13 @@
 import asyncio
 import logging
 import numbers
+from abc import ABC
+from datetime import datetime, timedelta
+from random import randint
+
 import homeassistant.helpers.config_validation as cv
 import homeassistant.util.dt as dt_util
 import voluptuous as vol
-from abc import ABC
-
-from datetime import datetime, timedelta
-from random import randint
 from homeassistant.components.climate import ClimateEntity, PLATFORM_SCHEMA
 from homeassistant.components.climate.const import (CURRENT_HVAC_HEAT, CURRENT_HVAC_IDLE, CURRENT_HVAC_OFF, HVAC_MODE_HEAT, HVAC_MODE_OFF)
 from homeassistant.const import (ATTR_TEMPERATURE, CONF_NAME, CONF_UNIQUE_ID, EVENT_HOMEASSISTANT_START)
@@ -17,15 +17,21 @@ from homeassistant.core import callback, CoreState
 from homeassistant.helpers.event import (async_track_state_change_event, async_track_time_change)
 from homeassistant.helpers.reload import async_setup_reload_service
 from homeassistant.helpers.restore_state import RestoreEntity
+
 from . import DOMAIN, PLATFORMS
-from .const import (VERSION,SUPPORT_FLAGS,CONF_HEATER,CONF_SENSOR,CONF_SENSOR_WINDOW,CONF_WEATHER,CONF_OUTDOOR_SENSOR,CONF_OFF_TEMPERATURE,CONF_WINDOW_TIMEOUT,CONF_VALVE_MAINTENANCE,CONF_NIGHT_TEMP,CONF_NIGHT_START,CONF_NIGHT_END,CONF_MIN_TEMP,CONF_MAX_TEMP,CONF_PRECISION,CONF_TARGET_TEMP,ATTR_STATE_CALL_FOR_HEAT,ATTR_STATE_DAY_SET_TEMP,ATTR_STATE_LAST_CHANGE,ATTR_STATE_NIGHT_MODE,ATTR_STATE_WINDOW_OPEN,DEFAULT_NAME)
-from .helpers import check_float, startup
-from .models.models import get_device_model, load_device_config
+from .const import (
+	ATTR_STATE_CALL_FOR_HEAT, ATTR_STATE_DAY_SET_TEMP, ATTR_STATE_LAST_CHANGE, ATTR_STATE_NIGHT_MODE, ATTR_STATE_WINDOW_OPEN, CONF_HEATER,
+	CONF_MAX_TEMP, CONF_MIN_TEMP, CONF_NIGHT_END, CONF_NIGHT_START, CONF_NIGHT_TEMP, CONF_OFF_TEMPERATURE, CONF_OUTDOOR_SENSOR,
+	CONF_PRECISION, CONF_SENSOR, CONF_SENSOR_WINDOW, CONF_TARGET_TEMP, CONF_VALVE_MAINTENANCE, CONF_WEATHER, CONF_WINDOW_TIMEOUT,
+	DEFAULT_NAME, SUPPORT_FLAGS, VERSION
+)
 from .controlling import set_hvac_mode, set_target_temperature
 from .events.temperature import trigger_temperature_change
 from .events.time import trigger_time
 from .events.trv import trigger_trv_change
 from .events.window import trigger_window_change
+from .helpers import startup
+from .models.models import get_device_model, load_device_config
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -403,31 +409,14 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
 
 		Need to be one of CURRENT_HVAC_*.
 		"""
+		
+		if self.window_open or not self.call_for_heat:
+			return CURRENT_HVAC_IDLE
+		
 		if self._hvac_mode == HVAC_MODE_OFF:
 			return CURRENT_HVAC_OFF
-		
-		try:
-			if self.hass.states.get(self.heater_entity_id).attributes.get('position') is not None:
-				if check_float(self.hass.states.get(self.heater_entity_id).attributes.get('position')):
-					valve = float(self.hass.states.get(self.heater_entity_id).attributes.get('position'))
-					if valve > 0:
-						return CURRENT_HVAC_HEAT
-					else:
-						return CURRENT_HVAC_IDLE
-			
-			if self.hass.states.get(self.heater_entity_id).attributes.get('pi_heating_demand') is not None:
-				if check_float(self.hass.states.get(self.heater_entity_id).attributes.get('pi_heating_demand')):
-					valve = float(self.hass.states.get(self.heater_entity_id).attributes.get('pi_heating_demand'))
-					if valve > 0:
-						return CURRENT_HVAC_HEAT
-					else:
-						return CURRENT_HVAC_IDLE
-		except (RuntimeError, ValueError, AttributeError, KeyError, TypeError, NameError, IndexError) as e:
-			_LOGGER.error("better_thermostat %s: RuntimeError occurred while running TRV operation, %s", self.name, e)
-		
-		if not self._is_device_active:
-			return CURRENT_HVAC_IDLE
-		return CURRENT_HVAC_HEAT
+		if self._hvac_mode == HVAC_MODE_HEAT:
+			return CURRENT_HVAC_HEAT
 	
 	@property
 	def target_temperature(self):
@@ -472,21 +461,6 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
 		
 		# Get default temp from super class
 		return super().max_temp
-	
-	@property
-	def _is_device_active(self):
-		state_off = self.hass.states.is_state(self.heater_entity_id, "off")
-		state_heat = self.hass.states.is_state(self.heater_entity_id, "heat")
-		state_auto = self.hass.states.is_state(self.heater_entity_id, "auto")
-		
-		if not self.hass.states.get(self.heater_entity_id):
-			return None
-		if state_off:
-			return False
-		elif state_heat:
-			return state_heat
-		elif state_auto:
-			return state_auto
 	
 	@property
 	def supported_features(self):
