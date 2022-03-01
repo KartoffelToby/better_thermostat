@@ -186,6 +186,7 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
 		self.load_saved_state = False
 		self._last_reported_valve_position = None
 		self._last_reported_valve_position_update_wait_lock = asyncio.Lock()
+		self._last_window_state = None
 	
 	async def async_added_to_hass(self):
 		"""Run when entity about to be added."""
