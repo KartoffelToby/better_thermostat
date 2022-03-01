@@ -24,6 +24,7 @@ async def control_trv(self):
 		
 		_current_TRV_mode = self.hass.states.get(self.heater_entity_id).state
 		system_mode_change = False
+		window_open_status_changed = False
 		
 		if self._bt_hvac_mode == HVAC_MODE_OFF:
 			_LOGGER.debug(f"better_thermostat {self.name}: control_trv: own mode is off, setting TRV mode to off")
@@ -37,7 +38,7 @@ async def control_trv(self):
 			self._trv_hvac_mode = HVAC_MODE_OFF
 		
 		else:
-			check_weather(self)
+			call_for_heat_updated = check_weather(self)
 			
 			if self.call_for_heat is False:
 				_LOGGER.debug(
@@ -72,7 +73,14 @@ async def control_trv(self):
 		
 		if system_mode_change:
 			# block updates from the TRV for a short while to avoid sending too many system change commands
-			await asyncio.sleep(2)
+			await asyncio.sleep(5)
+		
+		if self._last_window_state != self.window_open:
+			self._last_window_state = self.window_open
+			window_open_status_changed = True
+		
+		if call_for_heat_updated or system_mode_change or window_open_status_changed:
+			self.async_write_ha_state()
 		
 		self.ignore_states = False
 

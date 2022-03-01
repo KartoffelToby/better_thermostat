@@ -9,8 +9,16 @@ from .models.utils import convert_to_float
 _LOGGER = logging.getLogger(__name__)
 
 
-def check_weather(self):
-	# check weather predictions or ambient air temperature if available
+def check_weather(self) -> bool:
+	"""check weather predictions or ambient air temperature if available
+
+	Returns
+	-------
+	bool
+		true if call_for_heat was changed
+	"""
+	old_call_for_heat = self.call_for_heat
+	
 	if self.weather_entity is not None:
 		self.call_for_heat = check_weather_prediction(self)
 	elif self.outdoor_sensor is not None:
@@ -18,6 +26,11 @@ def check_weather(self):
 	else:
 		# no weather evaluation: call for heat is always true
 		self.call_for_heat = True
+	
+	if old_call_for_heat != self.call_for_heat:
+		return True
+	else:
+		return False
 
 
 def check_weather_prediction(self):
