@@ -2,16 +2,16 @@
 
 import asyncio
 import logging
-
 from datetime import datetime
 
-from .events.temperature import _async_update_temp
+from homeassistant.const import STATE_UNAVAILABLE, STATE_UNKNOWN
+from homeassistant.helpers.entity_registry import async_entries_for_config_entry
+
 from .controlling import control_trv
-from homeassistant.helpers.entity_registry import (async_entries_for_config_entry)
-from homeassistant.const import (STATE_UNAVAILABLE, STATE_UNKNOWN)
-from homeassistant.components.climate.const import (HVAC_MODE_OFF)
+from .events.temperature import _async_update_temp
 
 _LOGGER = logging.getLogger(__name__)
+
 
 def log_info(self, message):
 	"""Log a message to the info log."""
@@ -105,10 +105,8 @@ async def startup(self):
 			check = window.state
 			if check == 'on':
 				self.window_open = True
-				self._hvac_mode = HVAC_MODE_OFF
 			else:
 				self.window_open = False
-				self.closed_window_triggered = False
 			_LOGGER.debug(
 				"better_thermostat %s: detected window state at startup: %s",
 				self.name,

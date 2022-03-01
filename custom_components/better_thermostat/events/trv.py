@@ -50,7 +50,7 @@ async def trigger_trv_change(self, event):
 		force_update = True
 	
 	# check if this change is what we expected (if not already an update is forced)
-	if not force_update and self._hvac_mode != new_decoded_system_mode:
+	if not force_update and self._trv_hvac_mode != new_decoded_system_mode:
 		_LOGGER.warning(
 			f"better_thermostat {self.name}: TRV is not in the expected mode, we will force an update"
 		)
@@ -65,7 +65,7 @@ async def trigger_trv_change(self, event):
 		return
 	
 	# we only read setpoint changes from TRV if we are in heating mode
-	if self._hvac_mode == HVAC_MODE_OFF:
+	if self._trv_hvac_mode == HVAC_MODE_OFF:
 		return
 	
 	if _new_heating_setpoint := convert_to_float(new_state.attributes.get('current_heating_setpoint'), self.name, "trigger_trv_change()") \
