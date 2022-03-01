@@ -23,6 +23,7 @@ async def control_trv(self):
 		# the current target TRV state is in self._trvs_hvac_mode
 		
 		_current_TRV_mode = self.hass.states.get(self.heater_entity_id).state
+		system_mode_change = False
 		
 		if self._bt_hvac_mode == HVAC_MODE_OFF:
 			_LOGGER.debug(f"better_thermostat {self.name}: control_trv: own mode is off, setting TRV mode to off")
@@ -51,6 +52,7 @@ async def control_trv(self):
 		
 		if self._trv_hvac_mode == HVAC_MODE_OFF:
 			if _current_TRV_mode != HVAC_MODE_OFF:
+				system_mode_change = True
 				await set_trv_values(self, 'hvac_mode', HVAC_MODE_OFF)
 		else:
 			remapped_states = convert_outbound_states(self, self._trv_hvac_mode)
@@ -60,14 +62,17 @@ async def control_trv(self):
 			current_heating_setpoint = remapped_states.get('current_heating_setpoint') or None
 			calibration = remapped_states.get('local_temperature_calibration') or None
 			if converted_hvac_mode is not None:
-				await set_trv_values(self, 'hvac_mode', converted_hvac_mode)
+				if _current_TRV_mode != converted_hvac_mode:
+					system_mode_change = True
+					await set_trv_values(self, 'hvac_mode', converted_hvac_mode)
 			if current_heating_setpoint is not None:
 				await set_trv_values(self, 'temperature', current_heating_setpoint)
 			if calibration is not None:
 				await set_trv_values(self, 'local_temperature_calibration', calibration)
 		
-		# block updates from the TRV for a short while to avoid sending too many system change commands
-		await asyncio.sleep(2)
+		if system_mode_change:
+			# block updates from the TRV for a short while to avoid sending too many system change commands
+			await asyncio.sleep(2)
 		
 		self.ignore_states = False
 
