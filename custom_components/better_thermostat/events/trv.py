@@ -27,7 +27,7 @@ async def trigger_trv_change(self, event):
 		_LOGGER.debug(f"better_thermostat {self.name}: TRV update contained not all necessary data for processing, skipping")
 		return
 	
-	remapped_state = convert_inbound_states(self, new_state.attributes)
+	remapped_state = convert_inbound_states(self, new_state)
 	
 	update_valve_position(self, remapped_state.get(ATTR_VALVE_POSITION))
 	
@@ -39,7 +39,7 @@ async def trigger_trv_change(self, event):
 	# system mode has been changed
 	if old_state != new_state:
 		_LOGGER.debug(
-			f"better_thermostat {self.name}: TRV System Mode changed from '{old_state.attributes.get('system_mode')}' to '{new_state.attributes.get('system_mode')}'"
+			f"better_thermostat {self.name}: TRV System Mode changed from '{old_state}' to '{new_state}'"
 		)
 		
 		new_decoded_system_mode = remapped_state.get('system_mode')

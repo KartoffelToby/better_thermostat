@@ -6,8 +6,22 @@ from typing import Union
 _LOGGER = logging.getLogger(__name__)
 
 
-def mode_remap(hvac_mode, modes):
-	"""Remap HVAC mode to better mode."""
+def mode_remap(hvac_mode: str, modes: dict) -> str:
+	"""Remap HVAC mode to correct mode
+
+	Parameters
+	----------
+	hvac_mode : str
+		HVAC mode to be remapped
+	modes : 
+		Dictionary with HVAC mode remappings
+
+	Returns
+	-------
+	str
+		remapped mode according to device's quirks
+	"""
+	
 	if modes is None:
 		return hvac_mode
 	if modes.get(hvac_mode) is not None:
