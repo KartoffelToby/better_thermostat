@@ -19,10 +19,7 @@ async def trigger_trv_change(self, event):
 	old_state = event.data.get("old_state")
 	new_state = event.data.get("new_state")
 	
-	if new_state is None or old_state is None:
-		return
-	
-	if new_state.attributes is None:
+	if not all([new_state, old_state, new_state.attributes]):
 		return
 	
 	try:
