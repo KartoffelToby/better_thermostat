@@ -16,42 +16,33 @@ from .utils import calculate_local_setpoint_delta, calculate_setpoint_override, 
 _LOGGER = logging.getLogger(__name__)
 
 
-def convert_inbound_states(self, state: State) -> Union[None, State]:
+def convert_inbound_states(self, state: State):
 	"""Convert inbound thermostat state to HA state.
 
 	Parameters
 	----------
 	self : 
 	state : State
-		Inbound thermostat state.
+		Inbound thermostat state, which will be modified
 
 	Returns
 	-------
-	State
-		the converted thermostat state
 	None
-	if the state is not supported
 	"""
 	
 	if state is None:
-		_LOGGER.warning(f"better_thermostat {self.name}: convert_inbound_states() received None state, cannot convert")
-		return None
+		raise TypeError("convert_inbound_states() received None state, cannot convert")
 	
 	if state.attributes is None or state.state is None:
-		_LOGGER.error(
-			f"better_thermostat {self.name}: convert_inbound_states() received None state for the state attributes, cannot convert"
-		)
-		return None
+		raise TypeError("convert_inbound_states() received None state, cannot convert")
 	
 	_decoded_hvac_mode = None
 	
 	if self._config is None:
-		_LOGGER.error(f"better_thermostat {self.name}: convert_inbound_states() could not load config, cannot convert")
+		raise TypeError("convert_inbound_states() could not find config, cannot convert")
 	
 	if self._config.get('mode_map') is not None:
 		state.state = mode_remap(str(state.state), reverse_modes(self._config.get('mode_map')))
-	
-	return state
 
 
 async def get_device_model(self):
