@@ -24,10 +24,8 @@ async def trigger_trv_change(self, event):
 	
 	try:
 		remapped_state = convert_inbound_states(self, new_state.attributes)
-		# write valve position to local variable
-		if remapped_state.get(ATTR_VALVE_POSITION) is not None:
-			self._last_reported_valve_position = remapped_state.get(ATTR_VALVE_POSITION)
-			self._last_reported_valve_position_update_wait_lock.release()
+		
+		update_valve_position(self, remapped_state.get(ATTR_VALVE_POSITION))
 		
 		if old_state.attributes.get('system_mode') != new_state.attributes.get('system_mode'):
 			self._hvac_mode = remapped_state.get('system_mode')
@@ -66,8 +64,26 @@ async def trigger_trv_change(self, event):
 				)
 				await control_trv(self)
 	
-	
 	except TypeError as e:
 		_LOGGER.debug("better_thermostat entity not ready or device is currently not supported %s", e)
 	
 	self.async_write_ha_state()
+
+
+def update_valve_position(self, valve_position):
+	"""Updates the stored valve position and triggers async tasks waiting for this
+
+	Parameters
+	----------
+	self : 
+		FIXME
+	valve_position :
+		the new valve position
+	
+	Returns
+	-------
+	None 
+	"""
+	if valve_position is not None:
+		self._last_reported_valve_position = valve_position
+		self._last_reported_valve_position_update_wait_lock.release()
