@@ -15,6 +15,7 @@ _LOGGER = logging.getLogger(__name__)
 async def trigger_trv_change(self, event):
 	"""Process TRV status updates"""
 	if self.startup_running:
+		_LOGGER.debug(f"better_thermostat {self.name}: skipping trigger_trv_change because startup is running")
 		return
 	
 	force_update = False
@@ -23,6 +24,7 @@ async def trigger_trv_change(self, event):
 	new_state = event.data.get("new_state")
 	
 	if not all([new_state, old_state, new_state.attributes]):
+		_LOGGER.debug(f"better_thermostat {self.name}: TRV update contained not all necessary data for processing, skipping")
 		return
 	
 	remapped_state = convert_inbound_states(self, new_state.attributes)
@@ -31,32 +33,43 @@ async def trigger_trv_change(self, event):
 	
 	# if flag is on, we won't do any further processing
 	if self.ignore_states:
+		_LOGGER.debug(f"better_thermostat {self.name}: skipping trigger_trv_change because ignore_states is true")
 		return
 	
 	# system mode has been changed
 	if old_state.attributes.get('system_mode') != new_state.attributes.get('system_mode'):
+		_LOGGER.debug(
+			f"better_thermostat {self.name}: TRV System Mode changed from '{old_state.attributes.get('system_mode')}' to '{new_state.attributes.get('system_mode')}'"
+		)
 		
 		new_decoded_system_mode = remapped_state.get('system_mode')
+		_LOGGER.debug(
+			f"better_thermostat {self.name}: Expected decoded TRV mode: '{self._hvac_mode}'. TRV's decoded TRV mode: '{new_decoded_system_mode}'"
+		)
 		
 		if new_decoded_system_mode is None or new_decoded_system_mode not in (HVAC_MODE_OFF, HVAC_MODE_HEAT):
 			# we don't understand this system mode, so we'll force an update to overwrite it
+			_LOGGER.debug(f"better_thermostat {self.name}: TRV's decoded TRV mode is not valid, overwriting with correct system mode")
 			
 			force_update = True
 			_LOGGER.debug(
 				f"better_thermostat {self.name}: Could not parse new system mode from TRV, forcing an update with the "
 				f"expected system mode: {self._hvac_mode}"
-				)
+			)
 		
 		# check if this change is what we expected (if not already an update is forced)
 		if not force_update and self._hvac_mode != new_decoded_system_mode:
 			_LOGGER.warning(
-				f"better_thermostat {self.name}: TRV system mode but not to the mode we expect it to have, we will force an update"
+				f"better_thermostat {self.name}: TRV is not in the expected mode, we will force an update"
 			)
 			force_update = True
 		
 		if force_update:
 			await control_trv(self)
 			return
+	
+	else:
+		_LOGGER.debug(f"better_thermostat {self.name}: trigger_trv_change detected no system mode change")
 	
 	# we only read user input at the TRV on mode 0
 	if self.calibration_type != 0:
@@ -70,7 +83,7 @@ async def trigger_trv_change(self, event):
 		new_state.attributes.get('current_heating_setpoint'),
 		self.name,
 		"trigger_trv_change()"
-		) is None:
+	) is None:
 		return
 	
 	if _new_heating_setpoint < self._min_temp or self._max_temp < _new_heating_setpoint:
@@ -96,7 +109,7 @@ def update_valve_position(self, valve_position):
 		FIXME
 	valve_position :
 		the new valve position
-	
+
 	Returns
 	-------
 	None 
