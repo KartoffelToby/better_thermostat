@@ -1,7 +1,7 @@
 import asyncio
 import logging
 
-from homeassistant.components.climate.const import HVAC_MODE_HEAT, HVAC_MODE_OFF, SERVICE_SET_HVAC_MODE, SERVICE_SET_TEMPERATURE
+from homeassistant.components.climate.const import HVAC_MODE_HEAT, HVAC_MODE_OFF, SERVICE_SET_HVAC_MODE
 from homeassistant.components.number.const import (SERVICE_SET_VALUE)
 from homeassistant.const import (ATTR_TEMPERATURE)
 
@@ -18,52 +18,58 @@ async def control_trv(self):
 		return
 	async with self._temp_lock:
 		self.ignore_states = True
-		try:
-			self.call_for_heat = await check_weather(self)
-			_LOGGER.debug(f"better_thermostat {self.name}: Call for heat decision: {self.call_for_heat}")
-			await check_window_state(self)
-			await check_call_for_heat(self)
-			if not self.call_for_heat:
-				return await change_hvac_mode(self, HVAC_MODE_OFF)
+		
+		# our own state is in self._bt_hvac_mode
+		# the current target TRV state is in self._trvs_hvac_mode
+		
+		_current_TRV_mode = self.hass.states.get(self.heater_entity_id).state
+		
+		if self._bt_hvac_mode == HVAC_MODE_OFF:
+			_LOGGER.debug(f"better_thermostat {self.name}: control_trv: own mode is off, setting TRV mode to off")
+			self._trv_hvac_mode = HVAC_MODE_OFF
+		
+		elif self.window_open is True or self.window_open is None:
+			_LOGGER.debug(
+				f"better_thermostat {self.name}: control_trv: own mode is on, window is open or status of window is unknown, setting TRV mode to off"
+				)
+			# if the window is open or the sensor is not available, we're done
+			self._trv_hvac_mode = HVAC_MODE_OFF
+		
+		else:
+			check_weather(self)
+			
+			if self.call_for_heat is False:
+				_LOGGER.debug(
+					f"better_thermostat {self.name}: control_trv: own mode is on, call for heat decision is false, setting TRV mode to off"
+				)
+				self._trv_hvac_mode = HVAC_MODE_OFF
 			else:
-				remapped_states = convert_outbound_states(self, self._hvac_mode)
-				if not isinstance(remapped_states, dict):
-					return None
-				
-				converted_hvac_mode = remapped_states.get('system_mode') or None
-				current_heating_setpoint = remapped_states.get('current_heating_setpoint') or None
-				calibration = remapped_states.get('local_temperature_calibration') or None
-				if converted_hvac_mode is not None:
-					await change_hvac_mode(self, converted_hvac_mode)
-				if current_heating_setpoint is not None:
-					await change_target_temperature(self, current_heating_setpoint)
-				if calibration is not None:
-					await change_local_calibration(self, calibration)
-		except ValueError as e:
-			_LOGGER.error("better_thermostat %s: ValueError %s", self.name, e)
+				_LOGGER.debug(
+					f"better_thermostat {self.name}: control_trv: own mode is on, call for heat decision is true, setting TRV mode to on"
+				)
+				self._trv_hvac_mode = HVAC_MODE_HEAT
+		
+		if self._trv_hvac_mode == HVAC_MODE_OFF:
+			if _current_TRV_mode != HVAC_MODE_OFF:
+				await set_trv_values(self, 'hvac_mode', HVAC_MODE_OFF)
+		else:
+			remapped_states = convert_outbound_states(self, self._trv_hvac_mode)
+			if not isinstance(remapped_states, dict):
+				return None
+			converted_hvac_mode = remapped_states.get('system_mode') or None
+			current_heating_setpoint = remapped_states.get('current_heating_setpoint') or None
+			calibration = remapped_states.get('local_temperature_calibration') or None
+			if converted_hvac_mode is not None:
+				await set_trv_values(self, 'hvac_mode', converted_hvac_mode)
+			if current_heating_setpoint is not None:
+				await set_trv_values(self, 'temperature', current_heating_setpoint)
+			if calibration is not None:
+				await set_trv_values(self, 'local_temperature_calibration', calibration)
+		
+		# block updates from the TRV for a short while to avoid sending too many system change commands
+		await asyncio.sleep(2)
+		
 		self.ignore_states = False
-
-
-async def check_window_state(self):
-	# window open detection
-	if self.window_open and not self.closed_window_triggered:
-		self.last_change = self._hvac_mode
-		self._hvac_mode = HVAC_MODE_OFF
-		self.closed_window_triggered = True
-	elif not self.window_open and self.closed_window_triggered:
-		self._hvac_mode = self.last_change
-		self.closed_window_triggered = False
-
-
-async def check_call_for_heat(self):
-	# check if there's a call for heat based on the weather
-	if self._hvac_mode != HVAC_MODE_OFF and not self.window_open and not self.call_for_heat and not self.load_saved_state:
-		self.last_change = self._hvac_mode
-		self._hvac_mode = HVAC_MODE_OFF
-		self.load_saved_state = True
-	elif self.load_saved_state and self.call_for_heat and not self.window_open:
-		self._hvac_mode = self.last_change
-		self.load_saved_state = False
 
 
 async def set_target_temperature(self, **kwargs):
@@ -79,48 +85,24 @@ async def set_target_temperature(self, **kwargs):
 
 async def set_hvac_mode(self, hvac_mode):
 	if hvac_mode in (HVAC_MODE_HEAT, HVAC_MODE_OFF):
-		_LOGGER.debug(f"better_thermostat {self.name}: received new HVAC mode {hvac_mode}")
-		self._hvac_mode = hvac_mode
+		_LOGGER.debug(f"better_thermostat {self.name}: received new HVAC mode {hvac_mode} from HA")
+		self._bt_hvac_mode = hvac_mode
 	else:
 		_LOGGER.error("better_thermostat %s: Unsupported hvac_mode %s", self.name, hvac_mode)
 	self.async_write_ha_state()
 	await control_trv(self)
 
 
-async def change_hvac_mode(self, hvac_mode):
-	await set_trv_values(self, 'system_mode', hvac_mode)
-
-
-async def change_target_temperature(self, target_temp):
-	# Using on local calibration, don't update the temp if its off, some TRV changed to 5 °C when off after a while, don't update the temp
-	if not self.window_open and self._hvac_mode != HVAC_MODE_OFF and self.call_for_heat:
-		await set_trv_values(self, 'temperature', target_temp)
-
-
-async def change_local_calibration(self, calibration):
-	# Using on local calibration, update only if the TRV is not in window open mode
-	if self.calibration_type == 0 and not self.window_open and self._hvac_mode != HVAC_MODE_OFF:
-		await set_trv_values(self, 'local_temperature_calibration', calibration)
-
-
 async def set_trv_values(self, key, value):
 	"""Do necessary actions to set the TRV values."""
-	if key == 'temperature':
+	
+	if key in ('temperature', 'hvac_mode'):
 		await self.hass.services.async_call(
 			'climate',
-			SERVICE_SET_TEMPERATURE,
-			{'entity_id': self.heater_entity_id, 'temperature': value},
+			"set_" + key,
+			{'entity_id': self.heater_entity_id, key: value},
 			blocking=False
 		)
-		_LOGGER.debug("better_thermostat %s send %s %s", self.name, key, value)
-	elif key == 'system_mode':
-		await self.hass.services.async_call(
-			'climate',
-			SERVICE_SET_HVAC_MODE,
-			{'entity_id': self.heater_entity_id, 'hvac_mode': value},
-			blocking=False
-		)
-		_LOGGER.debug("better_thermostat %s send %s %s", self.name, key, value)
 	elif key == 'local_temperature_calibration':
 		max_calibration = self.hass.states.get(self.local_temperature_calibration_entity).attributes.get('max')
 		min_calibration = self.hass.states.get(self.local_temperature_calibration_entity).attributes.get('min')
@@ -134,7 +116,6 @@ async def set_trv_values(self, key, value):
 			{'entity_id': self.local_temperature_calibration_entity, 'value': value},
 			blocking=False
 		)
-		_LOGGER.debug("better_thermostat %s send %s %s", self.name, key, value)
 	elif key == 'valve_position':
 		await self.hass.services.async_call(
 			'number',
@@ -142,7 +123,9 @@ async def set_trv_values(self, key, value):
 			{'entity_id': self.valve_position_entity, 'value': value},
 			blocking=False
 		)
-		_LOGGER.debug("better_thermostat %s send %s %s", self.name, key, value)
+	else:
+		_LOGGER.error("better_thermostat %s: set_trv_values() called with unsupported key %s", self.name, key)
+	_LOGGER.debug("better_thermostat %s: send new %s to TRV, value: '%s'", self.name, key, value)
 	await asyncio.sleep(1)
 
 
@@ -172,7 +155,7 @@ async def trv_valve_maintenance(self):
 			_set_HVAC_mode_retry = 0
 			while not self._last_reported_valve_position == 0:
 				# send close valve command and wait for the valve to close
-				await set_trv_values(self, 'system_mode', 'off')
+				await set_trv_values(self, 'hvac_mode', 'off')
 				# wait for an update by the TRV on the valve position
 				await self._last_reported_valve_position_update_wait_lock.acquire()
 				if not self._last_reported_valve_position == 0 and _set_HVAC_mode_retry < 3:

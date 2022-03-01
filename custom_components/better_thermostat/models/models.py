@@ -36,8 +36,6 @@ def convert_inbound_states(self, state: State):
 	if state.attributes is None or state.state is None:
 		raise TypeError("convert_inbound_states() received None state, cannot convert")
 	
-	_decoded_hvac_mode = None
-	
 	if self._config is None:
 		raise TypeError("convert_inbound_states() could not find config, cannot convert")
 	

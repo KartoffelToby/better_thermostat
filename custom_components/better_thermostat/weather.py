@@ -9,15 +9,15 @@ from .models.utils import convert_to_float
 _LOGGER = logging.getLogger(__name__)
 
 
-async def check_weather(self):
+def check_weather(self):
 	# check weather predictions or ambient air temperature if available
 	if self.weather_entity is not None:
-		return check_weather_prediction(self)
+		self.call_for_heat = check_weather_prediction(self)
 	elif self.outdoor_sensor is not None:
-		return check_ambient_air_temperature(self)
+		self.call_for_heat = check_ambient_air_temperature(self)
 	else:
 		# no weather evaluation: call for heat is always true
-		return True
+		self.call_for_heat = True
 
 
 def check_weather_prediction(self):
