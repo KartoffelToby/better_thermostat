@@ -412,10 +412,10 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
 			_LOGGER.debug(f"better_thermostat {self.name}: HA asked for our HVAC action, we will respond with: {CURRENT_HVAC_OFF}")
 			return CURRENT_HVAC_OFF
 		if self._bt_hvac_mode == HVAC_MODE_HEAT:
-			if self.window_open or not self.call_for_heat:
+			if self.window_open or self.call_for_heat is False:
 				_LOGGER.debug(
 					f"better_thermostat {self.name}: HA asked for our HVAC action, we will respond with: {CURRENT_HVAC_IDLE}. Window open: {self.window_open}, call for heat: {self.call_for_heat}"
-					)
+				)
 				return CURRENT_HVAC_IDLE
 			_LOGGER.debug(f"better_thermostat {self.name}: HA asked for our HVAC action, we will respond with: {CURRENT_HVAC_HEAT}")
 			return CURRENT_HVAC_HEAT
