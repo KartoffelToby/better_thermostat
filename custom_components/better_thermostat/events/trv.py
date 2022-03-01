@@ -37,7 +37,7 @@ async def trigger_trv_change(self, event):
 		return
 	
 	# system mode has been changed
-	if old_state.attributes.get('system_mode') != new_state.attributes.get('system_mode'):
+	if old_state != new_state:
 		_LOGGER.debug(
 			f"better_thermostat {self.name}: TRV System Mode changed from '{old_state.attributes.get('system_mode')}' to '{new_state.attributes.get('system_mode')}'"
 		)
