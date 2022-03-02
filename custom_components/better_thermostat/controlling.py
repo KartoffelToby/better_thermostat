@@ -63,6 +63,9 @@ async def control_trv(self):
 			current_heating_setpoint = remapped_states.get('current_heating_setpoint') or None
 			calibration = remapped_states.get('local_temperature_calibration') or None
 			if converted_hvac_mode is not None:
+				_LOGGER.debug(
+					f"better_thermostat {self.name}: control_trv: current TRV mode: {_current_TRV_mode} new TRV mode: {converted_hvac_mode}"
+					)
 				if _current_TRV_mode != converted_hvac_mode:
 					system_mode_change = True
 					await set_trv_values(self, 'hvac_mode', converted_hvac_mode)
