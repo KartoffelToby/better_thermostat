@@ -22,6 +22,8 @@ async def trigger_trv_change(self, event):
 	old_state = event.data.get("old_state")
 	new_state = event.data.get("new_state")
 	
+	_LOGGER.debug(f"better_thermostat {self.name}: trigger_trv_change: old_state: {old_state.state} new_state: {new_state.state}")
+	
 	if not all([new_state, old_state, new_state.attributes]):
 		_LOGGER.debug(f"better_thermostat {self.name}: TRV update contained not all necessary data for processing, skipping")
 		return
@@ -42,6 +44,10 @@ async def trigger_trv_change(self, event):
 		return
 	
 	new_decoded_system_mode = str(new_state.state)
+	
+	_LOGGER.debug(
+		f"better_thermostat {self.name}: trigger_trv_change: new_decoded_system_mode: {new_decoded_system_mode}, expected system mode: {self._trv_hvac_mode}"
+		)
 	
 	if new_decoded_system_mode not in (HVAC_MODE_OFF, HVAC_MODE_HEAT):
 		# not an valid mode, overwriting
