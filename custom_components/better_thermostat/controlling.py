@@ -25,6 +25,7 @@ async def control_trv(self):
 		_current_TRV_mode = self.hass.states.get(self.heater_entity_id).state
 		system_mode_change = False
 		window_open_status_changed = False
+		call_for_heat_updated = False
 		
 		if self._bt_hvac_mode == HVAC_MODE_OFF:
 			_LOGGER.debug(f"better_thermostat {self.name}: control_trv: own mode is off, setting TRV mode to off")
