@@ -3,3 +3,4 @@ calibration_round: false
 has_system_mode: True
 mode_map:
   heat: auto
+  auto: heat
