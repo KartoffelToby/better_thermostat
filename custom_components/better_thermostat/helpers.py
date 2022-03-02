@@ -132,8 +132,6 @@ async def startup(self):
 					self.local_temperature_calibration_entity = entity.entity_id
 				if "valve_position" in uid:
 					self.valve_position_entity = entity.entity_id
-		_async_update_temp(self,sensor_state)
-		self.async_write_ha_state()
 		await asyncio.sleep(5)
 		# Use the same precision and min and max as the TRV
 		if self.hass.states.get(self.heater_entity_id).attributes.get('target_temp_step') is not None:
@@ -148,7 +146,7 @@ async def startup(self):
 			self._TRV_max_temp = float(self.hass.states.get(self.heater_entity_id).attributes.get('max_temp'))
 		else:
 			self._TRV_max_temp = 30
-		
+
 		# Check If we have an old state
 		if (old_state := await self.async_get_last_state()) is not None:
 			# If we have no initial temperature, restore
@@ -233,6 +231,7 @@ async def startup(self):
 				self.name
 			)
 			self._bt_hvac_mode = HVAC_MODE_OFF
+		_async_update_temp(self, sensor_state)
 		self.async_write_ha_state()
 		_LOGGER.info("better_thermostat %s: startup completed.", self.name)
 		await control_trv(self)
