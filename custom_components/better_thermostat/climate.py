@@ -3,35 +3,29 @@
 import asyncio
 import logging
 import numbers
-from abc import ABC
-from datetime import datetime, timedelta
-from random import randint
-
 import homeassistant.helpers.config_validation as cv
 import homeassistant.util.dt as dt_util
 import voluptuous as vol
+from abc import ABC
+
+from datetime import datetime, timedelta
+from random import randint
 from homeassistant.components.climate import ClimateEntity, PLATFORM_SCHEMA
 from homeassistant.components.climate.const import (CURRENT_HVAC_HEAT, CURRENT_HVAC_IDLE, CURRENT_HVAC_OFF, HVAC_MODE_HEAT, HVAC_MODE_OFF)
-from homeassistant.const import (ATTR_TEMPERATURE, CONF_NAME, CONF_UNIQUE_ID, EVENT_HOMEASSISTANT_START)
+from homeassistant.const import (CONF_NAME, CONF_UNIQUE_ID, EVENT_HOMEASSISTANT_START)
 from homeassistant.core import callback, CoreState
 from homeassistant.helpers.event import (async_track_state_change_event, async_track_time_change)
 from homeassistant.helpers.reload import async_setup_reload_service
 from homeassistant.helpers.restore_state import RestoreEntity
-
 from . import DOMAIN, PLATFORMS
-from .const import (
-	ATTR_STATE_CALL_FOR_HEAT, ATTR_STATE_DAY_SET_TEMP, ATTR_STATE_LAST_CHANGE, ATTR_STATE_NIGHT_MODE, ATTR_STATE_WINDOW_OPEN, CONF_HEATER,
-	CONF_MAX_TEMP, CONF_MIN_TEMP, CONF_NIGHT_END, CONF_NIGHT_START, CONF_NIGHT_TEMP, CONF_OFF_TEMPERATURE, CONF_OUTDOOR_SENSOR,
-	CONF_PRECISION, CONF_SENSOR, CONF_SENSOR_WINDOW, CONF_TARGET_TEMP, CONF_VALVE_MAINTENANCE, CONF_WEATHER, CONF_WINDOW_TIMEOUT,
-	DEFAULT_NAME, SUPPORT_FLAGS, VERSION
-)
+from .const import (VERSION,SUPPORT_FLAGS,CONF_HEATER,CONF_SENSOR,CONF_SENSOR_WINDOW,CONF_WEATHER,CONF_OUTDOOR_SENSOR,CONF_OFF_TEMPERATURE,CONF_WINDOW_TIMEOUT,CONF_VALVE_MAINTENANCE,CONF_NIGHT_TEMP,CONF_NIGHT_START,CONF_NIGHT_END,CONF_MIN_TEMP,CONF_MAX_TEMP,CONF_PRECISION,CONF_TARGET_TEMP,ATTR_STATE_CALL_FOR_HEAT,ATTR_STATE_DAY_SET_TEMP,ATTR_STATE_LAST_CHANGE,ATTR_STATE_NIGHT_MODE,ATTR_STATE_WINDOW_OPEN,DEFAULT_NAME)
+from .helpers import check_float, startup
+from .models.models import get_device_model, load_device_config
 from .controlling import set_hvac_mode, set_target_temperature
 from .events.temperature import trigger_temperature_change
 from .events.time import trigger_time
 from .events.trv import trigger_trv_change
 from .events.window import trigger_window_change
-from .helpers import startup
-from .models.models import get_device_model, load_device_config
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -149,8 +143,7 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
 		self.night_temp = night_temp or None
 		self.night_start = dt_util.parse_time(night_start) or None
 		self.night_end = dt_util.parse_time(night_end) or None
-		self._trv_hvac_mode = None
-		self._bt_hvac_mode = None
+		self._hvac_mode = HVAC_MODE_HEAT
 		self._saved_target_temp = target_temp or None
 		self._target_temp_step = precision
 		self._TRV_target_temp_step = 0.5
@@ -172,6 +165,7 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
 		self.next_valve_maintenance = datetime.now() + timedelta(hours=randint(1, 24 * 5))
 		self.calibration_type = 2
 		self.last_daytime_temp = None
+		self.closed_window_triggered = False
 		self.night_mode_active = None
 		self.call_for_heat = None
 		self.ignore_states = False
@@ -186,7 +180,6 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
 		self.load_saved_state = False
 		self._last_reported_valve_position = None
 		self._last_reported_valve_position_update_wait_lock = asyncio.Lock()
-		self._last_window_state = None
 	
 	async def async_added_to_hass(self):
 		"""Run when entity about to be added."""
@@ -244,92 +237,6 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
 			_async_startup()
 		else:
 			self.hass.bus.async_listen_once(EVENT_HOMEASSISTANT_START, _async_startup)
-		
-		# Check If we have an old state
-		if (old_state := await self.async_get_last_state()) is not None:
-			# If we have no initial temperature, restore
-			if self._target_temp is None:
-				# If we have a previously saved temperature
-				if old_state.attributes.get(ATTR_TEMPERATURE) is None:
-					self._target_temp = self._min_temp
-					_LOGGER.debug(
-						"better_thermostat %s: Undefined target temperature, falling back to %s", self.name, self._target_temp
-					)
-				else:
-					_old_target_temperature = float(old_state.attributes.get(ATTR_TEMPERATURE))
-					# if the saved temperature is lower than the _min_temp, set it to _min_temp
-					if _old_target_temperature < self._min_temp:
-						_LOGGER.warning(
-							"better_thermostat %s: Saved target temperature %s is lower than _min_temp %s, setting to _min_temp",
-							self.name,
-							_old_target_temperature,
-							self._min_temp
-						)
-						self._target_temp = self._min_temp
-					# if the saved temperature is higher than the _max_temp, set it to _max_temp
-					elif _old_target_temperature > self._max_temp:
-						_LOGGER.warning(
-							"better_thermostat %s: Saved target temperature %s is higher than _max_temp %s, setting to _max_temp",
-							self.name,
-							_old_target_temperature,
-							self._min_temp
-						)
-						self._target_temp = self._max_temp
-			if not self._bt_hvac_mode and old_state.state:
-				self._bt_hvac_mode = old_state.state
-			if not old_state.attributes.get(ATTR_STATE_LAST_CHANGE):
-				self.last_change = old_state.attributes.get(ATTR_STATE_LAST_CHANGE)
-			else:
-				self.last_change = HVAC_MODE_OFF
-			if not old_state.attributes.get(ATTR_STATE_WINDOW_OPEN):
-				self.window_open = old_state.attributes.get(ATTR_STATE_WINDOW_OPEN)
-			if not old_state.attributes.get(ATTR_STATE_DAY_SET_TEMP):
-				self.last_daytime_temp = old_state.attributes.get(ATTR_STATE_DAY_SET_TEMP)
-			if not old_state.attributes.get(ATTR_STATE_CALL_FOR_HEAT):
-				self.call_for_heat = old_state.attributes.get(ATTR_STATE_CALL_FOR_HEAT)
-			if not old_state.attributes.get(ATTR_STATE_NIGHT_MODE):
-				self.night_mode_active = old_state.attributes.get(ATTR_STATE_NIGHT_MODE)
-				if self.night_mode_active:
-					if self.night_temp and isinstance(self.night_temp, numbers.Number):
-						_night_temp = float(self.night_temp)
-						# if the night temperature is lower than _min_temp, set it to _min_temp
-						if _night_temp < self._min_temp:
-							_LOGGER.error(
-								"better_thermostat %s: Night temperature %s is lower than _min_temp %s, setting to _min_temp",
-								self.name,
-								_night_temp,
-								self._min_temp
-							)
-							self._target_temp = self._min_temp
-						# if the night temperature is higher than the _max_temp, set it to max_temp
-						elif _night_temp > self._max_temp:
-							_LOGGER.warning(
-								"better_thermostat %s: Night temperature %s is higher than _max_temp %s, setting to _max_temp",
-								self.name,
-								_night_temp,
-								self._min_temp
-							)
-							self._target_temp = self._max_temp
-					else:
-						_LOGGER.error("better_thermostat %s: Night temp '%s' is not a number", self.name, str(self.night_temp))
-		
-		else:
-			# No previous state, try and restore defaults
-			if self._target_temp is None:
-				_LOGGER.info(
-					"better_thermostat %s: No previously saved temperature found on startup, turning heat off",
-					self.name
-				)
-				self._bt_hvac_mode = HVAC_MODE_OFF
-		
-		# if hvac mode could not be restored, turn heat off
-		if not self._bt_hvac_mode:
-			_LOGGER.warning(
-				"better_thermostat %s: No previously hvac mode found on startup, turn heat off",
-				self.name
-			)
-			self._bt_hvac_mode = HVAC_MODE_OFF
-		self.async_write_ha_state()
 
 	async def _trigger_time(self,event):
 		await trigger_time(self,event)
@@ -402,30 +309,39 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
 	@property
 	def hvac_mode(self):
 		"""Return current operation."""
-		return self._bt_hvac_mode
+		return self._hvac_mode
 	
 	@property
 	def hvac_action(self):
-		"""Return the current HVAC action
+		"""Return the current running hvac operation if supported.
+
+		Need to be one of CURRENT_HVAC_*.
 		"""
-		
-		if self._bt_hvac_mode == HVAC_MODE_OFF:
-			_LOGGER.debug(f"better_thermostat {self.name}: HA asked for our HVAC action, we will respond with: {CURRENT_HVAC_OFF}")
+		if self._hvac_mode == HVAC_MODE_OFF:
 			return CURRENT_HVAC_OFF
-		if self._bt_hvac_mode == HVAC_MODE_HEAT:
-			if self.window_open:
-				_LOGGER.debug(
-					f"better_thermostat {self.name}: HA asked for our HVAC action, we will respond with '{CURRENT_HVAC_OFF}' because a window is open"
-					)
-				return CURRENT_HVAC_OFF
+		
+		try:
+			if self.hass.states.get(self.heater_entity_id).attributes.get('position') is not None:
+				if check_float(self.hass.states.get(self.heater_entity_id).attributes.get('position')):
+					valve = float(self.hass.states.get(self.heater_entity_id).attributes.get('position'))
+					if valve > 0:
+						return CURRENT_HVAC_HEAT
+					else:
+						return CURRENT_HVAC_IDLE
 			
-			if self.call_for_heat is False:
-				_LOGGER.debug(
-					f"better_thermostat {self.name}: HA asked for our HVAC action, we will respond with '{CURRENT_HVAC_IDLE}' since call for heat is false"
-				)
-				return CURRENT_HVAC_IDLE
-			_LOGGER.debug(f"better_thermostat {self.name}: HA asked for our HVAC action, we will respond with: {CURRENT_HVAC_HEAT}")
-			return CURRENT_HVAC_HEAT
+			if self.hass.states.get(self.heater_entity_id).attributes.get('pi_heating_demand') is not None:
+				if check_float(self.hass.states.get(self.heater_entity_id).attributes.get('pi_heating_demand')):
+					valve = float(self.hass.states.get(self.heater_entity_id).attributes.get('pi_heating_demand'))
+					if valve > 0:
+						return CURRENT_HVAC_HEAT
+					else:
+						return CURRENT_HVAC_IDLE
+		except (RuntimeError, ValueError, AttributeError, KeyError, TypeError, NameError, IndexError) as e:
+			_LOGGER.error("better_thermostat %s: RuntimeError occurred while running TRV operation, %s", self.name, e)
+		
+		if not self._is_device_active:
+			return CURRENT_HVAC_IDLE
+		return CURRENT_HVAC_HEAT
 	
 	@property
 	def target_temperature(self):
@@ -445,11 +361,11 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
 		"""List of available operation modes."""
 		return self._hvac_list
 	
-	async def async_set_hvac_mode(self, hvac_mode: str) -> None:
+	async def async_set_hvac_mode(self, hvac_mode):
 		"""Set hvac mode."""
 		await set_hvac_mode(self, hvac_mode)
 	
-	async def async_set_temperature(self, **kwargs) -> None:
+	async def async_set_temperature(self, **kwargs):
 		"""Set new target temperature."""
 		await set_target_temperature(self, **kwargs)
 	
@@ -470,6 +386,21 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
 		
 		# Get default temp from super class
 		return super().max_temp
+	
+	@property
+	def _is_device_active(self):
+		state_off = self.hass.states.is_state(self.heater_entity_id, "off")
+		state_heat = self.hass.states.is_state(self.heater_entity_id, "heat")
+		state_auto = self.hass.states.is_state(self.heater_entity_id, "auto")
+		
+		if not self.hass.states.get(self.heater_entity_id):
+			return None
+		if state_off:
+			return False
+		elif state_heat:
+			return state_heat
+		elif state_auto:
+			return state_auto
 	
 	@property
 	def supported_features(self):
