@@ -63,18 +63,17 @@ async def async_setup_platform(hass, config, async_add_entities, discovery_info=
 	Parameters
 	----------
 	hass : 
-		FIXME
+		Home Assistant object.
 	config : 
-		FIXME
+		Configuration object from Platform.
 	async_add_entities :
-		FIXME 
+		Callback to add entities. 
 	discovery_info :
-		FIXME 
+		Needed for bridge like devices. 
 	
 	Returns
 	-------
-	FIXME
-		FIXME
+	Void
 	"""
 	await async_setup_reload_service(hass, DOMAIN, PLATFORMS)
 	name = config.get(CONF_NAME)
@@ -231,8 +230,7 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
 
 		Returns
 		-------
-		FIXME
-			FIXME
+		Void
 		"""
 		await super().async_added_to_hass()
 		
@@ -282,7 +280,7 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
 			Parameters
 			----------
 			_ : 
-				FIXME
+				All parameters are piped.
 			"""
 			_LOGGER.info("better_thermostat %s: Starting version %s. Waiting for entity to be ready...", self.name, self.version)
 			
@@ -312,8 +310,8 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
 
 		Returns
 		-------
-		FIXME
-			FIXME
+		dict
+			Attribute dictionary for the extra device specific state attributes.
 		"""
 		dev_specific = {
 			ATTR_STATE_WINDOW_OPEN  : self.window_open,
@@ -331,8 +329,8 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
 
 		Returns
 		-------
-		FIXME
-			FIXME
+		bool
+			True if the thermostat is available.
 		"""
 		return not self.startup_running
 	
@@ -342,8 +340,8 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
 
 		Returns
 		-------
-		FIXME
-			FIXME
+		bool
+			True if the thermostat uses polling.
 		"""
 		return False
 	
@@ -353,8 +351,8 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
 
 		Returns
 		-------
-		FIXME
-			FIXME
+		string
+			The name of the thermostat.
 		"""
 		return self._name
 	
@@ -364,8 +362,8 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
 
 		Returns
 		-------
-		FIXME
-			FIXME
+		string
+			The unique id of this thermostat.
 		"""
 		return self._unique_id
 	
@@ -375,8 +373,8 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
 
 		Returns
 		-------
-		FIXME
-			FIXME
+		float
+			Precision of the thermostat.
 		"""
 		return super().precision
 	
@@ -386,8 +384,8 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
 
 		Returns
 		-------
-		FIXME
-			FIXME
+		float
+			Steps of target temperature.
 		"""
 		if self._target_temp_step is not None:
 			return self._target_temp_step
@@ -400,8 +398,8 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
 
 		Returns
 		-------
-		FIXME
-			FIXME
+		string
+			The unit of measurement.
 		"""
 		return self._unit
 	
@@ -411,8 +409,8 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
 
 		Returns
 		-------
-		FIXME
-			FIXME
+		float
+			The measured temperature.
 		"""
 		return self._cur_temp
 	
@@ -422,8 +420,8 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
 
 		Returns
 		-------
-		FIXME
-			FIXME
+		string
+			HVAC mode only from homeassistant.components.climate.const is valid
 		"""
 		return self._hvac_mode
 	
@@ -469,8 +467,8 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
 
 		Returns
 		-------
-		FIXME
-			FIXME
+		float
+			Target temperature.
 		"""
 		if not all([self._max_temp, self._min_temp, self._target_temp]):
 			return self._target_temp
@@ -488,8 +486,8 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
 
 		Returns
 		-------
-		FIXME
-			FIXME
+		array
+			A list of HVAC modes only from homeassistant.components.climate.const is valid
 		"""
 		return self._hvac_list
 	
@@ -498,8 +496,7 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
 
 		Returns
 		-------
-		FIXME
-			FIXME
+		Void
 		"""
 		await set_hvac_mode(self, hvac_mode)
 	
@@ -509,12 +506,11 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
 		Parameters
 		----------
 		kwargs : 
-			FIXME
+			Arguments piped from HA.
 
 		Returns
 		-------
-		FIXME
-			FIXME
+		Void
 		"""
 		await set_target_temperature(self, **kwargs)
 	
@@ -524,8 +520,8 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
 
 		Returns
 		-------
-		FIXME
-			FIXME
+		float
+			the minimum temperature.
 		"""
 		if self._min_temp is not None:
 			return self._min_temp
@@ -539,8 +535,8 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
 
 		Returns
 		-------
-		FIXME
-			FIXME
+		float
+			the maximum temperature.
 		"""
 		if self._max_temp is not None:
 			return self._max_temp
@@ -550,12 +546,12 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
 	
 	@property
 	def _is_device_active(self):
-		"""FIXME
+		"""Get the current state of the device for HA.
 
 		Returns
 		-------
-		FIXME
-			FIXME
+		string
+			State of the device.
 		"""
 		state_off = self.hass.states.is_state(self.heater_entity_id, "off")
 		state_heat = self.hass.states.is_state(self.heater_entity_id, "heat")
@@ -576,7 +572,7 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
 
 		Returns
 		-------
-		FIXME
-			FIXME
+		array
+			Supported features.
 		"""
 		return self._support_flags

@@ -15,7 +15,7 @@ def check_weather(self) -> bool:
 	Parameters
 	----------
 	self :
-		FIXME 
+		self instance of better_thermostat 
 
 	Returns
 	-------

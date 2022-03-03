@@ -53,12 +53,12 @@ async def get_device_model(self):
 	Parameters
 	----------
 	self : 
-		FIXME
+		self instance of better_thermostat
 
 	Returns
 	-------
-	FIXME
-		FIXME
+	string
+		the name of the thermostat model
 	"""
 	if self.model is None:
 		try:
@@ -88,7 +88,7 @@ def load_device_config(self) -> bool:
 	Parameters
 	----------
 	self : 
-		FIXME
+		self instance of better_thermostat
 
 	Returns
 	-------
@@ -118,14 +118,18 @@ def convert_outbound_states(self, hvac_mode) -> Union[dict, None]:
 	Parameters
 	----------
 	self : 
-		FIXME
+		self instance of better_thermostat
 	hvac_mode : 
-		FIXME
+		the HA mode to convert to
 
 	Returns
 	-------
 	dict
-		A dictionary containing the new outbound thermostat state.
+		A dictionary containing the new outbound thermostat state containing the following keys:
+			current_heating_setpoint: float
+			local_temperature: float
+			local_temperature_calibration: float
+			system_mode: string
 	None
 		In case of an error.
 

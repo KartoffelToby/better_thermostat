@@ -17,14 +17,13 @@ async def trigger_trv_change(self, event):
 	Parameters
 	----------
 	self : 
-		FIXME
+		self instance of better_thermostat
 	event : 
-		FIXME
+		Event object from the eventbus. Contains the new and old state from the TRV.
 
 	Returns
 	-------
-	FIXME
-		FIXME
+	Void
 	"""
 	if self.startup_running:
 		_LOGGER.debug(f"better_thermostat {self.name}: skipping trigger_trv_change because startup is running")

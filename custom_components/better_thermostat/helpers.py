@@ -2,17 +2,18 @@
 
 import asyncio
 import logging
-
-from datetime import datetime
 import numbers
+from datetime import datetime
+
+from homeassistant.components.climate.const import (HVAC_MODE_OFF)
+from homeassistant.const import (ATTR_TEMPERATURE, STATE_UNAVAILABLE, STATE_UNKNOWN)
+from homeassistant.helpers.entity_registry import (async_entries_for_config_entry)
 
 from .const import ATTR_STATE_CALL_FOR_HEAT, ATTR_STATE_DAY_SET_TEMP, ATTR_STATE_LAST_CHANGE, ATTR_STATE_NIGHT_MODE, ATTR_STATE_WINDOW_OPEN
 from .controlling import control_trv
-from homeassistant.helpers.entity_registry import (async_entries_for_config_entry)
-from homeassistant.const import (STATE_UNAVAILABLE, STATE_UNKNOWN, ATTR_TEMPERATURE)
-from homeassistant.components.climate.const import (HVAC_MODE_OFF)
 
 _LOGGER = logging.getLogger(__name__)
+
 
 def log_info(self, message):
 	"""Log a message to the info log.
@@ -20,14 +21,13 @@ def log_info(self, message):
 	Parameters
 	----------
 	self : 
-		FIXME
+		self instance of better_thermostat
 	message : 
-		FIXME 
+		the message to log 
 
 	Returns
 	-------
-	FIXME
-		FIXME
+	Void
 	"""
 	_LOGGER.debug(
 		"better_thermostat with config name: %s, %s TRV: %s",
@@ -43,12 +43,11 @@ async def startup(self):
 	Parameters
 	----------
 	self : 
-		FIXME
+		self instance of better_thermostat
 
 	Returns
 	-------
-	FIXME
-		FIXME
+	Void
 	"""
 	window = None
 	await asyncio.sleep(5)
@@ -265,12 +264,12 @@ def check_float(potential_float):
 	Parameters
 	----------
 	potential_float : 
-		FIXME
+		the value to check
 
 	Returns
 	-------
 	bool
-		FIXME
+		True if the value is a float, False otherwise.
 		
 	"""
 	try:
@@ -286,14 +285,14 @@ def convert_time(time_string):
 	Parameters
 	----------
 	time_string : 
-		FIXME
+		a string representing a time
 
 	Returns
 	-------
 	datetime
-		FIXME
+		the converted time as a datetime object.
 	None
-		FIXME
+		If the time string is not a valid time.
 	"""
 	try:
 		_current_time = datetime.now()

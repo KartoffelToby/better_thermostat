@@ -15,14 +15,13 @@ async def trigger_temperature_change(self, event):
 	Parameters
 	----------
 	self : 
-		FIXME
+		self instance of better_thermostat
 	event : 
-		FIXME
+		Event object from the eventbus. Contains the current trigger time.
 
 	Returns
 	-------
-	FIXME
-		FIXME
+	Void
 	"""
 	if self.startup_running:
 		return
@@ -42,14 +41,13 @@ def _async_update_temp(self, state):
 	Parameters
 	----------
 	self : 
-		FIXME
+		self instance of better_thermostat
 	state : 
-		FIXME
+		a HA state object
 	
 	Returns
 	-------
-	FIXME
-		FIXME
+	Void
 	"""
 	try:
 		self._cur_temp = float(state.state)
