@@ -10,17 +10,16 @@ _LOGGER = logging.getLogger(__name__)
 
 @callback
 async def trigger_window_change(self):
-	"""FIXME
+	"""Triggerd by window sensor event from HA to check if the window is open.
 
 	Parameters
 	----------
 	self : 
-		FIXME
+		self instance of better_thermostat
 
 	Returns
 	-------
-	FIXME
-		FIXME
+	Void
 	"""
 	if self.startup_running:
 		return

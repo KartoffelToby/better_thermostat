@@ -14,14 +14,13 @@ async def trigger_time(self, current_time):
 	Parameters
 	----------
 	self : 
-		FIXME
+		self instance of better_thermostat
 	current_time :
-		FIXME: time.time()
+		Event object from the eventbus. Contains the current trigger time.
 
 	Returns
 	-------
-	FIXME
-		FIXME
+	Void
 	"""
 	_is_night = _nighttime(self, current_time)
 	
@@ -53,9 +52,9 @@ def _nighttime(self, current_time):
 	Parameters
 	----------
 	self : 
-		FIXME
+		self instance of better_thermostat
 	current_time :
-		FIXME: time.time()
+		Event object from the eventbus. Contains the current trigger time.
 
 	Returns
 	-------

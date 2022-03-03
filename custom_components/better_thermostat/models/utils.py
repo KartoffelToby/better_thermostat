@@ -78,12 +78,12 @@ def calculate_local_setpoint_delta(self) -> Union[float, None]:
 	Parameters
 	----------
 	self : 
-		FIXME
+		self instance of better_thermostat
 
 	Returns
 	-------
-	FIXME
-		FIXME
+	float
+		new local calibration delta
 	"""
 	state = self.hass.states.get(self.heater_entity_id).attributes
 	
@@ -112,12 +112,12 @@ def calculate_setpoint_override(self) -> Union[float, None]:
 	Parameters
 	----------
 	self : 
-		FIXME
+		self instance of better_thermostat
 
 	Returns
 	-------
-	FIXME
-		FIXME
+	float
+		new target temp with calibration
 	"""
 	state = self.hass.states.get(self.heater_entity_id).attributes
 	
@@ -145,16 +145,18 @@ def convert_to_float(value: Union[str, int, float], instance_name: str, context:
 	Parameters
 	----------
 	value : 
-		FIXME
+		the value to convert to float
 	instance_name :
-		FIXME 
+		the name of the instance thermostat
 	context :
-		FIXME 
+		FIXME @ruben
 
 	Returns
 	-------
-	FIXME
-		FIXME
+	float
+		the converted value
+	None
+		If error occurred and cannot convert the value.
 	"""
 	if isinstance(value, float):
 		return value
