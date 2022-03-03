@@ -20,9 +20,14 @@ def check_weather(self) -> bool:
 	old_call_for_heat = self.call_for_heat
 	
 	if self.weather_entity is not None:
+		_LOGGER.debug(f"better_thermostat {self.name}: checking weather predictions...")
 		self.call_for_heat = check_weather_prediction(self)
+		return check_weather_prediction(self)
+	
 	elif self.outdoor_sensor is not None:
+		_LOGGER.debug(f"better_thermostat {self.name}: checking ambient air sensor data...")
 		self.call_for_heat = check_ambient_air_temperature(self)
+		return check_ambient_air_temperature(self)
 	else:
 		# no weather evaluation: call for heat is always true
 		self.call_for_heat = True
@@ -89,13 +94,8 @@ def check_ambient_air_temperature(self):
 	# create a list from valid data in historic_sensor_data
 	valid_historic_sensor_data = []
 	for measurement in historic_sensor_data:
-		if measurement.state is not None:
-			try:
-				valid_historic_sensor_data.append(convert_to_float(measurement.state, self.name, "check_ambient_air_temperature()"))
-			except ValueError:
-				pass
-			except TypeError:
-				pass
+		if isinstance(measurement := convert_to_float(str(measurement.state), self.name, "check_ambient_air_temperature()"), float):
+			valid_historic_sensor_data.append(measurement)
 	
 	if len(valid_historic_sensor_data) == 0:
 		_LOGGER.warning(f"better_thermostat {self.name}: no valid outdoor sensor data found.")
@@ -109,6 +109,10 @@ def check_ambient_air_temperature(self):
 	if len(valid_historic_sensor_data) == 0:
 		_LOGGER.warning(f"better_thermostat {self.name}: no valid outdoor sensor data found.")
 		return None
+	
+	_LOGGER.debug(
+		f"better_thermostat {self.name}: check_ambient_air_temperature is evaluating {len(valid_historic_sensor_data)} sensor values."
+	)
 	
 	# calculate the average temperature
 	avg_temp = int(round(sum(valid_historic_sensor_data) / len(valid_historic_sensor_data)))
