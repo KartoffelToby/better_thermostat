@@ -144,12 +144,12 @@ def convert_to_float(value: Union[str, int, float], instance_name: str, context:
 
 	Parameters
 	----------
-	value : 
+	value : str, int, float
 		the value to convert to float
-	instance_name :
+	instance_name : str
 		the name of the instance thermostat
-	context :
-		FIXME @ruben
+	context : str
+		the name of the function which is using this, for printing an error message
 
 	Returns
 	-------
