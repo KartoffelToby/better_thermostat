@@ -1,6 +1,4 @@
 calibration_type: 0
 calibration_round: false
 has_system_mode: True
-mode_map:
-  heat: auto
-  auto: heat
+heat_auto_swapped: True
