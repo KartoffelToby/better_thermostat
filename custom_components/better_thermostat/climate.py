@@ -2,7 +2,6 @@
 
 import asyncio
 import logging
-import numbers
 import homeassistant.helpers.config_validation as cv
 import homeassistant.util.dt as dt_util
 import voluptuous as vol
