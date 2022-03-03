@@ -6,18 +6,18 @@ import re
 from pathlib import Path
 from typing import Union
 
-from homeassistant.components.climate.const import (HVAC_MODE_OFF)
+from homeassistant.components.climate.const import HVAC_MODE_OFF
 from homeassistant.core import State
 from homeassistant.helpers import device_registry as dr, entity_registry as er
 from homeassistant.util import yaml
 
-from .utils import calculate_local_setpoint_delta, calculate_setpoint_override, mode_remap, reverse_modes, round_to_half_degree
+from .utils import calculate_local_setpoint_delta, calculate_setpoint_override, mode_remap, round_to_half_degree
 
 _LOGGER = logging.getLogger(__name__)
 
 
 def convert_inbound_states(self, state: State):
-	"""Convert inbound thermostat state to HA state.
+	"""Convert hvac mode in a thermostat state from HA
 
 	Parameters
 	----------
@@ -39,8 +39,11 @@ def convert_inbound_states(self, state: State):
 	if self._config is None:
 		raise TypeError("convert_inbound_states() could not find config, cannot convert")
 	
-	if self._config.get('mode_map') is not None:
-		state.state = mode_remap(str(state.state), reverse_modes(self._config.get('mode_map')))
+	_LOGGER.debug(f"convert_inbound_states() received state: {str(state.state)}")
+	
+	state.state = mode_remap(self, str(state.state))
+	
+	_LOGGER.debug(f"convert_inbound_states() wrote state: {str(state.state)}")
 
 
 async def get_device_model(self):
@@ -148,8 +151,7 @@ def convert_outbound_states(self, hvac_mode) -> Union[dict, None]:
 			# Handling different devices with or without system mode reported or contained in the device config
 			
 			if _has_system_mode is True or (_has_system_mode is None and _system_mode is not None):
-				if self._config.get('mode_map') is not None:
-					hvac_mode = mode_remap(hvac_mode, self._config.get('mode_map'))
+				hvac_mode = mode_remap(self, hvac_mode)
 			
 			elif _has_system_mode is True and _system_mode is None:
 				_LOGGER.error(

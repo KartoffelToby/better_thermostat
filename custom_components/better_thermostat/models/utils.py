@@ -3,18 +3,54 @@
 import logging
 from typing import Union
 
+from homeassistant.components.climate.const import HVAC_MODE_AUTO, HVAC_MODE_HEAT
+
 _LOGGER = logging.getLogger(__name__)
 
 
-def mode_remap(hvac_mode: str, modes: dict) -> str:
-	"""Remap HVAC mode to correct mode
+def load_bool_from_config(self, key: str, default=None) -> bool:
+	"""Load a boolean from the config."""
+	
+	if self._config is None:
+		raise TypeError("load_bool_from_config() could not find config, cannot convert")
+	
+	try:
+		value = self._config.get(key)
+	except KeyError:
+		return default
+	
+	if isinstance(value, bool):
+		return value
+	elif isinstance(value, str) and value.lower() == 'false':
+		return False
+	elif isinstance(value, str) and value.lower() == 'true':
+		return True
+	else:
+		return default
+
+
+def device_has_swapped_modes(self) -> bool:
+	"""Check config if device has swapped HVAC modes"""
+	try:
+		device_has_quirks = load_bool_from_config(self, "heat_auto_swapped")
+	except TypeError:
+		_LOGGER.error(f"better thermostat {self.name}: Could not load config for heat_auto_swapped")
+		device_has_quirks = False
+	
+	if isinstance(device_has_quirks, bool):
+		return device_has_quirks
+	else:
+		return False
+
+
+def mode_remap(self, hvac_mode: str) -> str:
+	"""Remap HVAC mode to correct mode if nessesary.
 
 	Parameters
 	----------
+	self : 
 	hvac_mode : str
 		HVAC mode to be remapped
-	modes : 
-		Dictionary with HVAC mode remappings
 
 	Returns
 	-------
@@ -22,20 +58,14 @@ def mode_remap(hvac_mode: str, modes: dict) -> str:
 		remapped mode according to device's quirks
 	"""
 	
-	if modes is None:
-		return hvac_mode
-	if modes.get(hvac_mode) is not None:
-		return modes.get(hvac_mode)
+	device_has_quirks = device_has_swapped_modes(self)
+	
+	if hvac_mode == HVAC_MODE_HEAT and device_has_quirks:
+		return HVAC_MODE_AUTO
+	elif hvac_mode == HVAC_MODE_AUTO and device_has_quirks:
+		return HVAC_MODE_HEAT
 	else:
 		return hvac_mode
-
-
-def reverse_modes(modes):
-	"""Reverse HVAC modes."""
-	changed_dict = {}
-	for key, value in modes.items():
-		changed_dict[value] = key
-	return changed_dict
 
 
 def calculate_local_setpoint_delta(self) -> Union[float, None]:
@@ -56,7 +86,7 @@ def calculate_local_setpoint_delta(self) -> Union[float, None]:
 		_LOGGER.warning(
 			f"better thermostat {self.name}: Could not calculate local setpoint delta in {_context}:"
 			f" current_trv_calibration: {_current_trv_calibration}, current_trv_temp: {_current_trv_temp}, cur_temp: {self._cur_temp}"
-			)
+		)
 		return None
 	
 	_new_local_calibration = self._cur_temp - _current_trv_temp + _current_trv_calibration
