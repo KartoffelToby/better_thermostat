@@ -7,7 +7,6 @@ from datetime import datetime
 import numbers
 
 from .const import ATTR_STATE_CALL_FOR_HEAT, ATTR_STATE_DAY_SET_TEMP, ATTR_STATE_LAST_CHANGE, ATTR_STATE_NIGHT_MODE, ATTR_STATE_WINDOW_OPEN
-from .events.temperature import _async_update_temp
 from .controlling import control_trv
 from homeassistant.helpers.entity_registry import (async_entries_for_config_entry)
 from homeassistant.const import (STATE_UNAVAILABLE, STATE_UNKNOWN, ATTR_TEMPERATURE)
@@ -229,7 +228,6 @@ async def startup(self):
 				self.name
 			)
 			self._hvac_mode = HVAC_MODE_OFF
-		_async_update_temp(self,sensor_state)
 		self.async_write_ha_state()
 		_LOGGER.info("better_thermostat %s: startup completed.", self.name)
 		await control_trv(self)
