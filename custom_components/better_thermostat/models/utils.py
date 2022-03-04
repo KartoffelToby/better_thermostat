@@ -87,13 +87,13 @@ def calculate_local_setpoint_delta(self) -> Union[float, None]:
 	"""
 	
 	trvState = self.hass.states.get(self.heater_entity_id).attributes
-	calibrationState =  self.hass.states.get(self.local_temperature_calibration_entity).attributes
+	calibrationState =  self.hass.states.get(self.local_temperature_calibration_entity).state
 	_context = "calculate_local_setpoint_delta()"
 	
 	_current_trv_temp = convert_to_float(trvState.get('current_temperature'), self.name, _context)
-	_current_trv_calibration = convert_to_float(calibrationState.state, self.name, _context)
+	_current_trv_calibration = convert_to_float(calibrationState, self.name, _context)
 	
-	if not all([_current_trv_calibration, self._cur_temp, _current_trv_temp]):
+	if any(check is None for check in [_current_trv_calibration, self._cur_temp, _current_trv_temp]):
 		_LOGGER.warning(
 			f"better thermostat {self.name}: Could not calculate local setpoint delta in {_context}:"
 			f" current_trv_calibration: {_current_trv_calibration}, current_trv_temp: {_current_trv_temp}, cur_temp: {self._cur_temp}"
