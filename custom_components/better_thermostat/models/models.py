@@ -51,7 +51,7 @@ async def get_device_model(self):
 	if self.model is None:
 		try:
 			entity_reg = await er.async_get_registry(self.hass)
-			entry = entity_reg.async_get(self.heater_entity_id)
+			entry = entity_reg.async_get(self.heater_entity_ids[0])
 			dev_reg = await dr.async_get_registry(self.hass)
 			device = dev_reg.async_get(entry.device_id)
 			try:
