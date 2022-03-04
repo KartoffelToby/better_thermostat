@@ -10,7 +10,7 @@ _LOGGER = logging.getLogger(__name__)
 async def trigger_window_change(self):
 	if self.startup_running:
 		return
-	if self.hass.states.get(self.heater_entity_id) is not None:
+	if self.hass.states.get(self.heater_entity_ids) is not None:
 		await asyncio.sleep(int(self.window_delay))
 		check = self.hass.states.get(self.window_sensors_entity_ids).state
 		if check == 'on':

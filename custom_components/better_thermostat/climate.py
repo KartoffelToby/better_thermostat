@@ -6,7 +6,6 @@ import numbers
 from abc import ABC
 from datetime import datetime, timedelta
 from random import randint
-
 import homeassistant.helpers.config_validation as cv
 import homeassistant.util.dt as dt_util
 import voluptuous as vol
@@ -17,6 +16,7 @@ from homeassistant.core import callback, CoreState
 from homeassistant.helpers.event import (async_track_state_change_event, async_track_time_change)
 from homeassistant.helpers.reload import async_setup_reload_service
 from homeassistant.helpers.restore_state import RestoreEntity
+from homeassistant.components import climate
 
 from . import DOMAIN, PLATFORMS
 from .const import (
@@ -37,7 +37,7 @@ _LOGGER = logging.getLogger(__name__)
 
 PLATFORM_SCHEMA = PLATFORM_SCHEMA.extend(
 	{
-		vol.Required(CONF_HEATER)                          : cv.entity_id,
+		vol.Required(CONF_HEATER)                          : cv.entities_domain(climate.DOMAIN),
 		vol.Required(CONF_SENSOR)                          : cv.entity_id,
 		vol.Optional(CONF_SENSOR_WINDOW)                   : cv.entity_id,
 		vol.Optional(CONF_WEATHER)                         : cv.entity_id,
@@ -63,7 +63,7 @@ async def async_setup_platform(hass, config, async_add_entities, discovery_info=
 	
 	await async_setup_reload_service(hass, DOMAIN, PLATFORMS)
 	name = config.get(CONF_NAME)
-	heater_entity_id = config.get(CONF_HEATER)
+	heater_entity_ids = config[CONF_HEATER]
 	sensor_entity_id = config.get(CONF_SENSOR)
 	window_sensors_entity_ids = config.get(CONF_SENSOR_WINDOW)
 	window_delay = config.get(CONF_WINDOW_TIMEOUT)
@@ -86,7 +86,7 @@ async def async_setup_platform(hass, config, async_add_entities, discovery_info=
 		[
 			BetterThermostat(
 				name,
-				heater_entity_id,
+				heater_entity_ids,
 				sensor_entity_id,
 				window_sensors_entity_ids,
 				window_delay,
@@ -116,7 +116,7 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
 	def __init__(
 			self,
 			name,
-			heater_entity_id,
+			heater_entity_ids,
 			sensor_entity_id,
 			window_sensors_entity_ids,
 			window_delay,
@@ -138,7 +138,7 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
 	):
 		"""Initialize the thermostat."""
 		self._name = name
-		self.heater_entity_id = heater_entity_id
+		self.heater_entity_ids = heater_entity_ids
 		self.sensor_entity_id = sensor_entity_id
 		self.window_sensors_entity_ids = window_sensors_entity_ids
 		self.window_delay = window_delay or 0
@@ -206,7 +206,7 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
 			self.hass, [self.sensor_entity_id], self._trigger_temperature_change
 		)
 		async_track_state_change_event(
-			self.hass, [self.heater_entity_id], self._trigger_trv_change
+			self.hass, self.heater_entity_ids, self._trigger_trv_change
 		)
 		if self.window_sensors_entity_ids:
 			async_track_state_change_event(

@@ -19,7 +19,7 @@ def log_info(self, message):
 		"better_thermostat with config name: %s, %s TRV: %s",
 		self.name,
 		message,
-		self.hass.states.get(self.heater_entity_id).attributes.get('device').get('friendlyName')
+		self.hass.states.get(self.heater_entity_ids[0]).attributes.get('device').get('friendlyName')
 	)
 
 async def startup(self):
@@ -29,7 +29,7 @@ async def startup(self):
 	
 	while self.startup_running:
 		sensor_state = self.hass.states.get(self.sensor_entity_id)
-		trv_state = self.hass.states.get(self.heater_entity_id)
+		trv_state = self.hass.states.get(self.heater_entity_ids)
 		
 		if sensor_state is None:
 			_LOGGER.error(
@@ -42,7 +42,7 @@ async def startup(self):
 			_LOGGER.error(
 				"better_thermostat %s: configured TRV/climate entry with id '%s' could not be located",
 				self.name,
-				self.heater_entity_id
+				self.heater_entity_ids
 			)
 			return False
 		if self.window_sensors_entity_ids:
@@ -81,7 +81,7 @@ async def startup(self):
 			_LOGGER.info(
 				"better_thermostat %s: waiting for TRV/climate entity with id '%s' to become fully available...",
 				self.name,
-				self.heater_entity_id
+				self.heater_entity_ids
 			)
 			_ready = False
 		if self.window_sensors_entity_ids:
@@ -117,7 +117,7 @@ async def startup(self):
 		
 		self.startup_running = False
 		entity_registry = await self.hass.helpers.entity_registry.async_get_registry()
-		reg_entity = entity_registry.async_get(self.heater_entity_id)
+		reg_entity = entity_registry.async_get(self.heater_entity_ids[0])
 		entity_entries = async_entries_for_config_entry(entity_registry, reg_entity.config_entry_id)
 		for entity in entity_entries:
 			uid = entity.unique_id
@@ -131,16 +131,16 @@ async def startup(self):
 		self.async_write_ha_state()
 		await asyncio.sleep(5)
 		# Use the same precision and min and max as the TRV
-		if self.hass.states.get(self.heater_entity_id).attributes.get('target_temp_step') is not None:
-			self._TRV_target_temp_step = float(self.hass.states.get(self.heater_entity_id).attributes.get('target_temp_step'))
+		if self.hass.states.get(self.heater_entity_ids[0]).attributes.get('target_temp_step') is not None:
+			self._TRV_target_temp_step = float(self.hass.states.get(self.heater_entity_ids[0]).attributes.get('target_temp_step'))
 		else:
 			self._TRV_target_temp_step = 1
-		if self.hass.states.get(self.heater_entity_id).attributes.get('min_temp') is not None:
-			self._TRV_min_temp = float(self.hass.states.get(self.heater_entity_id).attributes.get('min_temp'))
+		if self.hass.states.get(self.heater_entity_ids[0]).attributes.get('min_temp') is not None:
+			self._TRV_min_temp = float(self.hass.states.get(self.heater_entity_ids[0]).attributes.get('min_temp'))
 		else:
 			self._TRV_min_temp = 5
-		if self.hass.states.get(self.heater_entity_id).attributes.get('max_temp') is not None:
-			self._TRV_max_temp = float(self.hass.states.get(self.heater_entity_id).attributes.get('max_temp'))
+		if self.hass.states.get(self.heater_entity_ids[0]).attributes.get('max_temp') is not None:
+			self._TRV_max_temp = float(self.hass.states.get(self.heater_entity_ids[0]).attributes.get('max_temp'))
 		else:
 			self._TRV_max_temp = 30
 		_LOGGER.info("better_thermostat %s: startup completed.", self.name)
