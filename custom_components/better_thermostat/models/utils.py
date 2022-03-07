@@ -86,12 +86,12 @@ def calculate_local_setpoint_delta(self) -> Union[float, None]:
 		new local calibration delta
 	"""
 	
-	trv_state = self.hass.states.get(self.heater_entity_id).attributes
-	calibration_state = self.hass.states.get(self.local_temperature_calibration_entity).state
+	_trv_state = self.hass.states.get(self.heater_entity_id).attributes
+	_calibration_state = self.hass.states.get(self.local_temperature_calibration_entity).state
 	_context = "calculate_local_setpoint_delta()"
 	
-	_current_trv_temp = convert_to_float(trv_state.get('current_temperature'), self.name, _context)
-	_current_trv_calibration = convert_to_float(calibration_state, self.name, _context)
+	_current_trv_temp = convert_to_float(_trv_state.get('current_temperature'), self.name, _context)
+	_current_trv_calibration = convert_to_float(_calibration_state, self.name, _context)
 	
 	if None in (_current_trv_calibration, self._cur_temp, _current_trv_temp):
 		_LOGGER.warning(
