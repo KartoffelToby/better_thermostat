@@ -68,7 +68,7 @@ async def control_trv(self):
 			converted_hvac_mode = remapped_states.get('system_mode') or None
 			current_heating_setpoint = remapped_states.get('current_heating_setpoint') or None
 			calibration = remapped_states.get('local_temperature_calibration') or None
-			self._temp_converted_hvac_mode = converted_hvac_mode
+			
 			if converted_hvac_mode is not None:
 				_LOGGER.debug(
 					f"better_thermostat {self.name}: control_trv: current TRV mode: {_current_TRV_mode} new TRV mode: {converted_hvac_mode}"
@@ -77,7 +77,7 @@ async def control_trv(self):
 					system_mode_change = True
 					await set_trv_values(self, 'hvac_mode', converted_hvac_mode)
 			if current_heating_setpoint is not None:
-				await set_trv_values(self, 'temperature', current_heating_setpoint)
+				await set_trv_values(self, 'temperature', current_heating_setpoint, hvac_mode=converted_hvac_mode)
 			if calibration is not None:
 				await set_trv_values(self, 'local_temperature_calibration', calibration)
 		
@@ -142,7 +142,7 @@ async def set_hvac_mode(self, hvac_mode):
 	await control_trv(self)
 
 
-async def set_trv_values(self, key, value):
+async def set_trv_values(self, key, value, hvac_mode=None):
 	"""Do necessary actions to set the TRV values.
 
 	Parameters
@@ -160,10 +160,12 @@ async def set_trv_values(self, key, value):
 	"""
 	
 	if key == 'temperature':
+		if hvac_mode is None:
+			_LOGGER.error(f"better_thermostat {self.name}: set_trv_values() called for a temperature change without a specified hvac mode")
 		await self.hass.services.async_call(
 			'climate',
 			"set_temperature",
-			{'entity_id': self.heater_entity_id, 'temperature': value, 'hvac_mode': self._temp_converted_hvac_mode},
+			{'entity_id': self.heater_entity_id, 'temperature': value, 'hvac_mode': hvac_mode},
 			blocking=True
 		)
 	elif key == 'hvac_mode':
