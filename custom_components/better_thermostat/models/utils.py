@@ -191,8 +191,8 @@ def round_to_half_degree(value: Union[int, float, None]) -> Union[float, int, No
 		return value
 
 
-def round_to_tenth_degree(value: Union[int, float, None]) -> Union[float, int, None]:
-	"""Rounds numbers to the nearest n.1
+def round_to_hundredth_degree(value: Union[int, float, None]) -> Union[float, int, None]:
+	"""Rounds numbers to the nearest n.nn0
 
 	Parameters
 	----------
@@ -202,12 +202,12 @@ def round_to_tenth_degree(value: Union[int, float, None]) -> Union[float, int, N
 	Returns
 	-------
 	float, int
-		either an int, if input was an int, or a float rounded to n.1
+		either an int, if input was an int, or a float rounded to n.nn0
 
 	"""
 	if value is None:
 		return None
 	elif isinstance(value, float):
-		return round(value * 10) / 10
+		return round(value * 100) / 100
 	elif isinstance(value, int):
 		return value
