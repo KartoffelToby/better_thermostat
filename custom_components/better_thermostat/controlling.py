@@ -12,8 +12,13 @@ from .weather import check_weather
 _LOGGER = logging.getLogger(__name__)
 
 
-async def control_trv(self):
+async def control_trv(self, force_mode_change: bool = False):
 	"""This is the main controller for the real TRV
+
+	Parameters
+	----------
+	self : instance of better_thermostat
+	force_mode_change : forces a mode change regardless which mode the TRV is in.
 
 	Returns
 	-------
@@ -73,7 +78,7 @@ async def control_trv(self):
 				_LOGGER.debug(
 					f"better_thermostat {self.name}: control_trv: current TRV mode: {_current_TRV_mode} new TRV mode: {converted_hvac_mode}"
 					)
-				if _current_TRV_mode != converted_hvac_mode:
+				if _current_TRV_mode != converted_hvac_mode or force_mode_change:
 					system_mode_change = True
 					await set_trv_values(self, 'hvac_mode', converted_hvac_mode)
 			if current_heating_setpoint is not None:
