@@ -152,22 +152,6 @@ climate:
       - climate.ai_trv_office_2
 ```
 
-### Zigbee2Mqtt config requirements
-
-**IMPORTANT: If you use Zigbee2MQTT to connect to your TRV devices make sure to enable the include_device_information in the Zigbee2MQTT MQTT settings**
-
-If you use Z2M with the HA Supervisor, make sure you set it in the configuration. otherwise, it reset this option on every restart. [#57](/../../issues/57)
-
-```yaml
-mqtt:
-  base_topic: zigbee2mqtt
-  include_device_information: true
-```
-
-Switch on the global **include_device_information** under Settings > Mqtt > include_device_information.
-<br>
-<img src="assets/z2m_include_device_informations.png" width="900px">
-
 ---
 
 ## ☕ Supporters
