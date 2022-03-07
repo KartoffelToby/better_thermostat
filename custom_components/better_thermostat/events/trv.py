@@ -12,7 +12,19 @@ _LOGGER = logging.getLogger(__name__)
 
 @callback
 async def trigger_trv_change(self, event):
-	"""Process TRV status updates"""
+	"""Processes TRV status updates
+
+	Parameters
+	----------
+	self : 
+		self instance of better_thermostat
+	event : 
+		Event object from the eventbus. Contains the new and old state from the TRV.
+
+	Returns
+	-------
+	Void
+	"""
 	if self.startup_running:
 		_LOGGER.debug(f"better_thermostat {self.name}: skipping trigger_trv_change because startup is running")
 		return

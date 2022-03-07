@@ -49,6 +49,7 @@ def mode_remap(self, hvac_mode: str) -> str:
 	Parameters
 	----------
 	self : 
+		FIXME
 	hvac_mode : str
 		HVAC mode to be remapped
 
@@ -73,16 +74,26 @@ def calculate_local_setpoint_delta(self) -> Union[float, None]:
 	
 	This calibration is for devices with local calibration option, it syncs the current temperature of the TRV to the target temperature of
 	the external sensor.
+
+	Parameters
+	----------
+	self : 
+		self instance of better_thermostat
+
+	Returns
+	-------
+	float
+		new local calibration delta
 	"""
 	
-	state = self.hass.states.get(self.heater_entity_id).attributes
-	
+	_trv_state_attributes = self.hass.states.get(self.heater_entity_id).attributes
+	_calibration_state = self.hass.states.get(self.local_temperature_calibration_entity).state
 	_context = "calculate_local_setpoint_delta()"
 	
-	_current_trv_temp = convert_to_float(state.get('current_temperature'), self.name, _context)
-	_current_trv_calibration = convert_to_float(state.get('local_temperature_calibration'), self.name, _context)
+	_current_trv_temp = convert_to_float(_trv_state_attributes.get('current_temperature'), self.name, _context)
+	_current_trv_calibration = convert_to_float(_calibration_state, self.name, _context)
 	
-	if not all([_current_trv_calibration, self._cur_temp, _current_trv_temp]):
+	if None in (_current_trv_calibration, self._cur_temp, _current_trv_temp):
 		_LOGGER.warning(
 			f"better thermostat {self.name}: Could not calculate local setpoint delta in {_context}:"
 			f" current_trv_calibration: {_current_trv_calibration}, current_trv_temp: {_current_trv_temp}, cur_temp: {self._cur_temp}"
@@ -98,6 +109,16 @@ def calculate_setpoint_override(self) -> Union[float, None]:
 	
 	This calibration is for devices with no local calibration option, it syncs the target temperature of the TRV to a new target
 	temperature based on the current temperature of the external sensor.
+
+	Parameters
+	----------
+	self : 
+		self instance of better_thermostat
+
+	Returns
+	-------
+	float
+		new target temp with calibration
 	"""
 	state = self.hass.states.get(self.heater_entity_id).attributes
 	
@@ -120,7 +141,24 @@ def calculate_setpoint_override(self) -> Union[float, None]:
 
 
 def convert_to_float(value: Union[str, int, float], instance_name: str, context: str) -> Union[float, None]:
-	"""Convert value to float or print error message."""
+	"""Convert value to float or print error message.
+
+	Parameters
+	----------
+	value : str, int, float
+		the value to convert to float
+	instance_name : str
+		the name of the instance thermostat
+	context : str
+		the name of the function which is using this, for printing an error message
+
+	Returns
+	-------
+	float
+		the converted value
+	None
+		If error occurred and cannot convert the value.
+	"""
 	if isinstance(value, float):
 		return value
 	else:

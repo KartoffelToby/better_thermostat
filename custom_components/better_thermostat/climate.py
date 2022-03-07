@@ -58,8 +58,23 @@ PLATFORM_SCHEMA = PLATFORM_SCHEMA.extend(
 
 
 async def async_setup_platform(hass, config, async_add_entities, discovery_info=None):
-	"""Set up the Better Thermostat platform."""
+	"""Set up the Better Thermostat platform.
+
+	Parameters
+	----------
+	hass : 
+		Home Assistant object.
+	config : 
+		Configuration object from Platform.
+	async_add_entities :
+		Callback to add entities. 
+	discovery_info :
+		Needed for bridge like devices. 
 	
+	Returns
+	-------
+	Void
+	"""
 	await async_setup_reload_service(hass, DOMAIN, PLATFORMS)
 	name = config.get(CONF_NAME)
 	heater_entity_id = config.get(CONF_HEATER)
@@ -115,27 +130,51 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
 	def __init__(
 			self,
 			name,
-			heater_entity_id,
-			sensor_entity_id,
-			window_sensors_entity_ids,
-			window_delay,
-			weather_entity,
-			outdoor_sensor,
-			off_temperature,
-			valve_maintenance,
-			night_temp,
-			night_start,
-			night_end,
-			min_temp,
-			max_temp,
-			target_temp,
-			precision,
-			unit,
-			unique_id,
-			device_class,
-			state_class,
+		heater_entity_id,
+		sensor_entity_id,
+		window_sensors_entity_ids,
+		window_delay,
+		weather_entity,
+		outdoor_sensor,
+		off_temperature,
+		valve_maintenance,
+		night_temp,
+		night_start,
+		night_end,
+		min_temp,
+		max_temp,
+		target_temp,
+		precision,
+		unit,
+		unique_id,
+		device_class,
+		state_class,
 	):
-		"""Initialize the thermostat."""
+		"""Initialize the thermostat.
+
+		Parameters
+		----------
+		name : 
+		heater_entity_id : 
+		sensor_entity_id : 
+		window_sensors_entity_ids : 
+		window_delay : 
+		weather_entity : 
+		outdoor_sensor : 
+		off_temperature : 
+		valve_maintenance : 
+		night_temp : 
+		night_start : 
+		night_end : 
+		min_temp : 
+		max_temp : 
+		target_temp : 
+		precision : 
+		unit : 
+		unique_id : 
+		device_class : 
+		state_class : 
+		"""
 		self._name = name
 		self.heater_entity_id = heater_entity_id
 		self.sensor_entity_id = sensor_entity_id
@@ -187,7 +226,12 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
 		self._last_reported_valve_position_update_wait_lock = asyncio.Lock()
 	
 	async def async_added_to_hass(self):
-		"""Run when entity about to be added."""
+		"""Run when entity about to be added.
+
+		Returns
+		-------
+		Void
+		"""
 		await super().async_added_to_hass()
 		
 		# fetch device model from HA if necessary
@@ -231,8 +275,13 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
 		
 		@callback
 		def _async_startup(*_):
-			"""Init on startup."""
-			
+			"""Init on startup.
+
+			Parameters
+			----------
+			_ : 
+				All parameters are piped.
+			"""
 			_LOGGER.info("better_thermostat %s: Starting version %s. Waiting for entity to be ready...", self.name, self.version)
 			
 			loop = asyncio.get_event_loop()
@@ -257,7 +306,13 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
 	
 	@property
 	def extra_state_attributes(self):
-		"""Return the device specific state attributes."""
+		"""Return the device specific state attributes.
+
+		Returns
+		-------
+		dict
+			Attribute dictionary for the extra device specific state attributes.
+		"""
 		dev_specific = {
 			ATTR_STATE_WINDOW_OPEN  : self.window_open,
 			ATTR_STATE_NIGHT_MODE   : self.night_mode_active,
@@ -270,32 +325,68 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
 	
 	@property
 	def available(self):
-		"""Return if thermostat is available."""
+		"""Return if thermostat is available.
+
+		Returns
+		-------
+		bool
+			True if the thermostat is available.
+		"""
 		return not self.startup_running
 	
 	@property
 	def should_poll(self):
-		"""Return the polling state."""
+		"""Return the polling state.
+
+		Returns
+		-------
+		bool
+			True if the thermostat uses polling.
+		"""
 		return False
 	
 	@property
 	def name(self):
-		"""Return the name of the thermostat."""
+		"""Return the name of the thermostat.
+
+		Returns
+		-------
+		string
+			The name of the thermostat.
+		"""
 		return self._name
 	
 	@property
 	def unique_id(self):
-		"""Return the unique id of this thermostat."""
+		"""Return the unique id of this thermostat.
+
+		Returns
+		-------
+		string
+			The unique id of this thermostat.
+		"""
 		return self._unique_id
 	
 	@property
 	def precision(self):
-		"""Return the precision of the system."""
+		"""Return the precision of the system.
+
+		Returns
+		-------
+		float
+			Precision of the thermostat.
+		"""
 		return super().precision
 	
 	@property
 	def target_temperature_step(self):
-		"""Return the supported step of target temperature."""
+		"""Return the supported step of target temperature.
+
+		Returns
+		-------
+		float
+			Steps of target temperature.
+		"""
 		if self._target_temp_step is not None:
 			return self._target_temp_step
 		
@@ -303,24 +394,46 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
 	
 	@property
 	def temperature_unit(self):
-		"""Return the unit of measurement."""
+		"""Return the unit of measurement.
+
+		Returns
+		-------
+		string
+			The unit of measurement.
+		"""
 		return self._unit
 	
 	@property
 	def current_temperature(self):
-		"""Return the sensor temperature."""
+		"""Return the sensor temperature.
+
+		Returns
+		-------
+		float
+			The measured temperature.
+		"""
 		return self._cur_temp
 	
 	@property
 	def hvac_mode(self):
-		"""Return current operation."""
+		"""Return current operation.
+
+		Returns
+		-------
+		string
+			HVAC mode only from homeassistant.components.climate.const is valid
+		"""
 		return self._hvac_mode
 	
 	@property
 	def hvac_action(self):
-		"""Return the current running hvac operation if supported.
+		"""Returns the currently active HVAC action.
 
-		Need to be one of CURRENT_HVAC_*.
+		Returns
+		-------
+		HVAC_MODE
+			the current hvac operation
+
 		"""
 		if self._hvac_mode == HVAC_MODE_OFF:
 			return CURRENT_HVAC_OFF
@@ -350,7 +463,13 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
 	
 	@property
 	def target_temperature(self):
-		"""Return the temperature we try to reach."""
+		"""Return the temperature we try to reach.
+
+		Returns
+		-------
+		float
+			Target temperature.
+		"""
 		if None in (self._max_temp, self._min_temp, self._target_temp):
 			return self._target_temp
 		# if target temp is below minimum, return minimum
@@ -363,20 +482,47 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
 	
 	@property
 	def hvac_modes(self):
-		"""List of available operation modes."""
+		"""List of available operation modes.
+
+		Returns
+		-------
+		array
+			A list of HVAC modes only from homeassistant.components.climate.const is valid
+		"""
 		return self._hvac_list
 	
 	async def async_set_hvac_mode(self, hvac_mode):
-		"""Set hvac mode."""
+		"""Set hvac mode.
+
+		Returns
+		-------
+		Void
+		"""
 		await set_hvac_mode(self, hvac_mode)
 	
 	async def async_set_temperature(self, **kwargs):
-		"""Set new target temperature."""
+		"""Set new target temperature.
+
+		Parameters
+		----------
+		kwargs : 
+			Arguments piped from HA.
+
+		Returns
+		-------
+		Void
+		"""
 		await set_target_temperature(self, **kwargs)
 	
 	@property
 	def min_temp(self):
-		"""Return the minimum temperature."""
+		"""Return the minimum temperature.
+
+		Returns
+		-------
+		float
+			the minimum temperature.
+		"""
 		if self._min_temp is not None:
 			return self._min_temp
 		
@@ -385,7 +531,13 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
 	
 	@property
 	def max_temp(self):
-		"""Return the maximum temperature."""
+		"""Return the maximum temperature.
+
+		Returns
+		-------
+		float
+			the maximum temperature.
+		"""
 		if self._max_temp is not None:
 			return self._max_temp
 		
@@ -394,6 +546,13 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
 	
 	@property
 	def _is_device_active(self):
+		"""Get the current state of the device for HA.
+
+		Returns
+		-------
+		string
+			State of the device.
+		"""
 		state_off = self.hass.states.is_state(self.heater_entity_id, "off")
 		state_heat = self.hass.states.is_state(self.heater_entity_id, "heat")
 		state_auto = self.hass.states.is_state(self.heater_entity_id, "auto")
@@ -409,5 +568,11 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
 	
 	@property
 	def supported_features(self):
-		"""Return the list of supported features."""
+		"""Return the list of supported features.
+
+		Returns
+		-------
+		array
+			Supported features.
+		"""
 		return self._support_flags

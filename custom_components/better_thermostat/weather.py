@@ -12,6 +12,11 @@ _LOGGER = logging.getLogger(__name__)
 def check_weather(self) -> bool:
 	"""check weather predictions or ambient air temperature if available
 
+	Parameters
+	----------
+	self :
+		self instance of better_thermostat 
+
 	Returns
 	-------
 	bool
@@ -39,9 +44,14 @@ def check_weather(self) -> bool:
 
 
 def check_weather_prediction(self):
-	"""
-	Checks configured weather entity for next two days of temperature predictions.
-	@return: True if the maximum forcast temperature is lower than the off temperature; None if not successful
+	"""Checks configured weather entity for next two days of temperature predictions.
+
+	Returns
+	-------
+	bool
+		True if the maximum forcast temperature is lower than the off temperature
+	None
+		if not successful
 	"""
 	if self.weather_entity is None:
 		_LOGGER.warning(f"better_thermostat {self.name}: weather entity not available.")
@@ -69,9 +79,14 @@ def check_weather_prediction(self):
 
 
 def check_ambient_air_temperature(self):
-	"""
-	Gets the history for two days and evaluates the necessary for heating.
-	@return: returns True if the average temperature is lower than the off temperature; None if not successful
+	"""Gets the history for two days and evaluates the necessary for heating.
+	
+	Returns
+	-------
+	bool
+		True if the average temperature is lower than the off temperature
+	None
+		if not successful
 	"""
 	if self.outdoor_sensor is None:
 		return None

@@ -1,13 +1,26 @@
-import logging
 import asyncio
+import logging
+
+from homeassistant.core import callback
 
 from ..controlling import control_trv
-from homeassistant.core import callback
 
 _LOGGER = logging.getLogger(__name__)
 
+
 @callback
 async def trigger_window_change(self):
+	"""Triggerd by window sensor event from HA to check if the window is open.
+
+	Parameters
+	----------
+	self : 
+		self instance of better_thermostat
+
+	Returns
+	-------
+	Void
+	"""
 	if self.startup_running:
 		return
 	if self.hass.states.get(self.heater_entity_id) is not None:

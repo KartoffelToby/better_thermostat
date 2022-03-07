@@ -13,7 +13,12 @@ _LOGGER = logging.getLogger(__name__)
 
 
 async def control_trv(self):
-	"""This is the main controller for the real TRV"""
+	"""This is the main controller for the real TRV
+
+	Returns
+	-------
+	Void
+	"""
 	if self.startup_running:
 		return
 	async with self._temp_lock:
@@ -90,6 +95,19 @@ async def control_trv(self):
 
 
 async def set_target_temperature(self, **kwargs):
+	""" Update the target temperature of the thermostat
+
+	Parameters
+	----------
+	self : 
+		self instance of better_thermostat
+	kwargs : 
+		Piped attributes from HA.
+
+	Returns
+	-------
+	Void
+	"""
 	_new_setpoint = convert_to_float(kwargs.get(ATTR_TEMPERATURE), self.name, "controlling.set_target_temperature()")
 	if _new_setpoint is None:
 		_LOGGER.info(f"better_thermostat {self.name}: received a new setpoint from HA, but temperature attribute was not set, ignoring")
@@ -101,6 +119,19 @@ async def set_target_temperature(self, **kwargs):
 
 
 async def set_hvac_mode(self, hvac_mode):
+	"""Set the HVAC mode for the thermostat
+
+	Parameters
+	----------
+	self : 
+		self instance of better_thermostat
+	hvac_mode : 
+		The new HVAC mode
+
+	Returns
+	-------
+	Void
+	"""
 	if hvac_mode in (HVAC_MODE_HEAT, HVAC_MODE_OFF):
 		_LOGGER.debug(f"better_thermostat {self.name}: received new HVAC mode {hvac_mode} from HA")
 		self._bt_hvac_mode = hvac_mode
@@ -111,7 +142,21 @@ async def set_hvac_mode(self, hvac_mode):
 
 
 async def set_trv_values(self, key, value):
-	"""Do necessary actions to set the TRV values."""
+	"""Do necessary actions to set the TRV values.
+
+	Parameters
+	----------
+	self : 
+		self instance of better_thermostat
+	key : 
+		sort of service call for HA to update the TRV
+	value : 
+		the value to parse to the service call
+
+	Returns
+	-------
+	Void
+	"""
 	
 	if key in ('temperature', 'hvac_mode'):
 		await self.hass.services.async_call(
@@ -147,7 +192,12 @@ async def set_trv_values(self, key, value):
 
 
 async def trv_valve_maintenance(self):
-	"""Maintenance of the TRV valve."""
+	"""Maintenance of the TRV valve.
+
+	Returns
+	-------
+	Void
+	"""
 	
 	_LOGGER.info("better_thermostat %s: maintenance started", self.name)
 	

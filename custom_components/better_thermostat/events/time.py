@@ -9,11 +9,19 @@ _LOGGER = logging.getLogger(__name__)
 
 @callback
 async def trigger_time(self, current_time):
-	"""
-	Triggered by night mode timer.
-	@param current_time:
-	"""
+	"""Triggered by night mode timer.
 	
+	Parameters
+	----------
+	self : 
+		self instance of better_thermostat
+	current_time :
+		Event object from the eventbus. Contains the current trigger time.
+
+	Returns
+	-------
+	Void
+	"""
 	_is_night = _nighttime(self, current_time)
 	
 	if _is_night is None:
@@ -39,10 +47,21 @@ async def trigger_time(self, current_time):
 
 @callback
 def _nighttime(self, current_time):
-	"""
-	Return whether it is nighttime.
-	@param current_time: time.time()
-	@return: bool True if it is nighttime; True if not configured
+	"""Checks whether it is currently nighttime
+	
+	Parameters
+	----------
+	self : 
+		self instance of better_thermostat
+	current_time :
+		Event object from the eventbus. Contains the current trigger time.
+
+	Returns
+	-------
+	bool
+		True if it is nighttime
+	None
+		if not configured
 	"""
 	_return_value = None
 	
