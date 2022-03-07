@@ -73,7 +73,7 @@ async def async_setup_platform(hass, config, async_add_entities, discovery_info=
 	
 	Returns
 	-------
-	Void
+	None
 	"""
 	await async_setup_reload_service(hass, DOMAIN, PLATFORMS)
 	name = config.get(CONF_NAME)
@@ -230,7 +230,7 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
 
 		Returns
 		-------
-		Void
+		None
 		"""
 		await super().async_added_to_hass()
 		
@@ -496,7 +496,7 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
 
 		Returns
 		-------
-		Void
+		None
 		"""
 		await set_hvac_mode(self, hvac_mode)
 	
@@ -510,7 +510,7 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
 
 		Returns
 		-------
-		Void
+		None
 		"""
 		await set_target_temperature(self, **kwargs)
 	

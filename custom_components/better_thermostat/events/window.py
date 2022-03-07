@@ -19,7 +19,7 @@ async def trigger_window_change(self):
 
 	Returns
 	-------
-	Void
+	None
 	"""
 	if self.startup_running:
 		return

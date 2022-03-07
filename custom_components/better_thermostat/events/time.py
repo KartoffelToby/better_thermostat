@@ -20,7 +20,7 @@ async def trigger_time(self, current_time):
 
 	Returns
 	-------
-	Void
+	None
 	"""
 	_is_night = _nighttime(self, current_time)
 	
