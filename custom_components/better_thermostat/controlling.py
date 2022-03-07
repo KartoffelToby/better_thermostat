@@ -68,6 +68,7 @@ async def control_trv(self):
 			converted_hvac_mode = remapped_states.get('system_mode') or None
 			current_heating_setpoint = remapped_states.get('current_heating_setpoint') or None
 			calibration = remapped_states.get('local_temperature_calibration') or None
+			self._temp_converted_hvac_mode = converted_hvac_mode
 			if converted_hvac_mode is not None:
 				_LOGGER.debug(
 					f"better_thermostat {self.name}: control_trv: current TRV mode: {_current_TRV_mode} new TRV mode: {converted_hvac_mode}"
@@ -158,12 +159,19 @@ async def set_trv_values(self, key, value):
 	None
 	"""
 	
-	if key in ('temperature', 'hvac_mode'):
+	if key == 'temperature':
 		await self.hass.services.async_call(
 			'climate',
-			"set_" + key,
-			{'entity_id': self.heater_entity_id, key: value},
-			blocking=False
+			"set_temperature",
+			{'entity_id': self.heater_entity_id, 'temperature': value, 'hvac_mode': self._temp_converted_hvac_mode},
+			blocking=True
+		)
+	elif key == 'hvac_mode':
+		await self.hass.services.async_call(
+			'climate',
+			"set_hvac_mode",
+			{'entity_id': self.heater_entity_id, 'hvac_mode': value},
+			blocking=True
 		)
 	elif key == 'local_temperature_calibration':
 		max_calibration = self.hass.states.get(self.local_temperature_calibration_entity).attributes.get('max')
@@ -176,14 +184,14 @@ async def set_trv_values(self, key, value):
 			'number',
 			SERVICE_SET_VALUE,
 			{'entity_id': self.local_temperature_calibration_entity, 'value': value},
-			blocking=False
+			blocking=True
 		)
 	elif key == 'valve_position':
 		await self.hass.services.async_call(
 			'number',
 			SERVICE_SET_VALUE,
 			{'entity_id': self.valve_position_entity, 'value': value},
-			blocking=False
+			blocking=True
 		)
 	else:
 		_LOGGER.error("better_thermostat %s: set_trv_values() called with unsupported key %s", self.name, key)
