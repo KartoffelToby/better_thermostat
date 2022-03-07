@@ -47,7 +47,7 @@ def _nighttime(self, current_time):
 	_return_value = None
 	
 	# one or more of the inputs is None or empty
-	if not all([self.night_start, self.night_end, current_time]):
+	if None in (self.night_start, self.night_end, current_time):
 		return _return_value
 	
 	if self.night_start.hour == current_time.hour and self.night_start.minute == current_time.minute:

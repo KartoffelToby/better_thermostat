@@ -24,7 +24,7 @@ async def trigger_trv_change(self, event):
 	
 	_LOGGER.debug(f"better_thermostat {self.name}: trigger_trv_change: old_state: {old_state.state} new_state: {new_state.state}")
 	
-	if not all([new_state, old_state, new_state.attributes]):
+	if None in (new_state, old_state, new_state.attributes):
 		_LOGGER.debug(f"better_thermostat {self.name}: TRV update contained not all necessary data for processing, skipping")
 		return
 	

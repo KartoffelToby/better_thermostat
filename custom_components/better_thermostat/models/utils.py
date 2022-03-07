@@ -105,7 +105,7 @@ def calculate_setpoint_override(self) -> Union[float, None]:
 	
 	_current_trv_temp = convert_to_float(state.get('current_temperature'), self.name, _context)
 	
-	if not all([self._target_temp, self._cur_temp, _current_trv_temp]):
+	if None in (self._target_temp, self._cur_temp, _current_trv_temp):
 		return None
 	
 	_calibrated_setpoint = round_to_half_degree(self._target_temp - self._cur_temp + _current_trv_temp)
