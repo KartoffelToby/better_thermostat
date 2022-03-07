@@ -75,7 +75,7 @@ async def trigger_trv_change(self, event):
 		force_update = True
 	
 	if force_update:
-		await control_trv(self)
+		await control_trv(self, force_mode_change=True)
 		return
 	
 	# we only read user input at the TRV on mode 0
