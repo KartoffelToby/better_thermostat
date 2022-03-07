@@ -254,6 +254,7 @@ async def startup(self):
 			self._hvac_mode = HVAC_MODE_OFF
 		self._bt_hvac_mode = self._hvac_mode
 		self._last_window_state = self.window_open
+		self._cur_temp = float(sensor_state.state)
 		self.async_write_ha_state()
 		_LOGGER.info("better_thermostat %s: startup completed.", self.name)
 		await control_trv(self)
