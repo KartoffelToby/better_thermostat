@@ -21,7 +21,7 @@ async def trigger_temperature_change(self, event):
 
 	Returns
 	-------
-	Void
+	None
 	"""
 	if self.startup_running:
 		return
@@ -47,7 +47,7 @@ def _async_update_temp(self, state):
 	
 	Returns
 	-------
-	Void
+	None
 	"""
 	try:
 		self._cur_temp = float(state.state)

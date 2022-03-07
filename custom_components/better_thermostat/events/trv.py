@@ -23,7 +23,7 @@ async def trigger_trv_change(self, event):
 
 	Returns
 	-------
-	Void
+	None
 	"""
 	if self.startup_running:
 		_LOGGER.debug(f"better_thermostat {self.name}: skipping trigger_trv_change because startup is running")

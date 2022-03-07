@@ -27,7 +27,7 @@ def log_info(self, message):
 
 	Returns
 	-------
-	Void
+	None
 	"""
 	_LOGGER.debug(
 		"better_thermostat with config name: %s, %s TRV: %s",
@@ -47,7 +47,7 @@ async def startup(self):
 
 	Returns
 	-------
-	Void
+	None
 	"""
 	window = None
 	await asyncio.sleep(5)
