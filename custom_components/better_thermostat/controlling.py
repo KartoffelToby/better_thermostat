@@ -6,7 +6,7 @@ from homeassistant.components.number.const import (SERVICE_SET_VALUE)
 from homeassistant.const import (ATTR_TEMPERATURE)
 
 from .models.models import convert_outbound_states
-from .models.utils import convert_to_float, round_to_tenth_degree
+from .models.utils import convert_to_float, round_to_hundredth_degree
 from .weather import check_weather
 
 _LOGGER = logging.getLogger(__name__)
@@ -183,7 +183,7 @@ async def set_trv_values(self, key, value, hvac_mode=None):
 			blocking=True
 		)
 	elif key == 'local_temperature_calibration':
-		value = round_to_tenth_degree(value)
+		value = round_to_hundredth_degree(value)
 		
 		max_calibration = self.hass.states.get(self.local_temperature_calibration_entity).attributes.get('max')
 		min_calibration = self.hass.states.get(self.local_temperature_calibration_entity).attributes.get('min')
