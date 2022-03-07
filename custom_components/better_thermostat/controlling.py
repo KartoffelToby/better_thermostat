@@ -17,8 +17,10 @@ async def control_trv(self, force_mode_change: bool = False):
 
 	Parameters
 	----------
-	self : instance of better_thermostat
-	force_mode_change : forces a mode change regardless which mode the TRV is in.
+	self :
+		instance of better_thermostat
+	force_mode_change : bool
+		forces a mode change regardless which mode the TRV is in.
 
 	Returns
 	-------
