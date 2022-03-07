@@ -256,7 +256,7 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
 			)
 		
 		# check if night mode was configured
-		if all([self.night_start, self.night_end, self.night_temp]):
+		if None not in (self.night_start, self.night_end, self.night_temp):
 			_LOGGER.debug("Night mode configured")
 			async_track_time_change(
 				self.hass,
@@ -470,7 +470,7 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
 		float
 			Target temperature.
 		"""
-		if not all([self._max_temp, self._min_temp, self._target_temp]):
+		if None in (self._max_temp, self._min_temp, self._target_temp):
 			return self._target_temp
 		# if target temp is below minimum, return minimum
 		if self._target_temp < self._min_temp:
