@@ -66,6 +66,8 @@ async def get_device_model(self):
 			entry = entity_reg.async_get(self.heater_entity_id)
 			dev_reg = await dr.async_get_registry(self.hass)
 			device = dev_reg.async_get(entry.device_id)
+			_LOGGER.debug(f"better_thermostat {self.name}: found device:")
+			_LOGGER.debug(device)
 			try:
 				# Z2M reports the device name as a long string with the actual model name in braces, we need to extract it
 				return re.search('\((.+?)\)', device.model).group(1)
