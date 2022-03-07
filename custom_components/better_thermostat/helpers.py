@@ -189,7 +189,7 @@ async def startup(self):
 							_old_target_temperature,
 							self._min_temp
 						)
-						self._target_temp = self._min_temp
+						_old_target_temperature = self._min_temp
 					# if the saved temperature is higher than the _max_temp, set it to _max_temp
 					elif _old_target_temperature > self._max_temp:
 						_LOGGER.warning(
@@ -198,7 +198,8 @@ async def startup(self):
 							_old_target_temperature,
 							self._min_temp
 						)
-						self._target_temp = self._max_temp
+						_old_target_temperature = self._max_temp
+					self._target_temp = _old_target_temperature
 			if not self._hvac_mode and old_state.state:
 				self._hvac_mode = old_state.state
 			if not old_state.attributes.get(ATTR_STATE_LAST_CHANGE):
