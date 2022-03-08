@@ -26,15 +26,13 @@ def check_weather(self) -> bool:
 	
 	if self.weather_entity is not None:
 		_LOGGER.debug(f"better_thermostat {self.name}: checking weather predictions...")
-		self.call_for_heat = check_weather_prediction(self)
-		return check_weather_prediction(self)
+		new_call_for_heat = check_weather_prediction(self)
 	
 	elif self.outdoor_sensor is not None:
 		_LOGGER.debug(f"better_thermostat {self.name}: checking ambient air sensor data...")
-		self.call_for_heat = check_ambient_air_temperature(self)
-		return check_ambient_air_temperature(self)
+		new_call_for_heat = check_ambient_air_temperature(self)
 	else:
-		# no weather evaluation: call for heat is always true
+		_LOGGER.debug(f"better_thermostat {self.name}: could not find any weather sensors... setting call_for_heat to true")
 		self.call_for_heat = True
 	
 	if old_call_for_heat != self.call_for_heat:
@@ -131,5 +129,5 @@ def check_ambient_air_temperature(self):
 	
 	# calculate the average temperature
 	avg_temp = int(round(sum(valid_historic_sensor_data) / len(valid_historic_sensor_data)))
-	_LOGGER.debug(f"better_thermostat {self.name}: avg outdoor temp: %s", avg_temp)
+	_LOGGER.debug(f"better_thermostat {self.name}: avg outdoor temp: {avg_temp}, threshold is {self.off_temperature}")
 	return avg_temp < self.off_temperature
