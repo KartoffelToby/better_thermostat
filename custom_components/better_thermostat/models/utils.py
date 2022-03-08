@@ -165,7 +165,7 @@ def convert_to_float(value: Union[str, int, float], instance_name: str, context:
 		try:
 			return float(value)
 		except (ValueError, TypeError, AttributeError, KeyError):
-			_LOGGER.error(f"better thermostat {instance_name}: Could not convert '{value}' to float in {context}")
+			_LOGGER.debug(f"better thermostat {instance_name}: Could not convert '{value}' to float in {context}")
 			return None
 
 
