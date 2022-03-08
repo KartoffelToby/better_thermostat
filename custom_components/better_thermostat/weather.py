@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import logging
 from datetime import datetime, timedelta
 
@@ -9,7 +11,7 @@ from .models.utils import convert_to_float
 _LOGGER = logging.getLogger(__name__)
 
 
-def check_weather(self) -> bool:
+def check_weather(self) -> bool | None:
 	"""check weather predictions or ambient air temperature if available
 
 	Parameters
@@ -41,7 +43,7 @@ def check_weather(self) -> bool:
 		return False
 
 
-def check_weather_prediction(self):
+def check_weather_prediction(self) -> bool | None:
 	"""Checks configured weather entity for next two days of temperature predictions.
 
 	Returns
@@ -76,7 +78,7 @@ def check_weather_prediction(self):
 		return None
 
 
-def check_ambient_air_temperature(self):
+def check_ambient_air_temperature(self) -> bool | None:
 	"""Gets the history for two days and evaluates the necessary for heating.
 	
 	Returns
@@ -106,13 +108,21 @@ def check_ambient_air_temperature(self):
 	
 	# create a list from valid data in historic_sensor_data
 	valid_historic_sensor_data = []
+	invalid_sensor_data_count = 0
 	for measurement in historic_sensor_data:
 		if isinstance(measurement := convert_to_float(str(measurement.state), self.name, "check_ambient_air_temperature()"), float):
 			valid_historic_sensor_data.append(measurement)
+		else:
+			invalid_sensor_data_count += 1
 	
 	if len(valid_historic_sensor_data) == 0:
 		_LOGGER.warning(f"better_thermostat {self.name}: no valid outdoor sensor data found.")
 		return None
+	
+	if invalid_sensor_data_count:
+		_LOGGER.warning(
+			f"better_thermostat {self.name}: ignored {invalid_sensor_data_count} invalid outdoor sensor data entries."
+		)
 	
 	# remove the upper and lower 5% of the data
 	valid_historic_sensor_data.sort()
