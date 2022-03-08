@@ -4,14 +4,14 @@ import asyncio
 import logging
 import numbers
 from datetime import datetime
-from .models.utils import convert_to_float
 
-from homeassistant.components.climate.const import (HVAC_MODE_OFF)
-from homeassistant.const import (ATTR_TEMPERATURE, STATE_UNAVAILABLE, STATE_UNKNOWN)
-from homeassistant.helpers.entity_registry import (async_entries_for_config_entry)
+from homeassistant.components.climate.const import HVAC_MODE_OFF
+from homeassistant.const import ATTR_TEMPERATURE, STATE_UNAVAILABLE, STATE_UNKNOWN
+from homeassistant.helpers.entity_registry import async_entries_for_config_entry
 
 from .const import ATTR_STATE_CALL_FOR_HEAT, ATTR_STATE_DAY_SET_TEMP, ATTR_STATE_LAST_CHANGE, ATTR_STATE_NIGHT_MODE, ATTR_STATE_WINDOW_OPEN
 from .controlling import control_trv
+from .models.utils import convert_to_float
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -256,7 +256,7 @@ async def startup(self):
 			self._hvac_mode = HVAC_MODE_OFF
 		self._bt_hvac_mode = self._hvac_mode
 		self._last_window_state = self.window_open
-		self._cur_temp = convert_to_float(sensor_state.state)
+		self._cur_temp = convert_to_float(str(sensor_state.state), self.name, "startup()")
 		self.async_write_ha_state()
 		_LOGGER.info("better_thermostat %s: startup completed.", self.name)
 		await control_trv(self)
