@@ -58,10 +58,15 @@ async def control_trv(self, force_mode_change: bool = False):
 					f"better_thermostat {self.name}: control_trv: own mode is on, call for heat decision is false, setting TRV mode to off"
 				)
 				self._trv_hvac_mode = HVAC_MODE_OFF
-			else:
+			elif self.call_for_heat is True:
 				_LOGGER.debug(
 					f"better_thermostat {self.name}: control_trv: own mode is on, call for heat decision is true, setting TRV mode to on"
 				)
+				self._trv_hvac_mode = HVAC_MODE_HEAT
+			else:
+				_LOGGER.debug(
+					f"better_thermostat {self.name}: control_trv: own mode is on, call for heat decision is unknown, setting TRV mode to on"
+					)
 				self._trv_hvac_mode = HVAC_MODE_HEAT
 		
 		if self._trv_hvac_mode == HVAC_MODE_OFF:
