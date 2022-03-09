@@ -29,7 +29,7 @@ from .events.temperature import trigger_temperature_change
 from .events.time import trigger_time
 from .events.trv import trigger_trv_change
 from .events.window import trigger_window_change
-from .helpers import check_float, startup
+from .helpers import startup
 from .models.models import get_device_model, load_device_config
 
 _LOGGER = logging.getLogger(__name__)
@@ -187,7 +187,8 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
 		self.night_temp = night_temp or None
 		self.night_start = dt_util.parse_time(night_start) or None
 		self.night_end = dt_util.parse_time(night_end) or None
-		self._hvac_mode = HVAC_MODE_HEAT
+		self._trv_hvac_mode = None
+		self._bt_hvac_mode = None
 		self._saved_target_temp = target_temp or None
 		self._target_temp_step = precision
 		self._TRV_target_temp_step = 0.5
@@ -224,6 +225,7 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
 		self.load_saved_state = False
 		self._last_reported_valve_position = None
 		self._last_reported_valve_position_update_wait_lock = asyncio.Lock()
+		self._last_window_state = None
 	
 	async def async_added_to_hass(self):
 		"""Run when entity about to be added.
@@ -423,43 +425,30 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
 		string
 			HVAC mode only from homeassistant.components.climate.const is valid
 		"""
-		return self._hvac_mode
+		return self._bt_hvac_mode
 	
 	@property
 	def hvac_action(self):
-		"""Returns the currently active HVAC action.
-
-		Returns
-		-------
-		HVAC_MODE
-			the current hvac operation
-
+		"""Return the current HVAC action
 		"""
-		if self._hvac_mode == HVAC_MODE_OFF:
+		
+		if self._bt_hvac_mode == HVAC_MODE_OFF:
+			_LOGGER.debug(f"better_thermostat {self.name}: HA asked for our HVAC action, we will respond with: {CURRENT_HVAC_OFF}")
 			return CURRENT_HVAC_OFF
-		
-		try:
-			if self.hass.states.get(self.heater_entity_id).attributes.get('position') is not None:
-				if check_float(self.hass.states.get(self.heater_entity_id).attributes.get('position')):
-					valve = float(self.hass.states.get(self.heater_entity_id).attributes.get('position'))
-					if valve > 0:
-						return CURRENT_HVAC_HEAT
-					else:
-						return CURRENT_HVAC_IDLE
+		if self._bt_hvac_mode == HVAC_MODE_HEAT:
+			if self.window_open:
+				_LOGGER.debug(
+					f"better_thermostat {self.name}: HA asked for our HVAC action, we will respond with '{CURRENT_HVAC_OFF}' because a window is open"
+				)
+				return CURRENT_HVAC_OFF
 			
-			if self.hass.states.get(self.heater_entity_id).attributes.get('pi_heating_demand') is not None:
-				if check_float(self.hass.states.get(self.heater_entity_id).attributes.get('pi_heating_demand')):
-					valve = float(self.hass.states.get(self.heater_entity_id).attributes.get('pi_heating_demand'))
-					if valve > 0:
-						return CURRENT_HVAC_HEAT
-					else:
-						return CURRENT_HVAC_IDLE
-		except (RuntimeError, ValueError, AttributeError, KeyError, TypeError, NameError, IndexError) as e:
-			_LOGGER.error("better_thermostat %s: RuntimeError occurred while running TRV operation, %s", self.name, e)
-		
-		if not self._is_device_active:
-			return CURRENT_HVAC_IDLE
-		return CURRENT_HVAC_HEAT
+			if self.call_for_heat is False:
+				_LOGGER.debug(
+					f"better_thermostat {self.name}: HA asked for our HVAC action, we will respond with '{CURRENT_HVAC_IDLE}' since call for heat is false"
+				)
+				return CURRENT_HVAC_IDLE
+			_LOGGER.debug(f"better_thermostat {self.name}: HA asked for our HVAC action, we will respond with: {CURRENT_HVAC_HEAT}")
+			return CURRENT_HVAC_HEAT
 	
 	@property
 	def target_temperature(self):
@@ -491,7 +480,7 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
 		"""
 		return self._hvac_list
 	
-	async def async_set_hvac_mode(self, hvac_mode):
+	async def async_set_hvac_mode(self, hvac_mode: str) -> None:
 		"""Set hvac mode.
 
 		Returns
@@ -500,7 +489,7 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
 		"""
 		await set_hvac_mode(self, hvac_mode)
 	
-	async def async_set_temperature(self, **kwargs):
+	async def async_set_temperature(self, **kwargs) -> None:
 		"""Set new target temperature.
 
 		Parameters

@@ -131,10 +131,8 @@ async def startup(self):
 			check = window.state
 			if check == 'on':
 				self.window_open = True
-				self._hvac_mode = HVAC_MODE_OFF
 			else:
 				self.window_open = False
-				self.closed_window_triggered = False
 			_LOGGER.debug(
 				"better_thermostat %s: detected window state at startup: %s",
 				self.name,
