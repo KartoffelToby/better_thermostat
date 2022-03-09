@@ -28,11 +28,11 @@ def check_weather(self) -> bool | None:
 	
 	if self.weather_entity is not None:
 		_LOGGER.debug(f"better_thermostat {self.name}: checking weather predictions...")
-		new_call_for_heat = check_weather_prediction(self)
+		self.call_for_heat = check_weather_prediction(self)
 	
 	elif self.outdoor_sensor is not None:
 		_LOGGER.debug(f"better_thermostat {self.name}: checking ambient air sensor data...")
-		new_call_for_heat = check_ambient_air_temperature(self)
+		self.call_for_heat = check_ambient_air_temperature(self)
 	else:
 		_LOGGER.debug(f"better_thermostat {self.name}: could not find any weather sensors... setting call_for_heat to true")
 		self.call_for_heat = True
