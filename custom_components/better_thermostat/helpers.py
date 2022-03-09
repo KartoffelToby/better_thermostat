@@ -199,8 +199,8 @@ async def startup(self):
 						)
 						_old_target_temperature = self._max_temp
 					self._target_temp = _old_target_temperature
-			if not self._hvac_mode and old_state.state:
-				self._hvac_mode = old_state.state
+			if not self._bt_hvac_mode and old_state.state:
+				self._bt_hvac_mode = old_state.state
 			if not old_state.attributes.get(ATTR_STATE_LAST_CHANGE):
 				self.last_change = old_state.attributes.get(ATTR_STATE_LAST_CHANGE)
 			else:
@@ -244,15 +244,14 @@ async def startup(self):
 					"better_thermostat %s: No previously saved temperature found on startup, turning heat off",
 					self.name
 				)
-				self._hvac_mode = HVAC_MODE_OFF
+				self._bt_hvac_mode = HVAC_MODE_OFF
 		# if hvac mode could not be restored, turn heat off
-		if not self._hvac_mode:
+		if not self._bt_hvac_mode:
 			_LOGGER.warning(
 				"better_thermostat %s: No previously hvac mode found on startup, turn heat off",
 				self.name
 			)
-			self._hvac_mode = HVAC_MODE_OFF
-		self._bt_hvac_mode = self._hvac_mode
+			self._bt_hvac_mode = HVAC_MODE_OFF
 		self._last_window_state = self.window_open
 		self._cur_temp = convert_to_float(str(sensor_state.state), self.name, "startup()")
 		self.async_write_ha_state()
