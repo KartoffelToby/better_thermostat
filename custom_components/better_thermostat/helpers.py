@@ -71,14 +71,14 @@ async def startup(self):
 				self.heater_entity_id
 			)
 			return False
-		if self.window_sensors_entity_ids:
-			window = self.hass.states.get(self.window_sensors_entity_ids)
+		if self.window_id:
+			window = self.hass.states.get(self.window_id)
 			
 			if window is None:
 				_LOGGER.error(
 					"better_thermostat %s: configured window sensor entry or group with id '%s' could not be located",
 					self.name,
-					self.window_sensors_entity_ids
+					self.window_id
 				)
 				return False
 			
@@ -90,7 +90,7 @@ async def startup(self):
 				_LOGGER.error(
 					"better_thermostat %s: configured window sensor entry or group with id '%s' could not be located",
 					self.name,
-					self.window_sensors_entity_ids
+					self.window_id
 				)
 				return False
 		
@@ -110,13 +110,13 @@ async def startup(self):
 				self.heater_entity_id
 			)
 			_ready = False
-		if self.window_sensors_entity_ids:
-			if self.window_sensors_entity_ids in (STATE_UNAVAILABLE, STATE_UNKNOWN, None) or window.state in (
-					STATE_UNAVAILABLE, STATE_UNKNOWN, None):
+		if self.window_id:
+			if self.window_id in (STATE_UNAVAILABLE, STATE_UNKNOWN, None) or window.state in (
+				STATE_UNAVAILABLE, STATE_UNKNOWN, None):
 				_LOGGER.info(
 					"better_thermostat %s: waiting for window sensor entity with id '%s' to become fully available...",
 					self.name,
-					self.window_sensors_entity_ids
+					self.window_id
 				)
 				_ready = False
 		
@@ -125,8 +125,8 @@ async def startup(self):
 			await asyncio.sleep(15)
 			continue
 		
-		if self.window_sensors_entity_ids:
-			window = self.hass.states.get(self.window_sensors_entity_ids)
+		if self.window_id:
+			window = self.hass.states.get(self.window_id)
 			
 			check = window.state
 			if check == 'on':
@@ -138,7 +138,7 @@ async def startup(self):
 				self.name,
 				"Open" if self.window_open else "Closed"
 			)
-		if not self.window_sensors_entity_ids:
+		if not self.window_id:
 			self.window_open = False
 		
 		self.startup_running = False

@@ -109,11 +109,11 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
 	"""Representation of a Better Thermostat device."""
 	
 	def __init__(
-			self,
-			name,
+		self,
+		name,
 		heater_entity_id,
 		sensor_entity_id,
-		window_sensors_entity_ids,
+		window_id,
 		window_delay,
 		weather_entity,
 		outdoor_sensor,
@@ -138,7 +138,7 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
 		name : 
 		heater_entity_id : 
 		sensor_entity_id : 
-		window_sensors_entity_ids : 
+		window_id : 
 		window_delay : 
 		weather_entity : 
 		outdoor_sensor : 
@@ -159,7 +159,7 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
 		self._name = name
 		self.heater_entity_id = heater_entity_id
 		self.sensor_entity_id = sensor_entity_id
-		self.window_sensors_entity_ids = window_sensors_entity_ids
+		self.window_id = window_id
 		self.window_delay = window_delay or 0
 		self.weather_entity = weather_entity
 		self.outdoor_sensor = outdoor_sensor
@@ -176,6 +176,10 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
 		self._hvac_list = [HVAC_MODE_HEAT, HVAC_MODE_OFF]
 		self._cur_temp = None
 		self._temp_lock = asyncio.Lock()
+		self._window_delay_lock = asyncio.Lock()
+		self._window_action_timestamp = None
+		self._window_action_timestamp_lock = asyncio.Lock()
+		self._window_most_recent_action = None
 		self._min_temp = min_temp
 		self._TRV_min_temp = 5.0
 		self._max_temp = max_temp
@@ -233,9 +237,9 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
 		async_track_state_change_event(
 			self.hass, [self.heater_entity_id], self._trigger_trv_change
 		)
-		if self.window_sensors_entity_ids:
+		if self.window_id:
 			async_track_state_change_event(
-				self.hass, [self.window_sensors_entity_ids], self._trigger_window_change
+				self.hass, [self.window_id], self._trigger_window_change
 			)
 		
 		# check if night mode was configured
