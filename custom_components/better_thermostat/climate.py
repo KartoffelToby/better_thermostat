@@ -285,7 +285,7 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
 		await trigger_trv_change(self, event)
 	
 	async def _trigger_window_change(self, event):
-		await trigger_window_change(self)
+		await trigger_window_change(self, event)
 	
 	@property
 	def extra_state_attributes(self):
