@@ -9,7 +9,7 @@ _LOGGER = logging.getLogger(__name__)
 
 
 @callback
-async def trigger_window_change(self):
+async def trigger_window_change(self) -> None:
 	"""Triggerd by window sensor event from HA to check if the window is open.
 
 	Parameters
@@ -25,6 +25,7 @@ async def trigger_window_change(self):
 		return
 	if self.hass.states.get(self.heater_entity_id) is None:
 		return
+	
 	await asyncio.sleep(int(self.window_delay))
 	check = self.hass.states.get(self.window_sensors_entity_ids).state
 	if check == 'on':
