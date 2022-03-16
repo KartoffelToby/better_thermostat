@@ -291,17 +291,17 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
 			_async_startup()
 		else:
 			self.hass.bus.async_listen_once(EVENT_HOMEASSISTANT_START, _async_startup)
-
-	async def _trigger_time(self,event):
-		await trigger_time(self,event)
-
-	async def _trigger_temperature_change(self,event):
-		await trigger_temperature_change(self,event)
-
-	async def _trigger_trv_change(self,event):
-		await trigger_trv_change(self,event)
-
-	async def _trigger_window_change(self,event):
+	
+	async def _trigger_time(self, event):
+		await trigger_time(self, event)
+	
+	async def _trigger_temperature_change(self, event):
+		await trigger_temperature_change(self, event)
+	
+	async def _trigger_trv_change(self, event):
+		await trigger_trv_change(self, event)
+	
+	async def _trigger_window_change(self, event):
 		await trigger_window_change(self)
 	
 	@property
