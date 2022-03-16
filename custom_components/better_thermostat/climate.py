@@ -10,10 +10,10 @@ import homeassistant.helpers.config_validation as cv
 import homeassistant.util.dt as dt_util
 import voluptuous as vol
 from homeassistant.components.climate import ClimateEntity, PLATFORM_SCHEMA
-from homeassistant.components.climate.const import (CURRENT_HVAC_HEAT, CURRENT_HVAC_IDLE, CURRENT_HVAC_OFF, HVAC_MODE_HEAT, HVAC_MODE_OFF)
-from homeassistant.const import (CONF_NAME, CONF_UNIQUE_ID, EVENT_HOMEASSISTANT_START)
+from homeassistant.components.climate.const import CURRENT_HVAC_HEAT, CURRENT_HVAC_IDLE, CURRENT_HVAC_OFF, HVAC_MODE_HEAT, HVAC_MODE_OFF
+from homeassistant.const import CONF_NAME, CONF_UNIQUE_ID, EVENT_HOMEASSISTANT_START
 from homeassistant.core import callback, CoreState
-from homeassistant.helpers.event import (async_track_state_change_event, async_track_time_change)
+from homeassistant.helpers.event import async_track_state_change_event, async_track_time_change
 from homeassistant.helpers.reload import async_setup_reload_service
 from homeassistant.helpers.restore_state import RestoreEntity
 
@@ -76,47 +76,28 @@ async def async_setup_platform(hass, config, async_add_entities, discovery_info=
 	None
 	"""
 	await async_setup_reload_service(hass, DOMAIN, PLATFORMS)
-	name = config.get(CONF_NAME)
-	heater_entity_id = config.get(CONF_HEATER)
-	sensor_entity_id = config.get(CONF_SENSOR)
-	window_sensors_entity_ids = config.get(CONF_SENSOR_WINDOW)
-	window_delay = config.get(CONF_WINDOW_TIMEOUT)
-	weather_entity = config.get(CONF_WEATHER)
-	outdoor_sensor = config.get(CONF_OUTDOOR_SENSOR)
-	off_temperature = config.get(CONF_OFF_TEMPERATURE)
-	valve_maintenance = config.get(CONF_VALVE_MAINTENANCE)
-	night_temp = config.get(CONF_NIGHT_TEMP)
-	night_start = config.get(CONF_NIGHT_START)
-	night_end = config.get(CONF_NIGHT_END)
-	
-	min_temp = config.get(CONF_MIN_TEMP)
-	max_temp = config.get(CONF_MAX_TEMP)
-	target_temp = config.get(CONF_TARGET_TEMP)
-	precision = config.get(CONF_PRECISION)
-	unit = hass.config.units.temperature_unit
-	unique_id = config.get(CONF_UNIQUE_ID)
 	
 	async_add_entities(
 		[
 			BetterThermostat(
-				name,
-				heater_entity_id,
-				sensor_entity_id,
-				window_sensors_entity_ids,
-				window_delay,
-				weather_entity,
-				outdoor_sensor,
-				off_temperature,
-				valve_maintenance,
-				night_temp,
-				night_start,
-				night_end,
-				min_temp,
-				max_temp,
-				target_temp,
-				precision,
-				unit,
-				unique_id,
+				config.get(CONF_NAME),
+				config.get(CONF_HEATER),
+				config.get(CONF_SENSOR),
+				config.get(CONF_SENSOR_WINDOW),
+				config.get(CONF_WINDOW_TIMEOUT),
+				config.get(CONF_WEATHER),
+				config.get(CONF_OUTDOOR_SENSOR),
+				config.get(CONF_OFF_TEMPERATURE),
+				config.get(CONF_VALVE_MAINTENANCE),
+				config.get(CONF_NIGHT_TEMP),
+				config.get(CONF_NIGHT_START),
+				config.get(CONF_NIGHT_END),
+				config.get(CONF_MIN_TEMP),
+				config.get(CONF_MAX_TEMP),
+				config.get(CONF_TARGET_TEMP),
+				config.get(CONF_PRECISION),
+				hass.config.units.temperature_unit,
+				config.get(CONF_UNIQUE_ID),
 				device_class="better_thermostat",
 				state_class="better_thermostat_state",
 			)
