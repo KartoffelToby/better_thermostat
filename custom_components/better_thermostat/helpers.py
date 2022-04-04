@@ -256,7 +256,7 @@ async def startup(self):
 		self._cur_temp = convert_to_float(str(sensor_state.state), self.name, "startup()")
 		self.async_write_ha_state()
 		_LOGGER.info("better_thermostat %s: startup completed.", self.name)
-		await control_trv(self)
+		await self.control_queue_task.put(self)
 	return True
 
 

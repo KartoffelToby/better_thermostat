@@ -11,6 +11,38 @@ from .weather import check_weather
 
 _LOGGER = logging.getLogger(__name__)
 
+async def control_loop(self):
+	"""Startup a new Queue for controling the TRV.
+		Parameters
+	----------
+	self :
+		instance of better_thermostat
+
+	Returns
+	-------
+	None
+	"""
+	self.control_queue_task = asyncio.PriorityQueue(maxsize=2, loop=self.queue_loop)
+	await asyncio.wait([control_queue(self)])
+
+async def control_queue(self):
+	""" The accutal control loop.
+		Parameters
+	----------
+	self :
+		instance of better_thermostat
+
+	Returns
+	-------
+	None
+	"""
+	while True:
+		controls_to_process = await self.control_queue_task.get()
+		if controls_to_process is None:
+			break
+		_LOGGER.debug(f"better_thermostat {self.name}: processing controls")
+		await control_trv(controls_to_process)
+
 
 async def control_trv(self, force_mode_change: bool = False):
 	"""This is the main controller for the real TRV
@@ -128,7 +160,8 @@ async def set_target_temperature(self, **kwargs):
 	_LOGGER.info(f"better_thermostat {self.name}: received a new setpoint from HA: {_new_setpoint}")
 	self._target_temp = _new_setpoint
 	self.async_write_ha_state()
-	await control_trv(self)
+	await self.control_queue_task.put(self)
+	#await self.control_queue_task.put(self)
 
 
 async def set_hvac_mode(self, hvac_mode):
@@ -151,7 +184,7 @@ async def set_hvac_mode(self, hvac_mode):
 	else:
 		_LOGGER.error("better_thermostat %s: Unsupported hvac_mode %s", self.name, hvac_mode)
 	self.async_write_ha_state()
-	await control_trv(self)
+	await self.control_queue_task.put(self)
 
 
 async def set_trv_values(self, key, value, hvac_mode=None):
@@ -321,4 +354,4 @@ async def trv_valve_maintenance(self):
 	self.ignore_states = False
 	
 	# restarting normal heating control immediately
-	await control_trv(self)
+	await self.control_queue_task.put(self)
