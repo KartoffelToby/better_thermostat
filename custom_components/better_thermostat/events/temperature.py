@@ -31,7 +31,7 @@ async def trigger_temperature_change(self, event):
 	
 	_async_update_temp(self, new_state)
 	self.async_write_ha_state()
-	await control_trv(self)
+	await self.control_queue_task.put(self)
 
 
 @callback

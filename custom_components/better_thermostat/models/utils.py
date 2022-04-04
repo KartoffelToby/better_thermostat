@@ -60,6 +60,8 @@ def mode_remap(self, hvac_mode: str) -> str:
 	"""
 	
 	device_has_quirks = device_has_swapped_modes(self)
+
+	_LOGGER.debug(f"better thermostat {self.name} {hvac_mode}: device_has_quirks: {device_has_quirks}")
 	
 	if hvac_mode == HVAC_MODE_HEAT and device_has_quirks:
 		return HVAC_MODE_AUTO

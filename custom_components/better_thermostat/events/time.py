@@ -42,7 +42,7 @@ async def trigger_time(self, current_time):
 		self.night_mode_active = False
 	
 	self.async_write_ha_state()
-	await control_trv(self)
+	await self.control_queue_task.put(self)
 
 
 @callback
