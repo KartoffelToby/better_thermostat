@@ -147,7 +147,6 @@ async def set_target_temperature(self, **kwargs):
 	self._target_temp = _new_setpoint
 	self.async_write_ha_state()
 	await self.control_queue_task.put(self)
-	#await self.control_queue_task.put(self)
 
 
 async def set_hvac_mode(self, hvac_mode):
