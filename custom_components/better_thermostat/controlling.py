@@ -11,20 +11,6 @@ from .weather import check_weather
 
 _LOGGER = logging.getLogger(__name__)
 
-async def control_loop(self):
-	"""Startup a new Queue for controling the TRV.
-		Parameters
-	----------
-	self :
-		instance of better_thermostat
-
-	Returns
-	-------
-	None
-	"""
-	self.control_queue_task = asyncio.PriorityQueue(maxsize=2, loop=self.queue_loop)
-	await asyncio.wait([control_queue(self)])
-
 async def control_queue(self):
 	""" The accutal control loop.
 		Parameters
@@ -38,10 +24,10 @@ async def control_queue(self):
 	"""
 	while True:
 		controls_to_process = await self.control_queue_task.get()
-		if controls_to_process is None:
-			break
-		_LOGGER.debug(f"better_thermostat {self.name}: processing controls")
-		await control_trv(controls_to_process)
+		if controls_to_process is not None:
+			_LOGGER.debug(f"better_thermostat {self.name}: processing controls")
+			await control_trv(controls_to_process)
+			self.control_queue_task.task_done()
 
 
 async def control_trv(self, force_mode_change: bool = False):
@@ -108,6 +94,7 @@ async def control_trv(self, force_mode_change: bool = False):
 		else:
 			remapped_states = convert_outbound_states(self, self._trv_hvac_mode)
 			if not isinstance(remapped_states, dict):
+				self.ignore_states = False
 				return None
 			converted_hvac_mode = remapped_states.get('system_mode') or None
 			current_heating_setpoint = remapped_states.get('current_heating_setpoint') or None
@@ -135,7 +122,6 @@ async def control_trv(self, force_mode_change: bool = False):
 		
 		if call_for_heat_updated or system_mode_change or window_open_status_changed:
 			self.async_write_ha_state()
-		
 		self.ignore_states = False
 
 

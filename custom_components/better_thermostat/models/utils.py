@@ -43,7 +43,7 @@ def device_has_swapped_modes(self) -> bool:
 		return False
 
 
-def mode_remap(self, hvac_mode: str) -> str:
+def mode_remap(self, hvac_mode: str, inbound: bool = False) -> str:
 	"""Remap HVAC mode to correct mode if nessesary.
 
 	Parameters
@@ -53,6 +53,9 @@ def mode_remap(self, hvac_mode: str) -> str:
 	hvac_mode : str
 		HVAC mode to be remapped
 
+	inbound : bool
+		True if the mode is coming from the device, False if it is coming from the HA.
+
 	Returns
 	-------
 	str
@@ -60,12 +63,10 @@ def mode_remap(self, hvac_mode: str) -> str:
 	"""
 	
 	device_has_quirks = device_has_swapped_modes(self)
-
-	_LOGGER.debug(f"better thermostat {self.name} {hvac_mode}: device_has_quirks: {device_has_quirks}")
 	
-	if hvac_mode == HVAC_MODE_HEAT and device_has_quirks:
+	if hvac_mode == HVAC_MODE_HEAT and device_has_quirks and not inbound:
 		return HVAC_MODE_AUTO
-	elif hvac_mode == HVAC_MODE_AUTO and device_has_quirks:
+	elif hvac_mode == HVAC_MODE_AUTO and device_has_quirks and inbound:
 		return HVAC_MODE_HEAT
 	else:
 		return hvac_mode

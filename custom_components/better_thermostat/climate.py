@@ -24,7 +24,7 @@ from .const import (
 	CONF_PRECISION, CONF_SENSOR, CONF_SENSOR_WINDOW, CONF_TARGET_TEMP, CONF_VALVE_MAINTENANCE, CONF_WEATHER, CONF_WINDOW_TIMEOUT,
 	DEFAULT_NAME, SUPPORT_FLAGS, VERSION
 )
-from .controlling import control_loop, set_hvac_mode, set_target_temperature
+from .controlling import control_queue, set_hvac_mode, set_target_temperature
 from .events.temperature import trigger_temperature_change
 from .events.time import trigger_time
 from .events.trv import trigger_trv_change
@@ -188,7 +188,7 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
 		self.startup_running = True
 		self.model = None
 		self.next_valve_maintenance = datetime.now() + timedelta(hours=randint(1, 24 * 5))
-		self.calibration_type = 2
+		self.calibration_type = 0
 		self.last_daytime_temp = None
 		self.closed_window_triggered = False
 		self.night_mode_active = None
@@ -207,9 +207,11 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
 		self._temp_lock = asyncio.Lock()
 		self._last_reported_valve_position = None
 		self._last_reported_valve_position_update_wait_lock = asyncio.Lock()
-		self.queue_loop = asyncio.get_event_loop()
-		self.queue_loop.create_task(control_loop(self))
-		self.queue_loop.create_task(window_queue(self))
+		self.control_queue_task = asyncio.Queue()
+		self.window_queue_task = asyncio.Queue()
+		asyncio.create_task(control_queue(self))
+		asyncio.create_task(window_queue(self))
+
 	async def async_added_to_hass(self):
 		"""Run when entity about to be added.
 

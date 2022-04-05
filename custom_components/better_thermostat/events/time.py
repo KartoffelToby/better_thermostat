@@ -2,7 +2,6 @@ import logging
 
 from homeassistant.core import callback
 
-from ..controlling import control_trv
 
 _LOGGER = logging.getLogger(__name__)
 

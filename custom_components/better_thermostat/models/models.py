@@ -22,13 +22,13 @@ def convert_inbound_states(self, state: State):
 	Parameters
 	----------
 	self : 
-		FIXME
+		self instance of better_thermostat
 	state : State
 		Inbound thermostat state, which will be modified
 
 	Returns
 	-------
-	None
+	Modified state
 	"""
 	
 	if state is None:
@@ -40,11 +40,9 @@ def convert_inbound_states(self, state: State):
 	if self._config is None:
 		raise TypeError("convert_inbound_states() could not find config, cannot convert")
 	
-	_LOGGER.debug(f"convert_inbound_states() received state: {str(state.state)}")
+	state.state = mode_remap(self, str(state.state), True)
 	
-	state.state = mode_remap(self, str(state.state))
-	
-	_LOGGER.debug(f"convert_inbound_states() wrote state: {str(state.state)}")
+	return state
 
 
 async def get_device_model(self):

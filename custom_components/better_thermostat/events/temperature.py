@@ -3,7 +3,6 @@ import logging
 from homeassistant.const import (STATE_UNAVAILABLE, STATE_UNKNOWN)
 from homeassistant.core import callback
 
-from ..controlling import control_trv
 
 _LOGGER = logging.getLogger(__name__)
 

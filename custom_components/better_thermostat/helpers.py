@@ -10,7 +10,6 @@ from homeassistant.const import ATTR_TEMPERATURE, STATE_UNAVAILABLE, STATE_UNKNO
 from homeassistant.helpers.entity_registry import async_entries_for_config_entry
 
 from .const import ATTR_STATE_CALL_FOR_HEAT, ATTR_STATE_DAY_SET_TEMP, ATTR_STATE_LAST_CHANGE, ATTR_STATE_NIGHT_MODE, ATTR_STATE_WINDOW_OPEN
-from .controlling import control_trv
 from .models.utils import convert_to_float
 
 _LOGGER = logging.getLogger(__name__)
