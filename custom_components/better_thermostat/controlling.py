@@ -164,7 +164,7 @@ async def set_hvac_mode(self, hvac_mode):
 	None
 	"""
 	if hvac_mode in (HVAC_MODE_HEAT, HVAC_MODE_OFF):
-		_LOGGER.debug(f"better_thermostat {self.name}: received new HVAC mode {hvac_mode} from HA")
+		_LOGGER.info(f"better_thermostat {self.name}: received new HVAC mode {hvac_mode} from HA")
 		self._bt_hvac_mode = hvac_mode
 	else:
 		_LOGGER.error("better_thermostat %s: Unsupported hvac_mode %s", self.name, hvac_mode)
@@ -229,7 +229,7 @@ async def set_trv_values(self, key, value, hvac_mode=None):
 		)
 	else:
 		_LOGGER.error("better_thermostat %s: set_trv_values() called with unsupported key %s", self.name, key)
-	_LOGGER.debug("better_thermostat %s: send new %s to TRV, value: '%s'", self.name, key, value)
+	_LOGGER.info("better_thermostat %s: send new %s to TRV, value: '%s'", self.name, key, value)
 	await asyncio.sleep(1)
 
 

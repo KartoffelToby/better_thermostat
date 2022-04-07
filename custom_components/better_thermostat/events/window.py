@@ -45,12 +45,14 @@ async def trigger_window_change(self, event) -> None:
 	if new_window_open == old_window_open:
 		_LOGGER.debug(f"better_thermostat {self.name}: Window state did not change, skipping event")
 		return
+
 	try:
 		if self.window_queue_task.qsize() > 0:
-			self.window_queue_task.task_done()
+			while (self.window_queue_task.qsize() > 1):
+				self.window_queue_task.task_done()
 	except AttributeError:
 		pass
-		# this is the first window event, so no task_done() has been called yet
+
 	await self.window_queue_task.put(new_window_open)
 
 
@@ -58,9 +60,21 @@ async def window_queue(self):
 	while True:
 		window_event_to_process = await self.window_queue_task.get()
 		if window_event_to_process is not None:
-			_LOGGER.debug(f"better_thermostat {self.name}: processing window changed {window_event_to_process}")
 			await asyncio.sleep(self.window_delay)
-			self.window_open = window_event_to_process
-			self.async_write_ha_state()
-			await self.control_queue_task.put(self)
-			self.window_queue_task.task_done()
+			# remap off on to true false
+			current_window_state = True
+			if self.hass.states.get(self.window_id).state == "off":
+				current_window_state = False
+			# make sure the current state is the suggested change state to prevent a false positive:
+			if current_window_state == window_event_to_process:
+				_LOGGER.info(f"better_thermostat {self.name}: processing window changed {current_window_state} {window_event_to_process}")
+				self.window_open = window_event_to_process
+				self.async_write_ha_state()
+				try:
+					if self.control_queue_task.qsize() > 0:
+						while (self.control_queue_task.qsize() > 1):
+							self.control_queue_task.task_done()
+				except AttributeError:
+					pass
+				await self.control_queue_task.put(self)
+		self.window_queue_task.task_done()
