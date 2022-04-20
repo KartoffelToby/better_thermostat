@@ -10,7 +10,6 @@ from homeassistant.const import ATTR_TEMPERATURE, STATE_UNAVAILABLE, STATE_UNKNO
 from homeassistant.helpers.entity_registry import async_entries_for_config_entry
 
 from .const import ATTR_STATE_CALL_FOR_HEAT, ATTR_STATE_DAY_SET_TEMP, ATTR_STATE_LAST_CHANGE, ATTR_STATE_NIGHT_MODE, ATTR_STATE_WINDOW_OPEN
-from .controlling import control_trv
 from .models.utils import convert_to_float
 
 _LOGGER = logging.getLogger(__name__)
@@ -153,6 +152,13 @@ async def startup(self):
 					self.local_temperature_calibration_entity = entity.entity_id
 				if "valve_position" in uid:
 					self.valve_position_entity = entity.entity_id
+
+		if self.local_temperature_calibration_entity is None and self._config.get('calibration_type') == 0:
+			_LOGGER.warning(
+				"better_thermostat %s: could not find local_temperature_calibration entity for TRV/climate entity with id '%s'",
+				self.name,
+				self.heater_entity_id
+			)
 		await asyncio.sleep(5)
 		# Use the same precision and min and max as the TRV
 		if self.hass.states.get(self.heater_entity_id).attributes.get('target_temp_step') is not None:
@@ -256,7 +262,7 @@ async def startup(self):
 		self._cur_temp = convert_to_float(str(sensor_state.state), self.name, "startup()")
 		self.async_write_ha_state()
 		_LOGGER.info("better_thermostat %s: startup completed.", self.name)
-		await control_trv(self)
+		await self.control_queue_task.put(self)
 	return True
 
 

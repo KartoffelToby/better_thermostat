@@ -3,7 +3,6 @@ import logging
 from homeassistant.const import (STATE_UNAVAILABLE, STATE_UNKNOWN)
 from homeassistant.core import callback
 
-from ..controlling import control_trv
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -31,7 +30,7 @@ async def trigger_temperature_change(self, event):
 	
 	_async_update_temp(self, new_state)
 	self.async_write_ha_state()
-	await control_trv(self)
+	await self.control_queue_task.put(self)
 
 
 @callback

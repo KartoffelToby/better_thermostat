@@ -1,10 +1,7 @@
 import asyncio
 import logging
-from datetime import datetime, timedelta
 
 from homeassistant.core import callback
-
-from ..controlling import control_trv
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -48,50 +45,36 @@ async def trigger_window_change(self, event) -> None:
 	if new_window_open == old_window_open:
 		_LOGGER.debug(f"better_thermostat {self.name}: Window state did not change, skipping event")
 		return
-	
-	# Get timestamp lock (or wait) 
-	self._window_action_timestamp_lock.acquire()
-	# Update timestamp
-	self._window_action_timestamp = datetime.now()
-	self._window_most_recent_action = new_window_open
-	
-	# Check if another coroutine is already waiting 
-	if self._window_delay_lock.locked():
-		self._window_action_timestamp_lock.release()
-		return
-	
-	# Get delay lock (or wait) 
-	self._window_delay_lock.acquire()
-	
+
+	try:
+		if self.window_queue_task.qsize() > 0:
+			while (self.window_queue_task.qsize() > 1):
+				self.window_queue_task.task_done()
+	except AttributeError:
+		pass
+
+	await self.window_queue_task.put(new_window_open)
+
+
+async def window_queue(self):
 	while True:
-		# save our timestamp
-		_window_action_timestamp = self._window_action_timestamp
-		# Let other coroutines update the timestamp
-		self._window_action_timestamp_lock.release()
-		
-		# calculate the delay
-		_delay = round((timedelta(seconds=self.window_delay) - (datetime.now() - _window_action_timestamp)).total_seconds())
-		
-		if _delay > 0:
-			await asyncio.sleep(_delay)
-		
-		self._window_action_timestamp_lock.acquire()
-		
-		# Check if the timestamp hasn't changed
-		if self._window_action_timestamp == _window_action_timestamp:
-			break
-	
-	self._window_delay_lock.release()
-	
-	if self._window_most_recent_action != old_window_open:
-		self.window_open = self._window_most_recent_action
-		
-		if self.window_open:
-			_LOGGER.debug(f"better_thermostat {self.name}: Window was opened")
-		else:
-			_LOGGER.debug(f"better_thermostat {self.name}: Window was closed")
-		
-		self.async_write_ha_state()
-		await control_trv(self)
-	
-	self._window_action_timestamp_lock.release()
+		window_event_to_process = await self.window_queue_task.get()
+		if window_event_to_process is not None:
+			await asyncio.sleep(self.window_delay)
+			# remap off on to true false
+			current_window_state = True
+			if self.hass.states.get(self.window_id).state == "off":
+				current_window_state = False
+			# make sure the current state is the suggested change state to prevent a false positive:
+			if current_window_state == window_event_to_process:
+				_LOGGER.info(f"better_thermostat {self.name}: processing window changed {current_window_state} {window_event_to_process}")
+				self.window_open = window_event_to_process
+				self.async_write_ha_state()
+				try:
+					if self.control_queue_task.qsize() > 0:
+						while (self.control_queue_task.qsize() > 1):
+							self.control_queue_task.task_done()
+				except AttributeError:
+					pass
+				await self.control_queue_task.put(self)
+		self.window_queue_task.task_done()
