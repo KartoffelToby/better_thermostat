@@ -59,7 +59,7 @@ Here is a minimal configuration example
 
 ```yaml
 climate:
-  - platform: better_thermostat
+  - platform: ai_thermostat
     name: room
     thermostat: climate.trv
     temperature_sensor: sensor.temperature
@@ -70,7 +70,7 @@ Here is a full configuration example
 
 ```yaml
 climate:
-  - platform: better_thermostat
+  - platform: ai_thermostat
     name: room
     thermostat: climate.trv
     temperature_sensor: sensor.temperature
@@ -128,7 +128,7 @@ Example:
 
 ```yaml
 climate:
-  - platform: better_thermostat
+  - platform: ai_thermostat
     name: Ai - TRV - Office - 1
     thermostat: climate.real_trv_office_1
     temperature_sensor: sensor.temperatur_office_temperature
@@ -136,7 +136,7 @@ climate:
     weather: weather.home
     off_temperature: 19.5
     unique_id: 1
-  - platform: better_thermostat
+  - platform: ai_thermostat
     name: Ai - TRV - Office - 2
     thermostat: climate.real_trv_office_2
     temperature_sensor: sensor.temperatur_office_temperature
