@@ -1,18 +1,7 @@
 [flake8]
 max-line-length = 88
-max-complexity = 10
-
-# We use tabs, not spaces
-use-flake8-tabs = true
-
-# continuation lines should be aligned
-continuation-style = aligned
-
-# Final bracket should match indentation of the start of the line of the opening bracket
-hang-closing = False
-
-ignore =
-	W191,  # indentation contains tabs
+select = C,E,F,W,B,B950
+extend-ignore = E203, E501
 
 exclude = # don't bother looking in the following subdirectories / files.
 	.git,
