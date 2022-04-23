@@ -1,5 +1,5 @@
 [flake8]
-max-line-length = 140
+max-line-length = 88
 max-complexity = 10
 
 # We use tabs, not spaces
