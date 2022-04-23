@@ -7,4 +7,6 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v2
+        with:
+          options: "--check --verbose --target-version py39"
       - uses: psf/black@stable
