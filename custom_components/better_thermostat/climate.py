@@ -105,7 +105,7 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
             "manufacturer": "Better Thermostat",
             "model": self.model,
             "sw_version": VERSION,
-            "via_device": (DOMAIN, self.unique_id),
+            "via_device": (DOMAIN, self.heater_entity_id),
         }
     def __init__(
         self,
