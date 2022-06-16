@@ -19,10 +19,13 @@
                     }
             },
             "error": {
-                    "failed": "something went wrong."
+                    "failed": "something went wrong.",
+                    "no_calibration_found": "No calibration entity found for this thermostat",
+                    "no_outside_temp": "You need to define an outside temperature sensor or weather entity."
             },
             "abort": {
-                    "single_instance_allowed": "Only a single Thermostat for each real is allowed."
+                    "single_instance_allowed": "Only a single Thermostat for each real is allowed.",
+                    "no_devices_found": "No thermostat entity found, make sure you have a climate entity in your home assistant"
             }
     }
 }

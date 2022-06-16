@@ -154,30 +154,6 @@ async def startup(self):
             self.window_open = False
 
         self.startup_running = False
-        entity_registry = await self.hass.helpers.entity_registry.async_get_registry()
-        reg_entity = entity_registry.async_get(self.heater_entity_id)
-        entity_entries = async_entries_for_config_entry(
-            entity_registry, reg_entity.config_entry_id
-        )
-        for entity in entity_entries:
-            uid = entity.unique_id
-            # Make sure we use the correct device entities
-            if entity.device_id == reg_entity.device_id:
-                if "local_temperature_calibration" in uid:
-                    self.local_temperature_calibration_entity = entity.entity_id
-                if "valve_position" in uid:
-                    self.valve_position_entity = entity.entity_id
-
-        if (
-            self.local_temperature_calibration_entity is None
-            and self._config.get("calibration_type") == 0
-        ):
-            _LOGGER.warning(
-                "better_thermostat %s: could not find local_temperature_calibration entity for TRV/climate entity with id '%s'",
-                self.name,
-                self.heater_entity_id,
-            )
-        await asyncio.sleep(5)
         # Use the same precision and min and max as the TRV
         if (
             self.hass.states.get(self.heater_entity_id).attributes.get(
