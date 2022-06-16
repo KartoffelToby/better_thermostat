@@ -71,6 +71,7 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 self.data[CONF_LOCAL_CALIBRATION] = None
             if self.data[CONF_WEATHER] is None and self.data[CONF_OUTDOOR_SENSOR] is not None:
                 return self.async_error(reason="no_outside_temp")
+            self.data["MODEL"] = self.model
             await self.async_set_unique_id(self.data["name"])
             return self.async_create_entry(title=self.data["name"], data=self.data)
 

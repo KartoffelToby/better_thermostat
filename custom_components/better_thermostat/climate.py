@@ -77,6 +77,7 @@ async def async_setup_entry(hass, entry, async_add_devices):
                 entry.data[CONF_OFF_TEMPERATURE],
                 entry.data[CONF_VALVE_MAINTENANCE],
                 entry.data[CONF_LOCAL_CALIBRATION] or None,
+                entry.data["MODEL"],
                 None,
                 None,
                 None,
@@ -118,6 +119,7 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
         off_temperature,
         valve_maintenance,
         local_calibration,
+        model,
         night_temp,
         night_start,
         night_end,
@@ -185,7 +187,7 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
         self.window_open = None
         self._is_away = False
         self.startup_running = True
-        self.model = None
+        self.model = model
         self.next_valve_maintenance = datetime.now() + timedelta(
             hours=randint(1, 24 * 5)
         )
