@@ -1,5 +1,7 @@
 {
+    "title":"Better Thermostat",
     "config": {
+            "flow_title": "Discovered Thermostat ({name})",
             "step": {
                     "user": {
                             "title": "Better Thermostat",
