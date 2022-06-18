@@ -34,6 +34,7 @@ CONF_NIGHT_END = "night_end"
 CONF_MIN_TEMP = "min_temp"
 CONF_MAX_TEMP = "max_temp"
 CONF_PRECISION = "precision"
+CONF_LOCAL_CALIBRATION = "local_calibration"
 
 SUPPORT_FLAGS = SUPPORT_TARGET_TEMPERATURE
 

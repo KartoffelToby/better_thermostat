@@ -6,10 +6,8 @@ from abc import ABC
 from datetime import datetime, timedelta
 from random import randint
 
-import homeassistant.helpers.config_validation as cv
 import homeassistant.util.dt as dt_util
-import voluptuous as vol
-from homeassistant.components.climate import ClimateEntity, PLATFORM_SCHEMA
+from homeassistant.components.climate import ClimateEntity
 from homeassistant.components.climate.const import (
     CURRENT_HVAC_HEAT,
     CURRENT_HVAC_IDLE,
@@ -17,16 +15,15 @@ from homeassistant.components.climate.const import (
     HVAC_MODE_HEAT,
     HVAC_MODE_OFF,
 )
-from homeassistant.const import CONF_NAME, CONF_UNIQUE_ID, EVENT_HOMEASSISTANT_START
+from homeassistant.const import CONF_NAME, EVENT_HOMEASSISTANT_START
 from homeassistant.core import callback, CoreState
 from homeassistant.helpers.event import (
     async_track_state_change_event,
     async_track_time_change,
 )
-from homeassistant.helpers.reload import async_setup_reload_service
 from homeassistant.helpers.restore_state import RestoreEntity
 
-from . import DOMAIN, PLATFORMS
+from . import DOMAIN
 from .const import (
     ATTR_STATE_CALL_FOR_HEAT,
     ATTR_STATE_DAY_SET_TEMP,
@@ -34,21 +31,14 @@ from .const import (
     ATTR_STATE_NIGHT_MODE,
     ATTR_STATE_WINDOW_OPEN,
     CONF_HEATER,
-    CONF_MAX_TEMP,
-    CONF_MIN_TEMP,
-    CONF_NIGHT_END,
-    CONF_NIGHT_START,
-    CONF_NIGHT_TEMP,
+    CONF_LOCAL_CALIBRATION,
     CONF_OFF_TEMPERATURE,
     CONF_OUTDOOR_SENSOR,
-    CONF_PRECISION,
     CONF_SENSOR,
     CONF_SENSOR_WINDOW,
-    CONF_TARGET_TEMP,
     CONF_VALVE_MAINTENANCE,
     CONF_WEATHER,
     CONF_WINDOW_TIMEOUT,
-    DEFAULT_NAME,
     SUPPORT_FLAGS,
     VERSION,
 )
@@ -62,70 +52,32 @@ from .models.models import get_device_model, load_device_config
 
 _LOGGER = logging.getLogger(__name__)
 
-PLATFORM_SCHEMA = PLATFORM_SCHEMA.extend(
-    {
-        vol.Required(CONF_HEATER): cv.entity_id,
-        vol.Required(CONF_SENSOR): cv.entity_id,
-        vol.Optional(CONF_SENSOR_WINDOW): cv.entity_id,
-        vol.Optional(CONF_WEATHER): cv.entity_id,
-        vol.Optional(CONF_OUTDOOR_SENSOR): cv.entity_id,
-        vol.Optional(CONF_OFF_TEMPERATURE, default=20.0): vol.Coerce(float),
-        vol.Optional(CONF_WINDOW_TIMEOUT, default=0): vol.Coerce(int),
-        vol.Optional(CONF_VALVE_MAINTENANCE, default=False): cv.boolean,
-        vol.Optional(CONF_NIGHT_TEMP, default=18.0): vol.Coerce(float),
-        vol.Optional(CONF_NIGHT_START, default=None): vol.Coerce(str),
-        vol.Optional(CONF_NIGHT_END, default=None): vol.Coerce(str),
-        vol.Optional(CONF_NAME, default=DEFAULT_NAME): cv.string,
-        vol.Optional(CONF_TARGET_TEMP): vol.Coerce(float),
-        vol.Optional(CONF_UNIQUE_ID): cv.string,
-        vol.Optional(CONF_MIN_TEMP, default=5.0): vol.Coerce(float),
-        vol.Optional(CONF_MAX_TEMP, default=35.0): vol.Coerce(float),
-        vol.Optional(CONF_PRECISION, default=0.5): vol.Coerce(float),
-    }
-)
 
-
-async def async_setup_platform(hass, config, async_add_entities, discovery_info=None):
-    """Set up the Better Thermostat platform.
-
-    Parameters
-    ----------
-    hass :
-            Home Assistant object.
-    config :
-            Configuration object from Platform.
-    async_add_entities :
-            Callback to add entities.
-    discovery_info :
-            Needed for bridge like devices.
-
-    Returns
-    -------
-    None
-    """
-    await async_setup_reload_service(hass, DOMAIN, PLATFORMS)
-
-    async_add_entities(
+async def async_setup_entry(hass, entry, async_add_devices):
+    """Setup sensor platform."""
+    async_add_devices(
         [
             BetterThermostat(
-                config.get(CONF_NAME),
-                config.get(CONF_HEATER),
-                config.get(CONF_SENSOR),
-                config.get(CONF_SENSOR_WINDOW),
-                config.get(CONF_WINDOW_TIMEOUT),
-                config.get(CONF_WEATHER),
-                config.get(CONF_OUTDOOR_SENSOR),
-                config.get(CONF_OFF_TEMPERATURE),
-                config.get(CONF_VALVE_MAINTENANCE),
-                config.get(CONF_NIGHT_TEMP),
-                config.get(CONF_NIGHT_START),
-                config.get(CONF_NIGHT_END),
-                config.get(CONF_MIN_TEMP),
-                config.get(CONF_MAX_TEMP),
-                config.get(CONF_TARGET_TEMP),
-                config.get(CONF_PRECISION),
+                entry.data[CONF_NAME],
+                entry.data[CONF_HEATER],
+                entry.data[CONF_SENSOR],
+                entry.data[CONF_SENSOR_WINDOW],
+                entry.data[CONF_WINDOW_TIMEOUT],
+                entry.data[CONF_WEATHER],
+                entry.data[CONF_OUTDOOR_SENSOR] or None,
+                entry.data[CONF_OFF_TEMPERATURE],
+                entry.data[CONF_VALVE_MAINTENANCE],
+                entry.data[CONF_LOCAL_CALIBRATION] or None,
+                entry.data["MODEL"],
+                None,
+                None,
+                None,
+                5.0,
+                30.0,
+                5.0,
+                1.0,
                 hass.config.units.temperature_unit,
-                config.get(CONF_UNIQUE_ID),
+                entry.entry_id,
                 device_class="better_thermostat",
                 state_class="better_thermostat_state",
             )
@@ -135,6 +87,17 @@ async def async_setup_platform(hass, config, async_add_entities, discovery_info=
 
 class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
     """Representation of a Better Thermostat device."""
+
+    @property
+    def device_info(self):
+        return {
+            "identifiers": {(DOMAIN, self.unique_id)},
+            "name": self.name,
+            "manufacturer": "Better Thermostat",
+            "model": self.model,
+            "sw_version": VERSION,
+            "via_device": (DOMAIN, self.heater_entity_id),
+        }
 
     def __init__(
         self,
@@ -147,6 +110,8 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
         outdoor_sensor,
         off_temperature,
         valve_maintenance,
+        local_calibration,
+        model,
         night_temp,
         night_start,
         night_end,
@@ -214,7 +179,7 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
         self.window_open = None
         self._is_away = False
         self.startup_running = True
-        self.model = None
+        self.model = model
         self.next_valve_maintenance = datetime.now() + timedelta(
             hours=randint(1, 24 * 5)
         )
@@ -228,7 +193,7 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
         self.last_dampening_timestamp = None
         self._device_class = device_class
         self._state_class = state_class
-        self.local_temperature_calibration_entity = None
+        self.local_temperature_calibration_entity = local_calibration
         self.valve_position_entity = None
         self.version = VERSION
         self.last_change = None
