@@ -4,7 +4,6 @@
             "flow_title": "Discovered Thermostat ({name})",
             "step": {
                     "user": {
-                            "title": "Better Thermostat",
                             "description": "Set up your Better Thermostat to integrate with Home Assistant.",
                             "data": {
                                 "name": "Name",
