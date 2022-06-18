@@ -2,6 +2,7 @@
 from homeassistant.const import Platform
 from homeassistant.core import HomeAssistant, Config
 from homeassistant.config_entries import ConfigEntry
+
 DOMAIN = "better_thermostat"
 PLATFORMS = [Platform.CLIMATE]
 

@@ -12,9 +12,6 @@ async def async_get_config_entry_diagnostics(
 ) -> dict:
     """Return diagnostics for a config entry."""
     trv = hass.states.get(config_entry.data[CONF_HEATER])
-    diagnostics_data = {
-        "info": dict(config_entry.data),
-        "thermostat": trv
-    }
+    diagnostics_data = {"info": dict(config_entry.data), "thermostat": trv}
 
     return diagnostics_data

@@ -87,12 +87,11 @@ async def async_setup_entry(hass, entry, async_add_devices):
 
 class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
     """Representation of a Better Thermostat device."""
+
     @property
     def device_info(self):
         return {
-            "identifiers": {
-                (DOMAIN, self.unique_id)
-            },
+            "identifiers": {(DOMAIN, self.unique_id)},
             "name": self.name,
             "manufacturer": "Better Thermostat",
             "model": self.model,
