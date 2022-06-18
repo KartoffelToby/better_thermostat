@@ -5,9 +5,8 @@ import voluptuous as vol
 from custom_components.better_thermostat.models.models import get_device_model, load_device_config
 from .const import CONF_HEATER, CONF_LOCAL_CALIBRATION, CONF_OFF_TEMPERATURE, CONF_OUTDOOR_SENSOR, CONF_SENSOR, CONF_SENSOR_WINDOW, CONF_VALVE_MAINTENANCE, CONF_WEATHER, CONF_WINDOW_TIMEOUT
 
-from homeassistant import config_entries, exceptions
+from homeassistant import config_entries
 from homeassistant.const import CONF_NAME
-import homeassistant.helpers.config_validation as cv
 from homeassistant.const import STATE_UNAVAILABLE, STATE_UNKNOWN
 
 
@@ -46,7 +45,7 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         return self.async_show_form(
             step_id="user",
             data_schema=vol.Schema({
-                vol.Required(CONF_LOCAL_CALIBRATION,default=None): vol.In(local_calibration)
+                vol.Required(CONF_LOCAL_CALIBRATION, default=None): vol.In(local_calibration)
             }),
             errors=errors,
         )
@@ -75,10 +74,8 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             await self.async_set_unique_id(self.data["name"])
             return self.async_create_entry(title=self.data["name"], data=self.data)
 
-
         errors = {}
         user_input = user_input or {}
-
         thermostat_name = {}
         temp_sensor_name = {}
         outdoor_sensor_name = {}

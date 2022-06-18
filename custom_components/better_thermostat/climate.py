@@ -6,9 +6,7 @@ from abc import ABC
 from datetime import datetime, timedelta
 from random import randint
 
-import homeassistant.helpers.config_validation as cv
 import homeassistant.util.dt as dt_util
-import voluptuous as vol
 from homeassistant.components.climate import ClimateEntity
 from homeassistant.components.climate.const import (
     CURRENT_HVAC_HEAT,
@@ -25,7 +23,7 @@ from homeassistant.helpers.event import (
 )
 from homeassistant.helpers.restore_state import RestoreEntity
 
-from . import DOMAIN, PLATFORMS
+from . import DOMAIN
 from .const import (
     ATTR_STATE_CALL_FOR_HEAT,
     ATTR_STATE_DAY_SET_TEMP,
@@ -34,21 +32,13 @@ from .const import (
     ATTR_STATE_WINDOW_OPEN,
     CONF_HEATER,
     CONF_LOCAL_CALIBRATION,
-    CONF_MAX_TEMP,
-    CONF_MIN_TEMP,
-    CONF_NIGHT_END,
-    CONF_NIGHT_START,
-    CONF_NIGHT_TEMP,
     CONF_OFF_TEMPERATURE,
     CONF_OUTDOOR_SENSOR,
-    CONF_PRECISION,
     CONF_SENSOR,
     CONF_SENSOR_WINDOW,
-    CONF_TARGET_TEMP,
     CONF_VALVE_MAINTENANCE,
     CONF_WEATHER,
     CONF_WINDOW_TIMEOUT,
-    DEFAULT_NAME,
     SUPPORT_FLAGS,
     VERSION,
 )
@@ -61,6 +51,7 @@ from .helpers import startup
 from .models.models import get_device_model, load_device_config
 
 _LOGGER = logging.getLogger(__name__)
+
 
 async def async_setup_entry(hass, entry, async_add_devices):
     """Setup sensor platform."""
@@ -93,6 +84,7 @@ async def async_setup_entry(hass, entry, async_add_devices):
         ]
     )
 
+
 class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
     """Representation of a Better Thermostat device."""
     @property
@@ -107,6 +99,7 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
             "sw_version": VERSION,
             "via_device": (DOMAIN, self.heater_entity_id),
         }
+
     def __init__(
         self,
         name,

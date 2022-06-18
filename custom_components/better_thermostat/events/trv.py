@@ -2,8 +2,7 @@ import logging
 
 from homeassistant.components.climate.const import (
     HVAC_MODE_HEAT,
-    HVAC_MODE_OFF,
-    HVAC_MODE_AUTO,
+    HVAC_MODE_OFF
 )
 from homeassistant.core import callback, State
 

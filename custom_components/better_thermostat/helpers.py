@@ -7,7 +7,6 @@ from datetime import datetime
 
 from homeassistant.components.climate.const import HVAC_MODE_OFF
 from homeassistant.const import ATTR_TEMPERATURE, STATE_UNAVAILABLE, STATE_UNKNOWN
-from homeassistant.helpers.entity_registry import async_entries_for_config_entry
 
 from .const import (
     ATTR_STATE_CALL_FOR_HEAT,
