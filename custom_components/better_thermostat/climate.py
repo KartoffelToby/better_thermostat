@@ -127,7 +127,7 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
         self._name = name
         self.heater_entity_id = heater_entity_id
         self.sensor_entity_id = sensor_entity_id
-        self.window_id = window_id
+        self.window_id = window_id or None
         self.window_delay = window_delay or 0
         self.weather_entity = weather_entity or None
         self.outdoor_sensor = outdoor_sensor or None
