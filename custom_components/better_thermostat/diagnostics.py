@@ -4,7 +4,7 @@ from __future__ import annotations
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 
-from .const import CONF_HEATER
+from .const import CONF_HEATER, CONF_SENSOR, CONF_SENSOR_WINDOW
 
 
 async def async_get_config_entry_diagnostics(
@@ -12,6 +12,14 @@ async def async_get_config_entry_diagnostics(
 ) -> dict:
     """Return diagnostics for a config entry."""
     trv = hass.states.get(config_entry.data[CONF_HEATER])
-    diagnostics_data = {"info": dict(config_entry.data), "thermostat": trv}
+    external_temperature = hass.states.get(config_entry.data[CONF_SENSOR])
+    window = hass.states.get(config_entry.data[CONF_SENSOR_WINDOW])
+
+    diagnostics_data = {
+        "info": dict(config_entry.data),
+        "thermostat": trv,
+        "external_temperature_sensor": external_temperature,
+        "window_sensor": window,
+    }
 
     return diagnostics_data
