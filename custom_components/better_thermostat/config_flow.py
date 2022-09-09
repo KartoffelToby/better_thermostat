@@ -62,6 +62,7 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
 
         weather_name[None] = "-"
         outdoor_sensor_name[None] = "-"
+        window_sensor_name[None] = "-"
 
         entity_registry = self.hass.helpers.entity_registry.async_get(self.hass)
         for entity_id, entry in entity_registry.entities.items():
@@ -88,10 +89,10 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 vol.Required(CONF_LOCAL_CALIBRATION,default=None): vol.In(local_calibration),
                 vol.Required(CONF_SENSOR): vol.In(temp_sensor_name),
                 vol.Optional(CONF_OUTDOOR_SENSOR, default=None): vol.In(outdoor_sensor_name),
-                vol.Required(CONF_SENSOR_WINDOW): vol.In(window_sensor_name),
+                vol.Required(CONF_SENSOR_WINDOW,default=None): vol.In(window_sensor_name),
                 vol.Optional(CONF_WEATHER, default=None): vol.In(weather_name),
                 vol.Optional(CONF_WINDOW_TIMEOUT, default=user_input.get(CONF_WINDOW_TIMEOUT, 0)): int,
-                vol.Optional(CONF_OFF_TEMPERATURE, default=user_input.get(CONF_OFF_TEMPERATURE, 20)): int,
+                vol.Optional(CONF_OFF_TEMPERATURE, default=user_input.get(CONF_OFF_TEMPERATURE, 25)): int,
                 vol.Optional(CONF_CALIBRATIION_ROUND, default=user_input.get(CONF_CALIBRATIION_ROUND, True)): bool,
                 vol.Optional(CONF_VALVE_MAINTENANCE, default=user_input.get(CONF_VALVE_MAINTENANCE, False)): bool,
                 vol.Optional(CONF_HEAT_AUTO_SWAPPED, default=user_input.get(CONF_HEAT_AUTO_SWAPPED, False)): bool,
@@ -139,6 +140,7 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
 
         weather_name[None] = "-"
         outdoor_sensor_name[None] = "-"
+        window_sensor_name[None] = "-"
 
         entity_registry = self.hass.helpers.entity_registry.async_get(self.hass)
         for entity_id, entry in entity_registry.entities.items():
@@ -196,7 +198,7 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
                     vol.Optional(
                         CONF_OFF_TEMPERATURE,
                         default=self.config_entry.data.get(
-                            CONF_OFF_TEMPERATURE, 20
+                            CONF_OFF_TEMPERATURE, 25
                         ),
                     ): int,
                     vol.Optional(
