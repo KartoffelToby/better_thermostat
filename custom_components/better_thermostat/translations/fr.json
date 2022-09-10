@@ -3,10 +3,10 @@
             "step": {
                     "user": {
                             "title": "Better Thermostat",
-                            "description": "Configurez  de Better Thermostat pour l'intégrer à Home Assistant",
+                            "description": "Configuration de Better Thermostat pour l'intégrer à Home Assistant",
                             "data": {
                                 "name": "Nom*",
-                                "thermostat": "Le véritable themostat*",
+                                "thermostat": "Le véritable thermostat*",
                                 "temperature_sensor": "Capteur de température*",
                                 "window_sensors": "Capteur de fenêtre",
                                 "off_temperature": "La température extérieure lorsque le thermostat s'éteint",
