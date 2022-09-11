@@ -197,7 +197,7 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
             self.local_temperature_calibration_entity,
         )
 
-        if self.local_temperature_calibration_entity == "-":
+        if self.local_temperature_calibration_entity is None:
             self.calibration_type = 1
 
         # Add listener
