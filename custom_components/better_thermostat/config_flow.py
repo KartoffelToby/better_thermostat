@@ -1,4 +1,6 @@
 import logging
+from platform import platform
+from typing import Any, cast
 
 import voluptuous as vol
 
@@ -6,9 +8,16 @@ from .helpers import get_device_model
 
 from .const import CONF_CALIBRATIION_ROUND, CONF_CHILD_LOCK, CONF_HEAT_AUTO_SWAPPED, CONF_HEATER, CONF_LOCAL_CALIBRATION, CONF_MODEL, CONF_OFF_TEMPERATURE, CONF_OUTDOOR_SENSOR, CONF_SENSOR, CONF_SENSOR_WINDOW, CONF_VALVE_MAINTENANCE, CONF_WEATHER, CONF_WINDOW_TIMEOUT
 from homeassistant import config_entries
-from homeassistant.const import CONF_NAME
-from homeassistant.core import callback
-
+from homeassistant.const import CONF_NAME, Platform
+from homeassistant.core import HomeAssistant, callback
+from homeassistant.helpers import entity_registry as er, selector
+from homeassistant.helpers.schema_config_entry_flow import (
+    SchemaConfigFlowHandler,
+    SchemaFlowFormStep,
+    SchemaFlowMenuStep,
+    SchemaOptionsFlowHandler,
+    entity_selector_without_own_entities,
+)
 
 from . import DOMAIN  # pylint:disable=unused-import
 
@@ -42,8 +51,19 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             if self.data is None:
                 self.data = user_input
             self.heater_entity_id = self.data[CONF_HEATER]
-            if self.data[CONF_WEATHER] is None and self.data[CONF_OUTDOOR_SENSOR] is None:
-                return self.async_error(reason="no_outside_temp")
+            if self.data[CONF_NAME] is "":
+                return self.async_error(reason="no_name")
+
+            if CONF_SENSOR_WINDOW not in self.data:
+                self.data[CONF_SENSOR_WINDOW] = None
+            if CONF_LOCAL_CALIBRATION not in self.data:
+                self.data[CONF_LOCAL_CALIBRATION] = None
+            if CONF_OUTDOOR_SENSOR not in self.data:
+                self.data[CONF_OUTDOOR_SENSOR] = None
+            if CONF_WEATHER not in self.data:
+                self.data[CONF_WEATHER] = None
+            
+
             device_model = await get_device_model(self)
             self.data[CONF_MODEL] = device_model or "generic"
             await self.async_set_unique_id(self.data["name"])
@@ -52,44 +72,29 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
 
         errors = {}
         user_input = user_input or {}
-        local_calibration = {}
-        local_calibration[None] = "-"
-        thermostat_name = {}
-        temp_sensor_name = {}
-        outdoor_sensor_name = {}
-        window_sensor_name = {}
-        weather_name = {}
 
-        weather_name[None] = "-"
-        outdoor_sensor_name[None] = "-"
-
-        entity_registry = self.hass.helpers.entity_registry.async_get(self.hass)
-        for entity_id, entry in entity_registry.entities.items():
-                    if entity_id.find("climate.") != -1:
-                        thermostat_name[entity_id] = entity_id
-                    if entity_id.find("number.") != -1 or entity_id.find("input_number.") != -1:
-                        local_calibration[entity_id] = entity_id
-                    if entity_id.find("sensor.") != -1 or entity_id.find("input_number.") != -1:
-                        temp_sensor_name[entity_id] = entity_id
-                    if entity_id.find("sensor.") != -1 or entity_id.find("input_number.") != -1:
-                        outdoor_sensor_name[entity_id] = entity_id
-                    if (entity_id.find("sensor.") != -1 or entity_id.find("group.") != -1) or entity_id.find("input_boolean.") != -1:
-                        window_sensor_name[entity_id] = entity_id
-                    if entity_id.find("weather.") != -1 or entity_id.find("input_number.") != -1:
-                        weather_name[entity_id] = entity_id
-
-        if not thermostat_name:
-            return self.async_abort(reason="no_devices_found")
         return self.async_show_form(
             step_id="user",
             data_schema=vol.Schema({
                 vol.Optional(CONF_NAME, default=user_input.get(CONF_NAME, "")): str,
-                vol.Required(CONF_HEATER): vol.In(thermostat_name),
-                vol.Required(CONF_LOCAL_CALIBRATION,default=None): vol.In(local_calibration),
-                vol.Required(CONF_SENSOR): vol.In(temp_sensor_name),
-                vol.Optional(CONF_OUTDOOR_SENSOR, default=None): vol.In(outdoor_sensor_name),
-                vol.Required(CONF_SENSOR_WINDOW): vol.In(window_sensor_name),
-                vol.Optional(CONF_WEATHER, default=None): vol.In(weather_name),
+                vol.Required(CONF_HEATER): selector.EntitySelector(
+                        selector.EntitySelectorConfig(domain="climate", multiple=False),
+                ),
+                vol.Optional(CONF_LOCAL_CALIBRATION):  selector.EntitySelector(
+                        selector.EntitySelectorConfig(domain=["number","input_number"], multiple=False),
+                ),
+                vol.Required(CONF_SENSOR): selector.EntitySelector(
+                        selector.EntitySelectorConfig(domain=["sensor","number","input_number"], multiple=False),
+                ),
+                vol.Optional(CONF_OUTDOOR_SENSOR): selector.EntitySelector(
+                        selector.EntitySelectorConfig(domain=["sensor","input_number","number"], multiple=False),
+                ),
+                vol.Optional(CONF_SENSOR_WINDOW): selector.EntitySelector(
+                        selector.EntitySelectorConfig(domain=["group","sensor","input_binary","binary_sensor"], multiple=False),
+                ),
+                vol.Optional(CONF_WEATHER): selector.EntitySelector(
+                        selector.EntitySelectorConfig(domain="weather", multiple=False),
+                ),
                 vol.Optional(CONF_WINDOW_TIMEOUT, default=user_input.get(CONF_WINDOW_TIMEOUT, 0)): int,
                 vol.Optional(CONF_OFF_TEMPERATURE, default=user_input.get(CONF_OFF_TEMPERATURE, 20)): int,
                 vol.Optional(CONF_CALIBRATIION_ROUND, default=user_input.get(CONF_CALIBRATIION_ROUND, True)): bool,
@@ -117,6 +122,14 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
         if user_input is not None:
             current_config = self.config_entry.data
             self.updated_config = dict(current_config)
+            if CONF_SENSOR_WINDOW not in user_input:
+                user_input[CONF_SENSOR_WINDOW] = None
+            if CONF_LOCAL_CALIBRATION not in user_input:
+                user_input[CONF_LOCAL_CALIBRATION] = None
+            if CONF_OUTDOOR_SENSOR not in user_input:
+                user_input[CONF_OUTDOOR_SENSOR] = None
+            if CONF_WEATHER not in user_input:
+                self.data[CONF_WEATHER] = None
             self.updated_config[CONF_WINDOW_TIMEOUT] =  user_input.get(CONF_WINDOW_TIMEOUT)
             self.updated_config[CONF_OFF_TEMPERATURE] =  user_input.get(CONF_OFF_TEMPERATURE)
             self.updated_config[CONF_CALIBRATIION_ROUND] =  user_input.get(CONF_CALIBRATIION_ROUND)
@@ -130,63 +143,50 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
             )
             return self.async_create_entry(title="", data=None)
 
-        local_calibration = {}
-        local_calibration[None] = "-"
-        temp_sensor_name = {}
-        outdoor_sensor_name = {}
-        window_sensor_name = {}
-        weather_name = {}
-
-        weather_name[None] = "-"
-        outdoor_sensor_name[None] = "-"
-
-        entity_registry = self.hass.helpers.entity_registry.async_get(self.hass)
-        for entity_id, entry in entity_registry.entities.items():
-                    if entity_id.find("number.") != -1 or entity_id.find("input_number.") != -1:
-                        local_calibration[entity_id] = entity_id
-                    if entity_id.find("sensor.") != -1 or entity_id.find("input_number.") != -1:
-                        temp_sensor_name[entity_id] = entity_id
-                    if entity_id.find("sensor.") != -1 or entity_id.find("input_number.") != -1:
-                        outdoor_sensor_name[entity_id] = entity_id
-                    if (entity_id.find("sensor.") != -1 or entity_id.find("group.") != -1) or entity_id.find("input_boolean.") != -1:
-                        window_sensor_name[entity_id] = entity_id
-                    if entity_id.find("weather.") != -1 or entity_id.find("input_number.") != -1:
-                        weather_name[entity_id] = entity_id
-
         return self.async_show_form(
             step_id="user",
             data_schema=vol.Schema(
                 {
-                    vol.Required(
+                    vol.Optional(
                         CONF_LOCAL_CALIBRATION,
                         default=self.config_entry.data.get(
-                            CONF_LOCAL_CALIBRATION, "-"
+                            CONF_LOCAL_CALIBRATION, ""
                         ),
-                    ): vol.In(local_calibration),
+                    ): selector.EntitySelector(
+                        selector.EntitySelectorConfig(domain=["number","input_number"], multiple=False),
+                    ),
                     vol.Required(
                         CONF_SENSOR,
                         default=self.config_entry.data.get(
-                            CONF_SENSOR, "-"
+                            CONF_SENSOR, ""
                         ),
-                    ): vol.In(temp_sensor_name),
+                    ): selector.EntitySelector(
+                        selector.EntitySelectorConfig(domain=["sensor","number","input_number"], multiple=False),
+                    ),
                     vol.Optional(
                         CONF_OUTDOOR_SENSOR,
                         default=self.config_entry.data.get(
-                            CONF_OUTDOOR_SENSOR, "-"
+                            CONF_OUTDOOR_SENSOR, ""
                         ),
-                    ): vol.In(outdoor_sensor_name),
-                    vol.Required(
+                    ): selector.EntitySelector(
+                        selector.EntitySelectorConfig(domain=["sensor","input_number","number"], multiple=False),
+                    ),
+                    vol.Optional(
                         CONF_SENSOR_WINDOW,
                         default=self.config_entry.data.get(
-                            CONF_SENSOR_WINDOW, "-"
+                            CONF_SENSOR_WINDOW, ""
                         ),
-                    ): vol.In(window_sensor_name),
+                    ): selector.EntitySelector(
+                        selector.EntitySelectorConfig(domain=["group","sensor","input_binary","binary_sensor"], multiple=False),
+                    ),
                     vol.Optional(
                         CONF_WEATHER,
                         default=self.config_entry.data.get(
-                            CONF_WEATHER, "-"
+                            CONF_WEATHER, ""
                         ),                    
-                    ): vol.In(weather_name),
+                    ): selector.EntitySelector(
+                        selector.EntitySelectorConfig(domain="weather", multiple=False),
+                    ),
                     vol.Optional(
                         CONF_WINDOW_TIMEOUT,
                         default=self.config_entry.data.get(

@@ -23,7 +23,7 @@
             },
             "error": {
                     "failed": "Ups, hier stimmt was nicht.",
-                    "no_outside_temp": "Du musst einen außentemperatur sensor oder wetter entität auswählen."
+                    "no_name": "Du musst einen Namen vergeben."
             },
             "abort": {
                     "single_instance_allowed": "Only a single Thermostat for each real is allowed.",

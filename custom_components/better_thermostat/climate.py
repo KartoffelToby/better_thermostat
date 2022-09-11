@@ -64,9 +64,9 @@ async def async_setup_entry(hass, entry, async_add_devices):
                 entry.data[CONF_NAME],
                 entry.data[CONF_HEATER],
                 entry.data[CONF_SENSOR],
-                entry.data[CONF_SENSOR_WINDOW],
+                entry.data[CONF_SENSOR_WINDOW] or None,
                 entry.data[CONF_WINDOW_TIMEOUT],
-                entry.data[CONF_WEATHER],
+                entry.data[CONF_WEATHER]  or None,
                 entry.data[CONF_OUTDOOR_SENSOR] or None,
                 entry.data[CONF_OFF_TEMPERATURE],
                 entry.data[CONF_VALVE_MAINTENANCE],
@@ -127,7 +127,7 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
         self._name = name
         self.heater_entity_id = heater_entity_id
         self.sensor_entity_id = sensor_entity_id
-        self.window_id = window_id
+        self.window_id = window_id or None
         self.window_delay = window_delay or 0
         self.weather_entity = weather_entity or None
         self.outdoor_sensor = outdoor_sensor or None
@@ -136,7 +136,7 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
         self.model = model
         self._unique_id = unique_id
         self._unit = unit
-        self.local_temperature_calibration_entity = local_calibration or "-"
+        self.local_temperature_calibration_entity = local_calibration or None
         self._device_class = device_class
         self._state_class = state_class
         self.calibration_round = calibration_round

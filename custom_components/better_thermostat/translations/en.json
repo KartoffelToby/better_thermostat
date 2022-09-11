@@ -23,7 +23,7 @@
             },
             "error": {
                     "failed": "something went wrong.",
-                    "no_outside_temp": "You need to define an outside temperature sensor or weather entity."
+                    "no_name": "Please enter a name."
             },
             "abort": {
                     "single_instance_allowed": "Only a single Thermostat for each real is allowed.",
