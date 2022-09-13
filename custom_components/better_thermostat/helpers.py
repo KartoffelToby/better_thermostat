@@ -140,7 +140,7 @@ def calculate_setpoint_override(self) -> Union[float, None]:
         _calibrated_setpoint = self._TRV_min_temp
     if _calibrated_setpoint > self._TRV_max_temp:
         _calibrated_setpoint = self._TRV_max_temp
-
+    self._last_send_target_temp = _calibrated_setpoint
     return _calibrated_setpoint
 
 

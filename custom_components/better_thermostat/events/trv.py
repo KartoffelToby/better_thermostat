@@ -108,7 +108,11 @@ async def trigger_trv_change(self, event):
         self._trv_hvac_mode = new_decoded_system_mode
         _updated_needed = True
 
-    if self._target_temp != _new_heating_setpoint and not self.child_lock:
+    if (
+        self._target_temp != _new_heating_setpoint
+        and not self.child_lock
+        and self.calibration_type == 0
+    ):
         self._target_temp = _new_heating_setpoint
         _updated_needed = True
 
