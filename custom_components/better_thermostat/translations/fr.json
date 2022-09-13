@@ -2,7 +2,6 @@
     "config": {
             "step": {
                     "user": {
-                            "title": "Better Thermostat",
                             "description": "Configuration de Better Thermostat pour l'intégrer à Home Assistant",
                             "data": {
                                 "name": "Nom*",
@@ -33,7 +32,6 @@
     "options": {
         "step": {
                 "user": {
-                        "title": "Better Thermostat",
                         "description": "Mettez à jour vos paramètres de Better Thermostat",
                         "data": {
                                 "temperature_sensor": "Capteur de température",

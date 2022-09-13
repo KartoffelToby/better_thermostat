@@ -10,7 +10,8 @@
     "climate"
   ],
   "after_dependencies": [
-    "climate"
+    "climate",
+    "recorder"
   ],
   "codeowners": [
     "@kartoffeltoby",
