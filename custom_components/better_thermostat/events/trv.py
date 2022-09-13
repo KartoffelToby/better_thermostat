@@ -1,14 +1,15 @@
 import logging
 from typing import Union
 
-from homeassistant.components.climate.const import (
-    HVAC_MODE_HEAT,
-    HVAC_MODE_OFF,
-    HVAC_MODE_AUTO,
-)
+from homeassistant.components.climate.const import HVAC_MODE_HEAT, HVAC_MODE_OFF
 from homeassistant.core import callback, State
 
-from ..helpers import calculate_local_setpoint_delta, calculate_setpoint_override, mode_remap, round_to_half_degree
+from ..helpers import (
+    calculate_local_setpoint_delta,
+    calculate_setpoint_override,
+    mode_remap,
+    round_to_half_degree,
+)
 from ..helpers import convert_to_float
 
 _LOGGER = logging.getLogger(__name__)
@@ -75,23 +76,13 @@ async def trigger_trv_change(self, event):
         )
         return
 
-    _LOGGER.debug(
-        f"better_thermostat {self.name}: get new trv info {new_state}"
-    )
-
-    # we only read user input at the TRV on mode 0
-    #if self.calibration_type != 0:
-    #    _LOGGER.debug(
-    #        f"better_thermostat {self.name}: skipping trigger_trv_change because calibration_type is not 0 it is {self.calibration_type}"
-    #    )
-    #    return
-
     # we only read setpoint changes from TRV if we are in heating mode
     if self._trv_hvac_mode == HVAC_MODE_OFF:
         return
 
     _new_heating_setpoint = convert_to_float(
-        new_state.attributes.get("current_heating_setpoint") or new_state.attributes.get("temperature"),
+        new_state.attributes.get("current_heating_setpoint")
+        or new_state.attributes.get("temperature"),
         self.name,
         "trigger_trv_change()",
     )
@@ -162,6 +153,7 @@ def update_valve_position(self, valve_position):
         _LOGGER.debug(
             f"better_thermostat {self.name}: Valve position is None, skipping"
         )
+
 
 def convert_inbound_states(self, state: State):
     """Convert hvac mode in a thermostat state from HA

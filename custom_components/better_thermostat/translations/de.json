@@ -6,8 +6,8 @@
                             "description": "Einrichtung von Better Thermostat mit Home Assistant",
                             "data": {
                                 "name": "Name*",
-                                "thermostat": "Das reale Thermostat*",
-                                "temperature_sensor": "Externer Temperatur Sensor*",
+                                "thermostat": "Das reale Thermostat",
+                                "temperature_sensor": "Externer Temperatur Sensor",
                                 "window_sensors": "Fenstersensor(s)",
                                 "off_temperature": "Bei welcher außentemperatur soll das Thermostat abschalten?",
                                 "window_off_delay": "Wie lange soll das Thermostat mit dem abschalten warten wenn ein Fenster offen ist?",
@@ -36,7 +36,7 @@
                         "title": "Better Thermostat",
                         "description": "Aktuallisere die Better Thermostat einstellungen",
                         "data": {
-                                "temperature_sensor": "Externer Temperatur Sensor*",
+                                "temperature_sensor": "Externer Temperatur Sensor",
                                 "window_sensors": "Fenstersensor(s)",
                                 "off_temperature": "Bei welcher außentemperatur soll das Thermostat abschalten?",
                                 "window_off_delay": "Wie lange soll das Thermostat mit dem abschalten warten wenn ein Fenster offen ist?",

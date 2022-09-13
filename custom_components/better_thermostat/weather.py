@@ -34,7 +34,9 @@ def check_weather(self) -> bool | None:
         _LOGGER.debug(
             f"better_thermostat {self.name}: checking ambient air sensor data..."
         )
-        self.call_for_heat = self._hass.async_add_executor_job(check_ambient_air_temperature(self))
+        self.call_for_heat = self._hass.async_add_executor_job(
+            check_ambient_air_temperature(self)
+        )
     else:
         _LOGGER.debug(
             f"better_thermostat {self.name}: could not find any weather sensors... setting call_for_heat to true"

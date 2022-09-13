@@ -13,7 +13,10 @@ async def async_get_config_entry_diagnostics(
     """Return diagnostics for a config entry."""
     trv = hass.states.get(config_entry.data[CONF_HEATER])
     external_temperature = hass.states.get(config_entry.data[CONF_SENSOR])
-    window = hass.states.get(config_entry.data[CONF_SENSOR_WINDOW])
+    if CONF_SENSOR_WINDOW in config_entry.data:
+        window = hass.states.get(config_entry.data[CONF_SENSOR_WINDOW])
+    else:
+        window = "-"
 
     diagnostics_data = {
         "info": dict(config_entry.data),

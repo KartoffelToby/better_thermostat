@@ -1,20 +1,12 @@
 """Helper functions for the Better Thermostat component."""
-
-import asyncio
+import re
 import logging
-import numbers
 from datetime import datetime
 from typing import Union
 from homeassistant.helpers import device_registry as dr, entity_registry as er
 
-from homeassistant.components.climate.const import HVAC_MODE_AUTO, HVAC_MODE_HEAT, HVAC_MODE_OFF
-from .const import (
-    ATTR_STATE_CALL_FOR_HEAT,
-    ATTR_STATE_DAY_SET_TEMP,
-    ATTR_STATE_LAST_CHANGE,
-    ATTR_STATE_NIGHT_MODE,
-    ATTR_STATE_WINDOW_OPEN,
-)
+from homeassistant.components.climate.const import HVAC_MODE_AUTO, HVAC_MODE_HEAT
+
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -231,7 +223,6 @@ def round_to_hundredth_degree(
         return value
 
 
-
 def check_float(potential_float):
     """Check if a string is a float.
 
@@ -280,6 +271,7 @@ def convert_time(time_string):
     except ValueError:
         return None
 
+
 async def get_device_model(self):
     """Fetches the device model from HA.
     Parameters
@@ -301,7 +293,7 @@ async def get_device_model(self):
             _LOGGER.debug(device)
             try:
                 # Z2M reports the device name as a long string with the actual model name in braces, we need to extract it
-                return re.search("\((.+?)\)", device.model).group(1)
+                return re.search("\\((.+?)\\)", device.model).group(1)
             except AttributeError:
                 # Other climate integrations might report the model name plainly, need more infos on this
                 return device.model
@@ -314,6 +306,11 @@ async def get_device_model(self):
             NameError,
             IndexError,
         ):
-            return "generic"
+            return (
+                self.hass.states.get(self.heater_entity_id)
+                .attributes.get("device")
+                .get("model", "generic")
+            )
+
     else:
         return self.model

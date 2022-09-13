@@ -7,13 +7,10 @@
   "version": "1.0.0-dev",
   "config_flow": true,
   "dependencies": [
-    "sensor",
-    "climate",
-    "recorder"
+    "climate"
   ],
   "after_dependencies": [
-    "climate",
-    "sensor"
+    "climate"
   ],
   "codeowners": [
     "@kartoffeltoby",

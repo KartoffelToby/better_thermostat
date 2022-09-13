@@ -294,7 +294,7 @@ async def trv_valve_maintenance(self):
         # get current HVAC mode from HA
         try:
             _last_hvac_mode = self.hass.states.get(self.heater_entity_id).state
-        except:
+        except AttributeError:
             _LOGGER.error(
                 "better_thermostat %s: Could not load current HVAC mode", self.name
             )
@@ -393,7 +393,7 @@ async def trv_valve_maintenance(self):
         try:
             self.hass.states.get(self.heater_entity_id).attributes.get("valve_position")
             valve_position_available = True
-        except:
+        except AttributeError:
             pass
 
         if valve_position_available:
