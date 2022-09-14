@@ -1,10 +1,9 @@
-from __future__ import annotations
-
 import logging
-from datetime import datetime, timedelta
 
-import homeassistant.util.dt as dt_util
-from homeassistant.components.recorder import history
+# from datetime import datetime, timedelta
+
+# import homeassistant.util.dt as dt_util
+# from homeassistant.components.recorder.history import state_changes_during_period
 
 from .helpers import convert_to_float
 
@@ -34,9 +33,7 @@ def check_weather(self) -> bool | None:
         _LOGGER.debug(
             f"better_thermostat {self.name}: checking ambient air sensor data..."
         )
-        self.call_for_heat = self.hass.async_add_executor_job(
-            check_ambient_air_temperature(self)
-        )
+        self.call_for_heat = check_ambient_air_temperature(self)
     else:
         _LOGGER.debug(
             f"better_thermostat {self.name}: could not find any weather sensors... setting call_for_heat to true"
@@ -115,18 +112,14 @@ def check_ambient_air_temperature(self) -> bool | None:
             f"better_thermostat {self.name}: off_temperature not set or not a float."
         )
         return None
-
-    try:
-        last_two_days_date_time = datetime.now() - timedelta(days=2)
-        start = dt_util.as_utc(last_two_days_date_time)
-        history_list = history.state_changes_during_period(
-            self.hass, start, dt_util.as_utc(datetime.now()), self.outdoor_sensor
-        )
-        historic_sensor_data = history_list.get(self.outdoor_sensor)
-    except TypeError:
-        _LOGGER.warning(f"better_thermostat {self.name}: no outdoor sensor data found.")
-        return None
-
+    """ TODO
+    last_two_days_date_time = datetime.now() - timedelta(days=2)
+    start = dt_util.as_utc(last_two_days_date_time)
+    history_list = state_changes_during_period(
+        self.hass, start, dt_util.as_utc(datetime.now()), self.outdoor_sensor, no_attributes=False, descending=True, limit=100
+    )
+    historic_sensor_data = history_list.get(self.outdoor_sensor)
+    _LOGGER.debug(f"better_thermostat {self.name}: historic_sensor_data: {historic_sensor_data}")
     # create a list from valid data in historic_sensor_data
     valid_historic_sensor_data = []
     invalid_sensor_data_count = 0
@@ -176,5 +169,9 @@ def check_ambient_air_temperature(self) -> bool | None:
     )
     _LOGGER.debug(
         f"better_thermostat {self.name}: avg outdoor temp: {avg_temp}, threshold is {self.off_temperature}"
+    )
+    """
+    avg_temp = convert_to_float(
+        str(self.hass.states.get(self.outdoor_sensor).state), self.name, "weather()"
     )
     return avg_temp < self.off_temperature
