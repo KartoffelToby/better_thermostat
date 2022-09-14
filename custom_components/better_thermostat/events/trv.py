@@ -120,7 +120,7 @@ async def trigger_trv_change(self, event):
         self._TRV_current_temp = new_state.attributes.get("current_temperature")
         _updated_needed = True
 
-    if _updated_needed:
+    if _updated_needed or self.child_lock:
         self.async_write_ha_state()
         # make sure we only update the latest user interaction
         try:
