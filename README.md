@@ -2,10 +2,7 @@
 [![GitHub issues](https://img.shields.io/github/issues/KartoffelToby/better_thermostat?style=for-the-badge)](https://github.com/KartoffelToby/better_thermostat/issues)
 [![Version - 1.0.0-beta](https://img.shields.io/badge/Version-1.0.0beta-009688?style=for-the-badge)](https://github.com/KartoffelToby/better_thermostat/releases)
 [![Discord](https://img.shields.io/discord/925725316540923914.svg?style=for-the-badge)](https://discord.gg/9BUegWTG3K)
-[![GitHub Release][releases-shield]][releases]
-[![License][license-shield]](LICENSE)
 [![hacs_badge](https://img.shields.io/badge/HACS-Default-orange.svg?style=for-the-badge)](https://github.com/custom-components/hacs)
-[![GitHub Activity][commits-shield]][commits]
 
 # Better Thermostat
 
