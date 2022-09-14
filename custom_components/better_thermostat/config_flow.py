@@ -24,7 +24,7 @@ from .const import (
 from homeassistant import config_entries
 from homeassistant.const import CONF_NAME
 from homeassistant.core import callback
-from homeassistant.helpers import entity_registry as selector
+from homeassistant.helpers import selector
 
 
 from . import DOMAIN  # pylint:disable=unused-import
