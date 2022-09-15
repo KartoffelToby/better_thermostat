@@ -1,9 +1,5 @@
 {
   "name": "Better Thermostat",
   "render_readme": true,
-  "domains": [
-    "climate"
-  ],
-  "iot_class": "Local Push",
-  "homeassistant": "2021.12.0"
+  "homeassistant": "2022.9.0"
 }

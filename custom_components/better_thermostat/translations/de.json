@@ -1,0 +1,52 @@
+{
+    "config": {
+            "step": {
+                    "user": {
+                            "description": "Einrichtung von Better Thermostat mit Home Assistant",
+                            "data": {
+                                "name": "Name*",
+                                "thermostat": "Das reale Thermostat",
+                                "temperature_sensor": "Externer Temperatur Sensor",
+                                "window_sensors": "Fenstersensor(s)",
+                                "off_temperature": "Bei welcher außentemperatur soll das Thermostat abschalten?",
+                                "window_off_delay": "Wie lange soll das Thermostat mit dem abschalten warten wenn ein Fenster offen ist?",
+                                "outdoor_sensor": "Wenn ein außentemperatur sensor vorhanden ist, kann dieser anstelle der wetter entität genutz werden",
+                                "valve_maintenance": "Soll BT die wartung des Thermostats übernehmen?",
+                                "local_calibration": "Wenn das Thermostat über eine lokale kalibrations entity verfügt, kann diese für die berechnung der Temperatur genutzt werden",
+                                "weather": "Die Wetter entität für die außentemperatur",
+                                "calibration_round": "Soll bei der Kalibrierung auf ganze stellen gerundet werden?",
+                                "heat_auto_swapped": "Wenn das Thermostat den modus auto als heizen und heizen als boost benutzt, kann es getauscht werden (für Google Home nutzer)",
+                                "child_lock": "Ignoriere alle manuellen einstellungen am realen Thermostat (Kindersicherung)"
+                            }
+                    }
+            },
+            "error": {
+                    "failed": "Ups, hier stimmt was nicht.",
+                    "no_name": "Du musst einen Namen vergeben."
+            },
+            "abort": {
+                    "single_instance_allowed": "Only a single Thermostat for each real is allowed.",
+                    "no_devices_found": "Es konnten keine climate entitäten in Home Assistant gefunden werden, stelle sicher das dein reales Thermostat in Homeassistant vorhanden hast."
+            }
+    },
+    "options": {
+        "step": {
+                "user": {
+                        "description": "Aktuallisere die Better Thermostat einstellungen",
+                        "data": {
+                                "temperature_sensor": "Externer Temperatur Sensor",
+                                "window_sensors": "Fenstersensor(s)",
+                                "off_temperature": "Bei welcher außentemperatur soll das Thermostat abschalten?",
+                                "window_off_delay": "Wie lange soll das Thermostat mit dem abschalten warten wenn ein Fenster offen ist?",
+                                "outdoor_sensor": "Wenn ein außentemperatur sensor vorhanden ist, kann dieser anstelle der wetter entität genutz werden",
+                                "valve_maintenance": "Soll BT die wartung des Thermostats übernehmen?",
+                                "local_calibration": "Wenn das Thermostat über eine lokale kalibrations entity verfügt, kann diese für die berechnung der Temperatur genutzt werden",
+                                "weather": "Die Wetter entität für die außentemperatur",
+                                "calibration_round": "Soll bei der Kalibrierung auf ganze stellen gerundet werden?",
+                                "heat_auto_swapped": "Wenn das Thermostat den modus auto als heizen und heizen als boost benutzt, kann es getauscht werden (für Google Home nutzer)",
+                                "child_lock": "Ignoriere alle manuellen einstellungen am realen Thermostat (Kindersicherung)"
+                        }
+                }
+        }
+    }
+}

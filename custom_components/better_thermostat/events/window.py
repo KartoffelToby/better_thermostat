@@ -79,11 +79,5 @@ async def window_queue(self):
                 )
                 self.window_open = window_event_to_process
                 self.async_write_ha_state()
-                try:
-                    if self.control_queue_task.qsize() > 0:
-                        while self.control_queue_task.qsize() > 1:
-                            self.control_queue_task.task_done()
-                except AttributeError:
-                    pass
                 await self.control_queue_task.put(self)
         self.window_queue_task.task_done()

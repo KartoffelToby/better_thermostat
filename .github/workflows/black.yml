@@ -8,5 +8,5 @@ jobs:
     steps:
       - uses: actions/checkout@v2
         with:
-          options: "--check --verbose --skip-magic-trailing-comma --target-version py39"
+          options: "--check --verbose --skip-magic-trailing-comma --target-version py310"
       - uses: psf/black@stable
