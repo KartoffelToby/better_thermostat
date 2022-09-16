@@ -68,13 +68,6 @@ async def control_trv(self, force_mode_change: bool = False):
             )
             self._trv_hvac_mode = HVAC_MODE_OFF
 
-        elif self.window_open is True or self.window_open is None:
-            _LOGGER.debug(
-                f"better_thermostat {self.name}: control_trv: own mode is on, window is open or status of window is unknown, setting TRV mode to off"
-            )
-            # if the window is open or the sensor is not available, we're done
-            self._trv_hvac_mode = HVAC_MODE_OFF
-
         else:
             call_for_heat_updated = check_weather(self)
 
@@ -93,6 +86,13 @@ async def control_trv(self, force_mode_change: bool = False):
                     f"better_thermostat {self.name}: control_trv: own mode is on, call for heat decision is unknown, setting TRV mode to on"
                 )
                 self._trv_hvac_mode = HVAC_MODE_HEAT
+
+        if self.window_open is True or self.window_open is None:
+            _LOGGER.debug(
+                f"better_thermostat {self.name}: control_trv: own mode is on, window is open or status of window is unknown, setting TRV mode to off"
+            )
+            # if the window is open or the sensor is not available, we're done
+            self._trv_hvac_mode = HVAC_MODE_OFF
 
         if self._trv_hvac_mode == HVAC_MODE_OFF:
             if _current_TRV_mode != HVAC_MODE_OFF:
@@ -130,13 +130,14 @@ async def control_trv(self, force_mode_change: bool = False):
             # block updates from the TRV for a short while to avoid sending too many system change commands
             await asyncio.sleep(5)
 
-        if self._last_window_state != self.window_open:
+        if self._last_window_state != self.window_open or self._init:
             self._last_window_state = self.window_open
             window_open_status_changed = True
 
         if call_for_heat_updated or system_mode_change or window_open_status_changed:
             self.async_write_ha_state()
         self.ignore_states = False
+        self._init = False
 
 
 async def set_target_temperature(self, **kwargs):

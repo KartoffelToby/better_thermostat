@@ -7,11 +7,11 @@
   "version": "1.0.0-dev",
   "config_flow": true,
   "dependencies": [
-    "climate"
-  ],
-  "after_dependencies": [
     "climate",
     "recorder"
+  ],
+  "after_dependencies": [
+    "climate"
   ],
   "codeowners": [
     "@kartoffeltoby",

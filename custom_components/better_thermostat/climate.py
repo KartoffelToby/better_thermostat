@@ -177,6 +177,7 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
         self._temp_lock = asyncio.Lock()
         self._last_reported_valve_position = None
         self.startup_running = True
+        self._init = True
         self._last_reported_valve_position_update_wait_lock = asyncio.Lock()
         self._last_send_target_temp = None
         self.control_queue_task = asyncio.Queue()

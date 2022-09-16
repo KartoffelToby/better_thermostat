@@ -306,11 +306,21 @@ async def get_device_model(self):
             NameError,
             IndexError,
         ):
-            return (
-                self.hass.states.get(self.heater_entity_id)
-                .attributes.get("device")
-                .get("model", "generic")
-            )
-
+            try:
+                return (
+                    self.hass.states.get(self.heater_entity_id)
+                    .attributes.get("device")
+                    .get("model", "generic")
+                )
+            except (
+                RuntimeError,
+                ValueError,
+                AttributeError,
+                KeyError,
+                TypeError,
+                NameError,
+                IndexError,
+            ):
+                return "generic"
     else:
         return self.model
