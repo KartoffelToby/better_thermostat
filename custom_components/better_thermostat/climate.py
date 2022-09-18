@@ -351,6 +351,7 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
                 self._TRV_target_temp_step = trv_state.attributes.get(
                     "target_temp_step", 1
                 )
+                self.target_temperature_step = self._TRV_target_temp_step
                 self._TRV_current_temp = trv_state.attributes.get("current_temperature")
                 self._cur_temp = convert_to_float(
                     str(sensor_state.state), self.name, "startup()"
