@@ -7,8 +7,7 @@ from datetime import datetime, timedelta
 from random import randint
 from .helpers import convert_to_float
 
-# import voluptuous as vol
-# from homeassistant.helpers import config_validation as cv, entity_platform
+from homeassistant.helpers import config_validation as entity_platform
 
 from homeassistant.components.climate import ClimateEntity
 from homeassistant.components.climate.const import (
@@ -24,6 +23,7 @@ from homeassistant.const import (
     ATTR_TEMPERATURE,
     STATE_UNAVAILABLE,
     STATE_UNKNOWN,
+    ATTR_ENTITY_ID,
 )
 from homeassistant.core import callback, CoreState
 from homeassistant.helpers.event import async_track_state_change_event
@@ -35,6 +35,7 @@ from .const import (
     ATTR_STATE_LAST_CHANGE,
     ATTR_STATE_WINDOW_OPEN,
     ATTR_STATE_DAY_SET_TEMP,
+    BETTERTHERMOSTAT_SERVICE_SCHEMA,
     CONF_CALIBRATIION_ROUND,
     CONF_CHILD_LOCK,
     CONF_HEAT_AUTO_SWAPPED,
@@ -48,6 +49,7 @@ from .const import (
     CONF_VALVE_MAINTENANCE,
     CONF_WEATHER,
     CONF_WINDOW_TIMEOUT,
+    SERVICE_TO_METHOD,
     SUPPORT_FLAGS,
     VERSION,
 )
@@ -63,7 +65,7 @@ _LOGGER = logging.getLogger(__name__)
 
 async def async_setup_entry(hass, entry, async_add_devices):
     """Setup sensor platform."""
-    # platform = entity_platform.async_get_current_platform()
+    platform = entity_platform.async_get_current_platform()
 
     async_add_devices(
         [
@@ -89,7 +91,7 @@ async def async_setup_entry(hass, entry, async_add_devices):
             )
         ]
     )
-    """
+
     async def async_service_handler(service):
         method = SERVICE_TO_METHOD.get(service.service)
         params = {
@@ -97,7 +99,7 @@ async def async_setup_entry(hass, entry, async_add_devices):
         }
         entity_ids = service.data.get(ATTR_ENTITY_ID)
         _LOGGER.debug(f"Service call: {method} {params} {entity_ids}")
-
+        """
         if entity_ids:
             devices = [
                 device
@@ -116,13 +118,14 @@ async def async_setup_entry(hass, entry, async_add_devices):
 
         if update_tasks:
             await asyncio.wait(update_tasks)
+        """
+
     for better_thermostat_service in SERVICE_TO_METHOD:
         platform.async_register_entity_service(
             better_thermostat_service,
             BETTERTHERMOSTAT_SERVICE_SCHEMA,
             async_service_handler,
         )
-    """
 
 
 class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
