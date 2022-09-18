@@ -60,6 +60,8 @@ def mode_remap(self, hvac_mode: str, inbound: bool = False) -> str:
         elif hvac_mode == HVAC_MODE_AUTO and inbound:
             return HVAC_MODE_HEAT
     else:
+        if hvac_mode == HVAC_MODE_AUTO and inbound:
+            return HVAC_MODE_HEAT
         return hvac_mode
 
 

@@ -1,11 +1,7 @@
 import logging
 from typing import Union
 
-from homeassistant.components.climate.const import (
-    HVAC_MODE_HEAT,
-    HVAC_MODE_OFF,
-    HVAC_MODE_AUTO,
-)
+from homeassistant.components.climate.const import HVAC_MODE_HEAT, HVAC_MODE_OFF
 from homeassistant.core import callback, State
 
 from ..helpers import (
@@ -73,7 +69,7 @@ async def trigger_trv_change(self, event):
 
     new_decoded_system_mode = str(new_state.state)
 
-    if new_decoded_system_mode not in (HVAC_MODE_OFF, HVAC_MODE_HEAT, HVAC_MODE_AUTO):
+    if new_decoded_system_mode not in (HVAC_MODE_OFF, HVAC_MODE_HEAT):
         # not an valid mode, overwriting
         _LOGGER.debug(
             f"better_thermostat {self.name}: TRV's decoded TRV mode is not valid, skipping"
@@ -115,7 +111,7 @@ async def trigger_trv_change(self, event):
     if (
         self._target_temp != _new_heating_setpoint
         and not self.child_lock
-        and self.calibration_type == 0
+        and self._last_send_target_temp != _new_heating_setpoint
     ):
         self._target_temp = _new_heating_setpoint
         _updated_needed = True

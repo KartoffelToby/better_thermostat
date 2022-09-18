@@ -271,7 +271,7 @@ async def set_trv_values(self, key, value, hvac_mode=None):
     _LOGGER.info(
         "better_thermostat %s: send new %s to TRV, value: '%s'", self.name, key, value
     )
-    await asyncio.sleep(1)
+    await asyncio.sleep(5)
 
 
 async def trv_valve_maintenance(self):

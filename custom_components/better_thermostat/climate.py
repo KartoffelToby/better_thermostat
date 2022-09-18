@@ -7,6 +7,9 @@ from datetime import datetime, timedelta
 from random import randint
 from .helpers import convert_to_float
 
+# import voluptuous as vol
+# from homeassistant.helpers import config_validation as cv, entity_platform
+
 from homeassistant.components.climate import ClimateEntity
 from homeassistant.components.climate.const import (
     CURRENT_HVAC_HEAT,
@@ -48,6 +51,7 @@ from .const import (
     SUPPORT_FLAGS,
     VERSION,
 )
+
 from .controlling import control_queue, set_hvac_mode, set_target_temperature
 from .events.temperature import trigger_temperature_change
 from .events.time import trigger_time
@@ -59,6 +63,7 @@ _LOGGER = logging.getLogger(__name__)
 
 async def async_setup_entry(hass, entry, async_add_devices):
     """Setup sensor platform."""
+    # platform = entity_platform.async_get_current_platform()
 
     async_add_devices(
         [
@@ -84,6 +89,40 @@ async def async_setup_entry(hass, entry, async_add_devices):
             )
         ]
     )
+    """
+    async def async_service_handler(service):
+        method = SERVICE_TO_METHOD.get(service.service)
+        params = {
+            key: value for key, value in service.data.items() if key != ATTR_ENTITY_ID
+        }
+        entity_ids = service.data.get(ATTR_ENTITY_ID)
+        _LOGGER.debug(f"Service call: {method} {params} {entity_ids}")
+
+        if entity_ids:
+            devices = [
+                device
+                for device in hass.data[DOMAIN].values()
+                if device.entity_id in entity_ids
+            ]
+        else:
+            devices = hass.data[DOMAIN].values()
+
+        update_tasks = []
+        for device in devices:
+            if not hasattr(device, method["method"]):
+                continue
+            await getattr(device, method["method"])(**params)
+            update_tasks.append(device.async_update_ha_state(True))
+
+        if update_tasks:
+            await asyncio.wait(update_tasks)
+    for better_thermostat_service in SERVICE_TO_METHOD:
+        platform.async_register_entity_service(
+            better_thermostat_service,
+            BETTERTHERMOSTAT_SERVICE_SCHEMA,
+            async_service_handler,
+        )
+    """
 
 
 class BetterThermostat(ClimateEntity, RestoreEntity, ABC):

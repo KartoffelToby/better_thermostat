@@ -1,8 +1,11 @@
 """"""
 import json
 import logging
+import voluptuous as vol
+import homeassistant.helpers.config_validation as cv
 
 from homeassistant.components.climate.const import SUPPORT_TARGET_TEMPERATURE
+from homeassistant.const import ATTR_ENTITY_ID
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -49,3 +52,26 @@ ATTR_STATE_LAST_CHANGE = "last_change"
 ATTR_STATE_DAY_SET_TEMP = "last_day_set_temp"
 
 ATTR_VALVE_POSITION = "valve_position"
+
+SERVICE_SAVE_CURRENT_TARGET_TEMPERATURE = (
+    "better_thermostat_save_current_target_temperature"
+)
+SERVICE_RESTORE_SAVED_TARGET_TEMPERATURE = (
+    "better_thermostat_restore_saved_target_temperature"
+)
+SERVICE_SET_TEMP_TARGET_TEMPERATURE = "better_thermostat_set_temp_target_temperature"
+
+SERVICE_TO_METHOD = {
+    SERVICE_SAVE_CURRENT_TARGET_TEMPERATURE: {
+        "method": "async_save_current_target_temperature"
+    },
+    SERVICE_RESTORE_SAVED_TARGET_TEMPERATURE: {
+        "method": "async_restore_saved_target_temperature"
+    },
+    SERVICE_SET_TEMP_TARGET_TEMPERATURE: {
+        "method": "async_set_temp_target_temperatrure"
+    },
+}
+BETTERTHERMOSTAT_SERVICE_SCHEMA = vol.Schema(
+    {vol.Required(ATTR_ENTITY_ID): cv.entity_ids}
+)

@@ -10,7 +10,7 @@ from .helpers import convert_to_float
 _LOGGER = logging.getLogger(__name__)
 
 
-def check_weather(self) -> bool | None:
+def check_weather(self) -> bool:
     """check weather predictions or ambient air temperature if available
 
     Parameters
@@ -46,7 +46,7 @@ def check_weather(self) -> bool | None:
         return False
 
 
-def check_weather_prediction(self) -> bool | None:
+def check_weather_prediction(self) -> bool:
     """Checks configured weather entity for next two days of temperature predictions.
 
     Returns
@@ -94,7 +94,7 @@ def check_weather_prediction(self) -> bool | None:
         return None
 
 
-def check_ambient_air_temperature(self) -> bool | None:
+def check_ambient_air_temperature(self) -> bool:
     """Gets the history for two days and evaluates the necessary for heating.
 
     Returns

@@ -161,6 +161,16 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
         if user_input is not None:
             current_config = self.config_entry.data
             self.updated_config = dict(current_config)
+            self.updated_config[CONF_LOCAL_CALIBRATION] = user_input.get(
+                CONF_LOCAL_CALIBRATION, None
+            )
+            self.updated_config[CONF_SENSOR_WINDOW] = user_input.get(
+                CONF_SENSOR_WINDOW, None
+            )
+            self.updated_config[CONF_OUTDOOR_SENSOR] = user_input.get(
+                CONF_OUTDOOR_SENSOR, None
+            )
+            self.updated_config[CONF_WEATHER] = user_input.get(CONF_WEATHER, None)
             self.updated_config[CONF_WINDOW_TIMEOUT] = user_input.get(
                 CONF_WINDOW_TIMEOUT
             )
@@ -186,70 +196,99 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
             return self.async_create_entry(title="", data=None)
 
         fields = OrderedDict()
-        """
-        if self.config_entry.data.get(CONF_LOCAL_CALIBRATION, None) is not None:
-            fields[vol.Optional(CONF_LOCAL_CALIBRATION, default=self.config_entry.data.get(CONF_LOCAL_CALIBRATION, ""))] = selector.EntitySelector(
-                selector.EntitySelectorConfig(domain=["number", "input_number"], multiple=False)
+
+        fields[
+            vol.Optional(
+                CONF_LOCAL_CALIBRATION,
+                description={
+                    "suggested_value": self.config_entry.data.get(
+                        CONF_LOCAL_CALIBRATION, ""
+                    )
+                },
             )
-        else:
-            fields[vol.Optional(CONF_LOCAL_CALIBRATION)] = selector.EntitySelector(
-                selector.EntitySelectorConfig(domain=["number", "input_number"], multiple=False)
+        ] = selector.EntitySelector(
+            selector.EntitySelectorConfig(
+                domain=["number", "input_number"], multiple=False
             )
-        if self.config_entry.data.get(CONF_SENSOR_WINDOW, None) is not None:
-            fields[vol.Optional(CONF_SENSOR_WINDOW, default=self.config_entry.data.get(CONF_SENSOR_WINDOW, ""))] = selector.EntitySelector(
-                selector.EntitySelectorConfig(domain=["group","sensor","input_boolean","binary_sensor"], multiple=False)
+        )
+
+        fields[
+            vol.Optional(
+                CONF_SENSOR_WINDOW,
+                description={
+                    "suggested_value": self.config_entry.data.get(
+                        CONF_SENSOR_WINDOW, ""
+                    )
+                },
             )
-        else:
-            fields[vol.Optional(CONF_SENSOR_WINDOW)] = selector.EntitySelector(
-                selector.EntitySelectorConfig(domain=["group","sensor","input_boolean","binary_sensor"], multiple=False)
+        ] = selector.EntitySelector(
+            selector.EntitySelectorConfig(
+                domain=["group", "sensor", "input_boolean", "binary_sensor"],
+                multiple=False,
             )
-        if self.config_entry.data.get(CONF_OUTDOOR_SENSOR, None) is not None:
-            fields[vol.Optional(CONF_OUTDOOR_SENSOR, default=self.config_entry.data.get(CONF_OUTDOOR_SENSOR, ""))] = selector.EntitySelector(
-                selector.EntitySelectorConfig(domain=["sensor","input_number","number"], multiple=False)
+        )
+
+        fields[
+            vol.Optional(
+                CONF_OUTDOOR_SENSOR,
+                description={
+                    "suggested_value": self.config_entry.data.get(
+                        CONF_OUTDOOR_SENSOR, ""
+                    )
+                },
             )
-        else:
-            fields[vol.Optional(CONF_OUTDOOR_SENSOR)] = selector.EntitySelector(
-                selector.EntitySelectorConfig(domain=["sensor","input_number","number"], multiple=False)
+        ] = selector.EntitySelector(
+            selector.EntitySelectorConfig(
+                domain=["sensor", "input_number", "number"], multiple=False
             )
-        if self.config_entry.data.get(CONF_WEATHER, None) is not None:
-            fields[vol.Optional(CONF_WEATHER, default=self.config_entry.data.get(CONF_WEATHER, ""))] = selector.EntitySelector(
-                selector.EntitySelectorConfig(domain="weather", multiple=False)
+        )
+
+        fields[
+            vol.Optional(
+                CONF_WEATHER,
+                description={
+                    "suggested_value": self.config_entry.data.get(CONF_WEATHER, "")
+                },
             )
-        else:
-            fields[vol.Optional(CONF_WEATHER)] = selector.EntitySelector(
-                selector.EntitySelectorConfig(domain="weather", multiple=False)
-            )
-        """
+        ] = selector.EntitySelector(
+            selector.EntitySelectorConfig(domain="weather", multiple=False)
+        )
+
         fields[
             vol.Optional(
                 CONF_WINDOW_TIMEOUT,
                 default=self.config_entry.data.get(CONF_WINDOW_TIMEOUT, 30),
             )
         ] = int
+
         fields[
             vol.Optional(
                 CONF_OFF_TEMPERATURE,
                 default=self.config_entry.data.get(CONF_OFF_TEMPERATURE, 5),
             )
         ] = int
+
         fields[
             vol.Optional(
                 CONF_CALIBRATIION_ROUND,
                 default=self.config_entry.data.get(CONF_CALIBRATIION_ROUND, True),
             )
         ] = bool
+
         fields[
             vol.Optional(
                 CONF_VALVE_MAINTENANCE,
                 default=self.config_entry.data.get(CONF_VALVE_MAINTENANCE, False),
             )
         ] = bool
+
         fields[
             vol.Optional(
                 CONF_HEAT_AUTO_SWAPPED,
                 default=self.config_entry.data.get(CONF_HEAT_AUTO_SWAPPED, False),
             )
         ] = bool
+
         fields[
             vol.Optional(
                 CONF_CHILD_LOCK,
