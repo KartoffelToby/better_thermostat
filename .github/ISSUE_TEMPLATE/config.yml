@@ -1,0 +1,11 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Report a bug with the UI, Frontend
+    url: https://github.com/KartoffelToby/better-thermostat-ui-card/issues
+    about: This is the issue tracker for our backend. Please report issues with the UI in the frontend repository.
+  - name: I have a question or need support
+    url: https://github.com/KartoffelToby/better_thermostat/discussions
+    about: You can checkout GitHub discussions, or join our discord for getting help.
+  - name: I'm unsure where to go
+    url: https://discord.gg/9BUegWTG3K
+    about: If you are unsure where to go, then joining our discord; Just ask!

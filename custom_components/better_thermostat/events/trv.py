@@ -1,6 +1,6 @@
 import logging
 from typing import Union
-
+from datetime import timedelta
 from homeassistant.components.climate.const import HVAC_MODE_HEAT, HVAC_MODE_OFF
 from homeassistant.core import callback, State
 
@@ -111,7 +111,10 @@ async def trigger_trv_change(self, event):
     if (
         self._target_temp != _new_heating_setpoint
         and not self.child_lock
-        and self._last_send_target_temp != _new_heating_setpoint
+        and (
+            self._last_send_target_temp != _new_heating_setpoint
+            or self.last_change < timedelta(seconds=-10)
+        )
     ):
         self._target_temp = _new_heating_setpoint
         _updated_needed = True

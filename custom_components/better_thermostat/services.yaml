@@ -1,31 +1,24 @@
-save_current_target_temperatrure:
+save_current_target_temperature:
   description: Save the current target temperature for later restore.
-  fields:
-    entity_id:
-      description: Name of the better thermostat entity.
-      example: "climate.better_thermostat_room"
   target:
     entity:
-      integration: better_thermostat
       domain: climate
+      integration: better_thermostat
+    device:
+      integration: better_thermostat
 
-restore_saved_target_temperatrure:
+restore_saved_target_temperature:
   description: Restore the saved target temperature.
-  fields:
-    entity_id:
-      description: Name of the better thermostat entity.
-      example: "climate.better_thermostat_room"
   target:
     entity:
-      integration: better_thermostat
       domain: climate
+      integration: better_thermostat
+    device:
+      integration: better_thermostat
 
-set_temp_target_temperatrure:
+set_temp_target_temperature:
   description: Set the target temperature to a temporay like night mode, and save the old one.
   fields:
-    entity_id:
-      description: Name of the better thermostat entity.
-      example: "climate.better_thermostat_room"
     temperature:
       name: Target temperature
       description: The target temperature to set.
@@ -40,5 +33,7 @@ set_temp_target_temperatrure:
           mode: box
   target:
     entity:
-      integration: better_thermostat
       domain: climate
+      integration: better_thermostat
+    device:
+      integration: better_thermostat

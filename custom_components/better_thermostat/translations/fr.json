@@ -19,12 +19,18 @@
                                 "heat_auto_swapped": "Si auto signifie chauffer pour votre TRV et que vous voulez l'inverser (pour les utilisateurs de Google Home)",
                                 "child_lock": "Ignorer toutes les entrées sur le TRV comme un vérouillage enfant"
                             }
+                    },
+                    "confirm": {
+                        "title": "Confirm adding a Better Thermostat",
+                        "description": "You are about to add `{name}` to Home Assistant.\nWith {trv} as the real Thermostat\nand calibration mode: {calibration_mode}\n\n**If you need more info: https://bt.t-haber.de/setup** "
                     }
             },
             "error": {
                     "failed": "quelque chose s'est mal passé.",
-                    "no_outside_temp": "Vous devez définir un capteur de température extérieure ou une entité météorologique."
-            },
+                    "no_outside_temp": "Vous devez définir un capteur de température extérieure ou une entité météorologique.",
+                    "no_off_mode": "You device is very special and has no off mode :(\nIt work anyway, but you have to create a automation to fit your specials based on the device events"
+
+          },
             "abort": {
                     "single_instance_allowed": "Un seul et unique thermostat est autorisé pour chaque thermostat réel",
                     "no_devices_found": "Aucune entité thermostat n'a été trouvée, assurez-vous d'avoir une entité climat dans votre home assistant"
