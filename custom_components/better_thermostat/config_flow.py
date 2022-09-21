@@ -25,6 +25,7 @@ from homeassistant import config_entries
 from homeassistant.const import CONF_NAME
 from homeassistant.core import callback
 from homeassistant.helpers import selector
+from homeassistant.components.climate.const import HVAC_MODE_OFF
 
 
 from . import DOMAIN  # pylint:disable=unused-import
@@ -53,6 +54,30 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         return OptionsFlowHandler(config_entry)
         """Get the options flow for this handler."""
 
+    async def async_step_confirm(self, user_input=None, confirm_type=None):
+        """Handle user-confirmation of discovered node."""
+        errors = {}
+        calibration_mode = "target_temp_based"
+        _LOGGER.debug(user_input)
+        if user_input is not None:
+            _LOGGER.debug(self.data)
+            if self.data is not None:
+                await self.async_set_unique_id(self.data["name"])
+                return self.async_create_entry(title=self.data["name"], data=self.data)
+        if confirm_type is not None:
+            errors["base"] = confirm_type
+        if self.data[CONF_LOCAL_CALIBRATION] is not None:
+            calibration_mode = "local_calibration_based"
+        return self.async_show_form(
+            step_id="confirm",
+            errors=errors,
+            description_placeholders={
+                "name": self.data[CONF_NAME],
+                "trv": self.data[CONF_HEATER],
+                "calibration_mode": calibration_mode,
+            },
+        )
+
     async def async_step_user(self, user_input=None):
 
         if user_input is not None:
@@ -61,6 +86,8 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             self.heater_entity_id = self.data[CONF_HEATER]
             if self.data[CONF_NAME] == "":
                 return self.async_error(reason="no_name")
+
+            trv = self.hass.states.get(self.heater_entity_id)
 
             if CONF_SENSOR_WINDOW not in self.data:
                 self.data[CONF_SENSOR_WINDOW] = None
@@ -72,8 +99,9 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 self.data[CONF_WEATHER] = None
             device_model = await get_device_model(self)
             self.data[CONF_MODEL] = device_model or "generic"
-            await self.async_set_unique_id(self.data["name"])
-            return self.async_create_entry(title=self.data["name"], data=self.data)
+            if HVAC_MODE_OFF not in trv.attributes.get("hvac_modes"):
+                return await self.async_step_confirm(None, "no_off_mode")
+            return await self.async_step_confirm()
 
         errors = {}
         user_input = user_input or {}

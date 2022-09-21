@@ -6,9 +6,7 @@ from abc import ABC
 from datetime import datetime, timedelta
 from random import randint
 from .helpers import convert_to_float
-
-# import voluptuous as vol
-# from homeassistant.helpers import config_validation as cv, entity_platform
+from homeassistant.helpers import entity_platform
 
 from homeassistant.components.climate import ClimateEntity
 from homeassistant.components.climate.const import (
@@ -35,6 +33,7 @@ from .const import (
     ATTR_STATE_LAST_CHANGE,
     ATTR_STATE_WINDOW_OPEN,
     ATTR_STATE_DAY_SET_TEMP,
+    ATTR_STATE_SAVED_TEMPERATURE,
     CONF_CALIBRATIION_ROUND,
     CONF_CHILD_LOCK,
     CONF_HEAT_AUTO_SWAPPED,
@@ -48,8 +47,12 @@ from .const import (
     CONF_VALVE_MAINTENANCE,
     CONF_WEATHER,
     CONF_WINDOW_TIMEOUT,
+    SERVICE_RESTORE_SAVED_TARGET_TEMPERATURE,
     SUPPORT_FLAGS,
     VERSION,
+    SERVICE_SET_TEMP_TARGET_TEMPERATURE,
+    BETTERTHERMOSTAT_SET_TEMPERATURE_SCHEMA,
+    BetterThermostatEntityFeature,
 )
 
 from .controlling import control_queue, set_hvac_mode, set_target_temperature
@@ -63,7 +66,27 @@ _LOGGER = logging.getLogger(__name__)
 
 async def async_setup_entry(hass, entry, async_add_devices):
     """Setup sensor platform."""
-    # platform = entity_platform.async_get_current_platform()
+
+    async def async_service_handler(self, data):
+        _LOGGER.debug(f"Service call: {self} » {data.service}")
+        if data.service == SERVICE_RESTORE_SAVED_TARGET_TEMPERATURE:
+            await self.restore_temp_temperature()
+        elif data.service == SERVICE_SET_TEMP_TARGET_TEMPERATURE:
+            await self.set_temp_temperature(data.data[ATTR_TEMPERATURE])
+
+    platform = entity_platform.async_get_current_platform()
+    platform.async_register_entity_service(
+        SERVICE_SET_TEMP_TARGET_TEMPERATURE,
+        BETTERTHERMOSTAT_SET_TEMPERATURE_SCHEMA,
+        async_service_handler,
+        [
+            BetterThermostatEntityFeature.TARGET_TEMPERATURE,
+            BetterThermostatEntityFeature.TARGET_TEMPERATURE_RANGE,
+        ],
+    )
+    platform.async_register_entity_service(
+        SERVICE_RESTORE_SAVED_TARGET_TEMPERATURE, {}, async_service_handler
+    )
 
     async_add_devices(
         [
@@ -89,44 +112,30 @@ async def async_setup_entry(hass, entry, async_add_devices):
             )
         ]
     )
-    """
-    async def async_service_handler(service):
-        method = SERVICE_TO_METHOD.get(service.service)
-        params = {
-            key: value for key, value in service.data.items() if key != ATTR_ENTITY_ID
-        }
-        entity_ids = service.data.get(ATTR_ENTITY_ID)
-        _LOGGER.debug(f"Service call: {method} {params} {entity_ids}")
-
-        if entity_ids:
-            devices = [
-                device
-                for device in hass.data[DOMAIN].values()
-                if device.entity_id in entity_ids
-            ]
-        else:
-            devices = hass.data[DOMAIN].values()
-
-        update_tasks = []
-        for device in devices:
-            if not hasattr(device, method["method"]):
-                continue
-            await getattr(device, method["method"])(**params)
-            update_tasks.append(device.async_update_ha_state(True))
-
-        if update_tasks:
-            await asyncio.wait(update_tasks)
-    for better_thermostat_service in SERVICE_TO_METHOD:
-        platform.async_register_entity_service(
-            better_thermostat_service,
-            BETTERTHERMOSTAT_SERVICE_SCHEMA,
-            async_service_handler,
-        )
-    """
 
 
 class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
     """Representation of a Better Thermostat device."""
+
+    async def set_temp_temperature(self, temperature):
+        self._saved_temperature = self._target_temp
+        self._target_temp = convert_to_float(
+            temperature, self.name, "service.set_target_temperature()"
+        )
+        self.async_write_ha_state()
+        await self.control_queue_task.put(self)
+
+    async def save_target_temperature(self):
+        self._saved_temperature = self._target_temp
+        self.async_write_ha_state()
+
+    async def restore_temp_temperature(self):
+        self._target_temp = convert_to_float(
+            self._saved_temperature, self.name, "service.restore_temp_temperature()"
+        )
+        self._saved_temperature = None
+        self.async_write_ha_state()
+        await self.control_queue_task.put(self)
 
     @property
     def device_info(self):
@@ -200,6 +209,7 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
         self._TRV_min_temp = 0
         self._TRV_max_temp = 30
         self._TRV_current_temp = None
+        self._TRV_SUPPORTED_HVAC_MODES = None
         self._target_temp = 5
         self._support_flags = SUPPORT_FLAGS
         self._bt_hvac_mode = HVAC_MODE_OFF
@@ -217,6 +227,7 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
         self._last_reported_valve_position = None
         self.startup_running = True
         self._init = True
+        self._saved_temperature = None
         self._last_reported_valve_position_update_wait_lock = asyncio.Lock()
         self._last_send_target_temp = None
         self.control_queue_task = asyncio.Queue()
@@ -348,10 +359,13 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
                 self._min_temp = trv_state.attributes.get("min_temp", 5)
                 self._TRV_max_temp = trv_state.attributes.get("max_temp", 30)
                 self._TRV_min_temp = trv_state.attributes.get("min_temp", 5)
+                self._TRV_SUPPORTED_HVAC_MODES = trv_state.attributes.get(
+                    "hvac_modes", None
+                )
                 self._TRV_target_temp_step = trv_state.attributes.get(
                     "target_temp_step", 1
                 )
-                self.target_temperature_step = self._TRV_target_temp_step
+                self._target_temp_step = self._TRV_target_temp_step
                 self._TRV_current_temp = trv_state.attributes.get("current_temperature")
                 self._cur_temp = convert_to_float(
                     str(sensor_state.state), self.name, "startup()"
@@ -473,6 +487,7 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
             ATTR_STATE_WINDOW_OPEN: self.window_open,
             ATTR_STATE_CALL_FOR_HEAT: self.call_for_heat,
             ATTR_STATE_LAST_CHANGE: self.last_change,
+            ATTR_STATE_SAVED_TEMPERATURE: self._saved_temperature,
             CONF_CHILD_LOCK: self.child_lock,
         }
 

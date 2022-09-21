@@ -19,11 +19,16 @@
                                 "heat_auto_swapped": "Wenn das Thermostat den modus auto als heizen und heizen als boost benutzt, kann es getauscht werden (für Google Home nutzer)",
                                 "child_lock": "Ignoriere alle manuellen einstellungen am realen Thermostat (Kindersicherung)"
                             }
+                    },
+                    "confirm": {
+                        "title": "Bestätige das hinzufügen eines Better Thermostat",
+                        "description": "Du bist dabei ein Gerät mit dem Namen `{name}` zu Home Assistant hinzuzufügen.\nMit {trv} als reales Thermostat\nund dem Kalibrations-modus: {calibration_mode}\n\n**Wenn du mehr infos brauchst: https://bt.t-haber.de/setup** "
                     }
             },
             "error": {
                     "failed": "Ups, hier stimmt was nicht.",
-                    "no_name": "Du musst einen Namen vergeben."
+                    "no_name": "Du musst einen Namen vergeben.",
+                    "no_off_mode": "Dein Gerät ist ein sonderfall, es hat keinen OFF Modus :(\nBetter Thermostat wird trozdem funktionieren, aber du musst eine automation anlegen die den off modus abfängt."
             },
             "abort": {
                     "single_instance_allowed": "Only a single Thermostat for each real is allowed.",

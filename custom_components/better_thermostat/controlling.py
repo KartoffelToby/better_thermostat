@@ -1,7 +1,7 @@
 import asyncio
 import logging
 from .events.trv import convert_outbound_states
-
+from datetime import datetime
 from homeassistant.components.climate.const import (
     HVAC_MODE_HEAT,
     HVAC_MODE_OFF,
@@ -214,6 +214,13 @@ async def set_trv_values(self, key, value, hvac_mode=None):
     None
     """
 
+    if hvac_mode is HVAC_MODE_OFF:
+        if HVAC_MODE_OFF not in self._TRV_SUPPORTED_HVAC_MODES:
+            _LOGGER.debug(
+                f"better_thermostat {self.name}: set_trv_values: TRV does not support hvac_mode off, sending just heat"
+            )
+            hvac_mode = HVAC_MODE_HEAT
+
     if key == "temperature":
         if hvac_mode is None:
             _LOGGER.error(
@@ -271,6 +278,7 @@ async def set_trv_values(self, key, value, hvac_mode=None):
     _LOGGER.info(
         "better_thermostat %s: send new %s to TRV, value: '%s'", self.name, key, value
     )
+    self.last_change = datetime.now()
     await asyncio.sleep(5)
 
 
