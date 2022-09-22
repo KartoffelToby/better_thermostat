@@ -5,6 +5,8 @@ import logging
 from abc import ABC
 from datetime import datetime, timedelta
 from random import randint
+
+from custom_components.better_thermostat.weather import check_ambient_air_temperature
 from .helpers import convert_to_float
 from homeassistant.helpers import entity_platform
 
@@ -24,7 +26,10 @@ from homeassistant.const import (
     STATE_UNKNOWN,
 )
 from homeassistant.core import callback, CoreState
-from homeassistant.helpers.event import async_track_state_change_event
+from homeassistant.helpers.event import (
+    async_track_state_change_event,
+    async_track_time_change,
+)
 from homeassistant.helpers.restore_state import RestoreEntity
 
 from . import DOMAIN
@@ -57,7 +62,6 @@ from .const import (
 
 from .controlling import control_queue, set_hvac_mode, set_target_temperature
 from .events.temperature import trigger_temperature_change
-from .events.time import trigger_time
 from .events.trv import trigger_trv_change
 from .events.window import trigger_window_change, window_queue
 
@@ -230,6 +234,7 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
         self._saved_temperature = None
         self._last_reported_valve_position_update_wait_lock = asyncio.Lock()
         self._last_send_target_temp = None
+        self._last_avg_outdoor_temp = None
         self.control_queue_task = asyncio.Queue()
         if self.window_id is not None:
             self.window_queue_task = asyncio.Queue()
@@ -257,6 +262,8 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
             self.calibration_type = 1
 
         # Add listener
+        if self.outdoor_sensor is not None:
+            async_track_time_change(self.hass, self._trigger_time, 5, 0, 0)
         async_track_state_change_event(
             self.hass, [self.sensor_entity_id], self._trigger_temperature_change
         )
@@ -287,8 +294,12 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
         else:
             self.hass.bus.async_listen_once(EVENT_HOMEASSISTANT_START, _async_startup)
 
-    async def _trigger_time(self, event):
-        await trigger_time(self, event)
+    async def _trigger_time(self, event=None):
+        _LOGGER.debug("better_thermostat %s: get last avg outdoor temps...", self.name)
+        await check_ambient_air_temperature(self)
+        if event is not None:
+            self.async_write_ha_state()
+            await self.control_queue_task.put(self)
 
     async def _trigger_temperature_change(self, event):
         await trigger_temperature_change(self, event)
@@ -350,7 +361,6 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
                     or trv_state.attributes.get("current_heating_setpoint")
                     or 5
                 )
-                self._bt_hvac_mode = trv_state.state
                 self._trv_hvac_mode = trv_state.state
                 self._last_reported_valve_position = (
                     trv_state.attributes.get("valve_position", None) or None
@@ -469,6 +479,7 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
                     )
                     self._bt_hvac_mode = HVAC_MODE_OFF
                 self._last_window_state = self.window_open
+            await self._trigger_time()
 
             self.async_write_ha_state()
             _LOGGER.info("better_thermostat %s: startup completed.", self.name)
