@@ -22,7 +22,7 @@
                     },
                     "confirm": {
                         "title": "Confirm adding a Better Thermostat",
-                        "description": "You are about to add `{name}` to Home Assistant.\nWith {trv} as the real Thermostat\nand calibration mode: {calibration_mode}\n\n**If you need more info: https://bt.t-haber.de/setup** "
+                        "description": "You are about to add `{name}` to Home Assistant.\nWith {trv} as the real Thermostat\nand calibration mode: {calibration_mode}\n\n**If you need more info: https://better-thermostat.org/configuration/new_device** "
                     }
             },
             "error": {

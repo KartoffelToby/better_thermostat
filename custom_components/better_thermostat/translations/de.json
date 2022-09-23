@@ -22,7 +22,7 @@
                     },
                     "confirm": {
                         "title": "Bestätige das hinzufügen eines Better Thermostat",
-                        "description": "Du bist dabei ein Gerät mit dem Namen `{name}` zu Home Assistant hinzuzufügen.\nMit {trv} als reales Thermostat\nund dem Kalibrations-modus: {calibration_mode}\n\n**Wenn du mehr infos brauchst: https://bt.t-haber.de/setup** "
+                        "description": "Du bist dabei ein Gerät mit dem Namen `{name}` zu Home Assistant hinzuzufügen.\nMit {trv} als reales Thermostat\nund dem Kalibrations-modus: {calibration_mode}\n\n**Wenn du mehr infos brauchst: https://better-thermostat.org/configuration/new_device** "
                     }
             },
             "error": {

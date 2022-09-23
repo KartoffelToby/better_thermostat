@@ -7,7 +7,7 @@ from datetime import datetime, timedelta
 from random import randint
 
 from custom_components.better_thermostat.weather import check_ambient_air_temperature
-from .helpers import convert_to_float
+from .helpers import convert_to_float, mode_remap
 from homeassistant.helpers import entity_platform
 
 from homeassistant.components.climate import ClimateEntity
@@ -362,6 +362,7 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
                     or 5
                 )
                 self._trv_hvac_mode = trv_state.state
+                self._bt_hvac_mode = mode_remap(self._trv_hvac_mode, True)
                 self._last_reported_valve_position = (
                     trv_state.attributes.get("valve_position", None) or None
                 )
