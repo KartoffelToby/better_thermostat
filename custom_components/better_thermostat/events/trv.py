@@ -1,6 +1,6 @@
 import logging
 from typing import Union
-from datetime import timedelta
+from datetime import datetime, timedelta
 from homeassistant.components.climate.const import HVAC_MODE_HEAT, HVAC_MODE_OFF
 from homeassistant.core import callback, State
 
@@ -31,6 +31,7 @@ async def trigger_trv_change(self, event):
     None
     """
     _updated_needed = False
+    child_lock = False
     if self.startup_running:
         _LOGGER.debug(
             f"better_thermostat {self.name}: skipping trigger_trv_change because startup is running"
@@ -80,6 +81,29 @@ async def trigger_trv_change(self, event):
     if self._trv_hvac_mode == HVAC_MODE_OFF:
         return
 
+    if self._TRV_current_temp != new_state.attributes.get("current_temperature"):
+        self._TRV_current_temp = convert_to_float(
+            new_state.attributes.get("current_temperature"),
+            self.name,
+            "TRV_current_temp",
+        )
+        if (
+            self.homaticip
+            and (self.last_change + timedelta(hours=1)).timestamp()
+            > datetime.now().timestamp()
+        ):
+            _LOGGER.info(
+                f"better_thermostat {self.name}: skip sending new calculation based on internal temp to TRV because of homaticip throttling"
+            )
+            _updated_needed = False
+        else:
+            _updated_needed = True
+            if self.child_lock:
+                child_lock = True
+
+    if not self.homaticip and self.child_lock:
+        child_lock = True
+
     _new_heating_setpoint = convert_to_float(
         new_state.attributes.get("current_heating_setpoint")
         or new_state.attributes.get("temperature"),
@@ -111,19 +135,12 @@ async def trigger_trv_change(self, event):
     if (
         self._target_temp != _new_heating_setpoint
         and not self.child_lock
-        and (
-            self._last_send_target_temp != _new_heating_setpoint
-            or self.last_change < timedelta(seconds=-10)
-        )
+        and self._last_send_target_temp != _new_heating_setpoint
     ):
         self._target_temp = _new_heating_setpoint
         _updated_needed = True
 
-    if self._TRV_current_temp != new_state.attributes.get("current_temperature"):
-        self._TRV_current_temp = new_state.attributes.get("current_temperature")
-        _updated_needed = True
-
-    if _updated_needed or self.child_lock:
+    if _updated_needed or child_lock:
         self.async_write_ha_state()
         # make sure we only update the latest user interaction
         try:

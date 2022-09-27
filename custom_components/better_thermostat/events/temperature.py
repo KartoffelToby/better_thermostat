@@ -1,3 +1,4 @@
+from datetime import datetime, timedelta
 import logging
 
 from homeassistant.const import STATE_UNAVAILABLE, STATE_UNKNOWN
@@ -27,6 +28,20 @@ async def trigger_temperature_change(self, event):
     new_state = event.data.get("new_state")
     if new_state is None or new_state.state in (STATE_UNAVAILABLE, STATE_UNKNOWN):
         return
+
+    if self.homaticip:
+        if (
+            self._cur_temp is float(new_state.state)
+            or ((float(self._cur_temp) - float(new_state.state)) < 1.0)
+            or (self.last_change + timedelta(minutes=30)).timestamp()
+            > datetime.now().timestamp()
+        ):
+            _async_update_temp(self, new_state)
+            self.async_write_ha_state()
+            _LOGGER.info(
+                f"better_thermostat {self.name}: skip sending new external temp to TRV because of homaticip throttling"
+            )
+            return
 
     _async_update_temp(self, new_state)
     self.async_write_ha_state()

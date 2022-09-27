@@ -4,14 +4,19 @@ import logging
 import voluptuous as vol
 from collections import OrderedDict
 
-from .helpers import get_device_model
+from .helpers import (
+    find_local_calibration_entity,
+    get_device_model,
+    get_trv_intigration,
+)
 
 from .const import (
     CONF_CALIBRATIION_ROUND,
+    CONF_CALIBRATION,
     CONF_CHILD_LOCK,
     CONF_HEAT_AUTO_SWAPPED,
     CONF_HEATER,
-    CONF_LOCAL_CALIBRATION,
+    CONF_HOMATICIP,
     CONF_MODEL,
     CONF_OFF_TEMPERATURE,
     CONF_OUTDOOR_SENSOR,
@@ -44,6 +49,7 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         self.model = None
         self.heater_entity_id = None
         self._config = None
+        self._intigration = None
 
     @staticmethod
     @callback
@@ -57,7 +63,6 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     async def async_step_confirm(self, user_input=None, confirm_type=None):
         """Handle user-confirmation of discovered node."""
         errors = {}
-        calibration_mode = "target_temp_based"
         _LOGGER.debug(user_input)
         if user_input is not None:
             _LOGGER.debug(self.data)
@@ -66,16 +71,77 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 return self.async_create_entry(title=self.data["name"], data=self.data)
         if confirm_type is not None:
             errors["base"] = confirm_type
-        if self.data[CONF_LOCAL_CALIBRATION] is not None:
-            calibration_mode = "local_calibration_based"
+
         return self.async_show_form(
             step_id="confirm",
             errors=errors,
             description_placeholders={
                 "name": self.data[CONF_NAME],
                 "trv": self.data[CONF_HEATER],
-                "calibration_mode": calibration_mode,
+                "calibration_mode": self.data[CONF_CALIBRATION],
             },
+        )
+
+    async def async_step_advanced(self, user_input=None):
+        """Handle options flow."""
+        if user_input is not None:
+            self.data = self.data | user_input
+            trv = self.hass.states.get(self.heater_entity_id)
+            if HVAC_MODE_OFF not in trv.attributes.get("hvac_modes"):
+                return await self.async_step_confirm(None, "no_off_mode")
+            return await self.async_step_confirm()
+
+        user_input = user_input or {}
+        homematic = False
+        calibration = {"target_temp_based": "Target Temperature"}
+        default_calibration = "target_temp_based"
+        if self._intigration.find("homematic") != -1:
+            homematic = True
+
+        if self._intigration.find("mqtt") != -1:
+            if (await find_local_calibration_entity(self)) is not None:
+                calibration["local_calibration_based"] = "Local Calibration"
+                default_calibration = "local_calibration_based"
+
+        fields = OrderedDict()
+        fields[
+            vol.Optional(
+                CONF_CALIBRATIION_ROUND,
+                default=user_input.get(CONF_CALIBRATIION_ROUND, True),
+            )
+        ] = bool
+        fields[
+            vol.Optional(
+                CONF_VALVE_MAINTENANCE,
+                default=user_input.get(CONF_VALVE_MAINTENANCE, False),
+            )
+        ] = bool
+        fields[
+            vol.Optional(
+                CONF_HEAT_AUTO_SWAPPED,
+                default=user_input.get(CONF_HEAT_AUTO_SWAPPED, False),
+            )
+        ] = bool
+        fields[
+            vol.Optional(
+                CONF_CHILD_LOCK, default=user_input.get(CONF_CHILD_LOCK, False)
+            )
+        ] = bool
+        fields[
+            vol.Optional(
+                CONF_HOMATICIP, default=user_input.get(CONF_HOMATICIP, homematic)
+            )
+        ] = bool
+
+        fields[
+            vol.Required(
+                CONF_CALIBRATION,
+                default=user_input.get(CONF_CALIBRATION, default_calibration),
+            )
+        ] = vol.In(calibration)
+
+        return self.async_show_form(
+            step_id="advanced", data_schema=vol.Schema(fields), last_step=False
         )
 
     async def async_step_user(self, user_input=None):
@@ -86,22 +152,16 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             self.heater_entity_id = self.data[CONF_HEATER]
             if self.data[CONF_NAME] == "":
                 return self.async_error(reason="no_name")
-
-            trv = self.hass.states.get(self.heater_entity_id)
-
             if CONF_SENSOR_WINDOW not in self.data:
                 self.data[CONF_SENSOR_WINDOW] = None
-            if CONF_LOCAL_CALIBRATION not in self.data:
-                self.data[CONF_LOCAL_CALIBRATION] = None
             if CONF_OUTDOOR_SENSOR not in self.data:
                 self.data[CONF_OUTDOOR_SENSOR] = None
             if CONF_WEATHER not in self.data:
                 self.data[CONF_WEATHER] = None
+            self._intigration = await get_trv_intigration(self)
             device_model = await get_device_model(self)
             self.data[CONF_MODEL] = device_model or "generic"
-            if HVAC_MODE_OFF not in trv.attributes.get("hvac_modes"):
-                return await self.async_step_confirm(None, "no_off_mode")
-            return await self.async_step_confirm()
+            return await self.async_step_advanced()
 
         errors = {}
         user_input = user_input or {}
@@ -113,11 +173,6 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                     vol.Optional(CONF_NAME, default=user_input.get(CONF_NAME, "")): str,
                     vol.Required(CONF_HEATER): selector.EntitySelector(
                         selector.EntitySelectorConfig(domain="climate", multiple=False)
-                    ),
-                    vol.Optional(CONF_LOCAL_CALIBRATION): selector.EntitySelector(
-                        selector.EntitySelectorConfig(
-                            domain=["number", "input_number"], multiple=False
-                        )
                     ),
                     vol.Required(CONF_SENSOR): selector.EntitySelector(
                         selector.EntitySelectorConfig(
@@ -151,24 +206,10 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                         CONF_OFF_TEMPERATURE,
                         default=user_input.get(CONF_OFF_TEMPERATURE, 20),
                     ): int,
-                    vol.Optional(
-                        CONF_CALIBRATIION_ROUND,
-                        default=user_input.get(CONF_CALIBRATIION_ROUND, True),
-                    ): bool,
-                    vol.Optional(
-                        CONF_VALVE_MAINTENANCE,
-                        default=user_input.get(CONF_VALVE_MAINTENANCE, False),
-                    ): bool,
-                    vol.Optional(
-                        CONF_HEAT_AUTO_SWAPPED,
-                        default=user_input.get(CONF_HEAT_AUTO_SWAPPED, False),
-                    ): bool,
-                    vol.Optional(
-                        CONF_CHILD_LOCK, default=user_input.get(CONF_CHILD_LOCK, False)
-                    ): bool,
                 }
             ),
             errors=errors,
+            last_step=False,
         )
 
 
@@ -189,9 +230,7 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
         if user_input is not None:
             current_config = self.config_entry.data
             self.updated_config = dict(current_config)
-            self.updated_config[CONF_LOCAL_CALIBRATION] = user_input.get(
-                CONF_LOCAL_CALIBRATION, None
-            )
+            self.updated_config[CONF_SENSOR] = user_input.get(CONF_SENSOR, None)
             self.updated_config[CONF_SENSOR_WINDOW] = user_input.get(
                 CONF_SENSOR_WINDOW, None
             )
@@ -215,6 +254,7 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
                 CONF_HEAT_AUTO_SWAPPED
             )
             self.updated_config[CONF_CHILD_LOCK] = user_input.get(CONF_CHILD_LOCK)
+            self.updated_config[CONF_HOMATICIP] = user_input.get(CONF_HOMATICIP)
 
             _LOGGER.debug("Updated config: %s", self.updated_config)
 
@@ -223,20 +263,27 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
             )
             return self.async_create_entry(title="", data=None)
 
+        calibration = {"target_temp_based": "Target Temperature"}
+        default_calibration = "target_temp_based"
+        self.heater_entity_id = self.config_entry.data.get(CONF_HEATER, "")
+        self._intigration = await get_trv_intigration(self)
+        if self._intigration.find("mqtt") != -1:
+            if (await find_local_calibration_entity(self)) is not None:
+                calibration["local_calibration_based"] = "Local Calibration"
+                default_calibration = "local_calibration_based"
+
         fields = OrderedDict()
 
         fields[
             vol.Optional(
-                CONF_LOCAL_CALIBRATION,
+                CONF_SENSOR,
                 description={
-                    "suggested_value": self.config_entry.data.get(
-                        CONF_LOCAL_CALIBRATION, ""
-                    )
+                    "suggested_value": self.config_entry.data.get(CONF_SENSOR, "")
                 },
             )
         ] = selector.EntitySelector(
             selector.EntitySelectorConfig(
-                domain=["number", "input_number"], multiple=False
+                domain=["sensor", "number", "input_number"], multiple=False
             )
         )
 
@@ -323,5 +370,21 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
                 default=self.config_entry.data.get(CONF_CHILD_LOCK, False),
             )
         ] = bool
+
+        fields[
+            vol.Optional(
+                CONF_HOMATICIP,
+                default=self.config_entry.data.get(CONF_HOMATICIP, False),
+            )
+        ] = bool
+
+        fields[
+            vol.Required(
+                CONF_CALIBRATION,
+                default=self.config_entry.data.get(
+                    CONF_CALIBRATION, default_calibration
+                ),
+            )
+        ] = vol.In(calibration)
 
         return self.async_show_form(step_id="user", data_schema=vol.Schema(fields))

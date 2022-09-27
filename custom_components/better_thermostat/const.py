@@ -40,12 +40,12 @@ CONF_NIGHT_END = "night_end"
 CONF_MIN_TEMP = "min_temp"
 CONF_MAX_TEMP = "max_temp"
 CONF_PRECISION = "precision"
-CONF_LOCAL_CALIBRATION = "local_calibration"
+CONF_CALIBRATION = "calibration"
 CONF_CHILD_LOCK = "child_lock"
 CONF_CALIBRATIION_ROUND = "calibration_round"
 CONF_HEAT_AUTO_SWAPPED = "heat_auto_swapped"
 CONF_MODEL = "model"
-
+CONF_HOMATICIP = "homaticip"
 SUPPORT_FLAGS = SUPPORT_TARGET_TEMPERATURE
 
 ATTR_STATE_WINDOW_OPEN = "window_open"

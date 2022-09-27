@@ -1,7 +1,7 @@
 import asyncio
 import logging
 from .events.trv import convert_outbound_states
-from datetime import datetime
+from datetime import datetime, timedelta
 from homeassistant.components.climate.const import (
     HVAC_MODE_HEAT,
     HVAC_MODE_OFF,
@@ -154,6 +154,16 @@ async def set_target_temperature(self, **kwargs):
     -------
     None
     """
+    if (
+        self.homaticip
+        and (self.last_change + timedelta(seconds=10)).timestamp()
+        > datetime.now().timestamp()
+    ):
+        _LOGGER.info(
+            f"better_thermostat {self.name}: skip controlling.set_target_temperature because of homaticip throttling"
+        )
+        return
+
     _new_setpoint = convert_to_float(
         kwargs.get(ATTR_TEMPERATURE), self.name, "controlling.set_target_temperature()"
     )
@@ -184,6 +194,15 @@ async def set_hvac_mode(self, hvac_mode):
     -------
     None
     """
+    if (
+        self.homaticip
+        and (self.last_change + timedelta(seconds=10)).timestamp()
+        > datetime.now().timestamp()
+    ):
+        _LOGGER.info(
+            f"better_thermostat {self.name}: skip controlling.set_hvac_mode because of homaticip throttling"
+        )
+        return
     if hvac_mode in (HVAC_MODE_HEAT, HVAC_MODE_OFF):
         _LOGGER.info(
             f"better_thermostat {self.name}: received new HVAC mode {hvac_mode} from HA"
@@ -229,11 +248,7 @@ async def set_trv_values(self, key, value, hvac_mode=None):
         await self.hass.services.async_call(
             "climate",
             "set_temperature",
-            {
-                "entity_id": self.heater_entity_id,
-                "temperature": value,
-                "hvac_mode": hvac_mode,
-            },
+            {"entity_id": self.heater_entity_id, "temperature": value},
             blocking=True,
         )
     elif key == "hvac_mode":

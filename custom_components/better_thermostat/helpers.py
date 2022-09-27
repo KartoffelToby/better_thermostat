@@ -4,6 +4,7 @@ import logging
 from datetime import datetime
 from typing import Union
 from homeassistant.helpers import device_registry as dr, entity_registry as er
+from homeassistant.helpers.entity_registry import async_entries_for_config_entry
 
 from homeassistant.components.climate.const import HVAC_MODE_AUTO, HVAC_MODE_HEAT
 
@@ -274,6 +275,67 @@ def convert_time(time_string):
         return None
 
 
+async def find_local_calibration_entity(self):
+    """Find the local calibration entity for the TRV.
+
+    This is a hacky way to find the local calibration entity for the TRV. It is not possible to find the entity
+    automatically, because the entity_id is not the same as the friendly_name. The friendly_name is the same for all
+    thermostats of the same brand, but the entity_id is different.
+
+    Parameters
+    ----------
+    self :
+            self instance of better_thermostat
+
+    Returns
+    -------
+    str
+            the entity_id of the local calibration entity
+    None
+            if no local calibration entity was found
+    """
+    entity_registry = er.async_get(self.hass)
+    reg_entity = entity_registry.async_get(self.heater_entity_id)
+    entity_entries = async_entries_for_config_entry(
+        entity_registry, reg_entity.config_entry_id
+    )
+    for entity in entity_entries:
+        uid = entity.unique_id
+        # Make sure we use the correct device entities
+        if entity.device_id == reg_entity.device_id:
+            if "local_temperature_calibration" in uid:
+                _LOGGER.debug(
+                    f"better thermostat {self.name}: Found local calibration entity {entity.entity_id}"
+                )
+                return entity.entity_id
+
+    _LOGGER.debug(
+        f"better thermostat {self.name}: Could not find local calibration entity"
+    )
+    return None
+
+
+async def get_trv_intigration(self):
+    """Get the integration of the TRV.
+
+    Parameters
+    ----------
+    self :
+            self instance of better_thermostat
+
+    Returns
+    -------
+    str
+            the integration of the TRV
+    """
+    entity_reg = er.async_get(self.hass)
+    entry = entity_reg.async_get(self.heater_entity_id)
+    try:
+        return entry.platform
+    except AttributeError:
+        return None
+
+
 async def get_device_model(self):
     """Fetches the device model from HA.
     Parameters
@@ -287,9 +349,9 @@ async def get_device_model(self):
     """
     if self.model is None:
         try:
-            entity_reg = await er.async_get(self.hass)
+            entity_reg = er.async_get(self.hass)
             entry = entity_reg.async_get(self.heater_entity_id)
-            dev_reg = await dr.async_get(self.hass)
+            dev_reg = dr.async_get(self.hass)
             device = dev_reg.async_get(entry.device_id)
             _LOGGER.debug(f"better_thermostat {self.name}: found device:")
             _LOGGER.debug(device)

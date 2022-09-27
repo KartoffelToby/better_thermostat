@@ -7,7 +7,7 @@ from datetime import datetime, timedelta
 from random import randint
 
 from custom_components.better_thermostat.weather import check_ambient_air_temperature
-from .helpers import convert_to_float, mode_remap
+from .helpers import convert_to_float, find_local_calibration_entity, mode_remap
 from homeassistant.helpers import entity_platform
 
 from homeassistant.components.climate import ClimateEntity
@@ -40,10 +40,11 @@ from .const import (
     ATTR_STATE_DAY_SET_TEMP,
     ATTR_STATE_SAVED_TEMPERATURE,
     CONF_CALIBRATIION_ROUND,
+    CONF_CALIBRATION,
     CONF_CHILD_LOCK,
     CONF_HEAT_AUTO_SWAPPED,
     CONF_HEATER,
-    CONF_LOCAL_CALIBRATION,
+    CONF_HOMATICIP,
     CONF_MODEL,
     CONF_OFF_TEMPERATURE,
     CONF_OUTDOOR_SENSOR,
@@ -104,11 +105,12 @@ async def async_setup_entry(hass, entry, async_add_devices):
                 entry.data[CONF_OUTDOOR_SENSOR] or None,
                 entry.data[CONF_OFF_TEMPERATURE],
                 entry.data[CONF_VALVE_MAINTENANCE],
-                entry.data[CONF_LOCAL_CALIBRATION] or None,
+                entry.data[CONF_CALIBRATION],
                 entry.data[CONF_MODEL],
                 entry.data[CONF_CALIBRATIION_ROUND],
                 entry.data[CONF_HEAT_AUTO_SWAPPED],
                 entry.data[CONF_CHILD_LOCK],
+                entry.data[CONF_HOMATICIP] or False,
                 hass.config.units.temperature_unit,
                 entry.entry_id,
                 device_class="better_thermostat",
@@ -163,11 +165,12 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
         outdoor_sensor,
         off_temperature,
         valve_maintenance,
-        local_calibration,
+        calibration,
         model,
         calibration_round,
         heat_auto_swapped,
         child_lock,
+        homaticip,
         unit,
         unique_id,
         device_class,
@@ -191,13 +194,14 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
         self.model = model
         self._unique_id = unique_id
         self._unit = unit
-        self.local_temperature_calibration_entity = local_calibration or None
+        self._calibration = calibration
+        self.local_temperature_calibration_entity = None
         self._device_class = device_class
         self._state_class = state_class
         self.calibration_round = calibration_round
         self.heat_auto_swapped = heat_auto_swapped
         self.child_lock = child_lock
-
+        self.homaticip = homaticip
         self._hvac_list = [HVAC_MODE_HEAT, HVAC_MODE_OFF]
         self.next_valve_maintenance = datetime.now() + timedelta(
             hours=randint(1, 24 * 5)
@@ -207,7 +211,7 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
         self.window_open = None
         self._target_temp_step = 1
         self._TRV_target_temp_step = 0.5
-        self.calibration_type = 0
+        self.calibration_type = 1
         self._min_temp = 0
         self._max_temp = 30
         self._TRV_min_temp = 0
@@ -225,7 +229,7 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
         self.last_dampening_timestamp = None
         self.valve_position_entity = None
         self.version = VERSION
-        self.last_change = None
+        self.last_change = datetime.now() - timedelta(hours=2)
         self._last_window_state = None
         self._temp_lock = asyncio.Lock()
         self._last_reported_valve_position = None
@@ -253,14 +257,19 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
         await super().async_added_to_hass()
 
         _LOGGER.info(
-            "better_thermostat %s: calientity %s Waiting for entity to be ready...",
-            self.name,
-            self.local_temperature_calibration_entity,
+            "better_thermostat %s: Waiting for entity to be ready...", self.name
         )
 
-        if self.local_temperature_calibration_entity is None:
-            self.calibration_type = 1
-
+        if self._calibration == "local_calibration_based":
+            self.calibration_type = 0
+            self.local_temperature_calibration_entity = (
+                await find_local_calibration_entity(self)
+            )
+            _LOGGER.info(
+                "better_thermostat %s: uses local calibration entity %s",
+                self.name,
+                self.local_temperature_calibration_entity,
+            )
         # Add listener
         if self.outdoor_sensor is not None:
             async_track_time_change(self.hass, self._trigger_time, 5, 0, 0)
@@ -362,7 +371,6 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
                     or 5
                 )
                 self._trv_hvac_mode = trv_state.state
-                self._bt_hvac_mode = mode_remap(self._trv_hvac_mode, True)
                 self._last_reported_valve_position = (
                     trv_state.attributes.get("valve_position", None) or None
                 )
@@ -448,7 +456,7 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
                             ATTR_STATE_LAST_CHANGE
                         )
                     else:
-                        self.last_change = HVAC_MODE_OFF
+                        self.last_change = datetime.now()
                     if (
                         not old_state.attributes.get(ATTR_STATE_WINDOW_OPEN)
                         and self.window_id is not None
@@ -478,7 +486,7 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
                         "better_thermostat %s: No previously hvac mode found on startup, turn heat off",
                         self.name,
                     )
-                    self._bt_hvac_mode = HVAC_MODE_OFF
+                    self._bt_hvac_mode = mode_remap(self._trv_hvac_mode, True)
                 self._last_window_state = self.window_open
             await self._trigger_time()
 
