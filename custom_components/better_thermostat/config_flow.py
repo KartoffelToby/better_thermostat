@@ -104,6 +104,14 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 default_calibration = "local_calibration_based"
 
         fields = OrderedDict()
+
+        fields[
+            vol.Required(
+                CONF_CALIBRATION,
+                default=user_input.get(CONF_CALIBRATION, default_calibration),
+            )
+        ] = vol.In(calibration)
+
         fields[
             vol.Optional(
                 CONF_CALIBRATIION_ROUND,
@@ -132,13 +140,6 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 CONF_HOMATICIP, default=user_input.get(CONF_HOMATICIP, homematic)
             )
         ] = bool
-
-        fields[
-            vol.Required(
-                CONF_CALIBRATION,
-                default=user_input.get(CONF_CALIBRATION, default_calibration),
-            )
-        ] = vol.In(calibration)
 
         return self.async_show_form(
             step_id="advanced", data_schema=vol.Schema(fields), last_step=False
