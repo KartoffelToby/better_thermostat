@@ -3,7 +3,7 @@
     "config": {
             "step": {
                     "user": {
-                            "description": "Einrichtung von Better Thermostat mit Home Assistant",
+                            "description": "Einrichtung von Better Thermostat mit Home Assistant\n**Für mehr infos: https://better-thermostat.org/configuration/new_device** ",
                             "data": {
                                 "name": "Name",
                                 "thermostat": "Das reale Thermostat",
@@ -28,7 +28,7 @@
                     },
                     "confirm": {
                         "title": "Bestätige das hinzufügen eines Better Thermostat",
-                        "description": "Du bist dabei ein Gerät mit dem Namen `{name}` zu Home Assistant hinzuzufügen.\nMit {trv} als reales Thermostat\nund dem Kalibrations-modus: {calibration_mode}\n\n**Wenn du mehr infos brauchst: https://better-thermostat.org/configuration/new_device** "
+                        "description": "Du bist dabei ein Gerät mit dem Namen `{name}` zu Home Assistant hinzuzufügen.\nMit {trv} als reales Thermostat\nund dem Kalibrations-modus: {calibration_mode}"
                     }
             },
             "error": {

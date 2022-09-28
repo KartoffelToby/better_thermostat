@@ -176,12 +176,16 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                     ),
                     vol.Required(CONF_SENSOR): selector.EntitySelector(
                         selector.EntitySelectorConfig(
-                            domain=["sensor", "number", "input_number"], multiple=False
+                            domain=["sensor", "number", "input_number"],
+                            device_class="temperature",
+                            multiple=False,
                         )
                     ),
                     vol.Optional(CONF_OUTDOOR_SENSOR): selector.EntitySelector(
                         selector.EntitySelectorConfig(
-                            domain=["sensor", "input_number", "number"], multiple=False
+                            domain=["sensor", "input_number", "number"],
+                            device_class="temperature",
+                            multiple=False,
                         )
                     ),
                     vol.Optional(CONF_SENSOR_WINDOW): selector.EntitySelector(
@@ -283,7 +287,9 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
             )
         ] = selector.EntitySelector(
             selector.EntitySelectorConfig(
-                domain=["sensor", "number", "input_number"], multiple=False
+                domain=["sensor", "number", "input_number"],
+                device_class="temperature",
+                multiple=False,
             )
         )
 
@@ -314,7 +320,9 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
             )
         ] = selector.EntitySelector(
             selector.EntitySelectorConfig(
-                domain=["sensor", "input_number", "number"], multiple=False
+                domain=["sensor", "input_number", "number"],
+                device_class="temperature",
+                multiple=False,
             )
         )
 

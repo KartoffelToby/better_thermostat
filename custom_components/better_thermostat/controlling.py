@@ -30,6 +30,10 @@ async def control_queue(self):
     while True:
         controls_to_process = await self.control_queue_task.get()
         if controls_to_process is not None:
+            if self.ignore_states:
+                await asyncio.sleep(1)
+                continue
+
             _LOGGER.debug(f"better_thermostat {self.name}: processing controls")
             await control_trv(controls_to_process)
             self.control_queue_task.task_done()
