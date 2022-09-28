@@ -333,7 +333,7 @@ async def get_trv_intigration(self):
     try:
         return entry.platform
     except AttributeError:
-        return None
+        return "generic_thermostat"
 
 
 async def get_device_model(self):
