@@ -1,0 +1,65 @@
+blueprint:
+  name: BT Night mode
+  description: Set BT Thermostats to night mode if Schedule event is active.
+  domain: automation
+  source_url: https://github.com/KartoffelToby/better_thermostat/tree/master/blueprints/night_mode.yaml
+  input:
+    night_times_schedule:
+      name: Schedule helper
+      selector:
+        target:
+          entity:
+            domain: schedule
+          device:
+            integration: schedule
+
+    thermostat_target:
+      name: Thermostats
+      selector:
+        target:
+          device:
+            integration: better_thermostat
+          entity:
+            integration: better_thermostat
+            domain: climate
+
+    night_temp:
+      name: Night Temperature
+      description: The target temperature at night
+      default: 18
+      selector:
+        number:
+          min: 5
+          max: 35
+          unit_of_measurement: °C
+
+
+mode: queued
+max_exceeded: silent
+
+trigger:
+  - platform: state
+    entity_id:
+      - !input night_times_schedule
+    from: "on"
+    to: "off"
+  - platform: state
+    entity_id:
+      - !input night_times_schedule
+    from: "off"
+    to: "on"
+condition: []
+action:
+  - if:
+      - condition: state
+        entity_id: !input night_times_schedule
+        state: "on"
+    then:
+      - service: better_thermostat.set_temp_target_temperature
+        data:
+          temperature: !input night_temp
+        target: !input thermostat_target
+    else:
+      - service: better_thermostat.restore_saved_target_temperature
+        data: {}
+        target: !input thermostat_target

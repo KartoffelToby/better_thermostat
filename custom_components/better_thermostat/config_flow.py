@@ -258,6 +258,7 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
             self.updated_config[CONF_HEAT_AUTO_SWAPPED] = user_input.get(
                 CONF_HEAT_AUTO_SWAPPED
             )
+            self.updated_config[CONF_CALIBRATION] = user_input.get(CONF_CALIBRATION)
             self.updated_config[CONF_CHILD_LOCK] = user_input.get(CONF_CHILD_LOCK)
             self.updated_config[CONF_HOMATICIP] = user_input.get(CONF_HOMATICIP)
 
@@ -278,6 +279,15 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
                 default_calibration = "local_calibration_based"
 
         fields = OrderedDict()
+
+        fields[
+            vol.Required(
+                CONF_CALIBRATION,
+                default=self.config_entry.data.get(
+                    CONF_CALIBRATION, default_calibration
+                ),
+            )
+        ] = vol.In(calibration)
 
         fields[
             vol.Optional(
@@ -386,14 +396,5 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
                 default=self.config_entry.data.get(CONF_HOMATICIP, False),
             )
         ] = bool
-
-        fields[
-            vol.Required(
-                CONF_CALIBRATION,
-                default=self.config_entry.data.get(
-                    CONF_CALIBRATION, default_calibration
-                ),
-            )
-        ] = vol.In(calibration)
 
         return self.async_show_form(step_id="user", data_schema=vol.Schema(fields))

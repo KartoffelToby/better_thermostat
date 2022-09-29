@@ -305,12 +305,12 @@ async def find_local_calibration_entity(self):
         if entity.device_id == reg_entity.device_id:
             if "local_temperature_calibration" in uid:
                 _LOGGER.debug(
-                    f"better thermostat {self.name}: Found local calibration entity {entity.entity_id}"
+                    f"better thermostat: Found local calibration entity {entity.entity_id} for {self.heater_entity_id}"
                 )
                 return entity.entity_id
 
     _LOGGER.debug(
-        f"better thermostat {self.name}: Could not find local calibration entity"
+        f"better thermostat: Could not find local calibration entity for {self.heater_entity_id}"
     )
     return None
 

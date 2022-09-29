@@ -150,7 +150,7 @@ async def check_ambient_air_temperature(self):
         return None
 
     if invalid_sensor_data_count:
-        _LOGGER.warning(
+        _LOGGER.debug(
             f"better_thermostat {self.name}: ignored {invalid_sensor_data_count} invalid outdoor sensor data entries."
         )
 

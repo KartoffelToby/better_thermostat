@@ -7,3 +7,5 @@ permalink: configuration
 ---
 
 # Configuration
+
+WIP

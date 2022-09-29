@@ -357,6 +357,34 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
                     await asyncio.sleep(10)
                     continue
 
+            if self.outdoor_sensor is not None:
+                if self.hass.states.get(self.outdoor_sensor).state in (
+                    STATE_UNAVAILABLE,
+                    STATE_UNKNOWN,
+                    None,
+                ):
+                    _LOGGER.info(
+                        "better_thermostat %s: waiting for outdoor sensor entity with id '%s' to become fully available...",
+                        self.name,
+                        self.outdoor_sensor,
+                    )
+                    await asyncio.sleep(10)
+                    continue
+
+            if self.weather_entity is not None:
+                if self.hass.states.get(self.weather_entity).state in (
+                    STATE_UNAVAILABLE,
+                    STATE_UNKNOWN,
+                    None,
+                ):
+                    _LOGGER.info(
+                        "better_thermostat %s: waiting for weather entity with id '%s' to become fully available...",
+                        self.name,
+                        self.weather_entity,
+                    )
+                    await asyncio.sleep(10)
+                    continue
+
             self._target_temp = (
                 trv_state.attributes.get("temperature")
                 or trv_state.attributes.get("current_heating_setpoint")
@@ -460,7 +488,9 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
                         self.name,
                     )
             # if hvac mode could not be restored, turn heat off
-            if not self._bt_hvac_mode:
+            if self._trv_hvac_mode is None:
+                self._trv_hvac_mode = HVAC_MODE_OFF
+            if self._bt_hvac_mode is None:
                 _LOGGER.warning(
                     "better_thermostat %s: No previously hvac mode found on startup, turn heat off",
                     self.name,
