@@ -231,6 +231,7 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
         self.valve_position_entity = None
         self.version = VERSION
         self.last_change = datetime.now() - timedelta(hours=2)
+        self._last_calibration = datetime.now() - timedelta(hours=2)
         self._last_window_state = None
         self._temp_lock = asyncio.Lock()
         self._last_reported_valve_position = None
@@ -241,13 +242,12 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
         self._last_send_target_temp = None
         self._last_avg_outdoor_temp = None
         self._available = False
-        self.control_queue_task = asyncio.Queue()
+        self.control_queue_task = asyncio.Queue(maxsize=-1)
         if self.window_id is not None:
-            self.window_queue_task = asyncio.Queue()
-        for i in range(3):
-            asyncio.create_task(control_queue(self))
-            if self.window_id is not None:
-                asyncio.create_task(window_queue(self))
+            self.window_queue_task = asyncio.Queue(maxsize=-1)
+        asyncio.create_task(control_queue(self))
+        if self.window_id is not None:
+            asyncio.create_task(window_queue(self))
 
     async def async_added_to_hass(self):
         """Run when entity about to be added.
@@ -479,6 +479,10 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
                 if not old_state.attributes.get(ATTR_STATE_CALL_FOR_HEAT):
                     self.call_for_heat = old_state.attributes.get(
                         ATTR_STATE_CALL_FOR_HEAT
+                    )
+                if not old_state.attributes.get(ATTR_STATE_SAVED_TEMPERATURE):
+                    self._saved_temperature = old_state.attributes.get(
+                        ATTR_STATE_SAVED_TEMPERATURE
                     )
             else:
                 # No previous state, try and restore defaults

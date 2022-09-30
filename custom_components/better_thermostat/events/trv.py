@@ -329,16 +329,6 @@ def convert_outbound_states(self, hvac_mode) -> Union[dict, None]:
                     _new_heating_setpoint = 5
                 hvac_mode = None
 
-    # check if the last local_calibration was in the last 5 minutes
-    if _new_local_calibration is not None:
-        if (
-            self.last_change + timedelta(minutes=5)
-        ).timestamp() > datetime.now().timestamp():
-            _LOGGER.debug(
-                f"better_thermostat {self.name}: last local calibration was in the last 5 minutes, skip calibration"
-            )
-            _new_local_calibration = None
-
     return {
         "current_heating_setpoint": _new_heating_setpoint,
         "local_temperature": state.get("current_temperature"),
