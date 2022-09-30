@@ -28,15 +28,14 @@ async def control_queue(self):
     None
     """
     while True:
+        if self.ignore_states:
+            await asyncio.sleep(1)
+            continue
         controls_to_process = await self.control_queue_task.get()
         if controls_to_process is not None:
-            if self.ignore_states:
-                await asyncio.sleep(1)
-                continue
-            else:
-                _LOGGER.debug(f"better_thermostat {self.name}: processing controls")
-                await control_trv(controls_to_process)
-                self.control_queue_task.task_done()
+            _LOGGER.debug(f"better_thermostat {self.name}: processing controls")
+            await control_trv(controls_to_process)
+            self.control_queue_task.task_done()
 
 
 async def control_trv(self, force_mode_change: bool = False):
@@ -114,10 +113,10 @@ async def control_trv(self, force_mode_change: bool = False):
             calibration = remapped_states.get("local_temperature_calibration") or None
 
             if converted_hvac_mode is not None:
-                _LOGGER.debug(
-                    f"better_thermostat {self.name}: control_trv: current TRV mode: {_current_TRV_mode} new TRV mode: {converted_hvac_mode}"
-                )
                 if _current_TRV_mode != converted_hvac_mode or force_mode_change:
+                    _LOGGER.debug(
+                        f"better_thermostat {self.name}: control_trv: current TRV mode: {_current_TRV_mode} new TRV mode: {converted_hvac_mode}"
+                    )
                     system_mode_change = True
                     await set_trv_values(self, "hvac_mode", converted_hvac_mode)
             if current_heating_setpoint is not None:
@@ -264,23 +263,37 @@ async def set_trv_values(self, key, value, hvac_mode=None):
         )
     elif key == "local_temperature_calibration":
         value = round_to_hundredth_degree(value)
-
-        max_calibration = self.hass.states.get(
+        current_calibration = self.hass.states.get(
             self.local_temperature_calibration_entity
-        ).attributes.get("max", 127)
-        min_calibration = self.hass.states.get(
-            self.local_temperature_calibration_entity
-        ).attributes.get("min", -128)
-        if value > max_calibration:
-            value = max_calibration
-        if value < min_calibration:
-            value = min_calibration
-        await self.hass.services.async_call(
-            "number",
-            SERVICE_SET_VALUE,
-            {"entity_id": self.local_temperature_calibration_entity, "value": value},
-            blocking=True,
-        )
+        ).state
+        if current_calibration != value and (
+            (self._last_calibration + timedelta(minutes=5)).timestamp()
+            < datetime.now().timestamp()
+        ):
+            max_calibration = self.hass.states.get(
+                self.local_temperature_calibration_entity
+            ).attributes.get("max", 127)
+            min_calibration = self.hass.states.get(
+                self.local_temperature_calibration_entity
+            ).attributes.get("min", -128)
+            if value > max_calibration:
+                value = max_calibration
+            if value < min_calibration:
+                value = min_calibration
+            await self.hass.services.async_call(
+                "number",
+                SERVICE_SET_VALUE,
+                {
+                    "entity_id": self.local_temperature_calibration_entity,
+                    "value": value,
+                },
+                blocking=True,
+            )
+            self._last_calibration = datetime.now()
+        else:
+            _LOGGER.debug(
+                f"better_thermostat {self.name}: set_trv_values: skipping local calibration because of throttling"
+            )
     elif key == "valve_position":
         await self.hass.services.async_call(
             "number",
