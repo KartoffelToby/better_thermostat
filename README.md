@@ -7,6 +7,7 @@
 # Better Thermostat
 
 **Important Notice: Consider this software as unfinished as it has not reached version 1.0.**
+**Don't select master on download, check `show beta version` install the latest one.**
 
 ### Requirements
 

@@ -2,7 +2,7 @@ blueprint:
   name: BT Night mode
   description: Set BT Thermostats to night mode if Schedule event is active.
   domain: automation
-  source_url: https://github.com/KartoffelToby/better_thermostat/tree/master/blueprints/night_mode.yaml
+  source_url: https://github.com/KartoffelToby/better_thermostat/blob/master/blueprints/night_mode.yaml
   input:
     night_times_schedule:
       name: Schedule helper

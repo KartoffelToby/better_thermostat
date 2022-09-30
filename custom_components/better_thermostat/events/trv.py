@@ -143,12 +143,14 @@ async def trigger_trv_change(self, event):
     if _updated_needed or child_lock:
         self.async_write_ha_state()
         # make sure we only update the latest user interaction
+        """
         try:
             if self.control_queue_task.qsize() > 0:
                 while self.control_queue_task.qsize() > 1:
                     self.control_queue_task.task_done()
         except AttributeError:
             pass
+        """
         await self.control_queue_task.put(self)
 
 
@@ -273,8 +275,6 @@ def convert_outbound_states(self, hvac_mode) -> Union[dict, None]:
                     _new_local_calibration = round_to_half_degree(
                         calculate_local_setpoint_delta(self)
                     )
-                    if _new_local_calibration is None:
-                        return None
                 else:
                     _new_local_calibration = calculate_local_setpoint_delta(self)
 
@@ -328,6 +328,16 @@ def convert_outbound_states(self, hvac_mode) -> Union[dict, None]:
                     )
                     _new_heating_setpoint = 5
                 hvac_mode = None
+
+    # check if the last local_calibration was in the last 5 minutes
+    if _new_local_calibration is not None:
+        if (
+            self.last_change + timedelta(minutes=5)
+        ).timestamp() > datetime.now().timestamp():
+            _LOGGER.debug(
+                f"better_thermostat {self.name}: last local calibration was in the last 5 minutes, skip calibration"
+            )
+            _new_local_calibration = None
 
     return {
         "current_heating_setpoint": _new_heating_setpoint,

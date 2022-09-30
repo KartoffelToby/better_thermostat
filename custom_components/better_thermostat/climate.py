@@ -136,12 +136,13 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
         self.async_write_ha_state()
 
     async def restore_temp_temperature(self):
-        self._target_temp = convert_to_float(
-            self._saved_temperature, self.name, "service.restore_temp_temperature()"
-        )
-        self._saved_temperature = None
-        self.async_write_ha_state()
-        await self.control_queue_task.put(self)
+        if self._saved_temperature is not None:
+            self._target_temp = convert_to_float(
+                self._saved_temperature, self.name, "service.restore_temp_temperature()"
+            )
+            self._saved_temperature = None
+            self.async_write_ha_state()
+            await self.control_queue_task.put(self)
 
     @property
     def device_info(self):
@@ -385,11 +386,6 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
                     await asyncio.sleep(10)
                     continue
 
-            self._target_temp = (
-                trv_state.attributes.get("temperature")
-                or trv_state.attributes.get("current_heating_setpoint")
-                or 5
-            )
             self._trv_hvac_mode = trv_state.state
             self._last_reported_valve_position = (
                 trv_state.attributes.get("valve_position", None) or None
@@ -432,46 +428,50 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
 
             self._config["has_system_mode"] = has_system_mode
             # Check If we have an old state
-            if (old_state := await self.async_get_last_state()) is not None:
+            old_state = await self.async_get_last_state()
+            _LOGGER.debug(old_state)
+
+            if old_state is not None:
                 # If we have no initial temperature, restore
-                if self._target_temp is None:
-                    # If we have a previously saved temperature
-                    if old_state.attributes.get(ATTR_TEMPERATURE) is None:
-                        self._target_temp = self._min_temp
-                        _LOGGER.debug(
-                            "better_thermostat %s: Undefined target temperature, falling back to %s",
+                # If we have a previously saved temperature
+                if old_state.attributes.get(ATTR_TEMPERATURE) is None:
+                    self._target_temp = (
+                        trv_state.attributes.get("current_heating_setpoint")
+                        or trv_state.attributes.get("temperature")
+                        or 5
+                    )
+                    _LOGGER.debug(
+                        "better_thermostat %s: Undefined target temperature, falling back to %s",
+                        self.name,
+                        self._target_temp,
+                    )
+                else:
+                    _old_target_temperature = float(
+                        old_state.attributes.get(ATTR_TEMPERATURE)
+                    )
+                    # if the saved temperature is lower than the _min_temp, set it to _min_temp
+                    if _old_target_temperature < self._min_temp:
+                        _LOGGER.warning(
+                            "better_thermostat %s: Saved target temperature %s is lower than _min_temp %s, setting to _min_temp",
                             self.name,
-                            self._target_temp,
+                            _old_target_temperature,
+                            self._min_temp,
                         )
-                    else:
-                        _old_target_temperature = float(
-                            old_state.attributes.get(ATTR_TEMPERATURE)
+                        _old_target_temperature = self._min_temp
+                    # if the saved temperature is higher than the _max_temp, set it to _max_temp
+                    elif _old_target_temperature > self._max_temp:
+                        _LOGGER.warning(
+                            "better_thermostat %s: Saved target temperature %s is higher than _max_temp %s, setting to _max_temp",
+                            self.name,
+                            _old_target_temperature,
+                            self._min_temp,
                         )
-                        # if the saved temperature is lower than the _min_temp, set it to _min_temp
-                        if _old_target_temperature < self._min_temp:
-                            _LOGGER.warning(
-                                "better_thermostat %s: Saved target temperature %s is lower than _min_temp %s, setting to _min_temp",
-                                self.name,
-                                _old_target_temperature,
-                                self._min_temp,
-                            )
-                            _old_target_temperature = self._min_temp
-                        # if the saved temperature is higher than the _max_temp, set it to _max_temp
-                        elif _old_target_temperature > self._max_temp:
-                            _LOGGER.warning(
-                                "better_thermostat %s: Saved target temperature %s is higher than _max_temp %s, setting to _max_temp",
-                                self.name,
-                                _old_target_temperature,
-                                self._min_temp,
-                            )
-                            _old_target_temperature = self._max_temp
-                        self._target_temp = _old_target_temperature
+                        _old_target_temperature = self._max_temp
+                    self._target_temp = _old_target_temperature
                 if not self._bt_hvac_mode and old_state.state:
                     self._bt_hvac_mode = old_state.state
                 if not old_state.attributes.get(ATTR_STATE_LAST_CHANGE):
                     self.last_change = old_state.attributes.get(ATTR_STATE_LAST_CHANGE)
-                else:
-                    self.last_change = datetime.now()
                 if not old_state.attributes.get(ATTR_STATE_DAY_SET_TEMP):
                     self.last_daytime_temp = old_state.attributes.get(
                         ATTR_STATE_DAY_SET_TEMP
@@ -484,18 +484,31 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
                 # No previous state, try and restore defaults
                 if self._target_temp is None:
                     _LOGGER.info(
-                        "better_thermostat %s: No previously saved temperature found on startup, turning heat off",
+                        "better_thermostat %s: No previously saved temperature found on startup, get it from the TRV",
                         self.name,
+                    )
+                    self._target_temp = (
+                        trv_state.attributes.get("current_heating_setpoint")
+                        or trv_state.attributes.get("temperature")
+                        or 5
                     )
             # if hvac mode could not be restored, turn heat off
             if self._trv_hvac_mode is None:
                 self._trv_hvac_mode = HVAC_MODE_OFF
-            if self._bt_hvac_mode is None:
+            if self._bt_hvac_mode in (STATE_UNAVAILABLE, STATE_UNKNOWN, None):
                 _LOGGER.warning(
                     "better_thermostat %s: No previously hvac mode found on startup, turn heat off",
                     self.name,
                 )
                 self._bt_hvac_mode = mode_remap(self, self._trv_hvac_mode, True)
+
+            _LOGGER.debug(
+                "better_thermostat %s: Startup config, TRV hvac mode is %s, BT hvac mode is %s, Target temp %s",
+                self.name,
+                self._trv_hvac_mode,
+                self._bt_hvac_mode,
+                self._target_temp,
+            )
 
             self._config["system_mode"] = self._bt_hvac_mode
             self._last_window_state = self.window_open

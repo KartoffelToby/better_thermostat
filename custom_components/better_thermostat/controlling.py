@@ -33,10 +33,10 @@ async def control_queue(self):
             if self.ignore_states:
                 await asyncio.sleep(1)
                 continue
-
-            _LOGGER.debug(f"better_thermostat {self.name}: processing controls")
-            await control_trv(controls_to_process)
-            self.control_queue_task.task_done()
+            else:
+                _LOGGER.debug(f"better_thermostat {self.name}: processing controls")
+                await control_trv(controls_to_process)
+                self.control_queue_task.task_done()
 
 
 async def control_trv(self, force_mode_change: bool = False):
@@ -267,10 +267,10 @@ async def set_trv_values(self, key, value, hvac_mode=None):
 
         max_calibration = self.hass.states.get(
             self.local_temperature_calibration_entity
-        ).attributes.get("max")
+        ).attributes.get("max", 127)
         min_calibration = self.hass.states.get(
             self.local_temperature_calibration_entity
-        ).attributes.get("min")
+        ).attributes.get("min", -128)
         if value > max_calibration:
             value = max_calibration
         if value < min_calibration:
