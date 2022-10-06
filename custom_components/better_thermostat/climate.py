@@ -8,7 +8,7 @@ from random import randint
 
 from .utils.weather import check_ambient_air_temperature
 from .utils.bridge import load_adapter
-from .utils.helpers import convert_to_float, mode_remap
+from .utils.helpers import convert_to_float, get_trv_intigration, mode_remap
 from homeassistant.helpers import entity_platform
 
 from homeassistant.components.climate import ClimateEntity
@@ -108,7 +108,7 @@ async def async_setup_entry(hass, entry, async_add_devices):
                 entry.data[CONF_VALVE_MAINTENANCE],
                 entry.data[CONF_CALIBRATION],
                 entry.data[CONF_MODEL],
-                entry.data[CONF_INTEGRATION],
+                entry.data[CONF_INTEGRATION] or None,
                 entry.data[CONF_CALIBRATIION_ROUND],
                 entry.data[CONF_HEAT_AUTO_SWAPPED],
                 entry.data[CONF_CHILD_LOCK],
@@ -287,6 +287,9 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
 
         if self._calibration == "local_calibration_based":
             self.calibration_type = 0
+
+        if self.integration is None:
+            self.intigration = await get_trv_intigration(self)
 
         @callback
         def _async_startup(*_):
