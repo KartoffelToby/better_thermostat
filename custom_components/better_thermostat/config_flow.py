@@ -4,7 +4,7 @@ import logging
 import voluptuous as vol
 from collections import OrderedDict
 
-from .helpers import (
+from .utils.helpers import (
     find_local_calibration_entity,
     get_device_model,
     get_trv_intigration,
@@ -17,6 +17,7 @@ from .const import (
     CONF_HEAT_AUTO_SWAPPED,
     CONF_HEATER,
     CONF_HOMATICIP,
+    CONF_INTEGRATION,
     CONF_MODEL,
     CONF_OFF_TEMPERATURE,
     CONF_OUTDOOR_SENSOR,
@@ -30,7 +31,7 @@ from homeassistant import config_entries
 from homeassistant.const import CONF_NAME
 from homeassistant.core import callback
 from homeassistant.helpers import selector
-from homeassistant.components.climate.const import HVAC_MODE_OFF
+from homeassistant.components.climate.const import HVAC_MODE_OFF, HVAC_MODE_AUTO
 
 
 from . import DOMAIN  # pylint:disable=unused-import
@@ -93,6 +94,10 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
 
         user_input = user_input or {}
         homematic = False
+        has_auto = False
+        trv = self.hass.states.get(self.heater_entity_id)
+        if HVAC_MODE_AUTO in trv.attributes.get("hvac_modes"):
+            has_auto = True
         calibration = {"target_temp_based": "Target Temperature"}
         default_calibration = "target_temp_based"
         if self._intigration.find("homematic") != -1:
@@ -127,7 +132,7 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         fields[
             vol.Optional(
                 CONF_HEAT_AUTO_SWAPPED,
-                default=user_input.get(CONF_HEAT_AUTO_SWAPPED, False),
+                default=user_input.get(CONF_HEAT_AUTO_SWAPPED, has_auto),
             )
         ] = bool
         fields[
@@ -162,6 +167,7 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             self._intigration = await get_trv_intigration(self)
             device_model = await get_device_model(self)
             self.data[CONF_MODEL] = device_model or "generic"
+            self.data[CONF_INTEGRATION] = self._intigration
             return await self.async_step_advanced()
 
         errors = {}

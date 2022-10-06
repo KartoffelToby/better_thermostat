@@ -1,16 +1,17 @@
 import logging
 from typing import Union
 from datetime import datetime, timedelta
+
 from homeassistant.components.climate.const import HVAC_MODE_HEAT, HVAC_MODE_OFF
 from homeassistant.core import callback, State
 
-from ..helpers import (
+from ..utils.helpers import (
     calculate_local_setpoint_delta,
     calculate_setpoint_override,
     mode_remap,
     round_to_half_degree,
+    convert_to_float,
 )
-from ..helpers import convert_to_float
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -141,6 +142,7 @@ async def trigger_trv_change(self, event):
         _updated_needed = True
 
     if _updated_needed or child_lock:
+        _LOGGER.info(f"better_thermostat {self.name}: TRV update received")
         self.async_write_ha_state()
         # make sure we only update the latest user interaction
         """
@@ -281,7 +283,21 @@ def convert_outbound_states(self, hvac_mode) -> Union[dict, None]:
                 _new_heating_setpoint = self._target_temp
 
             elif _calibration_type == 1:
-                _new_heating_setpoint = calculate_setpoint_override(self)
+
+                _round_calibration = self._config.get("calibration_round")
+
+                if _round_calibration is not None and (
+                    (
+                        isinstance(_round_calibration, str)
+                        and _round_calibration.lower() == "true"
+                    )
+                    or _round_calibration is True
+                ):
+                    _new_heating_setpoint = round_to_half_degree(
+                        calculate_setpoint_override(self)
+                    )
+                else:
+                    _new_heating_setpoint = calculate_setpoint_override(self)
 
             _has_system_mode = self._config.get("has_system_mode")
             _system_mode = self._config.get("system_mode")

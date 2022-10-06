@@ -61,9 +61,8 @@ def mode_remap(self, hvac_mode: str, inbound: bool = False) -> str:
         elif hvac_mode == HVAC_MODE_AUTO and inbound:
             return HVAC_MODE_HEAT
     else:
-        if hvac_mode == HVAC_MODE_AUTO and inbound:
-            return HVAC_MODE_HEAT
-        return hvac_mode
+        if hvac_mode != HVAC_MODE_AUTO:
+            return hvac_mode
 
 
 def calculate_local_setpoint_delta(self) -> Union[float, None]:
@@ -134,9 +133,7 @@ def calculate_setpoint_override(self) -> Union[float, None]:
     if None in (self._target_temp, self._cur_temp, _current_trv_temp):
         return None
 
-    _calibrated_setpoint = round_to_half_degree(
-        self._target_temp - self._cur_temp + _current_trv_temp
-    )
+    _calibrated_setpoint = self._target_temp - self._cur_temp + _current_trv_temp
 
     # check if new setpoint is inside the TRV's range, else set to min or max
     if _calibrated_setpoint < self._TRV_min_temp:
