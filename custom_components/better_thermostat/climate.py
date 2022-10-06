@@ -272,7 +272,7 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
         def async_state_changed_listener(event: Event) -> None:
             """Handle child updates."""
             self.async_set_context(event.context)
-            self.async_defer_or_update_ha_state()
+            self.async_write_ha_state()
 
         self.async_on_remove(
             async_track_state_change_event(
