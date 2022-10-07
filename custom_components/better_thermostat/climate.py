@@ -289,7 +289,7 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
             self.calibration_type = 0
 
         if self.integration is None:
-            self.intigration = await get_trv_intigration(self)
+            self.integration = await get_trv_intigration(self)
 
         @callback
         def _async_startup(*_):
