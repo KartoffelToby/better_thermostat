@@ -6,6 +6,9 @@ _LOGGER = logging.getLogger(__name__)
 
 def load_adapter(self):
     """Load adapter."""
+    if self.integration == "generic_thermostat":
+        self.integration = "generic"
+
     try:
         self.adapter = import_module(
             "custom_components.better_thermostat.adapters." + self.integration,
@@ -14,12 +17,23 @@ def load_adapter(self):
         _LOGGER.info(
             "better_thermostat %s: uses adapter %s", self.name, self.integration
         )
-    except ImportError:
+    except Exception:
         self.adapter = import_module(
             "custom_components.better_thermostat.adapters.generic",
             package="better_thermostat",
         )
-        _LOGGER.info("better_thermostat %s: uses adapter %s", self.name, "generic")
+        _LOGGER.error(
+            "better_thermostat %s: intigration: %s isn't native supported, feel free to open an issue, fallback adapter %s",
+            self.name,
+            self.integration,
+            "generic",
+        )
+        pass
+
+
+async def init(self):
+    """Init adapter."""
+    return await self.adapter.init(self)
 
 
 async def set_temperature(self, temperature):

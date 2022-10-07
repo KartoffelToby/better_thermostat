@@ -15,6 +15,18 @@ def get_info():
     return {"support_offset": True, "support_valve": True}
 
 
+async def init(self):
+    if self.local_temperature_calibration_entity is None and self.calibration_type == 0:
+        self.local_temperature_calibration_entity = await find_local_calibration_entity(
+            self
+        )
+        _LOGGER.info(
+            "better_thermostat %s: uses local calibration entity %s",
+            self.name,
+            self.local_temperature_calibration_entity,
+        )
+
+
 async def set_temperature(self, temperature):
     """Set new target temperature."""
     return await generic_set_temperature(self, temperature)
@@ -27,16 +39,6 @@ async def set_hvac_mode(self, hvac_mode):
 
 async def set_offset(self, offset):
     """Set new target offset."""
-    _LOGGER.info(f"better_thermostat {self.name}: TO TRV set_offset: {offset}")
-    if self.local_temperature_entity is None:
-        self.local_temperature_calibration_entity = await find_local_calibration_entity(
-            self
-        )
-        _LOGGER.info(
-            "better_thermostat %s: uses local calibration entity %s",
-            self.name,
-            self.local_temperature_calibration_entity,
-        )
     current_calibration = self.hass.states.get(
         self.local_temperature_calibration_entity
     ).state
@@ -44,6 +46,7 @@ async def set_offset(self, offset):
         (self._last_calibration + timedelta(minutes=5)).timestamp()
         < datetime.now().timestamp()
     ):
+        _LOGGER.info(f"better_thermostat {self.name}: TO TRV set_offset: {offset}")
         max_calibration = self.hass.states.get(
             self.local_temperature_calibration_entity
         ).attributes.get("max", 127)
@@ -59,6 +62,7 @@ async def set_offset(self, offset):
             SERVICE_SET_VALUE,
             {"entity_id": self.local_temperature_calibration_entity, "value": offset},
             blocking=True,
+            limit=None,
             context=self._context,
         )
         self._last_calibration = datetime.now()
@@ -76,5 +80,6 @@ async def set_valve(self, valve):
         SERVICE_SET_VALUE,
         {"entity_id": self.valve_position_entity, "value": valve},
         blocking=True,
+        limit=None,
         context=self._context,
     )

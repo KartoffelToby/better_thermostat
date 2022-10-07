@@ -6,7 +6,11 @@ from typing import Union
 from homeassistant.helpers import device_registry as dr, entity_registry as er
 from homeassistant.helpers.entity_registry import async_entries_for_config_entry
 
-from homeassistant.components.climate.const import HVAC_MODE_AUTO, HVAC_MODE_HEAT
+from homeassistant.components.climate.const import (
+    HVAC_MODE_AUTO,
+    HVAC_MODE_HEAT,
+    HVAC_MODE_OFF,
+)
 
 
 _LOGGER = logging.getLogger(__name__)
@@ -55,14 +59,24 @@ def mode_remap(self, hvac_mode: str, inbound: bool = False) -> str:
             remapped mode according to device's quirks
     """
     _heat_auto_swapped = self._config.get("heat_auto_swapped")
+    _LOGGER.debug(
+        f"better_thermostat {self.name}: heat_auto_swapped {_heat_auto_swapped}"
+    )
     if _heat_auto_swapped:
-        if hvac_mode == HVAC_MODE_HEAT and not inbound:
+        if hvac_mode == HVAC_MODE_HEAT and inbound is False:
             return HVAC_MODE_AUTO
-        elif hvac_mode == HVAC_MODE_AUTO and inbound:
+        elif hvac_mode == HVAC_MODE_AUTO and inbound is True:
             return HVAC_MODE_HEAT
+        else:
+            return hvac_mode
     else:
         if hvac_mode != HVAC_MODE_AUTO:
             return hvac_mode
+        else:
+            _LOGGER.error(
+                f"better_thermostat {self.name}: HVAC mode {hvac_mode} is not supported by this device, is it possible that you forgot to set the heat auto swapped option?"
+            )
+            return HVAC_MODE_OFF
 
 
 def calculate_local_setpoint_delta(self) -> Union[float, None]:
@@ -140,7 +154,6 @@ def calculate_setpoint_override(self) -> Union[float, None]:
         _calibrated_setpoint = self._TRV_min_temp
     if _calibrated_setpoint > self._TRV_max_temp:
         _calibrated_setpoint = self._TRV_max_temp
-    self._last_send_target_temp = _calibrated_setpoint
     return _calibrated_setpoint
 
 

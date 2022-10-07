@@ -25,7 +25,7 @@ As a example you can use this blueprint:
 
 ```yaml
 blueprint:
-  name: BT Night mode
+  name: Better Thermostat Night mode
   description: Set BT Thermostats to night mode if Schedule event is active.
   domain: automation
   source_url: https://github.com/KartoffelToby/better_thermostat/blob/master/blueprints/night_mode.yaml
@@ -33,11 +33,8 @@ blueprint:
     night_times_schedule:
       name: Schedule helper
       selector:
-        target:
-          entity:
-            domain: schedule
-          device:
-            integration: schedule
+        entity:
+          domain: schedule
 
     thermostat_target:
       name: Thermostats
@@ -59,19 +56,16 @@ blueprint:
           max: 35
           unit_of_measurement: °C
 
-
 mode: queued
 max_exceeded: silent
 
 trigger:
   - platform: state
-    entity_id:
-      - !input night_times_schedule
+    entity_id: !input night_times_schedule
     from: "on"
     to: "off"
   - platform: state
-    entity_id:
-      - !input night_times_schedule
+    entity_id: !input night_times_schedule
     from: "off"
     to: "on"
 condition: []
@@ -89,5 +83,4 @@ action:
       - service: better_thermostat.restore_saved_target_temperature
         data: {}
         target: !input thermostat_target
-
 ```

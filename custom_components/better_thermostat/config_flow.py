@@ -64,9 +64,7 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     async def async_step_confirm(self, user_input=None, confirm_type=None):
         """Handle user-confirmation of discovered node."""
         errors = {}
-        _LOGGER.debug(user_input)
         if user_input is not None:
-            _LOGGER.debug(self.data)
             if self.data is not None:
                 await self.async_set_unique_id(self.data["name"])
                 return self.async_create_entry(title=self.data["name"], data=self.data)
@@ -267,9 +265,6 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
             self.updated_config[CONF_CALIBRATION] = user_input.get(CONF_CALIBRATION)
             self.updated_config[CONF_CHILD_LOCK] = user_input.get(CONF_CHILD_LOCK)
             self.updated_config[CONF_HOMATICIP] = user_input.get(CONF_HOMATICIP)
-
-            _LOGGER.debug("Updated config: %s", self.updated_config)
-
             self.hass.config_entries.async_update_entry(
                 self.config_entry, data=self.updated_config
             )

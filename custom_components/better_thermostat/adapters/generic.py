@@ -10,6 +10,10 @@ def get_info():
     return {"support_offset": False, "support_valve": False}
 
 
+async def init(self):
+    return None
+
+
 async def set_temperature(self, temperature):
     """Set new target temperature."""
     _LOGGER.info(
@@ -20,37 +24,31 @@ async def set_temperature(self, temperature):
         "set_temperature",
         {"entity_id": self.heater_entity_id, "temperature": temperature},
         blocking=True,
+        limit=None,
         context=self._context,
     )
-    await asyncio.sleep(1)
 
 
 async def set_hvac_mode(self, hvac_mode):
     """Set new target hvac mode."""
     _LOGGER.info(f"better_thermostat {self.name}: TO TRV set_hvac_mode: {hvac_mode}")
-    await self.hass.services.async_call(
-        "climate",
-        "set_hvac_mode",
-        {"entity_id": self.heater_entity_id, "hvac_mode": hvac_mode},
-        blocking=True,
-        context=self._context,
-    )
     if hvac_mode == HVAC_MODE_OFF:
         await self.hass.services.async_call(
             "climate",
             "turn_off",
             {"entity_id": self.heater_entity_id},
             blocking=True,
+            limit=None,
             context=self._context,
         )
-    else:
-        await self.hass.services.async_call(
-            "climate",
-            "turn_on",
-            {"entity_id": self.heater_entity_id},
-            blocking=True,
-            context=self._context,
-        )
+    await self.hass.services.async_call(
+        "climate",
+        "set_hvac_mode",
+        {"entity_id": self.heater_entity_id, "hvac_mode": hvac_mode},
+        blocking=True,
+        limit=None,
+        context=self._context,
+    )
     await asyncio.sleep(2)
 
 

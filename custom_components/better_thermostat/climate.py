@@ -7,7 +7,7 @@ from datetime import datetime, timedelta
 from random import randint
 
 from .utils.weather import check_ambient_air_temperature
-from .utils.bridge import load_adapter
+from .utils.bridge import init, load_adapter
 from .utils.helpers import convert_to_float, get_trv_intigration, mode_remap
 from homeassistant.helpers import entity_platform
 
@@ -26,7 +26,7 @@ from homeassistant.const import (
     STATE_UNAVAILABLE,
     STATE_UNKNOWN,
 )
-from homeassistant.core import callback, CoreState, Event
+from homeassistant.core import callback, CoreState
 from homeassistant.helpers.event import (
     async_track_state_change_event,
     async_track_time_change,
@@ -267,18 +267,6 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
         -------
         None
         """
-
-        @callback
-        def async_state_changed_listener(event: Event) -> None:
-            """Handle child updates."""
-            self.async_set_context(event.context)
-            self.async_write_ha_state()
-
-        self.async_on_remove(
-            async_track_state_change_event(
-                self.hass, self.heater_entity_id, async_state_changed_listener
-            )
-        )
         await super().async_added_to_hass()
 
         _LOGGER.info(
@@ -444,9 +432,6 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
                 window = self.hass.states.get(self.window_id)
 
                 check = window.state
-                _LOGGER.debug(
-                    "better_thermostat %s: window sensor state is %s", self.name, check
-                )
                 if check in ("on", "open", "true"):
                     self.window_open = True
                 else:
@@ -466,8 +451,6 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
             self._config["has_system_mode"] = has_system_mode
             # Check If we have an old state
             old_state = await self.async_get_last_state()
-            _LOGGER.debug(old_state)
-
             if old_state is not None:
                 # If we have no initial temperature, restore
                 # If we have a previously saved temperature
@@ -552,11 +535,13 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
             self._available = True
             self.startup_running = False
             self.async_write_ha_state()
+            await init(self)
             await self._trigger_time(None)
             await self.control_queue_task.put(self)
             # Add listener
             if self.outdoor_sensor is not None:
                 async_track_time_change(self.hass, self._trigger_time, 5, 0, 0)
+
             async_track_state_change_event(
                 self.hass, [self.sensor_entity_id], self._trigger_temperature_change
             )
@@ -694,27 +679,14 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
     @property
     def hvac_action(self):
         """Return the current HVAC action"""
-
         if self._bt_hvac_mode == HVAC_MODE_OFF:
-            _LOGGER.debug(
-                f"better_thermostat {self.name}: HA asked for our HVAC action, we will respond with: {CURRENT_HVAC_OFF}"
-            )
             return CURRENT_HVAC_OFF
         if self._bt_hvac_mode == HVAC_MODE_HEAT:
             if self.window_open:
-                _LOGGER.debug(
-                    f"better_thermostat {self.name}: HA asked for our HVAC action, we will respond with '{CURRENT_HVAC_OFF}' because a window is open"
-                )
                 return CURRENT_HVAC_OFF
 
             if self.call_for_heat is False:
-                _LOGGER.debug(
-                    f"better_thermostat {self.name}: HA asked for our HVAC action, we will respond with '{CURRENT_HVAC_IDLE}' since call for heat is false"
-                )
                 return CURRENT_HVAC_IDLE
-            _LOGGER.debug(
-                f"better_thermostat {self.name}: HA asked for our HVAC action, we will respond with: {CURRENT_HVAC_HEAT}"
-            )
             return CURRENT_HVAC_HEAT
 
     @property
