@@ -198,7 +198,7 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
         TODO
         """
         self._name = name
-        self.heater_entity_id = heater_entity_id
+        self.heater_entity_id = heater_entity_id  # [0]
         self.all_trvs = heater_entity_id
         self.sensor_entity_id = sensor_entity_id
         self.humidity_entity_id = humidity_sensor_entity_id
@@ -226,7 +226,7 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
         )
         self._config = None
         self._cur_temp = None
-        self._cur_humidity = None
+        self._cur_humidity = 0
         self.window_open = None
         self._target_temp_step = 1
         self._TRV_target_temp_step = 0.5
@@ -260,6 +260,15 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
         self._last_send_target_temp = None
         self._last_avg_outdoor_temp = None
         self._available = False
+        self._last_states = {
+            "last_target_temp": None,
+            "last_valve_position": None,
+            "last_hvac_mode": None,
+            "last_window_state": None,
+            "last_avg_outdoor_temp": None,
+            "last_current_temp": None,
+            "last_calibration": None,
+        }
         self.control_queue_task = asyncio.Queue(maxsize=1)
         if self.window_id is not None:
             self.window_queue_task = asyncio.Queue(maxsize=1)

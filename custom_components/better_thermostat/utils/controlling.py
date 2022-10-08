@@ -131,6 +131,7 @@ async def control_trv(self, force_mode_change: bool = False):
 
         await asyncio.sleep(5)
         self.async_write_ha_state()
+
         self.ignore_states = False
         self._init = False
 
