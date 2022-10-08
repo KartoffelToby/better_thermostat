@@ -199,6 +199,7 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
         """
         self._name = name
         self.heater_entity_id = heater_entity_id
+        self.all_trvs = heater_entity_id
         self.sensor_entity_id = sensor_entity_id
         self.humidity_entity_id = humidity_sensor_entity_id
         self.window_id = window_id or None
@@ -451,11 +452,12 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
             self._cur_temp = convert_to_float(
                 str(sensor_state.state), self.name, "startup()"
             )
-            self._cur_humidity = convert_to_float(
-                str(self.hass.states.get(self.humidity_entity_id).state),
-                self.name,
-                "startuo()",
-            )
+            if self.humidity_entity_id is not None:
+                self._cur_humidity = convert_to_float(
+                    str(self.hass.states.get(self.humidity_entity_id).state),
+                    self.name,
+                    "startuo()",
+                )
             if self.window_id is not None:
                 window = self.hass.states.get(self.window_id)
 
