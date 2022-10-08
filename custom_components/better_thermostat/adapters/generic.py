@@ -41,6 +41,7 @@ async def set_hvac_mode(self, hvac_mode):
             limit=None,
             context=self._context,
         )
+    await asyncio.sleep(1)
     await self.hass.services.async_call(
         "climate",
         "set_hvac_mode",
@@ -49,7 +50,6 @@ async def set_hvac_mode(self, hvac_mode):
         limit=None,
         context=self._context,
     )
-    await asyncio.sleep(2)
 
 
 async def set_offset(self, offset):

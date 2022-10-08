@@ -253,9 +253,9 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
         self._last_send_target_temp = None
         self._last_avg_outdoor_temp = None
         self._available = False
-        self.control_queue_task = asyncio.Queue(maxsize=-1)
+        self.control_queue_task = asyncio.Queue(maxsize=1)
         if self.window_id is not None:
-            self.window_queue_task = asyncio.Queue(maxsize=-1)
+            self.window_queue_task = asyncio.Queue(maxsize=0)
         asyncio.create_task(control_queue(self))
         if self.window_id is not None:
             asyncio.create_task(window_queue(self))
@@ -487,7 +487,9 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
                             self._min_temp,
                         )
                         _old_target_temperature = self._max_temp
-                    self._target_temp = _old_target_temperature
+                    self._target_temp = convert_to_float(
+                        str(_old_target_temperature), self.name, "startup()"
+                    )
                 if not self._bt_hvac_mode and old_state.state:
                     self._bt_hvac_mode = old_state.state
                 if not old_state.attributes.get(ATTR_STATE_LAST_CHANGE):

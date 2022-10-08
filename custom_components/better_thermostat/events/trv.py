@@ -141,13 +141,6 @@ async def trigger_trv_change(self, event):
     if _updated_needed or child_lock:
         _LOGGER.info(f"better_thermostat {self.name}: TRV update received")
         self.async_write_ha_state()
-        # make sure we only update the latest user interaction
-        try:
-            if self.control_queue_task.qsize() > 0:
-                while self.control_queue_task.qsize() > 1:
-                    self.control_queue_task.task_done()
-        except AttributeError:
-            pass
         await self.control_queue_task.put(self)
 
 

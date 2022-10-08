@@ -62,8 +62,14 @@ async def control_trv(self, force_mode_change: bool = False):
 
         # our own state is in self._bt_hvac_mode
         # the current target TRV state is in self._trvs_hvac_mode
-
-        _current_TRV_mode = self.hass.states.get(self.heater_entity_id).state
+        _trv = self.hass.states.get(self.heater_entity_id)
+        _current_TRV_mode = _trv.state
+        _current_set_temperature = convert_to_float(
+            _trv.attributes.get("current_heating_setpoint")
+            or _trv.attributes.get("temperature"),
+            self.name,
+            "controlling()",
+        )
         hvac_mode_send = HVAC_MODE_OFF
 
         if self._bt_hvac_mode == HVAC_MODE_OFF:
@@ -106,12 +112,13 @@ async def control_trv(self, force_mode_change: bool = False):
         calibration = remapped_states.get("local_temperature_calibration") or None
 
         if current_heating_setpoint is not None:
-            await set_trv_values(
-                self,
-                "temperature",
-                current_heating_setpoint,
-                hvac_mode=converted_hvac_mode,
-            )
+            if _current_set_temperature != current_heating_setpoint:
+                await set_trv_values(
+                    self,
+                    "temperature",
+                    current_heating_setpoint,
+                    hvac_mode=converted_hvac_mode,
+                )
         if calibration is not None:
             await set_trv_values(self, "local_temperature_calibration", calibration)
 
@@ -155,13 +162,6 @@ async def set_target_temperature(self, **kwargs):
     )
     self._target_temp = _new_setpoint
     self.async_write_ha_state()
-    # make sure we only update the latest user interaction
-    try:
-        if self.control_queue_task.qsize() > 0:
-            while self.control_queue_task.qsize() > 1:
-                self.control_queue_task.task_done()
-    except AttributeError:
-        pass
     if (
         self.homaticip
         and (self.last_change + timedelta(seconds=10)).timestamp()

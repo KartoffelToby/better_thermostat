@@ -17,7 +17,5 @@
     "@kartoffeltoby",
     "@RubenKelevra"
   ],
-  "requirements": [
-    "importlib"
-  ]
+  "requirements": []
 }
