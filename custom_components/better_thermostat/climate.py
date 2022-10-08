@@ -255,7 +255,7 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
         self._available = False
         self.control_queue_task = asyncio.Queue(maxsize=1)
         if self.window_id is not None:
-            self.window_queue_task = asyncio.Queue(maxsize=0)
+            self.window_queue_task = asyncio.Queue(maxsize=1)
         asyncio.create_task(control_queue(self))
         if self.window_id is not None:
             asyncio.create_task(window_queue(self))

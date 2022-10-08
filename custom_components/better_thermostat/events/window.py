@@ -53,14 +53,6 @@ async def trigger_window_change(self, event) -> None:
             f"better_thermostat {self.name}: Window state did not change, skipping event"
         )
         return
-
-    try:
-        if self.window_queue_task.qsize() > 0:
-            while self.window_queue_task.qsize() > 1:
-                self.window_queue_task.task_done()
-    except AttributeError:
-        pass
-
     await self.window_queue_task.put(new_window_open)
 
 
