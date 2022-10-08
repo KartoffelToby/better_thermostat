@@ -577,9 +577,10 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
             async_track_state_change_event(
                 self.hass, [self.sensor_entity_id], self._trigger_temperature_change
             )
-            async_track_state_change_event(
-                self.hass, [self.humidity_entity_id], self._trigger_humidity_change
-            )
+            if self.humidity_entity_id is not None:
+                async_track_state_change_event(
+                    self.hass, [self.humidity_entity_id], self._trigger_humidity_change
+                )
             async_track_state_change_event(
                 self.hass, [self.heater_entity_id], self._trigger_trv_change
             )
