@@ -541,7 +541,7 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
                     self._saved_temperature = old_state.attributes.get(
                         ATTR_STATE_SAVED_TEMPERATURE
                     )
-                if not old_state.state.attributes.get(ATTR_STATE_HUMIDIY):
+                if not old_state.attributes.get(ATTR_STATE_HUMIDIY):
                     self._cur_humidity = old_state.attributes.get(ATTR_STATE_HUMIDIY)
             else:
                 # No previous state, try and restore defaults
