@@ -17,6 +17,7 @@ from .const import (
     CONF_HEAT_AUTO_SWAPPED,
     CONF_HEATER,
     CONF_HOMATICIP,
+    CONF_HUMIDITY,
     CONF_INTEGRATION,
     CONF_MODEL,
     CONF_OFF_TEMPERATURE,
@@ -158,6 +159,8 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 return self.async_error(reason="no_name")
             if CONF_SENSOR_WINDOW not in self.data:
                 self.data[CONF_SENSOR_WINDOW] = None
+            if CONF_HUMIDITY not in self.data:
+                self.data[CONF_HUMIDITY] = None
             if CONF_OUTDOOR_SENSOR not in self.data:
                 self.data[CONF_OUTDOOR_SENSOR] = None
             if CONF_WEATHER not in self.data:
@@ -177,12 +180,19 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 {
                     vol.Optional(CONF_NAME, default=user_input.get(CONF_NAME, "")): str,
                     vol.Required(CONF_HEATER): selector.EntitySelector(
-                        selector.EntitySelectorConfig(domain="climate", multiple=False)
+                        selector.EntitySelectorConfig(domain="climate", multiple=True)
                     ),
                     vol.Required(CONF_SENSOR): selector.EntitySelector(
                         selector.EntitySelectorConfig(
                             domain=["sensor", "number", "input_number"],
                             device_class="temperature",
+                            multiple=False,
+                        )
+                    ),
+                    vol.Optional(CONF_HUMIDITY): selector.EntitySelector(
+                        selector.EntitySelectorConfig(
+                            domain=["sensor", "number", "input_number"],
+                            device_class="humidity",
                             multiple=False,
                         )
                     ),
@@ -301,6 +311,21 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
             selector.EntitySelectorConfig(
                 domain=["sensor", "number", "input_number"],
                 device_class="temperature",
+                multiple=False,
+            )
+        )
+
+        fields[
+            vol.Optional(
+                CONF_HUMIDITY,
+                description={
+                    "suggested_value": self.config_entry.data.get(CONF_HUMIDITY, "")
+                },
+            )
+        ] = selector.EntitySelector(
+            selector.EntitySelectorConfig(
+                domain=["sensor", "number", "input_number"],
+                device_class="humidity",
                 multiple=False,
             )
         )

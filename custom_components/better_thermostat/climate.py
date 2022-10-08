@@ -36,6 +36,7 @@ from homeassistant.helpers.restore_state import RestoreEntity
 from . import DOMAIN
 from .const import (
     ATTR_STATE_CALL_FOR_HEAT,
+    ATTR_STATE_HUMIDIY,
     ATTR_STATE_LAST_CHANGE,
     ATTR_STATE_WINDOW_OPEN,
     ATTR_STATE_SAVED_TEMPERATURE,
@@ -45,6 +46,7 @@ from .const import (
     CONF_HEAT_AUTO_SWAPPED,
     CONF_HEATER,
     CONF_HOMATICIP,
+    CONF_HUMIDITY,
     CONF_INTEGRATION,
     CONF_MODEL,
     CONF_OFF_TEMPERATURE,
@@ -100,6 +102,7 @@ async def async_setup_entry(hass, entry, async_add_devices):
                 entry.data.get(CONF_NAME),
                 entry.data.get(CONF_HEATER),
                 entry.data.get(CONF_SENSOR),
+                entry.data.get(CONF_HUMIDITY, None),
                 entry.data.get(CONF_SENSOR_WINDOW, None),
                 entry.data.get(CONF_WINDOW_TIMEOUT, None),
                 entry.data.get(CONF_WEATHER, None),
@@ -169,6 +172,7 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
         name,
         heater_entity_id,
         sensor_entity_id,
+        humidity_sensor_entity_id,
         window_id,
         window_delay,
         weather_entity,
@@ -196,6 +200,7 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
         self._name = name
         self.heater_entity_id = heater_entity_id
         self.sensor_entity_id = sensor_entity_id
+        self.humidity_entity_id = humidity_sensor_entity_id
         self.window_id = window_id or None
         self.window_delay = window_delay or 0
         self.weather_entity = weather_entity or None
@@ -220,6 +225,7 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
         )
         self._config = None
         self._cur_temp = None
+        self._cur_humidity = None
         self.window_open = None
         self._target_temp_step = 1
         self._TRV_target_temp_step = 0.5
@@ -307,6 +313,9 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
     async def _trigger_temperature_change(self, event):
         await trigger_temperature_change(self, event)
 
+    async def _trigger_humidity_change(self, event):
+        self._cur_humidity = self.hass.states.get(self.humidity_entity_id).state
+
     async def _trigger_trv_change(self, event):
         await trigger_trv_change(self, event)
 
@@ -361,6 +370,20 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
                         "better_thermostat %s: waiting for window sensor entity with id '%s' to become fully available...",
                         self.name,
                         self.window_id,
+                    )
+                    await asyncio.sleep(10)
+                    continue
+
+            if self.humidity_entity_id is not None:
+                if self.hass.states.get(self.humidity_entity_id).state in (
+                    STATE_UNAVAILABLE,
+                    STATE_UNKNOWN,
+                    None,
+                ):
+                    _LOGGER.info(
+                        "better_thermostat %s: waiting for humidity sensor entity with id '%s' to become fully available...",
+                        self.name,
+                        self.humidity_entity_id,
                     )
                     await asyncio.sleep(10)
                     continue
@@ -427,6 +450,11 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
 
             self._cur_temp = convert_to_float(
                 str(sensor_state.state), self.name, "startup()"
+            )
+            self._cur_humidity = convert_to_float(
+                str(self.hass.states.get(self.humidity_entity_id).state),
+                self.name,
+                "startuo()",
             )
             if self.window_id is not None:
                 window = self.hass.states.get(self.window_id)
@@ -502,6 +530,8 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
                     self._saved_temperature = old_state.attributes.get(
                         ATTR_STATE_SAVED_TEMPERATURE
                     )
+                if not old_state.state.attributes.get(ATTR_STATE_HUMIDIY):
+                    self._cur_humidity = old_state.attributes.get(ATTR_STATE_HUMIDIY)
             else:
                 # No previous state, try and restore defaults
                 if self._target_temp is None:
@@ -548,6 +578,9 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
                 self.hass, [self.sensor_entity_id], self._trigger_temperature_change
             )
             async_track_state_change_event(
+                self.hass, [self.humidity_entity_id], self._trigger_humidity_change
+            )
+            async_track_state_change_event(
                 self.hass, [self.heater_entity_id], self._trigger_trv_change
             )
             if self.window_id is not None:
@@ -572,6 +605,7 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
             ATTR_STATE_LAST_CHANGE: self.last_change,
             ATTR_STATE_SAVED_TEMPERATURE: self._saved_temperature,
             CONF_CHILD_LOCK: self.child_lock,
+            ATTR_STATE_HUMIDIY: self._cur_humidity,
         }
 
         return dev_specific
