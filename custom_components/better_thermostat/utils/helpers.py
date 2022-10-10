@@ -59,9 +59,6 @@ def mode_remap(self, hvac_mode: str, inbound: bool = False) -> str:
             remapped mode according to device's quirks
     """
     _heat_auto_swapped = self._config.get("heat_auto_swapped")
-    _LOGGER.debug(
-        f"better_thermostat {self.name}: heat_auto_swapped {_heat_auto_swapped}"
-    )
     if _heat_auto_swapped:
         if hvac_mode == HVAC_MODE_HEAT and inbound is False:
             return HVAC_MODE_AUTO
@@ -283,6 +280,46 @@ def convert_time(time_string):
         )
     except ValueError:
         return None
+
+
+async def find_valve_entity(self):
+    """Find the local calibration entity for the TRV.
+
+    This is a hacky way to find the local calibration entity for the TRV. It is not possible to find the entity
+    automatically, because the entity_id is not the same as the friendly_name. The friendly_name is the same for all
+    thermostats of the same brand, but the entity_id is different.
+
+    Parameters
+    ----------
+    self :
+            self instance of better_thermostat
+
+    Returns
+    -------
+    str
+            the entity_id of the local calibration entity
+    None
+            if no local calibration entity was found
+    """
+    entity_registry = er.async_get(self.hass)
+    reg_entity = entity_registry.async_get(self.heater_entity_id)
+    entity_entries = async_entries_for_config_entry(
+        entity_registry, reg_entity.config_entry_id
+    )
+    for entity in entity_entries:
+        uid = entity.unique_id
+        # Make sure we use the correct device entities
+        if entity.device_id == reg_entity.device_id:
+            if "_valve_position" in uid:
+                _LOGGER.debug(
+                    f"better thermostat: Found valve position entity {entity.entity_id} for {self.heater_entity_id}"
+                )
+                return entity.entity_id
+
+    _LOGGER.debug(
+        f"better thermostat: Could not find valve position entity for {self.heater_entity_id}"
+    )
+    return None
 
 
 async def find_local_calibration_entity(self):

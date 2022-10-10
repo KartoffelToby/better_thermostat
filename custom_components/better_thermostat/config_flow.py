@@ -4,11 +4,9 @@ import logging
 import voluptuous as vol
 from collections import OrderedDict
 
-from .utils.helpers import (
-    find_local_calibration_entity,
-    get_device_model,
-    get_trv_intigration,
-)
+from .utils.bridge import load_adapter
+
+from .utils.helpers import get_device_model, get_trv_intigration
 
 from .const import (
     CONF_CALIBRATIION_ROUND,
@@ -51,7 +49,7 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         self.model = None
         self.heater_entity_id = None
         self._config = None
-        self._intigration = None
+        self.integration = None
 
     @staticmethod
     @callback
@@ -99,13 +97,15 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             has_auto = True
         calibration = {"target_temp_based": "Target Temperature"}
         default_calibration = "target_temp_based"
-        if self._intigration.find("homematic") != -1:
+        if self.integration.find("homematic") != -1:
             homematic = True
 
-        if self._intigration.find("mqtt") != -1:
-            if (await find_local_calibration_entity(self)) is not None:
-                calibration["local_calibration_based"] = "Local Calibration"
-                default_calibration = "local_calibration_based"
+        adapter = load_adapter(self)
+        _info = await adapter.get_info(self)
+
+        if _info.get("support_offset", False):
+            calibration["local_calibration_based"] = "Local Calibration"
+            default_calibration = "local_calibration_based"
 
         fields = OrderedDict()
 
@@ -122,12 +122,15 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 default=user_input.get(CONF_CALIBRATIION_ROUND, True),
             )
         ] = bool
-        fields[
-            vol.Optional(
-                CONF_VALVE_MAINTENANCE,
-                default=user_input.get(CONF_VALVE_MAINTENANCE, False),
-            )
-        ] = bool
+
+        if _info.get("support_valve", False):
+            fields[
+                vol.Optional(
+                    CONF_VALVE_MAINTENANCE,
+                    default=user_input.get(CONF_VALVE_MAINTENANCE, False),
+                )
+            ] = bool
+
         fields[
             vol.Optional(
                 CONF_HEAT_AUTO_SWAPPED,
@@ -165,10 +168,10 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 self.data[CONF_OUTDOOR_SENSOR] = None
             if CONF_WEATHER not in self.data:
                 self.data[CONF_WEATHER] = None
-            self._intigration = await get_trv_intigration(self)
+            self.integration = await get_trv_intigration(self)
             device_model = await get_device_model(self)
             self.data[CONF_MODEL] = device_model or "generic"
-            self.data[CONF_INTEGRATION] = self._intigration
+            self.data[CONF_INTEGRATION] = self.integration
             return await self.async_step_advanced()
 
         errors = {}
@@ -180,7 +183,7 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 {
                     vol.Optional(CONF_NAME, default=user_input.get(CONF_NAME, "")): str,
                     vol.Required(CONF_HEATER): selector.EntitySelector(
-                        selector.EntitySelectorConfig(domain="climate", multiple=True)
+                        selector.EntitySelectorConfig(domain="climate", multiple=False)
                     ),
                     vol.Required(CONF_SENSOR): selector.EntitySelector(
                         selector.EntitySelectorConfig(
@@ -253,6 +256,7 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
             self.updated_config[CONF_SENSOR_WINDOW] = user_input.get(
                 CONF_SENSOR_WINDOW, None
             )
+            self.updated_config[CONF_HUMIDITY] = user_input.get(CONF_HUMIDITY, None)
             self.updated_config[CONF_OUTDOOR_SENSOR] = user_input.get(
                 CONF_OUTDOOR_SENSOR, None
             )
@@ -283,11 +287,13 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
         calibration = {"target_temp_based": "Target Temperature"}
         default_calibration = "target_temp_based"
         self.heater_entity_id = self.config_entry.data.get(CONF_HEATER, "")
-        self._intigration = await get_trv_intigration(self)
-        if self._intigration.find("mqtt") != -1:
-            if (await find_local_calibration_entity(self)) is not None:
-                calibration["local_calibration_based"] = "Local Calibration"
-                default_calibration = "local_calibration_based"
+        self.integration = await get_trv_intigration(self)
+
+        adapter = load_adapter(self)
+        _info = await adapter.get_info(self)
+        if _info.get("support_offset", False):
+            calibration["local_calibration_based"] = "Local Calibration"
+            default_calibration = "local_calibration_based"
 
         fields = OrderedDict()
 
@@ -395,12 +401,13 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
             )
         ] = bool
 
-        fields[
-            vol.Optional(
-                CONF_VALVE_MAINTENANCE,
-                default=self.config_entry.data.get(CONF_VALVE_MAINTENANCE, False),
-            )
-        ] = bool
+        if _info.get("support_valve", False):
+            fields[
+                vol.Optional(
+                    CONF_VALVE_MAINTENANCE,
+                    default=self.config_entry.data.get(CONF_VALVE_MAINTENANCE, False),
+                )
+            ] = bool
 
         fields[
             vol.Optional(

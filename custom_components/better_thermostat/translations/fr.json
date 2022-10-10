@@ -8,6 +8,7 @@
                                 "name": "Nom",
                                 "thermostat": "Le véritable thermostat",
                                 "temperature_sensor": "Capteur de température",
+                                "humidity_sensor": "Capteur d'humidité",
                                 "window_sensors": "Capteur de fenêtre",
                                 "off_temperature": "La température extérieure lorsque le thermostat s'éteint",
                                 "window_off_delay": "Délai avant que le thermostat ne s'éteigne lorsque la fenêtre est ouverte et ne s'allume lorsque la fenêtre est fermée",
@@ -48,6 +49,7 @@
                         "description": "Mettez à jour vos paramètres de Better Thermostat",
                         "data": {
                                 "temperature_sensor": "Capteur de température",
+                                "humidity_sensor": "Capteur d'humidité",
                                 "window_sensors": "Capteur de fenêtre",
                                 "off_temperature": "La température extérieure lorsque le thermostat s'éteint",
                                 "window_off_delay": "Délai avant que le thermostat ne s'éteigne lorsque la fenêtre est ouverte et ne s'allume lorsque la fenêtre est fermée",

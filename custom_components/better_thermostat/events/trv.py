@@ -59,8 +59,21 @@ async def trigger_trv_change(self, event):
         )
         return
 
+    if self._TRV_current_temp != new_state.attributes.get("current_temperature"):
+        self._TRV_current_temp = convert_to_float(
+            new_state.attributes.get("current_temperature"),
+            self.name,
+            "TRV_current_temp",
+        )
+        self.async_write_ha_state()
+        await self.control_queue_task.put(self)
+
     # if flag is on, we won't do any further processing
-    if self.ignore_states:
+    if (
+        self.ignore_states
+        or (self.last_change + timedelta(seconds=5)).timestamp()
+        > datetime.now().timestamp()
+    ):
         _LOGGER.debug(
             f"better_thermostat {self.name}: skipping trigger_trv_change because ignore_states is true"
         )
@@ -78,26 +91,6 @@ async def trigger_trv_change(self, event):
     # we only read setpoint changes from TRV if we are in heating mode
     if self._trv_hvac_mode == HVAC_MODE_OFF:
         return
-
-    if self._TRV_current_temp != new_state.attributes.get("current_temperature"):
-        self._TRV_current_temp = convert_to_float(
-            new_state.attributes.get("current_temperature"),
-            self.name,
-            "TRV_current_temp",
-        )
-        if (
-            self.homaticip
-            and (self.last_change + timedelta(hours=1)).timestamp()
-            > datetime.now().timestamp()
-        ):
-            _LOGGER.info(
-                f"better_thermostat {self.name}: skip sending new calculation based on internal temp to TRV because of homaticip throttling"
-            )
-            _updated_needed = False
-        else:
-            _updated_needed = True
-            if self.child_lock:
-                child_lock = True
 
     if not self.homaticip and self.child_lock:
         child_lock = True
@@ -134,6 +127,7 @@ async def trigger_trv_change(self, event):
         self._target_temp != _new_heating_setpoint
         and not self.child_lock
         and self._last_send_target_temp != _new_heating_setpoint
+        and self._trv_hvac_mode != HVAC_MODE_OFF
     ):
         self._target_temp = _new_heating_setpoint
         _updated_needed = True

@@ -5,7 +5,7 @@ import logging
 _LOGGER = logging.getLogger(__name__)
 
 
-def get_info():
+async def get_info(self):
     """Get info from TRV."""
     return {"support_offset": False, "support_valve": False}
 
@@ -16,9 +16,6 @@ async def init(self):
 
 async def set_temperature(self, temperature):
     """Set new target temperature."""
-    _LOGGER.info(
-        f"better_thermostat {self.name}: TO TRV set_temperature: {temperature}"
-    )
     await self.hass.services.async_call(
         "climate",
         "set_temperature",
@@ -27,11 +24,13 @@ async def set_temperature(self, temperature):
         limit=None,
         context=self._context,
     )
+    _LOGGER.info(
+        f"better_thermostat {self.name}: TO TRV set_temperature: {temperature}"
+    )
 
 
 async def set_hvac_mode(self, hvac_mode):
     """Set new target hvac mode."""
-    _LOGGER.info(f"better_thermostat {self.name}: TO TRV set_hvac_mode: {hvac_mode}")
     if hvac_mode == HVAC_MODE_OFF:
         await self.hass.services.async_call(
             "climate",
@@ -50,6 +49,7 @@ async def set_hvac_mode(self, hvac_mode):
         limit=None,
         context=self._context,
     )
+    _LOGGER.info(f"better_thermostat {self.name}: TO TRV set_hvac_mode: {hvac_mode}")
 
 
 async def set_offset(self, offset):

@@ -7,6 +7,7 @@
                                 "name": "Name",
                                 "thermostat": "The real themostat",
                                 "temperature_sensor": "Temperature sensor",
+                                "humidity_sensor": "Humidity sensor",
                                 "window_sensors": "Window sensor",
                                 "off_temperature": "The outdoor temperature when the thermostat turn off",
                                 "window_off_delay": "Delay before the thermostat turn off when the window is open and on when the window is closed",
@@ -56,6 +57,7 @@
                             "calibration_round": "Should the calibration be rounded to the nearest",
                             "heat_auto_swapped": "If the auto means heat for your TRV and you want to swap it",
                             "child_lock": "Ignore all inputs on the TRV like a child lock",
+                            "humidity_sensor": "Humidity sensor",
                             "homaticip": "If you use HomaticIP, you should enable this to slow down the requests to prevent the duty cycle"
                         }
                 }

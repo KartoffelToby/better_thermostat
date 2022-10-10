@@ -29,11 +29,16 @@ def load_adapter(self):
             "generic",
         )
         pass
+    return self.adapter
 
 
 async def init(self):
     """Init adapter."""
     return await self.adapter.init(self)
+
+
+async def get_info(self):
+    return await self.adapter.get_info(self)
 
 
 async def set_temperature(self, temperature):

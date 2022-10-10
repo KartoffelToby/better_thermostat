@@ -67,9 +67,6 @@ async def window_queue(self):
                 current_window_state = False
             # make sure the current state is the suggested change state to prevent a false positive:
             if current_window_state == window_event_to_process:
-                _LOGGER.info(
-                    f"better_thermostat {self.name}: processing window changed {current_window_state} {window_event_to_process}"
-                )
                 self.window_open = window_event_to_process
                 self.async_write_ha_state()
                 await self.control_queue_task.put(self)

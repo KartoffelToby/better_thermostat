@@ -5,14 +5,22 @@ from .generic import (
     set_temperature as generic_set_temperature,
     set_hvac_mode as generic_set_hvac_mode,
 )
-from ..utils.helpers import find_local_calibration_entity
+from ..utils.helpers import find_local_calibration_entity, find_valve_entity
 
 _LOGGER = logging.getLogger(__name__)
 
 
-def get_info():
+async def get_info(self):
     """Get info from TRV."""
-    return {"support_offset": True, "support_valve": True}
+    support_offset = False
+    support_valve = False
+    offset = await find_local_calibration_entity(self)
+    if offset is not None:
+        support_offset = True
+    valve = await find_valve_entity(self)
+    if valve is not None:
+        support_valve = True
+    return {"support_offset": support_offset, "support_valve": support_valve}
 
 
 async def init(self):
@@ -46,7 +54,6 @@ async def set_offset(self, offset):
         (self._last_calibration + timedelta(minutes=5)).timestamp()
         < datetime.now().timestamp()
     ):
-        _LOGGER.info(f"better_thermostat {self.name}: TO TRV set_offset: {offset}")
         max_calibration = self.hass.states.get(
             self.local_temperature_calibration_entity
         ).attributes.get("max", 127)
@@ -66,6 +73,7 @@ async def set_offset(self, offset):
             context=self._context,
         )
         self._last_calibration = datetime.now()
+        _LOGGER.info(f"better_thermostat {self.name}: TO TRV set_offset: {offset}")
     else:
         _LOGGER.debug(
             f"better_thermostat {self.name}: set_trv_values: skipping local calibration because of throttling"

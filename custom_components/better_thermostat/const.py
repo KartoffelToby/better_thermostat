@@ -53,6 +53,7 @@ ATTR_STATE_LAST_CHANGE = "last_change"
 ATTR_STATE_SAVED_TEMPERATURE = "saved_temperature"
 ATTR_VALVE_POSITION = "valve_position"
 ATTR_STATE_HUMIDIY = "humidity"
+ATTR_STATE_MAIN_MODE = "main_mode"
 
 SERVICE_RESTORE_SAVED_TARGET_TEMPERATURE = "restore_saved_target_temperature"
 SERVICE_SET_TEMP_TARGET_TEMPERATURE = "set_temp_target_temperature"
