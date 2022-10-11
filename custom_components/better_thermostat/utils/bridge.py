@@ -14,7 +14,7 @@ def load_adapter(self):
             "custom_components.better_thermostat.adapters." + self.integration,
             package="better_thermostat",
         )
-        _LOGGER.info(
+        _LOGGER.debug(
             "better_thermostat %s: uses adapter %s", self.name, self.integration
         )
     except Exception:
@@ -22,7 +22,7 @@ def load_adapter(self):
             "custom_components.better_thermostat.adapters.generic",
             package="better_thermostat",
         )
-        _LOGGER.error(
+        _LOGGER.warning(
             "better_thermostat %s: intigration: %s isn't native supported, feel free to open an issue, fallback adapter %s",
             self.name,
             self.integration,

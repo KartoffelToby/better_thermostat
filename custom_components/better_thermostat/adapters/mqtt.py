@@ -28,7 +28,7 @@ async def init(self):
         self.local_temperature_calibration_entity = await find_local_calibration_entity(
             self
         )
-        _LOGGER.info(
+        _LOGGER.debug(
             "better_thermostat %s: uses local calibration entity %s",
             self.name,
             self.local_temperature_calibration_entity,
@@ -51,7 +51,7 @@ async def set_offset(self, offset):
         self.local_temperature_calibration_entity
     ).state
     if current_calibration != offset and (
-        (self._last_calibration + timedelta(minutes=5)).timestamp()
+        (self._last_calibration + timedelta(minutes=15)).timestamp()
         < datetime.now().timestamp()
     ):
         max_calibration = self.hass.states.get(
@@ -73,7 +73,6 @@ async def set_offset(self, offset):
             context=self._context,
         )
         self._last_calibration = datetime.now()
-        _LOGGER.info(f"better_thermostat {self.name}: TO TRV set_offset: {offset}")
     else:
         _LOGGER.debug(
             f"better_thermostat {self.name}: set_trv_values: skipping local calibration because of throttling"
@@ -82,7 +81,7 @@ async def set_offset(self, offset):
 
 async def set_valve(self, valve):
     """Set new target valve."""
-    _LOGGER.info(f"better_thermostat {self.name}: TO TRV set_valve: {valve}")
+    _LOGGER.debug(f"better_thermostat {self.name}: TO TRV set_valve: {valve}")
     await self.hass.services.async_call(
         "number",
         SERVICE_SET_VALUE,

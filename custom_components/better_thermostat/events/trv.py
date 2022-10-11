@@ -60,13 +60,16 @@ async def trigger_trv_change(self, event):
         return
 
     if self._TRV_current_temp != new_state.attributes.get("current_temperature"):
+        newtemp = new_state.attributes.get("current_temperature")
+        _LOGGER.debug(
+            f"better_thermostat {self.name}: TRV's sends new internal temperature from {self._TRV_current_temp} to {newtemp}"
+        )
         self._TRV_current_temp = convert_to_float(
-            new_state.attributes.get("current_temperature"),
+            new_state.attributes.get("current_temperature", self._TRV_current_temp),
             self.name,
             "TRV_current_temp",
         )
         self.async_write_ha_state()
-        await self.control_queue_task.put(self)
 
     # if flag is on, we won't do any further processing
     if (
@@ -74,9 +77,6 @@ async def trigger_trv_change(self, event):
         or (self.last_change + timedelta(seconds=5)).timestamp()
         > datetime.now().timestamp()
     ):
-        _LOGGER.debug(
-            f"better_thermostat {self.name}: skipping trigger_trv_change because ignore_states is true"
-        )
         return
 
     new_decoded_system_mode = str(new_state.state)
@@ -129,11 +129,14 @@ async def trigger_trv_change(self, event):
         and self._last_send_target_temp != _new_heating_setpoint
         and self._trv_hvac_mode != HVAC_MODE_OFF
     ):
+        _LOGGER.debug(
+            f"better_thermostat {self.name}: TRV's decoded TRV target temp changed from {self._target_temp} to {_new_heating_setpoint}"
+        )
         self._target_temp = _new_heating_setpoint
         _updated_needed = True
 
     if _updated_needed or child_lock:
-        _LOGGER.info(f"better_thermostat {self.name}: TRV update received")
+        _LOGGER.debug(f"better_thermostat {self.name}: TRV update triggerd")
         self.async_write_ha_state()
         await self.control_queue_task.put(self)
 
@@ -213,7 +216,6 @@ def convert_outbound_states(self, hvac_mode) -> Union[dict, None]:
     None
             In case of an error.
     """
-    state = self.hass.states.get(self.heater_entity_id).attributes
 
     _new_local_calibration = None
     _new_heating_setpoint = None
@@ -282,7 +284,6 @@ def convert_outbound_states(self, hvac_mode) -> Union[dict, None]:
                     _new_heating_setpoint = calculate_setpoint_override(self)
 
             _has_system_mode = self._config.get("has_system_mode")
-            _system_mode = self._config.get("system_mode")
 
             if (
                 isinstance(_has_system_mode, str)
@@ -298,30 +299,20 @@ def convert_outbound_states(self, hvac_mode) -> Union[dict, None]:
 
             # Handling different devices with or without system mode reported or contained in the device config
 
-            if _has_system_mode is True or (
-                _has_system_mode is None and _system_mode is not None
-            ):
+            if _has_system_mode is True:
                 hvac_mode = mode_remap(self, hvac_mode)
 
-            elif _has_system_mode is True and _system_mode is None:
-                _LOGGER.error(
-                    f"better_thermostat {self.name}: device reports no system mode, while device config expects one. No changes to TRV "
-                    f"will be made until device reports a system mode (again)"
-                )
-                return None
-
             elif _has_system_mode is False:
-                if _system_mode is not None:
-                    _LOGGER.warning(
-                        f"better_thermostat {self.name}: device config expects no system mode, while the device has one. Device system mode will be ignored"
-                    )
+                _LOGGER.debug(
+                    f"better_thermostat {self.name}: device config expects no system mode, while the device has one. Device system mode will be ignored"
+                )
                 if hvac_mode == HVAC_MODE_OFF:
                     _new_heating_setpoint = 5
                 hvac_mode = None
 
-            elif _has_system_mode is None and _system_mode is None:
+            elif _has_system_mode is None:
                 if hvac_mode == HVAC_MODE_OFF:
-                    _LOGGER.info(
+                    _LOGGER.debug(
                         f"better_thermostat {self.name}: sending 5°C to the TRV because this device has no system mode and heater should be off"
                     )
                     _new_heating_setpoint = 5
@@ -329,7 +320,7 @@ def convert_outbound_states(self, hvac_mode) -> Union[dict, None]:
 
     return {
         "current_heating_setpoint": _new_heating_setpoint,
-        "local_temperature": state.get("current_temperature"),
+        "local_temperature": self._TRV_current_temp,
         "system_mode": hvac_mode,
         "local_temperature_calibration": _new_local_calibration,
     }

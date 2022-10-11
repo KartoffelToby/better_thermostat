@@ -92,27 +92,22 @@ def calculate_local_setpoint_delta(self) -> Union[float, None]:
     float
             new local calibration delta
     """
-
-    _trv_state_attributes = self.hass.states.get(self.heater_entity_id).attributes
     _calibration_state = self.hass.states.get(
         self.local_temperature_calibration_entity
     ).state
     _context = "calculate_local_setpoint_delta()"
 
-    _current_trv_temp = convert_to_float(
-        _trv_state_attributes.get("current_temperature"), self.name, _context
-    )
     _current_trv_calibration = convert_to_float(_calibration_state, self.name, _context)
 
-    if None in (_current_trv_calibration, self._cur_temp, _current_trv_temp):
+    if None in (_current_trv_calibration, self._cur_temp, self._TRV_current_temp):
         _LOGGER.warning(
             f"better thermostat {self.name}: Could not calculate local setpoint delta in {_context}:"
-            f" current_trv_calibration: {_current_trv_calibration}, current_trv_temp: {_current_trv_temp}, cur_temp: {self._cur_temp}"
+            f" current_trv_calibration: {_current_trv_calibration}, current_trv_temp: {self._TRV_current_temp}, cur_temp: {self._cur_temp}"
         )
         return None
 
     _new_local_calibration = (
-        self._cur_temp - _current_trv_temp + _current_trv_calibration
+        self._cur_temp - self._TRV_current_temp + _current_trv_calibration
     )
     return _new_local_calibration
 
@@ -133,18 +128,10 @@ def calculate_setpoint_override(self) -> Union[float, None]:
     float
             new target temp with calibration
     """
-    state = self.hass.states.get(self.heater_entity_id).attributes
-
-    _context = "calculate_setpoint_override()"
-
-    _current_trv_temp = convert_to_float(
-        state.get("current_temperature"), self.name, _context
-    )
-
-    if None in (self._target_temp, self._cur_temp, _current_trv_temp):
+    if None in (self._target_temp, self._cur_temp, self._TRV_current_temp):
         return None
 
-    _calibrated_setpoint = self._target_temp - self._cur_temp + _current_trv_temp
+    _calibrated_setpoint = self._target_temp - self._cur_temp + self._TRV_current_temp
 
     # check if new setpoint is inside the TRV's range, else set to min or max
     if _calibrated_setpoint < self._TRV_min_temp:

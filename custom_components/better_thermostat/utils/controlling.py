@@ -91,6 +91,9 @@ async def control_trv(self, force_mode_change: bool = False):
                 )
                 hvac_mode_send = HVAC_MODE_OFF
                 self._last_states["last_call_for_heat"] = False
+                _LOGGER.debug(
+                    f"better_thermostat {self.name}: TO TRV set_hvac_mode: off"
+                )
                 await set_trv_values(self, "hvac_mode", HVAC_MODE_OFF)
                 self._last_states["last_hvac_mode"] = self._bt_hvac_mode
                 await asyncio.sleep(5)
@@ -115,7 +118,7 @@ async def control_trv(self, force_mode_change: bool = False):
                 self.window_open is True
                 and self._last_states.get("last_window_open", False) is False
             ):
-                _LOGGER.info(
+                _LOGGER.debug(
                     f"better_thermostat {self.name}: control_trv: window is open or status of window is unknown, setting window open"
                 )
                 # if the window is open or the sensor is not available, we're done
@@ -126,7 +129,7 @@ async def control_trv(self, force_mode_change: bool = False):
                 self.window_open is False
                 and self._last_states.get("last_window_open", False) is True
             ):
-                _LOGGER.info(
+                _LOGGER.debug(
                     f"better_thermostat {self.name}: control_trv: window is closed, setting window closed restoring mode: {self._last_main_hvac_mode}"
                 )
                 hvac_mode_send = self._last_main_hvac_mode
@@ -168,6 +171,10 @@ async def control_trv(self, force_mode_change: bool = False):
                     and current_heating_setpoint
                     != self._last_states.get("last_target_temp", 0)
                 ):
+                    old = self._last_states.get("last_target_temp", "?")
+                    _LOGGER.debug(
+                        f"better_thermostat {self.name}: TO TRV set_temperature: from: {old} to: {current_heating_setpoint}"
+                    )
                     await set_trv_values(
                         self,
                         "temperature",
@@ -178,6 +185,10 @@ async def control_trv(self, force_mode_change: bool = False):
                     perfom_change = True
             if calibration is not None:
                 if calibration != self._last_states.get("last_calibration", 0):
+                    old = self._last_states.get("last_calibration", "?")
+                    _LOGGER.debug(
+                        f"better_thermostat {self.name}: TO TRV set_local_temperature_calibration: from: {old} to: {calibration}"
+                    )
                     await set_trv_values(
                         self, "local_temperature_calibration", calibration
                     )
@@ -189,6 +200,10 @@ async def control_trv(self, force_mode_change: bool = False):
                     and converted_hvac_mode
                     != self._last_states.get("last_hvac_mode", "-")
                 ):
+                    old = self._last_states.get("last_hvac_mode", "?")
+                    _LOGGER.debug(
+                        f"better_thermostat {self.name}: TO TRV set_hvac_mode: from: {old} to: {converted_hvac_mode}"
+                    )
                     await set_trv_values(self, "hvac_mode", converted_hvac_mode)
                     self._last_states["last_hvac_mode"] = converted_hvac_mode
                     perfom_change = True
@@ -220,7 +235,7 @@ async def set_target_temperature(self, **kwargs):
         kwargs.get(ATTR_TEMPERATURE), self.name, "controlling.set_target_temperature()"
     )
     if _new_setpoint is None:
-        _LOGGER.info(
+        _LOGGER.debug(
             f"better_thermostat {self.name}: received a new setpoint from HA, but temperature attribute was not set, ignoring"
         )
         return
@@ -231,7 +246,7 @@ async def set_target_temperature(self, **kwargs):
         and (self.last_change + timedelta(seconds=10)).timestamp()
         > datetime.now().timestamp()
     ):
-        _LOGGER.info(
+        _LOGGER.debug(
             f"better_thermostat {self.name}: skip controlling.set_target_temperature because of homaticip throttling"
         )
         return
@@ -304,7 +319,7 @@ async def trv_valve_maintenance(self):
     None
     """
 
-    _LOGGER.info("better_thermostat %s: maintenance started", self.name)
+    _LOGGER.debug("better_thermostat %s: maintenance started", self.name)
 
     self.ignore_states = True
 
@@ -360,7 +375,7 @@ async def trv_valve_maintenance(self):
 
             # end loop after 3 opening cycles
             elif _i > 3:
-                _LOGGER.info("better_thermostat %s: maintenance completed", self.name)
+                _LOGGER.debug("better_thermostat %s: maintenance completed", self.name)
                 break
 
             # open valve

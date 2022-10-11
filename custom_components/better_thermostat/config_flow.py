@@ -286,6 +286,7 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
 
         calibration = {"target_temp_based": "Target Temperature"}
         default_calibration = "target_temp_based"
+        self.name = self.config_entry.data.get(CONF_NAME, "unknown")
         self.heater_entity_id = self.config_entry.data.get(CONF_HEATER, "")
         self.integration = await get_trv_intigration(self)
 

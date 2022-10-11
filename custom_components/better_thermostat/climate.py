@@ -538,22 +538,26 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
                     )
                 if not self._bt_hvac_mode and old_state.state:
                     self._bt_hvac_mode = old_state.state
-                if not old_state.attributes.get(ATTR_STATE_LAST_CHANGE):
+                if old_state.attributes.get(ATTR_STATE_LAST_CHANGE, None) is not None:
                     self.last_change = old_state.attributes.get(ATTR_STATE_LAST_CHANGE)
-                if not old_state.attributes.get(ATTR_STATE_CALL_FOR_HEAT):
+                if old_state.attributes.get(ATTR_STATE_CALL_FOR_HEAT, None) is not None:
                     self.call_for_heat = old_state.attributes.get(
                         ATTR_STATE_CALL_FOR_HEAT
                     )
-                if not old_state.attributes.get(ATTR_STATE_SAVED_TEMPERATURE):
+                if (
+                    old_state.attributes.get(ATTR_STATE_SAVED_TEMPERATURE, None)
+                    is not None
+                ):
                     self._saved_temperature = old_state.attributes.get(
                         ATTR_STATE_SAVED_TEMPERATURE
                     )
-                if not old_state.attributes.get(ATTR_STATE_HUMIDIY):
+                if old_state.attributes.get(ATTR_STATE_HUMIDIY, None) is not None:
                     self._cur_humidity = old_state.attributes.get(ATTR_STATE_HUMIDIY)
-                if not old_state.attributes.get(ATTR_STATE_MAIN_MODE):
+                if old_state.attributes.get(ATTR_STATE_MAIN_MODE, None) is not None:
                     self._last_main_hvac_mode = old_state.attributes.get(
                         ATTR_STATE_MAIN_MODE
                     )
+
             else:
                 # No previous state, try and restore defaults
                 if self._target_temp is None:

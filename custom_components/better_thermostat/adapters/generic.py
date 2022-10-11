@@ -24,9 +24,6 @@ async def set_temperature(self, temperature):
         limit=None,
         context=self._context,
     )
-    _LOGGER.info(
-        f"better_thermostat {self.name}: TO TRV set_temperature: {temperature}"
-    )
 
 
 async def set_hvac_mode(self, hvac_mode):
@@ -49,7 +46,6 @@ async def set_hvac_mode(self, hvac_mode):
         limit=None,
         context=self._context,
     )
-    _LOGGER.info(f"better_thermostat {self.name}: TO TRV set_hvac_mode: {hvac_mode}")
 
 
 async def set_offset(self, offset):
