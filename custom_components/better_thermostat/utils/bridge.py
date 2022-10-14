@@ -41,6 +41,16 @@ async def get_info(self):
     return await self.adapter.get_info(self)
 
 
+async def get_current_offset(self):
+    """Get current offset."""
+    return await self.adapter.get_current_offset(self)
+
+
+async def get_offset_steps(self):
+    """get offset setps."""
+    return await self.adapter.get_offset_steps(self)
+
+
 async def set_temperature(self, temperature):
     """Set new target temperature."""
     return await self.adapter.set_temperature(self, temperature)

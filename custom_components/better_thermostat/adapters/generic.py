@@ -14,6 +14,16 @@ async def init(self):
     return None
 
 
+async def get_current_offset(self):
+    """Get current offset."""
+    return None
+
+
+async def get_offset_steps(self):
+    """Get offset steps."""
+    return None
+
+
 async def set_temperature(self, temperature):
     """Set new target temperature."""
     await self.hass.services.async_call(

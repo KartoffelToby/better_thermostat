@@ -69,12 +69,12 @@ def check_weather_prediction(self) -> bool:
                 round(
                     (
                         convert_to_float(
-                            forcast[0]["temperature"],
+                            str(forcast[0]["temperature"]),
                             self.name,
                             "check_weather_prediction()",
                         )
                         + convert_to_float(
-                            forcast[1]["temperature"],
+                            str(forcast[1]["temperature"]),
                             self.name,
                             "check_weather_prediction()",
                         )

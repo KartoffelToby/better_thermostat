@@ -3,6 +3,8 @@ import logging
 
 from .bridge import (
     set_offset,
+    get_current_offset,
+    get_offset_steps,
     set_temperature,
     set_valve,
     set_hvac_mode as bridge_set_hvac_mode,
@@ -12,7 +14,7 @@ from datetime import datetime, timedelta
 from homeassistant.components.climate.const import HVAC_MODE_HEAT, HVAC_MODE_OFF
 from homeassistant.const import ATTR_TEMPERATURE
 
-from .helpers import convert_to_float
+from .helpers import convert_to_float, calibration_round
 from .weather import check_weather
 
 _LOGGER = logging.getLogger(__name__)
@@ -64,13 +66,13 @@ async def control_trv(self, force_mode_change: bool = False):
         _trv = self.hass.states.get(self.heater_entity_id)
         _current_TRV_mode = _trv.state
         _current_set_temperature = convert_to_float(
-            _trv.attributes.get("current_heating_setpoint")
-            or _trv.attributes.get("temperature"),
+            str(_trv.attributes.get("current_heating_setpoint")),
             self.name,
             "controlling()",
         )
         hvac_mode_send = self._bt_hvac_mode
         perfom_change = False
+        perform_calibration = False
 
         if self._bt_hvac_mode == HVAC_MODE_OFF:
             if _current_TRV_mode != HVAC_MODE_OFF:
@@ -183,27 +185,40 @@ async def control_trv(self, force_mode_change: bool = False):
                     )
                     self._last_states["last_target_temp"] = current_heating_setpoint
                     perfom_change = True
-            if calibration is not None:
-                if calibration != self._last_states.get("last_calibration", 0):
-                    old = self._last_states.get("last_calibration", "?")
-                    _LOGGER.debug(
-                        f"better_thermostat {self.name}: TO TRV set_local_temperature_calibration: from: {old} to: {calibration}"
+            if calibration is not None and self._bt_hvac_mode != HVAC_MODE_OFF:
+                old_calibration = await get_current_offset(self)
+                step_calibration = await get_offset_steps(self)
+                current_calibration = convert_to_float(
+                    str(old_calibration), self.name, "controlling()"
+                )
+                if step_calibration.is_integer():
+                    calibration = calibration_round(
+                        float(str(format(float(calibration), ".1f")))
                     )
+                else:
+                    calibration = float(str(format(float(calibration), ".1f")))
+
+                old = self._last_states.get("last_calibration", current_calibration)
+                if self._calibration_received is True and old != calibration:
                     await set_trv_values(
                         self, "local_temperature_calibration", calibration
                     )
                     self._last_states["last_calibration"] = calibration
                     perfom_change = True
+                    perform_calibration = True
+                    self._calibration_received = False
+
             if converted_hvac_mode is not None:
                 if (
                     _current_TRV_mode != converted_hvac_mode
                     and converted_hvac_mode
                     != self._last_states.get("last_hvac_mode", "-")
-                ):
+                ) or perform_calibration:
                     old = self._last_states.get("last_hvac_mode", "?")
-                    _LOGGER.debug(
-                        f"better_thermostat {self.name}: TO TRV set_hvac_mode: from: {old} to: {converted_hvac_mode}"
-                    )
+                    if perform_calibration is False:
+                        _LOGGER.debug(
+                            f"better_thermostat {self.name}: TO TRV set_hvac_mode: from: {old} to: {converted_hvac_mode}"
+                        )
                     await set_trv_values(self, "hvac_mode", converted_hvac_mode)
                     self._last_states["last_hvac_mode"] = converted_hvac_mode
                     perfom_change = True
@@ -232,7 +247,9 @@ async def set_target_temperature(self, **kwargs):
     None
     """
     _new_setpoint = convert_to_float(
-        kwargs.get(ATTR_TEMPERATURE), self.name, "controlling.set_target_temperature()"
+        str(kwargs.get(ATTR_TEMPERATURE)),
+        self.name,
+        "controlling.set_target_temperature()",
     )
     if _new_setpoint is None:
         _LOGGER.debug(

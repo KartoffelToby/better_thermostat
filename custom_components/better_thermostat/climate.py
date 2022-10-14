@@ -250,12 +250,13 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
         self.valve_position_entity = None
         self.version = VERSION
         self.last_change = datetime.now() - timedelta(hours=2)
-        self._last_calibration = datetime.now() - timedelta(hours=2)
+        self._last_calibration = datetime.now()
         self._last_window_state = None
         self._temp_lock = asyncio.Lock()
         self._last_reported_valve_position = None
         self.startup_running = True
         self._init = True
+        self._calibration_received = True
         self._saved_temperature = None
         self._last_reported_valve_position_update_wait_lock = asyncio.Lock()
         self._last_send_target_temp = None
@@ -328,7 +329,7 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
 
     async def _trigger_humidity_change(self, event):
         self._cur_humidity = convert_to_float(
-            self.hass.states.get(self.humidity_entity_id).state,
+            str(self.hass.states.get(self.humidity_entity_id).state),
             self.name,
             "humidity_update",
         )
@@ -538,8 +539,6 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
                     )
                 if not self._bt_hvac_mode and old_state.state:
                     self._bt_hvac_mode = old_state.state
-                if old_state.attributes.get(ATTR_STATE_LAST_CHANGE, None) is not None:
-                    self.last_change = old_state.attributes.get(ATTR_STATE_LAST_CHANGE)
                 if old_state.attributes.get(ATTR_STATE_CALL_FOR_HEAT, None) is not None:
                     self.call_for_heat = old_state.attributes.get(
                         ATTR_STATE_CALL_FOR_HEAT
@@ -548,8 +547,12 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
                     old_state.attributes.get(ATTR_STATE_SAVED_TEMPERATURE, None)
                     is not None
                 ):
-                    self._saved_temperature = old_state.attributes.get(
-                        ATTR_STATE_SAVED_TEMPERATURE
+                    self._saved_temperature = convert_to_float(
+                        str(
+                            old_state.attributes.get(ATTR_STATE_SAVED_TEMPERATURE, None)
+                        ),
+                        self.name,
+                        "startuo()",
                     )
                 if old_state.attributes.get(ATTR_STATE_HUMIDIY, None) is not None:
                     self._cur_humidity = old_state.attributes.get(ATTR_STATE_HUMIDIY)

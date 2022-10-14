@@ -29,7 +29,7 @@ async def trigger_temperature_change(self, event):
         return
 
     _incoming_temperature = convert_to_float(
-        new_state.state, self.name, "external_temperature"
+        str(new_state.state), self.name, "external_temperature"
     )
 
     if _incoming_temperature != self._cur_temp:

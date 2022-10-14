@@ -1,5 +1,5 @@
 from homeassistant.components.number.const import SERVICE_SET_VALUE
-from datetime import datetime, timedelta
+from datetime import datetime
 import logging
 from .generic import (
     set_temperature as generic_set_temperature,
@@ -33,6 +33,7 @@ async def init(self):
             self.name,
             self.local_temperature_calibration_entity,
         )
+        await set_offset(self, 0)
 
 
 async def set_temperature(self, temperature):
@@ -45,38 +46,61 @@ async def set_hvac_mode(self, hvac_mode):
     return await generic_set_hvac_mode(self, hvac_mode)
 
 
+async def get_current_offset(self):
+    """Get current offset."""
+    return float(
+        str(self.hass.states.get(self.local_temperature_calibration_entity).state)
+    )
+
+
+async def get_offset_steps(self):
+    """Get offset steps."""
+    return float(
+        str(
+            self.hass.states.get(
+                self.local_temperature_calibration_entity
+            ).attributes.get("step", 1)
+        )
+    )
+
+
 async def set_offset(self, offset):
     """Set new target offset."""
-    current_calibration = self.hass.states.get(
-        self.local_temperature_calibration_entity
-    ).state
-    if current_calibration != offset and (
-        (self._last_calibration + timedelta(minutes=15)).timestamp()
-        < datetime.now().timestamp()
-    ):
-        max_calibration = self.hass.states.get(
-            self.local_temperature_calibration_entity
-        ).attributes.get("max", 127)
-        min_calibration = self.hass.states.get(
-            self.local_temperature_calibration_entity
-        ).attributes.get("min", -128)
-        if offset > max_calibration:
-            offset = max_calibration
-        if offset < min_calibration:
-            offset = min_calibration
-        await self.hass.services.async_call(
-            "number",
-            SERVICE_SET_VALUE,
-            {"entity_id": self.local_temperature_calibration_entity, "value": offset},
-            blocking=True,
-            limit=None,
-            context=self._context,
+    old = float(
+        str(self.hass.states.get(self.local_temperature_calibration_entity).state)
+    )
+    max_calibration = float(
+        str(
+            self.hass.states.get(
+                self.local_temperature_calibration_entity
+            ).attributes.get("max", 127)
         )
-        self._last_calibration = datetime.now()
-    else:
-        _LOGGER.debug(
-            f"better_thermostat {self.name}: set_trv_values: skipping local calibration because of throttling"
+    )
+    min_calibration = float(
+        str(
+            self.hass.states.get(
+                self.local_temperature_calibration_entity
+            ).attributes.get("min", -128)
         )
+    )
+
+    if offset >= max_calibration:
+        offset = max_calibration
+    if offset <= min_calibration:
+        offset = min_calibration
+
+    _LOGGER.debug(
+        f"better_thermostat {self.name}: TO TRV set_local_temperature_calibration: from: {old} to: {offset}"
+    )
+    await self.hass.services.async_call(
+        "number",
+        SERVICE_SET_VALUE,
+        {"entity_id": self.local_temperature_calibration_entity, "value": offset},
+        blocking=True,
+        limit=None,
+        context=self._context,
+    )
+    self._last_calibration = datetime.now()
 
 
 async def set_valve(self, valve):

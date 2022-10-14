@@ -59,17 +59,27 @@ async def trigger_trv_change(self, event):
         )
         return
 
-    if self._TRV_current_temp != new_state.attributes.get("current_temperature"):
+    if (
+        self._TRV_current_temp != new_state.attributes.get("current_temperature")
+        and self._bt_hvac_mode != HVAC_MODE_OFF
+        and self._trv_hvac_mode != HVAC_MODE_OFF
+    ):
         newtemp = new_state.attributes.get("current_temperature")
         _LOGGER.debug(
             f"better_thermostat {self.name}: TRV's sends new internal temperature from {self._TRV_current_temp} to {newtemp}"
         )
         self._TRV_current_temp = convert_to_float(
-            new_state.attributes.get("current_temperature", self._TRV_current_temp),
+            str(
+                new_state.attributes.get("current_temperature", self._TRV_current_temp)
+            ),
             self.name,
             "TRV_current_temp",
         )
-        self.async_write_ha_state()
+        if self.ignore_states is False:
+            self._calibration_received = True
+            _updated_needed = True
+        else:
+            self.async_write_ha_state()
 
     # if flag is on, we won't do any further processing
     if (

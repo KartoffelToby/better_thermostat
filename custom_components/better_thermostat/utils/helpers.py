@@ -92,12 +92,17 @@ def calculate_local_setpoint_delta(self) -> Union[float, None]:
     float
             new local calibration delta
     """
+    if self.local_temperature_calibration_entity is None:
+        return None
+
     _calibration_state = self.hass.states.get(
         self.local_temperature_calibration_entity
     ).state
     _context = "calculate_local_setpoint_delta()"
 
-    _current_trv_calibration = convert_to_float(_calibration_state, self.name, _context)
+    _current_trv_calibration = convert_to_float(
+        str(_calibration_state), self.name, _context
+    )
 
     if None in (_current_trv_calibration, self._cur_temp, self._TRV_current_temp):
         _LOGGER.warning(
@@ -107,9 +112,9 @@ def calculate_local_setpoint_delta(self) -> Union[float, None]:
         return None
 
     _new_local_calibration = (
-        self._cur_temp - self._TRV_current_temp + _current_trv_calibration
-    )
-    return _new_local_calibration
+        self._cur_temp - self._TRV_current_temp
+    ) + _current_trv_calibration
+    return convert_to_float(str(_new_local_calibration), self.name, _context)
 
 
 def calculate_setpoint_override(self) -> Union[float, None]:
@@ -131,7 +136,7 @@ def calculate_setpoint_override(self) -> Union[float, None]:
     if None in (self._target_temp, self._cur_temp, self._TRV_current_temp):
         return None
 
-    _calibrated_setpoint = self._target_temp - self._cur_temp + self._TRV_current_temp
+    _calibrated_setpoint = (self._target_temp - self._cur_temp) + self._TRV_current_temp
 
     # check if new setpoint is inside the TRV's range, else set to min or max
     if _calibrated_setpoint < self._TRV_min_temp:
@@ -166,12 +171,35 @@ def convert_to_float(
         return value
     else:
         try:
-            return float(value)
+            return float(str(format(float(value), ".2f")))
         except (ValueError, TypeError, AttributeError, KeyError):
             _LOGGER.debug(
                 f"better thermostat {instance_name}: Could not convert '{value}' to float in {context}"
             )
             return None
+
+
+def calibration_round(value: Union[int, float, None]) -> Union[float, int, None]:
+    """Round the calibration value to the nearest 0.5.
+
+    Parameters
+    ----------
+    value : float
+            the value to round
+
+    Returns
+    -------
+    float
+            the rounded value
+    """
+    if value is None:
+        return None
+    split = str(float(str(value))).split(".", 1)
+    decimale = int(split[1])
+    if decimale > 7:
+        return float(str(split[0])) + 1.0
+    else:
+        return float(str(split[0]))
 
 
 def round_to_half_degree(value: Union[int, float, None]) -> Union[float, int, None]:
