@@ -1,5 +1,4 @@
 import asyncio
-from homeassistant.components.climate.const import HVAC_MODE_OFF
 import logging
 
 _LOGGER = logging.getLogger(__name__)
@@ -38,6 +37,7 @@ async def set_temperature(self, temperature):
 
 async def set_hvac_mode(self, hvac_mode):
     """Set new target hvac mode."""
+    """
     if hvac_mode == HVAC_MODE_OFF:
         await self.hass.services.async_call(
             "climate",
@@ -48,6 +48,7 @@ async def set_hvac_mode(self, hvac_mode):
             context=self._context,
         )
     await asyncio.sleep(3)
+    """
     await self.hass.services.async_call(
         "climate",
         "set_hvac_mode",
@@ -56,6 +57,7 @@ async def set_hvac_mode(self, hvac_mode):
         limit=None,
         context=self._context,
     )
+    await asyncio.sleep(3)
 
 
 async def set_offset(self, offset):
