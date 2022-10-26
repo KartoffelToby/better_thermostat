@@ -136,7 +136,11 @@ def calculate_setpoint_override(self) -> Union[float, None]:
     if None in (self._target_temp, self._cur_temp, self._TRV_current_temp):
         return None
 
-    _calibrated_setpoint = (self._target_temp - self._cur_temp) + self._TRV_current_temp
+    #_calibrated_setpoint = (self._target_temp - self._cur_temp) + self._TRV_current_temp
+    _temp_diff = (self._target_temp - self._cur_temp)
+    _calibrated_setpoint = _temp_diff + self._TRV_current_temp
+    if _temp_diff > 0.0 and _calibrated_setpoint - self._TRV_current_temp < 2.3:
+        _calibrated_setpoint = self._TRV_current_temp + 2.3
 
     # check if new setpoint is inside the TRV's range, else set to min or max
     if _calibrated_setpoint < self._TRV_min_temp:
