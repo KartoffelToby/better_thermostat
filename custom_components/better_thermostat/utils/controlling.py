@@ -167,6 +167,7 @@ async def control_trv(self, force_mode_change: bool = False):
             if (
                 current_heating_setpoint is not None
                 and self._bt_hvac_mode != HVAC_MODE_OFF
+                and converted_hvac_mode != HVAC_MODE_OFF
             ):
                 if (
                     _current_set_temperature != current_heating_setpoint
@@ -185,7 +186,11 @@ async def control_trv(self, force_mode_change: bool = False):
                     )
                     self._last_states["last_target_temp"] = current_heating_setpoint
                     perfom_change = True
-            if calibration is not None and self._bt_hvac_mode != HVAC_MODE_OFF:
+            if (
+                calibration is not None
+                and self._bt_hvac_mode != HVAC_MODE_OFF
+                and converted_hvac_mode != HVAC_MODE_OFF
+            ):
                 old_calibration = await get_current_offset(self)
                 step_calibration = await get_offset_steps(self)
                 current_calibration = convert_to_float(
@@ -209,11 +214,7 @@ async def control_trv(self, force_mode_change: bool = False):
                     self._calibration_received = False
 
             if converted_hvac_mode is not None:
-                if (
-                    _current_TRV_mode != converted_hvac_mode
-                    and converted_hvac_mode
-                    != self._last_states.get("last_hvac_mode", "-")
-                ) or perform_calibration:
+                if (_current_TRV_mode != converted_hvac_mode) or perform_calibration:
                     old = self._last_states.get("last_hvac_mode", "?")
                     if perform_calibration is False:
                         _LOGGER.debug(

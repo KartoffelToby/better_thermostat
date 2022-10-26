@@ -563,16 +563,17 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
 
             else:
                 # No previous state, try and restore defaults
-                if self._target_temp is None:
+                if self._target_temp is None or type(self._target_temp) != float:
                     _LOGGER.info(
                         "better_thermostat %s: No previously saved temperature found on startup, get it from the TRV",
                         self.name,
                     )
-                    self._target_temp = (
-                        trv_state.attributes.get("current_heating_setpoint")
-                        or trv_state.attributes.get("temperature")
-                        or 5
+                    self._target_temp = convert_to_float(
+                        str(trv_state.attributes.get("current_heating_setpoint")),
+                        self.name,
+                        "startup()",
                     )
+
             # if hvac mode could not be restored, turn heat off
             if self._trv_hvac_mode is None:
                 self._trv_hvac_mode = HVAC_MODE_OFF

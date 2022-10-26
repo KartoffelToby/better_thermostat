@@ -60,12 +60,16 @@ async def trigger_trv_change(self, event):
         return
 
     _new_current_temp = convert_to_float(
-        str(new_state.attributes.get("current_temperature", self._TRV_current_temp)),
+        str(new_state.attributes.get("current_temperature", None)),
         self.name,
         "TRV_current_temp",
     )
 
-    if self._TRV_current_temp != _new_current_temp:
+    if (
+        _new_current_temp is not None
+        and self._TRV_current_temp != _new_current_temp
+        and _new_current_temp > 5
+    ):
         newtemp = new_state.attributes.get("current_temperature")
         _LOGGER.debug(
             f"better_thermostat {self.name}: TRV's sends new internal temperature from {self._TRV_current_temp} to {newtemp}"
@@ -95,11 +99,8 @@ async def trigger_trv_change(self, event):
         return
 
     # we only read setpoint changes from TRV if we are in heating mode
-    if self._trv_hvac_mode == HVAC_MODE_OFF:
+    if new_decoded_system_mode == HVAC_MODE_OFF:
         return
-
-    if not self.homaticip and self.child_lock:
-        child_lock = True
 
     _new_heating_setpoint = convert_to_float(
         str(new_state.attributes.get("current_heating_setpoint", None)),
@@ -132,8 +133,6 @@ async def trigger_trv_change(self, event):
         self._target_temp != _new_heating_setpoint
         and not self.child_lock
         and self._last_send_target_temp != _new_heating_setpoint
-        and self._bt_hvac_mode != HVAC_MODE_OFF
-        and self._trv_hvac_mode != HVAC_MODE_OFF
     ):
         _LOGGER.debug(
             f"better_thermostat {self.name}: TRV's decoded TRV target temp changed from {self._target_temp} to {_new_heating_setpoint}"
