@@ -1,14 +1,10 @@
 {
     "title": "Better Thermostat",
-    "config":
-    {
-        "step":
-        {
-            "user":
-            {
-                "description": "Setup your Better Thermostat to integrate with Home Assistant\nIf you need more info: https://better-thermostat.org/configuration/new_device ",
-                "data":
-                {
+    "config": {
+        "step": {
+            "user": {
+                "description": "Konfigurer din Better Thermostat til at integrere med Home Assistant\n**Hvis du har brug for mere info: https://better-thermostat.org/configuration/new_device**",
+                "data": {
                     "name": "Navn",
                     "thermostat": "Den rigtige termostat",
                     "temperature_sensor": "Temperatur måler",
@@ -20,11 +16,9 @@
                     "weather": "Din vejrentitet for at få udendørstemperaturen"
                 }
             },
-            "advanced":
-            {
-                "description": "Avanceret konfiguration\n\nInfo om kalibreringstyper: https://better-thermostat.org/calibration ",
-                "data":
-                {
+            "advanced": {
+                "description": "Avanceret konfiguration\n\n**Info om kalibreringstyper: https://better-thermostat.org/calibration** ",
+                "data": {
                     "calibration_round": "Skal kalibreringen afrundes til nærmeste",
                     "heat_auto_swapped": "Hvis auto betyder varme for din TRV og du vil bytte det (for Google Home brugere)",
                     "child_lock": "Ignorer alle input på TRV som en børnesikring",
@@ -33,33 +27,26 @@
                     "calibration": "Den slags kalibrering du vil bruge"
                 }
             },
-            "confirm":
-            {
+            "confirm": {
                 "title": "Bekræft tilføjelse af en Better Thermostat",
                 "description": "Du er ved at tilføje {name} til Home Assistant.\nMed {trv} som en rigtige termostat\nog kalibreringstilstand: {calibration_mode}"
             }
         },
-        "error":
-        {
+        "error": {
             "failed": "noget gik galt.",
             "no_name": "Indtast venligst et navn.",
             "no_off_mode": "Din enhed er meget speciel og har ingen slukket tilstand :(\nDet virker alligevel, men du skal oprette en automatisering, der passer til dine specialer baseret på enhedsbegivenhederne"
         },
-        "abort":
-        {
+        "abort": {
             "single_instance_allowed": "Kun en enkelt termostat for hver virkelige er tilladt.",
             "no_devices_found": "Der blev ikke fundet nogen termostatenhed, sørg for at have en klimaenhed i home assistant"
         }
     },
-    "options":
-    {
-        "step":
-        {
-            "user":
-            {
+    "options": {
+        "step": {
+            "user": {
                 "description": "Opdater dine Better Thermostat indstillinger",
-                "data":
-                {
+                "data": {
                     "temperature_sensor": "Temperatur måler",
                     "humidity_sensor": "Fugtighedssensor",
                     "window_sensors": "Vinduessensor",
