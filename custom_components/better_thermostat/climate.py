@@ -503,7 +503,7 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
                 # If we have a previously saved temperature
                 if old_state.attributes.get(ATTR_TEMPERATURE) is None:
                     self._target_temp = (
-                        trv_state.attributes.get("current_heating_setpoint")
+                        trv_state.attributes.get("temperature")
                         or trv_state.attributes.get("temperature")
                         or 5
                     )
@@ -569,7 +569,7 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
                         self.name,
                     )
                     self._target_temp = convert_to_float(
-                        str(trv_state.attributes.get("current_heating_setpoint")),
+                        str(trv_state.attributes.get("temperature")),
                         self.name,
                         "startup()",
                     )

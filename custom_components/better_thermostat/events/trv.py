@@ -103,7 +103,7 @@ async def trigger_trv_change(self, event):
         return
 
     _new_heating_setpoint = convert_to_float(
-        str(new_state.attributes.get("current_heating_setpoint", None)),
+        str(new_state.attributes.get("temperature", None)),
         self.name,
         "trigger_trv_change()",
     )
@@ -214,7 +214,7 @@ def convert_outbound_states(self, hvac_mode) -> Union[dict, None]:
     -------
     dict
             A dictionary containing the new outbound thermostat state containing the following keys:
-                    current_heating_setpoint: float
+                    temperature: float
                     local_temperature: float
                     local_temperature_calibration: float
                     system_mode: string
@@ -324,7 +324,7 @@ def convert_outbound_states(self, hvac_mode) -> Union[dict, None]:
                 hvac_mode = None
 
     return {
-        "current_heating_setpoint": _new_heating_setpoint,
+        "temperature": _new_heating_setpoint,
         "local_temperature": self._TRV_current_temp,
         "system_mode": hvac_mode,
         "local_temperature_calibration": _new_local_calibration,

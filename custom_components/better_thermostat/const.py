@@ -16,9 +16,7 @@ _LOGGER = logging.getLogger(__name__)
 DEFAULT_NAME = "Better Thermostat"
 VERSION = "master"
 try:
-    with open(
-        "/config/custom_components/better_thermostat/manifest.json"
-    ) as manifest_file:
+    with open("custom_components/better_thermostat/manifest.json") as manifest_file:
         manifest = json.load(manifest_file)
         VERSION = manifest["version"]
 except (FileNotFoundError, KeyError, json.JSONDecodeError) as e:

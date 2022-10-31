@@ -1,0 +1,3 @@
+homeassistant==2022.10.5
+pytest-homeassistant-custom-component
+flake8

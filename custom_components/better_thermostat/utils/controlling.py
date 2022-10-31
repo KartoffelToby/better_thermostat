@@ -66,9 +66,7 @@ async def control_trv(self, force_mode_change: bool = False):
         _trv = self.hass.states.get(self.heater_entity_id)
         _current_TRV_mode = _trv.state
         _current_set_temperature = convert_to_float(
-            str(_trv.attributes.get("current_heating_setpoint")),
-            self.name,
-            "controlling()",
+            str(_trv.attributes.get("temperature")), self.name, "controlling()"
         )
         hvac_mode_send = self._bt_hvac_mode
         perfom_change = False
@@ -96,13 +94,6 @@ async def control_trv(self, force_mode_change: bool = False):
                 _LOGGER.debug(
                     f"better_thermostat {self.name}: TO TRV set_hvac_mode: off"
                 )
-                await set_trv_values(self, "hvac_mode", HVAC_MODE_OFF)
-                self._last_states["last_hvac_mode"] = self._bt_hvac_mode
-                await asyncio.sleep(5)
-                self.async_write_ha_state()
-                self.last_change = datetime.now()
-                self.ignore_states = False
-                return
 
             elif (
                 self.call_for_heat is True
@@ -159,32 +150,38 @@ async def control_trv(self, force_mode_change: bool = False):
                 self.ignore_states = False
                 return None
             converted_hvac_mode = remapped_states.get("system_mode") or None
-            current_heating_setpoint = (
-                remapped_states.get("current_heating_setpoint") or None
-            )
+            temperature = remapped_states.get("temperature") or None
             calibration = remapped_states.get("local_temperature_calibration") or None
 
+            if converted_hvac_mode is not None:
+                if (_current_TRV_mode != converted_hvac_mode) or perform_calibration:
+                    old = self._last_states.get("last_hvac_mode", "?")
+                    if perform_calibration is False:
+                        _LOGGER.debug(
+                            f"better_thermostat {self.name}: TO TRV set_hvac_mode: from: {old} to: {converted_hvac_mode}"
+                        )
+                    await set_trv_values(self, "hvac_mode", converted_hvac_mode)
+                    self._last_states["last_hvac_mode"] = converted_hvac_mode
+                    perfom_change = True
+                    await asyncio.sleep(3)
+
             if (
-                current_heating_setpoint is not None
+                temperature is not None
                 and self._bt_hvac_mode != HVAC_MODE_OFF
                 and converted_hvac_mode != HVAC_MODE_OFF
             ):
                 if (
-                    _current_set_temperature != current_heating_setpoint
-                    and current_heating_setpoint
-                    != self._last_states.get("last_target_temp", 0)
+                    _current_set_temperature != temperature
+                    and temperature != self._last_states.get("last_target_temp", 0)
                 ):
                     old = self._last_states.get("last_target_temp", "?")
                     _LOGGER.debug(
-                        f"better_thermostat {self.name}: TO TRV set_temperature: from: {old} to: {current_heating_setpoint}"
+                        f"better_thermostat {self.name}: TO TRV set_temperature: from: {old} to: {temperature}"
                     )
                     await set_trv_values(
-                        self,
-                        "temperature",
-                        current_heating_setpoint,
-                        hvac_mode=converted_hvac_mode,
+                        self, "temperature", temperature, hvac_mode=converted_hvac_mode
                     )
-                    self._last_states["last_target_temp"] = current_heating_setpoint
+                    self._last_states["last_target_temp"] = temperature
                     perfom_change = True
             if (
                 calibration is not None
@@ -212,18 +209,6 @@ async def control_trv(self, force_mode_change: bool = False):
                     perfom_change = True
                     perform_calibration = True
                     self._calibration_received = False
-
-            if converted_hvac_mode is not None:
-                if (_current_TRV_mode != converted_hvac_mode) or perform_calibration:
-                    old = self._last_states.get("last_hvac_mode", "?")
-                    if perform_calibration is False:
-                        _LOGGER.debug(
-                            f"better_thermostat {self.name}: TO TRV set_hvac_mode: from: {old} to: {converted_hvac_mode}"
-                        )
-                    await set_trv_values(self, "hvac_mode", converted_hvac_mode)
-                    self._last_states["last_hvac_mode"] = converted_hvac_mode
-                    perfom_change = True
-                    await asyncio.sleep(3)
 
         if perfom_change is True:
             self.async_write_ha_state()

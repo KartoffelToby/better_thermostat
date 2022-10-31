@@ -11,8 +11,8 @@
 
 ### Requirements
 
-- Minimum required Home Assistant version: `2022.8.0` 
-  (_Latest tested version: `2022.9.4`_)
+- Minimum required Home Assistant version: `2022.8.0`
+  (_Latest tested version: `2022.10.5`_)
 
 ### Companion UI
 
@@ -32,7 +32,7 @@ This integration brings some smartness to your connected radiator thermostats se
 - Your weather forcast provider will turn your heat on/off
 - Or an outside air temperature sensor can do this as well
 - Does some valve-maintenance automatically, to avoid that they will get stuck closed over summer
- 
+
 ### Which hardware do we support?
 
 **We support all thermostats which are compatible with Home Assistant as long as they are shown up as a climate entity**
