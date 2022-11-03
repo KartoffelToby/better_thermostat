@@ -26,5 +26,8 @@
     "editor.formatOnSave": true,
     "editor.formatOnType": true,
     "files.trimTrailingWhitespace": true
-  }
+  },
+  "mounts": [
+    "source=/home/toha/.haconfig,target=/config,type=bind,consistency=cached"
+  ]
 }

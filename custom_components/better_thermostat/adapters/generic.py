@@ -1,3 +1,4 @@
+import asyncio
 import logging
 
 _LOGGER = logging.getLogger(__name__)
@@ -30,19 +31,31 @@ async def set_temperature(self, temperature):
         {"entity_id": self.heater_entity_id, "temperature": temperature},
         blocking=True,
         limit=None,
+        context=self._context,
     )
 
 
 async def set_hvac_mode(self, hvac_mode):
     """Set new target hvac mode."""
+    if hvac_mode == "off":
+        await self.hass.services.async_call(
+            "climate",
+            "turn_off",
+            {"entity_id": self.heater_entity_id},
+            blocking=True,
+            limit=None,
+            context=self._context,
+        )
+        await asyncio.sleep(1)
     await self.hass.services.async_call(
         "climate",
         "set_hvac_mode",
         {"entity_id": self.heater_entity_id, "hvac_mode": hvac_mode},
         blocking=True,
         limit=None,
+        context=self._context,
     )
-    # await asyncio.sleep(3)
+    await asyncio.sleep(3)
 
 
 async def set_offset(self, offset):

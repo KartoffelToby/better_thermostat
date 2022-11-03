@@ -1,6 +1,6 @@
+import asyncio
 import logging
 from typing import Union
-from datetime import datetime, timedelta
 
 from homeassistant.components.climate.const import HVAC_MODE_HEAT, HVAC_MODE_OFF
 from homeassistant.core import callback, State
@@ -32,8 +32,18 @@ async def trigger_trv_change(self, event):
     None
     """
     _updated_needed = False
+    _mode_updated = False
     child_lock = False
-    if self.startup_running:
+    try:
+        if event.context.id == self._context.id:
+            _LOGGER.debug(
+                f"better_thermostat {self.name}: Ignoring event from own changes"
+            )
+            return
+    except AttributeError:
+        pass
+
+    if self.startup_running or self.ignore_states:
         return
 
     old_state = event.data.get("old_state")
@@ -65,30 +75,6 @@ async def trigger_trv_change(self, event):
         "TRV_current_temp",
     )
 
-    if (
-        _new_current_temp is not None
-        and self._TRV_current_temp != _new_current_temp
-        and _new_current_temp > 5
-    ):
-        newtemp = new_state.attributes.get("current_temperature")
-        _LOGGER.debug(
-            f"better_thermostat {self.name}: TRV's sends new internal temperature from {self._TRV_current_temp} to {newtemp}"
-        )
-        self._TRV_current_temp = _new_current_temp
-        if self.ignore_states is False:
-            self._calibration_received = True
-            _updated_needed = True
-        else:
-            self.async_write_ha_state()
-
-    # if flag is on, we won't do any further processing
-    if (
-        self.ignore_states
-        or (self.last_change + timedelta(seconds=5)).timestamp()
-        > datetime.now().timestamp()
-    ):
-        return
-
     new_decoded_system_mode = str(new_state.state)
 
     if new_decoded_system_mode not in (HVAC_MODE_OFF, HVAC_MODE_HEAT):
@@ -98,49 +84,70 @@ async def trigger_trv_change(self, event):
         )
         return
 
-    # we only read setpoint changes from TRV if we are in heating mode
-    if new_decoded_system_mode == HVAC_MODE_OFF:
+    if self._bt_hvac_mode == HVAC_MODE_OFF and new_decoded_system_mode == HVAC_MODE_OFF:
         return
+
+    if self._trv_hvac_mode != new_decoded_system_mode and not self.child_lock:
+        _LOGGER.debug(
+            f"better_thermostat {self.name}: TRV's decoded TRV mode changed from {self._trv_hvac_mode} to {new_decoded_system_mode}"
+        )
+        if self.window_open:
+            self._trv_hvac_mode = HVAC_MODE_OFF
+        else:
+            self._bt_hvac_mode = new_decoded_system_mode
+            self._trv_hvac_mode = new_decoded_system_mode
+        _updated_needed = True
+        _mode_updated = True
+
+    if (
+        _new_current_temp is not None
+        and self._TRV_current_temp != _new_current_temp
+        and (_new_current_temp > 5 and new_decoded_system_mode != HVAC_MODE_OFF)
+    ):
+        newtemp = new_state.attributes.get("current_temperature")
+        _LOGGER.debug(
+            f"better_thermostat {self.name}: TRV's sends new internal temperature from {self._TRV_current_temp} to {newtemp}"
+        )
+        self._TRV_current_temp = _new_current_temp
+        _updated_needed = True
 
     _new_heating_setpoint = convert_to_float(
         str(new_state.attributes.get("temperature", None)),
         self.name,
         "trigger_trv_change()",
     )
-    if _new_heating_setpoint is None:
-        _LOGGER.debug(
-            f"better_thermostat {self.name}: trigger_trv_change: new_heating_setpoint is None, skipping"
-        )
-        return
-    if _new_heating_setpoint < self._min_temp or self._max_temp < _new_heating_setpoint:
-        _LOGGER.warning(
-            f"better_thermostat {self.name}: New TRV setpoint outside of range, overwriting it"
-        )
+    if _new_heating_setpoint is not None and _updated_needed is False:
+        if (
+            _new_heating_setpoint < self._min_temp
+            or self._max_temp < _new_heating_setpoint
+        ):
+            _LOGGER.warning(
+                f"better_thermostat {self.name}: New TRV setpoint outside of range, overwriting it"
+            )
 
-        if _new_heating_setpoint < self._min_temp:
-            _new_heating_setpoint = self._min_temp
-        else:
-            _new_heating_setpoint = self._max_temp
+            if _new_heating_setpoint < self._min_temp:
+                _new_heating_setpoint = self._min_temp
+            else:
+                _new_heating_setpoint = self._max_temp
 
-    if self._trv_hvac_mode != new_decoded_system_mode and not self.child_lock:
-        _LOGGER.debug(
-            f"better_thermostat {self.name}: TRV's decoded TRV mode changed from {self._trv_hvac_mode} to {new_decoded_system_mode}"
-        )
-        self._trv_hvac_mode = new_decoded_system_mode
-        _updated_needed = True
-
-    if (
-        self._target_temp != _new_heating_setpoint
-        and not self.child_lock
-        and self._last_send_target_temp != _new_heating_setpoint
-    ):
-        _LOGGER.debug(
-            f"better_thermostat {self.name}: TRV's decoded TRV target temp changed from {self._target_temp} to {_new_heating_setpoint}"
-        )
-        self._target_temp = _new_heating_setpoint
-        _updated_needed = True
+        if (
+            self._target_temp != _new_heating_setpoint
+            and not self.child_lock
+            and self._last_send_target_temp != _new_heating_setpoint
+        ):
+            _LOGGER.debug(
+                f"better_thermostat {self.name}: TRV's decoded TRV target temp changed from {self._target_temp} to {_new_heating_setpoint}"
+            )
+            self._target_temp = _new_heating_setpoint
+            _updated_needed = True
 
     if _updated_needed or child_lock:
+        if self.window_open and _mode_updated:
+            await asyncio.sleep(2)
+        if self._bt_hvac_mode == HVAC_MODE_OFF and self._trv_hvac_mode == HVAC_MODE_OFF:
+            self.async_write_ha_state()
+            return
+
         _LOGGER.debug(f"better_thermostat {self.name}: TRV update triggerd")
         self.async_write_ha_state()
         await self.control_queue_task.put(self)

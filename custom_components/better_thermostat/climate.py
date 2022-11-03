@@ -10,6 +10,7 @@ from .utils.weather import check_ambient_air_temperature
 from .utils.bridge import init, load_adapter
 from .utils.helpers import convert_to_float, get_trv_intigration, mode_remap
 from homeassistant.helpers import entity_platform
+from homeassistant.core import Context
 
 from homeassistant.components.climate import ClimateEntity
 from homeassistant.components.climate.const import (
@@ -256,13 +257,13 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
         self._last_reported_valve_position = None
         self.startup_running = True
         self._init = True
-        self._calibration_received = True
         self._saved_temperature = None
         self._last_reported_valve_position_update_wait_lock = asyncio.Lock()
         self._last_send_target_temp = None
         self._last_avg_outdoor_temp = None
         self._last_main_hvac_mode = None
         self._available = False
+        self._context = None
         self._last_states = {
             "last_target_temp": None,
             "last_valve_position": None,
@@ -292,6 +293,9 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
         _LOGGER.info(
             "better_thermostat %s: Waiting for entity to be ready...", self.name
         )
+
+        self._context = Context(id="better_thermostat", parent_id=None, user_id=None)
+        self.async_set_context(self._context)
 
         if self._calibration == "local_calibration_based":
             self.calibration_type = 0
@@ -333,6 +337,7 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
             self.name,
             "humidity_update",
         )
+        self.async_write_ha_state()
 
     async def _trigger_trv_change(self, event):
         await trigger_trv_change(self, event)

@@ -133,18 +133,6 @@ async def control_trv(self, force_mode_change: bool = False):
                 hvac_mode_send = HVAC_MODE_OFF
                 self._last_states["last_window_open"] = True
 
-            if (
-                _current_TRV_mode == HVAC_MODE_OFF
-                and self._bt_hvac_mode == HVAC_MODE_OFF
-                and hvac_mode_send == HVAC_MODE_OFF
-            ):
-                _LOGGER.debug(
-                    f"better_thermostat {self.name}: control_trv: own mode is off, TRV mode is already off"
-                )
-                self.last_change = datetime.now()
-                self.ignore_states = False
-                return
-
             remapped_states = convert_outbound_states(self, hvac_mode_send)
             if not isinstance(remapped_states, dict):
                 self.ignore_states = False
@@ -154,7 +142,7 @@ async def control_trv(self, force_mode_change: bool = False):
             calibration = remapped_states.get("local_temperature_calibration") or None
 
             if converted_hvac_mode is not None:
-                if (_current_TRV_mode != converted_hvac_mode) or perform_calibration:
+                if (_current_TRV_mode != converted_hvac_mode) or self.window_open:
                     old = self._last_states.get("last_hvac_mode", "?")
                     if perform_calibration is False:
                         _LOGGER.debug(
@@ -201,14 +189,13 @@ async def control_trv(self, force_mode_change: bool = False):
                     calibration = float(str(format(float(calibration), ".1f")))
 
                 old = self._last_states.get("last_calibration", current_calibration)
-                if self._calibration_received is True and old != calibration:
+                if old != calibration:
                     await set_trv_values(
                         self, "local_temperature_calibration", calibration
                     )
                     self._last_states["last_calibration"] = calibration
                     perfom_change = True
                     perform_calibration = True
-                    self._calibration_received = False
 
         if perfom_change is True:
             self.async_write_ha_state()

@@ -6,3 +6,4 @@ venv
 .venv
 .coverage
 .idea
+custom_components/hacs

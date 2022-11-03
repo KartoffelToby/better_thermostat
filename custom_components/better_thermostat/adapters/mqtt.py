@@ -98,6 +98,7 @@ async def set_offset(self, offset):
         {"entity_id": self.local_temperature_calibration_entity, "value": offset},
         blocking=True,
         limit=None,
+        context=self._context,
     )
     self._last_calibration = datetime.now()
 
@@ -111,4 +112,5 @@ async def set_valve(self, valve):
         {"entity_id": self.valve_position_entity, "value": valve},
         blocking=True,
         limit=None,
+        context=self._context,
     )
