@@ -189,13 +189,14 @@ async def control_trv(self, force_mode_change: bool = False):
                     calibration = float(str(format(float(calibration), ".1f")))
 
                 old = self._last_states.get("last_calibration", current_calibration)
-                if old != calibration:
+                if self._calibration_received is True and old != calibration:
                     await set_trv_values(
                         self, "local_temperature_calibration", calibration
                     )
                     self._last_states["last_calibration"] = calibration
                     perfom_change = True
                     perform_calibration = True
+                    self._calibration_received = False
 
         if perfom_change is True:
             self.async_write_ha_state()

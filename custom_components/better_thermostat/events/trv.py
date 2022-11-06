@@ -1,4 +1,3 @@
-import asyncio
 import logging
 from typing import Union
 
@@ -32,8 +31,33 @@ async def trigger_trv_change(self, event):
     None
     """
     _updated_needed = False
-    _mode_updated = False
     child_lock = False
+
+    old_state = event.data.get("old_state")
+    new_state = event.data.get("new_state")
+
+    if None in (new_state, old_state, new_state.attributes):
+        _LOGGER.debug(
+            f"better_thermostat {self.name}: TRV update contained not all necessary data for processing, skipping"
+        )
+        return
+
+    _new_current_temp = convert_to_float(
+        str(new_state.attributes.get("current_temperature", None)),
+        self.name,
+        "TRV_current_temp",
+    )
+
+    if _new_current_temp is not None and self._TRV_current_temp != _new_current_temp:
+        newtemp = new_state.attributes.get("current_temperature")
+        _LOGGER.debug(
+            f"better_thermostat {self.name}: TRV's sends new internal temperature from {self._TRV_current_temp} to {newtemp}"
+        )
+        self._TRV_current_temp = _new_current_temp
+        self._calibration_received = True
+        _updated_needed = True
+        self.async_write_ha_state()
+
     try:
         if event.context.id == self._context.id:
             _LOGGER.debug(
@@ -44,15 +68,6 @@ async def trigger_trv_change(self, event):
         pass
 
     if self.startup_running or self.ignore_states:
-        return
-
-    old_state = event.data.get("old_state")
-    new_state = event.data.get("new_state")
-
-    if None in (new_state, old_state, new_state.attributes):
-        _LOGGER.debug(
-            f"better_thermostat {self.name}: TRV update contained not all necessary data for processing, skipping"
-        )
         return
 
     if not isinstance(new_state, State) or not isinstance(old_state, State):
@@ -68,12 +83,6 @@ async def trigger_trv_change(self, event):
             f"better_thermostat {self.name}: remapping TRV state failed, skipping"
         )
         return
-
-    _new_current_temp = convert_to_float(
-        str(new_state.attributes.get("current_temperature", None)),
-        self.name,
-        "TRV_current_temp",
-    )
 
     new_decoded_system_mode = str(new_state.state)
 
@@ -96,19 +105,6 @@ async def trigger_trv_change(self, event):
         else:
             self._bt_hvac_mode = new_decoded_system_mode
             self._trv_hvac_mode = new_decoded_system_mode
-        _updated_needed = True
-        _mode_updated = True
-
-    if (
-        _new_current_temp is not None
-        and self._TRV_current_temp != _new_current_temp
-        and (_new_current_temp > 5 and new_decoded_system_mode != HVAC_MODE_OFF)
-    ):
-        newtemp = new_state.attributes.get("current_temperature")
-        _LOGGER.debug(
-            f"better_thermostat {self.name}: TRV's sends new internal temperature from {self._TRV_current_temp} to {newtemp}"
-        )
-        self._TRV_current_temp = _new_current_temp
         _updated_needed = True
 
     _new_heating_setpoint = convert_to_float(
@@ -142,8 +138,6 @@ async def trigger_trv_change(self, event):
             _updated_needed = True
 
     if _updated_needed or child_lock:
-        if self.window_open and _mode_updated:
-            await asyncio.sleep(2)
         if self._bt_hvac_mode == HVAC_MODE_OFF and self._trv_hvac_mode == HVAC_MODE_OFF:
             self.async_write_ha_state()
             return

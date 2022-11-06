@@ -264,6 +264,7 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
         self._last_main_hvac_mode = None
         self._available = False
         self._context = None
+        self._calibration_received = True
         self._last_states = {
             "last_target_temp": None,
             "last_valve_position": None,
@@ -274,9 +275,9 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
             "last_calibration": None,
             "last_call_for_heat": None,
         }
-        self.control_queue_task = asyncio.Queue(maxsize=1)
+        self.control_queue_task = asyncio.Queue(maxsize=999)
         if self.window_id is not None:
-            self.window_queue_task = asyncio.Queue(maxsize=1)
+            self.window_queue_task = asyncio.Queue(maxsize=999)
         asyncio.create_task(control_queue(self))
         if self.window_id is not None:
             asyncio.create_task(window_queue(self))
