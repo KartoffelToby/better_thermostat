@@ -1,2 +1,9 @@
 .jekyll-cache/
 _site/
+__pycache__
+pythonenv*
+venv
+.venv
+.coverage
+.idea
+custom_components/hacs

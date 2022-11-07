@@ -10,6 +10,7 @@ from .utils.weather import check_ambient_air_temperature
 from .utils.bridge import init, load_adapter
 from .utils.helpers import convert_to_float, get_trv_intigration, mode_remap
 from homeassistant.helpers import entity_platform
+from homeassistant.core import Context
 
 from homeassistant.components.climate import ClimateEntity
 from homeassistant.components.climate.const import (
@@ -256,13 +257,14 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
         self._last_reported_valve_position = None
         self.startup_running = True
         self._init = True
-        self._calibration_received = True
         self._saved_temperature = None
         self._last_reported_valve_position_update_wait_lock = asyncio.Lock()
         self._last_send_target_temp = None
         self._last_avg_outdoor_temp = None
         self._last_main_hvac_mode = None
         self._available = False
+        self._context = None
+        self._calibration_received = True
         self._last_states = {
             "last_target_temp": None,
             "last_valve_position": None,
@@ -273,9 +275,9 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
             "last_calibration": None,
             "last_call_for_heat": None,
         }
-        self.control_queue_task = asyncio.Queue(maxsize=1)
+        self.control_queue_task = asyncio.Queue(maxsize=999)
         if self.window_id is not None:
-            self.window_queue_task = asyncio.Queue(maxsize=1)
+            self.window_queue_task = asyncio.Queue(maxsize=999)
         asyncio.create_task(control_queue(self))
         if self.window_id is not None:
             asyncio.create_task(window_queue(self))
@@ -292,6 +294,9 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
         _LOGGER.info(
             "better_thermostat %s: Waiting for entity to be ready...", self.name
         )
+
+        self._context = Context(id="better_thermostat", parent_id=None, user_id=None)
+        self.async_set_context(self._context)
 
         if self._calibration == "local_calibration_based":
             self.calibration_type = 0
@@ -333,6 +338,7 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
             self.name,
             "humidity_update",
         )
+        self.async_write_ha_state()
 
     async def _trigger_trv_change(self, event):
         await trigger_trv_change(self, event)
@@ -503,7 +509,7 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
                 # If we have a previously saved temperature
                 if old_state.attributes.get(ATTR_TEMPERATURE) is None:
                     self._target_temp = (
-                        trv_state.attributes.get("current_heating_setpoint")
+                        trv_state.attributes.get("temperature")
                         or trv_state.attributes.get("temperature")
                         or 5
                     )
@@ -569,7 +575,7 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
                         self.name,
                     )
                     self._target_temp = convert_to_float(
-                        str(trv_state.attributes.get("current_heating_setpoint")),
+                        str(trv_state.attributes.get("temperature")),
                         self.name,
                         "startup()",
                     )

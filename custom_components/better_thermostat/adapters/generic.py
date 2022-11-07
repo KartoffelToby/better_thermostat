@@ -37,8 +37,7 @@ async def set_temperature(self, temperature):
 
 async def set_hvac_mode(self, hvac_mode):
     """Set new target hvac mode."""
-    """
-    if hvac_mode == HVAC_MODE_OFF:
+    if hvac_mode == "off":
         await self.hass.services.async_call(
             "climate",
             "turn_off",
@@ -47,8 +46,7 @@ async def set_hvac_mode(self, hvac_mode):
             limit=None,
             context=self._context,
         )
-    await asyncio.sleep(3)
-    """
+        await asyncio.sleep(1)
     await self.hass.services.async_call(
         "climate",
         "set_hvac_mode",

@@ -1,0 +1,70 @@
+default_config:
+
+lovelace:
+  mode: yaml
+  resources:
+    - url: http://0.0.0.0:5000/better-thermostat-ui-card.js #/hacsfiles/better-thermostat-ui-card/better-thermostat-ui-card.js
+      type: module
+    - url: http://bs-local.com:5000/better-thermostat-ui-card.js
+      type: module
+
+
+logger:
+  default: error
+  logs:
+    custom_components.better_thermostat: debug
+
+climate:
+  - platform: generic_thermostat
+    name: Dummy_real_TRV
+    heater: input_boolean.heater
+    target_sensor: input_number.internal_sensor
+
+input_boolean:
+  heater:
+    name: Heater
+    initial: off
+  window_open:
+    name: Window open
+    initial: off
+
+input_number:
+  internal_sensor:
+    name: Internal Sensor
+    min: 5
+    max: 35
+    step: 1
+    initial: 20
+  external_sensor:
+    name: External Sensor
+    initial: 18.24
+    min: 5
+    max: 35
+    step: 0.10
+  humidity_sensor:
+    name: Humidity Sensor
+    initial: 50.55
+    min: 0
+    max: 100
+    step: 0.10
+
+template:
+  - sensor:
+      - name: "External Temperature Sensor"
+        unique_id: external_temperature_sensor
+        state_class: measurement
+        device_class: temperature
+        unit_of_measurement: "°C"
+        state: '{{ states.input_number.external_sensor.state | round(1, default=18) }}'
+      - name: "External Humidity Sensor"
+        unique_id: external_humidity_sensor
+        state_class: measurement
+        device_class: humidity
+        unit_of_measurement: "%"
+        state: '{{ states.input_number.humidity_sensor.state | round(1, default=50) }}'
+
+
+# If you need to debug uncomment the line below (doc: https://www.home-assistant.io/integrations/debugpy/)
+#debugpy:
+
+

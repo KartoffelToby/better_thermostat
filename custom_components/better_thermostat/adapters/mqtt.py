@@ -101,6 +101,8 @@ async def set_offset(self, offset):
         context=self._context,
     )
     self._last_calibration = datetime.now()
+    state = self.hass.states.get(self.heater_entity_id).state
+    return await generic_set_hvac_mode(self, state)
 
 
 async def set_valve(self, valve):
