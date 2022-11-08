@@ -334,7 +334,7 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
 
     async def _trigger_time(self, event=None):
         _LOGGER.debug("better_thermostat %s: get last avg outdoor temps...", self.name)
-        asyncio.create_task(check_ambient_air_temperature(self))
+        await asyncio.create_task(check_ambient_air_temperature(self))
         if event is not None:
             self.async_write_ha_state()
             await self.control_queue_task.put(self)
