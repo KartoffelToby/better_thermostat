@@ -128,13 +128,15 @@ async def trigger_trv_change(self, event):
             else:
                 _new_heating_setpoint = self._max_temp
 
+        _last_target_temp = self._last_states.get("last_target_temp", None)
         if (
             self._target_temp != _new_heating_setpoint
             and not self.child_lock
-            and self._last_send_target_temp != _new_heating_setpoint
+            and _last_target_temp is not None
+            and _last_target_temp != _new_heating_setpoint
         ):
             _LOGGER.debug(
-                f"better_thermostat {self.name}: TRV's decoded TRV target temp changed from {self._target_temp} to {_new_heating_setpoint}"
+                f"better_thermostat {self.name}: TRV's decoded TRV target temp changed from {self._target_temp} to {_new_heating_setpoint} : last_sent_target_temp is {_last_target_temp}"
             )
             self._target_temp = _new_heating_setpoint
             _updated_needed = True
