@@ -106,6 +106,7 @@ async def control_trv(self):
                     f"better_thermostat {self.name}: TO TRV set_temperature: from: {old} to: {_temperature}"
                 )
                 await set_temperature(self, _temperature)
+                self._last_send_target_temp = _temperature
                 self._last_states["last_target_temp"] = _temperature
                 if self._target_temp_received is True:
                     self._target_temp_received = False
