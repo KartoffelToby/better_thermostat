@@ -66,9 +66,6 @@ async def get_offset_steps(self):
 
 async def set_offset(self, offset):
     """Set new target offset."""
-    old = float(
-        str(self.hass.states.get(self.local_temperature_calibration_entity).state)
-    )
     max_calibration = float(
         str(
             self.hass.states.get(
@@ -89,9 +86,6 @@ async def set_offset(self, offset):
     if offset <= min_calibration:
         offset = min_calibration
 
-    _LOGGER.debug(
-        f"better_thermostat {self.name}: TO TRV set_local_temperature_calibration: from: {old} to: {offset}"
-    )
     await self.hass.services.async_call(
         "number",
         SERVICE_SET_VALUE,
@@ -101,8 +95,6 @@ async def set_offset(self, offset):
         context=self._context,
     )
     self._last_calibration = datetime.now()
-    state = self.hass.states.get(self.heater_entity_id).state
-    return await generic_set_hvac_mode(self, state)
 
 
 async def set_valve(self, valve):

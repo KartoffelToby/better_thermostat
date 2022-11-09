@@ -36,38 +36,12 @@ async def trigger_trv_change(self, event):
     old_state = event.data.get("old_state")
     new_state = event.data.get("new_state")
 
+    _org_trv_state = new_state.state
+
     if None in (new_state, old_state, new_state.attributes):
         _LOGGER.debug(
             f"better_thermostat {self.name}: TRV update contained not all necessary data for processing, skipping"
         )
-        return
-
-    _new_current_temp = convert_to_float(
-        str(new_state.attributes.get("current_temperature", None)),
-        self.name,
-        "TRV_current_temp",
-    )
-
-    if _new_current_temp is not None and self._TRV_current_temp != _new_current_temp:
-        newtemp = new_state.attributes.get("current_temperature")
-        _LOGGER.debug(
-            f"better_thermostat {self.name}: TRV's sends new internal temperature from {self._TRV_current_temp} to {newtemp}"
-        )
-        self._TRV_current_temp = _new_current_temp
-        self._calibration_received = True
-        _updated_needed = True
-        self.async_write_ha_state()
-
-    try:
-        if event.context.id == self._context.id:
-            _LOGGER.debug(
-                f"better_thermostat {self.name}: Ignoring event from own changes"
-            )
-            return
-    except AttributeError:
-        pass
-
-    if self.startup_running or self.ignore_states:
         return
 
     if not isinstance(new_state, State) or not isinstance(old_state, State):
@@ -84,6 +58,21 @@ async def trigger_trv_change(self, event):
         )
         return
 
+    _new_current_temp = convert_to_float(
+        str(new_state.attributes.get("current_temperature", None)),
+        self.name,
+        "TRV_current_temp",
+    )
+
+    if _new_current_temp is not None and self._TRV_current_temp != _new_current_temp:
+        newtemp = new_state.attributes.get("current_temperature")
+        _LOGGER.debug(
+            f"better_thermostat {self.name}: TRV's sends new internal temperature from {self._TRV_current_temp} to {newtemp}"
+        )
+        self._TRV_current_temp = _new_current_temp
+        _updated_needed = True
+        self.async_write_ha_state()
+
     new_decoded_system_mode = str(new_state.state)
 
     if new_decoded_system_mode not in (HVAC_MODE_OFF, HVAC_MODE_HEAT):
@@ -93,19 +82,32 @@ async def trigger_trv_change(self, event):
         )
         return
 
-    if self._bt_hvac_mode == HVAC_MODE_OFF and new_decoded_system_mode == HVAC_MODE_OFF:
-        return
-
-    if self._trv_hvac_mode != new_decoded_system_mode and not self.child_lock:
+    if self._bt_hvac_mode != new_decoded_system_mode and not self.child_lock:
         _LOGGER.debug(
-            f"better_thermostat {self.name}: TRV's decoded TRV mode changed from {self._trv_hvac_mode} to {new_decoded_system_mode}"
+            f"better_thermostat {self.name}: TRV's decoded TRV mode changed from {self._bt_hvac_mode} to {new_decoded_system_mode}"
         )
         if self.window_open:
-            self._trv_hvac_mode = HVAC_MODE_OFF
+            self._trv_hvac_mode = _org_trv_state
         else:
             self._bt_hvac_mode = new_decoded_system_mode
-            self._trv_hvac_mode = new_decoded_system_mode
+            self._trv_hvac_mode = _org_trv_state
         _updated_needed = True
+        self.async_write_ha_state()
+
+    try:
+        if event.context.id == self._context.id:
+            _LOGGER.debug(
+                f"better_thermostat {self.name}: Ignoring event from own changes"
+            )
+            return
+    except AttributeError:
+        pass
+
+    if self.startup_running or self.ignore_states:
+        return
+
+    if self._bt_hvac_mode == HVAC_MODE_OFF and new_decoded_system_mode == HVAC_MODE_OFF:
+        return
 
     _new_heating_setpoint = convert_to_float(
         str(new_state.attributes.get("temperature", None)),
