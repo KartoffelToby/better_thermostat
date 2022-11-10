@@ -239,6 +239,11 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
         -------
         None
         """
+        if isinstance(self.all_trvs, str):
+            return _LOGGER.error(
+                "You updated to version 1.0.0-Beta36 or later of the Better Thermostat integration, you need to remove the integration and add it again."
+            )
+
         for trv in self.all_trvs:
             _calibration = 1
             if trv["advanced"]["calibration"] == "local_calibration_based":

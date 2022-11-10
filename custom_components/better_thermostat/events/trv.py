@@ -115,7 +115,7 @@ async def trigger_trv_change(self, event):
     except AttributeError:
         pass
 
-    if self.real_trvs[entity_id]["ignore_trv_states"] or self._ignore_states:
+    if self.real_trvs[entity_id]["ignore_trv_states"] or self.ignore_states:
         return
 
     _new_heating_setpoint = convert_to_float(
