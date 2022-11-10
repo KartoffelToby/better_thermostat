@@ -74,10 +74,7 @@ async def control_trv(self):
         if self.call_for_heat is True:
             _hvac_mode_send = _converted_hvac_mode
 
-            if (
-                self.window_open is True
-                and self._last_states.get("last_window_open", False) is False
-            ):
+            if self.window_open is True:
                 # if the window is open or the sensor is not available, we're done
                 self._last_main_hvac_mode = _hvac_mode_send
                 _hvac_mode_send = HVAC_MODE_OFF
