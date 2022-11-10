@@ -43,7 +43,6 @@ from .const import (
     ATTR_STATE_MAIN_MODE,
     ATTR_STATE_WINDOW_OPEN,
     ATTR_STATE_SAVED_TEMPERATURE,
-    CONF_CHILD_LOCK,
     CONF_HEATER,
     CONF_HUMIDITY,
     CONF_MODEL,
@@ -241,7 +240,7 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
         """
         if isinstance(self.all_trvs, str):
             return _LOGGER.error(
-                "You updated to version 1.0.0-Beta36 or later of the Better Thermostat integration, you need to remove the integration and add it again."
+                "You updated to version 1.0.0-Beta36 or later of the Better Thermostat integration, you need to remove the BT devices (integration) and add it again."
             )
 
         for trv in self.all_trvs:
@@ -680,7 +679,6 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
             ATTR_STATE_CALL_FOR_HEAT: self.call_for_heat,
             ATTR_STATE_LAST_CHANGE: self.last_change,
             ATTR_STATE_SAVED_TEMPERATURE: self._saved_temperature,
-            CONF_CHILD_LOCK: self.child_lock,
             ATTR_STATE_HUMIDIY: self._cur_humidity,
             ATTR_STATE_MAIN_MODE: self._last_main_hvac_mode,
         }
