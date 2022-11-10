@@ -77,21 +77,7 @@ group:
 
 #### Combine multiple TRV to one (Group)
 
-Install the HACS [climate_group](https://github.com/daenny/climate_group) from @daenny
-
-As each TRV has an individual local_temperature and must be individually calibrated, you need to create a better_thermostat entity for each TRV and then group them:
-
-Example:
-
-```yaml
-climate:
-  - platform: climate_group
-    name: "TRV - Office"
-    temperature_unit: C
-    entities:
-      - climate.bt_trv_office_1
-      - climate.bt_trv_office_2
-```
+No worry, Better Thermostat support grouping out of the box
 
 ---
 
