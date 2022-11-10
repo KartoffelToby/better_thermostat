@@ -82,10 +82,6 @@ async def control_trv(self, heater_entity_id=None):
         if self.call_for_heat is True:
             _hvac_mode_send = _converted_hvac_mode
 
-            # Force off on window open
-            if self.window_open is True:
-                _hvac_mode_send = HVAC_MODE_OFF
-
             if self.window_open is True and self._last_window_state is False:
                 # if the window is open or the sensor is not available, we're done
                 self._last_main_hvac_mode = _hvac_mode_send
@@ -100,6 +96,10 @@ async def control_trv(self, heater_entity_id=None):
                 _LOGGER.debug(
                     f"better_thermostat {self.name}: control_trv: window is closed, setting window closed restoring mode: {_hvac_mode_send}"
                 )
+
+            # Force off on window open
+            if self.window_open is True:
+                _hvac_mode_send = HVAC_MODE_OFF
 
         if (
             _calibration is not None
