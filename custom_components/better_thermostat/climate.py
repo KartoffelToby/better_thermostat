@@ -911,9 +911,7 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
         string
                 State of the device.
         """
-        if self._bt_hvac_mode == HVAC_MODE_OFF:
-            return False
-        return True
+        return self._available
 
     @property
     def supported_features(self):
