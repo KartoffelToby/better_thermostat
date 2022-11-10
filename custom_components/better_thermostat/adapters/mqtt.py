@@ -10,73 +10,80 @@ from ..utils.helpers import find_local_calibration_entity, find_valve_entity
 _LOGGER = logging.getLogger(__name__)
 
 
-async def get_info(self):
+async def get_info(self, entity_id):
     """Get info from TRV."""
     support_offset = False
     support_valve = False
-    offset = await find_local_calibration_entity(self)
+    offset = await find_local_calibration_entity(self, entity_id)
     if offset is not None:
         support_offset = True
-    valve = await find_valve_entity(self)
+    valve = await find_valve_entity(self, entity_id)
     if valve is not None:
         support_valve = True
     return {"support_offset": support_offset, "support_valve": support_valve}
 
 
-async def init(self):
-    if self.local_temperature_calibration_entity is None and self.calibration_type == 0:
-        self.local_temperature_calibration_entity = await find_local_calibration_entity(
-            self
-        )
+async def init(self, entity_id):
+    if (
+        self.real_trvs[entity_id]["local_temperature_calibration_entity"] is None
+        and self.real_trvs[entity_id]["calibration"] == 0
+    ):
+        self.real_trvs[entity_id][
+            "local_temperature_calibration_entity"
+        ] = await find_local_calibration_entity(self, entity_id)
         _LOGGER.debug(
             "better_thermostat %s: uses local calibration entity %s",
             self.name,
-            self.local_temperature_calibration_entity,
+            self.real_trvs[entity_id]["local_temperature_calibration_entity"],
         )
-        await set_offset(self, 0)
+        await set_offset(self, entity_id, 0)
 
 
-async def set_temperature(self, temperature):
+async def set_temperature(self, entity_id, temperature):
     """Set new target temperature."""
-    return await generic_set_temperature(self, temperature)
+    return await generic_set_temperature(self, entity_id, temperature)
 
 
-async def set_hvac_mode(self, hvac_mode):
+async def set_hvac_mode(self, entity_id, hvac_mode):
     """Set new target hvac mode."""
-    return await generic_set_hvac_mode(self, hvac_mode)
+    return await generic_set_hvac_mode(self, entity_id, hvac_mode)
 
 
-async def get_current_offset(self):
+async def get_current_offset(self, entity_id):
     """Get current offset."""
     return float(
-        str(self.hass.states.get(self.local_temperature_calibration_entity).state)
+        str(
+            self.hass.states.get(
+                self.real_trvs[entity_id]["local_temperature_calibration_entity"]
+            ).state
+        )
     )
 
 
-async def get_offset_steps(self):
+async def get_offset_steps(self, entity_id):
     """Get offset steps."""
     return float(
         str(
             self.hass.states.get(
-                self.local_temperature_calibration_entity
+                self.real_trvs[entity_id]["local_temperature_calibration_entity"]
             ).attributes.get("step", 1)
         )
     )
 
 
-async def set_offset(self, offset):
+async def set_offset(self, entity_id, offset):
     """Set new target offset."""
     max_calibration = float(
         str(
             self.hass.states.get(
-                self.local_temperature_calibration_entity
+                self.real_trvs[entity_id]["local_temperature_calibration_entity"]
             ).attributes.get("max", 127)
         )
     )
     min_calibration = float(
         str(
             self.hass.states.get(
-                self.local_temperature_calibration_entity
+                self.real_trvs[entity_id]["local_temperature_calibration_entity"]
             ).attributes.get("min", -128)
         )
     )
@@ -89,21 +96,29 @@ async def set_offset(self, offset):
     await self.hass.services.async_call(
         "number",
         SERVICE_SET_VALUE,
-        {"entity_id": self.local_temperature_calibration_entity, "value": offset},
+        {
+            "entity_id": self.real_trvs[entity_id][
+                "local_temperature_calibration_entity"
+            ],
+            "value": offset,
+        },
         blocking=True,
         limit=None,
         context=self._context,
     )
-    self._last_calibration = datetime.now()
+    self.real_trvs[entity_id]["last_calibration"] = datetime.now()
 
 
-async def set_valve(self, valve):
+async def set_valve(self, entity_id, valve):
     """Set new target valve."""
     _LOGGER.debug(f"better_thermostat {self.name}: TO TRV set_valve: {valve}")
     await self.hass.services.async_call(
         "number",
         SERVICE_SET_VALUE,
-        {"entity_id": self.valve_position_entity, "value": valve},
+        {
+            "entity_id": self.real_trvs[entity_id]["valve_position_entity"],
+            "value": valve,
+        },
         blocking=True,
         limit=None,
         context=self._context,

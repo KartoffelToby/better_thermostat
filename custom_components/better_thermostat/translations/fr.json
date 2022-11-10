@@ -1,68 +1,78 @@
 {
-    "title": "Better Thermostat",
-    "config": {
-            "step": {
-                    "user": {
-                            "description": "Configuration de Better Thermostat pour l'intégrer à Home Assistant\n**If you need more info: https://better-thermostat.org/configuration/new_device** ",
-                            "data": {
-                                "name": "Nom",
-                                "thermostat": "Le véritable thermostat",
-                                "temperature_sensor": "Capteur de température",
-                                "humidity_sensor": "Capteur d'humidité",
-                                "window_sensors": "Capteur de fenêtre",
-                                "off_temperature": "La température extérieure lorsque le thermostat s'éteint",
-                                "window_off_delay": "Délai avant que le thermostat ne s'éteigne lorsque la fenêtre est ouverte et ne s'allume lorsque la fenêtre est fermée",
-                                "outdoor_sensor": "Si vous avez un capteur extérieur, vous pouvez l'utiliser pour obtenir la température extérieure",
-                                "weather": "Votre entité météo pour obtenir la température extérieure"
-                            }
-                    },
-                    "advanced": {
-                        "description": "Advanced configuration\n\n**Info about calibration types: https://better-thermostat.org/calibration** ",
-                        "data": {
-                                "calibration_round": "L'étalonnage doit-il être arrondi à la valeur la plus proche",
-                                "heat_auto_swapped": "Si auto signifie chauffer pour votre TRV et que vous voulez l'inverser (pour les utilisateurs de Google Home)",
-                                "child_lock": "Ignorer toutes les entrées sur le TRV comme un vérouillage enfant",
-                                "homaticip": "If you use HomaticIP, you should enable this to slow down the requests to prevent the duty cycle",
-                                "valve_maintenance": "Si votre thermostat n'a pas de mode de maintenance intégré, vous pouvez utiliser celui-ci",
-                                "calibration": "The sort of calibration"
+        "title": "Better Thermostat",
+        "config": {
+                "step": {
+                        "user": {
+                                "description": "Configuration de Better Thermostat pour l'intégrer à Home Assistant\n**If you need more info: https://better-thermostat.org/configuration/new_device** ",
+                                "data": {
+                                        "name": "Nom",
+                                        "thermostat": "Le véritable thermostat",
+                                        "temperature_sensor": "Capteur de température",
+                                        "humidity_sensor": "Capteur d'humidité",
+                                        "window_sensors": "Capteur de fenêtre",
+                                        "off_temperature": "La température extérieure lorsque le thermostat s'éteint",
+                                        "window_off_delay": "Délai avant que le thermostat ne s'éteigne lorsque la fenêtre est ouverte et ne s'allume lorsque la fenêtre est fermée",
+                                        "outdoor_sensor": "Si vous avez un capteur extérieur, vous pouvez l'utiliser pour obtenir la température extérieure",
+                                        "weather": "Votre entité météo pour obtenir la température extérieure"
+                                }
+                        },
+                        "advanced": {
+                                "description": "Advanced configuration\n\n**Info about calibration types: https://better-thermostat.org/calibration** ",
+                                "data": {
+                                        "calibration_round": "L'étalonnage doit-il être arrondi à la valeur la plus proche",
+                                        "heat_auto_swapped": "Si auto signifie chauffer pour votre TRV et que vous voulez l'inverser (pour les utilisateurs de Google Home)",
+                                        "child_lock": "Ignorer toutes les entrées sur le TRV comme un vérouillage enfant",
+                                        "homaticip": "If you use HomaticIP, you should enable this to slow down the requests to prevent the duty cycle",
+                                        "valve_maintenance": "Si votre thermostat n'a pas de mode de maintenance intégré, vous pouvez utiliser celui-ci",
+                                        "calibration": "The sort of calibration"
+                                }
+                        },
+                        "confirm": {
+                                "title": "Confirm adding a Better Thermostat",
+                                "description": "You are about to add `{name}` to Home Assistant.\nWith {trv} as the real Thermostat"
                         }
-                    },
-                    "confirm": {
-                        "title": "Confirm adding a Better Thermostat",
-                        "description": "You are about to add `{name}` to Home Assistant.\nWith {trv} as the real Thermostat\nand calibration mode: {calibration_mode}"
-                    }
-            },
-            "error": {
-                    "failed": "quelque chose s'est mal passé.",
-                    "no_outside_temp": "Vous devez définir un capteur de température extérieure ou une entité météorologique.",
-                    "no_off_mode": "You device is very special and has no off mode :(\nIt work anyway, but you have to create a automation to fit your specials based on the device events"
-
-          },
-            "abort": {
-                    "single_instance_allowed": "Un seul et unique thermostat est autorisé pour chaque thermostat réel",
-                    "no_devices_found": "Aucune entité thermostat n'a été trouvée, assurez-vous d'avoir une entité climat dans votre home assistant"
-            }
-    },
-    "options": {
-        "step": {
-                "user": {
-                        "description": "Mettez à jour vos paramètres de Better Thermostat",
-                        "data": {
-                                "temperature_sensor": "Capteur de température",
-                                "humidity_sensor": "Capteur d'humidité",
-                                "window_sensors": "Capteur de fenêtre",
-                                "off_temperature": "La température extérieure lorsque le thermostat s'éteint",
-                                "window_off_delay": "Délai avant que le thermostat ne s'éteigne lorsque la fenêtre est ouverte et ne s'allume lorsque la fenêtre est fermée",
-                                "outdoor_sensor": "Si vous avez un capteur extérieur, vous pouvez l'utiliser pour obtenir la température extérieure",
-                                "valve_maintenance": "Si votre thermostat n'a pas de mode de maintenance intégré, vous pouvez utiliser celui-ci",
-                                "calibration": "The sort of calibration https://better-thermostat.org/calibration",
-                                "weather": "Votre entité météo pour obtenir la température extérieure",
-                                "calibration_round": "L'étalonnage doit-il être arrondi à la valeur la plus proche",
-                                "heat_auto_swapped": "Si auto signifie chauffer pour votre TRV et que vous voulez l'inverser (pour les utilisateurs de Google Home)",
-                                "child_lock": "Ignorer toutes les entrées sur le TRV comme un vérouillage enfant",
-                                "homaticip": "If you use HomaticIP, you should enable this to slow down the requests to prevent the duty cycle"
+                },
+                "error": {
+                        "failed": "quelque chose s'est mal passé.",
+                        "no_outside_temp": "Vous devez définir un capteur de température extérieure ou une entité météorologique.",
+                        "no_off_mode": "You device is very special and has no off mode :(\nIt work anyway, but you have to create a automation to fit your specials based on the device events"
+                },
+                "abort": {
+                        "single_instance_allowed": "Un seul et unique thermostat est autorisé pour chaque thermostat réel",
+                        "no_devices_found": "Aucune entité thermostat n'a été trouvée, assurez-vous d'avoir une entité climat dans votre home assistant"
+                }
+        },
+        "options": {
+                "step": {
+                        "user": {
+                                "description": "Mettez à jour vos paramètres de Better Thermostat",
+                                "data": {
+                                        "temperature_sensor": "Capteur de température",
+                                        "humidity_sensor": "Capteur d'humidité",
+                                        "window_sensors": "Capteur de fenêtre",
+                                        "off_temperature": "La température extérieure lorsque le thermostat s'éteint",
+                                        "window_off_delay": "Délai avant que le thermostat ne s'éteigne lorsque la fenêtre est ouverte et ne s'allume lorsque la fenêtre est fermée",
+                                        "outdoor_sensor": "Si vous avez un capteur extérieur, vous pouvez l'utiliser pour obtenir la température extérieure",
+                                        "valve_maintenance": "Si votre thermostat n'a pas de mode de maintenance intégré, vous pouvez utiliser celui-ci",
+                                        "calibration": "The sort of calibration https://better-thermostat.org/calibration",
+                                        "weather": "Votre entité météo pour obtenir la température extérieure",
+                                        "calibration_round": "L'étalonnage doit-il être arrondi à la valeur la plus proche",
+                                        "heat_auto_swapped": "Si auto signifie chauffer pour votre TRV et que vous voulez l'inverser (pour les utilisateurs de Google Home)",
+                                        "child_lock": "Ignorer toutes les entrées sur le TRV comme un vérouillage enfant",
+                                        "homaticip": "If you use HomaticIP, you should enable this to slow down the requests to prevent the duty cycle"
+                                }
+                        },
+                        "advanced": {
+                                "description": "Advanced configuration\n\n**Info about calibration types: https://better-thermostat.org/calibration** ",
+                                "data": {
+                                        "calibration_round": "L'étalonnage doit-il être arrondi à la valeur la plus proche",
+                                        "heat_auto_swapped": "Si auto signifie chauffer pour votre TRV et que vous voulez l'inverser (pour les utilisateurs de Google Home)",
+                                        "child_lock": "Ignorer toutes les entrées sur le TRV comme un vérouillage enfant",
+                                        "homaticip": "If you use HomaticIP, you should enable this to slow down the requests to prevent the duty cycle",
+                                        "valve_maintenance": "Si votre thermostat n'a pas de mode de maintenance intégré, vous pouvez utiliser celui-ci",
+                                        "calibration": "The sort of calibration"
+                                }
                         }
                 }
         }
-    }
 }
