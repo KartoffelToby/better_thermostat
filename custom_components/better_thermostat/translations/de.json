@@ -20,7 +20,7 @@
                                 "description": "Einstellungen für {trv}\n\n***Infos über die Kalibrierungstypen: https://better-thermostat.org/calibration*** ",
                                 "data": {
                                         "calibration_round": "Soll bei der Kalibrierung auf ganze stellen gerundet werden?",
-                                        "heat_auto_swapped": "Wenn das Thermostat den modus auto als heizen und heizen als boost benutzt, kann es getauscht werden (für Google Home nutzer)",
+                                        "heat_auto_swapped": "Wenn das Thermostat den modus auto als heizen und heizen als boost benutzt, muss es getauscht werden",
                                         "child_lock": "Ignoriere alle manuellen einstellungen am realen Thermostat (Kindersicherung)",
                                         "homaticip": "Wenn du HomaticIP nuzt, solltest du diese Option aktivieren um die Funk-übertragung zu reduzieren",
                                         "valve_maintenance": "Soll BT die wartung des Thermostats übernehmen?",
@@ -66,7 +66,7 @@
                                 "description": "Aktuallisere die Einstellungen für {trv}\n\n***Infos über die Kalibrierungstypen: https://better-thermostat.org/calibration*** ",
                                 "data": {
                                         "calibration_round": "Soll bei der Kalibrierung auf ganze stellen gerundet werden?",
-                                        "heat_auto_swapped": "Wenn das Thermostat den modus auto als heizen und heizen als boost benutzt, kann es getauscht werden (für Google Home nutzer)",
+                                        "heat_auto_swapped": "Wenn das Thermostat den modus auto als heizen und heizen als boost benutzt, muss es getauscht werden",
                                         "child_lock": "Ignoriere alle manuellen einstellungen am realen Thermostat (Kindersicherung)",
                                         "homaticip": "Wenn du HomaticIP nuzt, solltest du diese Option aktivieren um die Funk-übertragung zu reduzieren",
                                         "valve_maintenance": "Soll BT die wartung des Thermostats übernehmen?",

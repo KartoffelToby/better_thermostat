@@ -240,7 +240,7 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
         """
         if isinstance(self.all_trvs, str):
             return _LOGGER.error(
-                "You updated to version 1.0.0-Beta36 or later of the Better Thermostat integration, you need to remove the BT devices (integration) and add it again."
+                "You updated from version before 1.0.0-Beta36 of the Better Thermostat integration, you need to remove the BT devices (integration) and add it again."
             )
 
         for trv in self.all_trvs:
