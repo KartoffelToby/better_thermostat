@@ -661,6 +661,7 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
             await asyncio.sleep(10)
             self._available = True
             self.startup_running = False
+            self.async_update_ha_state()
             # await self.control_queue_task.put(self)
             _LOGGER.info("better_thermostat %s: startup completed.", self.name)
             break
@@ -911,7 +912,9 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
         string
                 State of the device.
         """
-        return self._available
+        if self._bt_hvac_mode == HVAC_MODE_OFF:
+            return False
+        return True
 
     @property
     def supported_features(self):
