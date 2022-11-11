@@ -9,7 +9,7 @@ _LOGGER = logging.getLogger(__name__)
 
 @callback
 async def trigger_window_change(self, event) -> None:
-    """Triggerd by window sensor event from HA to check if the window is open.
+    """Triggered by window sensor event from HA to check if the window is open.
 
     Parameters
     ----------
