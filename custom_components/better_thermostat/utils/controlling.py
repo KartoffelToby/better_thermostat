@@ -34,6 +34,7 @@ async def control_queue(self):
         else:
             controls_to_process = await self.control_queue_task.get()
             if controls_to_process is not None:
+                self.ignore_states = True
                 result = True
                 for trv in self.real_trvs.keys():
                     _temp = await control_trv(self, trv)
@@ -42,6 +43,7 @@ async def control_queue(self):
                 if result is False:
                     await self.control_queue_task.put(self)
                 self.control_queue_task.task_done()
+                self.ignore_states = False
 
 
 async def control_trv(self, heater_entity_id=None):
@@ -57,7 +59,6 @@ async def control_trv(self, heater_entity_id=None):
     None
     """
     async with self._temp_lock:
-        self.ignore_states = True
         self.real_trvs[heater_entity_id]["ignore_trv_states"] = True
         _trv = self.hass.states.get(heater_entity_id)
         _current_TRV_mode = _trv.state
@@ -140,7 +141,6 @@ async def control_trv(self, heater_entity_id=None):
                 await set_offset(self, heater_entity_id, _calibration)
                 self.real_trvs[heater_entity_id]["last_calibration"] = _calibration
                 self.real_trvs[heater_entity_id]["calibration_received"] = False
-                await asyncio.sleep(1)
 
         if (
             _temperature is not None
@@ -159,24 +159,18 @@ async def control_trv(self, heater_entity_id=None):
                     asyncio.create_task(
                         check_target_temperature(self, heater_entity_id)
                     )
-                await asyncio.sleep(1)
 
         if _hvac_mode_send is not None:
-            if (
-                _hvac_mode_send != _current_TRV_mode
-                or self.real_trvs[heater_entity_id].get("calibration_received") is False
-            ):
-                if self.real_trvs[heater_entity_id].get("calibration_received") is True:
-                    _LOGGER.debug(
-                        f"better_thermostat {self.name}: TO TRV set_hvac_mode: from: {_current_TRV_mode} to: {_hvac_mode_send}"
-                    )
-                await set_hvac_mode(self, heater_entity_id, _hvac_mode_send)
+            if _hvac_mode_send != _current_TRV_mode:
+                _LOGGER.debug(
+                    f"better_thermostat {self.name}: TO TRV set_hvac_mode: from: {_current_TRV_mode} to: {_hvac_mode_send}"
+                )
                 self.real_trvs[heater_entity_id]["last_hvac_mode"] = _hvac_mode_send
+                await set_hvac_mode(self, heater_entity_id, _hvac_mode_send)
                 if self.real_trvs[heater_entity_id]["system_mode_received"] is True:
                     self.real_trvs[heater_entity_id]["system_mode_received"] = False
                     asyncio.create_task(check_system_mode(self, heater_entity_id))
 
-        self.ignore_states = False
         self.real_trvs[heater_entity_id]["ignore_trv_states"] = False
         return True
 
@@ -184,9 +178,11 @@ async def control_trv(self, heater_entity_id=None):
 async def check_system_mode(self, heater_entity_id=None):
     """check system mode"""
     _timeout = 0
-    _current_system_mode = self.real_trvs[heater_entity_id].get("last_hvac_mode", None)
     while True:
-        if _current_system_mode == self.hass.states.get(heater_entity_id).state:
+        if (
+            self.real_trvs[heater_entity_id]["last_hvac_mode"]
+            == self.hass.states.get(heater_entity_id).state
+        ):
             _timeout = 0
             break
         if _timeout > 120:
@@ -199,9 +195,6 @@ async def check_system_mode(self, heater_entity_id=None):
         await asyncio.sleep(1)
         _timeout += 1
     self.real_trvs[heater_entity_id]["system_mode_received"] = True
-    _LOGGER.debug(
-        f"better_thermostat {self.name}: {heater_entity_id} hvac mode accepted"
-    )
     return True
 
 
@@ -234,7 +227,4 @@ async def check_target_temperature(self, heater_entity_id=None):
         await asyncio.sleep(1)
         _timeout += 1
     self._target_temp_received = True
-    _LOGGER.debug(
-        f"better_thermostat {self.name}: {heater_entity_id} TO TRV set_temperature: target accepted"
-    )
     return True

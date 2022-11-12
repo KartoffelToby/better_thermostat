@@ -1,3 +1,4 @@
+import asyncio
 from homeassistant.components.number.const import SERVICE_SET_VALUE
 from datetime import datetime
 import logging
@@ -37,6 +38,18 @@ async def init(self, entity_id):
             self.real_trvs[entity_id]["local_temperature_calibration_entity"],
         )
         await set_offset(self, entity_id, 0)
+        _has_preset = self.hass.states.get(entity_id).attributes.get(
+            "preset_modes", None
+        )
+        if _has_preset is not None:
+            await self.hass.services.async_call(
+                "climate",
+                "set_preset_mode",
+                {"entity_id": entity_id, "preset_mode": "manual"},
+                blocking=True,
+                limit=None,
+                context=self._context,
+            )
 
 
 async def set_temperature(self, entity_id, temperature):
@@ -107,6 +120,11 @@ async def set_offset(self, entity_id, offset):
         context=self._context,
     )
     self.real_trvs[entity_id]["last_calibration"] = datetime.now()
+    await asyncio.sleep(3)
+    _current_temperature = self.hass.states.get(entity_id).attributes.get(
+        "temperature", 5
+    )
+    return await generic_set_temperature(self, entity_id, _current_temperature)
 
 
 async def set_valve(self, entity_id, valve):

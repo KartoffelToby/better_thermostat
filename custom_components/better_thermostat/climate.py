@@ -617,6 +617,7 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
                 )
                 await init(self, trv)
                 _all_trvs.append(trv)
+            self._available = True
 
             self.async_write_ha_state()
 
@@ -658,8 +659,6 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
                         self.hass, [self.window_id], self._trigger_window_change
                     )
                 )
-            await asyncio.sleep(10)
-            self._available = True
             self.startup_running = False
             await self.async_update_ha_state()
             # await self.control_queue_task.put(self)
@@ -913,6 +912,8 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
                 State of the device.
         """
         if self._bt_hvac_mode == HVAC_MODE_OFF:
+            return False
+        if self.window_open:
             return False
         return True
 

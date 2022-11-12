@@ -108,14 +108,15 @@ async def trigger_trv_change(self, event):
 
     try:
         if event.context.id == self._context.id:
-            _LOGGER.debug(
-                f"better_thermostat {self.name}: Ignoring event from own changes"
-            )
             return
     except AttributeError:
         pass
 
-    if self.real_trvs[entity_id]["ignore_trv_states"] or self.ignore_states:
+    if (
+        self.real_trvs[entity_id]["ignore_trv_states"]
+        or self.ignore_states
+        or self.real_trvs[entity_id]["system_mode_received"] is False
+    ):
         return
 
     _new_heating_setpoint = convert_to_float(
