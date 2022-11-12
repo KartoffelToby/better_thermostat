@@ -157,7 +157,9 @@ async def trigger_trv_change(self, event):
             self.async_write_ha_state()
             return
 
-        _LOGGER.debug(f"better_thermostat {self.name}: {entity_id} TRV update triggered")
+        _LOGGER.debug(
+            f"better_thermostat {self.name}: {entity_id} TRV update triggered"
+        )
         self.async_write_ha_state()
         await self.control_queue_task.put(self)
 
