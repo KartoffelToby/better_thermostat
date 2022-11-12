@@ -122,9 +122,10 @@ async def set_offset(self, entity_id, offset):
     self.real_trvs[entity_id]["last_calibration"] = datetime.now()
     await asyncio.sleep(3)
     _current_temperature = self.hass.states.get(entity_id).attributes.get(
-        "temperature", 5
+        "temperature", None
     )
-    return await generic_set_temperature(self, entity_id, _current_temperature)
+    if _current_temperature is not None:
+        return await generic_set_temperature(self, entity_id, _current_temperature)
 
 
 async def set_valve(self, entity_id, valve):

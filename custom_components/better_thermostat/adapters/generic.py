@@ -24,15 +24,10 @@ async def get_offset_steps(self, entity_id):
 
 async def set_temperature(self, entity_id, temperature):
     """Set new target temperature."""
-    _current_hvac_mode = self.hass.states.get(entity_id).state or "off"
     await self.hass.services.async_call(
         "climate",
         "set_temperature",
-        {
-            "entity_id": entity_id,
-            "temperature": temperature,
-            "hvac_mode": _current_hvac_mode,
-        },
+        {"entity_id": entity_id, "temperature": temperature},
         blocking=True,
         limit=None,
         context=self._context,
