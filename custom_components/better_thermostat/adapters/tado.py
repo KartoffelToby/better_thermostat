@@ -14,7 +14,7 @@ async def get_info(self, entity_id):
 
 
 async def init(self, entity_id):
-    await set_offset(self, entity_id, 0)
+    return None
 
 
 async def set_temperature(self, entity_id, temperature):

@@ -159,7 +159,7 @@ def convert_to_float(
         return None
     else:
         try:
-            return float(str(format(float(value), ".2f")))
+            return float(str(format(float(value), ".1f")))
         except (ValueError, TypeError, AttributeError, KeyError):
             _LOGGER.debug(
                 f"better thermostat {instance_name}: Could not convert '{value}' to float in {context}"
