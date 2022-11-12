@@ -9,10 +9,12 @@
 **Important Notice: Consider this software as unfinished as it has not reached version 1.0.**
 **Don't select master on download, check `show beta version` install the latest one.**
 
+**For more infos visit: https://better-thermostat.org/**
+
 ### Requirements
 
 - Minimum required Home Assistant version: `2022.8.0`
-  (_Latest tested version: `2022.10.5`_)
+  (_Latest tested version: `2022.11.2`_)
 
 ### Companion UI
 
@@ -36,6 +38,11 @@ This integration brings some smartness to your connected radiator thermostats se
 ### Which hardware do we support?
 
 **We support all thermostats which are compatible with Home Assistant as long as they are shown up as a climate entity**
+
+***Integrations that are fully supported local calibration***
+- Zigbee2Mqtt
+- Deconz
+- Tado
 
 At this time following models are tested and recommended:
 
@@ -93,16 +100,8 @@ If you want to support this project, you can ☕ [**buy a coffee here**](https:/
 
 **[@KartoffelToby](https://github.com/KartoffelToby)**
 
-**[@RubenKelevra](https://github.com/RubenKelevra)**
+**[@RubenKelevra](https://github.com/RubenKelevra)** ***(INACTIVE)***
 
 ---
-
-## ‎‍💻 Code Contributors
-
-| User                                             |
-|:-------------------------------------------------|
-| [@RubenKelevra](https://github.com/RubenKelevra) |
-| [@bruvv](https://github.com/bruvv)               |
-| [@Cycor](https://github.com/Cycor)               |
 
 

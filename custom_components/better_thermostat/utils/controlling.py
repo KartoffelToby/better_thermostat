@@ -35,13 +35,13 @@ async def control_queue(self):
             controls_to_process = await self.control_queue_task.get()
             if controls_to_process is not None:
                 self.ignore_states = True
-                result = True
+                # result = True
                 for trv in self.real_trvs.keys():
-                    _temp = await control_trv(self, trv)
-                    if _temp is False:
-                        result = False
-                if result is False:
-                    await self.control_queue_task.put(self)
+                    await control_trv(self, trv)
+                #     if _temp is False:
+                #         result = False
+                # if result is False:
+                #    await self.control_queue_task.put(self)
                 self.control_queue_task.task_done()
                 self.ignore_states = False
 
