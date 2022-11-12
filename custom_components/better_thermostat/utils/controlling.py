@@ -35,13 +35,13 @@ async def control_queue(self):
             controls_to_process = await self.control_queue_task.get()
             if controls_to_process is not None:
                 self.ignore_states = True
-                # result = True
+                result = True
                 for trv in self.real_trvs.keys():
-                    await control_trv(self, trv)
-                #     if _temp is False:
-                #         result = False
-                # if result is False:
-                #    await self.control_queue_task.put(self)
+                    _temp = await control_trv(self, trv)
+                    if _temp is False:
+                        result = False
+                if result is False:
+                    await self.control_queue_task.put(self)
                 self.control_queue_task.task_done()
                 self.ignore_states = False
 
@@ -182,6 +182,7 @@ async def check_system_mode(self, heater_entity_id=None):
         if (
             self.real_trvs[heater_entity_id]["last_hvac_mode"]
             == self.hass.states.get(heater_entity_id).state
+            or self.real_trvs[heater_entity_id]["system_mode_received"]
         ):
             _timeout = 0
             break
@@ -189,7 +190,6 @@ async def check_system_mode(self, heater_entity_id=None):
             _LOGGER.warning(
                 f"better_thermostat {self.name}: {heater_entity_id} the real TRV did not respond to the system mode change"
             )
-            await self.control_queue_task.put(self)
             _timeout = 0
             break
         await asyncio.sleep(1)
@@ -221,7 +221,6 @@ async def check_target_temperature(self, heater_entity_id=None):
             _LOGGER.warning(
                 f"better_thermostat {self.name}: {heater_entity_id} the real TRV did not respond to the target temperature change"
             )
-            await self.control_queue_task.put(self)
             _timeout = 0
             break
         await asyncio.sleep(1)
