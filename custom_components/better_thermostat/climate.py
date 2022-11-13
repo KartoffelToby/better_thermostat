@@ -670,7 +670,7 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
             await self.async_update_ha_state()
             await asyncio.sleep(5)
             self.startup_running = False
-
+            await self.control_queue_task.put(self)
             # await self.control_queue_task.put(self)
             _LOGGER.info("better_thermostat %s: startup completed.", self.name)
             break
