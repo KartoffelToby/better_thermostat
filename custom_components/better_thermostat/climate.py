@@ -7,7 +7,7 @@ from datetime import datetime, timedelta
 from random import randint
 
 from .utils.weather import check_ambient_air_temperature, check_weather
-from .utils.bridge import load_adapter
+from .utils.bridge import init, load_adapter
 from .utils.helpers import convert_to_float, get_max_value, get_min_value
 from homeassistant.helpers import entity_platform
 from homeassistant.core import Context
@@ -275,7 +275,6 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
                 "last_current_temperature": None,
                 "last_calibration": None,
             }
-            await _adapter.init(self, trv["trv"])
 
         await super().async_added_to_hass()
 
@@ -606,9 +605,10 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
 
             _all_trvs = []
             for trv in self.real_trvs.keys():
-                self.real_trvs[trv["trv"]]["last_calibration"] = await self.real_trvs[
-                    trv["trv"]
-                ]["adapter"].get_current_offset(self, trv["trv"])
+                await init(self, trv)
+                self.real_trvs[trv]["last_calibration"] = await self.real_trvs[trv][
+                    "adapter"
+                ].get_current_offset(self, trv)
                 self.real_trvs[trv]["last_hvac_mode"] = self.hass.states.get(trv).state
                 self.real_trvs[trv]["last_temperature"] = convert_to_float(
                     str(self.hass.states.get(trv).attributes.get("temperature")),
