@@ -142,6 +142,17 @@ async def control_trv(self, heater_entity_id=None):
                 self.real_trvs[heater_entity_id]["last_calibration"] = _calibration
                 self.real_trvs[heater_entity_id]["calibration_received"] = False
 
+        if _hvac_mode_send is not None:
+            if _hvac_mode_send != _current_TRV_mode:
+                _LOGGER.debug(
+                    f"better_thermostat {self.name}: TO TRV set_hvac_mode: from: {_current_TRV_mode} to: {_hvac_mode_send}"
+                )
+                self.real_trvs[heater_entity_id]["last_hvac_mode"] = _hvac_mode_send
+                await set_hvac_mode(self, heater_entity_id, _hvac_mode_send)
+                if self.real_trvs[heater_entity_id]["system_mode_received"] is True:
+                    self.real_trvs[heater_entity_id]["system_mode_received"] = False
+                    asyncio.create_task(check_system_mode(self, heater_entity_id))
+
         if (
             _temperature is not None
             and self._bt_hvac_mode != HVAC_MODE_OFF
@@ -160,17 +171,7 @@ async def control_trv(self, heater_entity_id=None):
                         check_target_temperature(self, heater_entity_id)
                     )
 
-        if _hvac_mode_send is not None:
-            if _hvac_mode_send != _current_TRV_mode:
-                _LOGGER.debug(
-                    f"better_thermostat {self.name}: TO TRV set_hvac_mode: from: {_current_TRV_mode} to: {_hvac_mode_send}"
-                )
-                self.real_trvs[heater_entity_id]["last_hvac_mode"] = _hvac_mode_send
-                await set_hvac_mode(self, heater_entity_id, _hvac_mode_send)
-                if self.real_trvs[heater_entity_id]["system_mode_received"] is True:
-                    self.real_trvs[heater_entity_id]["system_mode_received"] = False
-                    asyncio.create_task(check_system_mode(self, heater_entity_id))
-
+        await asyncio.sleep(3)
         self.real_trvs[heater_entity_id]["ignore_trv_states"] = False
         return True
 

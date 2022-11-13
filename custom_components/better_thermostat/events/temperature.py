@@ -1,5 +1,6 @@
 import logging
 from ..utils.helpers import convert_to_float
+from datetime import datetime, timedelta
 
 from homeassistant.const import STATE_UNAVAILABLE, STATE_UNKNOWN
 from homeassistant.core import callback
@@ -41,4 +42,8 @@ async def trigger_temperature_change(self, event):
         )
         self._cur_temp = _incoming_temperature
         self.async_write_ha_state()
-        await self.control_queue_task.put(self)
+        if (
+            self.last_external_sensor_change + timedelta(minutes=15)
+        ).timestamp() < datetime.now().timestamp():
+            await self.control_queue_task.put(self)
+            self.last_external_sensor_change = datetime.now()

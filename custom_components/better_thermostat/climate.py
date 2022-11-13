@@ -212,6 +212,8 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
         self.last_dampening_timestamp = None
         self.version = VERSION
         self.last_change = datetime.now() - timedelta(hours=2)
+        self.last_external_sensor_change = datetime.now() - timedelta(hours=2)
+        self.last_internal_sensor_change = datetime.now() - timedelta(hours=2)
         self._last_window_state = None
         self._temp_lock = asyncio.Lock()
         self.startup_running = True

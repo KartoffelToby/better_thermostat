@@ -1,6 +1,6 @@
-import asyncio
 import logging
 from typing import Union
+from datetime import datetime, timedelta
 
 from homeassistant.components.climate.const import HVAC_MODE_HEAT, HVAC_MODE_OFF
 from homeassistant.core import callback, State
@@ -79,12 +79,17 @@ async def trigger_trv_change(self, event):
         _LOGGER.debug(
             f"better_thermostat {self.name}: TRV's sends new internal temperature from {_old_temp} to {_new_current_temp}"
         )
-        self.real_trvs[entity_id]["current_temperature"] = _new_current_temp
-        _updated_needed = True
+        if (
+            self.last_internal_sensor_change + timedelta(minutes=15)
+        ).timestamp() < datetime.now().timestamp() or self.real_trvs[entity_id][
+            "calibration_received"
+        ] is False:
+            self.real_trvs[entity_id]["current_temperature"] = _new_current_temp
+            _updated_needed = True
+            self.last_internal_sensor_change = datetime.now()
         if self.real_trvs[entity_id]["calibration_received"] is False:
             self.real_trvs[entity_id]["calibration_received"] = True
             _LOGGER.debug(f"better_thermostat {self.name}: calibration accepted by TRV")
-            await asyncio.sleep(1)
 
     new_decoded_system_mode = str(new_state.state)
 
