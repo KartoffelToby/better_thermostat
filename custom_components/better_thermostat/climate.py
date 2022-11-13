@@ -275,7 +275,7 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
                 "last_current_temperature": None,
                 "last_calibration": None,
             }
-            await _adapter.init(self, trv)
+            await _adapter.init(self, trv["trv"])
 
         await super().async_added_to_hass()
 
