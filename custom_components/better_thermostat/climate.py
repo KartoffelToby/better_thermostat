@@ -250,6 +250,7 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
             if trv["advanced"]["calibration"] == "local_calibration_based":
                 _calibration = 0
             _adapter = load_adapter(self, trv["integration"], trv["trv"])
+            await init(self, trv)
             self.real_trvs[trv["trv"]] = {
                 "calibration": _calibration,
                 "integration": trv["integration"],
@@ -619,7 +620,6 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
                     self.name,
                     "startup()",
                 )
-                await init(self, trv)
                 _all_trvs.append(trv)
             self._available = True
 
