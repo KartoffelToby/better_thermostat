@@ -75,6 +75,7 @@ async def trigger_trv_change(self, event):
         _new_current_temp is not None
         and self.real_trvs[entity_id]["current_temperature"] != _new_current_temp
     ):
+        _old_temp = self.real_trvs[entity_id]["current_temperature"]
         if (
             self.last_internal_sensor_change + timedelta(minutes=15)
         ).timestamp() < datetime.now().timestamp() or self.real_trvs[entity_id][
@@ -82,7 +83,6 @@ async def trigger_trv_change(self, event):
         ] is False:
             self.real_trvs[entity_id]["current_temperature"] = _new_current_temp
             _updated_needed = True
-            _old_temp = self.real_trvs[entity_id]["current_temperature"]
             _LOGGER.debug(
                 f"better_thermostat {self.name}: TRV's sends new internal temperature from {_old_temp} to {_new_current_temp}"
             )
@@ -101,8 +101,9 @@ async def trigger_trv_change(self, event):
         return
 
     if self.real_trvs[entity_id]["hvac_mode"] != _org_trv_state and not child_lock:
+        _old = self.real_trvs[entity_id]["hvac_mode"]
         _LOGGER.debug(
-            f"better_thermostat {self.name}: TRV's decoded TRV mode changed from {self._bt_hvac_mode} to {new_decoded_system_mode}"
+            f"better_thermostat {self.name}: TRV's decoded TRV mode changed from {_old} to {_org_trv_state}"
         )
         if self.window_open:
             self.real_trvs[entity_id]["hvac_mode"] = _org_trv_state
