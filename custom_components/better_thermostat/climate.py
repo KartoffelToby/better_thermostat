@@ -7,7 +7,7 @@ from datetime import datetime, timedelta
 from random import randint
 
 from .utils.weather import check_ambient_air_temperature, check_weather
-from .utils.bridge import init, load_adapter
+from .utils.bridge import load_adapter
 from .utils.helpers import convert_to_float, get_max_value, get_min_value
 from homeassistant.helpers import entity_platform
 from homeassistant.core import Context
@@ -250,7 +250,7 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
             if trv["advanced"]["calibration"] == "local_calibration_based":
                 _calibration = 0
             _adapter = load_adapter(self, trv["integration"], trv["trv"])
-            await init(self, trv)
+            await _adapter.init(self, trv)
             self.real_trvs[trv["trv"]] = {
                 "calibration": _calibration,
                 "integration": trv["integration"],
