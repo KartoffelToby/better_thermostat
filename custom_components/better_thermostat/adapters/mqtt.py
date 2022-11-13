@@ -1,6 +1,5 @@
 import asyncio
 from homeassistant.components.number.const import SERVICE_SET_VALUE
-from datetime import datetime
 import logging
 from .generic import (
     set_temperature as generic_set_temperature,
@@ -118,7 +117,6 @@ async def set_offset(self, entity_id, offset):
         limit=None,
         context=self._context,
     )
-    self.real_trvs[entity_id]["last_calibration"] = datetime.now()
     await asyncio.sleep(2)
     _current_state = self.hass.states.get(entity_id).state or None
     if _current_state is not None:

@@ -249,10 +249,11 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
             _calibration = 1
             if trv["advanced"]["calibration"] == "local_calibration_based":
                 _calibration = 0
+            _adapter = load_adapter(self, trv["integration"], trv["trv"])
             self.real_trvs[trv["trv"]] = {
                 "calibration": _calibration,
                 "integration": trv["integration"],
-                "adapter": load_adapter(self, trv["integration"], trv["trv"]),
+                "adapter": _adapter,
                 "model": trv["model"],
                 "advanced": trv["advanced"],
                 "ignore_trv_states": False,
@@ -272,7 +273,7 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
                 "last_valve_position": None,
                 "last_hvac_mode": None,
                 "last_current_temperature": None,
-                "last_calibration": datetime.now(),
+                "last_calibration": _adapter.get_current_offset(self, trv["trv"]),
             }
 
         await super().async_added_to_hass()

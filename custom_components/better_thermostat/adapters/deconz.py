@@ -1,4 +1,3 @@
-from datetime import datetime
 import logging
 from .generic import (
     set_temperature as generic_set_temperature,
@@ -50,7 +49,6 @@ async def set_offset(self, entity_id, offset):
         limit=None,
         context=self._context,
     )
-    self.real_trvs[entity_id]["last_calibration"] = datetime.now()
 
 
 async def set_valve(self, entity_id, valve):
