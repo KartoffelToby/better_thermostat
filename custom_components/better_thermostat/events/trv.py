@@ -75,10 +75,6 @@ async def trigger_trv_change(self, event):
         _new_current_temp is not None
         and self.real_trvs[entity_id]["current_temperature"] != _new_current_temp
     ):
-        _old_temp = self.real_trvs[entity_id]["current_temperature"]
-        _LOGGER.debug(
-            f"better_thermostat {self.name}: TRV's sends new internal temperature from {_old_temp} to {_new_current_temp}"
-        )
         if (
             self.last_internal_sensor_change + timedelta(minutes=15)
         ).timestamp() < datetime.now().timestamp() or self.real_trvs[entity_id][
@@ -86,6 +82,10 @@ async def trigger_trv_change(self, event):
         ] is False:
             self.real_trvs[entity_id]["current_temperature"] = _new_current_temp
             _updated_needed = True
+            _old_temp = self.real_trvs[entity_id]["current_temperature"]
+            _LOGGER.debug(
+                f"better_thermostat {self.name}: TRV's sends new internal temperature from {_old_temp} to {_new_current_temp}"
+            )
             self.last_internal_sensor_change = datetime.now()
         if self.real_trvs[entity_id]["calibration_received"] is False:
             self.real_trvs[entity_id]["calibration_received"] = True

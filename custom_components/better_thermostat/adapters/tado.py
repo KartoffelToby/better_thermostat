@@ -30,7 +30,7 @@ async def set_hvac_mode(self, entity_id, hvac_mode):
 async def get_current_offset(self, entity_id):
     """Get current offset."""
     return float(
-        str(self.hass.states.get(entity_id).attributes.get("temperatureOffset", 0))
+        str(self.hass.states.get(entity_id).attributes.get("offset_celsius", 0))
     )
 
 
