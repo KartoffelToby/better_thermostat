@@ -273,7 +273,7 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
                 "last_valve_position": None,
                 "last_hvac_mode": None,
                 "last_current_temperature": None,
-                "last_calibration": _adapter.get_current_offset(self, trv["trv"]),
+                "last_calibration": await _adapter.get_current_offset(self, trv["trv"]),
             }
 
         await super().async_added_to_hass()
@@ -307,13 +307,14 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
         if self._last_call_for_heat != self.call_for_heat:
             self._last_call_for_heat = self.call_for_heat
             self.async_write_ha_state()
-            await self.control_queue_task.put(self)
+            if event is not None:
+                await self.control_queue_task.put(self)
 
     async def _trigger_time(self, event=None):
         _LOGGER.debug("better_thermostat %s: get last avg outdoor temps...", self.name)
         await asyncio.create_task(check_ambient_air_temperature(self))
+        self.async_write_ha_state()
         if event is not None:
-            self.async_write_ha_state()
             await self.control_queue_task.put(self)
 
     async def _trigger_temperature_change(self, event):
@@ -662,9 +663,11 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
                         self.hass, [self.window_id], self._trigger_window_change
                     )
                 )
-            self.startup_running = False
             self.async_write_ha_state()
             await self.async_update_ha_state()
+            await asyncio.sleep(5)
+            self.startup_running = False
+
             # await self.control_queue_task.put(self)
             _LOGGER.info("better_thermostat %s: startup completed.", self.name)
             break
