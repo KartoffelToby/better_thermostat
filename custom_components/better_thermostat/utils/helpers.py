@@ -155,7 +155,7 @@ def convert_to_float(
     """
     if isinstance(value, float):
         return value
-    elif value is None:
+    elif value is None or value == "None":
         return None
     else:
         try:

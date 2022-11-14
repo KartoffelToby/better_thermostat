@@ -61,7 +61,7 @@ async def control_trv(self, heater_entity_id=None):
     async with self._temp_lock:
         self.real_trvs[heater_entity_id]["ignore_trv_states"] = True
         _trv = self.hass.states.get(heater_entity_id)
-        _current_TRV_mode = _trv.state
+        _current_TRV_mode = self.real_trvs[heater_entity_id]["hvac_mode"]
         _current_set_temperature = convert_to_float(
             str(_trv.attributes.get("temperature", None)), self.name, "controlling()"
         )
@@ -131,9 +131,25 @@ async def control_trv(self, heater_entity_id=None):
             old = self.real_trvs[heater_entity_id].get(
                 "last_calibration", current_calibration
             )
+
+            _cur_trv_temp = convert_to_float(
+                str(self.real_trvs[heater_entity_id]["current_temperature"]),
+                self.name,
+                "controlling()",
+            )
+
+            _calibration_delta = float(
+                str(format(float(abs(_cur_trv_temp - self._cur_temp)), ".1f"))
+            )
+
+            _shoud_calibrate = False
+            if _calibration_delta >= float(step_calibration):
+                _shoud_calibrate = True
+
             if (
                 self.real_trvs[heater_entity_id]["calibration_received"] is True
-                and old != _calibration
+                and float(old) != float(_calibration)
+                and _shoud_calibrate is True
             ):
                 _LOGGER.debug(
                     f"better_thermostat {self.name}: TO TRV set_local_temperature_calibration: from: {old} to: {_calibration}"
@@ -152,6 +168,7 @@ async def control_trv(self, heater_entity_id=None):
                 if self.real_trvs[heater_entity_id]["system_mode_received"] is True:
                     self.real_trvs[heater_entity_id]["system_mode_received"] = False
                     asyncio.create_task(check_system_mode(self, heater_entity_id))
+                await asyncio.sleep(3)
 
         if (
             _temperature is not None
@@ -171,7 +188,6 @@ async def control_trv(self, heater_entity_id=None):
                         check_target_temperature(self, heater_entity_id)
                     )
 
-        await asyncio.sleep(3)
         self.real_trvs[heater_entity_id]["ignore_trv_states"] = False
         return True
 
@@ -179,15 +195,11 @@ async def control_trv(self, heater_entity_id=None):
 async def check_system_mode(self, heater_entity_id=None):
     """check system mode"""
     _timeout = 0
-    while True:
-        if (
-            self.real_trvs[heater_entity_id]["last_hvac_mode"]
-            == self.hass.states.get(heater_entity_id).state
-            or self.real_trvs[heater_entity_id]["system_mode_received"]
-        ):
-            _timeout = 0
-            break
-        if _timeout > 120:
+    while (
+        self.real_trvs[heater_entity_id]["hvac_mode"]
+        != self.real_trvs[heater_entity_id]["last_hvac_mode"]
+    ):
+        if _timeout > 360:
             _LOGGER.warning(
                 f"better_thermostat {self.name}: {heater_entity_id} the real TRV did not respond to the system mode change"
             )

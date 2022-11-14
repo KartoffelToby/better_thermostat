@@ -42,8 +42,7 @@ async def trigger_trv_change(self, event):
 
     old_state = event.data.get("old_state")
     new_state = event.data.get("new_state")
-
-    _org_trv_state = new_state.state
+    _org_trv_state = self.hass.states.get(entity_id).state
 
     if None in (new_state, old_state, new_state.attributes):
         _LOGGER.debug(
@@ -77,7 +76,7 @@ async def trigger_trv_change(self, event):
     ):
         _old_temp = self.real_trvs[entity_id]["current_temperature"]
         if (
-            self.last_internal_sensor_change + timedelta(minutes=15)
+            self.last_internal_sensor_change + timedelta(seconds=5)
         ).timestamp() < datetime.now().timestamp() or self.real_trvs[entity_id][
             "calibration_received"
         ] is False:
@@ -90,6 +89,19 @@ async def trigger_trv_change(self, event):
         if self.real_trvs[entity_id]["calibration_received"] is False:
             self.real_trvs[entity_id]["calibration_received"] = True
             _LOGGER.debug(f"better_thermostat {self.name}: calibration accepted by TRV")
+
+    try:
+        if event.context.id == self._context.id:
+            return
+    except AttributeError:
+        pass
+
+    if (
+        self.real_trvs[entity_id]["ignore_trv_states"]
+        or self.ignore_states
+        or self.real_trvs[entity_id]["system_mode_received"] is False
+    ):
+        return
 
     new_decoded_system_mode = str(new_state.state)
 
@@ -111,19 +123,6 @@ async def trigger_trv_change(self, event):
             self._bt_hvac_mode = new_decoded_system_mode
             self.real_trvs[entity_id]["hvac_mode"] = _org_trv_state
         _updated_needed = True
-
-    try:
-        if event.context.id == self._context.id:
-            return
-    except AttributeError:
-        pass
-
-    if (
-        self.real_trvs[entity_id]["ignore_trv_states"]
-        or self.ignore_states
-        or self.real_trvs[entity_id]["system_mode_received"] is False
-    ):
-        return
 
     _new_heating_setpoint = convert_to_float(
         str(new_state.attributes.get("temperature", None)),

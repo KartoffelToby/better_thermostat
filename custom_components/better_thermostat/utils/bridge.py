@@ -4,8 +4,11 @@ import logging
 _LOGGER = logging.getLogger(__name__)
 
 
-def load_adapter(self, integration, entity_id):
+def load_adapter(self, integration, entity_id, get_name=False):
     """Load adapter."""
+    if get_name:
+        self.name = "-"
+
     if integration == "generic_thermostat":
         integration = "generic"
 
@@ -32,6 +35,9 @@ def load_adapter(self, integration, entity_id):
             "generic",
         )
         pass
+
+    if get_name:
+        return integration
     return self.adapter
 
 

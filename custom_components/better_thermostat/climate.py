@@ -606,10 +606,14 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
             _all_trvs = []
             for trv in self.real_trvs.keys():
                 await init(self, trv)
-                self.real_trvs[trv]["last_calibration"] = await self.real_trvs[trv][
-                    "adapter"
-                ].get_current_offset(self, trv)
-                self.real_trvs[trv]["last_hvac_mode"] = self.hass.states.get(trv).state
+                if self.real_trvs[trv]["calibration"] == 0:
+                    self.real_trvs[trv]["last_calibration"] = await self.real_trvs[trv][
+                        "adapter"
+                    ].get_current_offset(self, trv)
+                else:
+                    self.real_trvs[trv]["last_calibration"] = 0
+                self.real_trvs[trv]["hvac_mode"] = self.hass.states.get(trv).state
+                self.real_trvs[trv]["last_hvac_mode"] = None
                 self.real_trvs[trv]["last_temperature"] = convert_to_float(
                     str(self.hass.states.get(trv).attributes.get("temperature")),
                     self.name,
@@ -624,12 +628,14 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
                     "startup()",
                 )
                 _all_trvs.append(trv)
-            self._available = True
-
-            self.async_write_ha_state()
 
             await self._trigger_time(None)
             await self._trigger_check_weather(None)
+            self.startup_running = False
+            self._available = True
+            self.async_write_ha_state()
+            await self.async_update_ha_state()
+            await self.control_queue_task.put(self)
             # Add listener
             if self.outdoor_sensor is not None:
                 self.async_on_remove(
@@ -666,12 +672,6 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
                         self.hass, [self.window_id], self._trigger_window_change
                     )
                 )
-            self.async_write_ha_state()
-            await self.async_update_ha_state()
-            await asyncio.sleep(5)
-            self.startup_running = False
-            await self.control_queue_task.put(self)
-            # await self.control_queue_task.put(self)
             _LOGGER.info("better_thermostat %s: startup completed.", self.name)
             break
 
