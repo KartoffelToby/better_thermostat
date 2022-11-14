@@ -46,7 +46,7 @@ def mode_remap(self, entity_id, hvac_mode: str, inbound: bool = False) -> str:
         elif hvac_mode == HVAC_MODE_AUTO and inbound is True:
             return HVAC_MODE_HEAT
         else:
-            return HVAC_MODE_OFF
+            return hvac_mode
     else:
         if hvac_mode != HVAC_MODE_AUTO:
             return hvac_mode

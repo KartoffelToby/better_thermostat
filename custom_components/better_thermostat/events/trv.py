@@ -58,7 +58,8 @@ async def trigger_trv_change(self, event):
 
     try:
         new_state = convert_inbound_states(self, entity_id, new_state)
-    except TypeError:
+    except TypeError as e:
+        _LOGGER.debug(e)
         _LOGGER.debug(
             f"better_thermostat {self.name}: remapping TRV state failed, skipping"
         )
@@ -105,24 +106,18 @@ async def trigger_trv_change(self, event):
 
     new_decoded_system_mode = str(new_state.state)
 
-    if new_decoded_system_mode not in (HVAC_MODE_OFF, HVAC_MODE_HEAT):
-        # not an valid mode, overwriting
-        _LOGGER.debug(
-            f"better_thermostat {self.name}: TRV's decoded TRV mode is not valid, skipping"
-        )
-        return
-
-    if self.real_trvs[entity_id]["hvac_mode"] != _org_trv_state and not child_lock:
-        _old = self.real_trvs[entity_id]["hvac_mode"]
-        _LOGGER.debug(
-            f"better_thermostat {self.name}: TRV's decoded TRV mode changed from {_old} to {_org_trv_state}"
-        )
-        if self.window_open:
-            self.real_trvs[entity_id]["hvac_mode"] = _org_trv_state
-        else:
-            self._bt_hvac_mode = new_decoded_system_mode
-            self.real_trvs[entity_id]["hvac_mode"] = _org_trv_state
-        _updated_needed = True
+    if new_decoded_system_mode in (HVAC_MODE_OFF, HVAC_MODE_HEAT):
+        if self.real_trvs[entity_id]["hvac_mode"] != _org_trv_state and not child_lock:
+            _old = self.real_trvs[entity_id]["hvac_mode"]
+            _LOGGER.debug(
+                f"better_thermostat {self.name}: TRV's decoded TRV mode changed from {_old} to {_org_trv_state} - converted {new_decoded_system_mode}"
+            )
+            if self.window_open:
+                self.real_trvs[entity_id]["hvac_mode"] = _org_trv_state
+            else:
+                self._bt_hvac_mode = new_decoded_system_mode
+                self.real_trvs[entity_id]["hvac_mode"] = _org_trv_state
+            _updated_needed = True
 
     _new_heating_setpoint = convert_to_float(
         str(new_state.attributes.get("temperature", None)),
@@ -169,7 +164,7 @@ async def trigger_trv_change(self, event):
         await self.control_queue_task.put(self)
 
 
-def convert_inbound_states(self, entity_id, state: State):
+def convert_inbound_states(self, entity_id, state: State) -> State:
     """Convert hvac mode in a thermostat state from HA
     Parameters
     ----------
@@ -189,6 +184,9 @@ def convert_inbound_states(self, entity_id, state: State):
         raise TypeError("convert_inbound_states() received None state, cannot convert")
 
     state.state = mode_remap(self, entity_id, str(state.state), True)
+
+    if state.state not in (HVAC_MODE_OFF, HVAC_MODE_HEAT):
+        state.state = None
 
     return state
 
