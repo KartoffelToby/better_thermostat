@@ -1,17 +1,22 @@
+from datetime import datetime
 import logging
 from typing import Union
-from datetime import datetime, timedelta
 
-from homeassistant.components.climate.const import HVAC_MODE_HEAT, HVAC_MODE_OFF
-from homeassistant.core import callback, State
-
+from homeassistant.components.climate.const import (
+    HVACMode,
+    ATTR_HVAC_ACTION,
+    HVACAction,
+)
+from homeassistant.core import State, callback
+from homeassistant.components.group.util import find_state_attributes
 from ..utils.helpers import (
     calculate_local_setpoint_delta,
     calculate_setpoint_override,
+    convert_to_float,
     mode_remap,
     round_to_half_degree,
-    convert_to_float,
 )
+from custom_components.better_thermostat.utils.bridge import get_current_offset
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -46,22 +51,21 @@ async def trigger_trv_change(self, event):
 
     if None in (new_state, old_state, new_state.attributes):
         _LOGGER.debug(
-            f"better_thermostat {self.name}: TRV update contained not all necessary data for processing, skipping"
+            f"better_thermostat {self.name}: TRV {entity_id} update contained not all necessary data for processing, skipping"
         )
         return
 
     if not isinstance(new_state, State) or not isinstance(old_state, State):
         _LOGGER.debug(
-            f"better_thermostat {self.name}: TRV update contained not a State, skipping"
+            f"better_thermostat {self.name}: TRV {entity_id} update contained not a State, skipping"
         )
         return
 
     try:
         new_state = convert_inbound_states(self, entity_id, new_state)
-    except TypeError as e:
-        _LOGGER.debug(e)
+    except TypeError:
         _LOGGER.debug(
-            f"better_thermostat {self.name}: remapping TRV state failed, skipping"
+            f"better_thermostat {self.name}: remapping TRV {entity_id} state failed, skipping"
         )
         return
 
@@ -76,41 +80,38 @@ async def trigger_trv_change(self, event):
         and self.real_trvs[entity_id]["current_temperature"] != _new_current_temp
     ):
         _old_temp = self.real_trvs[entity_id]["current_temperature"]
-        if (
-            self.last_internal_sensor_change + timedelta(seconds=5)
-        ).timestamp() < datetime.now().timestamp() or self.real_trvs[entity_id][
-            "calibration_received"
-        ] is False:
+        if self.real_trvs[entity_id]["calibration_received"] is False:
             self.real_trvs[entity_id]["current_temperature"] = _new_current_temp
             _updated_needed = True
             _LOGGER.debug(
-                f"better_thermostat {self.name}: TRV's sends new internal temperature from {_old_temp} to {_new_current_temp}"
+                f"better_thermostat {self.name}: TRV {entity_id} sends new internal temperature from {_old_temp} to {_new_current_temp}"
             )
             self.last_internal_sensor_change = datetime.now()
         if self.real_trvs[entity_id]["calibration_received"] is False:
             self.real_trvs[entity_id]["calibration_received"] = True
-            _LOGGER.debug(f"better_thermostat {self.name}: calibration accepted by TRV")
+            _LOGGER.debug(
+                f"better_thermostat {self.name}: calibration accepted by TRV {entity_id}"
+            )
+            if self.real_trvs[entity_id]["calibration"] == 0:
+                self.real_trvs[entity_id][
+                    "last_calibration"
+                ] = await get_current_offset(self, entity_id)
 
+    if self.real_trvs[entity_id]["ignore_trv_states"] or self.ignore_states:
+        return
     try:
-        if event.context.id == self._context.id:
+        if event.context == self._context:
             return
     except AttributeError:
         pass
 
-    if (
-        self.real_trvs[entity_id]["ignore_trv_states"]
-        or self.ignore_states
-        or self.real_trvs[entity_id]["system_mode_received"] is False
-    ):
-        return
-
     new_decoded_system_mode = str(new_state.state)
 
-    if new_decoded_system_mode in (HVAC_MODE_OFF, HVAC_MODE_HEAT):
+    if new_decoded_system_mode in (HVACMode.OFF, HVACMode.HEAT):
         if self.real_trvs[entity_id]["hvac_mode"] != _org_trv_state and not child_lock:
             _old = self.real_trvs[entity_id]["hvac_mode"]
             _LOGGER.debug(
-                f"better_thermostat {self.name}: TRV's decoded TRV mode changed from {_old} to {_org_trv_state} - converted {new_decoded_system_mode}"
+                f"better_thermostat {self.name}: TRV {entity_id} decoded TRV mode changed from {_old} to {_org_trv_state} - converted {new_decoded_system_mode}"
             )
             if self.window_open:
                 self.real_trvs[entity_id]["hvac_mode"] = _org_trv_state
@@ -124,13 +125,13 @@ async def trigger_trv_change(self, event):
         self.name,
         "trigger_trv_change()",
     )
-    if _new_heating_setpoint is not None and self._bt_hvac_mode is not HVAC_MODE_OFF:
+    if _new_heating_setpoint is not None and self._bt_hvac_mode is not HVACMode.OFF:
         if (
             _new_heating_setpoint < self._min_temp
             or self._max_temp < _new_heating_setpoint
         ):
             _LOGGER.warning(
-                f"better_thermostat {self.name}: New TRV setpoint outside of range, overwriting it"
+                f"better_thermostat {self.name}: New TRV {entity_id} setpoint outside of range, overwriting it"
             )
 
             if _new_heating_setpoint < self._min_temp:
@@ -144,24 +145,47 @@ async def trigger_trv_change(self, event):
             and self.real_trvs[entity_id]["last_temperature"] != _new_heating_setpoint
         ):
             _LOGGER.debug(
-                f"better_thermostat {self.name}: TRV's decoded TRV target temp changed from {self._target_temp} to {_new_heating_setpoint}"
+                f"better_thermostat {self.name}: TRV {entity_id} decoded TRV target temp changed from {self._target_temp} to {_new_heating_setpoint}"
             )
             self._target_temp = _new_heating_setpoint
             _updated_needed = True
 
     if _updated_needed or child_lock:
         if (
-            self._bt_hvac_mode == HVAC_MODE_OFF
-            and self.real_trvs[entity_id]["hvac_mode"] == HVAC_MODE_OFF
+            self._bt_hvac_mode == HVACMode.OFF
+            and self.real_trvs[entity_id]["hvac_mode"] == HVACMode.OFF
         ):
             self.async_write_ha_state()
             return
 
-        _LOGGER.debug(
-            f"better_thermostat {self.name}: {entity_id} TRV update triggered"
-        )
         self.async_write_ha_state()
-        await self.control_queue_task.put(self)
+        update_hvac_action(self)
+        return await self.control_queue_task.put(self)
+
+
+def update_hvac_action(self):
+    """Update hvac action."""
+    # return the most common action if it is not off
+    states = [
+        state
+        for entity_id in self.real_trvs
+        if (state := self.hass.states.get(entity_id)) is not None
+    ]
+    hvac_actions = list(find_state_attributes(states, ATTR_HVAC_ACTION))
+    current_hvac_actions = [a for a in hvac_actions if a != HVACAction.OFF]
+    # return the most common action if it is not off
+    if current_hvac_actions:
+        self._attr_hvac_action = max(
+            set(current_hvac_actions), key=current_hvac_actions.count
+        )
+    # return action off if all are off
+    elif all(a == HVACAction.OFF for a in hvac_actions):
+        self._attr_hvac_action = HVACAction.OFF
+    # else it's none
+    else:
+        self._attr_hvac_action = None
+
+    self.async_write_ha_state()
 
 
 def convert_inbound_states(self, entity_id, state: State) -> State:
@@ -185,7 +209,7 @@ def convert_inbound_states(self, entity_id, state: State) -> State:
 
     state.state = mode_remap(self, entity_id, str(state.state), True)
 
-    if state.state not in (HVAC_MODE_OFF, HVAC_MODE_HEAT):
+    if state.state not in (HVACMode.OFF, HVACMode.HEAT):
         state.state = None
 
     return state
@@ -284,12 +308,12 @@ def convert_outbound_states(self, entity_id, hvac_mode) -> Union[dict, None]:
                 _LOGGER.debug(
                     f"better_thermostat {self.name}: device config expects no system mode, while the device has one. Device system mode will be ignored"
                 )
-                if hvac_mode == HVAC_MODE_OFF:
+                if hvac_mode == HVACMode.OFF:
                     _new_heating_setpoint = 5
                 hvac_mode = None
 
             elif _has_system_mode is None:
-                if hvac_mode == HVAC_MODE_OFF:
+                if hvac_mode == HVACMode.OFF:
                     _LOGGER.debug(
                         f"better_thermostat {self.name}: sending 5°C to the TRV because this device has no system mode and heater should be off"
                     )

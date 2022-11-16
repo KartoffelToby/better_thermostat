@@ -6,11 +6,8 @@ from typing import Union
 from homeassistant.helpers import device_registry as dr, entity_registry as er
 from homeassistant.helpers.entity_registry import async_entries_for_config_entry
 
-from homeassistant.components.climate.const import (
-    HVAC_MODE_AUTO,
-    HVAC_MODE_HEAT,
-    HVAC_MODE_OFF,
-)
+from homeassistant.components.climate.const import HVACMode
+
 
 from ..const import CONF_HEAT_AUTO_SWAPPED
 
@@ -41,20 +38,20 @@ def mode_remap(self, entity_id, hvac_mode: str, inbound: bool = False) -> str:
     )
 
     if _heat_auto_swapped:
-        if hvac_mode == HVAC_MODE_HEAT and inbound is False:
-            return HVAC_MODE_AUTO
-        elif hvac_mode == HVAC_MODE_AUTO and inbound is True:
-            return HVAC_MODE_HEAT
+        if hvac_mode == HVACMode.HEAT and inbound is False:
+            return HVACMode.AUTO
+        elif hvac_mode == HVACMode.AUTO and inbound is True:
+            return HVACMode.HEAT
         else:
             return hvac_mode
     else:
-        if hvac_mode != HVAC_MODE_AUTO:
+        if hvac_mode != HVACMode.AUTO:
             return hvac_mode
         else:
             _LOGGER.error(
                 f"better_thermostat {self.name}: {entity_id} HVAC mode {hvac_mode} is not supported by this device, is it possible that you forgot to set the heat auto swapped option?"
             )
-            return HVAC_MODE_OFF
+            return HVACMode.OFF
 
 
 def calculate_local_setpoint_delta(self, entity_id) -> Union[float, None]:
@@ -75,17 +72,8 @@ def calculate_local_setpoint_delta(self, entity_id) -> Union[float, None]:
     """
     _context = "calculate_local_setpoint_delta()"
 
-    if self.real_trvs[entity_id]["local_temperature_calibration_entity"] is None:
-        return None
-
     _current_trv_calibration = convert_to_float(
-        str(
-            self.hass.states.get(
-                self.real_trvs[entity_id]["local_temperature_calibration_entity"]
-            ).state
-        ),
-        self.name,
-        _context,
+        str(self.real_trvs[entity_id]["last_calibration"]), self.name, _context
     )
     _cur_trv_temp = convert_to_float(
         str(self.real_trvs[entity_id]["current_temperature"]), self.name, _context
@@ -97,6 +85,18 @@ def calculate_local_setpoint_delta(self, entity_id) -> Union[float, None]:
             f" current_trv_calibration: {_current_trv_calibration}, current_trv_temp: {_cur_trv_temp}, cur_temp: {self._cur_temp}"
         )
         return None
+
+    if self.real_trvs[entity_id]["integration"] != "tado":
+        _temp_diff = float(float(self._target_temp) - float(self._cur_temp))
+        if _temp_diff > 0.2 and _temp_diff < 1:
+            _cur_trv_temp = round_to_half_degree(_cur_trv_temp)
+        if _temp_diff >= 1:
+            _cur_trv_temp += 1
+        if _temp_diff < 0.2 and _temp_diff < 0:
+            _cur_trv_temp = round_down_to_half_degree(_cur_trv_temp)
+            _cur_trv_temp -= 1
+        if _temp_diff <= -1:
+            _cur_trv_temp -= 2
 
     _new_local_calibration = (self._cur_temp - _cur_trv_temp) + _current_trv_calibration
     return convert_to_float(str(_new_local_calibration), self.name, _context)
@@ -123,6 +123,11 @@ def calculate_setpoint_override(self, entity_id) -> Union[float, None]:
         return None
 
     _calibrated_setpoint = (self._target_temp - self._cur_temp) + _cur_trv_temp
+
+    if self.real_trvs[entity_id]["integration"] != "tado":
+        _temp_diff = float(float(self._target_temp) - float(self._cur_temp))
+        if _temp_diff > 0.3 and _calibrated_setpoint - _cur_trv_temp < 2.5:
+            _calibrated_setpoint += 2.5
 
     # check if new setpoint is inside the TRV's range, else set to min or max
     if _calibrated_setpoint < self.real_trvs[entity_id]["min_temp"]:
@@ -184,8 +189,33 @@ def calibration_round(value: Union[int, float, None]) -> Union[float, int, None]
         return None
     split = str(float(str(value))).split(".", 1)
     decimale = int(split[1])
-    if decimale > 7:
+    if decimale > 8:
         return float(str(split[0])) + 1.0
+    else:
+        return float(str(split[0]))
+
+
+def round_down_to_half_degree(
+    value: Union[int, float, None]
+) -> Union[float, int, None]:
+    """Round the value down to the nearest 0.5.
+
+    Parameters
+    ----------
+    value : float
+            the value to round
+
+    Returns
+    -------
+    float
+            the rounded value
+    """
+    if value is None:
+        return None
+    split = str(float(str(value))).split(".", 1)
+    decimale = int(split[1])
+    if decimale > 7:
+        return float(str(split[0])) + 0.5
     else:
         return float(str(split[0]))
 
