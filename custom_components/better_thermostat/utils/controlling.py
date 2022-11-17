@@ -199,13 +199,14 @@ async def check_system_mode(self, heater_entity_id=None):
         != self.real_trvs[heater_entity_id]["last_hvac_mode"]
     ):
         if _timeout > 360:
-            _LOGGER.warning(
+            _LOGGER.debug(
                 f"better_thermostat {self.name}: {heater_entity_id} the real TRV did not respond to the system mode change"
             )
             _timeout = 0
             break
         await asyncio.sleep(1)
         _timeout += 1
+    await asyncio.sleep(2)
     self.real_trvs[heater_entity_id]["system_mode_received"] = True
     return True
 
@@ -230,12 +231,13 @@ async def check_target_temperature(self, heater_entity_id=None):
             _timeout = 0
             break
         if _timeout > 120:
-            _LOGGER.warning(
+            _LOGGER.debug(
                 f"better_thermostat {self.name}: {heater_entity_id} the real TRV did not respond to the target temperature change"
             )
             _timeout = 0
             break
         await asyncio.sleep(1)
         _timeout += 1
-    self._target_temp_received = True
+    await asyncio.sleep(2)
+    self.real_trvs[heater_entity_id]["target_temp_received"] = True
     return True

@@ -141,7 +141,7 @@ async def set_offset(self, entity_id, offset):
     if self.real_trvs[entity_id]["hvac_modes"] is not None:
         hvac_mode = mode_remap(self, entity_id, str(self._bt_hvac_mode), False)
         if hvac_mode is not None:
-            _LOGGER.debug("sending hvac_mode %s", hvac_mode)
+            _LOGGER.debug("sending hvac_mode: %s %s", entity_id, hvac_mode)
             return await generic_set_hvac_mode(self, entity_id, hvac_mode)
 
 

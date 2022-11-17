@@ -86,15 +86,19 @@ def calculate_local_setpoint_delta(self, entity_id) -> Union[float, None]:
         )
         return None
 
-    if self.real_trvs[entity_id]["integration"] != "tado":
+    if (
+        self.real_trvs[entity_id]["integration"] != "tado"
+        and self.real_trvs[entity_id]["advanced"]["homaticip"] is False
+    ):
         _temp_diff = float(float(self._target_temp) - float(self._cur_temp))
         if _temp_diff > 0.2 and _temp_diff < 1:
             _cur_trv_temp = round_to_half_degree(_cur_trv_temp)
+            _cur_trv_temp += 2.5
         if _temp_diff >= 1:
-            _cur_trv_temp += 1
+            _cur_trv_temp += 3
         if _temp_diff < 0.2 and _temp_diff < 0:
             _cur_trv_temp = round_down_to_half_degree(_cur_trv_temp)
-            _cur_trv_temp -= 1
+            _cur_trv_temp -= 0.5
         if _temp_diff <= -1:
             _cur_trv_temp -= 2
 
@@ -124,7 +128,10 @@ def calculate_setpoint_override(self, entity_id) -> Union[float, None]:
 
     _calibrated_setpoint = (self._target_temp - self._cur_temp) + _cur_trv_temp
 
-    if self.real_trvs[entity_id]["integration"] != "tado":
+    if (
+        self.real_trvs[entity_id]["integration"] != "tado"
+        and self.real_trvs[entity_id]["advanced"]["homaticip"] is False
+    ):
         _temp_diff = float(float(self._target_temp) - float(self._cur_temp))
         if _temp_diff > 0.3 and _calibrated_setpoint - _cur_trv_temp < 2.5:
             _calibrated_setpoint += 2.5

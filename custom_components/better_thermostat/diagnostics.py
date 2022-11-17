@@ -31,7 +31,10 @@ async def async_get_config_entry_diagnostics(
         }
     external_temperature = hass.states.get(config_entry.data[CONF_SENSOR])
     if CONF_SENSOR_WINDOW in config_entry.data:
-        window = hass.states.get(config_entry.data[CONF_SENSOR_WINDOW])
+        try:
+            window = hass.states.get(config_entry.data[CONF_SENSOR_WINDOW])
+        except KeyError:
+            window = "-"
     else:
         window = "-"
     _cleaned_data = dict(config_entry.data.copy())

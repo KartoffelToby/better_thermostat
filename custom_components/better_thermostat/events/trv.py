@@ -39,8 +39,6 @@ async def trigger_trv_change(self, event):
     if self.startup_running:
         return
 
-    _updated_needed = False
-
     entity_id = event.data.get("entity_id")
 
     child_lock = self.real_trvs[entity_id]["advanced"].get("child_lock")
@@ -82,7 +80,6 @@ async def trigger_trv_change(self, event):
         _old_temp = self.real_trvs[entity_id]["current_temperature"]
         if self.real_trvs[entity_id]["calibration_received"] is False:
             self.real_trvs[entity_id]["current_temperature"] = _new_current_temp
-            _updated_needed = True
             _LOGGER.debug(
                 f"better_thermostat {self.name}: TRV {entity_id} sends new internal temperature from {_old_temp} to {_new_current_temp}"
             )
@@ -97,14 +94,6 @@ async def trigger_trv_change(self, event):
                     "last_calibration"
                 ] = await get_current_offset(self, entity_id)
 
-    if self.real_trvs[entity_id]["ignore_trv_states"] or self.ignore_states:
-        return
-    try:
-        if event.context == self._context:
-            return
-    except AttributeError:
-        pass
-
     new_decoded_system_mode = str(new_state.state)
 
     if new_decoded_system_mode in (HVACMode.OFF, HVACMode.HEAT):
@@ -113,12 +102,12 @@ async def trigger_trv_change(self, event):
             _LOGGER.debug(
                 f"better_thermostat {self.name}: TRV {entity_id} decoded TRV mode changed from {_old} to {_org_trv_state} - converted {new_decoded_system_mode}"
             )
-            if self.window_open:
-                self.real_trvs[entity_id]["hvac_mode"] = _org_trv_state
-            else:
+            self.real_trvs[entity_id]["hvac_mode"] = _org_trv_state
+            if (
+                child_lock is False
+                and self.real_trvs[entity_id]["system_mode_received"] is True
+            ):
                 self._bt_hvac_mode = new_decoded_system_mode
-                self.real_trvs[entity_id]["hvac_mode"] = _org_trv_state
-            _updated_needed = True
 
     _new_heating_setpoint = convert_to_float(
         str(new_state.attributes.get("temperature", None)),
@@ -143,24 +132,27 @@ async def trigger_trv_change(self, event):
             self._target_temp != _new_heating_setpoint
             and not child_lock
             and self.real_trvs[entity_id]["last_temperature"] != _new_heating_setpoint
+            and self.real_trvs[entity_id]["target_temp_received"] is True
         ):
             _LOGGER.debug(
                 f"better_thermostat {self.name}: TRV {entity_id} decoded TRV target temp changed from {self._target_temp} to {_new_heating_setpoint}"
             )
-            self._target_temp = _new_heating_setpoint
-            _updated_needed = True
+            if (
+                child_lock is False
+                and self.real_trvs[entity_id]["target_temp_received"] is True
+            ):
+                self._target_temp = _new_heating_setpoint
 
-    if _updated_needed or child_lock:
-        if (
-            self._bt_hvac_mode == HVACMode.OFF
-            and self.real_trvs[entity_id]["hvac_mode"] == HVACMode.OFF
-        ):
-            self.async_write_ha_state()
-            return
-
+    if (
+        self._bt_hvac_mode == HVACMode.OFF
+        and self.real_trvs[entity_id]["hvac_mode"] == HVACMode.OFF
+    ):
         self.async_write_ha_state()
-        update_hvac_action(self)
-        return await self.control_queue_task.put(self)
+        return
+
+    self.async_write_ha_state()
+    update_hvac_action(self)
+    return await self.control_queue_task.put(self)
 
 
 def update_hvac_action(self):

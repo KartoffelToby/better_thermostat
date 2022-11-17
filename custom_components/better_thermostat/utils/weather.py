@@ -122,6 +122,11 @@ async def check_ambient_air_temperature(self):
     # create a list from valid data in historic_sensor_data
     valid_historic_sensor_data = []
     invalid_sensor_data_count = 0
+    if historic_sensor_data is not None:
+        _LOGGER.warning(
+            f"better_thermostat {self.name}: {self.outdoor_sensor} has no historic data."
+        )
+        return None
     for measurement in historic_sensor_data:
         if isinstance(
             measurement := convert_to_float(

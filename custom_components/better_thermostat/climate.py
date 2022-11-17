@@ -11,7 +11,7 @@ from .utils.weather import check_ambient_air_temperature, check_weather
 from .utils.bridge import get_current_offset, init, load_adapter
 from .utils.helpers import convert_to_float
 from homeassistant.helpers import entity_platform
-from homeassistant.core import Context, callback, CoreState
+from homeassistant.core import callback, CoreState
 
 from homeassistant.components.climate import ClimateEntity
 from homeassistant.components.climate.const import (
@@ -19,6 +19,7 @@ from homeassistant.components.climate.const import (
     ATTR_MIN_TEMP,
     ATTR_TARGET_TEMP_STEP,
     HVACMode,
+    HVACAction,
 )
 from homeassistant.const import (
     CONF_NAME,
@@ -252,11 +253,6 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
             entity for trv in self.all_trvs if (entity := trv["trv"]) is not None
         ]
 
-        self._context = Context(
-            id=f"better_thermostat_{self._name}", parent_id=None, user_id=None
-        )
-        self.async_set_context(self._context)
-
         for trv in self.all_trvs:
             _calibration = 1
             if trv["advanced"]["calibration"] == "local_calibration_based":
@@ -327,9 +323,11 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
             await self.control_queue_task.put(self)
 
     async def _trigger_temperature_change(self, event):
+        self.async_set_context(event.context)
         await trigger_temperature_change(self, event)
 
     async def _trigger_humidity_change(self, event):
+        self.async_set_context(event.context)
         self._cur_humidity = convert_to_float(
             str(self.hass.states.get(self.humidity_entity_id).state),
             self.name,
@@ -338,10 +336,11 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
         self.async_write_ha_state()
 
     async def _trigger_trv_change(self, event):
-        self.async_set_context(self._context)
+        self.async_set_context(event.context)
         await trigger_trv_change(self, event)
 
     async def _trigger_window_change(self, event):
+        self.async_set_context(event.context)
         await trigger_window_change(self, event)
 
     async def startup(self):
@@ -807,6 +806,11 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
     @property
     def hvac_action(self):
         """Return the current HVAC action"""
+        if self._attr_hvac_action is None:
+            if self._bt_hvac_mode == HVACMode.HEAT:
+                return HVACAction.HEATING
+            else:
+                return HVACAction.IDLE
         return self._attr_hvac_action
 
     @property
