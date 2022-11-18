@@ -79,18 +79,18 @@ def calculate_local_setpoint_delta(self, entity_id) -> Union[float, None]:
         str(self.real_trvs[entity_id]["current_temperature"]), self.name, _context
     )
 
-    if None in (_current_trv_calibration, self._cur_temp, _cur_trv_temp):
+    if None in (_current_trv_calibration, self.cur_temp, _cur_trv_temp):
         _LOGGER.warning(
             f"better thermostat {self.name}: {entity_id} Could not calculate local setpoint delta in {_context}:"
-            f" current_trv_calibration: {_current_trv_calibration}, current_trv_temp: {_cur_trv_temp}, cur_temp: {self._cur_temp}"
+            f" current_trv_calibration: {_current_trv_calibration}, current_trv_temp: {_cur_trv_temp}, cur_temp: {self.cur_temp}"
         )
         return None
 
-    if (
-        self.real_trvs[entity_id]["integration"] != "tado"
-        and self.real_trvs[entity_id]["advanced"]["homaticip"] is False
-    ):
-        _temp_diff = float(float(self._target_temp) - float(self._cur_temp))
+    if self.real_trvs[entity_id]["advanced"].get("fix_calibration", False) is True:
+        _LOGGER.debug(
+            f"better thermostat {self.name}: {entity_id} fix_calibration is enabled"
+        )
+        _temp_diff = float(float(self.bt_target_temp) - float(self.cur_temp))
         if _temp_diff > 0.2 and _temp_diff < 1:
             _cur_trv_temp = round_to_half_degree(_cur_trv_temp)
             _cur_trv_temp += 2.5
@@ -102,7 +102,7 @@ def calculate_local_setpoint_delta(self, entity_id) -> Union[float, None]:
         if _temp_diff <= -1:
             _cur_trv_temp -= 2
 
-    _new_local_calibration = (self._cur_temp - _cur_trv_temp) + _current_trv_calibration
+    _new_local_calibration = (self.cur_temp - _cur_trv_temp) + _current_trv_calibration
     return convert_to_float(str(_new_local_calibration), self.name, _context)
 
 
@@ -123,16 +123,16 @@ def calculate_setpoint_override(self, entity_id) -> Union[float, None]:
             new target temp with calibration
     """
     _cur_trv_temp = self.hass.states.get(entity_id).attributes["current_temperature"]
-    if None in (self._target_temp, self._cur_temp, _cur_trv_temp):
+    if None in (self.bt_target_temp, self.cur_temp, _cur_trv_temp):
         return None
 
-    _calibrated_setpoint = (self._target_temp - self._cur_temp) + _cur_trv_temp
+    _calibrated_setpoint = (self.bt_target_temp - self.cur_temp) + _cur_trv_temp
 
-    if (
-        self.real_trvs[entity_id]["integration"] != "tado"
-        and self.real_trvs[entity_id]["advanced"]["homaticip"] is False
-    ):
-        _temp_diff = float(float(self._target_temp) - float(self._cur_temp))
+    if self.real_trvs[entity_id]["advanced"].get("fix_calibration", False) is True:
+        _LOGGER.debug(
+            f"better thermostat {self.name}: {entity_id} fix_calibration is enabled"
+        )
+        _temp_diff = float(float(self.bt_target_temp) - float(self.cur_temp))
         if _temp_diff > 0.3 and _calibrated_setpoint - _cur_trv_temp < 2.5:
             _calibrated_setpoint += 2.5
 

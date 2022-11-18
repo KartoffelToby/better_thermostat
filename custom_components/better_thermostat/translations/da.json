@@ -24,7 +24,8 @@
                     "child_lock": "Ignorer alle input på TRV som en børnesikring",
                     "homaticip": "Hvis du bruger HomaticIP, bør du aktivere dette for at bremse anmodningerne for at forhindre arbejdscyklus",
                     "valve_maintenance": "Hvis din termostat ikke har nogen egen vedligeholdelsestilstand, kan du bruge denne",
-                    "calibration": "Den slags kalibrering du vil bruge"
+                    "calibration": "Den slags kalibrering du vil bruge",
+                    "fix_calibration": "If your TRV has trouble with not recheating the target temperature or overheating, this option can help"
                 }
             },
             "confirm": {
@@ -70,7 +71,8 @@
                     "child_lock": "Ignorer alle input på TRV som en børnesikring",
                     "homaticip": "Hvis du bruger HomaticIP, bør du aktivere dette for at bremse anmodningerne for at forhindre arbejdscyklus",
                     "valve_maintenance": "Hvis din termostat ikke har nogen egen vedligeholdelsestilstand, kan du bruge denne",
-                    "calibration": "Den slags kalibrering du vil bruge"
+                    "calibration": "Den slags kalibrering du vil bruge",
+                    "fix_calibration": "If your TRV has trouble with not recheating the target temperature or overheating, this option can help"
                 }
             }
         }

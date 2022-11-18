@@ -3,7 +3,7 @@ import logging
 
 from homeassistant.components.number.const import SERVICE_SET_VALUE
 
-from ..utils.helpers import find_local_calibration_entity, find_valve_entity, mode_remap
+from ..utils.helpers import find_local_calibration_entity, find_valve_entity
 from .generic import (
     set_hvac_mode as generic_set_hvac_mode,
     set_temperature as generic_set_temperature,
@@ -137,12 +137,13 @@ async def set_offset(self, entity_id, offset):
         context=self._context,
     )
     self.real_trvs[entity_id]["last_calibration"] = offset
-    await asyncio.sleep(2)
-    if self.real_trvs[entity_id]["hvac_modes"] is not None:
-        hvac_mode = mode_remap(self, entity_id, str(self._bt_hvac_mode), False)
-        if hvac_mode is not None:
-            _LOGGER.debug("sending hvac_mode: %s %s", entity_id, hvac_mode)
-            return await generic_set_hvac_mode(self, entity_id, hvac_mode)
+    if (
+        self.real_trvs[entity_id]["last_hvac_mode"] is not None
+        and self.real_trvs[entity_id]["last_hvac_mode"] != "off"
+    ):
+        return await generic_set_hvac_mode(
+            self, entity_id, self.real_trvs[entity_id]["last_hvac_mode"]
+        )
 
 
 async def set_valve(self, entity_id, valve):

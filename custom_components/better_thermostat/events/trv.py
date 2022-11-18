@@ -94,6 +94,10 @@ async def trigger_trv_change(self, event):
                     "last_calibration"
                 ] = await get_current_offset(self, entity_id)
 
+    if self.ignore_states is True:
+        self.async_write_ha_state()
+        return
+
     new_decoded_system_mode = str(new_state.state)
 
     if new_decoded_system_mode in (HVACMode.OFF, HVACMode.HEAT):
@@ -107,44 +111,46 @@ async def trigger_trv_change(self, event):
                 child_lock is False
                 and self.real_trvs[entity_id]["system_mode_received"] is True
             ):
-                self._bt_hvac_mode = new_decoded_system_mode
+                self.bt_hvac_mode = new_decoded_system_mode
 
     _new_heating_setpoint = convert_to_float(
         str(new_state.attributes.get("temperature", None)),
         self.name,
         "trigger_trv_change()",
     )
-    if _new_heating_setpoint is not None and self._bt_hvac_mode is not HVACMode.OFF:
+    if _new_heating_setpoint is not None and self.bt_hvac_mode is not HVACMode.OFF:
         if (
-            _new_heating_setpoint < self._min_temp
-            or self._max_temp < _new_heating_setpoint
+            _new_heating_setpoint < self.bt_min_temp
+            or self.bt_max_temp < _new_heating_setpoint
         ):
             _LOGGER.warning(
                 f"better_thermostat {self.name}: New TRV {entity_id} setpoint outside of range, overwriting it"
             )
 
-            if _new_heating_setpoint < self._min_temp:
-                _new_heating_setpoint = self._min_temp
+            if _new_heating_setpoint < self.bt_min_temp:
+                _new_heating_setpoint = self.bt_min_temp
             else:
-                _new_heating_setpoint = self._max_temp
+                _new_heating_setpoint = self.bt_max_temp
 
         if (
-            self._target_temp != _new_heating_setpoint
+            self.bt_target_temp != _new_heating_setpoint
             and not child_lock
             and self.real_trvs[entity_id]["last_temperature"] != _new_heating_setpoint
             and self.real_trvs[entity_id]["target_temp_received"] is True
+            and self.real_trvs[entity_id]["system_mode_received"] is True
+            and self.real_trvs[entity_id]["hvac_mode"] is not HVACMode.OFF
         ):
             _LOGGER.debug(
-                f"better_thermostat {self.name}: TRV {entity_id} decoded TRV target temp changed from {self._target_temp} to {_new_heating_setpoint}"
+                f"better_thermostat {self.name}: TRV {entity_id} decoded TRV target temp changed from {self.bt_target_temp} to {_new_heating_setpoint}"
             )
             if (
                 child_lock is False
                 and self.real_trvs[entity_id]["target_temp_received"] is True
             ):
-                self._target_temp = _new_heating_setpoint
+                self.bt_target_temp = _new_heating_setpoint
 
     if (
-        self._bt_hvac_mode == HVACMode.OFF
+        self.bt_hvac_mode == HVACMode.OFF
         and self.real_trvs[entity_id]["hvac_mode"] == HVACMode.OFF
     ):
         self.async_write_ha_state()
@@ -163,19 +169,29 @@ def update_hvac_action(self):
         for entity_id in self.real_trvs
         if (state := self.hass.states.get(entity_id)) is not None
     ]
+
+    # check if trv has pi_heating_demand
+    pi_heating_demands = list(find_state_attributes(states, "pi_heating_demand"))
+    if pi_heating_demands:
+        pi_heating_demand = max(pi_heating_demands)
+        if pi_heating_demand > 0:
+            self.attr_hvac_action = HVACAction.HEATING
+            self.async_write_ha_state()
+            return
+
     hvac_actions = list(find_state_attributes(states, ATTR_HVAC_ACTION))
     current_hvac_actions = [a for a in hvac_actions if a != HVACAction.OFF]
     # return the most common action if it is not off
     if current_hvac_actions:
-        self._attr_hvac_action = max(
+        self.attr_hvac_action = max(
             set(current_hvac_actions), key=current_hvac_actions.count
         )
     # return action off if all are off
     elif all(a == HVACAction.OFF for a in hvac_actions):
-        self._attr_hvac_action = HVACAction.OFF
+        self.attr_hvac_action = HVACAction.OFF
     # else it's none
     else:
-        self._attr_hvac_action = None
+        self.attr_hvac_action = None
 
     self.async_write_ha_state()
 
@@ -238,7 +254,7 @@ def convert_outbound_states(self, entity_id, hvac_mode) -> Union[dict, None]:
                 "better_thermostat %s: no calibration type found in device config, talking to the TRV using fallback mode",
                 self.name,
             )
-            _new_heating_setpoint = self._target_temp
+            _new_heating_setpoint = self.bt_target_temp
             _new_local_calibration = round_to_half_degree(
                 calculate_local_setpoint_delta(self, entity_id)
             )
@@ -266,7 +282,7 @@ def convert_outbound_states(self, entity_id, hvac_mode) -> Union[dict, None]:
                         self, entity_id
                     )
 
-                _new_heating_setpoint = self._target_temp
+                _new_heating_setpoint = self.bt_target_temp
 
             elif _calibration_type == 1:
 
