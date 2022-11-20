@@ -21,7 +21,6 @@ async def set_temperature_quirk(self, entity_id, temperature):
     None
     """
     model = self.real_trvs[entity_id]["model"]
-    _LOGGER.debug(f"better_thermostat {self.name}: TRV {entity_id} model: {model}")
     if model == "TV02-Zigbee":
         _LOGGER.debug(f"better_thermostat {self.name}: TRV {entity_id} device quirk trv02-zigbee active")
         await self.hass.services.async_call(
@@ -59,7 +58,6 @@ async def set_hvac_mode_quirk(self, entity_id, hvac_mode):
     -------
     None
     """
-
     await self.hass.services.async_call(
         "climate",
         "set_hvac_mode",
@@ -68,3 +66,14 @@ async def set_hvac_mode_quirk(self, entity_id, hvac_mode):
         limit=None,
         context=self._context,
     )
+    model = self.real_trvs[entity_id]["model"]
+    if model == "TV02-Zigbee":
+        _LOGGER.debug(f"better_thermostat {self.name}: TRV {entity_id} device quirk hvac trv02-zigbee active")
+        await self.hass.services.async_call(
+            "climate",
+            "set_preset_mode",
+            {"entity_id": entity_id, "preset_mode": "manual"},
+            blocking=True,
+            limit=None,
+            context=self._context,
+        )
