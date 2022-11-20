@@ -26,12 +26,12 @@ async def get_offset_steps(self, entity_id):
 
 async def set_temperature(self, entity_id, temperature):
     """Set new target temperature."""
-    return await set_temperature_quirk(self, entity_id, temperature)
+    await set_temperature_quirk(self, entity_id, temperature)
 
 
 async def set_hvac_mode(self, entity_id, hvac_mode):
     """Set new target hvac mode."""
-    return await set_hvac_mode_quirk(self, entity_id, hvac_mode)
+    await set_hvac_mode_quirk(self, entity_id, hvac_mode)
 
 
 async def set_offset(self, entity_id, offset):
