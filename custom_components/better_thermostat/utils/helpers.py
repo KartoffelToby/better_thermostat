@@ -91,19 +91,15 @@ def calculate_local_setpoint_delta(self, entity_id) -> Union[float, None]:
         if _temp_diff > 0.2 and _temp_diff < 1:
             _cur_trv_temp = round_to_half_degree(_cur_trv_temp)
             _cur_trv_temp += 0.5
-            _LOGGER.debug("better_thermostat calib %s %s", _cur_trv_temp, _temp_diff)
-        if _temp_diff >= 0.6:
+        if _temp_diff >= 1.2:
             _cur_trv_temp = round_to_half_degree(_cur_trv_temp)
             _cur_trv_temp += 2.5
-            _LOGGER.debug("better_thermostat calib %s %s", _cur_trv_temp, _temp_diff)
         if _temp_diff > -0.2 and _temp_diff < 0:
             _cur_trv_temp = round_down_to_half_degree(_cur_trv_temp)
             _cur_trv_temp -= 0.5
-            _LOGGER.debug("better_thermostat calib %s %s", _cur_trv_temp, _temp_diff)
-        if _temp_diff >= -0.6 and _temp_diff < 0:
+        if _temp_diff >= -1.2 and _temp_diff < 0:
             _cur_trv_temp = round_down_to_half_degree(_cur_trv_temp)
             _cur_trv_temp -= 2.5
-            _LOGGER.debug("better_thermostat calib %s %s", _cur_trv_temp, _temp_diff)
 
     _new_local_calibration = (self.cur_temp - _cur_trv_temp) + _current_trv_calibration
     return convert_to_float(str(_new_local_calibration), self.name, _context)
