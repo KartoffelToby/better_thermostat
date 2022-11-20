@@ -19,14 +19,20 @@ async def set_temperature_quirk(self, entity_id, temperature):
 
     Returns
     -------
-    True: Quirk was done
-    False: No Quirk found
+    None
     """
     if self.real_trvs[entity_id].get("model") == "TV02-Zigbee":
         trv02_zigbee_set_temperature(self, entity_id, temperature)
-        return True
+        return
 
-    return False
+    await self.hass.services.async_call(
+        "climate",
+        "set_temperature",
+        {"entity_id": entity_id, "temperature": temperature},
+        blocking=True,
+        limit=None,
+        context=self._context,
+    )
 
 
 async def set_hvac_mode_quirk(self, entity_id, hvac_mode):
@@ -43,29 +49,35 @@ async def set_hvac_mode_quirk(self, entity_id, hvac_mode):
 
     Returns
     -------
-    True: Quirk was done
-    False: No Quirk found
+    None
     """
 
-    return False
+    await self.hass.services.async_call(
+        "climate",
+        "set_hvac_mode",
+        {"entity_id": entity_id, "hvac_mode": hvac_mode},
+        blocking=True,
+        limit=None,
+        context=self._context,
+    )
 
 
 async def trv02_zigbee_set_temperature(self, entity_id, temperature):
     """TRV02-Zigbee needs to be set to manual, to hold the defined temperature without overriding it with the auto-schedule."""
     await self.hass.services.async_call(
-            "climate",
-            "set_preset_mode",
-            {"entity_id": entity_id, "preset_mode": "manual"},
-            blocking=True,
-            limit=None,
-            context=self._context,
+        "climate",
+        "set_preset_mode",
+        {"entity_id": entity_id, "preset_mode": "manual"},
+        blocking=True,
+        limit=None,
+        context=self._context,
         )
     await asyncio.sleep(1)
     await self.hass.services.async_call(
-            "climate",
-            "set_temperature",
-            {"entity_id": entity_id, "temperature": temperature},
-            blocking=True,
-            limit=None,
-            context=self._context,
+        "climate",
+        "set_temperature",
+        {"entity_id": entity_id, "temperature": temperature},
+        blocking=True,
+        limit=None,
+        context=self._context,
         )
