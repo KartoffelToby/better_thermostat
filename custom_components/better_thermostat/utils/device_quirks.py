@@ -21,7 +21,7 @@ async def set_temperature_quirk(self, entity_id, temperature):
     -------
     None
     """
-    if self.real_trvs[entity_id].get("model") == "TV02-Zigbee":
+    if self.real_trvs[entity_id]["model"] == "TV02-Zigbee":
         trv02_zigbee_set_temperature(self, entity_id, temperature)
         return
 
@@ -65,7 +65,7 @@ async def set_hvac_mode_quirk(self, entity_id, hvac_mode):
 async def trv02_zigbee_set_temperature(self, entity_id, temperature):
     """TRV02-Zigbee needs to be set to manual, to hold the defined temperature without overriding it with the auto-schedule."""
     _LOGGER.debug(
-            f"better_thermostat {self.name}: TRV {entity_id} device quirk active"
+            f"better_thermostat {self.name}: TRV {entity_id} device quirk trv02-zigbee active"
         )
     await self.hass.services.async_call(
         "climate",
