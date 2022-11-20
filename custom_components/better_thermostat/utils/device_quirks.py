@@ -64,6 +64,9 @@ async def set_hvac_mode_quirk(self, entity_id, hvac_mode):
 
 async def trv02_zigbee_set_temperature(self, entity_id, temperature):
     """TRV02-Zigbee needs to be set to manual, to hold the defined temperature without overriding it with the auto-schedule."""
+    _LOGGER.debug(
+            f"better_thermostat {self.name}: TRV {entity_id} device quirk active"
+        )
     await self.hass.services.async_call(
         "climate",
         "set_preset_mode",
@@ -72,7 +75,9 @@ async def trv02_zigbee_set_temperature(self, entity_id, temperature):
         limit=None,
         context=self._context,
         )
+
     await asyncio.sleep(1)
+
     await self.hass.services.async_call(
         "climate",
         "set_temperature",
