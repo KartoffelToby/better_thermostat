@@ -227,7 +227,7 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
         self._available = False
         self._context = None
         self.attr_hvac_action = None
-
+        self._async_unsub_state_changed = None
         self.control_queue_task = asyncio.Queue(maxsize=1)
         if self.window_id is not None:
             self.window_queue_task = asyncio.Queue(maxsize=1)
@@ -282,9 +282,6 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
                 "last_calibration": None,
             }
 
-        _LOGGER.debug(self.real_trvs)
-        _LOGGER.debug(self.all_trvs)
-
         await super().async_added_to_hass()
 
         _LOGGER.info(
@@ -318,15 +315,23 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
 
     async def _trigger_time(self, event=None):
         _LOGGER.debug("better_thermostat %s: get last avg outdoor temps...", self.name)
-        await asyncio.create_task(check_ambient_air_temperature(self))
+        await check_ambient_air_temperature(self)
         self.async_write_ha_state()
         if event is not None:
             await self.control_queue_task.put(self)
 
     async def _trigger_temperature_change(self, event):
-        await trigger_temperature_change(self, event)
+        self.async_set_context(event.context)
+
+        if (event.data.get("new_state")) is None:
+            return
+        self.hass.async_create_task(trigger_temperature_change(self, event))
 
     async def _trigger_humidity_change(self, event):
+        self.async_set_context(event.context)
+
+        if (event.data.get("new_state")) is None:
+            return
         self.cur_humidity = convert_to_float(
             str(self.hass.states.get(self.humidity_entity_id).state),
             self.name,
@@ -335,10 +340,24 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
         self.async_write_ha_state()
 
     async def _trigger_trv_change(self, event):
-        await trigger_trv_change(self, event)
+        if self._async_unsub_state_changed is None:
+            return
+
+        self.async_set_context(event.context)
+
+        if (event.data.get("new_state")) is None:
+            return
+
+        self.hass.async_create_task(trigger_trv_change(self, event))
+        # await trigger_trv_change(self, event)
 
     async def _trigger_window_change(self, event):
-        await trigger_window_change(self, event)
+        self.async_set_context(event.context)
+
+        if (event.data.get("new_state")) is None:
+            return
+
+        self.hass.async_create_task(trigger_window_change(self, event))
 
     async def startup(self):
         """Run when entity about to be added.
@@ -636,7 +655,7 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
             self.startup_running = False
             self._available = True
             self.async_write_ha_state()
-            await self.async_update_ha_state()
+            # await self.async_update_ha_state()
             update_hvac_action(self)
             await asyncio.sleep(5)
             # Add listener
@@ -664,11 +683,11 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
                         self._trigger_humidity_change,
                     )
                 )
-            self.async_on_remove(
-                async_track_state_change_event(
+            if self._async_unsub_state_changed is None:
+                self._async_unsub_state_changed = async_track_state_change_event(
                     self.hass, self.entity_ids, self._trigger_trv_change
                 )
-            )
+                self.async_on_remove(self._async_unsub_state_changed)
             if self.window_id is not None:
                 self.async_on_remove(
                     async_track_state_change_event(

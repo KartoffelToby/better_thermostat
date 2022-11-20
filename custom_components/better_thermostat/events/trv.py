@@ -135,10 +135,10 @@ async def trigger_trv_change(self, event):
         if (
             self.bt_target_temp != _new_heating_setpoint
             and not child_lock
-            and self.real_trvs[entity_id]["last_temperature"] != _new_heating_setpoint
             and self.real_trvs[entity_id]["target_temp_received"] is True
             and self.real_trvs[entity_id]["system_mode_received"] is True
             and self.real_trvs[entity_id]["hvac_mode"] is not HVACMode.OFF
+            and self.window_open is False
         ):
             _LOGGER.debug(
                 f"better_thermostat {self.name}: TRV {entity_id} decoded TRV target temp changed from {self.bt_target_temp} to {_new_heating_setpoint}"

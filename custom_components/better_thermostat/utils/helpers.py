@@ -87,20 +87,23 @@ def calculate_local_setpoint_delta(self, entity_id) -> Union[float, None]:
         return None
 
     if self.real_trvs[entity_id]["advanced"].get("fix_calibration", False) is True:
-        _LOGGER.debug(
-            f"better thermostat {self.name}: {entity_id} fix_calibration is enabled"
-        )
         _temp_diff = float(float(self.bt_target_temp) - float(self.cur_temp))
         if _temp_diff > 0.2 and _temp_diff < 1:
             _cur_trv_temp = round_to_half_degree(_cur_trv_temp)
+            _cur_trv_temp += 0.5
+            _LOGGER.debug("better_thermostat calib %s %s", _cur_trv_temp, _temp_diff)
+        if _temp_diff >= 0.6:
+            _cur_trv_temp = round_to_half_degree(_cur_trv_temp)
             _cur_trv_temp += 2.5
-        if _temp_diff >= 1:
-            _cur_trv_temp += 3
-        if _temp_diff < 0.2 and _temp_diff < 0:
+            _LOGGER.debug("better_thermostat calib %s %s", _cur_trv_temp, _temp_diff)
+        if _temp_diff > -0.2 and _temp_diff < 0:
             _cur_trv_temp = round_down_to_half_degree(_cur_trv_temp)
             _cur_trv_temp -= 0.5
-        if _temp_diff <= -1:
-            _cur_trv_temp -= 2
+            _LOGGER.debug("better_thermostat calib %s %s", _cur_trv_temp, _temp_diff)
+        if _temp_diff >= -0.6 and _temp_diff < 0:
+            _cur_trv_temp = round_down_to_half_degree(_cur_trv_temp)
+            _cur_trv_temp -= 2.5
+            _LOGGER.debug("better_thermostat calib %s %s", _cur_trv_temp, _temp_diff)
 
     _new_local_calibration = (self.cur_temp - _cur_trv_temp) + _current_trv_calibration
     return convert_to_float(str(_new_local_calibration), self.name, _context)
@@ -129,9 +132,6 @@ def calculate_setpoint_override(self, entity_id) -> Union[float, None]:
     _calibrated_setpoint = (self.bt_target_temp - self.cur_temp) + _cur_trv_temp
 
     if self.real_trvs[entity_id]["advanced"].get("fix_calibration", False) is True:
-        _LOGGER.debug(
-            f"better thermostat {self.name}: {entity_id} fix_calibration is enabled"
-        )
         _temp_diff = float(float(self.bt_target_temp) - float(self.cur_temp))
         if _temp_diff > 0.3 and _calibrated_setpoint - _cur_trv_temp < 2.5:
             _calibrated_setpoint += 2.5
