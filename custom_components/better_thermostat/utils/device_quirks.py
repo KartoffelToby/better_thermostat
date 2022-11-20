@@ -28,6 +28,7 @@ async def set_temperature_quirk(self, entity_id, temperature):
 
     return False
 
+
 async def set_hvac_mode_quirk(self, entity_id, hvac_mode):
     """Enable specific device quirks while setting hvac mode
 
