@@ -32,7 +32,7 @@ async def async_get_config_entry_diagnostics(
     external_temperature = hass.states.get(config_entry.data[CONF_SENSOR])
 
     window = "-"
-    window_entity_id = config_entry.data.get(CONF_SENSOR_WINDOW)
+    window_entity_id = config_entry.data.get(CONF_SENSOR_WINDOW, False)
     if window_entity_id:
         try:
             window = hass.states.get(window_entity_id)
