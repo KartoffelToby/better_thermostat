@@ -110,6 +110,7 @@ async def trigger_trv_change(self, event):
             if (
                 child_lock is False
                 and self.real_trvs[entity_id]["system_mode_received"] is True
+                and self.real_trvs[entity_id]["last_hvac_mode"] != _org_trv_state
             ):
                 self.bt_hvac_mode = new_decoded_system_mode
 
@@ -134,6 +135,7 @@ async def trigger_trv_change(self, event):
 
         if (
             self.bt_target_temp != _new_heating_setpoint
+            and self.real_trvs[entity_id]["last_temperature"] != _new_heating_setpoint
             and not child_lock
             and self.real_trvs[entity_id]["target_temp_received"] is True
             and self.real_trvs[entity_id]["system_mode_received"] is True
