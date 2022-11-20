@@ -26,7 +26,7 @@ async def set_temperature_quirk(self, entity_id, temperature):
             f"better_thermostat {self.name}: TRV {entity_id} model: {model}"
         )
     if model == "TV02-Zigbee":
-        trv02_zigbee_set_temperature(self, entity_id, temperature)
+        await trv02_zigbee_set_temperature(self, entity_id, temperature)
         return
 
     await self.hass.services.async_call(
