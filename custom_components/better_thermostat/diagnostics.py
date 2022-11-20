@@ -30,13 +30,15 @@ async def async_get_config_entry_diagnostics(
             "model": trv_id["model"],
         }
     external_temperature = hass.states.get(config_entry.data[CONF_SENSOR])
-    if CONF_SENSOR_WINDOW in config_entry.data:
+
+    window = "-"
+    window_entity_id = config_entry.data.get(CONF_SENSOR_WINDOW, False)
+    if window_entity_id:
         try:
-            window = hass.states.get(config_entry.data[CONF_SENSOR_WINDOW])
+            window = hass.states.get(window_entity_id)
         except KeyError:
-            window = "-"
-    else:
-        window = "-"
+            pass
+
     _cleaned_data = dict(config_entry.data.copy())
     del _cleaned_data[CONF_HEATER]
     diagnostics_data = {

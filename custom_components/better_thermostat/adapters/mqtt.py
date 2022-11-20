@@ -76,7 +76,8 @@ async def set_temperature(self, entity_id, temperature):
 
 async def set_hvac_mode(self, entity_id, hvac_mode):
     """Set new target hvac mode."""
-    return await generic_set_hvac_mode(self, entity_id, hvac_mode)
+    await generic_set_hvac_mode(self, entity_id, hvac_mode)
+    await asyncio.sleep(3)
 
 
 async def get_current_offset(self, entity_id):
