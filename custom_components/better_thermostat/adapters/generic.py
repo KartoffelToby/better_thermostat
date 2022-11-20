@@ -1,5 +1,7 @@
 import logging
 
+from ..utils.device_quirks import set_hvac_mode_quirk, set_temperature_quirk
+
 _LOGGER = logging.getLogger(__name__)
 
 
@@ -24,26 +26,28 @@ async def get_offset_steps(self, entity_id):
 
 async def set_temperature(self, entity_id, temperature):
     """Set new target temperature."""
-    await self.hass.services.async_call(
-        "climate",
-        "set_temperature",
-        {"entity_id": entity_id, "temperature": temperature},
-        blocking=True,
-        limit=None,
-        context=self._context,
-    )
+    if not await set_temperature_quirk(self, entity_id, temperature):
+        await self.hass.services.async_call(
+            "climate",
+            "set_temperature",
+            {"entity_id": entity_id, "temperature": temperature},
+            blocking=True,
+            limit=None,
+            context=self._context,
+        )
 
 
 async def set_hvac_mode(self, entity_id, hvac_mode):
     """Set new target hvac mode."""
-    await self.hass.services.async_call(
-        "climate",
-        "set_hvac_mode",
-        {"entity_id": entity_id, "hvac_mode": hvac_mode},
-        blocking=True,
-        limit=None,
-        context=self._context,
-    )
+    if not await set_hvac_mode_quirk(self, entity_id, hvac_mode):
+        await self.hass.services.async_call(
+            "climate",
+            "set_hvac_mode",
+            {"entity_id": entity_id, "hvac_mode": hvac_mode},
+            blocking=True,
+            limit=None,
+            context=self._context,
+        )
 
 
 async def set_offset(self, entity_id, offset):
