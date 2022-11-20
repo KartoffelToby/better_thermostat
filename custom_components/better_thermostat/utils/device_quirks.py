@@ -25,7 +25,7 @@ async def set_temperature_quirk(self, entity_id, temperature):
     _LOGGER.debug(
             f"better_thermostat {self.name}: TRV {entity_id} model: {model}"
         )
-    if self.real_trvs[entity_id]["model"] == "TV02-Zigbee":
+    if model == "TV02-Zigbee":
         trv02_zigbee_set_temperature(self, entity_id, temperature)
         return
 
