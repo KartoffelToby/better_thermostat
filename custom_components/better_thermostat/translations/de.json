@@ -3,76 +3,72 @@
         "config": {
                 "step": {
                         "user": {
-                                "description": "Einrichtung von Better Thermostat mit Home Assistant\n**Für mehr infos: https://better-thermostat.org/configuration/new_device** ",
+                                "description": "Einrichtung von Better Thermostat mit Home Assistant\n**Für mehr Informationen: https://better-thermostat.org/configuration/new_device** ",
                                 "data": {
                                         "name": "Name",
                                         "thermostat": "Das reale Thermostat",
-                                        "temperature_sensor": "Externer Temperatur Sensor",
-                                        "humidity_sensor": "Luftfeuchtigkeits Sensor",
-                                        "window_sensors": "Fenstersensor(s)",
-                                        "off_temperature": "Bei welcher außentemperatur soll das Thermostat abschalten?",
-                                        "window_off_delay": "Wie lange soll das Thermostat mit dem abschalten warten wenn ein Fenster offen ist?",
-                                        "outdoor_sensor": "Wenn ein außentemperatur sensor vorhanden ist, kann dieser anstelle der wetter entität genutz werden",
-                                        "weather": "Die Wetter entität für die außentemperatur"
+                                        "temperature_sensor": "Externer Temperatursensor",
+                                        "humidity_sensor": "Luftfeuchtigkeitssensor",
+                                        "window_sensors": "Fenstersensor(en)",
+                                        "off_temperature": "Außentemperatur, bei welcher das Thermostat abgeschaltet wird.",
+                                        "window_off_delay": "Wartezeit, bevor das Thermostat bei geöffnetem Fenster abgeschaltet bzw. bei geschlossendem Fenter angeschaltet wird.",
+                                        "outdoor_sensor": "Wenn ein Außentemperaturssensor vorhanden ist, kann dieser anstelle der Wetter-Entität genutz werden.",
+                                        "weather": "Die Wetter-Entität für die Außentemperatur."
                                 }
                         },
                         "advanced": {
                                 "description": "Einstellungen für {trv}\n\n***Infos über die Kalibrierungstypen: https://better-thermostat.org/calibration*** ",
                                 "data": {
-                                        "calibration_round": "Soll bei der Kalibrierung auf ganze stellen gerundet werden?",
-                                        "heat_auto_swapped": "Wenn das Thermostat den modus auto als heizen und heizen als boost benutzt, muss es getauscht werden",
-                                        "child_lock": "Ignoriere alle manuellen einstellungen am realen Thermostat (Kindersicherung)",
-                                        "homaticip": "Wenn du HomaticIP nuzt, solltest du diese Option aktivieren um die Funk-übertragung zu reduzieren",
-                                        "valve_maintenance": "Soll BT die wartung des Thermostats übernehmen?",
-                                        "calibration": "Die art der Kalibrierung",
-                                        "fix_calibration": "Wenn dein TRV Probleme hat, die Zieltemperatur nicht zu erreichen oder zu überhitzen, kann diese Option hilfreich sein"
+                                        "calibration_round": "Soll bei der Kalibrierung auf ganze Stellen gerundet werden?",
+                                        "heat_auto_swapped": "Tauscht die Modi auto und heat, falls diese bei dem realen Thermostat vertauscht sind.",
+                                        "child_lock": "Ignoriere alle manuellen Einstellungen am realen Thermostat (Kindersicherung).",
+                                        "homaticip": "Wenn du HomaticIP nuzt, solltest du diese Option aktivieren, um die Funk-übertragung zu reduzieren.",
+                                        "valve_maintenance": "Soll BT die Wartung des Thermostats übernehmen?",
+                                        "calibration": "Die Art der Kalibrierung",
+                                        "fix_calibration": "Wenn dein TRV Probleme hat, die Zieltemperatur nicht zu erreichen oder zu überhitzen, kann diese Option hilfreich sein."
                                 }
                         },
                         "confirm": {
-                                "title": "Bestätige das hinzufügen eines Better Thermostat",
-                                "description": "Du bist dabei ein Gerät mit dem Namen `{name}` zu Home Assistant hinzuzufügen.\nMit {trv} als reales Thermostat\nund dem Kalibrations-modus:"
+                                "title": "Bestätige das Hinzufügen eines Better Thermostat",
+                                "description": "Du bist dabei ein Gerät mit dem Namen `{name}` zu Home Assistant hinzuzufügen.\nMit {trv} als reales Thermostat\nund dem Kalibrierungsmodus:"
                         }
                 },
                 "error": {
                         "failed": "Ups, hier stimmt was nicht.",
                         "no_name": "Du musst einen Namen vergeben.",
-                        "no_off_mode": "Dein Gerät ist ein sonderfall, es hat keinen OFF Modus :(\nBetter Thermostat wird trozdem funktionieren, aber du musst eine automation anlegen die den off modus abfängt."
+                        "no_off_mode": "Dein Gerät ist ein Sonderfall, es hat keinen OFF Modus :(\nBetter Thermostat wird trotzdem funktionieren, aber du musst eine Automatisierung anlegen, die den OFF Modus abfängt."
                 },
                 "abort": {
-                        "single_instance_allowed": "Only a single Thermostat for each real is allowed.",
-                        "no_devices_found": "Es konnten keine climate entitäten in Home Assistant gefunden werden, stelle sicher das dein reales Thermostat in Homeassistant vorhanden hast."
+                        "single_instance_allowed": "Es ist nur ein einzelnes BT je realem Thermostat erlaubt.",
+                        "no_devices_found": "Es konnten keine Climate-Entitäten in Home Assistant gefunden werden. Stelle sicher, dass dein reales Thermostat in Home Assistant vorhanden ist."
                 }
         },
         "options": {
                 "step": {
                         "user": {
-                                "description": "Aktuallisere die Better Thermostat einstellungen",
+                                "description": "Aktuallisere die Better Thermostat Einstellungen",
                                 "data": {
-                                        "temperature_sensor": "Externer Temperatur Sensor",
-                                        "humidity_sensor": "Luftfeuchtigkeits Sensor",
-                                        "window_sensors": "Fenstersensor(s)",
-                                        "off_temperature": "Bei welcher außentemperatur soll das Thermostat abschalten?",
-                                        "window_off_delay": "Wie lange soll das Thermostat mit dem abschalten warten wenn ein Fenster offen ist?",
-                                        "outdoor_sensor": "Wenn ein außentemperatur sensor vorhanden ist, kann dieser anstelle der wetter entität genutz werden",
-                                        "valve_maintenance": "Soll BT die wartung des Thermostats übernehmen?",
-                                        "calibration": "Die art der Kalibrierung https://better-thermostat.org/calibration",
-                                        "weather": "Die Wetter entität für die außentemperatur",
-                                        "calibration_round": "Soll bei der Kalibrierung auf ganze stellen gerundet werden?",
-                                        "heat_auto_swapped": "Wenn das Thermostat den modus auto als heizen und heizen als boost benutzt, kann es getauscht werden (für Google Home nutzer)",
-                                        "child_lock": "Ignoriere alle manuellen einstellungen am realen Thermostat (Kindersicherung)",
-                                        "homaticip": "Wenn du HomaticIP nuzt, solltest du diese Option aktivieren um die Funk-übertragung zu reduzieren"
+                                        "name": "Name",
+                                        "thermostat": "Das reale Thermostat",
+                                        "temperature_sensor": "Externer Temperatursensor",
+                                        "humidity_sensor": "Luftfeuchtigkeitssensor",
+                                        "window_sensors": "Fenstersensor(en)",
+                                        "off_temperature": "Außentemperatur, bei welcher das Thermostat abgeschaltet wird.",
+                                        "window_off_delay": "Wartezeit, bevor das Thermostat bei geöffnetem Fenster abgeschaltet bzw. bei geschlossendem Fenter angeschaltet wird.",
+                                        "outdoor_sensor": "Wenn ein Außentemperaturssensor vorhanden ist, kann dieser anstelle der Wetter-Entität genutz werden.",
+                                        "weather": "Die Wetter-Entität für die Außentemperatur."
                                 }
                         },
                         "advanced": {
                                 "description": "Aktuallisere die Einstellungen für {trv}\n\n***Infos über die Kalibrierungstypen: https://better-thermostat.org/calibration*** ",
                                 "data": {
-                                        "calibration_round": "Soll bei der Kalibrierung auf ganze stellen gerundet werden?",
-                                        "heat_auto_swapped": "Wenn das Thermostat den modus auto als heizen und heizen als boost benutzt, muss es getauscht werden",
-                                        "child_lock": "Ignoriere alle manuellen einstellungen am realen Thermostat (Kindersicherung)",
-                                        "homaticip": "Wenn du HomaticIP nuzt, solltest du diese Option aktivieren um die Funk-übertragung zu reduzieren",
-                                        "valve_maintenance": "Soll BT die wartung des Thermostats übernehmen?",
-                                        "calibration": "Die art der Kalibrierung",
-                                        "fix_calibration": "Wenn dein TRV Probleme hat, die Zieltemperatur nicht zu erreichen oder zu überhitzen, kann diese Option hilfreich sein"
+                                        "calibration_round": "Soll bei der Kalibrierung auf ganze Stellen gerundet werden?",
+                                        "heat_auto_swapped": "Tauscht die Modi auto und heat, falls diese bei dem realen Thermostat vertauscht sind.",
+                                        "child_lock": "Ignoriere alle manuellen Einstellungen am realen Thermostat (Kindersicherung).",
+                                        "homaticip": "Wenn du HomaticIP nuzt, solltest du diese Option aktivieren, um die Funk-übertragung zu reduzieren.",
+                                        "valve_maintenance": "Soll BT die Wartung des Thermostats übernehmen?",
+                                        "calibration": "Die Art der Kalibrierung.",
+                                        "fix_calibration": "Wenn dein TRV Probleme hat, die Zieltemperatur nicht zu erreichen oder zu überhitzen, kann diese Option hilfreich sein."
                                 }
                         }
                 }
