@@ -2,6 +2,7 @@ import logging
 
 
 _LOGGER = logging.getLogger(__name__)
+from homeassistant.components.climate.const import HVACMode
 
 
 async def set_temperature_quirk(self, entity_id, temperature):
@@ -67,7 +68,7 @@ async def set_hvac_mode_quirk(self, entity_id, hvac_mode):
         context=self._context,
     )
     model = self.real_trvs[entity_id]["model"]
-    if model == "TV02-Zigbee":
+    if model == "TV02-Zigbee" and hvac_mode != HVACMode.OFF:
         _LOGGER.debug(f"better_thermostat {self.name}: TRV {entity_id} device quirk hvac trv02-zigbee active")
         await self.hass.services.async_call(
             "climate",
