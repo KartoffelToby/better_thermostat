@@ -32,7 +32,10 @@ def check_weather(self) -> bool:
         self.call_for_heat = check_weather_prediction(self)
 
     elif self.outdoor_sensor is not None:
-        self.call_for_heat = self._last_avg_outdoor_temp < self.off_temperature
+        if None in (self.last_avg_outdoor_temp, self.off_temperature):
+            self.call_for_heat = False
+            return False
+        self.call_for_heat = self.last_avg_outdoor_temp < self.off_temperature
     else:
         self.call_for_heat = True
 
@@ -122,6 +125,15 @@ async def check_ambient_air_temperature(self):
     # create a list from valid data in historic_sensor_data
     valid_historic_sensor_data = []
     invalid_sensor_data_count = 0
+    if historic_sensor_data is not None:
+        _LOGGER.warning(
+            f"better_thermostat {self.name}: {self.outdoor_sensor} has no historic data."
+        )
+        return convert_to_float(
+            self.hass.states.get(self.outdoor_sensor).state,
+            self.name,
+            "check_ambient_air_temperature()",
+        )
     for measurement in historic_sensor_data:
         if isinstance(
             measurement := convert_to_float(
@@ -170,4 +182,4 @@ async def check_ambient_air_temperature(self):
         f"better_thermostat {self.name}: avg outdoor temp: {avg_temp}, threshold is {self.off_temperature}"
     )
 
-    self._last_avg_outdoor_temp = avg_temp
+    self.last_avg_outdoor_temp = avg_temp

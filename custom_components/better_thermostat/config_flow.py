@@ -12,6 +12,7 @@ from .const import (
     CONF_CALIBRATIION_ROUND,
     CONF_CALIBRATION,
     CONF_CHILD_LOCK,
+    CONF_FIX_CALIBRATION,
     CONF_HEAT_AUTO_SWAPPED,
     CONF_HEATER,
     CONF_HOMATICIP,
@@ -29,7 +30,7 @@ from homeassistant import config_entries
 from homeassistant.const import CONF_NAME
 from homeassistant.core import callback
 from homeassistant.helpers import selector
-from homeassistant.components.climate.const import HVAC_MODE_OFF, HVAC_MODE_AUTO
+from homeassistant.components.climate.const import HVACMode
 
 
 from . import DOMAIN  # pylint:disable=unused-import
@@ -38,7 +39,7 @@ _LOGGER = logging.getLogger(__name__)
 
 
 class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
-    VERSION = 1
+    VERSION = 2
     CONNECTION_CLASS = config_entries.CONN_CLASS_LOCAL_POLL
 
     def __init__(self):
@@ -91,7 +92,7 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
 
             _has_off_mode = True
             for trv in self.trv_bundle:
-                if HVAC_MODE_OFF not in self.hass.states.get(
+                if HVACMode.OFF not in self.hass.states.get(
                     trv.get("trv")
                 ).attributes.get("hvac_modes"):
                     _has_off_mode = False
@@ -126,13 +127,20 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
 
         has_auto = False
         trv = self.hass.states.get(_trv_config.get("trv"))
-        if HVAC_MODE_AUTO in trv.attributes.get("hvac_modes"):
+        if HVACMode.AUTO in trv.attributes.get("hvac_modes"):
             has_auto = True
 
         fields[
             vol.Optional(
                 CONF_HEAT_AUTO_SWAPPED,
                 default=user_input.get(CONF_HEAT_AUTO_SWAPPED, has_auto),
+            )
+        ] = bool
+
+        fields[
+            vol.Optional(
+                CONF_FIX_CALIBRATION,
+                default=user_input.get(CONF_FIX_CALIBRATION, False),
             )
         ] = bool
 
@@ -297,11 +305,9 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
                 )
 
             self.updated_config[CONF_HEATER] = self.trv_bundle
-
-            self.hass.config_entries.async_update_entry(
-                self.config_entry, data=self.updated_config
-            )
-            return self.async_create_entry(title="", data=None)
+            _LOGGER.debug("Updated config: %s", self.updated_config)
+            # self.hass.config_entries.async_update_entry(self.config_entry, data=self.updated_config)
+            return self.async_create_entry(title="", data=self.updated_config)
 
         user_input = user_input or {}
         homematic = False
@@ -331,13 +337,20 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
 
         has_auto = False
         trv = self.hass.states.get(_trv_config.get("trv"))
-        if HVAC_MODE_AUTO in trv.attributes.get("hvac_modes"):
+        if HVACMode.AUTO in trv.attributes.get("hvac_modes"):
             has_auto = True
 
         fields[
             vol.Optional(
                 CONF_HEAT_AUTO_SWAPPED,
                 default=_trv_config["advanced"].get(CONF_HEAT_AUTO_SWAPPED, has_auto),
+            )
+        ] = bool
+
+        fields[
+            vol.Optional(
+                CONF_FIX_CALIBRATION,
+                default=_trv_config["advanced"].get(CONF_FIX_CALIBRATION, False),
             )
         ] = bool
 

@@ -24,7 +24,8 @@
                                         "child_lock": "Ignorer toutes les entrées sur le TRV comme un vérouillage enfant",
                                         "homaticip": "If you use HomaticIP, you should enable this to slow down the requests to prevent the duty cycle",
                                         "valve_maintenance": "Si votre thermostat n'a pas de mode de maintenance intégré, vous pouvez utiliser celui-ci",
-                                        "calibration": "The sort of calibration"
+                                        "calibration": "The sort of calibration",
+                                        "fix_calibration": "If your TRV has trouble with not recheating the target temperature or overheating, this option can help"
                                 }
                         },
                         "confirm": {
@@ -70,7 +71,8 @@
                                         "child_lock": "Ignorer toutes les entrées sur le TRV comme un vérouillage enfant",
                                         "homaticip": "If you use HomaticIP, you should enable this to slow down the requests to prevent the duty cycle",
                                         "valve_maintenance": "Si votre thermostat n'a pas de mode de maintenance intégré, vous pouvez utiliser celui-ci",
-                                        "calibration": "The sort of calibration"
+                                        "calibration": "The sort of calibration",
+                                        "fix_calibration": "If your TRV has trouble with not recheating the target temperature or overheating, this option can help"
                                 }
                         }
                 }

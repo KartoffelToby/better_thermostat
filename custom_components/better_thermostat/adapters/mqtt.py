@@ -1,11 +1,14 @@
 import asyncio
-from homeassistant.components.number.const import SERVICE_SET_VALUE
 import logging
-from .generic import (
-    set_temperature as generic_set_temperature,
-    set_hvac_mode as generic_set_hvac_mode,
-)
+
+from homeassistant.components.number.const import SERVICE_SET_VALUE
+
 from ..utils.helpers import find_local_calibration_entity, find_valve_entity
+from .generic import (
+    set_hvac_mode as generic_set_hvac_mode,
+    set_temperature as generic_set_temperature,
+)
+from homeassistant.const import STATE_UNAVAILABLE, STATE_UNKNOWN
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -36,6 +39,22 @@ async def init(self, entity_id):
             self.name,
             self.real_trvs[entity_id]["local_temperature_calibration_entity"],
         )
+        # Wait for the entity to be available
+        _ready = True
+        while _ready:
+            if self.hass.states.get(
+                self.real_trvs[entity_id]["local_temperature_calibration_entity"]
+            ).state in (STATE_UNAVAILABLE, STATE_UNKNOWN, None):
+                _LOGGER.info(
+                    "better_thermostat %s: waiting for TRV/climate entity with id '%s' to become fully available...",
+                    self.name,
+                    self.real_trvs[entity_id]["local_temperature_calibration_entity"],
+                )
+                await asyncio.sleep(5)
+                continue
+            _ready = False
+            return
+
         _has_preset = self.hass.states.get(entity_id).attributes.get(
             "preset_modes", None
         )
@@ -57,7 +76,8 @@ async def set_temperature(self, entity_id, temperature):
 
 async def set_hvac_mode(self, entity_id, hvac_mode):
     """Set new target hvac mode."""
-    return await generic_set_hvac_mode(self, entity_id, hvac_mode)
+    await generic_set_hvac_mode(self, entity_id, hvac_mode)
+    await asyncio.sleep(3)
 
 
 async def get_current_offset(self, entity_id):
@@ -117,15 +137,21 @@ async def set_offset(self, entity_id, offset):
         limit=None,
         context=self._context,
     )
-    await asyncio.sleep(2)
-    _current_state = self.hass.states.get(entity_id).state or None
-    if _current_state is not None:
-        return await generic_set_hvac_mode(self, entity_id, _current_state)
+    self.real_trvs[entity_id]["last_calibration"] = offset
+    if (
+        self.real_trvs[entity_id]["last_hvac_mode"] is not None
+        and self.real_trvs[entity_id]["last_hvac_mode"] != "off"
+    ):
+        return await generic_set_hvac_mode(
+            self, entity_id, self.real_trvs[entity_id]["last_hvac_mode"]
+        )
 
 
 async def set_valve(self, entity_id, valve):
     """Set new target valve."""
-    _LOGGER.debug(f"better_thermostat {self.name}: TO TRV set_valve: {valve}")
+    _LOGGER.debug(
+        f"better_thermostat {self.name}: TO TRV {entity_id} set_valve: {valve}"
+    )
     await self.hass.services.async_call(
         "number",
         SERVICE_SET_VALUE,
