@@ -137,7 +137,7 @@ def calculate_setpoint_override(self, entity_id) -> Union[float, None]:
         _calibrated_setpoint = self.real_trvs[entity_id]["min_temp"]
     if _calibrated_setpoint > self.real_trvs[entity_id]["max_temp"]:
         _calibrated_setpoint = self.real_trvs[entity_id]["max_temp"]
-    return _calibrated_setpoint
+    return round_to_hundredth_degree(_calibrated_setpoint)
 
 
 def convert_to_float(
