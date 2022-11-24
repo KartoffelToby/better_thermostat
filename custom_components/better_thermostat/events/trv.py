@@ -23,29 +23,16 @@ _LOGGER = logging.getLogger(__name__)
 
 @callback
 async def trigger_trv_change(self, event):
-    """Processes TRV status updates
-
-    Parameters
-    ----------
-    self :
-            self instance of better_thermostat
-    event :
-            Event object from the eventbus. Contains the new and old state from the TRV.
-
-    Returns
-    -------
-    None
-    """
+    """Trigger a change in the trv state."""
     if self.startup_running:
         return
-
-    entity_id = event.data.get("entity_id")
-
-    child_lock = self.real_trvs[entity_id]["advanced"].get("child_lock")
-
+    if self.control_queue_task is None:
+        return
+    update_hvac_action(self)
+    _main_change = False
     old_state = event.data.get("old_state")
     new_state = event.data.get("new_state")
-    _org_trv_state = self.hass.states.get(entity_id).state
+    entity_id = event.data.get("entity_id")
 
     if None in (new_state, old_state, new_state.attributes):
         _LOGGER.debug(
@@ -59,16 +46,14 @@ async def trigger_trv_change(self, event):
         )
         return
 
-    try:
-        new_state = convert_inbound_states(self, entity_id, new_state)
-    except TypeError:
-        _LOGGER.debug(
-            f"better_thermostat {self.name}: remapping TRV {entity_id} state failed, skipping"
-        )
-        return
+    # if new_state == old_state:
+    #    return
+
+    _org_trv_state = self.hass.states.get(entity_id)
+    child_lock = self.real_trvs[entity_id]["advanced"].get("child_lock")
 
     _new_current_temp = convert_to_float(
-        str(new_state.attributes.get("current_temperature", None)),
+        str(_org_trv_state.attributes.get("current_temperature", None)),
         self.name,
         "TRV_current_temp",
     )
@@ -84,35 +69,48 @@ async def trigger_trv_change(self, event):
                 f"better_thermostat {self.name}: TRV {entity_id} sends new internal temperature from {_old_temp} to {_new_current_temp}"
             )
             self.last_internal_sensor_change = datetime.now()
+            _main_change = True
         if self.real_trvs[entity_id]["calibration_received"] is False:
             self.real_trvs[entity_id]["calibration_received"] = True
             _LOGGER.debug(
                 f"better_thermostat {self.name}: calibration accepted by TRV {entity_id}"
             )
+            _main_change = False
+            self.old_internal_temp = self.real_trvs[entity_id]["current_temperature"]
+            self.old_external_temp = self.cur_temp
             if self.real_trvs[entity_id]["calibration"] == 0:
                 self.real_trvs[entity_id][
                     "last_calibration"
                 ] = await get_current_offset(self, entity_id)
 
-    if self.ignore_states is True:
-        self.async_write_ha_state()
+    if self.ignore_states:
         return
 
-    new_decoded_system_mode = str(new_state.state)
+    try:
+        new_state = convert_inbound_states(self, entity_id, _org_trv_state)
+    except TypeError:
+        _LOGGER.debug(
+            f"better_thermostat {self.name}: remapping TRV {entity_id} state failed, skipping"
+        )
+        return
 
-    if new_decoded_system_mode in (HVACMode.OFF, HVACMode.HEAT):
-        if self.real_trvs[entity_id]["hvac_mode"] != _org_trv_state and not child_lock:
+    if new_state.state in (HVACMode.OFF, HVACMode.HEAT):
+        if (
+            self.real_trvs[entity_id]["hvac_mode"] != _org_trv_state.state
+            and not child_lock
+        ):
             _old = self.real_trvs[entity_id]["hvac_mode"]
             _LOGGER.debug(
-                f"better_thermostat {self.name}: TRV {entity_id} decoded TRV mode changed from {_old} to {_org_trv_state} - converted {new_decoded_system_mode}"
+                f"better_thermostat {self.name}: TRV {entity_id} decoded TRV mode changed from {_old} to {_org_trv_state.state} - converted {new_state.state}"
             )
-            self.real_trvs[entity_id]["hvac_mode"] = _org_trv_state
+            self.real_trvs[entity_id]["hvac_mode"] = _org_trv_state.state
+            _main_change = True
             if (
                 child_lock is False
                 and self.real_trvs[entity_id]["system_mode_received"] is True
-                and self.real_trvs[entity_id]["last_hvac_mode"] != _org_trv_state
+                and self.real_trvs[entity_id]["last_hvac_mode"] != _org_trv_state.state
             ):
-                self.bt_hvac_mode = new_decoded_system_mode
+                self.bt_hvac_mode = new_state.state
 
     _new_heating_setpoint = convert_to_float(
         str(new_state.attributes.get("temperature", None)),
@@ -150,17 +148,13 @@ async def trigger_trv_change(self, event):
                 and self.real_trvs[entity_id]["target_temp_received"] is True
             ):
                 self.bt_target_temp = _new_heating_setpoint
+                _main_change = True
 
-    if (
-        self.bt_hvac_mode == HVACMode.OFF
-        and self.real_trvs[entity_id]["hvac_mode"] == HVACMode.OFF
-    ):
+    if _main_change is True:
         self.async_write_ha_state()
-        return
-
+        return await self.control_queue_task.put(self)
     self.async_write_ha_state()
-    update_hvac_action(self)
-    return await self.control_queue_task.put(self)
+    return
 
 
 def update_hvac_action(self):
@@ -180,6 +174,10 @@ def update_hvac_action(self):
             self.attr_hvac_action = HVACAction.HEATING
             self.async_write_ha_state()
             return
+        else:
+            self.attr_hvac_action = HVACAction.IDLE
+            self.async_write_ha_state()
+            return
 
     hvac_actions = list(find_state_attributes(states, ATTR_HVAC_ACTION))
     current_hvac_actions = [a for a in hvac_actions if a != HVACAction.OFF]
@@ -193,9 +191,10 @@ def update_hvac_action(self):
         self.attr_hvac_action = HVACAction.OFF
     # else it's none
     else:
-        self.attr_hvac_action = None
+        self.attr_hvac_action = HVACAction.IDLE
 
     self.async_write_ha_state()
+    return
 
 
 def convert_inbound_states(self, entity_id, state: State) -> State:

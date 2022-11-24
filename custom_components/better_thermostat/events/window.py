@@ -69,5 +69,13 @@ async def window_queue(self):
             if current_window_state == window_event_to_process:
                 self.window_open = window_event_to_process
                 self.async_write_ha_state()
+                if not self.control_queue_task.empty():
+                    empty_queue(self.control_queue_task)
                 await self.control_queue_task.put(self)
         self.window_queue_task.task_done()
+
+
+def empty_queue(q: asyncio.Queue):
+    for _ in range(q.qsize()):
+        q.get_nowait()
+        q.task_done()
