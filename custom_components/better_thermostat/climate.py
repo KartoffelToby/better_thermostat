@@ -228,6 +228,8 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
         self._context = None
         self.attr_hvac_action = None
         self._async_unsub_state_changed = None
+        self.old_external_temp = 0
+        self.old_internal_temp = 0
         self.control_queue_task = asyncio.Queue(maxsize=1)
         if self.window_id is not None:
             self.window_queue_task = asyncio.Queue(maxsize=1)
@@ -656,8 +658,8 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
             self._available = True
             self.async_write_ha_state()
             # await self.async_update_ha_state()
-            update_hvac_action(self)
             await asyncio.sleep(5)
+            update_hvac_action(self)
             # Add listener
             if self.outdoor_sensor is not None:
                 self.async_on_remove(

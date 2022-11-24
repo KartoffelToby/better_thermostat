@@ -306,7 +306,6 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
 
             self.updated_config[CONF_HEATER] = self.trv_bundle
             _LOGGER.debug("Updated config: %s", self.updated_config)
-            # self.hass.config_entries.async_update_entry(self.config_entry, data=self.updated_config)
             return self.async_create_entry(title="", data=self.updated_config)
 
         user_input = user_input or {}
@@ -318,7 +317,11 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
 
         _calibration = {"target_temp_based": "Target Temperature"}
         _default_calibration = "target_temp_based"
-        _adapter = _trv_config.get("adapter", None)
+        self.name = user_input.get(CONF_NAME, "-")
+
+        _adapter = load_adapter(
+            self, _trv_config.get("integration"), _trv_config.get("trv")
+        )
         if _adapter is not None:
             _info = await _adapter.get_info(self, _trv_config.get("trv"))
 
@@ -409,9 +412,9 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
             self.updated_config[CONF_OFF_TEMPERATURE] = user_input.get(
                 CONF_OFF_TEMPERATURE
             )
-            self.name = user_input.get(CONF_NAME, "-")
+
             for trv in self.updated_config[CONF_HEATER]:
-                trv["adapter"] = load_adapter(self, trv["integration"], trv["trv"])
+                trv["adapter"] = None
                 self.trv_bundle.append(trv)
 
             return await self.async_step_advanced(
