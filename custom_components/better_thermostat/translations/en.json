@@ -6,7 +6,7 @@
                                 "description": "Setup your Better Thermostat to integrate with Home Assistant\n**If you need more info: https://better-thermostat.org/configuration/new_device** ",
                                 "data": {
                                         "name": "Name",
-                                        "thermostat": "The real themostat",
+                                        "thermostat": "The real thermostat",
                                         "temperature_sensor": "Temperature sensor",
                                         "humidity_sensor": "Humidity sensor",
                                         "window_sensors": "Window sensor",
