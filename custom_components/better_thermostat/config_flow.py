@@ -254,10 +254,7 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                     vol.Optional(CONF_WEATHER): selector.EntitySelector(
                         selector.EntitySelectorConfig(domain="weather", multiple=False)
                     ),
-                    vol.Optional(
-                        CONF_WINDOW_TIMEOUT,
-                        default=user_input.get(CONF_WINDOW_TIMEOUT, 0),
-                    ): int,
+                    vol.Optional(CONF_WINDOW_TIMEOUT): selector.DurationSelector(),
                     vol.Optional(
                         CONF_OFF_TEMPERATURE,
                         default=user_input.get(CONF_OFF_TEMPERATURE, 20),
@@ -500,9 +497,13 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
         fields[
             vol.Optional(
                 CONF_WINDOW_TIMEOUT,
-                default=self.config_entry.data.get(CONF_WINDOW_TIMEOUT, 30),
+                description={
+                    "suggested_value": self.config_entry.data.get(
+                        CONF_WINDOW_TIMEOUT, None
+                    )
+                },
             )
-        ] = int
+        ] = selector.DurationSelector()
 
         fields[
             vol.Optional(
