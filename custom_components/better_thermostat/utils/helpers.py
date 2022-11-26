@@ -72,11 +72,31 @@ def calculate_local_setpoint_delta(self, entity_id) -> Union[float, None]:
     """
     _context = "calculate_local_setpoint_delta()"
 
-    _current_trv_calibration = convert_to_float(
-        str(self.real_trvs[entity_id]["last_calibration"]), self.name, _context
-    )
+    # check if we need to calculate
+    if (
+        self.real_trvs[entity_id]["current_temperature"] == self.old_internal_temp
+        and self.cur_temp == self.old_external_temp
+    ):
+        return None
+
     _cur_trv_temp = convert_to_float(
         str(self.real_trvs[entity_id]["current_temperature"]), self.name, _context
+    )
+
+    _calibration_delta = float(
+        str(format(float(abs(_cur_trv_temp - self.cur_temp)), ".1f"))
+    )
+
+    if _calibration_delta <= 0.5:
+        return None
+
+    self.old_internal_temp = self.real_trvs[entity_id]["current_temperature"]
+    self.old_external_temp = self.cur_temp
+
+    _current_trv_calibration = round_to_half_degree(
+        convert_to_float(
+            str(self.real_trvs[entity_id]["last_calibration"]), self.name, _context
+        )
     )
 
     if None in (_current_trv_calibration, self.cur_temp, _cur_trv_temp):

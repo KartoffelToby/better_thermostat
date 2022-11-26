@@ -6,6 +6,7 @@ from abc import ABC
 from datetime import datetime, timedelta
 from random import randint
 from statistics import mean
+from homeassistant.helpers import config_validation as cv
 
 from .utils.weather import check_ambient_air_temperature, check_weather
 from .utils.bridge import get_current_offset, init, load_adapter
@@ -188,7 +189,10 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
         self.sensor_entity_id = sensor_entity_id
         self.humidity_entity_id = humidity_sensor_entity_id
         self.window_id = window_id or None
-        self.window_delay = window_delay or 0
+        if isinstance(window_delay, int) or window_delay is None:
+            self.window_delay = window_delay or 0
+        else:
+            self.window_delay = cv.time_period_dict(window_delay).total_seconds() or 0
         self.weather_entity = weather_entity or None
         self.outdoor_sensor = outdoor_sensor or None
         self.off_temperature = float(off_temperature) or None
@@ -228,6 +232,8 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
         self._context = None
         self.attr_hvac_action = None
         self._async_unsub_state_changed = None
+        self.old_external_temp = 0
+        self.old_internal_temp = 0
         self.control_queue_task = asyncio.Queue(maxsize=1)
         if self.window_id is not None:
             self.window_queue_task = asyncio.Queue(maxsize=1)
@@ -656,8 +662,8 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
             self._available = True
             self.async_write_ha_state()
             # await self.async_update_ha_state()
-            update_hvac_action(self)
             await asyncio.sleep(5)
+            update_hvac_action(self)
             # Add listener
             if self.outdoor_sensor is not None:
                 self.async_on_remove(
@@ -823,7 +829,7 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
     def hvac_action(self):
         """Return the current HVAC action"""
         if self.attr_hvac_action is None:
-            if self.bt_hvac_mode == HVACMode.HEAT:
+            if self.bt_target_temp >= self.cur_temp:
                 return HVACAction.HEATING
             else:
                 return HVACAction.IDLE
