@@ -87,14 +87,14 @@ async def trigger_trv_change(self, event):
         return
 
     try:
-        new_state = convert_inbound_states(self, entity_id, _org_trv_state)
+        mapped_state = convert_inbound_states(self, entity_id, _org_trv_state)
     except TypeError:
         _LOGGER.debug(
             f"better_thermostat {self.name}: remapping TRV {entity_id} state failed, skipping"
         )
         return
 
-    if new_state.state in (HVACMode.OFF, HVACMode.HEAT):
+    if mapped_state in (HVACMode.OFF, HVACMode.HEAT):
         if (
             self.real_trvs[entity_id]["hvac_mode"] != _org_trv_state.state
             and not child_lock
@@ -110,7 +110,7 @@ async def trigger_trv_change(self, event):
                 and self.real_trvs[entity_id]["system_mode_received"] is True
                 and self.real_trvs[entity_id]["last_hvac_mode"] != _org_trv_state.state
             ):
-                self.bt_hvac_mode = new_state.state
+                self.bt_hvac_mode = mapped_state
 
     _new_heating_setpoint = convert_to_float(
         str(new_state.attributes.get("temperature", None)),
@@ -197,7 +197,7 @@ def update_hvac_action(self):
     return
 
 
-def convert_inbound_states(self, entity_id, state: State) -> State:
+def convert_inbound_states(self, entity_id, state: State) -> str:
     """Convert hvac mode in a thermostat state from HA
     Parameters
     ----------
@@ -216,12 +216,11 @@ def convert_inbound_states(self, entity_id, state: State) -> State:
     if state.attributes is None or state.state is None:
         raise TypeError("convert_inbound_states() received None state, cannot convert")
 
-    state.state = mode_remap(self, entity_id, str(state.state), True)
+    remapped_state = mode_remap(self, entity_id, str(state.state), True)
 
-    if state.state not in (HVACMode.OFF, HVACMode.HEAT):
-        state.state = None
-
-    return state
+    if remapped_state not in (HVACMode.OFF, HVACMode.HEAT):
+        return None
+    return remapped_state
 
 
 def convert_outbound_states(self, entity_id, hvac_mode) -> Union[dict, None]:
