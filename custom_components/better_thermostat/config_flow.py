@@ -404,8 +404,9 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
             )
             self.updated_config[CONF_WEATHER] = user_input.get(CONF_WEATHER, None)
             self.updated_config[CONF_WINDOW_TIMEOUT] = user_input.get(
-                CONF_WINDOW_TIMEOUT
+                CONF_WINDOW_TIMEOUT, None
             )
+
             self.updated_config[CONF_OFF_TEMPERATURE] = user_input.get(
                 CONF_OFF_TEMPERATURE
             )
