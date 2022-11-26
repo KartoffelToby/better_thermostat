@@ -15,6 +15,7 @@ from ..utils.helpers import (
     convert_to_float,
     mode_remap,
     round_to_half_degree,
+    round_to_hundredth_degree,
 )
 from custom_components.better_thermostat.utils.bridge import get_current_offset
 
@@ -52,10 +53,12 @@ async def trigger_trv_change(self, event):
     _org_trv_state = self.hass.states.get(entity_id)
     child_lock = self.real_trvs[entity_id]["advanced"].get("child_lock")
 
-    _new_current_temp = convert_to_float(
-        str(_org_trv_state.attributes.get("current_temperature", None)),
-        self.name,
-        "TRV_current_temp",
+    _new_current_temp = round_to_hundredth_degree(
+        convert_to_float(
+            str(_org_trv_state.attributes.get("current_temperature", None)),
+            self.name,
+            "TRV_current_temp",
+        )
     )
 
     if (
@@ -180,6 +183,11 @@ def update_hvac_action(self):
             return
 
     hvac_actions = list(find_state_attributes(states, ATTR_HVAC_ACTION))
+    if not hvac_actions:
+        self.attr_hvac_action = None
+        self.async_write_ha_state()
+        return
+
     current_hvac_actions = [a for a in hvac_actions if a != HVACAction.OFF]
     # return the most common action if it is not off
     if current_hvac_actions:

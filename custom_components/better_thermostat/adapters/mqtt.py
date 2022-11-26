@@ -138,6 +138,13 @@ async def set_offset(self, entity_id, offset):
         context=self._context,
     )
     self.real_trvs[entity_id]["last_calibration"] = offset
+    if (
+        self.real_trvs[entity_id]["last_hvac_mode"] is not None
+        and self.real_trvs[entity_id]["last_hvac_mode"] != "off"
+    ):
+        return await generic_set_hvac_mode(
+            self, entity_id, self.real_trvs[entity_id]["last_hvac_mode"]
+        )
 
 
 async def set_valve(self, entity_id, valve):

@@ -825,7 +825,7 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
     def hvac_action(self):
         """Return the current HVAC action"""
         if self.attr_hvac_action is None:
-            if self.bt_hvac_mode == HVACMode.HEAT:
+            if self.bt_target_temp >= self.cur_temp:
                 return HVACAction.HEATING
             else:
                 return HVACAction.IDLE
