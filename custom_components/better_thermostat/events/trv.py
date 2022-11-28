@@ -15,7 +15,6 @@ from ..utils.helpers import (
     convert_to_float,
     mode_remap,
     round_to_half_degree,
-    round_to_hundredth_degree,
 )
 from custom_components.better_thermostat.utils.bridge import get_current_offset
 

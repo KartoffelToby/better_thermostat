@@ -11,7 +11,7 @@ from .bridge import (
 from ..events.trv import convert_outbound_states
 from homeassistant.components.climate.const import HVACMode
 
-from .helpers import convert_to_float, calibration_round, round_to_hundredth_degree
+from .helpers import convert_to_float, calibration_round
 
 _LOGGER = logging.getLogger(__name__)
 
