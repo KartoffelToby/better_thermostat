@@ -72,6 +72,9 @@ async def control_trv(self, heater_entity_id=None):
             self, heater_entity_id, self.bt_hvac_mode
         )
         if not isinstance(_remapped_states, dict):
+            _LOGGER.debug(
+                f"better_thermostat {self.name}: ERROR {heater_entity_id} {_remapped_states}"
+            )
             await asyncio.sleep(10)
             self.ignore_states = False
             self.real_trvs[heater_entity_id]["ignore_trv_states"] = False
@@ -132,25 +135,9 @@ async def control_trv(self, heater_entity_id=None):
                 "last_calibration", current_calibration
             )
 
-            _cur_trv_temp = convert_to_float(
-                str(self.real_trvs[heater_entity_id]["current_temperature"]),
-                self.name,
-                "controlling()",
-            )
-
-            _calibration_delta = float(
-                str(format(float(abs(_cur_trv_temp - self.cur_temp)), ".1f"))
-            )
-
-            _shoud_calibrate = False
-            if _calibration_delta >= float(step_calibration):
-                _shoud_calibrate = True
-
-            if (
-                self.real_trvs[heater_entity_id]["calibration_received"] is True
-                and float(old) != float(_calibration)
-                and _shoud_calibrate is True
-            ):
+            if self.real_trvs[heater_entity_id][
+                "calibration_received"
+            ] is True and float(old) != float(_calibration):
                 _LOGGER.debug(
                     f"better_thermostat {self.name}: TO TRV set_local_temperature_calibration: {heater_entity_id} from: {old} to: {_calibration}"
                 )

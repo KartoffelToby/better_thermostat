@@ -3,12 +3,12 @@ default_config:
 lovelace:
   mode: yaml
   resources:
-    - url: http://0.0.0.0:5000/better-thermostat-ui-card.js #/hacsfiles/better-thermostat-ui-card/better-thermostat-ui-card.js
+    - url: http://0.0.0.0:4000/better-thermostat-ui-card.js #/hacsfiles/better-thermostat-ui-card/better-thermostat-ui-card.js
       type: module
-    - url: http://bs-local.com:5000/better-thermostat-ui-card.js
-      type: module
-    - url: /hacsfiles/better-thermostat-ui-card/better-thermostat-ui-card.js
-      type: module
+#    - url: http://bs-local.com:5000/better-thermostat-ui-card.js
+#      type: module
+#    - url: /hacsfiles/better-thermostat-ui-card/better-thermostat-ui-card.js
+#      type: module
 
 logger:
   default: error
