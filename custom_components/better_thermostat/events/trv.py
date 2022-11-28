@@ -53,13 +53,10 @@ async def trigger_trv_change(self, event):
     _org_trv_state = self.hass.states.get(entity_id)
     child_lock = self.real_trvs[entity_id]["advanced"].get("child_lock")
 
-    _new_current_temp = round(
-        convert_to_float(
-            str(_org_trv_state.attributes.get("current_temperature", None)),
-            self.name,
-            "TRV_current_temp",
-        ),
-        1,
+    _new_current_temp = convert_to_float(
+        str(_org_trv_state.attributes.get("current_temperature", None)),
+        self.name,
+        "TRV_current_temp",
     )
 
     if (
@@ -132,10 +129,8 @@ async def trigger_trv_change(self, event):
         and _old_heating_setpoint is not None
         and self.bt_hvac_mode is not HVACMode.OFF
     ):
-        _old_heating_setpoint = round(_old_heating_setpoint, 1)
-        _new_heating_setpoint = round(_new_heating_setpoint, 1)
         _LOGGER.debug(
-            f"better_thermostat {self.name}: trigger_trv_change / _old_heating_setpoint: {_old_heating_setpoint} - _new_heating_setpoint: {_new_heating_setpoint} - _last_temperature: {round(self.real_trvs[entity_id]['last_temperature'], 1)}"
+            f"better_thermostat {self.name}: trigger_trv_change / _old_heating_setpoint: {_old_heating_setpoint} - _new_heating_setpoint: {_new_heating_setpoint} - _last_temperature: {self.real_trvs[entity_id]['last_temperature']}"
         )
         if (
             _new_heating_setpoint < self.bt_min_temp
@@ -153,8 +148,7 @@ async def trigger_trv_change(self, event):
         if (
             self.bt_target_temp != _new_heating_setpoint
             and _old_heating_setpoint != _new_heating_setpoint
-            and round(self.real_trvs[entity_id]["last_temperature"], 1)
-            != _new_heating_setpoint
+            and self.real_trvs[entity_id]["last_temperature"] != _new_heating_setpoint
             and not child_lock
             and self.real_trvs[entity_id]["target_temp_received"] is True
             and self.real_trvs[entity_id]["system_mode_received"] is True

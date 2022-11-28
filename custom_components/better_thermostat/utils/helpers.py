@@ -186,12 +186,12 @@ def convert_to_float(
             If error occurred and cannot convert the value.
     """
     if isinstance(value, float):
-        return value
+        return round(value, 1)
     elif value is None or value == "None":
         return None
     else:
         try:
-            return float(str(format(float(value), ".1f")))
+            return round(float(str(format(float(value), ".1f"))), 1)
         except (ValueError, TypeError, AttributeError, KeyError):
             _LOGGER.debug(
                 f"better thermostat {instance_name}: Could not convert '{value}' to float in {context}"
