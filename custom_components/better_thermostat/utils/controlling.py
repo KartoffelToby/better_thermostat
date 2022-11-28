@@ -213,9 +213,7 @@ async def check_target_temperature(self, heater_entity_id=None):
             self.name,
             "check_target_temperature()",
         )
-        if round_to_hundredth_degree(
-            _real_trv["last_temperature"]
-        ) == round_to_hundredth_degree(_current_set_temperature):
+        if round(_real_trv["last_temperature"], 1) == round(_current_set_temperature, 1):
             _timeout = 0
             break
         if _timeout > 120:
