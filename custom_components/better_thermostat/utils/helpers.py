@@ -143,12 +143,16 @@ def calculate_setpoint_override(self, entity_id) -> Union[float, None]:
     if None in (self.bt_target_temp, self.cur_temp, _cur_trv_temp):
         return None
 
-    _calibrated_setpoint = (self.bt_target_temp - self.cur_temp) + _cur_trv_temp
+    _new_cur_temp = self.cur_temp * 0.7 + _cur_trv_temp * 0.3
+    _LOGGER.debug(
+        f"better thermostat {self.name}: {entity_id} - calibration - weighted cur temperature: {_new_cur_temp}"
+    )
+    _calibrated_setpoint = (self.bt_target_temp - _new_cur_temp) + _cur_trv_temp
 
     if self.real_trvs[entity_id]["advanced"].get("fix_calibration", False) is True:
-        _temp_diff = float(float(self.bt_target_temp) - float(self.cur_temp))
-        if _temp_diff > 0.3 and _calibrated_setpoint - _cur_trv_temp < 2.5:
-            _calibrated_setpoint += 2.5
+        _temp_diff = float(float(self.bt_target_temp) - float(_new_cur_temp))
+        if _temp_diff > 0.0 and _calibrated_setpoint - _cur_trv_temp < 1.5:
+            _calibrated_setpoint += 1.5
 
     # check if new setpoint is inside the TRV's range, else set to min or max
     if _calibrated_setpoint < self.real_trvs[entity_id]["min_temp"]:
