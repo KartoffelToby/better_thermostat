@@ -213,7 +213,13 @@ async def check_target_temperature(self, heater_entity_id=None):
             self.name,
             "check_target_temperature()",
         )
-        if round(_real_trv["last_temperature"], 1) == round(_current_set_temperature, 1):
+
+        _LOGGER.debug(
+            f"better_thermostat {self.name}: {heater_entity_id} / check_target_temp / _last: {round(_real_trv['last_temperature'], 1)} - _current: {round(_current_set_temperature, 1)}"
+        )
+        if _current_set_temperature is None or round(
+            _real_trv["last_temperature"], 1
+        ) == round(_current_set_temperature, 1):
             _timeout = 0
             break
         if _timeout > 120:
