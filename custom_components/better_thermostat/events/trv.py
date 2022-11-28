@@ -66,13 +66,14 @@ async def trigger_trv_change(self, event):
         and self.real_trvs[entity_id]["current_temperature"] != _new_current_temp
     ):
         _old_temp = self.real_trvs[entity_id]["current_temperature"]
-        if self.real_trvs[entity_id]["calibration_received"] is False:
-            self.real_trvs[entity_id]["current_temperature"] = _new_current_temp
-            _LOGGER.debug(
-                f"better_thermostat {self.name}: TRV {entity_id} sends new internal temperature from {_old_temp} to {_new_current_temp}"
-            )
-            self.last_internal_sensor_change = datetime.now()
-            _main_change = True
+        self.real_trvs[entity_id]["current_temperature"] = _new_current_temp
+        _LOGGER.debug(
+            f"better_thermostat {self.name}: TRV {entity_id} sends new internal temperature from {_old_temp} to {_new_current_temp}"
+        )
+        self.last_internal_sensor_change = datetime.now()
+        _main_change = True
+
+        # TODO: async def in controlling?
         if self.real_trvs[entity_id]["calibration_received"] is False:
             self.real_trvs[entity_id]["calibration_received"] = True
             _LOGGER.debug(
@@ -146,12 +147,8 @@ async def trigger_trv_change(self, event):
             _LOGGER.debug(
                 f"better_thermostat {self.name}: TRV {entity_id} decoded TRV target temp changed from {self.bt_target_temp} to {_new_heating_setpoint}"
             )
-            if (
-                child_lock is False
-                and self.real_trvs[entity_id]["target_temp_received"] is True
-            ):
-                self.bt_target_temp = _new_heating_setpoint
-                _main_change = True
+            self.bt_target_temp = _new_heating_setpoint
+            _main_change = True
 
     if _main_change is True:
         self.async_write_ha_state()

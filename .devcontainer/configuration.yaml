@@ -21,9 +21,17 @@ climate:
     heater: input_boolean.heater
     target_sensor: input_number.internal_sensor
 
+  - platform: generic_thermostat
+    name: Dummy_real_TRV2
+    heater: input_boolean.heater2
+    target_sensor: input_number.internal_sensor2
+
 input_boolean:
   heater:
     name: Heater
+    initial: off
+  heater2:
+    name: Heater2
     initial: off
   window_open:
     name: Window open
@@ -32,6 +40,12 @@ input_boolean:
 input_number:
   internal_sensor:
     name: Internal Sensor
+    min: 5
+    max: 35
+    step: 1
+    initial: 20
+  internal_sensor2:
+    name: Internal Sensor2
     min: 5
     max: 35
     step: 1
