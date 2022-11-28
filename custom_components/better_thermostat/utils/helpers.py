@@ -145,7 +145,7 @@ def calculate_setpoint_override(self, entity_id) -> Union[float, None]:
     if None in (self.bt_target_temp, self.cur_temp, _cur_trv_temp):
         return None
 
-    _new_cur_temp = self.cur_temp * 0.7 + _cur_trv_temp * 0.3
+    _new_cur_temp = self.cur_temp * 0.8 + _cur_trv_temp * 0.2
     _LOGGER.debug(
         f"better thermostat {self.name}: {entity_id} - calibration - weighted cur temperature: {_new_cur_temp}"
     )
