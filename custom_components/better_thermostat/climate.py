@@ -6,7 +6,6 @@ from abc import ABC
 from datetime import datetime, timedelta
 from random import randint
 from statistics import mean
-from homeassistant.helpers import config_validation as cv
 
 from .utils.weather import check_ambient_air_temperature, check_weather
 from .utils.bridge import get_current_offset, init, load_adapter
@@ -189,10 +188,7 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
         self.sensor_entity_id = sensor_entity_id
         self.humidity_entity_id = humidity_sensor_entity_id
         self.window_id = window_id or None
-        if isinstance(window_delay, int) or window_delay is None:
-            self.window_delay = window_delay or 0
-        else:
-            self.window_delay = cv.time_period_dict(window_delay).total_seconds() or 0
+        self.window_delay = window_delay or 0
         self.weather_entity = weather_entity or None
         self.outdoor_sensor = outdoor_sensor or None
         self.off_temperature = float(off_temperature) or None
