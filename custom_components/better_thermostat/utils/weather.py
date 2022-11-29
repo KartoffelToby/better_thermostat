@@ -27,6 +27,8 @@ def check_weather(self) -> bool:
             true if call_for_heat was changed
     """
     old_call_for_heat = self.call_for_heat
+    _call_for_heat_weather = False
+    _call_for_heat_outdoor = False
 
     self.call_for_heat = True
 
@@ -41,6 +43,9 @@ def check_weather(self) -> bool:
             _call_for_heat_outdoor = self.last_avg_outdoor_temp < self.off_temperature
 
     self.call_for_heat = _call_for_heat_weather or _call_for_heat_outdoor
+
+    if self.weather_entity is None and self.outdoor_sensor is None:
+        self.call_for_heat = True
 
     if old_call_for_heat != self.call_for_heat:
         return True

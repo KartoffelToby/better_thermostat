@@ -195,14 +195,19 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 self.data[CONF_OUTDOOR_SENSOR] = None
             if CONF_WEATHER not in self.data:
                 self.data[CONF_WEATHER] = None
-            self.data[CONF_WINDOW_TIMEOUT] = (
-                int(
-                    cv.time_period_dict(
-                        user_input.get(CONF_WINDOW_TIMEOUT, None)
-                    ).total_seconds()
+
+            if CONF_WINDOW_TIMEOUT in self.data:
+                self.data[CONF_WINDOW_TIMEOUT] = (
+                    int(
+                        cv.time_period_dict(
+                            user_input.get(CONF_WINDOW_TIMEOUT, None)
+                        ).total_seconds()
+                    )
+                    or 0
                 )
-                or 0
-            )
+            else:
+                self.data[CONF_WINDOW_TIMEOUT] = 0
+
             if "base" not in errors:
                 for trv in self.heater_entity_id:
                     _intigration = await get_trv_intigration(self, trv)
@@ -415,14 +420,18 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
                 CONF_OUTDOOR_SENSOR, None
             )
             self.updated_config[CONF_WEATHER] = user_input.get(CONF_WEATHER, None)
-            self.updated_config[CONF_WINDOW_TIMEOUT] = (
-                int(
-                    cv.time_period_dict(
-                        user_input.get(CONF_WINDOW_TIMEOUT, None)
-                    ).total_seconds()
+
+            if CONF_WINDOW_TIMEOUT in self.updated_config:
+                self.updated_config[CONF_WINDOW_TIMEOUT] = (
+                    int(
+                        cv.time_period_dict(
+                            user_input.get(CONF_WINDOW_TIMEOUT, None)
+                        ).total_seconds()
+                    )
+                    or 0
                 )
-                or 0
-            )
+            else:
+                self.updated_config[CONF_WINDOW_TIMEOUT] = 0
 
             self.updated_config[CONF_OFF_TEMPERATURE] = user_input.get(
                 CONF_OFF_TEMPERATURE
