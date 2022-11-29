@@ -25,6 +25,7 @@ async def trigger_temperature_change(self, event):
     """
     if self.startup_running:
         return
+
     new_state = event.data.get("new_state")
     if new_state is None or new_state.state in (STATE_UNAVAILABLE, STATE_UNKNOWN, None):
         return
