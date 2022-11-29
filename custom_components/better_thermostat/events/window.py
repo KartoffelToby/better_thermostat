@@ -60,7 +60,12 @@ async def window_queue(self):
     while True:
         window_event_to_process = await self.window_queue_task.get()
         if window_event_to_process is not None:
-            await asyncio.sleep(self.window_delay)
+            if window_event_to_process:
+                # TODO: window open delay
+                await asyncio.sleep(self.window_delay)
+            else:
+                # TODO: window close delay
+                await asyncio.sleep(self.window_delay)
             # remap off on to true false
             current_window_state = True
             if self.hass.states.get(self.window_id).state == STATE_OFF:
