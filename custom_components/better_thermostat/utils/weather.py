@@ -28,16 +28,19 @@ def check_weather(self) -> bool:
     """
     old_call_for_heat = self.call_for_heat
 
-    if self.weather_entity is not None:
-        self.call_for_heat = check_weather_prediction(self)
+    self.call_for_heat = True
 
-    elif self.outdoor_sensor is not None:
+    if self.weather_entity is not None:
+        _call_for_heat_weather = check_weather_prediction(self)
+
+    if self.outdoor_sensor is not None:
         if None in (self.last_avg_outdoor_temp, self.off_temperature):
-            self.call_for_heat = False
-            return False
-        self.call_for_heat = self.last_avg_outdoor_temp < self.off_temperature
-    else:
-        self.call_for_heat = True
+            # TODO: add condition if heating period (oct-mar) then set it to true?
+            _call_for_heat_outdoor = False
+        else:
+            _call_for_heat_outdoor = self.last_avg_outdoor_temp < self.off_temperature
+
+    self.call_for_heat = _call_for_heat_weather or _call_for_heat_outdoor
 
     if old_call_for_heat != self.call_for_heat:
         return True
@@ -66,18 +69,27 @@ def check_weather_prediction(self) -> bool:
         return None
 
     try:
-        forcast = self.hass.states.get(self.weather_entity).attributes.get("forecast")
-        if len(forcast) > 0:
-            max_forcast_temp = int(
+        forecast = self.hass.states.get(self.weather_entity).attributes.get("forecast")
+        if len(forecast) > 0:
+            cur_outside_temp = convert_to_float(
+                str(
+                    self.hass.states.get(self.weather_entity).attributes.get(
+                        "temperature"
+                    )
+                ),
+                self.name,
+                "check_weather_prediction()",
+            )
+            max_forecast_temp = int(
                 round(
                     (
                         convert_to_float(
-                            str(forcast[0]["temperature"]),
+                            str(forecast[0]["temperature"]),
                             self.name,
                             "check_weather_prediction()",
                         )
                         + convert_to_float(
-                            str(forcast[1]["temperature"]),
+                            str(forecast[1]["temperature"]),
                             self.name,
                             "check_weather_prediction()",
                         )
@@ -85,7 +97,10 @@ def check_weather_prediction(self) -> bool:
                     / 2
                 )
             )
-            return max_forcast_temp < self.off_temperature
+            return (
+                cur_outside_temp < self.off_temperature
+                or max_forecast_temp < self.off_temperature
+            )
         else:
             raise TypeError
     except TypeError:

@@ -15,7 +15,6 @@ from ..utils.helpers import (
     convert_to_float,
     mode_remap,
     round_to_half_degree,
-    round_to_hundredth_degree,
 )
 from custom_components.better_thermostat.utils.bridge import get_current_offset
 
@@ -53,12 +52,10 @@ async def trigger_trv_change(self, event):
     _org_trv_state = self.hass.states.get(entity_id)
     child_lock = self.real_trvs[entity_id]["advanced"].get("child_lock")
 
-    _new_current_temp = round_to_hundredth_degree(
-        convert_to_float(
-            str(_org_trv_state.attributes.get("current_temperature", None)),
-            self.name,
-            "TRV_current_temp",
-        )
+    _new_current_temp = convert_to_float(
+        str(_org_trv_state.attributes.get("current_temperature", None)),
+        self.name,
+        "TRV_current_temp",
     )
 
     if (
@@ -66,13 +63,14 @@ async def trigger_trv_change(self, event):
         and self.real_trvs[entity_id]["current_temperature"] != _new_current_temp
     ):
         _old_temp = self.real_trvs[entity_id]["current_temperature"]
-        if self.real_trvs[entity_id]["calibration_received"] is False:
-            self.real_trvs[entity_id]["current_temperature"] = _new_current_temp
-            _LOGGER.debug(
-                f"better_thermostat {self.name}: TRV {entity_id} sends new internal temperature from {_old_temp} to {_new_current_temp}"
-            )
-            self.last_internal_sensor_change = datetime.now()
-            _main_change = True
+        self.real_trvs[entity_id]["current_temperature"] = _new_current_temp
+        _LOGGER.debug(
+            f"better_thermostat {self.name}: TRV {entity_id} sends new internal temperature from {_old_temp} to {_new_current_temp}"
+        )
+        self.last_internal_sensor_change = datetime.now()
+        _main_change = True
+
+        # TODO: async def in controlling?
         if self.real_trvs[entity_id]["calibration_received"] is False:
             self.real_trvs[entity_id]["calibration_received"] = True
             _LOGGER.debug(
@@ -115,12 +113,24 @@ async def trigger_trv_change(self, event):
             ):
                 self.bt_hvac_mode = mapped_state
 
+    _old_heating_setpoint = convert_to_float(
+        str(old_state.attributes.get("temperature", None)),
+        self.name,
+        "trigger_trv_change()",
+    )
     _new_heating_setpoint = convert_to_float(
         str(new_state.attributes.get("temperature", None)),
         self.name,
         "trigger_trv_change()",
     )
-    if _new_heating_setpoint is not None and self.bt_hvac_mode is not HVACMode.OFF:
+    if (
+        _new_heating_setpoint is not None
+        and _old_heating_setpoint is not None
+        and self.bt_hvac_mode is not HVACMode.OFF
+    ):
+        _LOGGER.debug(
+            f"better_thermostat {self.name}: trigger_trv_change / _old_heating_setpoint: {_old_heating_setpoint} - _new_heating_setpoint: {_new_heating_setpoint} - _last_temperature: {self.real_trvs[entity_id]['last_temperature']}"
+        )
         if (
             _new_heating_setpoint < self.bt_min_temp
             or self.bt_max_temp < _new_heating_setpoint
@@ -136,6 +146,7 @@ async def trigger_trv_change(self, event):
 
         if (
             self.bt_target_temp != _new_heating_setpoint
+            and _old_heating_setpoint != _new_heating_setpoint
             and self.real_trvs[entity_id]["last_temperature"] != _new_heating_setpoint
             and not child_lock
             and self.real_trvs[entity_id]["target_temp_received"] is True
@@ -146,12 +157,8 @@ async def trigger_trv_change(self, event):
             _LOGGER.debug(
                 f"better_thermostat {self.name}: TRV {entity_id} decoded TRV target temp changed from {self.bt_target_temp} to {_new_heating_setpoint}"
             )
-            if (
-                child_lock is False
-                and self.real_trvs[entity_id]["target_temp_received"] is True
-            ):
-                self.bt_target_temp = _new_heating_setpoint
-                _main_change = True
+            self.bt_target_temp = _new_heating_setpoint
+            _main_change = True
 
     if _main_change is True:
         self.async_write_ha_state()

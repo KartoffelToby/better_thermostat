@@ -351,7 +351,6 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
             return
 
         self.hass.async_create_task(trigger_trv_change(self, event))
-        # await trigger_trv_change(self, event)
 
     async def _trigger_window_change(self, event):
         self.async_set_context(event.context)
@@ -469,7 +468,7 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
                 self.cur_humidity = convert_to_float(
                     str(self.hass.states.get(self.humidity_entity_id).state),
                     self.name,
-                    "startuo()",
+                    "startup()",
                 )
             if self.window_id is not None:
                 window = self.hass.states.get(self.window_id)
@@ -825,7 +824,7 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
     def hvac_action(self):
         """Return the current HVAC action"""
         if self.attr_hvac_action is None:
-            if self.bt_target_temp >= self.cur_temp:
+            if self.bt_target_temp > self.cur_temp:
                 return HVACAction.HEATING
             else:
                 return HVACAction.IDLE

@@ -149,15 +149,15 @@ def calculate_setpoint_override(self, entity_id) -> Union[float, None]:
 
     if self.real_trvs[entity_id]["advanced"].get("fix_calibration", False) is True:
         _temp_diff = float(float(self.bt_target_temp) - float(self.cur_temp))
-        if _temp_diff > 0.3 and _calibrated_setpoint - _cur_trv_temp < 2.5:
-            _calibrated_setpoint += 2.5
+        if _temp_diff > 0.0 and _calibrated_setpoint - _cur_trv_temp < 1.5:
+            _calibrated_setpoint += 1.5
 
     # check if new setpoint is inside the TRV's range, else set to min or max
     if _calibrated_setpoint < self.real_trvs[entity_id]["min_temp"]:
         _calibrated_setpoint = self.real_trvs[entity_id]["min_temp"]
     if _calibrated_setpoint > self.real_trvs[entity_id]["max_temp"]:
         _calibrated_setpoint = self.real_trvs[entity_id]["max_temp"]
-    return _calibrated_setpoint
+    return round(_calibrated_setpoint, 1)
 
 
 def convert_to_float(
@@ -182,12 +182,12 @@ def convert_to_float(
             If error occurred and cannot convert the value.
     """
     if isinstance(value, float):
-        return value
+        return round(value, 1)
     elif value is None or value == "None":
         return None
     else:
         try:
-            return float(str(format(float(value), ".1f")))
+            return round(float(str(format(float(value), ".1f"))), 1)
         except (ValueError, TypeError, AttributeError, KeyError):
             _LOGGER.debug(
                 f"better thermostat {instance_name}: Could not convert '{value}' to float in {context}"
