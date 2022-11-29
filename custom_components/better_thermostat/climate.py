@@ -831,7 +831,7 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
             if self.bt_target_temp > self.cur_temp:
                 return HVACAction.HEATING
             else:
-                return HVACAction.IDLEs
+                return HVACAction.IDLE
         return self.attr_hvac_action
 
     @property
