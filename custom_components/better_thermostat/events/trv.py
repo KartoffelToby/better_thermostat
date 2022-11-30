@@ -228,6 +228,8 @@ def calculate_heating_power(self):
         elif (
             self.attr_hvac_action == HVACAction.IDLE
             and self.old_attr_hvac_action == HVACAction.HEATING
+            and self.heating_start_temp is not None
+            and self.heating_start_timestamp is not None
         ):
             _temp_diff = self.cur_temp - self.heating_start_temp
             _time_diff_minutes = round(
@@ -236,7 +238,7 @@ def calculate_heating_power(self):
             _degrees_time = round(_temp_diff / _time_diff_minutes, 4)
             self.heating_power = self.heating_power * 0.9 + _degrees_time * 0.1
             _LOGGER.debug(
-                f"temp_diff: {_temp_diff} - time: {_time_diff_minutes} - degrees_time: {_degrees_time} - heating_power: {self.heating_power}"
+                f"better_thermostat {self.name}: calculate_heating_power / temp_diff: {round(_temp_diff, 1)} - time: {_time_diff_minutes} - degrees_time: {round(_degrees_time, 4)} - heating_power: {round(self.heating_power, 2)}"
             )
 
     self.old_attr_hvac_action = self.attr_hvac_action

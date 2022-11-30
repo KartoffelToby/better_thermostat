@@ -228,6 +228,8 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
         self._context = None
         self.attr_hvac_action = None
         self.old_attr_hvac_action = None
+        self.heating_start_temp = None
+        self.heating_start_timestamp = None
         self._async_unsub_state_changed = None
         self.old_external_temp = 0
         self.old_internal_temp = 0
