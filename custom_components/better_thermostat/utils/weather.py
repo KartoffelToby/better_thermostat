@@ -43,7 +43,8 @@ def check_weather(self) -> bool:
         if None in (self.last_avg_outdoor_temp, self.off_temperature):
             # TODO: add condition if heating period (oct-mar) then set it to true?
             _LOGGER.warning(
-                "better_thermostat %s: no outdoor sensor data found. fallback to heat", self.name
+                "better_thermostat %s: no outdoor sensor data found. fallback to heat",
+                self.name,
             )
             _call_for_heat_outdoor = True
         else:
