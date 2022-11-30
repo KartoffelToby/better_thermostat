@@ -43,9 +43,9 @@ def check_weather(self) -> bool:
         if None in (self.last_avg_outdoor_temp, self.off_temperature):
             # TODO: add condition if heating period (oct-mar) then set it to true?
             _LOGGER.warning(
-                "better_thermostat %s: no outdoor sensor data found.", self.name
+                "better_thermostat %s: no outdoor sensor data found. fallback to heat", self.name
             )
-            _call_for_heat_outdoor = False
+            _call_for_heat_outdoor = True
         else:
             _call_for_heat_outdoor = self.last_avg_outdoor_temp < self.off_temperature
 
@@ -139,6 +139,11 @@ async def check_ambient_air_temperature(self):
         )
         return None
 
+    self.last_avg_outdoor_temp = convert_to_float(
+        self.hass.states.get(self.outdoor_sensor).state,
+        self.name,
+        "check_ambient_air_temperature()",
+    )
     if "recorder" in self.hass.config.components:
         _temp_history = DailyHistory(2)
         start_date = dt_util.utcnow() - timedelta(days=2)
@@ -177,7 +182,7 @@ async def check_ambient_air_temperature(self):
 
         _LOGGER.debug("Initializing from database completed")
     else:
-        avg_temp = None
+        avg_temp = self.last_avg_outdoor_temp
 
     _LOGGER.debug(
         f"better_thermostat {self.name}: avg outdoor temp: {avg_temp}, threshold is {self.off_temperature}"
