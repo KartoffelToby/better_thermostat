@@ -230,7 +230,7 @@ def calculate_heating_power(self):
             and self.old_attr_hvac_action == HVACAction.HEATING
         ):
             _temp_diff = self.cur_temp - self.heating_start_temp
-            _time_diff_minutes = (datetime.now() - self.heating_start_timestamp).seconds
+            _time_diff_minutes = (datetime.now() - self.heating_start_timestamp).minutes
             _degrees_time = round(_temp_diff / _time_diff_minutes, 4)
             self.heating_power = self.heating_power * 0.9 + _degrees_time * 0.1
             _LOGGER.debug(
