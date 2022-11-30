@@ -37,8 +37,8 @@ def check_weather(self) -> bool:
 
     if self.outdoor_sensor is not None:
         if None in (self.last_avg_outdoor_temp, self.off_temperature):
-            # TODO: add condition if heating period (oct-mar) then set it to true?
-            _call_for_heat_outdoor = False
+            # better to fallback to heat, than not to heat. (if it's too warm, then the TRV doesn't heat anyways)
+            _call_for_heat_outdoor = True 
         else:
             _call_for_heat_outdoor = self.last_avg_outdoor_temp < self.off_temperature
 
@@ -132,6 +132,12 @@ async def check_ambient_air_temperature(self):
         )
         return None
 
+    self.last_avg_outdoor_temp = convert_to_float(
+        self.hass.states.get(self.outdoor_sensor).state,
+        self.name,
+        "check_ambient_air_temperature()",
+    )
+
     last_two_days_date_time = datetime.now() - timedelta(days=2)
     start = dt_util.as_utc(last_two_days_date_time)
     history_list = await get_instance(self.hass).async_add_executor_job(
@@ -147,13 +153,10 @@ async def check_ambient_air_temperature(self):
     invalid_sensor_data_count = 0
     if historic_sensor_data is not None:
         _LOGGER.warning(
-            f"better_thermostat {self.name}: {self.outdoor_sensor} has no historic data."
+            f"better_thermostat {self.name}: {self.outdoor_sensor} has no historic data. Using the current state: {self.last_avg_outdoor_temp}"
         )
-        return convert_to_float(
-            self.hass.states.get(self.outdoor_sensor).state,
-            self.name,
-            "check_ambient_air_temperature()",
-        )
+        
+        return None
     for measurement in historic_sensor_data:
         if isinstance(
             measurement := convert_to_float(
