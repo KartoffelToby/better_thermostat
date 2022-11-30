@@ -208,8 +208,36 @@ def update_hvac_action(self):
     else:
         self.attr_hvac_action = HVACAction.IDLE
 
+    calculate_heating_power(self)
+
     self.async_write_ha_state()
     return
+
+
+def calculate_heating_power(self):
+    if (
+        self.old_attr_hvac_action is not None
+        and self.attr_hvac_action != self.old_attr_hvac_action
+    ):
+        if (
+            self.attr_hvac_action == HVACAction.HEATING
+            and self.old_attr_hvac_action == HVACAction.IDLE
+        ):
+            self.heating_start_temp = self.cur_temp
+            self.heating_start_timestamp = datetime.now()
+        elif (
+            self.attr_hvac_action == HVACAction.IDLE
+            and self.old_attr_hvac_action == HVACAction.HEATING
+        ):
+            _temp_diff = self.cur_temp - self.heating_start_temp
+            _time_diff_minutes = (datetime.now() - self.heating_start_timestamp).seconds
+            _degrees_time = round(_temp_diff / _time_diff_minutes, 4)
+            self.heating_power = self.heating_power * 0.9 + _degrees_time * 0.1
+            _LOGGER.debug(
+                f"temp_diff: {_temp_diff} - time: {_time_diff_minutes} - degrees_time: {_degrees_time} - heating_power: {self.heating_power}"
+            )
+
+    self.old_attr_hvac_action = self.attr_hvac_action
 
 
 def convert_inbound_states(self, entity_id, state: State) -> str:
