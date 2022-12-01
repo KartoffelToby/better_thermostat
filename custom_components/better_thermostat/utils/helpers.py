@@ -150,11 +150,14 @@ def calculate_setpoint_override(self, entity_id) -> Union[float, None]:
     if self.real_trvs[entity_id]["advanced"].get("fix_calibration", False) is True:
         _temp_diff = float(float(self.bt_target_temp) - float(self.cur_temp))
         _boost_exp = 0.05 / self.heating_power
-        _LOGGER.debug(f"_boost_exp: {_boost_exp}")
 
         # heating power boost
         if _temp_diff > 0.0:
-            _calibrated_setpoint = (_temp_diff * _boost_exp) + _cur_trv_temp
+            _temp_boost = 1.0
+            if self.cur_temp > 18.0:
+                _temp_boost = 1 + ((self.cur_temp - 18.0) / 10 * 2)
+            _LOGGER.debug(f"better_thermostat {self.name}: _boost_exp: {_boost_exp} - _temp_boost: {_temp_boost}")
+            _calibrated_setpoint = ((_temp_diff * _temp_boost) * _boost_exp) + _cur_trv_temp
 
         # device SEA802 fix
         if _temp_diff > 0.0 and _calibrated_setpoint - _cur_trv_temp < 1.5:

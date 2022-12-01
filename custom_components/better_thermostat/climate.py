@@ -146,6 +146,10 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
             self._saved_temperature = None
             self.async_write_ha_state()
             await self.control_queue_task.put(self)
+    
+    async def reset_heating_power(self):
+        self.heating_power = 0.025
+        self.async_write_ha_state()
 
     @property
     def device_info(self):
