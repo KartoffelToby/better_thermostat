@@ -31,6 +31,7 @@ from homeassistant.const import CONF_NAME
 from homeassistant.core import callback
 from homeassistant.helpers import selector
 from homeassistant.components.climate.const import HVACMode
+from homeassistant.helpers import config_validation as cv
 
 
 from . import DOMAIN  # pylint:disable=unused-import
@@ -39,7 +40,7 @@ _LOGGER = logging.getLogger(__name__)
 
 
 class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
-    VERSION = 2
+    VERSION = 3
     CONNECTION_CLASS = config_entries.CONN_CLASS_LOCAL_POLL
 
     def __init__(self):
@@ -194,6 +195,19 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 self.data[CONF_OUTDOOR_SENSOR] = None
             if CONF_WEATHER not in self.data:
                 self.data[CONF_WEATHER] = None
+
+            if CONF_WINDOW_TIMEOUT in self.data:
+                self.data[CONF_WINDOW_TIMEOUT] = (
+                    int(
+                        cv.time_period_dict(
+                            user_input.get(CONF_WINDOW_TIMEOUT, None)
+                        ).total_seconds()
+                    )
+                    or 0
+                )
+            else:
+                self.data[CONF_WINDOW_TIMEOUT] = 0
+
             if "base" not in errors:
                 for trv in self.heater_entity_id:
                     _intigration = await get_trv_intigration(self, trv)
@@ -303,7 +317,10 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
 
             self.updated_config[CONF_HEATER] = self.trv_bundle
             _LOGGER.debug("Updated config: %s", self.updated_config)
-            return self.async_create_entry(title="", data=self.updated_config)
+            self.hass.config_entries.async_update_entry(
+                self.config_entry, data=self.updated_config
+            )
+            return self.async_create_entry(title="", data=None)
 
         user_input = user_input or {}
         homematic = False
@@ -403,9 +420,18 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
                 CONF_OUTDOOR_SENSOR, None
             )
             self.updated_config[CONF_WEATHER] = user_input.get(CONF_WEATHER, None)
-            self.updated_config[CONF_WINDOW_TIMEOUT] = user_input.get(
-                CONF_WINDOW_TIMEOUT, None
-            )
+
+            if CONF_WINDOW_TIMEOUT in self.updated_config:
+                self.updated_config[CONF_WINDOW_TIMEOUT] = (
+                    int(
+                        cv.time_period_dict(
+                            user_input.get(CONF_WINDOW_TIMEOUT, None)
+                        ).total_seconds()
+                    )
+                    or 0
+                )
+            else:
+                self.updated_config[CONF_WINDOW_TIMEOUT] = 0
 
             self.updated_config[CONF_OFF_TEMPERATURE] = user_input.get(
                 CONF_OFF_TEMPERATURE
@@ -495,14 +521,18 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
             selector.EntitySelectorConfig(domain="weather", multiple=False)
         )
 
+        _timeout = self.config_entry.data.get(CONF_WINDOW_TIMEOUT, 0)
+        _timeout = str(cv.time_period_seconds(_timeout))
+        _timeout = {
+            "hours": int(_timeout.split(":", maxsplit=1)[0]),
+            "minutes": int(_timeout.split(":")[1]),
+            "seconds": int(_timeout.split(":")[2]),
+        }
         fields[
             vol.Optional(
                 CONF_WINDOW_TIMEOUT,
-                description={
-                    "suggested_value": self.config_entry.data.get(
-                        CONF_WINDOW_TIMEOUT, None
-                    )
-                },
+                default=_timeout,
+                description={"suggested_value": _timeout},
             )
         ] = selector.DurationSelector()
 
