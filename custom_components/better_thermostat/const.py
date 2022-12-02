@@ -39,7 +39,9 @@ CONF_PRECISION = "precision"
 CONF_CALIBRATION = "calibration"
 CONF_CHILD_LOCK = "child_lock"
 CONF_CALIBRATIION_ROUND = "calibration_round"
+CONF_CALIBRATION_MODE = "calibration_mode"
 CONF_FIX_CALIBRATION = "fix_calibration"
+CONF_HEATING_POWER_CALIBRATION = "heating_power_calibration"
 CONF_HEAT_AUTO_SWAPPED = "heat_auto_swapped"
 CONF_MODEL = "model"
 CONF_HOMATICIP = "homaticip"
@@ -53,9 +55,11 @@ ATTR_STATE_SAVED_TEMPERATURE = "saved_temperature"
 ATTR_VALVE_POSITION = "valve_position"
 ATTR_STATE_HUMIDIY = "humidity"
 ATTR_STATE_MAIN_MODE = "main_mode"
+ATTR_STATE_HEATING_POWER = 'heating_power'
 
 SERVICE_RESTORE_SAVED_TARGET_TEMPERATURE = "restore_saved_target_temperature"
 SERVICE_SET_TEMP_TARGET_TEMPERATURE = "set_temp_target_temperature"
+SERVICE_RESET_HEATING_POWER = "reset_heating_power"
 
 BETTERTHERMOSTAT_SET_TEMPERATURE_SCHEMA = vol.All(
     cv.has_at_least_one_key(ATTR_TEMPERATURE),

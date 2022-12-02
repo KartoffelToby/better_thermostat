@@ -45,6 +45,7 @@ from .const import (
     ATTR_STATE_MAIN_MODE,
     ATTR_STATE_WINDOW_OPEN,
     ATTR_STATE_SAVED_TEMPERATURE,
+    ATTR_STATE_HEATING_POWER,
     CONF_HEATER,
     CONF_HUMIDITY,
     CONF_MODEL,
@@ -58,6 +59,7 @@ from .const import (
     SUPPORT_FLAGS,
     VERSION,
     SERVICE_SET_TEMP_TARGET_TEMPERATURE,
+    SERVICE_RESET_HEATING_POWER,
     BETTERTHERMOSTAT_SET_TEMPERATURE_SCHEMA,
     BetterThermostatEntityFeature,
 )
@@ -79,6 +81,8 @@ async def async_setup_entry(hass, entry, async_add_devices):
             await self.restore_temp_temperature()
         elif data.service == SERVICE_SET_TEMP_TARGET_TEMPERATURE:
             await self.set_temp_temperature(data.data[ATTR_TEMPERATURE])
+        elif data.service == SERVICE_RESET_HEATING_POWER:
+            await self.reset_heating_power
 
     platform = entity_platform.async_get_current_platform()
     platform.async_register_entity_service(
@@ -92,6 +96,9 @@ async def async_setup_entry(hass, entry, async_add_devices):
     )
     platform.async_register_entity_service(
         SERVICE_RESTORE_SAVED_TARGET_TEMPERATURE, {}, async_service_handler
+    )
+    platform.async_register_entity_service(
+        SERVICE_RESET_HEATING_POWER, {}, async_service_handler
     )
 
     async_add_devices(
@@ -146,6 +153,10 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
             self._saved_temperature = None
             self.async_write_ha_state()
             await self.control_queue_task.put(self)
+
+    async def reset_heating_power(self):
+        self.heating_power = 0.01
+        self.async_write_ha_state()
 
     @property
     def device_info(self):
@@ -227,6 +238,9 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
         self._available = False
         self._context = None
         self.attr_hvac_action = None
+        self.old_attr_hvac_action = None
+        self.heating_start_temp = None
+        self.heating_start_timestamp = None
         self._async_unsub_state_changed = None
         self.old_external_temp = 0
         self.old_internal_temp = 0
@@ -236,6 +250,8 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
         asyncio.create_task(control_queue(self))
         if self.window_id is not None:
             asyncio.create_task(window_queue(self))
+        self.heating_power = 0.01
+        self.last_heating_power_stats = []
 
     async def async_added_to_hass(self):
         """Run when entity about to be added.
@@ -548,6 +564,10 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
                     self.last_main_hvac_mode = old_state.attributes.get(
                         ATTR_STATE_MAIN_MODE
                     )
+                if old_state.attributes.get(ATTR_STATE_HEATING_POWER, None) is not None:
+                    self.heating_power = float(
+                        old_state.attributes.get(ATTR_STATE_HEATING_POWER)
+                    )
 
             else:
                 # No previous state, try and restore defaults
@@ -714,6 +734,7 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
             ATTR_STATE_SAVED_TEMPERATURE: self._saved_temperature,
             ATTR_STATE_HUMIDIY: self.cur_humidity,
             ATTR_STATE_MAIN_MODE: self.last_main_hvac_mode,
+            ATTR_STATE_HEATING_POWER: self.heating_power,
         }
 
         return dev_specific
