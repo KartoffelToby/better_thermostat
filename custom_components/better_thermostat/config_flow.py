@@ -40,17 +40,14 @@ _LOGGER = logging.getLogger(__name__)
 
 CALIBRATION_TYPE_SELECTOR = selector.SelectSelector(
     selector.SelectSelectorConfig(
-        options=[CalibrationType.target_temp_based],
+        options=[CalibrationType.TARGET_TEMP_BASED],
         mode=selector.SelectSelectorMode.DROPDOWN,
     )
 )
 
 CALIBRATION_TYPE_ALL_SELECTOR = selector.SelectSelector(
     selector.SelectSelectorConfig(
-        options=[
-            CalibrationType.target_temp_based,
-            CalibrationType.local_calibration_based,
-        ],
+        options=[CalibrationType.TARGET_TEMP_BASED, CalibrationType.LOCAL_BASED],
         mode=selector.SelectSelectorMode.DROPDOWN,
     )
 )

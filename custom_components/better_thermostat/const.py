@@ -82,8 +82,8 @@ class BetterThermostatEntityFeature(IntEnum):
 class CalibrationType(StrEnum):
     """Calibration type"""
 
-    target_temp_based = "target_temp_based"
-    local_calibration_based = "local_calibration_based"
+    TARGET_TEMP_BASED = "target_temp_based"
+    LOCAL_BASED = "local_calibration_based"
 
 
 class CalibrationMode(StrEnum):
