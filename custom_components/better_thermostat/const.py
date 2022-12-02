@@ -1,6 +1,8 @@
 """"""
 import json
 from enum import IntEnum
+from homeassistant.backports.enum import StrEnum
+
 import logging
 import voluptuous as vol
 import homeassistant.helpers.config_validation as cv
@@ -55,7 +57,8 @@ ATTR_STATE_SAVED_TEMPERATURE = "saved_temperature"
 ATTR_VALVE_POSITION = "valve_position"
 ATTR_STATE_HUMIDIY = "humidity"
 ATTR_STATE_MAIN_MODE = "main_mode"
-ATTR_STATE_HEATING_POWER = 'heating_power'
+ATTR_STATE_HEATING_POWER = "heating_power"
+ATTR_STATE_HEATING_STATS = "heating_stats"
 
 SERVICE_RESTORE_SAVED_TARGET_TEMPERATURE = "restore_saved_target_temperature"
 SERVICE_SET_TEMP_TARGET_TEMPERATURE = "set_temp_target_temperature"
@@ -74,3 +77,18 @@ class BetterThermostatEntityFeature(IntEnum):
 
     TARGET_TEMPERATURE = 1
     TARGET_TEMPERATURE_RANGE = 2
+
+
+class CalibrationType(StrEnum):
+    """Calibration type"""
+
+    target_temp_based = "target_temp_based"
+    local_calibration_based = "local_calibration_based"
+
+
+class CalibrationMode(StrEnum):
+    """Calibration mode."""
+
+    DEFAULT = "default"
+    FIX_CALIBRATION = "fix_calibration"
+    HEATING_POWER_CALIBRATION = "heating_power_calibration"

@@ -110,22 +110,36 @@ def calculate_local_setpoint_delta(self, entity_id) -> Union[float, None]:
         )
         return None
 
-    if self.real_trvs[entity_id]["advanced"].get("fix_calibration", False) is True:
-        _temp_diff = float(float(self.bt_target_temp) - float(self.cur_temp))
-        if _temp_diff > 0.2 and _temp_diff < 1:
-            _cur_trv_temp = round_to_half_degree(_cur_trv_temp)
-            _cur_trv_temp += 0.5
-        if _temp_diff >= 1.2:
-            _cur_trv_temp = round_to_half_degree(_cur_trv_temp)
-            _cur_trv_temp += 2.5
-        if _temp_diff > -0.2 and _temp_diff < 0:
-            _cur_trv_temp = round_down_to_half_degree(_cur_trv_temp)
-            _cur_trv_temp -= 0.5
-        if _temp_diff >= -1.2 and _temp_diff < 0:
-            _cur_trv_temp = round_down_to_half_degree(_cur_trv_temp)
-            _cur_trv_temp -= 2.5
-
     _new_local_calibration = (self.cur_temp - _cur_trv_temp) + _current_trv_calibration
+
+    _calibration_mode = self.real_trvs[entity_id]["advanced"].get(
+        "calibration_mode", "default"
+    )
+    if _calibration_mode == CONF_FIX_CALIBRATION:
+        _temp_diff = float(float(self.bt_target_temp) - float(self.cur_temp))
+        if _temp_diff > 0.0 and _new_local_calibration < 2.5:
+            _new_local_calibration += 2.5
+
+    elif _calibration_mode == CONF_HEATING_POWER_CALIBRATION:
+        _temp_diff = float(float(self.bt_target_temp) - float(self.cur_temp))
+        _boost_exp = 0.05 / self.heating_power
+
+        # heating power boost
+        if _temp_diff > 0.0:
+            _temp_boost = 1.0
+            if self.cur_temp > 18.0:
+                _temp_boost = 1 + ((self.cur_temp - 18.0) / 10 * 2)
+            _LOGGER.debug(
+                f"better_thermostat {self.name}: {entity_id} - _boost_exp: {round(_boost_exp, 2)} - _temp_boost: {round(_temp_boost, 2)}"
+            )
+            _new_local_calibration = (
+                (_temp_diff * _temp_boost) * _boost_exp
+            ) + _current_trv_calibration
+
+            # device SEA802 fix
+            if _new_local_calibration < 1.5:
+                _new_local_calibration += 1.5
+
     return convert_to_float(str(_new_local_calibration), self.name, _context)
 
 

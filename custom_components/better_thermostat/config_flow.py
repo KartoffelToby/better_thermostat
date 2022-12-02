@@ -12,7 +12,6 @@ from .const import (
     CONF_CALIBRATIION_ROUND,
     CONF_CALIBRATION,
     CONF_CHILD_LOCK,
-    CONF_FIX_CALIBRATION,
     CONF_HEAT_AUTO_SWAPPED,
     CONF_HEATER,
     CONF_HOMATICIP,
@@ -26,7 +25,8 @@ from .const import (
     CONF_WEATHER,
     CONF_WINDOW_TIMEOUT,
     CONF_CALIBRATION_MODE,
-    CONF_HEATING_POWER_CALIBRATION,
+    CalibrationMode,
+    CalibrationType,
 )
 from homeassistant import config_entries
 from homeassistant.const import CONF_NAME
@@ -39,6 +39,34 @@ from homeassistant.helpers import config_validation as cv
 from . import DOMAIN  # pylint:disable=unused-import
 
 _LOGGER = logging.getLogger(__name__)
+
+CALIBRATION_TYPE_SELECTOR = selector.SelectSelector(
+    selector.SelectSelectorConfig(
+        options=[CalibrationType.target_temp_based],
+        mode=selector.SelectSelectorMode.DROPDOWN,
+    )
+)
+
+CALIBRATION_TYPE_ALL_SELECTOR = selector.SelectSelector(
+    selector.SelectSelectorConfig(
+        options=[
+            CalibrationType.target_temp_based,
+            CalibrationType.local_calibration_based,
+        ],
+        mode=selector.SelectSelectorMode.DROPDOWN,
+    )
+)
+
+CALIBRATION_MODE_SELECTOR = selector.SelectSelector(
+    selector.SelectSelectorConfig(
+        options=[
+            CalibrationMode.DEFAULT,
+            CalibrationMode.FIX_CALIBRATION,
+            CalibrationMode.HEATING_POWER_CALIBRATION,
+        ],
+        mode=selector.SelectSelectorMode.DROPDOWN,
+    )
+)
 
 
 class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
@@ -111,22 +139,42 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
 
         fields = OrderedDict()
 
-        _calibration = {"target_temp_based": "Target Temperature"}
         _default_calibration = "target_temp_based"
         _adapter = _trv_config.get("adapter", None)
         if _adapter is not None:
             _info = await _adapter.get_info(self, _trv_config.get("trv"))
 
             if _info.get("support_offset", False):
-                _calibration["local_calibration_based"] = "Local Calibration"
                 _default_calibration = "local_calibration_based"
+
+        if _default_calibration == "local_calibration_based":
+            fields[
+                vol.Required(
+                    CONF_CALIBRATION,
+                    default=user_input.get(CONF_CALIBRATION, _default_calibration),
+                )
+            ] = CALIBRATION_TYPE_ALL_SELECTOR
+        else:
+            fields[
+                vol.Required(
+                    CONF_CALIBRATION,
+                    default=user_input.get(CONF_CALIBRATION, _default_calibration),
+                )
+            ] = CALIBRATION_TYPE_SELECTOR
 
         fields[
             vol.Required(
-                CONF_CALIBRATION,
-                default=user_input.get(CONF_CALIBRATION, _default_calibration),
+                CONF_CALIBRATION_MODE,
+                default=user_input.get(CONF_CALIBRATION_MODE, CalibrationMode.DEFAULT),
             )
-        ] = vol.In(_calibration)
+        ] = CALIBRATION_MODE_SELECTOR
+
+        fields[
+            vol.Optional(
+                CONF_CALIBRATIION_ROUND,
+                default=user_input.get(CONF_CALIBRATIION_ROUND, True),
+            )
+        ] = bool
 
         has_auto = False
         trv = self.hass.states.get(_trv_config.get("trv"))
@@ -137,25 +185,6 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             vol.Optional(
                 CONF_HEAT_AUTO_SWAPPED,
                 default=user_input.get(CONF_HEAT_AUTO_SWAPPED, has_auto),
-            )
-        ] = bool
-
-        _calibration_mode = {
-            "default": "default",
-            CONF_FIX_CALIBRATION: CONF_FIX_CALIBRATION,
-            CONF_HEATING_POWER_CALIBRATION: CONF_HEATING_POWER_CALIBRATION,
-        }
-        fields[
-            vol.Required(
-                CONF_CALIBRATION_MODE,
-                default=user_input.get(CONF_CALIBRATION_MODE, "default"),
-            )
-        ] = vol.In(_calibration_mode)
-
-        fields[
-            vol.Optional(
-                CONF_CALIBRATIION_ROUND,
-                default=user_input.get(CONF_CALIBRATIION_ROUND, True),
             )
         ] = bool
 
@@ -226,7 +255,6 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                             "adapter": load_adapter(self, _intigration, trv),
                         }
                     )
-
                 self.data[CONF_MODEL] = "/".join([x["model"] for x in self.trv_bundle])
                 return await self.async_step_advanced(None, self.trv_bundle[0])
 
@@ -327,7 +355,9 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
             self.hass.config_entries.async_update_entry(
                 self.config_entry, data=self.updated_config
             )
-            return self.async_create_entry(title=self.updated_config["name"], data=self.updated_config)
+            return self.async_create_entry(
+                title=self.updated_config["name"], data=self.updated_config
+            )
 
         user_input = user_input or {}
         homematic = False
@@ -336,7 +366,6 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
 
         fields = OrderedDict()
 
-        _calibration = {"target_temp_based": "Target Temperature"}
         _default_calibration = "target_temp_based"
         self.name = user_input.get(CONF_NAME, "-")
 
@@ -347,17 +376,48 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
             _info = await _adapter.get_info(self, _trv_config.get("trv"))
 
             if _info.get("support_offset", False):
-                _calibration["local_calibration_based"] = "Local Calibration"
                 _default_calibration = "local_calibration_based"
+
+        if _default_calibration == "local_calibration_based":
+            fields[
+                vol.Required(
+                    CONF_CALIBRATION,
+                    default=user_input.get(
+                        CONF_CALIBRATION,
+                        _trv_config["advanced"].get(
+                            CONF_CALIBRATION, _default_calibration
+                        ),
+                    ),
+                )
+            ] = CALIBRATION_TYPE_ALL_SELECTOR
+        else:
+            fields[
+                vol.Required(
+                    CONF_CALIBRATION,
+                    default=user_input.get(
+                        CONF_CALIBRATION,
+                        _trv_config["advanced"].get(
+                            CONF_CALIBRATION, _default_calibration
+                        ),
+                    ),
+                )
+            ] = CALIBRATION_TYPE_SELECTOR
 
         fields[
             vol.Required(
-                CONF_CALIBRATION,
+                CONF_CALIBRATION_MODE,
                 default=_trv_config["advanced"].get(
-                    CONF_CALIBRATION, _default_calibration
+                    CONF_CALIBRATION_MODE, CalibrationMode.DEFAULT
                 ),
             )
-        ] = vol.In(_calibration)
+        ] = CALIBRATION_MODE_SELECTOR
+
+        fields[
+            vol.Optional(
+                CONF_CALIBRATIION_ROUND,
+                default=_trv_config["advanced"].get(CONF_CALIBRATIION_ROUND, True),
+            )
+        ] = bool
 
         has_auto = False
         trv = self.hass.states.get(_trv_config.get("trv"))
@@ -368,25 +428,6 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
             vol.Optional(
                 CONF_HEAT_AUTO_SWAPPED,
                 default=_trv_config["advanced"].get(CONF_HEAT_AUTO_SWAPPED, has_auto),
-            )
-        ] = bool
-
-        _calibration_mode = {
-            "default": "default",
-            CONF_FIX_CALIBRATION: CONF_FIX_CALIBRATION,
-            CONF_HEATING_POWER_CALIBRATION: CONF_HEATING_POWER_CALIBRATION,
-        }
-        fields[
-            vol.Required(
-                CONF_CALIBRATION_MODE,
-                default=_trv_config["advanced"].get(CONF_CALIBRATION_MODE, "default"),
-            )
-        ] = vol.In(_calibration_mode)
-
-        fields[
-            vol.Optional(
-                CONF_CALIBRATIION_ROUND,
-                default=_trv_config["advanced"].get(CONF_CALIBRATIION_ROUND, True),
             )
         ] = bool
 

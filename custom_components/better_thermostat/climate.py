@@ -40,6 +40,7 @@ from homeassistant.components.group.util import reduce_attribute
 from . import DOMAIN
 from .const import (
     ATTR_STATE_CALL_FOR_HEAT,
+    ATTR_STATE_HEATING_STATS,
     ATTR_STATE_HUMIDIY,
     ATTR_STATE_LAST_CHANGE,
     ATTR_STATE_MAIN_MODE,
@@ -568,6 +569,10 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
                     self.heating_power = float(
                         old_state.attributes.get(ATTR_STATE_HEATING_POWER)
                     )
+                if old_state.attributes.get(ATTR_STATE_HEATING_STATS, None) is not None:
+                    self.last_heating_power_stats = old_state.attributes.get(
+                        ATTR_STATE_HEATING_STATS
+                    )
 
             else:
                 # No previous state, try and restore defaults
@@ -735,6 +740,7 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
             ATTR_STATE_HUMIDIY: self.cur_humidity,
             ATTR_STATE_MAIN_MODE: self.last_main_hvac_mode,
             ATTR_STATE_HEATING_POWER: self.heating_power,
+            ATTR_STATE_HEATING_STATS: self.last_heating_power_stats,
         }
 
         return dev_specific
