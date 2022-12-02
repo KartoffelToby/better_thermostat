@@ -327,7 +327,7 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
             self.hass.config_entries.async_update_entry(
                 self.config_entry, data=self.updated_config
             )
-            return self.async_create_entry(title="", data=None)
+            return self.async_create_entry(title=self.updated_config["name"], data=self.updated_config)
 
         user_input = user_input or {}
         homematic = False
