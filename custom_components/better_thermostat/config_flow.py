@@ -1,6 +1,4 @@
 import logging
-
-
 import voluptuous as vol
 from collections import OrderedDict
 
