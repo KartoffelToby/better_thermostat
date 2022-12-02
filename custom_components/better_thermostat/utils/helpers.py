@@ -175,6 +175,11 @@ def calculate_setpoint_override(self, entity_id) -> Union[float, None]:
                 (_temp_diff * _temp_boost) * _boost_exp
             ) + _cur_trv_temp
 
+            # device SEA802 fix
+            if _calibrated_setpoint - _cur_trv_temp < 1.5:
+                _calibrated_setpoint = 1.5
+
+
     # check if new setpoint is inside the TRV's range, else set to min or max
     if _calibrated_setpoint < self.real_trvs[entity_id]["min_temp"]:
         _calibrated_setpoint = self.real_trvs[entity_id]["min_temp"]
