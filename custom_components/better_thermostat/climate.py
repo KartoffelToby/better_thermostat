@@ -149,7 +149,7 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
             await self.control_queue_task.put(self)
 
     async def reset_heating_power(self):
-        self.heating_power = 0.025
+        self.heating_power = 0.01
         self.async_write_ha_state()
 
     @property
@@ -244,7 +244,7 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
         asyncio.create_task(control_queue(self))
         if self.window_id is not None:
             asyncio.create_task(window_queue(self))
-        self.heating_power = 0.025
+        self.heating_power = 0.01
         self.last_heating_power_stats = []
 
     async def async_added_to_hass(self):
