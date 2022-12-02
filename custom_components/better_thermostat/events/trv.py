@@ -237,9 +237,19 @@ def calculate_heating_power(self):
             )
             if _time_diff_minutes > 1:
                 _degrees_time = round(_temp_diff / _time_diff_minutes, 4)
-                self.heating_power = self.heating_power * 0.9 + _degrees_time * 0.1
+                self.heating_power = round(
+                    (self.heating_power * 0.9 + _degrees_time * 0.1), 4
+                )
                 _LOGGER.debug(
                     f"better_thermostat {self.name}: calculate_heating_power / temp_diff: {round(_temp_diff, 1)} - time: {_time_diff_minutes} - degrees_time: {round(_degrees_time, 4)} - heating_power: {round(self.heating_power, 4)}"
+                )
+                self.last_heating_power_stats.append(
+                    {
+                        "temp_diff": round(_temp_diff, 1),
+                        "time": _time_diff_minutes,
+                        "degrees_time": round(_degrees_time, 4),
+                        "heating_power": round(self.heating_power, 4),
+                    }
                 )
 
     self.old_attr_hvac_action = self.attr_hvac_action

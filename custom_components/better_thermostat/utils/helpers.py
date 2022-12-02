@@ -9,7 +9,11 @@ from homeassistant.helpers.entity_registry import async_entries_for_config_entry
 from homeassistant.components.climate.const import HVACMode
 
 
-from ..const import CONF_HEAT_AUTO_SWAPPED
+from ..const import (
+    CONF_HEAT_AUTO_SWAPPED,
+    CONF_HEATING_POWER_CALIBRATION,
+    CONF_FIX_CALIBRATION,
+)
 
 
 _LOGGER = logging.getLogger(__name__)
@@ -147,7 +151,15 @@ def calculate_setpoint_override(self, entity_id) -> Union[float, None]:
 
     _calibrated_setpoint = (self.bt_target_temp - self.cur_temp) + _cur_trv_temp
 
-    if self.real_trvs[entity_id]["advanced"].get("fix_calibration", False) is True:
+    _calibration_mode = self.real_trvs[entity_id]["advanced"].get(
+        "calibration_mode", "default"
+    )
+    if _calibration_mode == CONF_FIX_CALIBRATION:
+        _temp_diff = float(float(self.bt_target_temp) - float(self.cur_temp))
+        if _temp_diff > 0.0 and _calibrated_setpoint - _cur_trv_temp < 2.5:
+            _calibrated_setpoint += 2.5
+
+    elif _calibration_mode == CONF_HEATING_POWER_CALIBRATION:
         _temp_diff = float(float(self.bt_target_temp) - float(self.cur_temp))
         _boost_exp = 0.05 / self.heating_power
 
@@ -156,12 +168,12 @@ def calculate_setpoint_override(self, entity_id) -> Union[float, None]:
             _temp_boost = 1.0
             if self.cur_temp > 18.0:
                 _temp_boost = 1 + ((self.cur_temp - 18.0) / 10 * 2)
-            _LOGGER.debug(f"better_thermostat {self.name}: _boost_exp: {_boost_exp} - _temp_boost: {_temp_boost}")
-            _calibrated_setpoint = ((_temp_diff * _temp_boost) * _boost_exp) + _cur_trv_temp
-
-        # device SEA802 fix
-        if _temp_diff > 0.0 and _calibrated_setpoint - _cur_trv_temp < 1.5:
-            _calibrated_setpoint += 1.5
+            _LOGGER.debug(
+                f"better_thermostat {self.name}: {entity_id} - _boost_exp: {round(_boost_exp, 2)} - _temp_boost: {round(_temp_boost, 2)}"
+            )
+            _calibrated_setpoint = (
+                (_temp_diff * _temp_boost) * _boost_exp
+            ) + _cur_trv_temp
 
     # check if new setpoint is inside the TRV's range, else set to min or max
     if _calibrated_setpoint < self.real_trvs[entity_id]["min_temp"]:

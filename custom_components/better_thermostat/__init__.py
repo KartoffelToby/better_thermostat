@@ -4,7 +4,12 @@ from homeassistant.const import Platform
 from homeassistant.core import HomeAssistant, Config
 from homeassistant.config_entries import ConfigEntry
 
-from .const import CONF_FIX_CALIBRATION, CONF_HEATER, CONF_WINDOW_TIMEOUT
+from .const import (
+    CONF_FIX_CALIBRATION,
+    CONF_CALIBRATION_MODE,
+    CONF_HEATER,
+    CONF_WINDOW_TIMEOUT,
+)
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -55,6 +60,19 @@ async def async_migrate_entry(hass, config_entry: ConfigEntry):
         new = {**config_entry.data}
         new[CONF_WINDOW_TIMEOUT] = 0
         config_entry.version = 3
+        hass.config_entries.async_update_entry(config_entry, data=new)
+
+    if config_entry.version == 3:
+        new = {**config_entry.data}
+        for trv in new[CONF_HEATER]:
+            if (
+                CONF_FIX_CALIBRATION in trv["advanced"]
+                and trv["advanced"][CONF_FIX_CALIBRATION]
+            ):
+                trv["advanced"].update({CONF_CALIBRATION_MODE: CONF_FIX_CALIBRATION})
+            else:
+                trv["advanced"].update({CONF_CALIBRATION_MODE: "default"})
+        config_entry.version = 4
         hass.config_entries.async_update_entry(config_entry, data=new)
 
     _LOGGER.info("Migration to version %s successful", config_entry.version)

@@ -25,6 +25,8 @@ from .const import (
     CONF_VALVE_MAINTENANCE,
     CONF_WEATHER,
     CONF_WINDOW_TIMEOUT,
+    CONF_CALIBRATION_MODE,
+    CONF_HEATING_POWER_CALIBRATION,
 )
 from homeassistant import config_entries
 from homeassistant.const import CONF_NAME
@@ -40,7 +42,7 @@ _LOGGER = logging.getLogger(__name__)
 
 
 class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
-    VERSION = 3
+    VERSION = 4
     CONNECTION_CLASS = config_entries.CONN_CLASS_LOCAL_POLL
 
     def __init__(self):
@@ -138,12 +140,17 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             )
         ] = bool
 
+        _calibration_mode = {
+            "default": "default",
+            CONF_FIX_CALIBRATION: CONF_FIX_CALIBRATION,
+            CONF_HEATING_POWER_CALIBRATION: CONF_HEATING_POWER_CALIBRATION,
+        }
         fields[
-            vol.Optional(
-                CONF_FIX_CALIBRATION,
-                default=user_input.get(CONF_FIX_CALIBRATION, False),
+            vol.Required(
+                CONF_CALIBRATION_MODE,
+                default=user_input.get(CONF_CALIBRATION_MODE, "default"),
             )
-        ] = bool
+        ] = vol.In(_calibration_mode)
 
         fields[
             vol.Optional(
@@ -364,12 +371,17 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
             )
         ] = bool
 
+        _calibration_mode = {
+            "default": "default",
+            CONF_FIX_CALIBRATION: CONF_FIX_CALIBRATION,
+            CONF_HEATING_POWER_CALIBRATION: CONF_HEATING_POWER_CALIBRATION,
+        }
         fields[
-            vol.Optional(
-                CONF_FIX_CALIBRATION,
-                default=_trv_config["advanced"].get(CONF_FIX_CALIBRATION, False),
+            vol.Required(
+                CONF_CALIBRATION_MODE,
+                default=_trv_config["advanced"].get(CONF_CALIBRATION_MODE, "default"),
             )
-        ] = bool
+        ] = vol.In(_calibration_mode)
 
         fields[
             vol.Optional(
