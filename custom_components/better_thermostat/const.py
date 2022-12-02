@@ -59,6 +59,7 @@ ATTR_STATE_HEATING_POWER = 'heating_power'
 
 SERVICE_RESTORE_SAVED_TARGET_TEMPERATURE = "restore_saved_target_temperature"
 SERVICE_SET_TEMP_TARGET_TEMPERATURE = "set_temp_target_temperature"
+SERVICE_RESET_HEATING_POWER = "reset_heating_power"
 
 BETTERTHERMOSTAT_SET_TEMPERATURE_SCHEMA = vol.All(
     cv.has_at_least_one_key(ATTR_TEMPERATURE),

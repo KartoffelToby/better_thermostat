@@ -59,6 +59,7 @@ from .const import (
     SUPPORT_FLAGS,
     VERSION,
     SERVICE_SET_TEMP_TARGET_TEMPERATURE,
+    SERVICE_RESET_HEATING_POWER,
     BETTERTHERMOSTAT_SET_TEMPERATURE_SCHEMA,
     BetterThermostatEntityFeature,
 )
@@ -80,6 +81,8 @@ async def async_setup_entry(hass, entry, async_add_devices):
             await self.restore_temp_temperature()
         elif data.service == SERVICE_SET_TEMP_TARGET_TEMPERATURE:
             await self.set_temp_temperature(data.data[ATTR_TEMPERATURE])
+        elif data.service == SERVICE_RESET_HEATING_POWER:
+            await self.reset_heating_power
 
     platform = entity_platform.async_get_current_platform()
     platform.async_register_entity_service(
@@ -93,6 +96,9 @@ async def async_setup_entry(hass, entry, async_add_devices):
     )
     platform.async_register_entity_service(
         SERVICE_RESTORE_SAVED_TARGET_TEMPERATURE, {}, async_service_handler
+    )
+    platform.async_register_entity_service(
+        SERVICE_RESET_HEATING_POWER, {}, async_service_handler
     )
 
     async_add_devices(
