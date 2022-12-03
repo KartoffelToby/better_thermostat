@@ -117,8 +117,8 @@ def calculate_local_setpoint_delta(self, entity_id) -> Union[float, None]:
     )
     if _calibration_mode == CONF_FIX_CALIBRATION:
         _temp_diff = float(float(self.bt_target_temp) - float(self.cur_temp))
-        if _temp_diff > 0.0 and _new_local_calibration < 2.5:
-            _new_local_calibration += 2.5
+        if _temp_diff > 0.30 and _new_local_calibration < 2.5:
+            _new_local_calibration -= 2.5
 
     elif _calibration_mode == CONF_HEATING_POWER_CALIBRATION:
         _temp_diff = float(float(self.bt_target_temp) - float(self.cur_temp))
@@ -133,12 +133,23 @@ def calculate_local_setpoint_delta(self, entity_id) -> Union[float, None]:
                 f"better_thermostat {self.name}: {entity_id} - _boost_exp: {round(_boost_exp, 2)} - _temp_boost: {round(_temp_boost, 2)}"
             )
             _new_local_calibration = (
-                (_temp_diff * _temp_boost) * _boost_exp
+                ((_temp_diff * _temp_boost) * _boost_exp) - _cur_trv_temp
             ) + _current_trv_calibration
 
             # device SEA802 fix
             if _new_local_calibration < 1.5:
-                _new_local_calibration += 1.5
+                _new_local_calibration -= 1.5
+
+    _new_local_calibration = convert_to_float(
+        str(_new_local_calibration), self.name, _context
+    )
+
+    _LOGGER.debug(
+        "better_thermostat %s: %s - _new_local_calibration: %s",
+        self.name,
+        entity_id,
+        _new_local_calibration,
+    )
 
     return convert_to_float(str(_new_local_calibration), self.name, _context)
 
