@@ -117,7 +117,7 @@ def calculate_local_setpoint_delta(self, entity_id) -> Union[float, None]:
     )
     if _calibration_mode == CONF_FIX_CALIBRATION:
         _temp_diff = float(float(self.bt_target_temp) - float(self.cur_temp))
-        if _temp_diff > 0.30 and _new_local_calibration < 2.5:
+        if _temp_diff > 0.30 and _new_local_calibration > -2.5:
             _new_local_calibration -= 2.5
 
     elif False and _calibration_mode == CONF_HEATING_POWER_CALIBRATION:
@@ -137,7 +137,7 @@ def calculate_local_setpoint_delta(self, entity_id) -> Union[float, None]:
             ) + _current_trv_calibration
 
             # device SEA802 fix
-            if _new_local_calibration < 1.5:
+            if _new_local_calibration > -1.5:
                 _new_local_calibration -= 1.5
     elif _calibration_mode == CONF_HEATING_POWER_CALIBRATION:
         _temp_diff = float(float(self.bt_target_temp) - float(self.cur_temp))
@@ -148,7 +148,7 @@ def calculate_local_setpoint_delta(self, entity_id) -> Union[float, None]:
             )
 
             # have at least 1.5 degrees, to start heating
-            if _new_local_calibration < 1.5:
+            if _new_local_calibration > -1.5:
                 _new_local_calibration -= 1.5
 
     _new_local_calibration = convert_to_float(
