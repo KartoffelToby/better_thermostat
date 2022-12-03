@@ -120,7 +120,7 @@ def calculate_local_setpoint_delta(self, entity_id) -> Union[float, None]:
         if _temp_diff > 0.30 and _new_local_calibration < 2.5:
             _new_local_calibration -= 2.5
 
-    elif _calibration_mode == CONF_HEATING_POWER_CALIBRATION:
+    elif False and _calibration_mode == CONF_HEATING_POWER_CALIBRATION:
         _temp_diff = float(float(self.bt_target_temp) - float(self.cur_temp))
         _boost_exp = 0.05 / self.heating_power
 
@@ -137,6 +137,17 @@ def calculate_local_setpoint_delta(self, entity_id) -> Union[float, None]:
             ) + _current_trv_calibration
 
             # device SEA802 fix
+            if _new_local_calibration < 1.5:
+                _new_local_calibration -= 1.5
+    elif _calibration_mode == CONF_HEATING_POWER_CALIBRATION:
+        _temp_diff = float(float(self.bt_target_temp) - float(self.cur_temp))
+        if _temp_diff > 0.0:
+            valve_position = heating_power_valve_position(self, entity_id)
+            _new_local_calibration = _current_trv_calibration - (
+                (self.real_trvs[entity_id]["max_temp"] - _cur_trv_temp) * valve_position
+            )
+
+            # have at least 1.5 degrees, to start heating
             if _new_local_calibration < 1.5:
                 _new_local_calibration -= 1.5
 
@@ -184,7 +195,8 @@ def calculate_setpoint_override(self, entity_id) -> Union[float, None]:
         if _temp_diff > 0.0 and _calibrated_setpoint - _cur_trv_temp < 2.5:
             _calibrated_setpoint += 2.5
 
-    elif _calibration_mode == CONF_HEATING_POWER_CALIBRATION:
+    # old working solution, disabled for now, to try the new way
+    elif False and _calibration_mode == CONF_HEATING_POWER_CALIBRATION:
         _temp_diff = float(float(self.bt_target_temp) - float(self.cur_temp))
         _boost_exp = 0.05 / self.heating_power
 
@@ -204,12 +216,38 @@ def calculate_setpoint_override(self, entity_id) -> Union[float, None]:
             if _calibrated_setpoint - _cur_trv_temp < 1.5:
                 _calibrated_setpoint += 1.5
 
+    elif _calibration_mode == CONF_HEATING_POWER_CALIBRATION:
+        _temp_diff = float(float(self.bt_target_temp) - float(self.cur_temp))
+        if _temp_diff > 0.0:
+            valve_position = heating_power_valve_position(self, entity_id)
+            _calibrated_setpoint = _cur_trv_temp + (
+                (self.real_trvs[entity_id]["max_temp"] - _cur_trv_temp) * valve_position
+            )
+
+            # have at least 1.5 degrees, to start heating
+            if _calibrated_setpoint - _cur_trv_temp < 1.5:
+                _calibrated_setpoint = _cur_trv_temp + 1.5
+
     # check if new setpoint is inside the TRV's range, else set to min or max
     if _calibrated_setpoint < self.real_trvs[entity_id]["min_temp"]:
         _calibrated_setpoint = self.real_trvs[entity_id]["min_temp"]
     if _calibrated_setpoint > self.real_trvs[entity_id]["max_temp"]:
         _calibrated_setpoint = self.real_trvs[entity_id]["max_temp"]
     return round(_calibrated_setpoint, 1)
+
+
+def heating_power_valve_position(self, entity_id):
+    _temp_diff = float(float(self.bt_target_temp) - float(self.cur_temp))
+    valve_pos = _temp_diff / self.heating_power / 60
+    if valve_pos < 0.0:
+        valve_pos = 0.0
+    if valve_pos > 1.0:
+        valve_pos = 1.0
+
+    _LOGGER.debug(
+        f"better_thermostat {self.name}: {entity_id} / heating_power_valve_position - temp diff: {round(_temp_diff, 1)} - heating power: {round(self.heating_power, 4)} - expected valve position: {round(valve_pos * 100)}%"
+    )
+    return valve_pos
 
 
 def convert_to_float(
