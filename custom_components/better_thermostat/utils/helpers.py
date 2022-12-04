@@ -238,7 +238,7 @@ def calculate_setpoint_override(self, entity_id) -> Union[float, None]:
 
 def heating_power_valve_position(self, entity_id):
     _temp_diff = float(float(self.bt_target_temp) - float(self.cur_temp))
-    valve_pos = _temp_diff / self.heating_power / 60
+    valve_pos = _temp_diff / self.heating_power / 100
     if valve_pos < 0.0:
         valve_pos = 0.0
     if valve_pos > 1.0:
