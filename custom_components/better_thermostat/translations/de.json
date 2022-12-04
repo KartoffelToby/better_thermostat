@@ -24,8 +24,8 @@
                                         "child_lock": "Ignoriere alle manuellen Einstellungen am realen Thermostat (Kindersicherung).",
                                         "homaticip": "Wenn du HomaticIP nuzt, solltest du diese Option aktivieren, um die Funk-übertragung zu reduzieren.",
                                         "valve_maintenance": "Soll BT die Wartung des Thermostats übernehmen?",
-                                        "calibration": "Die Art der Kalibrierung",
-                                        "fix_calibration": "Wenn dein TRV Probleme hat, die Zieltemperatur nicht zu erreichen oder zu überhitzen, kann diese Option hilfreich sein."
+                                        "calibration": "Kalibrierungstyp",
+                                        "calibration_mode": "Kalibrierungsmodus"
                                 }
                         },
                         "confirm": {
@@ -67,8 +67,8 @@
                                         "child_lock": "Ignoriere alle manuellen Einstellungen am realen Thermostat (Kindersicherung).",
                                         "homaticip": "Wenn du HomaticIP nuzt, solltest du diese Option aktivieren, um die Funk-übertragung zu reduzieren.",
                                         "valve_maintenance": "Soll BT die Wartung des Thermostats übernehmen?",
-                                        "calibration": "Die Art der Kalibrierung.",
-                                        "fix_calibration": "Wenn dein TRV Probleme hat, die Zieltemperatur nicht zu erreichen oder zu überhitzen, kann diese Option hilfreich sein."
+                                        "calibration": "Kalibrierungstyp",
+                                        "calibration_mode": "Kalibrierungsmodus"
                                 }
                         }
                 }
