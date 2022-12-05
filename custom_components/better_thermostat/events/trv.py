@@ -188,7 +188,7 @@ def update_hvac_action(self):
     pi_heating_demands = list(find_state_attributes(states, "pi_heating_demand"))
     if pi_heating_demands:
         pi_heating_demand = max(pi_heating_demands)
-        if pi_heating_demand > 0:
+        if pi_heating_demand > 1:
             self.attr_hvac_action = HVACAction.HEATING
             self.async_write_ha_state()
             return
