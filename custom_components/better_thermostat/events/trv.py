@@ -161,6 +161,13 @@ async def trigger_trv_change(self, event):
             self.bt_target_temp = _new_heating_setpoint
             _main_change = True
 
+        if self.real_trvs[entity_id]["advanced"].get("no_off_system_mode", False):
+            if _new_heating_setpoint == self.real_trvs[entity_id]["min_temp"]:
+                self.bt_hvac_mode = HVACMode.OFF
+            else:
+                self.bt_hvac_mode = HVACMode.HEAT
+            _main_change = True
+
     if _main_change is True:
         self.async_write_ha_state()
         return await self.control_queue_task.put(self)
@@ -196,35 +203,32 @@ def update_hvac_action(self):
         self.async_write_ha_state()
         return
 
-    current_hvac_actions = [a for a in hvac_actions if a != HVACAction.OFF]
-    # return the most common action if it is not off
-    if current_hvac_actions:
-        self.attr_hvac_action = max(
-            set(current_hvac_actions), key=current_hvac_actions.count
-        )
     # return action off if all are off
-    elif all(a == HVACAction.OFF for a in hvac_actions):
+    if all(a == HVACAction.OFF for a in hvac_actions):
         self.attr_hvac_action = HVACAction.OFF
-    # else it's none
+    # else check if is heating
+    elif self.bt_target_temp > self.cur_temp:
+        self.attr_hvac_action = HVACAction.HEATING
     else:
         self.attr_hvac_action = HVACAction.IDLE
+
     self.async_write_ha_state()
     return
 
 
 def calculate_heating_power(self):
     if (
-        self.old_attr_hvac_action is not None
-        and self.attr_hvac_action != self.old_attr_hvac_action
+        self.attr_hvac_action != self.old_attr_hvac_action
+        or self.bt_target_temp < self.cur_temp
     ):
         if (
             self.attr_hvac_action == HVACAction.HEATING
-            and self.old_attr_hvac_action == HVACAction.IDLE
+            and self.old_attr_hvac_action != HVACAction.HEATING
         ):
             self.heating_start_temp = self.cur_temp
             self.heating_start_timestamp = datetime.now()
         elif (
-            self.attr_hvac_action == HVACAction.IDLE
+            self.attr_hvac_action != HVACAction.HEATING
             and self.old_attr_hvac_action == HVACAction.HEATING
             and self.heating_start_temp is not None
             and self.heating_start_timestamp is not None
@@ -378,7 +382,7 @@ def convert_outbound_states(self, entity_id, hvac_mode) -> Union[dict, None]:
                     f"better_thermostat {self.name}: device config expects no system mode, while the device has one. Device system mode will be ignored"
                 )
                 if hvac_mode == HVACMode.OFF:
-                    _new_heating_setpoint = 5
+                    _new_heating_setpoint = self.real_trvs[entity_id]["min_temp"]
                 hvac_mode = None
             if (
                 HVACMode.OFF not in _system_modes
@@ -391,7 +395,7 @@ def convert_outbound_states(self, entity_id, hvac_mode) -> Union[dict, None]:
                     _LOGGER.debug(
                         f"better_thermostat {self.name}: sending 5°C to the TRV because this device has no system mode off and heater should be off"
                     )
-                    _new_heating_setpoint = 5
+                    _new_heating_setpoint = self.real_trvs[entity_id]["min_temp"]
                     hvac_mode = None
 
         return {
