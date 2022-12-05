@@ -239,8 +239,10 @@ def calculate_heating_power(self):
                 _LOGGER.debug(
                     f"better_thermostat {self.name}: calculate_heating_power / temp_diff: {round(_temp_diff, 1)} - time: {_time_diff_minutes} - degrees_time: {round(_degrees_time, 4)} - heating_power: {round(self.heating_power, 4)}"
                 )
-                if self.last_heating_power_stats.count >= 10:
-                    self.last_heating_power_stats = self.last_heating_power_stats[len(self.last_heating_power_stats)-9:]
+                if len(self.last_heating_power_stats) >= 10:
+                    self.last_heating_power_stats = self.last_heating_power_stats[
+                        len(self.last_heating_power_stats) - 9 :
+                    ]
                 self.last_heating_power_stats.append(
                     {
                         "temp_diff": round(_temp_diff, 1),
