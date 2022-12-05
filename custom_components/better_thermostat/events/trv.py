@@ -200,7 +200,7 @@ def update_hvac_action(self):
         self.attr_hvac_action = HVACAction.OFF
     # else check if is heating
     elif self.bt_target_temp > self.cur_temp:
-            self.attr_hvac_action = HVACAction.HEATING
+        self.attr_hvac_action = HVACAction.HEATING
     else:
         self.attr_hvac_action = HVACAction.IDLE
 
