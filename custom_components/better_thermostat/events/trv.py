@@ -196,12 +196,16 @@ def update_hvac_action(self):
         self.async_write_ha_state()
         return
 
+    current_hvac_actions = [a for a in hvac_actions if a != HVACAction.OFF]
+    # return the most common action if it is not off
+    if current_hvac_actions:
+        self.attr_hvac_action = max(
+            set(current_hvac_actions), key=current_hvac_actions.count
+        )
     # return action off if all are off
-    if all(a == HVACAction.OFF for a in hvac_actions):
+    elif all(a == HVACAction.OFF for a in hvac_actions):
         self.attr_hvac_action = HVACAction.OFF
-    # else check if is heating
-    elif self.bt_target_temp > self.cur_temp:
-        self.attr_hvac_action = HVACAction.HEATING
+    # else it's none
     else:
         self.attr_hvac_action = HVACAction.IDLE
     self.async_write_ha_state()
