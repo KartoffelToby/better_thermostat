@@ -199,11 +199,10 @@ def update_hvac_action(self):
     if all(a == HVACAction.OFF for a in hvac_actions):
         self.attr_hvac_action = HVACAction.OFF
     # else check if is heating
-    else:
-        if self.bt_target_temp > self.cur_temp:
+    elif self.bt_target_temp > self.cur_temp:
             self.attr_hvac_action = HVACAction.HEATING
-    # otherwise is idle
-    self.attr_hvac_action = HVACAction.IDLE
+    else:
+        self.attr_hvac_action = HVACAction.IDLE
 
     calculate_heating_power(self)
 
