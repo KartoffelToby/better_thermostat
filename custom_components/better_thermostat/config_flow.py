@@ -15,6 +15,7 @@ from .const import (
     CONF_HOMATICIP,
     CONF_HUMIDITY,
     CONF_MODEL,
+    CONF_NO_SYSTEM_MODE_OFF,
     CONF_OFF_TEMPERATURE,
     CONF_OUTDOOR_SENSOR,
     CONF_SENSOR,
@@ -40,14 +41,27 @@ _LOGGER = logging.getLogger(__name__)
 
 CALIBRATION_TYPE_SELECTOR = selector.SelectSelector(
     selector.SelectSelectorConfig(
-        options=[CalibrationType.TARGET_TEMP_BASED],
+        options=[
+            selector.SelectOptionDict(
+                value=CalibrationType.TARGET_TEMP_BASED,
+                label="Target Temperature Based",
+            )
+        ],
         mode=selector.SelectSelectorMode.DROPDOWN,
     )
 )
 
 CALIBRATION_TYPE_ALL_SELECTOR = selector.SelectSelector(
     selector.SelectSelectorConfig(
-        options=[CalibrationType.TARGET_TEMP_BASED, CalibrationType.LOCAL_BASED],
+        options=[
+            selector.SelectOptionDict(
+                value=CalibrationType.TARGET_TEMP_BASED,
+                label="Target Temperature Based",
+            ),
+            selector.SelectOptionDict(
+                value=CalibrationType.LOCAL_BASED, label="Offset Based"
+            ),
+        ],
         mode=selector.SelectSelectorMode.DROPDOWN,
     )
 )
@@ -55,9 +69,13 @@ CALIBRATION_TYPE_ALL_SELECTOR = selector.SelectSelector(
 CALIBRATION_MODE_SELECTOR = selector.SelectSelector(
     selector.SelectSelectorConfig(
         options=[
-            CalibrationMode.DEFAULT,
-            CalibrationMode.FIX_CALIBRATION,
-            CalibrationMode.HEATING_POWER_CALIBRATION,
+            selector.SelectOptionDict(value=CalibrationMode.DEFAULT, label="Normal"),
+            selector.SelectOptionDict(
+                value=CalibrationMode.FIX_CALIBRATION, label="Agressive"
+            ),
+            selector.SelectOptionDict(
+                value=CalibrationMode.HEATING_POWER_CALIBRATION, label="AI Time Based"
+            ),
         ],
         mode=selector.SelectSelectorMode.DROPDOWN,
     )
@@ -65,7 +83,7 @@ CALIBRATION_MODE_SELECTOR = selector.SelectSelector(
 
 
 class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
-    VERSION = 4
+    VERSION = 5
     CONNECTION_CLASS = config_entries.CONN_CLASS_LOCAL_POLL
 
     def __init__(self):
@@ -168,6 +186,13 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             vol.Optional(
                 CONF_CALIBRATIION_ROUND,
                 default=user_input.get(CONF_CALIBRATIION_ROUND, True),
+            )
+        ] = bool
+
+        fields[
+            vol.Optional(
+                CONF_NO_SYSTEM_MODE_OFF,
+                default=user_input.get(CONF_NO_SYSTEM_MODE_OFF, False),
             )
         ] = bool
 
@@ -411,6 +436,13 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
             vol.Optional(
                 CONF_CALIBRATIION_ROUND,
                 default=_trv_config["advanced"].get(CONF_CALIBRATIION_ROUND, True),
+            )
+        ] = bool
+
+        fields[
+            vol.Optional(
+                CONF_NO_SYSTEM_MODE_OFF,
+                default=_trv_config["advanced"].get(CONF_NO_SYSTEM_MODE_OFF, False),
             )
         ] = bool
 

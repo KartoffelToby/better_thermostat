@@ -39,6 +39,16 @@ async def get_offset_steps(self, entity_id):
     return float(1.0)
 
 
+async def get_min_offset(self, entity_id):
+    """Get min offset."""
+    return -6
+
+
+async def get_max_offset(self, entity_id):
+    """Get max offset."""
+    return 6
+
+
 async def set_offset(self, entity_id, offset):
     """Set new target offset."""
     await self.hass.services.async_call(

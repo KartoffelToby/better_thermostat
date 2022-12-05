@@ -8,7 +8,16 @@ from random import randint
 from statistics import mean
 
 from .utils.weather import check_ambient_air_temperature, check_weather
-from .utils.bridge import get_current_offset, init, load_adapter
+from .utils.bridge import (
+    get_current_offset,
+    get_min_offset,
+    get_max_offset,
+    init,
+    load_adapter,
+)
+
+from .utils.model_quirks import load_model_quirks
+
 from .utils.helpers import convert_to_float
 from homeassistant.helpers import entity_platform
 from homeassistant.core import callback, CoreState
@@ -40,7 +49,6 @@ from homeassistant.components.group.util import reduce_attribute
 from . import DOMAIN
 from .const import (
     ATTR_STATE_CALL_FOR_HEAT,
-    ATTR_STATE_HEATING_STATS,
     ATTR_STATE_HUMIDIY,
     ATTR_STATE_LAST_CHANGE,
     ATTR_STATE_MAIN_MODE,
@@ -275,10 +283,12 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
             if trv["advanced"]["calibration"] == "local_calibration_based":
                 _calibration = 0
             _adapter = load_adapter(self, trv["integration"], trv["trv"])
+            _model_quirks = load_model_quirks(self, trv["model"], trv["trv"])
             self.real_trvs[trv["trv"]] = {
                 "calibration": _calibration,
                 "integration": trv["integration"],
                 "adapter": _adapter,
+                "model_quirks": _model_quirks,
                 "model": trv["model"],
                 "advanced": trv["advanced"],
                 "ignore_trv_states": False,
@@ -291,6 +301,8 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
                 "hvac_modes": None,
                 "hvac_mode": None,
                 "local_temperature_calibration_entity": None,
+                "local_calibration_min": None,
+                "local_calibration_max": None,
                 "calibration_received": True,
                 "target_temp_received": True,
                 "system_mode_received": True,
@@ -569,10 +581,6 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
                     self.heating_power = float(
                         old_state.attributes.get(ATTR_STATE_HEATING_POWER)
                     )
-                if old_state.attributes.get(ATTR_STATE_HEATING_STATS, None) is not None:
-                    self.last_heating_power_stats = old_state.attributes.get(
-                        ATTR_STATE_HEATING_STATS
-                    )
 
             else:
                 # No previous state, try and restore defaults
@@ -624,6 +632,12 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
                     self.real_trvs[trv]["last_calibration"] = await get_current_offset(
                         self, trv
                     )
+                    self.real_trvs[trv]["local_calibration_min"] = await get_min_offset(
+                        self, trv
+                    )
+                    self.real_trvs[trv]["local_calibration_max"] = await get_max_offset(
+                        self, trv
+                    )
                 else:
                     self.real_trvs[trv]["last_calibration"] = 0
 
@@ -660,7 +674,7 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
                     trv
                 ).attributes.get("hvac_modes", None)
                 self.real_trvs[trv]["hvac_mode"] = self.hass.states.get(trv).state
-                self.real_trvs[trv]["last_hvac_mode"] = None
+                self.real_trvs[trv]["last_hvac_mode"] = self.hass.states.get(trv).state
                 self.real_trvs[trv]["last_temperature"] = convert_to_float(
                     str(self.hass.states.get(trv).attributes.get("temperature")),
                     self.name,
@@ -740,7 +754,6 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
             ATTR_STATE_HUMIDIY: self.cur_humidity,
             ATTR_STATE_MAIN_MODE: self.last_main_hvac_mode,
             ATTR_STATE_HEATING_POWER: self.heating_power,
-            ATTR_STATE_HEATING_STATS: self.last_heating_power_stats,
         }
 
         return dev_specific

@@ -29,6 +29,7 @@ async def trigger_trv_change(self, event):
     if self.control_queue_task is None:
         return
     update_hvac_action(self)
+    calculate_heating_power(self)
     _main_change = False
     old_state = event.data.get("old_state")
     new_state = event.data.get("new_state")
@@ -203,9 +204,6 @@ def update_hvac_action(self):
         self.attr_hvac_action = HVACAction.HEATING
     else:
         self.attr_hvac_action = HVACAction.IDLE
-
-    calculate_heating_power(self)
-
     self.async_write_ha_state()
     return
 
@@ -253,6 +251,7 @@ def calculate_heating_power(self):
                 )
 
     self.old_attr_hvac_action = self.attr_hvac_action
+    self.async_write_ha_state()
 
 
 def convert_inbound_states(self, entity_id, state: State) -> str:
@@ -377,14 +376,19 @@ def convert_outbound_states(self, entity_id, hvac_mode) -> Union[dict, None]:
                 if hvac_mode == HVACMode.OFF:
                     _new_heating_setpoint = 5
                 hvac_mode = None
-
-            elif _has_system_mode is None:
+            if (
+                HVACMode.OFF not in _system_modes
+                or self.real_trvs[entity_id]["advanced"].get(
+                    "no_off_system_mode", False
+                )
+                is True
+            ):
                 if hvac_mode == HVACMode.OFF:
                     _LOGGER.debug(
-                        f"better_thermostat {self.name}: sending 5°C to the TRV because this device has no system mode and heater should be off"
+                        f"better_thermostat {self.name}: sending 5°C to the TRV because this device has no system mode off and heater should be off"
                     )
                     _new_heating_setpoint = 5
-                hvac_mode = None
+                    hvac_mode = None
 
         return {
             "temperature": _new_heating_setpoint,
@@ -392,5 +396,6 @@ def convert_outbound_states(self, entity_id, hvac_mode) -> Union[dict, None]:
             "system_mode": hvac_mode,
             "local_temperature_calibration": _new_local_calibration,
         }
-    except Exception:
+    except Exception as e:
+        _LOGGER.error(e)
         return None

@@ -48,6 +48,7 @@ CONF_HEAT_AUTO_SWAPPED = "heat_auto_swapped"
 CONF_MODEL = "model"
 CONF_HOMATICIP = "homaticip"
 CONF_INTEGRATION = "integration"
+CONF_NO_SYSTEM_MODE_OFF = "no_off_system_mode"
 SUPPORT_FLAGS = SUPPORT_TARGET_TEMPERATURE
 
 ATTR_STATE_WINDOW_OPEN = "window_open"

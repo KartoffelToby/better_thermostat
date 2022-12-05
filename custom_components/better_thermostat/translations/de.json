@@ -25,7 +25,12 @@
                                         "homaticip": "Wenn du HomaticIP nuzt, solltest du diese Option aktivieren, um die Funk-übertragung zu reduzieren.",
                                         "valve_maintenance": "Soll BT die Wartung des Thermostats übernehmen?",
                                         "calibration": "Kalibrierungstyp",
-                                        "calibration_mode": "Kalibrierungsmodus"
+                                        "calibration_mode": "Kalibrierungsmodus",
+                                        "no_off_system_mode": "Wenn das TRV kein Aus Modus nutzen kann, kann diese Option aktiviert werden, um das TRV stattdessen auf 5°C zu setzten."
+                                },
+                                "data_description": {
+                                        "calibration_mode": "Die Art der Kalibrierung, die verwendet werden soll.",
+                                        "calibration": "Wie soll die Kalibrierung druchgefürt werden? (Zieltemperatur, Offset)."
                                 }
                         },
                         "confirm": {
@@ -68,7 +73,12 @@
                                         "homaticip": "Wenn du HomaticIP nuzt, solltest du diese Option aktivieren, um die Funk-übertragung zu reduzieren.",
                                         "valve_maintenance": "Soll BT die Wartung des Thermostats übernehmen?",
                                         "calibration": "Kalibrierungstyp",
-                                        "calibration_mode": "Kalibrierungsmodus"
+                                        "calibration_mode": "Kalibrierungsmodus",
+                                        "no_off_system_mode": "Wenn das TRV kein Aus Modus nutzen kann, kann diese Option aktiviert werden, um das TRV stattdessen auf 5°C zu setzten."
+                                },
+                                "data_description": {
+                                        "calibration_mode": "Die Art der Kalibrierung, die verwendet werden soll.",
+                                        "calibration": "Wie soll die Kalibrierung druchgefürt werden? (Zieltemperatur, Offset)."
                                 }
                         }
                 }
