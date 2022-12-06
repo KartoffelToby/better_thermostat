@@ -17,7 +17,6 @@ from ..utils.helpers import (
     round_to_half_degree,
 )
 from custom_components.better_thermostat.utils.bridge import get_current_offset
-from custom_components.better_thermostat.climate import calculate_heating_power
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -30,7 +29,7 @@ async def trigger_trv_change(self, event):
     if self.control_queue_task is None:
         return
     update_hvac_action(self)
-    calculate_heating_power(self)
+    self.calculate_heating_power()
     _main_change = False
     old_state = event.data.get("old_state")
     new_state = event.data.get("new_state")
