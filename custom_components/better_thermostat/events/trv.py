@@ -215,6 +215,7 @@ def update_hvac_action(self):
     self.async_write_ha_state()
     return
 
+
 def convert_inbound_states(self, entity_id, state: State) -> str:
     """Convert hvac mode in a thermostat state from HA
     Parameters
