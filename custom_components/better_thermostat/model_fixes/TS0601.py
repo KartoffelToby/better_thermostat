@@ -1,6 +1,8 @@
 def fix_local_calibration(self, entity_id, offset):
-    if offset > -1.5:
+    if (self.cur_temp - 0.25) <= self.bt_target_temp:
         offset -= 1.5
+    elif self.cur_temp >= self.bt_target_temp:
+        offset = round(offset + 0.5, 1)
     return offset
 
 
