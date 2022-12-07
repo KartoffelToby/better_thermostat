@@ -1,7 +1,9 @@
 def fix_local_calibration(self, entity_id, offset):
     # device SEA802 fix
-    if offset > -1.5:
-        offset -= 1.5
+    if (self.cur_temp - 0.25) <= self.bt_target_temp:
+        offset -= 2.5
+    elif self.cur_temp >= self.bt_target_temp:
+        offset = round(offset + 0.5, 1)
     return offset
 
 
@@ -18,3 +20,11 @@ def fix_target_temperature_calibration(self, entity_id, temperature):
     ):
         temperature += 1.5
     return temperature
+
+
+async def override_set_hvac_mode(self, entity_id, hvac_mode):
+    return False
+
+
+async def override_set_temperature(self, entity_id, temperature):
+    return False

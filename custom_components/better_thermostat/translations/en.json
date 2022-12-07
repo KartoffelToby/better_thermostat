@@ -29,8 +29,8 @@
                                         "no_off_system_mode": "If your TRV can't handle the off mode, you can enable this to use target temperature 5°C instead"
                                 },
                                 "data_description": {
-                                        "calibration_mode": "The kind how the calibration should be calculated",
-                                        "calibration": "How the calibration should be applied on the TRV (Target temp or offset)"
+                                        "calibration_mode": "The kind how the calibration should be calculated\n***Normal***: In this mode the TRV internal temperature sensor is fixed by the external temperature sensor.\n***Aggresive***: In this mode the TRV internal temperature sensor is fixed by the external temperature sensor but set much lower/higher to get a quicker boost.\n***AI Time Based***: In this mode the TRV internal temperature sensor is fixed by the external temperature sensor, but the value is calculated by a custom algorithm to improve the TRV internal algorithm.",
+                                        "calibration": "How the calibration should be applied on the TRV (Target temp or offset)\n***Target Temperature Based***: Apply the calibration to the target temperature.\n***Offset Based***: Apply the calibration to the offset."
                                 }
                         },
                         "confirm": {
@@ -81,8 +81,8 @@
                                         "no_off_system_mode": "If your TRV can't handle the off mode, you can enable this to use target temperature 5°C instead"
                                 },
                                 "data_description": {
-                                        "calibration_mode": "The kind how the calibration should be calculated",
-                                        "calibration": "How the calibration should be applied on the TRV (Target temp or offset)"
+                                        "calibration_mode": "The kind how the calibration should be calculated\n***Normal***: In this mode the TRV internal temperature sensor is fixed by the external temperature sensor.\n***Aggresive***: In this mode the TRV internal temperature sensor is fixed by the external temperature sensor but set much lower/higher to get a quicker boost.\n***AI Time Based***: In this mode the TRV internal temperature sensor is fixed by the external temperature sensor, but the value is calculated by a custom algorithm to improve the TRV internal algorithm.",
+                                        "calibration": "How the calibration should be applied on the TRV (Target temp or offset)\n***Target Temperature Based***: Apply the calibration to the target temperature.\n***Offset Based***: Apply the calibration to the offset."
                                 }
                         }
                 }

@@ -185,7 +185,7 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         fields[
             vol.Optional(
                 CONF_CALIBRATIION_ROUND,
-                default=user_input.get(CONF_CALIBRATIION_ROUND, True),
+                default=user_input.get(CONF_CALIBRATIION_ROUND, False),
             )
         ] = bool
 
@@ -196,15 +196,10 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             )
         ] = bool
 
-        has_auto = False
-        trv = self.hass.states.get(_trv_config.get("trv"))
-        if HVACMode.AUTO in trv.attributes.get("hvac_modes"):
-            has_auto = True
-
         fields[
             vol.Optional(
                 CONF_HEAT_AUTO_SWAPPED,
-                default=user_input.get(CONF_HEAT_AUTO_SWAPPED, has_auto),
+                default=user_input.get(CONF_HEAT_AUTO_SWAPPED, False),
             )
         ] = bool
 

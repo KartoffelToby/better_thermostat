@@ -41,3 +41,15 @@ def fix_target_temperature_calibration(self, entity_id, temperature):
     return self.real_trvs[entity_id]["model_quirks"].fix_target_temperature_calibration(
         self, entity_id, temperature
     )
+
+
+async def override_set_hvac_mode(self, entity_id, hvac_mode):
+    return await self.real_trvs[entity_id]["model_quirks"].override_set_hvac_mode(
+        self, entity_id, hvac_mode
+    )
+
+
+async def override_set_temperature(self, entity_id, temperature):
+    return await self.real_trvs[entity_id]["model_quirks"].override_set_temperature(
+        self, entity_id, temperature
+    )

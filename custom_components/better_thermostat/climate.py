@@ -75,7 +75,7 @@ from .const import (
 
 from .utils.controlling import control_queue, control_trv
 from .events.temperature import trigger_temperature_change
-from .events.trv import trigger_trv_change, update_hvac_action
+from .events.trv import trigger_trv_change
 from .events.window import trigger_window_change, window_queue
 
 _LOGGER = logging.getLogger(__name__)
@@ -556,7 +556,7 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
                     self.bt_target_temp = convert_to_float(
                         str(_oldtarget_temperature), self.name, "startup()"
                     )
-                if not self.bt_hvac_mode and old_state.state:
+                if old_state.state not in (STATE_UNAVAILABLE, STATE_UNKNOWN, None):
                     self.bt_hvac_mode = old_state.state
                 if old_state.attributes.get(ATTR_STATE_CALL_FOR_HEAT, None) is not None:
                     self.call_for_heat = old_state.attributes.get(
@@ -597,11 +597,37 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
 
             # if hvac mode could not be restored, turn heat off
             if self.bt_hvac_mode in (STATE_UNAVAILABLE, STATE_UNKNOWN, None):
-                _LOGGER.warning(
-                    "better_thermostat %s: No previously hvac mode found on startup, turn heat off",
-                    self.name,
-                )
-                self.bt_hvac_mode = HVACMode.OFF
+                current_hvac_modes = [
+                    x.state for x in states if x.state != HVACMode.OFF
+                ]
+                # return the most common hvac mode (what the thermostat is set to do) except OFF
+                if current_hvac_modes:
+                    _temp_bt_hvac_mode = max(
+                        set(current_hvac_modes), key=current_hvac_modes.count
+                    )
+                    if _temp_bt_hvac_mode is not HVACMode.OFF:
+                        self.bt_hvac_mode = HVACMode.HEAT
+                    else:
+                        self.bt_hvac_mode = HVACMode.OFF
+                    _LOGGER.debug(
+                        "better_thermostat %s: No previously hvac mode found on startup, turn bt to trv mode %s",
+                        self.name,
+                        self.bt_hvac_mode,
+                    )
+                # return off if all are off
+                elif all(x.state == HVACMode.OFF for x in states):
+                    self.bt_hvac_mode = HVACMode.OFF
+                    _LOGGER.debug(
+                        "better_thermostat %s: No previously hvac mode found on startup, turn bt to trv mode %s",
+                        self.name,
+                        self.bt_hvac_mode,
+                    )
+                else:
+                    _LOGGER.warning(
+                        "better_thermostat %s: No previously hvac mode found on startup, turn heat off",
+                        self.name,
+                    )
+                    self.bt_hvac_mode = HVACMode.OFF
 
             _LOGGER.debug(
                 "better_thermostat %s: Startup config, BT hvac mode is %s, Target temp %s",
@@ -697,9 +723,9 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
             self.startup_running = False
             self._available = True
             self.async_write_ha_state()
-            # await self.async_update_ha_state()
+            #
             await asyncio.sleep(5)
-            update_hvac_action(self)
+            # update_hvac_action(self)
             # Add listener
             if self.outdoor_sensor is not None:
                 self.async_on_remove(
@@ -737,6 +763,8 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
                     )
                 )
             _LOGGER.info("better_thermostat %s: startup completed.", self.name)
+            self.async_write_ha_state()
+            await self.async_update_ha_state()
             break
 
     def calculate_heating_power(self):
