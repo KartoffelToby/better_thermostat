@@ -749,8 +749,7 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
             _temp_diff = self.heating_end_temp - self.heating_start_temp
             _time_diff_minutes = round(
                 (self.heating_end_timestamp - self.heating_start_timestamp).seconds
-                / 60.0
-                * 60.0,
+                / 60.0,
                 1,
             )
             if _time_diff_minutes > 1:
