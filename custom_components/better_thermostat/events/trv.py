@@ -211,9 +211,15 @@ def update_hvac_action(self):
     _current_trv_temperature = reduce_attribute(
         states, ATTR_CURRENT_TEMPERATURE, reduce=lambda *data: min(data)
     )
+    if _current_trv_temperature is None:
+        _current_trv_temperature = self.cur_temp
+
     _current_trv_target_temperature = reduce_attribute(
         states, set_temperature, reduce=lambda *data: max(data)
     )
+
+    if _current_trv_target_temperature is None:
+        _current_trv_target_temperature = self.bt_target_temp
     # return action off if all are off
     if all(a == HVACAction.OFF for a in hvac_actions):
         self.attr_hvac_action = HVACAction.OFF
