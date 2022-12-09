@@ -156,7 +156,7 @@ async def set_offset(self, entity_id, offset):
         self.real_trvs[entity_id]["last_hvac_mode"] is not None
         and self.real_trvs[entity_id]["last_hvac_mode"] != "off"
     ):
-        await asyncio.sleep(2)
+        await asyncio.sleep(3)
         return await generic_set_hvac_mode(
             self, entity_id, self.real_trvs[entity_id]["last_hvac_mode"]
         )

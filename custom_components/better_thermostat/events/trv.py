@@ -29,7 +29,6 @@ async def trigger_trv_change(self, event):
     if self.control_queue_task is None:
         return
     update_hvac_action(self)
-    self.calculate_heating_power()
     _main_change = False
     old_state = event.data.get("old_state")
     new_state = event.data.get("new_state")

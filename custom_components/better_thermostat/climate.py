@@ -767,7 +767,7 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
             await self.async_update_ha_state()
             break
 
-    def calculate_heating_power(self):
+    async def calculate_heating_power(self):
 
         if (
             self.heating_start_temp is not None
