@@ -80,7 +80,7 @@ async def control_trv(self, heater_entity_id=None):
         _temperature = _remapped_states.get("temperature", None)
         _calibration = _remapped_states.get("local_temperature_calibration", None)
 
-        _new_hvac_mode = handle_window_open(self, _remapped_states)
+        _new_hvac_mode = handle_window_open(self, _remapped_states, heater_entity_id)
 
         # if we don't need ot heat, we force HVACMode to be off
         if self.call_for_heat is False:
@@ -154,21 +154,36 @@ async def control_trv(self, heater_entity_id=None):
         return True
 
 
-def handle_window_open(self, _remapped_states):
+def handle_window_open(self, _remapped_states, heater_entity_id):
     """handle window open"""
-    _converted_hvac_mode = _remapped_states.get("system_mode", None)
-    _hvac_mode_send = _converted_hvac_mode
+    # _converted_hvac_mode = _remapped_states.get("system_mode", None)
+    # _hvac_mode_send = _converted_hvac_mode
+    old = self.real_trvs[heater_entity_id].get("last_temperature", "?")
+    _chill_temperature = _remapped_states.get("temperature", 5)
 
     if self.window_open is True and self.last_window_state is False:
         # if the window is open or the sensor is not available, we're done
-        self.last_main_hvac_mode = _hvac_mode_send
-        _hvac_mode_send = HVACMode.OFF
+        # self.last_main_hvac_mode = _hvac_mode_send
+        # _hvac_mode_send = HVACMode.OFF
+        self.real_trvs[heater_entity_id]["last_temperature"] = _chill_temperature
+        await set_temperature(self, heater_entity_id, _chill_temperature)
+        if self.real_trvs[heater_entity_id]["target_temp_received"] is True:
+            self.real_trvs[heater_entity_id]["target_temp_received"] = False
+            asyncio.create_task(
+                check_target_temperature(self, heater_entity_id)
+            )
         self.last_window_state = True
         _LOGGER.debug(
             f"better_thermostat {self.name}: control_trv: window is open or status of window is unknown, setting window open"
         )
     elif self.window_open is False and self.last_window_state is True:
-        _hvac_mode_send = self.last_main_hvac_mode
+        self.real_trvs[heater_entity_id]["last_temperature"] = old
+        await set_temperature(self, heater_entity_id, old)
+        if self.real_trvs[heater_entity_id]["target_temp_received"] is True:
+            self.real_trvs[heater_entity_id]["target_temp_received"] = False
+            asyncio.create_task(
+                check_target_temperature(self, heater_entity_id)
+            )
         self.last_window_state = False
         _LOGGER.debug(
             f"better_thermostat {self.name}: control_trv: window is closed, setting window closed restoring mode: {_hvac_mode_send}"
