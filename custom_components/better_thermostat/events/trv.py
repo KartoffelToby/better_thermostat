@@ -6,7 +6,6 @@ from homeassistant.components.climate.const import (
     HVACMode,
     ATTR_HVAC_ACTION,
     HVACAction,
-    ATTR_CURRENT_TEMPERATURE,
 )
 from homeassistant.core import State, callback
 from homeassistant.components.group.util import find_state_attributes
@@ -17,11 +16,7 @@ from ..utils.helpers import (
     mode_remap,
     round_to_half_degree,
 )
-from custom_components.better_thermostat.utils.bridge import (
-    get_current_offset,
-    set_temperature,
-)
-from homeassistant.components.group.util import reduce_attribute
+from custom_components.better_thermostat.utils.bridge import get_current_offset
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -208,23 +203,11 @@ def update_hvac_action(self):
         self.async_write_ha_state()
         return
 
-    _current_trv_temperature = reduce_attribute(
-        states, ATTR_CURRENT_TEMPERATURE, reduce=lambda *data: min(data)
-    )
-    if _current_trv_temperature is None:
-        _current_trv_temperature = self.cur_temp
-
-    _current_trv_target_temperature = reduce_attribute(
-        states, set_temperature, reduce=lambda *data: max(data)
-    )
-
-    if _current_trv_target_temperature is None:
-        _current_trv_target_temperature = self.bt_target_temp
     # return action off if all are off
     if all(a == HVACAction.OFF for a in hvac_actions):
         self.attr_hvac_action = HVACAction.OFF
     # else check if is heating
-    elif _current_trv_target_temperature > _current_trv_temperature:
+    elif self.bt_target_temp > self.cur_temp:
         self.attr_hvac_action = HVACAction.HEATING
     else:
         self.attr_hvac_action = HVACAction.IDLE
