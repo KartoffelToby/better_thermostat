@@ -14,7 +14,7 @@
 ### Requirements
 
 - Minimum required Home Assistant version: `2022.8.0`
-  (_Latest tested version: `2022.11.3`_)
+  (_Latest tested version: `2022.12.0`_)
 
 ### Companion UI
 

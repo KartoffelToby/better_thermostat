@@ -24,6 +24,16 @@ async def get_offset_steps(self, entity_id):
     return None
 
 
+async def get_min_offset(self, entity_id):
+    """Get min offset."""
+    return -6
+
+
+async def get_max_offset(self, entity_id):
+    """Get max offset."""
+    return 6
+
+
 async def set_temperature(self, entity_id, temperature):
     """Set new target temperature."""
     await set_temperature_quirk(self, entity_id, temperature)

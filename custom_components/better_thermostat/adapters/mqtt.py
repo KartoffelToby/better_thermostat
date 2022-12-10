@@ -102,22 +102,36 @@ async def get_offset_steps(self, entity_id):
     )
 
 
+async def get_min_offset(self, entity_id):
+    """Get min offset."""
+    # looks like z2m has a min max bug currently force to -10
+    return -6.0
+    return float(
+        str(
+            self.hass.states.get(
+                self.real_trvs[entity_id]["local_temperature_calibration_entity"]
+            ).attributes.get("min", -10)
+        )
+    )
+
+
+async def get_max_offset(self, entity_id):
+    """Get max offset."""
+    # looks like z2m has a min max bug currently force to 10
+    return 6.0
+    return float(
+        str(
+            self.hass.states.get(
+                self.real_trvs[entity_id]["local_temperature_calibration_entity"]
+            ).attributes.get("max", 10)
+        )
+    )
+
+
 async def set_offset(self, entity_id, offset):
     """Set new target offset."""
-    max_calibration = float(
-        str(
-            self.hass.states.get(
-                self.real_trvs[entity_id]["local_temperature_calibration_entity"]
-            ).attributes.get("max", 127)
-        )
-    )
-    min_calibration = float(
-        str(
-            self.hass.states.get(
-                self.real_trvs[entity_id]["local_temperature_calibration_entity"]
-            ).attributes.get("min", -128)
-        )
-    )
+    max_calibration = await get_max_offset(self, entity_id)
+    min_calibration = await get_min_offset(self, entity_id)
 
     if offset >= max_calibration:
         offset = max_calibration
@@ -142,6 +156,7 @@ async def set_offset(self, entity_id, offset):
         self.real_trvs[entity_id]["last_hvac_mode"] is not None
         and self.real_trvs[entity_id]["last_hvac_mode"] != "off"
     ):
+        await asyncio.sleep(3)
         return await generic_set_hvac_mode(
             self, entity_id, self.real_trvs[entity_id]["last_hvac_mode"]
         )

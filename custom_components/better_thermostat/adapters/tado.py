@@ -38,6 +38,16 @@ async def get_offset_steps(self, entity_id):
     return float(0.01)
 
 
+async def get_min_offset(self, entity_id):
+    """Get min offset."""
+    return -10
+
+
+async def get_max_offset(self, entity_id):
+    """Get max offset."""
+    return 10
+
+
 async def set_offset(self, entity_id, offset):
     """Set new target offset."""
     if offset >= 10:

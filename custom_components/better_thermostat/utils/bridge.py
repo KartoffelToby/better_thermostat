@@ -62,6 +62,16 @@ async def get_offset_steps(self, entity_id):
     return await self.real_trvs[entity_id]["adapter"].get_offset_steps(self, entity_id)
 
 
+async def get_min_offset(self, entity_id):
+    """Get min offset."""
+    return await self.real_trvs[entity_id]["adapter"].get_min_offset(self, entity_id)
+
+
+async def get_max_offset(self, entity_id):
+    """Get max offset."""
+    return await self.real_trvs[entity_id]["adapter"].get_max_offset(self, entity_id)
+
+
 async def set_temperature(self, entity_id, temperature):
     """Set new target temperature."""
     return await self.real_trvs[entity_id]["adapter"].set_temperature(

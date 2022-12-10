@@ -24,8 +24,13 @@
                                         "child_lock": "Ignore all inputs on the TRV like a child lock",
                                         "homaticip": "If you use HomaticIP, you should enable this to slow down the requests to prevent the duty cycle",
                                         "valve_maintenance": "If your thermostat has no own maintenance mode, you can use this one",
-                                        "calibration": "The sort of calibration you want to use",
-                                        "fix_calibration": "If your TRV has trouble with not reaching the target temperature or overheating, this option can help"
+                                        "calibration": "Calibration Type",
+                                        "calibration_mode": "Calibration mode",
+                                        "no_off_system_mode": "If your TRV can't handle the off mode, you can enable this to use target temperature 5°C instead"
+                                },
+                                "data_description": {
+                                        "calibration_mode": "The kind how the calibration should be calculated\n***Normal***: In this mode the TRV internal temperature sensor is fixed by the external temperature sensor.\n***Aggresive***: In this mode the TRV internal temperature sensor is fixed by the external temperature sensor but set much lower/higher to get a quicker boost.\n***AI Time Based***: In this mode the TRV internal temperature sensor is fixed by the external temperature sensor, but the value is calculated by a custom algorithm to improve the TRV internal algorithm.",
+                                        "calibration": "How the calibration should be applied on the TRV (Target temp or offset)\n***Target Temperature Based***: Apply the calibration to the target temperature.\n***Offset Based***: Apply the calibration to the offset."
                                 }
                         },
                         "confirm": {
@@ -72,7 +77,12 @@
                                         "homaticip": "If you use HomaticIP, you should enable this to slow down the requests to prevent the duty cycle",
                                         "valve_maintenance": "If your thermostat has no own maintenance mode, you can use this one",
                                         "calibration": "The sort of calibration you want to use",
-                                        "fix_calibration": "If your TRV has trouble with not recheating the target temperature or overheating, this option can help"
+                                        "calibration_mode": "Calibration mode",
+                                        "no_off_system_mode": "If your TRV can't handle the off mode, you can enable this to use target temperature 5°C instead"
+                                },
+                                "data_description": {
+                                        "calibration_mode": "The kind how the calibration should be calculated\n***Normal***: In this mode the TRV internal temperature sensor is fixed by the external temperature sensor.\n***Aggresive***: In this mode the TRV internal temperature sensor is fixed by the external temperature sensor but set much lower/higher to get a quicker boost.\n***AI Time Based***: In this mode the TRV internal temperature sensor is fixed by the external temperature sensor, but the value is calculated by a custom algorithm to improve the TRV internal algorithm.",
+                                        "calibration": "How the calibration should be applied on the TRV (Target temp or offset)\n***Target Temperature Based***: Apply the calibration to the target temperature.\n***Offset Based***: Apply the calibration to the offset."
                                 }
                         }
                 }
