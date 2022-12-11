@@ -25,7 +25,12 @@
                                         "homaticip": "Wenn du HomaticIP nuzt, solltest du diese Option aktivieren, um die Funk-übertragung zu reduzieren.",
                                         "valve_maintenance": "Soll BT die Wartung des Thermostats übernehmen?",
                                         "calibration": "Kalibrierungstyp",
-                                        "calibration_mode": "Kalibrierungsmodus"
+                                        "calibration_mode": "Kalibrierungsmodus",
+                                        "no_off_system_mode": "Wenn das TRV kein Aus Modus nutzen kann, kann diese Option aktiviert werden, um das TRV stattdessen auf 5°C zu setzten."
+                                },
+                                "data_description": {
+                                        "calibration_mode": "Wie die Kalibrierung berechnet wird\n***Normal***: In diesem modus wird die interne TRV-Temperatur an die des externen Sensors angeglichen.\n\n***Aggresive***: In diesem modus wird die interne TRV-Temperatur an die des externen Sensors angeglichen allerdings mit größeren werden, dies ist hilfreich wenn ein raum schnell aufgeheizt werden soll, oder das TRV träge ist.\n\n***AI Time Based***: In diesem modus wird ein eigener algorithmus genutzt anhand des externen Temperatur sensors, um die Kalibrierung zu berechnen. Dieser modus versucht den TRV internen algorithmus zu optimieren.",
+                                        "calibration": "Wie die Kalibrierung auf das TRV angewendet werden soll.\n\n***Target Temperature Based***: Kalibiert das TRV über die Zieltemperatur.\n\n***Offset Based***: Kalibiert das TRV über eine offset funktion im TRV selbst. (Empfohlen)"
                                 }
                         },
                         "confirm": {
@@ -68,7 +73,12 @@
                                         "homaticip": "Wenn du HomaticIP nuzt, solltest du diese Option aktivieren, um die Funk-übertragung zu reduzieren.",
                                         "valve_maintenance": "Soll BT die Wartung des Thermostats übernehmen?",
                                         "calibration": "Kalibrierungstyp",
-                                        "calibration_mode": "Kalibrierungsmodus"
+                                        "calibration_mode": "Kalibrierungsmodus",
+                                        "no_off_system_mode": "Wenn das TRV kein Aus Modus nutzen kann, kann diese Option aktiviert werden, um das TRV stattdessen auf 5°C zu setzten."
+                                },
+                                "data_description": {
+                                        "calibration_mode": "Wie die Kalibrierung berechnet wird\n***Normal***: In diesem modus wird die interne TRV-Temperatur an die des externen Sensors angeglichen.\n\n***Aggresive***: In diesem modus wird die interne TRV-Temperatur an die des externen Sensors angeglichen allerdings mit größeren werden, dies ist hilfreich wenn ein raum schnell aufgeheizt werden soll, oder das TRV träge ist.\n\n***AI Time Based***: In diesem modus wird ein eigener algorithmus genutzt anhand des externen Temperatur sensors, um die Kalibrierung zu berechnen. Dieser modus versucht den TRV internen algorithmus zu optimieren.",
+                                        "calibration": "Wie die Kalibrierung auf das TRV angewendet werden soll.\n\n***Target Temperature Based***: Kalibiert das TRV über die Zieltemperatur.\n\n***Offset Based***: Kalibiert das TRV über eine offset funktion im TRV selbst. (Empfohlen)"
                                 }
                         }
                 }

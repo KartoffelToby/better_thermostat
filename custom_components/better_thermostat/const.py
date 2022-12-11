@@ -48,6 +48,7 @@ CONF_HEAT_AUTO_SWAPPED = "heat_auto_swapped"
 CONF_MODEL = "model"
 CONF_HOMATICIP = "homaticip"
 CONF_INTEGRATION = "integration"
+CONF_NO_SYSTEM_MODE_OFF = "no_off_system_mode"
 SUPPORT_FLAGS = SUPPORT_TARGET_TEMPERATURE
 
 ATTR_STATE_WINDOW_OPEN = "window_open"
@@ -82,8 +83,8 @@ class BetterThermostatEntityFeature(IntEnum):
 class CalibrationType(StrEnum):
     """Calibration type"""
 
-    target_temp_based = "target_temp_based"
-    local_calibration_based = "local_calibration_based"
+    TARGET_TEMP_BASED = "target_temp_based"
+    LOCAL_BASED = "local_calibration_based"
 
 
 class CalibrationMode(StrEnum):

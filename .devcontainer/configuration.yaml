@@ -11,7 +11,7 @@ lovelace:
 #      type: module
 
 logger:
-  default: error
+  default: CRITICAL
   logs:
     custom_components.better_thermostat: debug
 

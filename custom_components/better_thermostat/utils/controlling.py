@@ -1,6 +1,11 @@
 import asyncio
 import logging
 
+from custom_components.better_thermostat.utils.model_quirks import (
+    override_set_hvac_mode,
+    override_set_temperature,
+)
+
 from .bridge import (
     set_offset,
     get_current_offset,
@@ -60,6 +65,7 @@ async def control_trv(self, heater_entity_id=None):
     """
     async with self._temp_lock:
         self.real_trvs[heater_entity_id]["ignore_trv_states"] = True
+        await self.calculate_heating_power()
         _trv = self.hass.states.get(heater_entity_id)
         _current_set_temperature = convert_to_float(
             str(_trv.attributes.get("temperature", None)), self.name, "controlling()"
@@ -92,7 +98,11 @@ async def control_trv(self, heater_entity_id=None):
                 f"better_thermostat {self.name}: TO TRV set_hvac_mode: {heater_entity_id} from: {_trv.state} to: {_new_hvac_mode}"
             )
             self.real_trvs[heater_entity_id]["last_hvac_mode"] = _new_hvac_mode
-            await set_hvac_mode(self, heater_entity_id, _new_hvac_mode)
+            _tvr_has_quirk = await override_set_hvac_mode(
+                self, heater_entity_id, _new_hvac_mode
+            )
+            if _tvr_has_quirk is False:
+                await set_hvac_mode(self, heater_entity_id, _new_hvac_mode)
             if self.real_trvs[heater_entity_id]["system_mode_received"] is True:
                 self.real_trvs[heater_entity_id]["system_mode_received"] = False
                 asyncio.create_task(check_system_mode(self, heater_entity_id))
@@ -142,7 +152,11 @@ async def control_trv(self, heater_entity_id=None):
                     f"better_thermostat {self.name}: TO TRV set_temperature: {heater_entity_id} from: {old} to: {_temperature}"
                 )
                 self.real_trvs[heater_entity_id]["last_temperature"] = _temperature
-                await set_temperature(self, heater_entity_id, _temperature)
+                _tvr_has_quirk = await override_set_temperature(
+                    self, heater_entity_id, _temperature
+                )
+                if _tvr_has_quirk is False:
+                    await set_temperature(self, heater_entity_id, _temperature)
                 if self.real_trvs[heater_entity_id]["target_temp_received"] is True:
                     self.real_trvs[heater_entity_id]["target_temp_received"] = False
                     asyncio.create_task(
