@@ -18,6 +18,7 @@ from ..const import (
     CONF_HEAT_AUTO_SWAPPED,
     CONF_HEATING_POWER_CALIBRATION,
     CONF_FIX_CALIBRATION,
+    CONF_PROTECT_OVERHEATING,
 )
 
 
@@ -81,6 +82,9 @@ def calculate_local_setpoint_delta(self, entity_id) -> Union[float, None]:
     """
     _context = "calculate_local_setpoint_delta()"
 
+    if (self.cur_temp, self.bt_target_temp, self.old_internal_temp) in None:
+        return None
+
     # check if we need to calculate
     if (
         self.real_trvs[entity_id]["current_temperature"] == self.old_internal_temp
@@ -138,6 +142,14 @@ def calculate_local_setpoint_delta(self, entity_id) -> Union[float, None]:
         self, entity_id, _new_local_calibration
     )
 
+    _overheating_protection = self.real_trvs[entity_id]["advanced"].get(
+        CONF_PROTECT_OVERHEATING, False
+    )
+
+    if _overheating_protection is True:
+        if (self.cur_temp + 0.10) >= self.bt_target_temp:
+            _new_local_calibration += 1.0
+
     if _new_local_calibration > float(
         self.real_trvs[entity_id]["local_calibration_max"]
     ):
@@ -181,6 +193,9 @@ def calculate_setpoint_override(self, entity_id) -> Union[float, None]:
     float
             new target temp with calibration
     """
+    if (self.cur_temp, self.bt_target_temp) in None:
+        return None
+
     _cur_trv_temp = self.hass.states.get(entity_id).attributes["current_temperature"]
     if None in (self.bt_target_temp, self.cur_temp, _cur_trv_temp):
         return None
@@ -206,6 +221,14 @@ def calculate_setpoint_override(self, entity_id) -> Union[float, None]:
     _calibrated_setpoint = fix_target_temperature_calibration(
         self, entity_id, _calibrated_setpoint
     )
+
+    _overheating_protection = self.real_trvs[entity_id]["advanced"].get(
+        CONF_PROTECT_OVERHEATING, False
+    )
+
+    if _overheating_protection is True:
+        if (self.cur_temp + 0.10) >= self.bt_target_temp:
+            _calibrated_setpoint -= 1.0
 
     # check if new setpoint is inside the TRV's range, else set to min or max
     if _calibrated_setpoint < self.real_trvs[entity_id]["min_temp"]:

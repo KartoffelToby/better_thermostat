@@ -3,6 +3,8 @@ def fix_local_calibration(self, entity_id, offset):
         offset -= 1.5
     elif self.cur_temp >= self.bt_target_temp:
         offset = round(offset + 0.5, 1)
+    if (self.cur_temp + 0.5) > self.bt_target_temp:
+        offset += 2
     return offset
 
 
@@ -17,6 +19,8 @@ def fix_target_temperature_calibration(self, entity_id, temperature):
         and temperature - _cur_trv_temp < 1.5
     ):
         temperature += 1.5
+    if (self.cur_temp + 0.5) > self.bt_target_temp:
+        temperature -= 2
     return temperature
 
 

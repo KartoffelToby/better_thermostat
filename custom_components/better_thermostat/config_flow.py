@@ -7,7 +7,7 @@ from .utils.bridge import load_adapter
 from .utils.helpers import get_device_model, get_trv_intigration
 
 from .const import (
-    CONF_CALIBRATIION_ROUND,
+    CONF_PROTECT_OVERHEATING,
     CONF_CALIBRATION,
     CONF_CHILD_LOCK,
     CONF_HEAT_AUTO_SWAPPED,
@@ -184,8 +184,8 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
 
         fields[
             vol.Optional(
-                CONF_CALIBRATIION_ROUND,
-                default=user_input.get(CONF_CALIBRATIION_ROUND, False),
+                CONF_PROTECT_OVERHEATING,
+                default=user_input.get(CONF_PROTECT_OVERHEATING, False),
             )
         ] = bool
 
@@ -429,8 +429,8 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
 
         fields[
             vol.Optional(
-                CONF_CALIBRATIION_ROUND,
-                default=_trv_config["advanced"].get(CONF_CALIBRATIION_ROUND, True),
+                CONF_PROTECT_OVERHEATING,
+                default=_trv_config["advanced"].get(CONF_PROTECT_OVERHEATING, False),
             )
         ] = bool
 
