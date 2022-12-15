@@ -82,7 +82,7 @@ def calculate_local_setpoint_delta(self, entity_id) -> Union[float, None]:
     """
     _context = "calculate_local_setpoint_delta()"
 
-    if (self.cur_temp, self.bt_target_temp, self.old_internal_temp) in None:
+    if None in (self.cur_temp, self.bt_target_temp, self.old_internal_temp):
         return None
 
     # check if we need to calculate
@@ -193,7 +193,7 @@ def calculate_setpoint_override(self, entity_id) -> Union[float, None]:
     float
             new target temp with calibration
     """
-    if (self.cur_temp, self.bt_target_temp) in None:
+    if None in (self.cur_temp, self.bt_target_temp):
         return None
 
     _cur_trv_temp = self.hass.states.get(entity_id).attributes["current_temperature"]
