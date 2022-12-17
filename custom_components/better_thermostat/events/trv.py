@@ -1,6 +1,7 @@
 from datetime import datetime
 import logging
 from typing import Union
+from custom_components.better_thermostat.const import CONF_HOMATICIP
 
 from homeassistant.components.climate.const import (
     HVACMode,
@@ -58,9 +59,21 @@ async def trigger_trv_change(self, event):
         "TRV_current_temp",
     )
 
+    _time_diff = 300
+    try:
+        for trv in self.all_trvs:
+            if trv["advanced"][CONF_HOMATICIP]:
+                _time_diff = 600
+    except KeyError:
+        pass
     if (
         _new_current_temp is not None
         and self.real_trvs[entity_id]["current_temperature"] != _new_current_temp
+        and (
+            (datetime.now() - self.last_internal_sensor_change).total_seconds()
+            > _time_diff
+            or self.real_trvs[entity_id]["calibration_received"] is False
+        )
     ):
         _old_temp = self.real_trvs[entity_id]["current_temperature"]
         self.real_trvs[entity_id]["current_temperature"] = _new_current_temp

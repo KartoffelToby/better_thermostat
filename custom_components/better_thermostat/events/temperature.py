@@ -1,4 +1,6 @@
 import logging
+
+from custom_components.better_thermostat.const import CONF_HOMATICIP
 from ..utils.helpers import convert_to_float
 from datetime import datetime
 
@@ -34,7 +36,20 @@ async def trigger_temperature_change(self, event):
         str(new_state.state), self.name, "external_temperature"
     )
 
-    if _incoming_temperature != self.cur_temp:
+    _time_diff = 300
+
+    try:
+        for trv in self.all_trvs:
+            if trv["advanced"][CONF_HOMATICIP]:
+                _time_diff = 600
+    except KeyError:
+        pass
+
+    if (
+        _incoming_temperature != self.cur_temp
+        and (datetime.now() - self.last_external_sensor_change).total_seconds()
+        > _time_diff
+    ):
         _LOGGER.debug(
             "better_thermostat %s: external_temperature changed from %s to %s",
             self.name,
