@@ -1,12 +1,12 @@
 ---
 layout: default
-title: Schedule/Planer
+title: Schedule/Planner
 nav_order: 3
 description: "BT."
 permalink: schedule
 ---
 
-# Schedule/Planer
+# Schedule/Planner
 
 Services you can call from Home Assistant to set a temporary target temperature for a thermostat.
 
