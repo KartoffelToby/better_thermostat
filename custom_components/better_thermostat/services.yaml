@@ -16,6 +16,15 @@ restore_saved_target_temperature:
     device:
       integration: better_thermostat
 
+reset_heating_power:
+  description: Reset heating power to default value.
+  target:
+    entity:
+      domain: climate
+      integration: better_thermostat
+    device:
+      integration: better_thermostat
+
 set_temp_target_temperature:
   description: Set the target temperature to a temporay like night mode, and save the old one.
   fields:

@@ -150,6 +150,8 @@ def calculate_local_setpoint_delta(self, entity_id) -> Union[float, None]:
         if (self.cur_temp + 0.10) >= self.bt_target_temp:
             _new_local_calibration += 1.0
 
+    _new_local_calibration = round_down_to_half_degree(_new_local_calibration)
+
     if _new_local_calibration > float(
         self.real_trvs[entity_id]["local_calibration_max"]
     ):
@@ -230,12 +232,15 @@ def calculate_setpoint_override(self, entity_id) -> Union[float, None]:
         if (self.cur_temp + 0.10) >= self.bt_target_temp:
             _calibrated_setpoint -= 1.0
 
+    _calibrated_setpoint = round_down_to_half_degree(_calibrated_setpoint)
+
     # check if new setpoint is inside the TRV's range, else set to min or max
     if _calibrated_setpoint < self.real_trvs[entity_id]["min_temp"]:
         _calibrated_setpoint = self.real_trvs[entity_id]["min_temp"]
     if _calibrated_setpoint > self.real_trvs[entity_id]["max_temp"]:
         _calibrated_setpoint = self.real_trvs[entity_id]["max_temp"]
-    return round(_calibrated_setpoint, 1)
+
+    return _calibrated_setpoint
 
 
 def heating_power_valve_position(self, entity_id):
@@ -329,8 +334,11 @@ def round_down_to_half_degree(
         return None
     split = str(float(str(value))).split(".", 1)
     decimale = int(split[1])
-    if decimale > 7:
-        return float(str(split[0])) + 0.5
+    if decimale >= 5:
+        if float(split[0]) > 0:
+            return float(str(split[0])) + 0.5
+        else:
+            return float(str(split[0])) - 0.5
     else:
         return float(str(split[0]))
 
