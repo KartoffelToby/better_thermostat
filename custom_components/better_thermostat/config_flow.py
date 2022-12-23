@@ -178,7 +178,9 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         fields[
             vol.Required(
                 CONF_CALIBRATION_MODE,
-                default=user_input.get(CONF_CALIBRATION_MODE, CalibrationMode.DEFAULT),
+                default=user_input.get(
+                    CONF_CALIBRATION_MODE, CalibrationMode.HEATING_POWER_CALIBRATION
+                ),
             )
         ] = CALIBRATION_MODE_SELECTOR
 
@@ -422,7 +424,7 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
             vol.Required(
                 CONF_CALIBRATION_MODE,
                 default=_trv_config["advanced"].get(
-                    CONF_CALIBRATION_MODE, CalibrationMode.DEFAULT
+                    CONF_CALIBRATION_MODE, CalibrationMode.HEATING_POWER_CALIBRATION
                 ),
             )
         ] = CALIBRATION_MODE_SELECTOR

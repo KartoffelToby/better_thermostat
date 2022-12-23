@@ -36,7 +36,7 @@ async def trigger_temperature_change(self, event):
         str(new_state.state), self.name, "external_temperature"
     )
 
-    _time_diff = 300
+    _time_diff = 5
 
     try:
         for trv in self.all_trvs:
