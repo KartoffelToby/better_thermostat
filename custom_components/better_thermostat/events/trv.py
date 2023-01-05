@@ -72,7 +72,7 @@ async def trigger_trv_change(self, event):
         and (
             (datetime.now() - self.last_internal_sensor_change).total_seconds()
             > _time_diff
-            or self.real_trvs[entity_id]["calibration_received"] is False
+            or (self.real_trvs[entity_id]["calibration_received"] is False and self.real_trvs[entity_id]["calibration"] == 0)
         )
     ):
         _old_temp = self.real_trvs[entity_id]["current_temperature"]
