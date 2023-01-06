@@ -216,7 +216,7 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
         self._unit = unit
         self._device_class = device_class
         self._state_class = state_class
-        self._hvac_list = [HVACMode.HEAT, HVACMode.OFF]
+        self._hvac_list = [HVACMode.HEAT, HVACMode.COOL, HVACMode.OFF]
         self.next_valve_maintenance = datetime.now() + timedelta(
             hours=randint(1, 24 * 5)
         )
@@ -649,7 +649,7 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
                 self.cur_humidity = 0
 
             self.last_window_state = self.window_open
-            if self.bt_hvac_mode not in (HVACMode.OFF, HVACMode.HEAT):
+            if self.bt_hvac_mode not in (HVACMode.OFF, HVACMode.COOL, HVACMode.HEAT):
                 self.bt_hvac_mode = HVACMode.HEAT
 
             self.async_write_ha_state()
@@ -1007,7 +1007,7 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
         -------
         None
         """
-        if hvac_mode in (HVACMode.HEAT, HVACMode.OFF):
+        if hvac_mode in (HVACMode.HEAT, HVACMode.COOL, HVACMode.OFF):
             self.bt_hvac_mode = hvac_mode
         else:
             _LOGGER.error(
