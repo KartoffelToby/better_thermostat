@@ -57,6 +57,6 @@ async def trigger_temperature_change(self, event):
             _incoming_temperature,
         )
         self.cur_temp = _incoming_temperature
+        self.last_external_sensor_change = datetime.now()
         self.async_write_ha_state()
         await self.control_queue_task.put(self)
-        self.last_external_sensor_change = datetime.now()
