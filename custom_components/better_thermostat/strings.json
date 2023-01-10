@@ -2,7 +2,7 @@
         "config": {
                 "step": {
                         "user": {
-                                "description": "Setup your Better Thermostat to integrate with Home Assistant\n**If you need more info: https://better-thermostat.org/configuration/new_device** ",
+                                "description": "Setup your Better Thermostat to integrate with Home Assistant\n**If you need more info: https://better-thermostat.org/configuration/#first-step** ",
                                 "data": {
                                         "name": "Name",
                                         "thermostat": "The real themostat",
@@ -16,7 +16,7 @@
                                 }
                         },
                         "advanced": {
-                                "description": "Advanced configuration\n\n**Info about calibration types: https://better-thermostat.org/calibration** ",
+                                "description": "Advanced configuration\n\n**Info about calibration types: https://better-thermostat.org/configuration/#second-step** ",
                                 "data": {
                                         "protect_overheating": "Overheating protection?",
                                         "heat_auto_swapped": "If the auto means heat for your TRV and you want to swap it",
@@ -60,7 +60,7 @@
                                         "window_off_delay": "Delay before the thermostat turn off when the window is open and on when the window is closed",
                                         "outdoor_sensor": "If you have an outdoor sensor, you can use it to get the outdoor temperature",
                                         "valve_maintenance": "If your thermostat has no own maintenance mode, you can use this one",
-                                        "calibration": "The sort of calibration https://better-thermostat.org/calibration",
+                                        "calibration": "The sort of calibration https://better-thermostat.org/configuration/#second-step",
                                         "weather": "Your weather entity to get the outdoor temperature",
                                         "calibration_round": "Should the calibration be rounded to the nearest",
                                         "heat_auto_swapped": "If the auto means heat for your TRV and you want to swap it",
@@ -69,7 +69,7 @@
                                 }
                         },
                         "advanced": {
-                                "description": "Advanced configuration\n\n**Info about calibration types: https://better-thermostat.org/calibration** ",
+                                "description": "Advanced configuration\n\n**Info about calibration types: https://better-thermostat.org/configuration/#second-step** ",
                                 "data": {
                                         "protect_overheating": "Overheating protection?",
                                         "heat_auto_swapped": "If the auto means heat for your TRV and you want to swap it",

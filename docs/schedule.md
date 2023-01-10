@@ -1,7 +1,7 @@
 ---
 layout: default
 title: Schedule/Planner
-nav_order: 3
+nav_order: 6
 description: "BT."
 permalink: schedule
 ---

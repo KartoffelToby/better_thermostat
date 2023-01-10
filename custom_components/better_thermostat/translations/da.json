@@ -3,7 +3,7 @@
     "config": {
         "step": {
             "user": {
-                "description": "Konfigurer din Better Thermostat til at integrere med Home Assistant\n**Hvis du har brug for mere info: https://better-thermostat.org/configuration/new_device**",
+                "description": "Konfigurer din Better Thermostat til at integrere med Home Assistant\n**Hvis du har brug for mere info: https://better-thermostat.org/configuration/#first-step**",
                 "data": {
                     "name": "Navn",
                     "thermostat": "Den rigtige termostat",
@@ -17,7 +17,7 @@
                 }
             },
             "advanced": {
-                "description": "Avanceret konfiguration\n\n**Info om kalibreringstyper: https://better-thermostat.org/calibration** ",
+                "description": "Avanceret konfiguration\n\n**Info om kalibreringstyper: https://better-thermostat.org/configuration/#second-step** ",
                 "data": {
                     "calibration_round": "Skal kalibreringen afrundes til nærmeste",
                     "heat_auto_swapped": "Hvis auto betyder varme for din TRV og du vil bytte det",
@@ -55,7 +55,7 @@
                     "window_off_delay": "Forsinkelse, før termostaten slukker, når vinduet er åbent, og tændt, når vinduet er lukket",
                     "outdoor_sensor": "Har du en udendørsføler, kan du bruge den til at få udetemperaturen",
                     "valve_maintenance": "Hvis din termostat ikke har nogen egen vedligeholdelsestilstand, kan du bruge denne",
-                    "calibration": "Den slags kalibrering https://better-thermostat.org/calibration",
+                    "calibration": "Den slags kalibrering https://better-thermostat.org/configuration/#second-step",
                     "weather": "Din vejrentitet for at få udendørstemperaturen",
                     "calibration_round": "Skal kalibreringen afrundes til nærmeste",
                     "heat_auto_swapped": "Hvis auto betyder varme til din TRV, og du ønsker at bytte den",
@@ -64,7 +64,7 @@
                 }
             },
             "advanced": {
-                "description": "Avanceret konfiguration\n\n**Info om kalibreringstyper: https://better-thermostat.org/calibration** ",
+                "description": "Avanceret konfiguration\n\n**Info om kalibreringstyper: https://better-thermostat.org/configuration/#second-step** ",
                 "data": {
                     "calibration_round": "Skal kalibreringen afrundes til nærmeste",
                     "heat_auto_swapped": "Hvis auto betyder varme for din TRV og du vil bytte det",

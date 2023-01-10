@@ -3,7 +3,7 @@
         "config": {
                 "step": {
                         "user": {
-                                "description": "Skonfiguruj swój Better Thermostat do integracji z Home Assistant\n**Więcej informacji znajdziesz na: https://better-thermostat.org/configuration/new_device** ",
+                                "description": "Skonfiguruj swój Better Thermostat do integracji z Home Assistant\n**Więcej informacji znajdziesz na: https://better-thermostat.org/configuration/#first-step** ",
                                 "data": {
                                         "name": "Nazwa",
                                         "thermostat": "Twój termostat",
@@ -17,7 +17,7 @@
                                 }
                         },
                         "advanced": {
-                                "description": "Zaawansowana konfiguracja\n\n**Informacja o typach kalibracji: https://better-thermostat.org/calibration** ",
+                                "description": "Zaawansowana konfiguracja\n\n**Informacja o typach kalibracji: https://better-thermostat.org/configuration/#second-step** ",
                                 "data": {
                                         "calibration_round": "Kalibrację należy zaokrąglić do najbliższej wartości",
                                         "heat_auto_swapped": "Jeżeli tryb auto oznacza grzanie dla Twojego TRV i chcesz to zmienić",
@@ -55,7 +55,7 @@
                                         "window_off_delay": "Opóźnienie wyłączenia termostatu, kiedy otworzysz okno lub je zamkniesz (w sekundach)",
                                         "outdoor_sensor": "Jeśli masz czujnik zewnętrzny, możesz go użyć, aby uzyskać temperaturę zewnętrzną",
                                         "valve_maintenance": "Jeżeli Twój termostat nie ma własnego trybu konserwacji, możesz użyć tej opcji.",
-                                        "calibration": "Rodzaje kalibracji https://better-thermostat.org/calibration",
+                                        "calibration": "Rodzaje kalibracji https://better-thermostat.org/configuration/#second-step",
                                         "weather": "Twoja jednostka pogodowa, aby uzyskać temperaturę zewnętrzną",
                                         "calibration_round": "Kalibrację należy zaokrąglić do najbliższej wartości",
                                         "heat_auto_swapped": "Jeżeli tryb auto oznacza grzanie dla Twojego TRV i chcesz to zmienić",
@@ -64,7 +64,7 @@
                                 }
                         },
                         "advanced": {
-                                "description": "Zaawansowana konfiguracja**Informacja o typach kalibracji: https://better-thermostat.org/calibration** ",
+                                "description": "Zaawansowana konfiguracja**Informacja o typach kalibracji: https://better-thermostat.org/configuration/#second-step** ",
                                 "data": {
                                         "calibration_round": "Kalibrację należy zaokrąglić do najbliższej wartości",
                                         "heat_auto_swapped": "Jeżeli tryb auto oznacza grzanie dla Twojego TRV i chcesz to zmienić",

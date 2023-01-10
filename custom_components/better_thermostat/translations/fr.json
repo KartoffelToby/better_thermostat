@@ -3,7 +3,7 @@
         "config": {
                 "step": {
                         "user": {
-                                "description": "Configuration de Better Thermostat pour l'intégrer à Home Assistant\n**If you need more info: https://better-thermostat.org/configuration/new_device** ",
+                                "description": "Configuration de Better Thermostat pour l'intégrer à Home Assistant\n**If you need more info: https://better-thermostat.org/configuration/#first-step** ",
                                 "data": {
                                         "name": "Nom",
                                         "thermostat": "Le véritable thermostat",
@@ -17,7 +17,7 @@
                                 }
                         },
                         "advanced": {
-                                "description": "Advanced configuration\n\n**Info about calibration types: https://better-thermostat.org/calibration** ",
+                                "description": "Advanced configuration\n\n**Info about calibration types: https://better-thermostat.org/configuration/#second-step** ",
                                 "data": {
                                         "calibration_round": "L'étalonnage doit-il être arrondi à la valeur la plus proche",
                                         "heat_auto_swapped": "Si auto signifie chauffer pour votre TRV et que vous voulez l'inverser (pour les utilisateurs de Google Home)",
@@ -55,7 +55,7 @@
                                         "window_off_delay": "Délai avant que le thermostat ne s'éteigne lorsque la fenêtre est ouverte et ne s'allume lorsque la fenêtre est fermée",
                                         "outdoor_sensor": "Si vous avez un capteur extérieur, vous pouvez l'utiliser pour obtenir la température extérieure",
                                         "valve_maintenance": "Si votre thermostat n'a pas de mode de maintenance intégré, vous pouvez utiliser celui-ci",
-                                        "calibration": "The sort of calibration https://better-thermostat.org/calibration",
+                                        "calibration": "The sort of calibration https://better-thermostat.org/configuration/#second-step",
                                         "weather": "Votre entité météo pour obtenir la température extérieure",
                                         "calibration_round": "L'étalonnage doit-il être arrondi à la valeur la plus proche",
                                         "heat_auto_swapped": "Si auto signifie chauffer pour votre TRV et que vous voulez l'inverser",
@@ -64,7 +64,7 @@
                                 }
                         },
                         "advanced": {
-                                "description": "Advanced configuration\n\n**Info about calibration types: https://better-thermostat.org/calibration** ",
+                                "description": "Advanced configuration\n\n**Info about calibration types: https://better-thermostat.org/configuration/#second-step** ",
                                 "data": {
                                         "calibration_round": "L'étalonnage doit-il être arrondi à la valeur la plus proche",
                                         "heat_auto_swapped": "Si auto signifie chauffer pour votre TRV et que vous voulez l'inverser",

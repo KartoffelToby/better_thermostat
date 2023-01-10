@@ -3,7 +3,7 @@
         "config": {
                 "step": {
                         "user": {
-                                "description": "Einrichtung von Better Thermostat mit Home Assistant\n**Für mehr Informationen: https://better-thermostat.org/configuration/new_device** ",
+                                "description": "Einrichtung von Better Thermostat mit Home Assistant\n**Für mehr Informationen: https://better-thermostat.org/configuration/#first-step** ",
                                 "data": {
                                         "name": "Name",
                                         "thermostat": "Das reale Thermostat",
@@ -17,7 +17,7 @@
                                 }
                         },
                         "advanced": {
-                                "description": "Einstellungen für {trv}\n\n***Infos über die Kalibrierungstypen: https://better-thermostat.org/calibration*** ",
+                                "description": "Einstellungen für {trv}\n\n***Infos über die Kalibrierungstypen: https://better-thermostat.org/configuration/#second-step*** ",
                                 "data": {
                                         "protect_overheating": "Überhitzung verhindern?",
                                         "heat_auto_swapped": "Tauscht die Modi auto und heat, falls diese bei dem realen Thermostat vertauscht sind.",
@@ -66,7 +66,7 @@
                                 }
                         },
                         "advanced": {
-                                "description": "Aktuallisere die Einstellungen für {trv}\n\n***Infos über die Kalibrierungstypen: https://better-thermostat.org/calibration*** ",
+                                "description": "Aktuallisere die Einstellungen für {trv}\n\n***Infos über die Kalibrierungstypen: https://better-thermostat.org/configuration/#second-step*** ",
                                 "data": {
                                         "protect_overheating": "Überhitzung verhindern?",
                                         "heat_auto_swapped": "Tauscht die Modi auto und heat, falls diese bei dem realen Thermostat vertauscht sind.",
