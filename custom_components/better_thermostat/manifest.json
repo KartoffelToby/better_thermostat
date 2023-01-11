@@ -14,8 +14,7 @@
     "climate"
   ],
   "codeowners": [
-    "@kartoffeltoby",
-    "@RubenKelevra"
+    "@kartoffeltoby"
   ],
   "requirements": []
 }
