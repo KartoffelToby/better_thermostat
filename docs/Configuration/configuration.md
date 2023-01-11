@@ -34,6 +34,19 @@ or just click on the button below:
 **Window Sensor** This is an optional field. If you have a window sensor you can use it to turn of the thermostat if the window is open and turn it on again when the window is closed. If you have more than one window in a room, you can also select window groups (see the GitHub page for more info).
 
 **Your weather entity for outdoor temperature** This is an optional field. It should be empty if you have an outdoor sensor. This is the weather entity you want to use to get the outdoor temperature. It uses the mean of the last 3 days and checks it every morning at 5:00 AM.
+#### Example Window/Door - Sensor config
+
+```yaml
+group:
+  livingroom_windows:
+    name: Livingroom Windows
+    icon: mdi:window-open-variant
+    all: false
+    entities:
+      - binary_sensor.openclose_1
+      - binary_sensor.openclose_2
+      - binary_sensor.openclose_3
+```
 
 **Window delay** This is an optional field. If you didn't want to turn of the thermostat instantly when the window is open, you can set a delay. This goes in both directions, so if you want to turn it on again after the window is closed, you can set a delay here too.
 

@@ -1,20 +1,17 @@
 [![Active installations](https://badge.t-haber.de/badge/better_thermostat?kill_cache=1)](https://github.com/KartoffelToby/better_thermostat/)
 [![GitHub issues](https://img.shields.io/github/issues/KartoffelToby/better_thermostat?style=for-the-badge)](https://github.com/KartoffelToby/better_thermostat/issues)
-[![Version - 1.0.0-beta](https://img.shields.io/badge/Version-1.0.0beta-009688?style=for-the-badge)](https://github.com/KartoffelToby/better_thermostat/releases)
+[![Version - 1.0.0](https://img.shields.io/badge/Version-1.0.0-009688?style=for-the-badge)](https://github.com/KartoffelToby/better_thermostat/releases)
 [![Discord](https://img.shields.io/discord/925725316540923914.svg?style=for-the-badge)](https://discord.gg/9BUegWTG3K)
 [![hacs_badge](https://img.shields.io/badge/HACS-Default-41BDF5.svg?style=for-the-badge)](https://github.com/hacs/integration)
 
 # Better Thermostat
-
-**Important Notice: Consider this software as unfinished as it has not reached version 1.0.**
-**Don't select master on download, check `show beta version` install the latest one.**
 
 **For more infos visit: https://better-thermostat.org/**
 
 ### Requirements
 
 - Minimum required Home Assistant version: `2022.8.0`
-  (_Latest tested version: `2022.12.0`_)
+  (_Latest tested version: `2023.1.2`_)
 
 ### Companion UI
 
@@ -34,37 +31,24 @@ This integration brings some smartness to your connected radiator thermostats se
 - Your weather forcast provider will turn your heat on/off
 - Or an outside air temperature sensor can do this as well
 - Does some valve-maintenance automatically, to avoid that they will get stuck closed over summer
+- Group multiple TRVs to one (e.g. for a room with multiple radiators)
+- Enhance the default TRV Algorithm with some smartness to reduce the energy consumption
 
 ### Which hardware do we support?
 
 **We support all thermostats which are compatible with Home Assistant as long as they are shown up as a climate entity**
 
-***Integrations that are fully supported local calibration***
+***Integrations that are tested***
 - Zigbee2Mqtt
 - Deconz
 - Tado
-
-At this time following models are tested and recommended:
-
-| Vendor     | Product Name         | Product Number          | HA Manufacturer | HA Model                                                    | Whitelabel                                                                                                      | Support local calibration |
-|------------|----------------------|-------------------------|-----------------|-------------------------------------------------------------|-----------------------------------------------------------------------------------------------------------------|---------------------------|
-| Eurotronic | Spirit Zigbee        | SPZB0001                | `Eurotronic`    | `Spirit Zigbee wireless heater thermostat (SPZB0001)`       |                                                                                                                 |           YES             |
-| Moes       | ZigBee3.0 Thermostat | SEA801&#8209;Zigbee     | `Saswell`       | `Thermostatic radiator valve (SEA801-Zigbee/SEA802-Zigbee)` | -&nbsp;HiHome&nbsp;WZB&#8209;TRVL<br>-&nbsp;Hama&nbsp;00176592<br>-&nbsp;RTX&nbsp;ZB&#8209;RT1                  |           YES             |
-| Moes       | ZigBee3.0 Thermostat | SEA802&#8209;Zigbee     | `Saswell`       | `Thermostatic radiator valve (SEA801-Zigbee/SEA802-Zigbee)` | -&nbsp;HiHome&nbsp;WZB&#8209;TRVL<br>-&nbsp;Hama&nbsp;00176592<br>-&nbsp;RTX&nbsp;ZB&#8209;RT1                  |           YES             |
-| TuYa       | TS0601               | TS0601_thermostat       | `TuYa`          | `Radiator valve with thermostat (TS0601_thermostat)`        | -&nbsp;Moes&nbsp;HY368<br>-&nbsp;Moes&nbsp;HY369RT<br>-&nbsp;SHOJZJ&nbsp;378RT<br>-&nbsp;Silvercrest&nbsp;TVR01 |           YES             |
-| TuYa       | TV02-Zigbee          | TV02-Zigbee             | `TuYa`          | `Thermostat radiator valve (TV02-Zigbee)`                   | -&nbsp;Moes&nbsp;TV01-ZB<br>-&nbsp;Tesla&nbsp;Smart&nbsp;TSL-TRV-TV01ZG<br>-&nbsp;Unknown/id3.pl&nbsp;GTZ08     |           NO              |
-| Siterwell  | Radiator Thermostat  | GS361A&#8209;H04        |                 |                                                             |                                                                                                                 |           NO              |
-|            |                      |                         |                 |                                                             |                                                                                                                 |                           |
+- generic_thermostat
 
 ### Howto Setup
 
-This custom component uses the config flow in Home Assistant.
+Install this integration via HACS or copy the files from the [latest release]
 
-After you installed this integration and restart HA, you can add it via the integrations page in Home Assistant.
-
-**Click Settings > Devices & Services > Integrations > Add Integration > Better Thermostat**
-
-**IMPORTANT: the weather and outdoor_sensor are not required, but you need one of them if you want to use this function, if not remove them**
+Configuration details can be found in the [Documentation](docs/Configuration/configuration.md) or on our website: [better-thermostat.org](https://better-thermostat.org/configuration)
 
 
 Some nice to know config tipps for the configuration.yaml
@@ -93,15 +77,4 @@ No worry, Better Thermostat support grouping out of the box
 If you want to support this project, you can ☕ [**buy a coffee here**](https://www.buymeacoffee.com/kartoffeltoby).
 
 <a href="https://www.buymeacoffee.com/kartoffeltoby"><img src="https://img.buymeacoffee.com/button-api/?text=Buy me a coffee&emoji=&slug=kartoffeltoby&button_colour=0ac982&font_colour=000000&font_family=Cookie&outline_colour=000000&coffee_colour=ffffff"></a>
-
----
-
-## 🧙 Maintainers
-
-**[@KartoffelToby](https://github.com/KartoffelToby)**
-
-**[@RubenKelevra](https://github.com/RubenKelevra)** ***(INACTIVE)***
-
----
-
 
