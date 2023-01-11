@@ -10,7 +10,7 @@ parent: Q&A
 # Which devices are currently supported?
 
 Generally speaking all devices supported by Home Assistant as “climate  entities” are supported. 
-However, if you would like to use the “local calibration mode”, Better Thermostat needs to support the thermostat integration of your device and your device need to support this feature.
+However, if you would like to use the “local calibration mode”, Better Thermostat needs to support the thermostat integration of your device and your device needs to support this feature.
 Currently, these are the integrations compatible with local calibration mode:
 
 - Tado
@@ -18,4 +18,4 @@ Currently, these are the integrations compatible with local calibration mode:
 - Deconz
 
 Please keep in mind that even if BT supports your integration, if your device does not support “local_temperature_calibration” this feature will not be available to you. You can check your device compatibility via zigbee2mqtt.
-If your preferred Integration isn’t currently available for local calibration please open a GitHub issue.
+If your preferred integration isn’t currently available for local calibration please open a GitHub issue.
