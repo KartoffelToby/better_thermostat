@@ -28,7 +28,7 @@ def load_adapter(self, integration, entity_id, get_name=False):
             "custom_components.better_thermostat.adapters.generic",
             package="better_thermostat",
         )
-        _LOGGER.warning(
+        _LOGGER.info(
             "better_thermostat %s: intigration: %s isn't native supported, feel free to open an issue, fallback adapter %s",
             self.name,
             integration,
