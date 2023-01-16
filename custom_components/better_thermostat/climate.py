@@ -263,6 +263,7 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
             asyncio.create_task(window_queue(self))
         self.heating_power = 0.01
         self.last_heating_power_stats = []
+        self.tolerance = 0.2
 
     async def async_added_to_hass(self):
         """Run when entity about to be added.
