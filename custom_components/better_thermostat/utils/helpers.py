@@ -214,18 +214,18 @@ def calculate_setpoint_override(self, entity_id) -> Union[float, None]:
 
     elif _calibration_mode == CONF_HEATING_POWER_CALIBRATION:
         _temp_diff = float(float(self.bt_target_temp) - float(self.cur_temp))
-        _real_trv_havc_action = self.hass.states.get(entity_id).attributes.get(
+        _real_trv_hvac_action = self.hass.states.get(entity_id).attributes.get(
             "hvac_action", None
         )
         if (
-            _real_trv_havc_action == "heating" and _temp_diff > -1 * self.tolerance
-        ) or (_real_trv_havc_action == "idle" and _temp_diff > self.tolerance):
+            _real_trv_hvac_action == "heating" and _temp_diff > -1 * self.tolerance
+        ) or (_real_trv_hvac_action == "idle" and _temp_diff > self.tolerance):
             # if _temp_diff > 0.0:
             valve_position = heating_power_valve_position(self, entity_id)
             _calibrated_setpoint = _cur_trv_temp + (
                 (self.real_trvs[entity_id]["max_temp"] - _cur_trv_temp) * valve_position
             )
-        if _real_trv_havc_action == "idle" and (
+        if _real_trv_hvac_action == "idle" and (
             _temp_diff < self.tolerance and _temp_diff > -1 * self.tolerance
         ):
             _calibrated_setpoint = _cur_trv_temp - 0.5
