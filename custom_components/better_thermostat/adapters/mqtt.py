@@ -104,8 +104,6 @@ async def get_offset_steps(self, entity_id):
 
 async def get_min_offset(self, entity_id):
     """Get min offset."""
-    # looks like z2m has a min max bug currently force to -10
-    return -6.0
     return float(
         str(
             self.hass.states.get(
@@ -117,8 +115,6 @@ async def get_min_offset(self, entity_id):
 
 async def get_max_offset(self, entity_id):
     """Get max offset."""
-    # looks like z2m has a min max bug currently force to 10
-    return 6.0
     return float(
         str(
             self.hass.states.get(
