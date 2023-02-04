@@ -8,7 +8,7 @@ import math
 def fix_local_calibration(self, entity_id, offset):
     """
     If still heating, round UP the offset
-    
+
     This creates a lower "fake" thermostat temperature, making it heat the room
     """
     if self.cur_temp < self.bt_target_temp:
@@ -29,6 +29,3 @@ async def override_set_hvac_mode(self, entity_id, hvac_mode):
 
 async def override_set_temperature(self, entity_id, temperature):
     return False
-
-
-
