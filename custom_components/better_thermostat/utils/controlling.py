@@ -54,8 +54,15 @@ async def control_queue(self):
                         )
                         result = False
 
+                # Retry task if some TRVs failed. Discard the task if the queue is full
+                # to avoid blocking and therefore deadlocking this function.
                 if result is False:
-                    await self.control_queue_task.put(self)
+                    try:
+                        self.control_queue_task.put_nowait(self)
+                    except asyncio.QueueFull:
+                        _LOGGER.debug(
+                            "better_thermostat %s: control queue is full, discarding task"
+                        )
 
                 self.control_queue_task.task_done()
                 self.ignore_states = False
