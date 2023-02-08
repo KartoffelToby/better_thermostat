@@ -319,7 +319,6 @@ def convert_outbound_states(self, entity_id, hvac_mode) -> Union[dict, None]:
                 _new_heating_setpoint = self.bt_target_temp
 
             elif _calibration_type == 1:
-
                 _round_calibration = self.real_trvs[entity_id]["advanced"].get(
                     "calibration_round"
                 )
