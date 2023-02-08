@@ -229,10 +229,22 @@ def calculate_setpoint_override(self, entity_id) -> Union[float, None]:
     )
 
     if _overheating_protection is True:
-        if (self.cur_temp + 0.10) >= self.bt_target_temp:
-            _calibrated_setpoint -= 1.0
-
+        if self.cur_temp > (self.bt_target_temp + 0.50): 
+            _calibrated_setpoint = self.bt_target_temp
+        elif self.cur_temp > (self.bt_target_temp + 0.40):
+            _calibrated_setpoint -= 3
+        elif self.cur_temp > (self.bt_target_temp + 0.30):
+            _calibrated_setpoint -= 2.5
+        elif self.cur_temp > (self.bt_target_temp + 0.20):
+            _calibrated_setpoint -= 2
+        elif self.cur_temp > (self.bt_target_temp + 0.10):
+            _calibrated_setpoint -= 1.5
+                         
     _calibrated_setpoint = round_down_to_half_degree(_calibrated_setpoint)
+
+    # check if new setpoint is above bt_target_temp
+    if _calibrated_setpoint < self.bt_target_temp:
+        _calibrated_setpoint = self.bt_target_temp
 
     # check if new setpoint is inside the TRV's range, else set to min or max
     if _calibrated_setpoint < self.real_trvs[entity_id]["min_temp"]:
