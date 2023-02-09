@@ -6,7 +6,10 @@ from typing import Union
 from homeassistant.helpers import device_registry as dr, entity_registry as er
 from homeassistant.helpers.entity_registry import async_entries_for_config_entry
 
-from homeassistant.components.climate.const import HVACMode
+from homeassistant.components.climate.const import (
+    HVACMode,
+    HVACAction,
+)
 
 from custom_components.better_thermostat.utils.model_quirks import (
     fix_local_calibration,
@@ -217,18 +220,15 @@ def calculate_setpoint_override(self, entity_id) -> Union[float, None]:
         _real_trv_hvac_action = self.hass.states.get(entity_id).attributes.get(
             "hvac_action", None
         )
-        if (
-            _real_trv_hvac_action == "heating" and _temp_diff > -1 * self.tolerance
-        ) or (_real_trv_hvac_action == "idle" and _temp_diff > self.tolerance):
+        if self.attr_hvac_action == HVACAction.HEATING:
             # if _temp_diff > 0.0:
             valve_position = heating_power_valve_position(self, entity_id)
             _calibrated_setpoint = _cur_trv_temp + (
                 (self.real_trvs[entity_id]["max_temp"] - _cur_trv_temp) * valve_position
             )
-        if _real_trv_hvac_action == "idle" and (
-            _temp_diff < self.tolerance and _temp_diff > -1 * self.tolerance
-        ):
-            _calibrated_setpoint = _cur_trv_temp - 0.5
+        elif self.attr_hvac_action == HVACAction.IDLE:
+            if _calibrated_setpoint - _cur_trv_temp > 0.0:
+                _calibrated_setpoint -= self.tolerance
 
     _calibrated_setpoint = fix_target_temperature_calibration(
         self, entity_id, _calibrated_setpoint

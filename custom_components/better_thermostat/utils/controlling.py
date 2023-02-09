@@ -13,7 +13,7 @@ from .bridge import (
     set_temperature,
     set_hvac_mode,
 )
-from ..events.trv import convert_outbound_states
+from ..events.trv import convert_outbound_states, update_hvac_action
 from homeassistant.components.climate.const import HVACMode
 
 from .helpers import convert_to_float, calibration_round
@@ -65,6 +65,7 @@ async def control_trv(self, heater_entity_id=None):
     """
     async with self._temp_lock:
         self.real_trvs[heater_entity_id]["ignore_trv_states"] = True
+        update_hvac_action(self)
         await self.calculate_heating_power()
         _trv = self.hass.states.get(heater_entity_id)
         _current_set_temperature = convert_to_float(
