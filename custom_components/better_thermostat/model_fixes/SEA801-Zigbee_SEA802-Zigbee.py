@@ -2,8 +2,7 @@ def fix_local_calibration(self, entity_id, offset):
     # device SEA802 fix
     if (self.cur_temp - self.bt_target_temp) < -0.2:
         offset -= 2.5
-    elif (self.cur_temp + 0.5) > self.bt_target_temp:
-        offset = round(offset + 0.5, 1)
+
     return offset
 
 

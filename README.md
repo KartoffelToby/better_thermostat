@@ -1,6 +1,6 @@
 [![Active installations](https://badge.t-haber.de/badge/better_thermostat?kill_cache=1)](https://github.com/KartoffelToby/better_thermostat/)
 [![GitHub issues](https://img.shields.io/github/issues/KartoffelToby/better_thermostat?style=for-the-badge)](https://github.com/KartoffelToby/better_thermostat/issues)
-[![Version - 1.0.0](https://img.shields.io/badge/Version-1.0.0-009688?style=for-the-badge)](https://github.com/KartoffelToby/better_thermostat/releases)
+[![Version - 1.0.1](https://img.shields.io/badge/Version-1.0.1-009688?style=for-the-badge)](https://github.com/KartoffelToby/better_thermostat/releases)
 [![Discord](https://img.shields.io/discord/925725316540923914.svg?style=for-the-badge)](https://discord.gg/9BUegWTG3K)
 [![hacs_badge](https://img.shields.io/badge/HACS-Default-41BDF5.svg?style=for-the-badge)](https://github.com/hacs/integration)
 
@@ -11,24 +11,24 @@
 ### Requirements
 
 - Minimum required Home Assistant version: `2022.8.0`
-  (_Latest tested version: `2023.1.2`_)
+  (_Latest tested version: `2023.2.1`_)
 
 ### Companion UI
 
-We've created a companion UI element which can display more information that the default thermostat element in Home Assistant. Check it out via HACS: [better-thermostat-ui-card](https://github.com/KartoffelToby/better-thermostat-ui-card)
+We've created a companion UI element which can display more information than the default thermostat element in Home Assistant. Check it out via HACS: [better-thermostat-ui-card](https://github.com/KartoffelToby/better-thermostat-ui-card)
 
-- If you have a question or need help please create a new [discussion](https://github.com/KartoffelToby/better_thermostat/discussions) or check if your question is already answered.
+- If you have a question or need help please create a new [discussion](https://github.com/KartoffelToby/better_thermostat/discussions) or check if your question is already answered
 - If you have a suggestion, found a bug, or want to add a new device or function create a new [issue](https://github.com/KartoffelToby/better_thermostat/issues)
 - If you want to contribute to this project create a new [pull request](https://github.com/KartoffelToby/better_thermostat/pulls)
 
-### Featureset
+### Features
 
 This integration brings some smartness to your connected radiator thermostats setup:
 
 - Uses a temperature sensor far away from the radiators to measure the real room temperature
 - Makes your TRVs fully compatible with Google Home
-- Let your windows disable your heating (avoids programing this via automations)
-- Your weather forcast provider will turn your heat on/off
+- Let your windows disable your heating (avoids programming this via automations)
+- Your weather forecast provider will turn your heat on/off
 - Or an outside air temperature sensor can do this as well
 - Does some valve-maintenance automatically, to avoid that they will get stuck closed over summer
 - Group multiple TRVs to one (e.g. for a room with multiple radiators)
@@ -44,14 +44,14 @@ This integration brings some smartness to your connected radiator thermostats se
 - Tado
 - generic_thermostat
 
-### Howto Setup
+### How to setup
 
-Install this integration via HACS or copy the files from the [latest release]
+Install this integration via HACS or copy the files from the [latest release](https://github.com/KartoffelToby/better_thermostat/releases/latest)
 
-Configuration details can be found in the [Documentation](docs/Configuration/configuration.md) or on our website: [better-thermostat.org](https://better-thermostat.org/configuration)
+Configuration details can be found in the [documentation](docs/Configuration/configuration.md) or on our website: [better-thermostat.org](https://better-thermostat.org/configuration)
 
 
-Some nice to know config tipps for the configuration.yaml
+Some nice to know config tips for the configuration.yaml
 #### Example Window/Door - Sensor config
 
 ```yaml
@@ -68,7 +68,7 @@ group:
 
 #### Combine multiple TRV to one (Group)
 
-No worry, Better Thermostat support grouping out of the box
+No worry, Better Thermostat supports grouping out of the box
 
 ---
 
