@@ -42,11 +42,21 @@ async def control_queue(self):
                 self.ignore_states = True
                 result = True
                 for trv in self.real_trvs.keys():
-                    _temp = await control_trv(self, trv)
-                    if _temp is False:
+                    try:
+                        _temp = await control_trv(self, trv)
+                        if _temp is False:
+                            result = False
+                    except Exception:
+                        _LOGGER.exception(
+                            "better_thermostat %s: ERROR controlling: %s",
+                            self.name,
+                            trv,
+                        )
                         result = False
+
                 if result is False:
                     await self.control_queue_task.put(self)
+
                 self.control_queue_task.task_done()
                 self.ignore_states = False
 
