@@ -147,8 +147,8 @@ def calculate_local_setpoint_delta(self, entity_id) -> Union[float, None]:
     )
 
     if _overheating_protection is True:
-        if (self.cur_temp + 0.10) >= self.bt_target_temp:
-            _new_local_calibration += 1.0
+        if self.cur_temp >= self.bt_target_temp:
+            _new_local_calibration += (self.cur_temp - self.bt_target_temp) * 10.0
 
     _new_local_calibration = round_down_to_half_degree(_new_local_calibration)
 
@@ -229,8 +229,8 @@ def calculate_setpoint_override(self, entity_id) -> Union[float, None]:
     )
 
     if _overheating_protection is True:
-        if (self.cur_temp + 0.10) >= self.bt_target_temp:
-            _calibrated_setpoint -= 1.0
+        if self.cur_temp >= self.bt_target_temp:
+            _calibrated_setpoint -= (self.cur_temp - self.bt_target_temp) * 10.0
 
     _calibrated_setpoint = round_down_to_half_degree(_calibrated_setpoint)
 
