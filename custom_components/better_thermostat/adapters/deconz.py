@@ -54,7 +54,7 @@ async def set_offset(self, entity_id, offset):
     await self.hass.services.async_call(
         "deconz",
         "configure",
-        {"entity_id": entity_id, "offset": offset},
+        {"entity": entity_id, "field": "/config", "data": {"offset": offset}},
         blocking=True,
         limit=None,
         context=self._context,
