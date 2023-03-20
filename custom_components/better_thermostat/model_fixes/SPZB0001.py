@@ -1,4 +1,8 @@
 def fix_local_calibration(self, entity_id, offset):
+    if offset > 5:
+        offset = 5
+    elif offset < -5:
+        offset = -5
     return offset
 
 
