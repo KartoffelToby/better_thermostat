@@ -110,9 +110,10 @@ async def control_trv(self, heater_entity_id=None):
             _new_hvac_mode = HVACMode.OFF
 
         # Manage TRVs with no HVACMode.OFF
-        _no_off_system_mode = (
-            HVACMode.OFF not in self.real_trvs[heater_entity_id]["hvac_modes"]
-            or self.real_trvs[heater_entity_id]["advanced"].get("no_off_system_mode", False)
+        _no_off_system_mode = HVACMode.OFF not in self.real_trvs[heater_entity_id][
+            "hvac_modes"
+        ] or self.real_trvs[heater_entity_id]["advanced"].get(
+            "no_off_system_mode", False
         )
         if _no_off_system_mode is True and _new_hvac_mode == HVACMode.OFF:
             _min_temp = self.real_trvs[heater_entity_id]["min_temp"]
