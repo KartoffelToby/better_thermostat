@@ -222,7 +222,7 @@ def update_hvac_action(self):
     if all(a == HVACAction.OFF for a in hvac_actions):
         self.attr_hvac_action = HVACAction.OFF
     # else check if is heating
-    elif self.bt_target_temp > self.cur_temp + self.tolerance:
+    elif self.bt_target_temp > self.cur_temp + self.tolerance and self.window_open is False:
         self.attr_hvac_action = HVACAction.HEATING
     elif (
         self.bt_target_temp > self.cur_temp
