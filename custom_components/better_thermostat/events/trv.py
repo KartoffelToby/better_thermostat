@@ -227,6 +227,7 @@ def update_hvac_action(self):
     elif (
         self.bt_target_temp > self.cur_temp
         and self.attr_hvac_action == HVACAction.HEATING
+        and self.window_open is False
     ):
         self.attr_hvac_action = HVACAction.HEATING
     else:
