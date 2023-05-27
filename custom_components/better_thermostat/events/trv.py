@@ -47,8 +47,12 @@ async def trigger_trv_change(self, event):
         )
         return
 
-    # if new_state == old_state:
-    #    return
+    # Check if the update is coming from the code
+    _LOGGER.debug(
+        f"better_thermostat {self.name}: TRV {entity_id} update received from {event.context.user_id}"
+    )
+    if event.context.user_id == "automation":
+        return
 
     _org_trv_state = self.hass.states.get(entity_id)
     child_lock = self.real_trvs[entity_id]["advanced"].get("child_lock")
