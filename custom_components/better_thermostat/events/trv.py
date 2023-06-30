@@ -1,3 +1,4 @@
+import asyncio
 from datetime import datetime
 import logging
 from typing import Union
@@ -6,10 +7,10 @@ from custom_components.better_thermostat.const import CONF_HOMATICIP
 from homeassistant.components.climate.const import (
     HVACMode,
     ATTR_HVAC_ACTION,
-    HVACAction,
+    CURRENT_HVAC_HEAT,
+    CURRENT_HVAC_IDLE,
 )
 from homeassistant.core import State, callback
-from homeassistant.components.group.util import find_state_attributes
 from ..utils.helpers import (
     calculate_local_setpoint_delta,
     calculate_setpoint_override,
@@ -29,7 +30,7 @@ async def trigger_trv_change(self, event):
         return
     if self.control_queue_task is None:
         return
-    update_hvac_action(self)
+    asyncio.create_task(update_hvac_action(self))
     _main_change = False
     old_state = event.data.get("old_state")
     new_state = event.data.get("new_state")
@@ -49,7 +50,7 @@ async def trigger_trv_change(self, event):
 
     # Check if the update is coming from the code
     _LOGGER.debug(
-        f"better_thermostat {self.name}: TRV {entity_id} update received from {event.context.user_id}"
+        f"better_thermostat {self.name}: TRV {entity_id} update received from {event.context.parent_id} {event.context.context_id}"
     )
     if event.context.user_id == "automation":
         return
@@ -194,45 +195,31 @@ async def trigger_trv_change(self, event):
     return
 
 
-def update_hvac_action(self):
-    """Update hvac action."""
-    # return the most common action if it is not off
-    states = [
-        state
-        for entity_id in self.real_trvs
-        if (state := self.hass.states.get(entity_id)) is not None
-    ]
-
-    # check if trv has pi_heating_demand
-    pi_heating_demands = list(find_state_attributes(states, "pi_heating_demand"))
-    if pi_heating_demands:
-        pi_heating_demand = max(pi_heating_demands)
-        if pi_heating_demand > 1:
-            self.attr_hvac_action = HVACAction.HEATING
-            self.async_write_ha_state()
-            return
-        else:
-            self.attr_hvac_action = HVACAction.IDLE
-            self.async_write_ha_state()
-            return
-
-    hvac_actions = list(find_state_attributes(states, ATTR_HVAC_ACTION))
-    if not hvac_actions:
-        self.attr_hvac_action = None
-        self.async_write_ha_state()
+async def update_hvac_action(self):
+    """Update the hvac action."""
+    if self.startup_running or self.control_queue_task is None:
         return
 
-    # return action off if all are off
-    if all(a == HVACAction.OFF for a in hvac_actions):
-        self.attr_hvac_action = HVACAction.OFF
-    # else check if is heating
-    elif self.bt_target_temp > self.cur_temp:
-        self.attr_hvac_action = HVACAction.HEATING
-    else:
-        self.attr_hvac_action = HVACAction.IDLE
+    hvac_action = None
+    for trv in self.all_trvs:
+        if trv["advanced"][CONF_HOMATICIP]:
+            entity_id = trv["entity_id"]
+            state = self.hass.states.get(entity_id)
+            if state is None:
+                continue
 
-    self.async_write_ha_state()
-    return
+            if state.attributes.get(ATTR_HVAC_ACTION) == CURRENT_HVAC_HEAT:
+                hvac_action = CURRENT_HVAC_HEAT
+                break
+            elif state.attributes.get(ATTR_HVAC_ACTION) == CURRENT_HVAC_IDLE:
+                hvac_action = CURRENT_HVAC_IDLE
+
+    if hvac_action is None:
+        hvac_action = CURRENT_HVAC_IDLE
+
+    if self.hvac_action != hvac_action:
+        self.hvac_action = hvac_action
+        await self.async_update_ha_state()
 
 
 def convert_inbound_states(self, entity_id, state: State) -> str:

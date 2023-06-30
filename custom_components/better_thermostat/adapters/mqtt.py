@@ -64,7 +64,6 @@ async def init(self, entity_id):
                 "set_preset_mode",
                 {"entity_id": entity_id, "preset_mode": "manual"},
                 blocking=True,
-                limit=None,
                 context=self._context,
             )
 
@@ -144,7 +143,6 @@ async def set_offset(self, entity_id, offset):
             "value": offset,
         },
         blocking=True,
-        limit=None,
         context=self._context,
     )
     self.real_trvs[entity_id]["last_calibration"] = offset
@@ -171,6 +169,5 @@ async def set_valve(self, entity_id, valve):
             "value": valve,
         },
         blocking=True,
-        limit=None,
         context=self._context,
     )
