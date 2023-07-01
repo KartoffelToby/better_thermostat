@@ -402,24 +402,26 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
                 self.version,
             )
             sensor_state = self.hass.states.get(self.sensor_entity_id)
-            if sensor_state.state in (STATE_UNAVAILABLE, STATE_UNKNOWN, None):
-                _LOGGER.info(
-                    "better_thermostat %s: waiting for sensor entity with id '%s' to become fully available...",
-                    self.name,
-                    self.sensor_entity_id,
-                )
-                await asyncio.sleep(10)
-                continue
-            for trv in self.real_trvs.keys():
-                trv_state = self.hass.states.get(trv)
-                if trv_state.state in (STATE_UNAVAILABLE, STATE_UNKNOWN, None):
+            if sensor_state is not None:
+                if sensor_state.state in (STATE_UNAVAILABLE, STATE_UNKNOWN, None):
                     _LOGGER.info(
-                        "better_thermostat %s: waiting for TRV/climate entity with id '%s' to become fully available...",
+                        "better_thermostat %s: waiting for sensor entity with id '%s' to become fully available...",
                         self.name,
-                        trv,
+                        self.sensor_entity_id,
                     )
                     await asyncio.sleep(10)
                     continue
+            for trv in self.real_trvs.keys():
+                trv_state = self.hass.states.get(trv)
+                if trv_state is not None:
+                    if trv_state.state in (STATE_UNAVAILABLE, STATE_UNKNOWN, None):
+                        _LOGGER.info(
+                            "better_thermostat %s: waiting for TRV/climate entity with id '%s' to become fully available...",
+                            self.name,
+                            trv,
+                        )
+                        await asyncio.sleep(10)
+                        continue
 
             if self.window_id is not None:
                 if self.hass.states.get(self.window_id).state in (
