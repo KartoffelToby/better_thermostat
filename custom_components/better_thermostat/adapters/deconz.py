@@ -56,7 +56,7 @@ async def set_offset(self, entity_id, offset):
         "configure",
         {"entity": entity_id, "field": "/config", "data": {"offset": offset}},
         blocking=True,
-        context=self._context,
+        context=self.context,
     )
     self.real_trvs[entity_id]["last_calibration"] = offset
 

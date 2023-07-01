@@ -47,13 +47,15 @@ async def trigger_trv_change(self, event):
             f"better_thermostat {self.name}: TRV {entity_id} update contained not a State, skipping"
         )
         return
+    # set context HACK TO FIND OUT IF AN EVENT WAS SEND BY BT
 
     # Check if the update is coming from the code
-    _LOGGER.debug(
-        f"better_thermostat {self.name}: TRV {entity_id} update received from {event.context.parent_id} {event.context.context_id}"
-    )
-    if event.context.user_id == "automation":
+    if self.context == event.context:
         return
+
+    _LOGGER.debug(
+        f"better_thermostat {self.name}: TRV {entity_id} update received {self.context.id} {event.context.id}"
+    )
 
     _org_trv_state = self.hass.states.get(entity_id)
     child_lock = self.real_trvs[entity_id]["advanced"].get("child_lock")
@@ -218,8 +220,8 @@ async def update_hvac_action(self):
         hvac_action = CURRENT_HVAC_IDLE
 
     if self.hvac_action != hvac_action:
-        self.hvac_action = hvac_action
-        await self.async_update_ha_state()
+        self.attr_hvac_action = hvac_action
+        await self.async_update_ha_state(force_refresh=True)
 
 
 def convert_inbound_states(self, entity_id, state: State) -> str:

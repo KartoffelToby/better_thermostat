@@ -20,7 +20,7 @@ from .utils.model_quirks import load_model_quirks
 
 from .utils.helpers import convert_to_float
 from homeassistant.helpers import entity_platform
-from homeassistant.core import callback, CoreState
+from homeassistant.core import callback, CoreState, Context
 
 from homeassistant.components.climate import ClimateEntity
 from homeassistant.components.climate.const import (
@@ -245,7 +245,7 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
         self.last_window_state = None
         self._last_call_for_heat = None
         self._available = False
-        self._context = None
+        self.context = None
         self.attr_hvac_action = None
         self.old_attr_hvac_action = None
         self.heating_start_temp = None
@@ -330,6 +330,7 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
             _ :
                     All parameters are piped.
             """
+            self.context = Context()
             loop = asyncio.get_event_loop()
             loop.create_task(self.startup())
 
@@ -355,14 +356,12 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
 
     async def _trigger_temperature_change(self, event):
         self.async_set_context(event.context)
-
         if (event.data.get("new_state")) is None:
             return
         self.hass.async_create_task(trigger_temperature_change(self, event))
 
     async def _trigger_humidity_change(self, event):
         self.async_set_context(event.context)
-
         if (event.data.get("new_state")) is None:
             return
         self.cur_humidity = convert_to_float(
@@ -373,10 +372,9 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
         self.async_write_ha_state()
 
     async def _trigger_trv_change(self, event):
+        self.async_set_context(event.context)
         if self._async_unsub_state_changed is None:
             return
-
-        self.async_set_context(event.context)
 
         if (event.data.get("new_state")) is None:
             return
@@ -385,7 +383,6 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
 
     async def _trigger_window_change(self, event):
         self.async_set_context(event.context)
-
         if (event.data.get("new_state")) is None:
             return
 
@@ -764,7 +761,7 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
                 )
             _LOGGER.info("better_thermostat %s: startup completed.", self.name)
             self.async_write_ha_state()
-            await self.async_update_ha_state()
+            await self.async_update_ha_state(force_refresh=True)
             break
 
     async def calculate_heating_power(self):
