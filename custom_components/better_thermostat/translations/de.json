@@ -90,5 +90,18 @@
         }
       }
     }
+  },
+  "issues": {
+    "missing_entity": {
+      "title": "BT: {name} - related entity is missing",
+      "fix_flow": {
+        "step": {
+          "confirm": {
+            "title": "The related entity {entity} is missing",
+            "description": "The reason for this is that the entity ({entity}) is not available in your Home Assistant.\n\nYou can fix this by checking if the batterie of the device is full or reconnect it to HA. Make sure that the entity is back in HA before you continue."
+          }
+        }
+      }
+    }
   }
 }
