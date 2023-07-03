@@ -1,80 +1,80 @@
 {
-        "title": "Better Thermostat",
-        "config": {
-                "step": {
-                        "user": {
-                                "description": "Skonfiguruj swój Better Thermostat do integracji z Home Assistant\n**Więcej informacji znajdziesz na: https://better-thermostat.org/configuration/#first-step** ",
-                                "data": {
-                                        "name": "Nazwa",
-                                        "thermostat": "Twój termostat",
-                                        "temperature_sensor": "Sensor temperatury",
-                                        "humidity_sensor": "Sensor wilgotności",
-                                        "window_sensors": "Sensor okna",
-                                        "off_temperature": "Temperatura zewnętrzna, przy której termostat ma się wyłączyć",
-                                        "window_off_delay": "Opóźnienie wyłączenia termostatu, kiedy otworzysz okno lub je zamkniesz (w sekundach)",
-                                        "outdoor_sensor": "Jeśli masz czujnik zewnętrzny, możesz go użyć, aby uzyskać temperaturę zewnętrzną",
-                                        "weather": "Twoja jednostka pogodowa, aby uzyskać temperaturę zewnętrzną"
-                                }
-                        },
-                        "advanced": {
-                                "description": "Zaawansowana konfiguracja\n\n**Informacja o typach kalibracji: https://better-thermostat.org/configuration/#second-step** ",
-                                "data": {
-                                        "calibration_round": "Kalibrację należy zaokrąglić do najbliższej wartości",
-                                        "heat_auto_swapped": "Jeżeli tryb auto oznacza grzanie dla Twojego TRV i chcesz to zmienić",
-                                        "child_lock": "Ignoruj wszystkie wejścia w TRV jak np. Blokada dziecięca",
-                                        "homaticip": "Jeżeli używasz HomaticIP, powinieneś włączyć tę opcję, żeby spowolnić żądania cyklu pracy",
-                                        "valve_maintenance": "Jeżeli Twój termostat nie ma trybu konserwacji, możesz użyć tej opcji.",
-                                        "calibration": "Rodzaj kalibracji, której chcesz użyć",
-                                        "fix_calibration": "If your TRV has trouble with not recheating the target temperature or overheating, this option can help"
-                                }
-                        },
-                        "confirm": {
-                                "title": "Potwierdź dodanie Better Thermostat",
-                                "description": "Zamierzasz dodać `{name}` do Home Assistant.\nUżywając {trv} jako termostatu"
-                        }
-                },
-                "error": {
-                        "failed": "coś poszło nie tak.",
-                        "no_name": "Proszę podać nazwę.",
-                        "no_off_mode": "Twoje urządzenie jest inne i nie ma trybu wyłączenia :(\nTo będzie działać, ale musisz stworzyć automatyzację, aby ustawić funkcje pod swoje urządzenie"
-                },
-                "abort": {
-                        "single_instance_allowed": "Dozwolony jest tylko jeden termostat dla jednego urządzenia.",
-                        "no_devices_found": "Nie znaleziono jednostki termostatu, upewnij się, że masz jednostkę klimatyczną w swoim asystencie domowym."
-                }
-        },
-        "options": {
-                "step": {
-                        "user": {
-                                "description": "Zaktualizuj ustawienia Better Thermostat",
-                                "data": {
-                                        "temperature_sensor": "Sensor temperatury",
-                                        "humidity_sensor": "Sensor wilgotności",
-                                        "window_sensors": "Sensor okna",
-                                        "off_temperature": "Temperatura zewnętrzna, przy której termostat ma się wyłączyć",
-                                        "window_off_delay": "Opóźnienie wyłączenia termostatu, kiedy otworzysz okno lub je zamkniesz (w sekundach)",
-                                        "outdoor_sensor": "Jeśli masz czujnik zewnętrzny, możesz go użyć, aby uzyskać temperaturę zewnętrzną",
-                                        "valve_maintenance": "Jeżeli Twój termostat nie ma własnego trybu konserwacji, możesz użyć tej opcji.",
-                                        "calibration": "Rodzaje kalibracji https://better-thermostat.org/configuration/#second-step",
-                                        "weather": "Twoja jednostka pogodowa, aby uzyskać temperaturę zewnętrzną",
-                                        "calibration_round": "Kalibrację należy zaokrąglić do najbliższej wartości",
-                                        "heat_auto_swapped": "Jeżeli tryb auto oznacza grzanie dla Twojego TRV i chcesz to zmienić",
-                                        "child_lock": "Ignoruj wszystkie wejścia w TRV jak np. Blokada dziecięca",
-                                        "homaticip": "Jeżeli używasz HomaticIP, powinienieś włączyć tę opcję żeby spowolnić żądania"
-                                }
-                        },
-                        "advanced": {
-                                "description": "Zaawansowana konfiguracja**Informacja o typach kalibracji: https://better-thermostat.org/configuration/#second-step** ",
-                                "data": {
-                                        "calibration_round": "Kalibrację należy zaokrąglić do najbliższej wartości",
-                                        "heat_auto_swapped": "Jeżeli tryb auto oznacza grzanie dla Twojego TRV i chcesz to zmienić",
-                                        "child_lock": "Ignoruj wszystkie wejścia w TRV jak np. Blokada dziecięca",
-                                        "homaticip": "Jeżeli używasz HomaticIP, powinieneś włączyć tę opcję, żeby spowolnić żądania spowolnienia cyklu pracy",
-                                        "valve_maintenance": "Jeżeli Twój termostat nie ma trybu konserwacji, możesz użyć tej opcji.",
-                                        "calibration": "Rodzaj kalibracji, której chcesz użyć",
-                                        "fix_calibration": "If your TRV has trouble with not recheating the target temperature or overheating, this option can help"
-                                }
-                        }
-                }
+  "title": "Better Thermostat",
+  "config": {
+    "step": {
+      "user": {
+        "description": "Skonfiguruj swój Better Thermostat do integracji z Home Assistant\n**Więcej informacji znajdziesz na: https://better-thermostat.org/configuration/#first-step** ",
+        "data": {
+          "name": "Nazwa",
+          "thermostat": "Twój termostat",
+          "temperature_sensor": "Sensor temperatury",
+          "humidity_sensor": "Sensor wilgotności",
+          "window_sensors": "Sensor okna",
+          "off_temperature": "Temperatura zewnętrzna, przy której termostat ma się wyłączyć",
+          "window_off_delay": "Opóźnienie wyłączenia termostatu, kiedy otworzysz okno lub je zamkniesz (w sekundach)",
+          "outdoor_sensor": "Jeśli masz czujnik zewnętrzny, możesz go użyć, aby uzyskać temperaturę zewnętrzną",
+          "weather": "Twoja jednostka pogodowa, aby uzyskać temperaturę zewnętrzną"
         }
+      },
+      "advanced": {
+        "description": "Zaawansowana konfiguracja\n\n**Informacja o typach kalibracji: https://better-thermostat.org/configuration/#second-step** ",
+        "data": {
+          "calibration_round": "Kalibrację należy zaokrąglić do najbliższej wartości",
+          "heat_auto_swapped": "Jeżeli tryb auto oznacza grzanie dla Twojego TRV i chcesz to zmienić",
+          "child_lock": "Ignoruj wszystkie wejścia w TRV jak np. Blokada dziecięca",
+          "homaticip": "Jeżeli używasz HomaticIP, powinieneś włączyć tę opcję, żeby spowolnić żądania cyklu pracy",
+          "valve_maintenance": "Jeżeli Twój termostat nie ma trybu konserwacji, możesz użyć tej opcji.",
+          "calibration": "Rodzaj kalibracji, której chcesz użyć",
+          "fix_calibration": "If your TRV has trouble with not recheating the target temperature or overheating, this option can help"
+        }
+      },
+      "confirm": {
+        "title": "Potwierdź dodanie Better Thermostat",
+        "description": "Zamierzasz dodać `{name}` do Home Assistant.\nUżywając {trv} jako termostatu"
+      }
+    },
+    "error": {
+      "failed": "coś poszło nie tak.",
+      "no_name": "Proszę podać nazwę.",
+      "no_off_mode": "Twoje urządzenie jest inne i nie ma trybu wyłączenia :(\nTo będzie działać, ale musisz stworzyć automatyzację, aby ustawić funkcje pod swoje urządzenie"
+    },
+    "abort": {
+      "single_instance_allowed": "Dozwolony jest tylko jeden termostat dla jednego urządzenia.",
+      "no_devices_found": "Nie znaleziono jednostki termostatu, upewnij się, że masz jednostkę klimatyczną w swoim asystencie domowym."
+    }
+  },
+  "options": {
+    "step": {
+      "user": {
+        "description": "Zaktualizuj ustawienia Better Thermostat",
+        "data": {
+          "temperature_sensor": "Sensor temperatury",
+          "humidity_sensor": "Sensor wilgotności",
+          "window_sensors": "Sensor okna",
+          "off_temperature": "Temperatura zewnętrzna, przy której termostat ma się wyłączyć",
+          "window_off_delay": "Opóźnienie wyłączenia termostatu, kiedy otworzysz okno lub je zamkniesz (w sekundach)",
+          "outdoor_sensor": "Jeśli masz czujnik zewnętrzny, możesz go użyć, aby uzyskać temperaturę zewnętrzną",
+          "valve_maintenance": "Jeżeli Twój termostat nie ma własnego trybu konserwacji, możesz użyć tej opcji.",
+          "calibration": "Rodzaje kalibracji https://better-thermostat.org/configuration/#second-step",
+          "weather": "Twoja jednostka pogodowa, aby uzyskać temperaturę zewnętrzną",
+          "calibration_round": "Kalibrację należy zaokrąglić do najbliższej wartości",
+          "heat_auto_swapped": "Jeżeli tryb auto oznacza grzanie dla Twojego TRV i chcesz to zmienić",
+          "child_lock": "Ignoruj wszystkie wejścia w TRV jak np. Blokada dziecięca",
+          "homaticip": "Jeżeli używasz HomaticIP, powinienieś włączyć tę opcję żeby spowolnić żądania"
+        }
+      },
+      "advanced": {
+        "description": "Zaawansowana konfiguracja**Informacja o typach kalibracji: https://better-thermostat.org/configuration/#second-step** ",
+        "data": {
+          "calibration_round": "Kalibrację należy zaokrąglić do najbliższej wartości",
+          "heat_auto_swapped": "Jeżeli tryb auto oznacza grzanie dla Twojego TRV i chcesz to zmienić",
+          "child_lock": "Ignoruj wszystkie wejścia w TRV jak np. Blokada dziecięca",
+          "homaticip": "Jeżeli używasz HomaticIP, powinieneś włączyć tę opcję, żeby spowolnić żądania spowolnienia cyklu pracy",
+          "valve_maintenance": "Jeżeli Twój termostat nie ma trybu konserwacji, możesz użyć tej opcji.",
+          "calibration": "Rodzaj kalibracji, której chcesz użyć",
+          "fix_calibration": "If your TRV has trouble with not recheating the target temperature or overheating, this option can help"
+        }
+      }
+    }
+  }
 }
