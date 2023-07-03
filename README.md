@@ -72,6 +72,10 @@ No worry, Better Thermostat supports grouping out of the box
 
 ---
 
+# Contributing?
+
+checkout the [CONTRIBUTING.md](CONTRIBUTING.md) file
+
 # ☕ Support
 
 If you want to support this project, you can ☕ [**buy a coffee here**](https://www.buymeacoffee.com/kartoffeltoby).
