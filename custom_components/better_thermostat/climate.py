@@ -343,6 +343,7 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
         check_weather(self)
         if self._last_call_for_heat != self.call_for_heat:
             self._last_call_for_heat = self.call_for_heat
+            await self.async_update_ha_state(force_refresh=True)
             self.async_write_ha_state()
             if event is not None:
                 await self.control_queue_task.put(self)
