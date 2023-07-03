@@ -1,1 +1,1 @@
-homeassistant==2023.7.0b2
+homeassistant==2023.7.0b5

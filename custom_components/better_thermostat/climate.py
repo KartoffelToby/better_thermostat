@@ -414,7 +414,7 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
                     continue
             for trv in self.real_trvs.keys():
                 trv_state = self.hass.states.get(trv)
-                if trv_state is not None:
+                if trv_state is not None or trv_state is None:
                     if trv_state.state in (STATE_UNAVAILABLE, STATE_UNKNOWN, None):
                         _LOGGER.info(
                             "better_thermostat %s: waiting for TRV/climate entity with id '%s' to become fully available...",
