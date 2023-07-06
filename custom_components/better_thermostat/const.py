@@ -60,6 +60,8 @@ ATTR_STATE_HUMIDIY = "humidity"
 ATTR_STATE_MAIN_MODE = "main_mode"
 ATTR_STATE_HEATING_POWER = "heating_power"
 ATTR_STATE_HEATING_STATS = "heating_stats"
+ATTR_STATE_ERRORS = "errors"
+ATTR_STATE_BATTERIES = "batteries"
 
 SERVICE_RESTORE_SAVED_TARGET_TEMPERATURE = "restore_saved_target_temperature"
 SERVICE_SET_TEMP_TARGET_TEMPERATURE = "set_temp_target_temperature"
