@@ -1,6 +1,8 @@
 from __future__ import annotations
 from homeassistant.helpers import issue_registry as ir
 
+from .helpers import find_battery_entity
+
 DOMAIN = "better_thermostat"
 
 
@@ -31,6 +33,16 @@ async def get_battery_status(self, entity):
     if battery is not None:
         self.devices_states[entity] = {"battery": battery}
         self.async_write_ha_state()
+        return
+    else:
+        battery_entity = await find_battery_entity(self, entity)
+        if battery_entity is not None:
+            battery_states = self.hass.states.get(battery_entity)
+            if battery_states is not None:
+                battery = battery_states.state
+                self.devices_states[entity] = {"battery": battery}
+                self.async_write_ha_state()
+                return
 
 
 async def check_all_entities(self) -> bool:
