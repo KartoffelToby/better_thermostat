@@ -1,7 +1,6 @@
 from __future__ import annotations
 from homeassistant.helpers import issue_registry as ir
-
-from .helpers import find_battery_entity
+from homeassistant.const import STATE_UNAVAILABLE, STATE_UNKNOWN
 
 DOMAIN = "better_thermostat"
 
@@ -10,37 +9,41 @@ async def check_entity(self, entity) -> bool:
     if entity is None:
         return False
     entity_states = self.hass.states.get(entity)
+    if entity_states is None:
+        return False
     state = (
         "missing"
         if not entity_states
         else str(entity_states.state).replace("unavailable", "unavail")
     )
-    if entity_states is None or state in ["missing", "unknown", "unavail"]:
+    if state in (
+        STATE_UNAVAILABLE,
+        STATE_UNKNOWN,
+        None,
+        "missing",
+        "unknown",
+        "unavail",
+    ):
         return False
     if entity in self.devices_errors:
         self.devices_errors.remove(entity)
         self.async_write_ha_state()
         ir.async_delete_issue(self.hass, DOMAIN, f"missing_entity_{entity}")
-    await get_battery_status(self, entity)
+    self.hass.async_create_task(get_battery_status(self, entity))
     return True
 
 
 async def get_battery_status(self, entity):
-    entity_states = self.hass.states.get(entity)
-    if entity_states is None:
-        return None
-    battery = entity_states.attributes.get("battery")
-    if battery is not None:
-        self.devices_states[entity] = {"battery": battery}
-        self.async_write_ha_state()
-        return
-    else:
-        battery_entity = await find_battery_entity(self, entity)
-        if battery_entity is not None:
-            battery_states = self.hass.states.get(battery_entity)
-            if battery_states is not None:
-                battery = battery_states.state
-                self.devices_states[entity] = {"battery": battery}
+    if entity in self.devices_states:
+        battery_id = self.devices_states[entity].get("battery_id")
+        if battery_id is not None:
+            new_battery = self.hass.states.get(battery_id)
+            if new_battery is not None:
+                battery = new_battery.state
+                self.devices_states[entity] = {
+                    "battery": battery,
+                    "battery_id": battery_id,
+                }
                 self.async_write_ha_state()
                 return
 

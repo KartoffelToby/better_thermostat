@@ -53,9 +53,7 @@ async def trigger_trv_change(self, event):
     if self.context == event.context:
         return
 
-    _LOGGER.debug(
-        f"better_thermostat {self.name}: TRV {entity_id} update received {self.context.id} {event.context.id}"
-    )
+    _LOGGER.debug(f"better_thermostat {self.name}: TRV {entity_id} update received")
 
     _org_trv_state = self.hass.states.get(entity_id)
     child_lock = self.real_trvs[entity_id]["advanced"].get("child_lock")
@@ -205,7 +203,7 @@ async def update_hvac_action(self):
     hvac_action = None
     for trv in self.all_trvs:
         if trv["advanced"][CONF_HOMATICIP]:
-            entity_id = trv["entity_id"]
+            entity_id = trv["trv"]
             state = self.hass.states.get(entity_id)
             if state is None:
                 continue

@@ -459,6 +459,8 @@ async def find_valve_entity(self, entity_id):
     """
     entity_registry = er.async_get(self.hass)
     reg_entity = entity_registry.async_get(entity_id)
+    if reg_entity is None:
+        return None
     entity_entries = async_entries_for_config_entry(
         entity_registry, reg_entity.config_entry_id
     )
@@ -479,42 +481,19 @@ async def find_valve_entity(self, entity_id):
 
 
 async def find_battery_entity(self, entity_id):
-    """Find the related battery entity for an entity.
-
-    This is a hacky way to find the local calibration entity for the TRV. It is not possible to find the entity
-    automatically, because the entity_id is not the same as the friendly_name. The friendly_name is the same for all
-    thermostats of the same brand, but the entity_id is different.
-
-    Parameters
-    ----------
-    self :
-            self instance of better_thermostat
-
-    Returns
-    -------
-    str
-            the entity_id of the local calibration entity
-    None
-            if no local calibration entity was found
-    """
     entity_registry = er.async_get(self.hass)
-    reg_entity = entity_registry.async_get(entity_id)
-    entity_entries = async_entries_for_config_entry(
-        entity_registry, reg_entity.config_entry_id
-    )
-    for entity in entity_entries:
-        device_class = entity.device_class
-        # Make sure we use the correct device entities
-        if entity.device_id == reg_entity.device_id:
-            if device_class == "battery":
-                _LOGGER.debug(
-                    f"better thermostat: Found battery level entity {entity.entity_id} for {entity_id}"
-                )
-                return entity.entity_id
 
-    _LOGGER.debug(
-        f"better thermostat: Could not find battery level entity for {entity_id}"
-    )
+    entity_info = entity_registry.entities.get(entity_id)
+
+    if entity_info is None:
+        return None
+
+    device_id = entity_info.device_id
+
+    for entity in entity_registry.entities.values():
+        if entity.device_id == device_id and entity.device_class == "battery":
+            return entity.entity_id
+
     return None
 
 
@@ -539,6 +518,8 @@ async def find_local_calibration_entity(self, entity_id):
     """
     entity_registry = er.async_get(self.hass)
     reg_entity = entity_registry.async_get(entity_id)
+    if reg_entity is None:
+        return None
     entity_entries = async_entries_for_config_entry(
         entity_registry, reg_entity.config_entry_id
     )
