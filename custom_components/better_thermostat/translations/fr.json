@@ -93,13 +93,5 @@
         }
       }
     }
-  },
-  "options.step.user.data.name": "Nom",
-  "options.step.user.data.thermostat": "Le vrai thermostat",
-  "options.step.advanced.data.protect_overheating": "Protection contre la surchauffe ?",
-  "options.step.advanced.data.calibration_mode": "Mode d'étalonnage",
-  "options.step.advanced.data.no_off_system_mode": "Si votre TRV ne peut pas gérer le mode arrêt, vous pouvez l'activer pour utiliser la température cible de 5 °C à la place",
-  "options.step.advanced.data_description.protect_overheating": "Certaines VTR ferment complètement la vanne lorsque la température est atteinte. Ou le radiateur a beaucoup de chaleur résiduelle. Cela peut provoquer une surchauffe. Cette option peut empêcher cela.",
-  "options.step.advanced.data_description.calibration_mode": "Le type de calcul de l'étalonnage\n***Normal*** : Dans ce mode, le capteur de température interne TRV est fixé par le capteur de température externe.\n***Agressif*** : dans ce mode, le capteur de température interne TRV est fixé par le capteur de température externe mais réglé beaucoup plus bas/plus haut pour obtenir une accélération plus rapide.\n*** AI Time Based *** : Dans ce mode, le capteur de température interne TRV est fixé par le capteur de température externe, mais la valeur est calculée par un algorithme personnalisé pour améliorer l'algorithme interne TRV.",
-  "options.step.advanced.data_description.calibration": "Comment l'étalonnage doit être appliqué sur la VTR (température cible ou décalage)\n***Basé sur la température cible*** : Appliquez l'étalonnage à la température cible.\n***Basé sur le décalage*** : Appliquez l'étalonnage au décalage."
+  }
 }
