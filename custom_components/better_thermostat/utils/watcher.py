@@ -11,11 +11,7 @@ async def check_entity(self, entity) -> bool:
     entity_states = self.hass.states.get(entity)
     if entity_states is None:
         return False
-    state = (
-        "missing"
-        if not entity_states
-        else str(entity_states.state).replace("unavailable", "unavail")
-    )
+    state = entity_states.state
     if state in (
         STATE_UNAVAILABLE,
         STATE_UNKNOWN,
@@ -23,6 +19,7 @@ async def check_entity(self, entity) -> bool:
         "missing",
         "unknown",
         "unavail",
+        "unavailable",
     ):
         return False
     if entity in self.devices_errors:

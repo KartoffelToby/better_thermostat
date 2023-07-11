@@ -491,7 +491,10 @@ async def find_battery_entity(self, entity_id):
     device_id = entity_info.device_id
 
     for entity in entity_registry.entities.values():
-        if entity.device_id == device_id and entity.device_class == "battery":
+        if entity.device_id == device_id and (
+            entity.device_class == "battery"
+            or entity.original_device_class == "battery"
+        ):
             return entity.entity_id
 
     return None

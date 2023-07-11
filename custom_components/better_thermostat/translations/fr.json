@@ -19,13 +19,11 @@
       "advanced": {
         "description": "Advanced configuration\n\n**Info about calibration types: https://better-thermostat.org/configuration#second-step** ",
         "data": {
-          "calibration_round": "L'étalonnage doit-il être arrondi à la valeur la plus proche",
           "heat_auto_swapped": "Si auto signifie chauffer pour votre TRV et que vous voulez l'inverser (pour les utilisateurs de Google Home)",
           "child_lock": "Ignorer toutes les entrées sur le TRV comme un vérouillage enfant",
           "homaticip": "If you use HomaticIP, you should enable this to slow down the requests to prevent the duty cycle",
           "valve_maintenance": "Si votre thermostat n'a pas de mode de maintenance intégré, vous pouvez utiliser celui-ci",
-          "calibration": "The sort of calibration",
-          "fix_calibration": "If your TRV has trouble with not recheating the target temperature or overheating, this option can help"
+          "calibration": "The sort of calibration"
         }
       },
       "confirm": {
@@ -57,7 +55,6 @@
           "valve_maintenance": "Si votre thermostat n'a pas de mode de maintenance intégré, vous pouvez utiliser celui-ci",
           "calibration": "The sort of calibration https://better-thermostat.org/configuration#second-step",
           "weather": "Votre entité météo pour obtenir la température extérieure",
-          "calibration_round": "L'étalonnage doit-il être arrondi à la valeur la plus proche",
           "heat_auto_swapped": "Si auto signifie chauffer pour votre TRV et que vous voulez l'inverser",
           "child_lock": "Ignorer toutes les entrées sur le TRV comme un vérouillage enfant",
           "homaticip": "If you use HomaticIP, you should enable this to slow down the requests to prevent the duty cycle"
@@ -66,13 +63,11 @@
       "advanced": {
         "description": "Advanced configuration\n\n**Info about calibration types: https://better-thermostat.org/configuration#second-step** ",
         "data": {
-          "calibration_round": "L'étalonnage doit-il être arrondi à la valeur la plus proche",
           "heat_auto_swapped": "Si auto signifie chauffer pour votre TRV et que vous voulez l'inverser",
           "child_lock": "Ignorer toutes les entrées sur le TRV comme un vérouillage enfant",
           "homaticip": "If you use HomaticIP, you should enable this to slow down the requests to prevent the duty cycle",
           "valve_maintenance": "Si votre thermostat n'a pas de mode de maintenance intégré, vous pouvez utiliser celui-ci",
-          "calibration": "The sort of calibration",
-          "fix_calibration": "If your TRV has trouble with not recheating the target temperature or overheating, this option can help"
+          "calibration": "The sort of calibration"
         }
       }
     }

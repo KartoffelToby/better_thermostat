@@ -63,7 +63,6 @@
           "valve_maintenance": "If your thermostat has no own maintenance mode, you can use this one",
           "calibration": "The sort of calibration https://better-thermostat.org/configuration#second-step",
           "weather": "Your weather entity to get the outdoor temperature",
-          "calibration_round": "Should the calibration be rounded to the nearest",
           "heat_auto_swapped": "If the auto means heat for your TRV and you want to swap it",
           "child_lock": "Ignore all inputs on the TRV like a child lock",
           "homaticip": "If you use HomaticIP, you should enable this to slow down the requests to prevent the duty cycle"
