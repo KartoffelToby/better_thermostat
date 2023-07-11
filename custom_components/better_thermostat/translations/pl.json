@@ -19,13 +19,11 @@
       "advanced": {
         "description": "Zaawansowana konfiguracja\n\n**Informacja o typach kalibracji: https://better-thermostat.org/configuration#second-step** ",
         "data": {
-          "calibration_round": "Kalibrację należy zaokrąglić do najbliższej wartości",
           "heat_auto_swapped": "Jeżeli tryb auto oznacza grzanie dla Twojego TRV i chcesz to zmienić",
           "child_lock": "Ignoruj wszystkie wejścia w TRV jak np. Blokada dziecięca",
           "homaticip": "Jeżeli używasz HomaticIP, powinieneś włączyć tę opcję, żeby spowolnić żądania cyklu pracy",
           "valve_maintenance": "Jeżeli Twój termostat nie ma trybu konserwacji, możesz użyć tej opcji.",
-          "calibration": "Rodzaj kalibracji, której chcesz użyć",
-          "fix_calibration": "If your TRV has trouble with not recheating the target temperature or overheating, this option can help"
+          "calibration": "Rodzaj kalibracji, której chcesz użyć"
         }
       },
       "confirm": {
@@ -57,7 +55,6 @@
           "valve_maintenance": "Jeżeli Twój termostat nie ma własnego trybu konserwacji, możesz użyć tej opcji.",
           "calibration": "Rodzaje kalibracji https://better-thermostat.org/configuration#second-step",
           "weather": "Twoja jednostka pogodowa, aby uzyskać temperaturę zewnętrzną",
-          "calibration_round": "Kalibrację należy zaokrąglić do najbliższej wartości",
           "heat_auto_swapped": "Jeżeli tryb auto oznacza grzanie dla Twojego TRV i chcesz to zmienić",
           "child_lock": "Ignoruj wszystkie wejścia w TRV jak np. Blokada dziecięca",
           "homaticip": "Jeżeli używasz HomaticIP, powinienieś włączyć tę opcję żeby spowolnić żądania"
@@ -66,13 +63,11 @@
       "advanced": {
         "description": "Zaawansowana konfiguracja**Informacja o typach kalibracji: https://better-thermostat.org/configuration#second-step** ",
         "data": {
-          "calibration_round": "Kalibrację należy zaokrąglić do najbliższej wartości",
           "heat_auto_swapped": "Jeżeli tryb auto oznacza grzanie dla Twojego TRV i chcesz to zmienić",
           "child_lock": "Ignoruj wszystkie wejścia w TRV jak np. Blokada dziecięca",
           "homaticip": "Jeżeli używasz HomaticIP, powinieneś włączyć tę opcję, żeby spowolnić żądania spowolnienia cyklu pracy",
           "valve_maintenance": "Jeżeli Twój termostat nie ma trybu konserwacji, możesz użyć tej opcji.",
-          "calibration": "Rodzaj kalibracji, której chcesz użyć",
-          "fix_calibration": "If your TRV has trouble with not recheating the target temperature or overheating, this option can help"
+          "calibration": "Rodzaj kalibracji, której chcesz użyć"
         }
       }
     }
