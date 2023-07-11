@@ -96,5 +96,8 @@
   "options.step.advanced.data.no_off_system_mode": "Jeśli Twój TRV nie obsługuje trybu wyłączenia, możesz go włączyć, aby zamiast tego używać temperatury docelowej 5°C",
   "options.step.advanced.data_description.protect_overheating": "Niektóre TRV całkowicie zamykają zawór po osiągnięciu temperatury. Lub grzejnik ma dużo ciepła resztkowego. Może to spowodować przegrzanie. Ta opcja może temu zapobiec.",
   "options.step.advanced.data_description.calibration_mode": "Rodzaj sposobu obliczania kalibracji\n***Normalny***: W tym trybie wewnętrzny czujnik temperatury TRV jest zależny od zewnętrznego czujnika temperatury.\n***Agresywny***: W tym trybie wewnętrzny czujnik temperatury TRV jest ustalany przez zewnętrzny czujnik temperatury, ale jest ustawiony znacznie niżej/wyżej, aby uzyskać szybsze przyspieszenie.\n***AI Time Based***: W tym trybie wewnętrzny czujnik temperatury TRV jest ustalany przez zewnętrzny czujnik temperatury, ale wartość jest obliczana przez niestandardowy algorytm w celu ulepszenia wewnętrznego algorytmu TRV.",
-  "options.step.advanced.data_description.calibration": "Jak kalibracja powinna być zastosowana w TRV (temperatura docelowa lub przesunięcie)\n***Target Temperature Based***: Zastosuj kalibrację do temperatury docelowej.\n***Oparte na przesunięciu***: Zastosuj kalibrację do przesunięcia."
+  "options.step.advanced.data_description.calibration": "Jak kalibracja powinna być zastosowana w TRV (temperatura docelowa lub przesunięcie)\n***Target Temperature Based***: Zastosuj kalibrację do temperatury docelowej.\n***Oparte na przesunięciu***: Zastosuj kalibrację do przesunięcia.",
+  "options.step.user.data.name": "Nazwa",
+  "options.step.user.data.thermostat": "Prawdziwy termostat",
+  "config.error.no_outside_temp": "Nie można załadować temperatury zewnętrznej"
 }
