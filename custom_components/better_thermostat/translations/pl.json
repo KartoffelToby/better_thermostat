@@ -26,7 +26,7 @@
           "calibration": "Rodzaj kalibracji, której chcesz użyć",
           "no_off_system_mode": "Jeśli Twój TRV nie obsługuje trybu wyłączenia, możesz go włączyć, aby zamiast tego używać temperatury docelowej 5°C",
           "calibration_mode": "Tryb kalibracji",
-          "protect_overheating": "Zabezpieczenie przed przegrzaniem?",
+          "protect_overheating": "Zabezpieczenie przed przegrzaniem?"
         },
         "data_description": {
           "protect_overheating": "Niektóre TRV całkowicie zamykają zawór po osiągnięciu temperatury. Lub grzejnik ma dużo ciepła resztkowego. Może to spowodować przegrzanie. Ta opcja może temu zapobiec.",
