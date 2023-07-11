@@ -89,5 +89,17 @@
         }
       }
     }
-  }
+  },
+  "config.step.advanced.data.no_off_system_mode": "Hvis din TRV ikke kan håndtere den slukkede tilstand, kan du aktivere denne for at bruge måltemperatur 5°C i stedet",
+  "config.step.advanced.data.calibration_mode": "Kalibreringstilstand",
+  "config.step.advanced.data.protect_overheating": "Overophedningsbeskyttelse?",
+  "config.step.advanced.data_description.protect_overheating": "Nogle TRV'er lukker ikke ventilen helt, når temperaturen er nået. Eller radiatoren har meget hvilevarme. Dette kan forårsage overophedning. Denne mulighed kan forhindre dette.",
+  "config.step.advanced.data_description.calibration_mode": "Den slags, hvordan kalibreringen skal beregnes\n***Normal***: I denne tilstand er TRV's interne temperaturføler fastgjort af den eksterne temperaturføler.\n***Aggressiv***: I denne tilstand er TRV's interne temperaturføler fikseret af den eksterne temperaturføler, men indstillet meget lavere/højere for at få et hurtigere løft.\n***AI-tidsbaseret***: I denne tilstand er TRV's interne temperatursensor fastsat af den eksterne temperatursensor, men værdien beregnes af en brugerdefineret algoritme for at forbedre TRV's interne algoritme.",
+  "config.step.advanced.data_description.calibration": "Hvordan kalibreringen skal anvendes på TRV (Target temp or offset)\n***Måltemperaturbaseret***: Anvend kalibreringen til måltemperaturen.\n***Offset-baseret***: Anvend kalibreringen til offset.",
+  "options.step.advanced.data.protect_overheating": "Overophedningsbeskyttelse?",
+  "options.step.advanced.data.calibration_mode": "Kalibreringstilstand",
+  "options.step.advanced.data.no_off_system_mode": "Hvis din TRV ikke kan håndtere den slukkede tilstand, kan du aktivere denne for at bruge måltemperatur 5°C i stedet",
+  "options.step.advanced.data_description.protect_overheating": "Nogle TRV'er lukker ikke ventilen helt, når temperaturen er nået. Eller radiatoren har meget hvilevarme. Dette kan forårsage overophedning. Denne mulighed kan forhindre dette.",
+  "options.step.advanced.data_description.calibration_mode": "Den slags, hvordan kalibreringen skal beregnes\n***Normal***: I denne tilstand er TRV's interne temperaturføler fastgjort af den eksterne temperaturføler.\n***Aggressiv***: I denne tilstand er TRV's interne temperaturføler fikseret af den eksterne temperaturføler, men indstillet meget lavere/højere for at få et hurtigere løft.\n***AI-tidsbaseret***: I denne tilstand er TRV's interne temperatursensor fastsat af den eksterne temperatursensor, men værdien beregnes af en brugerdefineret algoritme for at forbedre TRV's interne algoritme.",
+  "options.step.advanced.data_description.calibration": "Hvordan kalibreringen skal anvendes på TRV (Target temp or offset)\n***Måltemperaturbaseret***: Anvend kalibreringen til måltemperaturen.\n***Offset-baseret***: Anvend kalibreringen til offset."
 }
