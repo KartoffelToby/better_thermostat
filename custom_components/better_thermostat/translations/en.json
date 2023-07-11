@@ -101,5 +101,8 @@
         }
       }
     }
-  }
+  },
+  "options.step.user.data.name": "Name",
+  "options.step.user.data.thermostat": "The real thermostat",
+  "config.error.no_outside_temp": "No outside temperature can be loaded"
 }
