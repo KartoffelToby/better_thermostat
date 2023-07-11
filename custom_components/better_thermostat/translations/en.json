@@ -42,7 +42,8 @@
     "error": {
       "failed": "something went wrong.",
       "no_name": "Please enter a name.",
-      "no_off_mode": "You device is very special and has no off mode :(\nBetter Thermostat will use the minimal target temp instead."
+      "no_off_mode": "You device is very special and has no off mode :(\nBetter Thermostat will use the minimal target temp instead.",
+      "no_outside_temp": "You have no outside temperature sensor. Better Thermostat will use the weather entity instead."
     },
     "abort": {
       "single_instance_allowed": "Only a single Thermostat for each real is allowed.",
@@ -54,6 +55,8 @@
       "user": {
         "description": "Update your Better Thermostat settings",
         "data": {
+          "name": "Name",
+          "thermostat": "The real thermostat",
           "temperature_sensor": "Temperature Sensor",
           "humidity_sensor": "Humidity sensor",
           "window_sensors": "Window Sensor",
@@ -100,8 +103,5 @@
         }
       }
     }
-  },
-  "options.step.user.data.name": "Name",
-  "options.step.user.data.thermostat": "The real thermostat",
-  "config.error.no_outside_temp": "No outside temperature can be loaded"
+  }
 }
