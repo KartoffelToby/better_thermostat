@@ -40,6 +40,7 @@
       }
     },
     "error": {
+      "no_outside_temp": "Du har ingen udetemperaturføler. Bedre termostat vil bruge vejret i stedet.",
       "failed": "noget gik galt.",
       "no_name": "Indtast venligst et navn.",
       "no_off_mode": "Din enhed er meget speciel og har ingen slukket tilstand :(\nDet virker alligevel, men du skal oprette en automatisering, der passer til dine specialer baseret på enhedsbegivenhederne"
@@ -92,14 +93,5 @@
         }
       }
     }
-  },
-  "options.step.user.data.name": "Navn",
-  "options.step.user.data.thermostat": "Den rigtige termostat",
-  "options.step.advanced.data.protect_overheating": "Overophedningsbeskyttelse?",
-  "options.step.advanced.data.calibration_mode": "Kalibreringstilstand",
-  "options.step.advanced.data.no_off_system_mode": "Hvis din TRV ikke kan håndtere den slukkede tilstand, kan du aktivere denne for at bruge måltemperatur 5°C i stedet",
-  "options.step.advanced.data_description.protect_overheating": "Nogle TRV'er lukker ikke ventilen helt, når temperaturen er nået. Eller radiatoren har meget hvilevarme. Dette kan forårsage overophedning. Denne mulighed kan forhindre dette.",
-  "options.step.advanced.data_description.calibration_mode": "Den slags, hvordan kalibreringen skal beregnes\n***Normal***: I denne tilstand er TRV's interne temperaturføler fastgjort af den eksterne temperaturføler.\n***Aggressiv***: I denne tilstand er TRV's interne temperaturføler fikseret af den eksterne temperaturføler, men indstillet meget lavere/højere for at få et hurtigere løft.\n***AI-tidsbaseret***: I denne tilstand er TRV's interne temperatursensor fastsat af den eksterne temperaturføler, men værdien beregnes af en brugerdefineret algoritme for at forbedre TRV's interne algoritme.",
-  "options.step.advanced.data_description.calibration": "Hvordan kalibreringen skal anvendes på TRV (Target temp or offset)\n***Måltemperaturbaseret***: Anvend kalibreringen til måltemperaturen.\n***Offset-baseret***: Anvend kalibreringen til offset.",
-  "config.error.no_outside_temp": "Du har ingen udetemperaturføler. Bedre termostat vil bruge vejret i stedet."
+  }
 }
