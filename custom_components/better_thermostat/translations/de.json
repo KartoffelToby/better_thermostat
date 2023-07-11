@@ -102,5 +102,6 @@
         }
       }
     }
-  }
+  },
+  "config.error.no_outside_temp": "Es kann keine Außentemperatur geladen werden"
 }
