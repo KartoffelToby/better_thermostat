@@ -782,13 +782,15 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
                             "battery": None,
                         }
 
-            await check_all_entities(self)
             # update_hvac_action(self)
             # Add listener
             if self.outdoor_sensor is not None:
+                self.all_entities.append(self.outdoor_sensor)
                 self.async_on_remove(
                     async_track_time_change(self.hass, self._trigger_time, 5, 0, 0)
                 )
+
+            await check_all_entities(self)
 
             self.async_on_remove(
                 async_track_time_interval(

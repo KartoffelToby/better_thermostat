@@ -1,8 +1,10 @@
 from __future__ import annotations
 from homeassistant.helpers import issue_registry as ir
 from homeassistant.const import STATE_UNAVAILABLE, STATE_UNKNOWN
+import logging
 
 DOMAIN = "better_thermostat"
+_LOGGER = logging.getLogger(__name__)
 
 
 async def check_entity(self, entity) -> bool:
@@ -21,6 +23,9 @@ async def check_entity(self, entity) -> bool:
         "unavail",
         "unavailable",
     ):
+        _LOGGER.debug(
+            f"better_thermostat {self.name}: {entity} is unavailable. with state {state}"
+        )
         return False
     if entity in self.devices_errors:
         self.devices_errors.remove(entity)
@@ -57,7 +62,7 @@ async def check_all_entities(self) -> bool:
                 domain=DOMAIN,
                 issue_id=f"missing_entity_{name}",
                 is_fixable=True,
-                is_persistent=True,
+                is_persistent=False,
                 learn_more_url="https://better-thermostat.org/qanda/missing_entity",
                 severity=ir.IssueSeverity.WARNING,
                 translation_key="missing_entity",

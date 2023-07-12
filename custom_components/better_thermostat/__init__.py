@@ -3,6 +3,7 @@ import logging
 from homeassistant.const import Platform
 from homeassistant.core import HomeAssistant, Config
 from homeassistant.config_entries import ConfigEntry
+import voluptuous as vol
 
 from .const import (
     CONF_FIX_CALIBRATION,
@@ -13,17 +14,19 @@ from .const import (
 )
 
 _LOGGER = logging.getLogger(__name__)
-
 DOMAIN = "better_thermostat"
 PLATFORMS = [Platform.CLIMATE]
+CONFIG_SCHEMA = vol.Schema({DOMAIN: vol.Schema({})}, extra=vol.ALLOW_EXTRA)
 
 
 async def async_setup(hass: HomeAssistant, config: Config):
     """Set up this integration using YAML is not supported."""
+    hass.data[DOMAIN] = {}
     return True
 
 
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
+    hass.data[DOMAIN] = {}
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
     entry.async_on_unload(entry.add_update_listener(config_entry_update_listener))
     return True
