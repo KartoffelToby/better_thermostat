@@ -66,7 +66,9 @@
           "weather": "Votre entité météo pour obtenir la température extérieure",
           "heat_auto_swapped": "Si auto signifie chauffer pour votre TRV et que vous voulez l'inverser",
           "child_lock": "Ignorer toutes les entrées sur le TRV comme un vérouillage enfant",
-          "homaticip": "If you use HomaticIP, you should enable this to slow down the requests to prevent the duty cycle"
+          "homaticip": "If you use HomaticIP, you should enable this to slow down the requests to prevent the duty cycle",
+          "name": "Nom",
+          "thermostat": "Le vrai thermostat"
         }
       },
       "advanced": {
@@ -76,7 +78,15 @@
           "child_lock": "Ignorer toutes les entrées sur le TRV comme un vérouillage enfant",
           "homaticip": "If you use HomaticIP, you should enable this to slow down the requests to prevent the duty cycle",
           "valve_maintenance": "Si votre thermostat n'a pas de mode de maintenance intégré, vous pouvez utiliser celui-ci",
-          "calibration": "The sort of calibration"
+          "calibration": "The sort of calibration",
+          "protect_overheating": "Protection contre la surchauffe ?",
+          "calibration_mode": "Mode d'étalonnage",
+          "no_off_system_mode": "Si votre TRV ne peut pas gérer le mode arrêt, vous pouvez l'activer pour utiliser la température cible de 5 °C à la place"
+        },
+        "data_description": {
+          "protect_overheating": "Certaines VTR ferment complètement la vanne lorsque la température est atteinte. Ou le radiateur a beaucoup de chaleur résiduelle. Cela peut provoquer une surchauffe. Cette option peut empêcher cela.",
+          "calibration_mode": "Le type de calcul de l'étalonnage\n***Normal*** : Dans ce mode, le capteur de température interne TRV est fixé par le capteur de température externe.\n***Agressif*** : dans ce mode, le capteur de température interne TRV est fixé par le capteur de température externe mais réglé beaucoup plus bas/plus haut pour obtenir une accélération plus rapide.\n*** AI Time Based *** : Dans ce mode, le capteur de température interne TRV est fixé par le capteur de température externe, mais la valeur est calculée par un algorithme personnalisé pour améliorer l'algorithme interne TRV.",
+          "calibration": "Comment l'étalonnage doit être appliqué sur la VTR (température cible ou décalage)\n***Basé sur la température cible*** : Appliquez l'étalonnage à la température cible.\n***Basé sur le décalage*** : Appliquez l'étalonnage au décalage."
         }
       }
     }
