@@ -97,7 +97,7 @@
       "fix_flow": {
         "step": {
           "confirm": {
-            "title": "The related entity {entity} is missing",
+            "title": "Brak {entity} powiązanej",
             "description": "Powodem tego jest to, że podmiot ({entity}) nie jest dostępny w Twoim Home Assistant.\n\nMożesz to naprawić, sprawdzając, czy bateria urządzenia jest pełna lub ponownie podłączając je do HA. Zanim przejdziesz dalej, upewnij się, że jednostka wróciła do HA."
           }
         }

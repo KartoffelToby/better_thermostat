@@ -97,7 +97,7 @@
       "fix_flow": {
         "step": {
           "confirm": {
-            "title": "The related entity {entity} is missing",
+            "title": "Den relaterede {entity} mangler",
             "description": "Årsagen til dette er, at entiteten ({entity}) ikke er tilgængelig i din Home Assistant.\n\nDu kan rette op på dette ved at kontrollere, om enhedens batteri er fuld, eller tilslutte den til HA igen. Sørg for, at entiteten er tilbage i HA, før du fortsætter."
           }
         }
