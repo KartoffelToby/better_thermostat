@@ -93,12 +93,12 @@
   },
   "issues": {
     "missing_entity": {
-      "title": "BT: {name} - related entity is missing",
+      "title": "BT: {name} - relateret enhed mangler",
       "fix_flow": {
         "step": {
           "confirm": {
             "title": "The related entity {entity} is missing",
-            "description": "The reason for this is that the entity ({entity}) is not available in your Home Assistant.\n\nYou can fix this by checking if the batterie of the device is full or reconnect it to HA. Make sure that the entity is back in HA before you continue."
+            "description": "Årsagen til dette er, at entiteten ({entity}) ikke er tilgængelig i din Home Assistant.\n\nDu kan rette op på dette ved at kontrollere, om enhedens batteri er fuld, eller tilslutte den til HA igen. Sørg for, at entiteten er tilbage i HA, før du fortsætter."
           }
         }
       }

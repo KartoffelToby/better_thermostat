@@ -17,7 +17,7 @@
         }
       },
       "advanced": {
-        "description": "Advanced configuration\n\n**Info about calibration types: https://better-thermostat.org/configuration#second-step** ",
+        "description": "Advanced configuration {trv}\n***Info about calibration types: https://better-thermostat.org/configuration#second-step***",
         "data": {
           "protect_overheating": "Overheating protection?",
           "heat_auto_swapped": "If the auto means heat for your TRV and you want to swap it",
@@ -72,7 +72,7 @@
         }
       },
       "advanced": {
-        "description": "Advanced configuration\n\n**Info about calibration types: https://better-thermostat.org/configuration#second-step** ",
+        "description": "Advanced configuration {trv}\n***Info about calibration types: https://better-thermostat.org/configuration#second-step***",
         "data": {
           "protect_overheating": "Overheating protection?",
           "heat_auto_swapped": "If the auto means heat for your TRV and you want to swap it",
