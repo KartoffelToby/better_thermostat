@@ -1,7 +1,7 @@
 export async function defineConfig(env) {
-	const { default: pluginJson } = await env.$import(
-		'https://cdn.jsdelivr.net/gh/samuelstroschein/inlang-plugin-json@2/dist/index.js'
-	);
+	const { default: i18nextPlugin } = await env.$import(
+		"https://cdn.jsdelivr.net/npm/@inlang/plugin-i18next@3/dist/index.js",
+	)
 
 	const { default: standardLintRules } = await env.$import(
 		'https://cdn.jsdelivr.net/gh/inlang/standard-lint-rules@2/dist/index.js'
@@ -9,8 +9,9 @@ export async function defineConfig(env) {
 
 	return {
 		referenceLanguage: 'en',
-		plugins: [pluginJson({ 
-			pathPattern: './custom_components/better_thermostat/translations/{language}.json'
+		plugins: [i18nextPlugin({
+			pathPattern: "./custom_components/better_thermostat/translations/{language}.json",
+			variableReferencePattern: ["{", "}"]
 		}), standardLintRules()]
 	};
 }
