@@ -66,7 +66,8 @@
           "weather": "Din vejrentitet for at få udendørstemperaturen",
           "heat_auto_swapped": "Hvis auto betyder varme til din TRV, og du ønsker at bytte den",
           "child_lock": "Ignorer alle input på TRV som en børnesikring",
-          "homaticip": "Hvis du bruger HomaticIP, bør du aktivere dette for at bremse anmodningerne for at forhindre arbejdscyklus"
+          "homaticip": "Hvis du bruger HomaticIP, bør du aktivere dette for at bremse anmodningerne for at forhindre arbejdscyklus",
+          "name": "Navn"
         }
       },
       "advanced": {
