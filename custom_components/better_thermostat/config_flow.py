@@ -330,7 +330,7 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                     ): int,
                     vol.Optional(
                         CONF_TOLERANCE,
-                        default=user_input.get(CONF_TOLERANCE, 0),
+                        default=user_input.get(CONF_TOLERANCE, 0.0),
                     ): float,
                 }
             ),
@@ -519,9 +519,7 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
                 CONF_OFF_TEMPERATURE
             )
 
-            self.updated_config[CONF_TOLERANCE] = user_input.get(
-                CONF_TOLERANCE, 0.0
-            )
+            self.updated_config[CONF_TOLERANCE] = user_input.get(CONF_TOLERANCE, 0.0)
 
             for trv in self.updated_config[CONF_HEATER]:
                 trv["adapter"] = None
