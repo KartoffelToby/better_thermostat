@@ -42,11 +42,28 @@ async def control_queue(self):
                 self.ignore_states = True
                 result = True
                 for trv in self.real_trvs.keys():
-                    _temp = await control_trv(self, trv)
-                    if _temp is False:
+                    try:
+                        _temp = await control_trv(self, trv)
+                        if _temp is False:
+                            result = False
+                    except Exception:
+                        _LOGGER.exception(
+                            "better_thermostat %s: ERROR controlling: %s",
+                            self.name,
+                            trv,
+                        )
                         result = False
+
+                # Retry task if some TRVs failed. Discard the task if the queue is full
+                # to avoid blocking and therefore deadlocking this function.
                 if result is False:
-                    await self.control_queue_task.put(self)
+                    try:
+                        self.control_queue_task.put_nowait(self)
+                    except asyncio.QueueFull:
+                        _LOGGER.debug(
+                            "better_thermostat %s: control queue is full, discarding task"
+                        )
+
                 self.control_queue_task.task_done()
                 self.ignore_states = False
 
@@ -93,8 +110,31 @@ async def control_trv(self, heater_entity_id=None):
         if self.call_for_heat is False:
             _new_hvac_mode = HVACMode.OFF
 
+        # Manage TRVs with no HVACMode.OFF
+        _no_off_system_mode = (
+            HVACMode.OFF not in self.real_trvs[heater_entity_id]["hvac_modes"]
+        ) or (
+            self.real_trvs[heater_entity_id]["advanced"].get(
+                "no_off_system_mode", False
+            )
+            is True
+        )
+        if _no_off_system_mode is True and _new_hvac_mode == HVACMode.OFF:
+            _min_temp = self.real_trvs[heater_entity_id]["min_temp"]
+            _LOGGER.debug(
+                f"better_thermostat {self.name}: sending {_min_temp}°C to the TRV because this device has no system mode off and heater should be off"
+            )
+            _temperature = _min_temp
+
         # send new HVAC mode to TRV, if it changed
-        if _new_hvac_mode is not None and _new_hvac_mode != _trv.state:
+        if (
+            _new_hvac_mode is not None
+            and _new_hvac_mode != _trv.state
+            and (
+                (_no_off_system_mode is True and _new_hvac_mode != HVACMode.OFF)
+                or (_no_off_system_mode is False)
+            )
+        ):
             _LOGGER.debug(
                 f"better_thermostat {self.name}: TO TRV set_hvac_mode: {heater_entity_id} from: {_trv.state} to: {_new_hvac_mode}"
             )
@@ -146,7 +186,11 @@ async def control_trv(self, heater_entity_id=None):
                 self.real_trvs[heater_entity_id]["calibration_received"] = False
 
         # set new target temperature
-        if _temperature is not None and _new_hvac_mode != HVACMode.OFF:
+        if (
+            _temperature is not None
+            and _new_hvac_mode != HVACMode.OFF
+            or _no_off_system_mode
+        ):
             if _temperature != _current_set_temperature:
                 old = self.real_trvs[heater_entity_id].get("last_temperature", "?")
                 _LOGGER.debug(
@@ -228,10 +272,10 @@ async def check_target_temperature(self, heater_entity_id=None):
             self.name,
             "check_target_temperature()",
         )
-
-        _LOGGER.debug(
-            f"better_thermostat {self.name}: {heater_entity_id} / check_target_temp / _last: {_real_trv['last_temperature']} - _current: {_current_set_temperature}"
-        )
+        if _timeout == 0:
+            _LOGGER.debug(
+                f"better_thermostat {self.name}: {heater_entity_id} / check_target_temp / _last: {_real_trv['last_temperature']} - _current: {_current_set_temperature}"
+            )
         if (
             _current_set_temperature is None
             or _real_trv["last_temperature"] == _current_set_temperature

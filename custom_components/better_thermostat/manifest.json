@@ -1,20 +1,20 @@
 {
   "domain": "better_thermostat",
   "name": "Better Thermostat",
-  "documentation": "https://github.com/KartoffelToby/better_thermostat",
-  "issue_tracker": "https://github.com/KartoffelToby/better_thermostat/issues",
-  "iot_class": "local_push",
-  "version": "1.0.2-dev",
-  "config_flow": true,
-  "dependencies": [
-    "climate",
-    "recorder"
-  ],
   "after_dependencies": [
     "climate"
   ],
   "codeowners": [
     "@kartoffeltoby"
   ],
-  "requirements": []
+  "config_flow": true,
+  "dependencies": [
+    "climate",
+    "recorder"
+  ],
+  "documentation": "https://github.com/KartoffelToby/better_thermostat",
+  "iot_class": "local_push",
+  "issue_tracker": "https://github.com/KartoffelToby/better_thermostat/issues",
+  "requirements": [],
+  "version": "1.2.2-dev"
 }

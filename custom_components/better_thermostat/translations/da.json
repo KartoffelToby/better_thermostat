@@ -1,80 +1,107 @@
 {
-    "title": "Better Thermostat",
-    "config": {
-        "step": {
-            "user": {
-                "description": "Konfigurer din Better Thermostat til at integrere med Home Assistant\n**Hvis du har brug for mere info: https://better-thermostat.org/configuration/#first-step**",
-                "data": {
-                    "name": "Navn",
-                    "thermostat": "Den rigtige termostat",
-                    "temperature_sensor": "Temperatur måler",
-                    "humidity_sensor": "Fugtighedssensor",
-                    "window_sensors": "Vinduessensor",
-                    "off_temperature": "Udetemperaturen, når termostaten slukker",
-                    "window_off_delay": "Forsinkelse, før termostaten slukker, når vinduet er åbent, og tændt, når vinduet er lukket",
-                    "outdoor_sensor": "Hvis du har en udeføler, kan du bruge den til at få udetemperaturen",
-                    "weather": "Din vejrentitet for at få udendørstemperaturen"
-                }
-            },
-            "advanced": {
-                "description": "Avanceret konfiguration\n\n**Info om kalibreringstyper: https://better-thermostat.org/configuration/#second-step** ",
-                "data": {
-                    "calibration_round": "Skal kalibreringen afrundes til nærmeste",
-                    "heat_auto_swapped": "Hvis auto betyder varme for din TRV og du vil bytte det",
-                    "child_lock": "Ignorer alle input på TRV som en børnesikring",
-                    "homaticip": "Hvis du bruger HomaticIP, bør du aktivere dette for at bremse anmodningerne for at forhindre arbejdscyklus",
-                    "valve_maintenance": "Hvis din termostat ikke har nogen egen vedligeholdelsestilstand, kan du bruge denne",
-                    "calibration": "Den slags kalibrering du vil bruge",
-                    "fix_calibration": "If your TRV has trouble with not recheating the target temperature or overheating, this option can help"
-                }
-            },
-            "confirm": {
-                "title": "Bekræft tilføjelse af en Better Thermostat",
-                "description": "Du er ved at tilføje {name} til Home Assistant.\nMed {trv} som en rigtige termostat"
-            }
-        },
-        "error": {
-            "failed": "noget gik galt.",
-            "no_name": "Indtast venligst et navn.",
-            "no_off_mode": "Din enhed er meget speciel og har ingen slukket tilstand :(\nDet virker alligevel, men du skal oprette en automatisering, der passer til dine specialer baseret på enhedsbegivenhederne"
-        },
-        "abort": {
-            "single_instance_allowed": "Kun en enkelt termostat for hver virkelige er tilladt.",
-            "no_devices_found": "Der blev ikke fundet nogen termostatenhed, sørg for at have en klimaenhed i home assistant"
+  "title": "Better Thermostat",
+  "config": {
+    "step": {
+      "user": {
+        "description": "Konfigurer din Better Thermostat til at integrere med Home Assistant\n**Hvis du har brug for mere info: https://better-thermostat.org/configuration#first-step**",
+        "data": {
+          "name": "Navn",
+          "thermostat": "Den rigtige termostat",
+          "temperature_sensor": "Temperatur måler",
+          "humidity_sensor": "Fugtighedssensor",
+          "window_sensors": "Vinduessensor",
+          "off_temperature": "Udetemperaturen, når termostaten slukker",
+          "window_off_delay": "Forsinkelse, før termostaten slukker, når vinduet er åbent, og tændt, når vinduet er lukket",
+          "outdoor_sensor": "Hvis du har en udeføler, kan du bruge den til at få udetemperaturen",
+          "weather": "Din vejrentitet for at få udendørstemperaturen"
         }
+      },
+      "advanced": {
+        "description": "Avanceret konfiguration\n\n**Info om kalibreringstyper: https://better-thermostat.org/configuration#second-step** ",
+        "data": {
+          "heat_auto_swapped": "Hvis auto betyder varme for din TRV og du vil bytte det",
+          "child_lock": "Ignorer alle input på TRV som en børnesikring",
+          "homaticip": "Hvis du bruger HomaticIP, bør du aktivere dette for at bremse anmodningerne for at forhindre arbejdscyklus",
+          "valve_maintenance": "Hvis din termostat ikke har nogen egen vedligeholdelsestilstand, kan du bruge denne",
+          "calibration": "Den slags kalibrering du vil bruge",
+          "no_off_system_mode": "Hvis din TRV ikke kan håndtere den slukkede tilstand, kan du aktivere denne for at bruge måltemperatur 5°C i stedet",
+          "calibration_mode": "Kalibreringstilstand",
+          "protect_overheating": "Overophedningsbeskyttelse?"
+        },
+        "data_description": {
+          "protect_overheating": "Nogle TRV'er lukker ikke ventilen helt, når temperaturen er nået. Eller radiatoren har meget hvilevarme. Dette kan forårsage overophedning. Denne mulighed kan forhindre dette.",
+          "calibration_mode": "Den slags, hvordan kalibreringen skal beregnes\n***Normal***: I denne tilstand er TRV's interne temperaturføler fastgjort af den eksterne temperaturføler.\n***Aggressiv***: I denne tilstand er TRV's interne temperaturføler fikseret af den eksterne temperaturføler, men indstillet meget lavere/højere for at få et hurtigere løft.\n***AI-tidsbaseret***: I denne tilstand er TRV's interne temperatursensor fastsat af den eksterne temperatursensor, men værdien beregnes af en brugerdefineret algoritme for at forbedre TRV's interne algoritme.",
+          "calibration": "Hvordan kalibreringen skal anvendes på TRV (Target temp or offset)\n***Måltemperaturbaseret***: Anvend kalibreringen til måltemperaturen.\n***Offset-baseret***: Anvend kalibreringen til offset."
+        }
+      },
+      "confirm": {
+        "title": "Bekræft tilføjelse af en Better Thermostat",
+        "description": "Du er ved at tilføje {name} til Home Assistant.\nMed {trv} som en rigtige termostat"
+      }
     },
-    "options": {
-        "step": {
-            "user": {
-                "description": "Opdater dine Better Thermostat indstillinger",
-                "data": {
-                    "temperature_sensor": "Temperatur måler",
-                    "humidity_sensor": "Fugtighedssensor",
-                    "window_sensors": "Vinduessensor",
-                    "off_temperature": "Udendørstemperaturen, når termostaten skal slukker",
-                    "window_off_delay": "Forsinkelse, før termostaten slukker, når vinduet er åbent, og tændt, når vinduet er lukket",
-                    "outdoor_sensor": "Har du en udendørsføler, kan du bruge den til at få udetemperaturen",
-                    "valve_maintenance": "Hvis din termostat ikke har nogen egen vedligeholdelsestilstand, kan du bruge denne",
-                    "calibration": "Den slags kalibrering https://better-thermostat.org/configuration/#second-step",
-                    "weather": "Din vejrentitet for at få udendørstemperaturen",
-                    "calibration_round": "Skal kalibreringen afrundes til nærmeste",
-                    "heat_auto_swapped": "Hvis auto betyder varme til din TRV, og du ønsker at bytte den",
-                    "child_lock": "Ignorer alle input på TRV som en børnesikring",
-                    "homaticip": "Hvis du bruger HomaticIP, bør du aktivere dette for at bremse anmodningerne for at forhindre arbejdscyklus"
-                }
-            },
-            "advanced": {
-                "description": "Avanceret konfiguration\n\n**Info om kalibreringstyper: https://better-thermostat.org/configuration/#second-step** ",
-                "data": {
-                    "calibration_round": "Skal kalibreringen afrundes til nærmeste",
-                    "heat_auto_swapped": "Hvis auto betyder varme for din TRV og du vil bytte det",
-                    "child_lock": "Ignorer alle input på TRV som en børnesikring",
-                    "homaticip": "Hvis du bruger HomaticIP, bør du aktivere dette for at bremse anmodningerne for at forhindre arbejdscyklus",
-                    "valve_maintenance": "Hvis din termostat ikke har nogen egen vedligeholdelsestilstand, kan du bruge denne",
-                    "calibration": "Den slags kalibrering du vil bruge",
-                    "fix_calibration": "If your TRV has trouble with not recheating the target temperature or overheating, this option can help"
-                }
-            }
-        }
+    "error": {
+      "no_outside_temp": "Du har ingen udetemperaturføler. Bedre termostat vil bruge vejret i stedet.",
+      "failed": "noget gik galt.",
+      "no_name": "Indtast venligst et navn.",
+      "no_off_mode": "Din enhed er meget speciel og har ingen slukket tilstand :(\nDet virker alligevel, men du skal oprette en automatisering, der passer til dine specialer baseret på enhedsbegivenhederne"
+    },
+    "abort": {
+      "single_instance_allowed": "Kun en enkelt termostat for hver virkelige er tilladt.",
+      "no_devices_found": "Der blev ikke fundet nogen termostatenhed, sørg for at have en klimaenhed i home assistant"
     }
+  },
+  "options": {
+    "step": {
+      "user": {
+        "description": "Opdater dine Better Thermostat indstillinger",
+        "data": {
+          "temperature_sensor": "Temperatur måler",
+          "humidity_sensor": "Fugtighedssensor",
+          "window_sensors": "Vinduessensor",
+          "off_temperature": "Udendørstemperaturen, når termostaten skal slukker",
+          "window_off_delay": "Forsinkelse, før termostaten slukker, når vinduet er åbent, og tændt, når vinduet er lukket",
+          "outdoor_sensor": "Har du en udendørsføler, kan du bruge den til at få udetemperaturen",
+          "valve_maintenance": "Hvis din termostat ikke har nogen egen vedligeholdelsestilstand, kan du bruge denne",
+          "calibration": "Den slags kalibrering https://better-thermostat.org/configuration#second-step",
+          "weather": "Din vejrentitet for at få udendørstemperaturen",
+          "heat_auto_swapped": "Hvis auto betyder varme til din TRV, og du ønsker at bytte den",
+          "child_lock": "Ignorer alle input på TRV som en børnesikring",
+          "homaticip": "Hvis du bruger HomaticIP, bør du aktivere dette for at bremse anmodningerne for at forhindre arbejdscyklus",
+          "name": "Navn",
+          "thermostat": "Den rigtige termostat"
+        }
+      },
+      "advanced": {
+        "description": "Avanceret konfiguration\n\n**Info om kalibreringstyper: https://better-thermostat.org/configuration#second-step** ",
+        "data": {
+          "heat_auto_swapped": "Hvis auto betyder varme for din TRV og du vil bytte det",
+          "child_lock": "Ignorer alle input på TRV som en børnesikring",
+          "homaticip": "Hvis du bruger HomaticIP, bør du aktivere dette for at bremse anmodningerne for at forhindre arbejdscyklus",
+          "valve_maintenance": "Hvis din termostat ikke har nogen egen vedligeholdelsestilstand, kan du bruge denne",
+          "calibration": "Den slags kalibrering du vil bruge",
+          "protect_overheating": "Overophedningsbeskyttelse?",
+          "calibration_mode": "Kalibreringstilstand",
+          "no_off_system_mode": "Hvis din TRV ikke kan håndtere den slukkede tilstand, kan du aktivere denne for at bruge måltemperatur 5°C i stedet"
+        },
+        "data_description": {
+          "protect_overheating": "Nogle TRV'er lukker ikke ventilen helt, når temperaturen er nået. Eller radiatoren har meget hvilevarme. Dette kan forårsage overophedning. Denne mulighed kan forhindre dette.",
+          "calibration_mode": "Den slags, hvordan kalibreringen skal beregnes\n***Normal***: I denne tilstand er TRV's interne temperaturføler fikseret af den eksterne temperaturføler.\n***Aggressiv***: I denne tilstand er TRV's interne temperaturføler fikseret af den eksterne temperaturføler, men indstillet meget lavere/højere for at få et hurtigere løft.\n***AI-tidsbaseret***: I denne tilstand er TRV's interne temperatursensor fastsat af den eksterne temperatursensor, men værdien beregnes af en brugerdefineret algoritme for at forbedre TRV's interne algoritme.",
+          "calibration": "Hvordan kalibreringen skal anvendes på TRV (Target temp or offset)\n***Måltemperaturbaseret***: Anvend kalibreringen til måltemperaturen.\n***Offset-baseret***: Anvend kalibreringen til offset."
+        }
+      }
+    }
+  },
+  "issues": {
+    "missing_entity": {
+      "title": "BT: {name} - relateret enhed mangler",
+      "fix_flow": {
+        "step": {
+          "confirm": {
+            "title": "Den relaterede {entity} mangler",
+            "description": "Årsagen til dette er, at entiteten ({entity}) ikke er tilgængelig i din Home Assistant.\n\nDu kan rette op på dette ved at kontrollere, om enhedens batteri er fuld, eller tilslutte den til HA igen. Sørg for, at entiteten er tilbage i HA, før du fortsætter."
+          }
+        }
+      }
+    }
+  }
 }

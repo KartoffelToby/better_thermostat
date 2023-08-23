@@ -32,7 +32,7 @@ async def trigger_window_change(self, event) -> None:
 
     old_window_open = self.window_open
 
-    if new_state in ("on", "unknown"):
+    if new_state in ("on", "unknown", "unavailable"):
         new_window_open = True
         if new_state == "unknown":
             _LOGGER.warning(

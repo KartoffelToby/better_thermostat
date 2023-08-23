@@ -76,6 +76,9 @@ CALIBRATION_MODE_SELECTOR = selector.SelectSelector(
             selector.SelectOptionDict(
                 value=CalibrationMode.HEATING_POWER_CALIBRATION, label="AI Time Based"
             ),
+            selector.SelectOptionDict(
+                value=CalibrationMode.NO_CALIBRATION, label="No Calibration"
+            ),
         ],
         mode=selector.SelectSelectorMode.DROPDOWN,
     )
@@ -126,7 +129,6 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     async def async_step_advanced(self, user_input=None, _trv_config=None):
         """Handle options flow."""
         if user_input is not None:
-
             self.trv_bundle[self.i]["advanced"] = user_input
             self.trv_bundle[self.i]["adapter"] = None
 
@@ -354,7 +356,6 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
     ):
         """Manage the advanced options."""
         if user_input is not None:
-
             self.trv_bundle[self.i]["advanced"] = user_input
             self.trv_bundle[self.i]["adapter"] = None
 
@@ -484,7 +485,6 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
         )
 
     async def async_step_user(self, user_input=None):
-
         if user_input is not None:
             current_config = self.config_entry.data
             self.updated_config = dict(current_config)

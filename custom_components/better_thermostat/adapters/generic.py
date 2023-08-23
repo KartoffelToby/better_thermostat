@@ -39,8 +39,7 @@ async def set_temperature(self, entity_id, temperature):
         "set_temperature",
         {"entity_id": entity_id, "temperature": temperature},
         blocking=True,
-        limit=None,
-        context=self._context,
+        context=self.context,
     )
 
 
@@ -51,8 +50,7 @@ async def set_hvac_mode(self, entity_id, hvac_mode):
         "set_hvac_mode",
         {"entity_id": entity_id, "hvac_mode": hvac_mode},
         blocking=True,
-        limit=None,
-        context=self._context,
+        context=self.context,
     )
 
 
