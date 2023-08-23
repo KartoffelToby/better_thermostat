@@ -65,6 +65,7 @@ from .const import (
     CONF_OUTDOOR_SENSOR,
     CONF_SENSOR,
     CONF_SENSOR_WINDOW,
+    CONF_TOLERANCE,
     CONF_WEATHER,
     CONF_WINDOW_TIMEOUT,
     SERVICE_RESTORE_SAVED_TARGET_TEMPERATURE,
@@ -130,6 +131,7 @@ async def async_setup_entry(hass, entry, async_add_devices):
                 entry.data.get(CONF_WEATHER, None),
                 entry.data.get(CONF_OUTDOOR_SENSOR, None),
                 entry.data.get(CONF_OFF_TEMPERATURE, None),
+                entry.data.get(CONF_TOLERANCE, None),
                 entry.data.get(CONF_MODEL, None),
                 hass.config.units.temperature_unit,
                 entry.entry_id,
@@ -274,7 +276,7 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
             asyncio.create_task(window_queue(self))
         self.heating_power = 0.01
         self.last_heating_power_stats = []
-        self.tolerance = 0.5
+        self.tolerance = 0.0
 
     async def async_added_to_hass(self):
         """Run when entity about to be added.
