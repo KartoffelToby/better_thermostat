@@ -198,6 +198,7 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
         weather_entity,
         outdoor_sensor,
         off_temperature,
+        tolerance,
         model,
         unit,
         unique_id,
@@ -222,6 +223,7 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
         self.weather_entity = weather_entity or None
         self.outdoor_sensor = outdoor_sensor or None
         self.off_temperature = float(off_temperature) or None
+        self.tolerance = float(tolerance) or 0.0
         self._unique_id = unique_id
         self._unit = unit
         self._device_class = device_class
@@ -276,7 +278,6 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
             asyncio.create_task(window_queue(self))
         self.heating_power = 0.01
         self.last_heating_power_stats = []
-        self.tolerance = 0.0
 
     async def async_added_to_hass(self):
         """Run when entity about to be added.
@@ -911,6 +912,7 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
             ATTR_STATE_SAVED_TEMPERATURE: self._saved_temperature,
             ATTR_STATE_HUMIDIY: self.cur_humidity,
             ATTR_STATE_MAIN_MODE: self.last_main_hvac_mode,
+            CONF_TOLERANCE: self.tolerance,
             ATTR_STATE_HEATING_POWER: self.heating_power,
             ATTR_STATE_ERRORS: json.dumps(self.devices_errors),
             ATTR_STATE_BATTERIES: json.dumps(self.devices_states),
