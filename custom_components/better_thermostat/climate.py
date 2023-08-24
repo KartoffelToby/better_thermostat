@@ -131,7 +131,7 @@ async def async_setup_entry(hass, entry, async_add_devices):
                 entry.data.get(CONF_WEATHER, None),
                 entry.data.get(CONF_OUTDOOR_SENSOR, None),
                 entry.data.get(CONF_OFF_TEMPERATURE, None),
-                entry.data.get(CONF_TOLERANCE, None),
+                entry.data.get(CONF_TOLERANCE, 0.0),
                 entry.data.get(CONF_MODEL, None),
                 hass.config.units.temperature_unit,
                 entry.entry_id,
