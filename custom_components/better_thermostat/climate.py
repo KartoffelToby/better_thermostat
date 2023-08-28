@@ -306,6 +306,7 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
                 "advanced": trv["advanced"],
                 "ignore_trv_states": False,
                 "valve_position": None,
+                "valve_position_entity": None,
                 "max_temp": None,
                 "min_temp": None,
                 "target_temp_step": None,
@@ -631,7 +632,7 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
 
             else:
                 # No previous state, try and restore defaults
-                if self.bt_target_temp is None or type(self.bt_target_temp) != float:
+                if self.bt_target_temp is None or not isinstance(self.bt_target_temp, float):
                     _LOGGER.info(
                         "better_thermostat %s: No previously saved temperature found on startup, get it from the TRV",
                         self.name,

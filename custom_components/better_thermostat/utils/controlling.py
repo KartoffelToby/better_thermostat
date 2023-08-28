@@ -12,11 +12,12 @@ from .bridge import (
     get_offset_steps,
     set_temperature,
     set_hvac_mode,
+    set_valve,
 )
 from ..events.trv import convert_outbound_states
 from homeassistant.components.climate.const import HVACMode
 
-from .helpers import convert_to_float, calibration_round
+from .helpers import convert_to_float, calibration_round, heating_power_valve_position
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -206,6 +207,11 @@ async def control_trv(self, heater_entity_id=None):
                     asyncio.create_task(
                         check_target_temperature(self, heater_entity_id)
                     )
+
+        # set new valve position
+        if self.real_trvs[heater_entity_id]["valve_position_entity"] is not None and _new_hvac_mode != HVACMode.OFF:
+            _valve_position = heating_power_valve_position(self, heater_entity_id)
+            await set_valve(self, heater_entity_id, _valve_position)
 
         await asyncio.sleep(3)
         self.real_trvs[heater_entity_id]["ignore_trv_states"] = False
