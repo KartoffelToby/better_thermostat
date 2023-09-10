@@ -24,6 +24,7 @@ from .const import (
     CONF_WEATHER,
     CONF_WINDOW_TIMEOUT,
     CONF_CALIBRATION_MODE,
+    CONF_TOLERANCE,
     CalibrationMode,
     CalibrationType,
 )
@@ -327,6 +328,10 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                         CONF_OFF_TEMPERATURE,
                         default=user_input.get(CONF_OFF_TEMPERATURE, 20),
                     ): int,
+                    vol.Optional(
+                        CONF_TOLERANCE,
+                        default=user_input.get(CONF_TOLERANCE, 0.0),
+                    ): float,
                 }
             ),
             errors=errors,
@@ -514,6 +519,8 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
                 CONF_OFF_TEMPERATURE
             )
 
+            self.updated_config[CONF_TOLERANCE] = user_input.get(CONF_TOLERANCE, 0.0)
+
             for trv in self.updated_config[CONF_HEATER]:
                 trv["adapter"] = None
                 self.trv_bundle.append(trv)
@@ -619,6 +626,13 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
                 default=self.config_entry.data.get(CONF_OFF_TEMPERATURE, 5),
             )
         ] = int
+
+        fields[
+            vol.Optional(
+                CONF_TOLERANCE,
+                default=self.config_entry.data.get(CONF_TOLERANCE, 0.0),
+            )
+        ] = float
 
         return self.async_show_form(
             step_id="user", data_schema=vol.Schema(fields), last_step=False
