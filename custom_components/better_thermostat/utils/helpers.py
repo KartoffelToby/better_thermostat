@@ -551,7 +551,7 @@ async def find_local_calibration_entity(self, entity_id):
         entity_registry, reg_entity.config_entry_id
     )
     for entity in entity_entries:
-        uid = entity.unique_id
+        uid = entity.unique_id + " " + entity.entity_id
         # Make sure we use the correct device entities
         if entity.device_id == reg_entity.device_id:
             if "temperature_calibration" in uid or "temperature_offset" in uid:
