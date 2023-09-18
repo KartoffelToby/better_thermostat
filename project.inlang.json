@@ -1,0 +1,16 @@
+{
+    "sourceLanguageTag": "en",
+    "modules": [
+        "https://cdn.jsdelivr.net/npm/@inlang/plugin-i18next@4/dist/index.js",
+        "https://cdn.jsdelivr.net/gh/inlang/standard-lint-rules@2/dist/index.js"
+    ],
+    "settings": {
+        "plugin.inlang.i18next": {
+            "pathPattern": "./custom_components/better_thermostat/translations/{language}.json",
+            "variableReferencePattern": [
+                "{",
+                "}"
+            ]
+        }
+    }
+}
