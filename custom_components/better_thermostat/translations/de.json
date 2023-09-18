@@ -105,5 +105,23 @@
         }
       }
     }
+  },
+  "services": {
+    "save_current_target_temperature": {
+      "name": "Speichere die aktuelle Zieltemperatur",
+      "description": "Speichert die aktuelle Zieltemperatur um sie zu einem späteren Zeitpunkt wiederherzustellen."
+    },
+    "restore_saved_target_temperature": {
+      "name": "Stelle die Zieltemperatur wieder her",
+      "description": "Stellt die Zieltemperatur aus dem letzen gespeicherten wert wieder zurück."
+    },
+    "reset_heating_power": {
+      "name": "Setze 'Heating Power' zurück",
+      "description": "Stellt die Heating Power auf den startwert zurück."
+    },
+    "set_temp_target_temperature": {
+      "name": "Setzte die Temperatur für ECO",
+      "description": "Speichert eine ECO Temperatur, die für den ECO Modus genutzt wird."
+    }
   }
 }

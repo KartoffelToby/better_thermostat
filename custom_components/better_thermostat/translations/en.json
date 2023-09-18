@@ -105,5 +105,23 @@
         }
       }
     }
+  },
+  "services": {
+    "save_current_target_temperature": {
+      "name": "Save current Temperature",
+      "description": "Save the current target temperature for later restore."
+    },
+    "restore_saved_target_temperature": {
+      "name": "Restore temperature",
+      "description": "Restore the saved target temperature."
+    },
+    "reset_heating_power": {
+      "name": "Reset heating power",
+      "description": "Reset heating power to default value."
+    },
+    "set_temp_target_temperature": {
+      "name": "Set eco temperature",
+      "description": "Set the target temperature to a temporay like night mode, and save the old one."
+    }
   }
 }
