@@ -1,6 +1,12 @@
 {
     "sourceLanguageTag": "en",
-    "languageTags": [],
+    "languageTags": [
+        "da",
+        "de",
+        "en",
+        "fr",
+        "pl"
+    ],
     "modules": [
         "https://cdn.jsdelivr.net/npm/@inlang/plugin-i18next@4/dist/index.js",
         "https://cdn.jsdelivr.net/npm/@inlang/message-lint-rule-empty-pattern@1/dist/index.js",
