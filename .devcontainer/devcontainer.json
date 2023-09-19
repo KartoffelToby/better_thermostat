@@ -2,11 +2,9 @@
 {
   "image": "mcr.microsoft.com/devcontainers/python:0-3.11",
   "name": "BETTER THERMOSTAT development",
-  "initializeCommand": "/bin/mkdir -p ${localWorkspaceFolder}/.haconfig && /bin/cp -n ${localWorkspaceFolder}/.devcontainer/configuration.yaml ${localWorkspaceFolder}/.haconfig",
-  "containerUser": "root",
-  "remoteUser": "root",
-  "forwardPorts": [
-    8123
+  "initializeCommand": "/bin/mkdir -p ${localWorkspaceFolder}/.haconfig && /bin/cp ${localWorkspaceFolder}/.devcontainer/configuration.yaml ${localWorkspaceFolder}/.haconfig",
+  "appPort": [
+    "9123:8123"
   ],
   "portsAttributes": {
     "8123": {
@@ -36,7 +34,8 @@
         "ms-python.python",
         "GitHub.copilot",
         "ryanluker.vscode-coverage-gutters",
-        "ms-python.vscode-pylance"
+        "ms-python.vscode-pylance",
+        "ms-python.pylint"
       ]
     }
   },
