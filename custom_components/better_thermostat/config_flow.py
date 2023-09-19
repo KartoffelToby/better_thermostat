@@ -1,6 +1,14 @@
 import logging
 import voluptuous as vol
+
 from collections import OrderedDict
+from homeassistant import config_entries
+from homeassistant.const import CONF_NAME
+from homeassistant.core import callback
+from homeassistant.helpers import selector
+from homeassistant.components.climate.const import HVACMode
+from homeassistant.helpers import config_validation as cv
+
 
 from .utils.bridge import load_adapter
 
@@ -23,18 +31,12 @@ from .const import (
     CONF_VALVE_MAINTENANCE,
     CONF_WEATHER,
     CONF_WINDOW_TIMEOUT,
+    CONF_WINDOW_TIMEOUT_AFTER,
     CONF_CALIBRATION_MODE,
     CONF_TOLERANCE,
     CalibrationMode,
     CalibrationType,
 )
-from homeassistant import config_entries
-from homeassistant.const import CONF_NAME
-from homeassistant.core import callback
-from homeassistant.helpers import selector
-from homeassistant.components.climate.const import HVACMode
-from homeassistant.helpers import config_validation as cv
-
 
 from . import DOMAIN  # pylint:disable=unused-import
 
@@ -264,6 +266,18 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             else:
                 self.data[CONF_WINDOW_TIMEOUT] = 0
 
+            if CONF_WINDOW_TIMEOUT_AFTER in self.data:
+                self.data[CONF_WINDOW_TIMEOUT_AFTER] = (
+                    int(
+                        cv.time_period_dict(
+                            user_input.get(CONF_WINDOW_TIMEOUT_AFTER, None)
+                        ).total_seconds()
+                    )
+                    or 0
+                )
+            else:
+                self.data[CONF_WINDOW_TIMEOUT_AFTER] = 0
+
             if "base" not in errors:
                 for trv in self.heater_entity_id:
                     _intigration = await get_trv_intigration(self, trv)
@@ -324,6 +338,9 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                         selector.EntitySelectorConfig(domain="weather", multiple=False)
                     ),
                     vol.Optional(CONF_WINDOW_TIMEOUT): selector.DurationSelector(),
+                    vol.Optional(
+                        CONF_WINDOW_TIMEOUT_AFTER
+                    ): selector.DurationSelector(),
                     vol.Optional(
                         CONF_OFF_TEMPERATURE,
                         default=user_input.get(CONF_OFF_TEMPERATURE, 20),
@@ -515,6 +532,18 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
             else:
                 self.updated_config[CONF_WINDOW_TIMEOUT] = 0
 
+            if CONF_WINDOW_TIMEOUT_AFTER in self.updated_config:
+                self.updated_config[CONF_WINDOW_TIMEOUT_AFTER] = (
+                    int(
+                        cv.time_period_dict(
+                            user_input.get(CONF_WINDOW_TIMEOUT_AFTER, None)
+                        ).total_seconds()
+                    )
+                    or 0
+                )
+            else:
+                self.updated_config[CONF_WINDOW_TIMEOUT_AFTER] = 0
+
             self.updated_config[CONF_OFF_TEMPERATURE] = user_input.get(
                 CONF_OFF_TEMPERATURE
             )
@@ -615,6 +644,21 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
         fields[
             vol.Optional(
                 CONF_WINDOW_TIMEOUT,
+                default=_timeout,
+                description={"suggested_value": _timeout},
+            )
+        ] = selector.DurationSelector()
+
+        _timeout = self.config_entry.data.get(CONF_WINDOW_TIMEOUT_AFTER, 0)
+        _timeout = str(cv.time_period_seconds(_timeout))
+        _timeout = {
+            "hours": int(_timeout.split(":", maxsplit=1)[0]),
+            "minutes": int(_timeout.split(":")[1]),
+            "seconds": int(_timeout.split(":")[2]),
+        }
+        fields[
+            vol.Optional(
+                CONF_WINDOW_TIMEOUT_AFTER,
                 default=_timeout,
                 description={"suggested_value": _timeout},
             )

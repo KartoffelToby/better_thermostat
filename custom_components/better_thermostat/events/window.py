@@ -65,11 +65,15 @@ async def window_queue(self):
         window_event_to_process = await self.window_queue_task.get()
         if window_event_to_process is not None:
             if window_event_to_process:
-                # TODO: window open delay
+                _LOGGER.debug(
+                    f"better_thermostat {self.name}: Window opened, waiting {self.window_delay} seconds before continuing"
+                )
                 await asyncio.sleep(self.window_delay)
             else:
-                # TODO: window close delay
-                await asyncio.sleep(self.window_delay)
+                _LOGGER.debug(
+                    f"better_thermostat {self.name}: Window closed, waiting {self.window_delay_after} seconds before continuing"
+                )
+                await asyncio.sleep(self.window_delay_after)
             # remap off on to true false
             current_window_state = True
             if self.hass.states.get(self.window_id).state == STATE_OFF:
