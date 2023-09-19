@@ -29,10 +29,10 @@ climate:
 input_boolean:
   heater:
     name: Heater
-    initial: off
+    initial: on
   heater2:
     name: Heater2
-    initial: off
+    initial: on
   window_open:
     name: Window open
     initial: off
@@ -52,21 +52,21 @@ input_number:
     initial: 20
   external_sensor:
     name: External Sensor
-    initial: 18.24
-    min: 5
-    max: 35
+    initial: 18.2
+    min: 17
+    max: 24
     step: 0.10
   humidity_sensor:
     name: Humidity Sensor
     initial: 50.55
-    min: 0
-    max: 100
+    min: 40
+    max: 70
     step: 0.10
   outside_sensor:
     name: Outside Sensor
-    initial: 18.24
-    min: 5
-    max: 35
+    initial: 18.2
+    min: 12
+    max: 27
     step: 0.10
 
 template:
