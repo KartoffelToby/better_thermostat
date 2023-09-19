@@ -89,7 +89,7 @@ CALIBRATION_MODE_SELECTOR = selector.SelectSelector(
 
 
 class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
-    VERSION = 5
+    VERSION = 6
     CONNECTION_CLASS = config_entries.CONN_CLASS_LOCAL_POLL
 
     def __init__(self):
