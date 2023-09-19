@@ -10,10 +10,12 @@
             "request": "launch",
             "module": "homeassistant",
             "args": [
+                "--debug",
                 "-c",
-                "/config"
+                "/.haconfig"
             ],
-            "justMyCode": true
-        }
+            "justMyCode": false,
+            "console": "internalConsole"
+        },
     ]
 }

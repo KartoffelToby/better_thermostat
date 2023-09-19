@@ -92,6 +92,6 @@ template:
 
 
 # If you need to debug uncomment the line below (doc: https://www.home-assistant.io/integrations/debugpy/)
-#debugpy:
+debugpy:
 
 
