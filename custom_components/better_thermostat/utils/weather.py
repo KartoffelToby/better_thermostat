@@ -38,6 +38,7 @@ def check_weather(self) -> bool:
 
     if self.weather_entity is not None:
         _call_for_heat_weather = check_weather_prediction(self)
+        self.call_for_heat = _call_for_heat_weather
 
     if self.outdoor_sensor is not None:
         if None in (self.last_avg_outdoor_temp, self.off_temperature):
@@ -50,10 +51,11 @@ def check_weather(self) -> bool:
         else:
             _call_for_heat_outdoor = self.last_avg_outdoor_temp < self.off_temperature
 
-    self.call_for_heat = _call_for_heat_weather or _call_for_heat_outdoor
+        self.call_for_heat = _call_for_heat_outdoor
 
     if self.weather_entity is None and self.outdoor_sensor is None:
         self.call_for_heat = True
+        return True
 
     if old_call_for_heat != self.call_for_heat:
         return True
@@ -188,6 +190,11 @@ async def check_ambient_air_temperature(self):
     _LOGGER.debug(
         f"better_thermostat {self.name}: avg outdoor temp: {avg_temp}, threshold is {self.off_temperature}"
     )
+
+    if avg_temp is not None:
+        self.call_for_heat = avg_temp < self.off_temperature
+    else:
+        self.call_for_heat = True
 
     self.last_avg_outdoor_temp = avg_temp
 

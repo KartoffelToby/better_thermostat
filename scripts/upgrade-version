@@ -1,0 +1,13 @@
+#!/usr/bin/env bash
+
+set -e
+
+read -p "What HA Version? " VERSION
+echo "Installing ${my_var}!"
+
+
+cd "$(dirname "$0")/.."
+
+python3 -m pip install homeassistant==$VERSION
+
+echo "Done."

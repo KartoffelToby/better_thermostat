@@ -1,0 +1,7 @@
+homeassistant==2023.9.2
+pre-commit==2.15.0
+black==23.9.1
+codespell==2.2.2
+ruff==0.0.289
+yamllint==1.32.0
+flake8==4.0.1

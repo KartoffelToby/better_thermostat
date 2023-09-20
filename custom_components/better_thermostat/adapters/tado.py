@@ -59,8 +59,7 @@ async def set_offset(self, entity_id, offset):
         "set_climate_temperature_offset",
         {"entity_id": entity_id, "offset": offset},
         blocking=True,
-        limit=None,
-        context=self._context,
+        context=self.context,
     )
     self.real_trvs[entity_id]["last_calibration"] = offset
 

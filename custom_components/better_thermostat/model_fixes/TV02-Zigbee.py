@@ -32,8 +32,7 @@ async def override_set_hvac_mode(self, entity_id, hvac_mode):
         "set_hvac_mode",
         {"entity_id": entity_id, "hvac_mode": hvac_mode},
         blocking=True,
-        limit=None,
-        context=self._context,
+        context=self.context,
     )
     model = self.real_trvs[entity_id]["model"]
     if model == "TV02-Zigbee" and hvac_mode != HVACMode.OFF:
@@ -45,8 +44,7 @@ async def override_set_hvac_mode(self, entity_id, hvac_mode):
             "set_preset_mode",
             {"entity_id": entity_id, "preset_mode": "manual"},
             blocking=True,
-            limit=None,
-            context=self._context,
+            context=self.context,
         )
     return True
 
@@ -75,8 +73,7 @@ async def override_set_temperature(self, entity_id, temperature):
             "set_preset_mode",
             {"entity_id": entity_id, "preset_mode": "manual"},
             blocking=True,
-            limit=None,
-            context=self._context,
+            context=self.context,
         )
 
     await self.hass.services.async_call(
@@ -84,7 +81,6 @@ async def override_set_temperature(self, entity_id, temperature):
         "set_temperature",
         {"entity_id": entity_id, "temperature": temperature},
         blocking=True,
-        limit=None,
-        context=self._context,
+        context=self.context,
     )
     return True

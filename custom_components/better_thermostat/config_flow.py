@@ -1,6 +1,14 @@
 import logging
 import voluptuous as vol
+
 from collections import OrderedDict
+from homeassistant import config_entries
+from homeassistant.const import CONF_NAME
+from homeassistant.core import callback
+from homeassistant.helpers import selector
+from homeassistant.components.climate.const import HVACMode
+from homeassistant.helpers import config_validation as cv
+
 
 from .utils.bridge import load_adapter
 
@@ -23,17 +31,12 @@ from .const import (
     CONF_VALVE_MAINTENANCE,
     CONF_WEATHER,
     CONF_WINDOW_TIMEOUT,
+    CONF_WINDOW_TIMEOUT_AFTER,
     CONF_CALIBRATION_MODE,
+    CONF_TOLERANCE,
     CalibrationMode,
     CalibrationType,
 )
-from homeassistant import config_entries
-from homeassistant.const import CONF_NAME
-from homeassistant.core import callback
-from homeassistant.helpers import selector
-from homeassistant.components.climate.const import HVACMode
-from homeassistant.helpers import config_validation as cv
-
 
 from . import DOMAIN  # pylint:disable=unused-import
 
@@ -76,6 +79,9 @@ CALIBRATION_MODE_SELECTOR = selector.SelectSelector(
             selector.SelectOptionDict(
                 value=CalibrationMode.HEATING_POWER_CALIBRATION, label="AI Time Based"
             ),
+            selector.SelectOptionDict(
+                value=CalibrationMode.NO_CALIBRATION, label="No Calibration"
+            ),
         ],
         mode=selector.SelectSelectorMode.DROPDOWN,
     )
@@ -83,7 +89,7 @@ CALIBRATION_MODE_SELECTOR = selector.SelectSelector(
 
 
 class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
-    VERSION = 5
+    VERSION = 6
     CONNECTION_CLASS = config_entries.CONN_CLASS_LOCAL_POLL
 
     def __init__(self):
@@ -126,7 +132,6 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     async def async_step_advanced(self, user_input=None, _trv_config=None):
         """Handle options flow."""
         if user_input is not None:
-
             self.trv_bundle[self.i]["advanced"] = user_input
             self.trv_bundle[self.i]["adapter"] = None
 
@@ -261,6 +266,18 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             else:
                 self.data[CONF_WINDOW_TIMEOUT] = 0
 
+            if CONF_WINDOW_TIMEOUT_AFTER in self.data:
+                self.data[CONF_WINDOW_TIMEOUT_AFTER] = (
+                    int(
+                        cv.time_period_dict(
+                            user_input.get(CONF_WINDOW_TIMEOUT_AFTER, None)
+                        ).total_seconds()
+                    )
+                    or 0
+                )
+            else:
+                self.data[CONF_WINDOW_TIMEOUT_AFTER] = 0
+
             if "base" not in errors:
                 for trv in self.heater_entity_id:
                     _intigration = await get_trv_intigration(self, trv)
@@ -322,9 +339,16 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                     ),
                     vol.Optional(CONF_WINDOW_TIMEOUT): selector.DurationSelector(),
                     vol.Optional(
+                        CONF_WINDOW_TIMEOUT_AFTER
+                    ): selector.DurationSelector(),
+                    vol.Optional(
                         CONF_OFF_TEMPERATURE,
                         default=user_input.get(CONF_OFF_TEMPERATURE, 20),
                     ): int,
+                    vol.Optional(
+                        CONF_TOLERANCE,
+                        default=user_input.get(CONF_TOLERANCE, 0.0),
+                    ): float,
                 }
             ),
             errors=errors,
@@ -354,7 +378,6 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
     ):
         """Manage the advanced options."""
         if user_input is not None:
-
             self.trv_bundle[self.i]["advanced"] = user_input
             self.trv_bundle[self.i]["adapter"] = None
 
@@ -484,7 +507,6 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
         )
 
     async def async_step_user(self, user_input=None):
-
         if user_input is not None:
             current_config = self.config_entry.data
             self.updated_config = dict(current_config)
@@ -510,9 +532,23 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
             else:
                 self.updated_config[CONF_WINDOW_TIMEOUT] = 0
 
+            if CONF_WINDOW_TIMEOUT_AFTER in self.updated_config:
+                self.updated_config[CONF_WINDOW_TIMEOUT_AFTER] = (
+                    int(
+                        cv.time_period_dict(
+                            user_input.get(CONF_WINDOW_TIMEOUT_AFTER, None)
+                        ).total_seconds()
+                    )
+                    or 0
+                )
+            else:
+                self.updated_config[CONF_WINDOW_TIMEOUT_AFTER] = 0
+
             self.updated_config[CONF_OFF_TEMPERATURE] = user_input.get(
                 CONF_OFF_TEMPERATURE
             )
+
+            self.updated_config[CONF_TOLERANCE] = user_input.get(CONF_TOLERANCE, 0.0)
 
             for trv in self.updated_config[CONF_HEATER]:
                 trv["adapter"] = None
@@ -613,12 +649,34 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
             )
         ] = selector.DurationSelector()
 
+        _timeout = self.config_entry.data.get(CONF_WINDOW_TIMEOUT_AFTER, 0)
+        _timeout = str(cv.time_period_seconds(_timeout))
+        _timeout = {
+            "hours": int(_timeout.split(":", maxsplit=1)[0]),
+            "minutes": int(_timeout.split(":")[1]),
+            "seconds": int(_timeout.split(":")[2]),
+        }
+        fields[
+            vol.Optional(
+                CONF_WINDOW_TIMEOUT_AFTER,
+                default=_timeout,
+                description={"suggested_value": _timeout},
+            )
+        ] = selector.DurationSelector()
+
         fields[
             vol.Optional(
                 CONF_OFF_TEMPERATURE,
                 default=self.config_entry.data.get(CONF_OFF_TEMPERATURE, 5),
             )
         ] = int
+
+        fields[
+            vol.Optional(
+                CONF_TOLERANCE,
+                default=self.config_entry.data.get(CONF_TOLERANCE, 0.0),
+            )
+        ] = float
 
         return self.async_show_form(
             step_id="user", data_schema=vol.Schema(fields), last_step=False

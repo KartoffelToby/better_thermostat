@@ -8,3 +8,4 @@ venv
 .idea
 custom_components/hacs
 x_*
+.haconfig

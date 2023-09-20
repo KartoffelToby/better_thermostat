@@ -64,8 +64,7 @@ async def init(self, entity_id):
                 "set_preset_mode",
                 {"entity_id": entity_id, "preset_mode": "manual"},
                 blocking=True,
-                limit=None,
-                context=self._context,
+                context=self.context,
             )
 
 
@@ -104,8 +103,6 @@ async def get_offset_steps(self, entity_id):
 
 async def get_min_offset(self, entity_id):
     """Get min offset."""
-    # looks like z2m has a min max bug currently force to -10
-    return -6.0
     return float(
         str(
             self.hass.states.get(
@@ -117,8 +114,6 @@ async def get_min_offset(self, entity_id):
 
 async def get_max_offset(self, entity_id):
     """Get max offset."""
-    # looks like z2m has a min max bug currently force to 10
-    return 6.0
     return float(
         str(
             self.hass.states.get(
@@ -148,8 +143,7 @@ async def set_offset(self, entity_id, offset):
             "value": offset,
         },
         blocking=True,
-        limit=None,
-        context=self._context,
+        context=self.context,
     )
     self.real_trvs[entity_id]["last_calibration"] = offset
     if (
@@ -175,6 +169,5 @@ async def set_valve(self, entity_id, valve):
             "value": valve,
         },
         blocking=True,
-        limit=None,
-        context=self._context,
+        context=self.context,
     )
