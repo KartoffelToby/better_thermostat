@@ -12,7 +12,7 @@
             "args": [
                 "--debug",
                 "-c",
-                "/.haconfig"
+                "/config"
             ],
             "justMyCode": false,
             "console": "internalConsole"
