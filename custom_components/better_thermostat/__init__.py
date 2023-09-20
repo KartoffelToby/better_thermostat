@@ -11,6 +11,7 @@ from .const import (
     CONF_HEATER,
     CONF_NO_SYSTEM_MODE_OFF,
     CONF_WINDOW_TIMEOUT,
+    CONF_WINDOW_TIMEOUT_AFTER,
 )
 
 _LOGGER = logging.getLogger(__name__)
@@ -84,6 +85,12 @@ async def async_migrate_entry(hass, config_entry: ConfigEntry):
         for trv in new[CONF_HEATER]:
             trv["advanced"].update({CONF_NO_SYSTEM_MODE_OFF: False})
         config_entry.version = 5
+        hass.config_entries.async_update_entry(config_entry, data=new)
+
+    if config_entry.version == 5:
+        new = {**config_entry.data}
+        new[CONF_WINDOW_TIMEOUT_AFTER] = new[CONF_WINDOW_TIMEOUT]
+        config_entry.version = 6
         hass.config_entries.async_update_entry(config_entry, data=new)
 
     _LOGGER.info("Migration to version %s successful", config_entry.version)

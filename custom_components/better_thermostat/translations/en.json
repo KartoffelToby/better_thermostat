@@ -12,7 +12,8 @@
           "window_sensors": "Window sensor",
           "off_temperature": "The outdoor temperature when the thermostat turn off",
           "tolerance": "Tolerance, to prevent the thermostat from turning on and off too often.",
-          "window_off_delay": "Delay before the thermostat turn off when the window is open and on when the window is closed",
+          "window_off_delay": "Delay before the thermostat turn off when the window is opened",
+          "window_off_delay_after": "Delay before the thermostat turn on when the window is closed",
           "outdoor_sensor": "If you have an outdoor sensor, you can use it to get the outdoor temperature",
           "weather": "Your weather entity to get the outdoor temperature"
         }
@@ -63,7 +64,8 @@
           "window_sensors": "Window Sensor",
           "off_temperature": "The outdoor temperature when the thermostat turn off",
           "tolerance": "Tolerance, to prevent the thermostat from turning on and off too often.",
-          "window_off_delay": "Delay before the thermostat turn off when the window is open and on when the window is closed",
+          "window_off_delay": "Delay before the thermostat turn off when the window is opened",
+          "window_off_delay_after": "Delay before the thermostat turn on when the window is closed",
           "outdoor_sensor": "If you have an outdoor sensor, you can use it to get the outdoor temperature",
           "valve_maintenance": "If your thermostat has no own maintenance mode, you can use this one",
           "calibration": "The sort of calibration https://better-thermostat.org/configuration#second-step",

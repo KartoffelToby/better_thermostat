@@ -12,7 +12,8 @@
           "window_sensors": "Fenstersensor(en)",
           "off_temperature": "Außentemperatur, bei welcher das Thermostat abgeschaltet wird.",
           "tolerance": "Toleranz, um zu verhindern, dass das Thermostat zu oft ein- und ausgeschaltet wird.",
-          "window_off_delay": "Wartezeit, bevor das Thermostat bei geöffnetem Fenster abgeschaltet bzw. bei geschlossendem Fenter angeschaltet wird.",
+          "window_off_delay": "Wartezeit, bevor das Thermostat bei geöffnetem Fenster abgeschaltet.",
+          "window_off_delay_after": "Wartezeit, bevor das Thermostat bei geschlossendem Fenter angeschaltet wird.",
           "outdoor_sensor": "Wenn ein Außentemperaturssensor vorhanden ist, kann dieser anstelle der Wetter-Entität genutzt werden.",
           "weather": "Die Wetter-Entität für die Außentemperatur."
         }
@@ -63,7 +64,8 @@
           "window_sensors": "Fenstersensor(en)",
           "off_temperature": "Außentemperatur, bei welcher das Thermostat abgeschaltet wird.",
           "tolerance": "Toleranz, um zu verhindern, dass das Thermostat zu oft ein- und ausgeschaltet wird.",
-          "window_off_delay": "Wartezeit, bevor das Thermostat bei geöffnetem Fenster abgeschaltet bzw. bei geschlossenem Fenter angeschaltet wird.",
+          "window_off_delay": "Wartezeit, bevor das Thermostat bei geöffnetem Fenster abgeschaltet.",
+          "window_off_delay_after": "Wartezeit, bevor das Thermostat bei geschlossendem Fenter angeschaltet wird.",
           "outdoor_sensor": "Wenn ein Außentemperatursensor vorhanden ist, kann dieser anstelle der Wetter-Entität genutzt werden.",
           "weather": "Die Wetter-Entität für die Außentemperatur.",
           "valve_maintenance": "Wenn Ihr Thermostat keinen eigenen Wartungsmodus hat, können Sie diesen verwenden",
