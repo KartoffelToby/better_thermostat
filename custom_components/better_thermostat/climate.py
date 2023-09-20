@@ -68,6 +68,7 @@ from .const import (
     CONF_TOLERANCE,
     CONF_WEATHER,
     CONF_WINDOW_TIMEOUT,
+    CONF_WINDOW_TIMEOUT_AFTER,
     SERVICE_RESTORE_SAVED_TARGET_TEMPERATURE,
     SUPPORT_FLAGS,
     VERSION,
@@ -128,6 +129,7 @@ async def async_setup_entry(hass, entry, async_add_devices):
                 entry.data.get(CONF_HUMIDITY, None),
                 entry.data.get(CONF_SENSOR_WINDOW, None),
                 entry.data.get(CONF_WINDOW_TIMEOUT, None),
+                entry.data.get(CONF_WINDOW_TIMEOUT_AFTER, None),
                 entry.data.get(CONF_WEATHER, None),
                 entry.data.get(CONF_OUTDOOR_SENSOR, None),
                 entry.data.get(CONF_OFF_TEMPERATURE, None),
@@ -195,6 +197,7 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
         humidity_sensor_entity_id,
         window_id,
         window_delay,
+        window_delay_after,
         weather_entity,
         outdoor_sensor,
         off_temperature,
@@ -220,6 +223,7 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
         self.humidity_entity_id = humidity_sensor_entity_id
         self.window_id = window_id or None
         self.window_delay = window_delay or 0
+        self.window_delay_after = window_delay_after or 0
         self.weather_entity = weather_entity or None
         self.outdoor_sensor = outdoor_sensor or None
         self.off_temperature = float(off_temperature) or None
