@@ -10,24 +10,12 @@
             "request": "launch",
             "module": "homeassistant",
             "args": [
+                "--debug",
                 "-c",
                 "/config"
             ],
-            "justMyCode": true
-        },
-        {
-            "name": "Python: Attach Remote",
-            "type": "python",
-            "request": "attach",
-            "port": 5678,
-            "host": "homeassistant.lan",
             "justMyCode": false,
-            "pathMappings": [
-                {
-                    "localRoot": "${workspaceFolder}",
-                    "remoteRoot": "."
-                },
-            ],
-        }
+            "console": "internalConsole"
+        },
     ]
 }

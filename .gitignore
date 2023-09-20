@@ -9,4 +9,3 @@ venv
 custom_components/hacs
 x_*
 .haconfig
-.vscode/

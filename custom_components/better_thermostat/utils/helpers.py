@@ -9,7 +9,10 @@ from homeassistant.helpers.entity_registry import (
     async_entries_for_device,
 )
 
-from homeassistant.components.climate.const import HVACMode
+from homeassistant.components.climate.const import (
+    HVACMode,
+    HVACAction,
+)
 
 from custom_components.better_thermostat.utils.model_quirks import (
     fix_local_calibration,
@@ -128,18 +131,31 @@ def calculate_local_setpoint_delta(self, entity_id) -> Union[float, None]:
         "calibration_mode", "default"
     )
     if _calibration_mode == CONF_FIX_CALIBRATION:
-        _temp_diff = float(float(self.bt_target_temp) - float(self.cur_temp))
-        if _temp_diff > 0.30 and _new_local_calibration > -2.5:
-            _new_local_calibration -= 2.5
+        # _temp_diff = float(float(self.bt_target_temp) - float(self.cur_temp))
+        # if _temp_diff > 0.30 and _new_local_calibration > -2.5:
+        #     _new_local_calibration -= 2.5
+        if self.attr_hvac_action == HVACAction.HEATING:
+            if _new_local_calibration > -2.5:
+                _new_local_calibration -= 2.5
 
     elif _calibration_mode == CONF_HEATING_POWER_CALIBRATION:
-        _temp_diff = float(float(self.bt_target_temp) - float(self.cur_temp))
-        if _temp_diff > 0.0:
+        # _temp_diff = float(float(self.bt_target_temp) - float(self.cur_temp))
+        # if _temp_diff > 0.0:
+        #     valve_position = heating_power_valve_position(self, entity_id)
+        #     _new_local_calibration = _current_trv_calibration - (
+        #         (self.real_trvs[entity_id]["local_calibration_min"] + _cur_trv_temp)
+        #         * valve_position
+        #     )
+        if self.attr_hvac_action == HVACAction.HEATING:
+            # if _temp_diff > 0.0:
             valve_position = heating_power_valve_position(self, entity_id)
             _new_local_calibration = _current_trv_calibration - (
                 (self.real_trvs[entity_id]["local_calibration_min"] + _cur_trv_temp)
                 * valve_position
             )
+        elif self.attr_hvac_action == HVACAction.IDLE:
+            if _new_local_calibration < 0.0:
+                _new_local_calibration += self.tolerance
 
     _new_local_calibration = fix_local_calibration(
         self, entity_id, _new_local_calibration
@@ -211,17 +227,25 @@ def calculate_setpoint_override(self, entity_id) -> Union[float, None]:
         "calibration_mode", "default"
     )
     if _calibration_mode == CONF_FIX_CALIBRATION:
-        _temp_diff = float(float(self.bt_target_temp) - float(self.cur_temp))
-        if _temp_diff > 0.0 and _calibrated_setpoint - _cur_trv_temp < 2.5:
-            _calibrated_setpoint += 2.5
+        # _temp_diff = float(float(self.bt_target_temp) - float(self.cur_temp))
+        if self.attr_hvac_action == HVACAction.HEATING:
+            if _calibrated_setpoint - _cur_trv_temp < 2.5:
+                _calibrated_setpoint += 2.5
+        elif self.attr_hvac_action == HVACAction.IDLE:
+            if _calibrated_setpoint - _cur_trv_temp > 0.0:
+                _calibrated_setpoint -= self.tolerance
 
     elif _calibration_mode == CONF_HEATING_POWER_CALIBRATION:
-        _temp_diff = float(float(self.bt_target_temp) - float(self.cur_temp))
-        if _temp_diff > 0.0:
+        # _temp_diff = float(float(self.bt_target_temp) - float(self.cur_temp))
+        if self.attr_hvac_action == HVACAction.HEATING:
+            # if _temp_diff > 0.0:
             valve_position = heating_power_valve_position(self, entity_id)
             _calibrated_setpoint = _cur_trv_temp + (
                 (self.real_trvs[entity_id]["max_temp"] - _cur_trv_temp) * valve_position
             )
+        elif self.attr_hvac_action == HVACAction.IDLE:
+            if _calibrated_setpoint - _cur_trv_temp > 0.0:
+                _calibrated_setpoint -= self.tolerance
 
     _calibrated_setpoint = fix_target_temperature_calibration(
         self, entity_id, _calibrated_setpoint
@@ -530,10 +554,10 @@ async def find_local_calibration_entity(self, entity_id):
         entity_registry, reg_entity.config_entry_id
     )
     for entity in entity_entries:
-        uid = entity.unique_id
+        uid = entity.unique_id + " " + entity.entity_id
         # Make sure we use the correct device entities
         if entity.device_id == reg_entity.device_id:
-            if "local_temperature_calibration" in uid:
+            if "temperature_calibration" in uid or "temperature_offset" in uid:
                 _LOGGER.debug(
                     f"better thermostat: Found local calibration entity {entity.entity_id} for {entity_id}"
                 )

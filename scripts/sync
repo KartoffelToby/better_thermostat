@@ -1,0 +1,11 @@
+#!/usr/bin/env bash
+
+set -e
+
+cd "$(dirname "$0")/.."
+
+echo "Syncing configuration.yaml"
+
+cp -f .devcontainer/configuration.yaml ${PWD}/.haconfig/configuration.yaml
+
+echo "Done. Restart Home Assistant to see changes."
