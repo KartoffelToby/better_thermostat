@@ -3,11 +3,16 @@
   "image": "mcr.microsoft.com/devcontainers/python:0-3.11",
   "name": "BETTER THERMOSTAT development",
   "initializeCommand": "/bin/mkdir -p ${localWorkspaceFolder}/.haconfig && /bin/cp ${localWorkspaceFolder}/.devcontainer/configuration.yaml ${localWorkspaceFolder}/.haconfig",
+  "containerUser": "1000",
+  "remoteUser": "1000",
   "appPort": [
     "9123:8123"
   ],
+  "forwardPorts": [
+    9123
+  ],
   "portsAttributes": {
-    "8123": {
+    "9123": {
       "label": "HomeAssistant port",
       "protocol": "http",
       "onAutoForward": "notify"
@@ -39,7 +44,7 @@
       ]
     }
   },
-  "postCreateCommand": "pip install -r requirements.dev.txt",
+  "postCreateCommand": "scripts/setup",
   "mounts": [
     "source=${localWorkspaceFolder}/.haconfig,target=/config,type=bind,consistency=cached"
   ]
