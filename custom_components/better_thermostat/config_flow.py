@@ -15,6 +15,7 @@ from .utils.bridge import load_adapter
 from .utils.helpers import get_device_model, get_trv_intigration
 
 from .const import (
+    CONF_COOLER,
     CONF_PROTECT_OVERHEATING,
     CONF_CALIBRATION,
     CONF_CHILD_LOCK,
@@ -253,6 +254,8 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 self.data[CONF_OUTDOOR_SENSOR] = None
             if CONF_WEATHER not in self.data:
                 self.data[CONF_WEATHER] = None
+            if CONF_COOLER not in self.data:
+                self.data[CONF_COOLER] = None
 
             if CONF_WINDOW_TIMEOUT in self.data:
                 self.data[CONF_WINDOW_TIMEOUT] = (
@@ -302,6 +305,9 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                     vol.Required(CONF_HEATER): selector.EntitySelector(
                         selector.EntitySelectorConfig(domain="climate", multiple=True)
                     ),
+                    vol.Required(CONF_COOLER): selector.EntitySelector(
+                        selector.EntitySelectorConfig(domain="climate", multiple=False)
+                    ),
                     vol.Required(CONF_SENSOR): selector.EntitySelector(
                         selector.EntitySelectorConfig(
                             domain=["sensor", "number", "input_number"],
@@ -346,8 +352,7 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                         default=user_input.get(CONF_OFF_TEMPERATURE, 20),
                     ): int,
                     vol.Optional(
-                        CONF_TOLERANCE,
-                        default=user_input.get(CONF_TOLERANCE, 0.0),
+                        CONF_TOLERANCE, default=user_input.get(CONF_TOLERANCE, 0.0)
                     ): float,
                 }
             ),
@@ -548,7 +553,9 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
                 CONF_OFF_TEMPERATURE
             )
 
-            self.updated_config[CONF_TOLERANCE] = user_input.get(CONF_TOLERANCE, 0.0)
+            self.updated_config[CONF_TOLERANCE] = float(
+                user_input.get(CONF_TOLERANCE, 0.0)
+            )
 
             for trv in self.updated_config[CONF_HEATER]:
                 trv["adapter"] = None
@@ -673,8 +680,7 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
 
         fields[
             vol.Optional(
-                CONF_TOLERANCE,
-                default=self.config_entry.data.get(CONF_TOLERANCE, 0.0),
+                CONF_TOLERANCE, default=self.config_entry.data.get(CONF_TOLERANCE, 0.0)
             )
         ] = float
 

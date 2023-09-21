@@ -26,6 +26,13 @@ climate:
     heater: input_boolean.heater2
     target_sensor: input_number.internal_sensor2
 
+  - platform: generic_thermostat
+    name: Dummy_real_AC
+    heater: input_boolean.heater2
+    target_sensor: input_number.internal_sensor2
+    ac_mode: true
+    cold_tolerance: 0.3
+
 input_boolean:
   heater:
     name: Heater

@@ -26,6 +26,7 @@ except (FileNotFoundError, KeyError, json.JSONDecodeError) as e:
 
 
 CONF_HEATER = "thermostat"
+CONF_COOLER = "cooler"
 CONF_SENSOR = "temperature_sensor"
 CONF_HUMIDITY = "humidity_sensor"
 CONF_SENSOR_WINDOW = "window_sensors"
