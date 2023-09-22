@@ -106,6 +106,70 @@ async def control_trv(self, heater_entity_id=None):
 
         _new_hvac_mode = handle_window_open(self, _remapped_states)
 
+        # New cooler section
+        if self.cooler_entity_id is not None:
+            if (
+                self.cur_temp >= self.bt_target_cooltemp - self.tolerance
+                and _new_hvac_mode is not HVACMode.OFF
+                and self.cur_temp > self.bt_target_temp
+            ):
+                await self.hass.services.async_call(
+                    "climate",
+                    "set_temperature",
+                    {
+                        "entity_id": self.cooler_entity_id,
+                        "temperature": self.bt_target_cooltemp,
+                    },
+                    blocking=True,
+                    context=self.context,
+                )
+                await self.hass.services.async_call(
+                    "climate",
+                    "set_hvac_mode",
+                    {"entity_id": self.cooler_entity_id, "hvac_mode": HVACMode.COOL},
+                    blocking=True,
+                    context=self.context,
+                )
+            elif (
+                self.cur_temp < self.bt_target_cooltemp - self.tolerance
+                and _new_hvac_mode is not HVACMode.OFF
+            ):
+                await self.hass.services.async_call(
+                    "climate",
+                    "set_temperature",
+                    {
+                        "entity_id": self.cooler_entity_id,
+                        "temperature": self.bt_target_cooltemp,
+                    },
+                    blocking=True,
+                    context=self.context,
+                )
+                await self.hass.services.async_call(
+                    "climate",
+                    "set_hvac_mode",
+                    {"entity_id": self.cooler_entity_id, "hvac_mode": HVACMode.OFF},
+                    blocking=True,
+                    context=self.context,
+                )
+            else:
+                await self.hass.services.async_call(
+                    "climate",
+                    "set_temperature",
+                    {
+                        "entity_id": self.cooler_entity_id,
+                        "temperature": self.bt_target_cooltemp,
+                    },
+                    blocking=True,
+                    context=self.context,
+                )
+                await self.hass.services.async_call(
+                    "climate",
+                    "set_hvac_mode",
+                    {"entity_id": self.cooler_entity_id, "hvac_mode": HVACMode.OFF},
+                    blocking=True,
+                    context=self.context,
+                )
+
         # if we don't need ot heat, we force HVACMode to be off
         if self.call_for_heat is False:
             _new_hvac_mode = HVACMode.OFF

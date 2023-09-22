@@ -305,7 +305,7 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                     vol.Required(CONF_HEATER): selector.EntitySelector(
                         selector.EntitySelectorConfig(domain="climate", multiple=True)
                     ),
-                    vol.Required(CONF_COOLER): selector.EntitySelector(
+                    vol.Optional(CONF_COOLER): selector.EntitySelector(
                         selector.EntitySelectorConfig(domain="climate", multiple=False)
                     ),
                     vol.Required(CONF_SENSOR): selector.EntitySelector(
@@ -353,7 +353,7 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                     ): int,
                     vol.Optional(
                         CONF_TOLERANCE, default=user_input.get(CONF_TOLERANCE, 0.0)
-                    ): float,
+                    ): vol.All(vol.Coerce(float), vol.Range(min=0)),
                 }
             ),
             errors=errors,
@@ -682,7 +682,7 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
             vol.Optional(
                 CONF_TOLERANCE, default=self.config_entry.data.get(CONF_TOLERANCE, 0.0)
             )
-        ] = float
+        ] = vol.All(vol.Coerce(float), vol.Range(min=0))
 
         return self.async_show_form(
             step_id="user", data_schema=vol.Schema(fields), last_step=False

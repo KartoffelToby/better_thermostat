@@ -46,13 +46,17 @@ async def trigger_cooler_change(self, event):
 
     _LOGGER.debug(f"better_thermostat {self.name}: Cooler {entity_id} update received")
 
+    _main_key = "temperature"
+    if "temperature" not in old_state.attributes:
+        _main_key = "target_temp_high"
+
     _old_cooling_setpoint = convert_to_float(
-        str(old_state.attributes.get("temperature", None)),
+        str(old_state.attributes.get(_main_key, None)),
         self.name,
         "trigger_cooler_change()",
     )
     _new_cooling_setpoint = convert_to_float(
-        str(new_state.attributes.get("temperature", None)),
+        str(new_state.attributes.get(_main_key, None)),
         self.name,
         "trigger_cooler_change()",
     )

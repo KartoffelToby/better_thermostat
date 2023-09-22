@@ -134,13 +134,17 @@ async def trigger_trv_change(self, event):
             ):
                 self.bt_hvac_mode = mapped_state
 
+    _main_key = "temperature"
+    if "temperature" not in old_state.attributes:
+        _main_key = "target_temp_high"
+
     _old_heating_setpoint = convert_to_float(
-        str(old_state.attributes.get("temperature", None)),
+        str(old_state.attributes.get(_main_key, None)),
         self.name,
         "trigger_trv_change()",
     )
     _new_heating_setpoint = convert_to_float(
-        str(new_state.attributes.get("temperature", None)),
+        str(new_state.attributes.get(_main_key, None)),
         self.name,
         "trigger_trv_change()",
     )
@@ -181,8 +185,12 @@ async def trigger_trv_change(self, event):
             self.bt_target_temp = _new_heating_setpoint
             if self.cooler_entity_id is not None:
                 if self.bt_target_temp <= self.bt_target_cooltemp:
-                    self.bt_target_temp = (
-                        self.bt_target_cooltemp + self.bt_target_temp_step
+                    self.bt_target_cooltemp = (
+                        self.bt_target_temp - self.bt_target_temp_step
+                    )
+                if self.bt_target_temp >= self.bt_target_cooltemp:
+                    self.bt_target_cooltemp = (
+                        self.bt_target_temp - self.bt_target_temp_step
                     )
 
             _main_change = True
