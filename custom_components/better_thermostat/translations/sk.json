@@ -104,7 +104,7 @@
             "title": "Súvisiaca entita {entity} chýba",
             "description": "Dôvodom je, že subjekt ({entity}) nie je v aplikácii Home Assistant k dispozícii.\n\nMôžete to napraviť tak, že skontrolujete, či je batéria zariadenia plná, alebo ju znovu pripojíte k HA. Pred pokračovaním sa uistite, že je jednotka opäť pripojená k HA."
           }
-        }Nastavenie eko teploty
+        }
       }
     }
   },
