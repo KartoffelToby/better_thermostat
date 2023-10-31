@@ -116,7 +116,7 @@ async def trigger_trv_change(self, event):
         )
         return
 
-    if mapped_state in (HVACMode.OFF, HVACMode.HEAT):
+    if mapped_state in (HVACMode.OFF, HVACMode.HEAT, HVACMode.HEAT_COOL):
         if (
             self.real_trvs[entity_id]["hvac_mode"] != _org_trv_state.state
             and not child_lock
@@ -134,13 +134,17 @@ async def trigger_trv_change(self, event):
             ):
                 self.bt_hvac_mode = mapped_state
 
+    _main_key = "temperature"
+    if "temperature" not in old_state.attributes:
+        _main_key = "target_temp_high"
+
     _old_heating_setpoint = convert_to_float(
-        str(old_state.attributes.get("temperature", None)),
+        str(old_state.attributes.get(_main_key, None)),
         self.name,
         "trigger_trv_change()",
     )
     _new_heating_setpoint = convert_to_float(
-        str(new_state.attributes.get("temperature", None)),
+        str(new_state.attributes.get(_main_key, None)),
         self.name,
         "trigger_trv_change()",
     )
@@ -179,6 +183,16 @@ async def trigger_trv_change(self, event):
                 f"better_thermostat {self.name}: TRV {entity_id} decoded TRV target temp changed from {self.bt_target_temp} to {_new_heating_setpoint}"
             )
             self.bt_target_temp = _new_heating_setpoint
+            if self.cooler_entity_id is not None:
+                if self.bt_target_temp <= self.bt_target_cooltemp:
+                    self.bt_target_cooltemp = (
+                        self.bt_target_temp - self.bt_target_temp_step
+                    )
+                if self.bt_target_temp >= self.bt_target_cooltemp:
+                    self.bt_target_cooltemp = (
+                        self.bt_target_temp - self.bt_target_temp_step
+                    )
+
             _main_change = True
 
         if self.real_trvs[entity_id]["advanced"].get("no_off_system_mode", False):

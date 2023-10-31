@@ -6,10 +6,7 @@ from typing import Union
 from homeassistant.helpers import device_registry as dr, entity_registry as er
 from homeassistant.helpers.entity_registry import async_entries_for_config_entry
 
-from homeassistant.components.climate.const import (
-    HVACMode,
-    HVACAction,
-)
+from homeassistant.components.climate.const import HVACMode, HVACAction
 
 from custom_components.better_thermostat.utils.model_quirks import (
     fix_local_calibration,
@@ -26,6 +23,14 @@ from ..const import (
 
 
 _LOGGER = logging.getLogger(__name__)
+
+
+def get_hvac_bt_mode(self, mode: str) -> str:
+    if mode == HVACMode.HEAT:
+        mode = self.map_on_hvac_mode
+    elif mode == HVACMode.HEAT_COOL:
+        mode = HVACMode.HEAT
+    return mode
 
 
 def mode_remap(self, entity_id, hvac_mode: str, inbound: bool = False) -> str:
