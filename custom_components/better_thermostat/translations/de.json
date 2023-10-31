@@ -7,7 +7,7 @@
         "data": {
           "name": "Name",
           "thermostat": "Das reale Thermostat",
-          "cooler": "Klimmagerät AC (optional)",
+          "cooler": "Klimmagerät AC (optional) | Preview BETA",
           "temperature_sensor": "Externer Temperatursensor",
           "humidity_sensor": "Luftfeuchtigkeitssensor",
           "window_sensors": "Fenstersensor(en)",

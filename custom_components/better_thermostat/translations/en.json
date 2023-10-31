@@ -7,7 +7,7 @@
         "data": {
           "name": "Name",
           "thermostat": "The real thermostat",
-          "cooler": "The cooling device (optional)",
+          "cooler": "The cooling device (optional) | Preview BETA",
           "temperature_sensor": "Temperature sensor",
           "humidity_sensor": "Humidity sensor",
           "window_sensors": "Window sensor",
