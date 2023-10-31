@@ -12,9 +12,9 @@
           "window_sensors": "Fenstersensor(en)",
           "off_temperature": "Außentemperatur, bei welcher das Thermostat abgeschaltet wird.",
           "tolerance": "Toleranz, um zu verhindern, dass das Thermostat zu oft ein- und ausgeschaltet wird.",
-          "window_off_delay": "Wartezeit, bevor das Thermostat bei geöffnetem Fenster abgeschaltet.",
-          "window_off_delay_after": "Wartezeit, bevor das Thermostat bei geschlossendem Fenter angeschaltet wird.",
-          "outdoor_sensor": "Wenn ein Außentemperaturssensor vorhanden ist, kann dieser anstelle der Wetter-Entität genutzt werden.",
+          "window_off_delay": "Wartezeit, bevor das Thermostat bei geöffnetem Fenster abgeschaltet wird.",
+          "window_off_delay_after": "Wartezeit, bevor das Thermostat bei geschlossenem Fenster angeschaltet wird.",
+          "outdoor_sensor": "Wenn ein Außentemperatursensor vorhanden ist, kann dieser anstelle der Wetter-Entität genutzt werden.",
           "weather": "Die Wetter-Entität für die Außentemperatur."
         }
       },
@@ -24,16 +24,16 @@
           "protect_overheating": "Überhitzung verhindern?",
           "heat_auto_swapped": "Tauscht die Modi auto und heat, falls diese bei dem realen Thermostat vertauscht sind.",
           "child_lock": "Ignoriere alle manuellen Einstellungen am realen Thermostat (Kindersicherung).",
-          "homaticip": "Wenn du HomaticIP nutzt, solltest du diese Option aktivieren, um die Funk-übertragung zu reduzieren.",
+          "homaticip": "Wenn du HomaticIP nutzt, solltest du diese Option aktivieren, um die Funk-Übertragung zu reduzieren.",
           "valve_maintenance": "Soll BT die Wartung des Thermostats übernehmen?",
           "calibration": "Kalibrierungstyp",
           "calibration_mode": "Kalibrierungsmodus",
           "no_off_system_mode": "Wenn das TRV keinen Aus Modus nutzen kann, kann diese Option aktiviert werden, um das TRV stattdessen auf 5°C zu setzen."
         },
         "data_description": {
-          "protect_overheating": "Manche TRVs schließen auch nach Erreichen der Temperatur das Ventil nicht vollständig, dies kann zu Überhitzungen führen. Ebenso falls der Radiator viel Restwärme abstrahlt. Diese Option kann dies verhindern.",
-          "calibration_mode": "Wie die Kalibrierung berechnet wird\n***Normal***: In diesem Modus wird die interne TRV-Temperatur an die des externen Sensors angeglichen.\n\n***Aggresive***: In diesem Modus wird die interne TRV-Temperatur an die des externen Sensors angeglichen allerdings mit größeren Werten, dies ist hilfreich wenn ein Raum schnell aufgeheizt werden soll, oder das TRV träge ist.\n\n***AI Time Based***: In diesem Modus wird ein eigener Algorithmus genutzt anhand des externen Temperatursensors, um die Kalibrierung zu berechnen. Dieser Modus versucht den TRV internen Algorithmus zu optimieren.",
-          "calibration": "Wie die Kalibrierung auf das TRV angewendet werden soll.\n\n***Target Temperature Based***: Kalibiert das TRV über die Zieltemperatur.\n\n***Offset Based***: Kalibiert das TRV über eine Offset Funktion im TRV selbst. (Empfohlen)"
+          "protect_overheating": "Manche TRVs schließen auch nach Erreichen der Temperatur das Ventil nicht vollständig. Dies kann zu Überhitzungen führen. Ebenso, falls der Radiator viel Restwärme abstrahlt. Diese Option kann dies verhindern.",
+          "calibration_mode": "Wie die Kalibrierung berechnet wird\n***Normal***: In diesem Modus wird die interne TRV-Temperatur an die des externen Sensors angeglichen.\n\n***Aggresive***: In diesem Modus wird die interne TRV-Temperatur an die des externen Sensors angeglichen - allerdings mit größeren Werten. Dies ist hilfreich, wenn ein Raum schnell aufgeheizt werden soll oder das TRV träge ist.\n\n***AI Time Based***: In diesem Modus wird ein eigener Algorithmus genutzt, der anhand des externen Temperatursensors die Kalibrierung berechnet. Dieser Modus versucht den TRV internen Algorithmus zu optimieren.",
+          "calibration": "Wie die Kalibrierung auf das TRV angewendet werden soll.\n\n***Target Temperature Based***: Kalibriert das TRV über die Zieltemperatur.\n\n***Offset Based***: Kalibriert das TRV über eine Offset Funktion im TRV selbst. (Empfohlen)"
         }
       },
       "confirm": {
@@ -42,7 +42,7 @@
       }
     },
     "error": {
-      "no_outside_temp": "Es kann keine Außentemperatur geladen werden",
+      "no_outside_temp": "Es kann keine Außentemperatur geladen werden.",
       "failed": "Ups, hier stimmt was nicht.",
       "no_name": "Du musst einen Namen vergeben.",
       "no_off_mode": "Dein Gerät ist ein Sonderfall, es hat keinen OFF Modus :(\nBetter Thermostat wird stattdessen das TRV auf den Minimalwert setzen."
@@ -64,33 +64,33 @@
           "window_sensors": "Fenstersensor(en)",
           "off_temperature": "Außentemperatur, bei welcher das Thermostat abgeschaltet wird.",
           "tolerance": "Toleranz, um zu verhindern, dass das Thermostat zu oft ein- und ausgeschaltet wird.",
-          "window_off_delay": "Wartezeit, bevor das Thermostat bei geöffnetem Fenster abgeschaltet.",
-          "window_off_delay_after": "Wartezeit, bevor das Thermostat bei geschlossendem Fenter angeschaltet wird.",
+          "window_off_delay": "Wartezeit, bevor das Thermostat bei geöffnetem Fenster abgeschaltet wird.",
+          "window_off_delay_after": "Wartezeit, bevor das Thermostat bei geschlossenem Fenster angeschaltet wird.",
           "outdoor_sensor": "Wenn ein Außentemperatursensor vorhanden ist, kann dieser anstelle der Wetter-Entität genutzt werden.",
           "weather": "Die Wetter-Entität für die Außentemperatur.",
-          "valve_maintenance": "Wenn Ihr Thermostat keinen eigenen Wartungsmodus hat, können Sie diesen verwenden",
-          "child_lock": "Ignorieren Sie alle Eingaben am TRV wie eine Kindersicherung",
-          "homaticip": "Wenn Sie HomaticIP verwenden, sollten Sie dies aktivieren, um die Anfragen zu verlangsamen und den Duty Cycle zu verhindern",
-          "heat_auto_swapped": "Wenn das Auto Wärme für Ihr TRV bedeutet und Sie es austauschen möchten",
+          "valve_maintenance": "Wenn Ihr Thermostat keinen eigenen Wartungsmodus hat, können Sie diesen verwenden.",
+          "child_lock": "Ignorieren Sie alle Eingaben am TRV wie eine Kindersicherung.",
+          "homaticip": "Wenn Sie HomaticIP verwenden, sollten Sie dies aktivieren, um die Anfragen zu verlangsamen und den Duty Cycle zu verhindern.",
+          "heat_auto_swapped": "Wenn das Auto Wärme für Ihr TRV bedeutet und Sie es austauschen möchten.",
           "calibration": "Die Art der Kalibrierung https://better-thermostat.org/configuration#second-step"
         }
       },
       "advanced": {
-        "description": "Aktuallisere die Einstellungen für {trv}\n\n***Infos über die Kalibrierungstypen: https://better-thermostat.org/configuration#second-step*** ",
+        "description": "Aktualisiere die Einstellungen für {trv}\n\n***Infos über die Kalibrierungstypen: https://better-thermostat.org/configuration#second-step*** ",
         "data": {
           "protect_overheating": "Überhitzung verhindern?",
           "heat_auto_swapped": "Tauscht die Modi auto und heat, falls diese bei dem realen Thermostat vertauscht sind.",
           "child_lock": "Ignoriere alle manuellen Einstellungen am realen Thermostat (Kindersicherung).",
-          "homaticip": "Wenn du HomaticIP nutzt, solltest du diese Option aktivieren, um die Funk-übertragung zu reduzieren.",
+          "homaticip": "Wenn du HomaticIP nutzt, solltest du diese Option aktivieren, um die Funk-Übertragung zu reduzieren.",
           "valve_maintenance": "Soll BT die Wartung des Thermostats übernehmen?",
           "calibration": "Kalibrierungstyp",
           "calibration_mode": "Kalibrierungsmodus",
           "no_off_system_mode": "Wenn das TRV keinen Aus Modus nutzen kann, kann diese Option aktiviert werden, um das TRV stattdessen auf 5°C zu setzen."
         },
         "data_description": {
-          "protect_overheating": "Manche TRVs schließen auch nach Erreichen der Temperatur das Ventil nicht vollständig, dies kann zu Überhitzungen führen. Ebenso falls der Radiator viel Restwärme abstrahlt. Diese Option kann dies verhindern.",
-          "calibration_mode": "Wie die Kalibrierung berechnet wird\n***Normal***: In diesem Modus wird die interne TRV-Temperatur an die des externen Sensors angeglichen.\n\n***Aggresive***: In diesem Modus wird die interne TRV-Temperatur an die des externen Sensors angeglichen allerdings mit größeren Werten, dies ist hilfreich wenn ein Raum schnell aufgeheizt werden soll, oder das TRV träge ist.\n\n***AI Time Based***: In diesem Modus wird ein eigener Algorithmus genutzt anhand des externen Temperatursensors, um die Kalibrierung zu berechnen. Dieser Modus versucht den TRV internen Algorithmus zu optimieren.",
-          "calibration": "Wie die Kalibrierung auf das TRV angewendet werden soll.\n\n***Target Temperature Based***: Kalibiert das TRV über die Zieltemperatur.\n\n***Offset Based***: Kalibiert das TRV über eine Offset Funktion im TRV selbst. (Empfohlen)"
+          "protect_overheating": "Manche TRVs schließen auch nach Erreichen der Temperatur das Ventil nicht vollständig. Dies kann zu Überhitzungen führen. Ebenso falls der Radiator viel Restwärme abstrahlt. Diese Option kann dies verhindern.",
+          "calibration_mode": "Wie die Kalibrierung berechnet wird\n***Normal***: In diesem Modus wird die interne TRV-Temperatur an die des externen Sensors angeglichen.\n\n***Aggresive***: In diesem Modus wird die interne TRV-Temperatur an die des externen Sensors angeglichen - allerdings mit größeren Werten. Dies ist hilfreich, wenn ein Raum schnell aufgeheizt werden soll oder das TRV träge ist.\n\n***AI Time Based***: In diesem Modus wird ein eigener Algorithmus genutzt, der anhand des externen Temperatursensors die Kalibrierung berechnet. Dieser Modus versucht den TRV internen Algorithmus zu optimieren.",
+          "calibration": "Wie die Kalibrierung auf das TRV angewendet werden soll.\n\n***Target Temperature Based***: Kalibriert das TRV über die Zieltemperatur.\n\n***Offset Based***: Kalibriert das TRV über eine Offset Funktion im TRV selbst. (Empfohlen)"
         }
       }
     }
@@ -115,14 +115,14 @@
     },
     "restore_saved_target_temperature": {
       "name": "Stelle die Zieltemperatur wieder her",
-      "description": "Stellt die Zieltemperatur aus dem letzen gespeicherten wert wieder zurück."
+      "description": "Stellt die Zieltemperatur aus dem letzten gespeicherten Wert wieder her."
     },
     "reset_heating_power": {
       "name": "Setze 'Heating Power' zurück",
-      "description": "Stellt die Heating Power auf den startwert zurück."
+      "description": "Stellt die Heating Power auf den Startwert zurück."
     },
     "set_temp_target_temperature": {
-      "name": "Setzte die Temperatur für ECO",
+      "name": "Setze die Temperatur für ECO",
       "description": "Speichert eine ECO Temperatur, die für den ECO Modus genutzt wird."
     }
   }
