@@ -1,0 +1,129 @@
+{
+  "title": "Better Thermostat",
+  "config": {
+    "step": {
+      "user": {
+        "description": "Nastavenie lepšieho termostatu na integráciu s aplikáciou Home Assistant\n**Ak potrebujete viac informácií: https://better-thermostat.org/configuration#first-step** ",
+        "data": {
+          "name": "Názov",
+          "thermostat": "Skutočný termostat",
+          "temperature_sensor": "Snímač teploty",
+          "humidity_sensor": "Snímač vlhkosti",
+          "window_sensors": "Snímač okna",
+          "off_temperature": "Vonkajšia teplota pri vypnutom termostate",
+          "tolerance": "Tolerancia, aby sa zabránilo príliš častému zapínaniu a vypínaniu termostatu.",
+          "window_off_delay": "Oneskorenie pred vypnutím termostatu pri otvorení okna",
+          "window_off_delay_after": "Oneskorenie pred zapnutím termostatu pri zatvorenom okne",
+          "outdoor_sensor": "Ak máte vonkajší snímač, môžete pomocou neho zistiť vonkajšiu teplotu",
+          "weather": "Váš meteorologický subjekt na zistenie vonkajšej teploty"
+        }
+      },
+      "advanced": {
+        "description": "Rozšírená konfigurácia {trv}\n***Informácie o druhoch kalibrácie: https://better-thermostat.org/configuration#second-step***",
+        "data": {
+          "protect_overheating": "Ochrana proti prehriatiu?",
+          "heat_auto_swapped": "Ak auto znamená teplo pre váš TRV a chcete ho vymeniť",
+          "child_lock": "Ignorovať všetky vstupy na TRV ako detský zámok",
+          "homaticip": "Ak používate HomaticIP, mali by ste túto funkciu povoliť, aby ste spomalili požiadavky a zabránili tak pracovnému cyklu",
+          "valve_maintenance": "Ak váš termostat nemá vlastný režim údržby, môžete použiť tento režim",
+          "calibration": "Typ kalibrácie",
+          "calibration_mode": "Režim kalibrácie",
+          "no_off_system_mode": "Ak váš TRV nedokáže pracovať v režime vypnutia, môžete namiesto toho povoliť použitie cieľovej teploty 5 °C."
+        },
+        "data_description": {
+          "protect_overheating": "Niektoré TRV nezatvárajú ventil úplne, keď sa dosiahne požadovaná teplota. Alebo je v radiátore veľa zvyškového tepla. To môže spôsobiť prehriatie. Táto možnosť tomu môže zabrániť.",
+          "calibration_mode": "Spôsob, ako sa má kalibrácia vypočítať\n***Normal***: V tomto režime je vnútorný snímač teploty TRV fixovaný vonkajším snímačom teploty.\n***Agresívny***: V tomto režime je vnútorný teplotný snímač TRV fixovaný vonkajším teplotným snímačom, ale je nastavený oveľa nižšie/vyššie, aby sa dosiahol rýchlejší nárast.\n***AI na základe času***: V tomto režime je vnútorný teplotný snímač TRV fixovaný vonkajším teplotným snímačom, ale hodnota sa vypočíta pomocou vlastného algoritmu na zlepšenie vnútorného algoritmu TRV.",
+          "calibration": "Ako sa má kalibrácia použiť na TRV (cieľová teplota alebo posun)\n***Na základe cieľovej teploty***: Použite kalibráciu na cieľovú teplotu.\n***Na základe ofsetu***: Použite kalibráciu na offset."
+        }
+      },
+      "confirm": {
+        "title": "Potvrďte pridanie Better Thermostat",
+        "description": "Chystáte sa pridať `{name}` do Home Assistant.\nS {trv} ako reálny termostat"
+      }
+    },
+    "error": {
+      "failed": "niečo sa pokazilo.",
+      "no_name": "Zadajte meno.",
+      "no_off_mode": "Vaše zariadenie je veľmi špeciálne a nemá režim vypnutia :(\nBetter Thermostat namiesto toho použije minimálnu cieľovú teplotu.",
+      "no_outside_temp": "Nemáte snímač vonkajšej teploty. Better Thermostat namiesto toho použije entitu počasie."
+    },
+    "abort": {
+      "single_instance_allowed": "Pre každý real je povolený len jeden termostat.",
+      "no_devices_found": "Nenašiel sa žiadny subjekt termostatu, uistite sa, že máte v domácom asistentovi subjekt klímy"
+    }
+  },
+  "options": {
+    "step": {
+      "user": {
+        "description": "Aktualizujte Better Thermostat nastavenia",
+        "data": {
+          "name": "Názov",
+          "thermostat": "Reálny thermostat",
+          "temperature_sensor": "Snímač teploty",
+          "humidity_sensor": "Snímač vlhkosti",
+          "window_sensors": "Snímač okna",
+          "off_temperature": "Vonkajšia teplota pri vypnutí termostatu",
+          "tolerance": "Tolerancia, aby sa zabránilo príliš častému zapínaniu a vypínaniu termostatu.",
+          "window_off_delay": "Oneskorenie pred vypnutím termostatu pri otvorení okna",
+          "window_off_delay_after": "Oneskorenie pred zapnutím termostatu pri zatvorenom okne",
+          "outdoor_sensor": "Ak máte vonkajší snímač, môžete pomocou neho zistiť vonkajšiu teplotu",
+          "valve_maintenance": "Ak váš termostat nemá vlastný režim údržby, môžete použiť tento režim",
+          "calibration": "Druh kalibrácie https://better-thermostat.org/configuration#second-step",
+          "weather": "Váš meteorologický subjekt na zistenie vonkajšej teploty",
+          "heat_auto_swapped": "Ak auto znamená teplo pre váš TRV a chcete ho vymeniť",
+          "child_lock": "Ignorovať všetky vstupy na TRV ako detský zámok",
+          "homaticip": "Ak používate HomaticIP, mali by ste túto funkciu povoliť, aby ste spomalili požiadavky a zabránili tak pracovnému cyklu"
+        }
+      },
+      "advanced": {
+        "description": "Rozšírená konfigurácia {trv}\n***Informácie o druhoch kalibrácie: https://better-thermostat.org/configuration#second-step***",
+        "data": {
+          "protect_overheating": "Ochrana proti prehriatiu?",
+          "heat_auto_swapped": "Ak auto znamená teplo pre váš TRV a chcete ho vymeniť",
+          "child_lock": "Ignorovať všetky vstupy na TRV ako detský zámok",
+          "homaticip": "Ak používate HomaticIP, mali by ste túto funkciu povoliť, aby ste spomalili požiadavky a zabránili tak pracovnému cyklu",
+          "valve_maintenance": "Ak váš termostat nemá vlastný režim údržby, môžete použiť tento režim",
+          "calibration": "Druh kalibrácie, ktorý chcete použiť",
+          "calibration_mode": "Režim kalibrácie",
+          "no_off_system_mode": "Ak váš TRV nedokáže pracovať v režime vypnutia, môžete namiesto toho povoliť použitie cieľovej teploty 5 °C."
+        },
+        "data_description": {
+          "protect_overheating": "Niektoré TRV nezatvárajú ventil úplne, keď sa dosiahne požadovaná teplota. Alebo je v radiátore veľa zvyškového tepla. To môže spôsobiť prehriatie. Táto možnosť tomu môže zabrániť.",
+          "calibration_mode": "Druh, ako sa má kalibrácia vypočítať\n***Normálna***: V tomto režime je vnútorný snímač teploty TRV fixovaný vonkajším snímačom teploty.\n***Aggresívna***: V tomto režime je vnútorný teplotný snímač TRV fixovaný vonkajším teplotným snímačom, ale je nastavený oveľa nižšie/vyššie, aby sa dosiahol rýchlejší nárast.\n***AI na základe času***: V tomto režime je vnútorný teplotný snímač TRV fixovaný vonkajším teplotným snímačom, ale hodnota sa vypočíta pomocou vlastného algoritmu na zlepšenie vnútorného algoritmu TRV.",
+          "calibration": "Ako sa má kalibrácia použiť na TRV (cieľová teplota alebo ofset)\n***Na základe cieľovej teploty***: Použite kalibráciu na cieľovú teplotu.\n***Na základe ofsetu***: Použite kalibráciu na offset."
+        }
+      }
+    }
+  },
+  "issues": {
+    "missing_entity": {
+      "title": "BT: {name} - chýba súvisiaci entita",
+      "fix_flow": {
+        "step": {
+          "confirm": {
+            "title": "Súvisiaca entita {entity} chýba",
+            "description": "Dôvodom je, že subjekt ({entity}) nie je v aplikácii Home Assistant k dispozícii.\n\nMôžete to napraviť tak, že skontrolujete, či je batéria zariadenia plná, alebo ju znovu pripojíte k HA. Pred pokračovaním sa uistite, že je jednotka opäť pripojená k HA."
+          }
+        }
+      }
+    }
+  },
+  "services": {
+    "save_current_target_temperature": {
+      "name": "Uložiť aktuálnu teplotu",
+      "description": "Uloženie aktuálnej cieľovej teploty na neskoršie obnovenie."
+    },
+    "restore_saved_target_temperature": {
+      "name": "Obnoviť teploty",
+      "description": "Obnovenie uloženej cieľovej teploty."
+    },
+    "reset_heating_power": {
+      "name": "Reset vykurovacieho výkonu",
+      "description": "Obnovenie výkonu vykurovania na predvolenú hodnotu."
+    },
+    "set_temp_target_temperature": {
+      "name": "Nastavenie eko teploty",
+      "description": "Nastavte cieľovú teplotu na dočasný, napríklad nočný režim, a uložte starú teplotu."
+    }
+  }
+}
