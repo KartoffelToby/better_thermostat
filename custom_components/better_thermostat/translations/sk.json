@@ -7,6 +7,7 @@
         "data": {
           "name": "Názov",
           "thermostat": "Skutočný termostat",
+          "cooler": "Chladiace zariadenie (voliteľné)",
           "temperature_sensor": "Snímač teploty",
           "humidity_sensor": "Snímač vlhkosti",
           "window_sensors": "Snímač okna",
