@@ -29,7 +29,7 @@ def load_adapter(self, integration, entity_id, get_name=False):
             package="better_thermostat",
         )
         _LOGGER.info(
-            "better_thermostat %s: intigration: %s isn't native supported, feel free to open an issue, fallback adapter %s",
+            "better_thermostat %s: integration: %s isn't native supported, feel free to open an issue, fallback adapter %s",
             self.name,
             integration,
             "generic",

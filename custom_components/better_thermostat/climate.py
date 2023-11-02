@@ -110,7 +110,7 @@ async def async_setup_entry(hass, entry, async_add_devices):
         elif data.service == SERVICE_SET_TEMP_TARGET_TEMPERATURE:
             await self.set_temp_temperature(data.data[ATTR_TEMPERATURE])
         elif data.service == SERVICE_RESET_HEATING_POWER:
-            await self.reset_heating_power
+            await self.reset_heating_power()
 
     platform = entity_platform.async_get_current_platform()
     platform.async_register_entity_service(
