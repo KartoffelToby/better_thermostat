@@ -19,7 +19,9 @@ _LOGGER = logging.getLogger(__name__)
 DEFAULT_NAME = "Better Thermostat"
 VERSION = "master"
 try:
-    with open(f"{os.path.dirname(os.path.realpath(__file__))}/manifest.json") as manifest_file:
+    with open(
+        f"{os.path.dirname(os.path.realpath(__file__))}/manifest.json"
+    ) as manifest_file:
         manifest = json.load(manifest_file)
         VERSION = manifest["version"]
 except (FileNotFoundError, KeyError, json.JSONDecodeError) as e:
