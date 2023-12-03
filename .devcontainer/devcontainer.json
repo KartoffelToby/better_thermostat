@@ -3,8 +3,8 @@
   "image": "mcr.microsoft.com/devcontainers/python:0-3.11",
   "name": "BETTER THERMOSTAT development",
   "initializeCommand": "/bin/mkdir -p ${localWorkspaceFolder}/.haconfig && /bin/cp ${localWorkspaceFolder}/.devcontainer/configuration.yaml ${localWorkspaceFolder}/.haconfig",
-  "containerUser": "1000",
-  "remoteUser": "1000",
+  "containerUser": "root",
+  "remoteUser": "root",
   "appPort": [
     "9123:8123"
   ],

@@ -84,6 +84,12 @@ input_number:
     min: 12
     max: 27
     step: 0.10
+  local_calibration:
+    name: Local Calibration Test
+    initial: 0
+    min: -5
+    max: 5
+    step: 0.1
 
 template:
   - sensor:

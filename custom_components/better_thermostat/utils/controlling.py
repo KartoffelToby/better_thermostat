@@ -1,22 +1,31 @@
 import asyncio
 import logging
 
-from custom_components.better_thermostat.utils.model_quirks import (
+from homeassistant.components.climate.const import HVACMode
+
+from custom_components.better_thermostat.model_fixes.model_quirks import (
     override_set_hvac_mode,
     override_set_temperature,
 )
 
-from .bridge import (
+from custom_components.better_thermostat.adapters.delegate import (
     set_offset,
     get_current_offset,
-    get_offset_steps,
     set_temperature,
-    set_hvac_mode,
+    set_hvac_mode
 )
-from ..events.trv import convert_outbound_states, update_hvac_action
-from homeassistant.components.climate.const import HVACMode
 
-from .helpers import convert_to_float, calibration_round
+from custom_components.better_thermostat.events.trv import (
+    convert_outbound_states,
+    update_hvac_action
+)
+
+from custom_components.better_thermostat.utils.helpers import (
+    convert_to_float
+)
+
+from custom_components.better_thermostat.utils.const import CalibrationMode
+
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -103,6 +112,9 @@ async def control_trv(self, heater_entity_id=None):
 
         _temperature = _remapped_states.get("temperature", None)
         _calibration = _remapped_states.get("local_temperature_calibration", None)
+        _calibration_mode = self.real_trvs[heater_entity_id]["advanced"].get(
+        "calibration_mode", CalibrationMode.DEFAULT
+        )
 
         _new_hvac_mode = handle_window_open(self, _remapped_states)
 
@@ -213,10 +225,13 @@ async def control_trv(self, heater_entity_id=None):
                 asyncio.create_task(check_system_mode(self, heater_entity_id))
 
         # set new calibration offset
-        if _calibration is not None and _new_hvac_mode != HVACMode.OFF:
-            old_calibration = await get_current_offset(self, heater_entity_id)
-            step_calibration = await get_offset_steps(self, heater_entity_id)
-            if old_calibration is None or step_calibration is None:
+        if (_calibration is not None
+            and _new_hvac_mode != HVACMode.OFF
+            and _calibration_mode != CalibrationMode.NO_CALIBRATION
+        ):
+            _current_calibration_s = await get_current_offset(self, heater_entity_id)
+
+            if _current_calibration_s is None:
                 _LOGGER.error(
                     "better_thermostat %s: calibration fatal error %s",
                     self.name,
@@ -226,25 +241,22 @@ async def control_trv(self, heater_entity_id=None):
                 self.ignore_states = False
                 self.real_trvs[heater_entity_id]["ignore_trv_states"] = False
                 return True
-            current_calibration = convert_to_float(
-                str(old_calibration), self.name, "controlling()"
-            )
-            if step_calibration.is_integer():
-                _calibration = calibration_round(
-                    float(str(format(float(_calibration), ".1f")))
-                )
-            else:
-                _calibration = float(str(format(float(_calibration), ".1f")))
 
-            old = self.real_trvs[heater_entity_id].get(
-                "last_calibration", current_calibration
+            _current_calibration = convert_to_float(
+                str(_current_calibration_s), self.name, "controlling()"
+            )
+
+            _calibration = float(str(_calibration))
+
+            _old_calibration = self.real_trvs[heater_entity_id].get(
+                "last_calibration", _current_calibration
             )
 
             if self.real_trvs[heater_entity_id][
                 "calibration_received"
-            ] is True and float(old) != float(_calibration):
+            ] is True and float(_old_calibration) != float(_calibration):
                 _LOGGER.debug(
-                    f"better_thermostat {self.name}: TO TRV set_local_temperature_calibration: {heater_entity_id} from: {old} to: {_calibration}"
+                    f"better_thermostat {self.name}: TO TRV set_local_temperature_calibration: {heater_entity_id} from: {_old_calibration} to: {_calibration}"
                 )
                 await set_offset(self, heater_entity_id, _calibration)
                 self.real_trvs[heater_entity_id]["calibration_received"] = False
@@ -252,6 +264,7 @@ async def control_trv(self, heater_entity_id=None):
         # set new target temperature
         if (
             _temperature is not None
+            and _calibration_mode != CalibrationMode.NO_CALIBRATION
             and _new_hvac_mode != HVACMode.OFF
             or _no_off_system_mode
         ):

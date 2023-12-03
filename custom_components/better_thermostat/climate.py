@@ -12,15 +12,16 @@ from custom_components.better_thermostat.events.cooler import trigger_cooler_cha
 from .utils.watcher import check_all_entities
 
 from .utils.weather import check_ambient_air_temperature, check_weather
-from .utils.bridge import (
+from .adapters.delegate import (
     get_current_offset,
+    get_offset_steps,
     get_min_offset,
     get_max_offset,
     init,
     load_adapter,
 )
 
-from .utils.model_quirks import load_model_quirks
+from .model_fixes.model_quirks import load_model_quirks
 
 from .utils.helpers import convert_to_float, find_battery_entity, get_hvac_bt_mode
 from homeassistant.helpers import entity_platform
@@ -56,7 +57,7 @@ from homeassistant.helpers.restore_state import RestoreEntity
 
 from homeassistant.components.group.util import reduce_attribute
 
-from .const import (
+from .utils.const import (
     ATTR_STATE_BATTERIES,
     ATTR_STATE_CALL_FOR_HEAT,
     ATTR_STATE_ERRORS,
@@ -778,6 +779,9 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
                         self, trv
                     )
                     self.real_trvs[trv]["local_calibration_max"] = await get_max_offset(
+                        self, trv
+                    )
+                    self.real_trvs[trv]["local_calibration_steps"] = await get_offset_steps(
                         self, trv
                     )
                 else:

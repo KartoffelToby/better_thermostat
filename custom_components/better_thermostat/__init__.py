@@ -5,13 +5,13 @@ from homeassistant.core import HomeAssistant, Config
 from homeassistant.config_entries import ConfigEntry
 import voluptuous as vol
 
-from .const import (
-    CONF_FIX_CALIBRATION,
+from .utils.const import (
     CONF_CALIBRATION_MODE,
     CONF_HEATER,
     CONF_NO_SYSTEM_MODE_OFF,
     CONF_WINDOW_TIMEOUT,
     CONF_WINDOW_TIMEOUT_AFTER,
+    CalibrationMode
 )
 
 _LOGGER = logging.getLogger(__name__)
@@ -57,7 +57,7 @@ async def async_migrate_entry(hass, config_entry: ConfigEntry):
     if config_entry.version == 1:
         new = {**config_entry.data}
         for trv in new[CONF_HEATER]:
-            trv["advanced"].update({CONF_FIX_CALIBRATION: False})
+            trv["advanced"].update({CalibrationMode.AGGRESIVE_CALIBRATION: False})
         config_entry.version = 2
         hass.config_entries.async_update_entry(config_entry, data=new)
 
@@ -71,12 +71,12 @@ async def async_migrate_entry(hass, config_entry: ConfigEntry):
         new = {**config_entry.data}
         for trv in new[CONF_HEATER]:
             if (
-                CONF_FIX_CALIBRATION in trv["advanced"]
-                and trv["advanced"][CONF_FIX_CALIBRATION]
+                CalibrationMode.AGGRESIVE_CALIBRATION in trv["advanced"]
+                and trv["advanced"][CalibrationMode.AGGRESIVE_CALIBRATION]
             ):
-                trv["advanced"].update({CONF_CALIBRATION_MODE: CONF_FIX_CALIBRATION})
+                trv["advanced"].update({CONF_CALIBRATION_MODE: CalibrationMode.AGGRESIVE_CALIBRATION})
             else:
-                trv["advanced"].update({CONF_CALIBRATION_MODE: "default"})
+                trv["advanced"].update({CONF_CALIBRATION_MODE: CalibrationMode.DEFAULT})
         config_entry.version = 4
         hass.config_entries.async_update_entry(config_entry, data=new)
 
