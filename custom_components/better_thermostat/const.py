@@ -53,6 +53,7 @@ CONF_HOMATICIP = "homaticip"
 CONF_INTEGRATION = "integration"
 CONF_NO_SYSTEM_MODE_OFF = "no_off_system_mode"
 CONF_TOLERANCE = "tolerance"
+CONF_TARGET_TEMP_STEP = "target_temp_step"
 SUPPORT_FLAGS = SUPPORT_TARGET_TEMPERATURE
 
 ATTR_STATE_WINDOW_OPEN = "window_open"

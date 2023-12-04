@@ -35,6 +35,7 @@ from .const import (
     CONF_WINDOW_TIMEOUT_AFTER,
     CONF_CALIBRATION_MODE,
     CONF_TOLERANCE,
+    CONF_TARGET_TEMP_STEP,
     CalibrationMode,
     CalibrationType,
 )
@@ -74,6 +75,23 @@ CALIBRATION_TYPE_ALL_SELECTOR = selector.SelectSelector(
 )
 
 TEMP_STEP_SELECTOR = selector.SelectSelector(
+    selector.SelectSelectorConfig(
+        options=[
+            selector.SelectOptionDict(
+                value="0.1", label="0.1 °C"
+                ),
+            selector.SelectOptionDict(
+                value="0.2", label="0.2 °C"
+            ),
+            selector.SelectOptionDict(
+                value="0.25", label="0.25 °C" 
+            ),
+            selector.SelectOptionDict(
+                value="0.5", label="0.5 °C"
+            ),
+            selector.SelectOptionDict(
+                value="1.0", label="1 °C"
+            )
         ],
         mode=selector.SelectSelectorMode.DROPDOWN,
     )
@@ -363,6 +381,10 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                     vol.Optional(
                         CONF_TOLERANCE, default=user_input.get(CONF_TOLERANCE, 0.0)
                     ): vol.All(vol.Coerce(float), vol.Range(min=0)),
+                    vol.Optional(
+                        CONF_TARGET_TEMP_STEP, 
+                        default=str(user_input.get(CONF_TARGET_TEMP_STEP, 0.0))
+                    ): TEMP_STEP_SELECTOR,
                 }
             ),
             errors=errors,
@@ -565,6 +587,9 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
             self.updated_config[CONF_TOLERANCE] = float(
                 user_input.get(CONF_TOLERANCE, 0.0)
             )
+            self.updated_config[CONF_TARGET_TEMP_STEP] = float(
+                            user_input.get(CONF_TARGET_TEMP_STEP, 0.0)
+            )
 
             for trv in self.updated_config[CONF_HEATER]:
                 trv["adapter"] = None
@@ -692,6 +717,14 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
                 CONF_TOLERANCE, default=self.config_entry.data.get(CONF_TOLERANCE, 0.0)
             )
         ] = vol.All(vol.Coerce(float), vol.Range(min=0))
+        fields[
+            vol.Optional(
+                CONF_TARGET_TEMP_STEP,
+                default=str(self.config_entry.data.get(
+                    CONF_TARGET_TEMP_STEP, 0.0
+                )),
+            )
+        ] = TEMP_STEP_SELECTOR
 
         return self.async_show_form(
             step_id="user", data_schema=vol.Schema(fields), last_step=False

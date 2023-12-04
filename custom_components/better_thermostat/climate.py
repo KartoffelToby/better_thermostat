@@ -75,6 +75,7 @@ from .const import (
     CONF_SENSOR,
     CONF_SENSOR_WINDOW,
     CONF_TOLERANCE,
+    CONF_TARGET_TEMP_STEP,
     CONF_WEATHER,
     CONF_WINDOW_TIMEOUT,
     CONF_WINDOW_TIMEOUT_AFTER,
@@ -143,6 +144,7 @@ async def async_setup_entry(hass, entry, async_add_devices):
                 entry.data.get(CONF_OUTDOOR_SENSOR, None),
                 entry.data.get(CONF_OFF_TEMPERATURE, None),
                 entry.data.get(CONF_TOLERANCE, 0.0),
+                entry.data.get(CONF_TARGET_TEMP_STEP, 0.0),
                 entry.data.get(CONF_MODEL, None),
                 entry.data.get(CONF_COOLER, None),
                 hass.config.units.temperature_unit,
@@ -212,6 +214,7 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
         outdoor_sensor,
         off_temperature,
         tolerance,
+        target_temp_step,
         model,
         cooler_entity_id,
         unit,
@@ -252,7 +255,7 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
         self.cur_temp = None
         self.cur_humidity = 0
         self.window_open = None
-        self.bt_target_temp_step = 1
+        self.bt_target_temp_step = float(target_temp_step) or 0.0
         self.bt_min_temp = 0
         self.bt_max_temp = 30
         self.bt_target_temp = 5
@@ -583,9 +586,11 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
 
             self.bt_min_temp = reduce_attribute(states, ATTR_MIN_TEMP, reduce=max)
             self.bt_max_temp = reduce_attribute(states, ATTR_MAX_TEMP, reduce=min)
-            self.bt_target_temp_step = reduce_attribute(
-                states, ATTR_TARGET_TEMP_STEP, reduce=max
-            )
+
+            if self.bt_target_temp_step == 0.0: 
+                self.bt_target_temp_step = reduce_attribute(
+                    states, ATTR_TARGET_TEMP_STEP, reduce=max
+                )
 
             self.all_entities.append(self.sensor_entity_id)
 
@@ -985,6 +990,7 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
             ATTR_STATE_HUMIDIY: self.cur_humidity,
             ATTR_STATE_MAIN_MODE: self.last_main_hvac_mode,
             CONF_TOLERANCE: self.tolerance,
+            CONF_TARGET_TEMP_STEP: self.bt_target_temp_step,
             ATTR_STATE_HEATING_POWER: self.heating_power,
             ATTR_STATE_ERRORS: json.dumps(self.devices_errors),
             ATTR_STATE_BATTERIES: json.dumps(self.devices_states),
