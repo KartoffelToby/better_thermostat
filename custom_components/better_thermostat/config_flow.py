@@ -65,6 +65,15 @@ CALIBRATION_TYPE_ALL_SELECTOR = selector.SelectSelector(
             selector.SelectOptionDict(
                 value=CalibrationType.LOCAL_BASED, label="Offset Based"
             ),
+            selector.SelectOptionDict(
+                value=CalibrationType.HYBRID, label="Hybrid"
+            ),
+        ],
+        mode=selector.SelectSelectorMode.DROPDOWN,
+    )
+)
+
+TEMP_STEP_SELECTOR = selector.SelectSelector(
         ],
         mode=selector.SelectSelectorMode.DROPDOWN,
     )

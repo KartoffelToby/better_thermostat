@@ -322,6 +322,8 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
             _calibration = 1
             if trv["advanced"]["calibration"] == "local_calibration_based":
                 _calibration = 0
+            if trv["advanced"]["calibration"] == "hybrid_calibration":
+                _calibration = 2
             _adapter = load_adapter(self, trv["integration"], trv["trv"])
             _model_quirks = load_model_quirks(self, trv["model"], trv["trv"])
             self.real_trvs[trv["trv"]] = {
@@ -770,7 +772,7 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
             for trv in self.real_trvs.keys():
                 self.all_entities.append(trv)
                 await init(self, trv)
-                if self.real_trvs[trv]["calibration"] == 0:
+                if self.real_trvs[trv]["calibration"] != 1:
                     self.real_trvs[trv]["last_calibration"] = await get_current_offset(
                         self, trv
                     )
