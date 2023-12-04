@@ -4,9 +4,9 @@ from __future__ import annotations
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 
-from .utils.bridge import load_adapter
+from .adapters.delegate import load_adapter
 
-from .const import CONF_HEATER, CONF_SENSOR, CONF_SENSOR_WINDOW
+from .utils.const import CONF_HEATER, CONF_SENSOR, CONF_SENSOR_WINDOW
 
 
 async def async_get_config_entry_diagnostics(
