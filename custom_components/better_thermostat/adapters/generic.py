@@ -119,13 +119,23 @@ async def set_temperature(self, entity_id, temperature):
 
 async def set_hvac_mode(self, entity_id, hvac_mode):
     """Set new target hvac mode."""
-    await self.hass.services.async_call(
-        "climate",
-        "set_hvac_mode",
-        {"entity_id": entity_id, "hvac_mode": hvac_mode},
-        blocking=True,
-        context=self.context,
+    _LOGGER.debug(
+        "better_thermostat %s: set_hvac_mode %s",
+        self.name,
+        hvac_mode,
     )
+    try:
+        await self.hass.services.async_call(
+            "climate",
+            "set_hvac_mode",
+            {"entity_id": entity_id, "hvac_mode": hvac_mode},
+            blocking=True,
+            context=self.context,
+        )
+    except TypeError:
+        _LOGGER.debug(
+            "TypeError in set_hvac_mode"
+        )
 
 
 async def set_offset(self, entity_id, offset):
