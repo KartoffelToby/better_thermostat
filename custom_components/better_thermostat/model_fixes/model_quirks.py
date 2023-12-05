@@ -32,15 +32,54 @@ def load_model_quirks(self, model, entity_id):
 
 
 def fix_local_calibration(self, entity_id, offset):
-    return self.real_trvs[entity_id]["model_quirks"].fix_local_calibration(
+    """ Modifies the input local calibration offset, based on the TRV's model quirks,
+    to achieve the desired heating behavior.
+
+    Returns
+    -------
+    float
+          new local calibration offset, if the TRV model has any quirks/fixes.
+    """
+
+    _new_offset = self.real_trvs[entity_id]["model_quirks"].fix_local_calibration(
         self, entity_id, offset
     )
 
+    if offset != _new_offset:
+        _LOGGER.debug(
+            "better_thermostat %s: %s - calibration offset model fix: %s to %s",
+            self.name,
+            entity_id,
+            offset,
+            _new_offset
+        )
+
+    return _new_offset
 
 def fix_target_temperature_calibration(self, entity_id, temperature):
-    return self.real_trvs[entity_id]["model_quirks"].fix_target_temperature_calibration(
+    """ Modifies the input setpoint temperature, based on the TRV's model quirks,
+    to achieve the desired heating behavior.
+
+    Returns
+    -------
+    float
+          new setpoint temperature, if the TRV model has any quirks/fixes.
+    """
+
+    _new_temperature = self.real_trvs[entity_id]["model_quirks"].fix_target_temperature_calibration(
         self, entity_id, temperature
     )
+
+    if temperature != _new_temperature:
+        _LOGGER.debug(
+            "better_thermostat %s: %s - temperature offset model fix: %s to %s",
+            self.name,
+            entity_id,
+            temperature,
+            _new_temperature
+        )
+
+    return _new_temperature
 
 
 async def override_set_hvac_mode(self, entity_id, hvac_mode):
