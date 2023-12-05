@@ -102,8 +102,6 @@ async def trigger_trv_change(self, event):
                 f"better_thermostat {self.name}: calibration accepted by TRV {entity_id}"
             )
             _main_change = False
-            self.old_internal_temp = self.real_trvs[entity_id]["current_temperature"]
-            self.old_external_temp = self.cur_temp
             if self.real_trvs[entity_id]["calibration"] == 0:
                 self.real_trvs[entity_id][
                     "last_calibration"

@@ -113,7 +113,7 @@ async def control_trv(self, heater_entity_id=None):
         _temperature = _remapped_states.get("temperature", None)
         _calibration = _remapped_states.get("local_temperature_calibration", None)
         _calibration_mode = self.real_trvs[heater_entity_id]["advanced"].get(
-        "calibration_mode", CalibrationMode.DEFAULT
+            "calibration_mode", CalibrationMode.DEFAULT
         )
 
         _new_hvac_mode = handle_window_open(self, _remapped_states)

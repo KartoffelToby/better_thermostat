@@ -284,8 +284,6 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
         self.heating_end_temp = None
         self.heating_end_timestamp = None
         self._async_unsub_state_changed = None
-        self.old_external_temp = 0
-        self.old_internal_temp = 0
         self.all_entities = []
         self.devices_states = {}
         self.devices_errors = []

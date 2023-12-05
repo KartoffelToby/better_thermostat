@@ -42,33 +42,17 @@ def calculate_calibration_local(self, entity_id) -> Union[float, None]:
     """
     _context = "_calculate_calibration_local()"
 
-    if None in (self.cur_temp, self.bt_target_temp, self.old_internal_temp):
+    if None in (self.cur_temp, self.bt_target_temp):
         return None
 
-    _old_trv_temp_s = self.old_internal_temp
     _cur_trv_temp_s = self.real_trvs[entity_id]["current_temperature"]
-
     _calibration_steps = self.real_trvs[entity_id]["local_calibration_steps"]
-
-    _old_external_temp = self.old_external_temp
     _cur_external_temp = self.cur_temp
-
     _cur_target_temp = self.bt_target_temp
 
     _cur_trv_temp_f = convert_to_float(
         str(_cur_trv_temp_s), self.name, _context
     )
-
-    # check if we need to calculate
-    if (
-        _cur_trv_temp_s == _old_trv_temp_s
-        and _cur_external_temp == _old_external_temp
-    ):
-        return None
-
-    # Setting old variables
-    self.old_internal_temp = _cur_trv_temp_s
-    self.old_external_temp = _cur_external_temp
 
     _current_trv_calibration = convert_to_float(
         str(self.real_trvs[entity_id]["last_calibration"]), self.name, _context
