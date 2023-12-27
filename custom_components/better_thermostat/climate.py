@@ -1108,7 +1108,11 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
             and self.bt_target_temp is not None
             and self.cur_temp is not None
         ):
-            if (
+            if self.hvac_mode == HVACMode.OFF:
+                self.attr_hvac_action = HVACAction.OFF
+            elif self.bt_target_temp > self.cur_temp and self.window_open is False:
+                self.attr_hvac_action = HVACAction.HEATING
+            elif (
                 self.bt_target_temp > self.cur_temp
                 and self.window_open is False
                 and self.bt_hvac_mode is not HVACMode.OFF
