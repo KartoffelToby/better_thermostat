@@ -228,7 +228,6 @@ async def control_trv(self, heater_entity_id=None):
             and _new_hvac_mode != HVACMode.OFF
             and _calibration_mode != CalibrationMode.NO_CALIBRATION
         ):
-
             _current_calibration_s = await get_current_offset(self, heater_entity_id)
 
             if _current_calibration_s is None:
