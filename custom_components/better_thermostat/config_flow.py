@@ -10,11 +10,11 @@ from homeassistant.components.climate.const import HVACMode
 from homeassistant.helpers import config_validation as cv
 
 
-from .utils.bridge import load_adapter
+from .adapters.delegate import load_adapter
 
 from .utils.helpers import get_device_model, get_trv_intigration
 
-from .const import (
+from .utils.const import (
     CONF_COOLER,
     CONF_PROTECT_OVERHEATING,
     CONF_CALIBRATION,
@@ -90,7 +90,7 @@ CALIBRATION_MODE_SELECTOR = selector.SelectSelector(
         options=[
             selector.SelectOptionDict(value=CalibrationMode.DEFAULT, label="Normal"),
             selector.SelectOptionDict(
-                value=CalibrationMode.FIX_CALIBRATION, label="Agressive"
+                value=CalibrationMode.AGGRESIVE_CALIBRATION, label="Agressive"
             ),
             selector.SelectOptionDict(
                 value=CalibrationMode.HEATING_POWER_CALIBRATION, label="AI Time Based"

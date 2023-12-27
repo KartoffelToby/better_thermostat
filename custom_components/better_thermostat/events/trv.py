@@ -2,7 +2,7 @@ import asyncio
 from datetime import datetime
 import logging
 from typing import Union
-from custom_components.better_thermostat.const import CONF_HOMATICIP
+from custom_components.better_thermostat.utils.const import CONF_HOMATICIP
 
 from homeassistant.components.climate.const import (
     HVACMode,
@@ -11,16 +11,18 @@ from homeassistant.components.climate.const import (
 )
 from homeassistant.core import State, callback
 from homeassistant.components.group.util import find_state_attributes
-from ..utils.helpers import (
-    calculate_local_setpoint_delta,
-    calculate_setpoint_override,
+from custom_components.better_thermostat.utils.helpers import (
     convert_to_float,
     mode_remap,
-    round_to_half_degree,
 )
-from custom_components.better_thermostat.utils.bridge import get_current_offset
+from custom_components.better_thermostat.adapters.delegate import get_current_offset
 
-from ..const import CONF_FIX_CALIBRATION, CONF_NO_CALIBRATION
+from custom_components.better_thermostat.utils.const import CalibrationType
+
+from custom_components.better_thermostat.calibration import (
+    calculate_calibration_local,
+    calculate_calibration_setpoint,
+)
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -100,9 +102,7 @@ async def trigger_trv_change(self, event):
                 f"better_thermostat {self.name}: calibration accepted by TRV {entity_id}"
             )
             _main_change = False
-            self.old_internal_temp = self.real_trvs[entity_id]["current_temperature"]
-            self.old_external_temp = self.cur_temp
-            if self.real_trvs[entity_id]["calibration"] != 1:
+            if self.real_trvs[entity_id]["calibration"] == 0:
                 self.real_trvs[entity_id][
                     "last_calibration"
                 ] = await get_current_offset(self, entity_id)
@@ -316,14 +316,7 @@ def convert_outbound_states(self, entity_id, hvac_mode) -> Union[dict, None]:
     _new_heating_setpoint = None
 
     try:
-        _calibration_type = self.real_trvs[entity_id].get("calibration", 1)
-        _calibration_mode = self.real_trvs[entity_id]["advanced"].get(
-            "calibration_mode", "default"
-        )
-
-        _LOGGER.debug(
-            f"better_thermostat {self.name}: {entity_id} /  - _calibration_type: {_calibration_type} - _calibration_mode: {_calibration_mode}"
-        )
+        _calibration_type = self.real_trvs[entity_id]["advanced"].get("calibration")
 
         if _calibration_type is None:
             _LOGGER.warning(
@@ -331,85 +324,19 @@ def convert_outbound_states(self, entity_id, hvac_mode) -> Union[dict, None]:
                 self.name,
             )
             _new_heating_setpoint = self.bt_target_temp
-            _new_local_calibration = round_to_half_degree(
-                calculate_local_setpoint_delta(self, entity_id, _calibration_mode)
-            )
+            _new_local_calibration = calculate_calibration_local(self, entity_id)
+
             if _new_local_calibration is None:
                 return None
 
         else:
-            if _calibration_type == 0:
-                _round_calibration = self.real_trvs[entity_id]["advanced"].get(
-                    "calibration_round"
-                )
-
-                if _round_calibration is not None and (
-                    (
-                        isinstance(_round_calibration, str)
-                        and _round_calibration.lower() == "true"
-                    )
-                    or _round_calibration is True
-                ):
-                    _new_local_calibration = round_to_half_degree(
-                        calculate_local_setpoint_delta(
-                            self, entity_id, _calibration_mode
-                        )
-                    )
-                else:
-                    _new_local_calibration = calculate_local_setpoint_delta(
-                        self, entity_id, _calibration_mode
-                    )
+            if _calibration_type == CalibrationType.LOCAL_BASED:
+                _new_local_calibration = calculate_calibration_local(self, entity_id)
 
                 _new_heating_setpoint = self.bt_target_temp
 
-            elif _calibration_type == 1:
-                _round_calibration = self.real_trvs[entity_id]["advanced"].get(
-                    "calibration_round"
-                )
-
-                if _round_calibration is not None and (
-                    (
-                        isinstance(_round_calibration, str)
-                        and _round_calibration.lower() == "true"
-                    )
-                    or _round_calibration is True
-                ):
-                    _new_heating_setpoint = round_to_half_degree(
-                        calculate_setpoint_override(self, entity_id, _calibration_mode)
-                    )
-                else:
-                    _new_heating_setpoint = calculate_setpoint_override(
-                        self, entity_id, _calibration_mode
-                    )
-            elif _calibration_type == 2:
-                _round_calibration = self.real_trvs[entity_id]["advanced"].get(
-                    "calibration_round"
-                )
-
-                if _round_calibration is not None and (
-                    (
-                        isinstance(_round_calibration, str)
-                        and _round_calibration.lower() == "true"
-                    )
-                    or _round_calibration is True
-                ):
-                    _new_heating_setpoint = round_to_half_degree(
-                        calculate_setpoint_override(
-                            self, entity_id, CONF_FIX_CALIBRATION
-                        )
-                    )
-                    _new_local_calibration = round_to_half_degree(
-                        calculate_local_setpoint_delta(
-                            self, entity_id, CONF_NO_CALIBRATION
-                        )
-                    )
-                else:
-                    _new_heating_setpoint = calculate_setpoint_override(
-                        self, entity_id, CONF_FIX_CALIBRATION
-                    )
-                    _new_local_calibration = calculate_local_setpoint_delta(
-                        self, entity_id, CONF_NO_CALIBRATION
-                    )
+            elif _calibration_type == CalibrationType.TARGET_TEMP_BASED:
+                _new_heating_setpoint = calculate_calibration_setpoint(self, entity_id)
 
             _system_modes = self.real_trvs[entity_id]["hvac_modes"]
             _has_system_mode = False
