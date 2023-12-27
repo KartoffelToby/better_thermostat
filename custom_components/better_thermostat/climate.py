@@ -1093,7 +1093,6 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
         return get_hvac_bt_mode(self, self.bt_hvac_mode)
 
     @property
-     @property
     def hvac_action(self):
         """Return the current HVAC action"""
         if (
