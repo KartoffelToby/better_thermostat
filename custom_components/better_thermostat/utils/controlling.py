@@ -12,17 +12,15 @@ from custom_components.better_thermostat.adapters.delegate import (
     set_offset,
     get_current_offset,
     set_temperature,
-    set_hvac_mode
+    set_hvac_mode,
 )
 
 from custom_components.better_thermostat.events.trv import (
     convert_outbound_states,
-    update_hvac_action
+    update_hvac_action,
 )
 
-from custom_components.better_thermostat.utils.helpers import (
-    convert_to_float
-)
+from custom_components.better_thermostat.utils.helpers import convert_to_float
 
 from custom_components.better_thermostat.utils.const import CalibrationMode
 
@@ -225,10 +223,12 @@ async def control_trv(self, heater_entity_id=None):
                 asyncio.create_task(check_system_mode(self, heater_entity_id))
 
         # set new calibration offset
-        if (_calibration is not None
+        if (
+            _calibration is not None
             and _new_hvac_mode != HVACMode.OFF
             and _calibration_mode != CalibrationMode.NO_CALIBRATION
         ):
+
             _current_calibration_s = await get_current_offset(self, heater_entity_id)
 
             if _current_calibration_s is None:
