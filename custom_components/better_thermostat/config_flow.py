@@ -119,7 +119,11 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         if user_input is not None:
             if self.data is not None:
                 _LOGGER.debug("Confirm: %s", self.data[CONF_HEATER])
-                await self.async_set_unique_id(self.data["name"])
+                unique_trv_string = "_".join([x["trv"] for x in self.data[CONF_HEATER]])
+                await self.async_set_unique_id(
+                    f"{self.data['name']}_{unique_trv_string}"
+                )
+                self._abort_if_unique_id_configured()
                 return self.async_create_entry(title=self.data["name"], data=self.data)
         if confirm_type is not None:
             errors["base"] = confirm_type
