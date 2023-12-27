@@ -75,6 +75,7 @@ from .const import (
     CONF_SENSOR,
     CONF_SENSOR_WINDOW,
     CONF_TOLERANCE,
+    CONF_TARGET_TEMP_STEP,
     CONF_WEATHER,
     CONF_WINDOW_TIMEOUT,
     CONF_WINDOW_TIMEOUT_AFTER,
@@ -110,7 +111,7 @@ async def async_setup_entry(hass, entry, async_add_devices):
         elif data.service == SERVICE_SET_TEMP_TARGET_TEMPERATURE:
             await self.set_temp_temperature(data.data[ATTR_TEMPERATURE])
         elif data.service == SERVICE_RESET_HEATING_POWER:
-            await self.reset_heating_power
+            await self.reset_heating_power()
 
     platform = entity_platform.async_get_current_platform()
     platform.async_register_entity_service(
@@ -143,6 +144,7 @@ async def async_setup_entry(hass, entry, async_add_devices):
                 entry.data.get(CONF_OUTDOOR_SENSOR, None),
                 entry.data.get(CONF_OFF_TEMPERATURE, None),
                 entry.data.get(CONF_TOLERANCE, 0.0),
+                entry.data.get(CONF_TARGET_TEMP_STEP, 0.0),
                 entry.data.get(CONF_MODEL, None),
                 entry.data.get(CONF_COOLER, None),
                 hass.config.units.temperature_unit,
@@ -212,6 +214,7 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
         outdoor_sensor,
         off_temperature,
         tolerance,
+        target_temp_step,
         model,
         cooler_entity_id,
         unit,
@@ -252,7 +255,7 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
         self.cur_temp = None
         self.cur_humidity = 0
         self.window_open = None
-        self.bt_target_temp_step = 1
+        self.bt_target_temp_step = float(target_temp_step) or 0.0
         self.bt_min_temp = 0
         self.bt_max_temp = 30
         self.bt_target_temp = 5
@@ -322,6 +325,8 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
             _calibration = 1
             if trv["advanced"]["calibration"] == "local_calibration_based":
                 _calibration = 0
+            if trv["advanced"]["calibration"] == "hybrid_calibration":
+                _calibration = 2
             _adapter = load_adapter(self, trv["integration"], trv["trv"])
             _model_quirks = load_model_quirks(self, trv["model"], trv["trv"])
             self.real_trvs[trv["trv"]] = {
@@ -581,9 +586,11 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
 
             self.bt_min_temp = reduce_attribute(states, ATTR_MIN_TEMP, reduce=max)
             self.bt_max_temp = reduce_attribute(states, ATTR_MAX_TEMP, reduce=min)
-            self.bt_target_temp_step = reduce_attribute(
-                states, ATTR_TARGET_TEMP_STEP, reduce=max
-            )
+
+            if self.bt_target_temp_step == 0.0: 
+                self.bt_target_temp_step = reduce_attribute(
+                    states, ATTR_TARGET_TEMP_STEP, reduce=max
+                )
 
             self.all_entities.append(self.sensor_entity_id)
 
@@ -770,7 +777,7 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
             for trv in self.real_trvs.keys():
                 self.all_entities.append(trv)
                 await init(self, trv)
-                if self.real_trvs[trv]["calibration"] == 0:
+                if self.real_trvs[trv]["calibration"] != 1:
                     self.real_trvs[trv]["last_calibration"] = await get_current_offset(
                         self, trv
                     )
@@ -983,6 +990,7 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
             ATTR_STATE_HUMIDIY: self.cur_humidity,
             ATTR_STATE_MAIN_MODE: self.last_main_hvac_mode,
             CONF_TOLERANCE: self.tolerance,
+            CONF_TARGET_TEMP_STEP: self.bt_target_temp_step,
             ATTR_STATE_HEATING_POWER: self.heating_power,
             ATTR_STATE_ERRORS: json.dumps(self.devices_errors),
             ATTR_STATE_BATTERIES: json.dumps(self.devices_states),
@@ -1103,6 +1111,12 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
             if self.hvac_mode == HVACMode.OFF:
                 self.attr_hvac_action = HVACAction.OFF
             elif self.bt_target_temp > self.cur_temp and self.window_open is False:
+                self.attr_hvac_action = HVACAction.HEATING
+            elif (
+                self.bt_target_temp > self.cur_temp
+                and self.window_open is False
+                and self.bt_hvac_mode is not HVACMode.OFF
+            ):
                 self.attr_hvac_action = HVACAction.HEATING
             else:
                 self.attr_hvac_action = HVACAction.IDLE

@@ -72,7 +72,7 @@ def mode_remap(self, entity_id, hvac_mode: str, inbound: bool = False) -> str:
             return HVACMode.OFF
 
 
-def calculate_local_setpoint_delta(self, entity_id) -> Union[float, None]:
+def calculate_local_setpoint_delta(self, entity_id, calibration_mode) -> Union[float, None]:
     """Calculate local delta to adjust the setpoint of the TRV based on the air temperature of the external sensor.
 
     This calibration is for devices with local calibration option, it syncs the current temperature of the TRV to the target temperature of
@@ -90,6 +90,10 @@ def calculate_local_setpoint_delta(self, entity_id) -> Union[float, None]:
     """
     _context = "calculate_local_setpoint_delta()"
 
+    _LOGGER.debug(
+        f"{_context} : {self.name}: {entity_id}"
+    )
+
     if None in (self.cur_temp, self.bt_target_temp, self.old_internal_temp):
         return None
 
@@ -106,6 +110,13 @@ def calculate_local_setpoint_delta(self, entity_id) -> Union[float, None]:
 
     _calibration_delta = float(
         str(format(float(abs(_cur_trv_temp - self.cur_temp)), ".1f"))
+    )
+
+    _LOGGER.debug(
+        f"{_context} : {self.name}: {entity_id}"
+        f"_cur_trv_temp : {_cur_trv_temp}"
+        f"self.cur_temp : {self.cur_temp}"
+        f"_calibration_delta : {_calibration_delta}"
     )
 
     if _calibration_delta <= 0.5:
@@ -129,9 +140,17 @@ def calculate_local_setpoint_delta(self, entity_id) -> Union[float, None]:
 
     _new_local_calibration = (self.cur_temp - _cur_trv_temp) + _current_trv_calibration
 
-    _calibration_mode = self.real_trvs[entity_id]["advanced"].get(
-        "calibration_mode", "default"
+    _calibration_mode = calibration_mode
+    #_calibration_mode = self.real_trvs[entity_id]["advanced"].get(
+    #    "calibration_mode", "default"
+    #)
+    _LOGGER.debug(
+    f"{_context} : {self.name}: {entity_id}"
+    f"_calibration_mode : {_calibration_mode}"
+    f"_new_local_calibration : {_new_local_calibration}"
+    f"_current_trv_calibration : {_current_trv_calibration}"
     )
+
     if _calibration_mode == CONF_FIX_CALIBRATION:
         # _temp_diff = float(float(self.bt_target_temp) - float(self.cur_temp))
         # if _temp_diff > 0.30 and _new_local_calibration > -2.5:
@@ -171,7 +190,19 @@ def calculate_local_setpoint_delta(self, entity_id) -> Union[float, None]:
         if self.cur_temp >= self.bt_target_temp:
             _new_local_calibration += (self.cur_temp - self.bt_target_temp) * 10.0
 
+    _LOGGER.debug(
+    f"{_context} : {self.name}: {entity_id}"
+    f"_overheating_protection : {_overheating_protection}"
+    f"_new_local_calibration : {_new_local_calibration}"
+    )
     _new_local_calibration = round_down_to_half_degree(_new_local_calibration)
+
+    _LOGGER.debug(
+    f"1: {_context} : {self.name}: {entity_id}"
+    f" _new_local_calibration : {_new_local_calibration}"
+    f" local_calibration_max : {self.real_trvs[entity_id]['local_calibration_max']}"
+    f" local_calibration_min : {self.real_trvs[entity_id]['local_calibration_min']}"
+    )
 
     if _new_local_calibration > float(
         self.real_trvs[entity_id]["local_calibration_max"]
@@ -191,6 +222,11 @@ def calculate_local_setpoint_delta(self, entity_id) -> Union[float, None]:
     )
 
     _LOGGER.debug(
+    f"2: {_context} : {self.name}: {entity_id}"
+    f" _new_local_calibration : {_new_local_calibration}"
+    )
+
+    _LOGGER.debug(
         "better_thermostat %s: %s - output calib: %s",
         self.name,
         entity_id,
@@ -200,7 +236,7 @@ def calculate_local_setpoint_delta(self, entity_id) -> Union[float, None]:
     return convert_to_float(str(_new_local_calibration), self.name, _context)
 
 
-def calculate_setpoint_override(self, entity_id) -> Union[float, None]:
+def calculate_setpoint_override(self, entity_id, calibration_mode) -> Union[float, None]:
     """Calculate new setpoint for the TRV based on its own temperature measurement and the air temperature of the external sensor.
 
     This calibration is for devices with no local calibration option, it syncs the target temperature of the TRV to a new target
@@ -225,17 +261,20 @@ def calculate_setpoint_override(self, entity_id) -> Union[float, None]:
 
     _calibrated_setpoint = (self.bt_target_temp - self.cur_temp) + _cur_trv_temp
 
-    _calibration_mode = self.real_trvs[entity_id]["advanced"].get(
-        "calibration_mode", "default"
-    )
+    _calibration_mode = calibration_mode
+    #_calibration_mode = self.real_trvs[entity_id]["advanced"].get(
+    #    "calibration_mode", "default"
+    #)
     if _calibration_mode == CONF_FIX_CALIBRATION:
         # _temp_diff = float(float(self.bt_target_temp) - float(self.cur_temp))
-        if self.attr_hvac_action == HVACAction.HEATING:
-            if _calibrated_setpoint - _cur_trv_temp < 2.5:
-                _calibrated_setpoint += 2.5
-        elif self.attr_hvac_action == HVACAction.IDLE:
-            if _calibrated_setpoint - _cur_trv_temp > 0.0:
-                _calibrated_setpoint -= self.tolerance
+        if self.bt_target_temp >= self.cur_temp:
+            #if _calibrated_setpoint - _cur_trv_temp < 2.5:
+            #    _calibrated_setpoint += 2.5
+            _calibrated_setpoint = self.bt_target_temp + 3
+        elif self.bt_target_temp < self.cur_temp:
+            #if _calibrated_setpoint - _cur_trv_temp > 0.0:
+            #    _calibrated_setpoint -= self.tolerance
+            _calibrated_setpoint = self.bt_target_temp - 3
 
     elif _calibration_mode == CONF_HEATING_POWER_CALIBRATION:
         # _temp_diff = float(float(self.bt_target_temp) - float(self.cur_temp))

@@ -1,4 +1,5 @@
 """"""
+import os
 import json
 from enum import IntEnum
 from homeassistant.backports.enum import StrEnum
@@ -18,7 +19,9 @@ _LOGGER = logging.getLogger(__name__)
 DEFAULT_NAME = "Better Thermostat"
 VERSION = "master"
 try:
-    with open("custom_components/better_thermostat/manifest.json") as manifest_file:
+    with open(
+        f"{os.path.dirname(os.path.realpath(__file__))}/manifest.json"
+    ) as manifest_file:
         manifest = json.load(manifest_file)
         VERSION = manifest["version"]
 except (FileNotFoundError, KeyError, json.JSONDecodeError) as e:
@@ -53,6 +56,7 @@ CONF_HOMATICIP = "homaticip"
 CONF_INTEGRATION = "integration"
 CONF_NO_SYSTEM_MODE_OFF = "no_off_system_mode"
 CONF_TOLERANCE = "tolerance"
+CONF_TARGET_TEMP_STEP = "target_temp_step"
 SUPPORT_FLAGS = SUPPORT_TARGET_TEMPERATURE
 
 ATTR_STATE_WINDOW_OPEN = "window_open"
@@ -91,6 +95,7 @@ class CalibrationType(StrEnum):
 
     TARGET_TEMP_BASED = "target_temp_based"
     LOCAL_BASED = "local_calibration_based"
+    HYBRID = "hybrid_calibration"
 
 
 class CalibrationMode(StrEnum):
