@@ -264,9 +264,7 @@ async def control_trv(self, heater_entity_id=None):
         # set new target temperature
         if (
             _temperature is not None
-            and _calibration_mode != CalibrationMode.NO_CALIBRATION
-            and _new_hvac_mode != HVACMode.OFF
-            or _no_off_system_mode
+            and (_new_hvac_mode != HVACMode.OFF or _no_off_system_mode)
         ):
             if _temperature != _current_set_temperature:
                 old = self.real_trvs[heater_entity_id].get("last_temperature", "?")
