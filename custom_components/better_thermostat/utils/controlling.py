@@ -263,9 +263,7 @@ async def control_trv(self, heater_entity_id=None):
         # set new target temperature
         if (
             _temperature is not None
-            and _calibration_mode != CalibrationMode.NO_CALIBRATION
-            and _new_hvac_mode != HVACMode.OFF
-            or _no_off_system_mode
+            and (_new_hvac_mode != HVACMode.OFF or _no_off_system_mode)
         ):
             if _temperature != _current_set_temperature:
                 old = self.real_trvs[heater_entity_id].get("last_temperature", "?")
@@ -358,7 +356,7 @@ async def check_target_temperature(self, heater_entity_id=None):
         ):
             _timeout = 0
             break
-        if _timeout > 120:
+        if _timeout > 360:
             _LOGGER.debug(
                 f"better_thermostat {self.name}: {heater_entity_id} the real TRV did not respond to the target temperature change"
             )

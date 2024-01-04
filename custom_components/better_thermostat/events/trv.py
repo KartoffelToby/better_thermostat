@@ -17,7 +17,10 @@ from custom_components.better_thermostat.utils.helpers import (
 )
 from custom_components.better_thermostat.adapters.delegate import get_current_offset
 
-from custom_components.better_thermostat.utils.const import CalibrationType
+from custom_components.better_thermostat.utils.const import (
+    CalibrationType,
+    CalibrationMode,
+)
 
 from custom_components.better_thermostat.calibration import (
     calculate_calibration_local,
@@ -317,6 +320,7 @@ def convert_outbound_states(self, entity_id, hvac_mode) -> Union[dict, None]:
 
     try:
         _calibration_type = self.real_trvs[entity_id]["advanced"].get("calibration")
+        _calibration_mode = self.real_trvs[entity_id]["advanced"].get("calibration_mode")
 
         if _calibration_type is None:
             _LOGGER.warning(
@@ -336,7 +340,10 @@ def convert_outbound_states(self, entity_id, hvac_mode) -> Union[dict, None]:
                 _new_heating_setpoint = self.bt_target_temp
 
             elif _calibration_type == CalibrationType.TARGET_TEMP_BASED:
-                _new_heating_setpoint = calculate_calibration_setpoint(self, entity_id)
+                if _calibration_mode == CalibrationMode.NO_CALIBRATION:
+                    _new_heating_setpoint = self.bt_target_temp
+                else:
+                    _new_heating_setpoint = calculate_calibration_setpoint(self, entity_id)
 
             _system_modes = self.real_trvs[entity_id]["hvac_modes"]
             _has_system_mode = False
