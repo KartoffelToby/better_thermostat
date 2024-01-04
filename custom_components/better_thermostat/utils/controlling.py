@@ -359,7 +359,7 @@ async def check_target_temperature(self, heater_entity_id=None):
         ):
             _timeout = 0
             break
-        if _timeout > 120:
+        if _timeout > 360:
             _LOGGER.debug(
                 f"better_thermostat {self.name}: {heater_entity_id} the real TRV did not respond to the target temperature change"
             )
