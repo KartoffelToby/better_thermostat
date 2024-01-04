@@ -375,7 +375,7 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                     ): vol.All(vol.Coerce(float), vol.Range(min=0)),
                     vol.Optional(
                         CONF_TARGET_TEMP_STEP,
-                        default=str(user_input.get(CONF_TARGET_TEMP_STEP, 0.0)),
+                        default=str(user_input.get(CONF_TARGET_TEMP_STEP, "0.1")),
                     ): TEMP_STEP_SELECTOR,
                 }
             ),

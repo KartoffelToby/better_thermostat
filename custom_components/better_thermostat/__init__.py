@@ -11,7 +11,7 @@ from .utils.const import (
     CONF_NO_SYSTEM_MODE_OFF,
     CONF_WINDOW_TIMEOUT,
     CONF_WINDOW_TIMEOUT_AFTER,
-    CalibrationMode
+    CalibrationMode,
 )
 
 _LOGGER = logging.getLogger(__name__)
@@ -74,7 +74,9 @@ async def async_migrate_entry(hass, config_entry: ConfigEntry):
                 CalibrationMode.AGGRESIVE_CALIBRATION in trv["advanced"]
                 and trv["advanced"][CalibrationMode.AGGRESIVE_CALIBRATION]
             ):
-                trv["advanced"].update({CONF_CALIBRATION_MODE: CalibrationMode.AGGRESIVE_CALIBRATION})
+                trv["advanced"].update(
+                    {CONF_CALIBRATION_MODE: CalibrationMode.AGGRESIVE_CALIBRATION}
+                )
             else:
                 trv["advanced"].update({CONF_CALIBRATION_MODE: CalibrationMode.DEFAULT})
         config_entry.version = 4
