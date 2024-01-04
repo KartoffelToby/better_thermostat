@@ -75,6 +75,7 @@ CALIBRATION_TYPE_ALL_SELECTOR = selector.SelectSelector(
 TEMP_STEP_SELECTOR = selector.SelectSelector(
     selector.SelectSelectorConfig(
         options=[
+            selector.SelectOptionDict(value="0.0", label="Auto"),
             selector.SelectOptionDict(value="0.1", label="0.1 °C"),
             selector.SelectOptionDict(value="0.2", label="0.2 °C"),
             selector.SelectOptionDict(value="0.25", label="0.25 °C"),
@@ -375,7 +376,7 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                     ): vol.All(vol.Coerce(float), vol.Range(min=0)),
                     vol.Optional(
                         CONF_TARGET_TEMP_STEP,
-                        default=str(user_input.get(CONF_TARGET_TEMP_STEP, "0.1")),
+                        default=str(user_input.get(CONF_TARGET_TEMP_STEP, "0.0")),
                     ): TEMP_STEP_SELECTOR,
                 }
             ),
@@ -580,7 +581,7 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
                 user_input.get(CONF_TOLERANCE, 0.0)
             )
             self.updated_config[CONF_TARGET_TEMP_STEP] = float(
-                user_input.get(CONF_TARGET_TEMP_STEP, 0.0)
+                user_input.get(CONF_TARGET_TEMP_STEP, "0.0")
             )
 
             for trv in self.updated_config[CONF_HEATER]:

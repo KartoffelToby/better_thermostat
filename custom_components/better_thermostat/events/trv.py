@@ -37,6 +37,8 @@ async def trigger_trv_change(self, event):
         return
     if self.control_queue_task is None:
         return
+    if self.bt_target_temp is None or self.cur_temp is None or self.tolerance is None:
+        return
     asyncio.create_task(update_hvac_action(self))
     _main_change = False
     old_state = event.data.get("old_state")

@@ -145,7 +145,7 @@ async def async_setup_entry(hass, entry, async_add_devices):
                 entry.data.get(CONF_OUTDOOR_SENSOR, None),
                 entry.data.get(CONF_OFF_TEMPERATURE, None),
                 entry.data.get(CONF_TOLERANCE, 0.0),
-                entry.data.get(CONF_TARGET_TEMP_STEP, 0.0),
+                entry.data.get(CONF_TARGET_TEMP_STEP, "0.0"),
                 entry.data.get(CONF_MODEL, None),
                 entry.data.get(CONF_COOLER, None),
                 hass.config.units.temperature_unit,
@@ -259,7 +259,7 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
         self.bt_target_temp_step = float(target_temp_step) or 0.0
         self.bt_min_temp = 0
         self.bt_max_temp = 30
-        self.bt_target_temp = 5
+        self.bt_target_temp = 5.0
         self.bt_target_cooltemp = None
         self._support_flags = SUPPORT_FLAGS
         self.bt_hvac_mode = None
