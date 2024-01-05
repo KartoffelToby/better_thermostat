@@ -1,5 +1,6 @@
 """The better_thermostat component."""
 import logging
+from asyncio import Lock
 from homeassistant.const import Platform
 from homeassistant.core import HomeAssistant, Config
 from homeassistant.config_entries import ConfigEntry
@@ -19,6 +20,8 @@ DOMAIN = "better_thermostat"
 PLATFORMS = [Platform.CLIMATE]
 CONFIG_SCHEMA = vol.Schema({DOMAIN: vol.Schema({})}, extra=vol.ALLOW_EXTRA)
 
+config_entry_update_listener_lock = Lock()
+
 
 async def async_setup(hass: HomeAssistant, config: Config):
     """Set up this integration using YAML is not supported."""
@@ -35,9 +38,8 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
 async def config_entry_update_listener(hass: HomeAssistant, entry: ConfigEntry) -> None:
     """Handle options update."""
-    await hass.config_entries.async_reload(entry.entry_id)
-    await async_unload_entry(hass, entry)
-    await async_setup_entry(hass, entry)
+    async with config_entry_update_listener_lock:
+        await hass.config_entries.async_reload(entry.entry_id)
 
 
 async def async_unload_entry(hass, entry):
