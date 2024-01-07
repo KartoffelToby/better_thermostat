@@ -32,7 +32,7 @@ def load_model_quirks(self, model, entity_id):
 
 
 def fix_local_calibration(self, entity_id, offset):
-    """ Modifies the input local calibration offset, based on the TRV's model quirks,
+    """Modifies the input local calibration offset, based on the TRV's model quirks,
     to achieve the desired heating behavior.
 
     Returns
@@ -51,13 +51,14 @@ def fix_local_calibration(self, entity_id, offset):
             self.name,
             entity_id,
             offset,
-            _new_offset
+            _new_offset,
         )
 
     return _new_offset
 
+
 def fix_target_temperature_calibration(self, entity_id, temperature):
-    """ Modifies the input setpoint temperature, based on the TRV's model quirks,
+    """Modifies the input setpoint temperature, based on the TRV's model quirks,
     to achieve the desired heating behavior.
 
     Returns
@@ -66,9 +67,9 @@ def fix_target_temperature_calibration(self, entity_id, temperature):
           new setpoint temperature, if the TRV model has any quirks/fixes.
     """
 
-    _new_temperature = self.real_trvs[entity_id]["model_quirks"].fix_target_temperature_calibration(
-        self, entity_id, temperature
-    )
+    _new_temperature = self.real_trvs[entity_id][
+        "model_quirks"
+    ].fix_target_temperature_calibration(self, entity_id, temperature)
 
     if temperature != _new_temperature:
         _LOGGER.debug(
@@ -76,7 +77,7 @@ def fix_target_temperature_calibration(self, entity_id, temperature):
             self.name,
             entity_id,
             temperature,
-            _new_temperature
+            _new_temperature,
         )
 
     return _new_temperature

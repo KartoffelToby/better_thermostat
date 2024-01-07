@@ -37,6 +37,8 @@ async def trigger_trv_change(self, event):
         return
     if self.control_queue_task is None:
         return
+    if self.bt_target_temp is None or self.cur_temp is None or self.tolerance is None:
+        return
     asyncio.create_task(update_hvac_action(self))
     _main_change = False
     old_state = event.data.get("old_state")
@@ -320,7 +322,9 @@ def convert_outbound_states(self, entity_id, hvac_mode) -> Union[dict, None]:
 
     try:
         _calibration_type = self.real_trvs[entity_id]["advanced"].get("calibration")
-        _calibration_mode = self.real_trvs[entity_id]["advanced"].get("calibration_mode")
+        _calibration_mode = self.real_trvs[entity_id]["advanced"].get(
+            "calibration_mode"
+        )
 
         if _calibration_type is None:
             _LOGGER.warning(
@@ -343,7 +347,9 @@ def convert_outbound_states(self, entity_id, hvac_mode) -> Union[dict, None]:
                 if _calibration_mode == CalibrationMode.NO_CALIBRATION:
                     _new_heating_setpoint = self.bt_target_temp
                 else:
-                    _new_heating_setpoint = calculate_calibration_setpoint(self, entity_id)
+                    _new_heating_setpoint = calculate_calibration_setpoint(
+                        self, entity_id
+                    )
 
             _system_modes = self.real_trvs[entity_id]["hvac_modes"]
             _has_system_mode = False
