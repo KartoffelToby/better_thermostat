@@ -360,6 +360,7 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
 
         def on_remove():
             self.is_removed = True
+
         self.async_on_remove(on_remove)
 
         await super().async_added_to_hass()
