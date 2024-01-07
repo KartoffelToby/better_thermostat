@@ -298,6 +298,7 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
             asyncio.create_task(window_queue(self))
         self.heating_power = 0.01
         self.last_heating_power_stats = []
+        self.is_removed = False
 
     async def async_added_to_hass(self):
         """Run when entity about to be added.
@@ -356,6 +357,10 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
                 "last_current_temperature": None,
                 "last_calibration": None,
             }
+
+        def on_remove():
+            self.is_removed = True
+        self.async_on_remove(on_remove)
 
         await super().async_added_to_hass()
 
@@ -859,6 +864,9 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
                             "battery": None,
                         }
 
+            if self.is_removed:
+                return
+
             # update_hvac_action(self)
             # Add listener
             if self.outdoor_sensor is not None:
@@ -868,6 +876,9 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
                 )
 
             await check_all_entities(self)
+
+            if self.is_removed:
+                return
 
             self.async_on_remove(
                 async_track_time_interval(
