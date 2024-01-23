@@ -3,105 +3,128 @@
   "config": {
     "step": {
       "user": {
-        "description": "Configuration de Better Thermostat pour l'intégrer à Home Assistant\n**If you need more info: https://better-thermostat.org/configuration#first-step** ",
+        "description": "Configurez Better Thermostat pour l'intégrer à Home Assistant\n**Si vous avez besoin de plus d'informations : https://better-thermostat.org/configuration#first-step** ",
         "data": {
           "name": "Nom",
-          "thermostat": "Le véritable thermostat",
+          "thermostat": "Le vrai thermostat",
+          "cooler": "Le dispositif de refroidissement (optionnel)",
           "temperature_sensor": "Capteur de température",
           "humidity_sensor": "Capteur d'humidité",
           "window_sensors": "Capteur de fenêtre",
-          "off_temperature": "La température extérieure lorsque le thermostat s'éteint",
-          "window_off_delay": "Délai avant que le thermostat ne s'éteigne lorsque la fenêtre est ouverte et ne s'allume lorsque la fenêtre est fermée",
+          "off_temperature": "La température extérieure à laquelle le thermostat s'éteint",
+          "tolerance": "Tolérance, pour éviter que le thermostat ne s'allume et s'éteigne trop souvent.",
+          "window_off_delay": "Délai avant que le thermostat ne s'éteigne lorsque la fenêtre est ouverte",
+          "window_off_delay_after": "Délai avant que le thermostat ne s'allume lorsque la fenêtre est fermée",
           "outdoor_sensor": "Si vous avez un capteur extérieur, vous pouvez l'utiliser pour obtenir la température extérieure",
           "weather": "Votre entité météo pour obtenir la température extérieure"
         }
       },
       "advanced": {
-        "description": "Configuration avancée\n\n**Informations sur les types d'étalonnage : https://better-thermostat.org/configuration#second-step**",
+        "description": "Configuration avancée {trv}\n***Informations sur les types de calibrage : https://better-thermostat.org/configuration#second-step***",
         "data": {
-          "heat_auto_swapped": "Si auto signifie chauffer pour votre TRV et que vous voulez l'inverser (pour les utilisateurs de Google Home)",
-          "child_lock": "Ignorer toutes les entrées sur le TRV comme un vérouillage enfant",
-          "homaticip": "Si vous utilisez HomaticIP, vous devez l'activer pour ralentir les requêtes afin d'éviter le cycle de service",
-          "valve_maintenance": "Si votre thermostat n'a pas de mode de maintenance intégré, vous pouvez utiliser celui-ci",
-          "calibration": "The sort of calibration",
-          "no_off_system_mode": "Si votre TRV ne peut pas gérer le mode arrêt, vous pouvez l'activer pour utiliser la température cible de 5 °C à la place",
-          "calibration_mode": "Mode d'étalonnage",
-          "protect_overheating": "Protection contre la surchauffe ?"
+          "protect_overheating": "Protection contre la surchauffe ?",
+          "heat_auto_swapped": "Si le mode automatique signifie chauffage pour votre TRV et que vous voulez le permuter",
+          "child_lock": "Ignorer toutes les entrées sur le TRV comme une sécurité enfant",
+          "homaticip": "Si vous utilisez HomaticIP, vous devriez l'activer pour ralentir les demandes et éviter le cycle de fonctionnement excessif",
+          "valve_maintenance": "Si votre thermostat n'a pas de mode maintenance propre, vous pouvez utiliser celui-ci",
+          "calibration": "Type de calibrage",
+          "calibration_mode": "Mode de calibrage",
+          "no_off_system_mode": "Si votre TRV ne peut pas gérer le mode hors tension, vous pouvez activer ceci pour utiliser une température cible de 5°C à la place"
         },
         "data_description": {
-          "protect_overheating": "Certaines VTR ferment complètement la vanne lorsque la température est atteinte. Ou le radiateur a beaucoup de chaleur résiduelle. Cela peut provoquer une surchauffe. Cette option peut empêcher cela.",
-          "calibration_mode": "Le type de calcul de l'étalonnage\n***Normal*** : Dans ce mode, le capteur de température interne TRV est fixé par le capteur de température externe.\n***Agressif*** : dans ce mode, le capteur de température interne TRV est fixé par le capteur de température externe mais réglé beaucoup plus bas/plus haut pour obtenir une accélération plus rapide.\n*** AI Time Based *** : Dans ce mode, le capteur de température interne TRV est fixé par le capteur de température externe, mais la valeur est calculée par un algorithme personnalisé pour améliorer l'algorithme interne TRV.",
-          "calibration": "Comment l'étalonnage doit être appliqué sur la VTR (température cible ou décalage)\n***Basé sur la température cible*** : Appliquez l'étalonnage à la température cible.\n***Basé sur le décalage*** : Appliquez l'étalonnage au décalage."
+          "protect_overheating": "Certains TRVs ne ferment pas complètement la vanne lorsque la température est atteinte. Ou le radiateur a beaucoup de chaleur résiduelle. Cela peut provoquer une surchauffe. Cette option peut prévenir cela.",
+          "calibration_mode": "Le type de calcul du calibrage\n***Normal*** : Dans ce mode, le capteur de température interne du TRV est fixé par le capteur de température externe.\n***Aggressif*** : Dans ce mode, le capteur de température interne du TRV est fixé par le capteur de température externe mais réglé beaucoup plus bas/haut pour obtenir un boost plus rapide.\n***AI Time Based*** : Dans ce mode, le capteur de température interne du TRV est fixé par le capteur de température externe, mais la valeur est calculée par un algorithme personnalisé pour améliorer l'algorithme interne du TRV.",
+          "calibration": "Comment le calibrage doit être appliqué sur le TRV (Température cible ou décalage)\n***Basé sur la température cible*** : Appliquer le calibrage à la température cible.\n***Basé sur le décalage*** : Appliquer le calibrage au décalage."
         }
       },
       "confirm": {
-        "title": "Confirmer l'ajout d'un meilleur thermostat",
-        "description": "Vous êtes sur le point d'ajouter \"{name}\" à Home Assistant.\nAvec {trv} comme vrai thermostat"
+        "title": "Confirmer l'ajout d'un Better Thermostat",
+        "description": "Vous êtes sur le point d'ajouter `{name}` à Home Assistant.\nAvec {trv} en tant que vrai thermostat"
       }
     },
     "error": {
-      "no_name": "Veuillez entrer un nom.",
       "failed": "quelque chose s'est mal passé.",
-      "no_outside_temp": "Vous devez définir un capteur de température extérieure ou une entité météorologique.",
-      "no_off_mode": "You device is very special and has no off mode :(\nIt work anyway, but you have to create a automation to fit your specials based on the device events"
+      "no_name": "Veuillez entrer un nom.",
+      "no_off_mode": "Votre appareil est très spécial et n'a pas de mode hors tension :(\nBetter Thermostat utilisera plutôt la température cible minimale.",
+      "no_outside_temp": "Vous n'avez pas de capteur de température extérieure. Better Thermostat utilisera plutôt l'entité météo."
     },
     "abort": {
-      "single_instance_allowed": "Un seul et unique thermostat est autorisé pour chaque thermostat réel",
-      "no_devices_found": "Aucune entité thermostat n'a été trouvée, assurez-vous d'avoir une entité climat dans votre home assistant"
+      "single_instance_allowed": "Seule une instance de thermostat pour chaque vrai thermostat est autorisée.",
+      "no_devices_found": "Aucune entité de thermostat trouvée, assurez-vous d'avoir une entité de climatisation dans votre Home Assistant"
     }
   },
   "options": {
     "step": {
       "user": {
-        "description": "Mettez à jour vos paramètres de Better Thermostat",
+        "description": "Mettez à jour les paramètres de Better Thermostat",
         "data": {
+          "name": "Nom",
+          "thermostat": "Le vrai thermostat",
           "temperature_sensor": "Capteur de température",
           "humidity_sensor": "Capteur d'humidité",
           "window_sensors": "Capteur de fenêtre",
-          "off_temperature": "La température extérieure lorsque le thermostat s'éteint",
-          "window_off_delay": "Délai avant que le thermostat ne s'éteigne lorsque la fenêtre est ouverte et ne s'allume lorsque la fenêtre est fermée",
+          "off_temperature": "La température extérieure à laquelle le thermostat s'éteint",
+          "tolerance": "Tolérance, pour éviter que le thermostat ne s'allume et s'éteigne trop souvent.",
+          "window_off_delay": "Délai avant que le thermostat ne s'éteigne lorsque la fenêtre est ouverte",
+          "window_off_delay_after": "Délai avant que le thermostat ne s'allume lorsque la fenêtre est fermée",
           "outdoor_sensor": "Si vous avez un capteur extérieur, vous pouvez l'utiliser pour obtenir la température extérieure",
-          "valve_maintenance": "Si votre thermostat n'a pas de mode de maintenance intégré, vous pouvez utiliser celui-ci",
-          "calibration": "Le type d'étalonnage https://better-thermostat.org/configuration#second-step",
+          "valve_maintenance": "Si votre thermostat n'a pas de mode maintenance propre, vous pouvez utiliser celui-ci",
+          "calibration": "Le type de calibrage https://better-thermostat.org/configuration#second-step",
           "weather": "Votre entité météo pour obtenir la température extérieure",
-          "heat_auto_swapped": "Si auto signifie chauffer pour votre TRV et que vous voulez l'inverser",
-          "child_lock": "Ignorer toutes les entrées sur le TRV comme un vérouillage enfant",
-          "homaticip": "Si vous utilisez HomaticIP, vous devez l'activer pour ralentir les requêtes afin d'éviter le cycle de service",
-          "name": "Nom",
-          "thermostat": "Le vrai thermostat"
+          "heat_auto_swapped": "Si le mode automatique signifie chauffage pour votre TRV et que vous voulez le permuter",
+          "child_lock": "Ignorer toutes les entrées sur le TRV comme une sécurité enfant",
+          "homaticip": "Si vous utilisez HomaticIP, vous devriez l'activer pour ralentir les demandes et éviter le cycle de fonctionnement excessif"
         }
       },
       "advanced": {
-        "description": "Configuration avancée {trv}\n\n***Informations sur les types d'étalonnage : https://better-thermostat.org/configuration#second-step***",
+        "description": "Configuration avancée {trv}\n***Informations sur les types de calibrage : https://better-thermostat.org/configuration#second-step***",
         "data": {
-          "heat_auto_swapped": "Si auto signifie chauffer pour votre TRV et que vous voulez l'inverser",
-          "child_lock": "Ignorer toutes les entrées sur le TRV comme un vérouillage enfant",
-          "homaticip": "Si vous utilisez HomaticIP, vous devez l'activer pour ralentir les requêtes afin d'éviter le cycle de service",
-          "valve_maintenance": "Si votre thermostat n'a pas de mode de maintenance intégré, vous pouvez utiliser celui-ci",
-          "calibration": "The sort of calibration",
           "protect_overheating": "Protection contre la surchauffe ?",
-          "calibration_mode": "Mode d'étalonnage",
-          "no_off_system_mode": "Si votre TRV ne peut pas gérer le mode arrêt, vous pouvez l'activer pour utiliser la température cible de 5 °C à la place"
+          "heat_auto_swapped": "Si le mode automatique signifie chauffage pour votre TRV et que vous voulez le permuter",
+          "child_lock": "Ignorer toutes les entrées sur le TRV comme une sécurité enfant",
+          "homaticip": "Si vous utilisez HomaticIP, vous devriez l'activer pour ralentir les demandes et éviter le cycle de fonctionnement excessif",
+          "valve_maintenance": "Si votre thermostat n'a pas de mode maintenance propre, vous pouvez utiliser celui-ci",
+          "calibration": "Le type de calibrage que vous souhaitez utiliser",
+          "calibration_mode": "Mode de calibrage",
+          "no_off_system_mode": "Si votre TRV ne peut pas gérer le mode hors tension, vous pouvez activer ceci pour utiliser une température cible de 5°C à la place"
         },
         "data_description": {
-          "protect_overheating": "Certaines VTR ferment complètement la vanne lorsque la température est atteinte. Ou le radiateur a beaucoup de chaleur résiduelle. Cela peut provoquer une surchauffe. Cette option peut empêcher cela.",
-          "calibration_mode": "Le type de calcul de l'étalonnage\n***Normal*** : Dans ce mode, le capteur de température interne TRV est fixé par le capteur de température externe.\n***Agressif*** : dans ce mode, le capteur de température interne TRV est fixé par le capteur de température externe mais réglé beaucoup plus bas/plus haut pour obtenir une accélération plus rapide.\n*** AI Time Based *** : Dans ce mode, le capteur de température interne TRV est fixé par le capteur de température externe, mais la valeur est calculée par un algorithme personnalisé pour améliorer l'algorithme interne TRV.",
-          "calibration": "Comment l'étalonnage doit être appliqué sur la VTR (température cible ou décalage)\n***Basé sur la température cible*** : Appliquez l'étalonnage à la température cible.\n***Basé sur le décalage*** : Appliquez l'étalonnage au décalage."
+          "protect_overheating": "Certains TRVs ne ferment pas complètement la vanne lorsque la température est atteinte. Ou le radiateur a beaucoup de chaleur résiduelle. Cela peut provoquer une surchauffe. Cette option peut prévenir cela.",
+          "calibration_mode": "Le type de calcul du calibrage\n***Normal*** : Dans ce mode, le capteur de température interne du TRV est fixé par le capteur de température externe.\n***Aggressif*** : Dans ce mode, le capteur de température interne du TRV est fixé par le capteur de température externe mais réglé beaucoup plus bas/haut pour obtenir un boost plus rapide.\n***AI Time Based*** : Dans ce mode, le capteur de température interne du TRV est fixé par le capteur de température externe, mais la valeur est calculée par un algorithme personnalisé pour améliorer l'algorithme interne du TRV.",
+          "calibration": "Comment le calibrage doit être appliqué sur le TRV (Température cible ou décalage)\n***Basé sur la température cible*** : Appliquer le calibrage à la température cible.\n***Basé sur le décalage*** : Appliquer le calibrage au décalage."
         }
       }
     }
   },
   "issues": {
     "missing_entity": {
-      "title": "BT : {name} - l'entité associée est manquante",
+      "title": "BT: {name} - l'entité associée est manquante",
       "fix_flow": {
         "step": {
           "confirm": {
-            "title": "L'entité associée est {entity} manquante",
-            "description": "La raison en est que l'entité ({entity}) n'est pas disponible dans votre Home Assistant.\n\nVous pouvez résoudre ce problème en vérifiant si la batterie de l'appareil est pleine ou en le reconnectant à HA. Assurez-vous que l'entité est de retour dans HA avant de continuer."
+            "title": "L'entité associée {entity} est manquante",
+            "description": "La raison en est que l'entité ({entity}) n'est pas disponible dans votre Home Assistant.\n\nVous pouvez résoudre ce problème en vérifiant si la batterie du dispositif est pleine ou en le reconnectant à HA. Assurez-vous que l'entité est de retour dans HA avant de continuer."
           }
         }
       }
+    }
+  },
+  "services": {
+    "save_current_target_temperature": {
+      "name": "Enregistrer la température actuelle",
+      "description": "Enregistrez la température cible actuelle pour une restauration ultérieure."
+    },
+    "restore_saved_target_temperature": {
+      "name": "Restaurer la température",
+      "description": "Restaurez la température cible enregistrée."
+    },
+    "reset_heating_power": {
+      "name": "Réinitialiser la puissance de chauffage",
+      "description": "Réinitialisez la puissance de chauffage à la valeur par défaut."
+    },
+    "set_temp_target_temperature": {
+      "name": "Définir la température éco",
+      "description": "Définissez la température cible sur une valeur temporaire comme le mode nuit, et enregistrez l'ancienne."
     }
   }
 }
