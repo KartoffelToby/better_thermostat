@@ -217,6 +217,9 @@ async def trigger_trv_change(self, event):
 
 
 async def update_hvac_action(self):
+    self.bt_target_temp = 5.0 if self.bt_target_temp is None else self.bt_target_temp
+    self.cur_temp = 5.0 if self.cur_temp is None else self.cur_temp
+    self.tolerance = 0.0 if self.tolerance is None else self.tolerance
     """Update the hvac action."""
     if self.startup_running or self.control_queue_task is None:
         return
