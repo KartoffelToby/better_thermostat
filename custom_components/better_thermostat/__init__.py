@@ -1,4 +1,5 @@
 """The better_thermostat component."""
+
 import logging
 from asyncio import Lock
 from homeassistant.const import Platform
