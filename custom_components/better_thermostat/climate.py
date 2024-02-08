@@ -792,9 +792,9 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
                     self.real_trvs[trv]["local_calibration_max"] = await get_max_offset(
                         self, trv
                     )
-                    self.real_trvs[trv][
-                        "local_calibration_steps"
-                    ] = await get_offset_steps(self, trv)
+                    self.real_trvs[trv]["local_calibration_steps"] = (
+                        await get_offset_steps(self, trv)
+                    )
                 else:
                     self.real_trvs[trv]["last_calibration"] = 0
 

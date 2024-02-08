@@ -1,7 +1,6 @@
 import asyncio
 from datetime import datetime
 import logging
-from typing import Union
 from custom_components.better_thermostat.utils.const import CONF_HOMATICIP
 
 from homeassistant.components.climate.const import (
@@ -108,9 +107,9 @@ async def trigger_trv_change(self, event):
             )
             _main_change = False
             if self.real_trvs[entity_id]["calibration"] == 0:
-                self.real_trvs[entity_id][
-                    "last_calibration"
-                ] = await get_current_offset(self, entity_id)
+                self.real_trvs[entity_id]["last_calibration"] = (
+                    await get_current_offset(self, entity_id)
+                )
 
     if self.ignore_states:
         return
@@ -300,7 +299,7 @@ def convert_inbound_states(self, entity_id, state: State) -> str:
     return remapped_state
 
 
-def convert_outbound_states(self, entity_id, hvac_mode) -> Union[dict, None]:
+def convert_outbound_states(self, entity_id, hvac_mode) -> dict | None:
     """Creates the new outbound thermostat state.
     Parameters
     ----------
