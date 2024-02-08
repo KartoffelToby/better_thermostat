@@ -1313,5 +1313,17 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
                 Supported features.
         """
         if self.cooler_entity_id is not None:
-            return ClimateEntityFeature.TARGET_TEMPERATURE_RANGE
-        return ClimateEntityFeature.TARGET_TEMPERATURE
+            return (
+                ClimateEntityFeature.TARGET_TEMPERATURE_RANGE
+                | ClimateEntityFeature.PRESET_MODE
+                | ClimateEntityFeature.PRESET_MODE
+                | ClimateEntityFeature.TURN_OFF
+                | ClimateEntityFeature.TURN_ON
+            )
+        return (
+            ClimateEntityFeature.TARGET_TEMPERATURE
+            | ClimateEntityFeature.PRESET_MODE
+            | ClimateEntityFeature.PRESET_MODE
+            | ClimateEntityFeature.TURN_OFF
+            | ClimateEntityFeature.TURN_ON
+        )

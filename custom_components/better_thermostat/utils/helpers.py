@@ -1,4 +1,5 @@
 """Helper functions for the Better Thermostat component."""
+
 import re
 import logging
 from datetime import datetime
