@@ -32,6 +32,15 @@ from homeassistant.components.climate import (
     ATTR_HVAC_MODE,
     ATTR_TARGET_TEMP_HIGH,
     ATTR_TARGET_TEMP_LOW,
+    PRESET_AWAY,
+    PRESET_NONE,
+    PRESET_ECO,
+    PRESET_BOOST,
+    PRESET_COMFORT,
+    PRESET_HOME,
+    PRESET_SLEEP,
+    PRESET_ACTIVITY,
+    SUPPORT_PRESET_MODE,
 )
 from homeassistant.components.climate.const import (
     ATTR_MAX_TEMP,
@@ -249,6 +258,7 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
         self._device_class = device_class
         self._state_class = state_class
         self._hvac_list = [HVACMode.HEAT, HVACMode.OFF]
+        self._preset_mode = PRESET_NONE
         self.map_on_hvac_mode = HVACMode.HEAT
         self.next_valve_maintenance = datetime.now() + timedelta(
             hours=randint(1, 24 * 5)
@@ -261,7 +271,7 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
         self.bt_max_temp = 30
         self.bt_target_temp = 5.0
         self.bt_target_cooltemp = None
-        self._support_flags = SUPPORT_FLAGS
+        self._support_flags = SUPPORT_FLAGS | SUPPORT_PRESET_MODE
         self.bt_hvac_mode = None
         self.closed_window_triggered = False
         self.call_for_heat = True
@@ -1258,6 +1268,12 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
         self.async_write_ha_state()
         await self.control_queue_task.put(self)
 
+    async def async_turn_off(self) -> None:
+        await self.async_set_hvac_mode(HVACMode.OFF)
+
+    async def async_turn_on(self) -> None:
+        await self.async_set_hvac_mode(HVACMode.HEATING)
+
     @property
     def min_temp(self):
         """Return the minimum temperature.
@@ -1316,14 +1332,29 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
             return (
                 ClimateEntityFeature.TARGET_TEMPERATURE_RANGE
                 | ClimateEntityFeature.PRESET_MODE
-                | ClimateEntityFeature.PRESET_MODE
                 | ClimateEntityFeature.TURN_OFF
                 | ClimateEntityFeature.TURN_ON
             )
         return (
             ClimateEntityFeature.TARGET_TEMPERATURE
             | ClimateEntityFeature.PRESET_MODE
-            | ClimateEntityFeature.PRESET_MODE
             | ClimateEntityFeature.TURN_OFF
             | ClimateEntityFeature.TURN_ON
         )
+
+    @property
+    def preset_mode(self):
+        return self._preset_mode
+
+    @property
+    def preset_modes(self):
+        return [
+            PRESET_NONE,
+            # PRESET_AWAY,
+            # PRESET_ECO,
+            # PRESET_COMFORT,
+            # PRESET_BOOST,
+            # PRESET_SLEEP,
+            # PRESET_ACTIVITY,
+            # PRESET_HOME,
+        ]
