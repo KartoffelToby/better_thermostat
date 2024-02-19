@@ -32,15 +32,7 @@ from homeassistant.components.climate import (
     ATTR_HVAC_MODE,
     ATTR_TARGET_TEMP_HIGH,
     ATTR_TARGET_TEMP_LOW,
-    PRESET_AWAY,
     PRESET_NONE,
-    PRESET_ECO,
-    PRESET_BOOST,
-    PRESET_COMFORT,
-    PRESET_HOME,
-    PRESET_SLEEP,
-    PRESET_ACTIVITY,
-    SUPPORT_PRESET_MODE,
 )
 from homeassistant.components.climate.const import (
     ATTR_MAX_TEMP,
@@ -169,6 +161,9 @@ async def async_setup_entry(hass, entry, async_add_devices):
 class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
     """Representation of a Better Thermostat device."""
 
+    _attr_has_entity_name = True
+    _enable_turn_on_off_backwards_compatibility = False
+
     async def set_temp_temperature(self, temperature):
         if self._saved_temperature is None:
             self._saved_temperature = self.bt_target_temp
@@ -271,7 +266,7 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
         self.bt_max_temp = 30
         self.bt_target_temp = 5.0
         self.bt_target_cooltemp = None
-        self._support_flags = SUPPORT_FLAGS | SUPPORT_PRESET_MODE
+        self._support_flags = SUPPORT_FLAGS | ClimateEntityFeature.PRESET_MODE
         self.bt_hvac_mode = None
         self.closed_window_triggered = False
         self.call_for_heat = True
