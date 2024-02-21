@@ -6,7 +6,7 @@
 
 # Better Thermostat
 
-**For more infos visit: https://better-thermostat.org/**
+**For more info visit: https://better-thermostat.org/**
 
 ### Requirements
 
@@ -27,12 +27,12 @@ This integration brings some smartness to your connected radiator thermostats se
 
 - Uses a temperature sensor far away from the radiators to measure the real room temperature
 - Makes your TRVs fully compatible with Google Home
-- Let your windows disable your heating (avoids programming this via automations)
+- Let your windows disable your heating (avoid programming this via an automation)
 - Your weather forecast provider will turn your heat on/off
 - Or an outside air temperature sensor can do this as well
-- Does some valve-maintenance automatically, to avoid that they will get stuck closed over summer
+- Does some valve maintenance automatically, to avoid them getting stuck closed over the summer
 - Group multiple TRVs to one (e.g. for a room with multiple radiators)
-- Enhance the default TRV Algorithm with some smartness to reduce the energy consumption
+- Enhance the default TRV Algorithm with some smartness to reduce energy consumption
 
 ### Which hardware do we support?
 
@@ -51,7 +51,7 @@ Install this integration via HACS or copy the files from the [latest release](ht
 Configuration details can be found in the [documentation](docs/Configuration/configuration.md) or on our website: [better-thermostat.org](https://better-thermostat.org/configuration)
 
 
-Some nice to know config tips for the configuration.yaml
+Some nice-to-know config tips for the configuration.yaml
 #### Example Window/Door - Sensor config
 
 ```yaml
