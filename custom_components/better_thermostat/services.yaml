@@ -1,6 +1,6 @@
 save_current_target_temperature:
   name: Save current Temperature
-  description: Save the current target temperature for later restore.
+  description: Save the current target temperature for later restoration.
   target:
     entity:
       domain: climate
@@ -29,7 +29,7 @@ reset_heating_power:
       integration: better_thermostat
 
 set_temp_target_temperature:
-  name: Set eco temperature
+  name: Set the eco temperature
   description: Set the target temperature to a temporay like night mode, and save the old one.
   fields:
     temperature:
