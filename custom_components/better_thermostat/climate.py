@@ -1267,7 +1267,7 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
         await self.async_set_hvac_mode(HVACMode.OFF)
 
     async def async_turn_on(self) -> None:
-        await self.async_set_hvac_mode(HVACMode.HEATING)
+        await self.async_set_hvac_mode(HVACMode.HEAT)
 
     @property
     def min_temp(self):
