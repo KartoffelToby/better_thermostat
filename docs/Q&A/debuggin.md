@@ -8,7 +8,7 @@ parent: Q&A
 ---
 
 # How do I activate the debug mode?
-Basically there are two options to enable debug mode.
+Basically, there are two options to enable debug mode.
 
 ## Via configuration.yaml
 Add the following lines to your configuration.yaml file and restart Home Assistant.
@@ -29,4 +29,4 @@ service: logger.set_level
 data:
   custom_components.better_thermostat: debug
 ```
-Click `Call Service`, no restart of Home Assistant required.
+Click `Call Service`, no restart of Home Assistant is required.
