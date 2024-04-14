@@ -170,10 +170,10 @@ async def check_ambient_air_temperature(self):
         )
 
         for item in history_list.get(lower_entity_id):
-            # filter out all None, NaN and "unknown" states
+            # filter out all None, NaN, "unknown" and "unavailable" states.
             # only keep real values
             with suppress(ValueError):
-                if item.state != "unknown":
+                if item.state not in ("unknown", "unavailable"):
                     _temp_history.add_measurement(
                         convert_to_float(
                             item.state, self.name, "check_ambient_air_temperature()"
