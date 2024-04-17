@@ -40,7 +40,7 @@
       }
     },
     "error": {
-      "no_outside_temp": "Nie masz czujnika temperatury zewnętrznej. Lepszy termostat zamiast tego użyje jednostki pogodowej.",
+      "no_outside_temp": "Nie masz czujnika temperatury zewnętrznej. Better Thermostat zamiast tego użyje jednostki pogodowej.",
       "failed": "coś poszło nie tak.",
       "no_name": "Proszę podać nazwę.",
       "no_off_mode": "Twoje urządzenie jest inne i nie ma trybu wyłączenia :(\nTo będzie działać, ale musisz stworzyć automatyzację, aby ustawić funkcje pod swoje urządzenie"
