@@ -1122,10 +1122,7 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
     @property
     def hvac_action(self):
         """Return the current HVAC action"""
-        if (
-            self.bt_target_temp is not None
-            and self.cur_temp is not None
-        ):
+        if self.bt_target_temp is not None and self.cur_temp is not None:
             if self.hvac_mode == HVACMode.OFF:
                 self.attr_hvac_action = HVACAction.OFF
             elif self.bt_target_temp > self.cur_temp and self.window_open is False:
