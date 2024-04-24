@@ -396,7 +396,7 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
         _check = await check_all_entities(self)
         if _check is False:
             return
-        check_weather(self)
+        await check_weather(self)
         if self._last_call_for_heat != self.call_for_heat:
             self._last_call_for_heat = self.call_for_heat
             await self.async_update_ha_state(force_refresh=True)
