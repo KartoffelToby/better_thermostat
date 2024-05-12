@@ -6,7 +6,7 @@
         "description": "Настройте термостат Better Thermostat для интеграции с Home Assistant\n**Если вам нужна дополнительная информация: https://better-thermostat.org/configuration#first-step** ",
         "data": {
           "name": "Имя",
-          "thermostat": "Настоящий термостат",
+          "thermostat": "Реальный термостат",
           "cooler": "Кондиционер (опционально)",
           "temperature_sensor": "Датчик температуры",
           "humidity_sensor": "Датчик влажности",
