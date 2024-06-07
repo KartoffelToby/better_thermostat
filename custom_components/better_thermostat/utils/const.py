@@ -2,8 +2,7 @@
 
 import os
 import json
-from enum import IntEnum
-from homeassistant.backports.enum import StrEnum
+from enum import IntEnum, StrEnum
 
 import logging
 import voluptuous as vol
