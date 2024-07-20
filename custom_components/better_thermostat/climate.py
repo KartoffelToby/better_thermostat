@@ -187,7 +187,9 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
     async def restore_temp_temperature(self):
         if self._saved_temperature is not None:
             self.bt_target_temp = convert_to_float(
-                self._saved_temperature, self.device_name, "service.restore_temp_temperature()"
+                self._saved_temperature,
+                self.device_name,
+                "service.restore_temp_temperature()",
             )
             self._saved_temperature = None
             self.async_write_ha_state()
@@ -409,7 +411,9 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
         _check = await check_all_entities(self)
         if _check is False:
             return
-        _LOGGER.debug("better_thermostat %s: get last avg outdoor temps...", self.device_name)
+        _LOGGER.debug(
+            "better_thermostat %s: get last avg outdoor temps...", self.device_name
+        )
         await check_ambient_air_temperature(self)
         self.async_write_ha_state()
         if event is not None:
@@ -1180,7 +1184,9 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
             self.bt_hvac_mode = get_hvac_bt_mode(self, hvac_mode)
         else:
             _LOGGER.error(
-                "better_thermostat %s: Unsupported hvac_mode %s", self.device_name, hvac_mode
+                "better_thermostat %s: Unsupported hvac_mode %s",
+                self.device_name,
+                hvac_mode,
             )
         self.async_write_ha_state()
         await self.control_queue_task.put(self)
