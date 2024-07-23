@@ -1,19 +1,19 @@
-from importlib import import_module
+from homeassistant.helpers.importlib import async_import_module
 import logging
 
 _LOGGER = logging.getLogger(__name__)
 
 
-def load_model_quirks(self, model, entity_id):
+async def load_model_quirks(self, model, entity_id):
     """Load model."""
 
     # remove / from model
     model = model.replace("/", "_")
 
     try:
-        self.model_quirks = import_module(
+        self.model_quirks = await async_import_module(
+            self.hass,
             "custom_components.better_thermostat.model_fixes." + model,
-            package="better_thermostat",
         )
         _LOGGER.debug(
             "better_thermostat %s: uses quirks fixes for model %s for trv %s",
@@ -22,9 +22,9 @@ def load_model_quirks(self, model, entity_id):
             entity_id,
         )
     except Exception:
-        self.model_quirks = import_module(
+        self.model_quirks = await async_import_module(
+            self.hass,
             "custom_components.better_thermostat.model_fixes.default",
-            package="better_thermostat",
         )
         pass
 
