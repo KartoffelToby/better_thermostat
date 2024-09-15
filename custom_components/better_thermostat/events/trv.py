@@ -201,13 +201,6 @@ async def trigger_trv_change(self, event):
 
             _main_change = True
 
-        if self.real_trvs[entity_id]["advanced"].get("no_off_system_mode", False):
-            if _new_heating_setpoint == self.real_trvs[entity_id]["min_temp"]:
-                self.bt_hvac_mode = HVACMode.OFF
-            else:
-                self.bt_hvac_mode = HVACMode.HEAT
-            _main_change = True
-
     if _main_change is True:
         self.async_write_ha_state()
         return await self.control_queue_task.put(self)
