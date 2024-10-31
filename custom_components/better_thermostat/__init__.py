@@ -3,8 +3,9 @@
 import logging
 from asyncio import Lock
 from homeassistant.const import Platform
-from homeassistant.core import HomeAssistant, Config
+from homeassistant.core import HomeAssistant
 from homeassistant.config_entries import ConfigEntry
+from homeassistant.helpers.typing import ConfigType
 import voluptuous as vol
 
 from .utils.const import (
@@ -24,7 +25,7 @@ CONFIG_SCHEMA = vol.Schema({DOMAIN: vol.Schema({})}, extra=vol.ALLOW_EXTRA)
 config_entry_update_listener_lock = Lock()
 
 
-async def async_setup(hass: HomeAssistant, config: Config):
+async def async_setup(hass: HomeAssistant, config: ConfigType):
     """Set up this integration using YAML is not supported."""
     hass.data[DOMAIN] = {}
     return True
