@@ -4,6 +4,7 @@ from homeassistant.helpers import device_registry as dr, entity_registry as er
 
 _LOGGER = logging.getLogger(__name__)
 
+
 def fix_local_calibration(self, entity_id, offset):
     return offset
 
@@ -17,7 +18,7 @@ async def override_set_hvac_mode(self, entity_id, hvac_mode):
 
 
 async def override_set_temperature(self, entity_id, temperature):
-    """Bosch room thermostat BTH-RM230Z has a quirk where it needs to set both high 
+    """Bosch room thermostat BTH-RM230Z has a quirk where it needs to set both high
     and low temperature, if heat and cool modes are available in newer Z2M versions.
     """
     model = self.real_trvs[entity_id]["model"]
@@ -38,7 +39,11 @@ async def override_set_temperature(self, entity_id, temperature):
             await self.hass.services.async_call(
                 "climate",
                 "set_temperature",
-                {"entity_id": entity_id, "target_temp_high": temperature, "target_temp_low": temperature}, 
+                {
+                    "entity_id": entity_id,
+                    "target_temp_high": temperature,
+                    "target_temp_low": temperature,
+                },
                 blocking=True,
                 context=self.context,
             )
