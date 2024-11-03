@@ -27,7 +27,6 @@ from custom_components.better_thermostat.utils.helpers import convert_to_float
 from custom_components.better_thermostat.utils.const import CalibrationMode
 
 
-
 _LOGGER = logging.getLogger(__name__)
 
 
@@ -285,7 +284,10 @@ async def control_trv(self, heater_entity_id=None):
                     )
 
         # set new valve position
-        if self.real_trvs[heater_entity_id]["valve_position_entity"] is not None and _new_hvac_mode != HVACMode.OFF:
+        if (
+            self.real_trvs[heater_entity_id]["valve_position_entity"] is not None
+            and _new_hvac_mode != HVACMode.OFF
+        ):
             _valve_position = heating_power_valve_position(self, heater_entity_id)
             await set_valve(self, heater_entity_id, _valve_position)
 
