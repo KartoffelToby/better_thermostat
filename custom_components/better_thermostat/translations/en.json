@@ -3,7 +3,7 @@
   "config": {
     "step": {
       "user": {
-        "description": "Setup your Better Thermostat to integrate with Home Assistant\n**If you need more info: https://better-thermostat.org/configuration#first-step** ",
+        "description": "Setup your Better Thermostat to integrate with Home Assistant\n**If you need more info: https://better-thermostat.org/configuration#first-step**",
         "data": {
           "name": "Name",
           "thermostat": "The real thermostat",
