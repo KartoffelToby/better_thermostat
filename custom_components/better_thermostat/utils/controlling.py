@@ -16,13 +16,11 @@ from custom_components.better_thermostat.adapters.delegate import (
     set_valve,
 )
 
-from .helpers import convert_to_float, calibration_round, heating_power_valve_position
+from .helpers import convert_to_float, heating_power_valve_position
 from custom_components.better_thermostat.events.trv import (
     convert_outbound_states,
     update_hvac_action,
 )
-
-from custom_components.better_thermostat.utils.helpers import convert_to_float
 
 from custom_components.better_thermostat.utils.const import CalibrationMode
 

@@ -2,7 +2,8 @@
   "domain": "better_thermostat",
   "name": "Better Thermostat",
   "after_dependencies": [
-    "climate"
+    "climate",
+    "zwave_js"
   ],
   "codeowners": [
     "@kartoffeltoby"
