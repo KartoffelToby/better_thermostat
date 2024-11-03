@@ -1,10 +1,10 @@
-from importlib import import_module
+from homeassistant.helpers.importlib import async_import_module
 import logging
 
 _LOGGER = logging.getLogger(__name__)
 
 
-def load_adapter(self, integration, entity_id, get_name=False):
+async def load_adapter(self, integration, entity_id, get_name=False):
     """Load adapter."""
     if get_name:
         self.name = "-"
@@ -13,9 +13,9 @@ def load_adapter(self, integration, entity_id, get_name=False):
         integration = "generic"
 
     try:
-        self.adapter = import_module(
+        self.adapter = await async_import_module(
+            self.hass,
             "custom_components.better_thermostat.adapters." + integration,
-            package="better_thermostat",
         )
         _LOGGER.debug(
             "better_thermostat %s: uses adapter %s for trv %s",
@@ -24,9 +24,9 @@ def load_adapter(self, integration, entity_id, get_name=False):
             entity_id,
         )
     except Exception:
-        self.adapter = import_module(
+        self.adapter = await async_import_module(
+            self.hass,
             "custom_components.better_thermostat.adapters.generic",
-            package="better_thermostat",
         )
         _LOGGER.info(
             "better_thermostat %s: integration: %s isn't native supported, feel free to open an issue, fallback adapter %s",
