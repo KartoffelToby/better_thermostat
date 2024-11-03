@@ -21,11 +21,11 @@ async def get_info(self, entity_id):
 async def init(self, entity_id):
     if (
         self.real_trvs[entity_id]["local_temperature_calibration_entity"] is None
-        and self.real_trvs[entity_id]["calibration"] == 0
+        and self.real_trvs[entity_id]["calibration"] != 1
     ):
-        self.real_trvs[entity_id][
-            "local_temperature_calibration_entity"
-        ] = await find_local_calibration_entity(self, entity_id)
+        self.real_trvs[entity_id]["local_temperature_calibration_entity"] = (
+            await find_local_calibration_entity(self, entity_id)
+        )
         _LOGGER.debug(
             "better_thermostat %s: uses local calibration entity %s",
             self.name,
@@ -119,13 +119,17 @@ async def set_temperature(self, entity_id, temperature):
 
 async def set_hvac_mode(self, entity_id, hvac_mode):
     """Set new target hvac mode."""
-    await self.hass.services.async_call(
-        "climate",
-        "set_hvac_mode",
-        {"entity_id": entity_id, "hvac_mode": hvac_mode},
-        blocking=True,
-        context=self.context,
-    )
+    _LOGGER.debug("better_thermostat %s: set_hvac_mode %s", self.name, hvac_mode)
+    try:
+        await self.hass.services.async_call(
+            "climate",
+            "set_hvac_mode",
+            {"entity_id": entity_id, "hvac_mode": hvac_mode},
+            blocking=True,
+            context=self.context,
+        )
+    except TypeError:
+        _LOGGER.debug("TypeError in set_hvac_mode")
 
 
 async def set_offset(self, entity_id, offset):

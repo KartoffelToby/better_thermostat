@@ -1,17 +1,20 @@
 """The better_thermostat component."""
+
 import logging
+from asyncio import Lock
 from homeassistant.const import Platform
-from homeassistant.core import HomeAssistant, Config
+from homeassistant.core import HomeAssistant
 from homeassistant.config_entries import ConfigEntry
+from homeassistant.helpers.typing import ConfigType
 import voluptuous as vol
 
-from .const import (
-    CONF_FIX_CALIBRATION,
+from .utils.const import (
     CONF_CALIBRATION_MODE,
     CONF_HEATER,
     CONF_NO_SYSTEM_MODE_OFF,
     CONF_WINDOW_TIMEOUT,
     CONF_WINDOW_TIMEOUT_AFTER,
+    CalibrationMode,
 )
 
 _LOGGER = logging.getLogger(__name__)
@@ -19,8 +22,10 @@ DOMAIN = "better_thermostat"
 PLATFORMS = [Platform.CLIMATE]
 CONFIG_SCHEMA = vol.Schema({DOMAIN: vol.Schema({})}, extra=vol.ALLOW_EXTRA)
 
+config_entry_update_listener_lock = Lock()
 
-async def async_setup(hass: HomeAssistant, config: Config):
+
+async def async_setup(hass: HomeAssistant, config: ConfigType):
     """Set up this integration using YAML is not supported."""
     hass.data[DOMAIN] = {}
     return True
@@ -35,9 +40,8 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
 async def config_entry_update_listener(hass: HomeAssistant, entry: ConfigEntry) -> None:
     """Handle options update."""
-    await hass.config_entries.async_reload(entry.entry_id)
-    await async_unload_entry(hass, entry)
-    await async_setup_entry(hass, entry)
+    async with config_entry_update_listener_lock:
+        await hass.config_entries.async_reload(entry.entry_id)
 
 
 async def async_unload_entry(hass, entry):
@@ -57,7 +61,7 @@ async def async_migrate_entry(hass, config_entry: ConfigEntry):
     if config_entry.version == 1:
         new = {**config_entry.data}
         for trv in new[CONF_HEATER]:
-            trv["advanced"].update({CONF_FIX_CALIBRATION: False})
+            trv["advanced"].update({CalibrationMode.AGGRESIVE_CALIBRATION: False})
         config_entry.version = 2
         hass.config_entries.async_update_entry(config_entry, data=new)
 
@@ -71,12 +75,14 @@ async def async_migrate_entry(hass, config_entry: ConfigEntry):
         new = {**config_entry.data}
         for trv in new[CONF_HEATER]:
             if (
-                CONF_FIX_CALIBRATION in trv["advanced"]
-                and trv["advanced"][CONF_FIX_CALIBRATION]
+                CalibrationMode.AGGRESIVE_CALIBRATION in trv["advanced"]
+                and trv["advanced"][CalibrationMode.AGGRESIVE_CALIBRATION]
             ):
-                trv["advanced"].update({CONF_CALIBRATION_MODE: CONF_FIX_CALIBRATION})
+                trv["advanced"].update(
+                    {CONF_CALIBRATION_MODE: CalibrationMode.AGGRESIVE_CALIBRATION}
+                )
             else:
-                trv["advanced"].update({CONF_CALIBRATION_MODE: "default"})
+                trv["advanced"].update({CONF_CALIBRATION_MODE: CalibrationMode.DEFAULT})
         config_entry.version = 4
         hass.config_entries.async_update_entry(config_entry, data=new)
 

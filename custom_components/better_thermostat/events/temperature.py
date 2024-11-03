@@ -1,6 +1,6 @@
 import logging
 
-from custom_components.better_thermostat.const import CONF_HOMATICIP
+from custom_components.better_thermostat.utils.const import CONF_HOMATICIP
 from ..utils.helpers import convert_to_float
 from datetime import datetime
 

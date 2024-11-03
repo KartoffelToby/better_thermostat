@@ -3,9 +3,9 @@ repos:
     rev: v2.37.3
     hooks:
       - id: pyupgrade
-        args: [--py39-plus]
+        args: [--py311-plus]
   - repo: https://github.com/psf/black
-    rev: 22.6.0
+    rev: 24.1.1
     hooks:
       - id: black
         args:
@@ -14,7 +14,7 @@ repos:
           - --verbose 
           - --skip-magic-trailing-comma 
           - --target-version
-          - py310
+          - py312
         files: ''
   - repo: https://github.com/PyCQA/flake8
     rev: 4.0.1

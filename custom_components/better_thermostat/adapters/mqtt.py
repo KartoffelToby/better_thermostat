@@ -29,11 +29,11 @@ async def get_info(self, entity_id):
 async def init(self, entity_id):
     if (
         self.real_trvs[entity_id]["local_temperature_calibration_entity"] is None
-        and self.real_trvs[entity_id]["calibration"] == 0
+        and self.real_trvs[entity_id]["calibration"] != 1
     ):
-        self.real_trvs[entity_id][
-            "local_temperature_calibration_entity"
-        ] = await find_local_calibration_entity(self, entity_id)
+        self.real_trvs[entity_id]["local_temperature_calibration_entity"] = (
+            await find_local_calibration_entity(self, entity_id)
+        )
         _LOGGER.debug(
             "better_thermostat %s: uses local calibration entity %s",
             self.name,

@@ -1,23 +1,32 @@
 import asyncio
 import logging
 
-from custom_components.better_thermostat.utils.model_quirks import (
+from homeassistant.components.climate.const import HVACMode
+
+from custom_components.better_thermostat.model_fixes.model_quirks import (
     override_set_hvac_mode,
     override_set_temperature,
 )
 
-from .bridge import (
+from custom_components.better_thermostat.adapters.delegate import (
     set_offset,
     get_current_offset,
-    get_offset_steps,
     set_temperature,
     set_hvac_mode,
     set_valve,
 )
-from ..events.trv import convert_outbound_states, update_hvac_action
-from homeassistant.components.climate.const import HVACMode
 
 from .helpers import convert_to_float, calibration_round, heating_power_valve_position
+from custom_components.better_thermostat.events.trv import (
+    convert_outbound_states,
+    update_hvac_action,
+)
+
+from custom_components.better_thermostat.utils.helpers import convert_to_float
+
+from custom_components.better_thermostat.utils.const import CalibrationMode
+
+
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -83,7 +92,7 @@ async def control_trv(self, heater_entity_id=None):
     """
     async with self._temp_lock:
         self.real_trvs[heater_entity_id]["ignore_trv_states"] = True
-        update_hvac_action(self)
+        await update_hvac_action(self)
         await self.calculate_heating_power()
         _trv = self.hass.states.get(heater_entity_id)
         _current_set_temperature = convert_to_float(
@@ -104,8 +113,75 @@ async def control_trv(self, heater_entity_id=None):
 
         _temperature = _remapped_states.get("temperature", None)
         _calibration = _remapped_states.get("local_temperature_calibration", None)
+        _calibration_mode = self.real_trvs[heater_entity_id]["advanced"].get(
+            "calibration_mode", CalibrationMode.DEFAULT
+        )
 
         _new_hvac_mode = handle_window_open(self, _remapped_states)
+
+        # New cooler section
+        if self.cooler_entity_id is not None:
+            if (
+                self.cur_temp >= self.bt_target_cooltemp - self.tolerance
+                and _new_hvac_mode is not HVACMode.OFF
+                and self.cur_temp > self.bt_target_temp
+            ):
+                await self.hass.services.async_call(
+                    "climate",
+                    "set_temperature",
+                    {
+                        "entity_id": self.cooler_entity_id,
+                        "temperature": self.bt_target_cooltemp,
+                    },
+                    blocking=True,
+                    context=self.context,
+                )
+                await self.hass.services.async_call(
+                    "climate",
+                    "set_hvac_mode",
+                    {"entity_id": self.cooler_entity_id, "hvac_mode": HVACMode.COOL},
+                    blocking=True,
+                    context=self.context,
+                )
+            elif (
+                self.cur_temp < self.bt_target_cooltemp - self.tolerance
+                and _new_hvac_mode is not HVACMode.OFF
+            ):
+                await self.hass.services.async_call(
+                    "climate",
+                    "set_temperature",
+                    {
+                        "entity_id": self.cooler_entity_id,
+                        "temperature": self.bt_target_cooltemp,
+                    },
+                    blocking=True,
+                    context=self.context,
+                )
+                await self.hass.services.async_call(
+                    "climate",
+                    "set_hvac_mode",
+                    {"entity_id": self.cooler_entity_id, "hvac_mode": HVACMode.OFF},
+                    blocking=True,
+                    context=self.context,
+                )
+            else:
+                await self.hass.services.async_call(
+                    "climate",
+                    "set_temperature",
+                    {
+                        "entity_id": self.cooler_entity_id,
+                        "temperature": self.bt_target_cooltemp,
+                    },
+                    blocking=True,
+                    context=self.context,
+                )
+                await self.hass.services.async_call(
+                    "climate",
+                    "set_hvac_mode",
+                    {"entity_id": self.cooler_entity_id, "hvac_mode": HVACMode.OFF},
+                    blocking=True,
+                    context=self.context,
+                )
 
         # if we don't need ot heat, we force HVACMode to be off
         if self.call_for_heat is False:
@@ -150,10 +226,14 @@ async def control_trv(self, heater_entity_id=None):
                 asyncio.create_task(check_system_mode(self, heater_entity_id))
 
         # set new calibration offset
-        if _calibration is not None and _new_hvac_mode != HVACMode.OFF:
-            old_calibration = await get_current_offset(self, heater_entity_id)
-            step_calibration = await get_offset_steps(self, heater_entity_id)
-            if old_calibration is None or step_calibration is None:
+        if (
+            _calibration is not None
+            and _new_hvac_mode != HVACMode.OFF
+            and _calibration_mode != CalibrationMode.NO_CALIBRATION
+        ):
+            _current_calibration_s = await get_current_offset(self, heater_entity_id)
+
+            if _current_calibration_s is None:
                 _LOGGER.error(
                     "better_thermostat %s: calibration fatal error %s",
                     self.name,
@@ -163,34 +243,29 @@ async def control_trv(self, heater_entity_id=None):
                 self.ignore_states = False
                 self.real_trvs[heater_entity_id]["ignore_trv_states"] = False
                 return True
-            current_calibration = convert_to_float(
-                str(old_calibration), self.name, "controlling()"
-            )
-            if step_calibration.is_integer():
-                _calibration = calibration_round(
-                    float(str(format(float(_calibration), ".1f")))
-                )
-            else:
-                _calibration = float(str(format(float(_calibration), ".1f")))
 
-            old = self.real_trvs[heater_entity_id].get(
-                "last_calibration", current_calibration
+            _current_calibration = convert_to_float(
+                str(_current_calibration_s), self.name, "controlling()"
+            )
+
+            _calibration = float(str(_calibration))
+
+            _old_calibration = self.real_trvs[heater_entity_id].get(
+                "last_calibration", _current_calibration
             )
 
             if self.real_trvs[heater_entity_id][
                 "calibration_received"
-            ] is True and float(old) != float(_calibration):
+            ] is True and float(_old_calibration) != float(_calibration):
                 _LOGGER.debug(
-                    f"better_thermostat {self.name}: TO TRV set_local_temperature_calibration: {heater_entity_id} from: {old} to: {_calibration}"
+                    f"better_thermostat {self.name}: TO TRV set_local_temperature_calibration: {heater_entity_id} from: {_old_calibration} to: {_calibration}"
                 )
                 await set_offset(self, heater_entity_id, _calibration)
                 self.real_trvs[heater_entity_id]["calibration_received"] = False
 
         # set new target temperature
-        if (
-            _temperature is not None
-            and _new_hvac_mode != HVACMode.OFF
-            or _no_off_system_mode
+        if _temperature is not None and (
+            _new_hvac_mode != HVACMode.OFF or _no_off_system_mode
         ):
             if _temperature != _current_set_temperature:
                 old = self.real_trvs[heater_entity_id].get("last_temperature", "?")
@@ -288,7 +363,7 @@ async def check_target_temperature(self, heater_entity_id=None):
         ):
             _timeout = 0
             break
-        if _timeout > 120:
+        if _timeout > 360:
             _LOGGER.debug(
                 f"better_thermostat {self.name}: {heater_entity_id} the real TRV did not respond to the target temperature change"
             )

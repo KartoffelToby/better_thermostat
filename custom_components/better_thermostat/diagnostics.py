@@ -1,12 +1,13 @@
 """Diagnostics support for Brother."""
+
 from __future__ import annotations
 
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 
-from .utils.bridge import load_adapter
+from .adapters.delegate import load_adapter
 
-from .const import CONF_HEATER, CONF_SENSOR, CONF_SENSOR_WINDOW
+from .utils.const import CONF_HEATER, CONF_SENSOR, CONF_SENSOR_WINDOW
 
 
 async def async_get_config_entry_diagnostics(
@@ -18,7 +19,9 @@ async def async_get_config_entry_diagnostics(
         trv = hass.states.get(trv_id["trv"])
         if trv is None:
             continue
-        _adapter_name = load_adapter(hass, trv_id["integration"], trv_id["trv"], True)
+        _adapter_name = await load_adapter(
+            hass, trv_id["integration"], trv_id["trv"], True
+        )
         trv_id["adapter"] = _adapter_name
         trvs[trv_id["trv"]] = {
             "name": trv.name,

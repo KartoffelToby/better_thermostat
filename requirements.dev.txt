@@ -1,4 +1,4 @@
-homeassistant==2023.9.2
+homeassistant==2024.2.1
 pre-commit==2.15.0
 black==23.9.1
 codespell==2.2.2

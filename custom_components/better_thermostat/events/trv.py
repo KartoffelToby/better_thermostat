@@ -1,8 +1,7 @@
 import asyncio
 from datetime import datetime
 import logging
-from typing import Union
-from custom_components.better_thermostat.const import CONF_HOMATICIP
+from custom_components.better_thermostat.utils.const import CONF_HOMATICIP
 
 from homeassistant.components.climate.const import (
     HVACMode,
@@ -11,14 +10,21 @@ from homeassistant.components.climate.const import (
 )
 from homeassistant.core import State, callback
 from homeassistant.components.group.util import find_state_attributes
-from ..utils.helpers import (
-    calculate_local_setpoint_delta,
-    calculate_setpoint_override,
+from custom_components.better_thermostat.utils.helpers import (
     convert_to_float,
     mode_remap,
-    round_to_half_degree,
 )
-from custom_components.better_thermostat.utils.bridge import get_current_offset
+from custom_components.better_thermostat.adapters.delegate import get_current_offset
+
+from custom_components.better_thermostat.utils.const import (
+    CalibrationType,
+    CalibrationMode,
+)
+
+from custom_components.better_thermostat.calibration import (
+    calculate_calibration_local,
+    calculate_calibration_setpoint,
+)
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -29,6 +35,8 @@ async def trigger_trv_change(self, event):
     if self.startup_running:
         return
     if self.control_queue_task is None:
+        return
+    if self.bt_target_temp is None or self.cur_temp is None or self.tolerance is None:
         return
     asyncio.create_task(update_hvac_action(self))
     _main_change = False
@@ -53,7 +61,7 @@ async def trigger_trv_change(self, event):
     if self.context == event.context:
         return
 
-    _LOGGER.debug(f"better_thermostat {self.name}: TRV {entity_id} update received")
+    # _LOGGER.debug(f"better_thermostat {self.name}: TRV {entity_id} update received")
 
     _org_trv_state = self.hass.states.get(entity_id)
     child_lock = self.real_trvs[entity_id]["advanced"].get("child_lock")
@@ -79,7 +87,7 @@ async def trigger_trv_change(self, event):
             > _time_diff
             or (
                 self.real_trvs[entity_id]["calibration_received"] is False
-                and self.real_trvs[entity_id]["calibration"] == 0
+                and self.real_trvs[entity_id]["calibration"] != 1
             )
         )
     ):
@@ -98,12 +106,10 @@ async def trigger_trv_change(self, event):
                 f"better_thermostat {self.name}: calibration accepted by TRV {entity_id}"
             )
             _main_change = False
-            self.old_internal_temp = self.real_trvs[entity_id]["current_temperature"]
-            self.old_external_temp = self.cur_temp
             if self.real_trvs[entity_id]["calibration"] == 0:
-                self.real_trvs[entity_id][
-                    "last_calibration"
-                ] = await get_current_offset(self, entity_id)
+                self.real_trvs[entity_id]["last_calibration"] = (
+                    await get_current_offset(self, entity_id)
+                )
 
     if self.ignore_states:
         return
@@ -116,7 +122,7 @@ async def trigger_trv_change(self, event):
         )
         return
 
-    if mapped_state in (HVACMode.OFF, HVACMode.HEAT):
+    if mapped_state in (HVACMode.OFF, HVACMode.HEAT, HVACMode.HEAT_COOL):
         if (
             self.real_trvs[entity_id]["hvac_mode"] != _org_trv_state.state
             and not child_lock
@@ -134,13 +140,17 @@ async def trigger_trv_change(self, event):
             ):
                 self.bt_hvac_mode = mapped_state
 
+    _main_key = "temperature"
+    if "temperature" not in old_state.attributes:
+        _main_key = "target_temp_high"
+
     _old_heating_setpoint = convert_to_float(
-        str(old_state.attributes.get("temperature", None)),
+        str(old_state.attributes.get(_main_key, None)),
         self.name,
         "trigger_trv_change()",
     )
     _new_heating_setpoint = convert_to_float(
-        str(new_state.attributes.get("temperature", None)),
+        str(new_state.attributes.get(_main_key, None)),
         self.name,
         "trigger_trv_change()",
     )
@@ -150,7 +160,7 @@ async def trigger_trv_change(self, event):
         and self.bt_hvac_mode is not HVACMode.OFF
     ):
         _LOGGER.debug(
-            f"better_thermostat {self.name}: trigger_trv_change / _old_heating_setpoint: {_old_heating_setpoint} - _new_heating_setpoint: {_new_heating_setpoint} - _last_temperature: {self.real_trvs[entity_id]['last_temperature']}"
+            f"better_thermostat {self.name}: trigger_trv_change test / _old_heating_setpoint: {_old_heating_setpoint} - _new_heating_setpoint: {_new_heating_setpoint} - _last_temperature: {self.real_trvs[entity_id]['last_temperature']}"
         )
         if (
             _new_heating_setpoint < self.bt_min_temp
@@ -179,6 +189,16 @@ async def trigger_trv_change(self, event):
                 f"better_thermostat {self.name}: TRV {entity_id} decoded TRV target temp changed from {self.bt_target_temp} to {_new_heating_setpoint}"
             )
             self.bt_target_temp = _new_heating_setpoint
+            if self.cooler_entity_id is not None:
+                if self.bt_target_temp <= self.bt_target_cooltemp:
+                    self.bt_target_cooltemp = (
+                        self.bt_target_temp - self.bt_target_temp_step
+                    )
+                if self.bt_target_temp >= self.bt_target_cooltemp:
+                    self.bt_target_cooltemp = (
+                        self.bt_target_temp - self.bt_target_temp_step
+                    )
+
             _main_change = True
 
         if self.real_trvs[entity_id]["advanced"].get("no_off_system_mode", False):
@@ -196,6 +216,9 @@ async def trigger_trv_change(self, event):
 
 
 async def update_hvac_action(self):
+    self.bt_target_temp = 5.0 if self.bt_target_temp is None else self.bt_target_temp
+    self.cur_temp = 5.0 if self.cur_temp is None else self.cur_temp
+    self.tolerance = 0.0 if self.tolerance is None else self.tolerance
     """Update the hvac action."""
     if self.startup_running or self.control_queue_task is None:
         return
@@ -276,7 +299,7 @@ def convert_inbound_states(self, entity_id, state: State) -> str:
     return remapped_state
 
 
-def convert_outbound_states(self, entity_id, hvac_mode) -> Union[dict, None]:
+def convert_outbound_states(self, entity_id, hvac_mode) -> dict | None:
     """Creates the new outbound thermostat state.
     Parameters
     ----------
@@ -300,7 +323,10 @@ def convert_outbound_states(self, entity_id, hvac_mode) -> Union[dict, None]:
     _new_heating_setpoint = None
 
     try:
-        _calibration_type = self.real_trvs[entity_id].get("calibration", 1)
+        _calibration_type = self.real_trvs[entity_id]["advanced"].get("calibration")
+        _calibration_mode = self.real_trvs[entity_id]["advanced"].get(
+            "calibration_mode"
+        )
 
         if _calibration_type is None:
             _LOGGER.warning(
@@ -308,52 +334,24 @@ def convert_outbound_states(self, entity_id, hvac_mode) -> Union[dict, None]:
                 self.name,
             )
             _new_heating_setpoint = self.bt_target_temp
-            _new_local_calibration = round_to_half_degree(
-                calculate_local_setpoint_delta(self, entity_id)
-            )
+            _new_local_calibration = calculate_calibration_local(self, entity_id)
+
             if _new_local_calibration is None:
                 return None
 
         else:
-            if _calibration_type == 0:
-                _round_calibration = self.real_trvs[entity_id]["advanced"].get(
-                    "calibration_round"
-                )
-
-                if _round_calibration is not None and (
-                    (
-                        isinstance(_round_calibration, str)
-                        and _round_calibration.lower() == "true"
-                    )
-                    or _round_calibration is True
-                ):
-                    _new_local_calibration = round_to_half_degree(
-                        calculate_local_setpoint_delta(self, entity_id)
-                    )
-                else:
-                    _new_local_calibration = calculate_local_setpoint_delta(
-                        self, entity_id
-                    )
+            if _calibration_type == CalibrationType.LOCAL_BASED:
+                _new_local_calibration = calculate_calibration_local(self, entity_id)
 
                 _new_heating_setpoint = self.bt_target_temp
 
-            elif _calibration_type == 1:
-                _round_calibration = self.real_trvs[entity_id]["advanced"].get(
-                    "calibration_round"
-                )
-
-                if _round_calibration is not None and (
-                    (
-                        isinstance(_round_calibration, str)
-                        and _round_calibration.lower() == "true"
-                    )
-                    or _round_calibration is True
-                ):
-                    _new_heating_setpoint = round_to_half_degree(
-                        calculate_setpoint_override(self, entity_id)
-                    )
+            elif _calibration_type == CalibrationType.TARGET_TEMP_BASED:
+                if _calibration_mode == CalibrationMode.NO_CALIBRATION:
+                    _new_heating_setpoint = self.bt_target_temp
                 else:
-                    _new_heating_setpoint = calculate_setpoint_override(self, entity_id)
+                    _new_heating_setpoint = calculate_calibration_setpoint(
+                        self, entity_id
+                    )
 
             _system_modes = self.real_trvs[entity_id]["hvac_modes"]
             _has_system_mode = False

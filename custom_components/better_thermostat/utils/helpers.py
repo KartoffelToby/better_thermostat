@@ -1,4 +1,5 @@
 """Helper functions for the Better Thermostat component."""
+
 import re
 import logging
 from datetime import datetime
@@ -9,26 +10,20 @@ from homeassistant.helpers.entity_registry import (
     async_entries_for_device,
 )
 
-from homeassistant.components.climate.const import (
-    HVACMode,
-    HVACAction,
-)
+from homeassistant.components.climate.const import HVACMode
 
-from custom_components.better_thermostat.utils.model_quirks import (
-    fix_local_calibration,
-    fix_target_temperature_calibration,
-)
-
-
-from ..const import (
-    CONF_HEAT_AUTO_SWAPPED,
-    CONF_HEATING_POWER_CALIBRATION,
-    CONF_FIX_CALIBRATION,
-    CONF_PROTECT_OVERHEATING,
-)
+from custom_components.better_thermostat.utils.const import CONF_HEAT_AUTO_SWAPPED
 
 
 _LOGGER = logging.getLogger(__name__)
+
+
+def get_hvac_bt_mode(self, mode: str) -> str:
+    if mode == HVACMode.HEAT:
+        mode = self.map_on_hvac_mode
+    elif mode == HVACMode.HEAT_COOL:
+        mode = HVACMode.HEAT
+    return mode
 
 
 def mode_remap(self, entity_id, hvac_mode: str, inbound: bool = False) -> str:
@@ -68,206 +63,6 @@ def mode_remap(self, entity_id, hvac_mode: str, inbound: bool = False) -> str:
                 f"better_thermostat {self.name}: {entity_id} HVAC mode {hvac_mode} is not supported by this device, is it possible that you forgot to set the heat auto swapped option?"
             )
             return HVACMode.OFF
-
-
-def calculate_local_setpoint_delta(self, entity_id) -> Union[float, None]:
-    """Calculate local delta to adjust the setpoint of the TRV based on the air temperature of the external sensor.
-
-    This calibration is for devices with local calibration option, it syncs the current temperature of the TRV to the target temperature of
-    the external sensor.
-
-    Parameters
-    ----------
-    self :
-            self instance of better_thermostat
-
-    Returns
-    -------
-    float
-            new local calibration delta
-    """
-    _context = "calculate_local_setpoint_delta()"
-
-    if None in (self.cur_temp, self.bt_target_temp, self.old_internal_temp):
-        return None
-
-    # check if we need to calculate
-    if (
-        self.real_trvs[entity_id]["current_temperature"] == self.old_internal_temp
-        and self.cur_temp == self.old_external_temp
-    ):
-        return None
-
-    _cur_trv_temp = convert_to_float(
-        str(self.real_trvs[entity_id]["current_temperature"]), self.name, _context
-    )
-
-    _calibration_delta = float(
-        str(format(float(abs(_cur_trv_temp - self.cur_temp)), ".1f"))
-    )
-
-    if _calibration_delta <= 0.5:
-        return None
-
-    self.old_internal_temp = self.real_trvs[entity_id]["current_temperature"]
-    self.old_external_temp = self.cur_temp
-
-    _current_trv_calibration = round_to_half_degree(
-        convert_to_float(
-            str(self.real_trvs[entity_id]["last_calibration"]), self.name, _context
-        )
-    )
-
-    if None in (_current_trv_calibration, self.cur_temp, _cur_trv_temp):
-        _LOGGER.warning(
-            f"better thermostat {self.name}: {entity_id} Could not calculate local setpoint delta in {_context}:"
-            f" current_trv_calibration: {_current_trv_calibration}, current_trv_temp: {_cur_trv_temp}, cur_temp: {self.cur_temp}"
-        )
-        return None
-
-    _new_local_calibration = (self.cur_temp - _cur_trv_temp) + _current_trv_calibration
-
-    _calibration_mode = self.real_trvs[entity_id]["advanced"].get(
-        "calibration_mode", "default"
-    )
-    if _calibration_mode == CONF_FIX_CALIBRATION:
-        # _temp_diff = float(float(self.bt_target_temp) - float(self.cur_temp))
-        # if _temp_diff > 0.30 and _new_local_calibration > -2.5:
-        #     _new_local_calibration -= 2.5
-        if self.attr_hvac_action == HVACAction.HEATING:
-            if _new_local_calibration > -2.5:
-                _new_local_calibration -= 2.5
-
-    elif _calibration_mode == CONF_HEATING_POWER_CALIBRATION:
-        # _temp_diff = float(float(self.bt_target_temp) - float(self.cur_temp))
-        # if _temp_diff > 0.0:
-        #     valve_position = heating_power_valve_position(self, entity_id)
-        #     _new_local_calibration = _current_trv_calibration - (
-        #         (self.real_trvs[entity_id]["local_calibration_min"] + _cur_trv_temp)
-        #         * valve_position
-        #     )
-        if self.attr_hvac_action == HVACAction.HEATING:
-            # if _temp_diff > 0.0:
-            valve_position = heating_power_valve_position(self, entity_id)
-            _new_local_calibration = _current_trv_calibration - (
-                (self.real_trvs[entity_id]["local_calibration_min"] + _cur_trv_temp)
-                * valve_position
-            )
-        elif self.attr_hvac_action == HVACAction.IDLE:
-            if _new_local_calibration < 0.0:
-                _new_local_calibration += self.tolerance
-
-    _new_local_calibration = fix_local_calibration(
-        self, entity_id, _new_local_calibration
-    )
-
-    _overheating_protection = self.real_trvs[entity_id]["advanced"].get(
-        CONF_PROTECT_OVERHEATING, False
-    )
-
-    if _overheating_protection is True:
-        if self.cur_temp >= self.bt_target_temp:
-            _new_local_calibration += (self.cur_temp - self.bt_target_temp) * 10.0
-
-    _new_local_calibration = round_down_to_half_degree(_new_local_calibration)
-
-    if _new_local_calibration > float(
-        self.real_trvs[entity_id]["local_calibration_max"]
-    ):
-        _new_local_calibration = float(
-            self.real_trvs[entity_id]["local_calibration_max"]
-        )
-    elif _new_local_calibration < float(
-        self.real_trvs[entity_id]["local_calibration_min"]
-    ):
-        _new_local_calibration = float(
-            self.real_trvs[entity_id]["local_calibration_min"]
-        )
-
-    _new_local_calibration = convert_to_float(
-        str(_new_local_calibration), self.name, _context
-    )
-
-    _LOGGER.debug(
-        "better_thermostat %s: %s - output calib: %s",
-        self.name,
-        entity_id,
-        _new_local_calibration,
-    )
-
-    return convert_to_float(str(_new_local_calibration), self.name, _context)
-
-
-def calculate_setpoint_override(self, entity_id) -> Union[float, None]:
-    """Calculate new setpoint for the TRV based on its own temperature measurement and the air temperature of the external sensor.
-
-    This calibration is for devices with no local calibration option, it syncs the target temperature of the TRV to a new target
-    temperature based on the current temperature of the external sensor.
-
-    Parameters
-    ----------
-    self :
-            self instance of better_thermostat
-
-    Returns
-    -------
-    float
-            new target temp with calibration
-    """
-    if None in (self.cur_temp, self.bt_target_temp):
-        return None
-
-    _cur_trv_temp = self.hass.states.get(entity_id).attributes["current_temperature"]
-    if None in (self.bt_target_temp, self.cur_temp, _cur_trv_temp):
-        return None
-
-    _calibrated_setpoint = (self.bt_target_temp - self.cur_temp) + _cur_trv_temp
-
-    _calibration_mode = self.real_trvs[entity_id]["advanced"].get(
-        "calibration_mode", "default"
-    )
-    if _calibration_mode == CONF_FIX_CALIBRATION:
-        # _temp_diff = float(float(self.bt_target_temp) - float(self.cur_temp))
-        if self.attr_hvac_action == HVACAction.HEATING:
-            if _calibrated_setpoint - _cur_trv_temp < 2.5:
-                _calibrated_setpoint += 2.5
-        elif self.attr_hvac_action == HVACAction.IDLE:
-            if _calibrated_setpoint - _cur_trv_temp > 0.0:
-                _calibrated_setpoint -= self.tolerance
-
-    elif _calibration_mode == CONF_HEATING_POWER_CALIBRATION:
-        # _temp_diff = float(float(self.bt_target_temp) - float(self.cur_temp))
-        if self.attr_hvac_action == HVACAction.HEATING:
-            # if _temp_diff > 0.0:
-            valve_position = heating_power_valve_position(self, entity_id)
-            _calibrated_setpoint = _cur_trv_temp + (
-                (self.real_trvs[entity_id]["max_temp"] - _cur_trv_temp) * valve_position
-            )
-        elif self.attr_hvac_action == HVACAction.IDLE:
-            if _calibrated_setpoint - _cur_trv_temp > 0.0:
-                _calibrated_setpoint -= self.tolerance
-
-    _calibrated_setpoint = fix_target_temperature_calibration(
-        self, entity_id, _calibrated_setpoint
-    )
-
-    _overheating_protection = self.real_trvs[entity_id]["advanced"].get(
-        CONF_PROTECT_OVERHEATING, False
-    )
-
-    if _overheating_protection is True:
-        if self.cur_temp >= self.bt_target_temp:
-            _calibrated_setpoint -= (self.cur_temp - self.bt_target_temp) * 10.0
-
-    _calibrated_setpoint = round_down_to_half_degree(_calibrated_setpoint)
-
-    # check if new setpoint is inside the TRV's range, else set to min or max
-    if _calibrated_setpoint < self.real_trvs[entity_id]["min_temp"]:
-        _calibrated_setpoint = self.real_trvs[entity_id]["min_temp"]
-    if _calibrated_setpoint > self.real_trvs[entity_id]["max_temp"]:
-        _calibrated_setpoint = self.real_trvs[entity_id]["max_temp"]
-
-    return _calibrated_setpoint
 
 
 def heating_power_valve_position(self, entity_id):
@@ -340,6 +135,33 @@ def calibration_round(value: Union[int, float, None]) -> Union[float, int, None]
         return float(str(split[0])) + 1.0
     else:
         return float(str(split[0]))
+
+
+def round_by_steps(
+    value: Union[int, float, None], steps: Union[int, float, None]
+) -> Union[float, int, None]:
+    """Round the value based on the allowed decimal 'steps'.
+
+    Parameters
+    ----------
+    value : float
+            the value to round
+
+    Returns
+    -------
+    float
+            the rounded value
+    """
+    if value is None:
+        return None
+    split = str(float(str(steps))).split(".", 1)
+    decimals = len(split[1])
+
+    value_f = float(str(value))
+    steps_f = float(str(steps))
+    value_mod = value_f - (value_f % steps_f)
+
+    return round(value_mod, decimals)
 
 
 def round_down_to_half_degree(

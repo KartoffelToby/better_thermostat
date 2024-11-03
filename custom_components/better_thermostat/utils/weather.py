@@ -17,7 +17,7 @@ from statistics import median
 _LOGGER = logging.getLogger(__name__)
 
 
-def check_weather(self) -> bool:
+async def check_weather(self) -> bool:
     """check weather predictions or ambient air temperature if available
 
     Parameters
@@ -37,7 +37,7 @@ def check_weather(self) -> bool:
     self.call_for_heat = True
 
     if self.weather_entity is not None:
-        _call_for_heat_weather = check_weather_prediction(self)
+        _call_for_heat_weather = await check_weather_prediction(self)
         self.call_for_heat = _call_for_heat_weather
 
     if self.outdoor_sensor is not None:
@@ -63,7 +63,7 @@ def check_weather(self) -> bool:
         return False
 
 
-def check_weather_prediction(self) -> bool:
+async def check_weather_prediction(self) -> bool:
     """Checks configured weather entity for next two days of temperature predictions.
 
     Returns
@@ -84,7 +84,14 @@ def check_weather_prediction(self) -> bool:
         return None
 
     try:
-        forecast = self.hass.states.get(self.weather_entity).attributes.get("forecast")
+        forecasts = await self.hass.services.async_call(
+            "weather",
+            "get_forecasts",
+            {"type": "daily", "entity_id": self.weather_entity},
+            blocking=True,
+            return_response=True,
+        )
+        forecast = forecasts.get(self.weather_entity).get("forecast")
         if len(forecast) > 0:
             cur_outside_temp = convert_to_float(
                 str(
@@ -170,10 +177,10 @@ async def check_ambient_air_temperature(self):
         )
 
         for item in history_list.get(lower_entity_id):
-            # filter out all None, NaN and "unknown" states
+            # filter out all None, NaN, "unknown" and "unavailable" states.
             # only keep real values
             with suppress(ValueError):
-                if item.state != "unknown":
+                if item.state not in ("unknown", "unavailable"):
                     _temp_history.add_measurement(
                         convert_to_float(
                             item.state, self.name, "check_ambient_air_temperature()"

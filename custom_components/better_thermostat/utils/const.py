@@ -1,7 +1,8 @@
 """"""
+
+import os
 import json
-from enum import IntEnum
-from homeassistant.backports.enum import StrEnum
+from enum import IntEnum, StrEnum
 
 import logging
 import voluptuous as vol
@@ -9,7 +10,7 @@ import homeassistant.helpers.config_validation as cv
 from homeassistant.helpers.config_validation import (  # noqa: F401
     make_entity_service_schema,
 )
-from homeassistant.components.climate.const import SUPPORT_TARGET_TEMPERATURE
+from homeassistant.components.climate.const import ClimateEntityFeature
 from homeassistant.const import ATTR_TEMPERATURE
 
 _LOGGER = logging.getLogger(__name__)
@@ -18,7 +19,9 @@ _LOGGER = logging.getLogger(__name__)
 DEFAULT_NAME = "Better Thermostat"
 VERSION = "master"
 try:
-    with open("custom_components/better_thermostat/manifest.json") as manifest_file:
+    with open(
+        f"{os.path.dirname(os.path.realpath(__file__))}/../manifest.json"
+    ) as manifest_file:
         manifest = json.load(manifest_file)
         VERSION = manifest["version"]
 except (FileNotFoundError, KeyError, json.JSONDecodeError) as e:
@@ -26,6 +29,7 @@ except (FileNotFoundError, KeyError, json.JSONDecodeError) as e:
 
 
 CONF_HEATER = "thermostat"
+CONF_COOLER = "cooler"
 CONF_SENSOR = "temperature_sensor"
 CONF_HUMIDITY = "humidity_sensor"
 CONF_SENSOR_WINDOW = "window_sensors"
@@ -43,16 +47,18 @@ CONF_CALIBRATION = "calibration"
 CONF_CHILD_LOCK = "child_lock"
 CONF_PROTECT_OVERHEATING = "protect_overheating"
 CONF_CALIBRATION_MODE = "calibration_mode"
-CONF_FIX_CALIBRATION = "fix_calibration"
-CONF_HEATING_POWER_CALIBRATION = "heating_power_calibration"
-CONF_NO_CALIBRATION = "no_calibration"
 CONF_HEAT_AUTO_SWAPPED = "heat_auto_swapped"
 CONF_MODEL = "model"
 CONF_HOMATICIP = "homaticip"
 CONF_INTEGRATION = "integration"
 CONF_NO_SYSTEM_MODE_OFF = "no_off_system_mode"
 CONF_TOLERANCE = "tolerance"
-SUPPORT_FLAGS = SUPPORT_TARGET_TEMPERATURE
+CONF_TARGET_TEMP_STEP = "target_temp_step"
+SUPPORT_FLAGS = (
+    ClimateEntityFeature.TARGET_TEMPERATURE
+    | ClimateEntityFeature.TURN_OFF
+    | ClimateEntityFeature.TURN_ON
+)
 
 ATTR_STATE_WINDOW_OPEN = "window_open"
 ATTR_STATE_CALL_FOR_HEAT = "call_for_heat"
@@ -90,12 +96,13 @@ class CalibrationType(StrEnum):
 
     TARGET_TEMP_BASED = "target_temp_based"
     LOCAL_BASED = "local_calibration_based"
+    HYBRID = "hybrid_calibration"
 
 
 class CalibrationMode(StrEnum):
     """Calibration mode."""
 
     DEFAULT = "default"
-    FIX_CALIBRATION = "fix_calibration"
+    AGGRESIVE_CALIBRATION = "fix_calibration"
     HEATING_POWER_CALIBRATION = "heating_power_calibration"
     NO_CALIBRATION = "no_calibration"
