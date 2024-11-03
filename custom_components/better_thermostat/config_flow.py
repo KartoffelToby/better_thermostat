@@ -309,7 +309,7 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                             "trv": trv,
                             "integration": _intigration,
                             "model": await get_device_model(self, trv),
-                            "adapter": load_adapter(self, _intigration, trv),
+                            "adapter": await load_adapter(self, _intigration, trv),
                         }
                     )
                 self.data[CONF_MODEL] = "/".join([x["model"] for x in self.trv_bundle])
@@ -438,7 +438,7 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
         _default_calibration = "target_temp_based"
         self.name = user_input.get(CONF_NAME, "-")
 
-        _adapter = load_adapter(
+        _adapter = await load_adapter(
             self, _trv_config.get("integration"), _trv_config.get("trv")
         )
         if _adapter is not None:
