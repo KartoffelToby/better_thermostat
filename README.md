@@ -1,6 +1,6 @@
 [![Active installations](https://badge.t-haber.de/badge/better_thermostat?kill_cache=1)](https://github.com/KartoffelToby/better_thermostat/)
 [![GitHub issues](https://img.shields.io/github/issues/KartoffelToby/better_thermostat?style=for-the-badge)](https://github.com/KartoffelToby/better_thermostat/issues)
-[![Version - 1.6.0](https://img.shields.io/badge/Version-1.6.0-009688?style=for-the-badge)](https://github.com/KartoffelToby/better_thermostat/releases)
+[![Version - 1.6.1](https://img.shields.io/badge/Version-1.6.1-009688?style=for-the-badge)](https://github.com/KartoffelToby/better_thermostat/releases)
 [![Discord](https://img.shields.io/discord/925725316540923914.svg?style=for-the-badge)](https://discord.gg/9BUegWTG3K)
 [![hacs_badge](https://img.shields.io/badge/HACS-Default-41BDF5.svg?style=for-the-badge)](https://github.com/hacs/integration)
 
@@ -10,8 +10,8 @@
 
 ### Requirements
 
-- Minimum required Home Assistant version: `2022.8.0`
-  (_Latest tested version: `2024.7.3`_)
+- Minimum required Home Assistant version: `2024.08.0`
+  (_Latest tested version: `2024.10.4`_)
 
 ### Companion UI
 
@@ -81,4 +81,3 @@ checkout the [CONTRIBUTING.md](CONTRIBUTING.md) file
 If you want to support this project, you can ☕ [**buy a coffee here**](https://www.buymeacoffee.com/kartoffeltoby).
 
 <a href="https://www.buymeacoffee.com/kartoffeltoby"><img src="https://img.buymeacoffee.com/button-api/?text=Buy me a coffee&emoji=&slug=kartoffeltoby&button_colour=0ac982&font_colour=000000&font_family=Cookie&outline_colour=000000&coffee_colour=ffffff"></a>
-
