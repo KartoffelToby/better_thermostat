@@ -579,7 +579,8 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
                     continue
 
             if self.humidity_entity_id is not None:
-                if self.hass.states.get(self.humidity_entity_id).state in (
+                humidity_state = self.hass.states.get(self.humidity_entity_id)
+                if humidity_state is None or humidity_state.state in (
                     STATE_UNAVAILABLE,
                     STATE_UNKNOWN,
                     None,
