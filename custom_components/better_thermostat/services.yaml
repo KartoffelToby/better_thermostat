@@ -23,7 +23,7 @@ reset_heating_power:
       integration: better_thermostat
 
 set_temp_target_temperature:
-  name: Set temporary target temperature
+  name: Set temporary (ECO) target temperature
   description: Set a temporary target temperature and save the current temperature.
   fields:
     temperature:
