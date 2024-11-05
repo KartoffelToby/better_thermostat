@@ -1,54 +1,39 @@
 """Better Thermostat"""
 
 import asyncio
+import json
 import logging
 from abc import ABC
 from datetime import datetime, timedelta
 from random import randint
 from statistics import mean
 
-from custom_components.better_thermostat.events.cooler import trigger_cooler_change
-
-from .utils.watcher import check_all_entities
-
-from .utils.weather import check_ambient_air_temperature, check_weather
-from .adapters.delegate import (
-    get_current_offset,
-    get_offset_steps,
-    get_min_offset,
-    get_max_offset,
-    init,
-    load_adapter,
-)
-
-from .model_fixes.model_quirks import load_model_quirks
-
-from .utils.helpers import convert_to_float, find_battery_entity, get_hvac_bt_mode
-from homeassistant.helpers import entity_platform
-from homeassistant.core import callback, CoreState, Context, ServiceCall
-import json
+# Home Assistant imports
 from homeassistant.components.climate import (
-    ClimateEntity,
     ATTR_HVAC_MODE,
     ATTR_TARGET_TEMP_HIGH,
     ATTR_TARGET_TEMP_LOW,
+    ClimateEntity,
     PRESET_NONE,
 )
 from homeassistant.components.climate.const import (
     ATTR_MAX_TEMP,
     ATTR_MIN_TEMP,
     ATTR_TARGET_TEMP_STEP,
-    HVACMode,
-    HVACAction,
     ClimateEntityFeature,
+    HVACAction,
+    HVACMode,
 )
+from homeassistant.components.group.util import reduce_attribute
 from homeassistant.const import (
+    ATTR_TEMPERATURE,
     CONF_NAME,
     EVENT_HOMEASSISTANT_START,
-    ATTR_TEMPERATURE,
     STATE_UNAVAILABLE,
     STATE_UNKNOWN,
 )
+from homeassistant.core import Context, CoreState, ServiceCall, callback
+from homeassistant.helpers import entity_platform
 from homeassistant.helpers.event import (
     async_track_state_change_event,
     async_track_time_change,
@@ -56,18 +41,31 @@ from homeassistant.helpers.event import (
 )
 from homeassistant.helpers.restore_state import RestoreEntity
 
-from homeassistant.components.group.util import reduce_attribute
-
+# Local imports
+from .adapters.delegate import (
+    get_current_offset,
+    get_max_offset,
+    get_min_offset,
+    get_offset_steps,
+    init,
+    load_adapter,
+)
+from .events.cooler import trigger_cooler_change
+from .events.temperature import trigger_temperature_change
+from .events.trv import trigger_trv_change
+from .events.window import trigger_window_change, window_queue
+from .model_fixes.model_quirks import load_model_quirks
 from .utils.const import (
     ATTR_STATE_BATTERIES,
     ATTR_STATE_CALL_FOR_HEAT,
     ATTR_STATE_ERRORS,
+    ATTR_STATE_HEATING_POWER,
     ATTR_STATE_HUMIDIY,
     ATTR_STATE_LAST_CHANGE,
     ATTR_STATE_MAIN_MODE,
-    ATTR_STATE_WINDOW_OPEN,
     ATTR_STATE_SAVED_TEMPERATURE,
-    ATTR_STATE_HEATING_POWER,
+    ATTR_STATE_WINDOW_OPEN,
+    BETTERTHERMOSTAT_SET_TEMPERATURE_SCHEMA,
     CONF_COOLER,
     CONF_HEATER,
     CONF_HUMIDITY,
@@ -76,24 +74,22 @@ from .utils.const import (
     CONF_OUTDOOR_SENSOR,
     CONF_SENSOR,
     CONF_SENSOR_WINDOW,
-    CONF_TOLERANCE,
     CONF_TARGET_TEMP_STEP,
+    CONF_TOLERANCE,
     CONF_WEATHER,
     CONF_WINDOW_TIMEOUT,
     CONF_WINDOW_TIMEOUT_AFTER,
+    SERVICE_RESET_HEATING_POWER,
     SERVICE_RESTORE_SAVED_TARGET_TEMPERATURE,
+    SERVICE_SET_TEMP_TARGET_TEMPERATURE,
     SUPPORT_FLAGS,
     VERSION,
-    SERVICE_SET_TEMP_TARGET_TEMPERATURE,
-    SERVICE_RESET_HEATING_POWER,
-    BETTERTHERMOSTAT_SET_TEMPERATURE_SCHEMA,
-    BetterThermostatEntityFeature,
 )
-
 from .utils.controlling import control_queue, control_trv
-from .events.temperature import trigger_temperature_change
-from .events.trv import trigger_trv_change
-from .events.window import trigger_window_change, window_queue
+from .utils.helpers import convert_to_float, find_battery_entity, get_hvac_bt_mode
+from .utils.watcher import check_all_entities
+from .utils.weather import check_ambient_air_temperature, check_weather
+
 
 _LOGGER = logging.getLogger(__name__)
 DOMAIN = "better_thermostat"
@@ -103,33 +99,64 @@ class ContinueLoop(Exception):
     pass
 
 
+@callback
+def async_set_temperature_service_validate(service_call: ServiceCall) -> ServiceCall:
+    """Validate temperature inputs for set_temperature service."""
+    if ATTR_TEMPERATURE in service_call.data:
+        temp = service_call.data[ATTR_TEMPERATURE]
+        if not isinstance(temp, (int, float)):
+            raise ValueError(f"Invalid temperature value {temp}, must be numeric")
+
+    if ATTR_TARGET_TEMP_HIGH in service_call.data:
+        temp_high = service_call.data[ATTR_TARGET_TEMP_HIGH]
+        if not isinstance(temp_high, (int, float)):
+            raise ValueError(
+                f"Invalid target high temperature value {temp_high}, must be numeric"
+            )
+
+    if ATTR_TARGET_TEMP_LOW in service_call.data:
+        temp_low = service_call.data[ATTR_TARGET_TEMP_LOW]
+        if not isinstance(temp_low, (int, float)):
+            raise ValueError(
+                f"Invalid target low temperature value {temp_low}, must be numeric"
+            )
+
+    return service_call
+
+
+async def async_setup_platform(hass, config, async_add_entities, discovery_info=None):
+    """Set up the Better Thermostat platform."""
+    platform = entity_platform.async_get_current_platform()
+
+    # Register service validators
+    platform.async_register_service_validator(
+        "set_temperature", async_set_temperature_service_validate
+    )
+
+
 async def async_setup_entry(hass, entry, async_add_devices):
     """Setup sensor platform."""
 
-    async def async_service_handler(self, data: ServiceCall):
-        _LOGGER.debug(f"Service call: {self} » {data.service}")
-        if data.service == SERVICE_RESTORE_SAVED_TARGET_TEMPERATURE:
-            await self.restore_temp_temperature()
-        elif data.service == SERVICE_SET_TEMP_TARGET_TEMPERATURE:
-            await self.set_temp_temperature(data.data[ATTR_TEMPERATURE])
-        elif data.service == SERVICE_RESET_HEATING_POWER:
-            await self.reset_heating_power()
+    async def async_service_handler(entity, call):
+        """Handle the service calls."""
+        if call.service == SERVICE_RESTORE_SAVED_TARGET_TEMPERATURE:
+            await entity.restore_temp_temperature()
+        elif call.service == SERVICE_SET_TEMP_TARGET_TEMPERATURE:
+            await entity.set_temp_temperature(call.data[ATTR_TEMPERATURE])
+        elif call.service == SERVICE_RESET_HEATING_POWER:
+            await entity.reset_heating_power()
 
     platform = entity_platform.async_get_current_platform()
     platform.async_register_entity_service(
         SERVICE_SET_TEMP_TARGET_TEMPERATURE,
-        BETTERTHERMOSTAT_SET_TEMPERATURE_SCHEMA,  # type: ignore
-        async_service_handler,
-        [
-            BetterThermostatEntityFeature.TARGET_TEMPERATURE,
-            BetterThermostatEntityFeature.TARGET_TEMPERATURE_RANGE,
-        ],
+        BETTERTHERMOSTAT_SET_TEMPERATURE_SCHEMA,
+        "set_temp_temperature",
     )
     platform.async_register_entity_service(
-        SERVICE_RESTORE_SAVED_TARGET_TEMPERATURE, {}, async_service_handler
+        SERVICE_RESTORE_SAVED_TARGET_TEMPERATURE, {}, "restore_temp_temperature"
     )
     platform.async_register_entity_service(
-        SERVICE_RESET_HEATING_POWER, {}, async_service_handler
+        SERVICE_RESET_HEATING_POWER, {}, "reset_heating_power"
     )
 
     async_add_devices(
@@ -166,25 +193,23 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
     _enable_turn_on_off_backwards_compatibility = False
 
     async def set_temp_temperature(self, temperature):
+        """Set temporary target temperature."""
         if self._saved_temperature is None:
             self._saved_temperature = self.bt_target_temp
             self.bt_target_temp = convert_to_float(
-                temperature, self.device_name, "service.settarget_temperature()"
+                temperature, self.device_name, "service.set_temp_temperature()"
             )
             self.async_write_ha_state()
             await self.control_queue_task.put(self)
         else:
             self.bt_target_temp = convert_to_float(
-                temperature, self.device_name, "service.settarget_temperature()"
+                temperature, self.device_name, "service.set_temp_temperature()"
             )
             self.async_write_ha_state()
             await self.control_queue_task.put(self)
 
-    async def savetarget_temperature(self):
-        self._saved_temperature = self.bt_target_temp
-        self.async_write_ha_state()
-
     async def restore_temp_temperature(self):
+        """Restore the previously saved target temperature."""
         if self._saved_temperature is not None:
             self.bt_target_temp = convert_to_float(
                 self._saved_temperature,
@@ -196,6 +221,7 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
             await self.control_queue_task.put(self)
 
     async def reset_heating_power(self):
+        """Reset heating power to default value."""
         self.heating_power = 0.01
         self.async_write_ha_state()
 
@@ -262,7 +288,7 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
             hours=randint(1, 24 * 5)
         )
         self.cur_temp = None
-        self.cur_humidity = 0
+        self._current_humidity = 0
         self.window_open = None
         self.bt_target_temp_step = float(target_temp_step) or 0.0
         self.bt_min_temp = 0
@@ -346,6 +372,7 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
                 "advanced": trv["advanced"],
                 "ignore_trv_states": False,
                 "valve_position": None,
+                "valve_position_entity": None,
                 "max_temp": None,
                 "min_temp": None,
                 "target_temp_step": None,
@@ -435,7 +462,7 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
         self.async_set_context(event.context)
         if (event.data.get("new_state")) is None:
             return
-        self.cur_humidity = convert_to_float(
+        self._current_humidity = convert_to_float(
             str(self.hass.states.get(self.humidity_entity_id).state),
             self.device_name,
             "humidity_update",
@@ -614,7 +641,7 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
             )
             if self.humidity_entity_id is not None:
                 self.all_entities.append(self.humidity_entity_id)
-                self.cur_humidity = convert_to_float(
+                self._current_humidity = convert_to_float(
                     str(self.hass.states.get(self.humidity_entity_id).state),
                     self.device_name,
                     "startup()",
@@ -705,7 +732,9 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
                         "startup()",
                     )
                 if old_state.attributes.get(ATTR_STATE_HUMIDIY, None) is not None:
-                    self.cur_humidity = old_state.attributes.get(ATTR_STATE_HUMIDIY)
+                    self._current_humidity = old_state.attributes.get(
+                        ATTR_STATE_HUMIDIY
+                    )
                 if old_state.attributes.get(ATTR_STATE_MAIN_MODE, None) is not None:
                     self.last_main_hvac_mode = old_state.attributes.get(
                         ATTR_STATE_MAIN_MODE
@@ -717,7 +746,9 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
 
             else:
                 # No previous state, try and restore defaults
-                if self.bt_target_temp is None or type(self.bt_target_temp) != float:
+                if self.bt_target_temp is None or not isinstance(
+                    self.bt_target_temp, float
+                ):
                     _LOGGER.info(
                         "better_thermostat %s: No previously saved temperature found on startup, get it from the TRV",
                         self.device_name,
@@ -771,13 +802,13 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
                 self.last_main_hvac_mode = self.bt_hvac_mode
 
             if self.humidity_entity_id is not None:
-                self.cur_humidity = convert_to_float(
+                self._current_humidity = convert_to_float(
                     str(self.hass.states.get(self.humidity_entity_id).state),
                     self.device_name,
                     "startup()",
                 )
             else:
-                self.cur_humidity = 0
+                self._current_humidity = 0
 
             self.last_window_state = self.window_open
             if self.bt_hvac_mode not in (
@@ -998,7 +1029,7 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
         self.async_write_ha_state()
 
     @property
-    def extra_state_attributes(self):
+    def extra_state_attributes(self) -> dict[str, any]:
         """Return the device specific state attributes.
 
         Returns
@@ -1009,9 +1040,9 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
         dev_specific = {
             ATTR_STATE_WINDOW_OPEN: self.window_open,
             ATTR_STATE_CALL_FOR_HEAT: self.call_for_heat,
-            ATTR_STATE_LAST_CHANGE: self.last_change,
+            ATTR_STATE_LAST_CHANGE: self.last_change.isoformat(),
             ATTR_STATE_SAVED_TEMPERATURE: self._saved_temperature,
-            ATTR_STATE_HUMIDIY: self.cur_humidity,
+            ATTR_STATE_HUMIDIY: self._current_humidity,
             ATTR_STATE_MAIN_MODE: self.last_main_hvac_mode,
             CONF_TOLERANCE: self.tolerance,
             CONF_TARGET_TEMP_STEP: self.bt_target_temp_step,
@@ -1067,7 +1098,7 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
         return super().precision
 
     @property
-    def target_temperature_step(self):
+    def target_temperature_step(self) -> float | None:
         """Return the supported step of target temperature.
 
         Returns
@@ -1081,37 +1112,29 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
         return super().precision
 
     @property
-    def temperature_unit(self):
-        """Return the unit of measurement.
-
-        Returns
-        -------
-        string
-                The unit of measurement.
-        """
+    def temperature_unit(self) -> str:
+        """Return the unit of measurement."""
         return self._unit
 
     @property
-    def current_temperature(self):
-        """Return the sensor temperature.
-
-        Returns
-        -------
-        float
-                The measured temperature.
-        """
+    def current_temperature(self) -> float | None:
+        """Return the current temperature."""
         return self.cur_temp
 
     @property
-    def hvac_mode(self):
-        """Return current operation.
+    def current_humidity(self) -> float | None:
+        """Return the current humidity if supported."""
+        return self._current_humidity if hasattr(self, "_current_humidity") else None
 
-        Returns
-        -------
-        string
-                HVAC mode only from homeassistant.components.climate.const is valid
-        """
+    @property
+    def hvac_mode(self) -> HVACMode | None:
+        """Return current operation."""
         return get_hvac_bt_mode(self, self.bt_hvac_mode)
+
+    @property
+    def hvac_modes(self) -> list[HVACMode]:
+        """Return the list of available operation modes."""
+        return self._hvac_list
 
     @property
     def hvac_action(self):
@@ -1162,17 +1185,6 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
             return None
         return self.bt_target_cooltemp
 
-    @property
-    def hvac_modes(self):
-        """List of available operation modes.
-
-        Returns
-        -------
-        array
-                A list of HVAC modes only from homeassistant.components.climate.const is valid
-        """
-        return self._hvac_list
-
     async def async_set_hvac_mode(self, hvac_mode: str) -> None:
         """Set hvac mode.
 
@@ -1192,17 +1204,10 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
         await self.control_queue_task.put(self)
 
     async def async_set_temperature(self, **kwargs) -> None:
-        """Set new target temperature.
+        """Set new target temperature."""
+        if self.bt_hvac_mode == HVACMode.OFF:
+            return
 
-        Parameters
-        ----------
-        kwargs :
-                Arguments piped from HA.
-
-        Returns
-        -------
-        None
-        """
         _new_setpoint = None
         _new_setpointlow = None
         _new_setpointhigh = None
@@ -1223,12 +1228,14 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
                 self.device_name,
                 "controlling.settarget_temperature()",
             )
+
         if ATTR_TARGET_TEMP_LOW in kwargs:
             _new_setpointlow = convert_to_float(
                 str(kwargs.get(ATTR_TARGET_TEMP_LOW, None)),
                 self.device_name,
                 "controlling.settarget_temperature_low()",
             )
+
         if ATTR_TARGET_TEMP_HIGH in kwargs:
             _new_setpointhigh = convert_to_float(
                 str(kwargs.get(ATTR_TARGET_TEMP_HIGH, None)),
@@ -1241,6 +1248,17 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
                 f"better_thermostat {self.device_name}: received a new setpoint from HA, but temperature attribute was not set, ignoring"
             )
             return
+
+        # Validate against min/max temps
+        if _new_setpoint is not None:
+            _new_setpoint = min(self.max_temp, max(self.min_temp, _new_setpoint))
+        if _new_setpointlow is not None:
+            _new_setpointlow = min(self.max_temp, max(self.min_temp, _new_setpointlow))
+        if _new_setpointhigh is not None:
+            _new_setpointhigh = min(
+                self.max_temp, max(self.min_temp, _new_setpointhigh)
+            )
+
         self.bt_target_temp = _new_setpoint or _new_setpointlow
         if _new_setpointhigh is not None:
             self.bt_target_cooltemp = _new_setpointhigh
