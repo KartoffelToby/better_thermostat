@@ -1,8 +1,10 @@
 import asyncio
 import logging
 
+from custom_components.better_thermostat import DOMAIN
 from homeassistant.core import callback
 from homeassistant.const import STATE_OFF
+from homeassistant.helpers import issue_registry as ir
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -48,6 +50,16 @@ async def trigger_window_change(self, event) -> None:
     else:
         _LOGGER.error(
             f"better_thermostat {self.device_name}: New window sensor state '{new_state}' not recognized"
+        )
+        ir.async_create_issue(
+            hass=self.hass,
+            domain=DOMAIN,
+            issue_id=f"missing_entity_{self.device_name}",
+            issue_title=f"better_thermostat {self.device_name} has invalid window sensor state",
+            issue_severity="error",
+            issue_description=f"better_thermostat {self.device_name} has invalid window sensor state: {new_state}",
+            issue_category="config",
+            issue_suggested_action="Please check the window sensor",
         )
         return
 
