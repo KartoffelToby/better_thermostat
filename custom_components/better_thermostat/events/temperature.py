@@ -33,10 +33,10 @@ async def trigger_temperature_change(self, event):
         return
 
     _incoming_temperature = convert_to_float(
-        str(new_state.state), self.name, "external_temperature"
+        str(new_state.state), self.device_name, "external_temperature"
     )
 
-    _time_diff = 5
+    _time_diff = 60
 
     try:
         for trv in self.all_trvs:
@@ -52,7 +52,7 @@ async def trigger_temperature_change(self, event):
     ):
         _LOGGER.debug(
             "better_thermostat %s: external_temperature changed from %s to %s",
-            self.name,
+            self.device_name,
             self.cur_temp,
             _incoming_temperature,
         )

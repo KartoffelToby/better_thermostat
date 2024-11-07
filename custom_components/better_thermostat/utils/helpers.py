@@ -3,7 +3,6 @@
 import re
 import logging
 from datetime import datetime
-from typing import Union
 from homeassistant.helpers import device_registry as dr, entity_registry as er
 from homeassistant.helpers.entity_registry import async_entries_for_config_entry
 
@@ -57,7 +56,7 @@ def mode_remap(self, entity_id, hvac_mode: str, inbound: bool = False) -> str:
             return hvac_mode
         else:
             _LOGGER.error(
-                f"better_thermostat {self.name}: {entity_id} HVAC mode {hvac_mode} is not supported by this device, is it possible that you forgot to set the heat auto swapped option?"
+                f"better_thermostat {self.device_name}: {entity_id} HVAC mode {hvac_mode} is not supported by this device, is it possible that you forgot to set the heat auto swapped option?"
             )
             return HVACMode.OFF
 
@@ -71,14 +70,14 @@ def heating_power_valve_position(self, entity_id):
         valve_pos = 1.0
 
     _LOGGER.debug(
-        f"better_thermostat {self.name}: {entity_id} / heating_power_valve_position - temp diff: {round(_temp_diff, 1)} - heating power: {round(self.heating_power, 4)} - expected valve position: {round(valve_pos * 100)}%"
+        f"better_thermostat {self.device_name}: {entity_id} / heating_power_valve_position - temp diff: {round(_temp_diff, 1)} - heating power: {round(self.heating_power, 4)} - expected valve position: {round(valve_pos * 100)}%"
     )
     return valve_pos
 
 
 def convert_to_float(
-    value: Union[str, int, float], instance_name: str, context: str
-) -> Union[float, None]:
+    value: str | int | float, instance_name: str, context: str
+) -> float | None:
     """Convert value to float or print error message.
 
     Parameters
@@ -111,7 +110,7 @@ def convert_to_float(
             return None
 
 
-def calibration_round(value: Union[int, float, None]) -> Union[float, int, None]:
+def calibration_round(value: int | float | None) -> float | int | None:
     """Round the calibration value to the nearest 0.5.
 
     Parameters
@@ -135,8 +134,8 @@ def calibration_round(value: Union[int, float, None]) -> Union[float, int, None]
 
 
 def round_by_steps(
-    value: Union[int, float, None], steps: Union[int, float, None]
-) -> Union[float, int, None]:
+    value: int | float | None, steps: int | float | None
+) -> float | int | None:
     """Round the value based on the allowed decimal 'steps'.
 
     Parameters
@@ -161,9 +160,7 @@ def round_by_steps(
     return round(value_mod, decimals)
 
 
-def round_down_to_half_degree(
-    value: Union[int, float, None]
-) -> Union[float, int, None]:
+def round_down_to_half_degree(value: int | float | None) -> float | int | None:
     """Round the value down to the nearest 0.5.
 
     Parameters
@@ -189,7 +186,7 @@ def round_down_to_half_degree(
         return float(str(split[0]))
 
 
-def round_to_half_degree(value: Union[int, float, None]) -> Union[float, int, None]:
+def round_to_half_degree(value: int | float | None) -> float | int | None:
     """Rounds numbers to the nearest n.5/n.0
 
     Parameters
@@ -211,9 +208,7 @@ def round_to_half_degree(value: Union[int, float, None]) -> Union[float, int, No
         return value
 
 
-def round_to_hundredth_degree(
-    value: Union[int, float, None]
-) -> Union[float, int, None]:
+def round_to_hundredth_degree(value: int | float | None) -> float | int | None:
     """Rounds numbers to the nearest n.nn0
 
     Parameters
@@ -452,7 +447,7 @@ async def get_device_model(self, entity_id):
             entry = entity_reg.async_get(entity_id)
             dev_reg = dr.async_get(self.hass)
             device = dev_reg.async_get(entry.device_id)
-            _LOGGER.debug(f"better_thermostat {self.name}: found device:")
+            _LOGGER.debug(f"better_thermostat {self.device_name}: found device:")
             _LOGGER.debug(device)
             try:
                 # Z2M reports the device name as a long string with the actual model name in braces, we need to extract it
