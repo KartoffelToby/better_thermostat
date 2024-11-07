@@ -456,8 +456,9 @@ async def get_device_model(self, entity_id):
             _LOGGER.debug(device)
             try:
                 # Z2M reports the device name as a long string with the actual model name in braces, we need to extract it
-                return re.search("\\((.+?)\\)", device.model).group(1)
-            except AttributeError:
+                matches = re.findall(r"\((.+?)\)", device.model)
+                return matches[-1]
+            except IndexError:
                 # Other climate integrations might report the model name plainly, need more infos on this
                 return device.model
         except (
