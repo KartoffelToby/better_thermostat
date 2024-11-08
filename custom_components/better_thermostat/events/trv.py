@@ -142,7 +142,7 @@ async def trigger_trv_change(self, event):
 
     _main_key = "temperature"
     if "temperature" not in old_state.attributes:
-        _main_key = "target_temp_high"
+        _main_key = "target_temp_low"
 
     _old_heating_setpoint = convert_to_float(
         str(old_state.attributes.get(_main_key, None)),
