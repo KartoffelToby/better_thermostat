@@ -24,7 +24,7 @@ async def check_entity(self, entity) -> bool:
         "unavailable",
     ):
         _LOGGER.debug(
-            f"better_thermostat {self.name}: {entity} is unavailable. with state {state}"
+            f"better_thermostat {self.device_name}: {entity} is unavailable. with state {state}"
         )
         return False
     if entity in self.devices_errors:
@@ -66,7 +66,10 @@ async def check_all_entities(self) -> bool:
                 learn_more_url="https://better-thermostat.org/qanda/missing_entity",
                 severity=ir.IssueSeverity.WARNING,
                 translation_key="missing_entity",
-                translation_placeholders={"entity": str(name), "name": str(self.name)},
+                translation_placeholders={
+                    "entity": str(name),
+                    "name": str(self.device_name),
+                },
             )
             return False
     return True

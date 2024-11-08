@@ -1,52 +1,43 @@
 save_current_target_temperature:
-  name: Save current Temperature
-  description: Save the current target temperature for later restoration.
+  name: Save target temperature
+  description: Save the current target temperature for later use.
   target:
     entity:
       domain: climate
-      integration: better_thermostat
-    device:
       integration: better_thermostat
 
 restore_saved_target_temperature:
-  name: Restore temperature
-  description: Restore the saved target temperature.
+  name: Restore target temperature
+  description: Restore the previously saved target temperature.
   target:
     entity:
       domain: climate
-      integration: better_thermostat
-    device:
       integration: better_thermostat
 
 reset_heating_power:
   name: Reset heating power
-  description: Reset heating power to default value.
+  description: Reset the heating power to its default value.
   target:
     entity:
       domain: climate
       integration: better_thermostat
-    device:
-      integration: better_thermostat
 
 set_temp_target_temperature:
-  name: Set the eco temperature
-  description: Set the target temperature to a temporay like night mode, and save the old one.
+  name: Set temporary (ECO) target temperature
+  description: Set a temporary target temperature and save the current temperature.
   fields:
     temperature:
-      name: Target temperature
-      description: The target temperature to set.
-      example: 18.5
+      name: Temperature
+      description: New target temperature to set
       required: true
-      advanced: true
       selector:
         number:
           min: 0
           max: 35
           step: 0.5
           mode: box
+          unit_of_measurement: °C
   target:
     entity:
       domain: climate
-      integration: better_thermostat
-    device:
       integration: better_thermostat

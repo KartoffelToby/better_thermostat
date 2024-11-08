@@ -28,7 +28,7 @@ async def init(self, entity_id):
         )
         _LOGGER.debug(
             "better_thermostat %s: uses local calibration entity %s",
-            self.name,
+            self.device_name,
             self.real_trvs[entity_id]["local_temperature_calibration_entity"],
         )
         # Wait for the entity to be available
@@ -39,7 +39,7 @@ async def init(self, entity_id):
             ).state in (STATE_UNAVAILABLE, STATE_UNKNOWN, None):
                 _LOGGER.info(
                     "better_thermostat %s: waiting for TRV/climate entity with id '%s' to become fully available...",
-                    self.name,
+                    self.device_name,
                     self.real_trvs[entity_id]["local_temperature_calibration_entity"],
                 )
                 await asyncio.sleep(5)
@@ -119,7 +119,7 @@ async def set_temperature(self, entity_id, temperature):
 
 async def set_hvac_mode(self, entity_id, hvac_mode):
     """Set new target hvac mode."""
-    _LOGGER.debug("better_thermostat %s: set_hvac_mode %s", self.name, hvac_mode)
+    _LOGGER.debug("better_thermostat %s: set_hvac_mode %s", self.device_name, hvac_mode)
     try:
         await self.hass.services.async_call(
             "climate",
