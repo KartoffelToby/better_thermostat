@@ -21,7 +21,7 @@ from .utils.const import (
     CONF_CHILD_LOCK,
     CONF_HEAT_AUTO_SWAPPED,
     CONF_HEATER,
-    CONF_HOMATICIP,
+    CONF_HOMEMATICIP,
     CONF_HUMIDITY,
     CONF_MODEL,
     CONF_NO_SYSTEM_MODE_OFF,
@@ -246,7 +246,7 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         ] = bool
         fields[
             vol.Optional(
-                CONF_HOMATICIP, default=user_input.get(CONF_HOMATICIP, homematic)
+                CONF_HOMEMATICIP, default=user_input.get(CONF_HOMEMATICIP, homematic)
             )
         ] = bool
 
@@ -523,8 +523,8 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
         ] = bool
         fields[
             vol.Optional(
-                CONF_HOMATICIP,
-                default=_trv_config["advanced"].get(CONF_HOMATICIP, homematic),
+                CONF_HOMEMATICIP,
+                default=_trv_config["advanced"].get(CONF_HOMEMATICIP, homematic),
             )
         ] = bool
 

@@ -21,7 +21,7 @@
         "data": {
           "heat_auto_swapped": "Hvis auto betyder varme for din TRV og du vil bytte det",
           "child_lock": "Ignorer alle input på TRV som en børnesikring",
-          "homaticip": "Hvis du bruger HomaticIP, bør du aktivere dette for at bremse anmodningerne for at forhindre arbejdscyklus",
+          "homematicip": "Hvis du bruger HomematicIP, bør du aktivere dette for at bremse anmodningerne for at forhindre arbejdscyklus",
           "valve_maintenance": "Hvis din termostat ikke har nogen egen vedligeholdelsestilstand, kan du bruge denne",
           "calibration": "Den slags kalibrering du vil bruge",
           "no_off_system_mode": "Hvis din TRV ikke kan håndtere den slukkede tilstand, kan du aktivere denne for at bruge måltemperatur 5°C i stedet",
@@ -66,7 +66,7 @@
           "weather": "Din vejrentitet for at få udendørstemperaturen",
           "heat_auto_swapped": "Hvis auto betyder varme til din TRV, og du ønsker at bytte den",
           "child_lock": "Ignorer alle input på TRV som en børnesikring",
-          "homaticip": "Hvis du bruger HomaticIP, bør du aktivere dette for at bremse anmodningerne for at forhindre arbejdscyklus",
+          "homematicip": "Hvis du bruger HomematicIP, bør du aktivere dette for at bremse anmodningerne for at forhindre arbejdscyklus",
           "name": "Navn",
           "thermostat": "Den rigtige termostat"
         }
@@ -76,7 +76,7 @@
         "data": {
           "heat_auto_swapped": "Hvis auto betyder varme for din TRV og du vil bytte det",
           "child_lock": "Ignorer alle input på TRV som en børnesikring",
-          "homaticip": "Hvis du bruger HomaticIP, bør du aktivere dette for at bremse anmodningerne for at forhindre arbejdscyklus",
+          "homematicip": "Hvis du bruger HomematicIP, bør du aktivere dette for at bremse anmodningerne for at forhindre arbejdscyklus",
           "valve_maintenance": "Hvis din termostat ikke har nogen egen vedligeholdelsestilstand, kan du bruge denne",
           "calibration": "Den slags kalibrering du vil bruge",
           "protect_overheating": "Overophedningsbeskyttelse?",
