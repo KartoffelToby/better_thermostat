@@ -12,19 +12,17 @@ async def load_model_quirks(self, model, entity_id):
 
     try:
         self.model_quirks = await async_import_module(
-            self.hass,
-            "custom_components.better_thermostat.model_fixes." + model,
+            self.hass, "custom_components.better_thermostat.model_fixes." + model
         )
         _LOGGER.debug(
             "better_thermostat %s: uses quirks fixes for model %s for trv %s",
-            self.name,
+            self.device_name,
             model,
             entity_id,
         )
     except Exception:
         self.model_quirks = await async_import_module(
-            self.hass,
-            "custom_components.better_thermostat.model_fixes.default",
+            self.hass, "custom_components.better_thermostat.model_fixes.default"
         )
         pass
 
@@ -45,10 +43,12 @@ def fix_local_calibration(self, entity_id, offset):
         self, entity_id, offset
     )
 
+    _new_offset = round(_new_offset, 1)
+
     if offset != _new_offset:
         _LOGGER.debug(
             "better_thermostat %s: %s - calibration offset model fix: %s to %s",
-            self.name,
+            self.device_name,
             entity_id,
             offset,
             _new_offset,
@@ -74,7 +74,7 @@ def fix_target_temperature_calibration(self, entity_id, temperature):
     if temperature != _new_temperature:
         _LOGGER.debug(
             "better_thermostat %s: %s - temperature offset model fix: %s to %s",
-            self.name,
+            self.device_name,
             entity_id,
             temperature,
             _new_temperature,
