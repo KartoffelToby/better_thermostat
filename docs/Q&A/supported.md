@@ -18,4 +18,4 @@ Currently, these are the integrations compatible with local calibration mode:
 - Deconz
 
 Please keep in mind that even if BT supports your integration, if your device does not support "local_temperature_calibration" this feature will not be available to you. You can check your device compatibility via Zigbee2MQTT.
-If your preferred integration isn’t currently available for local calibration please open a GitHub issue.
+If your preferred integration isn’t currently available for local calibration please open a [GitHub issue](https://github.com/KartoffelToby/better_thermostat/issues).
