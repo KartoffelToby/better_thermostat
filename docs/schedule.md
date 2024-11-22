@@ -18,8 +18,8 @@ Services you can call from Home Assistant to set a temporary target temperature 
 
 # How can I set up a night mode schedule?
 
-Basically you can set up an automation that triggers a service call for every climate entity.
-As an example you can use this blueprint:
+You can set up an automation that triggers a service call for every climate entity.
+As an example, you can use this blueprint:
 
 <a href="https://my.home-assistant.io/redirect/blueprint_import/?blueprint_url=https://github.com/KartoffelToby/better_thermostat/blob/master/blueprints/night_mode.yaml" target="_blank"><img src="https://my.home-assistant.io/badges/blueprint_import.svg" alt="Open your Home Assistant instance and show the blueprint import dialog with a specific blueprint pre-filled." /></a>
 

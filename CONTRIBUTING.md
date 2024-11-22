@@ -23,16 +23,16 @@ document in a pull request.
 
 #### Nice to know
 
-- Debuging is possible with the VSCode Debuger. Just run the HomeAssistant in Debugger and open browser on http://localhost:9123 (No task run needed)
+- Debugging is possible with the VSCode Debugger. Just run the HomeAssistant in Debugger and open your browser to http://localhost:9123 (No task run needed)
 - Update your local in devcontainer configuration.yaml to the current version of the repository to get the latest changes. -> Run "Sync configuration.yaml (Override local)" in Task Runner
-- Test BT in a specific HA version -> Run "Install a specific version of Home Assistant" in Task Runner and the the version you want to test in the terminal promt.
-- Test BT with the latest HA version -> Run "pgrade Home Assistant to latest dev" in Task Runner
+- Test BT in a specific HA version -> Run "Install a specific version of Home Assistant" in Task Runner and the version you want to test in the terminal prompt.
+- Test BT with the latest HA version -> Run "upgrade Home Assistant to latest dev" in Task Runner
 
 ## How Can I Contribute?
 
 ## New Adapter
 
-If you want to add a new adapter, please create a new python file with the name of the adapter in the adapters folder. The file should contain all functions find in the generic.py. The if you adapter needs a special handling for one of the base functions, override it, if you can use generic functions, use them like:
+If you want to add a new adapter, please create a new Python file with the name of the adapter in the adapters folder. The file should contain all functions found in the generic.py. If your adapter needs special handling for one of the base functions, override it, if you can use generic functions, use them like:
 
 ```python
 async def set_temperature(self, entity_id, temperature):
