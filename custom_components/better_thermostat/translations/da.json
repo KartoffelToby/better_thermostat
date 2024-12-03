@@ -25,7 +25,7 @@
           "protect_overheating": "Overophedningsbeskyttelse?",
           "heat_auto_swapped": "Hvis auto betyder varme for din TRV og du vil bytte det",
           "child_lock": "Ignorer alle input på TRV som en børnesikring",
-          "homaticip": "Hvis du bruger HomaticIP, bør du aktivere dette for at bremse anmodningerne for at forhindre arbejdscyklus",
+          "homematicip": "Hvis du bruger HomematicIP, bør du aktivere dette for at bremse anmodningerne for at forhindre arbejdscyklus",
           "valve_maintenance": "Hvis din termostat ikke har nogen egen vedligeholdelsestilstand, kan du bruge denne",
           "calibration": "Den slags kalibrering du vil bruge",
           "calibration_mode": "Kalibreringstilstand",
@@ -73,7 +73,7 @@
           "weather": "Din vejrentitet for at få udendørstemperaturen",
           "heat_auto_swapped": "Hvis auto betyder varme til din TRV, og du ønsker at bytte den",
           "child_lock": "Ignorer alle input på TRV som en børnesikring",
-          "homaticip": "Hvis du bruger HomaticIP, bør du aktivere dette for at bremse anmodningerne for at forhindre arbejdscyklus"
+          "homaticip": "Hvis du bruger HomematicIP, bør du aktivere dette for at bremse anmodningerne for at forhindre arbejdscyklus"
         }
       },
       "advanced": {
@@ -82,7 +82,7 @@
           "protect_overheating": "Overophedningsbeskyttelse?",
           "heat_auto_swapped": "Hvis auto betyder varme for din TRV og du vil bytte det",
           "child_lock": "Ignorer alle input på TRV som en børnesikring",
-          "homaticip": "Hvis du bruger HomaticIP, bør du aktivere dette for at bremse anmodningerne for at forhindre arbejdscyklus",
+          "homematicip": "Hvis du bruger HomematicIP, bør du aktivere dette for at bremse anmodningerne for at forhindre arbejdscyklus",
           "valve_maintenance": "Hvis din termostat ikke har nogen egen vedligeholdelsestilstand, kan du bruge denne",
           "calibration": "Den slags kalibrering du vil bruge",
           "calibration_mode": "Kalibreringstilstand",

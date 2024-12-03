@@ -1,6 +1,6 @@
 import logging
 
-from custom_components.better_thermostat.utils.const import CONF_HOMATICIP
+from custom_components.better_thermostat.utils.const import CONF_HOMEMATICIP
 from ..utils.helpers import convert_to_float
 from datetime import datetime
 
@@ -40,7 +40,7 @@ async def trigger_temperature_change(self, event):
 
     try:
         for trv in self.all_trvs:
-            if trv["advanced"][CONF_HOMATICIP]:
+            if trv["advanced"][CONF_HOMEMATICIP]:
                 _time_diff = 600
     except KeyError:
         pass

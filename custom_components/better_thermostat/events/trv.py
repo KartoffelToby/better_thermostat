@@ -1,7 +1,7 @@
 import asyncio
 from datetime import datetime
 import logging
-from custom_components.better_thermostat.utils.const import CONF_HOMATICIP
+from custom_components.better_thermostat.utils.const import CONF_HOMEMATICIP
 
 from homeassistant.components.climate.const import (
     HVACMode,
@@ -75,7 +75,7 @@ async def trigger_trv_change(self, event):
     _time_diff = 5
     try:
         for trv in self.all_trvs:
-            if trv["advanced"][CONF_HOMATICIP]:
+            if trv["advanced"][CONF_HOMEMATICIP]:
                 _time_diff = 600
     except KeyError:
         pass
@@ -227,7 +227,7 @@ async def update_hvac_action(self):
 
     # i don't know why this is here just for hometicip / wtom - 2023-08-23
     # for trv in self.all_trvs:
-    #     if trv["advanced"][CONF_HOMATICIP]:
+    #     if trv["advanced"][CONF_HOMEMATICIP]:
     #         entity_id = trv["trv"]
     #         state = self.hass.states.get(entity_id)
     #         if state is None:

@@ -25,7 +25,7 @@
           "protect_overheating": "Protection contre la surchauffe ?",
           "heat_auto_swapped": "Si le mode automatique signifie chauffage pour votre TRV et que vous voulez le permuter",
           "child_lock": "Ignorer toutes les entrées sur le TRV comme une sécurité enfant",
-          "homaticip": "Si vous utilisez HomaticIP, vous devriez l'activer pour ralentir les demandes et éviter le cycle de fonctionnement excessif",
+          "homematicip": "Si vous utilisez HomematicIP, vous devriez l'activer pour ralentir les demandes et éviter le cycle de fonctionnement excessif",
           "valve_maintenance": "Si votre thermostat n'a pas de mode maintenance propre, vous pouvez utiliser celui-ci",
           "calibration": "Type de calibrage",
           "calibration_mode": "Mode de calibrage",
@@ -73,7 +73,7 @@
           "weather": "Votre entité météo pour obtenir la température extérieure",
           "heat_auto_swapped": "Si le mode automatique signifie chauffage pour votre TRV et que vous voulez le permuter",
           "child_lock": "Ignorer toutes les entrées sur le TRV comme une sécurité enfant",
-          "homaticip": "Si vous utilisez HomaticIP, vous devriez l'activer pour ralentir les demandes et éviter le cycle de fonctionnement excessif"
+          "homematicip": "Si vous utilisez HomematicIP, vous devriez l'activer pour ralentir les demandes et éviter le cycle de fonctionnement excessif"
         }
       },
       "advanced": {
@@ -82,7 +82,7 @@
           "protect_overheating": "Protection contre la surchauffe ?",
           "heat_auto_swapped": "Si le mode automatique signifie chauffage pour votre TRV et que vous voulez le permuter",
           "child_lock": "Ignorer toutes les entrées sur le TRV comme une sécurité enfant",
-          "homaticip": "Si vous utilisez HomaticIP, vous devriez l'activer pour ralentir les demandes et éviter le cycle de fonctionnement excessif",
+          "homematicip": "Si vous utilisez HomematicIP, vous devriez l'activer pour ralentir les demandes et éviter le cycle de fonctionnement excessif",
           "valve_maintenance": "Si votre thermostat n'a pas de mode maintenance propre, vous pouvez utiliser celui-ci",
           "calibration": "Le type de calibrage que vous souhaitez utiliser",
           "calibration_mode": "Mode de calibrage",
