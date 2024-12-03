@@ -7,30 +7,33 @@
         "data": {
           "name": "Navn",
           "thermostat": "Den rigtige termostat",
+          "cooler": "Køleenhed (valgfri)",
           "temperature_sensor": "Temperatur måler",
           "humidity_sensor": "Fugtighedssensor",
           "window_sensors": "Vinduessensor",
           "off_temperature": "Udetemperaturen, når termostaten slukker",
+          "tolerance": "Tolerancen for at forhindre, at termostaten tænder og slukker for ofte.",
           "window_off_delay": "Forsinkelse, før termostaten slukker, når vinduet er åbent, og tændt, når vinduet er lukket",
+          "window_off_delay_after": "Forsinkelse, før termostaten tænder, når vinduet er lukket",
           "outdoor_sensor": "Hvis du har en udeføler, kan du bruge den til at få udetemperaturen",
           "weather": "Din vejrentitet for at få udendørstemperaturen"
         }
       },
       "advanced": {
-        "description": "Avanceret konfiguration\n\n**Info om kalibreringstyper: https://better-thermostat.org/configuration#second-step** ",
+        "description": "Avanceret konfiguration {trv}\n***Info om kalibreringstyper: https://better-thermostat.org/configuration#second-step*** ",
         "data": {
+          "protect_overheating": "Overophedningsbeskyttelse?",
           "heat_auto_swapped": "Hvis auto betyder varme for din TRV og du vil bytte det",
           "child_lock": "Ignorer alle input på TRV som en børnesikring",
           "homematicip": "Hvis du bruger HomematicIP, bør du aktivere dette for at bremse anmodningerne for at forhindre arbejdscyklus",
           "valve_maintenance": "Hvis din termostat ikke har nogen egen vedligeholdelsestilstand, kan du bruge denne",
           "calibration": "Den slags kalibrering du vil bruge",
-          "no_off_system_mode": "Hvis din TRV ikke kan håndtere den slukkede tilstand, kan du aktivere denne for at bruge måltemperatur 5°C i stedet",
           "calibration_mode": "Kalibreringstilstand",
-          "protect_overheating": "Overophedningsbeskyttelse?"
+          "no_off_system_mode": "Hvis din TRV ikke kan håndtere den slukkede tilstand, kan du aktivere denne for at bruge måltemperatur 5°C i stedet"
         },
         "data_description": {
           "protect_overheating": "Nogle TRV'er lukker ikke ventilen helt, når temperaturen er nået. Eller radiatoren har meget hvilevarme. Dette kan forårsage overophedning. Denne mulighed kan forhindre dette.",
-          "calibration_mode": "Den slags, hvordan kalibreringen skal beregnes\n***Normal***: I denne tilstand er TRV's interne temperaturføler fastgjort af den eksterne temperaturføler.\n***Aggressiv***: I denne tilstand er TRV's interne temperaturføler fikseret af den eksterne temperaturføler, men indstillet meget lavere/højere for at få et hurtigere løft.\n***AI-tidsbaseret***: I denne tilstand er TRV's interne temperatursensor fastsat af den eksterne temperatursensor, men værdien beregnes af en brugerdefineret algoritme for at forbedre TRV's interne algoritme.",
+          "calibration_mode": "Hvordan kalibreringen skal beregnes\n***Normal***: I denne tilstand er TRV's interne temperaturføler fastgjort af den eksterne temperaturføler.\n***Aggressiv***: I denne tilstand er TRV's interne temperaturføler fikseret af den eksterne temperaturføler, men indstillet meget lavere/højere for at få et hurtigere løft.\n***AI-tidsbaseret***: I denne tilstand er TRV's interne temperatursensor fastsat af den eksterne temperatursensor, men værdien beregnes af en brugerdefineret algoritme for at forbedre TRV's interne algoritme.",
           "calibration": "Hvordan kalibreringen skal anvendes på TRV (Target temp or offset)\n***Måltemperaturbaseret***: Anvend kalibreringen til måltemperaturen.\n***Offset-baseret***: Anvend kalibreringen til offset."
         }
       },
@@ -40,10 +43,10 @@
       }
     },
     "error": {
-      "no_outside_temp": "Du har ingen udetemperaturføler. Bedre termostat vil bruge vejret i stedet.",
-      "failed": "noget gik galt.",
+      "failed": "Noget gik galt.",
       "no_name": "Indtast venligst et navn.",
-      "no_off_mode": "Din enhed er meget speciel og har ingen slukket tilstand :(\nDet virker alligevel, men du skal oprette en automatisering, der passer til dine specialer baseret på enhedsbegivenhederne"
+      "no_off_mode": "Din enhed er meget speciel og har ingen slukket tilstand :(\nDet virker alligevel, men du skal oprette en automatisering, der passer til dine specialer baseret på enhedsbegivenhederne",
+      "no_outside_temp": "Du har ingen udetemperaturføler. Better Thermostat vil bruge vejret i stedet."
     },
     "abort": {
       "single_instance_allowed": "Kun en enkelt termostat for hver virkelige er tilladt.",
@@ -55,37 +58,39 @@
       "user": {
         "description": "Opdater dine Better Thermostat indstillinger",
         "data": {
+          "name": "Navn",
+          "thermostat": "Den rigtige termostat",
           "temperature_sensor": "Temperatur måler",
           "humidity_sensor": "Fugtighedssensor",
           "window_sensors": "Vinduessensor",
           "off_temperature": "Udendørstemperaturen, når termostaten skal slukker",
+          "tolerance": "Tolerancen for at forhindre, at termostaten tænder og slukker for ofte.",
           "window_off_delay": "Forsinkelse, før termostaten slukker, når vinduet er åbent, og tændt, når vinduet er lukket",
+          "window_off_delay_after": "Forsinkelse, før termostaten tænder, når vinduet er lukket",
           "outdoor_sensor": "Har du en udendørsføler, kan du bruge den til at få udetemperaturen",
           "valve_maintenance": "Hvis din termostat ikke har nogen egen vedligeholdelsestilstand, kan du bruge denne",
           "calibration": "Den slags kalibrering https://better-thermostat.org/configuration#second-step",
           "weather": "Din vejrentitet for at få udendørstemperaturen",
           "heat_auto_swapped": "Hvis auto betyder varme til din TRV, og du ønsker at bytte den",
           "child_lock": "Ignorer alle input på TRV som en børnesikring",
-          "homematicip": "Hvis du bruger HomematicIP, bør du aktivere dette for at bremse anmodningerne for at forhindre arbejdscyklus",
-          "name": "Navn",
-          "thermostat": "Den rigtige termostat"
+          "homaticip": "Hvis du bruger HomematicIP, bør du aktivere dette for at bremse anmodningerne for at forhindre arbejdscyklus"
         }
       },
       "advanced": {
-        "description": "Avanceret konfiguration\n\n**Info om kalibreringstyper: https://better-thermostat.org/configuration#second-step** ",
+        "description": "Avanceret konfiguration {trv}\n***Info om kalibreringstyper: https://better-thermostat.org/configuration#second-step*** ",
         "data": {
+          "protect_overheating": "Overophedningsbeskyttelse?",
           "heat_auto_swapped": "Hvis auto betyder varme for din TRV og du vil bytte det",
           "child_lock": "Ignorer alle input på TRV som en børnesikring",
           "homematicip": "Hvis du bruger HomematicIP, bør du aktivere dette for at bremse anmodningerne for at forhindre arbejdscyklus",
           "valve_maintenance": "Hvis din termostat ikke har nogen egen vedligeholdelsestilstand, kan du bruge denne",
           "calibration": "Den slags kalibrering du vil bruge",
-          "protect_overheating": "Overophedningsbeskyttelse?",
           "calibration_mode": "Kalibreringstilstand",
           "no_off_system_mode": "Hvis din TRV ikke kan håndtere den slukkede tilstand, kan du aktivere denne for at bruge måltemperatur 5°C i stedet"
         },
         "data_description": {
           "protect_overheating": "Nogle TRV'er lukker ikke ventilen helt, når temperaturen er nået. Eller radiatoren har meget hvilevarme. Dette kan forårsage overophedning. Denne mulighed kan forhindre dette.",
-          "calibration_mode": "Den slags, hvordan kalibreringen skal beregnes\n***Normal***: I denne tilstand er TRV's interne temperaturføler fikseret af den eksterne temperaturføler.\n***Aggressiv***: I denne tilstand er TRV's interne temperaturføler fikseret af den eksterne temperaturføler, men indstillet meget lavere/højere for at få et hurtigere løft.\n***AI-tidsbaseret***: I denne tilstand er TRV's interne temperatursensor fastsat af den eksterne temperatursensor, men værdien beregnes af en brugerdefineret algoritme for at forbedre TRV's interne algoritme.",
+          "calibration_mode": "Hvordan kalibreringen skal beregnes\n***Normal***: I denne tilstand er TRV's interne temperaturføler fikseret af den eksterne temperaturføler.\n***Aggressiv***: I denne tilstand er TRV's interne temperaturføler fikseret af den eksterne temperaturføler, men indstillet meget lavere/højere for at få et hurtigere løft.\n***AI-tidsbaseret***: I denne tilstand er TRV's interne temperatursensor fastsat af den eksterne temperatursensor, men værdien beregnes af en brugerdefineret algoritme for at forbedre TRV's interne algoritme.",
           "calibration": "Hvordan kalibreringen skal anvendes på TRV (Target temp or offset)\n***Måltemperaturbaseret***: Anvend kalibreringen til måltemperaturen.\n***Offset-baseret***: Anvend kalibreringen til offset."
         }
       }
@@ -102,6 +107,24 @@
           }
         }
       }
+    }
+  },
+  "services": {
+    "save_current_target_temperature": {
+      "name": "Gem nuværende temperatur",
+      "description": "Gem den nuværende måltemperatur til senere gendannelse."
+    },
+    "restore_saved_target_temperature": {
+      "name": "Gendan temperatur",
+      "description": "Gendan den gemte måltemperatur."
+    },
+    "reset_heating_power": {
+      "name": "Nulstil opvarmningskraft",
+      "description": "Nulstil opvarmningskraft til standardværdi."
+    },
+    "set_temp_target_temperature": {
+      "name": "Indstil eco-temperatur",
+      "description": "Indstil måltemperaturen til en midlertidig som nattilstand, og gem den gamle."
     }
   }
 }
