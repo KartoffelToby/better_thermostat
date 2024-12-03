@@ -92,7 +92,7 @@ def calculate_calibration_local(self, entity_id) -> Union[float, None]:
     elif _calibration_mode == CalibrationMode.LINEAR_CALIBRATION:
         # offset setpoint by 0.5C for every 0.1C temperature difference to target (max +/-2C)
         _offset = (_cur_target_temp - _cur_external_temp) * 5
-        _new_trv_calibration = min(max(-2, _offset), 2) + 0.26
+        _new_trv_calibration = min(max(-2, _offset), 2) + 0.2
 
 
     # Respecting tolerance in all calibration modes, delaying heat
@@ -190,7 +190,7 @@ def calculate_calibration_setpoint(self, entity_id) -> Union[float, None]:
     elif _calibration_mode == CalibrationMode.LINEAR_CALIBRATION:
         # offset setpoint by 0.5C for every 0.1C temperature difference to target (max +/-2C)
         _offset = (_cur_target_temp - _cur_external_temp) * 5
-        _calibrated_setpoint = _cur_target_temp + min(max(-2, _offset), 2) + 0.26
+        _calibrated_setpoint = _cur_target_temp + min(max(-2, _offset), 2) + 0.2
 
     if self.attr_hvac_action == HVACAction.IDLE:
         if _calibrated_setpoint - _cur_trv_temp_s > 0.0:
