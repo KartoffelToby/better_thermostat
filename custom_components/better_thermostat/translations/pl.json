@@ -17,7 +17,7 @@
         }
       },
       "advanced": {
-        "description": "Zaawansowana konfiguracja\n\n**Informacja o typach kalibracji: https://better-thermostat.org/configuration#second-step** ",
+        "description": "Zaawansowana konfiguracja {trv}\n***Informacja o typach kalibracji: https://better-thermostat.org/configuration#second-step***",
         "data": {
           "heat_auto_swapped": "Jeżeli tryb auto oznacza grzanie dla Twojego TRV i chcesz to zmienić",
           "child_lock": "Ignoruj wszystkie wejścia w TRV jak np. Blokada dziecięca",
@@ -72,7 +72,7 @@
         }
       },
       "advanced": {
-        "description": "Zaawansowana konfiguracja**Informacja o typach kalibracji: https://better-thermostat.org/configuration#second-step** ",
+        "description": "Zaawansowana konfiguracja {trv}\n***Informacja o typach kalibracji: https://better-thermostat.org/configuration#second-step***",
         "data": {
           "heat_auto_swapped": "Jeżeli tryb auto oznacza grzanie dla Twojego TRV i chcesz to zmienić",
           "child_lock": "Ignoruj wszystkie wejścia w TRV jak np. Blokada dziecięca",
