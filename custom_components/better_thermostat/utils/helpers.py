@@ -77,7 +77,7 @@ def heating_power_valve_position(self, entity_id):
 
 
 def convert_to_float(
-    value: Union[str, int, float], instance_name: str, context: str
+    value: Union[str, float], instance_name: str, context: str
 ) -> Union[float, None]:
     """Convert value to float or print error message.
 
@@ -111,7 +111,7 @@ def convert_to_float(
             return None
 
 
-def calibration_round(value: Union[int, float, None]) -> Union[float, int, None]:
+def calibration_round(value: Union[float, None]) -> Union[float, None]:
     """Round the calibration value to the nearest 0.5.
 
     Parameters
@@ -135,8 +135,8 @@ def calibration_round(value: Union[int, float, None]) -> Union[float, int, None]
 
 
 def round_by_steps(
-    value: Union[int, float, None], steps: Union[int, float, None]
-) -> Union[float, int, None]:
+    value: Union[float, None], steps: Union[float, None]
+) -> Union[float, None]:
     """Round the value based on the allowed decimal 'steps'.
 
     Parameters
@@ -162,8 +162,8 @@ def round_by_steps(
 
 
 def round_down_to_half_degree(
-    value: Union[int, float, None]
-) -> Union[float, int, None]:
+    value: Union[float, None]
+) -> Union[float, None]:
     """Round the value down to the nearest 0.5.
 
     Parameters
@@ -189,7 +189,7 @@ def round_down_to_half_degree(
         return float(str(split[0]))
 
 
-def round_to_half_degree(value: Union[int, float, None]) -> Union[float, int, None]:
+def round_to_half_degree(value: Union[float, None]) -> Union[float, None]:
     """Rounds numbers to the nearest n.5/n.0
 
     Parameters
@@ -212,8 +212,8 @@ def round_to_half_degree(value: Union[int, float, None]) -> Union[float, int, No
 
 
 def round_to_hundredth_degree(
-    value: Union[int, float, None]
-) -> Union[float, int, None]:
+    value: Union[float, None]
+) -> Union[float, None]:
     """Rounds numbers to the nearest n.nn0
 
     Parameters
