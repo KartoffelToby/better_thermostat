@@ -2,7 +2,9 @@
 
 import re
 import logging
+import math
 from datetime import datetime
+from enum import Enum
 from typing import Union
 from homeassistant.helpers import device_registry as dr, entity_registry as er
 from homeassistant.helpers.entity_registry import async_entries_for_config_entry
@@ -97,22 +99,19 @@ def convert_to_float(
     None
             If error occurred and cannot convert the value.
     """
-    if isinstance(value, float):
-        return round(value, 1)
-    elif value is None or value == "None":
+    if value is None or value == "None":
         return None
-    else:
-        try:
-            return round(float(str(format(float(value), ".1f"))), 1)
-        except (ValueError, TypeError, AttributeError, KeyError):
-            _LOGGER.debug(
-                f"better thermostat {instance_name}: Could not convert '{value}' to float in {context}"
-            )
-            return None
+    try:
+        return round_by_steps(float(value), 10)
+    except (ValueError, TypeError, AttributeError, KeyError):
+        _LOGGER.debug(
+            f"better thermostat {instance_name}: Could not convert '{value}' to float in {context}"
+        )
+        return None
 
 
 def calibration_round(value: Union[float, None]) -> Union[float, None]:
-    """Round the calibration value to the nearest 0.5.
+    """Round the calibration value up if > *.8, else down
 
     Parameters
     ----------
@@ -124,18 +123,27 @@ def calibration_round(value: Union[float, None]) -> Union[float, None]:
     float
             the rounded value
     """
-    if value is None:
-        return None
-    split = str(float(str(value))).split(".", 1)
-    decimale = int(split[1])
-    if decimale > 8:
-        return float(str(split[0])) + 1.0
-    else:
-        return float(str(split[0]))
+    # FIXME: Had a wrong description! Why are we doing it this way - bug?
+    # Was supposed to "round to the nearest 0.5" (what 'round_to_half_degree' does),
+    # but actually we were rounding up at 0.9, and everything else down (to the next int, not even .5)
+    return round_by_steps(value + 0.1, 1, rounding.down)
+
+
+class rounding(Enum):
+    # rounding functions that avoid errors due to using floats
+
+    def up(x: float) -> float:
+        return math.ceil(x - 0.0001)
+
+    def down(x: float) -> float:
+        return math.floor(x + 0.0001)
+
+    def nearest(x: float) -> float:
+        return round(x - 0.0001)
 
 
 def round_by_steps(
-    value: Union[float, None], steps: Union[float, None]
+    value: Union[float, None], steps: Union[float, None], f_rounding: rounding = rounding.nearest
 ) -> Union[float, None]:
     """Round the value based on the allowed decimal 'steps'.
 
@@ -149,16 +157,9 @@ def round_by_steps(
     float
             the rounded value
     """
-    if value is None:
+    if value is None or steps is None:
         return None
-    split = str(float(str(steps))).split(".", 1)
-    decimals = len(split[1])
-
-    value_f = float(str(value))
-    steps_f = float(str(steps))
-    value_mod = value_f - (value_f % steps_f)
-
-    return round(value_mod, decimals)
+    return f_rounding(value * steps) / steps
 
 
 def round_down_to_half_degree(
@@ -176,17 +177,7 @@ def round_down_to_half_degree(
     float
             the rounded value
     """
-    if value is None:
-        return None
-    split = str(float(str(value))).split(".", 1)
-    decimale = int(split[1])
-    if decimale >= 5:
-        if float(split[0]) > 0:
-            return float(str(split[0])) + 0.5
-        else:
-            return float(str(split[0])) - 0.5
-    else:
-        return float(str(split[0]))
+    return round_by_steps(value, 2, "down")
 
 
 def round_to_half_degree(value: Union[float, None]) -> Union[float, None]:
@@ -199,22 +190,17 @@ def round_to_half_degree(value: Union[float, None]) -> Union[float, None]:
 
     Returns
     -------
-    float, int
-            either an int, if input was an int, or a float rounded to n.5/n.0
+    float
+            float rounded to n.5/n.0
 
     """
-    if value is None:
-        return None
-    elif isinstance(value, float):
-        return round(value * 2) / 2
-    elif isinstance(value, int):
-        return value
+    return round_by_steps(value, 2)
 
 
 def round_to_hundredth_degree(
     value: Union[float, None]
 ) -> Union[float, None]:
-    """Rounds numbers to the nearest n.nn0
+    """Rounds numbers to two digits
 
     Parameters
     ----------
@@ -223,16 +209,11 @@ def round_to_hundredth_degree(
 
     Returns
     -------
-    float, int
-            either an int, if input was an int, or a float rounded to n.nn0
+    float
+            a float rounded to n.nn
 
     """
-    if value is None:
-        return None
-    elif isinstance(value, float):
-        return round(value * 100) / 100
-    elif isinstance(value, int):
-        return value
+    return round_by_steps(value, 100)
 
 
 def check_float(potential_float):
