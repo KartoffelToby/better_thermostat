@@ -110,25 +110,6 @@ def convert_to_float(
         return None
 
 
-def calibration_round(value: Union[float, None]) -> Union[float, None]:
-    """Round the calibration value up if > *.8, else down
-
-    Parameters
-    ----------
-    value : float
-            the value to round
-
-    Returns
-    -------
-    float
-            the rounded value
-    """
-    # FIXME: Had a wrong description! Why are we doing it this way - bug?
-    # Was supposed to "round to the nearest 0.5" (what 'round_to_half_degree' does),
-    # but actually we were rounding up at 0.9, and everything else down (to the next int, not even .5)
-    return round_by_steps(value + 0.1, 1, rounding.down)
-
-
 class rounding(Enum):
     # rounding functions that avoid errors due to using floats
 
@@ -160,60 +141,6 @@ def round_by_steps(
     if value is None or steps is None:
         return None
     return f_rounding(value * steps) / steps
-
-
-def round_down_to_half_degree(
-    value: Union[float, None]
-) -> Union[float, None]:
-    """Round the value down to the nearest 0.5.
-
-    Parameters
-    ----------
-    value : float
-            the value to round
-
-    Returns
-    -------
-    float
-            the rounded value
-    """
-    return round_by_steps(value, 2, rounding.down)
-
-
-def round_to_half_degree(value: Union[float, None]) -> Union[float, None]:
-    """Rounds numbers to the nearest n.5/n.0
-
-    Parameters
-    ----------
-    value : int, float
-            input value
-
-    Returns
-    -------
-    float
-            float rounded to n.5/n.0
-
-    """
-    return round_by_steps(value, 2)
-
-
-def round_to_hundredth_degree(
-    value: Union[float, None]
-) -> Union[float, None]:
-    """Rounds numbers to two digits
-
-    Parameters
-    ----------
-    value : int, float
-            input value
-
-    Returns
-    -------
-    float
-            a float rounded to n.nn
-
-    """
-    return round_by_steps(value, 100)
 
 
 def check_float(potential_float):
