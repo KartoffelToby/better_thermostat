@@ -1073,7 +1073,7 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
         Returns
         -------
         float
-                Steps of target temperature.
+                Step size of target temperature.
         """
         if self.bt_target_temp_step is not None:
             return self.bt_target_temp_step
