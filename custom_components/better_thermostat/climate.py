@@ -827,7 +827,7 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
                 )
                 self.real_trvs[trv]["target_temp_step"] = convert_to_float(
                     str(
-                        self.hass.states.get(trv).attributes.get("target_temp_step", 1)
+                        self.hass.states.get(trv).attributes.get("target_temp_step", 0.5)
                     ),
                     self.device_name,
                     "startup",

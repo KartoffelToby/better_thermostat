@@ -157,6 +157,7 @@ def calculate_calibration_setpoint(self, entity_id) -> Union[float, None]:
 
     _cur_external_temp = self.cur_temp
     _cur_target_temp = self.bt_target_temp
+    _trv_temp_steps = 1 / ( self.real_trvs[entity_id]["target_temp_step"] or 0.5 )
 
     if None in (_cur_target_temp, _cur_external_temp, _cur_trv_temp_s):
         return None
@@ -196,8 +197,7 @@ def calculate_calibration_setpoint(self, entity_id) -> Union[float, None]:
         if _cur_external_temp >= _cur_target_temp:
             _calibrated_setpoint -= (_cur_external_temp - _cur_target_temp) * 10.0
 
-    # TODO: round down to half degree step -> replace with rounding to step size
-    _calibrated_setpoint =  round_by_steps(_calibrated_setpoint, 2)
+    _calibrated_setpoint = round_by_steps(_calibrated_setpoint, _trv_temp_steps)
 
     # limit new setpoint within min/max of the TRV's range
     t_min = self.real_trvs[entity_id]["min_temp"]
