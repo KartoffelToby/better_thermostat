@@ -12,7 +12,6 @@ from custom_components.better_thermostat.utils.const import (
 
 from custom_components.better_thermostat.utils.helpers import (
     convert_to_float,
-    rounding,
     round_by_steps,
     heating_power_valve_position,
 )
@@ -197,8 +196,8 @@ def calculate_calibration_setpoint(self, entity_id) -> Union[float, None]:
         if _cur_external_temp >= _cur_target_temp:
             _calibrated_setpoint -= (_cur_external_temp - _cur_target_temp) * 10.0
 
-    # TODO: round down to half degree step -> replace with normal rounding to step size
-    _calibrated_setpoint =  round_by_steps(_calibrated_setpoint, 2, rounding.down)
+    # TODO: round down to half degree step -> replace with rounding to step size
+    _calibrated_setpoint =  round_by_steps(_calibrated_setpoint, 2)
 
     # limit new setpoint within min/max of the TRV's range
     t_min = self.real_trvs[entity_id]["min_temp"]
