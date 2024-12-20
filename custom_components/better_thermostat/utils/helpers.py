@@ -177,7 +177,7 @@ def round_down_to_half_degree(
     float
             the rounded value
     """
-    return round_by_steps(value, 2, "down")
+    return round_by_steps(value, 2, rounding.down)
 
 
 def round_to_half_degree(value: Union[float, None]) -> Union[float, None]:
