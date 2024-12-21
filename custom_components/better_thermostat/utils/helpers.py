@@ -51,6 +51,14 @@ def mode_remap(self, entity_id, hvac_mode: str, inbound: bool = False) -> str:
             return HVACMode.HEAT
         return hvac_mode
 
+    trv_modes = self.real_trvs[entity_id]["hvac_modes"]
+    if not HVACMode.HEAT in trv_modes and HVACMode.HEAT_COOL in trv_modes:
+        # entity only supports HEAT_COOL, but not HEAT - need to translate
+        if not inbound and hvac_mode = HVACMode.HEAT:
+            return HVACMode.HEAT_COOL
+        if inbound and hvac_mode = HVACMode.HEAT_COOL:
+            return HVACMode.HEAT
+
     if hvac_mode != HVACMode.AUTO:
         return hvac_mode
 
