@@ -45,20 +45,19 @@ def mode_remap(self, entity_id, hvac_mode: str, inbound: bool = False) -> str:
     )
 
     if _heat_auto_swapped:
-        if hvac_mode == HVACMode.HEAT and inbound is False:
+        if hvac_mode == HVACMode.HEAT and not inbound:
             return HVACMode.AUTO
-        elif hvac_mode == HVACMode.AUTO and inbound is True:
+        if hvac_mode == HVACMode.AUTO and inbound:
             return HVACMode.HEAT
-        else:
-            return hvac_mode
-    else:
-        if hvac_mode != HVACMode.AUTO:
-            return hvac_mode
-        else:
-            _LOGGER.error(
-                f"better_thermostat {self.device_name}: {entity_id} HVAC mode {hvac_mode} is not supported by this device, is it possible that you forgot to set the heat auto swapped option?"
-            )
-            return HVACMode.OFF
+        return hvac_mode
+
+    if hvac_mode != HVACMode.AUTO:
+        return hvac_mode
+
+    _LOGGER.error(
+        f"better_thermostat {self.device_name}: {entity_id} HVAC mode {hvac_mode} is not supported by this device, is it possible that you forgot to set the heat auto swapped option?"
+    )
+    return HVACMode.OFF
 
 
 def heating_power_valve_position(self, entity_id):
