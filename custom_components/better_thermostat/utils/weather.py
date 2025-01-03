@@ -45,7 +45,7 @@ async def check_weather(self) -> bool:
             # TODO: add condition if heating period (oct-mar) then set it to true?
             _LOGGER.warning(
                 "better_thermostat %s: no outdoor sensor data found. fallback to heat",
-                self.name,
+                self.device_name,
             )
             _call_for_heat_outdoor = True
         else:
@@ -74,12 +74,14 @@ async def check_weather_prediction(self) -> bool:
             if not successful
     """
     if self.weather_entity is None:
-        _LOGGER.warning(f"better_thermostat {self.name}: weather entity not available.")
+        _LOGGER.warning(
+            f"better_thermostat {self.device_name}: weather entity not available."
+        )
         return None
 
     if self.off_temperature is None or not isinstance(self.off_temperature, float):
         _LOGGER.warning(
-            f"better_thermostat {self.name}: off_temperature not set or not a float."
+            f"better_thermostat {self.device_name}: off_temperature not set or not a float."
         )
         return None
 
@@ -99,7 +101,7 @@ async def check_weather_prediction(self) -> bool:
                         "temperature"
                     )
                 ),
-                self.name,
+                self.device_name,
                 "check_weather_prediction()",
             )
             max_forecast_temp = int(
@@ -107,12 +109,12 @@ async def check_weather_prediction(self) -> bool:
                     (
                         convert_to_float(
                             str(forecast[0]["temperature"]),
-                            self.name,
+                            self.device_name,
                             "check_weather_prediction()",
                         )
                         + convert_to_float(
                             str(forecast[1]["temperature"]),
-                            self.name,
+                            self.device_name,
                             "check_weather_prediction()",
                         )
                     )
@@ -126,7 +128,9 @@ async def check_weather_prediction(self) -> bool:
         else:
             raise TypeError
     except TypeError:
-        _LOGGER.warning(f"better_thermostat {self.name}: no weather entity data found.")
+        _LOGGER.warning(
+            f"better_thermostat {self.device_name}: no weather entity data found."
+        )
         return None
 
 
@@ -145,13 +149,13 @@ async def check_ambient_air_temperature(self):
 
     if self.off_temperature is None or not isinstance(self.off_temperature, float):
         _LOGGER.warning(
-            f"better_thermostat {self.name}: off_temperature not set or not a float."
+            f"better_thermostat {self.device_name}: off_temperature not set or not a float."
         )
         return None
 
     self.last_avg_outdoor_temp = convert_to_float(
         self.hass.states.get(self.outdoor_sensor).state,
-        self.name,
+        self.device_name,
         "check_ambient_air_temperature()",
     )
     if "recorder" in self.hass.config.components:
@@ -183,7 +187,9 @@ async def check_ambient_air_temperature(self):
                 if item.state not in ("unknown", "unavailable"):
                     _temp_history.add_measurement(
                         convert_to_float(
-                            item.state, self.name, "check_ambient_air_temperature()"
+                            item.state,
+                            self.device_name,
+                            "check_ambient_air_temperature()",
                         ),
                         datetime.fromtimestamp(item.last_updated.timestamp()),
                     )
@@ -195,7 +201,7 @@ async def check_ambient_air_temperature(self):
         avg_temp = self.last_avg_outdoor_temp
 
     _LOGGER.debug(
-        f"better_thermostat {self.name}: avg outdoor temp: {avg_temp}, threshold is {self.off_temperature}"
+        f"better_thermostat {self.device_name}: avg outdoor temp: {avg_temp}, threshold is {self.off_temperature}"
     )
 
     if avg_temp is not None:

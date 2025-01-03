@@ -25,7 +25,7 @@
           "protect_overheating": "Überhitzung verhindern?",
           "heat_auto_swapped": "Tauscht die Modi auto und heat, falls diese bei dem realen Thermostat vertauscht sind.",
           "child_lock": "Ignoriere alle manuellen Einstellungen am realen Thermostat (Kindersicherung).",
-          "homaticip": "Wenn du HomaticIP nutzt, solltest du diese Option aktivieren, um die Funk-Übertragung zu reduzieren.",
+          "homematicip": "Wenn du HomematicIP nutzt, solltest du diese Option aktivieren, um die Funk-Übertragung zu reduzieren.",
           "valve_maintenance": "Soll BT die Wartung des Thermostats übernehmen?",
           "calibration": "Kalibrierungstyp",
           "calibration_mode": "Kalibrierungsmodus",
@@ -71,7 +71,7 @@
           "weather": "Die Wetter-Entität für die Außentemperatur.",
           "valve_maintenance": "Wenn Ihr Thermostat keinen eigenen Wartungsmodus hat, können Sie diesen verwenden.",
           "child_lock": "Ignorieren Sie alle Eingaben am TRV wie eine Kindersicherung.",
-          "homaticip": "Wenn Sie HomaticIP verwenden, sollten Sie dies aktivieren, um die Anfragen zu verlangsamen und den Duty Cycle zu verhindern.",
+          "homematicip": "Wenn Sie HomematicIP verwenden, sollten Sie dies aktivieren, um die Anfragen zu verlangsamen und den Duty Cycle zu verhindern.",
           "heat_auto_swapped": "Wenn das Auto Wärme für Ihr TRV bedeutet und Sie es austauschen möchten.",
           "calibration": "Die Art der Kalibrierung https://better-thermostat.org/configuration#second-step"
         }
@@ -82,7 +82,7 @@
           "protect_overheating": "Überhitzung verhindern?",
           "heat_auto_swapped": "Tauscht die Modi auto und heat, falls diese bei dem realen Thermostat vertauscht sind.",
           "child_lock": "Ignoriere alle manuellen Einstellungen am realen Thermostat (Kindersicherung).",
-          "homaticip": "Wenn du HomaticIP nutzt, solltest du diese Option aktivieren, um die Funk-Übertragung zu reduzieren.",
+          "homematicip": "Wenn du HomematicIP nutzt, solltest du diese Option aktivieren, um die Funk-Übertragung zu reduzieren.",
           "valve_maintenance": "Soll BT die Wartung des Thermostats übernehmen?",
           "calibration": "Kalibrierungstyp",
           "calibration_mode": "Kalibrierungsmodus",

@@ -7,30 +7,28 @@ _LOGGER = logging.getLogger(__name__)
 async def load_adapter(self, integration, entity_id, get_name=False):
     """Load adapter."""
     if get_name:
-        self.name = "-"
+        self.device_name = "-"
 
     if integration == "generic_thermostat":
         integration = "generic"
 
     try:
         self.adapter = await async_import_module(
-            self.hass,
-            "custom_components.better_thermostat.adapters." + integration,
+            self.hass, "custom_components.better_thermostat.adapters." + integration
         )
         _LOGGER.debug(
             "better_thermostat %s: uses adapter %s for trv %s",
-            self.name,
+            self.device_name,
             integration,
             entity_id,
         )
     except Exception:
         self.adapter = await async_import_module(
-            self.hass,
-            "custom_components.better_thermostat.adapters.generic",
+            self.hass, "custom_components.better_thermostat.adapters.generic"
         )
         _LOGGER.info(
             "better_thermostat %s: integration: %s isn't native supported, feel free to open an issue, fallback adapter %s",
-            self.name,
+            self.device_name,
             integration,
             "generic",
         )

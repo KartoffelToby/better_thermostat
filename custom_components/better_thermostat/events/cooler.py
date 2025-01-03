@@ -29,13 +29,13 @@ async def trigger_cooler_change(self, event):
 
     if None in (new_state, old_state, new_state.attributes):
         _LOGGER.debug(
-            f"better_thermostat {self.name}: Cooler {entity_id} update contained not all necessary data for processing, skipping"
+            f"better_thermostat {self.device_name}: Cooler {entity_id} update contained not all necessary data for processing, skipping"
         )
         return
 
     if not isinstance(new_state, State) or not isinstance(old_state, State):
         _LOGGER.debug(
-            f"better_thermostat {self.name}: Cooler {entity_id} update contained not a State, skipping"
+            f"better_thermostat {self.device_name}: Cooler {entity_id} update contained not a State, skipping"
         )
         return
     # set context HACK TO FIND OUT IF AN EVENT WAS SEND BY BT
@@ -44,7 +44,9 @@ async def trigger_cooler_change(self, event):
     if self.context == event.context:
         return
 
-    _LOGGER.debug(f"better_thermostat {self.name}: Cooler {entity_id} update received")
+    _LOGGER.debug(
+        f"better_thermostat {self.device_name}: Cooler {entity_id} update received"
+    )
 
     _main_key = "temperature"
     if "temperature" not in old_state.attributes:
@@ -52,12 +54,12 @@ async def trigger_cooler_change(self, event):
 
     _old_cooling_setpoint = convert_to_float(
         str(old_state.attributes.get(_main_key, None)),
-        self.name,
+        self.device_name,
         "trigger_cooler_change()",
     )
     _new_cooling_setpoint = convert_to_float(
         str(new_state.attributes.get(_main_key, None)),
-        self.name,
+        self.device_name,
         "trigger_cooler_change()",
     )
     if (
@@ -66,14 +68,14 @@ async def trigger_cooler_change(self, event):
         and self.bt_hvac_mode is not HVACMode.OFF
     ):
         _LOGGER.debug(
-            f"better_thermostat {self.name}: trigger_cooler_change / _old_cooling_setpoint: {_old_cooling_setpoint} - _new_cooling_setpoint: {_new_cooling_setpoint}"
+            f"better_thermostat {self.device_name}: trigger_cooler_change / _old_cooling_setpoint: {_old_cooling_setpoint} - _new_cooling_setpoint: {_new_cooling_setpoint}"
         )
         if (
             _new_cooling_setpoint < self.bt_min_temp
             or self.bt_max_temp < _new_cooling_setpoint
         ):
             _LOGGER.warning(
-                f"better_thermostat {self.name}: New Cooler {entity_id} setpoint outside of range, overwriting it"
+                f"better_thermostat {self.device_name}: New Cooler {entity_id} setpoint outside of range, overwriting it"
             )
 
             if _new_cooling_setpoint < self.bt_min_temp:
