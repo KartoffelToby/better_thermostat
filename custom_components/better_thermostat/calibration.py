@@ -63,7 +63,9 @@ def calculate_calibration_local(self, entity_id) -> float | None:
 
     _cur_trv_temp_f = _convert_to_float(_cur_trv_temp_s)
 
-    _current_trv_calibration = _convert_to_float(self.real_trvs[entity_id]["last_calibration"])
+    _current_trv_calibration = _convert_to_float(
+        self.real_trvs[entity_id]["last_calibration"]
+    )
 
     if None in (
         _current_trv_calibration,
@@ -131,7 +133,6 @@ def calculate_calibration_local(self, entity_id) -> float | None:
     t_max = float(self.real_trvs[entity_id]["local_calibration_max"])
     _new_trv_calibration = max(t_min, min(_new_trv_calibration, t_max))
 
-
     _new_trv_calibration = _convert_to_float(_new_trv_calibration)
 
     _logmsg = (
@@ -184,7 +185,7 @@ def calculate_calibration_setpoint(self, entity_id) -> float | None:
 
     _cur_external_temp = self.cur_temp
     _cur_target_temp = self.bt_target_temp
-    _trv_temp_steps = 1 / ( self.real_trvs[entity_id]["target_temp_step"] or 0.5 )
+    _trv_temp_steps = 1 / (self.real_trvs[entity_id]["target_temp_step"] or 0.5)
 
     if None in (_cur_target_temp, _cur_external_temp, _cur_trv_temp_s):
         return None

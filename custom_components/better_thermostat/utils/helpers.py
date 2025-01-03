@@ -5,7 +5,6 @@ import logging
 import math
 from datetime import datetime
 from enum import Enum
-from typing import Union
 from homeassistant.helpers import device_registry as dr, entity_registry as er
 from homeassistant.helpers.entity_registry import (
     async_entries_for_config_entry,
@@ -58,11 +57,11 @@ def mode_remap(self, entity_id, hvac_mode: str, inbound: bool = False) -> str:
         return hvac_mode
 
     trv_modes = self.real_trvs[entity_id]["hvac_modes"]
-    if not HVACMode.HEAT in trv_modes and HVACMode.HEAT_COOL in trv_modes:
+    if HVACMode.HEAT not in trv_modes and HVACMode.HEAT_COOL in trv_modes:
         # entity only supports HEAT_COOL, but not HEAT - need to translate
-        if not inbound and hvac_mode = HVACMode.HEAT:
+        if not inbound and hvac_mode == HVACMode.HEAT:
             return HVACMode.HEAT_COOL
-        if inbound and hvac_mode = HVACMode.HEAT_COOL:
+        if inbound and hvac_mode == HVACMode.HEAT_COOL:
             return HVACMode.HEAT
 
     if hvac_mode != HVACMode.AUTO:
@@ -89,8 +88,8 @@ def heating_power_valve_position(self, entity_id):
 
 
 def convert_to_float(
-    value: Union[str, float], instance_name: str, context: str
-) -> Union[float, None]:
+    value: str | float, instance_name: str, context: str
+) -> float | None:
     """Convert value to float or print error message.
 
     Parameters
@@ -120,7 +119,6 @@ def convert_to_float(
         return None
 
 
-
 class rounding(Enum):
     # rounding functions that avoid errors due to using floats
 
@@ -135,8 +133,8 @@ class rounding(Enum):
 
 
 def round_by_steps(
-    value: Union[float, None], steps: Union[float, None], f_rounding: rounding = rounding.nearest
-) -> Union[float, None]:
+    value: float | None, steps: float | None, f_rounding: rounding = rounding.nearest
+) -> float | None:
     """Round the value based on the allowed decimal 'steps'.
 
     Parameters
