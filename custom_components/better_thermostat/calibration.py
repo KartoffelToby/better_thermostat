@@ -11,7 +11,6 @@ from custom_components.better_thermostat.utils.const import (
 
 from custom_components.better_thermostat.utils.helpers import (
     convert_to_float,
-    round_down_to_half_degree,
     round_by_steps,
     heating_power_valve_position,
 )
@@ -42,6 +41,9 @@ def calculate_calibration_local(self, entity_id) -> float | None:
     """
     _context = "_calculate_calibration_local()"
 
+    def _convert_to_float(value):
+        return convert_to_float(value, self.name, _context)
+
     if None in (self.cur_temp, self.bt_target_temp):
         return None
 
@@ -59,11 +61,9 @@ def calculate_calibration_local(self, entity_id) -> float | None:
     _cur_external_temp = self.cur_temp
     _cur_target_temp = self.bt_target_temp
 
-    _cur_trv_temp_f = convert_to_float(str(_cur_trv_temp_s), self.device_name, _context)
+    _cur_trv_temp_f = _convert_to_float(_cur_trv_temp_s)
 
-    _current_trv_calibration = convert_to_float(
-        str(self.real_trvs[entity_id]["last_calibration"]), self.device_name, _context
-    )
+    _current_trv_calibration = _convert_to_float(self.real_trvs[entity_id]["last_calibration"])
 
     if None in (
         _current_trv_calibration,
@@ -126,17 +126,13 @@ def calculate_calibration_local(self, entity_id) -> float | None:
     # Adjust based on the steps allowed by the local calibration entity
     _new_trv_calibration = round_by_steps(_new_trv_calibration, _calibration_steps)
 
-    # Compare against min/max
-    if _new_trv_calibration > float(self.real_trvs[entity_id]["local_calibration_max"]):
-        _new_trv_calibration = float(self.real_trvs[entity_id]["local_calibration_max"])
-    elif _new_trv_calibration < float(
-        self.real_trvs[entity_id]["local_calibration_min"]
-    ):
-        _new_trv_calibration = float(self.real_trvs[entity_id]["local_calibration_min"])
+    # limit new setpoint within min/max of the TRV's range
+    t_min = float(self.real_trvs[entity_id]["local_calibration_min"])
+    t_max = float(self.real_trvs[entity_id]["local_calibration_max"])
+    _new_trv_calibration = max(t_min, min(_new_trv_calibration, t_max))
 
-    _new_trv_calibration = convert_to_float(
-        str(_new_trv_calibration), self.device_name, _context
-    )
+
+    _new_trv_calibration = _convert_to_float(_new_trv_calibration)
 
     _logmsg = (
         "better_thermostat %s: %s - new local calibration: %s | external_temp: %s, "
@@ -188,6 +184,7 @@ def calculate_calibration_setpoint(self, entity_id) -> float | None:
 
     _cur_external_temp = self.cur_temp
     _cur_target_temp = self.bt_target_temp
+    _trv_temp_steps = 1 / ( self.real_trvs[entity_id]["target_temp_step"] or 0.5 )
 
     if None in (_cur_target_temp, _cur_external_temp, _cur_trv_temp_s):
         return None
@@ -236,13 +233,12 @@ def calculate_calibration_setpoint(self, entity_id) -> float | None:
                 _cur_external_temp - (_cur_target_temp + self.tolerance)
             ) * 8.0  # Reduced from 10.0 since we already subtract 2.0
 
-    _calibrated_setpoint = round_down_to_half_degree(_calibrated_setpoint)
+    _calibrated_setpoint = round_by_steps(_calibrated_setpoint, _trv_temp_steps)
 
-    # check if new setpoint is inside the TRV's range, else set to min or max
-    if _calibrated_setpoint < self.real_trvs[entity_id]["min_temp"]:
-        _calibrated_setpoint = self.real_trvs[entity_id]["min_temp"]
-    if _calibrated_setpoint > self.real_trvs[entity_id]["max_temp"]:
-        _calibrated_setpoint = self.real_trvs[entity_id]["max_temp"]
+    # limit new setpoint within min/max of the TRV's range
+    t_min = self.real_trvs[entity_id]["min_temp"]
+    t_max = self.real_trvs[entity_id]["max_temp"]
+    _calibrated_setpoint = max(t_min, min(_calibrated_setpoint, t_max))
 
     _logmsg = (
         "better_thermostat %s: %s - new setpoint calibration: %s | external_temp: %s, "

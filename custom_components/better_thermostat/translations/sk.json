@@ -25,7 +25,7 @@
           "protect_overheating": "Ochrana proti prehriatiu?",
           "heat_auto_swapped": "Ak auto znamená teplo pre váš TRV a chcete ho vymeniť",
           "child_lock": "Ignorovať všetky vstupy na TRV ako detský zámok",
-          "homaticip": "Ak používate HomaticIP, mali by ste túto funkciu povoliť, aby ste spomalili požiadavky a zabránili tak pracovnému cyklu",
+          "homematicip": "Ak používate HomematicIP, mali by ste túto funkciu povoliť, aby ste spomalili požiadavky a zabránili tak pracovnému cyklu",
           "valve_maintenance": "Ak váš termostat nemá vlastný režim údržby, môžete použiť tento režim",
           "calibration": "Typ kalibrácie",
           "calibration_mode": "Režim kalibrácie",
@@ -73,7 +73,7 @@
           "weather": "Váš meteorologický subjekt na zistenie vonkajšej teploty",
           "heat_auto_swapped": "Ak auto znamená teplo pre váš TRV a chcete ho vymeniť",
           "child_lock": "Ignorovať všetky vstupy na TRV ako detský zámok",
-          "homaticip": "Ak používate HomaticIP, mali by ste túto funkciu povoliť, aby ste spomalili požiadavky a zabránili tak pracovnému cyklu"
+          "homematicip": "Ak používate HomematicIP, mali by ste túto funkciu povoliť, aby ste spomalili požiadavky a zabránili tak pracovnému cyklu"
         }
       },
       "advanced": {
@@ -82,7 +82,7 @@
           "protect_overheating": "Ochrana proti prehriatiu?",
           "heat_auto_swapped": "Ak auto znamená teplo pre váš TRV a chcete ho vymeniť",
           "child_lock": "Ignorovať všetky vstupy na TRV ako detský zámok",
-          "homaticip": "Ak používate HomaticIP, mali by ste túto funkciu povoliť, aby ste spomalili požiadavky a zabránili tak pracovnému cyklu",
+          "homematicip": "Ak používate HomematicIP, mali by ste túto funkciu povoliť, aby ste spomalili požiadavky a zabránili tak pracovnému cyklu",
           "valve_maintenance": "Ak váš termostat nemá vlastný režim údržby, môžete použiť tento režim",
           "calibration": "Druh kalibrácie, ktorý chcete použiť",
           "calibration_mode": "Režim kalibrácie",
