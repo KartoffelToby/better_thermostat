@@ -114,7 +114,7 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
 
     def __init__(self):
         """Initialize the config flow."""
-        self.name = ""
+        self.device_name = ""
         self.data = None
         self.model = None
         self.heater_entity_id = None
@@ -397,7 +397,7 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
         self.options = dict(config_entry.options)
         self.i = 0
         self.trv_bundle = []
-        self.name = ""
+        self.device_name = ""
         self._last_step = False
         self.updated_config = {}
 
@@ -439,7 +439,7 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
         fields = OrderedDict()
 
         _default_calibration = "target_temp_based"
-        self.name = user_input.get(CONF_NAME, "-")
+        self.device_name = user_input.get(CONF_NAME, "-")
 
         _adapter = await load_adapter(
             self, _trv_config.get("integration"), _trv_config.get("trv")
