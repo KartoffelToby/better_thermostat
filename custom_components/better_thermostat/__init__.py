@@ -25,14 +25,17 @@ CONFIG_SCHEMA = vol.Schema({DOMAIN: vol.Schema({})}, extra=vol.ALLOW_EXTRA)
 config_entry_update_listener_lock = Lock()
 
 
-async def async_setup(hass: HomeAssistant, config: ConfigType):
-    """Set up this integration using YAML is not supported."""
-    hass.data[DOMAIN] = {}
+async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
+    """Set up this integration using YAML."""
+    if DOMAIN in config:
+        hass.data.setdefault(DOMAIN, {})
     return True
 
 
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
-    hass.data[DOMAIN] = {}
+    """Set up entry."""
+    hass.data.setdefault(DOMAIN, {})
+    hass.data[DOMAIN][entry.entry_id] = {}
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
     entry.async_on_unload(entry.add_update_listener(config_entry_update_listener))
     return True
@@ -44,9 +47,11 @@ async def config_entry_update_listener(hass: HomeAssistant, entry: ConfigEntry) 
         await hass.config_entries.async_reload(entry.entry_id)
 
 
-async def async_unload_entry(hass, entry):
+async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Unload a config entry."""
     unload_ok = await hass.config_entries.async_unload_platforms(entry, PLATFORMS)
+    if unload_ok:
+        hass.data[DOMAIN].pop(entry.entry_id)
     return unload_ok
 
 

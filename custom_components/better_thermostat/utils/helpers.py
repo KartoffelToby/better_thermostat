@@ -48,20 +48,27 @@ def mode_remap(self, entity_id, hvac_mode: str, inbound: bool = False) -> str:
     )
 
     if _heat_auto_swapped:
-        if hvac_mode == HVACMode.HEAT and inbound is False:
+        if hvac_mode == HVACMode.HEAT and not inbound:
             return HVACMode.AUTO
-        elif hvac_mode == HVACMode.AUTO and inbound is True:
+        if hvac_mode == HVACMode.AUTO and inbound:
             return HVACMode.HEAT
-        else:
-            return hvac_mode
-    else:
-        if hvac_mode != HVACMode.AUTO:
-            return hvac_mode
-        else:
-            _LOGGER.error(
-                f"better_thermostat {self.name}: {entity_id} HVAC mode {hvac_mode} is not supported by this device, is it possible that you forgot to set the heat auto swapped option?"
-            )
-            return HVACMode.OFF
+        return hvac_mode
+
+    trv_modes = self.real_trvs[entity_id]["hvac_modes"]
+    if not HVACMode.HEAT in trv_modes and HVACMode.HEAT_COOL in trv_modes:
+        # entity only supports HEAT_COOL, but not HEAT - need to translate
+        if not inbound and hvac_mode = HVACMode.HEAT:
+            return HVACMode.HEAT_COOL
+        if inbound and hvac_mode = HVACMode.HEAT_COOL:
+            return HVACMode.HEAT
+
+    if hvac_mode != HVACMode.AUTO:
+        return hvac_mode
+
+    _LOGGER.error(
+        f"better_thermostat {self.device_name}: {entity_id} HVAC mode {hvac_mode} is not supported by this device, is it possible that you forgot to set the heat auto swapped option?"
+    )
+    return HVACMode.OFF
 
 
 def heating_power_valve_position(self, entity_id):
@@ -73,7 +80,7 @@ def heating_power_valve_position(self, entity_id):
         valve_pos = 1.0
 
     _LOGGER.debug(
-        f"better_thermostat {self.name}: {entity_id} / heating_power_valve_position - temp diff: {round(_temp_diff, 1)} - heating power: {round(self.heating_power, 4)} - expected valve position: {round(valve_pos * 100)}%"
+        f"better_thermostat {self.device_name}: {entity_id} / heating_power_valve_position - temp diff: {round(_temp_diff, 1)} - heating power: {round(self.heating_power, 4)} - expected valve position: {round(valve_pos * 100)}%"
     )
     return valve_pos
 
@@ -110,6 +117,7 @@ def convert_to_float(
         return None
 
 
+
 class rounding(Enum):
     # rounding functions that avoid errors due to using floats
 
@@ -138,6 +146,7 @@ def round_by_steps(
     float
             the rounded value
     """
+
     if value is None or steps is None:
         return None
     return f_rounding(value * steps) / steps
@@ -360,7 +369,7 @@ async def get_device_model(self, entity_id):
             entry = entity_reg.async_get(entity_id)
             dev_reg = dr.async_get(self.hass)
             device = dev_reg.async_get(entry.device_id)
-            _LOGGER.debug(f"better_thermostat {self.name}: found device:")
+            _LOGGER.debug(f"better_thermostat {self.device_name}: found device:")
             _LOGGER.debug(device)
             try:
                 # Z2M reports the device name as a long string with the actual model name in braces, we need to extract it
