@@ -8,7 +8,7 @@ parent: Q&A
 ---
 
 # How do I activate the debug mode?
-Basically, there are two options to enable debug mode.
+There are two options to enable debug mode.
 
 ## Via configuration.yaml
 Add the following lines to your configuration.yaml file and restart Home Assistant.
