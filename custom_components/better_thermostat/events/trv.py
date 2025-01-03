@@ -368,8 +368,8 @@ def convert_outbound_states(self, entity_id, hvac_mode) -> dict | None:
                     _new_heating_setpoint = self.real_trvs[entity_id]["min_temp"]
                 hvac_mode = None
             if hvac_mode == HVACMode.OFF and (
-                HVACMode.OFF not in _system_modes or
-                self.real_trvs[entity_id]["advanced"].get("no_off_system_mode")
+                HVACMode.OFF not in _system_modes
+                or self.real_trvs[entity_id]["advanced"].get("no_off_system_mode")
             ):
                 _LOGGER.debug(
                     f"better_thermostat {self.device_name}: sending 5°C to the TRV because this device has no system mode off and heater should be off"
