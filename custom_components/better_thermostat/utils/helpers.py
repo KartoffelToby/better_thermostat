@@ -101,13 +101,13 @@ def convert_to_float(
     """
     if value is None or value == "None":
         return None
-    try:
+        try:
         return round_by_steps(float(value), 10)
-    except (ValueError, TypeError, AttributeError, KeyError):
-        _LOGGER.debug(
-            f"better thermostat {instance_name}: Could not convert '{value}' to float in {context}"
-        )
-        return None
+        except (ValueError, TypeError, AttributeError, KeyError):
+            _LOGGER.debug(
+                f"better thermostat {instance_name}: Could not convert '{value}' to float in {context}"
+            )
+            return None
 
 
 class rounding(Enum):
@@ -222,7 +222,7 @@ async def find_valve_entity(self, entity_id):
         uid = entity.unique_id
         # Make sure we use the correct device entities
         if entity.device_id == reg_entity.device_id:
-            if "_valve_position" in uid or "_position" in uid:
+            if "_valve_position" in uid or "_position" in uid or "38-0-currentValue" in uid:
                 _LOGGER.debug(
                     f"better thermostat: Found valve position entity {entity.entity_id} for {entity_id}"
                 )
