@@ -19,18 +19,18 @@ async def async_get_config_entry_diagnostics(
         trv = hass.states.get(trv_id["trv"])
         if trv is None:
             continue
-        # TODO: this does nothing but return trv_id["integration"] as adapter_name
-        # -> removing this for now, to fix diagnostic export
-        # _adapter_name = await load_adapter(
-        #     hass, trv_id["integration"], trv_id["trv"], True
-        # )
-        # trv_id["adapter"] = _adapter_name
+        _adapter_name = await load_adapter(
+            hass, trv_id["integration"], trv_id["trv"], False
+        )
+        trv_id["adapter"] = _adapter_name
+        if trv_id["adapter"] is None:
+            trv_id["adapter"] = "unknown"
         trvs[trv_id["trv"]] = {
             "name": trv.name,
             "state": trv.state,
             "attributes": trv.attributes,
             "bt_config": trv_id["advanced"],
-            # "bt_adapter": trv_id["adapter"],
+            "bt_adapter": trv_id["adapter"],
             "bt_integration": trv_id["integration"],
             "model": trv_id["model"],
         }
