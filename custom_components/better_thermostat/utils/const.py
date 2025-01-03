@@ -105,4 +105,5 @@ class CalibrationMode(StrEnum):
     DEFAULT = "default"
     AGGRESIVE_CALIBRATION = "fix_calibration"
     HEATING_POWER_CALIBRATION = "heating_power_calibration"
+    LINEAR_CALIBRATION = "linear_calibration"
     NO_CALIBRATION = "no_calibration"
