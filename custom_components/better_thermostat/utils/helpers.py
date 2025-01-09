@@ -108,7 +108,7 @@ def convert_to_float(
     if value is None or value == "None":
         return None
     try:
-        return round_by_steps(float(value), 10)
+        return round_by_step(float(value), 0.1)
     except (ValueError, TypeError, AttributeError, KeyError):
         _LOGGER.debug(
             f"better thermostat {instance_name}: Could not convert '{value}' to float in {context}"
@@ -129,15 +129,17 @@ class rounding(Enum):
         return round(x - 0.0001)
 
 
-def round_by_steps(
-    value: float | None, steps: float | None, f_rounding: rounding = rounding.nearest
+def round_by_step(
+    value: float | None, step: float | None, f_rounding: rounding = rounding.nearest
 ) -> float | None:
-    """Round the value based on the allowed decimal 'steps'.
+    """Round the value based on the allowed decimal 'step' size.
 
     Parameters
     ----------
     value : float
             the value to round
+    step : float
+            size of one step
 
     Returns
     -------
@@ -145,9 +147,10 @@ def round_by_steps(
             the rounded value
     """
 
-    if value is None or steps is None:
+    if value is None or step is None:
         return None
-    return f_rounding(value * steps) / steps
+    # convert to integer number of steps for rounding, then convert back to decimal
+    return f_rounding(value / step) * step
 
 
 def check_float(potential_float):

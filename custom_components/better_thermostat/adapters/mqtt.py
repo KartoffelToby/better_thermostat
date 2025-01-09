@@ -90,8 +90,8 @@ async def get_current_offset(self, entity_id):
     )
 
 
-async def get_offset_steps(self, entity_id):
-    """Get offset steps."""
+async def get_offset_step(self, entity_id):
+    """Get offset step."""
     return float(
         str(
             self.hass.states.get(

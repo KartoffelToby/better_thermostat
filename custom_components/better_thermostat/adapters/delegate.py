@@ -55,9 +55,9 @@ async def get_current_offset(self, entity_id):
     )
 
 
-async def get_offset_steps(self, entity_id):
+async def get_offset_step(self, entity_id):
     """get offset setps."""
-    return await self.real_trvs[entity_id]["adapter"].get_offset_steps(self, entity_id)
+    return await self.real_trvs[entity_id]["adapter"].get_offset_step(self, entity_id)
 
 
 async def get_min_offset(self, entity_id):

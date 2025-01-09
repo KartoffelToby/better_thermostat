@@ -46,7 +46,7 @@ from .adapters.delegate import (
     get_current_offset,
     get_max_offset,
     get_min_offset,
-    get_offset_steps,
+    get_offset_step,
     init,
     load_adapter,
 )
@@ -834,8 +834,8 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
                     self.real_trvs[trv]["local_calibration_max"] = await get_max_offset(
                         self, trv
                     )
-                    self.real_trvs[trv]["local_calibration_steps"] = (
-                        await get_offset_steps(self, trv)
+                    self.real_trvs[trv]["local_calibration_step"] = (
+                        await get_offset_step(self, trv)
                     )
                 else:
                     self.real_trvs[trv]["last_calibration"] = 0
