@@ -13,14 +13,14 @@ from custom_components.better_thermostat.adapters.delegate import (
     get_current_offset,
     set_temperature,
     set_hvac_mode,
+    set_valve,
 )
 
+from .helpers import convert_to_float, heating_power_valve_position
 from custom_components.better_thermostat.events.trv import (
     convert_outbound_states,
     update_hvac_action,
 )
-
-from custom_components.better_thermostat.utils.helpers import convert_to_float
 
 from custom_components.better_thermostat.utils.const import CalibrationMode
 
@@ -299,6 +299,14 @@ async def control_trv(self, heater_entity_id=None):
                     self.task_manager.create_task(
                         check_target_temperature(self, heater_entity_id)
                     )
+
+        # set new valve position
+        if (
+            self.real_trvs[heater_entity_id]["valve_position_entity"] is not None
+            and _new_hvac_mode != HVACMode.OFF
+        ):
+            _valve_position = heating_power_valve_position(self, heater_entity_id)
+            await set_valve(self, heater_entity_id, _valve_position)
 
         await asyncio.sleep(3)
         self.real_trvs[heater_entity_id]["ignore_trv_states"] = False
