@@ -1357,6 +1357,9 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
     def preset_mode(self):
         return self._preset_mode
 
+    def set_preset_mode(self, preset_mode: str) -> None:
+        self._preset_mode = preset_mode
+
     @property
     def preset_modes(self):
         return [
