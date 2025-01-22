@@ -72,7 +72,14 @@ def mode_remap(self, entity_id, hvac_mode: str, inbound: bool = False) -> str:
 
 def heating_power_valve_position(self, entity_id):
     _temp_diff = float(float(self.bt_target_temp) - float(self.cur_temp))
-    valve_pos = (_temp_diff / self.heating_power) / 100
+
+    a = 0.019
+    b = 0.946
+    if _temp_diff > 0 and self.heating_power > 0:
+        valve_pos = a * (_temp_diff / self.heating_power) ** b
+    else:
+        valve_pos = 0.0
+
     if valve_pos < 0.0:
         valve_pos = 0.0
     if valve_pos > 1.0:
@@ -82,6 +89,35 @@ def heating_power_valve_position(self, entity_id):
         f"better_thermostat {self.device_name}: {entity_id} / heating_power_valve_position - temp diff: {round(_temp_diff, 1)} - heating power: {round(self.heating_power, 4)} - expected valve position: {round(valve_pos * 100)}%"
     )
     return valve_pos
+
+    # Example values for different heating_power and temp_diff:
+    # With heating_power of 0.02:
+    # | temp_diff | valve_pos  |
+    # |-----------|------------|
+    # | 0.1       | 0.0871     |
+    # | 0.2       | 0.1678     |
+    # | 0.3       | 0.2462     |
+    # | 0.4       | 0.3232     |
+    # | 0.5       | 0.3992     |
+
+    # With heating_power of 0.01:
+    # | temp_diff | valve_pos  |
+    # |-----------|------------|
+    # | 0.1       | 0.1678     |
+    # | 0.2       | 0.3232     |
+    # | 0.3       | 0.4744     |
+    # | 0.4       | 0.6227     |
+    # | 0.5       | 0.7691     |
+
+    # With heating_power of 0.005:
+    # | temp_diff | valve_pos  |
+    # |-----------|------------|
+    # | 0.1       | 0.3232     |
+    # | 0.2       | 0.6227     |
+    # | 0.3       | 0.9139     |
+    # | 0.4       | 1.0000     |
+    # | 0.5       | 1.0000     |
+
 
 
 def convert_to_float(
