@@ -173,7 +173,7 @@ def calculate_calibration_setpoint(self, entity_id) -> float | None:
         return None
 
     # Add tolerance check
-    _within_tolerance = self.cur_temp >= (
+    _within_tolerance = self.tolerance > 0.0 and self.cur_temp >= (
         self.bt_target_temp - self.tolerance
     ) and self.cur_temp <= (self.bt_target_temp + self.tolerance)
 
