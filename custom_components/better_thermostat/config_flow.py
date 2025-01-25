@@ -636,7 +636,7 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
         ] = selector.EntitySelector(
             selector.EntitySelectorConfig(
                 domain=["group", "sensor", "input_boolean", "binary_sensor"],
-                multiple=False,
+                multiple=true,
             )
         )
 
