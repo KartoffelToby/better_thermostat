@@ -235,104 +235,102 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
             "sw_version": VERSION,
         }
 
-    def __init__(
-        self,
-        name,
-        heater_entity_id,
-        sensor_entity_id,
-        humidity_sensor_entity_id,
-        window_id,
-        window_delay,
-        window_delay_after,
-        weather_entity,
-        outdoor_sensor,
-        off_temperature,
-        tolerance,
-        target_temp_step,
-        model,
-        cooler_entity_id,
-        unit,
-        unique_id,
-        device_class,
-        state_class,
-    ):
-        """Initialize the thermostat.
+   def __init__(
+    self,
+    name,
+    heater_entity_id,
+    sensor_entity_id,
+    humidity_sensor_entity_id,
+    window_id,
+    window_delay,
+    window_delay_after,
+    weather_entity,
+    outdoor_sensor,
+    off_temperature,
+    tolerance,
+    target_temp_step,
+    model,
+    cooler_entity_id,
+    unit,
+    unique_id,
+    device_class,
+    state_class,
+    window_door_sensor=None,  # Neuen Parameter für Fenstersensoren hinzufügen
+):
+    """Initialize the thermostat."""
+    self.device_name = name
+    self.model = model
+    self.real_trvs = {}
+    self.entity_ids = []
+    self.all_trvs = heater_entity_id
+    self.sensor_entity_id = sensor_entity_id
+    self.humidity_entity_id = humidity_sensor_entity_id
+    self.cooler_entity_id = cooler_entity_id
+    self.window_id = window_id or None
+    self.window_door_sensor = window_door_sensor or []  # Hier wird die Liste von Fenstersensoren gesetzt
+    self.window_delay = window_delay or 0
+    self.window_delay_after = window_delay_after or 0
+    self.weather_entity = weather_entity or None
+    self.outdoor_sensor = outdoor_sensor or None
+    self.off_temperature = float(off_temperature) or None
+    self.tolerance = float(tolerance) or 0.0
+    self._unique_id = unique_id
+    self._unit = unit
+    self._device_class = device_class
+    self._state_class = state_class
+    self._hvac_list = [HVACMode.HEAT, HVACMode.OFF]
+    self._preset_mode = PRESET_NONE
+    self.map_on_hvac_mode = HVACMode.HEAT
+    self.next_valve_maintenance = datetime.now() + timedelta(
+        hours=randint(1, 24 * 5)
+    )
+    self.cur_temp = None
+    self._current_humidity = 0
+    self.window_open = None
+    self.bt_target_temp_step = float(target_temp_step) or 0.0
+    self.bt_min_temp = 0
+    self.bt_max_temp = 30
+    self.bt_target_temp = 5.0
+    self.bt_target_cooltemp = None
+    self._support_flags = SUPPORT_FLAGS | ClimateEntityFeature.PRESET_MODE
+    self.bt_hvac_mode = None
+    self.closed_window_triggered = False
+    self.call_for_heat = True
+    self.ignore_states = False
+    self.last_dampening_timestamp = None
+    self.version = VERSION
+    self.last_change = datetime.now() - timedelta(hours=2)
+    self.last_external_sensor_change = datetime.now() - timedelta(hours=2)
+    self.last_internal_sensor_change = datetime.now() - timedelta(hours=2)
+    self._temp_lock = asyncio.Lock()
+    self.startup_running = True
+    self._saved_temperature = None
+    self.last_avg_outdoor_temp = None
+    self.last_main_hvac_mode = None
+    self.last_window_state = None
+    self._last_call_for_heat = None
+    self._available = False
+    self.context = None
+    self.attr_hvac_action = None
+    self.old_attr_hvac_action = None
+    self.heating_start_temp = None
+    self.heating_start_timestamp = None
+    self.heating_end_temp = None
+    self.heating_end_timestamp = None
+    self._async_unsub_state_changed = None
+    self.all_entities = []
+    self.devices_states = {}
+    self.devices_errors = []
+    self.control_queue_task = asyncio.Queue(maxsize=1)
+    if self.window_id is not None:
+        self.window_queue_task = asyncio.Queue(maxsize=1)
+    asyncio.create_task(control_queue(self))
+    if self.window_id is not None:
+        asyncio.create_task(window_queue(self))
+    self.heating_power = 0.01
+    self.last_heating_power_stats = []
+    self.is_removed = False
 
-        Parameters
-        ----------
-        TODO
-        """
-        self.device_name = name
-        self.model = model
-        self.real_trvs = {}
-        self.entity_ids = []
-        self.all_trvs = heater_entity_id
-        self.sensor_entity_id = sensor_entity_id
-        self.humidity_entity_id = humidity_sensor_entity_id
-        self.cooler_entity_id = cooler_entity_id
-        self.window_id = window_id or None
-        self.window_delay = window_delay or 0
-        self.window_delay_after = window_delay_after or 0
-        self.weather_entity = weather_entity or None
-        self.outdoor_sensor = outdoor_sensor or None
-        self.off_temperature = float(off_temperature) or None
-        self.tolerance = float(tolerance) or 0.0
-        self._unique_id = unique_id
-        self._unit = unit
-        self._device_class = device_class
-        self._state_class = state_class
-        self._hvac_list = [HVACMode.HEAT, HVACMode.OFF]
-        self._preset_mode = PRESET_NONE
-        self.map_on_hvac_mode = HVACMode.HEAT
-        self.next_valve_maintenance = datetime.now() + timedelta(
-            hours=randint(1, 24 * 5)
-        )
-        self.cur_temp = None
-        self._current_humidity = 0
-        self.window_open = None
-        self.bt_target_temp_step = float(target_temp_step) or 0.0
-        self.bt_min_temp = 0
-        self.bt_max_temp = 30
-        self.bt_target_temp = 5.0
-        self.bt_target_cooltemp = None
-        self._support_flags = SUPPORT_FLAGS | ClimateEntityFeature.PRESET_MODE
-        self.bt_hvac_mode = None
-        self.closed_window_triggered = False
-        self.call_for_heat = True
-        self.ignore_states = False
-        self.last_dampening_timestamp = None
-        self.version = VERSION
-        self.last_change = datetime.now() - timedelta(hours=2)
-        self.last_external_sensor_change = datetime.now() - timedelta(hours=2)
-        self.last_internal_sensor_change = datetime.now() - timedelta(hours=2)
-        self._temp_lock = asyncio.Lock()
-        self.startup_running = True
-        self._saved_temperature = None
-        self.last_avg_outdoor_temp = None
-        self.last_main_hvac_mode = None
-        self.last_window_state = None
-        self._last_call_for_heat = None
-        self._available = False
-        self.context = None
-        self.attr_hvac_action = None
-        self.old_attr_hvac_action = None
-        self.heating_start_temp = None
-        self.heating_start_timestamp = None
-        self.heating_end_temp = None
-        self.heating_end_timestamp = None
-        self._async_unsub_state_changed = None
-        self.all_entities = []
-        self.devices_states = {}
-        self.devices_errors = []
-        self.control_queue_task = asyncio.Queue(maxsize=1)
-        if self.window_id is not None:
-            self.window_queue_task = asyncio.Queue(maxsize=1)
-        asyncio.create_task(control_queue(self))
-        if self.window_id is not None:
-            asyncio.create_task(window_queue(self))
-        self.heating_power = 0.01
-        self.last_heating_power_stats = []
-        self.is_removed = False
 
     async def async_added_to_hass(self):
         """Run when entity about to be added.
@@ -483,27 +481,15 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
         self.hass.async_create_task(trigger_trv_change(self, event))
 
     async def _trigger_window_change(self, event):
-        # Überprüfen, ob mindestens einer der Sensoren "offen" ist
-        if isinstance(self.window_door_sensor, list):  # Prüfen, ob mehrere Sensoren vorhanden sind
-            # Durch alle Sensoren iterieren und schauen, ob einer offen ist
-            for sensor in self.window_door_sensor:
-                state = self.hass.states.get(sensor)
-                if state and state.state == "on":  # Wenn irgendein Fenster offen ist
-                    _check = await check_all_entities(self)
-                    if _check is False:
-                        return
-                    self.async_set_context(event.context)
-                    if (event.data.get("new_state")) is None:
-                        return
-                    break  # Falls ein Sensor "on" ist, keine weiteren Sensoren prüfen
-        else:
-            # Wenn nur ein einzelner Sensor angegeben ist
+        # Prüfen, ob einer der Fenstersensoren den Zustand 'on' hat
+        if any(self.hass.states.get(sensor).state == "on" for sensor in self.window_door_sensor):
             _check = await check_all_entities(self)
             if _check is False:
                 return
             self.async_set_context(event.context)
             if (event.data.get("new_state")) is None:
                 return
+
 
         self.hass.async_create_task(trigger_window_change(self, event))
 
