@@ -1,3 +1,5 @@
+"""The better_thermostat component."""
+
 import logging
 from asyncio import Lock
 from homeassistant.const import Platform
@@ -26,7 +28,6 @@ CONFIG_SCHEMA = vol.Schema(
                 vol.Optional("window_id", default=[]): vol.All(
                     vol.ensure_list, [vol.EntityId]
                 ),  # Hier erlauben wir eine Liste von Entitäten (Fenstersensoren)
-                # Weitere Konfigurationsoptionen wie Heizung, Sensoren etc.
                 vol.Optional("sensor_entity_id", default=None): vol.EntityId,
                 vol.Optional("humidity_sensor_entity_id", default=None): vol.EntityId,
                 # Weitere Felder hier...
