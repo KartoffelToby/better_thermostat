@@ -256,7 +256,12 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
         device_class,
         state_class,
     ):
-        """Initialize the thermostat."""
+        """Initialize the thermostat.
+
+        Parameters
+        ----------
+        TODO
+        """
         self.device_name = name
         self.model = model
         self.real_trvs = {}
@@ -265,15 +270,7 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
         self.sensor_entity_id = sensor_entity_id
         self.humidity_entity_id = humidity_sensor_entity_id
         self.cooler_entity_id = cooler_entity_id
-        
-        # window_id kann jetzt eine Liste von Fenstersensoren sein
-        if isinstance(window_id, list):
-            self.window_id = window_id  # Wenn eine Liste übergeben wird, bleibt sie als Liste
-        elif window_id:  
-            self.window_id = [window_id]  # Wenn nur eine Entität übergeben wird, wird sie in eine Liste umgewandelt
-        else:
-            self.window_id = []  # Falls keine Entität angegeben wird, setzen wir eine leere Liste
-        
+        self.window_id = window_id or None
         self.window_delay = window_delay or 0
         self.window_delay_after = window_delay_after or 0
         self.weather_entity = weather_entity or None
@@ -328,15 +325,14 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
         self.devices_states = {}
         self.devices_errors = []
         self.control_queue_task = asyncio.Queue(maxsize=1)
-        if self.window_id:  # Wenn window_id eine Liste enthält, müssen wir den Code anpassen
+        if self.window_id is not None:
             self.window_queue_task = asyncio.Queue(maxsize=1)
         asyncio.create_task(control_queue(self))
-        if self.window_id:
+        if self.window_id is not None:
             asyncio.create_task(window_queue(self))
         self.heating_power = 0.01
         self.last_heating_power_stats = []
         self.is_removed = False
-
 
     async def async_added_to_hass(self):
         """Run when entity about to be added.
@@ -487,15 +483,14 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
         self.hass.async_create_task(trigger_trv_change(self, event))
 
     async def _trigger_window_change(self, event):
-        # Prüfen, ob einer der Fenstersensoren den Zustand 'on' hat
-        if any(self.hass.states.get(sensor).state == "on" for sensor in self.window_id):
-            _check = await check_all_entities(self)
-            if _check is False:
-                return
-            self.async_set_context(event.context)
-            if (event.data.get("new_state")) is None:
-                return
+        _check = await check_all_entities(self)
+        if _check is False:
+            return
+        self.async_set_context(event.context)
+        if (event.data.get("new_state")) is None:
+            return
 
+        self.hass.async_create_task(trigger_window_change(self, event))
 
     async def _tigger_cooler_change(self, event):
         _check = await check_all_entities(self)
@@ -556,26 +551,18 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
                 continue
 
             if self.window_id is not None:
-                for sensor in self.window_id:
-                    state = self.hass.states.get(sensor).state
-                    
-                    # Überprüfe, ob der Sensor verfügbar ist
-                    if state in (STATE_UNAVAILABLE, STATE_UNKNOWN, None):
-                        _LOGGER.info(
-                            "better_thermostat %s: waiting for window sensor entity with id '%s' to become fully available...",
-                            self.device_name,
-                            sensor,
-                        )
-                        await asyncio.sleep(10)
-                        continue
-                    
-                    # Überprüfe den Zustand des Fensters (ob es offen ist)
-                    if state == "on":
-                        self.window_open = True
-                        break
-                else:
-                    self.window_open = False
-
+                if self.hass.states.get(self.window_id).state in (
+                    STATE_UNAVAILABLE,
+                    STATE_UNKNOWN,
+                    None,
+                ):
+                    _LOGGER.info(
+                        "better_thermostat %s: waiting for window sensor entity with id '%s' to become fully available...",
+                        self.device_name,
+                        self.window_id,
+                    )
+                    await asyncio.sleep(10)
+                    continue
 
             if self.cooler_entity_id is not None:
                 if self.hass.states.get(self.cooler_entity_id).state in (
