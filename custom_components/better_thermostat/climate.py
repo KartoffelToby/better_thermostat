@@ -483,12 +483,27 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
         self.hass.async_create_task(trigger_trv_change(self, event))
 
     async def _trigger_window_change(self, event):
-        _check = await check_all_entities(self)
-        if _check is False:
-            return
-        self.async_set_context(event.context)
-        if (event.data.get("new_state")) is None:
-            return
+        # Überprüfen, ob mindestens einer der Sensoren "offen" ist
+        if isinstance(self.window_door_sensor, list):  # Prüfen, ob mehrere Sensoren vorhanden sind
+            # Durch alle Sensoren iterieren und schauen, ob einer offen ist
+            for sensor in self.window_door_sensor:
+                state = self.hass.states.get(sensor)
+                if state and state.state == "on":  # Wenn irgendein Fenster offen ist
+                    _check = await check_all_entities(self)
+                    if _check is False:
+                        return
+                    self.async_set_context(event.context)
+                    if (event.data.get("new_state")) is None:
+                        return
+                    break  # Falls ein Sensor "on" ist, keine weiteren Sensoren prüfen
+        else:
+            # Wenn nur ein einzelner Sensor angegeben ist
+            _check = await check_all_entities(self)
+            if _check is False:
+                return
+            self.async_set_context(event.context)
+            if (event.data.get("new_state")) is None:
+                return
 
         self.hass.async_create_task(trigger_window_change(self, event))
 
