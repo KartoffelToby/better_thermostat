@@ -257,9 +257,9 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             description_placeholders={"trv": _trv_config.get("trv")},
         )
 
-    async def async_step_user(self, user_input=None):
+     async def async_step_user(self, user_input=None):
         errors = {}
-
+    
         if user_input is not None:
             if self.data is None:
                 self.data = user_input
@@ -267,7 +267,7 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             if self.data[CONF_NAME] == "":
                 errors["base"] = "no_name"
             if CONF_SENSOR_WINDOW not in self.data:
-                self.data[CONF_SENSOR_WINDOW] = None
+                self.data[CONF_SENSOR_WINDOW] = []
             if CONF_HUMIDITY not in self.data:
                 self.data[CONF_HUMIDITY] = None
             if CONF_OUTDOOR_SENSOR not in self.data:
@@ -276,7 +276,8 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 self.data[CONF_WEATHER] = None
             if CONF_COOLER not in self.data:
                 self.data[CONF_COOLER] = None
-
+    
+            # Timeout-Werte aktualisieren
             if CONF_WINDOW_TIMEOUT in self.data:
                 self.data[CONF_WINDOW_TIMEOUT] = (
                     int(
@@ -288,7 +289,7 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 )
             else:
                 self.data[CONF_WINDOW_TIMEOUT] = 0
-
+    
             if CONF_WINDOW_TIMEOUT_AFTER in self.data:
                 self.data[CONF_WINDOW_TIMEOUT_AFTER] = (
                     int(
@@ -300,7 +301,8 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 )
             else:
                 self.data[CONF_WINDOW_TIMEOUT_AFTER] = 0
-
+    
+            # Fehlerüberprüfung
             if "base" not in errors:
                 for trv in self.heater_entity_id:
                     _intigration = await get_trv_intigration(self, trv)
@@ -314,9 +316,10 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                     )
                 self.data[CONF_MODEL] = "/".join([x["model"] for x in self.trv_bundle])
                 return await self.async_step_advanced(None, self.trv_bundle[0])
-
+    
+        # Standardformular für das Backend UI mit `multiple=True` für `window_sensors`
         user_input = user_input or {}
-
+    
         return self.async_show_form(
             step_id="user",
             data_schema=vol.Schema(
@@ -351,13 +354,8 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                     ),
                     vol.Optional(CONF_SENSOR_WINDOW): selector.EntitySelector(
                         selector.EntitySelectorConfig(
-                            domain=[
-                                "group",
-                                "sensor",
-                                "input_boolean",
-                                "binary_sensor",
-                            ],
-                            multiple=False,
+                            domain=["group", "sensor", "input_boolean", "binary_sensor"],
+                            multiple=True,  # Hier erlauben wir mehrere Fenster-Sensoren
                         )
                     ),
                     vol.Optional(CONF_WEATHER): selector.EntitySelector(
