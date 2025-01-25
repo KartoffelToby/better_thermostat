@@ -355,8 +355,10 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                     vol.Optional(CONF_SENSOR_WINDOW): selector.EntitySelector(
                         selector.EntitySelectorConfig(
                             domain=["group", "sensor", "input_boolean", "binary_sensor"],
-                            multiple=True,  # Hier erlauben wir mehrere Fenster-Sensoren
+                            multiple=True,  # Mehrere Fenster-Sensoren erlauben
                         )
+                    ),
+
                     ),
                     vol.Optional(CONF_WEATHER): selector.EntitySelector(
                         selector.EntitySelectorConfig(domain="weather", multiple=False)
