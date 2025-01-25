@@ -235,7 +235,7 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
             "sw_version": VERSION,
         }
 
-   def __init__(
+def __init__(
     self,
     name,
     heater_entity_id,
@@ -255,7 +255,6 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
     unique_id,
     device_class,
     state_class,
-    window_door_sensor=None,  # Neuen Parameter für Fenstersensoren hinzufügen
 ):
     """Initialize the thermostat."""
     self.device_name = name
@@ -267,7 +266,15 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
     self.humidity_entity_id = humidity_sensor_entity_id
     self.cooler_entity_id = cooler_entity_id
     self.window_id = window_id or None
-    self.window_door_sensor = window_door_sensor or []  # Hier wird die Liste von Fenstersensoren gesetzt
+    
+    # Wenn der Parameter 'window_id' None oder eine einzelne Entität ist, machen wir ihn zu einer Liste
+    if isinstance(window_id, list):
+        self.window_id = window_id  # Wenn eine Liste übergeben wird, setzen wir sie direkt
+    elif window_id:  
+        self.window_id = [window_id]  # Wenn nur eine einzelne Entität übergeben wird, machen wir sie zur Liste
+    else:
+        self.window_id = []  # Falls keine Entität angegeben wird, setzen wir eine leere Liste
+    
     self.window_delay = window_delay or 0
     self.window_delay_after = window_delay_after or 0
     self.weather_entity = weather_entity or None
