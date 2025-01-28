@@ -89,7 +89,7 @@ CALIBRATION_MODE_SELECTOR = selector.SelectSelector(
         options=[
             selector.SelectOptionDict(value=CalibrationMode.DEFAULT, label="Normal"),
             selector.SelectOptionDict(
-                value=CalibrationMode.AGGRESIVE_CALIBRATION, label="Agressive"
+                value=CalibrationMode.AGGRESIVE_CALIBRATION, label="Aggressive"
             ),
             selector.SelectOptionDict(
                 value=CalibrationMode.HEATING_POWER_CALIBRATION, label="AI Time Based"
@@ -103,49 +103,17 @@ CALIBRATION_MODE_SELECTOR = selector.SelectSelector(
 )
 
 
-class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
-    VERSION = 6
+class BetterThermostatConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
+    """Handle a config flow for Better Thermostat."""
+
+    VERSION = 1
     CONNECTION_CLASS = config_entries.CONN_CLASS_LOCAL_POLL
 
-    def __init__(self):
-        """Initialize the config flow."""
-        self.device_name = ""
-        self.data = None
-        self.model = None
-        self.heater_entity_id = None
-        self.trv_bundle = []
-        self.integration = None
-        self.i = 0
-
-    @staticmethod
-    @callback
-    def async_get_options_flow(
-        config_entry: config_entries.ConfigEntry,
-    ) -> config_entries.OptionsFlow:
-        """Get the options flow for this handler."""
-        return OptionsFlowHandler(config_entry)
-
-    async def async_step_confirm(self, user_input=None, confirm_type=None):
-        """Handle user-confirmation of discovered node."""
-        errors = {}
-        self.data[CONF_HEATER] = self.trv_bundle
+    async def async_step_user(self, user_input=None):
+        """Handle the initial step."""
         if user_input is not None:
-            if self.data is not None:
-                _LOGGER.debug("Confirm: %s", self.data[CONF_HEATER])
-                unique_trv_string = "_".join([x["trv"] for x in self.data[CONF_HEATER]])
-                await self.async_set_unique_id(
-                    f"{self.data['name']}_{unique_trv_string}"
-                )
-                self._abort_if_unique_id_configured()
-                return self.async_create_entry(title=self.data["name"], data=self.data)
-        if confirm_type is not None:
-            errors["base"] = confirm_type
-        _trvs = ",".join([x["trv"] for x in self.data[CONF_HEATER]])
-        return self.async_show_form(
-            step_id="confirm",
-            errors=errors,
-            description_placeholders={"name": self.data[CONF_NAME], "trv": _trvs},
-        )
+            return self.async_create_entry(title="Better Thermostat", data=user_input)
+        return self.async_show_form(step_id="user")
 
     async def async_step_advanced(self, user_input=None, _trv_config=None):
         """Handle options flow."""
@@ -254,8 +222,179 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             description_placeholders={"trv": _trv_config.get("trv")},
         )
 
-class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
-    ...
+    async def async_step_confirm(self, user_input=None, confirm_type=None):
+        """Handle user-confirmation of discovered node."""
+        errors = {}
+        self.data[CONF_HEATER] = self.trv_bundle
+        if user_input is not None:
+            if self.data is not None:
+                _LOGGER.debug("Confirm: %s", self.data[CONF_HEATER])
+                unique_trv_string = "_".join([x["trv"] for x in self.data[CONF_HEATER]])
+                await self.async_set_unique_id(
+                    f"{self.data['name']}_{unique_trv_string}"
+                )
+                self._abort_if_unique_id_configured()
+                return self.async_create_entry(title=self.data["name"], data=self.data)
+        if confirm_type is not None:
+            errors["base"] = confirm_type
+        _trvs = ",".join([x["trv"] for x in self.data[CONF_HEATER]])
+        return self.async_show_form(
+            step_id="confirm",
+            errors=errors,
+            description_placeholders={"name": self.data[CONF_NAME], "trv": _trvs},
+        )
+
+    @staticmethod
+    @callback
+    def async_get_options_flow(
+        config_entry: config_entries.ConfigEntry,
+    ) -> config_entries.OptionsFlow:
+        """Get the options flow for this handler."""
+        return OptionsFlowHandler(config_entry)
+
+
+class OptionsFlowHandler(config_entries.OptionsFlow):
+    """Handle a option flow for a config entry."""
+
+    def __init__(self, config_entry: config_entries.ConfigEntry) -> None:
+        """Initialize options flow."""
+        self.config_entry = config_entry
+        self.options = dict(config_entry.options)
+        self.i = 0
+        self.trv_bundle = []
+        self.device_name = ""
+        self._last_step = False
+        self.updated_config = {}
+
+    async def async_step_init(self, user_input=None):
+        """Manage the options."""
+        return await self.async_step_user()
+
+    async def async_step_advanced(
+        self, user_input=None, _trv_config=None, _update_config=None
+    ):
+        """Manage the advanced options."""
+        if user_input is not None:
+            self.trv_bundle[self.i]["advanced"] = user_input
+            self.trv_bundle[self.i]["adapter"] = None
+
+            self.i += 1
+            if len(self.trv_bundle) - 1 >= self.i:
+                self._last_step = True
+
+            if len(self.trv_bundle) > self.i:
+                return await self.async_step_advanced(
+                    None, self.trv_bundle[self.i], _update_config
+                )
+
+            self.updated_config[CONF_HEATER] = self.trv_bundle
+            _LOGGER.debug("Updated config: %s", self.updated_config)
+            self.hass.config_entries.async_update_entry(
+                self.config_entry, data=self.updated_config
+            )
+            return self.async_create_entry(
+                title=self.updated_config["name"], data=self.updated_config
+            )
+
+        user_input = user_input or {}
+        homematic = False
+        if _trv_config.get("integration").find("homematic") != -1:
+            homematic = True
+
+        fields = OrderedDict()
+
+        _default_calibration = "target_temp_based"
+        self.device_name = user_input.get(CONF_NAME, "-")
+
+        _adapter = await load_adapter(
+            self, _trv_config.get("integration"), _trv_config.get("trv")
+        )
+        if _adapter is not None:
+            _info = await _adapter.get_info(self, _trv_config.get("trv"))
+
+            if _info.get("support_offset", False):
+                _default_calibration = "local_calibration_based"
+
+        if _default_calibration == "local_calibration_based":
+            fields[
+                vol.Required(
+                    CONF_CALIBRATION,
+                    default=user_input.get(
+                        CONF_CALIBRATION,
+                        _trv_config["advanced"].get(
+                            CONF_CALIBRATION, _default_calibration
+                        ),
+                    ),
+                )
+            ] = CALIBRATION_TYPE_ALL_SELECTOR
+        else:
+            fields[
+                vol.Required(
+                    CONF_CALIBRATION,
+                    default=user_input.get(
+                        CONF_CALIBRATION,
+                        _trv_config["advanced"].get(
+                            CONF_CALIBRATION, _default_calibration
+                        ),
+                    ),
+                )
+            ] = CALIBRATION_TYPE_SELECTOR
+
+        fields[
+            vol.Required(
+                CONF_CALIBRATION_MODE,
+                default=user_input.get(
+                    CONF_CALIBRATION_MODE, CalibrationMode.HEATING_POWER_CALIBRATION
+                ),
+            )
+        ] = CALIBRATION_MODE_SELECTOR
+
+        fields[
+            vol.Optional(
+                CONF_PROTECT_OVERHEATING,
+                default=user_input.get(CONF_PROTECT_OVERHEATING, False),
+            )
+        ] = bool
+
+        fields[
+            vol.Optional(
+                CONF_NO_SYSTEM_MODE_OFF,
+                default=user_input.get(CONF_NO_SYSTEM_MODE_OFF, False),
+            )
+        ] = bool
+
+        fields[
+            vol.Optional(
+                CONF_HEAT_AUTO_SWAPPED,
+                default=user_input.get(CONF_HEAT_AUTO_SWAPPED, False),
+            )
+        ] = bool
+
+        if _info.get("support_valve", False):
+            fields[
+                vol.Optional(
+                    CONF_VALVE_MAINTENANCE,
+                    default=user_input.get(CONF_VALVE_MAINTENANCE, False),
+                )
+            ] = bool
+
+        fields[
+            vol.Optional(
+                CONF_CHILD_LOCK, default=user_input.get(CONF_CHILD_LOCK, False)
+            )
+        ] = bool
+        fields[
+            vol.Optional(
+                CONF_HOMEMATICIP, default=user_input.get(CONF_HOMEMATICIP, homematic)
+            )
+        ] = bool
+
+        return self.async_show_form(
+            step_id="advanced",
+            data_schema=vol.Schema(fields),
+            last_step=False,
+            description_placeholders={"trv": _trv_config.get("trv")},
+        )
 
     async def async_step_user(self, user_input=None):
         errors = {}
@@ -398,85 +537,3 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                     ),
                 }
             ),
-            errors=errors,
-            last_step=False,
-        )
-
-
-class OptionsFlowHandler(config_entries.OptionsFlow):
-    """Handle a option flow for a config entry."""
-
-    def __init__(self, config_entry: config_entries.ConfigEntry) -> None:
-        """Initialize options flow."""
-        self.config_entry = config_entry
-        self.options = dict(config_entry.options)
-        self.i = 0
-        self.trv_bundle = []
-        self.device_name = ""
-        self._last_step = False
-        self.updated_config = {}
-
-    async def async_step_init(self, user_input=None):
-        """Manage the options."""
-        return await self.async_step_user()
-
-    async def async_step_advanced(
-        self, user_input=None, _trv_config=None, _update_config=None
-    ):
-        """Manage the advanced options."""
-        if user_input is not None:
-            self.trv_bundle[self.i]["advanced"] = user_input
-            self.trv_bundle[self.i]["adapter"] = None
-
-            self.i += 1
-            if len(self.trv_bundle) - 1 >= self.i:
-                self._last_step = True
-
-            if len(self.trv_bundle) > self.i:
-                return await self.async_step_advanced(
-                    None, self.trv_bundle[self.i], _update_config
-                )
-
-            self.updated_config[CONF_HEATER] = self.trv_bundle
-            _LOGGER.debug("Updated config: %s", self.updated_config)
-            self.hass.config_entries.async_update_entry(
-                self.config_entry, data=self.updated_config
-            )
-            return self.async_create_entry(
-                title=self.updated_config["name"], data=self.updated_config
-            )
-
-        user_input = user_input or {}
-        homematic = False
-        if _trv_config.get("integration").find("homematic") != -1:
-            homematic = True
-
-        fields = OrderedDict()
-
-        _default_calibration = "target_temp_based"
-        self.device_name = user_input.get(CONF_NAME, "-")
-
-        _adapter = await load_adapter(
-            self, _trv_config.get("integration"), _trv_config.get("trv")
-        )
-        if _adapter is not None:
-            _info = await _adapter.get_info(self, _trv_config.get("trv"))
-
-            if _info.get("support_offset", False):
-                _default_calibration = "local_calibration_based"
-
-        if _default_calibration == "local_calibration_based":
-            fields[
-                vol.Required(
-                    CONF_CALIBRATION,
-                    default=user_input.get(
-                        CONF_CALIBRATION,
-                        _trv_config["advanced"].get(
-                            CONF_CALIBRATION, _default_calibration
-                        ),
-                    ),
-                )
-            ] = CALIBRATION_TYPE_ALL_SELECTOR
-        else:
-            fields[
-                vol
