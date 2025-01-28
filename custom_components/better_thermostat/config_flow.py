@@ -1,6 +1,5 @@
 import logging
 import voluptuous as vol
-from .const import DOMAIN
 from collections import OrderedDict
 from homeassistant import config_entries
 from homeassistant.const import CONF_NAME
@@ -9,11 +8,8 @@ from homeassistant.helpers import selector
 from homeassistant.components.climate.const import HVACMode
 from homeassistant.helpers import config_validation as cv
 
-
 from .adapters.delegate import load_adapter
-
 from .utils.helpers import get_device_model, get_trv_intigration
-
 from .utils.const import (
     CONF_COOLER,
     CONF_PROTECT_OVERHEATING,
@@ -42,8 +38,7 @@ from .utils.const import (
     CalibrationMode,
     CalibrationType,
 )
-
-from . import DOMAIN  # pylint:disable=unused-import
+from .const import DOMAIN
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -129,7 +124,6 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     ) -> config_entries.OptionsFlow:
         """Get the options flow for this handler."""
         return OptionsFlowHandler(config_entry)
-        """Get the options flow for this handler."""
 
     async def async_step_confirm(self, user_input=None, confirm_type=None):
         """Handle user-confirmation of discovered node."""
@@ -260,84 +254,83 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             description_placeholders={"trv": _trv_config.get("trv")},
         )
 
-     async def async_step_user(self, user_input=None):
+    async def async_step_user(self, user_input=None):
         errors = {}
-    
-    if user_input is not None:
-        if self.data is None:
-            self.data = user_input
-        self.heater_entity_id = self.data[CONF_HEATER]
-        
-        # Name prüfen
-        if self.data[CONF_NAME] == "":
-            errors["base"] = "no_name"
-        
-        # Fenster- und Türsensoren prüfen
-        if CONF_SENSOR_WINDOW not in self.data:
-            self.data[CONF_SENSOR_WINDOW] = []
-        if CONF_SENSOR_DOOR not in self.data:  # Neue Prüfung für Türsensoren
-            self.data[CONF_SENSOR_DOOR] = []  # Standardwert für Türsensoren
-        
-        if CONF_HUMIDITY not in self.data:
-            self.data[CONF_HUMIDITY] = None
-        if CONF_OUTDOOR_SENSOR not in self.data:
-            self.data[CONF_OUTDOOR_SENSOR] = None
-        if CONF_WEATHER not in self.data:
-            self.data[CONF_WEATHER] = None
-        if CONF_COOLER not in self.data:
-            self.data[CONF_COOLER] = None
-    
-        # Timeout-Werte für Fenster- und Türsensoren aktualisieren
-        if CONF_WINDOW_TIMEOUT in self.data:
-            self.data[CONF_WINDOW_TIMEOUT] = (
-                int(
-                    cv.time_period_dict(
-                        user_input.get(CONF_WINDOW_TIMEOUT, None)
-                    ).total_seconds()
-                )
-                or 0
-            )
-        else:
-            self.data[CONF_WINDOW_TIMEOUT] = 0
-        
-        if CONF_WINDOW_TIMEOUT_AFTER in self.data:
-            self.data[CONF_WINDOW_TIMEOUT_AFTER] = (
-                int(
-                    cv.time_period_dict(
-                        user_input.get(CONF_WINDOW_TIMEOUT_AFTER, None)
-                    ).total_seconds()
-                )
-                or 0
-            )
-        else:
-            self.data[CONF_WINDOW_TIMEOUT_AFTER] = 0
-        
-        # Timeout-Werte für Türsensoren aktualisieren
-        if CONF_DOOR_TIMEOUT in self.data:
-            self.data[CONF_DOOR_TIMEOUT] = (
-                int(
-                    cv.time_period_dict(
-                        user_input.get(CONF_DOOR_TIMEOUT, None)
-                    ).total_seconds()
-                )
-                or 0
-            )
-        else:
-            self.data[CONF_DOOR_TIMEOUT] = 0
-        
-        if CONF_DOOR_TIMEOUT_AFTER in self.data:
-            self.data[CONF_DOOR_TIMEOUT_AFTER] = (
-                int(
-                    cv.time_period_dict(
-                        user_input.get(CONF_DOOR_TIMEOUT_AFTER, None)
-                    ).total_seconds()
-                )
-                or 0
-            )
-        else:
-            self.data[CONF_DOOR_TIMEOUT_AFTER] = 0
 
-    
+        if user_input is not None:
+            if self.data is None:
+                self.data = user_input
+            self.heater_entity_id = self.data[CONF_HEATER]
+
+            # Name prüfen
+            if self.data[CONF_NAME] == "":
+                errors["base"] = "no_name"
+
+            # Fenster- und Türsensoren prüfen
+            if CONF_SENSOR_WINDOW not in self.data:
+                self.data[CONF_SENSOR_WINDOW] = []
+            if CONF_SENSOR_DOOR not in self.data:  # Neue Prüfung für Türsensoren
+                self.data[CONF_SENSOR_DOOR] = []  # Standardwert für Türsensoren
+
+            if CONF_HUMIDITY not in self.data:
+                self.data[CONF_HUMIDITY] = None
+            if CONF_OUTDOOR_SENSOR not in self.data:
+                self.data[CONF_OUTDOOR_SENSOR] = None
+            if CONF_WEATHER not in self.data:
+                self.data[CONF_WEATHER] = None
+            if CONF_COOLER not in self.data:
+                self.data[CONF_COOLER] = None
+
+            # Timeout-Werte für Fenster- und Türsensoren aktualisieren
+            if CONF_WINDOW_TIMEOUT in self.data:
+                self.data[CONF_WINDOW_TIMEOUT] = (
+                    int(
+                        cv.time_period_dict(
+                            user_input.get(CONF_WINDOW_TIMEOUT, None)
+                        ).total_seconds()
+                    )
+                    or 0
+                )
+            else:
+                self.data[CONF_WINDOW_TIMEOUT] = 0
+
+            if CONF_WINDOW_TIMEOUT_AFTER in self.data:
+                self.data[CONF_WINDOW_TIMEOUT_AFTER] = (
+                    int(
+                        cv.time_period_dict(
+                            user_input.get(CONF_WINDOW_TIMEOUT_AFTER, None)
+                        ).total_seconds()
+                    )
+                    or 0
+                )
+            else:
+                self.data[CONF_WINDOW_TIMEOUT_AFTER] = 0
+
+            # Timeout-Werte für Türsensoren aktualisieren
+            if CONF_DOOR_TIMEOUT in self.data:
+                self.data[CONF_DOOR_TIMEOUT] = (
+                    int(
+                        cv.time_period_dict(
+                            user_input.get(CONF_DOOR_TIMEOUT, None)
+                        ).total_seconds()
+                    )
+                    or 0
+                )
+            else:
+                self.data[CONF_DOOR_TIMEOUT] = 0
+
+            if CONF_DOOR_TIMEOUT_AFTER in self.data:
+                self.data[CONF_DOOR_TIMEOUT_AFTER] = (
+                    int(
+                        cv.time_period_dict(
+                            user_input.get(CONF_DOOR_TIMEOUT_AFTER, None)
+                        ).total_seconds()
+                    )
+                    or 0
+                )
+            else:
+                self.data[CONF_DOOR_TIMEOUT_AFTER] = 0
+
             # Fehlerüberprüfung
             if "base" not in errors:
                 for trv in self.heater_entity_id:
@@ -352,10 +345,10 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                     )
                 self.data[CONF_MODEL] = "/".join([x["model"] for x in self.trv_bundle])
                 return await self.async_step_advanced(None, self.trv_bundle[0])
-    
+
         # Standardformular für das Backend UI mit `multiple=True` für `window_sensors`
         user_input = user_input or {}
-    
+
         return self.async_show_form(
             step_id="user",
             data_schema=vol.Schema(
@@ -397,32 +390,9 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                     vol.Optional(CONF_SENSOR_DOOR): selector.EntitySelector(
                         selector.EntitySelectorConfig(
                             domain=["group", "sensor", "input_boolean", "binary_sensor"],
-                            multiple=True,  # Mehrere Fenster-Sensoren erlauben
+                            multiple=True,  # Mehrere Tür-Sensoren erlauben
                         )
                     ),
-
-                    ),
-                    vol.Optional(CONF_WEATHER): selector.EntitySelector(
-                        selector.EntitySelectorConfig(domain="weather", multiple=False)
-                    ),
-                    vol.Optional(CONF_WINDOW_TIMEOUT): selector.DurationSelector(),
-                    vol.Optional(
-                        CONF_WINDOW_TIMEOUT_AFTER
-                    vol.Optional(CONF_DOOR_TIMEOUT): selector.DurationSelector(),
-                    vol.Optional(
-                        CONF_DOOR_TIMEOUT_AFTER
-                    ): selector.DurationSelector(),
-                    vol.Optional(
-                        CONF_OFF_TEMPERATURE,
-                        default=user_input.get(CONF_OFF_TEMPERATURE, 20),
-                    ): int,
-                    vol.Optional(
-                        CONF_TOLERANCE, default=user_input.get(CONF_TOLERANCE, 0.0)
-                    ): vol.All(vol.Coerce(float), vol.Range(min=0)),
-                    vol.Optional(
-                        CONF_TARGET_TEMP_STEP,
-                        default=str(user_input.get(CONF_TARGET_TEMP_STEP, "0.0")),
-                    ): TEMP_STEP_SELECTOR,
                 }
             ),
             errors=errors,
@@ -519,306 +489,4 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
 
         fields[
             vol.Required(
-                CONF_CALIBRATION_MODE,
-                default=_trv_config["advanced"].get(
-                    CONF_CALIBRATION_MODE, CalibrationMode.HEATING_POWER_CALIBRATION
-                ),
-            )
-        ] = CALIBRATION_MODE_SELECTOR
-
-        fields[
-            vol.Optional(
-                CONF_PROTECT_OVERHEATING,
-                default=_trv_config["advanced"].get(CONF_PROTECT_OVERHEATING, False),
-            )
-        ] = bool
-
-        fields[
-            vol.Optional(
-                CONF_NO_SYSTEM_MODE_OFF,
-                default=_trv_config["advanced"].get(CONF_NO_SYSTEM_MODE_OFF, False),
-            )
-        ] = bool
-
-        has_auto = False
-        trv = self.hass.states.get(_trv_config.get("trv"))
-        if HVACMode.AUTO in trv.attributes.get("hvac_modes"):
-            has_auto = True
-
-        fields[
-            vol.Optional(
-                CONF_HEAT_AUTO_SWAPPED,
-                default=_trv_config["advanced"].get(CONF_HEAT_AUTO_SWAPPED, has_auto),
-            )
-        ] = bool
-
-        if _info.get("support_valve", False):
-            fields[
-                vol.Optional(
-                    CONF_VALVE_MAINTENANCE,
-                    default=_trv_config["advanced"].get(CONF_VALVE_MAINTENANCE, False),
-                )
-            ] = bool
-
-        fields[
-            vol.Optional(
-                CONF_CHILD_LOCK,
-                default=_trv_config["advanced"].get(CONF_CHILD_LOCK, False),
-            )
-        ] = bool
-        fields[
-            vol.Optional(
-                CONF_HOMEMATICIP,
-                default=_trv_config["advanced"].get(CONF_HOMEMATICIP, homematic),
-            )
-        ] = bool
-
-        return self.async_show_form(
-            step_id="advanced",
-            data_schema=vol.Schema(fields),
-            last_step=self._last_step,
-            description_placeholders={"trv": _trv_config.get("trv")},
-        )
-
-        async def async_step_user(self, user_input=None):
-            if user_input is not None:
-                current_config = self.config_entry.data
-                self.updated_config = dict(current_config)
-                
-                # Konfiguration für Fenster- und Türsensoren aktualisieren
-                self.updated_config[CONF_SENSOR] = user_input.get(CONF_SENSOR, None)
-                self.updated_config[CONF_SENSOR_WINDOW] = user_input.get(CONF_SENSOR_WINDOW, None)
-                self.updated_config[CONF_SENSOR_DOOR] = user_input.get(CONF_SENSOR_DOOR, None)  # Türsensor hinzufügen
-                
-                # Weitere Konfigurationen
-                self.updated_config[CONF_HUMIDITY] = user_input.get(CONF_HUMIDITY, None)
-                self.updated_config[CONF_OUTDOOR_SENSOR] = user_input.get(CONF_OUTDOOR_SENSOR, None)
-                self.updated_config[CONF_WEATHER] = user_input.get(CONF_WEATHER, None)
-        
-                # Timeout-Werte für Fenster und Türsensoren
-                if CONF_WINDOW_TIMEOUT in self.updated_config:
-                    self.updated_config[CONF_WINDOW_TIMEOUT] = (
-                        int(
-                            cv.time_period_dict(
-                                user_input.get(CONF_WINDOW_TIMEOUT, None)
-                            ).total_seconds()
-                        )
-                        or 0
-                    )
-                else:
-                    self.updated_config[CONF_WINDOW_TIMEOUT] = 0
-        
-                if CONF_WINDOW_TIMEOUT_AFTER in self.updated_config:
-                    self.updated_config[CONF_WINDOW_TIMEOUT_AFTER] = (
-                        int(
-                            cv.time_period_dict(
-                                user_input.get(CONF_WINDOW_TIMEOUT_AFTER, None)
-                            ).total_seconds()
-                        )
-                        or 0
-                    )
-                else:
-                    self.updated_config[CONF_WINDOW_TIMEOUT_AFTER] = 0
-                
-                # Timeout-Werte für Türsensoren hinzufügen
-                if CONF_DOOR_TIMEOUT in self.updated_config:
-                    self.updated_config[CONF_DOOR_TIMEOUT] = (
-                        int(
-                            cv.time_period_dict(
-                                user_input.get(CONF_DOOR_TIMEOUT, None)
-                            ).total_seconds()
-                        )
-                        or 0
-                    )
-                else:
-                    self.updated_config[CONF_DOOR_TIMEOUT] = 0
-        
-                if CONF_DOOR_TIMEOUT_AFTER in self.updated_config:
-                    self.updated_config[CONF_DOOR_TIMEOUT_AFTER] = (
-                        int(
-                            cv.time_period_dict(
-                                user_input.get(CONF_DOOR_TIMEOUT_AFTER, None)
-                            ).total_seconds()
-                        )
-                        or 0
-                    )
-                else:
-                    self.updated_config[CONF_DOOR_TIMEOUT_AFTER] = 0
-
-
-            self.updated_config[CONF_OFF_TEMPERATURE] = user_input.get(
-                CONF_OFF_TEMPERATURE
-            )
-
-            self.updated_config[CONF_TOLERANCE] = float(
-                user_input.get(CONF_TOLERANCE, 0.0)
-            )
-            self.updated_config[CONF_TARGET_TEMP_STEP] = float(
-                user_input.get(CONF_TARGET_TEMP_STEP, "0.0")
-            )
-
-            for trv in self.updated_config[CONF_HEATER]:
-                trv["adapter"] = None
-                self.trv_bundle.append(trv)
-
-            return await self.async_step_advanced(
-                None, self.trv_bundle[0], self.updated_config
-            )
-
-        fields = OrderedDict()
-
-        fields[
-            vol.Optional(
-                CONF_SENSOR,
-                description={
-                    "suggested_value": self.config_entry.data.get(CONF_SENSOR, "")
-                },
-            )
-        ] = selector.EntitySelector(
-            selector.EntitySelectorConfig(
-                domain=["sensor", "number", "input_number"],
-                device_class="temperature",
-                multiple=False,
-            )
-        )
-
-        fields[
-            vol.Optional(
-                CONF_HUMIDITY,
-                description={
-                    "suggested_value": self.config_entry.data.get(CONF_HUMIDITY, "")
-                },
-            )
-        ] = selector.EntitySelector(
-            selector.EntitySelectorConfig(
-                domain=["sensor", "number", "input_number"],
-                device_class="humidity",
-                multiple=False,
-            )
-        )
-
-        fields[
-            vol.Optional(
-                CONF_SENSOR_WINDOW,
-                description={
-                    "suggested_value": self.config_entry.data.get(
-                        CONF_SENSOR_WINDOW, ""
-                    )
-                },
-            )
-        ] = selector.EntitySelector(
-            selector.EntitySelectorConfig(
-                domain=["group", "sensor", "input_boolean", "binary_sensor"],
-                multiple=true,
-            )
-        )
-        fields[
-            vol.Optional(
-                CONF_SENSOR_DOOR,
-                description={
-                    "suggested_value": self.config_entry.data.get(
-                        CONF_SENSOR_DOOR, ""
-                    )
-                },
-            )
-        ] = selector.EntitySelector(
-            selector.EntitySelectorConfig(
-                domain=["group", "sensor", "input_boolean", "binary_sensor"],
-                multiple=true,
-            )
-        )
-        fields[
-            vol.Optional(
-                CONF_OUTDOOR_SENSOR,
-                description={
-                    "suggested_value": self.config_entry.data.get(
-                        CONF_OUTDOOR_SENSOR, ""
-                    )
-                },
-            )
-        ] = selector.EntitySelector(
-            selector.EntitySelectorConfig(
-                domain=["sensor", "input_number", "number"],
-                device_class="temperature",
-                multiple=False,
-            )
-        )
-
-        fields[
-            vol.Optional(
-                CONF_WEATHER,
-                description={
-                    "suggested_value": self.config_entry.data.get(CONF_WEATHER, "")
-                },
-            )
-        ] = selector.EntitySelector(
-            selector.EntitySelectorConfig(domain="weather", multiple=False)
-        )
-
-        _timeout = self.config_entry.data.get(CONF_WINDOW_TIMEOUT, 0)
-        _timeout = self.config_entry.data.get(CONF_DOOR_TIMEOUT, 0)
-        _timeout = str(cv.time_period_seconds(_timeout))
-        _timeout = {
-            "hours": int(_timeout.split(":", maxsplit=1)[0]),
-            "minutes": int(_timeout.split(":")[1]),
-            "seconds": int(_timeout.split(":")[2]),
-        }
-        fields[
-            vol.Optional(
-                CONF_WINDOW_TIMEOUT,
-                default=_timeout,
-                description={"suggested_value": _timeout},
-            )
-        ] = selector.DurationSelector()
-        fields[
-            vol.Optional(
-                CONF_DOOR_TIMEOUT,
-                default=_timeout,
-                description={"suggested_value": _timeout},
-            )
-        ] = selector.DurationSelector()
-
-        _timeout = self.config_entry.data.get(CONF_WINDOW_TIMEOUT_AFTER, 0)
-        _timeout = self.config_entry.data.get(CONF_DOOR_TIMEOUT_AFTER, 0)
-        _timeout = str(cv.time_period_seconds(_timeout))
-        _timeout = {
-            "hours": int(_timeout.split(":", maxsplit=1)[0]),
-            "minutes": int(_timeout.split(":")[1]),
-            "seconds": int(_timeout.split(":")[2]),
-        }
-        fields[
-            vol.Optional(
-                CONF_WINDOW_TIMEOUT_AFTER,
-                default=_timeout,
-                description={"suggested_value": _timeout},
-            )
-        ] = selector.DurationSelector()
-        fields[
-            vol.Optional(
-                CONF_DOOR_TIMEOUT_AFTER,
-                default=_timeout,
-                description={"suggested_value": _timeout},
-            )
-        ] = selector.DurationSelector()
-        fields[
-            vol.Optional(
-                CONF_OFF_TEMPERATURE,
-                default=self.config_entry.data.get(CONF_OFF_TEMPERATURE, 5),
-            )
-        ] = int
-
-        fields[
-            vol.Optional(
-                CONF_TOLERANCE, default=self.config_entry.data.get(CONF_TOLERANCE, 0.0)
-            )
-        ] = vol.All(vol.Coerce(float), vol.Range(min=0))
-        fields[
-            vol.Optional(
-                CONF_TARGET_TEMP_STEP,
-                default=str(self.config_entry.data.get(CONF_TARGET_TEMP_STEP, 0.0)),
-            )
-        ] = TEMP_STEP_SELECTOR
-
-        return self.async_show_form(
-            step_id="user", data_schema=vol.Schema(fields), last_step=False
-        )
+                CONF_CALIBRATION
