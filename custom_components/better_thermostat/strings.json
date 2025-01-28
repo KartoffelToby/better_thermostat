@@ -1,128 +1,97 @@
 {
-        "config": {
-                "step": {
-                        "user": {
-                                "description": "Setup your Better Thermostat to integrate with Home Assistant\n**If you need more info: https://better-thermostat.org/configuration#first-step**",
-                                "data": {
-                                        "name": "Name",
-                                        "thermostat": "The real thermostat",
-                                        "cooler": "The cooling device (optional)",
-                                        "temperature_sensor": "Temperature sensor",
-                                        "humidity_sensor": "Humidity sensor",
-                                        "window_sensors": "Window sensor",
-                                        "off_temperature": "The outdoor temperature when the thermostat should turn off",
-                                        "tolerance": "Tolerance, to prevent the thermostat from turning on and off too often",
-                                        "window_off_delay": "Delay before the thermostat should turn off when the window is opened",
-                                        "window_off_delay_after": "Delay before the thermostat should turn on when the window is closed",
-                                        "outdoor_sensor": "Outdoor temperature sensor",
-                                        "weather": "Weather entity to get the outdoor temperature"
-                                }
-                        },
-                        "advanced": {
-                                "description": "Advanced configuration {trv}\n***Info about calibration types: https://better-thermostat.org/configuration#second-step***",
-                                "data": {
-                                        "protect_overheating": "Overheating protection?",
-                                        "heat_auto_swapped": "If 'auto' means 'heat' for your TRV and you want to swap it",
-                                        "child_lock": "Ignore all inputs on the TRV like a child lock",
-                                        "homematicip": "If you use HomematicIP, you should enable this to slow down the requests to prevent the duty cycle",
-                                        "valve_maintenance": "If your thermostat has no own maintenance mode, you can use this one",
-                                        "calibration": "Calibration type",
-                                        "calibration_mode": "Calibration mode",
-                                        "no_off_system_mode": "If your TRV doesn't support the 'off' mode, enable this to use target temperature 5°C instead"
-                                },
-                                "data_description": {
-                                        "protect_overheating": "Some TRVs don't close the valve completely when the temperature is reached. Or the radiator has a lot of rest heat. This can cause overheating. This option can prevent this.",
-                                        "calibration_mode": "How the calibration is calculated\n***Normal***: In this mode, the TRV internal temperature sensor is fixed by the external temperature sensor.\n***Aggresive***: In this mode, the TRV internal temperature sensor is fixed by the external temperature sensor but set much lower/higher to get a quicker boost.\n***AI Time Based***: In this mode, the TRV internal temperature sensor is fixed by the external temperature sensor, but the value is calculated by a custom algorithm to improve the TRV internal algorithm.",
-                                        "calibration": "How the calibration is applied on the TRV\n***Target Temperature Based***: Apply the calibration to the target temperature.\n***Offset Based***: Apply the calibration to the temperature offset."
-                                }
-                        },
-                        "confirm": {
-                                "title": "Confirm adding a Better Thermostat",
-                                "description": "You are about to add `{name}` to Home Assistant.\nWith {trv} as the real Thermostat"
-                        }
-                },
-                "error": {
-                        "failed": "Something went wrong.",
-                        "no_name": "Please enter a name.",
-                        "no_off_mode": "Your device is special and has no off mode :(\nBetter Thermostat will use the minimal target temp instead.",
-                        "no_outside_temp": "You have no outside temperature sensor. Better Thermostat will use the weather entity instead."
-                },
-                "abort": {
-                        "single_instance_allowed": "Only a single Better Thermostat is allowed for each real thermostat.",
-                        "no_devices_found": "No thermostat entity found, make sure you have a climate entity in your Home Assistant"
+    "config": {
+        "step": {
+            "user": {
+                "description": "Setup your Better Thermostat to integrate with Home Assistant\n**If you need more info: https://better-thermostat.org/configuration#first-step**",
+                "data": {
+                    "name": "Name",
+                    "thermostat": "The real thermostat",
+                    "cooler": "The cooling device (optional)",
+                    "temperature_sensor": "Temperature sensor",
+                    "humidity_sensor": "Humidity sensor",
+                    "window_sensors": "Window sensor",
+                    "door_sensors": "Door sensors (optional)",  // Neu hinzugefügt
+                    "off_temperature": "The outdoor temperature when the thermostat should turn off",
+                    "tolerance": "Tolerance, to prevent the thermostat from turning on and off too often",
+                    "window_off_delay": "Delay before the thermostat should turn off when the window is opened",
+                    "window_off_delay_after": "Delay before the thermostat should turn on when the window is closed",
+                    "door_off_delay": "Delay before the thermostat should turn off when the door is opened (optional)",  // Neu hinzugefügt
+                    "outdoor_sensor": "Outdoor temperature sensor",
+                    "weather": "Weather entity to get the outdoor temperature"
                 }
+            },
+            "advanced": {
+                "description": "Advanced configuration {trv}\n***Info about calibration types: https://better-thermostat.org/configuration#second-step***",
+                "data": {
+                    "protect_overheating": "Overheating protection?",
+                    "heat_auto_swapped": "If 'auto' means 'heat' for your TRV and you want to swap it",
+                    "child_lock": "Ignore all inputs on the TRV like a child lock",
+                    "homematicip": "If you use HomematicIP, you should enable this to slow down the requests to prevent the duty cycle",
+                    "valve_maintenance": "If your thermostat has no own maintenance mode, you can use this one",
+                    "calibration": "Calibration type",
+                    "calibration_mode": "Calibration mode",
+                    "no_off_system_mode": "If your TRV doesn't support the 'off' mode, enable this to use target temperature 5°C instead"
+                },
+                "data_description": {
+                    "protect_overheating": "Some TRVs don't close the valve completely when the temperature is reached. Or the radiator has a lot of rest heat. This can cause overheating. This option can prevent this.",
+                    "calibration_mode": "How the calibration is calculated\n***Normal***: In this mode, the TRV internal temperature sensor is fixed by the external temperature sensor.\n***Aggressive***: In this mode, the TRV internal temperature sensor is fixed by the external temperature sensor but set much lower/higher to get a quicker boost.\n***AI Time Based***: In this mode, the TRV internal temperature sensor is fixed by the external temperature sensor, but the value is calculated by a custom algorithm to improve the TRV internal algorithm.",
+                    "calibration": "How the calibration is applied on the TRV\n***Target Temperature Based***: Apply the calibration to the target temperature.\n***Offset Based***: Apply the calibration to the temperature offset."
+                }
+            },
+            "confirm": {
+                "title": "Confirm adding a Better Thermostat",
+                "description": "You are about to add `{name}` to Home Assistant.\nWith {trv} as the real Thermostat"
+            }
         },
-        "options": {
-                "step": {
-                        "user": {
-                                "description": "Update your Better Thermostat settings",
-                                "data": {
-                                        "name": "Name",
-                                        "thermostat": "The real thermostat",
-                                        "temperature_sensor": "Temperature Sensor",
-                                        "humidity_sensor": "Humidity sensor",
-                                        "window_sensors": "Window Sensor",
-                                        "off_temperature": "The outdoor temperature when the thermostat should turn off",
-                                        "tolerance": "Tolerance, to prevent the thermostat from turning on and off too often",
-                                        "window_off_delay": "Delay before the thermostat should turn off when the window is opened",
-                                        "window_off_delay_after": "Delay before the thermostat should turn on when the window is closed",
-                                        "outdoor_sensor": "Outdoor temperature sensor",
-                                        "weather": "Weather entity to get the outdoor temperature"
-                                        "valve_maintenance": "If your thermostat has no own maintenance mode, you can use this one",
-                                        "calibration": "The sort of calibration https://better-thermostat.org/configuration#second-step",
-                                        "heat_auto_swapped": "If the auto means heat for your TRV and you want to swap it",
-                                        "child_lock": "Ignore all inputs on the TRV like a child lock",
-                                        "homematicip": "If you use HomematicIP, you should enable this to slow down the requests to prevent the duty cycle"
-                                }
-                        },
-                        "advanced": {
-                                "description": "Advanced configuration {trv}\n***Info about calibration types: https://better-thermostat.org/configuration#second-step***",
-                                "data": {
-                                        "protect_overheating": "Overheating protection?",
-                                        "heat_auto_swapped": "If the auto means heat for your TRV and you want to swap it",
-                                        "child_lock": "Ignore all inputs on the TRV like a child lock",
-                                        "homematicip": "If you use HomematicIP, you should enable this to slow down the requests to prevent the duty cycle",
-                                        "valve_maintenance": "If your thermostat has no own maintenance mode, you can use this one",
-                                        "calibration": "Calibration type",
-                                        "calibration_mode": "Calibration mode",
-                                        "no_off_system_mode": "If your TRV doesn't support the 'off' mode, enable this to use target temperature 5°C instead"
-                                },
-                                "data_description": {
-                                        "protect_overheating": "Some TRVs don't close the valve completely when the temperature is reached. Or the radiator has a lot of rest heat. This can cause overheating. This option can prevent this.",
-                                        "calibration_mode": "How the calibration is calculated\n***Normal***: In this mode, the TRV internal temperature sensor is fixed by the external temperature sensor.\n***Aggresive***: In this mode, the TRV internal temperature sensor is fixed by the external temperature sensor but set much lower/higher to get a quicker boost.\n***AI Time Based***: In this mode, the TRV internal temperature sensor is fixed by the external temperature sensor, but the value is calculated by a custom algorithm to improve the TRV internal algorithm.",
-                                        "calibration": "How the calibration is applied on the TRV\n***Target Temperature Based***: Apply the calibration to the target temperature.\n***Offset Based***: Apply the calibration to the temperature offset."                                }
-                        }
-                }
+        "error": {
+            "failed": "Something went wrong.",
+            "no_name": "Please enter a name.",
+            "no_off_mode": "Your device is special and has no off mode :(\nBetter Thermostat will use the minimal target temp instead.",
+            "no_outside_temp": "You have no outside temperature sensor. Better Thermostat will use the weather entity instead."
         },
-        "issues": {
-                "missing_entity": {
-                        "title": "BT: {name} - related entity is missing",
-                        "fix_flow": {
-                                "step": {
-                                        "confirm": {
-                                                "title": "The related entity {entity} is missing",
-                                                "description": "The reason for this is that the entity ({entity}) is not available in your Home Assistant.\n\nYou can fix this by checking if the battery of the device is full or reconnecting it to HA. Make sure that the entity is back in HA before you continue."
-                                        }
-                                }
-                        }
-                }
-        },
-        "services": {
-                "save_current_target_temperature": {
-                        "name": "Save current Temperature",
-                        "description": "Save the current target temperature for later restore."
-                },
-                "restore_saved_target_temperature": {
-                        "name": "Restore temperature",
-                        "description": "Restore the saved target temperature."
-                },
-                "reset_heating_power": {
-                        "name": "Reset heating power",
-                        "description": "Reset heating power to default value."
-                },
-                "set_temp_target_temperature": {
-                        "name": "Set eco temperature",
-                        "description": "Set the target temperature to a temporary like night mode, and save the old one."
-                }
+        "abort": {
+            "single_instance_allowed": "Only a single Better Thermostat is allowed for each real thermostat.",
+            "no_devices_found": "No thermostat entity found, make sure you have a climate entity in your Home Assistant"
         }
+    },
+    "options": {
+        "step": {
+            "user": {
+                "description": "Update your Better Thermostat settings",
+                "data": {
+                    "name": "Name",
+                    "thermostat": "The real thermostat",
+                    "temperature_sensor": "Temperature Sensor",
+                    "humidity_sensor": "Humidity sensor",
+                    "window_sensors": "Window Sensor",
+                    "door_sensors": "Door sensors (optional)",  // Neu hinzugefügt
+                    "off_temperature": "The outdoor temperature when the thermostat should turn off",
+                    "tolerance": "Tolerance, to prevent the thermostat from turning on and off too often",
+                    "window_off_delay": "Delay before the thermostat should turn off when the window is opened",
+                    "window_off_delay_after": "Delay before the thermostat should turn on when the window is closed",
+                    "door_off_delay": "Delay before the thermostat should turn off when the door is opened (optional)",  // Neu hinzugefügt
+                    "outdoor_sensor": "Outdoor temperature sensor",
+                    "weather": "Weather entity to get the outdoor temperature"
+                }
+            }
+        }
+    },
+    "services": {
+        "save_current_target_temperature": {
+            "name": "Save current Temperature",
+            "description": "Save the current target temperature for later restore."
+        },
+        "restore_saved_target_temperature": {
+            "name": "Restore temperature",
+            "description": "Restore the saved target temperature."
+        },
+        "reset_heating_power": {
+            "name": "Reset heating power",
+            "description": "Reset heating power to default value."
+        },
+        "set_temp_target_temperature": {
+            "name": "Set eco temperature",
+            "description": "Set the target temperature to a temporary like night mode, and save the old one."
+        }
+    }
 }
