@@ -1,7 +1,6 @@
 """Better Thermostat Integration."""
 import logging
 import voluptuous as vol
-from . import config_flow
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.typing import ConfigType
