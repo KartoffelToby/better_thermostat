@@ -55,6 +55,7 @@ CONF_TARGET_TEMP_STEP = "target_temp_step"
 # Neue Konfigurationen für Türsensoren
 CONF_SENSOR_DOOR = "door_sensors"
 CONF_DOOR_TIMEOUT = "door_off_delay"
+CONF_DOOR_TIMEOUT_AFTER = "door_off_delay_after"
 
 # Unterstützte Funktionen
 SUPPORT_FLAGS = (
