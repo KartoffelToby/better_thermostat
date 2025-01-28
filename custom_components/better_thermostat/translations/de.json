@@ -17,6 +17,10 @@
           "window_off_delay_after": "Wartezeit, bevor das Thermostat bei geschlossenem Fenster angeschaltet wird.",
           "outdoor_sensor": "Wenn ein Außentemperatursensor vorhanden ist, kann dieser anstelle der Wetter-Entität genutzt werden.",
           "weather": "Die Wetter-Entität für die Außentemperatur."
+          "window_id": "Fenstersensoren",
+          "window_delay": "Verzögerungszeit für Fenstersensoren",
+          "door_id": "Türsensoren",
+          "door_delay": "Verzögerungszeit für Türsensoren"
         }
       },
       "advanced": {
