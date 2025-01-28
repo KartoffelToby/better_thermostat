@@ -254,6 +254,9 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             description_placeholders={"trv": _trv_config.get("trv")},
         )
 
+class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
+    ...
+
     async def async_step_user(self, user_input=None):
         errors = {}
 
