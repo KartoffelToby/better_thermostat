@@ -476,7 +476,4 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
             ] = CALIBRATION_TYPE_ALL_SELECTOR
         else:
             fields[
-                vol.Required(
-                    CONF_CALIBRATION,
-                    default=user_input.get(
-                        CONF
+                vol
