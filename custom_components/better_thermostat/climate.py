@@ -54,7 +54,7 @@ from .events.cooler import trigger_cooler_change
 from .events.temperature import trigger_temperature_change
 from .events.trv import trigger_trv_change
 from .events.window import trigger_window_change, window_queue
-
+from .events.door import trigger_door_change, door_queue
 from .model_fixes.model_quirks import load_model_quirks
 from .utils.const import (
     ATTR_STATE_BATTERIES,
