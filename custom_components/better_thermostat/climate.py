@@ -517,3 +517,10 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
 
         door_state = self.hass.states.get(self.door_id)
         if door_state.state in ("on", "open", "true"):
+            self.door_open = True
+        else:
+            self.door_open = False
+        _LOGGER.debug(
+            "better_thermostat %s: detected door state change: %s",
+            self.device_name,
+            "Open" if self
