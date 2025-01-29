@@ -1,8 +1,7 @@
 import logging
 from homeassistant.components.climate import ClimateEntity
 from homeassistant.components.climate.const import (
-    HVAC_MODE_HEAT,
-    HVAC_MODE_OFF,
+    HVACMode,
     SUPPORT_TARGET_TEMPERATURE,
 )
 from homeassistant.const import TEMP_CELSIUS, ATTR_TEMPERATURE
@@ -23,7 +22,7 @@ class BetterThermostatClimate(ClimateEntity):
         self._name = config.get("name")
         self._target_temperature = config.get("target_temp", 20)
         self._current_temperature = None
-        self._hvac_mode = HVAC_MODE_HEAT
+        self._hvac_mode = HVACMode.HEAT
 
     @property
     def supported_features(self):
@@ -48,7 +47,7 @@ class BetterThermostatClimate(ClimateEntity):
     @property
     def hvac_modes(self):
         """Return the list of available operation modes."""
-        return [HVAC_MODE_HEAT, HVAC_MODE_OFF]
+        return [HVACMode.HEAT, HVACMode.OFF]
 
     @property
     def current_temperature(self):
