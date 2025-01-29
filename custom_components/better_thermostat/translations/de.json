@@ -10,15 +10,15 @@
                     "heater": "Heizung",
                     "sensor": "Temperatursensor",
                     "window_sensors": "Fenstersensoren",
-                    "door_sensors": "Türsensoren",  // Hinzugefügt
+                    "door_sensors": "Türsensoren",
                     "humidity_sensor": "Feuchtigkeitssensor",
                     "outdoor_sensor": "Außensensor",
                     "weather": "Wetter",
                     "cooler": "Kühler",
                     "window_timeout": "Fenster-Timeout",
                     "window_timeout_after": "Fenster-Timeout nach",
-                    "door_timeout": "Tür-Timeout",  // Hinzugefügt
-                    "door_timeout_after": "Tür-Timeout nach"  // Hinzugefügt
+                    "door_timeout": "Tür-Timeout", 
+                    "door_timeout_after": "Tür-Timeout nach"
                 }
             }
         }
@@ -32,15 +32,15 @@
                     "heater": "Heizung",
                     "sensor": "Temperatursensor",
                     "window_sensors": "Fenstersensoren",
-                    "door_sensors": "Türsensoren",  // Hinzugefügt
+                    "door_sensors": "Türsensoren",
                     "humidity_sensor": "Feuchtigkeitssensor",
                     "outdoor_sensor": "Außensensor",
                     "weather": "Wetter",
                     "cooler": "Kühler",
                     "window_timeout": "Fenster-Timeout",
                     "window_timeout_after": "Fenster-Timeout nach",
-                    "door_timeout": "Tür-Timeout",  // Hinzugefügt
-                    "door_timeout_after": "Tür-Timeout nach"  // Hinzugefügt
+                    "door_timeout": "Tür-Timeout",
+                    "door_timeout_after": "Tür-Timeout nach"
                 }
             }
         }
