@@ -27,13 +27,13 @@ from .utils.const import (
     CONF_OUTDOOR_SENSOR,
     CONF_SENSOR,
     CONF_SENSOR_WINDOW,
-    CONF_SENSOR_DOOR,
+    CONF_SENSOR_DOOR,  # Hinzugefügt
     CONF_VALVE_MAINTENANCE,
     CONF_WEATHER,
     CONF_WINDOW_TIMEOUT,
     CONF_WINDOW_TIMEOUT_AFTER,
-    CONF_DOOR_TIMEOUT,
-    CONF_DOOR_TIMEOUT_AFTER,
+    CONF_DOOR_TIMEOUT,  # Hinzugefügt
+    CONF_DOOR_TIMEOUT_AFTER,  # Hinzugefügt
     CONF_CALIBRATION_MODE,
     CONF_TOLERANCE,
     CONF_TARGET_TEMP_STEP,
@@ -391,10 +391,6 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                             multiple=True,  # Mehrere Tür-Sensoren erlauben
                         )
                     ),
-                    vol.Optional(CONF_WINDOW_TIMEOUT): selector.DurationSelector(),  # Hinzugefügt
-                    vol.Optional(CONF_WINDOW_TIMEOUT_AFTER): selector.DurationSelector(),  # Hinzugefügt
-                    vol.Optional(CONF_DOOR_TIMEOUT): selector.DurationSelector(),  # Hinzugefügt
-                    vol.Optional(CONF_DOOR_TIMEOUT_AFTER): selector.DurationSelector(),  # Hinzugefügt
                 }
             ),
             errors=errors,
@@ -413,63 +409,3 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
         self.trv_bundle = []
         self.device_name = ""
         self._last_step = False
-        self.updated_config = {}
-
-
-    async def async_step_init(self, user_input=None):
-        """Manage the options."""
-        return await self.async_step_user()
-
-    async def async_step_advanced(
-        self, user_input=None, _trv_config=None, _update_config=None
-    ):
-        """Manage the advanced options."""
-        if user_input is not None:
-            self.trv_bundle[self.i]["advanced"] = user_input
-            self.trv_bundle[self.i]["adapter"] = None
-
-            self.i += 1
-            if len(self.trv_bundle) - 1 >= self.i:
-                self._last_step = True
-
-            if len(self.trv_bundle) > self.i:
-                return await self.async_step_advanced(
-                    None, self.trv_bundle[self.i], _update_config
-                )
-
-            self.updated_config[CONF_HEATER] = self.trv_bundle
-            _LOGGER.debug("Updated config: %s", self.updated_config)
-            self.hass.config_entries.async_update_entry(
-                self.config_entry, data=self.updated_config
-            )
-            return self.async_create_entry(
-                title=self.updated_config["name"], data=self.updated_config
-            )
-
-        user_input = user_input or {}
-        homematic = False
-        if _trv_config.get("integration").find("homematic") != -1:
-            homematic = True
-
-        fields = OrderedDict()
-
-        _default_calibration = "target_temp_based"
-        self.device_name = user_input.get(CONF_NAME, "-")
-
-        _adapter = await load_adapter(
-            self, _trv_config.get("integration"), _trv_config.get("trv")
-        )
-        if _adapter is not None:
-            _info = await _adapter.get_info(self, _trv_config.get("trv"))
-
-            if _info.get("support_offset", False):
-                _default_calibration = "local_calibration_based"
-
-        if _default_calibration == "local_calibration_based":
-            fields[
-                vol.Required(
-                    CONF_CALIBRATION,
-                    default=user_input.get(
-                        CONF_CALIBRATION,
-                        _trv_config["advanced"].get(
-                            CONF_CALIB
