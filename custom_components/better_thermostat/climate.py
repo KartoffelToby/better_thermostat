@@ -54,6 +54,7 @@ from .events.cooler import trigger_cooler_change
 from .events.temperature import trigger_temperature_change
 from .events.trv import trigger_trv_change
 from .events.window import trigger_window_change, window_queue
+from .events.door import trigger_door_change, door_queue
 from .model_fixes.model_quirks import load_model_quirks
 from .utils.const import (
     ATTR_STATE_BATTERIES,
@@ -65,7 +66,7 @@ from .utils.const import (
     ATTR_STATE_MAIN_MODE,
     ATTR_STATE_SAVED_TEMPERATURE,
     ATTR_STATE_WINDOW_OPEN,
-    ATTR_STATE_DOOR_OPEN,  # Neues Attribut für Türstatus
+    ATTR_STATE_DOOR_OPEN,
     BETTERTHERMOSTAT_SET_TEMPERATURE_SCHEMA,
     CONF_COOLER,
     CONF_HEATER,
@@ -75,18 +76,19 @@ from .utils.const import (
     CONF_OUTDOOR_SENSOR,
     CONF_SENSOR,
     CONF_SENSOR_WINDOW,
-    CONF_SENSOR_DOOR,  # Hinzugefügt
-    CONF_VALVE_MAINTENANCE,
+    CONF_SENSOR_DOOR,
+    CONF_TARGET_TEMP_STEP,
+    CONF_TOLERANCE,
     CONF_WEATHER,
     CONF_WINDOW_TIMEOUT,
     CONF_WINDOW_TIMEOUT_AFTER,
-    CONF_DOOR_TIMEOUT,  # Hinzugefügt
-    CONF_DOOR_TIMEOUT_AFTER,  # Hinzugefügt
+    CONF_DOOR_TIMEOUT,
+    CONF_DOOR_TIMEOUT_AFTER,
+    SERVICE_RESET_HEATING_POWER,
+    SERVICE_RESTORE_SAVED_TARGET_TEMPERATURE,
+    SERVICE_SET_TEMP_TARGET_TEMPERATURE,
     SUPPORT_FLAGS,
     VERSION,
-    SERVICE_SET_TEMP_TARGET_TEMPERATURE,  # Hinzugefügt
-    SERVICE_RESTORE_SAVED_TARGET_TEMPERATURE,  # Hinzugefügt
-    SERVICE_RESET_HEATING_POWER,  # Hinzugefügt
 )
 from .utils.controlling import control_queue, control_trv
 from .utils.helpers import convert_to_float, find_battery_entity, get_hvac_bt_mode
@@ -172,12 +174,12 @@ async def async_setup_entry(hass, entry, async_add_devices):
                 entry.data.get(CONF_SENSOR_WINDOW, None),
                 entry.data.get(CONF_WINDOW_TIMEOUT, None),
                 entry.data.get(CONF_WINDOW_TIMEOUT_AFTER, None),
-                entry.data.get(CONF_SENSOR_DOOR, None),  # Hinzugefügt
-                entry.data.get(CONF_DOOR_TIMEOUT, None),  # Hinzugefügt
-                entry.data.get(CONF_DOOR_TIMEOUT_AFTER, None),  # Hinzugefügt
+                entry.data.get(CONF_SENSOR_DOOR, None),
+                entry.data.get(CONF_DOOR_TIMEOUT, None),
+                entry.data.get(CONF_DOOR_TIMEOUT_AFTER, None),
                 entry.data.get(CONF_WEATHER, None),
                 entry.data.get(CONF_OUTDOOR_SENSOR, None),
-                entry.data.get(CONF_OFF_TEMPERATURE, 0),  # Standardwert 0 wenn None
+                entry.data.get(CONF_OFF_TEMPERATURE, None),
                 entry.data.get(CONF_TOLERANCE, 0.0),
                 entry.data.get(CONF_TARGET_TEMP_STEP, "0.0"),
                 entry.data.get(CONF_MODEL, None),
@@ -250,9 +252,9 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
         window_id,
         window_delay,
         window_delay_after,
-        door_id,  # Hinzugefügt
-        door_delay,  # Hinzugefügt
-        door_delay_after,  # Hinzugefügt
+        door_id,
+        door_delay,
+        door_delay_after,
         weather_entity,
         outdoor_sensor,
         off_temperature,
@@ -282,12 +284,12 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
         self.window_id = window_id or None
         self.window_delay = window_delay or 0
         self.window_delay_after = window_delay_after or 0
-        self.door_id = door_id or None  # Hinzugefügt
-        self.door_delay = door_delay or 0  # Hinzugefügt
-        self.door_delay_after = door_delay_after or 0  # Hinzugefügt
+        self.door_id = door_id or None
+        self.door_delay = door_delay or 0
+        self.door_delay_after = door_delay_after or 0
         self.weather_entity = weather_entity or None
         self.outdoor_sensor = outdoor_sensor or None
-        self.off_temperature = float(off_temperature)  # Standardwert ist bereits 0
+        self.off_temperature = float(off_temperature) or None
         self.tolerance = float(tolerance) or 0.0
         self._unique_id = unique_id
         self._unit = unit
@@ -302,7 +304,7 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
         self.cur_temp = None
         self._current_humidity = 0
         self.window_open = None
-        self.door_open = None  # Hinzugefügt
+        self.door_open = None
         self.bt_target_temp_step = float(target_temp_step) or 0.0
         self.bt_min_temp = 0
         self.bt_max_temp = 30
@@ -311,6 +313,7 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
         self._support_flags = SUPPORT_FLAGS | ClimateEntityFeature.PRESET_MODE
         self.bt_hvac_mode = None
         self.closed_window_triggered = False
+        self.closed_door_triggered = False
         self.call_for_heat = True
         self.ignore_states = False
         self.last_dampening_timestamp = None
@@ -324,7 +327,7 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
         self.last_avg_outdoor_temp = None
         self.last_main_hvac_mode = None
         self.last_window_state = None
-        self.last_door_state = None  # Hinzugefügt
+        self.last_door_state = None
         self._last_call_for_heat = None
         self._available = False
         self.context = None
@@ -341,9 +344,13 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
         self.control_queue_task = asyncio.Queue(maxsize=1)
         if self.window_id is not None:
             self.window_queue_task = asyncio.Queue(maxsize=1)
+        if self.door_id is not None:  # Hinzugefügt
+            self.door_queue_task = asyncio.Queue(maxsize=1)  # Hinzugefügt
         asyncio.create_task(control_queue(self))
         if self.window_id is not None:
             asyncio.create_task(window_queue(self))
+        if self.door_id is not None:  # Hinzugefügt
+            asyncio.create_task(door_queue(self))  # Hinzugefügt
         self.heating_power = 0.01
         self.last_heating_power_stats = []
         self.is_removed = False
@@ -508,14 +515,932 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
 
     async def _trigger_door_change(self, event):  # Hinzugefügt
         _check = await check_all_entities(self)
-        if (_check is False):
+        if _check is False:
             return
         self.async_set_context(event.context)
         if (event.data.get("new_state")) is None:
             return
 
-        door_state = self.hass.states.get(self.door_id)
-        if door_state.state in ("on", "open", "true"):
-            self.door_open = True
+        self.hass.async_create_task(trigger_door_change(self, event))  # Hinzugefügt
+
+    async def _tigger_cooler_change(self, event):
+        _check = await check_all_entities(self)
+        if _check is False:
+            return
+        self.async_set_context(event.context)
+        if (event.data.get("new_state")) is None:
+            return
+
+        self.hass.async_create_task(trigger_cooler_change(self, event))
+
+    async def startup(self):
+        """Run when entity about to be added.
+
+        Returns
+        -------
+        None
+        """
+        while self.startup_running:
+            _LOGGER.info(
+                "better_thermostat %s: Starting version %s. Waiting for entity to be ready...",
+                self.device_name,
+                self.version,
+            )
+
+            sensor_state = self.hass.states.get(self.sensor_entity_id)
+            if sensor_state is not None:
+                if sensor_state.state in (STATE_UNAVAILABLE, STATE_UNKNOWN, None):
+                    _LOGGER.info(
+                        "better_thermostat %s: waiting for sensor entity with id '%s' to become fully available...",
+                        self.device_name,
+                        self.sensor_entity_id,
+                    )
+                    await asyncio.sleep(10)
+                    continue
+
+            try:
+                for trv in self.real_trvs.keys():
+                    trv_state = self.hass.states.get(trv)
+                    if trv_state is None:
+                        _LOGGER.info(
+                            "better_thermostat %s: waiting for TRV/climate entity with id '%s' to become fully available...",
+                            self.device_name,
+                            trv,
+                        )
+                        await asyncio.sleep(10)
+                        raise ContinueLoop
+                    if trv_state is not None:
+                        if trv_state.state in (STATE_UNAVAILABLE, STATE_UNKNOWN, None):
+                            _LOGGER.info(
+                                "better_thermostat %s: waiting for TRV/climate entity with id '%s' to become fully available...",
+                                self.device_name,
+                                trv,
+                            )
+                            await asyncio.sleep(10)
+                            raise ContinueLoop
+            except ContinueLoop:
+                continue
+
+            if self.window_id is not None:
+                if self.hass.states.get(self.window_id).state in (
+                    STATE_UNAVAILABLE,
+                    STATE_UNKNOWN,
+                    None,
+                ):
+                    _LOGGER.info(
+                        "better_thermostat %s: waiting for window sensor entity with id '%s' to become fully available...",
+                        self.device_name,
+                        self.window_id,
+                    )
+                    await asyncio.sleep(10)
+                    continue
+
+            if self.door_id is not None:  # Hinzugefügt
+                if self.hass.states.get(self.door_id).state in (  # Hinzugefügt
+                    STATE_UNAVAILABLE,  # Hinzugefügt
+                    STATE_UNKNOWN,  # Hinzugefügt
+                    None,  # Hinzugefügt
+                ):  # Hinzugefügt
+                    _LOGGER.info(  # Hinzugefügt
+                        "better_thermostat %s: waiting for door sensor entity with id '%s' to become fully available...",  # Hinzugefügt
+                        self.device_name,  # Hinzugefügt
+                        self.door_id,  # Hinzugefügt
+                    )  # Hinzugefügt
+                    await asyncio.sleep(10)  # Hinzugefügt
+                    continue  # Hinzugefügt
+                
+            if self.cooler_entity_id is not None:
+                if self.hass.states.get(self.cooler_entity_id).state in (
+                    STATE_UNAVAILABLE,
+                    STATE_UNKNOWN,
+                    None,
+                ):
+                    _LOGGER.info(
+                        "better_thermostat %s: waiting for cooler entity with id '%s' to become fully available...",
+                        self.device_name,
+                        self.cooler_entity_id,
+                    )
+                    await asyncio.sleep(10)
+                    continue
+
+            if self.humidity_entity_id is not None:
+                humidity_state = self.hass.states.get(self.humidity_entity_id)
+                if humidity_state is None or humidity_state.state in (
+                    STATE_UNAVAILABLE,
+                    STATE_UNKNOWN,
+                    None,
+                ):
+                    _LOGGER.info(
+                        "better_thermostat %s: waiting for humidity sensor entity with id '%s' to become fully available...",
+                        self.device_name,
+                        self.humidity_entity_id,
+                    )
+                    await asyncio.sleep(10)
+                    continue
+
+            if self.outdoor_sensor is not None:
+                if self.hass.states.get(self.outdoor_sensor).state in (
+                    STATE_UNAVAILABLE,
+                    STATE_UNKNOWN,
+                    None,
+                ):
+                    _LOGGER.info(
+                        "better_thermostat %s: waiting for outdoor sensor entity with id '%s' to become fully available...",
+                        self.device_name,
+                        self.outdoor_sensor,
+                    )
+                    await asyncio.sleep(10)
+                    continue
+
+            if self.weather_entity is not None:
+                if self.hass.states.get(self.weather_entity).state in (
+                    STATE_UNAVAILABLE,
+                    STATE_UNKNOWN,
+                    None,
+                ):
+                    _LOGGER.info(
+                        "better_thermostat %s: waiting for weather entity with id '%s' to become fully available...",
+                        self.device_name,
+                        self.weather_entity,
+                    )
+                    await asyncio.sleep(10)
+                    continue
+
+            states = [
+                state
+                for entity_id in self.real_trvs
+                if (state := self.hass.states.get(entity_id)) is not None
+            ]
+
+            self.bt_min_temp = reduce_attribute(states, ATTR_MIN_TEMP, reduce=max)
+            self.bt_max_temp = reduce_attribute(states, ATTR_MAX_TEMP, reduce=min)
+
+            if self.bt_target_temp_step == 0.0:
+                self.bt_target_temp_step = reduce_attribute(
+                    states, ATTR_TARGET_TEMP_STEP, reduce=max
+                )
+
+            self.all_entities.append(self.sensor_entity_id)
+
+            self.cur_temp = convert_to_float(
+                str(sensor_state.state), self.device_name, "startup()"
+            )
+            if self.humidity_entity_id is not None:
+                self.all_entities.append(self.humidity_entity_id)
+                self._current_humidity = convert_to_float(
+                    str(self.hass.states.get(self.humidity_entity_id).state),
+                    self.device_name,
+                    "startup()",
+                )
+
+            if self.cooler_entity_id is not None:
+                self.bt_target_cooltemp = convert_to_float(
+                    str(
+                        self.hass.states.get(self.cooler_entity_id).attributes.get(
+                            "temperature"
+                        )
+                    ),
+                    self.device_name,
+                    "startup()",
+                )
+
+            if self.window_id is not None:
+                self.all_entities.append(self.window_id)
+                window = self.hass.states.get(self.window_id)
+
+                check = window.state
+                if check in ("on", "open", "true"):
+                    self.window_open = True
+                else:
+                    self.window_open = False
+                _LOGGER.debug(
+                    "better_thermostat %s: detected window state at startup: %s",
+                    self.device_name,
+                    "Open" if self.window_open else "Closed",
+                )
+            else:
+                self.window_open = False
+
+            if self.door_id is not None:  # Hinzugefügt
+                self.all_entities.append(self.door_id)  # Hinzugefügt
+                door = self.hass.states.get(self.door_id)  # Hinzugefügt
+
+                check = door.state  # Hinzugefügt
+                if check in ("on", "open", "true"):  # Hinzugefügt
+                    self.door_open = True  # Hinzugefügt
+                else:  # Hinzugefügt
+                    self.door_open = False  # Hinzugefügt
+                _LOGGER.debug(  # Hinzugefügt
+                    "better_thermostat %s: detected door state at startup: %s",  # Hinzugefügt
+                    self.device_name,  # Hinzugefügt
+                    "Open" if self.door_open else "Closed",  # Hinzugefügt
+                )  # Hinzugefügt
+            else:  # Hinzugefügt
+                self.door_open = False  # Hinzugefügt
+
+            # Check If we have an old state
+            old_state = await self.async_get_last_state()
+            if old_state is not None:
+                # If we have no initial temperature, restore
+                # If we have a previously saved temperature
+                if old_state.attributes.get(ATTR_TEMPERATURE) is None:
+                    self.bt_target_temp = reduce_attribute(
+                        states, ATTR_TEMPERATURE, reduce=lambda *data: mean(data)
+                    )
+                    _LOGGER.debug(
+                        "better_thermostat %s: Undefined target temperature, falling back to %s",
+                        self.device_name,
+                        self.bt_target_temp,
+                    )
+                else:
+                    _oldtarget_temperature = float(
+                        old_state.attributes.get(ATTR_TEMPERATURE)
+                    )
+                    # if the saved temperature is lower than the min_temp, set it to min_temp
+                    if _oldtarget_temperature < self.bt_min_temp:
+                        _LOGGER.warning(
+                            "better_thermostat %s: Saved target temperature %s is lower than min_temp %s, setting to min_temp",
+                            self.device_name,
+                            _oldtarget_temperature,
+                            self.bt_min_temp,
+                        )
+                        _oldtarget_temperature = self.bt_min_temp
+                    # if the saved temperature is higher than the max_temp, set it to max_temp
+                    elif _oldtarget_temperature > self.bt_max_temp:
+                        _LOGGER.warning(
+                            "better_thermostat %s: Saved target temperature %s is higher than max_temp %s, setting to max_temp",
+                            self.device_name,
+                            _oldtarget_temperature,
+                            self.bt_min_temp,
+                        )
+                        _oldtarget_temperature = self.bt_max_temp
+                    self.bt_target_temp = convert_to_float(
+                        str(_oldtarget_temperature), self.device_name, "startup()"
+                    )
+                if old_state.state not in (STATE_UNAVAILABLE, STATE_UNKNOWN, None):
+                    self.bt_hvac_mode = old_state.state
+                if old_state.attributes.get(ATTR_STATE_CALL_FOR_HEAT, None) is not None:
+                    self.call_for_heat = old_state.attributes.get(
+                        ATTR_STATE_CALL_FOR_HEAT
+                    )
+                if (
+                    old_state.attributes.get(ATTR_STATE_SAVED_TEMPERATURE, None)
+                    is not None
+                ):
+                    self._saved_temperature = convert_to_float(
+                        str(
+                            old_state.attributes.get(ATTR_STATE_SAVED_TEMPERATURE, None)
+                        ),
+                        self.device_name,
+                        "startup()",
+                    )
+                if old_state.attributes.get(ATTR_STATE_HUMIDIY, None) is not None:
+                    self._current_humidity = old_state.attributes.get(
+                        ATTR_STATE_HUMIDIY
+                    )
+                if old_state.attributes.get(ATTR_STATE_MAIN_MODE, None) is not None:
+                    self.last_main_hvac_mode = old_state.attributes.get(
+                        ATTR_STATE_MAIN_MODE
+                    )
+                if old_state.attributes.get(ATTR_STATE_HEATING_POWER, None) is not None:
+                    self.heating_power = float(
+                        old_state.attributes.get(ATTR_STATE_HEATING_POWER)
+                    )
+
+            else:
+                # No previous state, try and restore defaults
+                if self.bt_target_temp is None or not isinstance(
+                    self.bt_target_temp, float
+                ):
+                    _LOGGER.info(
+                        "better_thermostat %s: No previously saved temperature found on startup, get it from the TRV",
+                        self.device_name,
+                    )
+                    self.bt_target_temp = reduce_attribute(
+                        states, ATTR_TEMPERATURE, reduce=lambda *data: mean(data)
+                    )
+
+            # if hvac mode could not be restored, turn heat off
+            if self.bt_hvac_mode in (STATE_UNAVAILABLE, STATE_UNKNOWN, None):
+                current_hvac_modes = [
+                    x.state for x in states if x.state != HVACMode.OFF
+                ]
+                # return the most common hvac mode (what the thermostat is set to do) except OFF
+                if current_hvac_modes:
+                    _temp_bt_hvac_mode = max(
+                        set(current_hvac_modes), key=current_hvac_modes.count
+                    )
+                    if _temp_bt_hvac_mode is not HVACMode.OFF:
+                        self.bt_hvac_mode = HVACMode.HEAT
+                    else:
+                        self.bt_hvac_mode = HVACMode.OFF
+                    _LOGGER.debug(
+                        "better_thermostat %s: No previously hvac mode found on startup, turn bt to trv mode %s",
+                        self.device_name,
+                        self.bt_hvac_mode,
+                    )
+                # return off if all are off
+                elif all(x.state == HVACMode.OFF for x in states):
+                    self.bt_hvac_mode = HVACMode.OFF
+                    _LOGGER.debug(
+                        "better_thermostat %s: No previously hvac mode found on startup, turn bt to trv mode %s",
+                        self.device_name,
+                        self.bt_hvac_mode,
+                    )
+                else:
+                    _LOGGER.warning(
+                        "better_thermostat %s: No previously hvac mode found on startup, turn heat off",
+                        self.device_name,
+                    )
+                    self.bt_hvac_mode = HVACMode.OFF
+
+            _LOGGER.debug(
+                "better_thermostat %s: Startup config, BT hvac mode is %s, Target temp %s",
+                self.device_name,
+                self.bt_hvac_mode,
+                self.bt_target_temp,
+            )
+
+            if self.last_main_hvac_mode is None:
+                self.last_main_hvac_mode = self.bt_hvac_mode
+
+            if self.humidity_entity_id is not None:
+                self._current_humidity = convert_to_float(
+                    str(self.hass.states.get(self.humidity_entity_id).state),
+                    self.device_name,
+                    "startup()",
+                )
+            else:
+                self._current_humidity = 0
+
+            self.last_window_state = self.window_open
+            self.last_door_state = self.door_open  # Hinzugefügt
+            if self.bt_hvac_mode not in (
+                HVACMode.OFF,
+                HVACMode.HEAT_COOL,
+                HVACMode.HEAT,
+            ):
+                self.bt_hvac_mode = HVACMode.HEAT
+
+            self.async_write_ha_state()
+
+            for trv in self.real_trvs.keys():
+                self.all_entities.append(trv)
+                await init(self, trv)
+                if self.real_trvs[trv]["calibration"] != 1:
+                    self.real_trvs[trv]["last_calibration"] = await get_current_offset(
+                        self, trv
+                    )
+                    self.real_trvs[trv]["local_calibration_min"] = await get_min_offset(
+                        self, trv
+                    )
+                    self.real_trvs[trv]["local_calibration_max"] = await get_max_offset(
+                        self, trv
+                    )
+                    self.real_trvs[trv]["local_calibration_step"] = (
+                        await get_offset_step(self, trv)
+                    )
+                else:
+                    self.real_trvs[trv]["last_calibration"] = 0
+
+                self.real_trvs[trv]["valve_position"] = convert_to_float(
+                    str(
+                        self.hass.states.get(trv).attributes.get("valve_position", None)
+                    ),
+                    self.device_name,
+                    "startup",
+                )
+                self.real_trvs[trv]["max_temp"] = convert_to_float(
+                    str(self.hass.states.get(trv).attributes.get("max_temp", 30)),
+                    self.device_name,
+                    "startup",
+                )
+                self.real_trvs[trv]["min_temp"] = convert_to_float(
+                    str(self.hass.states.get(trv).attributes.get("min_temp", 5)),
+                    self.device_name,
+                    "startup",
+                )
+                self.real_trvs[trv]["target_temp_step"] = convert_to_float(
+                    str(
+                        self.hass.states.get(trv).attributes.get(
+                            "target_temp_step", 0.5
+                        )
+                    ),
+                    self.device_name,
+                    "startup",
+                )
+                self.real_trvs[trv]["temperature"] = convert_to_float(
+                    str(self.hass.states.get(trv).attributes.get("temperature", 5)),
+                    self.device_name,
+                    "startup",
+                )
+                self.real_trvs[trv]["hvac_modes"] = self.hass.states.get(
+                    trv
+                ).attributes.get("hvac_modes", None)
+                self.real_trvs[trv]["hvac_mode"] = self.hass.states.get(trv).state
+                self.real_trvs[trv]["last_hvac_mode"] = self.hass.states.get(trv).state
+                self.real_trvs[trv]["last_temperature"] = convert_to_float(
+                    str(self.hass.states.get(trv).attributes.get("temperature")),
+                    self.device_name,
+                    "startup()",
+                )
+                self.real_trvs[trv]["current_temperature"] = convert_to_float(
+                    str(
+                        self.hass.states.get(trv).attributes.get("current_temperature")
+                        or 5
+                    ),
+                    self.device_name,
+                    "startup()",
+                )
+                await control_trv(self, trv)
+
+            await self._trigger_time(None)
+            await self._trigger_check_weather(None)
+            self.startup_running = False
+            self._available = True
+            self.async_write_ha_state()
+            #
+            await asyncio.sleep(5)
+
+            # try to find battery entities for all related entities
+            for entity in self.all_entities:
+                if entity is not None:
+                    battery_id = await find_battery_entity(self, entity)
+                    if battery_id is not None:
+                        self.devices_states[entity] = {
+                            "battery_id": battery_id,
+                            "battery": None,
+                        }
+
+            if self.is_removed:
+                return
+
+            # update_hvac_action(self)
+            # Add listener
+            if self.outdoor_sensor is not None:
+                self.all_entities.append(self.outdoor_sensor)
+                self.async_on_remove(
+                    async_track_time_change(self.hass, self._trigger_time, 5, 0, 0)
+                )
+
+            await check_all_entities(self)
+
+            if self.is_removed:
+                return
+
+            self.async_on_remove(
+                async_track_time_interval(
+                    self.hass, self._trigger_check_weather, timedelta(hours=1)
+                )
+            )
+
+            self.async_on_remove(
+                async_track_state_change_event(
+                    self.hass, [self.sensor_entity_id], self._trigger_temperature_change
+                )
+            )
+            if self.humidity_entity_id is not None:
+                self.async_on_remove(
+                    async_track_state_change_event(
+                        self.hass,
+                        [self.humidity_entity_id],
+                        self._trigger_humidity_change,
+                    )
+                )
+            if self._async_unsub_state_changed is None:
+                self._async_unsub_state_changed = async_track_state_change_event(
+                    self.hass, self.entity_ids, self._trigger_trv_change
+                )
+                self.async_on_remove(self._async_unsub_state_changed)
+            if self.window_id is not None:
+                self.async_on_remove(
+                    async_track_state_change_event(
+                        self.hass, [self.window_id], self._trigger_window_change
+                    )
+                )
+
+            if self.door_id is not None:  # Hinzugefügt
+                self.async_on_remove(  # Hinzugefügt
+                    async_track_state_change_event(  # Hinzugefügt
+                        self.hass, [self.door_id], self._trigger_door_change  # Hinzugefügt
+                    )  # Hinzugefügt
+                )  # Hinzugefügt
+            if self.cooler_entity_id is not None:
+                self.async_on_remove(
+                    async_track_state_change_event(
+                        self.hass, [self.cooler_entity_id], self._tigger_cooler_change
+                    )
+                )
+            _LOGGER.info("better_thermostat %s: startup completed.", self.device_name)
+            self.async_write_ha_state()
+            await self.async_update_ha_state(force_refresh=True)
+            break
+
+    async def calculate_heating_power(self):
+        if (
+            self.heating_start_temp is not None
+            and self.heating_end_temp is not None
+            and self.cur_temp < self.heating_end_temp
+        ):
+            _temp_diff = self.heating_end_temp - self.heating_start_temp
+            _time_diff_minutes = round(
+                (self.heating_end_timestamp - self.heating_start_timestamp).seconds
+                / 60.0,
+                1,
+            )
+            if _time_diff_minutes > 1:
+                _degrees_time = round(_temp_diff / _time_diff_minutes, 4)
+                self.heating_power = round(
+                    (self.heating_power * 0.9 + _degrees_time * 0.1), 4
+                )
+                if len(self.last_heating_power_stats) >= 10:
+                    self.last_heating_power_stats = self.last_heating_power_stats[
+                        len(self.last_heating_power_stats) - 9 :
+                    ]
+                self.last_heating_power_stats.append(
+                    {
+                        "temp_diff": round(_temp_diff, 1),
+                        "time": _time_diff_minutes,
+                        "degrees_time": round(_degrees_time, 4),
+                        "heating_power": round(self.heating_power, 4),
+                    }
+                )
+                _LOGGER.debug(
+                    f"better_thermostat {self.device_name}: calculate_heating_power / temp_diff: {round(_temp_diff, 1)} - time: {_time_diff_minutes} - degrees_time: {round(_degrees_time, 4)} - heating_power: {round(self.heating_power, 4)} - heating_power_stats: {self.last_heating_power_stats}"
+                )
+            # reset for the next heating start
+            self.heating_start_temp = None
+            self.heating_end_temp = None
+
+        # heating starts
+        if (
+            self.attr_hvac_action == HVACAction.HEATING
+            and self.old_attr_hvac_action != HVACAction.HEATING
+        ):
+            self.heating_start_temp = self.cur_temp
+            self.heating_start_timestamp = datetime.now()
+        # heating stops
+        elif (
+            self.attr_hvac_action != HVACAction.HEATING
+            and self.old_attr_hvac_action == HVACAction.HEATING
+            and self.heating_start_temp is not None
+            and self.heating_end_temp is None
+        ):
+            self.heating_end_temp = self.cur_temp
+            self.heating_end_timestamp = datetime.now()
+        # check if the temp is still rising, after heating stopped
+        elif (
+            self.attr_hvac_action != HVACAction.HEATING
+            and self.heating_start_temp is not None
+            and self.heating_end_temp is not None
+            and self.cur_temp > self.heating_end_temp
+        ):
+            self.heating_end_temp = self.cur_temp
+
+        if self.attr_hvac_action != self.old_attr_hvac_action:
+            self.old_attr_hvac_action = self.attr_hvac_action
+        self.async_write_ha_state()
+
+    @property
+    def extra_state_attributes(self) -> dict[str, any]:
+        """Return the device specific state attributes.
+
+        Returns
+        -------
+        dict
+                Attribute dictionary for the extra device specific state attributes.
+        """
+        dev_specific = {
+            ATTR_STATE_WINDOW_OPEN: self.window_open,
+            ATTR_STATE_DOOR_OPEN: self.door_open,
+            ATTR_STATE_CALL_FOR_HEAT: self.call_for_heat,
+            ATTR_STATE_LAST_CHANGE: self.last_change.isoformat(),
+            ATTR_STATE_SAVED_TEMPERATURE: self._saved_temperature,
+            ATTR_STATE_HUMIDIY: self._current_humidity,
+            ATTR_STATE_MAIN_MODE: self.last_main_hvac_mode,
+            CONF_TOLERANCE: self.tolerance,
+            CONF_TARGET_TEMP_STEP: self.bt_target_temp_step,
+            ATTR_STATE_HEATING_POWER: self.heating_power,
+            ATTR_STATE_ERRORS: json.dumps(self.devices_errors),
+            ATTR_STATE_BATTERIES: json.dumps(self.devices_states),
+        }
+
+        return dev_specific
+
+    @property
+    def available(self):
+        """Return if thermostat is available.
+
+        Returns
+        -------
+        bool
+                True if the thermostat is available.
+        """
+        return self._available
+
+    @property
+    def should_poll(self):
+        """Return the polling state.
+
+        Returns
+        -------
+        bool
+                True if the thermostat uses polling.
+        """
+        return False
+
+    @property
+    def unique_id(self):
+        """Return the unique id of this thermostat.
+
+        Returns
+        -------
+        string
+                The unique id of this thermostat.
+        """
+        return self._unique_id
+
+    @property
+    def precision(self):
+        """Return the precision of the system.
+
+        Returns
+        -------
+        float
+                Precision of the thermostat.
+        """
+        return super().precision
+
+    @property
+    def target_temperature_step(self) -> float | None:
+        """Return the supported step of target temperature.
+
+        Returns
+        -------
+        float
+                Step size of target temperature.
+        """
+        if self.bt_target_temp_step is not None:
+            return self.bt_target_temp_step
+
+        return super().precision
+
+    @property
+    def temperature_unit(self) -> str:
+        """Return the unit of measurement."""
+        return self._unit
+
+    @property
+    def current_temperature(self) -> float | None:
+        """Return the current temperature."""
+        return self.cur_temp
+
+    @property
+    def current_humidity(self) -> float | None:
+        """Return the current humidity if supported."""
+        return self._current_humidity if hasattr(self, "_current_humidity") else None
+
+    @property
+    def hvac_mode(self) -> HVACMode | None:
+        """Return current operation."""
+        return get_hvac_bt_mode(self, self.bt_hvac_mode)
+
+    @property
+    def hvac_modes(self) -> list[HVACMode]:
+        """Return the list of available operation modes."""
+        return self._hvac_list
+
+    @property
+    def hvac_action(self):
+        """Return the current HVAC action"""
+        if self.bt_target_temp is not None and self.cur_temp is not None:
+            if self.hvac_mode == HVACMode.OFF:
+                self.attr_hvac_action = HVACAction.OFF
+            elif (
+                self.bt_target_temp > self.cur_temp + self.tolerance
+                and self.window_open is False
+                and self.door_open is False  # Türsensoren berücksichtigt
+            ):
+                self.attr_hvac_action = HVACAction.HEATING
+            elif (
+                self.bt_target_temp > self.cur_temp
+                and self.window_open is False
+                and self.door_open is False  # Türsensoren berücksichtigt
+                and self.bt_hvac_mode is not HVACMode.OFF
+            ):
+                self.attr_hvac_action = HVACAction.HEATING
+            else:
+                self.attr_hvac_action = HVACAction.IDLE
+        return self.attr_hvac_action
+
+    @property
+    def target_temperature(self) -> float | None:
+        """Return the temperature we try to reach.
+
+        Returns
+        -------
+        float
+                Target temperature.
+        """
+        if None in (self.bt_max_temp, self.bt_min_temp, self.bt_target_temp):
+            return self.bt_target_temp
+        # if target temp is below minimum, return minimum
+        if self.bt_target_temp < self.bt_min_temp:
+            return self.bt_min_temp
+        # if target temp is above maximum, return maximum
+        if self.bt_target_temp > self.bt_max_temp:
+            return self.bt_max_temp
+        return self.bt_target_temp
+
+    @property
+    def target_temperature_low(self) -> float | None:
+        if self.cooler_entity_id is None:
+            return None
+        return self.bt_target_temp
+
+    @property
+    def target_temperature_high(self) -> float | None:
+        if self.cooler_entity_id is None:
+            return None
+        return self.bt_target_cooltemp
+
+    async def async_set_hvac_mode(self, hvac_mode: str) -> None:
+        """Set hvac mode.
+
+        Returns
+        -------
+        None
+        """
+        if hvac_mode in (HVACMode.HEAT, HVACMode.HEAT_COOL, HVACMode.OFF):
+            self.bt_hvac_mode = get_hvac_bt_mode(self, hvac_mode)
         else:
-            self.door_open = False
+            _LOGGER.error(
+                "better_thermostat %s: Unsupported hvac_mode %s",
+                self.device_name,
+                hvac_mode,
+            )
+        self.async_write_ha_state()
+        await self.control_queue_task.put(self)
+
+    async def async_set_temperature(self, **kwargs) -> None:
+        """Set new target temperature."""
+        if self.bt_hvac_mode == HVACMode.OFF:
+            return
+
+        _new_setpoint = None
+        _new_setpointlow = None
+        _new_setpointhigh = None
+
+        if ATTR_HVAC_MODE in kwargs:
+            hvac_mode = str(kwargs.get(ATTR_HVAC_MODE, None))
+            if hvac_mode in (HVACMode.HEAT, HVACMode.HEAT_COOL, HVACMode.OFF):
+                self.bt_hvac_mode = hvac_mode
+            else:
+                _LOGGER.error(
+                    "better_thermostat %s: Unsupported hvac_mode %s",
+                    self.device_name,
+                    hvac_mode,
+                )
+        if ATTR_TEMPERATURE in kwargs:
+            _new_setpoint = convert_to_float(
+                str(kwargs.get(ATTR_TEMPERATURE, None)),
+                self.device_name,
+                "controlling.settarget_temperature()",
+            )
+
+        if ATTR_TARGET_TEMP_LOW in kwargs:
+            _new_setpointlow = convert_to_float(
+                str(kwargs.get(ATTR_TARGET_TEMP_LOW, None)),
+                self.device_name,
+                "controlling.settarget_temperature_low()",
+            )
+
+        if ATTR_TARGET_TEMP_HIGH in kwargs:
+            _new_setpointhigh = convert_to_float(
+                str(kwargs.get(ATTR_TARGET_TEMP_HIGH, None)),
+                self.device_name,
+                "controlling.settarget_temperature_high()",
+            )
+
+        if _new_setpoint is None and _new_setpointlow is None:
+            _LOGGER.debug(
+                f"better_thermostat {self.device_name}: received a new setpoint from HA, but temperature attribute was not set, ignoring"
+            )
+            return
+
+        # Validate against min/max temps
+        if _new_setpoint is not None:
+            _new_setpoint = min(self.max_temp, max(self.min_temp, _new_setpoint))
+        if _new_setpointlow is not None:
+            _new_setpointlow = min(self.max_temp, max(self.min_temp, _new_setpointlow))
+        if _new_setpointhigh is not None:
+            _new_setpointhigh = min(
+                self.max_temp, max(self.min_temp, _new_setpointhigh)
+            )
+
+        self.bt_target_temp = _new_setpoint or _new_setpointlow
+        if _new_setpointhigh is not None:
+            self.bt_target_cooltemp = _new_setpointhigh
+
+        _LOGGER.debug(
+            "better_thermostat %s: HA set target temperature to %s & %s",
+            self.device_name,
+            self.bt_target_temp,
+            self.bt_target_cooltemp,
+        )
+
+        self.async_write_ha_state()
+        await self.control_queue_task.put(self)
+
+    async def async_turn_off(self) -> None:
+        await self.async_set_hvac_mode(HVACMode.OFF)
+
+    async def async_turn_on(self) -> None:
+        await self.async_set_hvac_mode(HVACMode.HEAT)
+
+    @property
+    def min_temp(self):
+        """Return the minimum temperature.
+
+        Returns
+        -------
+        float
+                the minimum temperature.
+        """
+        if self.bt_min_temp is not None:
+            return self.bt_min_temp
+
+        # get default temp from super class
+        return super().min_temp
+
+    @property
+    def max_temp(self):
+        """Return the maximum temperature.
+
+        Returns
+        -------
+        float
+                the maximum temperature.
+        """
+        if self.bt_max_temp is not None:
+            return self.bt_max_temp
+
+        # Get default temp from super class
+        return super().max_temp
+
+    @property
+    def _is_device_active(self):
+        """Get the current state of the device for HA.
+
+        Returns
+        -------
+        string
+                State of the device.
+        """
+        if self.bt_hvac_mode == HVACMode.OFF:
+            return False
+        if self.window_open:
+            return False
+        if self.door_open:  # Hinzugefügt
+            return False  # Hinzugefügt
+        return True
+
+    @property
+    def supported_features(self):
+        """Return the list of supported features.
+
+        Returns
+        -------
+        array
+                Supported features.
+        """
+        if self.cooler_entity_id is not None:
+            return (
+                ClimateEntityFeature.TARGET_TEMPERATURE_RANGE
+                | ClimateEntityFeature.PRESET_MODE
+                | ClimateEntityFeature.TURN_OFF
+                | ClimateEntityFeature.TURN_ON
+            )
+        return (
+            ClimateEntityFeature.TARGET_TEMPERATURE
+            | ClimateEntityFeature.PRESET_MODE
+            | ClimateEntityFeature.TURN_OFF
+            | ClimateEntityFeature.TURN_ON
+        )
+
+    @property
+    def preset_mode(self):
+        return self._preset_mode
+
+    @property
+    def preset_modes(self):
+        return [
+            PRESET_NONE,
+            # PRESET_AWAY,
+            # PRESET_ECO,
+            # PRESET_COMFORT,
+            # PRESET_BOOST,
+            # PRESET_SLEEP,
+            # PRESET_ACTIVITY,
+            # PRESET_HOME,
+        ]
