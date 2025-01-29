@@ -84,6 +84,9 @@ from .utils.const import (
     CONF_DOOR_TIMEOUT_AFTER,  # Hinzugefügt
     SUPPORT_FLAGS,
     VERSION,
+    SERVICE_SET_TEMP_TARGET_TEMPERATURE,  # Hinzugefügt
+    SERVICE_RESTORE_SAVED_TARGET_TEMPERATURE,  # Hinzugefügt
+    SERVICE_RESET_HEATING_POWER,  # Hinzugefügt
 )
 from .utils.controlling import control_queue, control_trv
 from .utils.helpers import convert_to_float, find_battery_entity, get_hvac_bt_mode
@@ -516,9 +519,3 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
             self.door_open = True
         else:
             self.door_open = False
-        _LOGGER.debug(
-            "better_thermostat %s: detected door state change: %s",
-            self.device_name,
-            "Open" if self.door_open else "Closed",
-        )
-        self
