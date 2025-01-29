@@ -280,53 +280,41 @@ class BetterThermostatConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             if CONF_COOLER not in self.data:
                 self.data[CONF_COOLER] = None
 
-            if CONF_WINDOW_TIMEOUT in self.data:
-                self.data[CONF_WINDOW_TIMEOUT] = (
-                    int(
-                        cv.time_period_dict(
-                            user_input.get(CONF_WINDOW_TIMEOUT, None)
-                        ).total_seconds()
-                    )
-                    or 0
+            self.data[CONF_WINDOW_TIMEOUT] = (
+                int(
+                    cv.time_period_dict(
+                        user_input.get(CONF_WINDOW_TIMEOUT, "00:00:30")
+                    ).total_seconds()
                 )
-            else:
-                self.data[CONF_WINDOW_TIMEOUT] = 0
+                or 30
+            )
 
-            if CONF_WINDOW_TIMEOUT_AFTER in self.data:
-                self.data[CONF_WINDOW_TIMEOUT_AFTER] = (
-                    int(
-                        cv.time_period_dict(
-                            user_input.get(CONF_WINDOW_TIMEOUT_AFTER, None)
-                        ).total_seconds()
-                    )
-                    or 0
+            self.data[CONF_WINDOW_TIMEOUT_AFTER] = (
+                int(
+                    cv.time_period_dict(
+                        user_input.get(CONF_WINDOW_TIMEOUT_AFTER, "00:00:30")
+                    ).total_seconds()
                 )
-            else:
-                self.data[CONF_WINDOW_TIMEOUT_AFTER] = 0
+                or 30
+            )
 
-            if CONF_DOOR_TIMEOUT in self.data:
-                self.data[CONF_DOOR_TIMEOUT] = (
-                    int(
-                        cv.time_period_dict(
-                            user_input.get(CONF_DOOR_TIMEOUT, None)
-                        ).total_seconds()
-                    )
-                    or 0
+            self.data[CONF_DOOR_TIMEOUT] = (
+                int(
+                    cv.time_period_dict(
+                        user_input.get(CONF_DOOR_TIMEOUT, "00:00:30")
+                    ).total_seconds()
                 )
-            else:
-                self.data[CONF_DOOR_TIMEOUT] = 0
+                or 30
+            )
 
-            if CONF_DOOR_TIMEOUT_AFTER in self.data:
-                self.data[CONF_DOOR_TIMEOUT_AFTER] = (
-                    int(
-                        cv.time_period_dict(
-                            user_input.get(CONF_DOOR_TIMEOUT_AFTER, None)
-                        ).total_seconds()
-                    )
-                    or 0
+            self.data[CONF_DOOR_TIMEOUT_AFTER] = (
+                int(
+                    cv.time_period_dict(
+                        user_input.get(CONF_DOOR_TIMEOUT_AFTER, "00:00:30")
+                    ).total_seconds()
                 )
-            else:
-                self.data[CONF_DOOR_TIMEOUT_AFTER] = 0
+                or 30
+            )
 
             if "base" not in errors:
                 for trv in self.heater_entity_id:
@@ -388,10 +376,10 @@ class BetterThermostatConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                             multiple=True,
                         )
                     ),
-                    vol.Optional(CONF_WINDOW_TIMEOUT): selector.DurationSelector(),
-                    vol.Optional(CONF_WINDOW_TIMEOUT_AFTER): selector.DurationSelector(),
-                    vol.Optional(CONF_DOOR_TIMEOUT): selector.DurationSelector(),
-                    vol.Optional(CONF_DOOR_TIMEOUT_AFTER): selector.DurationSelector(),
+                    vol.Optional(CONF_WINDOW_TIMEOUT, default="00:00:30"): selector.DurationSelector(),
+                    vol.Optional(CONF_WINDOW_TIMEOUT_AFTER, default="00:00:30"): selector.DurationSelector(),
+                    vol.Optional(CONF_DOOR_TIMEOUT, default="00:00:30"): selector.DurationSelector(),
+                    vol.Optional(CONF_DOOR_TIMEOUT_AFTER, default="00:00:30"): selector.DurationSelector(),
                     vol.Optional(
                         CONF_OFF_TEMPERATURE,
                         default=user_input.get(CONF_OFF_TEMPERATURE, 20),
@@ -561,3 +549,11 @@ class BetterThermostatOptionsFlowHandler(config_entries.OptionsFlow):
         )
 
     async def async_step_user(self, user_input=None):
+        if user_input is not None:
+            current_config = self.config_entry.data
+            self.updated_config = dict(current_config)
+            self.updated_config[CONF_SENSOR] = user_input.get(CONF_SENSOR, None)
+            self.updated_config[CONF_SENSOR_WINDOW] = user_input.get(
+                CONF_SENSOR_WINDOW, None
+            )
+            self.updated_config[CONF_SENSOR_DOOR
