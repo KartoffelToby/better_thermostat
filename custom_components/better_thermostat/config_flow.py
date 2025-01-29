@@ -106,7 +106,7 @@ CALIBRATION_MODE_SELECTOR = selector.SelectSelector(
 )
 
 
-class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
+class BetterThermostatConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     VERSION = 6
     CONNECTION_CLASS = config_entries.CONN_CLASS_LOCAL_POLL
 
@@ -126,7 +126,7 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         config_entry: config_entries.ConfigEntry,
     ) -> config_entries.OptionsFlow:
         """Get the options flow for this handler."""
-        return OptionsFlowHandler(config_entry)
+        return BetterThermostatOptionsFlowHandler(config_entry)
 
     async def async_step_confirm(self, user_input=None, confirm_type=None):
         """Handle user-confirmation of discovered node."""
@@ -410,7 +410,7 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         )
 
 
-class OptionsFlowHandler(config_entries.OptionsFlow):
+class BetterThermostatOptionsFlowHandler(config_entries.OptionsFlow):
     """Handle a option flow for a config entry."""
 
     def __init__(self, config_entry: config_entries.ConfigEntry) -> None:
@@ -561,8 +561,3 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
         )
 
     async def async_step_user(self, user_input=None):
-        if user_input is not None:
-            current_config = self.config_entry.data
-            self.updated_config = dict(current_config)
-            self.updated_config[CONF_SENSOR] = user_input.get(CONF_SENSOR, None)
-            self.updated_config[CONF_SENSOR_WINDOW] = user
