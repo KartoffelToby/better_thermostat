@@ -76,16 +76,12 @@ from .utils.const import (
     CONF_SENSOR,
     CONF_SENSOR_WINDOW,
     CONF_SENSOR_DOOR,  # Hinzugefügt
-    CONF_TARGET_TEMP_STEP,
-    CONF_TOLERANCE,
+    CONF_VALVE_MAINTENANCE,
     CONF_WEATHER,
     CONF_WINDOW_TIMEOUT,
     CONF_WINDOW_TIMEOUT_AFTER,
     CONF_DOOR_TIMEOUT,  # Hinzugefügt
     CONF_DOOR_TIMEOUT_AFTER,  # Hinzugefügt
-    SERVICE_RESET_HEATING_POWER,
-    SERVICE_RESTORE_SAVED_TARGET_TEMPERATURE,
-    SERVICE_SET_TEMP_TARGET_TEMPERATURE,
     SUPPORT_FLAGS,
     VERSION,
 )
@@ -523,4 +519,6 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
         _LOGGER.debug(
             "better_thermostat %s: detected door state change: %s",
             self.device_name,
-            "Open" if self
+            "Open" if self.door_open else "Closed",
+        )
+        self
