@@ -178,7 +178,7 @@ async def async_setup_entry(hass, entry, async_add_devices):
                 entry.data.get(CONF_DOOR_TIMEOUT_AFTER, None),  # Hinzugefügt
                 entry.data.get(CONF_WEATHER, None),
                 entry.data.get(CONF_OUTDOOR_SENSOR, None),
-                entry.data.get(CONF_OFF_TEMPERATURE, None),
+                entry.data.get(CONF_OFF_TEMPERATURE, 0),  # Standardwert 0 wenn None
                 entry.data.get(CONF_TOLERANCE, 0.0),
                 entry.data.get(CONF_TARGET_TEMP_STEP, "0.0"),
                 entry.data.get(CONF_MODEL, None),
@@ -288,7 +288,7 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
         self.door_delay_after = door_delay_after or 0  # Hinzugefügt
         self.weather_entity = weather_entity or None
         self.outdoor_sensor = outdoor_sensor or None
-        self.off_temperature = float(off_temperature) or None
+        self.off_temperature = float(off_temperature)  # Standardwert ist bereits 0
         self.tolerance = float(tolerance) or 0.0
         self._unique_id = unique_id
         self._unit = unit
@@ -517,12 +517,3 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
 
         door_state = self.hass.states.get(self.door_id)
         if door_state.state in ("on", "open", "true"):
-            self.door_open = True
-        else:
-            self.door_open = False
-        _LOGGER.debug(
-            "better_thermostat %s: detected door state change: %s",
-            self.device_name,
-            "Open" if self.door_open else "Closed",
-        )
-        self.async_write_ha_state
