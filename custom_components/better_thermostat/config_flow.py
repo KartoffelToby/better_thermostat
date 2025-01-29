@@ -267,13 +267,13 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
 
             if self.data[CONF_NAME] == "":
                 errors["base"] = "no_name"
-            
+
             # Fenster- und Türsensoren prüfen
             if CONF_SENSOR_WINDOW not in self.data:
                 self.data[CONF_SENSOR_WINDOW] = None
             if CONF_SENSOR_DOOR not in self.data:  # Neue Prüfung für Türsensoren
                 self.data[CONF_SENSOR_DOOR] = []  # Standardwert für Türsensoren
-            
+
             if CONF_HUMIDITY not in self.data:
                 self.data[CONF_HUMIDITY] = None
             if CONF_OUTDOOR_SENSOR not in self.data:
@@ -391,6 +391,21 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                             multiple=True,  # Mehrere Tür-Sensoren erlauben
                         )
                     ),
+                    vol.Optional(CONF_WINDOW_TIMEOUT): selector.DurationSelector(),
+                    vol.Optional(CONF_WINDOW_TIMEOUT_AFTER): selector.DurationSelector(),
+                    vol.Optional(CONF_DOOR_TIMEOUT): selector.DurationSelector(),  # Hinzugefügt
+                    vol.Optional(CONF_DOOR_TIMEOUT_AFTER): selector.DurationSelector(),  # Hinzugefügt
+                    vol.Optional(
+                        CONF_OFF_TEMPERATURE,
+                        default=user_input.get(CONF_OFF_TEMPERATURE, 20),
+                    ): int,
+                    vol.Optional(
+                        CONF_TOLERANCE, default=user_input.get(CONF_TOLERANCE, 0.0)
+                    ): vol.All(vol.Coerce(float), vol.Range(min=0)),
+                    vol.Optional(
+                        CONF_TARGET_TEMP_STEP,
+                        default=str(user_input.get(CONF_TARGET_TEMP_STEP, "0.0")),
+                    ): TEMP_STEP_SELECTOR,
                 }
             ),
             errors=errors,
@@ -409,3 +424,137 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
         self.trv_bundle = []
         self.device_name = ""
         self._last_step = False
+
+    async def async_step_init(self, user_input=None):
+        """Manage the options."""
+        return await self.async_step_user()
+
+    async def async_step_advanced(
+        self, user_input=None, _trv_config=None, _update_config=None
+    ):
+        """Manage the advanced options."""
+        if user_input is not None:
+            self.trv_bundle[self.i]["advanced"] = user_input
+            self.trv_bundle[self.i]["adapter"] = None
+
+            self.i += 1
+            if len(self.trv_bundle) - 1 >= self.i:
+                self._last_step = True
+
+            if len(self.trv_bundle) > self.i:
+                return await self.async_step_advanced(
+                    None, self.trv_bundle[self.i], _update_config
+                )
+
+            self.updated_config[CONF_HEATER] = self.trv_bundle
+            _LOGGER.debug("Updated config: %s", self.updated_config)
+            self.hass.config_entries.async_update_entry(
+                self.config_entry, data=self.updated_config
+            )
+            return self.async_create_entry(
+                title=self.updated_config["name"], data=self.updated_config
+            )
+
+        user_input = user_input or {}
+        homematic = False
+        if _trv_config.get("integration").find("homematic") != -1:
+            homematic = True
+
+        fields = OrderedDict()
+
+        _default_calibration = "target_temp_based"
+        self.device_name = user_input.get(CONF_NAME, "-")
+
+        _adapter = await load_adapter(
+            self, _trv_config.get("integration"), _trv_config.get("trv")
+        )
+        if _adapter is not None:
+            _info = await _adapter.get_info(self, _trv_config.get("trv"))
+
+            if _info.get("support_offset", False):
+                _default_calibration = "local_calibration_based"
+
+        if _default_calibration == "local_calibration_based":
+            fields[
+                vol.Required(
+                    CONF_CALIBRATION,
+                    default=user_input.get(
+                        CONF_CALIBRATION,
+                        _trv_config["advanced"].get(
+                            CONF_CALIBRATION, _default_calibration
+                        ),
+                    ),
+                )
+            ] = CALIBRATION_TYPE_ALL_SELECTOR
+        else:
+            fields[
+                vol.Required(
+                    CONF_CALIBRATION,
+                    default=user_input.get(
+                        CONF_CALIBRATION,
+                        _trv_config["advanced"].get(
+                            CONF_CALIBRATION, _default_calibration
+                        ),
+                    ),
+                )
+            ] = CALIBRATION_TYPE_SELECTOR
+
+        fields[
+            vol.Required(
+                CONF_CALIBRATION_MODE,
+                default=_trv_config["advanced"].get(
+                    CONF_CALIBRATION_MODE, CalibrationMode.HEATING_POWER_CALIBRATION
+                ),
+            )
+        ] = CALIBRATION_MODE_SELECTOR
+
+        fields[
+            vol.Optional(
+                CONF_PROTECT_OVERHEATING,
+                default=_trv_config["advanced"].get(CONF_PROTECT_OVERHEATING, False),
+            )
+        ] = bool
+
+        fields[
+            vol.Optional(
+                CONF_NO_SYSTEM_MODE_OFF,
+                default=_trv_config["advanced"].get(CONF_NO_SYSTEM_MODE_OFF, False),
+            )
+        ] = bool
+
+        has_auto = False
+        trv = self.hass.states.get(_trv_config.get("trv"))
+        if HVACMode.AUTO in trv.attributes.get("hvac_modes"):
+            has_auto = True
+
+        fields[
+            vol.Optional(
+                CONF_HEAT_AUTO_SWAPPED,
+                default=_trv_config["advanced"].get(CONF_HEAT_AUTO_SWAPPED, has_auto),
+            )
+        ] = bool
+
+        if _info.get("support_valve", False):
+            fields[
+                vol.Optional(
+                    CONF_VALVE_MAINTENANCE,
+                    default=_trv_config["advanced"].get(CONF_VALVE_MAINTENANCE, False),
+                )
+            ] = bool
+
+        fields[
+            vol.Optional(
+                CONF_CHILD_LOCK,
+                default=_trv_config["advanced"].get(CONF_CHILD_LOCK, False),
+            )
+        ] = bool
+        fields[
+            vol.Optional(
+                CONF_HOMEMATICIP,
+                default=_trv_config["advanced"].get(CONF_HOMEMATICIP, homematic),
+            )
+        ] = bool
+
+        return self.async_show_form(
+            step_id="advanced",
+            data
