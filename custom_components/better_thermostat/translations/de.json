@@ -1,134 +1,56 @@
 {
-  "title": "Better Thermostat",
-  "config": {
-    "step": {
-      "user": {
-        "description": "Einrichtung von Better Thermostat mit Home Assistant\n**Für mehr Informationen: https://better-thermostat.org/configuration#first-step**",
-        "data": {
-          "name": "Name",
-          "thermostat": "Das reale Thermostat",
-          "cooler": "Klimagerät AC (optional)",
-          "temperature_sensor": "Externer Temperatursensor",
-          "humidity_sensor": "Luftfeuchtigkeitssensor",
-          "window_sensors": "Fenstersensor(en)",
-          "off_temperature": "Außentemperatur, bei welcher das Thermostat abgeschaltet wird.",
-          "tolerance": "Toleranz, um zu verhindern, dass das Thermostat zu oft ein- und ausgeschaltet wird.",
-          "window_off_delay": "Wartezeit, bevor das Thermostat bei geöffnetem Fenster abgeschaltet wird.",
-          "window_off_delay_after": "Wartezeit, bevor das Thermostat bei geschlossenem Fenster angeschaltet wird.",
-          "outdoor_sensor": "Wenn ein Außentemperatursensor vorhanden ist, kann dieser anstelle der Wetter-Entität genutzt werden.",
-          "weather": "Die Wetter-Entität für die Außentemperatur."
-          "window_id": "Fenstersensoren",
-          "window_delay": "Verzögerungszeit für Fenstersensoren",
-          "door_id": "Türsensoren",
-          "door_delay": "Verzögerungszeit für Türsensoren"
-        }
-      },
-      "advanced": {
-        "description": "Einstellungen für {trv}\n\n***Infos über die Kalibrierungstypen: https://better-thermostat.org/configuration#second-step*** ",
-        "data": {
-          "protect_overheating": "Überhitzung verhindern?",
-          "heat_auto_swapped": "Tauscht die Modi auto und heat, falls diese bei dem realen Thermostat vertauscht sind.",
-          "child_lock": "Ignoriere alle manuellen Einstellungen am realen Thermostat (Kindersicherung).",
-          "homematicip": "Wenn du HomematicIP nutzt, solltest du diese Option aktivieren, um die Funk-Übertragung zu reduzieren.",
-          "valve_maintenance": "Soll BT die Wartung des Thermostats übernehmen?",
-          "calibration": "Kalibrierungstyp",
-          "calibration_mode": "Kalibrierungsmodus",
-          "no_off_system_mode": "Wenn das TRV keinen Aus Modus nutzen kann, kann diese Option aktiviert werden, um das TRV stattdessen auf 5°C zu setzen."
-        },
-        "data_description": {
-          "protect_overheating": "Manche TRVs schließen auch nach Erreichen der Temperatur das Ventil nicht vollständig. Dies kann zu Überhitzungen führen. Ebenso, falls der Radiator viel Restwärme abstrahlt. Diese Option kann dies verhindern.",
-          "calibration_mode": "Wie die Kalibrierung berechnet wird\n***Normal***: In diesem Modus wird die interne TRV-Temperatur an die des externen Sensors angeglichen.\n\n***Aggresive***: In diesem Modus wird die interne TRV-Temperatur an die des externen Sensors angeglichen - allerdings mit größeren Werten. Dies ist hilfreich, wenn ein Raum schnell aufgeheizt werden soll oder das TRV träge ist.\n\n***AI Time Based***: In diesem Modus wird ein eigener Algorithmus genutzt, der anhand des externen Temperatursensors die Kalibrierung berechnet. Dieser Modus versucht den TRV internen Algorithmus zu optimieren.",
-          "calibration": "Wie die Kalibrierung auf das TRV angewendet werden soll.\n\n***Target Temperature Based***: Kalibriert das TRV über die Zieltemperatur.\n\n***Offset Based***: Kalibriert das TRV über eine Offset Funktion im TRV selbst. (Empfohlen)"
-        }
-      },
-      "confirm": {
-        "title": "Bestätige das Hinzufügen eines Better Thermostat",
-        "description": "Du bist dabei ein Gerät mit dem Namen `{name}` zu Home Assistant hinzuzufügen.\nMit {trv} als reales Thermostat\nund dem Kalibrierungsmodus:"
-      }
-    },
-    "error": {
-      "no_outside_temp": "Es kann keine Außentemperatur geladen werden.",
-      "failed": "Ups, hier stimmt was nicht.",
-      "no_name": "Du musst einen Namen vergeben.",
-      "no_off_mode": "Dein Gerät ist ein Sonderfall, es hat keinen OFF Modus :(\nBetter Thermostat wird stattdessen das TRV auf den Minimalwert setzen."
-    },
-    "abort": {
-      "single_instance_allowed": "Es ist nur ein einzelnes BT je realem Thermostat erlaubt.",
-      "no_devices_found": "Es konnten keine Climate-Entitäten in Home Assistant gefunden werden. Stelle sicher, dass dein reales Thermostat in Home Assistant vorhanden ist."
-    }
-  },
-  "options": {
-    "step": {
-      "user": {
-        "description": "Aktualisiere die Better Thermostat Einstellungen",
-        "data": {
-          "name": "Name",
-          "thermostat": "Das reale Thermostat",
-          "temperature_sensor": "Externer Temperatursensor",
-          "humidity_sensor": "Luftfeuchtigkeitssensor",
-          "window_sensors": "Fenstersensor(en)",
-          "off_temperature": "Außentemperatur, bei welcher das Thermostat abgeschaltet wird.",
-          "tolerance": "Toleranz, um zu verhindern, dass das Thermostat zu oft ein- und ausgeschaltet wird.",
-          "window_off_delay": "Wartezeit, bevor das Thermostat bei geöffnetem Fenster abgeschaltet wird.",
-          "window_off_delay_after": "Wartezeit, bevor das Thermostat bei geschlossenem Fenster angeschaltet wird.",
-          "outdoor_sensor": "Wenn ein Außentemperatursensor vorhanden ist, kann dieser anstelle der Wetter-Entität genutzt werden.",
-          "weather": "Die Wetter-Entität für die Außentemperatur.",
-          "valve_maintenance": "Wenn Ihr Thermostat keinen eigenen Wartungsmodus hat, können Sie diesen verwenden.",
-          "child_lock": "Ignorieren Sie alle Eingaben am TRV wie eine Kindersicherung.",
-          "homematicip": "Wenn Sie HomematicIP verwenden, sollten Sie dies aktivieren, um die Anfragen zu verlangsamen und den Duty Cycle zu verhindern.",
-          "heat_auto_swapped": "Wenn das Auto Wärme für Ihr TRV bedeutet und Sie es austauschen möchten.",
-          "calibration": "Die Art der Kalibrierung https://better-thermostat.org/configuration#second-step"
-        }
-      },
-      "advanced": {
-        "description": "Aktualisiere die Einstellungen für {trv}\n\n***Infos über die Kalibrierungstypen: https://better-thermostat.org/configuration#second-step*** ",
-        "data": {
-          "protect_overheating": "Überhitzung verhindern?",
-          "heat_auto_swapped": "Tauscht die Modi auto und heat, falls diese bei dem realen Thermostat vertauscht sind.",
-          "child_lock": "Ignoriere alle manuellen Einstellungen am realen Thermostat (Kindersicherung).",
-          "homematicip": "Wenn du HomematicIP nutzt, solltest du diese Option aktivieren, um die Funk-Übertragung zu reduzieren.",
-          "valve_maintenance": "Soll BT die Wartung des Thermostats übernehmen?",
-          "calibration": "Kalibrierungstyp",
-          "calibration_mode": "Kalibrierungsmodus",
-          "no_off_system_mode": "Wenn das TRV keinen Aus Modus nutzen kann, kann diese Option aktiviert werden, um das TRV stattdessen auf 5°C zu setzen."
-        },
-        "data_description": {
-          "protect_overheating": "Manche TRVs schließen auch nach Erreichen der Temperatur das Ventil nicht vollständig. Dies kann zu Überhitzungen führen. Ebenso falls der Radiator viel Restwärme abstrahlt. Diese Option kann dies verhindern.",
-          "calibration_mode": "Wie die Kalibrierung berechnet wird\n***Normal***: In diesem Modus wird die interne TRV-Temperatur an die des externen Sensors angeglichen.\n\n***Aggresive***: In diesem Modus wird die interne TRV-Temperatur an die des externen Sensors angeglichen - allerdings mit größeren Werten. Dies ist hilfreich, wenn ein Raum schnell aufgeheizt werden soll oder das TRV träge ist.\n\n***AI Time Based***: In diesem Modus wird ein eigener Algorithmus genutzt, der anhand des externen Temperatursensors die Kalibrierung berechnet. Dieser Modus versucht den TRV internen Algorithmus zu optimieren.",
-          "calibration": "Wie die Kalibrierung auf das TRV angewendet werden soll.\n\n***Target Temperature Based***: Kalibriert das TRV über die Zieltemperatur.\n\n***Offset Based***: Kalibriert das TRV über eine Offset Funktion im TRV selbst. (Empfohlen)"
-        }
-      }
-    }
-  },
-  "issues": {
-    "missing_entity": {
-      "title": "BT: {name} – zugehörige Entität fehlt",
-      "fix_flow": {
+    "title": "Besseres Thermostat",
+    "config": {
         "step": {
-          "confirm": {
-            "title": "Die zugehörige Entität {entity} fehlt",
-            "description": "Der Grund dafür ist, dass die Entität ({entity}) in Ihrem Home Assistant nicht verfügbar ist.\n\nSie können dies beheben, indem Sie prüfen, ob der Akku des Geräts voll ist, oder es erneut an HA anschließen. Stellen Sie sicher, dass sich die Entität wieder in HA befindet, bevor Sie fortfahren."
-          }
+            "user": {
+                "title": "Besseres Thermostat einrichten",
+                "description": "Konfigurieren Sie Ihr besseres Thermostat",
+                "data": {
+                    "name": "Name",
+                    "heater": "Heizung",
+                    "sensor": "Temperatursensor",
+                    "window_sensors": "Fenstersensoren",
+                    "door_sensors": "Türsensoren",  // Hinzugefügt
+                    "humidity_sensor": "Feuchtigkeitssensor",
+                    "outdoor_sensor": "Außensensor",
+                    "weather": "Wetter",
+                    "cooler": "Kühler",
+                    "window_timeout": "Fenster-Timeout",
+                    "window_timeout_after": "Fenster-Timeout nach",
+                    "door_timeout": "Tür-Timeout",  // Hinzugefügt
+                    "door_timeout_after": "Tür-Timeout nach"  // Hinzugefügt
+                }
+            }
         }
-      }
+    },
+    "options": {
+        "step": {
+            "init": {
+                "title": "Optionen für besseres Thermostat",
+                "data": {
+                    "name": "Name",
+                    "heater": "Heizung",
+                    "sensor": "Temperatursensor",
+                    "window_sensors": "Fenstersensoren",
+                    "door_sensors": "Türsensoren",  // Hinzugefügt
+                    "humidity_sensor": "Feuchtigkeitssensor",
+                    "outdoor_sensor": "Außensensor",
+                    "weather": "Wetter",
+                    "cooler": "Kühler",
+                    "window_timeout": "Fenster-Timeout",
+                    "window_timeout_after": "Fenster-Timeout nach",
+                    "door_timeout": "Tür-Timeout",  // Hinzugefügt
+                    "door_timeout_after": "Tür-Timeout nach"  // Hinzugefügt
+                }
+            }
+        }
+    },
+    "device_automation": {
+        "action_type": {
+            "turn_heater_on": "Heizung einschalten",
+            "turn_heater_off": "Heizung ausschalten",
+            "turn_cooler_on": "Kühler einschalten",
+            "turn_cooler_off": "Kühler ausschalten"
+        }
     }
-  },
-  "services": {
-    "save_current_target_temperature": {
-      "name": "Speichere die aktuelle Zieltemperatur",
-      "description": "Speichert die aktuelle Zieltemperatur um sie zu einem späteren Zeitpunkt wiederherzustellen."
-    },
-    "restore_saved_target_temperature": {
-      "name": "Stelle die Zieltemperatur wieder her",
-      "description": "Stellt die Zieltemperatur aus dem letzten gespeicherten Wert wieder her."
-    },
-    "reset_heating_power": {
-      "name": "Setze 'Heating Power' zurück",
-      "description": "Stellt die Heating Power auf den Startwert zurück."
-    },
-    "set_temp_target_temperature": {
-      "name": "Setze die Temperatur für ECO",
-      "description": "Speichert eine ECO Temperatur, die für den ECO Modus genutzt wird."
-    }
-  }
 }
