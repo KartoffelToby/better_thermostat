@@ -27,13 +27,13 @@ from .utils.const import (
     CONF_OUTDOOR_SENSOR,
     CONF_SENSOR,
     CONF_SENSOR_WINDOW,
-    CONF_SENSOR_DOOR,  # Hinzugefügt
+    CONF_SENSOR_DOOR,
     CONF_VALVE_MAINTENANCE,
     CONF_WEATHER,
     CONF_WINDOW_TIMEOUT,
     CONF_WINDOW_TIMEOUT_AFTER,
-    CONF_DOOR_TIMEOUT,  # Hinzugefügt
-    CONF_DOOR_TIMEOUT_AFTER,  # Hinzugefügt
+    CONF_DOOR_TIMEOUT,
+    CONF_DOOR_TIMEOUT_AFTER,
     CONF_CALIBRATION_MODE,
     CONF_TOLERANCE,
     CONF_TARGET_TEMP_STEP,
@@ -557,4 +557,5 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
 
         return self.async_show_form(
             step_id="advanced",
-            data
+            data_schema=vol.Schema(fields),
+            last_step=self._last_step,
