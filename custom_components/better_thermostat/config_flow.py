@@ -267,13 +267,10 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
 
             if self.data[CONF_NAME] == "":
                 errors["base"] = "no_name"
-
-            # Fenster- und Türsensoren prüfen
             if CONF_SENSOR_WINDOW not in self.data:
                 self.data[CONF_SENSOR_WINDOW] = None
-            if CONF_SENSOR_DOOR not in self.data:  # Neue Prüfung für Türsensoren
-                self.data[CONF_SENSOR_DOOR] = []  # Standardwert für Türsensoren
-
+            if CONF_SENSOR_DOOR not in self.data:
+                self.data[CONF_SENSOR_DOOR] = None
             if CONF_HUMIDITY not in self.data:
                 self.data[CONF_HUMIDITY] = None
             if CONF_OUTDOOR_SENSOR not in self.data:
@@ -388,13 +385,13 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                     vol.Optional(CONF_SENSOR_DOOR): selector.EntitySelector(
                         selector.EntitySelectorConfig(
                             domain=["group", "sensor", "input_boolean", "binary_sensor"],
-                            multiple=True,  # Mehrere Tür-Sensoren erlauben
+                            multiple=True,
                         )
                     ),
                     vol.Optional(CONF_WINDOW_TIMEOUT): selector.DurationSelector(),
                     vol.Optional(CONF_WINDOW_TIMEOUT_AFTER): selector.DurationSelector(),
-                    vol.Optional(CONF_DOOR_TIMEOUT): selector.DurationSelector(),  # Hinzugefügt
-                    vol.Optional(CONF_DOOR_TIMEOUT_AFTER): selector.DurationSelector(),  # Hinzugefügt
+                    vol.Optional(CONF_DOOR_TIMEOUT): selector.DurationSelector(),
+                    vol.Optional(CONF_DOOR_TIMEOUT_AFTER): selector.DurationSelector(),
                     vol.Optional(
                         CONF_OFF_TEMPERATURE,
                         default=user_input.get(CONF_OFF_TEMPERATURE, 20),
@@ -424,6 +421,7 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
         self.trv_bundle = []
         self.device_name = ""
         self._last_step = False
+        self.updated_config = {}
 
     async def async_step_init(self, user_input=None):
         """Manage the options."""
@@ -559,3 +557,12 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
             step_id="advanced",
             data_schema=vol.Schema(fields),
             last_step=self._last_step,
+            description_placeholders={"trv": _trv_config.get("trv")},
+        )
+
+    async def async_step_user(self, user_input=None):
+        if user_input is not None:
+            current_config = self.config_entry.data
+            self.updated_config = dict(current_config)
+            self.updated_config[CONF_SENSOR] = user_input.get(CONF_SENSOR, None)
+            self.updated_config[CONF_SENSOR_WINDOW] = user
