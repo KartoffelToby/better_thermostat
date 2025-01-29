@@ -525,10 +525,4 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
             self.device_name,
             "Open" if self.door_open else "Closed",
         )
-        self.async_write_ha_state()
-
-    async def _tigger_cooler_change(self, event):
-        _check = await check_all_entities(self)
-        if _check is False:
-            return
-        self
+        self.async_write_ha_state
