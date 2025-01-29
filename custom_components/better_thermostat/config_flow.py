@@ -1,5 +1,6 @@
 import logging
 import voluptuous as vol
+
 from collections import OrderedDict
 from homeassistant import config_entries
 from homeassistant.const import CONF_NAME
@@ -10,6 +11,7 @@ from homeassistant.helpers import config_validation as cv
 
 from .adapters.delegate import load_adapter
 from .utils.helpers import get_device_model, get_trv_intigration
+
 from .utils.const import (
     CONF_COOLER,
     CONF_PROTECT_OVERHEATING,
@@ -25,20 +27,21 @@ from .utils.const import (
     CONF_OUTDOOR_SENSOR,
     CONF_SENSOR,
     CONF_SENSOR_WINDOW,
-    CONF_SENSOR_DOOR,
+    CONF_SENSOR_DOOR,  # Hinzugefügt
     CONF_VALVE_MAINTENANCE,
     CONF_WEATHER,
     CONF_WINDOW_TIMEOUT,
     CONF_WINDOW_TIMEOUT_AFTER,
-    CONF_DOOR_TIMEOUT,
-    CONF_DOOR_TIMEOUT_AFTER,
+    CONF_DOOR_TIMEOUT,  # Hinzugefügt
+    CONF_DOOR_TIMEOUT_AFTER,  # Hinzugefügt
     CONF_CALIBRATION_MODE,
     CONF_TOLERANCE,
     CONF_TARGET_TEMP_STEP,
     CalibrationMode,
     CalibrationType,
 )
-from .const import DOMAIN
+
+from . import DOMAIN  # pylint:disable=unused-import
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -103,17 +106,49 @@ CALIBRATION_MODE_SELECTOR = selector.SelectSelector(
 )
 
 
-class BetterThermostatConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
-    """Handle a config flow for Better Thermostat."""
-
-    VERSION = 1
+class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
+    VERSION = 6
     CONNECTION_CLASS = config_entries.CONN_CLASS_LOCAL_POLL
 
-    async def async_step_user(self, user_input=None):
-        """Handle the initial step."""
+    def __init__(self):
+        """Initialize the config flow."""
+        self.device_name = ""
+        self.data = None
+        self.model = None
+        self.heater_entity_id = None
+        self.trv_bundle = []
+        self.integration = None
+        self.i = 0
+
+    @staticmethod
+    @callback
+    def async_get_options_flow(
+        config_entry: config_entries.ConfigEntry,
+    ) -> config_entries.OptionsFlow:
+        """Get the options flow for this handler."""
+        return OptionsFlowHandler(config_entry)
+
+    async def async_step_confirm(self, user_input=None, confirm_type=None):
+        """Handle user-confirmation of discovered node."""
+        errors = {}
+        self.data[CONF_HEATER] = self.trv_bundle
         if user_input is not None:
-            return self.async_create_entry(title="Better Thermostat", data=user_input)
-        return self.async_show_form(step_id="user")
+            if self.data is not None:
+                _LOGGER.debug("Confirm: %s", self.data[CONF_HEATER])
+                unique_trv_string = "_".join([x["trv"] for x in self.data[CONF_HEATER]])
+                await self.async_set_unique_id(
+                    f"{self.data['name']}_{unique_trv_string}"
+                )
+                self._abort_if_unique_id_configured()
+                return self.async_create_entry(title=self.data["name"], data=self.data)
+        if confirm_type is not None:
+            errors["base"] = confirm_type
+        _trvs = ",".join([x["trv"] for x in self.data[CONF_HEATER]])
+        return self.async_show_form(
+            step_id="confirm",
+            errors=errors,
+            description_placeholders={"name": self.data[CONF_NAME], "trv": _trvs},
+        )
 
     async def async_step_advanced(self, user_input=None, _trv_config=None):
         """Handle options flow."""
@@ -222,180 +257,6 @@ class BetterThermostatConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             description_placeholders={"trv": _trv_config.get("trv")},
         )
 
-    async def async_step_confirm(self, user_input=None, confirm_type=None):
-        """Handle user-confirmation of discovered node."""
-        errors = {}
-        self.data[CONF_HEATER] = self.trv_bundle
-        if user_input is not None:
-            if self.data is not None:
-                _LOGGER.debug("Confirm: %s", self.data[CONF_HEATER])
-                unique_trv_string = "_".join([x["trv"] for x in self.data[CONF_HEATER]])
-                await self.async_set_unique_id(
-                    f"{self.data['name']}_{unique_trv_string}"
-                )
-                self._abort_if_unique_id_configured()
-                return self.async_create_entry(title=self.data["name"], data=self.data)
-        if confirm_type is not None:
-            errors["base"] = confirm_type
-        _trvs = ",".join([x["trv"] for x in self.data[CONF_HEATER]])
-        return self.async_show_form(
-            step_id="confirm",
-            errors=errors,
-            description_placeholders={"name": self.data[CONF_NAME], "trv": _trvs},
-        )
-
-    @staticmethod
-    @callback
-    def async_get_options_flow(
-        config_entry: config_entries.ConfigEntry,
-    ) -> config_entries.OptionsFlow:
-        """Get the options flow for this handler."""
-        return OptionsFlowHandler(config_entry)
-
-
-class OptionsFlowHandler(config_entries.OptionsFlow):
-    """Handle a option flow for a config entry."""
-
-    def __init__(self, config_entry: config_entries.ConfigEntry) -> None:
-        """Initialize options flow."""
-        self.config_entry = config_entry
-        self.options = dict(config_entry.options)
-        self.i = 0
-        self.trv_bundle = []
-        self.device_name = ""
-        self._last_step = False
-        self.updated_config = {}
-
-    async def async_step_init(self, user_input=None):
-        """Manage the options."""
-        return await self.async_step_user()
-
-    async def async_step_advanced(
-        self, user_input=None, _trv_config=None, _update_config=None
-    ):
-        """Manage the advanced options."""
-        if user_input is not None:
-            self.trv_bundle[self.i]["advanced"] = user_input
-            self.trv_bundle[self.i]["adapter"] = None
-
-            self.i += 1
-            if len(self.trv_bundle) - 1 >= self.i:
-                self._last_step = True
-
-            if len(self.trv_bundle) > self.i:
-                return await self.async_step_advanced(
-                    None, self.trv_bundle[self.i], _update_config
-                )
-
-            self.updated_config[CONF_HEATER] = self.trv_bundle
-            _LOGGER.debug("Updated config: %s", self.updated_config)
-            self.hass.config_entries.async_update_entry(
-                self.config_entry, data=self.updated_config
-            )
-            return self.async_create_entry(
-                title=self.updated_config["name"], data=self.updated_config
-            )
-
-        user_input = user_input or {}
-        homematic = False
-        if _trv_config.get("integration").find("homematic") != -1:
-            homematic = True
-
-        fields = OrderedDict()
-
-        _default_calibration = "target_temp_based"
-        self.device_name = user_input.get(CONF_NAME, "-")
-
-        _adapter = await load_adapter(
-            self, _trv_config.get("integration"), _trv_config.get("trv")
-        )
-        if _adapter is not None:
-            _info = await _adapter.get_info(self, _trv_config.get("trv"))
-
-            if _info.get("support_offset", False):
-                _default_calibration = "local_calibration_based"
-
-        if _default_calibration == "local_calibration_based":
-            fields[
-                vol.Required(
-                    CONF_CALIBRATION,
-                    default=user_input.get(
-                        CONF_CALIBRATION,
-                        _trv_config["advanced"].get(
-                            CONF_CALIBRATION, _default_calibration
-                        ),
-                    ),
-                )
-            ] = CALIBRATION_TYPE_ALL_SELECTOR
-        else:
-            fields[
-                vol.Required(
-                    CONF_CALIBRATION,
-                    default=user_input.get(
-                        CONF_CALIBRATION,
-                        _trv_config["advanced"].get(
-                            CONF_CALIBRATION, _default_calibration
-                        ),
-                    ),
-                )
-            ] = CALIBRATION_TYPE_SELECTOR
-
-        fields[
-            vol.Required(
-                CONF_CALIBRATION_MODE,
-                default=user_input.get(
-                    CONF_CALIBRATION_MODE, CalibrationMode.HEATING_POWER_CALIBRATION
-                ),
-            )
-        ] = CALIBRATION_MODE_SELECTOR
-
-        fields[
-            vol.Optional(
-                CONF_PROTECT_OVERHEATING,
-                default=user_input.get(CONF_PROTECT_OVERHEATING, False),
-            )
-        ] = bool
-
-        fields[
-            vol.Optional(
-                CONF_NO_SYSTEM_MODE_OFF,
-                default=user_input.get(CONF_NO_SYSTEM_MODE_OFF, False),
-            )
-        ] = bool
-
-        fields[
-            vol.Optional(
-                CONF_HEAT_AUTO_SWAPPED,
-                default=user_input.get(CONF_HEAT_AUTO_SWAPPED, False),
-            )
-        ] = bool
-
-        if _info.get("support_valve", False):
-            fields[
-                vol.Optional(
-                    CONF_VALVE_MAINTENANCE,
-                    default=user_input.get(CONF_VALVE_MAINTENANCE, False),
-                )
-            ] = bool
-
-        fields[
-            vol.Optional(
-                CONF_CHILD_LOCK, default=user_input.get(CONF_CHILD_LOCK, False)
-            )
-        ] = bool
-        fields[
-            vol.Optional(
-                CONF_HOMEMATICIP, default=user_input.get(CONF_HOMEMATICIP, homematic)
-            )
-        ] = bool
-
-        return self.async_show_form(
-            step_id="advanced",
-            data_schema=vol.Schema(fields),
-            last_step=False,
-            description_placeholders={"trv": _trv_config.get("trv")},
-        )
-
     async def async_step_user(self, user_input=None):
         errors = {}
 
@@ -404,16 +265,15 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
                 self.data = user_input
             self.heater_entity_id = self.data[CONF_HEATER]
 
-            # Name prüfen
             if self.data[CONF_NAME] == "":
                 errors["base"] = "no_name"
-
+            
             # Fenster- und Türsensoren prüfen
             if CONF_SENSOR_WINDOW not in self.data:
-                self.data[CONF_SENSOR_WINDOW] = []
+                self.data[CONF_SENSOR_WINDOW] = None
             if CONF_SENSOR_DOOR not in self.data:  # Neue Prüfung für Türsensoren
                 self.data[CONF_SENSOR_DOOR] = []  # Standardwert für Türsensoren
-
+            
             if CONF_HUMIDITY not in self.data:
                 self.data[CONF_HUMIDITY] = None
             if CONF_OUTDOOR_SENSOR not in self.data:
@@ -423,7 +283,6 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
             if CONF_COOLER not in self.data:
                 self.data[CONF_COOLER] = None
 
-            # Timeout-Werte für Fenster- und Türsensoren aktualisieren
             if CONF_WINDOW_TIMEOUT in self.data:
                 self.data[CONF_WINDOW_TIMEOUT] = (
                     int(
@@ -448,7 +307,6 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
             else:
                 self.data[CONF_WINDOW_TIMEOUT_AFTER] = 0
 
-            # Timeout-Werte für Türsensoren aktualisieren
             if CONF_DOOR_TIMEOUT in self.data:
                 self.data[CONF_DOOR_TIMEOUT] = (
                     int(
@@ -473,7 +331,6 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
             else:
                 self.data[CONF_DOOR_TIMEOUT_AFTER] = 0
 
-            # Fehlerüberprüfung
             if "base" not in errors:
                 for trv in self.heater_entity_id:
                     _intigration = await get_trv_intigration(self, trv)
@@ -488,7 +345,6 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
                 self.data[CONF_MODEL] = "/".join([x["model"] for x in self.trv_bundle])
                 return await self.async_step_advanced(None, self.trv_bundle[0])
 
-        # Standardformular für das Backend UI mit `multiple=True` für `window_sensors`
         user_input = user_input or {}
 
         return self.async_show_form(
@@ -526,7 +382,7 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
                     vol.Optional(CONF_SENSOR_WINDOW): selector.EntitySelector(
                         selector.EntitySelectorConfig(
                             domain=["group", "sensor", "input_boolean", "binary_sensor"],
-                            multiple=True,  # Mehrere Fenster-Sensoren erlauben
+                            multiple=False,
                         )
                     ),
                     vol.Optional(CONF_SENSOR_DOOR): selector.EntitySelector(
@@ -537,3 +393,19 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
                     ),
                 }
             ),
+            errors=errors,
+            last_step=False,
+        )
+
+
+class OptionsFlowHandler(config_entries.OptionsFlow):
+    """Handle a option flow for a config entry."""
+
+    def __init__(self, config_entry: config_entries.ConfigEntry) -> None:
+        """Initialize options flow."""
+        self.config_entry = config_entry
+        self.options = dict(config_entry.options)
+        self.i = 0
+        self.trv_bundle = []
+        self.device_name = ""
+        self._last_step = False
