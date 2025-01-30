@@ -386,7 +386,7 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                                 "input_boolean",
                                 "binary_sensor",
                             ],
-                            multiple=True,
+                            multiple=False,
                         )
                     ),
                     vol.Optional(CONF_SENSOR_DOOR): selector.EntitySelector(
@@ -397,7 +397,7 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                                 "input_boolean",
                                 "binary_sensor",
                             ],
-                            multiple=True,
+                            multiple=False,
                         )
                     ),
                     vol.Optional(CONF_WEATHER): selector.EntitySelector(
@@ -710,7 +710,7 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
         ] = selector.EntitySelector(
             selector.EntitySelectorConfig(
                 domain=["group", "sensor", "input_boolean", "binary_sensor"],
-                multiple=True,
+                multiple=False,
             )
         )
 
@@ -726,7 +726,7 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
         ] = selector.EntitySelector(
             selector.EntitySelectorConfig(
                 domain=["group", "sensor", "input_boolean", "binary_sensor"],
-                multiple=True,
+                multiple=False,
             )
         )
 
