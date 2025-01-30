@@ -561,8 +561,4 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
         )
 
     async def async_step_user(self, user_input=None):
-        if user_input is not None:
-            current_config = self.config_entry.data
-            self.updated_config = dict(current_config)
-            self.updated_config[CONF_SENSOR] = user_input.get(CONF_SENSOR, None)
-            self.updated_config[CONF_SENSOR_WINDOW] = user
+        if
