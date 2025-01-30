@@ -611,7 +611,7 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
             else:
                 self.updated_config[CONF_WINDOW_TIMEOUT] = 0
 
-            if CONF_WINDOW_DOOR in self.updated_config:
+            if CONF_DOOR_TIMEOUT in self.updated_config:
                 self.updated_config[CONF_DOOR_TIMEOUT] = (
                     int(
                         cv.time_period_dict(
