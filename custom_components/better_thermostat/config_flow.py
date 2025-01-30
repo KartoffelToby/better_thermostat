@@ -27,10 +27,13 @@ from .utils.const import (
     CONF_OUTDOOR_SENSOR,
     CONF_SENSOR,
     CONF_SENSOR_WINDOW,
+    CONF_SENSOR_DOOR,
     CONF_VALVE_MAINTENANCE,
     CONF_WEATHER,
     CONF_WINDOW_TIMEOUT,
     CONF_WINDOW_TIMEOUT_AFTER,
+    CONF_DOOR_TIMEOUT,
+    CONF_DOOR_TIMEOUT_AFTER,
     CONF_CALIBRATION_MODE,
     CONF_TOLERANCE,
     CONF_TARGET_TEMP_STEP,
@@ -266,6 +269,8 @@ class BetterThermostatConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 errors["base"] = "no_name"
             if CONF_SENSOR_WINDOW not in self.data:
                 self.data[CONF_SENSOR_WINDOW] = None
+            if CONF_SENSOR_DOOR not in self.data:
+                self.data[CONF_SENSOR_DOOR] = None
             if CONF_HUMIDITY not in self.data:
                 self.data[CONF_HUMIDITY] = None
             if CONF_OUTDOOR_SENSOR not in self.data:
@@ -298,6 +303,26 @@ class BetterThermostatConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 )
             else:
                 self.data[CONF_WINDOW_TIMEOUT_AFTER] = 0
+
+            if CONF_DOOR_TIMEOUT in self.data:
+                self.data[CONF_DOOR_TIMEOUT] = (
+                    int(
+                        cv.time_period_dict(
+                            user_input.get(CONF_DOOR_TIMEOUT, "00:00:30")
+                        ).total_seconds()
+                    )
+                    or 30
+                )
+
+            if CONF_DOOR_TIMEOUT_AFTER in self.data:
+                self.data[CONF_DOOR_TIMEOUT_AFTER] = (
+                    int(
+                        cv.time_period_dict(
+                            user_input.get(CONF_DOOR_TIMEOUT_AFTER, "00:00:30")
+                        ).total_seconds()
+                    )
+                    or 30
+                )
 
             if "base" not in errors:
                 for trv in self.heater_entity_id:
@@ -358,13 +383,24 @@ class BetterThermostatConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                             multiple=False,
                         )
                     ),
+                    vol.Optional(CONF_SENSOR_DOOR): selector.EntitySelector(
+                        selector.EntitySelectorConfig(
+                            domain=[
+                                "group",
+                                "sensor",
+                                "input_boolean",
+                                "binary_sensor",
+                            ],
+                            multiple=True,
+                        )
+                    ),
                     vol.Optional(CONF_WEATHER): selector.EntitySelector(
                         selector.EntitySelectorConfig(domain="weather", multiple=False)
                     ),
                     vol.Optional(CONF_WINDOW_TIMEOUT): selector.DurationSelector(),
-                    vol.Optional(
-                        CONF_WINDOW_TIMEOUT_AFTER
-                    ): selector.DurationSelector(),
+                    vol.Optional(CONF_WINDOW_TIMEOUT_AFTER): selector.DurationSelector(),
+                    vol.Optional(CONF_DOOR_TIMEOUT, default="00:00:30"): selector.DurationSelector(),
+                    vol.Optional(CONF_DOOR_TIMEOUT_AFTER, default="00:00:30"): selector.DurationSelector(),
                     vol.Optional(
                         CONF_OFF_TEMPERATURE,
                         default=user_input.get(CONF_OFF_TEMPERATURE, 20),
@@ -534,36 +570,4 @@ class BetterThermostatOptionsFlowHandler(config_entries.OptionsFlow):
         )
 
     async def async_step_user(self, user_input=None):
-        if user_input is not None:
-            current_config = self.config_entry.data
-            self.updated_config = dict(current_config)
-            self.updated_config[CONF_SENSOR] = user_input.get(CONF_SENSOR, None)
-            self.updated_config[CONF_SENSOR_WINDOW] = user_input.get(
-                CONF_SENSOR_WINDOW, None
-            )
-            self.updated_config[CONF_HUMIDITY] = user_input.get(CONF_HUMIDITY, None)
-            self.updated_config[CONF_OUTDOOR_SENSOR] = user_input.get(
-                CONF_OUTDOOR_SENSOR, None
-            )
-            self.updated_config[CONF_WEATHER] = user_input.get(CONF_WEATHER, None)
-
-            if CONF_WINDOW_TIMEOUT in self.updated_config:
-                self.updated_config[CONF_WINDOW_TIMEOUT] = (
-                    int(
-                        cv.time_period_dict(
-                            user_input.get(CONF_WINDOW_TIMEOUT, None)
-                        ).total_seconds()
-                    )
-                    or 0
-                )
-            else:
-                self.updated_config[CONF_WINDOW_TIMEOUT] = 0
-
-            if CONF_WINDOW_TIMEOUT_AFTER in self.updated_config:
-                self.updated_config[CONF_WINDOW_TIMEOUT_AFTER] = (
-                    int(
-                        cv.time_period_dict(
-                            user_input.get(CONF_WINDOW_TIMEOUT_AFTER, None)
-                        ).total_seconds()
-                    )
-                    or
+        if user
