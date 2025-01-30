@@ -880,6 +880,8 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
                 HVACMode.HEAT_COOL,
                 HVACMode.HEAT,
             ):
+                self.bt_hvac_mode = HVACMode.HEAT
+                
             self.last_door_state = self.door_open
             if self.bt_hvac_mode not in (
                 HVACMode.OFF,
