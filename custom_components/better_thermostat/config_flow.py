@@ -9,9 +9,7 @@ from homeassistant.helpers import selector
 from homeassistant.components.climate.const import HVACMode
 from homeassistant.helpers import config_validation as cv
 
-
 from .adapters.delegate import load_adapter
-
 from .utils.helpers import get_device_model, get_trv_intigration
 
 from .utils.const import (
@@ -91,7 +89,7 @@ CALIBRATION_MODE_SELECTOR = selector.SelectSelector(
         options=[
             selector.SelectOptionDict(value=CalibrationMode.DEFAULT, label="Normal"),
             selector.SelectOptionDict(
-                value=CalibrationMode.AGGRESIVE_CALIBRATION, label="Agressive"
+                value=CalibrationMode.AGGRESIVE_CALIBRATION, label="Aggressive"
             ),
             selector.SelectOptionDict(
                 value=CalibrationMode.HEATING_POWER_CALIBRATION, label="AI Time Based"
@@ -105,7 +103,7 @@ CALIBRATION_MODE_SELECTOR = selector.SelectSelector(
 )
 
 
-class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
+class BetterThermostatConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     VERSION = 6
     CONNECTION_CLASS = config_entries.CONN_CLASS_LOCAL_POLL
 
@@ -125,8 +123,7 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         config_entry: config_entries.ConfigEntry,
     ) -> config_entries.OptionsFlow:
         """Get the options flow for this handler."""
-        return OptionsFlowHandler(config_entry)
-        """Get the options flow for this handler."""
+        return BetterThermostatOptionsFlowHandler(config_entry)
 
     async def async_step_confirm(self, user_input=None, confirm_type=None):
         """Handle user-confirmation of discovered node."""
@@ -264,6 +261,7 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             if self.data is None:
                 self.data = user_input
             self.heater_entity_id = self.data[CONF_HEATER]
+
             if self.data[CONF_NAME] == "":
                 errors["base"] = "no_name"
             if CONF_SENSOR_WINDOW not in self.data:
@@ -385,7 +383,7 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         )
 
 
-class OptionsFlowHandler(config_entries.OptionsFlow):
+class BetterThermostatOptionsFlowHandler(config_entries.OptionsFlow):
     """Handle a option flow for a config entry."""
 
     def __init__(self, config_entry: config_entries.ConfigEntry) -> None:
@@ -568,155 +566,4 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
                             user_input.get(CONF_WINDOW_TIMEOUT_AFTER, None)
                         ).total_seconds()
                     )
-                    or 0
-                )
-            else:
-                self.updated_config[CONF_WINDOW_TIMEOUT_AFTER] = 0
-
-            self.updated_config[CONF_OFF_TEMPERATURE] = user_input.get(
-                CONF_OFF_TEMPERATURE
-            )
-
-            self.updated_config[CONF_TOLERANCE] = float(
-                user_input.get(CONF_TOLERANCE, 0.0)
-            )
-            self.updated_config[CONF_TARGET_TEMP_STEP] = float(
-                user_input.get(CONF_TARGET_TEMP_STEP, "0.0")
-            )
-
-            for trv in self.updated_config[CONF_HEATER]:
-                trv["adapter"] = None
-                self.trv_bundle.append(trv)
-
-            return await self.async_step_advanced(
-                None, self.trv_bundle[0], self.updated_config
-            )
-
-        fields = OrderedDict()
-
-        fields[
-            vol.Optional(
-                CONF_SENSOR,
-                description={
-                    "suggested_value": self.config_entry.data.get(CONF_SENSOR, "")
-                },
-            )
-        ] = selector.EntitySelector(
-            selector.EntitySelectorConfig(
-                domain=["sensor", "number", "input_number"],
-                device_class="temperature",
-                multiple=False,
-            )
-        )
-
-        fields[
-            vol.Optional(
-                CONF_HUMIDITY,
-                description={
-                    "suggested_value": self.config_entry.data.get(CONF_HUMIDITY, "")
-                },
-            )
-        ] = selector.EntitySelector(
-            selector.EntitySelectorConfig(
-                domain=["sensor", "number", "input_number"],
-                device_class="humidity",
-                multiple=False,
-            )
-        )
-
-        fields[
-            vol.Optional(
-                CONF_SENSOR_WINDOW,
-                description={
-                    "suggested_value": self.config_entry.data.get(
-                        CONF_SENSOR_WINDOW, ""
-                    )
-                },
-            )
-        ] = selector.EntitySelector(
-            selector.EntitySelectorConfig(
-                domain=["group", "sensor", "input_boolean", "binary_sensor"],
-                multiple=False,
-            )
-        )
-
-        fields[
-            vol.Optional(
-                CONF_OUTDOOR_SENSOR,
-                description={
-                    "suggested_value": self.config_entry.data.get(
-                        CONF_OUTDOOR_SENSOR, ""
-                    )
-                },
-            )
-        ] = selector.EntitySelector(
-            selector.EntitySelectorConfig(
-                domain=["sensor", "input_number", "number"],
-                device_class="temperature",
-                multiple=False,
-            )
-        )
-
-        fields[
-            vol.Optional(
-                CONF_WEATHER,
-                description={
-                    "suggested_value": self.config_entry.data.get(CONF_WEATHER, "")
-                },
-            )
-        ] = selector.EntitySelector(
-            selector.EntitySelectorConfig(domain="weather", multiple=False)
-        )
-
-        _timeout = self.config_entry.data.get(CONF_WINDOW_TIMEOUT, 0)
-        _timeout = str(cv.time_period_seconds(_timeout))
-        _timeout = {
-            "hours": int(_timeout.split(":", maxsplit=1)[0]),
-            "minutes": int(_timeout.split(":")[1]),
-            "seconds": int(_timeout.split(":")[2]),
-        }
-        fields[
-            vol.Optional(
-                CONF_WINDOW_TIMEOUT,
-                default=_timeout,
-                description={"suggested_value": _timeout},
-            )
-        ] = selector.DurationSelector()
-
-        _timeout = self.config_entry.data.get(CONF_WINDOW_TIMEOUT_AFTER, 0)
-        _timeout = str(cv.time_period_seconds(_timeout))
-        _timeout = {
-            "hours": int(_timeout.split(":", maxsplit=1)[0]),
-            "minutes": int(_timeout.split(":")[1]),
-            "seconds": int(_timeout.split(":")[2]),
-        }
-        fields[
-            vol.Optional(
-                CONF_WINDOW_TIMEOUT_AFTER,
-                default=_timeout,
-                description={"suggested_value": _timeout},
-            )
-        ] = selector.DurationSelector()
-
-        fields[
-            vol.Optional(
-                CONF_OFF_TEMPERATURE,
-                default=self.config_entry.data.get(CONF_OFF_TEMPERATURE, 5),
-            )
-        ] = int
-
-        fields[
-            vol.Optional(
-                CONF_TOLERANCE, default=self.config_entry.data.get(CONF_TOLERANCE, 0.0)
-            )
-        ] = vol.All(vol.Coerce(float), vol.Range(min=0))
-        fields[
-            vol.Optional(
-                CONF_TARGET_TEMP_STEP,
-                default=str(self.config_entry.data.get(CONF_TARGET_TEMP_STEP, 0.0)),
-            )
-        ] = TEMP_STEP_SELECTOR
-
-        return self.async_show_form(
-            step_id="user", data_schema=vol.Schema(fields), last_step=False
-        )
+                    or
