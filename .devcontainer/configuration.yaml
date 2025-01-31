@@ -46,7 +46,10 @@ input_boolean:
   window_open:
     name: Window open
     initial: off
-
+  door_open:
+    name: Door open
+    initial: off
+    
 input_number:
   internal_sensor:
     name: Internal Sensor
