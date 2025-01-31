@@ -10,12 +10,12 @@
                     "temperature_sensor": "Temperature sensor",
                     "humidity_sensor": "Humidity sensor",
                     "window_sensors": "Window sensor",
-                    "door_sensors": "Door sensors (optional)",  // Neu hinzugefügt
+                    "door_sensors": "Door sensors",
                     "off_temperature": "The outdoor temperature when the thermostat should turn off",
                     "tolerance": "Tolerance, to prevent the thermostat from turning on and off too often",
                     "window_off_delay": "Delay before the thermostat should turn off when the window is opened",
                     "window_off_delay_after": "Delay before the thermostat should turn on when the window is closed",
-                    "door_off_delay": "Delay before the thermostat should turn off when the door is opened (optional)",  // Neu hinzugefügt
+                    "door_off_delay": "Delay before the thermostat should turn off when the door is opened",
                     "outdoor_sensor": "Outdoor temperature sensor",
                     "weather": "Weather entity to get the outdoor temperature"
                 }
@@ -64,12 +64,12 @@
                     "temperature_sensor": "Temperature Sensor",
                     "humidity_sensor": "Humidity sensor",
                     "window_sensors": "Window Sensor",
-                    "door_sensors": "Door sensors (optional)",  // Neu hinzugefügt
+                    "door_sensors": "Door sensors",
                     "off_temperature": "The outdoor temperature when the thermostat should turn off",
                     "tolerance": "Tolerance, to prevent the thermostat from turning on and off too often",
                     "window_off_delay": "Delay before the thermostat should turn off when the window is opened",
                     "window_off_delay_after": "Delay before the thermostat should turn on when the window is closed",
-                    "door_off_delay": "Delay before the thermostat should turn off when the door is opened (optional)",  // Neu hinzugefügt
+                    "door_off_delay": "Delay before the thermostat should turn off when the door is opened",
                     "outdoor_sensor": "Outdoor temperature sensor",
                     "weather": "Weather entity to get the outdoor temperature"
                 }
