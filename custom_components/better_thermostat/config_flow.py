@@ -591,7 +591,7 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
                 CONF_SENSOR_WINDOW, None
             )
             self.updated_config[CONF_SENSOR_DOOR] = user_input.get(
-                CONF_SENSOR_WINDOW, None
+                CONF_SENSOR_DOOR, None
             )
             self.updated_config[CONF_HUMIDITY] = user_input.get(CONF_HUMIDITY, None)
             self.updated_config[CONF_OUTDOOR_SENSOR] = user_input.get(
