@@ -1029,7 +1029,7 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
             if self.door_id is not None:
                 self.async_on_remove(
                     async_track_state_change_event(
-                        self.hass, [self.doorw_id], self._trigger_door_change
+                        self.hass, [self.door_id], self._trigger_door_change
                     )
                 )
             if self.cooler_entity_id is not None:
