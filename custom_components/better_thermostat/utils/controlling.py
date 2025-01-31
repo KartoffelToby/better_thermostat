@@ -134,7 +134,8 @@ async def control_trv(self, heater_entity_id=None):
         )
 
         _new_hvac_mode = handle_window_open(self, _remapped_states)
-
+        _new_hvac_mode = handle_door_open(self, _remapped_states)
+        
         # New cooler section
         if self.cooler_entity_id is not None:
             if (
@@ -330,6 +331,33 @@ def handle_window_open(self, _remapped_states):
         _hvac_mode_send = HVACMode.OFF
 
     return _hvac_mode_send
+
+def handle_door_open(self, _remapped_states):
+    """handle door open"""
+    _converted_hvac_mode = _remapped_states.get("system_mode", None)
+    _hvac_mode_send = _converted_hvac_mode
+
+    if self.door_open is True and self.last_door_state is False:
+        # if the door is open or the sensor is not available, we're done
+        self.last_main_hvac_mode = _hvac_mode_send
+        _hvac_mode_send = HVACMode.OFF
+        self.last_door_state = True
+        _LOGGER.debug(
+            f"better_thermostat {self.device_name}: control_trv: door is open or status of door is unknown, setting door open"
+        )
+    elif self.door_open is False and self.last_door_state is True:
+        _hvac_mode_send = self.last_main_hvac_mode
+        self.last_door_state = False
+        _LOGGER.debug(
+            f"better_thermostat {self.device_name}: control_trv: door is closed, setting door closed restoring mode: {_hvac_mode_send}"
+        )
+
+    # Force off on door open
+    if self.door_open is True:
+        _hvac_mode_send = HVACMode.OFF
+
+    return _hvac_mode_send
+
 
 
 async def check_system_mode(self, heater_entity_id=None):
