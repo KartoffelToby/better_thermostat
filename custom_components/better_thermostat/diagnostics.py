@@ -7,7 +7,7 @@ from homeassistant.core import HomeAssistant
 
 from .adapters.delegate import load_adapter
 
-from .utils.const import CONF_HEATER, CONF_SENSOR, CONF_SENSOR_WINDOW
+from .utils.const import CONF_HEATER, CONF_SENSOR, CONF_SENSOR_WINDOW, CONF_SENSOR_DOOR
 
 
 async def async_get_config_entry_diagnostics(
@@ -53,4 +53,21 @@ async def async_get_config_entry_diagnostics(
         "window_sensor": window,
     }
 
+    door = "-"
+    door_entity_id = config_entry.data.get(CONF_SENSOR_DOOR, False)
+    if door_entity_id:
+        try:
+            door = hass.states.get(door_entity_id)
+        except KeyError:
+            pass
+
+    _cleaned_data = dict(config_entry.data.copy())
+    del _cleaned_data[CONF_HEATER]
+    diagnostics_data = {
+        "info": _cleaned_data,
+        "thermostat": trvs,
+        "external_temperature_sensor": external_temperature,
+        "door_sensor": door,
+    }
+    
     return diagnostics_data
