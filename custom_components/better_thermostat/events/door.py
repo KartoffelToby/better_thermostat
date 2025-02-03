@@ -63,8 +63,8 @@ async def door_queue(self):
     """Process door sensor changes using a queue to handle state transitions."""
     try:
         while True:
-            door_event_to_process = await self.door_queue_task.get()
             try:
+                door_event_to_process = await self.door_queue_task.get()
                 if door_event_to_process is not None:
                     if door_event_to_process:
                         _LOGGER.debug(
@@ -91,7 +91,12 @@ async def door_queue(self):
                             empty_queue(self.control_queue_task)
                         await self.control_queue_task.put(self)
             except asyncio.CancelledError:
+                _LOGGER.debug(
+                    f"better_thermostat {self.device_name}: Door queue task cancelled"
+                )
                 raise
+            except Exception as e:
+                _LOGGER.error(f"better_thermostat {self.device_name}: Error processing door event: {e}")
             finally:
                 self.door_queue_task.task_done()
     except asyncio.CancelledError:
@@ -99,10 +104,11 @@ async def door_queue(self):
             f"better_thermostat {self.device_name}: Door queue task cancelled"
         )
         raise
-
+    except Exception as e:
+        _LOGGER.error(f"better_thermostat {self.device_name}: Error in door_queue: {e}")
 
 def empty_queue(q: asyncio.Queue):
     """Empty the given asyncio queue."""
-    for _ in range(q.qsize()):
+    while not q.empty():
         q.get_nowait()
         q.task_done()
