@@ -47,13 +47,6 @@ async def trigger_door_change(self, event) -> None:
         elif sensor_state.state == "on":
             new_door_open = True
             break
-        else:
-            _LOGGER.debug(
-                "better_thermostat %s: Door sensor %s state is %s",
-                self.device_name,
-                sensor,
-                sensor_state.state
-            )
 
     # Skip events that do not change the door state
     if new_door_open == old_door_open:
@@ -70,8 +63,8 @@ async def door_queue(self):
     """Process door sensor changes using a queue to handle state transitions."""
     try:
         while True:
+            door_event_to_process = await self.door_queue_task.get()
             try:
-                door_event_to_process = await self.door_queue_task.get()
                 if door_event_to_process is not None:
                     if door_event_to_process:
                         _LOGGER.debug(
@@ -86,7 +79,7 @@ async def door_queue(self):
 
                     # Determine the current state of all sensors
                     current_door_state = any(
-                        self.hass.states.get(sensor) is not None and self.hass.states.get(sensor).state == "on"
+                        self.hass.states.get(sensor).state == "on"
                         for sensor in self.door_id
                     )
 
@@ -98,12 +91,7 @@ async def door_queue(self):
                             empty_queue(self.control_queue_task)
                         await self.control_queue_task.put(self)
             except asyncio.CancelledError:
-                _LOGGER.debug(
-                    f"better_thermostat {self.device_name}: Door queue task cancelled"
-                )
                 raise
-            except Exception as e:
-                _LOGGER.error(f"better_thermostat {self.device_name}: Error processing door event: {e}")
             finally:
                 self.door_queue_task.task_done()
     except asyncio.CancelledError:
@@ -111,12 +99,10 @@ async def door_queue(self):
             f"better_thermostat {self.device_name}: Door queue task cancelled"
         )
         raise
-    except Exception as e:
-        _LOGGER.error(f"better_thermostat {self.device_name}: Error in door_queue: {e}")
 
 
 def empty_queue(q: asyncio.Queue):
     """Empty the given asyncio queue."""
-    while not q.empty():
+    for _ in range(q.qsize()):
         q.get_nowait()
         q.task_done()
