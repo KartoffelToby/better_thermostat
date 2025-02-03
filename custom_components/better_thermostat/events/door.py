@@ -86,7 +86,7 @@ async def door_queue(self):
 
                     # Determine the current state of all sensors
                     current_door_state = any(
-                        self.hass.states.get(sensor).state == "on"
+                        self.hass.states.get(sensor) is not None and self.hass.states.get(sensor).state == "on"
                         for sensor in self.door_id
                     )
 
