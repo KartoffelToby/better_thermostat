@@ -47,6 +47,13 @@ async def trigger_door_change(self, event) -> None:
         elif sensor_state.state == "on":
             new_door_open = True
             break
+        else:
+            _LOGGER.debug(
+                "better_thermostat %s: Door sensor %s state is %s",
+                self.device_name,
+                sensor,
+                sensor_state.state
+            )
 
     # Skip events that do not change the door state
     if new_door_open == old_door_open:
@@ -106,6 +113,7 @@ async def door_queue(self):
         raise
     except Exception as e:
         _LOGGER.error(f"better_thermostat {self.device_name}: Error in door_queue: {e}")
+
 
 def empty_queue(q: asyncio.Queue):
     """Empty the given asyncio queue."""
