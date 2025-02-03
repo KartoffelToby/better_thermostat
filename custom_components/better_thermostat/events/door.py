@@ -8,7 +8,6 @@ from homeassistant.helpers import issue_registry as ir
 
 _LOGGER = logging.getLogger(__name__)
 
-
 @callback
 async def trigger_door_change(self, event) -> None:
     """Triggered by door sensor event from HA to check if any door is open.
