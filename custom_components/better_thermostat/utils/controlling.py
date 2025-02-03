@@ -40,11 +40,12 @@ class TaskManager:
 
 
 async def control_queue(self):
-    """The accutal control loop.
-            Parameters
+    """The actual control loop.
+
+    Parameters
     ----------
     self :
-            instance of better_thermostat
+        instance of better_thermostat
 
     Returns
     -------
@@ -57,7 +58,8 @@ async def control_queue(self):
         if self.ignore_states or self.startup_running:
             await asyncio.sleep(1)
             continue
-        else:
+
+        try:
             controls_to_process = await self.control_queue_task.get()
             if controls_to_process is not None:
                 self.ignore_states = True
@@ -84,9 +86,15 @@ async def control_queue(self):
                         _LOGGER.debug(
                             "better_thermostat %s: control queue is full, discarding task"
                         )
-
                 self.control_queue_task.task_done()
                 self.ignore_states = False
+        except asyncio.CancelledError:
+            _LOGGER.debug(
+                f"better_thermostat {self.device_name}: Control queue task cancelled"
+            )
+            raise
+        except Exception as e:
+            _LOGGER.error(f"better_thermostat {self.device_name}: Error in control_queue: {e}")
 
 
 async def control_trv(self, heater_entity_id=None):
@@ -95,7 +103,7 @@ async def control_trv(self, heater_entity_id=None):
     Parameters
     ----------
     self :
-            instance of better_thermostat
+        instance of better_thermostat
 
     Returns
     -------
@@ -200,7 +208,7 @@ async def control_trv(self, heater_entity_id=None):
                     context=self.context,
                 )
 
-        # if we don't need ot heat, we force HVACMode to be off
+        # if we don't need to heat, we force HVACMode to be off
         if self.call_for_heat is False:
             _new_hvac_mode = HVACMode.OFF
 
@@ -357,7 +365,6 @@ def handle_door_open(self, _remapped_states):
         _hvac_mode_send = HVACMode.OFF
 
     return _hvac_mode_send
-
 
 
 async def check_system_mode(self, heater_entity_id=None):
