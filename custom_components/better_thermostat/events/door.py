@@ -35,6 +35,7 @@ async def trigger_door_change(self, event) -> None:
 
     # Check all sensors in the list
     for sensor in self.door_id:
+        _LOGGER.debug(f"Checking sensor: {sensor}")
         sensor_state = self.hass.states.get(sensor)
         if sensor_state is None or sensor_state.state in ("unknown", "unavailable"):
             _LOGGER.warning(
