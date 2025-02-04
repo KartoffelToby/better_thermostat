@@ -318,7 +318,7 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             else:
                 self.data[CONF_DOOR_TIMEOUT] = 0
 
-            if CONF_DOOR_TIMEOUT_AFTER in self.data:
+            if CONF_WINDOW_TIMEOUT_AFTER in self.data:
                 self.data[CONF_DOOR_TIMEOUT_AFTER] = (
                     int(
                         cv.time_period_dict(
