@@ -14,8 +14,8 @@ from .utils.const import (
     CONF_NO_SYSTEM_MODE_OFF,
     CONF_WINDOW_TIMEOUT,
     CONF_WINDOW_TIMEOUT_AFTER,
-    CONF_DOOR_TIMEOUT,  # Hinzugefügt
-    CONF_DOOR_TIMEOUT_AFTER,  # Hinzugefügt
+    CONF_DOOR_TIMEOUT,
+    CONF_DOOR_TIMEOUT_AFTER,
     CalibrationMode,
 )
 
@@ -36,20 +36,10 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Set up entry."""
     hass.data.setdefault(DOMAIN, {})
     hass.data[DOMAIN][entry.entry_id] = {}
-    
-    # Türsensoren initialisieren
-    door_sensors = entry.data.get(CONF_SENSOR_DOOR, [])
-    door_timeout = entry.data.get(CONF_DOOR_TIMEOUT, 0)
-    door_timeout_after = entry.data.get(CONF_DOOR_TIMEOUT_AFTER, 0)
-    
-    hass.data[DOMAIN][entry.entry_id][CONF_SENSOR_DOOR] = door_sensors
-    hass.data[DOMAIN][entry.entry_id][CONF_DOOR_TIMEOUT] = door_timeout
-    hass.data[DOMAIN][entry.entry_id][CONF_DOOR_TIMEOUT_AFTER] = door_timeout_after
-
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
     entry.async_on_unload(entry.add_update_listener(config_entry_update_listener))
     return True
-
+    
 async def config_entry_update_listener(hass: HomeAssistant, entry: ConfigEntry) -> None:
     """Handle options update."""
     async with config_entry_update_listener_lock:
