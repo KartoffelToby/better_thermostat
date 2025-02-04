@@ -16,6 +16,7 @@
                     "window_off_delay": "Delay before the thermostat should turn off when the window is opened",
                     "window_off_delay_after": "Delay before the thermostat should turn on when the window is closed",
                     "door_off_delay": "Delay before the thermostat should turn off when the door is opened",
+                    "door_off_delay_after": "Delay before the thermostat should turn on when the door is closed",
                     "outdoor_sensor": "Outdoor temperature sensor",
                     "weather": "Weather entity to get the outdoor temperature"
                 }
@@ -70,6 +71,7 @@
                     "window_off_delay": "Delay before the thermostat should turn off when the window is opened",
                     "window_off_delay_after": "Delay before the thermostat should turn on when the window is closed",
                     "door_off_delay": "Delay before the thermostat should turn off when the door is opened",
+                    "door_off_delay_after": "Delay before the thermostat should turn on when the door is closed",
                     "outdoor_sensor": "Outdoor temperature sensor",
                     "weather": "Weather entity to get the outdoor temperature"
                 }
