@@ -16,7 +16,6 @@ from .utils.const import (
     CONF_WINDOW_TIMEOUT_AFTER,
     CONF_DOOR_TIMEOUT,  # Hinzugefügt
     CONF_DOOR_TIMEOUT_AFTER,  # Hinzugefügt
-    CONF_SENSOR_DOOR,  # Hinzugefügt
     CalibrationMode,
 )
 
@@ -82,7 +81,13 @@ async def async_migrate_entry(hass, config_entry: ConfigEntry):
         new[CONF_WINDOW_TIMEOUT] = 0
         config_entry.version = 3
         hass.config_entries.async_update_entry(config_entry, data=new)
-
+        
+    if config_entry.version == 2:
+        new = {**config_entry.data}
+        new[CONF_DOOR_TIMEOUT] = 0
+        config_entry.version = 3
+        hass.config_entries.async_update_entry(config_entry, data=new
+                                               
     if config_entry.version == 3:
         new = {**config_entry.data}
         for trv in new[CONF_HEATER]:
@@ -111,6 +116,12 @@ async def async_migrate_entry(hass, config_entry: ConfigEntry):
         config_entry.version = 6
         hass.config_entries.async_update_entry(config_entry, data=new)
 
+    if config_entry.version == 5:
+        new = {**config_entry.data}
+        new[CONF_DOOR_TIMEOUT_AFTER] = new[CONF_DOOR_TIMEOUT]
+        config_entry.version = 6
+        hass.config_entries.async_update_entry(config_entry, data=new)
+        
     _LOGGER.info("Migration to version %s successful", config_entry.version)
 
     return True
