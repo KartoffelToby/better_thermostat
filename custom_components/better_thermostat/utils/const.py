@@ -70,7 +70,6 @@ SUPPORT_FLAGS = (
 # Attribute
 ATTR_STATE_WINDOW_OPEN = "window_open"
 ATTR_STATE_DOOR_OPEN = "door_open"
-ATTR_STATE_DOOR_OPEN = "door_open"  # Neues Attribut für Türstatus
 ATTR_STATE_CALL_FOR_HEAT = "call_for_heat"
 ATTR_STATE_LAST_CHANGE = "last_change"
 ATTR_STATE_SAVED_TEMPERATURE = "saved_temperature"
