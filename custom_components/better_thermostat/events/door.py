@@ -35,11 +35,10 @@ async def trigger_door_change(self, event) -> None:
 
     # Check all sensors in the list
     for sensor in self.door_id:
-        _LOGGER.debug(f"Checking sensor: {sensor}")
         sensor_state = self.hass.states.get(sensor)
         if sensor_state is None or sensor_state.state in ("unknown", "unavailable"):
             _LOGGER.warning(
-                "better_thermostat %s: Door sensor %s state is unknown or unavailable, assuming door is open",
+                "better_thermostat %s: door sensor %s state is unknown or unavailable, assuming door is open",
                 self.device_name,
                 sensor,
             )
@@ -97,7 +96,7 @@ async def door_queue(self):
                 self.door_queue_task.task_done()
     except asyncio.CancelledError:
         _LOGGER.debug(
-            f"better_thermostat {self.device_name}: Door queue task cancelled"
+            f"better_thermostat {self.device_name}: door queue task cancelled"
         )
         raise
 
