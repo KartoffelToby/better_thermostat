@@ -141,7 +141,16 @@ async def control_trv(self, heater_entity_id=None):
             "calibration_mode", CalibrationMode.DEFAULT
         )
 
+        # Überprüfen Sie hier sowohl den Fenster- als auch den Türsensor
         _new_hvac_mode = handle_sensors(self, _remapped_states)
+        
+        # Debugging-Logs hinzufügen
+        _LOGGER.debug(
+            f"better_thermostat {self.device_name}: Türsensorzustand: {self.door_open}"
+        )
+        _LOGGER.debug(
+            f"better_thermostat {self.device_name}: Fenstersensorzustand: {self.window_open}"
+        )
 
         # New cooler section
         if self.cooler_entity_id is not None:
