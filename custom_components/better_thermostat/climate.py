@@ -281,10 +281,10 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
         self.sensor_entity_id = sensor_entity_id
         self.humidity_entity_id = humidity_sensor_entity_id
         self.cooler_entity_id = cooler_entity_id
-        self.window_id = window_id or None
+        self.window_ids = window_id if isinstance(window_id, list) else [window_id] if window_id else []
         self.window_delay = window_delay or 0
         self.window_delay_after = window_delay_after or 0
-        self.door_id = door_id or None
+        self.door_ids = door_id if isinstance(door_id, list) else [door_id] if door_id else []
         self.door_delay = door_delay or 0
         self.door_delay_after = door_delay_after or 0
         self.weather_entity = weather_entity or None
@@ -342,16 +342,13 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
         self.devices_states = {}
         self.devices_errors = []
         self.control_queue_task = asyncio.Queue(maxsize=1)
-        if self.window_id is not None:
+        if self.window_ids:
             self.window_queue_task = asyncio.Queue(maxsize=1)
-        asyncio.create_task(control_queue(self))
-        if self.window_id is not None:
             asyncio.create_task(window_queue(self))
-        if self.door_id is not None:
+        if self.door_ids:
             self.door_queue_task = asyncio.Queue(maxsize=1)
-        asyncio.create_task(control_queue(self))
-        if self.door_id is not None:
             asyncio.create_task(door_queue(self))
+        asyncio.create_task(control_queue(self))
         self.heating_power = 0.01
         self.last_heating_power_stats = []
         self.is_removed = False
@@ -705,41 +702,25 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
                     "startup()",
                 )
 
-            if self.window_id is not None:
-                self.all_entities.append(self.window_id)
-                window = self.hass.states.get(self.window_id)
-
-                check = window.state
-                if check in ("on", "open", "true"):
-                    self.window_open = True
-                else:
-                    self.window_open = False
-                _LOGGER.debug(
-                    "better_thermostat %s: detected window state at startup: %s",
-                    self.device_name,
-                    "Open" if self.window_open else "Closed",
-                )
-            else:
-                self.window_open = False
-
-            if self.door_id is not None:
-                self.all_entities.append(self.door_id)
-                door_state = self.hass.states.get(self.door_id)
+            self.window_open = any(
+                self.hass.states.get(sensor).state in ("on", "open", "true") for sensor in self.window_ids
+            )
+            self.door_open = any(
+                self.hass.states.get(sensor).state in ("on", "open", "true") for sensor in self.door_ids
+            )
+            self.all_entities.extend(self.window_ids)
+            self.all_entities.extend(self.door_ids)
             
-                if door_state is None or door_state.state in (STATE_UNAVAILABLE, STATE_UNKNOWN, None):
-                    self.door_open = False
-                elif door_state.state in ("on", "open", "true"):
-                    self.door_open = True
-                else:
-                    self.door_open = False
-                _LOGGER.debug(
-                    "better_thermostat %s: detected door state at startup: %s",
-                    self.device_name,
-                    "Open" if self.door_open else "Closed",
-                )
-            else:
-                self.door_open = False
-
+            _LOGGER.debug(
+                "better_thermostat %s: detected window state at startup: %s",
+                self.device_name,
+                "Open" if self.window_open else "Closed",
+            )
+            _LOGGER.debug(
+                "better_thermostat %s: detected door state at startup: %s",
+                self.device_name,
+                "Open" if self.door_open else "Closed",
+            )
             # Check If we have an old state
             old_state = await self.async_get_last_state()
             if old_state is not None:
