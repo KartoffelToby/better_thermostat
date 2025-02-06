@@ -11,7 +11,7 @@ _LOGGER = logging.getLogger(__name__)
 
 @callback
 async def trigger_door_change(self, event) -> None:
-    """Triggered by door sensor event from HA to check if any door is open.
+    """Triggered by door sensor event from HA to check if the door is open.
 
     Parameters
     ----------
@@ -26,57 +26,48 @@ async def trigger_door_change(self, event) -> None:
     """
     new_state = event.data.get("new_state")
 
-    # Validate required data
-    if None in (self.hass, self.door_id, new_state):
-        _LOGGER.warning("Missing required data: hass, door_id, or new_state is None")
+    if None in (self.hass.states.get(self.door_id), self.door_id, new_state):
         return
 
+    new_state = new_state.state
+
     old_door_open = self.door_open
-    new_door_open = False
 
-    # Log the current door_id list
-    _LOGGER.debug(f"Current door_id list: {self.door_id}")
-
-    # Check all sensors in the list
-    for sensor in self.door_id:
-        _LOGGER.debug(f"Checking sensor: {sensor}")
-        sensor_state = self.hass.states.get(sensor)
-        if sensor_state is None:
+    if new_state in ("on", "unknown", "unavailable"):
+        new_door_open = True
+        if new_state == "unknown":
             _LOGGER.warning(
-                "better_thermostat %s: Door sensor %s state is None, assuming door is open",
+                "better_thermostat %s: Door sensor state is unknown, assuming door is open",
                 self.device_name,
-                sensor,
-            )
-            new_door_open = True
-            break
-        elif sensor_state.state in ("unknown", "unavailable"):
-            _LOGGER.warning(
-                "better_thermostat %s: Door sensor %s state is %s, assuming door is open",
-                self.device_name,
-                sensor,
-                sensor_state.state
-            )
-            new_door_open = True
-            break
-        elif sensor_state.state == "on":
-            new_door_open = True
-            break
-        else:
-            _LOGGER.debug(
-                "better_thermostat %s: Door sensor %s state is %s",
-                self.device_name,
-                sensor,
-                sensor_state.state
             )
 
-    # Skip events that do not change the door state
+        # door was opened, disable heating power calculation for this period
+        self.heating_start_temp = None
+        self.async_write_ha_state()
+    elif new_state == "off":
+        new_door_open = False
+    else:
+        _LOGGER.error(
+            f"better_thermostat {self.device_name}: New door sensor state '{new_state}' not recognized"
+        )
+        ir.async_create_issue(
+            hass=self.hass,
+            domain=DOMAIN,
+            issue_id=f"missing_entity_{self.device_name}",
+            issue_title=f"better_thermostat {self.device_name} has invalid door sensor state",
+            issue_severity="error",
+            issue_description=f"better_thermostat {self.device_name} has invalid door sensor state: {new_state}",
+            issue_category="config",
+            issue_suggested_action="Please check the door sensor",
+        )
+        return
+
+    # make sure to skip events which do not change the saved door state:
     if new_door_open == old_door_open:
         _LOGGER.debug(
             f"better_thermostat {self.device_name}: Door state did not change, skipping event"
         )
         return
-
-    # Process state change
     await self.door_queue_task.put(new_door_open)
 
 
@@ -97,15 +88,11 @@ async def door_queue(self):
                             f"better_thermostat {self.device_name}: Door closed, waiting {self.door_delay_after} seconds before continuing"
                         )
                         await asyncio.sleep(self.door_delay_after)
-
-                    # Determine the current state of all sensors
-                    current_door_state = any(
-                        self.hass.states.get(sensor) is not None and self.hass.states.get(sensor).state == "on"
-                        for sensor in self.door_id
-                    )
-                    _LOGGER.debug(f"Current door state: {current_door_state}")
-
-                    # Apply the new state if it matches the event
+                    # remap off on to true false
+                    current_door_state = True
+                    if self.hass.states.get(self.door_id).state == STATE_OFF:
+                        current_door_state = False
+                    # make sure the current state is the suggested change state to prevent a false positive:
                     if current_door_state == door_event_to_process:
                         self.door_open = door_event_to_process
                         self.async_write_ha_state()
@@ -113,12 +100,7 @@ async def door_queue(self):
                             empty_queue(self.control_queue_task)
                         await self.control_queue_task.put(self)
             except asyncio.CancelledError:
-                _LOGGER.debug(
-                    f"better_thermostat {self.device_name}: Door queue task cancelled"
-                )
                 raise
-            except Exception as e:
-                _LOGGER.error(f"better_thermostat {self.device_name}: Error processing door event: {e}")
             finally:
                 self.door_queue_task.task_done()
     except asyncio.CancelledError:
@@ -126,8 +108,6 @@ async def door_queue(self):
             f"better_thermostat {self.device_name}: Door queue task cancelled"
         )
         raise
-    except Exception as e:
-        _LOGGER.error(f"better_thermostat {self.device_name}: Error in door_queue: {e}")
 
 
 def empty_queue(q: asyncio.Queue):
