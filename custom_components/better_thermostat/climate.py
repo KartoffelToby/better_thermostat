@@ -723,14 +723,19 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
                 self.window_open = False
 
             if self.door_id is not None:
-                self.all_entities.append(self.door_id)
-                door = self.hass.states.get(self.door_id)
-
-                check = door.state
-                if check in ("on", "open", "true"):
-                    self.door_open = True
-                else:
-                    self.door_open = False
+                if not isinstance(self.door_id, list):
+                    self.door_id = [self.door_id]
+                for door in self.door_id:
+                    self.all_entities.append(door)
+                    door_state = self.hass.states.get(door)
+            
+                    if door_state is None or door_state.state in (STATE_UNAVAILABLE, STATE_UNKNOWN, None):
+                        self.door_open = False
+                    elif door_state.state in ("on", "open", "true"):
+                        self.door_open = True
+                        break
+                    else:
+                        self.door_open = False
                 _LOGGER.debug(
                     "better_thermostat %s: detected door state at startup: %s",
                     self.device_name,
