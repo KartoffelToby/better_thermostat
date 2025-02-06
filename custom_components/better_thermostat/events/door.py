@@ -11,22 +11,8 @@ _LOGGER = logging.getLogger(__name__)
 
 @callback
 async def trigger_door_change(self, event) -> None:
-    """Triggered by door sensor event from HA to check if the door is open.
-
-    Parameters
-    ----------
-    self :
-            Instance of BetterThermostat.
-    event :
-            Event object from the event bus containing the new and old state of the door sensor.
-
-    Returns
-    -------
-    None
-    """
     new_state = event.data.get("new_state")
-
-    if None in (self.hass.states.get(self.door_id), self.door_id, new_state):
+    if not all(self.hass.states.get(sensor) for sensor in self.door_ids):
         return
 
     new_state = new_state.state
@@ -62,17 +48,18 @@ async def trigger_door_change(self, event) -> None:
         )
         return
 
-    # make sure to skip events which do not change the saved door state:
-    if new_door_open == old_door_open:
+    current_door_open = any(
+        self.hass.states.get(sensor).state in ("on", "open", "true") for sensor in self.door_ids
+    )
+
+    if new_door_open == old_door_open and new_door_open == current_door_open:
         _LOGGER.debug(
             f"better_thermostat {self.device_name}: Door state did not change, skipping event"
         )
         return
     await self.door_queue_task.put(new_door_open)
 
-
 async def door_queue(self):
-    """Process door sensor changes using a queue to handle state transitions."""
     try:
         while True:
             door_event_to_process = await self.door_queue_task.get()
@@ -88,11 +75,9 @@ async def door_queue(self):
                             f"better_thermostat {self.device_name}: Door closed, waiting {self.door_delay_after} seconds before continuing"
                         )
                         await asyncio.sleep(self.door_delay_after)
-                    # remap off on to true false
-                    current_door_state = True
-                    if self.hass.states.get(self.door_id).state == STATE_OFF:
-                        current_door_state = False
-                    # make sure the current state is the suggested change state to prevent a false positive:
+                    current_door_state = any(
+                        self.hass.states.get(sensor).state in ("on", "open", "true") for sensor in self.door_ids
+                    )
                     if current_door_state == door_event_to_process:
                         self.door_open = door_event_to_process
                         self.async_write_ha_state()
