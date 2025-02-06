@@ -184,6 +184,7 @@ async def trigger_trv_change(self, event):
             and self.real_trvs[entity_id]["system_mode_received"] is True
             and self.real_trvs[entity_id]["hvac_mode"] is not HVACMode.OFF
             and self.window_open is False
+            and self.door_open is False
         ):
             _LOGGER.debug(
                 f"better_thermostat {self.device_name}: TRV {entity_id} decoded TRV target temp changed from {self.bt_target_temp} to {_new_heating_setpoint}"
@@ -257,12 +258,14 @@ async def update_hvac_action(self):
     elif (
         self.bt_target_temp > self.cur_temp + self.tolerance
         and self.window_open is False
+        and self.door_open is False
     ):
         hvac_action = HVACAction.HEATING
     elif (
         self.bt_target_temp > self.cur_temp
         and self.attr_hvac_action == HVACAction.HEATING
         and self.window_open is False
+        and self.door_open is False
     ):
         hvac_action = HVACAction.HEATING
     else:

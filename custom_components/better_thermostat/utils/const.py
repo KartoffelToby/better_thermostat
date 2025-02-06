@@ -1,5 +1,3 @@
-""""""
-
 import os
 import json
 from enum import IntEnum, StrEnum
@@ -15,7 +13,6 @@ from homeassistant.const import ATTR_TEMPERATURE
 
 _LOGGER = logging.getLogger(__name__)
 
-
 DEFAULT_NAME = "Better Thermostat"
 VERSION = "master"
 try:
@@ -27,17 +24,20 @@ try:
 except (FileNotFoundError, KeyError, json.JSONDecodeError) as e:
     _LOGGER.error("better_thermostat %s: could not read version from manifest file.", e)
 
-
+# Bestehende Konfigurationen
 CONF_HEATER = "thermostat"
 CONF_COOLER = "cooler"
 CONF_SENSOR = "temperature_sensor"
 CONF_HUMIDITY = "humidity_sensor"
 CONF_SENSOR_WINDOW = "window_sensors"
+CONF_SENSOR_DOOR = "door_sensors"
 CONF_TARGET_TEMP = "target_temp"
 CONF_WEATHER = "weather"
 CONF_OFF_TEMPERATURE = "off_temperature"
 CONF_WINDOW_TIMEOUT = "window_off_delay"
 CONF_WINDOW_TIMEOUT_AFTER = "window_off_delay_after"
+CONF_DOOR_TIMEOUT = "door_off_delay"
+CONF_DOOR_TIMEOUT_AFTER = "door_off_delay_after"
 CONF_OUTDOOR_SENSOR = "outdoor_sensor"
 CONF_VALVE_MAINTENANCE = "valve_maintenance"
 CONF_MIN_TEMP = "min_temp"
@@ -54,13 +54,22 @@ CONF_INTEGRATION = "integration"
 CONF_NO_SYSTEM_MODE_OFF = "no_off_system_mode"
 CONF_TOLERANCE = "tolerance"
 CONF_TARGET_TEMP_STEP = "target_temp_step"
+
+# Neue Konfigurationen für Türsensoren
+CONF_SENSOR_DOOR = "door_sensors"
+CONF_DOOR_TIMEOUT = "door_off_delay"
+CONF_DOOR_TIMEOUT_AFTER = "door_off_delay_after"
+
+# Unterstützte Funktionen
 SUPPORT_FLAGS = (
     ClimateEntityFeature.TARGET_TEMPERATURE
     | ClimateEntityFeature.TURN_OFF
     | ClimateEntityFeature.TURN_ON
 )
 
+# Attribute
 ATTR_STATE_WINDOW_OPEN = "window_open"
+ATTR_STATE_DOOR_OPEN = "door_open"
 ATTR_STATE_CALL_FOR_HEAT = "call_for_heat"
 ATTR_STATE_LAST_CHANGE = "last_change"
 ATTR_STATE_SAVED_TEMPERATURE = "saved_temperature"
@@ -72,6 +81,7 @@ ATTR_STATE_HEATING_STATS = "heating_stats"
 ATTR_STATE_ERRORS = "errors"
 ATTR_STATE_BATTERIES = "batteries"
 
+# Services
 SERVICE_RESTORE_SAVED_TARGET_TEMPERATURE = "restore_saved_target_temperature"
 SERVICE_SET_TEMP_TARGET_TEMPERATURE = "set_temp_target_temperature"
 SERVICE_RESET_HEATING_POWER = "reset_heating_power"
