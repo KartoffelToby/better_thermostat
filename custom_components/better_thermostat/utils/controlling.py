@@ -339,16 +339,7 @@ def handle_sensors(self, _remapped_states):
     # Check door sensors
     if any(sensor in ("on", "open", "true") for sensor in self.data[CONF_SENSOR_DOOR]) and not self.last_door_state:
         self.last_main_hvac_mode = _hvac_mode_send
-        _hvac_mode_send = HVACMode.OFF
-        self.last_door_state = True
-    elif not any(sensor in ("on", "open", "true") for sensor in self.data[CONF_SENSOR_DOOR]) and self.last_door_state:
-        _hvac_mode_send = self.last_main_hvac_mode
-        self.last_door_state = False
-
-    if any(sensor in ("on", "open", "true") for sensor in self.data[CONF_SENSOR_WINDOW]) or any(sensor in ("on", "open", "true") for sensor in self.data[CONF_SENSOR_DOOR]):
-        _hvac_mode_send = HVACMode.OFF
-
-    return _hvac_mode_send
+        _hvac_mode_send
 
 
 async def check_system_mode(self, heater_entity_id=None):
