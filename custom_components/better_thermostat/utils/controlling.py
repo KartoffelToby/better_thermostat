@@ -327,19 +327,41 @@ def handle_sensors(self, _remapped_states):
     _converted_hvac_mode = _remapped_states.get("system_mode", None)
     _hvac_mode_send = _converted_hvac_mode
 
-    # Check window sensors
+    # Check window sensor
     if any(self.hass.states.get(sensor).state in ("on", "open", "true") for sensor in self.window_ids) and not self.last_window_state:
         self.last_main_hvac_mode = _hvac_mode_send
         _hvac_mode_send = HVACMode.OFF
         self.last_window_state = True
-    elif not any(sensor in ("on", "open", "true") for sensor in self.data[CONF_SENSOR_WINDOW]) and self.last_window_state:
+        _LOGGER.debug(
+            f"better_thermostat {self.device_name}: control_trv: window is open or status of window is unknown, setting window open"
+        )
+    elif not any(self.hass.states.get(sensor).state in ("on", "open", "true") for sensor in self.window_ids) and self.last_window_state:
         _hvac_mode_send = self.last_main_hvac_mode
         self.last_window_state = False
+        _LOGGER.debug(
+            f"better_thermostat {self.device_name}: control_trv: window is closed, setting window closed restoring mode: {_hvac_mode_send}"
+        )
 
-    # Check door sensors
+    # Check door sensor
     if any(self.hass.states.get(sensor).state in ("on", "open", "true") for sensor in self.door_ids) and not self.last_door_state:
         self.last_main_hvac_mode = _hvac_mode_send
-        _hvac_mode_send
+        _hvac_mode_send = HVACMode.OFF
+        self.last_door_state = True
+        _LOGGER.debug(
+            f"better_thermostat {self.device_name}: control_trv: door is open or status of door is unknown, setting door open"
+        )
+    elif not any(self.hass.states.get(sensor).state in ("on", "open", "true") for sensor in self.door_ids) and self.last_door_state:
+        _hvac_mode_send = self.last_main_hvac_mode
+        self.last_door_state = False
+        _LOGGER.debug(
+            f"better_thermostat {self.device_name}: control_trv: door is closed, setting door closed restoring mode: {_hvac_mode_send}"
+        )
+
+    # Force off if either window or door is open
+    if self.window_open is True or self.door_open is True:
+        _hvac_mode_send = HVACMode.OFF
+
+    return _hvac_mode_send
 
 
 async def check_system_mode(self, heater_entity_id=None):
