@@ -989,18 +989,20 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
                     self.hass, self.entity_ids, self._trigger_trv_change
                 )
                 self.async_on_remove(self._async_unsub_state_changed)
-            if self.window_id is not None:
-                self.async_on_remove(
-                    async_track_state_change_event(
-                        self.hass, [self.window_id], self._trigger_window_change
+            if self.window_ids:
+                for window_id in self.window_ids:
+                    self.async_on_remove(
+                        async_track_state_change_event(
+                            self.hass, [window_id], self._trigger_window_change
+                        )
                     )
-                )
-            if self.door_id is not None:
-                self.async_on_remove(
-                    async_track_state_change_event(
-                        self.hass, [self.door_id], self._trigger_door_change
+            if self.door_ids:
+                for door_id in self.door_ids:
+                    self.async_on_remove(
+                        async_track_state_change_event(
+                            self.hass, [door_id], self._trigger_door_change
+                        )
                     )
-                )
             if self.cooler_entity_id is not None:
                 self.async_on_remove(
                     async_track_state_change_event(
