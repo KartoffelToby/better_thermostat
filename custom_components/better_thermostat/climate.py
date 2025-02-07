@@ -430,7 +430,7 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
             Parameters
             ----------
             _ :
-                    All parameters are piped.
+                All parameters are piped.
             """
             self.context = Context()
             loop = asyncio.get_event_loop()
@@ -532,4 +532,12 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
         self.hass.async_create_task(trigger_cooler_change(self, event))
 
     async def startup(self):
-        """Run
+        """Run when entity about to be added.
+
+        Returns
+        -------
+        None
+        """
+        while self.startup_running:
+            _LOGGER.info(
+                "better_thermostat %s: Starting version
