@@ -328,7 +328,7 @@ def handle_sensors(self, _remapped_states):
     _hvac_mode_send = _converted_hvac_mode
 
     # Check window sensors
-    if any(sensor in ("on", "open", "true") for sensor in self.data[CONF_SENSOR_WINDOW]) and not self.last_window_state:
+    if any(self.hass.states.get(sensor).state in ("on", "open", "true") for sensor in self.window_ids) and not self.last_window_state:
         self.last_main_hvac_mode = _hvac_mode_send
         _hvac_mode_send = HVACMode.OFF
         self.last_window_state = True
@@ -337,7 +337,7 @@ def handle_sensors(self, _remapped_states):
         self.last_window_state = False
 
     # Check door sensors
-    if any(sensor in ("on", "open", "true") for sensor in self.data[CONF_SENSOR_DOOR]) and not self.last_door_state:
+    if any(self.hass.states.get(sensor).state in ("on", "open", "true") for sensor in self.door_ids) and not self.last_door_state:
         self.last_main_hvac_mode = _hvac_mode_send
         _hvac_mode_send
 
