@@ -84,7 +84,6 @@ from .utils.const import (
     CONF_WINDOW_TIMEOUT_AFTER,
     CONF_DOOR_TIMEOUT,
     CONF_DOOR_TIMEOUT_AFTER,
-    CONF_MAIN_SWITCH,
     SERVICE_RESET_HEATING_POWER,
     SERVICE_RESTORE_SAVED_TARGET_TEMPERATURE,
     SERVICE_SET_TEMP_TARGET_TEMPERATURE,
@@ -130,8 +129,6 @@ def async_set_temperature_service_validate(service_call: ServiceCall) -> Service
     return service_call
 
 
-MAIN_SWITCH = "switch.better_thermostat_main_switch"
-
 async def async_setup_platform(hass, config, async_add_entities, discovery_info=None):
     """Set up the Better Thermostat platform."""
     platform = entity_platform.async_get_current_platform()
@@ -167,8 +164,6 @@ async def async_setup_entry(hass, entry, async_add_devices):
         SERVICE_RESET_HEATING_POWER, {}, "reset_heating_power"
     )
 
-    main_switch = entry.data.get(CONF_MAIN_SWITCH, None)
-
     async_add_devices(
         [
             BetterThermostat(
@@ -193,10 +188,10 @@ async def async_setup_entry(hass, entry, async_add_devices):
                 entry.entry_id,
                 device_class="better_thermostat",
                 state_class="better_thermostat_state",
-                main_switch="main_switch",  # Fügen Sie diese Zeile hinzu
             )
         ]
     )
+
 
 class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
     """Representation of a Better Thermostat device."""
@@ -204,6 +199,49 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
     _attr_has_entity_name = True
     _attr_name = None
     _enable_turn_on_off_backwards_compatibility = False
+
+    async def set_temp_temperature(self, temperature):
+        """Set temporary target temperature."""
+        if self._saved_temperature is None:
+            self._saved_temperature = self.bt_target_temp
+            self.bt_target_temp = convert_to_float(
+                temperature, self.device_name, "service.set_temp_temperature()"
+            )
+            self.async_write_ha_state()
+            await self.control_queue_task.put(self)
+        else:
+            self.bt_target_temp = convert_to_float(
+                temperature, self.device_name, "service.set_temp_temperature()"
+            )
+            self.async_write_ha_state()
+            await self.control_queue_task.put(self)
+
+    async def restore_temp_temperature(self):
+        """Restore the previously saved target temperature."""
+        if self._saved_temperature is not None:
+            self.bt_target_temp = convert_to_float(
+                self._saved_temperature,
+                self.device_name,
+                "service.restore_temp_temperature()",
+            )
+            self._saved_temperature = None
+            self.async_write_ha_state()
+            await self.control_queue_task.put(self)
+
+    async def reset_heating_power(self):
+        """Reset heating power to default value."""
+        self.heating_power = 0.01
+        self.async_write_ha_state()
+
+    @property
+    def device_info(self):
+        return {
+            "identifiers": {(DOMAIN, self.unique_id)},
+            "name": self.device_name,
+            "manufacturer": "Better Thermostat",
+            "model": self.model,
+            "sw_version": VERSION,
+        }
 
     def __init__(
         self,
@@ -228,9 +266,9 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
         unique_id,
         device_class,
         state_class,
-        main_switch,  # Fügen Sie diese Zeile hinzu
     ):
         """Initialize the thermostat.
+
         Parameters
         ----------
         TODO
@@ -314,7 +352,6 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
         self.heating_power = 0.01
         self.last_heating_power_stats = []
         self.is_removed = False
-        self.main_switch = main_switch  # Fügen Sie diese Zeile hinzu
 
     async def async_added_to_hass(self):
         """Run when entity about to be added.
@@ -1077,10 +1114,7 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
         bool
                 True if the thermostat is available.
         """
-        return self.hass.states.is_state(self.main_switch, "on")
         return self._available
-
-    
 
     @property
     def should_poll(self):
