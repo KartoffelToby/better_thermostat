@@ -129,6 +129,8 @@ def async_set_temperature_service_validate(service_call: ServiceCall) -> Service
     return service_call
 
 
+MAIN_SWITCH = "switch.better_thermostat_main_switch"
+
 async def async_setup_platform(hass, config, async_add_entities, discovery_info=None):
     """Set up the Better Thermostat platform."""
     platform = entity_platform.async_get_current_platform()
