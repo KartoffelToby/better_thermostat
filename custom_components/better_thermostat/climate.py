@@ -167,7 +167,7 @@ async def async_setup_entry(hass, entry, async_add_devices):
         SERVICE_RESET_HEATING_POWER, {}, "reset_heating_power"
     )
 
-    main_switch = entry.data.get(CONF_MAIN_SWITCH, MAIN_SWITCH)
+    main_switch = entry.data.get(CONF_MAIN_SWITCH, None)
 
     async_add_devices(
         [
@@ -193,7 +193,7 @@ async def async_setup_entry(hass, entry, async_add_devices):
                 entry.entry_id,
                 device_class="better_thermostat",
                 state_class="better_thermostat_state",
-                main_switch=main_switch,  # Fügen Sie diese Zeile hinzu
+                main_switch="main_switch",  # Fügen Sie diese Zeile hinzu
             )
         ]
     )
@@ -1077,7 +1077,10 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
         bool
                 True if the thermostat is available.
         """
+        return self.hass.states.is_state(self.main_switch, "on")
         return self._available
+
+    
 
     @property
     def should_poll(self):
