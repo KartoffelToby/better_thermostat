@@ -352,9 +352,11 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             data_schema=vol.Schema(
                 {
                     vol.Optional(CONF_NAME, default=user_input.get(CONF_NAME, "")): str,
-                    vol.Optional(CONF_MAIN_SWITCH): str,
                     vol.Required(CONF_HEATER): selector.EntitySelector(
                         selector.EntitySelectorConfig(domain="climate", multiple=True)
+                    ),
+                    vol.Optional(CONF_MAIN_SWITCH): selector.EntitySelector(
+                        selector.EntitySelectorConfig(domain="switch", multiple=False)
                     ),
                     vol.Optional(CONF_COOLER): selector.EntitySelector(
                         selector.EntitySelectorConfig(domain="climate", multiple=False)
@@ -380,6 +382,9 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                             multiple=False,
                         )
                     ),
+                     vol.Optional(CONF_WEATHER): selector.EntitySelector(
+                        selector.EntitySelectorConfig(domain="weather", multiple=False)
+                    ),
                     vol.Optional(CONF_SENSOR_WINDOW): selector.EntitySelector(
                         selector.EntitySelectorConfig(
                             domain=[
@@ -402,9 +407,7 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                             multiple=True,
                         )
                     ),
-                    vol.Optional(CONF_WEATHER): selector.EntitySelector(
-                        selector.EntitySelectorConfig(domain="weather", multiple=False)
-                    ),
+
                     vol.Optional(CONF_WINDOW_TIMEOUT): selector.DurationSelector(),
                     vol.Optional(CONF_WINDOW_TIMEOUT_AFTER): selector.DurationSelector(),
                     vol.Optional(CONF_DOOR_TIMEOUT): selector.DurationSelector(),
