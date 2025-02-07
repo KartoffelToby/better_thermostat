@@ -343,11 +343,22 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
         self.devices_errors = []
         self.control_queue_task = asyncio.Queue(maxsize=1)
         if self.window_ids:
-            self.window_queue_task = asyncio.Queue(maxsize=1)
-            asyncio.create_task(window_queue(self))
+            if any(self.hass.states.get(sensor).state in (STATE_UNAVAILABLE, STATE_UNKNOWN, None) for sensor in self.window_ids):
+                _LOGGER.info(
+                    "better_thermostat %s: waiting for window sensor entities to become fully available...",
+                    self.device_name,
+                )
+                await asyncio.sleep(10)
+                continue
+        
         if self.door_ids:
-            self.door_queue_task = asyncio.Queue(maxsize=1)
-            asyncio.create_task(door_queue(self))
+            if any(self.hass.states.get(sensor).state in (STATE_UNAVAILABLE, STATE_UNKNOWN, None) for sensor in self.door_ids):
+                _LOGGER.info(
+                    "better_thermostat %s: waiting for door sensor entities to become fully available...",
+                    self.device_name,
+                )
+                await asyncio.sleep(10)
+                continue
         asyncio.create_task(control_queue(self))
         asyncio.create_task(control_queue(self))
         self.heating_power = 0.01
