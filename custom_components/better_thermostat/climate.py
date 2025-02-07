@@ -249,10 +249,10 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
         heater_entity_id,
         sensor_entity_id,
         humidity_sensor_entity_id,
-        window_id,
+        window_ids,
         window_delay,
         window_delay_after,
-        door_id,
+        door_ids,
         door_delay,
         door_delay_after,
         weather_entity,
@@ -281,10 +281,10 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
         self.sensor_entity_id = sensor_entity_id
         self.humidity_entity_id = humidity_sensor_entity_id
         self.cooler_entity_id = cooler_entity_id
-        self.window_ids = window_id if isinstance(window_id, list) else [window_id] if window_id else []
+        self.window_ids = window_ids if isinstance(window_ids, list) else [window_ids] if window_ids else []
         self.window_delay = window_delay or 0
         self.window_delay_after = window_delay_after or 0
-        self.door_ids = door_id if isinstance(door_id, list) else [door_id] if door_id else []
+        self.door_ids = door_ids if isinstance(door_ids, list) else [door_ids] if door_ids else []
         self.door_delay = door_delay or 0
         self.door_delay_after = door_delay_after or 0
         self.weather_entity = weather_entity or None
@@ -538,6 +538,4 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
         -------
         None
         """
-        while self.startup_running:
-            _LOGGER.info(
-                "better_thermostat %s: Starting version
+        while self
