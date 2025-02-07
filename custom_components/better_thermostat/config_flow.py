@@ -674,12 +674,6 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
                     "suggested_value": self.config_entry.data.get(CONF_MAIN_SWITCH, "")
                 },
             )
-        ] = selector.EntitySelector(
-            selector.EntitySelectorConfig(
-                device_class="switch",
-                multiple=False,
-            )
-        )
         fields[
             vol.Optional(
                 CONF_HUMIDITY,
