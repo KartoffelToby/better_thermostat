@@ -586,13 +586,8 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
         if user_input is not None:
             current_config = self.config_entry.data
             self.updated_config = dict(current_config)
-            self.updated_config[CONF_SENSOR] = user_input.get(CONF_SENSOR, None)
-            self.updated_config[CONF_SENSOR_WINDOW] = user_input.get(
-                CONF_SENSOR_WINDOW, None
-            )
-            self.updated_config[CONF_SENSOR_DOOR] = user_input.get(
-                CONF_SENSOR_DOOR, None
-            )
+            self.updated_config[CONF_SENSOR_WINDOW] = user_input.get(CONF_SENSOR_WINDOW, [])
+            self.updated_config[CONF_SENSOR_DOOR] = user_input.get(CONF_SENSOR_DOOR, [])
             self.updated_config[CONF_HUMIDITY] = user_input.get(CONF_HUMIDITY, None)
             self.updated_config[CONF_OUTDOOR_SENSOR] = user_input.get(
                 CONF_OUTDOOR_SENSOR, None
@@ -710,7 +705,7 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
         ] = selector.EntitySelector(
             selector.EntitySelectorConfig(
                 domain=["group", "sensor", "input_boolean", "binary_sensor"],
-                multiple=False,
+                multiple=True,
             )
         )
 
@@ -726,7 +721,7 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
         ] = selector.EntitySelector(
             selector.EntitySelectorConfig(
                 domain=["group", "sensor", "input_boolean", "binary_sensor"],
-                multiple=False,
+                multiple=True,
             )
         )
 
