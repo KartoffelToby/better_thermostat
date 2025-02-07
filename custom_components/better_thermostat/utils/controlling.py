@@ -75,9 +75,7 @@ async def control_queue(self):
                             self.device_name,
                             trv,
                         )
-                        main_switch_state = self.hass.states.get(MAIN_SWITCH)
-                        if main_switch_state and main_switch_state.state == 'off':
-                            result = False
+                        result = False
 
                 # Retry task if some TRVs failed. Discard the task if the queue is full
                 # to avoid blocking and therefore deadlocking this function.
