@@ -39,6 +39,7 @@ from .utils.const import (
     CONF_CALIBRATION_MODE,
     CONF_TOLERANCE,
     CONF_TARGET_TEMP_STEP,
+    CONF_MAIN_SWITCH,
     CalibrationMode,
     CalibrationType,
 )
@@ -351,6 +352,7 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             data_schema=vol.Schema(
                 {
                     vol.Optional(CONF_NAME, default=user_input.get(CONF_NAME, "")): str,
+                    vol.Required(CONF_MAIN_SWITCH): str,  # Diese Zeile hinzufügen
                     vol.Required(CONF_HEATER): selector.EntitySelector(
                         selector.EntitySelectorConfig(domain="climate", multiple=True)
                     ),
@@ -404,33 +406,17 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                         selector.EntitySelectorConfig(domain="weather", multiple=False)
                     ),
                     vol.Optional(CONF_WINDOW_TIMEOUT): selector.DurationSelector(),
-                    vol.Optional(
-                        CONF_WINDOW_TIMEOUT_AFTER
-                    ): selector.DurationSelector(),
-
+                    vol.Optional(CONF_WINDOW_TIMEOUT_AFTER): selector.DurationSelector(),
                     vol.Optional(CONF_DOOR_TIMEOUT): selector.DurationSelector(),
-                    vol.Optional(
-                        CONF_DOOR_TIMEOUT_AFTER
-                    ): selector.DurationSelector(),
-                    
-                    vol.Optional(
-                        CONF_OFF_TEMPERATURE,
-                        default=user_input.get(CONF_OFF_TEMPERATURE, 20),
-                    ): int,
-
-                    vol.Optional(
-                        CONF_TOLERANCE, default=user_input.get(CONF_TOLERANCE, 0.0)
-                    ): vol.All(vol.Coerce(float), vol.Range(min=0)),
-                    vol.Optional(
-                        CONF_TARGET_TEMP_STEP,
-                        default=str(user_input.get(CONF_TARGET_TEMP_STEP, "0.0")),
-                    ): TEMP_STEP_SELECTOR,
+                    vol.Optional(CONF_DOOR_TIMEOUT_AFTER): selector.DurationSelector(),
+                    vol.Optional(CONF_OFF_TEMPERATURE, default=user_input.get(CONF_OFF_TEMPERATURE, 20)): int,
+                    vol.Optional(CONF_TOLERANCE, default=user_input.get(CONF_TOLERANCE, 0.0)): vol.All(vol.Coerce(float), vol.Range(min=0)),
+                    vol.Optional(CONF_TARGET_TEMP_STEP, default=str(user_input.get(CONF_TARGET_TEMP_STEP, "0.0"))): TEMP_STEP_SELECTOR,
                 }
             ),
             errors=errors,
             last_step=False,
         )
-
 
 class OptionsFlowHandler(config_entries.OptionsFlow):
     """Handle a option flow for a config entry."""
