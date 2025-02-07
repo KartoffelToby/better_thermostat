@@ -349,6 +349,7 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
             self.door_queue_task = asyncio.Queue(maxsize=1)
             asyncio.create_task(door_queue(self))
         asyncio.create_task(control_queue(self))
+        asyncio.create_task(control_queue(self))
         self.heating_power = 0.01
         self.last_heating_power_stats = []
         self.is_removed = False
@@ -579,30 +580,20 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
             except ContinueLoop:
                 continue
 
-            if self.window_id is not None:
-                if self.hass.states.get(self.window_id).state in (
-                    STATE_UNAVAILABLE,
-                    STATE_UNKNOWN,
-                    None,
-                ):
+            if self.window_ids:
+                if any(self.hass.states.get(sensor).state in (STATE_UNAVAILABLE, STATE_UNKNOWN, None) for sensor in self.window_ids):
                     _LOGGER.info(
-                        "better_thermostat %s: waiting for window sensor entity with id '%s' to become fully available...",
+                        "better_thermostat %s: waiting for window sensor entities to become fully available...",
                         self.device_name,
-                        self.window_id,
                     )
                     await asyncio.sleep(10)
                     continue
-
-            if self.door_id is not None:
-                if self.hass.states.get(self.door_id).state in (
-                    STATE_UNAVAILABLE,
-                    STATE_UNKNOWN,
-                    None,
-                ):
+            
+            if self.door_ids:
+                if any(self.hass.states.get(sensor).state in (STATE_UNAVAILABLE, STATE_UNKNOWN, None) for sensor in self.door_ids):
                     _LOGGER.info(
-                        "better_thermostat %s: waiting for door sensor entity with id '%s' to become fully available...",
+                        "better_thermostat %s: waiting for door sensor entities to become fully available...",
                         self.device_name,
-                        self.door_id,
                     )
                     await asyncio.sleep(10)
                     continue
