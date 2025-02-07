@@ -164,33 +164,34 @@ async def async_setup_entry(hass, entry, async_add_devices):
         SERVICE_RESET_HEATING_POWER, {}, "reset_heating_power"
     )
 
-    async_add_devices(
-        [
-            BetterThermostat(
-                entry.data.get(CONF_NAME),
-                entry.data.get(CONF_HEATER),
-                entry.data.get(CONF_SENSOR),
-                entry.data.get(CONF_HUMIDITY, None),
-                entry.data.get(CONF_SENSOR_WINDOW, None),
-                entry.data.get(CONF_WINDOW_TIMEOUT, None),
-                entry.data.get(CONF_WINDOW_TIMEOUT_AFTER, None),
-                entry.data.get(CONF_SENSOR_DOOR, None),
-                entry.data.get(CONF_DOOR_TIMEOUT, None),
-                entry.data.get(CONF_DOOR_TIMEOUT_AFTER, None),
-                entry.data.get(CONF_WEATHER, None),
-                entry.data.get(CONF_OUTDOOR_SENSOR, None),
-                entry.data.get(CONF_OFF_TEMPERATURE, None),
-                entry.data.get(CONF_TOLERANCE, 0.0),
-                entry.data.get(CONF_TARGET_TEMP_STEP, "0.0"),
-                entry.data.get(CONF_MODEL, None),
-                entry.data.get(CONF_COOLER, None),
-                hass.config.units.temperature_unit,
-                entry.entry_id,
-                device_class="better_thermostat",
-                state_class="better_thermostat_state",
-            )
-        ]
-    )
+async_add_devices(
+    [
+        BetterThermostat(
+            entry.data.get(CONF_NAME),
+            entry.data.get(CONF_HEATER),
+            entry.data.get(CONF_SENSOR),
+            entry.data.get(CONF_HUMIDITY, None),
+            entry.data.get(CONF_SENSOR_WINDOW, None),
+            entry.data.get(CONF_WINDOW_TIMEOUT, 0),
+            entry.data.get(CONF_WINDOW_TIMEOUT_AFTER, 0),
+            entry.data.get(CONF_SENSOR_DOOR, None),
+            entry.data.get(CONF_DOOR_TIMEOUT, 0),
+            entry.data.get(CONF_DOOR_TIMEOUT_AFTER, 0),
+            entry.data.get(CONF_WEATHER, None),
+            entry.data.get(CONF_OUTDOOR_SENSOR, None),
+            entry.data.get(CONF_OFF_TEMPERATURE, 20),
+            entry.data.get(CONF_TOLERANCE, 0.0),
+            entry.data.get(CONF_TARGET_TEMP_STEP, "0.0"),
+            entry.data.get(CONF_MODEL, None),
+            entry.data.get(CONF_COOLER, None),
+            hass.config.units.temperature_unit,
+            entry.entry_id,
+            device_class="better_thermostat",
+            state_class="better_thermostat_state",
+            main_switch=entry.data.get(CONF_MAIN_SWITCH, None)  # Hinzufügen des main_switch Parameters
+        )
+    ]
+)
 
 
 class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
@@ -266,6 +267,7 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
         unique_id,
         device_class,
         state_class,
+        main_switch,  # Hinzufügen des main_switch Parameters
     ):
         """Initialize the thermostat.
 
@@ -313,6 +315,7 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
         self._support_flags = SUPPORT_FLAGS | ClimateEntityFeature.PRESET_MODE
         self.bt_hvac_mode = None
         self.closed_window_triggered = False
+        self.main_switch = main_switch  # Hinzufügen der Zuweisung des main_switch Parameters
         self.closed_door_triggered = False
         self.call_for_heat = True
         self.ignore_states = False
