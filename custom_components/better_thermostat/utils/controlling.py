@@ -64,20 +64,20 @@ async def control_queue(self):
             if controls_to_process is not None:
                 self.ignore_states = True
                 result = True
-                 for trv in self.real_trvs.keys():
-                   try:
-                         _temp = await control_trv(self, trv)
-                         if _temp is False:
-                             result = False
-                     except Exception:
-                         _LOGGER.exception(
-                             "better_thermostat %s: ERROR controlling: %s",
-                             self.device_name,
-                             trv,
-                         )
-                         main_switch_state = self.hass.states.get(MAIN_SWITCH)
-                         if main_switch_state and main_switch_state.state == 'off':
-                             result = False
+                for trv in self.real_trvs.keys():
+                    try:
+                        _temp = await control_trv(self, trv)
+                        if _temp is False:
+                            result = False
+                    except Exception:
+                        _LOGGER.exception(
+                            "better_thermostat %s: ERROR controlling: %s",
+                            self.device_name,
+                            trv,
+                        )
+                        main_switch_state = self.hass.states.get(MAIN_SWITCH)
+                        if main_switch_state and main_switch_state.state == 'off':
+                            result = False
 
                 # Retry task if some TRVs failed. Discard the task if the queue is full
                 # to avoid blocking and therefore deadlocking this function.
