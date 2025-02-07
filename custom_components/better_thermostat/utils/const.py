@@ -54,6 +54,7 @@ CONF_INTEGRATION = "integration"
 CONF_NO_SYSTEM_MODE_OFF = "no_off_system_mode"
 CONF_TOLERANCE = "tolerance"
 CONF_TARGET_TEMP_STEP = "target_temp_step"
+CONF_MAIN_SWITCH = "main_switch"
 
 # Neue Konfigurationen für Türsensoren
 CONF_SENSOR_DOOR = "door_sensors"
