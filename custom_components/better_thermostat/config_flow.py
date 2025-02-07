@@ -352,7 +352,7 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             data_schema=vol.Schema(
                 {
                     vol.Optional(CONF_NAME, default=user_input.get(CONF_NAME, "")): str,
-                    vol.Required(CONF_MAIN_SWITCH): str,  # Diese Zeile hinzufügen
+                    vol.Optional(CONF_MAIN_SWITCH): str,
                     vol.Required(CONF_HEATER): selector.EntitySelector(
                         selector.EntitySelectorConfig(domain="climate", multiple=True)
                     ),
