@@ -1,6 +1,6 @@
 // See https://aka.ms/vscode-remote/devcontainer.json for format details.
 {
-  "image": "mcr.microsoft.com/devcontainers/python:0-3.11",
+  "image": "mcr.microsoft.com/devcontainers/python:3.13",
   "name": "BETTER THERMOSTAT development",
   "initializeCommand": "/bin/mkdir -p ${localWorkspaceFolder}/.haconfig && /bin/cp ${localWorkspaceFolder}/.devcontainer/configuration.yaml ${localWorkspaceFolder}/.haconfig",
   "containerUser": "1000",
