@@ -40,11 +40,12 @@ class TaskManager:
 
 
 async def control_queue(self):
-    """The accutal control loop.
-            Parameters
+    """The actual control loop.
+
+    Parameters
     ----------
     self :
-            instance of better_thermostat
+        instance of better_thermostat
 
     Returns
     -------
@@ -57,7 +58,8 @@ async def control_queue(self):
         if self.ignore_states or self.startup_running:
             await asyncio.sleep(1)
             continue
-        else:
+
+        try:
             controls_to_process = await self.control_queue_task.get()
             if controls_to_process is not None:
                 self.ignore_states = True
@@ -84,9 +86,15 @@ async def control_queue(self):
                         _LOGGER.debug(
                             "better_thermostat %s: control queue is full, discarding task"
                         )
-
                 self.control_queue_task.task_done()
                 self.ignore_states = False
+        except asyncio.CancelledError:
+            _LOGGER.debug(
+                f"better_thermostat {self.device_name}: Control queue task cancelled"
+            )
+            raise
+        except Exception as e:
+            _LOGGER.error(f"better_thermostat {self.device_name}: Error in control_queue: {e}")
 
 
 async def control_trv(self, heater_entity_id=None):
@@ -95,7 +103,7 @@ async def control_trv(self, heater_entity_id=None):
     Parameters
     ----------
     self :
-            instance of better_thermostat
+        instance of better_thermostat
 
     Returns
     -------
@@ -133,7 +141,16 @@ async def control_trv(self, heater_entity_id=None):
             "calibration_mode", CalibrationMode.DEFAULT
         )
 
-        _new_hvac_mode = handle_window_open(self, _remapped_states)
+        # Überprüfen Sie hier sowohl den Fenster- als auch den Türsensor
+        _new_hvac_mode = handle_sensors(self, _remapped_states)
+        
+        # Debugging-Logs hinzufügen
+        _LOGGER.debug(
+            f"better_thermostat {self.device_name}: Türsensorzustand: {self.door_open}"
+        )
+        _LOGGER.debug(
+            f"better_thermostat {self.device_name}: Fenstersensorzustand: {self.window_open}"
+        )
 
         # New cooler section
         if self.cooler_entity_id is not None:
@@ -199,7 +216,7 @@ async def control_trv(self, heater_entity_id=None):
                     context=self.context,
                 )
 
-        # if we don't need ot heat, we force HVACMode to be off
+        # if we don't need to heat, we force HVACMode to be off
         if self.call_for_heat is False:
             _new_hvac_mode = HVACMode.OFF
 
@@ -305,13 +322,13 @@ async def control_trv(self, heater_entity_id=None):
         return True
 
 
-def handle_window_open(self, _remapped_states):
-    """handle window open"""
+def handle_sensors(self, _remapped_states):
+    """Handle window and door sensors"""
     _converted_hvac_mode = _remapped_states.get("system_mode", None)
     _hvac_mode_send = _converted_hvac_mode
 
+    # Check window sensor
     if self.window_open is True and self.last_window_state is False:
-        # if the window is open or the sensor is not available, we're done
         self.last_main_hvac_mode = _hvac_mode_send
         _hvac_mode_send = HVACMode.OFF
         self.last_window_state = True
@@ -325,8 +342,23 @@ def handle_window_open(self, _remapped_states):
             f"better_thermostat {self.device_name}: control_trv: window is closed, setting window closed restoring mode: {_hvac_mode_send}"
         )
 
-    # Force off on window open
-    if self.window_open is True:
+    # Check door sensor
+    if self.door_open is True and self.last_door_state is False:
+        self.last_main_hvac_mode = _hvac_mode_send
+        _hvac_mode_send = HVACMode.OFF
+        self.last_door_state = True
+        _LOGGER.debug(
+            f"better_thermostat {self.device_name}: control_trv: door is open or status of door is unknown, setting door open"
+        )
+    elif self.door_open is False and self.last_door_state is True:
+        _hvac_mode_send = self.last_main_hvac_mode
+        self.last_door_state = False
+        _LOGGER.debug(
+            f"better_thermostat {self.device_name}: control_trv: door is closed, setting door closed restoring mode: {_hvac_mode_send}"
+        )
+
+    # Force off if either window or door is open
+    if self.window_open is True or self.door_open is True:
         _hvac_mode_send = HVACMode.OFF
 
     return _hvac_mode_send
