@@ -11,7 +11,7 @@ from custom_components.better_thermostat.utils.const import (
 
 from custom_components.better_thermostat.utils.helpers import (
     convert_to_float,
-    round_by_steps,
+    round_by_step,
     heating_power_valve_position,
 )
 
@@ -57,7 +57,7 @@ def calculate_calibration_local(self, entity_id) -> float | None:
         return self.real_trvs[entity_id]["last_calibration"]
 
     _cur_trv_temp_s = self.real_trvs[entity_id]["current_temperature"]
-    _calibration_steps = self.real_trvs[entity_id]["local_calibration_steps"]
+    _calibration_step = self.real_trvs[entity_id]["local_calibration_step"]
     _cur_external_temp = self.cur_temp
     _cur_target_temp = self.bt_target_temp
 
@@ -71,12 +71,12 @@ def calculate_calibration_local(self, entity_id) -> float | None:
         _current_trv_calibration,
         _cur_external_temp,
         _cur_trv_temp_f,
-        _calibration_steps,
+        _calibration_step,
     ):
         _LOGGER.warning(
             f"better thermostat {self.device_name}: {entity_id} Could not calculate local calibration in {_context}:"
             f" trv_calibration: {_current_trv_calibration}, trv_temp: {_cur_trv_temp_f}, external_temp: {_cur_external_temp}"
-            f" calibration_steps: {_calibration_steps}"
+            f" calibration_step: {_calibration_step}"
         )
         return None
 
@@ -129,8 +129,8 @@ def calculate_calibration_local(self, entity_id) -> float | None:
                 _cur_external_temp - (_cur_target_temp + self.tolerance)
             ) * 8.0  # Reduced from 10.0 since we already add 2.0
 
-    # Adjust based on the steps allowed by the local calibration entity
-    _new_trv_calibration = round_by_steps(_new_trv_calibration, _calibration_steps)
+    # Adjust based on the step size allowed by the local calibration entity
+    _new_trv_calibration = round_by_step(_new_trv_calibration, _calibration_step)
 
     # limit new setpoint within min/max of the TRV's range
     t_min = float(self.real_trvs[entity_id]["local_calibration_min"])
@@ -177,9 +177,11 @@ def calculate_calibration_setpoint(self, entity_id) -> float | None:
         return None
 
     # Add tolerance check
-    _within_tolerance = self.cur_temp >= (
-        self.bt_target_temp - self.tolerance
-    ) and self.cur_temp <= (self.bt_target_temp + self.tolerance)
+    _within_tolerance = (
+        self.tolerance > 0.0
+        and self.cur_temp >= (self.bt_target_temp - self.tolerance)
+        and self.cur_temp <= (self.bt_target_temp + self.tolerance)
+    )
 
     if _within_tolerance:
         # When within tolerance, don't adjust calibration
@@ -189,7 +191,7 @@ def calculate_calibration_setpoint(self, entity_id) -> float | None:
 
     _cur_external_temp = self.cur_temp
     _cur_target_temp = self.bt_target_temp
-    _trv_temp_steps = 1 / (self.real_trvs[entity_id]["target_temp_step"] or 0.5)
+    _trv_temp_step = self.real_trvs[entity_id]["target_temp_step"] or 0.5
 
     if None in (_cur_target_temp, _cur_external_temp, _cur_trv_temp_s):
         return None
@@ -241,7 +243,7 @@ def calculate_calibration_setpoint(self, entity_id) -> float | None:
                 _cur_external_temp - (_cur_target_temp + self.tolerance)
             ) * 8.0  # Reduced from 10.0 since we already subtract 2.0
 
-    _calibrated_setpoint = round_by_steps(_calibrated_setpoint, _trv_temp_steps)
+    _calibrated_setpoint = round_by_step(_calibrated_setpoint, _trv_temp_step)
 
     # limit new setpoint within min/max of the TRV's range
     t_min = self.real_trvs[entity_id]["min_temp"]

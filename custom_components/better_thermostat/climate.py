@@ -46,7 +46,7 @@ from .adapters.delegate import (
     get_current_offset,
     get_max_offset,
     get_min_offset,
-    get_offset_steps,
+    get_offset_step,
     init,
     load_adapter,
 )
@@ -834,8 +834,8 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
                     self.real_trvs[trv]["local_calibration_max"] = await get_max_offset(
                         self, trv
                     )
-                    self.real_trvs[trv]["local_calibration_steps"] = (
-                        await get_offset_steps(self, trv)
+                    self.real_trvs[trv]["local_calibration_step"] = (
+                        await get_offset_step(self, trv)
                     )
                 else:
                     self.real_trvs[trv]["last_calibration"] = 0
@@ -967,6 +967,11 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
             break
 
     async def calculate_heating_power(self):
+        if not hasattr(self, 'min_target_temp'):
+            self.min_target_temp = self.bt_target_temp or 18.0
+        if not hasattr(self, 'max_target_temp'):
+            self.max_target_temp = self.bt_target_temp or 21.0
+
         if (
             self.heating_start_temp is not None
             and self.heating_end_temp is not None
@@ -979,28 +984,51 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
                 1,
             )
             if _time_diff_minutes > 1:
+                temp_range = max(self.max_target_temp - self.min_target_temp, 0.1)
+                weight_factor = max(
+                    0.5,
+                    min(
+                        1.5,
+                        0.5 + (self.bt_target_temp - self.min_target_temp) / temp_range,
+                    ),
+                )
+
                 _degrees_time = round(_temp_diff / _time_diff_minutes, 4)
                 self.heating_power = round(
-                    (self.heating_power * 0.9 + _degrees_time * 0.1), 4
+                    (self.heating_power * (1 - 0.1 * weight_factor) +
+                     _degrees_time * 0.1 * weight_factor), 4
                 )
+
                 if len(self.last_heating_power_stats) >= 10:
                     self.last_heating_power_stats = self.last_heating_power_stats[
-                        len(self.last_heating_power_stats) - 9 :
+                        len(self.last_heating_power_stats) - 9:
                     ]
                 self.last_heating_power_stats.append(
                     {
                         "temp_diff": round(_temp_diff, 1),
                         "time": _time_diff_minutes,
                         "degrees_time": round(_degrees_time, 4),
+                        "weight_factor": weight_factor,
                         "heating_power": round(self.heating_power, 4),
                     }
                 )
+
                 _LOGGER.debug(
-                    f"better_thermostat {self.device_name}: calculate_heating_power / temp_diff: {round(_temp_diff, 1)} - time: {_time_diff_minutes} - degrees_time: {round(_degrees_time, 4)} - heating_power: {round(self.heating_power, 4)} - heating_power_stats: {self.last_heating_power_stats}"
+                    f"better_thermostat {self.device_name}: calculate_heating_power / "
+                    f"temp_diff: {round(_temp_diff, 1)} - time: {_time_diff_minutes} - "
+                    f"degrees_time: {
+                        round(_degrees_time, 4)} - weight_factor: {weight_factor} - "
+                    f"heating_power: {round(self.heating_power, 4)} - "
+                    f"heating_power_stats: {self.last_heating_power_stats}"
                 )
+
             # reset for the next heating start
             self.heating_start_temp = None
             self.heating_end_temp = None
+
+        if self.heating_end_temp:
+            self.min_target_temp = min(self.min_target_temp, self.bt_target_temp)
+            self.max_target_temp = max(self.max_target_temp, self.bt_target_temp)
 
         # heating starts
         if (
@@ -1251,7 +1279,8 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
 
         if _new_setpoint is None and _new_setpointlow is None:
             _LOGGER.debug(
-                f"better_thermostat {self.device_name}: received a new setpoint from HA, but temperature attribute was not set, ignoring"
+                f"better_thermostat {
+                    self.device_name}: received a new setpoint from HA, but temperature attribute was not set, ignoring"
             )
             return
 
@@ -1356,6 +1385,9 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
     @property
     def preset_mode(self):
         return self._preset_mode
+
+    def set_preset_mode(self, preset_mode: str) -> None:
+        self._preset_mode = preset_mode
 
     @property
     def preset_modes(self):

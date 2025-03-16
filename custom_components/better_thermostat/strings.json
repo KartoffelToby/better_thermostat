@@ -67,7 +67,7 @@
                                         "window_off_delay": "Delay before the thermostat should turn off when the window is opened",
                                         "window_off_delay_after": "Delay before the thermostat should turn on when the window is closed",
                                         "outdoor_sensor": "Outdoor temperature sensor",
-                                        "weather": "Weather entity to get the outdoor temperature"
+                                        "weather": "Weather entity to get the outdoor temperature",
                                         "valve_maintenance": "If your thermostat has no own maintenance mode, you can use this one",
                                         "calibration": "The sort of calibration https://better-thermostat.org/configuration#second-step",
                                         "heat_auto_swapped": "If the auto means heat for your TRV and you want to swap it",

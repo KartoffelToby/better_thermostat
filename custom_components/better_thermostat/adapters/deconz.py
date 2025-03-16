@@ -34,8 +34,8 @@ async def get_current_offset(self, entity_id):
     return float(str(self.hass.states.get(entity_id).attributes.get("offset", 0)))
 
 
-async def get_offset_steps(self, entity_id):
-    """Get offset steps."""
+async def get_offset_step(self, entity_id):
+    """Get offset step."""
     return float(1.0)
 
 
