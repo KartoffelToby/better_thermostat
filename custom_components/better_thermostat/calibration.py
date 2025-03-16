@@ -135,6 +135,11 @@ def calculate_calibration_local(self, entity_id) -> float | None:
 
     _new_trv_calibration = _convert_to_float(_new_trv_calibration)
 
+    _new_trv_calibration = round(_new_trv_calibration, 1)
+    _cur_external_temp = round(_cur_external_temp, 1)
+    _cur_trv_temp_f = round(_cur_trv_temp_f, 1)
+    _current_trv_calibration = round(_current_trv_calibration, 1)
+
     _logmsg = (
         "better_thermostat %s: %s - new local calibration: %s | external_temp: %s, "
         "trv_temp: %s, calibration: %s"
