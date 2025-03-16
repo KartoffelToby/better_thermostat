@@ -118,6 +118,7 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         self.trv_bundle = []
         self.integration = None
         self.i = 0
+        super().__init__()
 
     @staticmethod
     @callback
@@ -390,13 +391,12 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
 
     def __init__(self, config_entry: config_entries.ConfigEntry) -> None:
         """Initialize options flow."""
-        self.config_entry = config_entry
-        self.options = dict(config_entry.options)
         self.i = 0
         self.trv_bundle = []
         self.device_name = ""
         self._last_step = False
         self.updated_config = {}
+        super().__init__()
 
     async def async_step_init(self, user_input=None):
         """Manage the options."""
