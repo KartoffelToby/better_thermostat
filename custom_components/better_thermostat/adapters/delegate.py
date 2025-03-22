@@ -100,12 +100,17 @@ async def set_hvac_mode(self, entity_id, hvac_mode):
     )
 
 
-@async_retry(retries=5)
 async def set_offset(self, entity_id, offset):
     """Set new target offset."""
-    return await self.real_trvs[entity_id]["adapter"].set_offset(
-        self, entity_id, offset
-    )
+    @async_retry(retries=5)
+    async def inner():
+        return await self.real_trvs[entity_id]["adapter"].set_offset(
+            self, entity_id, offset
+        )
+    try:
+        return await inner()
+    except Exception:
+        return None
 
 
 @async_retry(retries=5)
