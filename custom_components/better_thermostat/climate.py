@@ -15,6 +15,10 @@ from homeassistant.components.climate import (
     ATTR_TARGET_TEMP_LOW,
     ClimateEntity,
     PRESET_NONE,
+    PRESET_AWAY,
+    PRESET_BOOST,
+    PRESET_SLEEP,
+    PRESET_COMFORT,
 )
 from homeassistant.components.climate.const import (
     ATTR_MAX_TEMP,
@@ -64,6 +68,7 @@ from .utils.const import (
     ATTR_STATE_LAST_CHANGE,
     ATTR_STATE_MAIN_MODE,
     ATTR_STATE_SAVED_TEMPERATURE,
+    ATTR_STATE_PRESET_TEMPERATURE,
     ATTR_STATE_WINDOW_OPEN,
     BETTERTHERMOSTAT_SET_TEMPERATURE_SCHEMA,
     CONF_COOLER,
@@ -308,6 +313,13 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
         self._temp_lock = asyncio.Lock()
         self.startup_running = True
         self._saved_temperature = None
+        self._preset_temperature = None  # Temperature saved before applying preset
+        self._preset_temperature_offset = {
+            PRESET_AWAY: -2.0,  # Lower temperature when away
+            PRESET_BOOST: 2.0,  # Higher temperature for boost
+            PRESET_SLEEP: -1.0,  # Lower temperature for sleep
+            PRESET_COMFORT: 0.0,  # Normal temperature for comfort/normal
+        }
         self.last_avg_outdoor_temp = None
         self.last_main_hvac_mode = None
         self.last_window_state = None
@@ -744,6 +756,19 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
                     self.heating_power = float(
                         old_state.attributes.get(ATTR_STATE_HEATING_POWER)
                     )
+                if (
+                    old_state.attributes.get(ATTR_STATE_PRESET_TEMPERATURE, None)
+                    is not None
+                ):
+                    self._preset_temperature = convert_to_float(
+                        str(
+                            old_state.attributes.get(
+                                ATTR_STATE_PRESET_TEMPERATURE, None
+                            )
+                        ),
+                        self.device_name,
+                        "startup()",
+                    )
 
             else:
                 # No previous state, try and restore defaults
@@ -834,9 +859,9 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
                     self.real_trvs[trv]["local_calibration_max"] = await get_max_offset(
                         self, trv
                     )
-                    self.real_trvs[trv]["local_calibration_step"] = (
-                        await get_offset_step(self, trv)
-                    )
+                    self.real_trvs[trv][
+                        "local_calibration_step"
+                    ] = await get_offset_step(self, trv)
                 else:
                     self.real_trvs[trv]["last_calibration"] = 0
 
@@ -1075,6 +1100,7 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
             ATTR_STATE_CALL_FOR_HEAT: self.call_for_heat,
             ATTR_STATE_LAST_CHANGE: self.last_change.isoformat(),
             ATTR_STATE_SAVED_TEMPERATURE: self._saved_temperature,
+            ATTR_STATE_PRESET_TEMPERATURE: self._preset_temperature,
             ATTR_STATE_HUMIDIY: self._current_humidity,
             ATTR_STATE_MAIN_MODE: self.last_main_hvac_mode,
             CONF_TOLERANCE: self.tolerance,
@@ -1387,18 +1413,78 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
     def preset_mode(self):
         return self._preset_mode
 
-    def set_preset_mode(self, preset_mode: str) -> None:
+    async def set_preset_mode(self, preset_mode: str) -> None:
+        """Set new preset mode."""
+        if preset_mode not in self.preset_modes:
+            _LOGGER.warning(
+                "better_thermostat %s: Unsupported preset mode %s",
+                self.device_name,
+                preset_mode,
+            )
+            return
+
+        old_preset = self._preset_mode
         self._preset_mode = preset_mode
+
+        _LOGGER.debug(
+            "better_thermostat %s: Setting preset mode from %s to %s",
+            self.device_name,
+            old_preset,
+            preset_mode,
+        )
+
+        # If switching from PRESET_NONE to another preset, save current temperature
+        if old_preset == PRESET_NONE and preset_mode != PRESET_NONE:
+            if self._preset_temperature is None:
+                self._preset_temperature = self.bt_target_temp
+                _LOGGER.debug(
+                    "better_thermostat %s: Saved temperature %s for preset mode",
+                    self.device_name,
+                    self._preset_temperature,
+                )
+
+        # If switching back to PRESET_NONE, restore saved temperature
+        if preset_mode == PRESET_NONE and self._preset_temperature is not None:
+            self.bt_target_temp = self._preset_temperature
+            self._preset_temperature = None
+            _LOGGER.debug(
+                "better_thermostat %s: Restored temperature %s from preset mode",
+                self.device_name,
+                self.bt_target_temp,
+            )
+
+        # Apply preset temperature offset
+        elif (
+            preset_mode != PRESET_NONE
+            and preset_mode in self._preset_temperature_offset
+        ):
+            if self._preset_temperature is not None:
+                # Calculate new target temperature with offset
+                offset = self._preset_temperature_offset[preset_mode]
+                new_temp = self._preset_temperature + offset
+
+                # Ensure the temperature is within min/max bounds
+                new_temp = min(self.max_temp, max(self.min_temp, new_temp))
+
+                self.bt_target_temp = new_temp
+                _LOGGER.debug(
+                    "better_thermostat %s: Applied preset %s offset %s°C, new target: %s°C",
+                    self.device_name,
+                    preset_mode,
+                    offset,
+                    new_temp,
+                )
+
+        self.async_write_ha_state()
+        if hasattr(self, "control_queue_task") and self.control_queue_task is not None:
+            await self.control_queue_task.put(self)
 
     @property
     def preset_modes(self):
         return [
             PRESET_NONE,
-            # PRESET_AWAY,
-            # PRESET_ECO,
-            # PRESET_COMFORT,
-            # PRESET_BOOST,
-            # PRESET_SLEEP,
-            # PRESET_ACTIVITY,
-            # PRESET_HOME,
+            PRESET_AWAY,
+            PRESET_BOOST,
+            PRESET_SLEEP,
+            PRESET_COMFORT,
         ]
