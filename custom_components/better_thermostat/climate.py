@@ -19,6 +19,9 @@ from homeassistant.components.climate import (
     PRESET_BOOST,
     PRESET_SLEEP,
     PRESET_COMFORT,
+    PRESET_ECO,
+    PRESET_ACTIVITY,
+    PRESET_HOME,
 )
 from homeassistant.components.climate.const import (
     ATTR_MAX_TEMP,
@@ -319,6 +322,9 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
             PRESET_BOOST: 2.0,  # Higher temperature for boost
             PRESET_SLEEP: -1.0,  # Lower temperature for sleep
             PRESET_COMFORT: 0.0,  # Normal temperature for comfort/normal
+            PRESET_ECO: -2.5,  # Energy saving mode with lower temperature
+            PRESET_ACTIVITY: 1.0,  # Slightly higher temperature for activity
+            PRESET_HOME: 0.0,  # Normal temperature when home
         }
         self.last_avg_outdoor_temp = None
         self.last_main_hvac_mode = None
@@ -1497,4 +1503,7 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
             PRESET_BOOST,
             PRESET_SLEEP,
             PRESET_COMFORT,
+            PRESET_ECO,
+            PRESET_ACTIVITY,
+            PRESET_HOME,
         ]
