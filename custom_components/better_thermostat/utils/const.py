@@ -54,6 +54,15 @@ CONF_INTEGRATION = "integration"
 CONF_NO_SYSTEM_MODE_OFF = "no_off_system_mode"
 CONF_TOLERANCE = "tolerance"
 CONF_TARGET_TEMP_STEP = "target_temp_step"
+
+# Preset temperature configurations
+CONF_PRESET_ECO_TEMP = "preset_eco_temp"
+CONF_PRESET_AWAY_TEMP = "preset_away_temp"
+CONF_PRESET_BOOST_TEMP = "preset_boost_temp"
+CONF_PRESET_COMFORT_TEMP = "preset_comfort_temp"
+CONF_PRESET_HOME_TEMP = "preset_home_temp"
+CONF_PRESET_SLEEP_TEMP = "preset_sleep_temp"
+CONF_PRESET_ACTIVITY_TEMP = "preset_activity_temp"
 SUPPORT_FLAGS = (
     ClimateEntityFeature.TARGET_TEMPERATURE
     | ClimateEntityFeature.TURN_OFF
