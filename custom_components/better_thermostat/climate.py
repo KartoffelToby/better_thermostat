@@ -87,6 +87,13 @@ from .utils.const import (
     CONF_WEATHER,
     CONF_WINDOW_TIMEOUT,
     CONF_WINDOW_TIMEOUT_AFTER,
+    CONF_PRESET_AWAY_TEMP,
+    CONF_PRESET_BOOST_TEMP,
+    CONF_PRESET_COMFORT_TEMP,
+    CONF_PRESET_ECO_TEMP,
+    CONF_PRESET_HOME_TEMP,
+    CONF_PRESET_SLEEP_TEMP,
+    CONF_PRESET_ACTIVITY_TEMP,
     SERVICE_RESET_HEATING_POWER,
     SERVICE_RESTORE_SAVED_TARGET_TEMPERATURE,
     SERVICE_SET_TEMP_TARGET_TEMPERATURE,
@@ -188,6 +195,13 @@ async def async_setup_entry(hass, entry, async_add_devices):
                 entry.entry_id,
                 device_class="better_thermostat",
                 state_class="better_thermostat_state",
+                preset_away_temp=entry.data.get(CONF_PRESET_AWAY_TEMP, 16.0),
+                preset_boost_temp=entry.data.get(CONF_PRESET_BOOST_TEMP, 24.0),
+                preset_comfort_temp=entry.data.get(CONF_PRESET_COMFORT_TEMP, 21.0),
+                preset_eco_temp=entry.data.get(CONF_PRESET_ECO_TEMP, 19.0),
+                preset_home_temp=entry.data.get(CONF_PRESET_HOME_TEMP, 20.0),
+                preset_sleep_temp=entry.data.get(CONF_PRESET_SLEEP_TEMP, 18.0),
+                preset_activity_temp=entry.data.get(CONF_PRESET_ACTIVITY_TEMP, 22.0),
             )
         ]
     )
@@ -263,6 +277,13 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
         unique_id,
         device_class,
         state_class,
+        preset_away_temp=16.0,
+        preset_boost_temp=24.0,
+        preset_comfort_temp=21.0,
+        preset_eco_temp=19.0,
+        preset_home_temp=20.0,
+        preset_sleep_temp=18.0,
+        preset_activity_temp=22.0,
     ):
         """Initialize the thermostat.
 
@@ -316,15 +337,17 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
         self._temp_lock = asyncio.Lock()
         self.startup_running = True
         self._saved_temperature = None
-        self._preset_temperature = None  # Temperature saved before applying preset
-        self._preset_temperature_offset = {
-            PRESET_AWAY: -2.0,  # Lower temperature when away
-            PRESET_BOOST: 2.0,  # Higher temperature for boost
-            PRESET_SLEEP: -1.0,  # Lower temperature for sleep
-            PRESET_COMFORT: 0.0,  # Normal temperature for comfort/normal
-            PRESET_ECO: -2.5,  # Energy saving mode with lower temperature
-            PRESET_ACTIVITY: 1.0,  # Slightly higher temperature for activity
-            PRESET_HOME: 0.0,  # Normal temperature when home
+        self._preset_temperature = (
+            None  # Temperature saved before entering any preset mode
+        )
+        self._preset_temperatures = {
+            PRESET_AWAY: float(preset_away_temp),
+            PRESET_BOOST: float(preset_boost_temp),
+            PRESET_COMFORT: float(preset_comfort_temp),
+            PRESET_ECO: float(preset_eco_temp),
+            PRESET_HOME: float(preset_home_temp),
+            PRESET_SLEEP: float(preset_sleep_temp),
+            PRESET_ACTIVITY: float(preset_activity_temp),
         }
         self.last_avg_outdoor_temp = None
         self.last_main_hvac_mode = None
@@ -875,9 +898,9 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
                     self.real_trvs[trv]["local_calibration_max"] = await get_max_offset(
                         self, trv
                     )
-                    self.real_trvs[trv][
-                        "local_calibration_step"
-                    ] = await get_offset_step(self, trv)
+                    self.real_trvs[trv]["local_calibration_step"] = (
+                        await get_offset_step(self, trv)
+                    )
                 else:
                     self.real_trvs[trv]["last_calibration"] = 0
 
@@ -1454,7 +1477,7 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
             if self._preset_temperature is None:
                 self._preset_temperature = self.bt_target_temp
                 _LOGGER.debug(
-                    "better_thermostat %s: Saved temperature %s for preset mode",
+                    "better_thermostat %s: Saved temperature %s before entering preset mode",
                     self.device_name,
                     self._preset_temperature,
                 )
@@ -1469,27 +1492,21 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
                 self.bt_target_temp,
             )
 
-        # Apply preset temperature offset
-        elif (
-            preset_mode != PRESET_NONE
-            and preset_mode in self._preset_temperature_offset
-        ):
-            if self._preset_temperature is not None:
-                # Calculate new target temperature with offset
-                offset = self._preset_temperature_offset[preset_mode]
-                new_temp = self._preset_temperature + offset
+        # Apply configured preset temperature
+        elif preset_mode != PRESET_NONE and preset_mode in self._preset_temperatures:
+            # Use the configured absolute temperature for this preset
+            configured_temp = self._preset_temperatures[preset_mode]
 
-                # Ensure the temperature is within min/max bounds
-                new_temp = min(self.max_temp, max(self.min_temp, new_temp))
+            # Ensure the temperature is within min/max bounds
+            new_temp = min(self.max_temp, max(self.min_temp, configured_temp))
 
-                self.bt_target_temp = new_temp
-                _LOGGER.debug(
-                    "better_thermostat %s: Applied preset %s offset %s°C, new target: %s°C",
-                    self.device_name,
-                    preset_mode,
-                    offset,
-                    new_temp,
-                )
+            self.bt_target_temp = new_temp
+            _LOGGER.debug(
+                "better_thermostat %s: Applied preset %s with configured temperature: %s°C",
+                self.device_name,
+                preset_mode,
+                new_temp,
+            )
 
         self.async_write_ha_state()
         if hasattr(self, "control_queue_task") and self.control_queue_task is not None:

@@ -36,6 +36,13 @@ from .utils.const import (
     CONF_CALIBRATION_MODE,
     CONF_TOLERANCE,
     CONF_TARGET_TEMP_STEP,
+    CONF_PRESET_ECO_TEMP,
+    CONF_PRESET_AWAY_TEMP,
+    CONF_PRESET_BOOST_TEMP,
+    CONF_PRESET_COMFORT_TEMP,
+    CONF_PRESET_HOME_TEMP,
+    CONF_PRESET_SLEEP_TEMP,
+    CONF_PRESET_ACTIVITY_TEMP,
     CalibrationMode,
     CalibrationType,
 )
@@ -584,6 +591,29 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
                 user_input.get(CONF_TARGET_TEMP_STEP, "0.0")
             )
 
+            # Save preset temperatures
+            self.updated_config[CONF_PRESET_AWAY_TEMP] = float(
+                user_input.get(CONF_PRESET_AWAY_TEMP, 16.0)
+            )
+            self.updated_config[CONF_PRESET_BOOST_TEMP] = float(
+                user_input.get(CONF_PRESET_BOOST_TEMP, 24.0)
+            )
+            self.updated_config[CONF_PRESET_COMFORT_TEMP] = float(
+                user_input.get(CONF_PRESET_COMFORT_TEMP, 21.0)
+            )
+            self.updated_config[CONF_PRESET_ECO_TEMP] = float(
+                user_input.get(CONF_PRESET_ECO_TEMP, 19.0)
+            )
+            self.updated_config[CONF_PRESET_HOME_TEMP] = float(
+                user_input.get(CONF_PRESET_HOME_TEMP, 20.0)
+            )
+            self.updated_config[CONF_PRESET_SLEEP_TEMP] = float(
+                user_input.get(CONF_PRESET_SLEEP_TEMP, 18.0)
+            )
+            self.updated_config[CONF_PRESET_ACTIVITY_TEMP] = float(
+                user_input.get(CONF_PRESET_ACTIVITY_TEMP, 22.0)
+            )
+
             for trv in self.updated_config[CONF_HEATER]:
                 trv["adapter"] = None
                 self.trv_bundle.append(trv)
@@ -716,6 +746,56 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
                 default=str(self.config_entry.data.get(CONF_TARGET_TEMP_STEP, 0.0)),
             )
         ] = TEMP_STEP_SELECTOR
+
+        # Preset temperature configuration
+        fields[
+            vol.Optional(
+                CONF_PRESET_AWAY_TEMP,
+                default=self.config_entry.data.get(CONF_PRESET_AWAY_TEMP, 16.0),
+            )
+        ] = vol.All(vol.Coerce(float), vol.Range(min=5, max=35))
+
+        fields[
+            vol.Optional(
+                CONF_PRESET_BOOST_TEMP,
+                default=self.config_entry.data.get(CONF_PRESET_BOOST_TEMP, 24.0),
+            )
+        ] = vol.All(vol.Coerce(float), vol.Range(min=5, max=35))
+
+        fields[
+            vol.Optional(
+                CONF_PRESET_COMFORT_TEMP,
+                default=self.config_entry.data.get(CONF_PRESET_COMFORT_TEMP, 21.0),
+            )
+        ] = vol.All(vol.Coerce(float), vol.Range(min=5, max=35))
+
+        fields[
+            vol.Optional(
+                CONF_PRESET_ECO_TEMP,
+                default=self.config_entry.data.get(CONF_PRESET_ECO_TEMP, 19.0),
+            )
+        ] = vol.All(vol.Coerce(float), vol.Range(min=5, max=35))
+
+        fields[
+            vol.Optional(
+                CONF_PRESET_HOME_TEMP,
+                default=self.config_entry.data.get(CONF_PRESET_HOME_TEMP, 20.0),
+            )
+        ] = vol.All(vol.Coerce(float), vol.Range(min=5, max=35))
+
+        fields[
+            vol.Optional(
+                CONF_PRESET_SLEEP_TEMP,
+                default=self.config_entry.data.get(CONF_PRESET_SLEEP_TEMP, 18.0),
+            )
+        ] = vol.All(vol.Coerce(float), vol.Range(min=5, max=35))
+
+        fields[
+            vol.Optional(
+                CONF_PRESET_ACTIVITY_TEMP,
+                default=self.config_entry.data.get(CONF_PRESET_ACTIVITY_TEMP, 22.0),
+            )
+        ] = vol.All(vol.Coerce(float), vol.Range(min=5, max=35))
 
         return self.async_show_form(
             step_id="user", data_schema=vol.Schema(fields), last_step=False
