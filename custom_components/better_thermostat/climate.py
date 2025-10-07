@@ -1363,7 +1363,7 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
     @property
     def hvac_mode(self) -> Optional[HVACMode]:
         """Return current operation."""
-        # Fallback falls None
+        # Fallback if None
         if self.bt_hvac_mode is None:
             return HVACMode.OFF
         return get_hvac_bt_mode(self, self.bt_hvac_mode)
