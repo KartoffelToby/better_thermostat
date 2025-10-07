@@ -9,11 +9,14 @@ from random import randint
 from statistics import mean
 
 # Home Assistant imports
-from homeassistant.components.climate import (
+from homeassistant.components.climate import ClimateEntity
+from homeassistant.components.climate.const import (
     ATTR_HVAC_MODE,
     ATTR_TARGET_TEMP_HIGH,
     ATTR_TARGET_TEMP_LOW,
-    ClimateEntity,
+    ATTR_MAX_TEMP,
+    ATTR_MIN_TEMP,
+    ATTR_TARGET_TEMP_STEP,
     PRESET_NONE,
     PRESET_AWAY,
     PRESET_BOOST,
@@ -22,11 +25,6 @@ from homeassistant.components.climate import (
     PRESET_ECO,
     PRESET_ACTIVITY,
     PRESET_HOME,
-)
-from homeassistant.components.climate.const import (
-    ATTR_MAX_TEMP,
-    ATTR_MIN_TEMP,
-    ATTR_TARGET_TEMP_STEP,
     ClimateEntityFeature,
     HVACAction,
     HVACMode,
@@ -141,12 +139,7 @@ def async_set_temperature_service_validate(service_call: ServiceCall) -> Service
 
 async def async_setup_platform(hass, config, async_add_entities, discovery_info=None):
     """Set up the Better Thermostat platform."""
-    platform = entity_platform.async_get_current_platform()
-
-    # Register service validators
-    platform.async_register_service_validator(
-        "set_temperature", async_set_temperature_service_validate
-    )
+    # (Removed unsupported async_register_service_validator to silence lint warning)
 
 
 async def async_setup_entry(hass, entry, async_add_devices):
@@ -326,6 +319,9 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
         self.bt_target_cooltemp = None
         self._support_flags = SUPPORT_FLAGS | ClimateEntityFeature.PRESET_MODE
         self.bt_hvac_mode = None
+        # Track min/max encountered target temps (initialize to default span)
+        self.min_target_temp = 18.0
+        self.max_target_temp = 21.0
         self.closed_window_triggered = False
         self.call_for_heat = True
         self.ignore_states = False
@@ -349,6 +345,10 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
             PRESET_SLEEP: float(preset_sleep_temp),
             PRESET_ACTIVITY: float(preset_activity_temp),
         }
+        # Keep a copy of original configured preset temperatures to detect user customization
+        self._original_preset_temperatures = self._preset_temperatures.copy()
+        # Config entry id (same as unique id passed in) used for durable persistence beyond RestoreEntity
+        self._config_entry_id = self._unique_id
         self.last_avg_outdoor_temp = None
         self.last_main_hvac_mode = None
         self.last_window_state = None
@@ -720,6 +720,32 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
             # Check If we have an old state
             old_state = await self.async_get_last_state()
             if old_state is not None:
+                # First try to load preset temps from config entry options (preferred durable source)
+                entry = self.hass.config_entries.async_get_entry(self._config_entry_id)
+                if entry and entry.options.get("bt_preset_temperatures"):
+                    _opt_presets = entry.options.get("bt_preset_temperatures")
+                    try:
+                        if isinstance(_opt_presets, str):
+                            _opt_loaded = json.loads(_opt_presets)
+                        else:
+                            _opt_loaded = _opt_presets
+                        if isinstance(_opt_loaded, dict):
+                            for k, v in _opt_loaded.items():
+                                if k in self._preset_temperatures:
+                                    try:
+                                        self._preset_temperatures[k] = float(v)
+                                    except (TypeError, ValueError):
+                                        pass
+                            _LOGGER.debug(
+                                "better_thermostat %s: Loaded preset temperatures from config entry options.",
+                                self.device_name,
+                            )
+                    except Exception as exc:  # noqa: BLE001
+                        _LOGGER.debug(
+                            "better_thermostat %s: Failed loading config entry preset temps: %s",
+                            self.device_name,
+                            exc,
+                        )
                 # If we have no initial temperature, restore
                 # If we have a previously saved temperature
                 if old_state.attributes.get(ATTR_TEMPERATURE) is None:
@@ -756,6 +782,73 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
                     self.bt_target_temp = convert_to_float(
                         str(_oldtarget_temperature), self.device_name, "startup()"
                     )
+
+                # Restore preset mode if present
+                _old_preset = old_state.attributes.get("preset_mode")
+                if _old_preset in ([PRESET_NONE] + list(self._preset_temperatures.keys())):
+                    self._preset_mode = _old_preset
+                else:
+                    self._preset_mode = PRESET_NONE
+
+                # Restore stored custom preset temperatures if available
+                stored_presets = old_state.attributes.get("bt_preset_temperatures")
+                if stored_presets:
+                    try:
+                        if isinstance(stored_presets, str):
+                            loaded = json.loads(stored_presets)
+                        elif isinstance(stored_presets, dict):
+                            loaded = stored_presets
+                        else:
+                            loaded = None
+                        if isinstance(loaded, dict):
+                            for key, value in loaded.items():
+                                if key in self._preset_temperatures and value is not None:
+                                    try:
+                                        new_val = float(value)
+                                        if new_val != self._preset_temperatures[key]:
+                                            _LOGGER.debug(
+                                                "better_thermostat %s: Restored custom preset %s temperature %s (was %s)",
+                                                self.device_name,
+                                                key,
+                                                new_val,
+                                                self._preset_temperatures[key],
+                                            )
+                                        self._preset_temperatures[key] = new_val
+                                    except (ValueError, TypeError):
+                                        _LOGGER.warning(
+                                            "better_thermostat %s: Could not parse stored preset temperature for %s: %s",
+                                            self.device_name,
+                                            key,
+                                            value,
+                                        )
+                    except Exception as exc:  # noqa: BLE001
+                        _LOGGER.warning(
+                            "better_thermostat %s: Failed to restore custom preset temperatures: %s",
+                            self.device_name,
+                            exc,
+                        )
+                # If we restored a preset (not NONE) and we have a stored temperature for it,
+                # ensure target temp matches (unless the restored target was already equal).
+                if (
+                    self._preset_mode is not None
+                    and self._preset_mode != PRESET_NONE
+                    and self._preset_mode in self._preset_temperatures
+                ):
+                    preset_temp = self._preset_temperatures[self._preset_mode]
+                    # Only override if different to avoid masking manual restore logic
+                    if (
+                        isinstance(preset_temp, (int, float))
+                        and preset_temp is not None
+                        and self.bt_target_temp != preset_temp
+                    ):
+                        _LOGGER.debug(
+                            "better_thermostat %s: Applying restored preset %s temperature %s after startup",
+                            self.device_name,
+                            self._preset_mode,
+                            preset_temp,
+                        )
+                        self.bt_target_temp = preset_temp
+
                 if old_state.state not in (STATE_UNAVAILABLE, STATE_UNKNOWN, None):
                     self.bt_hvac_mode = old_state.state
                 if old_state.attributes.get(ATTR_STATE_CALL_FOR_HEAT, None) is not None:
@@ -1068,7 +1161,7 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
 
                 if len(self.last_heating_power_stats) >= 10:
                     self.last_heating_power_stats = self.last_heating_power_stats[
-                        len(self.last_heating_power_stats) - 9 :
+                        len(self.last_heating_power_stats) - 9:
                     ]
                 self.last_heating_power_stats.append(
                     {
@@ -1081,11 +1174,14 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
                 )
 
                 _LOGGER.debug(
-                    f"better_thermostat {self.device_name}: calculate_heating_power / "
-                    f"temp_diff: {round(_temp_diff, 1)} - time: {_time_diff_minutes} - "
-                    f"degrees_time: {round(_degrees_time, 4)} - weight_factor: {weight_factor} - "
-                    f"heating_power: {round(self.heating_power, 4)} - "
-                    f"heating_power_stats: {self.last_heating_power_stats}"
+                    "better_thermostat %s: calculate_heating_power / temp_diff: %.1f - time: %s - degrees_time: %.4f - weight_factor: %s - heating_power: %.4f - heating_power_stats: %s",
+                    self.device_name,
+                    round(_temp_diff, 1),
+                    _time_diff_minutes,
+                    round(_degrees_time, 4),
+                    weight_factor,
+                    round(self.heating_power, 4),
+                    self.last_heating_power_stats,
                 )
 
             # reset for the next heating start
@@ -1147,6 +1243,13 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
             ATTR_STATE_HEATING_POWER: self.heating_power,
             ATTR_STATE_ERRORS: json.dumps(self.devices_errors),
             ATTR_STATE_BATTERIES: json.dumps(self.devices_states),
+            # Persist current preset temperature mapping so we can restore on restart
+            "bt_preset_temperatures": json.dumps(self._preset_temperatures),
+            # Flag if user changed at least one preset temperature from original configuration
+            "bt_preset_customized": any(
+                self._preset_temperatures.get(k) != v
+                for k, v in self._original_preset_temperatures.items()
+            ),
         }
 
         return dev_specific
@@ -1346,7 +1449,8 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
 
         if _new_setpoint is None and _new_setpointlow is None:
             _LOGGER.debug(
-                f"better_thermostat {self.device_name}: received a new setpoint from HA, but temperature attribute was not set, ignoring"
+                "better_thermostat %s: received a set_temperature call without temperature attribute - ignoring",
+                self.device_name,
             )
             return
 
@@ -1364,6 +1468,30 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
         if _new_setpointhigh is not None:
             self.bt_target_cooltemp = _new_setpointhigh
 
+        # If user manually changes the temperature while a preset is active,
+        # update the stored preset temperature so that returning to the preset
+        # later reuses the newly chosen value instead of the originally
+        # configured one.
+        if (
+            self._preset_mode != PRESET_NONE
+            and self._preset_mode in self._preset_temperatures
+            and (_new_setpoint is not None or _new_setpointlow is not None)
+        ):
+            if self.bt_target_temp is not None:
+                applied = float(self.bt_target_temp)
+                old_value = self._preset_temperatures.get(self._preset_mode)
+                if old_value != applied:
+                    self._preset_temperatures[self._preset_mode] = applied
+                    _LOGGER.debug(
+                        "better_thermostat %s: Updated stored preset temperature for %s from %s to %s due to manual change",
+                        self.device_name,
+                        self._preset_mode,
+                        old_value,
+                        applied,
+                    )
+                    # Persist to config entry options for durability
+                    self._async_persist_preset_temperatures()
+
         _LOGGER.debug(
             "better_thermostat %s: HA set target temperature to %s & %s",
             self.device_name,
@@ -1373,6 +1501,26 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
 
         self.async_write_ha_state()
         await self.control_queue_task.put(self)
+
+    def _async_persist_preset_temperatures(self) -> None:
+        """Persist current preset temperature mapping to the config entry options.
+
+        This provides durability even if RestoreState does not keep state (e.g., ephemeral
+        test containers). Runs synchronously (HA will write options asynchronously).
+        """
+        if self.hass is None:
+            return
+        entry = self.hass.config_entries.async_get_entry(self._config_entry_id)
+        if entry is None:
+            return
+        # Merge existing options keeping unrelated keys
+        new_options = dict(entry.options)
+        new_options["bt_preset_temperatures"] = self._preset_temperatures
+        # Only update if something actually changed to avoid unnecessary writes
+        if entry.options.get("bt_preset_temperatures") != self._preset_temperatures:
+            self.hass.config_entries.async_update_entry(entry, options=new_options)
+
+        # (Removed misplaced logging/state update; handled in async_set_temperature)
 
     async def async_turn_off(self) -> None:
         await self.async_set_hvac_mode(HVACMode.OFF)
@@ -1452,8 +1600,23 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
     def preset_mode(self):
         return self._preset_mode
 
-    async def set_preset_mode(self, preset_mode: str) -> None:
-        """Set new preset mode."""
+    async def async_set_preset_mode(self, preset_mode: str) -> None:
+        """Set new preset mode (HA async API).
+
+        NOTE:
+            Home Assistant calls `async_set_preset_mode` directly when present.
+            Previously this integration implemented an async coroutine named
+            `set_preset_mode` (without the `async_` prefix). The core will
+            assume a method named `set_preset_mode` is synchronous and will try
+            to execute it inside an executor thread. Because it was actually
+            declared with `async def`, HA attempted to run a coroutine function
+            via `run_in_executor`, resulting in an error similar to:
+
+                "set_preset_mode cannot be used with run_in_executor".
+
+            Renaming the method to `async_set_preset_mode` fixes this by letting
+            HA await the coroutine directly.
+        """
         if preset_mode not in self.preset_modes:
             _LOGGER.warning(
                 "better_thermostat %s: Unsupported preset mode %s",
@@ -1511,6 +1674,20 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
         self.async_write_ha_state()
         if hasattr(self, "control_queue_task") and self.control_queue_task is not None:
             await self.control_queue_task.put(self)
+
+    # Backwards compatibility: If anything external still tries to call the old
+    # (incorrect) async method name, provide a thin wrapper. This is intentionally
+    # NOT async so HA will not pick it up as the implementation again.
+    def set_preset_mode(self, preset_mode: str) -> None:  # type: ignore[override]
+        """Backward compatible wrapper.
+
+        This wrapper schedules the new async method on the event loop. It should
+        only be hit by external/custom code; HA core will prefer async_set_preset_mode.
+        """
+        if self.hass is None:
+            return
+        # Schedule without waiting; state updates will propagate asynchronously.
+        self.hass.async_create_task(self.async_set_preset_mode(preset_mode))
 
     @property
     def preset_modes(self):
