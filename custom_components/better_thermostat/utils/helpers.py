@@ -267,7 +267,7 @@ async def find_valve_entity(self, entity_id):
         uid = entity.unique_id
         # Make sure we use the correct device entities
         if entity.device_id == reg_entity.device_id:
-            if "_valve_position" in uid or "_position" in uid or "_valve_opening" in uid or "_opening" in uid:
+            if "_valve_position" in uid or "_position" in uid or "_valve_opening" in uid or "_opening" in uid or "_valve_closing" in uid or "_closing" in uid:
                 _LOGGER.debug(
                     f"better thermostat: Found valve position entity {
                         entity.entity_id} for {entity_id}"
