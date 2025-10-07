@@ -2,9 +2,7 @@ from datetime import datetime
 import logging
 from custom_components.better_thermostat.utils.const import CONF_HOMEMATICIP
 
-from homeassistant.components.climate.const import (
-    HVACMode,
-)
+from homeassistant.components.climate.const import HVACMode
 from homeassistant.core import State, callback
 from custom_components.better_thermostat.utils.helpers import (
     convert_to_float,

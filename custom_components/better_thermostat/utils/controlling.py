@@ -15,9 +15,7 @@ from custom_components.better_thermostat.adapters.delegate import (
     set_hvac_mode,
 )
 
-from custom_components.better_thermostat.events.trv import (
-    convert_outbound_states,
-)
+from custom_components.better_thermostat.events.trv import convert_outbound_states
 
 from custom_components.better_thermostat.utils.helpers import convert_to_float
 
