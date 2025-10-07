@@ -1,12 +1,11 @@
 name: Lint
-
 on: [push, pull_request]
 
 jobs:
   lint:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v2
+      - uses: actions/checkout@v4
+      - uses: psf/black@stable
         with:
           options: "--check --verbose --skip-magic-trailing-comma --target-version py310"
-      - uses: psf/black@stable
