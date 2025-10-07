@@ -85,13 +85,6 @@ from .utils.const import (
     CONF_WEATHER,
     CONF_WINDOW_TIMEOUT,
     CONF_WINDOW_TIMEOUT_AFTER,
-    CONF_PRESET_AWAY_TEMP,
-    CONF_PRESET_BOOST_TEMP,
-    CONF_PRESET_COMFORT_TEMP,
-    CONF_PRESET_ECO_TEMP,
-    CONF_PRESET_HOME_TEMP,
-    CONF_PRESET_SLEEP_TEMP,
-    CONF_PRESET_ACTIVITY_TEMP,
     SERVICE_RESET_HEATING_POWER,
     SERVICE_RESTORE_SAVED_TARGET_TEMPERATURE,
     SERVICE_SET_TEMP_TARGET_TEMPERATURE,
@@ -188,13 +181,6 @@ async def async_setup_entry(hass, entry, async_add_devices):
                 entry.entry_id,
                 device_class="better_thermostat",
                 state_class="better_thermostat_state",
-                preset_away_temp=entry.data.get(CONF_PRESET_AWAY_TEMP, 16.0),
-                preset_boost_temp=entry.data.get(CONF_PRESET_BOOST_TEMP, 24.0),
-                preset_comfort_temp=entry.data.get(CONF_PRESET_COMFORT_TEMP, 21.0),
-                preset_eco_temp=entry.data.get(CONF_PRESET_ECO_TEMP, 19.0),
-                preset_home_temp=entry.data.get(CONF_PRESET_HOME_TEMP, 20.0),
-                preset_sleep_temp=entry.data.get(CONF_PRESET_SLEEP_TEMP, 18.0),
-                preset_activity_temp=entry.data.get(CONF_PRESET_ACTIVITY_TEMP, 22.0),
             )
         ]
     )
@@ -270,13 +256,6 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
         unique_id,
         device_class,
         state_class,
-        preset_away_temp=16.0,
-        preset_boost_temp=24.0,
-        preset_comfort_temp=21.0,
-        preset_eco_temp=19.0,
-        preset_home_temp=20.0,
-        preset_sleep_temp=18.0,
-        preset_activity_temp=22.0,
     ):
         """Initialize the thermostat.
 
@@ -337,16 +316,14 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
             None  # Temperature saved before entering any preset mode
         )
         self._preset_temperatures = {
-            # Baseline (no preset) temperature - will be updated on user changes while in PRESET_NONE
-            # initial guess (can be overwritten during startup restore)
-            PRESET_NONE: float(preset_home_temp),
-            PRESET_AWAY: float(preset_away_temp),
-            PRESET_BOOST: float(preset_boost_temp),
-            PRESET_COMFORT: float(preset_comfort_temp),
-            PRESET_ECO: float(preset_eco_temp),
-            PRESET_HOME: float(preset_home_temp),
-            PRESET_SLEEP: float(preset_sleep_temp),
-            PRESET_ACTIVITY: float(preset_activity_temp),
+            PRESET_NONE: 20.0,
+            PRESET_AWAY: 16.0,
+            PRESET_BOOST: 24.0,
+            PRESET_COMFORT: 21.0,
+            PRESET_ECO: 19.0,
+            PRESET_HOME: 20.0,
+            PRESET_SLEEP: 18.0,
+            PRESET_ACTIVITY: 22.0,
         }
         # Keep a copy of original configured preset temperatures to detect user customization
         self._original_preset_temperatures = self._preset_temperatures.copy()
