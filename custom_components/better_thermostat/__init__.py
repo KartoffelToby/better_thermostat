@@ -36,7 +36,13 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Set up entry."""
     hass.data.setdefault(DOMAIN, {})
     hass.data[DOMAIN][entry.entry_id] = {}
-    await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
+    try:
+        await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
+    except Exception:  # noqa: BLE001
+        _LOGGER.exception(
+            "better_thermostat: Fehler beim Laden der Plattformen für Entry %s", entry.entry_id
+        )
+        return False
     entry.async_on_unload(entry.add_update_listener(config_entry_update_listener))
     return True
 

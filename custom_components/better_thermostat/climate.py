@@ -7,19 +7,18 @@ from abc import ABC
 from datetime import datetime, timedelta
 from random import randint
 from statistics import mean
-from homeassistant.util import dt as dt_util  # preferred for HA time handling (UTC aware)
+# preferred for HA time handling (UTC aware)
+from homeassistant.util import dt as dt_util
 from collections import deque
 from typing import Any, Optional
 
 # Home Assistant imports
-from homeassistant.components.climate import (
+from homeassistant.components.climate import ClimateEntity
+from homeassistant.components.climate.const import (
     ATTR_HVAC_MODE,
     ATTR_TARGET_TEMP_HIGH,
     ATTR_TARGET_TEMP_LOW,
-    ClimateEntity,
     PRESET_NONE,
-)
-from homeassistant.components.climate.const import (
     ATTR_MAX_TEMP,
     ATTR_MIN_TEMP,
     ATTR_TARGET_TEMP_STEP,
@@ -127,18 +126,18 @@ def async_set_temperature_service_validate(service_call: ServiceCall) -> Service
     return service_call
 
 
-async def async_setup_platform(hass, config, async_add_entities, discovery_info=None):
-    """Set up the Better Thermostat platform."""
-    platform = entity_platform.async_get_current_platform()
-
-    # Register service validators
-    platform.async_register_service_validator(
-        "set_temperature", async_set_temperature_service_validate
-    )
+async def async_setup_platform(hass, config, async_add_entities, discovery_info=None):  # noqa: D401
+    """(Deprecated) Set up the Better Thermostat platform (no-op)."""
+    _LOGGER.debug("better_thermostat: async_setup_platform called (deprecated no-op)")
 
 
 async def async_setup_entry(hass, entry, async_add_devices):
-    """Setup sensor platform."""
+    """Set up Better Thermostat climate entity for a config entry."""
+    _LOGGER.debug(
+        "better_thermostat %s: async_setup_entry start (entry_id=%s)",
+        entry.data.get(CONF_NAME),
+        entry.entry_id,
+    )
 
     async def async_service_handler(entity, call):
         """Handle the service calls."""
@@ -150,6 +149,7 @@ async def async_setup_entry(hass, entry, async_add_devices):
             await entity.reset_heating_power()
 
     platform = entity_platform.async_get_current_platform()
+    # Register entity services (validator done manually inside method)
     platform.async_register_entity_service(
         SERVICE_SET_TEMP_TARGET_TEMPERATURE,
         BETTERTHERMOSTAT_SET_TEMPERATURE_SCHEMA,
@@ -162,29 +162,31 @@ async def async_setup_entry(hass, entry, async_add_devices):
         SERVICE_RESET_HEATING_POWER, {}, "reset_heating_power"
     )
 
-    async_add_devices(
-        [
-            BetterThermostat(
-                entry.data.get(CONF_NAME),
-                entry.data.get(CONF_HEATER),
-                entry.data.get(CONF_SENSOR),
-                entry.data.get(CONF_HUMIDITY, None),
-                entry.data.get(CONF_SENSOR_WINDOW, None),
-                entry.data.get(CONF_WINDOW_TIMEOUT, None),
-                entry.data.get(CONF_WINDOW_TIMEOUT_AFTER, None),
-                entry.data.get(CONF_WEATHER, None),
-                entry.data.get(CONF_OUTDOOR_SENSOR, None),
-                entry.data.get(CONF_OFF_TEMPERATURE, None),
-                entry.data.get(CONF_TOLERANCE, 0.0),
-                entry.data.get(CONF_TARGET_TEMP_STEP, "0.0"),
-                entry.data.get(CONF_MODEL, None),
-                entry.data.get(CONF_COOLER, None),
-                hass.config.units.temperature_unit,
-                entry.entry_id,
-                device_class="better_thermostat",
-                state_class="better_thermostat_state",
-            )
-        ]
+    async_add_devices([
+        BetterThermostat(
+            entry.data.get(CONF_NAME),
+            entry.data.get(CONF_HEATER),
+            entry.data.get(CONF_SENSOR),
+            entry.data.get(CONF_HUMIDITY, None),
+            entry.data.get(CONF_SENSOR_WINDOW, None),
+            entry.data.get(CONF_WINDOW_TIMEOUT, None),
+            entry.data.get(CONF_WINDOW_TIMEOUT_AFTER, None),
+            entry.data.get(CONF_WEATHER, None),
+            entry.data.get(CONF_OUTDOOR_SENSOR, None),
+            entry.data.get(CONF_OFF_TEMPERATURE, None),
+            entry.data.get(CONF_TOLERANCE, 0.0),
+            entry.data.get(CONF_TARGET_TEMP_STEP, "0.0"),
+            entry.data.get(CONF_MODEL, None),
+            entry.data.get(CONF_COOLER, None),
+            hass.config.units.temperature_unit,
+            entry.entry_id,
+            device_class="better_thermostat",
+            state_class="better_thermostat_state",
+        )
+    ])
+    _LOGGER.debug(
+        "better_thermostat %s: async_setup_entry finished creating entity", entry.data.get(
+            CONF_NAME)
     )
 
 
@@ -1096,7 +1098,8 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
             else:
                 temp_diff = 0
             duration_min = (
-                (self.heating_end_timestamp - self.heating_start_timestamp).total_seconds() / 60.0
+                (self.heating_end_timestamp -
+                 self.heating_start_timestamp).total_seconds() / 60.0
                 if self.heating_end_timestamp and self.heating_start_timestamp
                 else 0
             )
@@ -1104,7 +1107,8 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
             if duration_min >= 1.0 and temp_diff > 0:
                 # Base weighting via relative position within target range
                 temp_range = max(self.max_target_temp - self.min_target_temp, 0.1)
-                relative_pos = (self.bt_target_temp - self.min_target_temp) / temp_range if self.bt_target_temp is not None else 0.5
+                relative_pos = (self.bt_target_temp - self.min_target_temp) / \
+                    temp_range if self.bt_target_temp is not None else 0.5
                 weight_factor = max(0.5, min(1.5, 0.5 + relative_pos))
 
                 # Consider outdoor temperature if available
@@ -1113,7 +1117,8 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
                     if self.outdoor_sensor is not None:
                         outdoor_state = self.hass.states.get(self.outdoor_sensor)
                         if outdoor_state is not None:
-                            outdoor = convert_to_float(str(outdoor_state.state), self.device_name, "calculate_heating_power.outdoor")
+                            outdoor = convert_to_float(
+                                str(outdoor_state.state), self.device_name, "calculate_heating_power.outdoor")
                 except Exception:  # noqa: BLE001
                     outdoor = None
 
@@ -1135,7 +1140,8 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
                 alpha = max(0.02, min(0.25, alpha))  # Grenzen
 
                 old_power = self.heating_power
-                self.heating_power = round(old_power * (1 - alpha) + heating_rate * alpha, 4)
+                self.heating_power = round(
+                    old_power * (1 - alpha) + heating_rate * alpha, 4)
                 heating_power_changed = self.heating_power != old_power
 
                 # Compact short stats history
@@ -1457,7 +1463,8 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
 
         if _new_setpoint is None and _new_setpointlow is None:
             _LOGGER.debug(
-                f"better_thermostat {self.device_name}: received a new setpoint from HA, but temperature attribute was not set, ignoring"
+                f"better_thermostat {
+                    self.device_name}: received a new setpoint from HA, but temperature attribute was not set, ignoring"
             )
             return
 
