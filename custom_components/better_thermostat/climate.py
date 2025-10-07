@@ -337,6 +337,9 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
             None  # Temperature saved before entering any preset mode
         )
         self._preset_temperatures = {
+            # Baseline (no preset) temperature - will be updated on user changes while in PRESET_NONE
+            # initial guess (can be overwritten during startup restore)
+            PRESET_NONE: float(preset_home_temp),
             PRESET_AWAY: float(preset_away_temp),
             PRESET_BOOST: float(preset_boost_temp),
             PRESET_COMFORT: float(preset_comfort_temp),
@@ -1473,8 +1476,7 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
         # later reuses the newly chosen value instead of the originally
         # configured one.
         if (
-            self._preset_mode != PRESET_NONE
-            and self._preset_mode in self._preset_temperatures
+            self._preset_mode in self._preset_temperatures
             and (_new_setpoint is not None or _new_setpointlow is not None)
         ):
             if self.bt_target_temp is not None:
@@ -1483,7 +1485,7 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
                 if old_value != applied:
                     self._preset_temperatures[self._preset_mode] = applied
                     _LOGGER.debug(
-                        "better_thermostat %s: Updated stored preset temperature for %s from %s to %s due to manual change",
+                        "better_thermostat %s: Updated stored preset temperature for %s from %s to %s due to manual change (including none baseline)",
                         self.device_name,
                         self._preset_mode,
                         old_value,
