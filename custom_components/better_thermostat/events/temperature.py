@@ -10,9 +10,9 @@ from homeassistant.core import callback
 
 _LOGGER = logging.getLogger(__name__)
 
-# Anti-Flicker Konfiguration: Rücksprung auf den vorherigen stabilen Wert
-# wird für dieses Zeitfenster (Sekunden) ignoriert.
-FLICKER_REVERT_WINDOW = 45  # kann später optional konfigurierbar gemacht werden
+# Anti-flicker configuration: reverting to the previous stable value
+# is ignored for this time window (seconds).
+FLICKER_REVERT_WINDOW = 45  # can optionally be made configurable later
 
 
 @callback
