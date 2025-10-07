@@ -132,7 +132,6 @@ def async_set_temperature_service_validate(service_call: ServiceCall) -> Service
 
 async def async_setup_platform(hass, config, async_add_entities, discovery_info=None):
     """Set up the Better Thermostat platform."""
-    # (Removed unsupported async_register_service_validator to silence lint warning)
 
 
 async def async_setup_entry(hass, entry, async_add_devices):
@@ -765,7 +764,9 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
 
                 # Restore preset mode if present
                 _old_preset = old_state.attributes.get("preset_mode")
-                if _old_preset in ([PRESET_NONE] + list(self._preset_temperatures.keys())):
+                if _old_preset in (
+                    [PRESET_NONE] + list(self._preset_temperatures.keys())
+                ):
                     self._preset_mode = _old_preset
                 else:
                     self._preset_mode = PRESET_NONE
@@ -782,7 +783,10 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
                             loaded = None
                         if isinstance(loaded, dict):
                             for key, value in loaded.items():
-                                if key in self._preset_temperatures and value is not None:
+                                if (
+                                    key in self._preset_temperatures
+                                    and value is not None
+                                ):
                                     try:
                                         new_val = float(value)
                                         if new_val != self._preset_temperatures[key]:
@@ -1141,7 +1145,7 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
 
                 if len(self.last_heating_power_stats) >= 10:
                     self.last_heating_power_stats = self.last_heating_power_stats[
-                        len(self.last_heating_power_stats) - 9:
+                        len(self.last_heating_power_stats) - 9 :
                     ]
                 self.last_heating_power_stats.append(
                     {
@@ -1452,9 +1456,8 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
         # update the stored preset temperature so that returning to the preset
         # later reuses the newly chosen value instead of the originally
         # configured one.
-        if (
-            self._preset_mode in self._preset_temperatures
-            and (_new_setpoint is not None or _new_setpointlow is not None)
+        if self._preset_mode in self._preset_temperatures and (
+            _new_setpoint is not None or _new_setpointlow is not None
         ):
             if self.bt_target_temp is not None:
                 applied = float(self.bt_target_temp)

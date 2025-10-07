@@ -132,7 +132,10 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     # type: ignore[override]
     def is_matching(self, other_flow: config_entries.ConfigFlow) -> bool:
         """Return True if this flow matches an existing config flow (reconfigure)."""
-        if getattr(self, "unique_id", None) and getattr(other_flow, "unique_id", None) == self.unique_id:
+        if (
+            getattr(self, "unique_id", None)
+            and getattr(other_flow, "unique_id", None) == self.unique_id
+        ):
             return True
         return False
 
@@ -194,8 +197,9 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
 
         user_input = user_input or {}
         homematic = False
-        integration_name = _trv_config.get(
-            "integration") if isinstance(_trv_config, dict) else None
+        integration_name = (
+            _trv_config.get("integration") if isinstance(_trv_config, dict) else None
+        )
         if integration_name and integration_name.find("homematic") != -1:
             homematic = True
 
@@ -207,7 +211,12 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         if _adapter is not None:
             try:
                 _info = await _adapter.get_info(self, _trv_config.get("trv"))
-            except (AttributeError, RuntimeError, ValueError, TypeError):  # pragma: no cover - defensive
+            except (
+                AttributeError,
+                RuntimeError,
+                ValueError,
+                TypeError,
+            ):  # pragma: no cover - defensive
                 _LOGGER.debug("Adapter get_info failed", exc_info=True)
             if _info.get("support_offset", False):
                 _default_calibration = "local_calibration_based"
@@ -476,13 +485,22 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
         if integration_name and trv_id:
             try:
                 _adapter = await load_adapter(self, integration_name, trv_id)
-            except (RuntimeError, ValueError, TypeError):  # pragma: no cover - defensive
+            except (
+                RuntimeError,
+                ValueError,
+                TypeError,
+            ):  # pragma: no cover - defensive
                 _LOGGER.debug("load_adapter failed", exc_info=True)
         if _adapter is not None and trv_id and hasattr(_adapter, "get_info"):
             try:
                 # type: ignore[attr-defined]
                 _info = await _adapter.get_info(self, trv_id)
-            except (RuntimeError, ValueError, TypeError, AttributeError):  # pragma: no cover
+            except (
+                RuntimeError,
+                ValueError,
+                TypeError,
+                AttributeError,
+            ):  # pragma: no cover
                 _LOGGER.debug("adapter get_info failed", exc_info=True)
             if _info.get("support_offset", False):
                 _default_calibration = "local_calibration_based"
@@ -612,8 +630,6 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
             self.updated_config[CONF_TARGET_TEMP_STEP] = float(
                 user_input.get(CONF_TARGET_TEMP_STEP, "0.0")
             )
-
-            # Removed legacy static preset temperature saves (now handled dynamically at runtime)
 
             for trv in self.updated_config[CONF_HEATER]:
                 trv["adapter"] = None
@@ -747,8 +763,6 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
                 default=str(self.config_entry.data.get(CONF_TARGET_TEMP_STEP, 0.0)),
             )
         ] = TEMP_STEP_SELECTOR
-
-        # Removed legacy preset temperature configuration fields (dynamic runtime persistence now)
 
         return self.async_show_form(
             step_id="user", data_schema=vol.Schema(fields), last_step=False
