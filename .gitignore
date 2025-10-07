@@ -9,8 +9,3 @@ venv
 custom_components/hacs
 x_*
 .haconfig
-
-# Test files (development only)
-test_preset_*.py
-preset_behavior_demo.py
-.pytest_cache/
