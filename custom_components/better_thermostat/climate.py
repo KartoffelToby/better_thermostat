@@ -7,6 +7,7 @@ from abc import ABC
 from datetime import datetime, timedelta
 from random import randint
 from statistics import mean
+
 # preferred for HA time handling (UTC aware)
 from homeassistant.util import dt as dt_util
 from collections import deque
@@ -126,7 +127,9 @@ def async_set_temperature_service_validate(service_call: ServiceCall) -> Service
     return service_call
 
 
-async def async_setup_platform(hass, config, async_add_entities, discovery_info=None):  # noqa: D401
+async def async_setup_platform(
+    hass, config, async_add_entities, discovery_info=None
+):  # noqa: D401
     """(Deprecated) Set up the Better Thermostat platform (no-op)."""
     _LOGGER.debug("better_thermostat: async_setup_platform called (deprecated no-op)")
 
@@ -162,31 +165,33 @@ async def async_setup_entry(hass, entry, async_add_devices):
         SERVICE_RESET_HEATING_POWER, {}, "reset_heating_power"
     )
 
-    async_add_devices([
-        BetterThermostat(
-            entry.data.get(CONF_NAME),
-            entry.data.get(CONF_HEATER),
-            entry.data.get(CONF_SENSOR),
-            entry.data.get(CONF_HUMIDITY, None),
-            entry.data.get(CONF_SENSOR_WINDOW, None),
-            entry.data.get(CONF_WINDOW_TIMEOUT, None),
-            entry.data.get(CONF_WINDOW_TIMEOUT_AFTER, None),
-            entry.data.get(CONF_WEATHER, None),
-            entry.data.get(CONF_OUTDOOR_SENSOR, None),
-            entry.data.get(CONF_OFF_TEMPERATURE, None),
-            entry.data.get(CONF_TOLERANCE, 0.0),
-            entry.data.get(CONF_TARGET_TEMP_STEP, "0.0"),
-            entry.data.get(CONF_MODEL, None),
-            entry.data.get(CONF_COOLER, None),
-            hass.config.units.temperature_unit,
-            entry.entry_id,
-            device_class="better_thermostat",
-            state_class="better_thermostat_state",
-        )
-    ])
+    async_add_devices(
+        [
+            BetterThermostat(
+                entry.data.get(CONF_NAME),
+                entry.data.get(CONF_HEATER),
+                entry.data.get(CONF_SENSOR),
+                entry.data.get(CONF_HUMIDITY, None),
+                entry.data.get(CONF_SENSOR_WINDOW, None),
+                entry.data.get(CONF_WINDOW_TIMEOUT, None),
+                entry.data.get(CONF_WINDOW_TIMEOUT_AFTER, None),
+                entry.data.get(CONF_WEATHER, None),
+                entry.data.get(CONF_OUTDOOR_SENSOR, None),
+                entry.data.get(CONF_OFF_TEMPERATURE, None),
+                entry.data.get(CONF_TOLERANCE, 0.0),
+                entry.data.get(CONF_TARGET_TEMP_STEP, "0.0"),
+                entry.data.get(CONF_MODEL, None),
+                entry.data.get(CONF_COOLER, None),
+                hass.config.units.temperature_unit,
+                entry.entry_id,
+                device_class="better_thermostat",
+                state_class="better_thermostat_state",
+            )
+        ]
+    )
     _LOGGER.debug(
-        "better_thermostat %s: async_setup_entry finished creating entity", entry.data.get(
-            CONF_NAME)
+        "better_thermostat %s: async_setup_entry finished creating entity",
+        entry.data.get(CONF_NAME),
     )
 
 
@@ -1047,7 +1052,10 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
         action_changed = current_action != self.old_attr_hvac_action
 
         # Transition: heating starts
-        if current_action == HVACAction.HEATING and self.old_attr_hvac_action != HVACAction.HEATING:
+        if (
+            current_action == HVACAction.HEATING
+            and self.old_attr_hvac_action != HVACAction.HEATING
+        ):
             self.heating_start_temp = self.cur_temp
             self.heating_start_timestamp = now
             self.heating_end_temp = None
@@ -1083,23 +1091,27 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
             and self.cur_temp < self.heating_end_temp  # peak passed (temp falling)
         ):
             finalize = True
-        elif (
-            self.heating_end_timestamp is not None
-            and (now - self.heating_end_timestamp) > timedelta(minutes=TIMEOUT_MIN)
-        ):
+        elif self.heating_end_timestamp is not None and (
+            now - self.heating_end_timestamp
+        ) > timedelta(minutes=TIMEOUT_MIN):
             finalize = True
 
         heating_power_changed = False
         normalized_power = None
 
         if finalize:
-            if self.heating_end_temp is not None and self.heating_start_temp is not None:
+            if (
+                self.heating_end_temp is not None
+                and self.heating_start_temp is not None
+            ):
                 temp_diff = self.heating_end_temp - self.heating_start_temp
             else:
                 temp_diff = 0
             duration_min = (
-                (self.heating_end_timestamp -
-                 self.heating_start_timestamp).total_seconds() / 60.0
+                (
+                    self.heating_end_timestamp - self.heating_start_timestamp
+                ).total_seconds()
+                / 60.0
                 if self.heating_end_timestamp and self.heating_start_timestamp
                 else 0
             )
@@ -1107,8 +1119,11 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
             if duration_min >= 1.0 and temp_diff > 0:
                 # Base weighting via relative position within target range
                 temp_range = max(self.max_target_temp - self.min_target_temp, 0.1)
-                relative_pos = (self.bt_target_temp - self.min_target_temp) / \
-                    temp_range if self.bt_target_temp is not None else 0.5
+                relative_pos = (
+                    (self.bt_target_temp - self.min_target_temp) / temp_range
+                    if self.bt_target_temp is not None
+                    else 0.5
+                )
                 weight_factor = max(0.5, min(1.5, 0.5 + relative_pos))
 
                 # Consider outdoor temperature if available
@@ -1118,7 +1133,10 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
                         outdoor_state = self.hass.states.get(self.outdoor_sensor)
                         if outdoor_state is not None:
                             outdoor = convert_to_float(
-                                str(outdoor_state.state), self.device_name, "calculate_heating_power.outdoor")
+                                str(outdoor_state.state),
+                                self.device_name,
+                                "calculate_heating_power.outdoor",
+                            )
                 except Exception:  # noqa: BLE001
                     outdoor = None
 
@@ -1141,7 +1159,8 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
 
                 old_power = self.heating_power
                 self.heating_power = round(
-                    old_power * (1 - alpha) + heating_rate * alpha, 4)
+                    old_power * (1 - alpha) + heating_rate * alpha, 4
+                )
                 heating_power_changed = self.heating_power != old_power
 
                 # Compact short stats history
@@ -1161,10 +1180,26 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
                 try:
                     self.heating_cycles.append(
                         {
-                            "start": self.heating_start_timestamp.isoformat() if self.heating_start_timestamp else None,
-                            "end": self.heating_end_timestamp.isoformat() if self.heating_end_timestamp else None,
-                            "temp_start": round(self.heating_start_temp, 2) if self.heating_start_temp is not None else None,
-                            "temp_peak": round(self.heating_end_temp, 2) if self.heating_end_temp is not None else None,
+                            "start": (
+                                self.heating_start_timestamp.isoformat()
+                                if self.heating_start_timestamp
+                                else None
+                            ),
+                            "end": (
+                                self.heating_end_timestamp.isoformat()
+                                if self.heating_end_timestamp
+                                else None
+                            ),
+                            "temp_start": (
+                                round(self.heating_start_temp, 2)
+                                if self.heating_start_temp is not None
+                                else None
+                            ),
+                            "temp_peak": (
+                                round(self.heating_end_temp, 2)
+                                if self.heating_end_temp is not None
+                                else None
+                            ),
                             "delta_t": round(temp_diff, 3),
                             "minutes": round(duration_min, 2),
                             "rate_c_min": heating_rate,
@@ -1203,7 +1238,9 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
         # Track action changes using freshly computed action (pure function)
         if action_changed:
             self.old_attr_hvac_action = current_action
-            self.attr_hvac_action = current_action  # maintain legacy attribute for compatibility
+            self.attr_hvac_action = (
+                current_action  # maintain legacy attribute for compatibility
+            )
 
         # Write state only if something relevant changed
         if heating_power_changed or action_changed or finalize:

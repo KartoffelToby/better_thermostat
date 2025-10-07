@@ -93,10 +93,12 @@ async def trigger_temperature_change(self, event):
         _age = (_now - self.last_external_sensor_change).total_seconds()
     except (TypeError, AttributeError):  # defensiv, sollte nicht auftreten
         _age = 999999
-    _diff = None if self.cur_temp is None else abs(
-        _incoming_temperature - self.cur_temp)
+    _diff = (
+        None if self.cur_temp is None else abs(_incoming_temperature - self.cur_temp)
+    )
     _is_significant = self.cur_temp is None or (
-        _diff is not None and _diff >= _sig_threshold)
+        _diff is not None and _diff >= _sig_threshold
+    )
     _interval_ok = _age > _time_diff
 
     # Anti-Flicker: Wenn der neue Wert exakt dem vorherigen stabilen Wert entspricht
@@ -119,7 +121,9 @@ async def trigger_temperature_change(self, event):
         )
         return
 
-    if _is_significant and (_interval_ok or (_diff is not None and _diff >= (_sig_threshold * 2))):
+    if _is_significant and (
+        _interval_ok or (_diff is not None and _diff >= (_sig_threshold * 2))
+    ):
         # Verarbeite sofort, wenn Intervall abgelaufen ODER Änderung sehr groß
         _LOGGER.debug(
             "better_thermostat %s: external_temperature update accepted (old=%s new=%s diff=%s age=%.1fs threshold=%.2f interval=%ss)",
