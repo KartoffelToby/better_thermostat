@@ -10,6 +10,10 @@ from homeassistant.core import callback
 
 _LOGGER = logging.getLogger(__name__)
 
+# Anti-Flicker Konfiguration: Rücksprung auf den vorherigen stabilen Wert
+# wird für dieses Zeitfenster (Sekunden) ignoriert.
+FLICKER_REVERT_WINDOW = 45  # kann später optional konfigurierbar gemacht werden
+
 
 @callback
 async def trigger_temperature_change(self, event):
@@ -37,12 +41,22 @@ async def trigger_temperature_change(self, event):
         str(new_state.state), self.device_name, "external_temperature"
     )
 
-    # Basis-Debounce (Sekunden) für normale Geräte; HomematicIP wird unten erhöht
-    _time_diff = 60
+    # Attribute für Anti-Flicker initialisieren, falls noch nicht vorhanden
+    if not hasattr(self, "prev_stable_temp"):
+        self.prev_stable_temp = None  # letzter stabiler (vor-dem-Sprung) Wert
+
+    # Sicherstellen, dass Zeitstempel existiert (sonst erster Durchlauf)
+    if getattr(self, "last_external_sensor_change", None) is None:
+        # Setze einen alten Zeitpunkt, damit erste Änderung akzeptiert wird
+        self.last_external_sensor_change = datetime.now()
+
+    # Basis-Debounce (Sekunden) für normale Geräte; durch Anti-Flicker können wir hier auf 5s runter
+    # gesetzt werden. HomematicIP erhält unten weiterhin ein höheres Intervall (600s).
+    _time_diff = 5
     # Signifikanz-Schwelle: halbe Toleranz oder mindestens 0.1°C
     try:
-        _sig_threshold = max(0.1, (self.tolerance or 0.0) / 2.0)
-    except Exception:  # noqa: BLE001
+        _sig_threshold = max(0.1, (getattr(self, "tolerance", 0.0) or 0.0) / 2.0)
+    except (TypeError, ValueError):
         _sig_threshold = 0.1
 
     try:
@@ -75,12 +89,35 @@ async def trigger_temperature_change(self, event):
         return
 
     _now = datetime.now()
-    _age = (_now - self.last_external_sensor_change).total_seconds()
+    try:
+        _age = (_now - self.last_external_sensor_change).total_seconds()
+    except (TypeError, AttributeError):  # defensiv, sollte nicht auftreten
+        _age = 999999
     _diff = None if self.cur_temp is None else abs(
         _incoming_temperature - self.cur_temp)
     _is_significant = self.cur_temp is None or (
         _diff is not None and _diff >= _sig_threshold)
     _interval_ok = _age > _time_diff
+
+    # Anti-Flicker: Wenn der neue Wert exakt dem vorherigen stabilen Wert entspricht
+    # (also ein schneller Rücksprung) UND wir kürzlich erst umgestellt haben,
+    # dann ignorieren wir diesen Rücksprung bis das Fenster abläuft.
+    if (
+        self.cur_temp is not None
+        and self.prev_stable_temp is not None
+        and _incoming_temperature == self.prev_stable_temp
+        and _incoming_temperature != self.cur_temp
+        and _age < FLICKER_REVERT_WINDOW
+    ):
+        _LOGGER.debug(
+            "better_thermostat %s: external_temperature flicker revert ignored (current=%s revert=%s age=%.1fs < %ss)",
+            self.device_name,
+            self.cur_temp,
+            _incoming_temperature,
+            _age,
+            FLICKER_REVERT_WINDOW,
+        )
+        return
 
     if _is_significant and (_interval_ok or (_diff is not None and _diff >= (_sig_threshold * 2))):
         # Verarbeite sofort, wenn Intervall abgelaufen ODER Änderung sehr groß
@@ -94,6 +131,9 @@ async def trigger_temperature_change(self, event):
             _sig_threshold,
             _time_diff,
         )
+        # Vor Übernahme des neuen Werts den bisherigen als stabilen Vormesswert merken
+        if self.cur_temp is not None and self.cur_temp != _incoming_temperature:
+            self.prev_stable_temp = self.cur_temp
         self.cur_temp = _incoming_temperature
         self.last_external_sensor_change = _now
         self.async_write_ha_state()
