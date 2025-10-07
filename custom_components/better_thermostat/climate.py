@@ -937,7 +937,6 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
             if self.is_removed:
                 return
 
-            # update_hvac_action(self)
             # Add listener
             if self.outdoor_sensor is not None:
                 self.all_entities.append(self.outdoor_sensor)
@@ -1177,9 +1176,11 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
             self.min_target_temp = min(self.min_target_temp, self.bt_target_temp)
             self.max_target_temp = max(self.max_target_temp, self.bt_target_temp)
 
-        # Track action changes
-        if self.attr_hvac_action != self.old_attr_hvac_action:
-            self.old_attr_hvac_action = self.attr_hvac_action
+        # Track action changes using freshly computed action (pure function)
+        current_action = self.hvac_action
+        if current_action != self.old_attr_hvac_action:
+            self.old_attr_hvac_action = current_action
+            self.attr_hvac_action = current_action  # maintain legacy attribute for compatibility
             action_changed = True
 
         # Write state only if something relevant changed
@@ -1315,23 +1316,25 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
 
     @property
     def hvac_action(self):
-        """Return the current HVAC action"""
-        if self.bt_target_temp is not None and self.cur_temp is not None:
-            # OFF always wins
-            if self.hvac_mode == HVACMode.OFF or self.bt_hvac_mode == HVACMode.OFF:
-                self.attr_hvac_action = HVACAction.OFF
-            # Window open prevents active heating
-            elif self.window_open:
-                self.attr_hvac_action = HVACAction.IDLE
-            else:
-                # Heat only if current temperature is at or below (target - tolerance)
-                tol = self.tolerance if self.tolerance is not None else 0.0
-                heat_threshold = self.bt_target_temp - tol
-                if self.cur_temp <= heat_threshold:
-                    self.attr_hvac_action = HVACAction.HEATING
-                else:
-                    self.attr_hvac_action = HVACAction.IDLE
-        return self.attr_hvac_action
+        """Return the current HVAC action (pure, no side effects)."""
+        if self.bt_target_temp is None or self.cur_temp is None:
+            return HVACAction.IDLE
+        if self.hvac_mode == HVACMode.OFF or self.bt_hvac_mode == HVACMode.OFF:
+            return HVACAction.OFF
+        if self.window_open:
+            return HVACAction.IDLE
+        tol = self.tolerance if self.tolerance is not None else 0.0
+        # Heating decision
+        if self.cur_temp <= (self.bt_target_temp - tol):
+            return HVACAction.HEATING
+        # Cooling decision (if heat_cool mode and cooling setpoint exists)
+        if (
+            self.hvac_mode in (HVACMode.HEAT_COOL,)
+            and self.bt_target_cooltemp is not None
+            and self.cur_temp >= (self.bt_target_cooltemp + tol)
+        ):
+            return HVACAction.COOLING
+        return HVACAction.IDLE
 
     @property
     def target_temperature(self) -> Optional[float]:
