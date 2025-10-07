@@ -278,7 +278,26 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
         self.window_delay_after = window_delay_after or 0
         self.weather_entity = weather_entity or None
         self.outdoor_sensor = outdoor_sensor or None
-        self.off_temperature = float(off_temperature) or None
+        # Robust off temperature parsing: preserve 0.0 and ignore invalid strings
+        self.off_temperature = None
+        if off_temperature not in (None, "", "None"):  # allow numeric 0
+            try:
+                parsed_off = float(off_temperature)
+                # Accept any float (including 0.0); reject extreme nonsense
+                if -100.0 < parsed_off < 150.0:
+                    self.off_temperature = parsed_off
+                else:
+                    _LOGGER.warning(
+                        "better_thermostat %s: off_temperature %.2f outside plausible range, ignoring",
+                        self.device_name,
+                        parsed_off,
+                    )
+            except (TypeError, ValueError):  # noqa: BLE001
+                _LOGGER.warning(
+                    "better_thermostat %s: invalid off_temperature '%s', ignoring",
+                    self.device_name,
+                    off_temperature,
+                )
         # Robust tolerance parsing & sanitizing
         try:
             self.tolerance = float(tolerance) if tolerance is not None else 0.0
@@ -356,7 +375,8 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
         if self.window_id is not None:
             asyncio.create_task(window_queue(self))
         self.heating_power = 0.01
-        self.last_heating_power_stats = []
+        # Short bounded history of recent heating power evaluations
+        self.last_heating_power_stats = deque(maxlen=10)
         self.is_removed = False
 
     async def async_added_to_hass(self):
@@ -1019,13 +1039,13 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
 
         now = dt_util.utcnow()  # UTC aware time
 
-        action_changed = False
+        # Determine current action early (pure computation) for transition handling
+        current_action = self._compute_hvac_action()
+
+        action_changed = current_action != self.old_attr_hvac_action
 
         # Transition: heating starts
-        if (
-            self.attr_hvac_action == HVACAction.HEATING
-            and self.old_attr_hvac_action != HVACAction.HEATING
-        ):
+        if current_action == HVACAction.HEATING and self.old_attr_hvac_action != HVACAction.HEATING:
             self.heating_start_temp = self.cur_temp
             self.heating_start_timestamp = now
             self.heating_end_temp = None
@@ -1033,7 +1053,7 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
 
         # Transition: heating stops (candidate end)
         elif (
-            self.attr_hvac_action != HVACAction.HEATING
+            current_action != HVACAction.HEATING
             and self.old_attr_hvac_action == HVACAction.HEATING
             and self.heating_start_temp is not None
             and self.heating_end_temp is None
@@ -1043,7 +1063,7 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
 
         # Peak tracking: temperature still rising after heating already stopped
         elif (
-            self.attr_hvac_action != HVACAction.HEATING
+            current_action != HVACAction.HEATING
             and self.heating_start_temp is not None
             and self.heating_end_temp is not None
             and self.cur_temp > self.heating_end_temp
@@ -1119,8 +1139,6 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
                 heating_power_changed = self.heating_power != old_power
 
                 # Compact short stats history
-                if len(self.last_heating_power_stats) >= 10:
-                    self.last_heating_power_stats = self.last_heating_power_stats[-9:]
                 self.last_heating_power_stats.append(
                     {
                         "dT": round(temp_diff, 2),
@@ -1177,11 +1195,9 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
             self.max_target_temp = max(self.max_target_temp, self.bt_target_temp)
 
         # Track action changes using freshly computed action (pure function)
-        current_action = self.hvac_action
-        if current_action != self.old_attr_hvac_action:
+        if action_changed:
             self.old_attr_hvac_action = current_action
             self.attr_hvac_action = current_action  # maintain legacy attribute for compatibility
-            action_changed = True
 
         # Write state only if something relevant changed
         if heating_power_changed or action_changed or finalize:
@@ -1316,7 +1332,19 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
 
     @property
     def hvac_action(self):
-        """Return the current HVAC action (pure, no side effects)."""
+        """Return the current HVAC action (delegates to helper)."""
+        return self._compute_hvac_action()
+
+    def _compute_hvac_action(self):  # helper kept internal for clarity
+        """Pure HVAC action computation without side effects.
+
+        Rules:
+        - OFF mode returns OFF regardless of temperatures
+        - Open window suppresses active heating/cooling (returns IDLE)
+        - Heating if cur_temp <= target - tolerance
+        - Cooling if mode heat_cool and cur_temp >= cool_target + tolerance
+        - Otherwise IDLE
+        """
         if self.bt_target_temp is None or self.cur_temp is None:
             return HVACAction.IDLE
         if self.hvac_mode == HVACMode.OFF or self.bt_hvac_mode == HVACMode.OFF:
@@ -1443,9 +1471,32 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
                 self.max_temp, max(self.min_temp, _new_setpointhigh)
             )
 
-        self.bt_target_temp = _new_setpoint or _new_setpointlow
+        # Preserve explicit 0.0 values (avoid Python truthiness bug)
+        if _new_setpoint is not None:
+            self.bt_target_temp = _new_setpoint
+        else:
+            self.bt_target_temp = _new_setpointlow
+
         if _new_setpointhigh is not None:
             self.bt_target_cooltemp = _new_setpointhigh
+
+        # Enforce ordering: cool target should be above heat target (if both in heat_cool mode)
+        if (
+            self.hvac_mode in (HVACMode.HEAT_COOL,)
+            and self.bt_target_cooltemp is not None
+            and self.bt_target_temp is not None
+            and self.bt_target_cooltemp <= self.bt_target_temp
+        ):
+            step = self.bt_target_temp_step or 0.5
+            adjusted = self.bt_target_temp + step
+            _LOGGER.warning(
+                "better_thermostat %s: cooling target %.2f adjusted to %.2f to stay above heating target %.2f",
+                self.device_name,
+                self.bt_target_cooltemp,
+                adjusted,
+                self.bt_target_temp,
+            )
+            self.bt_target_cooltemp = adjusted
 
         _LOGGER.debug(
             "better_thermostat %s: HA set target temperature to %s & %s",
