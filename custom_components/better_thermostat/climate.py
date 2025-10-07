@@ -1155,7 +1155,7 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
                 # Adaptive exponential smoothing (alpha)
                 base_alpha = 0.10
                 alpha = base_alpha * weight_factor * env_factor
-                alpha = max(0.02, min(0.25, alpha))  # Grenzen
+                alpha = max(0.02, min(0.25, alpha))  # Bounds
 
                 old_power = self.heating_power
                 self.heating_power = round(
