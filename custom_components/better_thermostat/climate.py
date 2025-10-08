@@ -1384,8 +1384,8 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
         Rules:
         - OFF mode returns OFF regardless of temperatures
         - Open window suppresses active heating/cooling (returns IDLE)
-        - Heating if cur_temp <= target - tolerance
-        - Cooling if mode heat_cool and cur_temp >= cool_target + tolerance
+        - Heating if cur_temp < target - tolerance (strictly below)
+        - Cooling if mode heat_cool and cur_temp > cool_target + tolerance
         - Otherwise IDLE
         """
         if self.bt_target_temp is None or self.cur_temp is None:
@@ -1396,13 +1396,14 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
             return HVACAction.IDLE
         tol = self.tolerance if self.tolerance is not None else 0.0
         # Heating decision
-        if self.cur_temp <= (self.bt_target_temp - tol):
+        # Use strict '<' so we do NOT heat when exactly at setpoint (especially when tol=0)
+        if self.cur_temp < (self.bt_target_temp - tol):
             return HVACAction.HEATING
         # Cooling decision (if heat_cool mode and cooling setpoint exists)
         if (
             self.hvac_mode in (HVACMode.HEAT_COOL,)
             and self.bt_target_cooltemp is not None
-            and self.cur_temp >= (self.bt_target_cooltemp + tol)
+            and self.cur_temp > (self.bt_target_cooltemp + tol)
         ):
             return HVACAction.COOLING
         return HVACAction.IDLE
