@@ -779,7 +779,7 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
                                 "better_thermostat %s: Loaded preset temperatures from config entry options.",
                                 self.device_name,
                             )
-                    except Exception as exc:  # noqa: BLE001
+                    except (json.JSONDecodeError, TypeError, ValueError) as exc:
                         _LOGGER.debug(
                             "better_thermostat %s: Failed loading config entry preset temps: %s",
                             self.device_name,
