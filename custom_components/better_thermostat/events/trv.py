@@ -213,9 +213,6 @@ async def trigger_trv_change(self, event):
     return
 
 
-# Removed legacy update_hvac_action; centralized in climate entity.
-
-
 def convert_inbound_states(self, entity_id, state: State) -> str:
     """Convert hvac mode in a thermostat state from HA
     Parameters

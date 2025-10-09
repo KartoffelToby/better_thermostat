@@ -10,8 +10,8 @@ from homeassistant.core import callback
 
 _LOGGER = logging.getLogger(__name__)
 
-# Anti-flicker configuration: reverting to the previous stable value
-# is ignored within this time window (seconds).
+
+# is ignored for this time window (seconds).
 FLICKER_REVERT_WINDOW = 45  # can optionally be made configurable later
 
 
@@ -50,8 +50,8 @@ async def trigger_temperature_change(self, event):
         # Setze einen alten Zeitpunkt, damit erste Änderung akzeptiert wird
         self.last_external_sensor_change = datetime.now()
 
-    # Base debounce (seconds) for normal devices; anti-flicker allows 5s here.
-    # HomematicIP still uses a higher interval (600s) below.
+    # Basis-Debounce (Sekunden) für normale Geräte; durch Anti-Flicker können wir hier auf 5s runter
+    # gesetzt werden. HomematicIP erhält unten weiterhin ein höheres Intervall (600s).
     _time_diff = 5
     # Signifikanz-Schwelle: halbe Toleranz oder mindestens 0.1°C
     try:
@@ -152,6 +152,7 @@ async def trigger_temperature_change(self, event):
             _sig_threshold,
             _time_diff,
         )
+
     # Remember previous value as stable pre-measure before updating
         if self.cur_temp is not None and self.cur_temp != _incoming_temperature:
             self.prev_stable_temp = self.cur_temp
