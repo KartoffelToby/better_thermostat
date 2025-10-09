@@ -165,7 +165,7 @@ async def control_trv(self, heater_entity_id=None):
                 await self.hass.services.async_call(
                     "climate",
                     "set_hvac_mode",
-                    {"entity_id": self.cooler_entity_id, "hvac_mode": HVACMode.COOL},
+                    {"entity_id": self.cooler_entity_id, "hvac_mode": "cool"},
                     blocking=True,
                     context=self.context,
                 )
@@ -186,7 +186,7 @@ async def control_trv(self, heater_entity_id=None):
                 await self.hass.services.async_call(
                     "climate",
                     "set_hvac_mode",
-                    {"entity_id": self.cooler_entity_id, "hvac_mode": HVACMode.OFF},
+                    {"entity_id": self.cooler_entity_id, "hvac_mode": "off"},
                     blocking=True,
                     context=self.context,
                 )
@@ -204,7 +204,7 @@ async def control_trv(self, heater_entity_id=None):
                 await self.hass.services.async_call(
                     "climate",
                     "set_hvac_mode",
-                    {"entity_id": self.cooler_entity_id, "hvac_mode": HVACMode.OFF},
+                    {"entity_id": self.cooler_entity_id, "hvac_mode": "off"},
                     blocking=True,
                     context=self.context,
                 )

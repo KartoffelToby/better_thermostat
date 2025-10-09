@@ -119,12 +119,38 @@ async def set_temperature(self, entity_id, temperature):
 
 async def set_hvac_mode(self, entity_id, hvac_mode):
     """Set new target hvac mode."""
-    _LOGGER.debug("better_thermostat %s: set_hvac_mode %s", self.device_name, hvac_mode)
+    _LOGGER.debug(
+        "better_thermostat %s: set_hvac_mode raw=%s", self.device_name, hvac_mode
+    )
+    # Normalize to the string value expected by HA service schema
+    if hvac_mode is None:
+        _LOGGER.debug(
+            "better_thermostat %s: set_hvac_mode skipped (None)", self.device_name
+        )
+        return
+    try:
+        # StrEnum (HA) exposes .value as the lowercase string like 'heat', 'off', etc.
+        value_attr = getattr(hvac_mode, "value", None)
+        if value_attr:
+            mode_value = str(value_attr)
+        else:
+            mode_value = str(hvac_mode)
+        # Convert representations like 'HVACMode.HEAT' to 'heat'
+        if "." in mode_value and not mode_value.islower():
+            mode_value = mode_value.split(".")[-1]
+        mode_value = mode_value.lower()
+    except Exception:  # noqa: BLE001
+        mode_value = str(hvac_mode).lower()
+    _LOGGER.debug(
+        "better_thermostat %s: set_hvac_mode normalized=%s",
+        self.device_name,
+        mode_value,
+    )
     try:
         await self.hass.services.async_call(
             "climate",
             "set_hvac_mode",
-            {"entity_id": entity_id, "hvac_mode": hvac_mode},
+            {"entity_id": entity_id, "hvac_mode": mode_value},
             blocking=True,
             context=self.context,
         )
