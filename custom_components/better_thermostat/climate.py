@@ -8,15 +8,17 @@ from datetime import datetime, timedelta
 from random import randint
 from statistics import mean
 
+# preferred for HA time handling (UTC aware)
+from homeassistant.util import dt as dt_util
+from collections import deque
+from typing import Any, Optional
+
 # Home Assistant imports
 from homeassistant.components.climate import ClimateEntity
 from homeassistant.components.climate.const import (
     ATTR_HVAC_MODE,
     ATTR_TARGET_TEMP_HIGH,
     ATTR_TARGET_TEMP_LOW,
-    ATTR_MAX_TEMP,
-    ATTR_MIN_TEMP,
-    ATTR_TARGET_TEMP_STEP,
     PRESET_NONE,
     PRESET_AWAY,
     PRESET_BOOST,
@@ -25,6 +27,9 @@ from homeassistant.components.climate.const import (
     PRESET_ECO,
     PRESET_ACTIVITY,
     PRESET_HOME,
+    ATTR_MAX_TEMP,
+    ATTR_MIN_TEMP,
+    ATTR_TARGET_TEMP_STEP,
     ClimateEntityFeature,
     HVACAction,
     HVACMode,
@@ -130,12 +135,20 @@ def async_set_temperature_service_validate(service_call: ServiceCall) -> Service
     return service_call
 
 
-async def async_setup_platform(hass, config, async_add_entities, discovery_info=None):
-    """Set up the Better Thermostat platform."""
+async def async_setup_platform(
+    hass, config, async_add_entities, discovery_info=None
+):  # noqa: D401
+    """(Deprecated) Set up the Better Thermostat platform (no-op)."""
+    _LOGGER.debug("better_thermostat: async_setup_platform called (deprecated no-op)")
 
 
 async def async_setup_entry(hass, entry, async_add_devices):
-    """Setup sensor platform."""
+    """Set up Better Thermostat climate entity for a config entry."""
+    _LOGGER.debug(
+        "better_thermostat %s: async_setup_entry start (entry_id=%s)",
+        entry.data.get(CONF_NAME),
+        entry.entry_id,
+    )
 
     async def async_service_handler(entity, call):
         """Handle the service calls."""
@@ -147,6 +160,7 @@ async def async_setup_entry(hass, entry, async_add_devices):
             await entity.reset_heating_power()
 
     platform = entity_platform.async_get_current_platform()
+    # Register entity services (validator done manually inside method)
     platform.async_register_entity_service(
         SERVICE_SET_TEMP_TARGET_TEMPERATURE,
         BETTERTHERMOSTAT_SET_TEMPERATURE_SCHEMA,
@@ -182,6 +196,10 @@ async def async_setup_entry(hass, entry, async_add_devices):
                 state_class="better_thermostat_state",
             )
         ]
+    )
+    _LOGGER.debug(
+        "better_thermostat %s: async_setup_entry finished creating entity",
+        entry.data.get(CONF_NAME),
     )
 
 
@@ -275,8 +293,49 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
         self.window_delay_after = window_delay_after or 0
         self.weather_entity = weather_entity or None
         self.outdoor_sensor = outdoor_sensor or None
-        self.off_temperature = float(off_temperature) or None
-        self.tolerance = float(tolerance) or 0.0
+        # Robust off temperature parsing: preserve 0.0 and ignore invalid strings
+        self.off_temperature = None
+        if off_temperature not in (None, "", "None"):  # allow numeric 0
+            try:
+                parsed_off = float(off_temperature)
+                # Accept any float (including 0.0); reject extreme nonsense
+                if -100.0 < parsed_off < 150.0:
+                    self.off_temperature = parsed_off
+                else:
+                    _LOGGER.warning(
+                        "better_thermostat %s: off_temperature %.2f outside plausible range, ignoring",
+                        self.device_name,
+                        parsed_off,
+                    )
+            except (TypeError, ValueError):  # noqa: BLE001
+                _LOGGER.warning(
+                    "better_thermostat %s: invalid off_temperature '%s', ignoring",
+                    self.device_name,
+                    off_temperature,
+                )
+        # Robust tolerance parsing & sanitizing
+        try:
+            self.tolerance = float(tolerance) if tolerance is not None else 0.0
+        except (TypeError, ValueError):  # noqa: BLE001
+            _LOGGER.warning(
+                "better_thermostat %s: invalid tolerance '%s', falling back to 0.0",
+                self.device_name,
+                tolerance,
+            )
+            self.tolerance = 0.0
+        if self.tolerance < 0:
+            _LOGGER.warning(
+                "better_thermostat %s: negative tolerance '%s' adjusted to 0.0",
+                self.device_name,
+                self.tolerance,
+            )
+            self.tolerance = 0.0
+        if self.tolerance > 10:
+            _LOGGER.warning(
+                "better_thermostat %s: unusually high tolerance '%s' (>10) may cause sluggish response",
+                self.device_name,
+                self.tolerance,
+            )
         self._unique_id = unique_id
         self._unit = unit
         self._device_class = device_class
@@ -351,7 +410,8 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
         if self.window_id is not None:
             asyncio.create_task(window_queue(self))
         self.heating_power = 0.01
-        self.last_heating_power_stats = []
+        # Short bounded history of recent heating power evaluations
+        self.last_heating_power_stats = deque(maxlen=10)
         self.is_removed = False
 
     async def async_added_to_hass(self):
@@ -1053,7 +1113,6 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
             if self.is_removed:
                 return
 
-            # update_hvac_action(self)
             # Add listener
             if self.outdoor_sensor is not None:
                 self.all_entities.append(self.outdoor_sensor)
@@ -1108,105 +1167,239 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
             break
 
     async def calculate_heating_power(self):
+        """Learn effective heating power (°C/min) from completed heating cycles.
+
+        Improvements over the original implementation:
+        - Minimum duration of 1 minute (otherwise cycle is ignored)
+        - Wait for the post-heating temperature peak (thermal inertia) after HEATING stops
+        - Timeout based finalization if the temperature does not fall (prevents stuck cycles)
+        - Outdoor temperature (if available) is used for normalization & adaptive weighting
+        - Bounded telemetry (deque) for minimal memory footprint
+        - Reduced state writes (only on changes / cycle finalization / action switches)
+        """
+
+        # Skip if we have no current temperature
+        if self.cur_temp is None:
+            return
+
+        # Lazy init of target range bounds
         if not hasattr(self, "min_target_temp"):
             self.min_target_temp = self.bt_target_temp or 18.0
         if not hasattr(self, "max_target_temp"):
             self.max_target_temp = self.bt_target_temp or 21.0
 
+        # Telemetry container (create once)
+        if not hasattr(self, "heating_cycles"):
+            # bounded length (50 cycles)
+            self.heating_cycles = deque(maxlen=50)
+
+        now = dt_util.utcnow()  # UTC aware time
+
+        # Determine current action early (pure computation) for transition handling
+        current_action = self._compute_hvac_action()
+
+        action_changed = current_action != self.old_attr_hvac_action
+
+        # Transition: heating starts
         if (
-            self.heating_start_temp is not None
-            and self.heating_end_temp is not None
-            and self.cur_temp < self.heating_end_temp
-        ):
-            _temp_diff = self.heating_end_temp - self.heating_start_temp
-            _time_diff_minutes = round(
-                (self.heating_end_timestamp - self.heating_start_timestamp).seconds
-                / 60.0,
-                1,
-            )
-            if _time_diff_minutes > 1:
-                temp_range = max(self.max_target_temp - self.min_target_temp, 0.1)
-                weight_factor = max(
-                    0.5,
-                    min(
-                        1.5,
-                        0.5 + (self.bt_target_temp - self.min_target_temp) / temp_range,
-                    ),
-                )
-
-                _degrees_time = round(_temp_diff / _time_diff_minutes, 4)
-                self.heating_power = round(
-                    (
-                        self.heating_power * (1 - 0.1 * weight_factor)
-                        + _degrees_time * 0.1 * weight_factor
-                    ),
-                    4,
-                )
-
-                if len(self.last_heating_power_stats) >= 10:
-                    self.last_heating_power_stats = self.last_heating_power_stats[
-                        len(self.last_heating_power_stats) - 9 :
-                    ]
-                self.last_heating_power_stats.append(
-                    {
-                        "temp_diff": round(_temp_diff, 1),
-                        "time": _time_diff_minutes,
-                        "degrees_time": round(_degrees_time, 4),
-                        "weight_factor": weight_factor,
-                        "heating_power": round(self.heating_power, 4),
-                    }
-                )
-
-                _LOGGER.debug(
-                    "better_thermostat %s: calculate_heating_power / temp_diff: %.1f - time: %s - degrees_time: %.4f - weight_factor: %s - heating_power: %.4f - heating_power_stats: %s",
-                    self.device_name,
-                    round(_temp_diff, 1),
-                    _time_diff_minutes,
-                    round(_degrees_time, 4),
-                    weight_factor,
-                    round(self.heating_power, 4),
-                    self.last_heating_power_stats,
-                )
-
-            # reset for the next heating start
-            self.heating_start_temp = None
-            self.heating_end_temp = None
-
-        if self.heating_end_temp:
-            self.min_target_temp = min(self.min_target_temp, self.bt_target_temp)
-            self.max_target_temp = max(self.max_target_temp, self.bt_target_temp)
-
-        # heating starts
-        if (
-            self.attr_hvac_action == HVACAction.HEATING
+            current_action == HVACAction.HEATING
             and self.old_attr_hvac_action != HVACAction.HEATING
         ):
             self.heating_start_temp = self.cur_temp
-            self.heating_start_timestamp = datetime.now()
-        # heating stops
+            self.heating_start_timestamp = now
+            self.heating_end_temp = None
+            self.heating_end_timestamp = None
+
+        # Transition: heating stops (candidate end)
         elif (
-            self.attr_hvac_action != HVACAction.HEATING
+            current_action != HVACAction.HEATING
             and self.old_attr_hvac_action == HVACAction.HEATING
             and self.heating_start_temp is not None
             and self.heating_end_temp is None
         ):
             self.heating_end_temp = self.cur_temp
-            self.heating_end_timestamp = datetime.now()
-        # check if the temp is still rising, after heating stopped
+            self.heating_end_timestamp = now
+
+        # Peak tracking: temperature still rising after heating already stopped
         elif (
-            self.attr_hvac_action != HVACAction.HEATING
+            current_action != HVACAction.HEATING
             and self.heating_start_temp is not None
             and self.heating_end_temp is not None
             and self.cur_temp > self.heating_end_temp
         ):
             self.heating_end_temp = self.cur_temp
+            self.heating_end_timestamp = now
 
-        if self.attr_hvac_action != self.old_attr_hvac_action:
-            self.old_attr_hvac_action = self.attr_hvac_action
-        self.async_write_ha_state()
+        # Finalization criteria: temperature drops OR timeout triggers
+        finalize = False
+        TIMEOUT_MIN = 30  # safety timeout after 30 minutes of plateau
+
+        if (
+            self.heating_start_temp is not None
+            and self.heating_end_temp is not None
+            and self.cur_temp < self.heating_end_temp  # peak passed (temp falling)
+        ):
+            finalize = True
+        elif self.heating_end_timestamp is not None and (
+            now - self.heating_end_timestamp
+        ) > timedelta(minutes=TIMEOUT_MIN):
+            finalize = True
+
+        heating_power_changed = False
+        normalized_power = None
+
+        if finalize:
+            if (
+                self.heating_end_temp is not None
+                and self.heating_start_temp is not None
+            ):
+                temp_diff = self.heating_end_temp - self.heating_start_temp
+            else:
+                temp_diff = 0
+            duration_min = (
+                (
+                    self.heating_end_timestamp - self.heating_start_timestamp
+                ).total_seconds()
+                / 60.0
+                if self.heating_end_timestamp and self.heating_start_timestamp
+                else 0
+            )
+            # Require minimum duration and positive temperature increase
+            if duration_min >= 1.0 and temp_diff > 0:
+                # Base weighting via relative position within target range
+                temp_range = max(self.max_target_temp - self.min_target_temp, 0.1)
+                relative_pos = (
+                    (self.bt_target_temp - self.min_target_temp) / temp_range
+                    if self.bt_target_temp is not None
+                    else 0.5
+                )
+                weight_factor = max(0.5, min(1.5, 0.5 + relative_pos))
+
+                # Consider outdoor temperature if available
+                outdoor = None
+                try:
+                    if self.outdoor_sensor is not None:
+                        outdoor_state = self.hass.states.get(self.outdoor_sensor)
+                        if outdoor_state is not None:
+                            outdoor = convert_to_float(
+                                str(outdoor_state.state),
+                                self.device_name,
+                                "calculate_heating_power.outdoor",
+                            )
+                except Exception:  # noqa: BLE001
+                    outdoor = None
+
+                # Environmental delta (setpoint - outdoor) for normalization
+                if outdoor is not None and self.bt_target_temp is not None:
+                    delta_env = max(self.bt_target_temp - outdoor, 0.1)
+                    # Normalized heating rate (°C/min relative to thermal gradient)
+                    normalized_power = round((temp_diff / duration_min) / delta_env, 5)
+                    # Environment factor influences smoothing weight (larger gradient -> slightly higher weight)
+                    env_factor = max(0.7, min(1.3, delta_env / 20.0))
+                else:
+                    env_factor = 1.0
+
+                heating_rate = round(temp_diff / duration_min, 4)  # °C / min
+
+                # Adaptive exponential smoothing (alpha)
+                base_alpha = 0.10
+                alpha = base_alpha * weight_factor * env_factor
+                alpha = max(0.02, min(0.25, alpha))  # Bounds
+
+                old_power = self.heating_power
+                self.heating_power = round(
+                    old_power * (1 - alpha) + heating_rate * alpha, 4
+                )
+                heating_power_changed = self.heating_power != old_power
+
+                # Compact short stats history
+                self.last_heating_power_stats.append(
+                    {
+                        "dT": round(temp_diff, 2),
+                        "min": round(duration_min, 1),
+                        "rate": heating_rate,
+                        "alpha": round(alpha, 3),
+                        "envf": round(env_factor, 3),
+                        "hp": self.heating_power,
+                        "norm": normalized_power,
+                    }
+                )
+
+                # Full cycle telemetry snapshot (bounded deque)
+                try:
+                    self.heating_cycles.append(
+                        {
+                            "start": (
+                                self.heating_start_timestamp.isoformat()
+                                if self.heating_start_timestamp
+                                else None
+                            ),
+                            "end": (
+                                self.heating_end_timestamp.isoformat()
+                                if self.heating_end_timestamp
+                                else None
+                            ),
+                            "temp_start": (
+                                round(self.heating_start_temp, 2)
+                                if self.heating_start_temp is not None
+                                else None
+                            ),
+                            "temp_peak": (
+                                round(self.heating_end_temp, 2)
+                                if self.heating_end_temp is not None
+                                else None
+                            ),
+                            "delta_t": round(temp_diff, 3),
+                            "minutes": round(duration_min, 2),
+                            "rate_c_min": heating_rate,
+                            "target": self.bt_target_temp,
+                            "outdoor": outdoor,
+                            "norm_power": normalized_power,
+                        }
+                    )
+                except Exception:  # noqa: BLE001
+                    pass
+
+                _LOGGER.debug(
+                    "better_thermostat %s: heating cycle evaluated: ΔT=%.3f°C, t=%.2fmin, rate=%.4f°C/min, hp(old/new)=%.4f/%.4f, alpha=%.3f, env_factor=%.3f, norm=%s",  # noqa: E501
+                    self.device_name,
+                    temp_diff,
+                    duration_min,
+                    heating_rate,
+                    old_power,
+                    self.heating_power,
+                    alpha,
+                    env_factor,
+                    normalized_power,
+                )
+
+            # Reset for next cycle (even if discarded)
+            self.heating_start_temp = None
+            self.heating_end_temp = None
+            self.heating_start_timestamp = None
+            self.heating_end_timestamp = None
+
+        # Adjust dynamic target range bounds based on used setpoints
+        if self.bt_target_temp is not None:
+            self.min_target_temp = min(self.min_target_temp, self.bt_target_temp)
+            self.max_target_temp = max(self.max_target_temp, self.bt_target_temp)
+
+        # Track action changes using freshly computed action (pure function)
+        if action_changed:
+            self.old_attr_hvac_action = current_action
+            self.attr_hvac_action = (
+                current_action  # maintain legacy attribute for compatibility
+            )
+
+        # Write state only if something relevant changed
+        if heating_power_changed or action_changed or finalize:
+            # Store normalized power if available
+            if normalized_power is not None:
+                self.heating_power_normalized = normalized_power
+            self.async_write_ha_state()
 
     @property
-    def extra_state_attributes(self) -> dict[str, any]:
+    def extra_state_attributes(self) -> dict[str, Any]:
         """Return the device specific state attributes.
 
         Returns
@@ -1235,6 +1428,19 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
                 for k, v in self._original_preset_temperatures.items()
             ),
         }
+
+        # Optional telemetry (memory friendly): only count & last cycle + normalized power
+        if hasattr(self, "heating_cycles") and len(self.heating_cycles) > 0:
+            last_cycle = self.heating_cycles[-1]
+            try:
+                dev_specific["heating_cycle_count"] = len(self.heating_cycles)
+                dev_specific["heating_cycle_last"] = json.dumps(last_cycle)
+            except Exception:  # noqa: BLE001
+                pass
+        if hasattr(self, "heating_power_normalized"):
+            dev_specific["heating_power_norm"] = getattr(
+                self, "heating_power_normalized", None
+            )
 
         return dev_specific
 
@@ -1283,7 +1489,7 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
         return super().precision
 
     @property
-    def target_temperature_step(self) -> float | None:
+    def target_temperature_step(self) -> Optional[float]:
         """Return the supported step of target temperature.
 
         Returns
@@ -1302,18 +1508,21 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
         return self._unit
 
     @property
-    def current_temperature(self) -> float | None:
+    def current_temperature(self) -> Optional[float]:
         """Return the current temperature."""
         return self.cur_temp
 
     @property
-    def current_humidity(self) -> float | None:
+    def current_humidity(self) -> Optional[float]:
         """Return the current humidity if supported."""
         return self._current_humidity if hasattr(self, "_current_humidity") else None
 
     @property
-    def hvac_mode(self) -> HVACMode | None:
+    def hvac_mode(self) -> Optional[HVACMode]:
         """Return current operation."""
+        # Fallback if None
+        if self.bt_hvac_mode is None:
+            return HVACMode.OFF
         return get_hvac_bt_mode(self, self.bt_hvac_mode)
 
     @property
@@ -1323,27 +1532,41 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
 
     @property
     def hvac_action(self):
-        """Return the current HVAC action"""
-        if self.bt_target_temp is not None and self.cur_temp is not None:
-            if self.hvac_mode == HVACMode.OFF:
-                self.attr_hvac_action = HVACAction.OFF
-            elif (
-                self.bt_target_temp > self.cur_temp + self.tolerance
-                and self.window_open is False
-            ):
-                self.attr_hvac_action = HVACAction.HEATING
-            elif (
-                self.bt_target_temp > self.cur_temp
-                and self.window_open is False
-                and self.bt_hvac_mode is not HVACMode.OFF
-            ):
-                self.attr_hvac_action = HVACAction.HEATING
-            else:
-                self.attr_hvac_action = HVACAction.IDLE
-        return self.attr_hvac_action
+        """Return the current HVAC action (delegates to helper)."""
+        return self._compute_hvac_action()
+
+    def _compute_hvac_action(self):  # helper kept internal for clarity
+        """Pure HVAC action computation without side effects.
+
+        Rules:
+        - OFF mode returns OFF regardless of temperatures
+        - Open window suppresses active heating/cooling (returns IDLE)
+        - Heating if cur_temp < target - tolerance (strictly below)
+        - Cooling if mode heat_cool and cur_temp > cool_target + tolerance
+        - Otherwise IDLE
+        """
+        if self.bt_target_temp is None or self.cur_temp is None:
+            return HVACAction.IDLE
+        if self.hvac_mode == HVACMode.OFF or self.bt_hvac_mode == HVACMode.OFF:
+            return HVACAction.OFF
+        if self.window_open:
+            return HVACAction.IDLE
+        tol = self.tolerance if self.tolerance is not None else 0.0
+        # Heating decision
+        # Use strict '<' so we do NOT heat when exactly at setpoint (especially when tol=0)
+        if self.cur_temp < (self.bt_target_temp - tol):
+            return HVACAction.HEATING
+        # Cooling decision (if heat_cool mode and cooling setpoint exists)
+        if (
+            self.hvac_mode in (HVACMode.HEAT_COOL,)
+            and self.bt_target_cooltemp is not None
+            and self.cur_temp > (self.bt_target_cooltemp + tol)
+        ):
+            return HVACAction.COOLING
+        return HVACAction.IDLE
 
     @property
-    def target_temperature(self) -> float | None:
+    def target_temperature(self) -> Optional[float]:
         """Return the temperature we try to reach.
 
         Returns
@@ -1351,7 +1574,9 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
         float
                 Target temperature.
         """
-        if None in (self.bt_max_temp, self.bt_min_temp, self.bt_target_temp):
+        if self.bt_target_temp is None:
+            return None
+        if self.bt_min_temp is None or self.bt_max_temp is None:
             return self.bt_target_temp
         # if target temp is below minimum, return minimum
         if self.bt_target_temp < self.bt_min_temp:
@@ -1362,13 +1587,13 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
         return self.bt_target_temp
 
     @property
-    def target_temperature_low(self) -> float | None:
+    def target_temperature_low(self) -> Optional[float]:
         if self.cooler_entity_id is None:
             return None
         return self.bt_target_temp
 
     @property
-    def target_temperature_high(self) -> float | None:
+    def target_temperature_high(self) -> Optional[float]:
         if self.cooler_entity_id is None:
             return None
         return self.bt_target_cooltemp
@@ -1433,8 +1658,8 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
 
         if _new_setpoint is None and _new_setpointlow is None:
             _LOGGER.debug(
-                "better_thermostat %s: received a set_temperature call without temperature attribute - ignoring",
-                self.device_name,
+                f"better_thermostat {
+                    self.device_name}: received a new setpoint from HA, but temperature attribute was not set, ignoring"
             )
             return
 
@@ -1448,31 +1673,32 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
                 self.max_temp, max(self.min_temp, _new_setpointhigh)
             )
 
-        self.bt_target_temp = _new_setpoint or _new_setpointlow
+        # Preserve explicit 0.0 values (avoid Python truthiness bug)
+        if _new_setpoint is not None:
+            self.bt_target_temp = _new_setpoint
+        else:
+            self.bt_target_temp = _new_setpointlow
+
         if _new_setpointhigh is not None:
             self.bt_target_cooltemp = _new_setpointhigh
 
-        # If user manually changes the temperature while a preset is active,
-        # update the stored preset temperature so that returning to the preset
-        # later reuses the newly chosen value instead of the originally
-        # configured one.
-        if self._preset_mode in self._preset_temperatures and (
-            _new_setpoint is not None or _new_setpointlow is not None
+        # Enforce ordering: cool target should be above heat target (if both in heat_cool mode)
+        if (
+            self.hvac_mode in (HVACMode.HEAT_COOL,)
+            and self.bt_target_cooltemp is not None
+            and self.bt_target_temp is not None
+            and self.bt_target_cooltemp <= self.bt_target_temp
         ):
-            if self.bt_target_temp is not None:
-                applied = float(self.bt_target_temp)
-                old_value = self._preset_temperatures.get(self._preset_mode)
-                if old_value != applied:
-                    self._preset_temperatures[self._preset_mode] = applied
-                    _LOGGER.debug(
-                        "better_thermostat %s: Updated stored preset temperature for %s from %s to %s due to manual change (including none baseline)",
-                        self.device_name,
-                        self._preset_mode,
-                        old_value,
-                        applied,
-                    )
-                    # Persist to config entry options for durability
-                    self._async_persist_preset_temperatures()
+            step = self.bt_target_temp_step or 0.5
+            adjusted = self.bt_target_temp + step
+            _LOGGER.warning(
+                "better_thermostat %s: cooling target %.2f adjusted to %.2f to stay above heating target %.2f",
+                self.device_name,
+                self.bt_target_cooltemp,
+                adjusted,
+                self.bt_target_temp,
+            )
+            self.bt_target_cooltemp = adjusted
 
         _LOGGER.debug(
             "better_thermostat %s: HA set target temperature to %s & %s",
