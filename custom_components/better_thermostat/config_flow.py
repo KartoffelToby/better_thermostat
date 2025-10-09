@@ -36,6 +36,7 @@ from .utils.const import (
     CONF_CALIBRATION_MODE,
     CONF_TOLERANCE,
     CONF_TARGET_TEMP_STEP,
+    CONF_DYNAMIC_BALANCE,
     CalibrationMode,
     CalibrationType,
 )
@@ -239,6 +240,14 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                     default=user_input.get(CONF_VALVE_MAINTENANCE, False),
                 )
             ] = bool
+
+        # Dynamic balance (decentralized hydraulic balance)
+        fields[
+            vol.Optional(
+                CONF_DYNAMIC_BALANCE,
+                default=user_input.get(CONF_DYNAMIC_BALANCE, False),
+            )
+        ] = bool
 
         fields[
             vol.Optional(
@@ -514,6 +523,14 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
                     default=_trv_config["advanced"].get(CONF_VALVE_MAINTENANCE, False),
                 )
             ] = bool
+
+        # Dynamic balance (decentralized hydraulic balance)
+        fields[
+            vol.Optional(
+                CONF_DYNAMIC_BALANCE,
+                default=_trv_config["advanced"].get(CONF_DYNAMIC_BALANCE, False),
+            )
+        ] = bool
 
         fields[
             vol.Optional(

@@ -54,6 +54,7 @@ CONF_INTEGRATION = "integration"
 CONF_NO_SYSTEM_MODE_OFF = "no_off_system_mode"
 CONF_TOLERANCE = "tolerance"
 CONF_TARGET_TEMP_STEP = "target_temp_step"
+CONF_DYNAMIC_BALANCE = "dynamic_balance"
 SUPPORT_FLAGS = (
     ClimateEntityFeature.TARGET_TEMPERATURE
     | ClimateEntityFeature.TURN_OFF

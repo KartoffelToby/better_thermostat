@@ -9,6 +9,10 @@ from custom_components.better_thermostat.utils.helpers import (
     mode_remap,
 )
 from custom_components.better_thermostat.adapters.delegate import get_current_offset
+from custom_components.better_thermostat.balance import (
+    compute_balance,
+    BalanceInput,
+)
 
 from custom_components.better_thermostat.utils.const import (
     CalibrationType,
@@ -315,6 +319,53 @@ def convert_outbound_states(self, entity_id, hvac_mode) -> dict | None:
                 )
                 _new_heating_setpoint = _min_temp
                 hvac_mode = None
+
+    # --- Hydraulic balance (decentralized): percentage & setpoint throttling ---
+        try:
+            min_t = self.real_trvs[entity_id].get("min_temp") or self.bt_min_temp
+            # Nur anwenden, wenn wir nicht im "min-Temp als OFF"-Pfad sind
+            apply_balance = (
+                self.cur_temp is not None
+                and self.bt_target_temp is not None
+                and hvac_mode is not None
+                and hvac_mode != HVACMode.OFF
+                and self.window_open is False
+                and (_new_heating_setpoint is None or _new_heating_setpoint > (min_t + 0.05))
+                and self.real_trvs[entity_id]["advanced"].get("dynamic_balance", False)
+            )
+            if apply_balance:
+                bal = compute_balance(
+                    BalanceInput(
+                        key=f"{self._unique_id}:{entity_id}",
+                        target_temp_C=self.bt_target_temp,
+                        current_temp_C=self.cur_temp,
+                        tolerance_K=float(getattr(self, "tolerance", 0.0) or 0.0),
+                        temp_slope_K_per_min=getattr(self, "temp_slope", None),
+                        window_open=self.window_open,
+                        heating_allowed=True,
+                    )
+                )
+                # Debug speichern
+                self.real_trvs[entity_id]["balance"] = {
+                    "valve_percent": bal.valve_percent,
+                    "flow_cap_K": bal.flow_cap_K,
+                    "setpoint_eff_C": bal.setpoint_eff_C,
+                    "sonoff_min_open_pct": bal.sonoff_min_open_pct,
+                    "sonoff_max_open_pct": bal.sonoff_max_open_pct,
+                }
+                # Setpoint anpassen (generischer Pfad)
+                if bal.setpoint_eff_C is not None:
+                    max_t = self.real_trvs[entity_id].get(
+                        "max_temp") or self.bt_max_temp
+                    try:
+                        _new_heating_setpoint = max(
+                            min_t, min(max_t, bal.setpoint_eff_C))
+                    except TypeError:
+                        pass
+        except Exception as e:
+            _LOGGER.debug(
+                f"better_thermostat {self.device_name}: balance compute failed for {entity_id}: {e}"
+            )
 
         return {
             "temperature": _new_heating_setpoint,

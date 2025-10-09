@@ -11,7 +11,7 @@ from homeassistant.core import callback
 _LOGGER = logging.getLogger(__name__)
 
 # Anti-flicker configuration: reverting to the previous stable value
-# is ignored for this time window (seconds).
+# is ignored within this time window (seconds).
 FLICKER_REVERT_WINDOW = 45  # can optionally be made configurable later
 
 
@@ -41,17 +41,17 @@ async def trigger_temperature_change(self, event):
         str(new_state.state), self.device_name, "external_temperature"
     )
 
-    # Attribute für Anti-Flicker initialisieren, falls noch nicht vorhanden
+    # Initialize anti-flicker attributes on first run
     if not hasattr(self, "prev_stable_temp"):
         self.prev_stable_temp = None  # letzter stabiler (vor-dem-Sprung) Wert
 
-    # Sicherstellen, dass Zeitstempel existiert (sonst erster Durchlauf)
+    # Ensure timestamp exists (first run guard)
     if getattr(self, "last_external_sensor_change", None) is None:
         # Setze einen alten Zeitpunkt, damit erste Änderung akzeptiert wird
         self.last_external_sensor_change = datetime.now()
 
-    # Basis-Debounce (Sekunden) für normale Geräte; durch Anti-Flicker können wir hier auf 5s runter
-    # gesetzt werden. HomematicIP erhält unten weiterhin ein höheres Intervall (600s).
+    # Base debounce (seconds) for normal devices; anti-flicker allows 5s here.
+    # HomematicIP still uses a higher interval (600s) below.
     _time_diff = 5
     # Signifikanz-Schwelle: halbe Toleranz oder mindestens 0.1°C
     try:
@@ -121,6 +121,23 @@ async def trigger_temperature_change(self, event):
         )
         return
 
+    # Slope calculation (simple delta per minute)
+    try:
+        from time import monotonic
+        now_m = monotonic()
+        if self._slope_last_ts is not None and self.cur_temp is not None:
+            dt_min = max(1e-6, (now_m - self._slope_last_ts) / 60.0)
+            dT = _incoming_temperature - self.cur_temp
+            inst_slope = dT / dt_min
+            # light smoothing
+            if getattr(self, "temp_slope", None) is None:
+                self.temp_slope = inst_slope
+            else:
+                self.temp_slope = 0.7 * self.temp_slope + 0.3 * inst_slope
+        self._slope_last_ts = now_m
+    except Exception:
+        pass
+
     if _is_significant and (
         _interval_ok or (_diff is not None and _diff >= (_sig_threshold * 2))
     ):
@@ -135,13 +152,14 @@ async def trigger_temperature_change(self, event):
             _sig_threshold,
             _time_diff,
         )
-        # Vor Übernahme des neuen Werts den bisherigen als stabilen Vormesswert merken
+    # Remember previous value as stable pre-measure before updating
         if self.cur_temp is not None and self.cur_temp != _incoming_temperature:
             self.prev_stable_temp = self.cur_temp
+        old_temp = self.cur_temp
         self.cur_temp = _incoming_temperature
         self.last_external_sensor_change = _now
         self.async_write_ha_state()
-        # In die Steuer-Queue stellen
+    # Enqueue control action
         if self.control_queue_task is not None:
             await self.control_queue_task.put(self)
     else:

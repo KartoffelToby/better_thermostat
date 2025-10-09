@@ -385,6 +385,10 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
         # Short bounded history of recent heating power evaluations
         self.last_heating_power_stats = deque(maxlen=10)
         self.is_removed = False
+    # Balance / Hydraulik: Temperaturtrend (K/min)
+    self.temp_slope = None
+    self._slope_last_temp = None
+    self._slope_last_ts = None
 
     async def async_added_to_hass(self):
         """Run when entity about to be added.
@@ -1284,6 +1288,24 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
             dev_specific["heating_power_norm"] = getattr(
                 self, "heating_power_normalized", None
             )
+
+        # Balance Telemetrie (kompakt)
+        if hasattr(self, "temp_slope") and self.temp_slope is not None:
+            dev_specific["temp_slope_K_min"] = round(self.temp_slope, 4)
+        try:
+            # Führe kompakt alle TRV-Balance Infos zusammen (nur valve_percent)
+            bal_compact = {}
+            for trv, info in self.real_trvs.items():
+                bal = info.get("balance")
+                if bal:
+                    bal_compact[trv] = {
+                        "valve%": bal.get("valve_percent"),
+                        "flow_capK": bal.get("flow_cap_K"),
+                    }
+            if bal_compact:
+                dev_specific["balance"] = json.dumps(bal_compact)
+        except Exception:
+            pass
 
         return dev_specific
 

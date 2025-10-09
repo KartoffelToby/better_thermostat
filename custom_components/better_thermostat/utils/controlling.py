@@ -13,6 +13,7 @@ from custom_components.better_thermostat.adapters.delegate import (
     get_current_offset,
     set_temperature,
     set_hvac_mode,
+    set_valve,
 )
 
 from custom_components.better_thermostat.events.trv import convert_outbound_states
@@ -142,6 +143,30 @@ async def control_trv(self, heater_entity_id=None):
         _calibration_mode = self.real_trvs[heater_entity_id]["advanced"].get(
             "calibration_mode", CalibrationMode.DEFAULT
         )
+
+    # Optional: set valve position if supported (e.g., MQTT/Z2M)
+        try:
+            bal = self.real_trvs[heater_entity_id].get("balance")
+            valve_entity = self.real_trvs[heater_entity_id].get(
+                "valve_position_entity"
+            )
+            if bal and valve_entity:
+                target_pct = int(bal.get("valve_percent", 0))
+                last_pct = self.real_trvs[heater_entity_id].get("last_valve_percent")
+                # Hysteresis 3 percentage points, and only when heating is allowed
+                if (
+                    last_pct is None
+                    or abs(int(last_pct) - target_pct) >= 3
+                ) and self.call_for_heat is not False:
+                    _LOGGER.debug(
+                        f"better_thermostat {self.device_name}: TO TRV set_valve: {heater_entity_id} to: {target_pct}%"
+                    )
+                    await set_valve(self, heater_entity_id, target_pct)
+                    self.real_trvs[heater_entity_id]["last_valve_percent"] = target_pct
+        except Exception:
+            _LOGGER.debug(
+                f"better_thermostat {self.device_name}: set_valve not applied for {heater_entity_id} (unsupported or failed)"
+            )
 
         _new_hvac_mode = handle_window_open(self, _remapped_states)
 
