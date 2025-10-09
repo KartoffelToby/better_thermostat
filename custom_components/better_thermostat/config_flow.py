@@ -127,11 +127,26 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     ) -> config_entries.OptionsFlow:
         """Get the options flow for this handler."""
         return OptionsFlowHandler(config_entry)
-        """Get the options flow for this handler."""
+
+    # Added to satisfy abstract base in newer HA versions
+    # type: ignore[override]
+    def is_matching(self, other_flow: config_entries.ConfigFlow) -> bool:
+        """Return True if this flow matches an existing config flow (reconfigure)."""
+        if (
+            getattr(self, "unique_id", None)
+            and getattr(other_flow, "unique_id", None) == self.unique_id
+        ):
+            return True
+        return False
 
     async def async_step_confirm(self, user_input=None, confirm_type=None):
         """Handle user-confirmation of discovered node."""
         errors = {}
+        if not self.data:
+            errors["base"] = "no_data"
+            return self.async_show_form(step_id="confirm", errors=errors)
+
+        # attach current trv bundle
         self.data[CONF_HEATER] = self.trv_bundle
         if user_input is not None:
             if self.data is not None:
@@ -144,7 +159,8 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 return self.async_create_entry(title=self.data["name"], data=self.data)
         if confirm_type is not None:
             errors["base"] = confirm_type
-        _trvs = ",".join([x["trv"] for x in self.data[CONF_HEATER]])
+        _trv_list = self.data.get(CONF_HEATER) or []
+        _trvs = ",".join([x.get("trv", "?") for x in _trv_list])
         return self.async_show_form(
             step_id="confirm",
             errors=errors,
@@ -153,6 +169,10 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
 
     async def async_step_advanced(self, user_input=None, _trv_config=None):
         """Handle options flow."""
+        if _trv_config is None:
+            # Should not happen in normal flow, fallback to confirm
+            return await self.async_step_confirm()
+
         if user_input is not None:
             self.trv_bundle[self.i]["advanced"] = user_input
             self.trv_bundle[self.i]["adapter"] = None
@@ -163,9 +183,12 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
 
             _has_off_mode = True
             for trv in self.trv_bundle:
-                if HVACMode.OFF not in self.hass.states.get(
-                    trv.get("trv")
-                ).attributes.get("hvac_modes"):
+                entity_id = trv.get("trv")
+                state_obj = self.hass.states.get(entity_id) if entity_id else None
+                hvac_modes = []
+                if state_obj and hasattr(state_obj, "attributes"):
+                    hvac_modes = state_obj.attributes.get("hvac_modes", []) or []
+                if HVACMode.OFF not in hvac_modes:
                     _has_off_mode = False
 
             if _has_off_mode is False:
@@ -174,16 +197,27 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
 
         user_input = user_input or {}
         homematic = False
-        if _trv_config.get("integration").find("homematic") != -1:
+        integration_name = (
+            _trv_config.get("integration") if isinstance(_trv_config, dict) else None
+        )
+        if integration_name and integration_name.find("homematic") != -1:
             homematic = True
 
         fields = OrderedDict()
 
         _default_calibration = "target_temp_based"
         _adapter = _trv_config.get("adapter", None)
+        _info = {}
         if _adapter is not None:
-            _info = await _adapter.get_info(self, _trv_config.get("trv"))
-
+            try:
+                _info = await _adapter.get_info(self, _trv_config.get("trv"))
+            except (
+                AttributeError,
+                RuntimeError,
+                ValueError,
+                TypeError,
+            ):  # pragma: no cover - defensive
+                _LOGGER.debug("Adapter get_info failed", exc_info=True)
             if _info.get("support_offset", False):
                 _default_calibration = "local_calibration_based"
 
@@ -255,7 +289,7 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             step_id="advanced",
             data_schema=vol.Schema(fields),
             last_step=False,
-            description_placeholders={"trv": _trv_config.get("trv")},
+            description_placeholders={"trv": _trv_config.get("trv", "-")},
         )
 
     async def async_step_user(self, user_input=None):
@@ -396,9 +430,10 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
         self.device_name = ""
         self._last_step = False
         self.updated_config = {}
+        self.config_entry = config_entry
         super().__init__()
 
-    async def async_step_init(self, user_input=None):
+    async def async_step_init(self, _user_input=None):
         """Manage the options."""
         return await self.async_step_user()
 
@@ -429,8 +464,15 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
             )
 
         user_input = user_input or {}
+        # Ensure dict shape
+        if not isinstance(_trv_config, dict):
+            _trv_config = {}
+        adv_cfg = _trv_config.get("advanced") or {}
+        integration_name = _trv_config.get("integration") or ""
+        trv_id = _trv_config.get("trv")
+
         homematic = False
-        if _trv_config.get("integration").find("homematic") != -1:
+        if integration_name.find("homematic") != -1:
             homematic = True
 
         fields = OrderedDict()
@@ -438,44 +480,47 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
         _default_calibration = "target_temp_based"
         self.device_name = user_input.get(CONF_NAME, "-")
 
-        _adapter = await load_adapter(
-            self, _trv_config.get("integration"), _trv_config.get("trv")
-        )
-        if _adapter is not None:
-            _info = await _adapter.get_info(self, _trv_config.get("trv"))
-
+        _adapter = None
+        _info = {}
+        if integration_name and trv_id:
+            try:
+                _adapter = await load_adapter(self, integration_name, trv_id)
+            except (
+                RuntimeError,
+                ValueError,
+                TypeError,
+            ):  # pragma: no cover - defensive
+                _LOGGER.debug("load_adapter failed", exc_info=True)
+        if _adapter is not None and trv_id and hasattr(_adapter, "get_info"):
+            try:
+                # type: ignore[attr-defined]
+                _info = await _adapter.get_info(self, trv_id)
+            except (
+                RuntimeError,
+                ValueError,
+                TypeError,
+                AttributeError,
+            ):  # pragma: no cover
+                _LOGGER.debug("adapter get_info failed", exc_info=True)
             if _info.get("support_offset", False):
                 _default_calibration = "local_calibration_based"
 
+        calib_default = user_input.get(
+            CONF_CALIBRATION, adv_cfg.get(CONF_CALIBRATION, _default_calibration)
+        )
         if _default_calibration == "local_calibration_based":
-            fields[
-                vol.Required(
-                    CONF_CALIBRATION,
-                    default=user_input.get(
-                        CONF_CALIBRATION,
-                        _trv_config["advanced"].get(
-                            CONF_CALIBRATION, _default_calibration
-                        ),
-                    ),
-                )
-            ] = CALIBRATION_TYPE_ALL_SELECTOR
+            fields[vol.Required(CONF_CALIBRATION, default=calib_default)] = (
+                CALIBRATION_TYPE_ALL_SELECTOR
+            )
         else:
-            fields[
-                vol.Required(
-                    CONF_CALIBRATION,
-                    default=user_input.get(
-                        CONF_CALIBRATION,
-                        _trv_config["advanced"].get(
-                            CONF_CALIBRATION, _default_calibration
-                        ),
-                    ),
-                )
-            ] = CALIBRATION_TYPE_SELECTOR
+            fields[vol.Required(CONF_CALIBRATION, default=calib_default)] = (
+                CALIBRATION_TYPE_SELECTOR
+            )
 
         fields[
             vol.Required(
                 CONF_CALIBRATION_MODE,
-                default=_trv_config["advanced"].get(
+                default=adv_cfg.get(
                     CONF_CALIBRATION_MODE, CalibrationMode.HEATING_POWER_CALIBRATION
                 ),
             )
@@ -484,26 +529,29 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
         fields[
             vol.Optional(
                 CONF_PROTECT_OVERHEATING,
-                default=_trv_config["advanced"].get(CONF_PROTECT_OVERHEATING, False),
+                default=adv_cfg.get(CONF_PROTECT_OVERHEATING, False),
             )
         ] = bool
 
         fields[
             vol.Optional(
                 CONF_NO_SYSTEM_MODE_OFF,
-                default=_trv_config["advanced"].get(CONF_NO_SYSTEM_MODE_OFF, False),
+                default=adv_cfg.get(CONF_NO_SYSTEM_MODE_OFF, False),
             )
         ] = bool
 
         has_auto = False
-        trv = self.hass.states.get(_trv_config.get("trv"))
-        if HVACMode.AUTO in trv.attributes.get("hvac_modes"):
-            has_auto = True
+        if trv_id:
+            trv_state = self.hass.states.get(trv_id)
+            if trv_state and hasattr(trv_state, "attributes"):
+                hvac_modes = trv_state.attributes.get("hvac_modes", []) or []
+                if HVACMode.AUTO in hvac_modes:
+                    has_auto = True
 
         fields[
             vol.Optional(
                 CONF_HEAT_AUTO_SWAPPED,
-                default=_trv_config["advanced"].get(CONF_HEAT_AUTO_SWAPPED, has_auto),
+                default=adv_cfg.get(CONF_HEAT_AUTO_SWAPPED, has_auto),
             )
         ] = bool
 
@@ -511,20 +559,16 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
             fields[
                 vol.Optional(
                     CONF_VALVE_MAINTENANCE,
-                    default=_trv_config["advanced"].get(CONF_VALVE_MAINTENANCE, False),
+                    default=adv_cfg.get(CONF_VALVE_MAINTENANCE, False),
                 )
             ] = bool
 
         fields[
-            vol.Optional(
-                CONF_CHILD_LOCK,
-                default=_trv_config["advanced"].get(CONF_CHILD_LOCK, False),
-            )
+            vol.Optional(CONF_CHILD_LOCK, default=adv_cfg.get(CONF_CHILD_LOCK, False))
         ] = bool
         fields[
             vol.Optional(
-                CONF_HOMEMATICIP,
-                default=_trv_config["advanced"].get(CONF_HOMEMATICIP, homematic),
+                CONF_HOMEMATICIP, default=adv_cfg.get(CONF_HOMEMATICIP, homematic)
             )
         ] = bool
 
@@ -532,7 +576,7 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
             step_id="advanced",
             data_schema=vol.Schema(fields),
             last_step=self._last_step,
-            description_placeholders={"trv": _trv_config.get("trv")},
+            description_placeholders={"trv": trv_id or "-"},
         )
 
     async def async_step_user(self, user_input=None):
