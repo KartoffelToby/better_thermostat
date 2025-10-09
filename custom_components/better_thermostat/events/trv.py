@@ -403,18 +403,7 @@ def _apply_hydraulic_balance(
                 return new_sp
             except TypeError:
                 return current_setpoint
-        elif bal.setpoint_eff_C is not None:
-            _LOGGER.debug(
-                (
-                    "better_thermostat %s: balance setpoint throttling skipped for %s "
-                    "due to calibration mode/type (type=%s mode=%s); keeping calibration setpoint=%s"
-                ),
-                self.device_name,
-                entity_id,
-                calibration_type,
-                calibration_mode,
-                current_setpoint,
-            )
+
         return current_setpoint
     except Exception as e:
         _LOGGER.debug(
