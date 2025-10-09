@@ -39,17 +39,42 @@ async def init(self, entity_id):
             self.device_name,
             self.real_trvs[entity_id]["local_temperature_calibration_entity"],
         )
-        # Wait for the entity to be available
+        # Wait for the entity to be available with timeout
         _ready = True
+        _max_retries = 6  # 30 seconds total (6 * 5 seconds)
+        _retry_count = 0
         while _ready:
-            if self.hass.states.get(
+            _state = self.hass.states.get(
                 self.real_trvs[entity_id]["local_temperature_calibration_entity"]
-            ).state in (STATE_UNAVAILABLE, STATE_UNKNOWN, None):
+            )
+            if _state is None or _state.state in (STATE_UNAVAILABLE, STATE_UNKNOWN, None):
                 _LOGGER.info(
                     "better_thermostat %s: waiting for TRV/climate entity with id '%s' to become fully available...",
                     self.device_name,
                     self.real_trvs[entity_id]["local_temperature_calibration_entity"],
                 )
+                _retry_count += 1
+                if _retry_count >= _max_retries:
+                    _LOGGER.warning(
+                        "better_thermostat %s: local_temperature_calibration entity '%s' not available after timeout, forcing calibration to 0",
+                        self.device_name,
+                        self.real_trvs[entity_id]["local_temperature_calibration_entity"],
+                    )
+                    # Force set calibration to 0 to initialize the entity
+                    await self.hass.services.async_call(
+                        "number",
+                        SERVICE_SET_VALUE,
+                        {
+                            "entity_id": self.real_trvs[entity_id][
+                                "local_temperature_calibration_entity"
+                            ],
+                            "value": 0,
+                        },
+                        blocking=False,
+                        context=self.context,
+                    )
+                    _ready = False
+                    break
                 await asyncio.sleep(5)
                 continue
             _ready = False
