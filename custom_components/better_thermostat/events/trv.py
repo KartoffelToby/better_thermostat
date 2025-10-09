@@ -337,6 +337,12 @@ def _apply_hydraulic_balance(
                 heating_allowed=True,
             )
         )
+        # Schedule a debounced persistence save (if the entity supports it)
+        try:
+            if hasattr(self, "_schedule_save_balance_state"):
+                self._schedule_save_balance_state()
+        except Exception:
+            pass
         _LOGGER.debug(
             (
                 "better_thermostat %s: balance result for %s: valve=%.1f%% "

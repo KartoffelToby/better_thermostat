@@ -168,3 +168,6 @@ A: No. It’s optional. With valve feedback (via MQTT/Z2M), the algorithm can se
 
 ## Maintenance
 This document is a living specification. Whenever we modify the hydraulic balance logic, configuration, adapters, or telemetry, update this file in the same change. Treat it as the single source of truth for the feature’s behavior, parameters, and integration points.
+
+### Persistence
+The per-room balance learning state (EMA of slope and last percent/rate-limit timestamp) is persisted across Home Assistant restarts using HA storage. Keys are scoped by the Better Thermostat entity `unique_id` and the TRV entity id (format: `<unique_id>:<trv_entity_id>`). State is loaded during entity startup and saved in a debounced manner after balance updates to avoid re-learning after restarts.

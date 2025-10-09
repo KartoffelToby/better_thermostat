@@ -224,3 +224,48 @@ def reset_balance_state(key: str) -> None:
 
 def get_balance_state(key: str) -> Optional[BalanceState]:
     return _BALANCE_STATES.get(key)
+
+
+# --- Persistence helpers --------------------------------------------
+
+def export_states(prefix: Optional[str] = None) -> Dict[str, Dict[str, Any]]:
+    """Export internal state to a JSON-serializable dict.
+
+    prefix: if provided, only include keys starting with this prefix.
+    """
+    out: Dict[str, Dict[str, Any]] = {}
+    for k, st in _BALANCE_STATES.items():
+        if prefix is not None and not k.startswith(prefix):
+            continue
+        out[k] = {
+            "last_percent": st.last_percent,
+            "last_update_ts": st.last_update_ts,
+            "ema_slope": st.ema_slope,
+        }
+    return out
+
+
+def import_states(data: Dict[str, Dict[str, Any]], prefix_filter: Optional[str] = None) -> int:
+    """Import previously saved states into the module-local cache.
+
+    Returns the number of imported entries. If prefix_filter is provided,
+    only keys starting with that prefix will be imported.
+    """
+    if not isinstance(data, dict):
+        return 0
+    count = 0
+    for k, v in data.items():
+        if prefix_filter is not None and not str(k).startswith(prefix_filter):
+            continue
+        try:
+            st = BalanceState(
+                last_percent=v.get("last_percent"),
+                last_update_ts=float(v.get("last_update_ts", 0.0)),
+                ema_slope=v.get("ema_slope"),
+            )
+            _BALANCE_STATES[str(k)] = st
+            count += 1
+        except (KeyError, TypeError, ValueError):
+            # Ignore malformed entries
+            continue
+    return count

@@ -43,6 +43,7 @@ from homeassistant.helpers.event import (
     async_track_time_interval,
 )
 from homeassistant.helpers.restore_state import RestoreEntity
+from homeassistant.helpers.storage import Store
 
 # Local imports
 from .adapters.delegate import (
@@ -92,6 +93,7 @@ from .utils.controlling import control_queue, control_trv
 from .utils.helpers import convert_to_float, find_battery_entity, get_hvac_bt_mode
 from .utils.watcher import check_all_entities
 from .utils.weather import check_ambient_air_temperature, check_weather
+from .balance import export_states as balance_export_states, import_states as balance_import_states
 
 
 _LOGGER = logging.getLogger(__name__)
@@ -389,6 +391,9 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
         self.temp_slope = None
         self._slope_last_temp = None
         self._slope_last_ts = None
+        # Persistence for balance (hydraulic) states
+        self._balance_store = None
+        self._balance_save_scheduled = False
 
     async def async_added_to_hass(self):
         """Run when entity about to be added.
@@ -459,6 +464,17 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
         _LOGGER.info(
             "better_thermostat %s: Waiting for entity to be ready...", self.device_name
         )
+
+        # Initialize persistent storage for balance states and attempt to load
+        try:
+            self._balance_store = Store(self.hass, 1, f"{DOMAIN}_balance_states")
+            await self._load_balance_state()
+        except Exception as e:  # noqa: BLE001
+            _LOGGER.debug(
+                "better_thermostat %s: balance storage init/load failed: %s",
+                self.device_name,
+                e,
+            )
 
         @callback
         def _async_startup(*_):
@@ -1020,6 +1036,78 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
             self.async_write_ha_state()
             await self.async_update_ha_state(force_refresh=True)
             break
+
+    async def _load_balance_state(self) -> None:
+        """Load persisted balance states and hydrate module-level cache."""
+        if self._balance_store is None:
+            return
+        data = await self._balance_store.async_load()
+        if not data:
+            return
+        prefix = f"{self._unique_id}:"
+        try:
+            imported = balance_import_states(data, prefix_filter=prefix)
+            _LOGGER.debug(
+                "better_thermostat %s: loaded %s balance state(s) with prefix %s",
+                self.device_name,
+                imported,
+                prefix,
+            )
+        except Exception as e:  # noqa: BLE001
+            _LOGGER.debug(
+                "better_thermostat %s: failed to import balance states: %s",
+                self.device_name,
+                e,
+            )
+
+    async def _save_balance_state(self) -> None:
+        """Persist current balance states for this entity (prefix filtered)."""
+        if self._balance_store is None:
+            return
+        try:
+            prefix = f"{self._unique_id}:"
+            current = balance_export_states(prefix=prefix)
+            # Merge with existing store to avoid overwriting other entities' data
+            existing = await self._balance_store.async_load()
+            if not isinstance(existing, dict):
+                existing = {}
+            # Drop previous entries for this entity's prefix
+            to_delete = [k for k in list(existing.keys()) if str(k).startswith(prefix)]
+            for k in to_delete:
+                try:
+                    del existing[k]
+                except KeyError:
+                    pass
+            # Update with current
+            existing.update(current)
+            await self._balance_store.async_save(existing)
+            _LOGGER.debug(
+                "better_thermostat %s: saved %d balance state(s)",
+                self.device_name,
+                len(current or {}),
+            )
+        except Exception as e:  # noqa: BLE001
+            _LOGGER.debug(
+                "better_thermostat %s: saving balance states failed: %s",
+                self.device_name,
+                e,
+            )
+
+    def _schedule_save_balance_state(self, delay_s: float = 10.0) -> None:
+        """Debounced scheduling for saving balance state to storage."""
+        if self._balance_store is None or self._balance_save_scheduled:
+            return
+        self._balance_save_scheduled = True
+
+        async def _delayed_save():
+            try:
+                await asyncio.sleep(delay_s)
+                await self._save_balance_state()
+            finally:
+                self._balance_save_scheduled = False
+
+        # Fire and forget
+        self.hass.async_create_task(_delayed_save())
 
     async def calculate_heating_power(self):
         """Learn effective heating power (°C/min) from completed heating cycles.
