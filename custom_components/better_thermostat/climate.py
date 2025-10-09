@@ -385,10 +385,10 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
         # Short bounded history of recent heating power evaluations
         self.last_heating_power_stats = deque(maxlen=10)
         self.is_removed = False
-    # Balance / Hydraulik: Temperaturtrend (K/min)
-    self.temp_slope = None
-    self._slope_last_temp = None
-    self._slope_last_ts = None
+        # Balance / Hydraulic: temperature trend (K/min)
+        self.temp_slope = None
+        self._slope_last_temp = None
+        self._slope_last_ts = None
 
     async def async_added_to_hass(self):
         """Run when entity about to be added.

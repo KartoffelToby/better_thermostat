@@ -12,6 +12,7 @@ from custom_components.better_thermostat.adapters.delegate import get_current_of
 from custom_components.better_thermostat.balance import (
     compute_balance,
     BalanceInput,
+    BalanceParams,
 )
 
 from custom_components.better_thermostat.utils.const import (
@@ -241,6 +242,184 @@ def convert_inbound_states(self, entity_id, state: State) -> str:
     return remapped_state
 
 
+def _apply_hydraulic_balance(
+    self,
+    entity_id: str,
+    hvac_mode,
+    current_setpoint,
+    calibration_type,
+    calibration_mode,
+    precheck_applies: bool | None = None,
+):
+    """Apply decentralized hydraulic balance if enabled via calibration mode.
+
+    Returns the potentially updated setpoint. Also writes debug info to
+    self.real_trvs[entity_id]["balance"].
+    """
+    try:
+        min_t = self.real_trvs[entity_id].get("min_temp") or self.bt_min_temp
+        max_t = self.real_trvs[entity_id].get("max_temp") or self.bt_max_temp
+        cond_has_cur = self.cur_temp is not None
+        cond_has_target = self.bt_target_temp is not None
+        cond_hvac_ok = hvac_mode is not None and hvac_mode != HVACMode.OFF
+        cond_window_closed = self.window_open is False
+        cond_not_min_temp_off = (
+            current_setpoint is None or current_setpoint > (min_t + 0.05)
+        )
+        cond_enabled = calibration_mode == CalibrationMode.HYDRAULIC_BALANCE
+
+        apply_balance = (
+            cond_has_cur
+            and cond_has_target
+            and cond_hvac_ok
+            and cond_window_closed
+            and cond_not_min_temp_off
+            and cond_enabled
+        )
+        # If caller provided an early precheck, keep it as a sanity requirement
+        if precheck_applies is not None:
+            apply_balance = apply_balance and precheck_applies
+
+        _LOGGER.debug(
+            (
+                "better_thermostat %s: balance pre-check for %s: apply=%s | "
+                "inputs target=%.2f current=%.2f tol=%.2f slope=%s hvac_mode=%s "
+                "window_open=%s min_t=%.2f max_t=%.2f initial_setpoint=%s | "
+                "conds has_cur=%s has_target=%s hvac_ok=%s window_closed=%s "
+                "not_min_off=%s enabled=%s"
+            ),
+            self.device_name,
+            entity_id,
+            apply_balance,
+            (self.bt_target_temp if self.bt_target_temp is not None else float("nan")),
+            (self.cur_temp if self.cur_temp is not None else float("nan")),
+            float(getattr(self, "tolerance", 0.0) or 0.0),
+            getattr(self, "temp_slope", None),
+            hvac_mode,
+            self.window_open,
+            min_t,
+            max_t,
+            current_setpoint,
+            cond_has_cur,
+            cond_has_target,
+            cond_hvac_ok,
+            cond_window_closed,
+            cond_not_min_temp_off,
+            cond_enabled,
+        )
+
+        if not apply_balance:
+            _LOGGER.debug(
+                (
+                    "better_thermostat %s: balance NOT applied for %s (conds) -> "
+                    "has_cur=%s has_target=%s hvac_ok=%s window_closed=%s "
+                    "not_min_off=%s enabled=%s"
+                ),
+                self.device_name,
+                entity_id,
+                cond_has_cur,
+                cond_has_target,
+                cond_hvac_ok,
+                cond_window_closed,
+                cond_not_min_temp_off,
+                cond_enabled,
+            )
+            return current_setpoint
+
+        bal = compute_balance(
+            BalanceInput(
+                key=f"{self._unique_id}:{entity_id}",
+                target_temp_C=self.bt_target_temp,
+                current_temp_C=self.cur_temp,
+                tolerance_K=float(getattr(self, "tolerance", 0.0) or 0.0),
+                temp_slope_K_per_min=getattr(self, "temp_slope", None),
+                window_open=self.window_open,
+                heating_allowed=True,
+            )
+        )
+        _LOGGER.debug(
+            (
+                "better_thermostat %s: balance result for %s: valve=%.1f%% "
+                "flow_cap_K=%s setpoint_eff=%s sonoff_min=%s%% sonoff_max=%s%%"
+            ),
+            self.device_name,
+            entity_id,
+            (bal.valve_percent if bal.valve_percent is not None else float("nan")),
+            bal.flow_cap_K,
+            bal.setpoint_eff_C,
+            bal.sonoff_min_open_pct,
+            bal.sonoff_max_open_pct,
+        )
+
+        # Save debug
+        self.real_trvs[entity_id]["balance"] = {
+            "valve_percent": bal.valve_percent,
+            "flow_cap_K": bal.flow_cap_K,
+            "setpoint_eff_C": bal.setpoint_eff_C,
+            "sonoff_min_open_pct": bal.sonoff_min_open_pct,
+            "sonoff_max_open_pct": bal.sonoff_max_open_pct,
+        }
+
+        # Only in HYDRAULIC_BALANCE mode we adjust setpoint.
+        # Use a symmetric adjustment around the calibration/base setpoint:
+        # - If demand present (current < target, delta_T > 0), increase setpoint by flow_cap_K
+        # - If overshoot (current >= target, delta_T <= 0), decrease setpoint by flow_cap_K
+        if calibration_mode == CalibrationMode.HYDRAULIC_BALANCE:
+            try:
+                base_sp = current_setpoint if current_setpoint is not None else self.bt_target_temp
+                if base_sp is None:
+                    return current_setpoint
+                delta_T = (self.bt_target_temp - self.cur_temp) if (
+                    self.bt_target_temp is not None and self.cur_temp is not None) else 0.0
+                # Combine valve-derived cap with demand-based magnitude from ΔT
+                bp = BalanceParams()
+                demand_gain = 0.6  # K/K scaling; tuneable
+                demand_mag = min(bp.cap_max_K, abs(delta_T) * demand_gain)
+                magnitude = max(bal.flow_cap_K or 0.0, demand_mag)
+                proposed = base_sp + (magnitude if delta_T > 0.0 else -magnitude)
+                new_sp = max(min_t, min(max_t, proposed))
+                _LOGGER.debug(
+                    (
+                        "better_thermostat %s: balance applied setpoint for %s (symmetric): "
+                        "base=%s delta_T=%.3f flow_cap_K=%.3f demand_mag=%.3f -> proposed=%s clamped=%s within [%.2f, %.2f]"
+                    ),
+                    self.device_name,
+                    entity_id,
+                    base_sp,
+                    delta_T,
+                    (bal.flow_cap_K or 0.0),
+                    demand_mag,
+                    proposed,
+                    new_sp,
+                    min_t,
+                    max_t,
+                )
+                return new_sp
+            except TypeError:
+                return current_setpoint
+        elif bal.setpoint_eff_C is not None:
+            _LOGGER.debug(
+                (
+                    "better_thermostat %s: balance setpoint throttling skipped for %s "
+                    "due to calibration mode/type (type=%s mode=%s); keeping calibration setpoint=%s"
+                ),
+                self.device_name,
+                entity_id,
+                calibration_type,
+                calibration_mode,
+                current_setpoint,
+            )
+        return current_setpoint
+    except Exception as e:
+        _LOGGER.debug(
+            "better_thermostat %s: balance compute failed for %s: %s",
+            self.device_name,
+            entity_id,
+            e,
+        )
+        return current_setpoint
+
+
 def convert_outbound_states(self, entity_id, hvac_mode) -> dict | None:
     """Creates the new outbound thermostat state.
     Parameters
@@ -320,52 +499,26 @@ def convert_outbound_states(self, entity_id, hvac_mode) -> dict | None:
                 _new_heating_setpoint = _min_temp
                 hvac_mode = None
 
-    # --- Hydraulic balance (decentralized): percentage & setpoint throttling ---
-        try:
-            min_t = self.real_trvs[entity_id].get("min_temp") or self.bt_min_temp
-            # Nur anwenden, wenn wir nicht im "min-Temp als OFF"-Pfad sind
-            apply_balance = (
-                self.cur_temp is not None
+            # Early balance precondition (simple check, full check/logging in helper)
+            _balance_precheck = (
+                _calibration_mode == CalibrationMode.HYDRAULIC_BALANCE
+                and self.cur_temp is not None
                 and self.bt_target_temp is not None
                 and hvac_mode is not None
                 and hvac_mode != HVACMode.OFF
                 and self.window_open is False
-                and (_new_heating_setpoint is None or _new_heating_setpoint > (min_t + 0.05))
-                and self.real_trvs[entity_id]["advanced"].get("dynamic_balance", False)
             )
-            if apply_balance:
-                bal = compute_balance(
-                    BalanceInput(
-                        key=f"{self._unique_id}:{entity_id}",
-                        target_temp_C=self.bt_target_temp,
-                        current_temp_C=self.cur_temp,
-                        tolerance_K=float(getattr(self, "tolerance", 0.0) or 0.0),
-                        temp_slope_K_per_min=getattr(self, "temp_slope", None),
-                        window_open=self.window_open,
-                        heating_allowed=True,
-                    )
-                )
-                # Debug speichern
-                self.real_trvs[entity_id]["balance"] = {
-                    "valve_percent": bal.valve_percent,
-                    "flow_cap_K": bal.flow_cap_K,
-                    "setpoint_eff_C": bal.setpoint_eff_C,
-                    "sonoff_min_open_pct": bal.sonoff_min_open_pct,
-                    "sonoff_max_open_pct": bal.sonoff_max_open_pct,
-                }
-                # Setpoint anpassen (generischer Pfad)
-                if bal.setpoint_eff_C is not None:
-                    max_t = self.real_trvs[entity_id].get(
-                        "max_temp") or self.bt_max_temp
-                    try:
-                        _new_heating_setpoint = max(
-                            min_t, min(max_t, bal.setpoint_eff_C))
-                    except TypeError:
-                        pass
-        except Exception as e:
-            _LOGGER.debug(
-                f"better_thermostat {self.device_name}: balance compute failed for {entity_id}: {e}"
-            )
+
+    # --- Hydraulic balance (decentralized): percentage & setpoint throttling ---
+        _new_heating_setpoint = _apply_hydraulic_balance(
+            self,
+            entity_id,
+            hvac_mode,
+            _new_heating_setpoint,
+            _calibration_type,
+            _calibration_mode,
+            _balance_precheck,
+        )
 
         return {
             "temperature": _new_heating_setpoint,

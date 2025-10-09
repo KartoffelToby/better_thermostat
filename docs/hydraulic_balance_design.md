@@ -87,18 +87,18 @@ All steps are per-room and require no global information.
 ## Implementation
 - balance.py: pure computation, no side effects.
 - events/temperature.py: compute and store a smoothed slope (K/min).
-- events/trv.py: integrate balance for setpoint-based devices; store debug info per TRV under `real_trvs[trv]['balance']`. Enabled per-TRV via advanced option `dynamic_balance`.
+- events/trv.py: integrate balance for setpoint-based devices; store debug info per TRV under `real_trvs[trv]['balance']`. Enabled by selecting calibration mode "Hydraulic Balance".
 - utils/controlling.py: if a valve entity exists (e.g., MQTT/Z2M), call `set_valve` with the computed percentage (with hysteresis).
 
 ### Code integration points
 - `balance.py`: pure math and simple per-room in-memory state
 - `events/temperature.py`: computes `temp_slope` as a smoothed K/min trend
-- `events/trv.py`: calls `compute_balance(...)` when Advanced `dynamic_balance` is enabled on that TRV; applies `setpoint_eff` and records debug under `real_trvs[trv]['balance']`
+- `events/trv.py`: calls `compute_balance(...)` when calibration mode is set to "Hydraulic Balance"; applies `setpoint_eff` and records debug under `real_trvs[trv]['balance']`
 - `utils/controlling.py`: if `valve_position_entity` exists for a TRV, sends `set_valve(percent)` with a 3% hysteresis
 - `adapters/mqtt.py`: tries to discover a `valve_position_entity` to enable `set_valve`
 
 ## Configuration
-- Advanced per-TRV flag `dynamic_balance` (bool). Default: false.
+- New calibration mode per TRV: `hydraulic_balance`.
 - Future tuning parameters (cap_max, bands, hysteresis) can be exposed if needed.
 
 Suggested defaults (conservative):
@@ -118,7 +118,7 @@ Suggested defaults (conservative):
 - For Sonoff TRVZB, we will extend adapters to write min/max opening if available via the underlying integration.
 
 ## Next steps
-- Add `dynamic_balance` to the config flow UI (done here, needs HA environment to validate forms).
+- Expose "Hydraulic Balance" in the calibration mode dropdown.
 - Extend adapters to detect and write Sonoff min/max opening endpoints where available.
 - Optional: expose balance parameters in the UI.
 

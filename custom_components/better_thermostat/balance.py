@@ -182,14 +182,9 @@ def compute_balance(inp: BalanceInput, params: BalanceParams = BalanceParams()) 
 
     setpoint_eff = None
     if inp.target_temp_C is not None:
-        # Only act when demand present; otherwise neutral
-        if (delta_T or 0.0) >= 0.0:
-            setpoint_eff = max(
-                inp.target_temp_C - flow_cap_K,
-                inp.target_temp_C - params.cap_max_K,
-            )
-        else:
-            # On overshoot: stronger throttling is ok
+        # Only apply throttling on overshoot (current >= target). When demand is present
+        # (current < target), do not reduce setpoint to avoid fighting heating demand.
+        if delta_T is not None and delta_T <= 0.0:
             setpoint_eff = inp.target_temp_C - flow_cap_K
 
     # Sonoff mapping: max_open = percent; min_open depends on overshoot/comfort
