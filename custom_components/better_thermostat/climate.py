@@ -1703,7 +1703,7 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
                     )
                     # Persist to config entry options for durability
                     self._async_persist_preset_temperatures()
-                    
+
         # Enforce ordering: cool target should be above heat target (if both in heat_cool mode)
         if (
             self.hvac_mode in (HVACMode.HEAT_COOL,)

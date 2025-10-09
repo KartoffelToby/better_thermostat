@@ -564,10 +564,7 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
             ] = bool
 
         fields[
-            vol.Optional(
-                CONF_CHILD_LOCK,
-                default=adv_cfg.get(CONF_CHILD_LOCK, False),
-            )
+            vol.Optional(CONF_CHILD_LOCK, default=adv_cfg.get(CONF_CHILD_LOCK, False))
         ] = bool
         fields[
             vol.Optional(
