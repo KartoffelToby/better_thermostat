@@ -86,6 +86,3 @@ async def trigger_cooler_change(self, event):
         return await self.control_queue_task.put(self)
     self.async_write_ha_state()
     return
-
-
-# Removed legacy update_hvac_action: hvac_action now computed in climate entity.
