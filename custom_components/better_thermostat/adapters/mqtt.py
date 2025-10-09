@@ -81,13 +81,12 @@ async def set_hvac_mode(self, entity_id, hvac_mode):
 
 async def get_current_offset(self, entity_id):
     """Get current offset."""
-    return float(
-        str(
-            self.hass.states.get(
-                self.real_trvs[entity_id]["local_temperature_calibration_entity"]
-            ).state
-        )
+    state = self.hass.states.get(
+        self.real_trvs[entity_id]["local_temperature_calibration_entity"]
     )
+    if state is None or state.state in (STATE_UNAVAILABLE, STATE_UNKNOWN):
+        return None
+    return float(str(state.state))
 
 
 async def get_offset_step(self, entity_id):

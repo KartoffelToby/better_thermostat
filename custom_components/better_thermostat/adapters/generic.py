@@ -53,13 +53,12 @@ async def init(self, entity_id):
 async def get_current_offset(self, entity_id):
     """Get current offset."""
     if self.real_trvs[entity_id]["local_temperature_calibration_entity"] is not None:
-        return float(
-            str(
-                self.hass.states.get(
-                    self.real_trvs[entity_id]["local_temperature_calibration_entity"]
-                ).state
-            )
+        state = self.hass.states.get(
+            self.real_trvs[entity_id]["local_temperature_calibration_entity"]
         )
+        if state is None or state.state in (STATE_UNAVAILABLE, STATE_UNKNOWN):
+            return None
+        return float(str(state.state))
     else:
         return None
 
