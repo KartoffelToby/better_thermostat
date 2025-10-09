@@ -61,18 +61,26 @@ async def init(self, entity_id):
                         self.real_trvs[entity_id]["local_temperature_calibration_entity"],
                     )
                     # Force set calibration to 0 to initialize the entity
-                    await self.hass.services.async_call(
-                        "number",
-                        SERVICE_SET_VALUE,
-                        {
-                            "entity_id": self.real_trvs[entity_id][
-                                "local_temperature_calibration_entity"
-                            ],
-                            "value": 0,
-                        },
-                        blocking=False,
-                        context=self.context,
-                    )
+                    try:
+                        await self.hass.services.async_call(
+                            "number",
+                            SERVICE_SET_VALUE,
+                            {
+                                "entity_id": self.real_trvs[entity_id][
+                                    "local_temperature_calibration_entity"
+                                ],
+                                "value": 0,
+                            },
+                            blocking=False,
+                            context=self.context,
+                        )
+                    except Exception as e:
+                        _LOGGER.error(
+                            "better_thermostat %s: Failed to set calibration to 0 for entity '%s': %s",
+                            self.device_name,
+                            self.real_trvs[entity_id]["local_temperature_calibration_entity"],
+                            e,
+                        )
                     _ready = False
                     break
                 await asyncio.sleep(5)
