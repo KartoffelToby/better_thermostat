@@ -1937,8 +1937,8 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
     # Backwards compatibility: If anything external still tries to call the old
     # (incorrect) async method name, provide a thin wrapper. This is intentionally
     # NOT async so HA will not pick it up as the implementation again.
-    # type: ignore[override] # Backward compatibility wrapper
-    def set_preset_mode(self, preset_mode: str) -> None:
+
+    def set_preset_mode(self, preset_mode: str) -> None:  # type: ignore[override] # Backward compatibility wrapper
         """Backward compatible wrapper.
 
         This wrapper schedules the new async method on the event loop. It should
