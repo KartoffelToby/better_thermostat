@@ -33,7 +33,7 @@ async def wait_for_calibration_entity_or_timeout(self, entity_id, calibration_en
     _retry_count = 0
     while _ready:
         _state = self.hass.states.get(calibration_entity)
-        if _state is None or _state.state in (STATE_UNAVAILABLE, STATE_UNKNOWN, None):
+        if _state is None or _state.state in (STATE_UNAVAILABLE, STATE_UNKNOWN):
             _LOGGER.info(
                 "better_thermostat %s: waiting for TRV/climate entity with id '%s' to become fully available...",
                 self.device_name,
