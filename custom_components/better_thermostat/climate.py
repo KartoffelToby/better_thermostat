@@ -1700,9 +1700,8 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
         # Note: We still avoid persisting to config entry options here to
         # prevent frequent integration reloads; persistence can be handled
         # via state restore or an explicit save action.
-        if (
-            self._preset_mode in self._preset_temperatures
-            and (_new_setpoint is not None or _new_setpointlow is not None)
+        if self._preset_mode in self._preset_temperatures and (
+            _new_setpoint is not None or _new_setpointlow is not None
         ):
             if self.bt_target_temp is not None:
                 applied = float(self.bt_target_temp)

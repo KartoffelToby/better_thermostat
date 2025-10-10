@@ -127,8 +127,11 @@ async def set_hvac_mode(self, entity_id, hvac_mode):
             context=self.context,
         )
     except TypeError:
-        _LOGGER.debug("TypeError in set_hvac_mode (entity=%s, hvac_mode=%s)",
-                      entity_id, hvac_mode_norm)
+        _LOGGER.debug(
+            "TypeError in set_hvac_mode (entity=%s, hvac_mode=%s)",
+            entity_id,
+            hvac_mode_norm,
+        )
     except Exception as exc:  # noqa: BLE001
         _LOGGER.exception(
             "better_thermostat %s: Exception in set_hvac_mode for %s with %s: %s",

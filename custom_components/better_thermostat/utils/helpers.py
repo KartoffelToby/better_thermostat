@@ -24,7 +24,7 @@ def get_hvac_bt_mode(self, mode: str) -> str:
     return mode
 
 
-def normalize_hvac_mode(value):
+def normalize_hvac_mode(value: HVACMode | str) -> HVACMode | str:
     """Normalize a hvac_mode value to a proper HVACMode enum when possible.
 
     Accepts
