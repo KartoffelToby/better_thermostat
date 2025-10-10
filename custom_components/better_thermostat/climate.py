@@ -437,9 +437,11 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
 
         for trv in self.all_trvs:
             _calibration = 1
-            if trv["advanced"]["calibration"] == "local_calibration_based":
+            _advanced = trv.get("advanced", {})
+            _calibration_type = _advanced.get("calibration")
+            if _calibration_type == "local_calibration_based":
                 _calibration = 0
-            if trv["advanced"]["calibration"] == "hybrid_calibration":
+            if _calibration_type == "hybrid_calibration":
                 _calibration = 2
             _adapter = await load_adapter(self, trv["integration"], trv["trv"])
             _model_quirks = await load_model_quirks(self, trv["model"], trv["trv"])
@@ -449,7 +451,7 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
                 "adapter": _adapter,
                 "model_quirks": _model_quirks,
                 "model": trv["model"],
-                "advanced": trv["advanced"],
+                "advanced": _advanced,
                 "ignore_trv_states": False,
                 "valve_position": None,
                 "valve_position_entity": None,
