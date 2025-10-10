@@ -208,7 +208,7 @@ async def trigger_trv_change(self, event):
     return
 
 
-def convert_inbound_states(self, entity_id, state: State) -> str:
+def convert_inbound_states(self, entity_id, state: State) -> str | None:
     """Convert hvac mode in a thermostat state from HA
     Parameters
     ----------
@@ -293,7 +293,8 @@ def convert_outbound_states(self, entity_id, hvac_mode) -> dict | None:
 
             # Handling different devices with or without system mode reported or contained in the device config
 
-            hvac_mode = mode_remap(self, entity_id, str(hvac_mode), False)
+            # Normalize without forcing to str to avoid values like "HVACMode.HEAT"
+            hvac_mode = mode_remap(self, entity_id, hvac_mode, False)
 
             if not _has_system_mode:
                 _LOGGER.debug(

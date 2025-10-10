@@ -4,6 +4,8 @@ import logging
 from homeassistant.components.number.const import SERVICE_SET_VALUE
 from ..utils.helpers import find_local_calibration_entity
 from .base import wait_for_calibration_entity_or_timeout
+from ..utils.helpers import normalize_hvac_mode
+from homeassistant.const import STATE_UNAVAILABLE, STATE_UNKNOWN
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -108,12 +110,19 @@ async def set_temperature(self, entity_id, temperature):
 
 async def set_hvac_mode(self, entity_id, hvac_mode):
     """Set new target hvac mode."""
-    _LOGGER.debug("better_thermostat %s: set_hvac_mode %s", self.device_name, hvac_mode)
+
+    hvac_mode_norm = normalize_hvac_mode(hvac_mode)
+    _LOGGER.debug(
+        "better_thermostat %s: set_hvac_mode %s -> %s",
+        self.device_name,
+        hvac_mode,
+        hvac_mode_norm,
+    )
     try:
         await self.hass.services.async_call(
             "climate",
             "set_hvac_mode",
-            {"entity_id": entity_id, "hvac_mode": hvac_mode},
+            {"entity_id": entity_id, "hvac_mode": hvac_mode_norm},
             blocking=True,
             context=self.context,
         )

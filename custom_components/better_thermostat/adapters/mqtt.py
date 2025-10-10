@@ -9,6 +9,7 @@ from .generic import (
     set_temperature as generic_set_temperature,
 )
 from .base import wait_for_calibration_entity_or_timeout
+from homeassistant.const import STATE_UNAVAILABLE, STATE_UNKNOWN
 
 _LOGGER = logging.getLogger(__name__)
 

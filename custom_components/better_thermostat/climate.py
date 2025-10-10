@@ -100,6 +100,7 @@ from .utils.controlling import control_queue, control_trv
 from .utils.helpers import convert_to_float, find_battery_entity, get_hvac_bt_mode
 from .utils.watcher import check_all_entities
 from .utils.weather import check_ambient_air_temperature, check_weather
+from .utils.helpers import normalize_hvac_mode
 
 
 _LOGGER = logging.getLogger(__name__)
@@ -1598,20 +1599,22 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
             return None
         return self.bt_target_cooltemp
 
-    async def async_set_hvac_mode(self, hvac_mode: str) -> None:
+    async def async_set_hvac_mode(self, hvac_mode: HVACMode | str) -> None:
         """Set hvac mode.
 
         Returns
         -------
         None
         """
-        if hvac_mode in (HVACMode.HEAT, HVACMode.HEAT_COOL, HVACMode.OFF):
-            self.bt_hvac_mode = get_hvac_bt_mode(self, hvac_mode)
+
+        hvac_mode_norm = normalize_hvac_mode(hvac_mode)
+        if hvac_mode_norm in (HVACMode.HEAT, HVACMode.HEAT_COOL, HVACMode.OFF):
+            self.bt_hvac_mode = get_hvac_bt_mode(self, hvac_mode_norm)
         else:
             _LOGGER.error(
                 "better_thermostat %s: Unsupported hvac_mode %s",
                 self.device_name,
-                hvac_mode,
+                hvac_mode_norm,
             )
         self.async_write_ha_state()
         await self.control_queue_task.put(self)
@@ -1626,14 +1629,17 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
         _new_setpointhigh = None
 
         if ATTR_HVAC_MODE in kwargs:
-            hvac_mode = str(kwargs.get(ATTR_HVAC_MODE, None))
-            if hvac_mode in (HVACMode.HEAT, HVACMode.HEAT_COOL, HVACMode.OFF):
-                self.bt_hvac_mode = hvac_mode
+            from .utils.helpers import normalize_hvac_mode
+
+            hvac_mode_val = kwargs.get(ATTR_HVAC_MODE, None)
+            hvac_mode_norm = normalize_hvac_mode(hvac_mode_val)
+            if hvac_mode_norm in (HVACMode.HEAT, HVACMode.HEAT_COOL, HVACMode.OFF):
+                self.bt_hvac_mode = hvac_mode_norm
             else:
                 _LOGGER.error(
                     "better_thermostat %s: Unsupported hvac_mode %s",
                     self.device_name,
-                    hvac_mode,
+                    hvac_mode_norm,
                 )
         if ATTR_TEMPERATURE in kwargs:
             _new_setpoint = convert_to_float(
@@ -1908,7 +1914,8 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
     # Backwards compatibility: If anything external still tries to call the old
     # (incorrect) async method name, provide a thin wrapper. This is intentionally
     # NOT async so HA will not pick it up as the implementation again.
-    def set_preset_mode(self, preset_mode: str) -> None:  # type: ignore[override] # Backward compatibility wrapper
+    # type: ignore[override] # Backward compatibility wrapper
+    def set_preset_mode(self, preset_mode: str) -> None:
         """Backward compatible wrapper.
 
         This wrapper schedules the new async method on the event loop. It should
