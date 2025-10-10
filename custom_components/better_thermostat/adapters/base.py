@@ -51,10 +51,7 @@ async def wait_for_calibration_entity_or_timeout(self, entity_id, calibration_en
                     await self.hass.services.async_call(
                         "number",
                         SERVICE_SET_VALUE,
-                        {
-                            "entity_id": calibration_entity,
-                            "value": 0,
-                        },
+                        {"entity_id": calibration_entity, "value": 0},
                         blocking=False,
                         context=self.context,
                     )
