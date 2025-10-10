@@ -100,6 +100,7 @@ from .utils.controlling import control_queue, control_trv
 from .utils.helpers import convert_to_float, find_battery_entity, get_hvac_bt_mode
 from .utils.watcher import check_all_entities
 from .utils.weather import check_ambient_air_temperature, check_weather
+from .utils.helpers import normalize_hvac_mode
 
 
 _LOGGER = logging.getLogger(__name__)
@@ -1600,20 +1601,22 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
             return None
         return self.bt_target_cooltemp
 
-    async def async_set_hvac_mode(self, hvac_mode: str) -> None:
+    async def async_set_hvac_mode(self, hvac_mode: HVACMode | str) -> None:
         """Set hvac mode.
 
         Returns
         -------
         None
         """
-        if hvac_mode in (HVACMode.HEAT, HVACMode.HEAT_COOL, HVACMode.OFF):
-            self.bt_hvac_mode = get_hvac_bt_mode(self, hvac_mode)
+
+        hvac_mode_norm = normalize_hvac_mode(hvac_mode)
+        if hvac_mode_norm in (HVACMode.HEAT, HVACMode.HEAT_COOL, HVACMode.OFF):
+            self.bt_hvac_mode = get_hvac_bt_mode(self, hvac_mode_norm)
         else:
             _LOGGER.error(
                 "better_thermostat %s: Unsupported hvac_mode %s",
                 self.device_name,
-                hvac_mode,
+                hvac_mode_norm,
             )
         self.async_write_ha_state()
         await self.control_queue_task.put(self)
@@ -1622,20 +1625,28 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
         """Set new target temperature."""
         if self.bt_hvac_mode == HVACMode.OFF:
             return
+        _LOGGER.debug(
+            "better_thermostat %s: async_set_temperature kwargs=%s, current preset=%s, hvac_mode=%s",
+            self.device_name,
+            kwargs,
+            getattr(self, "_preset_mode", None),
+            getattr(self, "bt_hvac_mode", None),
+        )
 
         _new_setpoint = None
         _new_setpointlow = None
         _new_setpointhigh = None
 
         if ATTR_HVAC_MODE in kwargs:
-            hvac_mode = str(kwargs.get(ATTR_HVAC_MODE, None))
-            if hvac_mode in (HVACMode.HEAT, HVACMode.HEAT_COOL, HVACMode.OFF):
-                self.bt_hvac_mode = hvac_mode
+            hvac_mode_val = kwargs.get(ATTR_HVAC_MODE, None)
+            hvac_mode_norm = normalize_hvac_mode(hvac_mode_val)
+            if hvac_mode_norm in (HVACMode.HEAT, HVACMode.HEAT_COOL, HVACMode.OFF):
+                self.bt_hvac_mode = hvac_mode_norm
             else:
                 _LOGGER.error(
                     "better_thermostat %s: Unsupported hvac_mode %s",
                     self.device_name,
-                    hvac_mode,
+                    hvac_mode_norm,
                 )
         if ATTR_TEMPERATURE in kwargs:
             _new_setpoint = convert_to_float(
@@ -1660,8 +1671,8 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
 
         if _new_setpoint is None and _new_setpointlow is None:
             _LOGGER.debug(
-                f"better_thermostat {
-                    self.device_name}: received a new setpoint from HA, but temperature attribute was not set, ignoring"
+                "better_thermostat %s: received a new setpoint from HA, but temperature attribute was not set, ignoring",
+                self.device_name,
             )
             return
 
@@ -1687,7 +1698,10 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
         # If user manually changes the temperature while a preset is active,
         # update the stored preset temperature so that returning to the preset
         # later reuses the newly chosen value instead of the originally
-        # configured one.
+        # configured one. This applies to ALL presets including PRESET_NONE.
+        # Note: We still avoid persisting to config entry options here to
+        # prevent frequent integration reloads; persistence can be handled
+        # via state restore or an explicit save action.
         if self._preset_mode in self._preset_temperatures and (
             _new_setpoint is not None or _new_setpointlow is not None
         ):
@@ -1697,14 +1711,19 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
                 if old_value != applied:
                     self._preset_temperatures[self._preset_mode] = applied
                     _LOGGER.debug(
-                        "better_thermostat %s: Updated stored preset temperature for %s from %s to %s due to manual change (including none baseline)",
+                        "better_thermostat %s: Updated stored preset temperature for %s from %s to %s due to manual change",
                         self.device_name,
                         self._preset_mode,
                         old_value,
                         applied,
                     )
-                    # Persist to config entry options for durability
-                    self._async_persist_preset_temperatures()
+                else:
+                    _LOGGER.debug(
+                        "better_thermostat %s: Manual change equals current stored preset %s value=%s; no update",
+                        self.device_name,
+                        self._preset_mode,
+                        applied,
+                    )
 
         # Enforce ordering: cool target should be above heat target (if both in heat_cool mode)
         if (
@@ -1903,6 +1922,15 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
                 new_temp,
             )
 
+        _LOGGER.debug(
+            "better_thermostat %s: After preset change %s -> %s, bt_target_temp=%s, bt_hvac_mode=%s",
+            self.device_name,
+            old_preset,
+            preset_mode,
+            getattr(self, "bt_target_temp", None),
+            getattr(self, "bt_hvac_mode", None),
+        )
+
         self.async_write_ha_state()
         if hasattr(self, "control_queue_task") and self.control_queue_task is not None:
             await self.control_queue_task.put(self)
@@ -1910,6 +1938,7 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
     # Backwards compatibility: If anything external still tries to call the old
     # (incorrect) async method name, provide a thin wrapper. This is intentionally
     # NOT async so HA will not pick it up as the implementation again.
+
     def set_preset_mode(self, preset_mode: str) -> None:  # type: ignore[override] # Backward compatibility wrapper
         """Backward compatible wrapper.
 

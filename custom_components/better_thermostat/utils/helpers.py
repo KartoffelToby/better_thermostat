@@ -24,6 +24,42 @@ def get_hvac_bt_mode(self, mode: str) -> str:
     return mode
 
 
+def normalize_hvac_mode(value: HVACMode | str) -> HVACMode | str:
+    """Normalize a hvac_mode value to a proper HVACMode enum when possible.
+
+    Accepts
+    -------
+    value : HVACMode | str
+        - HVACMode enum: returned as-is
+        - Strings like 'heat', 'off', 'heat_cool', 'auto', 'dry', 'fan_only'
+        - Strings like 'HVACMode.HEAT' (will be converted to HVACMode.HEAT)
+
+    Returns
+    -------
+    HVACMode | str
+        HVACMode if recognized, otherwise the lowercased string without prefix.
+    """
+    if isinstance(value, HVACMode):
+        return value
+    if isinstance(value, str):
+        raw = value.strip()
+        # Strip enum-like prefix if present
+        if raw.lower().startswith("hvacmode."):
+            raw = raw.split(".", 1)[1]
+        key = raw.lower()
+        mapping = {
+            "off": HVACMode.OFF,
+            "heat": HVACMode.HEAT,
+            "cool": HVACMode.COOL,
+            "heat_cool": HVACMode.HEAT_COOL,
+            "auto": HVACMode.AUTO,
+            "dry": HVACMode.DRY,
+            "fan_only": HVACMode.FAN_ONLY,
+        }
+        return mapping.get(key, key)
+    return value
+
+
 def mode_remap(self, entity_id, hvac_mode: str, inbound: bool = False) -> str:
     """Remap HVAC mode to correct mode if nessesary.
 

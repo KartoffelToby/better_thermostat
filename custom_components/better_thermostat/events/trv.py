@@ -208,7 +208,7 @@ async def trigger_trv_change(self, event):
     return
 
 
-def convert_inbound_states(self, entity_id, state: State) -> str:
+def convert_inbound_states(self, entity_id, state: State) -> str | None:
     """Convert hvac mode in a thermostat state from HA
     Parameters
     ----------
@@ -293,7 +293,16 @@ def convert_outbound_states(self, entity_id, hvac_mode) -> dict | None:
 
             # Handling different devices with or without system mode reported or contained in the device config
 
-            hvac_mode = mode_remap(self, entity_id, str(hvac_mode), False)
+            # Normalize without forcing to str to avoid values like "HVACMode.HEAT"
+            _orig_mode = hvac_mode
+            hvac_mode = mode_remap(self, entity_id, hvac_mode, False)
+            _LOGGER.debug(
+                "better_thermostat %s: convert_outbound_states(%s) system_mode in=%s out=%s",
+                self.device_name,
+                entity_id,
+                _orig_mode,
+                hvac_mode,
+            )
 
             if not _has_system_mode:
                 _LOGGER.debug(
@@ -302,6 +311,11 @@ def convert_outbound_states(self, entity_id, hvac_mode) -> dict | None:
                 if hvac_mode == HVACMode.OFF:
                     _new_heating_setpoint = self.real_trvs[entity_id]["min_temp"]
                 hvac_mode = None
+                _LOGGER.debug(
+                    "better_thermostat %s: convert_outbound_states(%s) suppressing system_mode for no-off device",
+                    self.device_name,
+                    entity_id,
+                )
             if hvac_mode == HVACMode.OFF and (
                 HVACMode.OFF not in _system_modes
                 or self.real_trvs[entity_id]["advanced"].get("no_off_system_mode")
