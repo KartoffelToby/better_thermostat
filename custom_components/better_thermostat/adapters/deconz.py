@@ -3,6 +3,7 @@ from .generic import (
     set_temperature as generic_set_temperature,
     set_hvac_mode as generic_set_hvac_mode,
 )
+from homeassistant.const import STATE_UNAVAILABLE, STATE_UNKNOWN
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -31,7 +32,10 @@ async def set_hvac_mode(self, entity_id, hvac_mode):
 
 async def get_current_offset(self, entity_id):
     """Get current offset."""
-    return float(str(self.hass.states.get(entity_id).attributes.get("offset", 0)))
+    state = self.hass.states.get(entity_id)
+    if state is None or state.state in (STATE_UNAVAILABLE, STATE_UNKNOWN):
+        return None
+    return float(str(state.attributes.get("offset", 0)))
 
 
 async def get_offset_step(self, entity_id):

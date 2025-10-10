@@ -2,6 +2,7 @@ import asyncio
 import logging
 
 from homeassistant.components.climate.const import HVACMode
+from homeassistant.const import STATE_UNAVAILABLE, STATE_UNKNOWN
 
 from custom_components.better_thermostat.model_fixes.model_quirks import (
     override_set_hvac_mode,
@@ -118,6 +119,18 @@ async def control_trv(self, heater_entity_id=None):
             )
         await self.calculate_heating_power()
         _trv = self.hass.states.get(heater_entity_id)
+
+        # Check if TRV is available before attempting to control it
+        if _trv is None or _trv.state in (STATE_UNAVAILABLE, STATE_UNKNOWN):
+            _LOGGER.warning(
+                "better_thermostat %s: TRV %s is unavailable, skipping control cycle",
+                self.device_name,
+                heater_entity_id,
+            )
+            self.ignore_states = False
+            self.real_trvs[heater_entity_id]["ignore_trv_states"] = False
+            return True
+
         _current_set_temperature = convert_to_float(
             str(_trv.attributes.get("temperature", None)),
             self.device_name,
