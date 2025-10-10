@@ -27,12 +27,17 @@ def get_hvac_bt_mode(self, mode: str) -> str:
 def normalize_hvac_mode(value):
     """Normalize a hvac_mode value to a proper HVACMode enum when possible.
 
-    Accepts:
-    - HVACMode enum: returned as-is
-    - Strings like 'heat', 'off', 'heat_cool', 'auto', 'dry', 'fan_only'
-    - Strings like 'HVACMode.HEAT' (will be converted to HVACMode.HEAT)
+    Accepts
+    -------
+    value : HVACMode | str
+        - HVACMode enum: returned as-is
+        - Strings like 'heat', 'off', 'heat_cool', 'auto', 'dry', 'fan_only'
+        - Strings like 'HVACMode.HEAT' (will be converted to HVACMode.HEAT)
 
-    Returns HVACMode if recognized, otherwise the lowercased string without prefix.
+    Returns
+    -------
+    HVACMode | str
+        HVACMode if recognized, otherwise the lowercased string without prefix.
     """
     if isinstance(value, HVACMode):
         return value
