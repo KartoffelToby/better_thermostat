@@ -92,14 +92,18 @@ def calculate_calibration_local(self, entity_id) -> float | None:
         if self.attr_hvac_action == HVACAction.HEATING:
             if _new_trv_calibration > -2.5:
                 _new_trv_calibration -= 2.5
-
-    if _calibration_mode == CalibrationMode.HEATING_POWER_CALIBRATION:
+    elif _calibration_mode == CalibrationMode.HEATING_POWER_CALIBRATION:
         if self.attr_hvac_action == HVACAction.HEATING:
             _valve_position = heating_power_valve_position(self, entity_id)
             _new_trv_calibration = _current_trv_calibration - (
                 (self.real_trvs[entity_id]["local_calibration_min"] + _cur_trv_temp_f)
                 * _valve_position
             )
+    elif _calibration_mode == CalibrationMode.LINEAR_CALIBRATION:
+        # offset setpoint by 0.5C for every 0.1C temperature difference to target (max +/-2C)
+        _offset = (_cur_target_temp - _cur_external_temp) * 5
+        _new_trv_calibration = min(max(-2, _offset), 2) + 0.2
+
 
     # Respecting tolerance in all calibration modes, delaying heat
     if self.attr_hvac_action == HVACAction.IDLE:
@@ -207,14 +211,17 @@ def calculate_calibration_setpoint(self, entity_id) -> float | None:
         if self.attr_hvac_action == HVACAction.HEATING:
             if _calibrated_setpoint - _cur_trv_temp_s < 2.5:
                 _calibrated_setpoint += 2.5
-
-    if _calibration_mode == CalibrationMode.HEATING_POWER_CALIBRATION:
+    elif _calibration_mode == CalibrationMode.HEATING_POWER_CALIBRATION:
         if self.attr_hvac_action == HVACAction.HEATING:
             valve_position = heating_power_valve_position(self, entity_id)
             _calibrated_setpoint = _cur_trv_temp_s + (
                 (self.real_trvs[entity_id]["max_temp"] - _cur_trv_temp_s)
                 * valve_position
             )
+    elif _calibration_mode == CalibrationMode.LINEAR_CALIBRATION:
+        # offset setpoint by 0.5C for every 0.1C temperature difference to target (max +/-2C)
+        _offset = (_cur_target_temp - _cur_external_temp) * 5
+        _calibrated_setpoint = _cur_target_temp + min(max(-2, _offset), 2) + 0.2
 
     if self.attr_hvac_action == HVACAction.IDLE:
         if _calibrated_setpoint - _cur_trv_temp_s > 0.0:

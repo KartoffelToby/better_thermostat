@@ -97,6 +97,9 @@ CALIBRATION_MODE_SELECTOR = selector.SelectSelector(
                 value=CalibrationMode.HEATING_POWER_CALIBRATION, label="AI Time Based"
             ),
             selector.SelectOptionDict(
+                value=CalibrationMode.LINEAR_CALIBRATION, label="Linear Proportional"
+            ),
+            selector.SelectOptionDict(
                 value=CalibrationMode.NO_CALIBRATION, label="No Calibration"
             ),
         ],
