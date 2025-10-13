@@ -635,45 +635,6 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
             )
 
             sensor_state = self.hass.states.get(self.sensor_entity_id)
-            suggested = (self.real_trvs.get(rep_trv, {}) or {}).get("balance") or {}
-            # Extract suggested values safely
-            smin = suggested.get("sonoff_min_open_pct")
-            smax = suggested.get("sonoff_max_open_pct")
-             smin_i = None
-              smax_i = None
-               try:
-                    if isinstance(smin, (int, float)):
-                        smin_i = int(smin)
-                    elif isinstance(smin, str):
-                        smin_i = int(float(smin))
-                except Exception:
-                    pass
-                try:
-                    if isinstance(smax, (int, float)):
-                        smax_i = int(smax)
-                    elif isinstance(smax, str):
-                        smax_i = int(float(smax))
-                except Exception:
-                    pass
-                # Root: also expose suggested_* for clarity
-                if smin_i is not None:
-                    dev_specific["suggested_min_open_pct"] = int(
-                        max(0, min(100, smin_i)))
-                if smax_i is not None:
-                    dev_specific["suggested_max_open_pct"] = int(
-                        max(0, min(100, smax_i)))
-
-                # Flat attributes should PREFER suggested; fallback to learned
-                lmin = learned.get("min_open_pct")
-                lmax = learned.get("max_open_pct")
-                flat_min = smin_i if smin_i is not None else lmin
-                flat_max = smax_i if smax_i is not None else lmax
-                if flat_min is not None:
-                    dev_specific["min_open_pct"] = int(max(0, min(100, int(flat_min))))
-                if flat_max is not None:
-                    dev_specific["max_open_pct"] = int(max(0, min(100, int(flat_max))))
-                await asyncio.sleep(10)
-                continue
 
             try:
                 for trv in self.real_trvs.keys():
