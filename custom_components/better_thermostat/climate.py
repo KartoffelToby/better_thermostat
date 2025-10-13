@@ -677,7 +677,8 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
                     continue
 
             if self.outdoor_sensor is not None:
-                if self.hass.states.get(self.outdoor_sensor).state in (
+                outdoor_state = self.hass.states.get(self.outdoor_sensor)
+                if outdoor_state is None or outdoor_state.state in (
                     STATE_UNAVAILABLE,
                     STATE_UNKNOWN,
                     None,
@@ -691,7 +692,8 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
                     continue
 
             if self.weather_entity is not None:
-                if self.hass.states.get(self.weather_entity).state in (
+                weather_state = self.hass.states.get(self.weather_entity)
+                if weather_state is None or weather_state.state in (
                     STATE_UNAVAILABLE,
                     STATE_UNKNOWN,
                     None,
@@ -725,30 +727,33 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
             )
             if self.humidity_entity_id is not None:
                 self.all_entities.append(self.humidity_entity_id)
-                self._current_humidity = convert_to_float(
-                    str(self.hass.states.get(self.humidity_entity_id).state),
-                    self.device_name,
-                    "startup()",
-                )
+                humidity_state = self.hass.states.get(self.humidity_entity_id)
+                if humidity_state is not None:
+                    self._current_humidity = convert_to_float(
+                        str(humidity_state.state), self.device_name, "startup()"
+                    )
+                else:
+                    self._current_humidity = 0
 
             if self.cooler_entity_id is not None:
-                self.bt_target_cooltemp = convert_to_float(
-                    str(
-                        self.hass.states.get(self.cooler_entity_id).attributes.get(
-                            "temperature"
-                        )
-                    ),
-                    self.device_name,
-                    "startup()",
-                )
+                cooler_state = self.hass.states.get(self.cooler_entity_id)
+                if cooler_state is not None:
+                    self.bt_target_cooltemp = convert_to_float(
+                        str(cooler_state.attributes.get("temperature")),
+                        self.device_name,
+                        "startup()",
+                    )
 
             if self.window_id is not None:
                 self.all_entities.append(self.window_id)
                 window = self.hass.states.get(self.window_id)
 
-                check = window.state
-                if check in ("on", "open", "true"):
-                    self.window_open = True
+                if window is not None:
+                    check = window.state
+                    if check in ("on", "open", "true"):
+                        self.window_open = True
+                    else:
+                        self.window_open = False
                 else:
                     self.window_open = False
                 _LOGGER.debug(
@@ -1007,11 +1012,13 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
                 self.last_main_hvac_mode = self.bt_hvac_mode
 
             if self.humidity_entity_id is not None:
-                self._current_humidity = convert_to_float(
-                    str(self.hass.states.get(self.humidity_entity_id).state),
-                    self.device_name,
-                    "startup()",
-                )
+                humidity_state = self.hass.states.get(self.humidity_entity_id)
+                if humidity_state is not None:
+                    self._current_humidity = convert_to_float(
+                        str(humidity_state.state), self.device_name, "startup()"
+                    )
+                else:
+                    self._current_humidity = 0
             else:
                 self._current_humidity = 0
 
@@ -1044,55 +1051,64 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
                 else:
                     self.real_trvs[trv]["last_calibration"] = 0
 
-                self.real_trvs[trv]["valve_position"] = convert_to_float(
-                    str(
-                        self.hass.states.get(trv).attributes.get("valve_position", None)
-                    ),
-                    self.device_name,
-                    "startup",
-                )
-                self.real_trvs[trv]["max_temp"] = convert_to_float(
-                    str(self.hass.states.get(trv).attributes.get("max_temp", 30)),
-                    self.device_name,
-                    "startup",
-                )
-                self.real_trvs[trv]["min_temp"] = convert_to_float(
-                    str(self.hass.states.get(trv).attributes.get("min_temp", 5)),
-                    self.device_name,
-                    "startup",
-                )
-                self.real_trvs[trv]["target_temp_step"] = convert_to_float(
-                    str(
-                        self.hass.states.get(trv).attributes.get(
-                            "target_temp_step", 0.5
-                        )
-                    ),
-                    self.device_name,
-                    "startup",
-                )
-                self.real_trvs[trv]["temperature"] = convert_to_float(
-                    str(self.hass.states.get(trv).attributes.get("temperature", 5)),
-                    self.device_name,
-                    "startup",
-                )
-                self.real_trvs[trv]["hvac_modes"] = self.hass.states.get(
-                    trv
-                ).attributes.get("hvac_modes", None)
-                self.real_trvs[trv]["hvac_mode"] = self.hass.states.get(trv).state
-                self.real_trvs[trv]["last_hvac_mode"] = self.hass.states.get(trv).state
-                self.real_trvs[trv]["last_temperature"] = convert_to_float(
-                    str(self.hass.states.get(trv).attributes.get("temperature")),
-                    self.device_name,
-                    "startup()",
-                )
-                self.real_trvs[trv]["current_temperature"] = convert_to_float(
-                    str(
-                        self.hass.states.get(trv).attributes.get("current_temperature")
-                        or 5
-                    ),
-                    self.device_name,
-                    "startup()",
-                )
+                trv_state = self.hass.states.get(trv)
+                if trv_state is None:
+                    _LOGGER.warning(
+                        "better_thermostat %s: TRV %s state became unavailable during startup, using default values",
+                        self.device_name,
+                        trv,
+                    )
+                    self.real_trvs[trv]["valve_position"] = None
+                    self.real_trvs[trv]["max_temp"] = 30.0
+                    self.real_trvs[trv]["min_temp"] = 5.0
+                    self.real_trvs[trv]["target_temp_step"] = 0.5
+                    self.real_trvs[trv]["temperature"] = 5.0
+                    self.real_trvs[trv]["hvac_modes"] = None
+                    self.real_trvs[trv]["hvac_mode"] = HVACMode.OFF
+                    self.real_trvs[trv]["last_hvac_mode"] = HVACMode.OFF
+                    self.real_trvs[trv]["last_temperature"] = 5.0
+                    self.real_trvs[trv]["current_temperature"] = 5.0
+                else:
+                    self.real_trvs[trv]["valve_position"] = convert_to_float(
+                        str(trv_state.attributes.get("valve_position", None)),
+                        self.device_name,
+                        "startup",
+                    )
+                    self.real_trvs[trv]["max_temp"] = convert_to_float(
+                        str(trv_state.attributes.get("max_temp", 30)),
+                        self.device_name,
+                        "startup",
+                    )
+                    self.real_trvs[trv]["min_temp"] = convert_to_float(
+                        str(trv_state.attributes.get("min_temp", 5)),
+                        self.device_name,
+                        "startup",
+                    )
+                    self.real_trvs[trv]["target_temp_step"] = convert_to_float(
+                        str(trv_state.attributes.get("target_temp_step", 0.5)),
+                        self.device_name,
+                        "startup",
+                    )
+                    self.real_trvs[trv]["temperature"] = convert_to_float(
+                        str(trv_state.attributes.get("temperature", 5)),
+                        self.device_name,
+                        "startup",
+                    )
+                    self.real_trvs[trv]["hvac_modes"] = trv_state.attributes.get(
+                        "hvac_modes", None
+                    )
+                    self.real_trvs[trv]["hvac_mode"] = trv_state.state
+                    self.real_trvs[trv]["last_hvac_mode"] = trv_state.state
+                    self.real_trvs[trv]["last_temperature"] = convert_to_float(
+                        str(trv_state.attributes.get("temperature")),
+                        self.device_name,
+                        "startup()",
+                    )
+                    self.real_trvs[trv]["current_temperature"] = convert_to_float(
+                        str(trv_state.attributes.get("current_temperature") or 5),
+                        self.device_name,
+                        "startup()",
+                    )
                 await control_trv(self, trv)
 
             await self._trigger_time(None)
