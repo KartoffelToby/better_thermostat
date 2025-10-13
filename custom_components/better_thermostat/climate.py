@@ -545,12 +545,12 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
         self.async_set_context(event.context)
         if (event.data.get("new_state")) is None:
             return
-        self._current_humidity = convert_to_float(
-            str(self.hass.states.get(self.humidity_entity_id).state),
-            self.device_name,
-            "humidity_update",
-        )
-        self.async_write_ha_state()
+        humidity_state = self.hass.states.get(self.humidity_entity_id)
+        if humidity_state is not None:
+            self._current_humidity = convert_to_float(
+                str(humidity_state.state), self.device_name, "humidity_update"
+            )
+            self.async_write_ha_state()
 
     async def _trigger_trv_change(self, event):
         _check = await check_all_entities(self)
@@ -634,7 +634,8 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
                 continue
 
             if self.window_id is not None:
-                if self.hass.states.get(self.window_id).state in (
+                window_state = self.hass.states.get(self.window_id)
+                if window_state is None or window_state.state in (
                     STATE_UNAVAILABLE,
                     STATE_UNKNOWN,
                     None,
@@ -648,7 +649,8 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
                     continue
 
             if self.cooler_entity_id is not None:
-                if self.hass.states.get(self.cooler_entity_id).state in (
+                cooler_state = self.hass.states.get(self.cooler_entity_id)
+                if cooler_state is None or cooler_state.state in (
                     STATE_UNAVAILABLE,
                     STATE_UNKNOWN,
                     None,

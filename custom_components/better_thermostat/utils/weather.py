@@ -95,12 +95,15 @@ async def check_weather_prediction(self) -> bool:
         )
         forecast = forecasts.get(self.weather_entity).get("forecast")
         if len(forecast) > 0:
+            weather_state = self.hass.states.get(self.weather_entity)
+            if weather_state is None:
+                _LOGGER.warning(
+                    "better_thermostat %s: weather entity is unavailable",
+                    self.device_name,
+                )
+                return None
             cur_outside_temp = convert_to_float(
-                str(
-                    self.hass.states.get(self.weather_entity).attributes.get(
-                        "temperature"
-                    )
-                ),
+                str(weather_state.attributes.get("temperature")),
                 self.device_name,
                 "check_weather_prediction()",
             )
@@ -153,10 +156,14 @@ async def check_ambient_air_temperature(self):
         )
         return None
 
+    outdoor_state = self.hass.states.get(self.outdoor_sensor)
+    if outdoor_state is None:
+        _LOGGER.warning(
+            "better_thermostat %s: outdoor sensor is unavailable", self.device_name
+        )
+        return None
     self.last_avg_outdoor_temp = convert_to_float(
-        self.hass.states.get(self.outdoor_sensor).state,
-        self.device_name,
-        "check_ambient_air_temperature()",
+        outdoor_state.state, self.device_name, "check_ambient_air_temperature()"
     )
     if "recorder" in self.hass.config.components:
         _temp_history = DailyHistory(2)

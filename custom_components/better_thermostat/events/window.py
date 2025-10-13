@@ -90,7 +90,8 @@ async def window_queue(self):
                         await asyncio.sleep(self.window_delay_after)
                     # remap off on to true false
                     current_window_state = True
-                    if self.hass.states.get(self.window_id).state == STATE_OFF:
+                    window_state = self.hass.states.get(self.window_id)
+                    if window_state is not None and window_state.state == STATE_OFF:
                         current_window_state = False
                     # make sure the current state is the suggested change state to prevent a false positive:
                     if current_window_state == window_event_to_process:

@@ -385,12 +385,16 @@ async def check_target_temperature(self, heater_entity_id=None):
     _timeout = 0
     _real_trv = self.real_trvs[heater_entity_id]
     while True:
+        heater_state = self.hass.states.get(heater_entity_id)
+        if heater_state is None:
+            _LOGGER.warning(
+                "better_thermostat %s: heater entity %s is unavailable in check_target_temperature()",
+                self.device_name,
+                heater_entity_id,
+            )
+            return
         _current_set_temperature = convert_to_float(
-            str(
-                self.hass.states.get(heater_entity_id).attributes.get(
-                    "temperature", None
-                )
-            ),
+            str(heater_state.attributes.get("temperature", None)),
             self.device_name,
             "check_target_temperature()",
         )
