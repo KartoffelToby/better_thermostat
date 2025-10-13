@@ -58,13 +58,12 @@ async def get_current_offset(self, entity_id):
 async def get_offset_step(self, entity_id):
     """Get offset step."""
     if self.real_trvs[entity_id]["local_temperature_calibration_entity"] is not None:
-        return float(
-            str(
-                self.hass.states.get(
-                    self.real_trvs[entity_id]["local_temperature_calibration_entity"]
-                ).attributes.get("step", 1)
-            )
+        state = self.hass.states.get(
+            self.real_trvs[entity_id]["local_temperature_calibration_entity"]
         )
+        if state is None:
+            return None
+        return float(str(state.attributes.get("step", 1)))
     else:
         return None
 
@@ -72,13 +71,12 @@ async def get_offset_step(self, entity_id):
 async def get_min_offset(self, entity_id):
     """Get min offset."""
     if self.real_trvs[entity_id]["local_temperature_calibration_entity"] is not None:
-        return float(
-            str(
-                self.hass.states.get(
-                    self.real_trvs[entity_id]["local_temperature_calibration_entity"]
-                ).attributes.get("min", -10)
-            )
+        state = self.hass.states.get(
+            self.real_trvs[entity_id]["local_temperature_calibration_entity"]
         )
+        if state is None:
+            return -6
+        return float(str(state.attributes.get("min", -10)))
     else:
         return -6
 
@@ -86,13 +84,12 @@ async def get_min_offset(self, entity_id):
 async def get_max_offset(self, entity_id):
     """Get max offset."""
     if self.real_trvs[entity_id]["local_temperature_calibration_entity"] is not None:
-        return float(
-            str(
-                self.hass.states.get(
-                    self.real_trvs[entity_id]["local_temperature_calibration_entity"]
-                ).attributes.get("max", 10)
-            )
+        state = self.hass.states.get(
+            self.real_trvs[entity_id]["local_temperature_calibration_entity"]
         )
+        if state is None:
+            return 6
+        return float(str(state.attributes.get("max", 10)))
     else:
         return 6
 
