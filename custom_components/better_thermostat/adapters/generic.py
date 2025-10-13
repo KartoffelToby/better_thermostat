@@ -3,6 +3,8 @@ import logging
 
 from homeassistant.components.number.const import SERVICE_SET_VALUE
 from ..utils.helpers import find_local_calibration_entity
+from .base import wait_for_calibration_entity_or_timeout
+from ..utils.helpers import normalize_hvac_mode
 from homeassistant.const import STATE_UNAVAILABLE, STATE_UNKNOWN
 
 _LOGGER = logging.getLogger(__name__)
@@ -31,21 +33,11 @@ async def init(self, entity_id):
             self.device_name,
             self.real_trvs[entity_id]["local_temperature_calibration_entity"],
         )
-        # Wait for the entity to be available
-        _ready = True
-        while _ready:
-            if self.hass.states.get(
-                self.real_trvs[entity_id]["local_temperature_calibration_entity"]
-            ).state in (STATE_UNAVAILABLE, STATE_UNKNOWN, None):
-                _LOGGER.info(
-                    "better_thermostat %s: waiting for TRV/climate entity with id '%s' to become fully available...",
-                    self.device_name,
-                    self.real_trvs[entity_id]["local_temperature_calibration_entity"],
-                )
-                await asyncio.sleep(5)
-                continue
-            _ready = False
-            return
+        await wait_for_calibration_entity_or_timeout(
+            self,
+            entity_id,
+            self.real_trvs[entity_id]["local_temperature_calibration_entity"],
+        )
 
     return None
 
@@ -53,13 +45,12 @@ async def init(self, entity_id):
 async def get_current_offset(self, entity_id):
     """Get current offset."""
     if self.real_trvs[entity_id]["local_temperature_calibration_entity"] is not None:
-        return float(
-            str(
-                self.hass.states.get(
-                    self.real_trvs[entity_id]["local_temperature_calibration_entity"]
-                ).state
-            )
+        state = self.hass.states.get(
+            self.real_trvs[entity_id]["local_temperature_calibration_entity"]
         )
+        if state is None or state.state in (STATE_UNAVAILABLE, STATE_UNKNOWN):
+            return None
+        return float(str(state.state))
     else:
         return None
 
@@ -119,17 +110,36 @@ async def set_temperature(self, entity_id, temperature):
 
 async def set_hvac_mode(self, entity_id, hvac_mode):
     """Set new target hvac mode."""
-    _LOGGER.debug("better_thermostat %s: set_hvac_mode %s", self.device_name, hvac_mode)
+
+    hvac_mode_norm = normalize_hvac_mode(hvac_mode)
+    _LOGGER.debug(
+        "better_thermostat %s: set_hvac_mode %s -> %s",
+        self.device_name,
+        hvac_mode,
+        hvac_mode_norm,
+    )
     try:
         await self.hass.services.async_call(
             "climate",
             "set_hvac_mode",
-            {"entity_id": entity_id, "hvac_mode": hvac_mode},
+            {"entity_id": entity_id, "hvac_mode": hvac_mode_norm},
             blocking=True,
             context=self.context,
         )
     except TypeError:
-        _LOGGER.debug("TypeError in set_hvac_mode")
+        _LOGGER.debug(
+            "TypeError in set_hvac_mode (entity=%s, hvac_mode=%s)",
+            entity_id,
+            hvac_mode_norm,
+        )
+    except Exception as exc:  # noqa: BLE001
+        _LOGGER.exception(
+            "better_thermostat %s: Exception in set_hvac_mode for %s with %s: %s",
+            self.device_name,
+            entity_id,
+            hvac_mode_norm,
+            exc,
+        )
 
 
 async def set_offset(self, entity_id, offset):
