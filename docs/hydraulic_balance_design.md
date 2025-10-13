@@ -87,18 +87,20 @@ All steps are per-room and require no global information.
 ## Implementation
 - balance.py: pure computation, no side effects.
 - events/temperature.py: compute and store a smoothed slope (K/min).
-- events/trv.py: integrate balance for setpoint-based devices; store debug info per TRV under `real_trvs[trv]['balance']`. Enabled by selecting calibration mode "Hydraulic Balance".
-- utils/controlling.py: if a valve entity exists (e.g., MQTT/Z2M), call `set_valve` with the computed percentage (with hysteresis).
+- events/trv.py: integrates balance to compute per-TRV recommendations and learns Sonoff/TRV `min_open%` and `max_open%` per target temperature bucket. No setpoint manipulation is done (works with "No Calibration"). Debug info per TRV is stored under `real_trvs[trv]['balance']`.
+- climate.py: exposes learned caps as a JSON attribute `trv_open_caps`. Structure per TRV:
+  `{ "current_bucket": "XX.X", "buckets": { "XX.X": { "min_open_pct": N, "max_open_pct": M, "suggested_min_open_pct"?: n, "suggested_max_open_pct"?: m, "stats"?: { "samples": k, "avg_slope_K_min": s, "avg_valve_percent": p, "avg_delta_T_K": d, "last_update_ts": iso } }, ... } }`. Persisted across restarts.
+- utils/controlling.py: if a valve entity exists (e.g., MQTT/Z2M), can call `set_valve` with the computed percentage (with hysteresis) — optional.
 
 ### Code integration points
 - `balance.py`: pure math and simple per-room in-memory state
 - `events/temperature.py`: computes `temp_slope` as a smoothed K/min trend
-- `events/trv.py`: calls `compute_balance(...)` when calibration mode is set to "Hydraulic Balance"; applies `setpoint_eff` and records debug under `real_trvs[trv]['balance']`
-- `utils/controlling.py`: if `valve_position_entity` exists for a TRV, sends `set_valve(percent)` with a 3% hysteresis
-- `adapters/mqtt.py`: tries to discover a `valve_position_entity` to enable `set_valve`
+- `events/trv.py`: calls `compute_balance(...)`, records debug and updates learned caps per target temperature bucket; does not modify setpoints
+- `climate.py`: aggregates and exposes `trv_open_caps` for HA automations to write to TRV fields
+- `utils/controlling.py`: if `valve_position_entity` exists for a TRV, sends `set_valve(percent)` with a 3% hysteresis (optional)
 
 ## Configuration
-- New calibration mode per TRV: `hydraulic_balance`.
+- No dedicated calibration mode is required. Feature works alongside `no_calibration` (setpoints are left untouched).
 - Future tuning parameters (cap_max, bands, hysteresis) can be exposed if needed.
 
 Suggested defaults (conservative):
@@ -118,8 +120,7 @@ Suggested defaults (conservative):
 - For Sonoff TRVZB, we will extend adapters to write min/max opening if available via the underlying integration.
 
 ## Next steps
-- Expose "Hydraulic Balance" in the calibration mode dropdown.
-- Extend adapters to detect and write Sonoff min/max opening endpoints where available.
+- Extend adapters/blueprints to detect and write Sonoff min/max opening endpoints where available, consuming `trv_open_caps`.
 - Optional: expose balance parameters in the UI.
 
 ## Edge cases and mitigations
@@ -134,6 +135,7 @@ Suggested defaults (conservative):
 - Climate attributes:
   - `temp_slope_K_min`: current smoothed slope in K/min
   - `balance` (JSON per TRV): `{ "valve%": p, "flow_capK": c }`
+  - `trv_open_caps` (JSON): per TRV `{ "current_bucket": "XX.X", "buckets": { ... } }`
 - Per-TRV stored debug under `real_trvs[trv]['balance']` includes Sonoff min/max.
 
 ## Testing strategy
@@ -170,4 +172,4 @@ A: No. It’s optional. With valve feedback (via MQTT/Z2M), the algorithm can se
 This document is a living specification. Whenever we modify the hydraulic balance logic, configuration, adapters, or telemetry, update this file in the same change. Treat it as the single source of truth for the feature’s behavior, parameters, and integration points.
 
 ### Persistence
-The per-room balance learning state (EMA of slope and last percent/rate-limit timestamp) is persisted across Home Assistant restarts using HA storage. Keys are scoped by the Better Thermostat entity `unique_id` and the TRV entity id (format: `<unique_id>:<trv_entity_id>`). State is loaded during entity startup and saved in a debounced manner after balance updates to avoid re-learning after restarts.
+Both the per-room balance learning state (EMA of slope and last percent/rate-limit timestamp) and the learned min/max open caps per TRV and target bucket are persisted across Home Assistant restarts using HA storage. Keys are scoped by the Better Thermostat entity `unique_id` and the TRV entity id (format: `<unique_id>:<trv_entity_id>[:<bucket>]`). State is loaded during entity startup and saved in a debounced manner after updates to avoid re-learning after restarts.

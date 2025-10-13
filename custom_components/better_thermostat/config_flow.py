@@ -99,9 +99,6 @@ CALIBRATION_MODE_SELECTOR = selector.SelectSelector(
             selector.SelectOptionDict(
                 value=CalibrationMode.NO_CALIBRATION, label="No Calibration"
             ),
-            selector.SelectOptionDict(
-                value=CalibrationMode.HYDRAULIC_BALANCE, label="Hydraulic Balance"
-            ),
         ],
         mode=selector.SelectSelectorMode.DROPDOWN,
     )

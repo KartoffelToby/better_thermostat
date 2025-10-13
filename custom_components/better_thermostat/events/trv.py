@@ -1,5 +1,6 @@
 from datetime import datetime
 import logging
+from typing import Any, Dict, cast
 from custom_components.better_thermostat.utils.const import CONF_HOMEMATICIP
 
 from homeassistant.components.climate.const import HVACMode
@@ -19,6 +20,7 @@ from custom_components.better_thermostat.utils.const import (
     CalibrationType,
     CalibrationMode,
 )
+from homeassistant.util import dt as dt_util
 
 from custom_components.better_thermostat.calibration import (
     calculate_calibration_local,
@@ -248,10 +250,11 @@ def _apply_hydraulic_balance(
     calibration_mode,
     precheck_applies: bool | None = None,
 ):
-    """Apply decentralized hydraulic balance if enabled via calibration mode.
+    """Compute decentralized balance suggestions and learn Sonoff/TRV open caps.
 
-    Returns the potentially updated setpoint. Also writes debug info to
-    self.real_trvs[entity_id]["balance"].
+    This no longer changes setpoints; instead it records recommendations and
+    updates learned min/max open percentages per TRV and per target temperature bucket.
+    Returns the (unchanged) current_setpoint.
     """
     try:
         min_t = self.real_trvs[entity_id].get("min_temp") or self.bt_min_temp
@@ -263,15 +266,13 @@ def _apply_hydraulic_balance(
         cond_not_min_temp_off = (
             current_setpoint is None or current_setpoint > (min_t + 0.05)
         )
-        cond_enabled = calibration_mode == CalibrationMode.HYDRAULIC_BALANCE
-
+        # Always compute suggestions (we don't change setpoints here)
         apply_balance = (
             cond_has_cur
             and cond_has_target
             and cond_hvac_ok
             and cond_window_closed
             and cond_not_min_temp_off
-            and cond_enabled
         )
         # If caller provided an early precheck, keep it as a sanity requirement
         if precheck_applies is not None:
@@ -283,7 +284,7 @@ def _apply_hydraulic_balance(
                 "inputs target=%.2f current=%.2f tol=%.2f slope=%s hvac_mode=%s "
                 "window_open=%s min_t=%.2f max_t=%.2f initial_setpoint=%s | "
                 "conds has_cur=%s has_target=%s hvac_ok=%s window_closed=%s "
-                "not_min_off=%s enabled=%s"
+                "not_min_off=%s"
             ),
             self.device_name,
             entity_id,
@@ -302,7 +303,6 @@ def _apply_hydraulic_balance(
             cond_hvac_ok,
             cond_window_closed,
             cond_not_min_temp_off,
-            cond_enabled,
         )
 
         if not apply_balance:
@@ -310,7 +310,7 @@ def _apply_hydraulic_balance(
                 (
                     "better_thermostat %s: balance NOT applied for %s (conds) -> "
                     "has_cur=%s has_target=%s hvac_ok=%s window_closed=%s "
-                    "not_min_off=%s enabled=%s"
+                    "not_min_off=%s"
                 ),
                 self.device_name,
                 entity_id,
@@ -319,7 +319,6 @@ def _apply_hydraulic_balance(
                 cond_hvac_ok,
                 cond_window_closed,
                 cond_not_min_temp_off,
-                cond_enabled,
             )
             return current_setpoint
 
@@ -362,45 +361,169 @@ def _apply_hydraulic_balance(
             "sonoff_min_open_pct": bal.sonoff_min_open_pct,
             "sonoff_max_open_pct": bal.sonoff_max_open_pct,
         }
+        # --- Learn per-target-temperature min/max open caps ---
+        try:
+            # Bucket by heating target (round to 0.5°C for stability)
+            t = self.bt_target_temp
+            bucket = (
+                f"{round(float(t) * 2.0) / 2.0:.1f}" if isinstance(t,
+                                                                   (int, float)) else "unknown"
+            )
+            if bucket != "unknown":
+                # Initialize bucket
+                caps_trv = self.open_caps.setdefault(entity_id, {})
+                caps = caps_trv.get(bucket)
+                suggested_min = int(max(0, min(100, bal.sonoff_min_open_pct)))
+                suggested_max = int(max(0, min(100, bal.sonoff_max_open_pct)))
+                # Ensure min <= max
+                if suggested_min > suggested_max:
+                    suggested_min = suggested_max
+                # Learning: coarse (5%) when far away, fine (1%) when close
 
-        # Only in HYDRAULIC_BALANCE mode we adjust setpoint.
-        # Use a symmetric adjustment around the calibration/base setpoint:
-        # - If demand present (current < target, delta_T > 0), increase setpoint by flow_cap_K
-        # - If overshoot (current >= target, delta_T <= 0), decrease setpoint by flow_cap_K
-        if calibration_mode == CalibrationMode.HYDRAULIC_BALANCE:
-            try:
-                base_sp = current_setpoint if current_setpoint is not None else self.bt_target_temp
-                if base_sp is None:
-                    return current_setpoint
-                delta_T = (self.bt_target_temp - self.cur_temp) if (
-                    self.bt_target_temp is not None and self.cur_temp is not None) else 0.0
-                # Combine valve-derived cap with demand-based magnitude from ΔT
-                bp = BalanceParams()
-                demand_gain = 0.6  # K/K scaling; tuneable
-                demand_mag = min(bp.cap_max_K, abs(delta_T) * demand_gain)
-                magnitude = max(bal.flow_cap_K or 0.0, demand_mag)
-                proposed = base_sp + (magnitude if delta_T > 0.0 else -magnitude)
-                new_sp = max(min_t, min(max_t, proposed))
-                _LOGGER.debug(
-                    (
-                        "better_thermostat %s: balance applied setpoint for %s (symmetric): "
-                        "base=%s delta_T=%.3f flow_cap_K=%.3f demand_mag=%.3f -> proposed=%s clamped=%s within [%.2f, %.2f]"
-                    ),
-                    self.device_name,
-                    entity_id,
-                    base_sp,
-                    delta_T,
-                    (bal.flow_cap_K or 0.0),
-                    demand_mag,
-                    proposed,
-                    new_sp,
-                    min_t,
-                    max_t,
-                )
-                return new_sp
-            except TypeError:
-                return current_setpoint
+                def _towards(cur: int, target: int) -> int:
+                    if cur is None:
+                        # first guess in coarse 5% steps
+                        return int(round(target / 5.0) * 5)
+                    diff = target - cur
+                    step = 5 if abs(diff) > 10 else 1
+                    if abs(diff) <= step:
+                        return target
+                    return cur + (step if diff > 0 else -step)
 
+                if not isinstance(caps, dict):
+                    # Initialize using coarse 5% rounding towards the suggested
+                    new_min = int(round(suggested_min / 5.0) * 5)
+                    new_max = int(round(suggested_max / 5.0) * 5)
+                    caps = {
+                        "min_open_pct": new_min,
+                        "max_open_pct": new_max,
+                    }
+                    caps_trv[bucket] = caps
+                    _LOGGER.debug(
+                        "better_thermostat %s: init open caps for %s@%s → min=%s max=%s (suggested min=%s max=%s)",
+                        self.device_name,
+                        entity_id,
+                        bucket,
+                        new_min,
+                        new_max,
+                        suggested_min,
+                        suggested_max,
+                    )
+                    # Immediately schedule persistence and refresh HA state
+                    if hasattr(self, "_schedule_save_open_caps"):
+                        self._schedule_save_open_caps()
+                    try:
+                        if hasattr(self.hass, "async_create_task"):
+                            self.hass.async_create_task(
+                                self.async_update_ha_state(force_refresh=True)
+                            )
+                        self.async_write_ha_state()
+                    except Exception:
+                        pass
+                else:
+                    caps = cast(Dict[str, Any], caps)
+                    cur_min = int(caps.get("min_open_pct", 0))
+                    cur_max = int(caps.get("max_open_pct", 0))
+                    new_min = _towards(cur_min, suggested_min)
+                    new_max = _towards(cur_max, suggested_max)
+                    # maintain ordering
+                    if new_min > new_max:
+                        new_min = new_max
+                    changed = (new_min != cur_min) or (new_max != cur_max)
+                    if changed:
+                        caps["min_open_pct"] = new_min
+                        caps["max_open_pct"] = new_max
+                        _LOGGER.debug(
+                            "better_thermostat %s: updated open caps for %s@%s → min=%s max=%s (suggested min=%s max=%s)",
+                            self.device_name,
+                            entity_id,
+                            bucket,
+                            new_min,
+                            new_max,
+                            suggested_min,
+                            suggested_max,
+                        )
+                        # Schedule persistence and refresh HA state on change
+                        if hasattr(self, "_schedule_save_open_caps"):
+                            self._schedule_save_open_caps()
+                        try:
+                            if hasattr(self.hass, "async_create_task"):
+                                self.hass.async_create_task(
+                                    self.async_update_ha_state(force_refresh=True)
+                                )
+                            self.async_write_ha_state()
+                        except Exception:
+                            pass
+
+                # Update per-bucket stats (lightweight learning diagnostics)
+                try:
+                    # Ensure dict types for stats
+                    caps = cast(Dict[str, Any], caps)
+                    stats = caps.get("stats")
+                    if not isinstance(stats, dict):
+                        stats = {}
+                        caps["stats"] = stats
+                    prev_samples = int(stats.get("samples", 0))
+                    samples = prev_samples + 1
+                    stats["samples"] = samples
+
+                    # Avg slope (K/min)
+                    slope = getattr(self, "temp_slope", None)
+                    if isinstance(slope, (int, float)):
+                        prev_avg = stats.get("avg_slope_K_min")
+                        if isinstance(prev_avg, (int, float)) and prev_samples > 0:
+                            stats["avg_slope_K_min"] = round(
+                                (prev_avg * prev_samples + float(slope)) / samples, 5
+                            )
+                        else:
+                            stats["avg_slope_K_min"] = round(float(slope), 5)
+
+                    # Avg valve percent
+                    if isinstance(bal.valve_percent, (int, float)):
+                        prev_avg_v = stats.get("avg_valve_percent")
+                        if isinstance(prev_avg_v, (int, float)) and prev_samples > 0:
+                            stats["avg_valve_percent"] = round(
+                                (prev_avg_v * prev_samples +
+                                 float(bal.valve_percent)) / samples, 2
+                            )
+                        else:
+                            stats["avg_valve_percent"] = round(
+                                float(bal.valve_percent), 2)
+
+                    # Avg delta_T (target - current)
+                    try:
+                        if self.bt_target_temp is not None and self.cur_temp is not None:
+                            dT = float(self.bt_target_temp) - float(self.cur_temp)
+                            prev_avg_dT = stats.get("avg_delta_T_K")
+                            if isinstance(prev_avg_dT, (int, float)) and prev_samples > 0:
+                                stats["avg_delta_T_K"] = round(
+                                    (prev_avg_dT * prev_samples + dT) / samples, 4
+                                )
+                            else:
+                                stats["avg_delta_T_K"] = round(dT, 4)
+                    except Exception:
+                        pass
+
+                    # Timestamp (ISO)
+                    try:
+                        stats["last_update_ts"] = dt_util.utcnow().isoformat()
+                    except Exception:
+                        pass
+                except Exception:
+                    pass
+
+                # Debounced save (also for stats)
+                if hasattr(self, "_schedule_save_open_caps"):
+                    self._schedule_save_open_caps()
+        except Exception as _e:
+            _LOGGER.debug(
+                "better_thermostat %s: learning open caps failed for %s: %s",
+                self.device_name,
+                entity_id,
+                _e,
+            )
+
+        # Return unchanged setpoint
         return current_setpoint
     except Exception as e:
         _LOGGER.debug(
@@ -507,8 +630,7 @@ def convert_outbound_states(self, entity_id, hvac_mode) -> dict | None:
 
             # Early balance precondition (simple check, full check/logging in helper)
             _balance_precheck = (
-                _calibration_mode == CalibrationMode.HYDRAULIC_BALANCE
-                and self.cur_temp is not None
+                self.cur_temp is not None
                 and self.bt_target_temp is not None
                 and hvac_mode is not None
                 and hvac_mode != HVACMode.OFF
