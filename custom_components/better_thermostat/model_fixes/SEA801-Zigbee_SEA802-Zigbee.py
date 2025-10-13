@@ -8,9 +8,10 @@ def fix_local_calibration(self, entity_id, offset):
 
 def fix_target_temperature_calibration(self, entity_id, temperature):
     # device SEA802 fix
-    _cur_trv_temp = float(
-        self.hass.states.get(entity_id).attributes["current_temperature"]
-    )
+    entity_state = self.hass.states.get(entity_id)
+    if entity_state is None:
+        return temperature
+    _cur_trv_temp = float(entity_state.attributes["current_temperature"])
     if _cur_trv_temp is None:
         return temperature
     if (
