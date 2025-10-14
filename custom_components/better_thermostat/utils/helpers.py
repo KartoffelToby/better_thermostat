@@ -466,6 +466,28 @@ async def get_device_model(self, entity_id):
                 getattr(device, "name", None),
                 list(getattr(device, "identifiers", []) or []),
             )
+            # Early visibility of state-provided model identifiers
+            try:
+                st_early = self.hass.states.get(entity_id)
+                early_top_model_id = (
+                    st_early.attributes.get("model_id") if st_early else None
+                )
+                _LOGGER.debug(
+                    "better_thermostat %s: early state.model_id for %s = %s",
+                    self.device_name,
+                    entity_id,
+                    early_top_model_id,
+                )
+                early_dev_attr = st_early.attributes.get("device") if st_early else None
+                if isinstance(early_dev_attr, dict):
+                    _LOGGER.debug(
+                        "better_thermostat %s: early state.device.model_id=%s state.device.model=%s",
+                        self.device_name,
+                        early_dev_attr.get("model_id"),
+                        early_dev_attr.get("model"),
+                    )
+            except Exception:
+                pass
         except Exception:
             pass
         # Prefer model_id on HA state
@@ -482,6 +504,12 @@ async def get_device_model(self, entity_id):
                 except Exception:
                     pass
                 top_mdl_id = st.attributes.get("model_id")
+                _LOGGER.debug(
+                    "better_thermostat %s: state.model_id for %s = %s",
+                    self.device_name,
+                    entity_id,
+                    top_mdl_id,
+                )
                 if isinstance(top_mdl_id, str) and len(top_mdl_id.strip()) >= 2:
                     selected = top_mdl_id.strip()
                     source = "state.model_id"
@@ -509,6 +537,12 @@ async def get_device_model(self, entity_id):
                             else:
                                 selected = mdl_plain.strip()
                                 source = "state.device.model"
+            else:
+                _LOGGER.debug(
+                    "better_thermostat %s: state for %s not available yet; will consider registry/config",
+                    self.device_name,
+                    entity_id,
+                )
         except Exception:  # noqa: BLE001
             pass
         # Device registry fallback
