@@ -13,6 +13,13 @@ We want to emulate a hydraulic balance across multiple TRVs without any global s
 - Compute a desired valve opening percentage (0–100). If the device cannot accept a valve percentage, derive an equivalent setpoint reduction (flow_cap_K) so that the effective target becomes target - flow_cap.
 - For Sonoff TRVZB provide recommendations for min_open% and max_open% caps.
 
+Optional PID mode
+- In addition to the heuristic mapping, a PID controller can be enabled per TRV.
+- P/I act on the error e = target − current; the derivative term operates on the measurement (d_on_measurement) using a blended temperature input: a configurable mix of the TRV-internal temperature and the external room temperature.
+- The derivative measurement is smoothed via an EMA with configurable alpha to reduce noise.
+- Output u = P + I + D is clamped to 0..100% and passed through the same smoothing/hysteresis/rate-limit as the heuristic.
+- Conservative auto-tuning optionally adapts kp/ki/kd over time with a minimum interval between changes.
+
 ## Glossary and Symbols
 - TRV: Thermostatic Radiator Valve
 - ΔT: Temperature difference = setpoint − current temperature (Kelvin)
@@ -20,6 +27,8 @@ We want to emulate a hydraulic balance across multiple TRVs without any global s
 - valve_percent p: Desired valve opening 0–100%
 - flow_cap_K c: Setpoint reduction in Kelvin applied to emulate throttling on setpoint-only devices
 - band_near, band_far: Inner/outer ΔT bands controlling fine vs. full action
+- P, I, D: Proportional, integral, and derivative components of the PID controller
+- meas_blend: Blended measurement for the derivative term (mix of TRV-internal and external temps)
 
 ## Per-room contract (inputs/outputs)
 Inputs (available today in BT):
@@ -27,17 +36,20 @@ Inputs (available today in BT):
 - target_temp_C (BT target)
 - window_open (binary)
 - temp_slope_K_per_min (computed from recent readings, 5–10 min window)
+- trv_temp_C (internal TRV temperature), used for PID D-term blending
 
 Outputs (consumed by controlling/adapters):
 - valve_percent (0–100) for devices with valve control
 - setpoint_eff_C = target_temp_C − flow_cap_K for setpoint-only devices
 - flow_cap_K (0..cap_max_K) for telemetry/tuning
 - sonoff_min_open_pct, sonoff_max_open_pct for Sonoff TRVZB
+- suggested_valve_percent: convenience attribute mirroring the recommended valve_percent for graphing/automations
 
 State (lightweight, per room key):
 - ema_slope (smoothed slope)
 - last_percent (smoothed valve percentage)
 - last_update_ts (rate limiting)
+- PID state (if enabled): pid_integral, pid_last_meas (smoothed blended measurement), pid_last_time; learned pid_kp/ki/kd and last_tune_ts
 
 ## Algorithm (summary)
 - If ΔT >= band_far → 100% (fully open)
@@ -92,13 +104,37 @@ State (lightweight, per room key):
 
 All steps are per-room and require no global information.
 
+### PID mode (details)
+1) Error and timing
+  - Error: $e = T_{set} - T_{cur}$ (Kelvin). Time step dt is computed from a monotonic clock.
+
+2) P and I
+  - $P = k_p \cdot e$
+  - $I \leftarrow I + k_i \cdot e \cdot dt$ with anti-windup clamping to configurable bounds (in percent points equivalent)
+
+3) D on measurement with blended input and smoothing
+  - Blended measurement: $m = \alpha \cdot T_{trv} + (1-\alpha) \cdot T_{ext}$ with 0≤α≤1 (trend_mix_trv)
+  - Smoothed: $m_s \leftarrow (1-\beta)\, m_s + \beta\, m$ with 0≤β≤1 (d_smoothing_alpha)
+  - Derivative: $D = -k_d \cdot \frac{dm_s}{dt}$ (negative sign because derivative is on measurement)
+
+4) Output and clamps
+  - $u = P + I + D$, then clamp to 0..100 and pass through the same EMA/hysteresis/rate-limit used for the heuristic.
+
+5) Conservative auto-tuning (optional)
+  - Overshoot (sign change with amplitude > threshold): decrease k_p slightly, increase k_d slightly
+  - Sluggish (ΔT ≫ band_near and |slope| small): increase k_i slightly
+  - Steady state (|ΔT| < band and u small): decrease k_i slightly to avoid drift
+  - Enforce min/max bounds, and a minimum interval (e.g., 30 min) between tune steps.
+
 ## Implementation
 - balance.py: pure computation, no side effects.
 - events/temperature.py: compute and store a smoothed slope (K/min).
-- events/trv.py: integrates balance to compute per-TRV recommendations und lernt Sonoff/TRV `min_open%` und `max_open%` pro Zieltemperatur-Bucket phasenabhängig (max nur beim Aufheizen, min beim Halten/Abkühlen). Keine Setpoint-Manipulation (funktioniert mit "No Calibration"). Debug-Infos pro TRV liegen unter `real_trvs[trv]['balance']`. Bei Erstinitialisierung werden sinnvolle Defaults verwendet (min ≈ 5%, max = 100%), falls in der aktuellen Phase kein Vorschlag vorliegt.
+- events/trv.py: integrates balance to compute per-TRV recommendations und lernt Sonoff/TRV `min_open%` und `max_open%` pro Zieltemperatur-Bucket phasenabhängig (max nur beim Aufheizen, min beim Halten/Abkühlen). Keine Setpoint-Manipulation (funktioniert mit "No Calibration"). Debug-Infos pro TRV (inkl. PID) liegen unter `real_trvs[trv]['balance']`. Bei Erstinitialisierung werden sinnvolle Defaults verwendet (min ≈ 5%, max = 100%), falls in der aktuellen Phase kein Vorschlag vorliegt.
+- events/temperature.py: schreibt zusätzlich die von BT verwendete externe Temperatur (ohne Hysterese) in Geräte, die eine "external_temperature_input" besitzen (z. B. Sonoff TRVZB), damit das Gerät konsistent dieselbe Referenz sieht.
 - climate.py: exposes learned caps as a JSON attribute `trv_open_caps`. Structure per TRV:
   `{ "current_bucket": "XX.X", "buckets": { "XX.X": { "min_open_pct": N, "max_open_pct": M, "suggested_min_open_pct"?: n, "suggested_max_open_pct"?: m, "stats"?: { "samples": k, "avg_slope_K_min": s, "avg_valve_percent": p, "avg_delta_T_K": d, "last_update_ts": iso } }, ... } }`. Persisted across restarts.
 - utils/controlling.py: if a valve entity exists (e.g., MQTT/Z2M), can call `set_valve` with the computed percentage (with hysteresis) — optional.
+- model_quirks/TRVZB.py: direkter Zugriff auf Sonoff-Entitäten `number.*.valve_opening_degree` und `number.*.valve_closing_degree` (mit closing=100−opening) sowie `number.*.external_temperature_input` (0..99.9°C, 0.1er Schritte), um Ventil und externe Temperatur ohne Automations-Umwege zu setzen.
 
 ### Code integration points
 - `balance.py`: pure math and simple per-room in-memory state
@@ -109,6 +145,14 @@ All steps are per-room and require no global information.
 
 ## Configuration
 - No dedicated calibration mode is required. Feature works alongside `no_calibration` (setpoints are left untouched).
+- Advanced per-TRV options (setup and options flow):
+  - balance_mode: heuristic | pid
+  - pid_auto_tune: enable/disable auto-tuning (default: true)
+  - pid gains: pid_kp, pid_ki, pid_kd
+  - trend_mix_trv (0..1): Anteil der TRV-internen Temperatur für den D-Term
+  - d_smoothing_alpha (0..1): EMA-Glättung nur für den D-Kanal
+  - percent_hysteresis_pts: Hysterese am Aktuator in %-Punkten (Default: 2)
+  - min_update_interval_s: Mindestabstand zwischen Stellgrößen-Updates (Default: 60s)
 - Future tuning parameters (cap_max, bands, hysteresis) can be exposed if needed.
 
 Suggested defaults (conservative):
@@ -144,6 +188,8 @@ Suggested defaults (conservative):
   - `temp_slope_K_min`: current smoothed slope in K/min
   - `balance` (JSON per TRV): `{ "valve%": p, "flow_capK": c }`
   - `trv_open_caps` (JSON): per TRV `{ "current_bucket": "XX.X", "buckets": { ... } }`
+  - `suggested_valve_percent`: flaches Attribut mit der aktuellen Stellgröße in % (bequem für Graphen/Automationen)
+  - PID (bei aktivem PID-Modus, bezogen auf einen repräsentativen TRV): `pid_e_K`, `pid_P`, `pid_I`, `pid_D`, `pid_u`, `pid_kp`, `pid_ki`, `pid_kd`, `pid_dt_s`, `pid_meas_blend_C`, `pid_meas_smooth_C`, `pid_d_meas_K_per_min`
 - Per-TRV stored debug under `real_trvs[trv]['balance']` includes Sonoff min/max.
 
 ## Testing strategy

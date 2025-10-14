@@ -447,25 +447,90 @@ async def get_device_model(self, entity_id):
             entry = entity_reg.async_get(entity_id)
             dev_reg = dr.async_get(self.hass)
             device = dev_reg.async_get(entry.device_id)
-            _LOGGER.debug(f"better_thermostat {self.device_name}: found device:")
-            _LOGGER.debug(device)
-            # Prefer the HA state device.model_id when available (e.g., Zigbee2MQTT publishes model_id like TRVZB)
+            try:
+                _LOGGER.debug(
+                    "better_thermostat %s: get_device_model(%s) platform=%s device_id=%s",
+                    self.device_name,
+                    entity_id,
+                    getattr(entry, "platform", None),
+                    getattr(entry, "device_id", None),
+                )
+                _LOGGER.debug(
+                    "better_thermostat %s: device registry -> manufacturer=%s model=%s name=%s identifiers=%s",
+                    self.device_name,
+                    getattr(device, "manufacturer", None),
+                    getattr(device, "model", None),
+                    getattr(device, "name", None),
+                    list(getattr(device, "identifiers", []) or []),
+                )
+            except Exception:
+                pass
+            # Prefer model_id directly on the HA state attributes or within 'device'
             try:
                 st = self.hass.states.get(entity_id)
                 if st is not None:
+                    # Log attribute keys once for debugging
+                    try:
+                        _LOGGER.debug(
+                            "better_thermostat %s: state attr keys for %s: %s",
+                            self.device_name,
+                            entity_id,
+                            list(st.attributes.keys()),
+                        )
+                    except Exception:
+                        pass
+                    # Check top-level model_id first
+                    top_mdl_id = st.attributes.get("model_id")
+                    if isinstance(top_mdl_id, str) and len(top_mdl_id) >= 2:
+                        _LOGGER.debug(
+                            "better_thermostat %s: detected top-level model_id=%s",
+                            self.device_name,
+                            top_mdl_id,
+                        )
+                        return top_mdl_id
+                    # Then nested under 'device'
                     dev_attr = st.attributes.get("device") or {}
-                    mdl_id = dev_attr.get("model_id")
-                    if isinstance(mdl_id, str) and len(mdl_id) >= 3:
-                        return mdl_id
+                    if isinstance(dev_attr, dict):
+                        mdl_id = dev_attr.get("model_id")
+                        mdl_plain = dev_attr.get("model")
+                        _LOGGER.debug(
+                            "better_thermostat %s: device attr keys=%s model_id=%s model=%s",
+                            self.device_name,
+                            list(dev_attr.keys()),
+                            mdl_id,
+                            mdl_plain,
+                        )
+                        if isinstance(mdl_id, str) and len(mdl_id) >= 2:
+                            return mdl_id
             except Exception:  # noqa: BLE001
                 pass
             try:
-                # Z2M reports the device name as a long string with the actual model name in braces, we need to extract it
-                matches = re.findall(r"\((.+?)\)", device.model)
-                return matches[-1]
+                # Z2M often reports the device model with the actual model in parentheses, extract the latest
+                model_str = getattr(device, "model", None)
+                _LOGGER.debug(
+                    "better_thermostat %s: device.model raw='%s'",
+                    self.device_name,
+                    model_str,
+                )
+                matches = re.findall(r"\((.+?)\)", model_str or "")
+                if matches:
+                    _LOGGER.debug(
+                        "better_thermostat %s: extracted model from device.model -> %s",
+                        self.device_name,
+                        matches[-1],
+                    )
+                    return matches[-1]
+                # If no parentheses form, return the model directly if it's a simple string
+                if isinstance(model_str, str) and len(model_str) >= 2:
+                    _LOGGER.debug(
+                        "better_thermostat %s: using plain device.model='%s'",
+                        self.device_name,
+                        model_str,
+                    )
+                    return model_str
             except IndexError:
                 # Other climate integrations might report the model name plainly, need more infos on this
-                return device.model
+                return getattr(device, "model", None)
         except (
             RuntimeError,
             ValueError,
@@ -476,11 +541,18 @@ async def get_device_model(self, entity_id):
             IndexError,
         ):
             try:
-                return (
-                    self.hass.states.get(entity_id)
-                    .attributes.get("device")
-                    .get("model", "generic")
+                st = self.hass.states.get(entity_id)
+                dev_attr = st.attributes.get("device") if st is not None else None
+                mdl = None
+                if isinstance(dev_attr, dict):
+                    mdl = dev_attr.get("model", None)
+                _LOGGER.debug(
+                    "better_thermostat %s: fallback state.device.model='%s' (entity=%s)",
+                    self.device_name,
+                    mdl,
+                    entity_id,
                 )
+                return mdl or "generic"
             except (
                 RuntimeError,
                 ValueError,
