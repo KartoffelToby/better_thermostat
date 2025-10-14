@@ -340,14 +340,36 @@ def _apply_hydraulic_balance(
             kd = float(adv.get("pid_kd", 2000.0))
         except Exception:
             kd = 2000.0
-        auto_tune = bool(adv.get("pid_auto_tune", False))
-        params = BalanceParams(mode=mode, kp=kp, ki=ki, kd=kd, auto_tune=auto_tune)
+        auto_tune = bool(adv.get("pid_auto_tune", True))
+        try:
+            trend_mix_trv = float(adv.get("trend_mix_trv", 0.7))
+        except Exception:
+            trend_mix_trv = 0.7
+        try:
+            percent_hyst = float(adv.get("percent_hysteresis_pts", 2.0))
+        except Exception:
+            percent_hyst = 2.0
+        try:
+            min_interval = float(adv.get("min_update_interval_s", 60.0))
+        except Exception:
+            min_interval = 60.0
+        params = BalanceParams(
+            mode=mode,
+            kp=kp,
+            ki=ki,
+            kd=kd,
+            auto_tune=auto_tune,
+            trend_mix_trv=trend_mix_trv,
+            percent_hysteresis_pts=percent_hyst,
+            min_update_interval_s=min_interval,
+        )
 
         bal = compute_balance(
             BalanceInput(
                 key=f"{self._unique_id}:{entity_id}",
                 target_temp_C=self.bt_target_temp,
                 current_temp_C=self.cur_temp,
+                trv_temp_C=self.real_trvs.get(entity_id, {}).get("current_temperature"),
                 tolerance_K=float(getattr(self, "tolerance", 0.0) or 0.0),
                 temp_slope_K_per_min=getattr(self, "temp_slope", None),
                 window_open=self.window_open,
@@ -382,6 +404,7 @@ def _apply_hydraulic_balance(
             "setpoint_eff_C": bal.setpoint_eff_C,
             "sonoff_min_open_pct": bal.sonoff_min_open_pct,
             "sonoff_max_open_pct": bal.sonoff_max_open_pct,
+            "debug": getattr(bal, "debug", None),
         }
         # --- Learn per-target-temperature min/max open caps ---
         try:

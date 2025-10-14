@@ -1637,6 +1637,58 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
         except Exception:
             pass
 
+        # PID/Regler-Debug als flache Attribute für Graphen (nur von repräsentativem TRV)
+        try:
+            rep_trv = None
+            for t in self.real_trvs.keys():
+                mdl = str(self.real_trvs.get(t, {}).get("model", ""))
+                if "sonoff" in mdl.lower() or "trvzb" in mdl.lower():
+                    rep_trv = t
+                    break
+            if rep_trv is None:
+                rep_trv = next(iter(self.real_trvs.keys()), None)
+            if rep_trv is not None:
+                bal = (self.real_trvs.get(rep_trv, {}) or {}).get("balance") or {}
+                dbg = bal.get("debug") or {}
+                pid = dbg.get("pid") or {}
+                # Nur wenn Modus pid ist, sonst vermeiden wir Rauschen
+                if str(pid.get("mode")).lower() == "pid":
+                    # Fehler (ΔT), P/I/D/U und Gains direkt ausgeben
+                    if "e_K" in pid:
+                        dev_specific["pid_e_K"] = round(float(pid.get("e_K")), 4)
+                    if "p" in pid and pid.get("p") is not None:
+                        dev_specific["pid_P"] = round(float(pid.get("p")), 4)
+                    if "i" in pid and pid.get("i") is not None:
+                        dev_specific["pid_I"] = round(float(pid.get("i")), 4)
+                    if "d" in pid and pid.get("d") is not None:
+                        dev_specific["pid_D"] = round(float(pid.get("d")), 4)
+                    if "u" in pid and pid.get("u") is not None:
+                        dev_specific["pid_u"] = round(float(pid.get("u")), 4)
+                    if "kp" in pid and pid.get("kp") is not None:
+                        dev_specific["pid_kp"] = round(float(pid.get("kp")), 6)
+                    if "ki" in pid and pid.get("ki") is not None:
+                        dev_specific["pid_ki"] = round(float(pid.get("ki")), 6)
+                    if "kd" in pid and pid.get("kd") is not None:
+                        dev_specific["pid_kd"] = round(float(pid.get("kd")), 6)
+                    if "meas_blend_C" in pid and pid.get("meas_blend_C") is not None:
+                        dev_specific["pid_meas_blend_C"] = round(
+                            float(pid.get("meas_blend_C")), 3)
+                    if "meas_smooth_C" in pid and pid.get("meas_smooth_C") is not None:
+                        dev_specific["pid_meas_smooth_C"] = round(
+                            float(pid.get("meas_smooth_C")), 3)
+                    # d_meas_per_s ist K/s; für Lesbarkeit auch auf K/min hochrechnen
+                    if "d_meas_per_s" in pid and pid.get("d_meas_per_s") is not None:
+                        try:
+                            v = float(pid.get("d_meas_per_s")) * 60.0
+                            dev_specific["pid_d_meas_K_per_min"] = round(v, 4)
+                        except Exception:
+                            pass
+                    # dt_s
+                    if "dt_s" in pid and pid.get("dt_s") is not None:
+                        dev_specific["pid_dt_s"] = round(float(pid.get("dt_s")), 3)
+        except Exception:
+            pass
+
         # Optional telemetry (memory friendly): only count & last cycle + normalized power
         if hasattr(self, "heating_cycles") and len(self.heating_cycles) > 0:
             last_cycle = self.heating_cycles[-1]

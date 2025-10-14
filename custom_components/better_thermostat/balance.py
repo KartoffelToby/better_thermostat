@@ -56,6 +56,10 @@ class BalanceParams:
     i_max: float = 100.0
     # Ableitung auf Messwert (True) oder Fehler
     d_on_measurement: bool = True
+    # Anteil der internen TRV-Temperatur für den D-Anteil (0..1); 0=nur extern, 1=nur intern
+    trend_mix_trv: float = 0.7
+    # Separate Glättung (EMA) des Messwerts für den D-Anteil (0..1)
+    d_smoothing_alpha: float = 0.5
     # Auto-Tuning (konservativ, optional)
     auto_tune: bool = True
     tune_min_interval_s: float = 1800.0  # mind. 30min zwischen Anpassungen
@@ -85,6 +89,7 @@ class BalanceInput:
     key: str  # z.B. Entity-ID
     target_temp_C: Optional[float]
     current_temp_C: Optional[float]
+    trv_temp_C: Optional[float] = None
     tolerance_K: float = 0.0
     temp_slope_K_per_min: Optional[float] = None
     window_open: bool = False
@@ -184,11 +189,42 @@ def compute_balance(inp: BalanceInput, params: BalanceParams = BalanceParams()) 
                         params.i_max, st.pid_integral))
                 # Ableitung
                 d_term = 0.0
+                # Für Debugging/Graphen
+                p_term: Optional[float] = None
+                i_term: Optional[float] = None
+                u: Optional[float] = None
+                meas_now: Optional[float] = None
+                smoothed: Optional[float] = None
+                d_meas: Optional[float] = None
                 if params.mode.lower() == "pid":
                     if params.d_on_measurement:
-                        if dt > 0 and st.pid_last_meas is not None:
-                            d_meas = (inp.current_temp_C - st.pid_last_meas) / dt
-                            d_term = -float(st.pid_kd) * d_meas
+                        if dt > 0:
+                            # Mischung aus externer und TRV-interner Temperatur für die Ableitung
+                            try:
+                                mix = max(0.0, min(1.0, float(params.trend_mix_trv)))
+                            except (TypeError, ValueError):
+                                mix = 0.0
+                            meas_now = None
+                            if inp.current_temp_C is not None:
+                                if inp.trv_temp_C is not None:
+                                    meas_now = (mix * inp.trv_temp_C) + \
+                                        ((1.0 - mix) * inp.current_temp_C)
+                                else:
+                                    meas_now = inp.current_temp_C
+                            if meas_now is not None:
+                                # EMA-Glättung nur für den D-Kanal
+                                try:
+                                    a = max(
+                                        0.0, min(1.0, float(params.d_smoothing_alpha)))
+                                except (TypeError, ValueError):
+                                    a = 0.5
+                                prev = st.pid_last_meas
+                                smoothed = meas_now if prev is None else (
+                                    (1.0 - a) * prev + a * meas_now)
+                                if prev is not None:
+                                    d_meas = (smoothed - prev) / dt
+                                    d_term = -float(st.pid_kd) * d_meas
+                                # Update des gespeicherten (geglätteten) Messwerts erfolgt nach u-Berechnung unten
                     else:
                         # Derivative on error (benötigt letzten Fehler – approximiert über letzten Messwert)
                         if dt > 0 and st.pid_last_meas is not None:
@@ -197,16 +233,55 @@ def compute_balance(inp: BalanceInput, params: BalanceParams = BalanceParams()) 
                             d_term = float(st.pid_kd) * d_err
                 # Proportionalterm
                 p_term = float(st.pid_kp) * e
-                u = p_term + st.pid_integral + d_term  # PID
+                i_term = st.pid_integral
+                u = p_term + i_term + d_term  # PID
                 # Clamp auf 0..100
                 percent = max(0.0, min(100.0, u))
-                # PID-States aktualisieren
-                st.pid_last_meas = inp.current_temp_C
+                # PID-States aktualisieren (für D-Anteil gemischten Messwert speichern)
+                # PID-States aktualisieren: für D-Anteil den geglätteten Messwert persistieren
+                if params.d_on_measurement:
+                    base = inp.current_temp_C
+                    try:
+                        mix = max(0.0, min(1.0, float(params.trend_mix_trv)))
+                    except (TypeError, ValueError):
+                        mix = 0.0
+                    if base is not None and inp.trv_temp_C is not None:
+                        base = (mix * inp.trv_temp_C) + ((1.0 - mix) * base)
+                    try:
+                        a = max(0.0, min(1.0, float(params.d_smoothing_alpha)))
+                    except (TypeError, ValueError):
+                        a = 0.5
+                    if base is not None:
+                        prev = st.pid_last_meas
+                        st.pid_last_meas = base if prev is None else (
+                            (1.0 - a) * prev + a * base)
+                else:
+                    st.pid_last_meas = inp.current_temp_C
                 st.pid_last_time = now
                 # Optionales Auto-Tuning (konservativ)
                 if params.auto_tune:
                     _auto_tune_pid(params, st, percent, delta_T,
                                    inp.temp_slope_K_per_min or 0.0, now)
+                # Debug-Werte ablegen
+                try:
+                    # Basale Debug-Infos (auch für Graphen)
+                    pid_dbg = {
+                        "mode": "pid",
+                        "dt_s": dt,
+                        "e_K": e,
+                        "p": p_term,
+                        "i": i_term,
+                        "d": d_term,
+                        "u": u,
+                        "kp": float(st.pid_kp) if st.pid_kp is not None else None,
+                        "ki": float(st.pid_ki) if st.pid_ki is not None else None,
+                        "kd": float(st.pid_kd) if st.pid_kd is not None else None,
+                        "meas_blend_C": meas_now,
+                        "meas_smooth_C": smoothed,
+                        "d_meas_per_s": d_meas,
+                    }
+                except Exception:
+                    pid_dbg = {"mode": "pid"}
             else:
                 # Heuristik wie bisher
                 # Base mapping via band_far
@@ -296,6 +371,18 @@ def compute_balance(inp: BalanceInput, params: BalanceParams = BalanceParams()) 
         "percent_smooth": smooth,
         "too_soon": too_soon,
     }
+    # PID-Debug anhängen, falls vorhanden
+    try:
+        if params.mode.lower() == "pid":
+            # pid_dbg wurde im PID-Pfad gesetzt; falls nicht, zumindest Modus kennzeichnen
+            if 'pid_dbg' in locals() and isinstance(pid_dbg, dict):
+                debug["pid"] = pid_dbg
+            else:
+                debug["pid"] = {"mode": "pid"}
+        else:
+            debug["pid"] = {"mode": "heuristic"}
+    except Exception:
+        pass
 
     return BalanceOutput(
         valve_percent=sonoff_max,

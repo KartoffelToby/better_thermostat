@@ -285,7 +285,7 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 )
             ] = bool
 
-        # Balance/Regelung (PID)
+        # Balance/Regelung (PID) – PID-Parameter sind wirksam, wenn balance_mode=pid gewählt ist.
         fields[
             vol.Optional(
                 "balance_mode", default=user_input.get("balance_mode", "heuristic")
@@ -296,6 +296,23 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 "pid_auto_tune", default=user_input.get("pid_auto_tune", True)
             )
         ] = bool
+        fields[
+            vol.Optional(
+                "trend_mix_trv", default=user_input.get("trend_mix_trv", 0.7)
+            )
+        ] = vol.All(vol.Coerce(float), vol.Range(min=0, max=1))
+        fields[
+            vol.Optional(
+                "percent_hysteresis_pts",
+                default=user_input.get("percent_hysteresis_pts", 2.0),
+            )
+        ] = vol.All(vol.Coerce(float), vol.Range(min=0, max=10))
+        fields[
+            vol.Optional(
+                "min_update_interval_s",
+                default=user_input.get("min_update_interval_s", 60.0),
+            )
+        ] = vol.All(vol.Coerce(float), vol.Range(min=0, max=3600))
         fields[
             vol.Optional("pid_kp", default=user_input.get("pid_kp", 60.0))
         ] = vol.All(vol.Coerce(float), vol.Range(min=0))
@@ -595,7 +612,7 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
                 )
             ] = bool
 
-        # Balance/Regelung (PID)
+        # Balance/Regelung (PID) – PID-Parameter sind wirksam, wenn balance_mode=pid gewählt ist.
         fields[
             vol.Optional(
                 "balance_mode", default=adv_cfg.get("balance_mode", "heuristic")
@@ -606,6 +623,23 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
                 "pid_auto_tune", default=adv_cfg.get("pid_auto_tune", True)
             )
         ] = bool
+        fields[
+            vol.Optional(
+                "trend_mix_trv", default=adv_cfg.get("trend_mix_trv", 0.7)
+            )
+        ] = vol.All(vol.Coerce(float), vol.Range(min=0, max=1))
+        fields[
+            vol.Optional(
+                "percent_hysteresis_pts",
+                default=adv_cfg.get("percent_hysteresis_pts", 2.0),
+            )
+        ] = vol.All(vol.Coerce(float), vol.Range(min=0, max=10))
+        fields[
+            vol.Optional(
+                "min_update_interval_s",
+                default=adv_cfg.get("min_update_interval_s", 60.0),
+            )
+        ] = vol.All(vol.Coerce(float), vol.Range(min=0, max=3600))
         fields[
             vol.Optional("pid_kp", default=adv_cfg.get("pid_kp", 60.0))
         ] = vol.All(vol.Coerce(float), vol.Range(min=0))
