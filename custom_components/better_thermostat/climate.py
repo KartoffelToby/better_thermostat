@@ -617,6 +617,48 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
             return
         self.hass.async_create_task(trigger_temperature_change(self, event))
 
+    async def _external_temperature_keepalive(self, event=None):
+        """Re-sende die externe Temperatur regelmäßig zu den TRVs.
+        Viele Geräte erwarten mindestens alle ~30 Minuten ein Update."""
+        try:
+            cur = getattr(self, "cur_temp", None)
+            if cur is None:
+                _LOGGER.debug(
+                    "better_thermostat %s: external_temperature keepalive skipped (cur_temp is None)",
+                    getattr(self, "device_name", "unknown"),
+                )
+                return
+
+            trv_ids = [t.get("entity_id") for t in getattr(
+                self, "all_trvs", []) if t.get("entity_id")]
+            if not trv_ids and hasattr(self, "heater_entity_id"):
+                trv_ids = [self.heater_entity_id]
+
+            for trv_id in trv_ids:
+                try:
+                    quirks = self.real_trvs.get(trv_id, {}).get(
+                        "model_quirks") if hasattr(self, "real_trvs") else None
+                    if quirks and hasattr(quirks, "maybe_set_external_temperature"):
+                        ok = await quirks.maybe_set_external_temperature(self, trv_id, cur)
+                        _LOGGER.debug(
+                            "better_thermostat %s: external_temperature keepalive sent to %s (ok=%s, value=%s)",
+                            self.device_name,
+                            trv_id,
+                            ok,
+                            cur,
+                        )
+                except Exception:  # noqa: BLE001
+                    _LOGGER.debug(
+                        "better_thermostat %s: external_temperature keepalive write failed for %s (non critical)",
+                        getattr(self, "device_name", "unknown"),
+                        trv_id,
+                    )
+        except Exception:  # noqa: BLE001
+            _LOGGER.debug(
+                "better_thermostat %s: external_temperature keepalive encountered an error",
+                getattr(self, "device_name", "unknown"),
+            )
+
     async def _trigger_humidity_change(self, event):
         _check = await check_all_entities(self)
         if _check is False:
@@ -1201,6 +1243,14 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
             self.async_on_remove(
                 async_track_time_interval(
                     self.hass, self._trigger_check_weather, timedelta(hours=1)
+                )
+            )
+
+            # Periodischer Keepalive: externe Temperatur mindestens alle 30 Minuten an TRVs senden
+            self.async_on_remove(
+                async_track_time_interval(
+                    self.hass, self._external_temperature_keepalive, timedelta(
+                        minutes=30)
                 )
             )
 
