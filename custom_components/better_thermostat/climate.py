@@ -1736,10 +1736,19 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
                     suggested = (self.real_trvs.get(rep_trv, {})
                                  or {}).get("balance") or {}
                     # Extract suggested values safely
+                    svalve = suggested.get("valve_percent")
                     smin = suggested.get("sonoff_min_open_pct")
                     smax = suggested.get("sonoff_max_open_pct")
+                    svalve_i = None
                     smin_i = None
                     smax_i = None
+                    try:
+                        if isinstance(svalve, (int, float)):
+                            svalve_i = int(svalve)
+                        elif isinstance(svalve, str):
+                            svalve_i = int(float(svalve))
+                    except Exception:
+                        pass
                     try:
                         if isinstance(smin, (int, float)):
                             smin_i = int(smin)
@@ -1754,6 +1763,11 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
                             smax_i = int(float(smax))
                     except Exception:
                         pass
+                    # Root: expose suggested valve percent for convenience
+                    if svalve_i is not None:
+                        dev_specific["suggested_valve_percent"] = int(
+                            max(0, min(100, svalve_i))
+                        )
                     # Root: also expose suggested_* for clarity
                     if smin_i is not None:
                         dev_specific["suggested_min_open_pct"] = int(

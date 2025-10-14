@@ -449,6 +449,16 @@ async def get_device_model(self, entity_id):
             device = dev_reg.async_get(entry.device_id)
             _LOGGER.debug(f"better_thermostat {self.device_name}: found device:")
             _LOGGER.debug(device)
+            # Prefer the HA state device.model_id when available (e.g., Zigbee2MQTT publishes model_id like TRVZB)
+            try:
+                st = self.hass.states.get(entity_id)
+                if st is not None:
+                    dev_attr = st.attributes.get("device") or {}
+                    mdl_id = dev_attr.get("model_id")
+                    if isinstance(mdl_id, str) and len(mdl_id) >= 3:
+                        return mdl_id
+            except Exception:  # noqa: BLE001
+                pass
             try:
                 # Z2M reports the device name as a long string with the actual model name in braces, we need to extract it
                 matches = re.findall(r"\((.+?)\)", device.model)

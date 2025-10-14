@@ -56,6 +56,17 @@ CALIBRATION_TYPE_SELECTOR = selector.SelectSelector(
     )
 )
 
+
+BALANCE_MODE_SELECTOR = selector.SelectSelector(
+    selector.SelectSelectorConfig(
+        options=[
+            selector.SelectOptionDict(value="heuristic", label="Heuristic"),
+            selector.SelectOptionDict(value="pid", label="PID"),
+        ],
+        mode=selector.SelectSelectorMode.DROPDOWN,
+    )
+)
+
 CALIBRATION_TYPE_ALL_SELECTOR = selector.SelectSelector(
     selector.SelectSelectorConfig(
         options=[
@@ -273,6 +284,27 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                     default=user_input.get(CONF_VALVE_MAINTENANCE, False),
                 )
             ] = bool
+
+        # Balance/Regelung (PID)
+        fields[
+            vol.Optional(
+                "balance_mode", default=user_input.get("balance_mode", "heuristic")
+            )
+        ] = BALANCE_MODE_SELECTOR
+        fields[
+            vol.Optional(
+                "pid_auto_tune", default=user_input.get("pid_auto_tune", True)
+            )
+        ] = bool
+        fields[
+            vol.Optional("pid_kp", default=user_input.get("pid_kp", 60.0))
+        ] = vol.All(vol.Coerce(float), vol.Range(min=0))
+        fields[
+            vol.Optional("pid_ki", default=user_input.get("pid_ki", 0.01))
+        ] = vol.All(vol.Coerce(float), vol.Range(min=0))
+        fields[
+            vol.Optional("pid_kd", default=user_input.get("pid_kd", 2000.0))
+        ] = vol.All(vol.Coerce(float), vol.Range(min=0))
 
         fields[
             vol.Optional(
@@ -562,6 +594,27 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
                     default=adv_cfg.get(CONF_VALVE_MAINTENANCE, False),
                 )
             ] = bool
+
+        # Balance/Regelung (PID)
+        fields[
+            vol.Optional(
+                "balance_mode", default=adv_cfg.get("balance_mode", "heuristic")
+            )
+        ] = BALANCE_MODE_SELECTOR
+        fields[
+            vol.Optional(
+                "pid_auto_tune", default=adv_cfg.get("pid_auto_tune", True)
+            )
+        ] = bool
+        fields[
+            vol.Optional("pid_kp", default=adv_cfg.get("pid_kp", 60.0))
+        ] = vol.All(vol.Coerce(float), vol.Range(min=0))
+        fields[
+            vol.Optional("pid_ki", default=adv_cfg.get("pid_ki", 0.01))
+        ] = vol.All(vol.Coerce(float), vol.Range(min=0))
+        fields[
+            vol.Optional("pid_kd", default=adv_cfg.get("pid_kd", 2000.0))
+        ] = vol.All(vol.Coerce(float), vol.Range(min=0))
 
         fields[
             vol.Optional(CONF_CHILD_LOCK, default=adv_cfg.get(CONF_CHILD_LOCK, False))

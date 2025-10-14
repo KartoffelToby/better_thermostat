@@ -160,6 +160,22 @@ async def trigger_temperature_change(self, event):
         self.cur_temp = _incoming_temperature
         self.last_external_sensor_change = _now
         self.async_write_ha_state()
+        # Schreibe den von BT verwendeten Wert (self.cur_temp) ins TRV
+        try:
+            trv_ids = [t["entity_id"]
+                       for t in getattr(self, "all_trvs", []) if "entity_id" in t]
+            if not trv_ids and hasattr(self, "heater_entity_id"):
+                trv_ids = [self.heater_entity_id]
+            for trv_id in trv_ids:
+                quirks = self.real_trvs.get(trv_id, {}).get(
+                    "model_quirks") if hasattr(self, "real_trvs") else None
+                if quirks and hasattr(quirks, "maybe_set_external_temperature"):
+                    await quirks.maybe_set_external_temperature(self, trv_id, self.cur_temp)
+        except Exception:
+            _LOGGER.debug(
+                "better_thermostat %s: external_temperature write to TRV failed (non critical)",
+                getattr(self, "device_name", "unknown"),
+            )
     # Enqueue control action
         if self.control_queue_task is not None:
             await self.control_queue_task.put(self)

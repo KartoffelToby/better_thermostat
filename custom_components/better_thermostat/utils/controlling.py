@@ -157,28 +157,35 @@ async def control_trv(self, heater_entity_id=None):
             "calibration_mode", CalibrationMode.DEFAULT
         )
 
-    # Optional: set valve position if supported (e.g., MQTT/Z2M)
+        # Optional: set valve position if supported (e.g., MQTT/Z2M), otherwise try model-specific fallback (Sonoff TRVZB)
         try:
             bal = self.real_trvs[heater_entity_id].get("balance")
-            valve_entity = self.real_trvs[heater_entity_id].get(
-                "valve_position_entity"
-            )
-            if bal and valve_entity:
+            valve_entity = self.real_trvs[heater_entity_id].get("valve_position_entity")
+            if bal:
                 target_pct = int(bal.get("valve_percent", 0))
                 last_pct = self.real_trvs[heater_entity_id].get("last_valve_percent")
-                # Hysteresis 3 percentage points, and only when heating is allowed
                 if (
-                    last_pct is None
-                    or abs(int(last_pct) - target_pct) >= 3
+                    last_pct is None or abs(int(last_pct) - target_pct) >= 3
                 ) and self.call_for_heat is not False:
-                    _LOGGER.debug(
-                        f"better_thermostat {self.device_name}: TO TRV set_valve: {heater_entity_id} to: {target_pct}%"
-                    )
-                    await set_valve(self, heater_entity_id, target_pct)
-                    self.real_trvs[heater_entity_id]["last_valve_percent"] = target_pct
-        except Exception:
+                    if valve_entity:
+                        _LOGGER.debug(
+                            "better_thermostat %s: TO TRV set_valve: %s to: %s%%",
+                            self.device_name,
+                            heater_entity_id,
+                            target_pct,
+                        )
+                        await set_valve(self, heater_entity_id, target_pct)
+                        self.real_trvs[heater_entity_id]["last_valve_percent"] = target_pct
+                    else:
+                        quirks = self.real_trvs[heater_entity_id].get("model_quirks")
+                        if quirks and hasattr(quirks, "maybe_set_sonoff_valve_percent"):
+                            if await quirks.maybe_set_sonoff_valve_percent(self, heater_entity_id, target_pct):
+                                self.real_trvs[heater_entity_id]["last_valve_percent"] = target_pct
+        except Exception:  # noqa: BLE001
             _LOGGER.debug(
-                f"better_thermostat {self.device_name}: set_valve not applied for {heater_entity_id} (unsupported or failed)"
+                "better_thermostat %s: set_valve not applied for %s (unsupported or failed)",
+                self.device_name,
+                heater_entity_id,
             )
 
         _new_hvac_mode = handle_window_open(self, _remapped_states)

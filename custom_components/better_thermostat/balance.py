@@ -28,6 +28,8 @@ from time import monotonic
 
 @dataclass
 class BalanceParams:
+    # Algorithmus-Auswahl: 'heuristic' (Standard), 'pid'
+    mode: str = "heuristic"
     # Near setpoint band where we gently throttle/refine (Kelvin)
     band_near_K: float = 0.3
     # Far band beyond which fully open/close is likely (Kelvin)
@@ -45,6 +47,35 @@ class BalanceParams:
     min_update_interval_s: float = 120.0  # minimum time between updates
     # Sonoff minimum opening (comfort/flow noise)
     sonoff_min_open_default_pct: int = 5
+    # PID-Parameter (optional)
+    kp: float = 60.0
+    ki: float = 0.01
+    kd: float = 2000.0
+    # Integrator-Klammer (Anti-Windup) in %-Punkten umgerechnet
+    i_min: float = -100.0
+    i_max: float = 100.0
+    # Ableitung auf Messwert (True) oder Fehler
+    d_on_measurement: bool = True
+    # Auto-Tuning (konservativ, optional)
+    auto_tune: bool = True
+    tune_min_interval_s: float = 1800.0  # mind. 30min zwischen Anpassungen
+    # Gain-Grenzen
+    kp_min: float = 5.0
+    kp_max: float = 500.0
+    ki_min: float = 0.0
+    ki_max: float = 1.0
+    kd_min: float = 0.0
+    kd_max: float = 10000.0
+    # Lernraten (Multiplikatoren)
+    kp_step_mul: float = 0.9  # bei Overshoot: kp *= 0.9
+    kd_step_mul: float = 1.1  # bei Overshoot: kd *= 1.1
+    ki_step_mul_down: float = 0.9
+    ki_step_mul_up: float = 1.1
+    # Kriterien
+    overshoot_threshold_K: float = 0.3
+    sluggish_slope_threshold_K_min: float = 0.005
+    steady_state_band_K: float = 0.1
+    steady_state_duration_s: float = 900.0
 
 
 # --- I/O and state types ---------------------------------------------
@@ -79,6 +110,19 @@ class BalanceState:
     last_percent: Optional[float] = None
     last_update_ts: float = 0.0
     ema_slope: Optional[float] = None
+    # PID-State
+    pid_integral: float = 0.0
+    pid_last_meas: Optional[float] = None
+    pid_last_time: float = 0.0
+    # Lernende Gains (persistierbar)
+    pid_kp: Optional[float] = None
+    pid_ki: Optional[float] = None
+    pid_kd: Optional[float] = None
+    last_tune_ts: float = 0.0
+    # Heuristik-Zustände
+    last_delta_sign: Optional[int] = None
+    ss_band_entry_ts: float = 0.0
+    heat_sat_entry_ts: float = 0.0
 
 
 # Module-local storage
@@ -118,41 +162,88 @@ def compute_balance(inp: BalanceInput, params: BalanceParams = BalanceParams()) 
             percent = st.last_percent if st.last_percent is not None else 0.0
         else:
             delta_T = inp.target_temp_C - inp.current_temp_C
-            # Base mapping via band_far
-            bf = max(params.band_far_K, 0.1)
-            # Clamp ΔT to [-bf, +bf] and map linearly to [0..100]
-            x = max(-bf, min(bf, delta_T))
-            percent_base = 100.0 * (x + bf) / (2.0 * bf)
 
-            # Slope EMA
-            slope = inp.temp_slope_K_per_min
-            if slope is not None:
-                if st.ema_slope is None:
-                    st.ema_slope = slope
-                else:
-                    # light smoothing of the trend
-                    st.ema_slope = 0.6 * st.ema_slope + 0.4 * slope
-            s = st.ema_slope if st.ema_slope is not None else 0.0
-
-            # Slope correction: positive slope → reduce percentage
-            percent_adj = percent_base + params.slope_gain_per_K_per_min * s
-
-            # With clear heating demand (ΔT >= band_far) fully open
-            if delta_T >= params.band_far_K:
-                percent = 100.0
-            # With clear overshoot (ΔT <= -band_far) close
-            elif delta_T <= -params.band_far_K:
-                percent = 0.0
+            if params.mode.lower() == "pid":
+                # PID-Regelung
+                # Zeitdifferenz
+                dt = now - st.pid_last_time if st.pid_last_time > 0 else 0.0
+                # Fehler
+                e = delta_T
+                # Initialisiere lernende Gains (einmalig) mit übergebenen Params
+                if st.pid_kp is None:
+                    st.pid_kp = params.kp
+                if st.pid_ki is None:
+                    st.pid_ki = params.ki
+                if st.pid_kd is None:
+                    st.pid_kd = params.kd
+                # Integrator (nur wenn dt>0)
+                if dt > 0:
+                    st.pid_integral += float(st.pid_ki) * e * dt
+                    # Anti-Windup (Integrator klammern)
+                    st.pid_integral = max(params.i_min, min(
+                        params.i_max, st.pid_integral))
+                # Ableitung
+                d_term = 0.0
+                if params.mode.lower() == "pid":
+                    if params.d_on_measurement:
+                        if dt > 0 and st.pid_last_meas is not None:
+                            d_meas = (inp.current_temp_C - st.pid_last_meas) / dt
+                            d_term = -float(st.pid_kd) * d_meas
+                    else:
+                        # Derivative on error (benötigt letzten Fehler – approximiert über letzten Messwert)
+                        if dt > 0 and st.pid_last_meas is not None:
+                            last_e = (inp.target_temp_C - st.pid_last_meas)
+                            d_err = (e - last_e) / dt
+                            d_term = float(st.pid_kd) * d_err
+                # Proportionalterm
+                p_term = float(st.pid_kp) * e
+                u = p_term + st.pid_integral + d_term  # PID
+                # Clamp auf 0..100
+                percent = max(0.0, min(100.0, u))
+                # PID-States aktualisieren
+                st.pid_last_meas = inp.current_temp_C
+                st.pid_last_time = now
+                # Optionales Auto-Tuning (konservativ)
+                if params.auto_tune:
+                    _auto_tune_pid(params, st, percent, delta_T,
+                                   inp.temp_slope_K_per_min or 0.0, now)
             else:
-                # Near setpoint: light extra logic
-                if abs(delta_T) <= params.band_near_K:
-                    # Rising faster than desired
-                    if s >= params.slope_up_K_per_min:
-                        percent_adj *= 0.7  # throttle
-                    # If temperature does not increase despite demand
-                    elif s <= params.slope_down_K_per_min and delta_T > 0:
-                        percent_adj = max(percent_adj, 60.0)
-                percent = max(0.0, min(100.0, percent_adj))
+                # Heuristik wie bisher
+                # Base mapping via band_far
+                bf = max(params.band_far_K, 0.1)
+                # Clamp ΔT to [-bf, +bf] and map linearly to [0..100]
+                x = max(-bf, min(bf, delta_T))
+                percent_base = 100.0 * (x + bf) / (2.0 * bf)
+
+                # Slope EMA
+                slope = inp.temp_slope_K_per_min
+                if slope is not None:
+                    if st.ema_slope is None:
+                        st.ema_slope = slope
+                    else:
+                        # light smoothing of the trend
+                        st.ema_slope = 0.6 * st.ema_slope + 0.4 * slope
+                s = st.ema_slope if st.ema_slope is not None else 0.0
+
+                # Slope correction: positive slope → reduce percentage
+                percent_adj = percent_base + params.slope_gain_per_K_per_min * s
+
+                # With clear heating demand (ΔT >= band_far) fully open
+                if delta_T >= params.band_far_K:
+                    percent = 100.0
+                # With clear overshoot (ΔT <= -band_far) close
+                elif delta_T <= -params.band_far_K:
+                    percent = 0.0
+                else:
+                    # Near setpoint: light extra logic
+                    if abs(delta_T) <= params.band_near_K:
+                        # Rising faster than desired
+                        if s >= params.slope_up_K_per_min:
+                            percent_adj *= 0.7  # throttle
+                        # If temperature does not increase despite demand
+                        elif s <= params.slope_down_K_per_min and delta_T > 0:
+                            percent_adj = max(percent_adj, 60.0)
+                    percent = max(0.0, min(100.0, percent_adj))
 
     # Percentage smoothing (EMA)
     if st.last_percent is None:
@@ -216,6 +307,67 @@ def compute_balance(inp: BalanceInput, params: BalanceParams = BalanceParams()) 
     )
 
 
+def _auto_tune_pid(
+    params: BalanceParams,
+    st: BalanceState,
+    percent: float,
+    delta_T: Optional[float],
+    slope: float,
+    now_ts: float,
+) -> None:
+    """Sehr konservatives Auto-Tuning basierend auf einfachen Heuristiken.
+
+    Ziele:
+    - Bei häufigem Overshoot (ΔT wechselt Vorzeichen, Peak > overshoot_threshold) → kp etwas runter, kd etwas rauf.
+    - Bei Trägheit (ΔT > band_near und Slope sehr klein) → ki etwas rauf (nur moderat).
+    - Im quasi-stationären Zustand (|ΔT| < steady_state_band und Prozent klein) → ki etwas runter zur Drift-Vermeidung.
+    - Mindestabstand zwischen Anpassungen (tune_min_interval_s), Clamp der Gains in Grenzen.
+    """
+    try:
+        if delta_T is None:
+            return
+        # Mindestabstand
+        if (now_ts - st.last_tune_ts) < params.tune_min_interval_s:
+            return
+        sign = 1 if delta_T > 0 else (-1 if delta_T < 0 else 0)
+        overshoot = False
+        # Overshoot-Heuristik: Vorzeichenwechsel und Amplitude über Schwellwert
+        if st.last_delta_sign is not None and sign != 0 and sign != st.last_delta_sign:
+            if abs(delta_T) >= params.overshoot_threshold_K:
+                overshoot = True
+        st.last_delta_sign = sign if sign != 0 else st.last_delta_sign
+
+        tuned = False
+        kp = float(st.pid_kp or params.kp)
+        ki = float(st.pid_ki or params.ki)
+        kd = float(st.pid_kd or params.kd)
+
+        # 1) Overshoot → kp leicht runter, kd leicht rauf
+        if overshoot:
+            kp = max(params.kp_min, kp * params.kp_step_mul)
+            kd = min(params.kd_max, kd * params.kd_step_mul)
+            tuned = True
+
+        # 2) Trägheit: ΔT deutlich > band_near, aber Slope sehr klein -> Ki leicht rauf
+        if delta_T > params.band_near_K and abs(slope) < params.sluggish_slope_threshold_K_min:
+            ki = min(params.ki_max, max(params.ki_min, ki * params.ki_step_mul_up))
+            tuned = True
+
+        # 3) Quasi stationär: |ΔT| < steady_state_band und geringe Stellgröße → Ki leicht runter
+        if abs(delta_T) < params.steady_state_band_K and percent < 20.0:
+            ki = max(params.ki_min, min(params.ki_max, ki * params.ki_step_mul_down))
+            tuned = True
+
+        if tuned:
+            st.pid_kp = kp
+            st.pid_ki = ki
+            st.pid_kd = kd
+            st.last_tune_ts = now_ts
+    except (ValueError, TypeError):
+        # Best-effort: numerische Probleme ignorieren
+        return
+
+
 def reset_balance_state(key: str) -> None:
     """Reset learned/smoothing values for a given room key."""
     if key in _BALANCE_STATES:
@@ -241,6 +393,10 @@ def export_states(prefix: Optional[str] = None) -> Dict[str, Dict[str, Any]]:
             "last_percent": st.last_percent,
             "last_update_ts": st.last_update_ts,
             "ema_slope": st.ema_slope,
+            "pid_kp": st.pid_kp,
+            "pid_ki": st.pid_ki,
+            "pid_kd": st.pid_kd,
+            "last_tune_ts": st.last_tune_ts,
         }
     return out
 
@@ -262,6 +418,10 @@ def import_states(data: Dict[str, Dict[str, Any]], prefix_filter: Optional[str] 
                 last_percent=v.get("last_percent"),
                 last_update_ts=float(v.get("last_update_ts", 0.0)),
                 ema_slope=v.get("ema_slope"),
+                pid_kp=v.get("pid_kp"),
+                pid_ki=v.get("pid_ki"),
+                pid_kd=v.get("pid_kd"),
+                last_tune_ts=float(v.get("last_tune_ts", 0.0)),
             )
             _BALANCE_STATES[str(k)] = st
             count += 1

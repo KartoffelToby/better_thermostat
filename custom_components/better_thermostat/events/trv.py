@@ -322,6 +322,27 @@ def _apply_hydraulic_balance(
             )
             return current_setpoint
 
+        # Build balance parameters (optionally from per-TRV advanced settings)
+        adv = self.real_trvs.get(entity_id, {}).get("advanced", {}) or {}
+        try:
+            mode = str(adv.get("balance_mode", "heuristic")).lower()
+        except Exception:
+            mode = "heuristic"
+        try:
+            kp = float(adv.get("pid_kp", 60.0))
+        except Exception:
+            kp = 60.0
+        try:
+            ki = float(adv.get("pid_ki", 0.01))
+        except Exception:
+            ki = 0.01
+        try:
+            kd = float(adv.get("pid_kd", 2000.0))
+        except Exception:
+            kd = 2000.0
+        auto_tune = bool(adv.get("pid_auto_tune", False))
+        params = BalanceParams(mode=mode, kp=kp, ki=ki, kd=kd, auto_tune=auto_tune)
+
         bal = compute_balance(
             BalanceInput(
                 key=f"{self._unique_id}:{entity_id}",
@@ -331,7 +352,8 @@ def _apply_hydraulic_balance(
                 temp_slope_K_per_min=getattr(self, "temp_slope", None),
                 window_open=self.window_open,
                 heating_allowed=True,
-            )
+            ),
+            params,
         )
         # Schedule a debounced persistence save (if the entity supports it)
         try:
@@ -363,6 +385,19 @@ def _apply_hydraulic_balance(
         }
         # --- Learn per-target-temperature min/max open caps ---
         try:
+            # Phase-Erkennung anhand ΔT und konservativen Bändern
+            # nutzt Parameter (inkl. Bändern) aus balance.py bzw. ggf. Advanced-Overrides
+            dT = None
+            try:
+                if self.bt_target_temp is not None and self.cur_temp is not None:
+                    dT = float(self.bt_target_temp) - float(self.cur_temp)
+            except Exception:
+                dT = None
+            # Nur in Heizphase (ausreichend unter Soll) max_open lernen
+            learn_max = (dT is not None) and (dT >= params.band_near_K)
+            # Nur in Halte-/Abkühlphasen min_open lernen (nahe oder unter Soll)
+            learn_min = (dT is not None) and (dT <= params.band_near_K)
+
             # Bucket by heating target (round to 0.5°C for stability)
             t = self.bt_target_temp
             bucket = (
@@ -373,10 +408,15 @@ def _apply_hydraulic_balance(
                 # Initialize bucket
                 caps_trv = self.open_caps.setdefault(entity_id, {})
                 caps = caps_trv.get(bucket)
-                suggested_min = int(max(0, min(100, bal.sonoff_min_open_pct)))
-                suggested_max = int(max(0, min(100, bal.sonoff_max_open_pct)))
+                # Vorschläge nur übernehmen, wenn für die Phase sinnvoll und numerisch
+                suggested_min = None
+                if learn_min and isinstance(bal.sonoff_min_open_pct, (int, float)):
+                    suggested_min = int(max(0, min(100, int(bal.sonoff_min_open_pct))))
+                suggested_max = None
+                if learn_max and isinstance(bal.sonoff_max_open_pct, (int, float)):
+                    suggested_max = int(max(0, min(100, int(bal.sonoff_max_open_pct))))
                 # Ensure min <= max
-                if suggested_min > suggested_max:
+                if suggested_min is not None and suggested_max is not None and suggested_min > suggested_max:
                     suggested_min = suggested_max
                 # Learning: coarse (5%) when far away, fine (1%) when close
 
@@ -391,9 +431,17 @@ def _apply_hydraulic_balance(
                     return cur + (step if diff > 0 else -step)
 
                 if not isinstance(caps, dict):
-                    # Initialize using coarse 5% rounding towards the suggested
-                    new_min = int(round(suggested_min / 5.0) * 5)
-                    new_max = int(round(suggested_max / 5.0) * 5)
+                    # Initialisierung: fehlende Vorschläge mit sinnvollen Defaults füllen
+                    # min: Komfort-Default (5%), max: unbeschränkt (100%)
+                    if suggested_min is None:
+                        new_min = int(
+                            round(BalanceParams().sonoff_min_open_default_pct / 5.0) * 5)
+                    else:
+                        new_min = int(round(suggested_min / 5.0) * 5)
+                    if suggested_max is None:
+                        new_max = 100
+                    else:
+                        new_max = int(round(suggested_max / 5.0) * 5)
                     caps = {
                         "min_open_pct": new_min,
                         "max_open_pct": new_max,
@@ -422,10 +470,16 @@ def _apply_hydraulic_balance(
                         pass
                 else:
                     caps = cast(Dict[str, Any], caps)
-                    cur_min = int(caps.get("min_open_pct", 0))
-                    cur_max = int(caps.get("max_open_pct", 0))
-                    new_min = _towards(cur_min, suggested_min)
-                    new_max = _towards(cur_max, suggested_max)
+                    cur_min = int(
+                        caps.get("min_open_pct", BalanceParams().sonoff_min_open_default_pct))
+                    cur_max = int(caps.get("max_open_pct", 100))
+                    # Nur die in dieser Phase relevanten Werte anpassen, den anderen unverändert lassen
+                    new_min = cur_min
+                    new_max = cur_max
+                    if suggested_min is not None:
+                        new_min = _towards(cur_min, suggested_min)
+                    if suggested_max is not None:
+                        new_max = _towards(cur_max, suggested_max)
                     # maintain ordering
                     if new_min > new_max:
                         new_min = new_max
