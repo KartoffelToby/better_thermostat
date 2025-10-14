@@ -1,4 +1,5 @@
 from homeassistant.helpers.importlib import async_import_module
+import re
 import logging
 
 _LOGGER = logging.getLogger(__name__)
@@ -13,7 +14,9 @@ async def load_model_quirks(self, model, entity_id):
 
     # Normalize model to a safe module suffix
     model_str = str(model) if model is not None else ""
-    model_sanitized = model_str.replace("/", "_").strip() or "default"
+    # Replace path separators and any non-alphanumeric/underscore with underscore
+    model_sanitized = re.sub(r"[^A-Za-z0-9_]+", "_",
+                             model_str.replace("/", "_")).strip("_") or "default"
     module_path = (
         f"custom_components.better_thermostat.model_fixes.{model_sanitized}"
     )
@@ -27,7 +30,7 @@ async def load_model_quirks(self, model, entity_id):
             model_str or "<none>",
             entity_id,
         )
-    except Exception as e:  # noqa: BLE001
+    except ImportError as e:
         # Fallback to default and log the reason
         default_module = (
             "custom_components.better_thermostat.model_fixes.default"
@@ -42,7 +45,7 @@ async def load_model_quirks(self, model, entity_id):
                 entity_id,
                 e,
             )
-        except Exception as e2:  # noqa: BLE001
+        except ImportError as e2:
             # This should never happen, but make it visible if it does
             _LOGGER.error(
                 "better_thermostat %s: failed to import default quirks module '%s' after error loading '%s' for model '%s' (trv %s): %s",

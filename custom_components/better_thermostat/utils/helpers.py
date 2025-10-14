@@ -431,64 +431,61 @@ def get_min_value(obj, value, default):
 
 
 async def get_device_model(self, entity_id):
-    """Fetches the device model from HA.
-    Parameters
-    ----------
-    self :
-            self instance of better_thermostat
-    Returns
-    -------
-    string
-            the name of the thermostat model
+    """Fetch and infer the device model from HA state and registries.
+
+    Always attempts detection (even if a config model is present) and falls
+    back to the configured model only if nothing better is found. Adds
+    detailed debug logs so you can see which path was taken.
     """
-    if self.model is None:
+    selected: str | None = None
+    source: str = "none"
+    try:
+        entity_reg = er.async_get(self.hass)
+        entry = entity_reg.async_get(entity_id)
+        dev_reg = dr.async_get(self.hass)
+        device = None
         try:
-            entity_reg = er.async_get(self.hass)
-            entry = entity_reg.async_get(entity_id)
-            dev_reg = dr.async_get(self.hass)
-            device = dev_reg.async_get(entry.device_id)
-            try:
-                _LOGGER.debug(
-                    "better_thermostat %s: get_device_model(%s) platform=%s device_id=%s",
-                    self.device_name,
-                    entity_id,
-                    getattr(entry, "platform", None),
-                    getattr(entry, "device_id", None),
-                )
-                _LOGGER.debug(
-                    "better_thermostat %s: device registry -> manufacturer=%s model=%s name=%s identifiers=%s",
-                    self.device_name,
-                    getattr(device, "manufacturer", None),
-                    getattr(device, "model", None),
-                    getattr(device, "name", None),
-                    list(getattr(device, "identifiers", []) or []),
-                )
-            except Exception:
-                pass
-            # Prefer model_id directly on the HA state attributes or within 'device'
-            try:
-                st = self.hass.states.get(entity_id)
-                if st is not None:
-                    # Log attribute keys once for debugging
-                    try:
-                        _LOGGER.debug(
-                            "better_thermostat %s: state attr keys for %s: %s",
-                            self.device_name,
-                            entity_id,
-                            list(st.attributes.keys()),
-                        )
-                    except Exception:
-                        pass
-                    # Check top-level model_id first
-                    top_mdl_id = st.attributes.get("model_id")
-                    if isinstance(top_mdl_id, str) and len(top_mdl_id) >= 2:
-                        _LOGGER.debug(
-                            "better_thermostat %s: detected top-level model_id=%s",
-                            self.device_name,
-                            top_mdl_id,
-                        )
-                        return top_mdl_id
-                    # Then nested under 'device'
+            dev_id = getattr(entry, "device_id", None)
+            if isinstance(dev_id, str) and dev_id:
+                device = dev_reg.async_get(dev_id)
+        except Exception:
+            device = None
+        try:
+            _LOGGER.debug(
+                "better_thermostat %s: get_device_model(%s) platform=%s device_id=%s",
+                self.device_name,
+                entity_id,
+                getattr(entry, "platform", None),
+                getattr(entry, "device_id", None),
+            )
+            _LOGGER.debug(
+                "better_thermostat %s: device registry -> manufacturer=%s model=%s name=%s identifiers=%s",
+                self.device_name,
+                getattr(device, "manufacturer", None),
+                getattr(device, "model", None),
+                getattr(device, "name", None),
+                list(getattr(device, "identifiers", []) or []),
+            )
+        except Exception:
+            pass
+        # Prefer model_id on HA state
+        try:
+            st = self.hass.states.get(entity_id)
+            if st is not None:
+                try:
+                    _LOGGER.debug(
+                        "better_thermostat %s: state attr keys for %s: %s",
+                        self.device_name,
+                        entity_id,
+                        list(st.attributes.keys()),
+                    )
+                except Exception:
+                    pass
+                top_mdl_id = st.attributes.get("model_id")
+                if isinstance(top_mdl_id, str) and len(top_mdl_id.strip()) >= 2:
+                    selected = top_mdl_id.strip()
+                    source = "state.model_id"
+                else:
                     dev_attr = st.attributes.get("device") or {}
                     if isinstance(dev_attr, dict):
                         mdl_id = dev_attr.get("model_id")
@@ -500,12 +497,23 @@ async def get_device_model(self, entity_id):
                             mdl_id,
                             mdl_plain,
                         )
-                        if isinstance(mdl_id, str) and len(mdl_id) >= 2:
-                            return mdl_id
-            except Exception:  # noqa: BLE001
-                pass
+                        if isinstance(mdl_id, str) and len(mdl_id.strip()) >= 2:
+                            selected = mdl_id.strip()
+                            source = "state.device.model_id"
+                        elif isinstance(mdl_plain, str) and len(mdl_plain.strip()) >= 2:
+                            # Try to extract model from parentheses (Z2M style)
+                            matches = re.findall(r"\((.+?)\)", mdl_plain)
+                            if matches:
+                                selected = matches[-1].strip()
+                                source = "state.device.model(parens)"
+                            else:
+                                selected = mdl_plain.strip()
+                                source = "state.device.model"
+        except Exception:  # noqa: BLE001
+            pass
+        # Device registry fallback
+        if not selected:
             try:
-                # Z2M often reports the device model with the actual model in parentheses, extract the latest
                 model_str = getattr(device, "model", None)
                 _LOGGER.debug(
                     "better_thermostat %s: device.model raw='%s'",
@@ -514,54 +522,30 @@ async def get_device_model(self, entity_id):
                 )
                 matches = re.findall(r"\((.+?)\)", model_str or "")
                 if matches:
-                    _LOGGER.debug(
-                        "better_thermostat %s: extracted model from device.model -> %s",
-                        self.device_name,
-                        matches[-1],
-                    )
-                    return matches[-1]
-                # If no parentheses form, return the model directly if it's a simple string
-                if isinstance(model_str, str) and len(model_str) >= 2:
-                    _LOGGER.debug(
-                        "better_thermostat %s: using plain device.model='%s'",
-                        self.device_name,
-                        model_str,
-                    )
-                    return model_str
-            except IndexError:
-                # Other climate integrations might report the model name plainly, need more infos on this
-                return getattr(device, "model", None)
-        except (
-            RuntimeError,
-            ValueError,
-            AttributeError,
-            KeyError,
-            TypeError,
-            NameError,
-            IndexError,
-        ):
-            try:
-                st = self.hass.states.get(entity_id)
-                dev_attr = st.attributes.get("device") if st is not None else None
-                mdl = None
-                if isinstance(dev_attr, dict):
-                    mdl = dev_attr.get("model", None)
-                _LOGGER.debug(
-                    "better_thermostat %s: fallback state.device.model='%s' (entity=%s)",
-                    self.device_name,
-                    mdl,
-                    entity_id,
-                )
-                return mdl or "generic"
-            except (
-                RuntimeError,
-                ValueError,
-                AttributeError,
-                KeyError,
-                TypeError,
-                NameError,
-                IndexError,
-            ):
-                return "generic"
-    else:
-        return self.model
+                    selected = matches[-1].strip()
+                    source = "devreg.model(parens)"
+                elif isinstance(model_str, str) and len(model_str.strip()) >= 2:
+                    selected = model_str.strip()
+                    source = "devreg.model"
+            except Exception:
+                pass
+    except Exception:
+        # swallow registry access issues and continue to fallback
+        pass
+
+    # Final fallback: configured model, then generic
+    if not selected and isinstance(self.model, str) and len(self.model.strip()) >= 2:
+        selected = self.model.strip()
+        source = "config.model"
+    if not selected:
+        selected = "generic"
+        source = "default"
+
+    _LOGGER.debug(
+        "better_thermostat %s: get_device_model(%s) selected='%s' via %s",
+        self.device_name,
+        entity_id,
+        selected,
+        source,
+    )
+    return selected
