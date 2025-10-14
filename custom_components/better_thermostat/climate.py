@@ -479,7 +479,30 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
                     trv.get("trv"),
                     e,
                 )
+            _LOGGER.debug(
+                "better_thermostat %s: loading model quirks: model='%s' trv='%s'",
+                self.device_name,
+                resolved_model,
+                trv.get("trv"),
+            )
             _model_quirks = await load_model_quirks(self, resolved_model, trv["trv"])
+            try:
+                mod_name = getattr(_model_quirks, "__name__", str(_model_quirks))
+                _LOGGER.debug(
+                    "better_thermostat %s: loaded model quirks module '%s' for model '%s' (trv %s)",
+                    self.device_name,
+                    mod_name,
+                    resolved_model,
+                    trv.get("trv"),
+                )
+            except Exception as e:  # noqa: BLE001
+                _LOGGER.debug(
+                    "better_thermostat %s: could not determine quirks module name for model '%s' (trv %s): %s",
+                    self.device_name,
+                    resolved_model,
+                    trv.get("trv"),
+                    e,
+                )
             self.real_trvs[trv["trv"]] = {
                 "calibration": _calibration,
                 "integration": trv["integration"],
