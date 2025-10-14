@@ -459,10 +459,11 @@ async def get_device_model(self, entity_id):
                 getattr(entry, "device_id", None),
             )
             _LOGGER.debug(
-                "better_thermostat %s: device registry -> manufacturer=%s model=%s name=%s identifiers=%s",
+                "better_thermostat %s: device registry -> manufacturer=%s model=%s model_id=%s name=%s identifiers=%s",
                 self.device_name,
                 getattr(device, "manufacturer", None),
                 getattr(device, "model", None),
+                getattr(device, "model_id", None),
                 getattr(device, "name", None),
                 list(getattr(device, "identifiers", []) or []),
             )
