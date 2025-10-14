@@ -52,13 +52,13 @@ State (lightweight, per room key):
 - PID state (if enabled): pid_integral, pid_last_meas (smoothed blended measurement), pid_last_time; learned pid_kp/ki/kd and last_tune_ts
 
 ## Algorithm (summary)
-- If ΔT >= band_far → 100% (fully open)
+- If ΔT >= band_far → open up to the learned max_open% cap (default 100%)
 - If ΔT <= -band_far → 0% (close/hold)
 - Strong overshoot fast path: If ΔT ≤ −band_far, we bypass hysteresis and rate-limit and immediately drive the output to 0% to avoid sticking at small residual openings.
-- Else map ΔT linearly to 0..100% and correct by slope:
+- Else map ΔT linearly to 0..max_cap and correct by slope (max_cap = learned max_open% for the current target bucket; defaults to 100% if not yet learned):
   - positive slope → reduce opening (prevent overshoot)
   - negative slope (while ΔT>0) → ensure at least a minimum opening
-- Smooth via EMA, apply hysteresis and a minimum update interval to save battery and reduce traffic. The overshoot fast path above bypasses these guards.
+- Smooth via EMA, apply hysteresis and a minimum update interval to save battery and reduce traffic. The overshoot fast path above bypasses these guards. Clamping respects the learned max_cap.
 - flow_cap_K = cap_max_K * (1 - valve_percent/100)
 - For Sonoff: sonoff_max_open_pct = valve_percent; sonoff_min_open_pct ≈ 0–5% depending on overshoot.
 - Phase-aware learning of caps:
@@ -83,14 +83,15 @@ State (lightweight, per room key):
   - If $s_{ema} ≤ s\_{down}$ and ΔT>0: $p_{adj} \leftarrow \max(p_{adj}, 60)$ (ensure opening)
 
 5) Full-demand/overshoot guards:
-  - If ΔT ≥ band_far → p = 100
+  - If ΔT ≥ band_far → p = max_cap (max_cap = learned max_open%; defaults to 100% until learned)
   - If ΔT ≤ −band_far → p = 0 (and trigger fast-close path below)
-  - Else p = clamp(p_adj, 0..100)
+  - Else p = clamp(p_adj, 0..max_cap)
 
 6) Percentage smoothing (EMA) + hysteresis + rate limit:
   - $p_{smooth} = (1-\alpha)\, p_{last} + \alpha\, p$
   - Apply only if |p_smooth − p_last| ≥ hysteresis and Δt ≥ min_update_interval
   - Overshoot fast-close: When ΔT ≤ −band_far, bypass the rate limit and hysteresis, and set $p_{smooth} \leftarrow 0$ to close immediately.
+  - Final output is clamped to [0, max_cap].
 
 7) Setpoint throttling (generic devices):
   - $c = cap\_max \cdot (1 - p/100)$
