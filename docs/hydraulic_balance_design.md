@@ -54,10 +54,11 @@ State (lightweight, per room key):
 ## Algorithm (summary)
 - If ΔT >= band_far → 100% (fully open)
 - If ΔT <= -band_far → 0% (close/hold)
+- Strong overshoot fast path: If ΔT ≤ −band_far, we bypass hysteresis and rate-limit and immediately drive the output to 0% to avoid sticking at small residual openings.
 - Else map ΔT linearly to 0..100% and correct by slope:
   - positive slope → reduce opening (prevent overshoot)
   - negative slope (while ΔT>0) → ensure at least a minimum opening
-- Smooth via EMA, apply hysteresis and a minimum update interval to save battery and reduce traffic.
+- Smooth via EMA, apply hysteresis and a minimum update interval to save battery and reduce traffic. The overshoot fast path above bypasses these guards.
 - flow_cap_K = cap_max_K * (1 - valve_percent/100)
 - For Sonoff: sonoff_max_open_pct = valve_percent; sonoff_min_open_pct ≈ 0–5% depending on overshoot.
 - Phase-aware learning of caps:
@@ -83,12 +84,13 @@ State (lightweight, per room key):
 
 5) Full-demand/overshoot guards:
   - If ΔT ≥ band_far → p = 100
-  - If ΔT ≤ −band_far → p = 0
+  - If ΔT ≤ −band_far → p = 0 (and trigger fast-close path below)
   - Else p = clamp(p_adj, 0..100)
 
 6) Percentage smoothing (EMA) + hysteresis + rate limit:
   - $p_{smooth} = (1-\alpha)\, p_{last} + \alpha\, p$
   - Apply only if |p_smooth − p_last| ≥ hysteresis and Δt ≥ min_update_interval
+  - Overshoot fast-close: When ΔT ≤ −band_far, bypass the rate limit and hysteresis, and set $p_{smooth} \leftarrow 0$ to close immediately.
 
 7) Setpoint throttling (generic devices):
   - $c = cap\_max \cdot (1 - p/100)$
@@ -133,7 +135,8 @@ All steps are per-room and require no global information.
 - events/temperature.py: schreibt zusätzlich die von BT verwendete externe Temperatur (ohne Hysterese) in Geräte, die eine "external_temperature_input" besitzen (z. B. Sonoff TRVZB), damit das Gerät konsistent dieselbe Referenz sieht.
 - climate.py: exposes learned caps as a JSON attribute `trv_open_caps`. Structure per TRV:
   `{ "current_bucket": "XX.X", "buckets": { "XX.X": { "min_open_pct": N, "max_open_pct": M, "suggested_min_open_pct"?: n, "suggested_max_open_pct"?: m, "stats"?: { "samples": k, "avg_slope_K_min": s, "avg_valve_percent": p, "avg_delta_T_K": d, "last_update_ts": iso } }, ... } }`. Persisted across restarts.
-- utils/controlling.py: if a valve entity exists (e.g., MQTT/Z2M), can call `set_valve` with the computed percentage (with hysteresis) — optional.
+- Additionally, climate schedules an external temperature keepalive every ~30 minutes (plus an immediate send after startup) for devices requiring periodic refresh.
+- utils/controlling.py: if a valve entity exists (e.g., MQTT/Z2M), it forwards the computed percentage without an extra local hysteresis. Hysteresis/rate-limit is enforced centrally by the balance module.
 - model_quirks/TRVZB.py: direkter Zugriff auf Sonoff-Entitäten `number.*.valve_opening_degree` und `number.*.valve_closing_degree` (mit closing=100−opening) sowie `number.*.external_temperature_input` (0..99.9°C, 0.1er Schritte), um Ventil und externe Temperatur ohne Automations-Umwege zu setzen.
 
 ### Code integration points

@@ -43,8 +43,8 @@ class BalanceParams:
     slope_gain_per_K_per_min: float = -1000.0  # 0.02 K/min → ~ -20%
     # Smoothing and hysteresis
     percent_smoothing_alpha: float = 0.3  # EMA
-    percent_hysteresis_pts: float = 3.0   # minimum change in %-points
-    min_update_interval_s: float = 120.0  # minimum time between updates
+    percent_hysteresis_pts: float = 2.0   # minimum change in %-points
+    min_update_interval_s: float = 60.0   # minimum time between updates
     # Sonoff minimum opening (comfort/flow noise)
     sonoff_min_open_default_pct: int = 5
     # PID-Parameter (optional)
@@ -329,8 +329,24 @@ def compute_balance(inp: BalanceInput, params: BalanceParams = BalanceParams()) 
 
     # Hysteresis + rate limit
     too_soon = (now - st.last_update_ts) < params.min_update_interval_s
+    # Bei starkem Überschwingen (deutlich zu warm) nicht an der Hysterese kleben bleiben
+    force_close = False
+    try:
+        if inp.target_temp_C is not None and inp.current_temp_C is not None:
+            dT = inp.target_temp_C - inp.current_temp_C
+            force_close = dT <= -params.band_far_K
+    except Exception:
+        force_close = False
+    if force_close:
+        # Bei Überschwingen sofort reagieren (Rate-Limit außer Kraft)
+        too_soon = False
+        try:
+            # Smoothing überspringen → direkt auf 0% schließen
+            smooth = 0.0
+        except Exception:
+            pass
     if st.last_percent is not None:
-        if abs(smooth - st.last_percent) < params.percent_hysteresis_pts or too_soon:
+        if (abs(smooth - st.last_percent) < params.percent_hysteresis_pts and not force_close) or too_soon:
             # no change – return previous state
             percent_out = int(round(st.last_percent))
         else:
