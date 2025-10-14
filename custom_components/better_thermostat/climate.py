@@ -101,7 +101,7 @@ from .utils.controlling import control_queue, control_trv
 from .utils.helpers import convert_to_float, find_battery_entity, get_hvac_bt_mode
 from .utils.watcher import check_all_entities
 from .utils.weather import check_ambient_air_temperature, check_weather
-from .utils.helpers import normalize_hvac_mode
+from .utils.helpers import normalize_hvac_mode, get_device_model
 from .balance import export_states as balance_export_states, import_states as balance_import_states
 
 
@@ -458,13 +458,34 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
             if _calibration_type == "hybrid_calibration":
                 _calibration = 2
             _adapter = await load_adapter(self, trv["integration"], trv["trv"])
-            _model_quirks = await load_model_quirks(self, trv["model"], trv["trv"])
+            # Resolve/refresh model dynamically at startup to ensure correct quirks
+            resolved_model = trv.get("model")
+            try:
+                # prefers state model_id when present
+                detected_model = await get_device_model(self, trv["trv"])
+                if isinstance(detected_model, str) and detected_model and detected_model != resolved_model:
+                    _LOGGER.info(
+                        "better_thermostat %s: detected model '%s' for %s (was '%s' in config), using detected model",
+                        self.device_name,
+                        detected_model,
+                        trv["trv"],
+                        resolved_model,
+                    )
+                    resolved_model = detected_model
+            except Exception as e:
+                _LOGGER.debug(
+                    "better_thermostat %s: get_device_model(%s) failed: %s",
+                    self.device_name,
+                    trv.get("trv"),
+                    e,
+                )
+            _model_quirks = await load_model_quirks(self, resolved_model, trv["trv"])
             self.real_trvs[trv["trv"]] = {
                 "calibration": _calibration,
                 "integration": trv["integration"],
                 "adapter": _adapter,
                 "model_quirks": _model_quirks,
-                "model": trv["model"],
+                "model": resolved_model,
                 "advanced": _advanced,
                 "ignore_trv_states": False,
                 "valve_position": None,

@@ -15,6 +15,8 @@ from custom_components.better_thermostat.balance import (
     BalanceInput,
     BalanceParams,
 )
+from custom_components.better_thermostat.utils.helpers import get_device_model
+from custom_components.better_thermostat.model_fixes.model_quirks import load_model_quirks
 
 from custom_components.better_thermostat.utils.const import (
     CalibrationType,
@@ -65,6 +67,36 @@ async def trigger_trv_change(self, event):
 
     _org_trv_state = self.hass.states.get(entity_id)
     child_lock = self.real_trvs[entity_id]["advanced"].get("child_lock")
+
+    # Dynamische Modell-Erkennung: falls sich das Modell geändert hat (z. B. Z2M liefert model_id), Quirks neu laden
+    try:
+        if _org_trv_state is not None and isinstance(_org_trv_state.attributes, dict):
+            # Nur prüfen, wenn Hinweise vorhanden sind
+            if (
+                "model_id" in _org_trv_state.attributes
+                or "device" in _org_trv_state.attributes
+            ):
+                detected = await get_device_model(self, entity_id)
+                if isinstance(detected, str) and detected:
+                    prev = self.real_trvs.get(entity_id, {}).get("model")
+                    if prev != detected:
+                        _LOGGER.info(
+                            "better_thermostat %s: TRV %s model changed: %s -> %s; reloading quirks",
+                            self.device_name,
+                            entity_id,
+                            prev,
+                            detected,
+                        )
+                        quirks = await load_model_quirks(self, detected, entity_id)
+                        self.real_trvs[entity_id]["model"] = detected
+                        self.real_trvs[entity_id]["model_quirks"] = quirks
+    except Exception as e:
+        _LOGGER.debug(
+            "better_thermostat %s: dynamic model detection failed for %s: %s",
+            self.device_name,
+            entity_id,
+            e,
+        )
 
     _new_current_temp = convert_to_float(
         str(_org_trv_state.attributes.get("current_temperature", None)),
