@@ -431,14 +431,18 @@ def get_min_value(obj, value, default):
 
 
 async def get_device_model(self, entity_id):
-    """Fetch and infer the device model from HA state and registries.
+    """Bestimme das Gerätemodell aus dem Device-Registry-Eintrag.
 
-    Always attempts detection (even if a config model is present) and falls
-    back to the configured model only if nothing better is found. Adds
-    detailed debug logs so you can see which path was taken.
+    Priorität:
+    1) device.model_id
+    2) Modell aus Klammern in device.model (z. B. "Foo (TRVZB)")
+    3) device.model (Plain-String)
+    4) Fallback: self.model (Config)
+    5) Fallback: "generic"
     """
     selected: str | None = None
     source: str = "none"
+
     try:
         entity_reg = er.async_get(self.hass)
         entry = entity_reg.async_get(entity_id)
@@ -450,14 +454,10 @@ async def get_device_model(self, entity_id):
                 device = dev_reg.async_get(dev_id)
         except Exception:
             device = None
+        except Exception:
+            pass
+        # Auswahl ausschließlich über Device-Registry
         try:
-            _LOGGER.debug(
-                "better_thermostat %s: get_device_model(%s) platform=%s device_id=%s",
-                self.device_name,
-                entity_id,
-                getattr(entry, "platform", None),
-                getattr(entry, "device_id", None),
-            )
             _LOGGER.debug(
                 "better_thermostat %s: device registry -> manufacturer=%s model=%s model_id=%s name=%s identifiers=%s",
                 self.device_name,
@@ -467,103 +467,26 @@ async def get_device_model(self, entity_id):
                 getattr(device, "name", None),
                 list(getattr(device, "identifiers", []) or []),
             )
-            # Early visibility of state-provided model identifiers
-            try:
-                st_early = self.hass.states.get(entity_id)
-                early_top_model_id = (
-                    st_early.attributes.get("model_id") if st_early else None
-                )
-                _LOGGER.debug(
-                    "better_thermostat %s: early state.model_id for %s = %s",
-                    self.device_name,
-                    entity_id,
-                    early_top_model_id,
-                )
-                early_dev_attr = st_early.attributes.get("device") if st_early else None
-                if isinstance(early_dev_attr, dict):
-                    _LOGGER.debug(
-                        "better_thermostat %s: early state.device.model_id=%s state.device.model=%s",
-                        self.device_name,
-                        early_dev_attr.get("model_id"),
-                        early_dev_attr.get("model"),
-                    )
-            except Exception:
-                pass
         except Exception:
             pass
-        # Prefer model_id on HA state
-        try:
-            st = self.hass.states.get(entity_id)
-            if st is not None:
-                try:
-                    _LOGGER.debug(
-                        "better_thermostat %s: state attr keys for %s: %s",
-                        self.device_name,
-                        entity_id,
-                        list(st.attributes.keys()),
-                    )
-                except Exception:
-                    pass
-                top_mdl_id = st.attributes.get("model_id")
-                _LOGGER.debug(
-                    "better_thermostat %s: state.model_id for %s = %s",
-                    self.device_name,
-                    entity_id,
-                    top_mdl_id,
-                )
-                if isinstance(top_mdl_id, str) and len(top_mdl_id.strip()) >= 2:
-                    selected = top_mdl_id.strip()
-                    source = "state.model_id"
-                else:
-                    dev_attr = st.attributes.get("device") or {}
-                    if isinstance(dev_attr, dict):
-                        mdl_id = dev_attr.get("model_id")
-                        mdl_plain = dev_attr.get("model")
-                        _LOGGER.debug(
-                            "better_thermostat %s: device attr keys=%s model_id=%s model=%s",
-                            self.device_name,
-                            list(dev_attr.keys()),
-                            mdl_id,
-                            mdl_plain,
-                        )
-                        if isinstance(mdl_id, str) and len(mdl_id.strip()) >= 2:
-                            selected = mdl_id.strip()
-                            source = "state.device.model_id"
-                        elif isinstance(mdl_plain, str) and len(mdl_plain.strip()) >= 2:
-                            # Try to extract model from parentheses (Z2M style)
-                            matches = re.findall(r"\((.+?)\)", mdl_plain)
-                            if matches:
-                                selected = matches[-1].strip()
-                                source = "state.device.model(parens)"
-                            else:
-                                selected = mdl_plain.strip()
-                                source = "state.device.model"
-            else:
-                _LOGGER.debug(
-                    "better_thermostat %s: state for %s not available yet; will consider registry/config",
-                    self.device_name,
-                    entity_id,
-                )
-        except Exception:  # noqa: BLE001
-            pass
-        # Device registry fallback
-        if not selected:
-            try:
-                model_str = getattr(device, "model", None)
-                _LOGGER.debug(
-                    "better_thermostat %s: device.model raw='%s'",
-                    self.device_name,
-                    model_str,
-                )
-                matches = re.findall(r"\((.+?)\)", model_str or "")
-                if matches:
-                    selected = matches[-1].strip()
-                    source = "devreg.model(parens)"
-                elif isinstance(model_str, str) and len(model_str.strip()) >= 2:
-                    selected = model_str.strip()
-                    source = "devreg.model"
-            except Exception:
-                pass
+        dev_model_id = getattr(device, "model_id", None)
+        if isinstance(dev_model_id, str) and len(dev_model_id.strip()) >= 2:
+            selected = dev_model_id.strip()
+            source = "devreg.model_id"
+        else:
+            model_str = getattr(device, "model", None)
+            _LOGGER.debug(
+                "better_thermostat %s: device.model raw='%s'",
+                self.device_name,
+                model_str,
+            )
+            matches = re.findall(r"\((.+?)\)", model_str or "")
+            if matches:
+                selected = matches[-1].strip()
+                source = "devreg.model(parens)"
+            elif isinstance(model_str, str) and len(model_str.strip()) >= 2:
+                selected = model_str.strip()
+                source = "devreg.model"
     except Exception:
         # swallow registry access issues and continue to fallback
         pass
