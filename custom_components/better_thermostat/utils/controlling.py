@@ -164,9 +164,21 @@ async def control_trv(self, heater_entity_id=None):
             if bal:
                 target_pct = int(bal.get("valve_percent", 0))
                 last_pct = self.real_trvs[heater_entity_id].get("last_valve_percent")
-                if (
-                    last_pct is None or abs(int(last_pct) - target_pct) >= 3
-                ) and self.call_for_heat is not False:
+                # Apply if changed (let balance module handle hysteresis/min-interval). Skip only if no heating demand.
+                if self.call_for_heat is False:
+                    _LOGGER.debug(
+                        "better_thermostat %s: skipping valve update for %s (call_for_heat is False)",
+                        self.device_name,
+                        heater_entity_id,
+                    )
+                elif last_pct is not None and int(last_pct) == target_pct:
+                    _LOGGER.debug(
+                        "better_thermostat %s: skipping valve update for %s (unchanged %s%%)",
+                        self.device_name,
+                        heater_entity_id,
+                        target_pct,
+                    )
+                else:
                     if valve_entity:
                         _LOGGER.debug(
                             "better_thermostat %s: TO TRV set_valve: %s to: %s%%",
@@ -179,8 +191,16 @@ async def control_trv(self, heater_entity_id=None):
                     else:
                         quirks = self.real_trvs[heater_entity_id].get("model_quirks")
                         if quirks and hasattr(quirks, "maybe_set_sonoff_valve_percent"):
-                            if await quirks.maybe_set_sonoff_valve_percent(self, heater_entity_id, target_pct):
+                            ok = await quirks.maybe_set_sonoff_valve_percent(self, heater_entity_id, target_pct)
+                            if ok:
                                 self.real_trvs[heater_entity_id]["last_valve_percent"] = target_pct
+                            else:
+                                _LOGGER.debug(
+                                    "better_thermostat %s: TRVZB valve percent write returned False (target=%s%%, entity=%s)",
+                                    self.device_name,
+                                    target_pct,
+                                    heater_entity_id,
+                                )
         except Exception:  # noqa: BLE001
             _LOGGER.debug(
                 "better_thermostat %s: set_valve not applied for %s (unsupported or failed)",

@@ -52,10 +52,20 @@ async def maybe_set_sonoff_valve_percent(self, entity_id, percent: int) -> bool:
         model = str(self.real_trvs[entity_id].get("model", ""))
         # Only attempt for Sonoff TRVZB
         if not ("sonoff" in model.lower() or "trvzb" in model.lower() or model == "TRVZB"):
+            _LOGGER.debug(
+                "better_thermostat %s: TRVZB maybe_set_sonoff_valve_percent skipped (model=%s)",
+                self.device_name,
+                model,
+            )
             return False
         entity_registry = er.async_get(self.hass)
         reg_entity = entity_registry.async_get(entity_id)
         if reg_entity is None:
+            _LOGGER.debug(
+                "better_thermostat %s: TRVZB maybe_set_sonoff_valve_percent: no registry entity for %s",
+                self.device_name,
+                entity_id,
+            )
             return False
         device_id = reg_entity.device_id
         opening_candidates = []
@@ -100,6 +110,15 @@ async def maybe_set_sonoff_valve_percent(self, entity_id, percent: int) -> bool:
                 generic_candidates.append(ent.entity_id)
 
         pct = max(0, min(100, int(percent)))
+        _LOGGER.debug(
+            "better_thermostat %s: TRVZB valve write candidates (open=%s, close=%s, generic=%s) target=%s%% for %s",
+            self.device_name,
+            opening_candidates,
+            closing_candidates,
+            generic_candidates,
+            pct,
+            entity_id,
+        )
         wrote = False
 
         # If we have explicit opening, set it
@@ -151,8 +170,20 @@ async def maybe_set_sonoff_valve_percent(self, entity_id, percent: int) -> bool:
             )
             wrote = True
 
+        if not wrote:
+            _LOGGER.debug(
+                "better_thermostat %s: TRVZB valve percent write had no matching number entity (target=%s%%, %s)",
+                self.device_name,
+                pct,
+                entity_id,
+            )
         return wrote
-    except Exception:  # noqa: BLE001
+    except Exception as ex:  # noqa: BLE001
+        _LOGGER.debug(
+            "better_thermostat %s: TRVZB maybe_set_sonoff_valve_percent exception: %s",
+            self.device_name,
+            ex,
+        )
         return False
 
 
@@ -166,10 +197,20 @@ async def maybe_set_external_temperature(self, entity_id, temperature: float) ->
     try:
         model = str(self.real_trvs[entity_id].get("model", ""))
         if not ("sonoff" in model.lower() or "trvzb" in model.lower() or model == "TRVZB"):
+            _LOGGER.debug(
+                "better_thermostat %s: TRVZB maybe_set_external_temperature skipped (model=%s)",
+                self.device_name,
+                model,
+            )
             return False
         entity_registry = er.async_get(self.hass)
         reg_entity = entity_registry.async_get(entity_id)
         if reg_entity is None:
+            _LOGGER.debug(
+                "better_thermostat %s: TRVZB maybe_set_external_temperature: no registry entity for %s",
+                self.device_name,
+                entity_id,
+            )
             return False
         device_id = reg_entity.device_id
         target_entities = []
@@ -187,12 +228,22 @@ async def maybe_set_external_temperature(self, entity_id, temperature: float) ->
                 target_entities.append(ent.entity_id)
 
         if not target_entities:
+            _LOGGER.debug(
+                "better_thermostat %s: TRVZB external_temperature_input number entity not found for %s",
+                self.device_name,
+                entity_id,
+            )
             return False
 
         # Clamp and round
         try:
             val = float(temperature)
         except (TypeError, ValueError):
+            _LOGGER.debug(
+                "better_thermostat %s: TRVZB maybe_set_external_temperature got non-float: %s",
+                self.device_name,
+                temperature,
+            )
             return False
         val = max(0.0, min(99.9, round(val, 1)))
 
@@ -208,5 +259,10 @@ async def maybe_set_external_temperature(self, entity_id, temperature: float) ->
             entity_id,
         )
         return True
-    except Exception:  # noqa: BLE001
+    except Exception as ex:  # noqa: BLE001
+        _LOGGER.debug(
+            "better_thermostat %s: TRVZB maybe_set_external_temperature exception: %s",
+            self.device_name,
+            ex,
+        )
         return False

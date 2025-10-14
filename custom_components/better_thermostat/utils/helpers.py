@@ -454,8 +454,6 @@ async def get_device_model(self, entity_id):
                 device = dev_reg.async_get(dev_id)
         except Exception:
             device = None
-        except Exception:
-            pass
         # Auswahl ausschließlich über Device-Registry
         try:
             _LOGGER.debug(
@@ -469,6 +467,7 @@ async def get_device_model(self, entity_id):
             )
         except Exception:
             pass
+
         dev_model_id = getattr(device, "model_id", None)
         if isinstance(dev_model_id, str) and len(dev_model_id.strip()) >= 2:
             selected = dev_model_id.strip()
