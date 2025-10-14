@@ -162,8 +162,10 @@ async def trigger_temperature_change(self, event):
         self.async_write_ha_state()
         # Schreibe den von BT verwendeten Wert (self.cur_temp) ins TRV
         try:
-            trv_ids = [t["entity_id"]
-                       for t in getattr(self, "all_trvs", []) if "entity_id" in t]
+            # Verwende die bekannten TRV-IDs aus real_trvs (Keys)
+            trv_ids = list(getattr(self, "real_trvs", {}) .keys())
+            if not trv_ids and hasattr(self, "entity_ids"):
+                trv_ids = list(getattr(self, "entity_ids", []) or [])
             if not trv_ids and hasattr(self, "heater_entity_id"):
                 trv_ids = [self.heater_entity_id]
             for trv_id in trv_ids:
@@ -171,6 +173,12 @@ async def trigger_temperature_change(self, event):
                     "model_quirks") if hasattr(self, "real_trvs") else None
                 if quirks and hasattr(quirks, "maybe_set_external_temperature"):
                     await quirks.maybe_set_external_temperature(self, trv_id, self.cur_temp)
+                else:
+                    _LOGGER.debug(
+                        "better_thermostat %s: no quirks with maybe_set_external_temperature for %s",
+                        getattr(self, "device_name", "unknown"),
+                        trv_id,
+                    )
         except Exception:
             _LOGGER.debug(
                 "better_thermostat %s: external_temperature write to TRV failed (non critical)",

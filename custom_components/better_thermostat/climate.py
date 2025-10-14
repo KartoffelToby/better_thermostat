@@ -629,10 +629,25 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
                 )
                 return
 
-            trv_ids = [t.get("entity_id") for t in getattr(
-                self, "all_trvs", []) if t.get("entity_id")]
+            # Verwende die bekannten TRV-Entity-IDs (Keys in real_trvs)
+            trv_ids = list(getattr(self, "real_trvs", {}) .keys())
+            # Fallback (sollte i.d.R. nicht benötigt werden)
+            if not trv_ids and hasattr(self, "entity_ids"):
+                trv_ids = list(getattr(self, "entity_ids", []) or [])
             if not trv_ids and hasattr(self, "heater_entity_id"):
                 trv_ids = [self.heater_entity_id]
+            if not trv_ids:
+                _LOGGER.debug(
+                    "better_thermostat %s: external_temperature keepalive: keine TRVs gefunden",
+                    getattr(self, "device_name", "unknown"),
+                )
+                return
+            else:
+                _LOGGER.debug(
+                    "better_thermostat %s: external_temperature keepalive: %d TRV(s) gefunden",
+                    getattr(self, "device_name", "unknown"),
+                    len(trv_ids),
+                )
 
             for trv_id in trv_ids:
                 try:
@@ -646,6 +661,12 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
                             trv_id,
                             ok,
                             cur,
+                        )
+                    else:
+                        _LOGGER.debug(
+                            "better_thermostat %s: no quirks with maybe_set_external_temperature for %s",
+                            getattr(self, "device_name", "unknown"),
+                            trv_id,
                         )
                 except Exception:  # noqa: BLE001
                     _LOGGER.debug(
@@ -1284,6 +1305,11 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
                         self.hass, [self.cooler_entity_id], self._tigger_cooler_change
                     )
                 )
+            # Sende initial sofort einen Keepalive, damit TRVs nicht bis zum ersten 30min-Tick warten müssen
+            try:
+                self.hass.async_create_task(self._external_temperature_keepalive())
+            except Exception:  # noqa: BLE001
+                pass
             _LOGGER.info("better_thermostat %s: startup completed.", self.device_name)
             self.async_write_ha_state()
             await self.async_update_ha_state(force_refresh=True)
