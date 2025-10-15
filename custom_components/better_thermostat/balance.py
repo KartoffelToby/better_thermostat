@@ -115,6 +115,8 @@ class BalanceState:
     last_percent: Optional[float] = None
     last_update_ts: float = 0.0
     ema_slope: Optional[float] = None
+    # Letzter Zielwert zur Erkennung von Setpoint-Änderungen
+    last_target_C: Optional[float] = None
     # PID-State
     pid_integral: float = 0.0
     pid_last_meas: Optional[float] = None
@@ -329,14 +331,31 @@ def compute_balance(inp: BalanceInput, params: BalanceParams = BalanceParams()) 
 
     # Hysteresis + rate limit
     too_soon = (now - st.last_update_ts) < params.min_update_interval_s
-    # Bei starkem Überschwingen (deutlich zu warm) nicht an der Hysterese kleben bleiben
+    # One-shot Bypass: Bei Zieltemperatur-Änderung sofortiges Update erlauben
+    target_changed = False
+    try:
+        cur_t = inp.target_temp_C
+        prev_t = st.last_target_C
+        if cur_t is not None and prev_t is not None:
+            target_changed = abs(float(cur_t) - float(prev_t)) >= 0.05
+        st.last_target_C = cur_t if cur_t is not None else st.last_target_C
+        if target_changed:
+            too_soon = False
+            # Bei Ziel-Änderung auch die EMA-Glättung einmalig überspringen
+            smooth = percent
+    except Exception:
+        target_changed = False
+    # Bei starker Abweichung Hysterese/Rate-Limit umgehen (fast-close/fast-open)
     force_close = False
+    force_open = False
     try:
         if inp.target_temp_C is not None and inp.current_temp_C is not None:
             dT = inp.target_temp_C - inp.current_temp_C
             force_close = dT <= -params.band_far_K
+            force_open = dT >= params.band_far_K
     except Exception:
         force_close = False
+        force_open = False
     if force_close:
         # Bei Überschwingen sofort reagieren (Rate-Limit außer Kraft)
         too_soon = False
@@ -346,7 +365,8 @@ def compute_balance(inp: BalanceInput, params: BalanceParams = BalanceParams()) 
         except Exception:
             pass
     if st.last_percent is not None:
-        if (abs(smooth - st.last_percent) < params.percent_hysteresis_pts and not force_close) or too_soon:
+        if ((abs(smooth - st.last_percent) < params.percent_hysteresis_pts and not force_close and not target_changed and not force_open)
+                or (too_soon and not force_open)):
             # no change – return previous state
             percent_out = int(round(st.last_percent))
         else:
@@ -386,6 +406,11 @@ def compute_balance(inp: BalanceInput, params: BalanceParams = BalanceParams()) 
         "percent_raw": percent,
         "percent_smooth": smooth,
         "too_soon": too_soon,
+        "target_changed": target_changed,
+        "target_prev": getattr(st, "last_target_C", None),
+        "target_cur": inp.target_temp_C,
+        "force_open": force_open,
+        "force_close": force_close,
     }
     # PID-Debug anhängen, falls vorhanden
     try:

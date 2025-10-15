@@ -52,7 +52,7 @@ State (lightweight, per room key):
 - PID state (if enabled): pid_integral, pid_last_meas (smoothed blended measurement), pid_last_time; learned pid_kp/ki/kd and last_tune_ts
 
 ## Algorithm (summary)
-- If ΔT >= band_far → open up to the learned max_open% cap (default 100%)
+- If ΔT >= band_far → open up to the learned max_open% cap (defaults to 100% until learned)
 - If ΔT <= -band_far → 0% (close/hold)
 - Strong overshoot fast path: If ΔT ≤ −band_far, we bypass hysteresis and rate-limit and immediately drive the output to 0% to avoid sticking at small residual openings.
 - Else map ΔT linearly to 0..max_cap and correct by slope (max_cap = learned max_open% for the current target bucket; defaults to 100% if not yet learned):
@@ -167,8 +167,8 @@ Suggested defaults (conservative):
 - slope_down_K_per_min = −0.01
 - slope_gain_per_K_per_min = −1000.0 (e.g., +0.02 K/min → −20 pp)
 - percent_smoothing_alpha = 0.3
-- percent_hysteresis_pts = 3.0
-- min_update_interval_s = 120
+- percent_hysteresis_pts = 2.0
+- min_update_interval_s = 60
 
 ## Notes
 - Works with existing BT signals only (current temperature, setpoint, window state). No valve feedback or global supply info is required.
