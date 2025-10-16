@@ -279,13 +279,14 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             )
         ] = bool
 
-        if _info.get("support_valve", False):
-            fields[
-                vol.Optional(
-                    CONF_VALVE_MAINTENANCE,
-                    default=user_input.get(CONF_VALVE_MAINTENANCE, False),
-                )
-            ] = bool
+        # Ventilwartung: immer anbieten; wenn keine native Ventilsteuerung vorhanden ist,
+        # nutzt die Laufzeitlogik ein Fallback über Setpoint-Extrema
+        fields[
+            vol.Optional(
+                CONF_VALVE_MAINTENANCE,
+                default=user_input.get(CONF_VALVE_MAINTENANCE, False),
+            )
+        ] = bool
 
         fields[
             vol.Optional(
@@ -607,13 +608,14 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
             )
         ] = bool
 
-        if _info.get("support_valve", False):
-            fields[
-                vol.Optional(
-                    CONF_VALVE_MAINTENANCE,
-                    default=adv_cfg.get(CONF_VALVE_MAINTENANCE, False),
-                )
-            ] = bool
+        # Ventilwartung: immer anbieten; wenn keine native Ventilsteuerung vorhanden ist,
+        # nutzt die Laufzeitlogik ein Fallback über Setpoint-Extrema
+        fields[
+            vol.Optional(
+                CONF_VALVE_MAINTENANCE,
+                default=adv_cfg.get(CONF_VALVE_MAINTENANCE, False),
+            )
+        ] = bool
 
         fields[
             vol.Optional(CONF_CHILD_LOCK, default=adv_cfg.get(CONF_CHILD_LOCK, False))
