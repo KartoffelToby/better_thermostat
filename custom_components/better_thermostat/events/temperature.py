@@ -124,6 +124,7 @@ async def trigger_temperature_change(self, event):
     # Slope calculation (simple delta per minute)
     try:
         from time import monotonic
+
         now_m = monotonic()
         if self._slope_last_ts is not None and self.cur_temp is not None:
             dt_min = max(1e-6, (now_m - self._slope_last_ts) / 60.0)
@@ -153,7 +154,7 @@ async def trigger_temperature_change(self, event):
             _time_diff,
         )
 
-    # Remember previous value as stable pre-measure before updating
+        # Remember previous value as stable pre-measure before updating
         if self.cur_temp is not None and self.cur_temp != _incoming_temperature:
             self.prev_stable_temp = self.cur_temp
         old_temp = self.cur_temp
@@ -163,16 +164,21 @@ async def trigger_temperature_change(self, event):
         # Schreibe den von BT verwendeten Wert (self.cur_temp) ins TRV
         try:
             # Verwende die bekannten TRV-IDs aus real_trvs (Keys)
-            trv_ids = list(getattr(self, "real_trvs", {}) .keys())
+            trv_ids = list(getattr(self, "real_trvs", {}).keys())
             if not trv_ids and hasattr(self, "entity_ids"):
                 trv_ids = list(getattr(self, "entity_ids", []) or [])
             if not trv_ids and hasattr(self, "heater_entity_id"):
                 trv_ids = [self.heater_entity_id]
             for trv_id in trv_ids:
-                quirks = self.real_trvs.get(trv_id, {}).get(
-                    "model_quirks") if hasattr(self, "real_trvs") else None
+                quirks = (
+                    self.real_trvs.get(trv_id, {}).get("model_quirks")
+                    if hasattr(self, "real_trvs")
+                    else None
+                )
                 if quirks and hasattr(quirks, "maybe_set_external_temperature"):
-                    await quirks.maybe_set_external_temperature(self, trv_id, self.cur_temp)
+                    await quirks.maybe_set_external_temperature(
+                        self, trv_id, self.cur_temp
+                    )
                 else:
                     _LOGGER.debug(
                         "better_thermostat %s: no quirks with maybe_set_external_temperature for %s",
@@ -184,7 +190,7 @@ async def trigger_temperature_change(self, event):
                 "better_thermostat %s: external_temperature write to TRV failed (non critical)",
                 getattr(self, "device_name", "unknown"),
             )
-    # Enqueue control action
+        # Enqueue control action
         if self.control_queue_task is not None:
             await self.control_queue_task.put(self)
     else:

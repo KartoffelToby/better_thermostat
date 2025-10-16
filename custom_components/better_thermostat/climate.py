@@ -106,7 +106,10 @@ from .utils.helpers import convert_to_float, find_battery_entity, get_hvac_bt_mo
 from .utils.watcher import check_all_entities
 from .utils.weather import check_ambient_air_temperature, check_weather
 from .utils.helpers import normalize_hvac_mode, get_device_model
-from .balance import export_states as balance_export_states, import_states as balance_import_states
+from .balance import (
+    export_states as balance_export_states,
+    import_states as balance_import_states,
+)
 
 
 _LOGGER = logging.getLogger(__name__)
@@ -474,7 +477,11 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
             try:
                 # prefers state model_id when present
                 detected_model = await get_device_model(self, trv["trv"])
-                if isinstance(detected_model, str) and detected_model and detected_model != resolved_model:
+                if (
+                    isinstance(detected_model, str)
+                    and detected_model
+                    and detected_model != resolved_model
+                ):
                     _LOGGER.info(
                         "better_thermostat %s: detected model '%s' for %s (was '%s' in config), using detected model",
                         self.device_name,
@@ -641,7 +648,7 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
                 return
 
             # Verwende die bekannten TRV-Entity-IDs (Keys in real_trvs)
-            trv_ids = list(getattr(self, "real_trvs", {}) .keys())
+            trv_ids = list(getattr(self, "real_trvs", {}).keys())
             # Fallback (sollte i.d.R. nicht benötigt werden)
             if not trv_ids and hasattr(self, "entity_ids"):
                 trv_ids = list(getattr(self, "entity_ids", []) or [])
@@ -662,10 +669,15 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
 
             for trv_id in trv_ids:
                 try:
-                    quirks = self.real_trvs.get(trv_id, {}).get(
-                        "model_quirks") if hasattr(self, "real_trvs") else None
+                    quirks = (
+                        self.real_trvs.get(trv_id, {}).get("model_quirks")
+                        if hasattr(self, "real_trvs")
+                        else None
+                    )
                     if quirks and hasattr(quirks, "maybe_set_external_temperature"):
-                        ok = await quirks.maybe_set_external_temperature(self, trv_id, cur)
+                        ok = await quirks.maybe_set_external_temperature(
+                            self, trv_id, cur
+                        )
                         _LOGGER.debug(
                             "better_thermostat %s: external_temperature keepalive sent to %s (ok=%s, value=%s)",
                             self.device_name,
@@ -1188,52 +1200,42 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
                 else:
                     self.real_trvs[trv]["last_calibration"] = 0
 
+                _s = self.hass.states.get(trv)
+                _attrs = _s.attributes if _s else {}
                 self.real_trvs[trv]["valve_position"] = convert_to_float(
-                    str(
-                        self.hass.states.get(trv).attributes.get("valve_position", None)
-                    ),
-                    self.device_name,
-                    "startup",
+                    str(_attrs.get("valve_position", None)), self.device_name, "startup"
                 )
                 self.real_trvs[trv]["max_temp"] = convert_to_float(
-                    str(self.hass.states.get(trv).attributes.get("max_temp", 30)),
-                    self.device_name,
-                    "startup",
+                    str(_attrs.get("max_temp", 30)), self.device_name, "startup"
                 )
                 self.real_trvs[trv]["min_temp"] = convert_to_float(
-                    str(self.hass.states.get(trv).attributes.get("min_temp", 5)),
-                    self.device_name,
-                    "startup",
+                    str(_attrs.get("min_temp", 5)), self.device_name, "startup"
                 )
-                self.real_trvs[trv]["target_temp_step"] = convert_to_float(
-                    str(
-                        self.hass.states.get(trv).attributes.get(
-                            "target_temp_step", 0.5
-                        )
-                    ),
-                    self.device_name,
-                    "startup",
+                # Prefer configured step over device-reported step
+                cfg_step = (
+                    self.bt_target_temp_step
+                    if self.bt_target_temp_step and self.bt_target_temp_step > 0.0
+                    else None
                 )
+                if cfg_step is not None:
+                    self.real_trvs[trv]["target_temp_step"] = cfg_step
+                else:
+                    self.real_trvs[trv]["target_temp_step"] = convert_to_float(
+                        str(_attrs.get("target_temp_step", 0.5)),
+                        self.device_name,
+                        "startup",
+                    )
                 self.real_trvs[trv]["temperature"] = convert_to_float(
-                    str(self.hass.states.get(trv).attributes.get("temperature", 5)),
-                    self.device_name,
-                    "startup",
+                    str(_attrs.get("temperature", 5)), self.device_name, "startup"
                 )
-                self.real_trvs[trv]["hvac_modes"] = self.hass.states.get(
-                    trv
-                ).attributes.get("hvac_modes", None)
-                self.real_trvs[trv]["hvac_mode"] = self.hass.states.get(trv).state
-                self.real_trvs[trv]["last_hvac_mode"] = self.hass.states.get(trv).state
+                self.real_trvs[trv]["hvac_modes"] = _attrs.get("hvac_modes", None)
+                self.real_trvs[trv]["hvac_mode"] = _s.state if _s else None
+                self.real_trvs[trv]["last_hvac_mode"] = _s.state if _s else None
                 self.real_trvs[trv]["last_temperature"] = convert_to_float(
-                    str(self.hass.states.get(trv).attributes.get("temperature")),
-                    self.device_name,
-                    "startup()",
+                    str(_attrs.get("temperature")), self.device_name, "startup()"
                 )
                 self.real_trvs[trv]["current_temperature"] = convert_to_float(
-                    str(
-                        self.hass.states.get(trv).attributes.get("current_temperature")
-                        or 5
-                    ),
+                    str(_attrs.get("current_temperature") or 5),
                     self.device_name,
                     "startup()",
                 )
@@ -1281,8 +1283,9 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
             # Periodischer 5-Minuten-Tick: nur aktivieren, wenn Balance konfiguriert ist
             try:
                 any_balance = any(
-                    str((trv_info.get("advanced", {}) or {}).get(
-                        "balance_mode", "")).lower()
+                    str(
+                        (trv_info.get("advanced", {}) or {}).get("balance_mode", "")
+                    ).lower()
                     in ("heuristic", "pid")
                     for trv_info in self.real_trvs.values()
                 )
@@ -1296,8 +1299,7 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
                     )
                 )
                 _LOGGER.debug(
-                    "better_thermostat %s: 5min balance tick enabled",
-                    self.device_name,
+                    "better_thermostat %s: 5min balance tick enabled", self.device_name
                 )
             else:
                 _LOGGER.debug(
@@ -1308,16 +1310,20 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
             # Periodischer Keepalive: externe Temperatur mindestens alle 30 Minuten an TRVs senden
             self.async_on_remove(
                 async_track_time_interval(
-                    self.hass, self._external_temperature_keepalive, timedelta(
-                        minutes=30)
+                    self.hass,
+                    self._external_temperature_keepalive,
+                    timedelta(minutes=30),
                 )
             )
 
             # Ventilwartung: separaten Tick nur aktivieren, wenn mindestens ein TRV sie eingeschaltet hat
             try:
                 any_maintenance = any(
-                    bool((trv_info.get("advanced", {}) or {}).get(
-                        CONF_VALVE_MAINTENANCE, False))
+                    bool(
+                        (trv_info.get("advanced", {}) or {}).get(
+                            CONF_VALVE_MAINTENANCE, False
+                        )
+                    )
                     for trv_info in self.real_trvs.values()
                 )
             except Exception:  # noqa: BLE001
@@ -1475,26 +1481,20 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
                     "valve_position_entity"
                 )
                 quirks = (self.real_trvs.get(trv_id, {}) or {}).get("model_quirks")
-                support_valve = valve_entity is not None or (
-                    hasattr(quirks, "maybe_set_sonoff_valve_percent")
+                support_valve = bool(valve_entity) or bool(
+                    getattr(quirks, "override_set_valve", None)
                 )
 
                 # Helper to set valve percent with fallback to quirks
                 async def _set_valve_pct(pct: int) -> bool:
                     try:
-                        if valve_entity is not None:
-                            await adapter_set_valve(self, trv_id, int(pct))
-                            return True
-                        if quirks and hasattr(
-                            quirks, "maybe_set_sonoff_valve_percent"
-                        ):
-                            ok = await quirks.maybe_set_sonoff_valve_percent(
-                                self, trv_id, int(pct)
-                            )
-                            return bool(ok)
+                        # Prefer unified delegate path; it records method and last percent
+                        from .adapters.delegate import set_valve as _delegate_set_valve
+
+                        ok = await _delegate_set_valve(self, trv_id, int(pct))
+                        return bool(ok)
                     except Exception:
-                        pass
-                    return False
+                        return False
 
                 try:
                     if support_valve:
@@ -1695,9 +1695,7 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
             await self._open_caps_store.async_save(existing)
         except Exception as e:  # noqa: BLE001
             _LOGGER.debug(
-                "better_thermostat %s: saving open caps failed: %s",
-                self.device_name,
-                e,
+                "better_thermostat %s: saving open caps failed: %s", self.device_name, e
             )
 
     def _schedule_save_open_caps(self, delay_s: float = 10.0) -> None:
@@ -1978,6 +1976,30 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
             ),
         }
 
+        # Optional: next scheduled valve maintenance (ISO8601)
+        try:
+            if (
+                hasattr(self, "next_valve_maintenance")
+                and self.next_valve_maintenance is not None
+            ):
+                dev_specific["next_valve_maintenance"] = (
+                    self.next_valve_maintenance.isoformat()
+                )
+        except Exception:
+            pass
+
+        # Optional: summarize last valve method per TRV (adapter vs override)
+        try:
+            methods = {}
+            for trv_id, info in (self.real_trvs or {}).items():
+                m = info.get("last_valve_method")
+                if m:
+                    methods[trv_id] = m
+            if methods:
+                dev_specific["valve_method"] = methods
+        except Exception:
+            pass
+
         # Optional telemetry (memory friendly): only count & last cycle + normalized power
         if hasattr(self, "heating_cycles") and len(self.heating_cycles) > 0:
             last_cycle = self.heating_cycles[-1]
@@ -2038,39 +2060,52 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
                 pid = dbg.get("pid") or {}
                 # Nur wenn Modus pid ist, sonst vermeiden wir Rauschen
                 if str(pid.get("mode")).lower() == "pid":
-                    # Fehler (ΔT), P/I/D/U und Gains direkt ausgeben
-                    if "e_K" in pid:
-                        dev_specific["pid_e_K"] = round(float(pid.get("e_K")), 4)
-                    if "p" in pid and pid.get("p") is not None:
-                        dev_specific["pid_P"] = round(float(pid.get("p")), 4)
-                    if "i" in pid and pid.get("i") is not None:
-                        dev_specific["pid_I"] = round(float(pid.get("i")), 4)
-                    if "d" in pid and pid.get("d") is not None:
-                        dev_specific["pid_D"] = round(float(pid.get("d")), 4)
-                    if "u" in pid and pid.get("u") is not None:
-                        dev_specific["pid_u"] = round(float(pid.get("u")), 4)
-                    if "kp" in pid and pid.get("kp") is not None:
-                        dev_specific["pid_kp"] = round(float(pid.get("kp")), 6)
-                    if "ki" in pid and pid.get("ki") is not None:
-                        dev_specific["pid_ki"] = round(float(pid.get("ki")), 6)
-                    if "kd" in pid and pid.get("kd") is not None:
-                        dev_specific["pid_kd"] = round(float(pid.get("kd")), 6)
-                    if "meas_blend_C" in pid and pid.get("meas_blend_C") is not None:
-                        dev_specific["pid_meas_blend_C"] = round(
-                            float(pid.get("meas_blend_C")), 3)
-                    if "meas_smooth_C" in pid and pid.get("meas_smooth_C") is not None:
-                        dev_specific["pid_meas_smooth_C"] = round(
-                            float(pid.get("meas_smooth_C")), 3)
-                    # d_meas_per_s ist K/s; für Lesbarkeit auch auf K/min hochrechnen
-                    if "d_meas_per_s" in pid and pid.get("d_meas_per_s") is not None:
+                    # Hilfsfunktion: sichere Float-Konvertierung
+                    def _to_float(val):
                         try:
-                            v = float(pid.get("d_meas_per_s")) * 60.0
-                            dev_specific["pid_d_meas_K_per_min"] = round(v, 4)
+                            return float(val)
                         except Exception:
-                            pass
+                            return None
+
+                    # Fehler (ΔT), P/I/D/U und Gains direkt ausgeben
+                    v = _to_float(pid.get("e_K"))
+                    if v is not None:
+                        dev_specific["pid_e_K"] = round(v, 4)
+                    v = _to_float(pid.get("p"))
+                    if v is not None:
+                        dev_specific["pid_P"] = round(v, 4)
+                    v = _to_float(pid.get("i"))
+                    if v is not None:
+                        dev_specific["pid_I"] = round(v, 4)
+                    v = _to_float(pid.get("d"))
+                    if v is not None:
+                        dev_specific["pid_D"] = round(v, 4)
+                    v = _to_float(pid.get("u"))
+                    if v is not None:
+                        dev_specific["pid_u"] = round(v, 4)
+                    v = _to_float(pid.get("kp"))
+                    if v is not None:
+                        dev_specific["pid_kp"] = round(v, 6)
+                    v = _to_float(pid.get("ki"))
+                    if v is not None:
+                        dev_specific["pid_ki"] = round(v, 6)
+                    v = _to_float(pid.get("kd"))
+                    if v is not None:
+                        dev_specific["pid_kd"] = round(v, 6)
+                    v = _to_float(pid.get("meas_blend_C"))
+                    if v is not None:
+                        dev_specific["pid_meas_blend_C"] = round(v, 3)
+                    v = _to_float(pid.get("meas_smooth_C"))
+                    if v is not None:
+                        dev_specific["pid_meas_smooth_C"] = round(v, 3)
+                    # d_meas_per_s ist K/s; für Lesbarkeit auch auf K/min hochrechnen
+                    v = _to_float(pid.get("d_meas_per_s"))
+                    if v is not None:
+                        dev_specific["pid_d_meas_K_per_min"] = round(v * 60.0, 4)
                     # dt_s
-                    if "dt_s" in pid and pid.get("dt_s") is not None:
-                        dev_specific["pid_dt_s"] = round(float(pid.get("dt_s")), 3)
+                    v = _to_float(pid.get("dt_s"))
+                    if v is not None:
+                        dev_specific["pid_dt_s"] = round(v, 3)
         except Exception:
             pass
 
@@ -2115,6 +2150,7 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
                     return f"{round(float(temp) * 2.0) / 2.0:.1f}"
                 except Exception:
                     return "unknown"
+
             bucket = _bucket(self.bt_target_temp)
             for trv in self.real_trvs.keys():
                 # Collect all learned buckets for this TRV
@@ -2152,10 +2188,7 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
                         buckets_out[bucket] = cur_entry
 
                 if buckets_out:
-                    caps[trv] = {
-                        "current_bucket": bucket,
-                        "buckets": buckets_out,
-                    }
+                    caps[trv] = {"current_bucket": bucket, "buckets": buckets_out}
             if caps:
                 dev_specific["trv_open_caps"] = json.dumps(caps)
             # Flat attributes for current bucket (pick a representative TRV; prefer Sonoff if present)
@@ -2170,8 +2203,9 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
                     rep_trv = next(iter(self.real_trvs.keys()), None)
                 if rep_trv is not None:
                     learned = (self.open_caps or {}).get(rep_trv, {}).get(bucket) or {}
-                    suggested = (self.real_trvs.get(rep_trv, {})
-                                 or {}).get("balance") or {}
+                    suggested = (self.real_trvs.get(rep_trv, {}) or {}).get(
+                        "balance"
+                    ) or {}
                     # Extract suggested values safely
                     svalve = suggested.get("valve_percent")
                     smin = suggested.get("sonoff_min_open_pct")
@@ -2208,10 +2242,12 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
                     # Root: also expose suggested_* for clarity
                     if smin_i is not None:
                         dev_specific["suggested_min_open_pct"] = int(
-                            max(0, min(100, smin_i)))
+                            max(0, min(100, smin_i))
+                        )
                     if smax_i is not None:
                         dev_specific["suggested_max_open_pct"] = int(
-                            max(0, min(100, smax_i)))
+                            max(0, min(100, smax_i))
+                        )
 
                     # Flat attributes should PREFER suggested; fallback to learned
                     lmin = learned.get("min_open_pct")
@@ -2220,10 +2256,12 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
                     flat_max = smax_i if smax_i is not None else lmax
                     if flat_min is not None:
                         dev_specific["min_open_pct"] = int(
-                            max(0, min(100, int(flat_min))))
+                            max(0, min(100, int(flat_min)))
+                        )
                     if flat_max is not None:
                         dev_specific["max_open_pct"] = int(
-                            max(0, min(100, int(flat_max))))
+                            max(0, min(100, int(flat_max)))
+                        )
             except Exception:
                 pass
         except Exception:
@@ -2432,8 +2470,11 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
 
         if ATTR_HVAC_MODE in kwargs:
             hvac_mode_val = kwargs.get(ATTR_HVAC_MODE, None)
-            hvac_mode_norm = normalize_hvac_mode(
-                hvac_mode_val) if hvac_mode_val is not None else None
+            hvac_mode_norm = (
+                normalize_hvac_mode(hvac_mode_val)
+                if hvac_mode_val is not None
+                else None
+            )
             if hvac_mode_norm in (HVACMode.HEAT, HVACMode.HEAT_COOL, HVACMode.OFF):
                 self.bt_hvac_mode = hvac_mode_norm
             else:
@@ -2604,7 +2645,9 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
             trvs_to_service = [
                 trv_id
                 for trv_id, info in self.real_trvs.items()
-                if bool((info.get("advanced", {}) or {}).get(CONF_VALVE_MAINTENANCE, False))
+                if bool(
+                    (info.get("advanced", {}) or {}).get(CONF_VALVE_MAINTENANCE, False)
+                )
             ]
             if not trvs_to_service:
                 _LOGGER.debug(

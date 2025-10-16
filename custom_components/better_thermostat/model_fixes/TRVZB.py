@@ -51,7 +51,9 @@ async def maybe_set_sonoff_valve_percent(self, entity_id, percent: int) -> bool:
     try:
         model = str(self.real_trvs[entity_id].get("model", ""))
         # Only attempt for Sonoff TRVZB
-        if not ("sonoff" in model.lower() or "trvzb" in model.lower() or model == "TRVZB"):
+        if not (
+            "sonoff" in model.lower() or "trvzb" in model.lower() or model == "TRVZB"
+        ):
             _LOGGER.debug(
                 "better_thermostat %s: TRVZB maybe_set_sonoff_valve_percent skipped (model=%s)",
                 self.device_name,
@@ -125,7 +127,11 @@ async def maybe_set_sonoff_valve_percent(self, entity_id, percent: int) -> bool:
         if opening_candidates:
             target_open = opening_candidates[0]
             await self.hass.services.async_call(
-                "number", "set_value", {"entity_id": target_open, "value": pct}, blocking=True, context=self.context
+                "number",
+                "set_value",
+                {"entity_id": target_open, "value": pct},
+                blocking=True,
+                context=self.context,
             )
             _LOGGER.debug(
                 "better_thermostat %s: set TRVZB valve_opening_degree=%s on %s (for %s)",
@@ -141,7 +147,11 @@ async def maybe_set_sonoff_valve_percent(self, entity_id, percent: int) -> bool:
             target_close = closing_candidates[0]
             comp = 100 - pct
             await self.hass.services.async_call(
-                "number", "set_value", {"entity_id": target_close, "value": comp}, blocking=True, context=self.context
+                "number",
+                "set_value",
+                {"entity_id": target_close, "value": comp},
+                blocking=True,
+                context=self.context,
             )
             _LOGGER.debug(
                 "better_thermostat %s: set TRVZB valve_closing_degree=%s on %s (for %s)",
@@ -155,11 +165,16 @@ async def maybe_set_sonoff_valve_percent(self, entity_id, percent: int) -> bool:
         # Fallback: if neither explicit entity exists, try a generic candidate
         if not wrote and generic_candidates:
             # Prefer entities with 'valve' then 'position'
-            generic_candidates.sort(key=lambda x: (
-                "valve" not in x, "position" not in x))
+            generic_candidates.sort(
+                key=lambda x: ("valve" not in x, "position" not in x)
+            )
             target = generic_candidates[0]
             await self.hass.services.async_call(
-                "number", "set_value", {"entity_id": target, "value": pct}, blocking=True, context=self.context
+                "number",
+                "set_value",
+                {"entity_id": target, "value": pct},
+                blocking=True,
+                context=self.context,
             )
             _LOGGER.debug(
                 "better_thermostat %s: set TRVZB generic valve percent %s%% on %s (for %s)",
@@ -187,6 +202,18 @@ async def maybe_set_sonoff_valve_percent(self, entity_id, percent: int) -> bool:
         return False
 
 
+async def override_set_valve(self, entity_id, percent: int):
+    """Override valve setting for TRVZB via number.* entity.
+
+    Returns True if handled (write attempted), False to let adapter fallback run.
+    """
+    try:
+        ok = await maybe_set_sonoff_valve_percent(self, entity_id, percent)
+        return bool(ok)
+    except Exception:  # noqa: BLE001
+        return False
+
+
 async def maybe_set_external_temperature(self, entity_id, temperature: float) -> bool:
     """Set Sonoff TRVZB external temperature input via a number entity on the same device.
 
@@ -196,7 +223,9 @@ async def maybe_set_external_temperature(self, entity_id, temperature: float) ->
     """
     try:
         model = str(self.real_trvs[entity_id].get("model", ""))
-        if not ("sonoff" in model.lower() or "trvzb" in model.lower() or model == "TRVZB"):
+        if not (
+            "sonoff" in model.lower() or "trvzb" in model.lower() or model == "TRVZB"
+        ):
             _LOGGER.debug(
                 "better_thermostat %s: TRVZB maybe_set_external_temperature skipped (model=%s)",
                 self.device_name,
@@ -249,7 +278,11 @@ async def maybe_set_external_temperature(self, entity_id, temperature: float) ->
 
         target = target_entities[0]
         await self.hass.services.async_call(
-            "number", "set_value", {"entity_id": target, "value": val}, blocking=True, context=self.context
+            "number",
+            "set_value",
+            {"entity_id": target, "value": val},
+            blocking=True,
+            context=self.context,
         )
         _LOGGER.debug(
             "better_thermostat %s: set TRVZB external_temperature_input=%.1f on %s (for %s)",

@@ -31,6 +31,7 @@ async def init(self, entity_id):
     # Try to discover valve position entity early
     try:
         from ..utils.helpers import find_valve_entity as _find_valve
+
         self.real_trvs[entity_id]["valve_position_entity"] = await _find_valve(
             self, entity_id
         )

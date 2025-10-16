@@ -15,11 +15,11 @@ async def load_model_quirks(self, model, entity_id):
     # Normalize model to a safe module suffix
     model_str = str(model) if model is not None else ""
     # Replace path separators and any non-alphanumeric/underscore with underscore
-    model_sanitized = re.sub(r"[^A-Za-z0-9_]+", "_",
-                             model_str.replace("/", "_")).strip("_") or "default"
-    module_path = (
-        f"custom_components.better_thermostat.model_fixes.{model_sanitized}"
+    model_sanitized = (
+        re.sub(r"[^A-Za-z0-9_]+", "_", model_str.replace("/", "_")).strip("_")
+        or "default"
     )
+    module_path = f"custom_components.better_thermostat.model_fixes.{model_sanitized}"
 
     try:
         self.model_quirks = await async_import_module(self.hass, module_path)
@@ -32,9 +32,7 @@ async def load_model_quirks(self, model, entity_id):
         )
     except ImportError as e:
         # Fallback to default and log the reason
-        default_module = (
-            "custom_components.better_thermostat.model_fixes.default"
-        )
+        default_module = "custom_components.better_thermostat.model_fixes.default"
         try:
             self.model_quirks = await async_import_module(self.hass, default_module)
             _LOGGER.debug(
@@ -124,4 +122,11 @@ async def override_set_hvac_mode(self, entity_id, hvac_mode):
 async def override_set_temperature(self, entity_id, temperature):
     return await self.real_trvs[entity_id]["model_quirks"].override_set_temperature(
         self, entity_id, temperature
+    )
+
+
+async def override_set_valve(self, entity_id, percent: int):
+    """Attempt model-specific valve percent write; return True if handled."""
+    return await self.real_trvs[entity_id]["model_quirks"].override_set_valve(
+        self, entity_id, percent
     )

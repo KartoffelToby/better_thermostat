@@ -17,6 +17,7 @@ Integration:
     on device either use `set_valve(percent)` or `set_temperature(setpoint_eff)`.
 - For Sonoff: write min/max open via a dedicated adapter implementation if available.
 """
+
 from __future__ import annotations
 
 from dataclasses import dataclass, field
@@ -25,6 +26,7 @@ from time import monotonic
 
 
 # --- Default Parameter -----------------------------------------------
+
 
 @dataclass
 class BalanceParams:
@@ -43,8 +45,8 @@ class BalanceParams:
     slope_gain_per_K_per_min: float = -1000.0  # 0.02 K/min → ~ -20%
     # Smoothing and hysteresis
     percent_smoothing_alpha: float = 0.3  # EMA
-    percent_hysteresis_pts: float = 2.0   # minimum change in %-points
-    min_update_interval_s: float = 60.0   # minimum time between updates
+    percent_hysteresis_pts: float = 2.0  # minimum change in %-points
+    min_update_interval_s: float = 60.0  # minimum time between updates
     # Sonoff minimum opening (comfort/flow noise)
     sonoff_min_open_default_pct: int = 5
     # PID-Parameter (optional)
@@ -83,6 +85,7 @@ class BalanceParams:
 
 
 # --- I/O and state types ---------------------------------------------
+
 
 @dataclass
 class BalanceInput:
@@ -138,21 +141,24 @@ _BALANCE_STATES: Dict[str, BalanceState] = {}
 
 # --- Core computation -------------------------------------------------
 
-def compute_balance(inp: BalanceInput, params: BalanceParams = BalanceParams()) -> BalanceOutput:
+
+def compute_balance(
+    inp: BalanceInput, params: BalanceParams = BalanceParams()
+) -> BalanceOutput:
     """Compute a decentralized valve percentage from ΔT and trend.
 
-        Logic (heat-only, no valve feedback):
-        - Large positive ΔT (>= band_far) → 100% (fully open)
-        - Large negative ΔT (<= -band_far) → 0% (closed/hold)
-        - Near setpoint (|ΔT| < band_far) map linearly to 0..100% and adjust by slope:
-                * positive slope → reduce opening (prevent overshoot)
-                * negative slope with ΔT>0 → ensure sufficient opening
-        - Output is smoothed (EMA), hysteretic and rate-limited.
+    Logic (heat-only, no valve feedback):
+    - Large positive ΔT (>= band_far) → 100% (fully open)
+    - Large negative ΔT (<= -band_far) → 0% (closed/hold)
+    - Near setpoint (|ΔT| < band_far) map linearly to 0..100% and adjust by slope:
+            * positive slope → reduce opening (prevent overshoot)
+            * negative slope with ΔT>0 → ensure sufficient opening
+    - Output is smoothed (EMA), hysteretic and rate-limited.
 
-        Additionally, derive a setpoint reduction (flow_cap_K) to emulate throttling
-        on devices without a direct valve command.
+    Additionally, derive a setpoint reduction (flow_cap_K) to emulate throttling
+    on devices without a direct valve command.
 
-        Also returns Sonoff-specific min/max opening percentages (recommended).
+    Also returns Sonoff-specific min/max opening percentages (recommended).
     """
     now = monotonic()
     st = _BALANCE_STATES.setdefault(inp.key, BalanceState())
@@ -187,8 +193,9 @@ def compute_balance(inp: BalanceInput, params: BalanceParams = BalanceParams()) 
                 if dt > 0:
                     st.pid_integral += float(st.pid_ki) * e * dt
                     # Anti-Windup (Integrator klammern)
-                    st.pid_integral = max(params.i_min, min(
-                        params.i_max, st.pid_integral))
+                    st.pid_integral = max(
+                        params.i_min, min(params.i_max, st.pid_integral)
+                    )
                 # Ableitung
                 d_term = 0.0
                 # Für Debugging/Graphen
@@ -209,20 +216,25 @@ def compute_balance(inp: BalanceInput, params: BalanceParams = BalanceParams()) 
                             meas_now = None
                             if inp.current_temp_C is not None:
                                 if inp.trv_temp_C is not None:
-                                    meas_now = (mix * inp.trv_temp_C) + \
-                                        ((1.0 - mix) * inp.current_temp_C)
+                                    meas_now = (mix * inp.trv_temp_C) + (
+                                        (1.0 - mix) * inp.current_temp_C
+                                    )
                                 else:
                                     meas_now = inp.current_temp_C
                             if meas_now is not None:
                                 # EMA-Glättung nur für den D-Kanal
                                 try:
                                     a = max(
-                                        0.0, min(1.0, float(params.d_smoothing_alpha)))
+                                        0.0, min(1.0, float(params.d_smoothing_alpha))
+                                    )
                                 except (TypeError, ValueError):
                                     a = 0.5
                                 prev = st.pid_last_meas
-                                smoothed = meas_now if prev is None else (
-                                    (1.0 - a) * prev + a * meas_now)
+                                smoothed = (
+                                    meas_now
+                                    if prev is None
+                                    else ((1.0 - a) * prev + a * meas_now)
+                                )
                                 if prev is not None:
                                     d_meas = (smoothed - prev) / dt
                                     d_term = -float(st.pid_kd) * d_meas
@@ -230,7 +242,7 @@ def compute_balance(inp: BalanceInput, params: BalanceParams = BalanceParams()) 
                     else:
                         # Derivative on error (benötigt letzten Fehler – approximiert über letzten Messwert)
                         if dt > 0 and st.pid_last_meas is not None:
-                            last_e = (inp.target_temp_C - st.pid_last_meas)
+                            last_e = inp.target_temp_C - st.pid_last_meas
                             d_err = (e - last_e) / dt
                             d_term = float(st.pid_kd) * d_err
                 # Proportionalterm
@@ -255,15 +267,22 @@ def compute_balance(inp: BalanceInput, params: BalanceParams = BalanceParams()) 
                         a = 0.5
                     if base is not None:
                         prev = st.pid_last_meas
-                        st.pid_last_meas = base if prev is None else (
-                            (1.0 - a) * prev + a * base)
+                        st.pid_last_meas = (
+                            base if prev is None else ((1.0 - a) * prev + a * base)
+                        )
                 else:
                     st.pid_last_meas = inp.current_temp_C
                 st.pid_last_time = now
                 # Optionales Auto-Tuning (konservativ)
                 if params.auto_tune:
-                    _auto_tune_pid(params, st, percent, delta_T,
-                                   inp.temp_slope_K_per_min or 0.0, now)
+                    _auto_tune_pid(
+                        params,
+                        st,
+                        percent,
+                        delta_T,
+                        inp.temp_slope_K_per_min or 0.0,
+                        now,
+                    )
                 # Debug-Werte ablegen
                 try:
                     # Basale Debug-Infos (auch für Graphen)
@@ -365,8 +384,12 @@ def compute_balance(inp: BalanceInput, params: BalanceParams = BalanceParams()) 
         except Exception:
             pass
     if st.last_percent is not None:
-        if ((abs(smooth - st.last_percent) < params.percent_hysteresis_pts and not force_close and not target_changed and not force_open)
-                or (too_soon and not force_open)):
+        if (
+            abs(smooth - st.last_percent) < params.percent_hysteresis_pts
+            and not force_close
+            and not target_changed
+            and not force_open
+        ) or (too_soon and not force_open):
             # no change – return previous state
             percent_out = int(round(st.last_percent))
         else:
@@ -402,7 +425,11 @@ def compute_balance(inp: BalanceInput, params: BalanceParams = BalanceParams()) 
     debug = {
         "delta_T": delta_T,
         "slope_ema": st.ema_slope,
-        "percent_base": None if inp.target_temp_C is None or inp.current_temp_C is None else percent_base,
+        "percent_base": (
+            None
+            if inp.target_temp_C is None or inp.current_temp_C is None
+            else percent_base
+        ),
         "percent_raw": percent,
         "percent_smooth": smooth,
         "too_soon": too_soon,
@@ -416,7 +443,7 @@ def compute_balance(inp: BalanceInput, params: BalanceParams = BalanceParams()) 
     try:
         if params.mode.lower() == "pid":
             # pid_dbg wurde im PID-Pfad gesetzt; falls nicht, zumindest Modus kennzeichnen
-            if 'pid_dbg' in locals() and isinstance(pid_dbg, dict):
+            if "pid_dbg" in locals() and isinstance(pid_dbg, dict):
                 debug["pid"] = pid_dbg
             else:
                 debug["pid"] = {"mode": "pid"}
@@ -477,7 +504,10 @@ def _auto_tune_pid(
             tuned = True
 
         # 2) Trägheit: ΔT deutlich > band_near, aber Slope sehr klein -> Ki leicht rauf
-        if delta_T > params.band_near_K and abs(slope) < params.sluggish_slope_threshold_K_min:
+        if (
+            delta_T > params.band_near_K
+            and abs(slope) < params.sluggish_slope_threshold_K_min
+        ):
             ki = min(params.ki_max, max(params.ki_min, ki * params.ki_step_mul_up))
             tuned = True
 
@@ -508,6 +538,7 @@ def get_balance_state(key: str) -> Optional[BalanceState]:
 
 # --- Persistence helpers --------------------------------------------
 
+
 def export_states(prefix: Optional[str] = None) -> Dict[str, Dict[str, Any]]:
     """Export internal state to a JSON-serializable dict.
 
@@ -529,7 +560,9 @@ def export_states(prefix: Optional[str] = None) -> Dict[str, Dict[str, Any]]:
     return out
 
 
-def import_states(data: Dict[str, Dict[str, Any]], prefix_filter: Optional[str] = None) -> int:
+def import_states(
+    data: Dict[str, Dict[str, Any]], prefix_filter: Optional[str] = None
+) -> int:
     """Import previously saved states into the module-local cache.
 
     Returns the number of imported entries. If prefix_filter is provided,

@@ -16,7 +16,9 @@ from custom_components.better_thermostat.balance import (
     BalanceParams,
 )
 from custom_components.better_thermostat.utils.helpers import get_device_model
-from custom_components.better_thermostat.model_fixes.model_quirks import load_model_quirks
+from custom_components.better_thermostat.model_fixes.model_quirks import (
+    load_model_quirks,
+)
 
 from custom_components.better_thermostat.utils.const import (
     CalibrationType,
@@ -295,8 +297,8 @@ def _apply_hydraulic_balance(
         cond_has_target = self.bt_target_temp is not None
         cond_hvac_ok = hvac_mode is not None and hvac_mode != HVACMode.OFF
         cond_window_closed = self.window_open is False
-        cond_not_min_temp_off = (
-            current_setpoint is None or current_setpoint > (min_t + 0.05)
+        cond_not_min_temp_off = current_setpoint is None or current_setpoint > (
+            min_t + 0.05
         )
         # Always compute suggestions (we don't change setpoints here)
         apply_balance = (
@@ -423,8 +425,9 @@ def _apply_hydraulic_balance(
         try:
             t = self.bt_target_temp
             bucket_now = (
-                f"{round(float(t) * 2.0) / 2.0:.1f}" if isinstance(t,
-                                                                   (int, float)) else None
+                f"{round(float(t) * 2.0) / 2.0:.1f}"
+                if isinstance(t, (int, float))
+                else None
             )
             if bucket_now:
                 caps_trv = (self.open_caps or {}).get(entity_id, {}) or {}
@@ -433,7 +436,9 @@ def _apply_hydraulic_balance(
                     cap_max = caps_now.get("max_open_pct")
                 else:
                     cap_max = None
-                if isinstance(cap_max, (int, float)) and isinstance(bal.valve_percent, (int, float)):
+                if isinstance(cap_max, (int, float)) and isinstance(
+                    bal.valve_percent, (int, float)
+                ):
                     capped = int(max(0, min(int(cap_max), int(bal.valve_percent))))
                     if capped != bal.valve_percent:
                         bal.valve_percent = capped
@@ -486,8 +491,9 @@ def _apply_hydraulic_balance(
             # Bucket by heating target (round to 0.5°C for stability)
             t = self.bt_target_temp
             bucket = (
-                f"{round(float(t) * 2.0) / 2.0:.1f}" if isinstance(t,
-                                                                   (int, float)) else "unknown"
+                f"{round(float(t) * 2.0) / 2.0:.1f}"
+                if isinstance(t, (int, float))
+                else "unknown"
             )
             if bucket != "unknown":
                 # Initialize bucket
@@ -501,7 +507,11 @@ def _apply_hydraulic_balance(
                 if learn_max and isinstance(bal.sonoff_max_open_pct, (int, float)):
                     suggested_max = int(max(0, min(100, int(bal.sonoff_max_open_pct))))
                 # Ensure min <= max
-                if suggested_min is not None and suggested_max is not None and suggested_min > suggested_max:
+                if (
+                    suggested_min is not None
+                    and suggested_max is not None
+                    and suggested_min > suggested_max
+                ):
                     suggested_min = suggested_max
                 # Learning: coarse (5%) when far away, fine (1%) when close
 
@@ -520,17 +530,15 @@ def _apply_hydraulic_balance(
                     # min: Komfort-Default (5%), max: unbeschränkt (100%)
                     if suggested_min is None:
                         new_min = int(
-                            round(BalanceParams().sonoff_min_open_default_pct / 5.0) * 5)
+                            round(BalanceParams().sonoff_min_open_default_pct / 5.0) * 5
+                        )
                     else:
                         new_min = int(round(suggested_min / 5.0) * 5)
                     if suggested_max is None:
                         new_max = 100
                     else:
                         new_max = int(round(suggested_max / 5.0) * 5)
-                    caps = {
-                        "min_open_pct": new_min,
-                        "max_open_pct": new_max,
-                    }
+                    caps = {"min_open_pct": new_min, "max_open_pct": new_max}
                     caps_trv[bucket] = caps
                     _LOGGER.debug(
                         "better_thermostat %s: init open caps for %s@%s → min=%s max=%s (suggested min=%s max=%s)",
@@ -556,7 +564,10 @@ def _apply_hydraulic_balance(
                 else:
                     caps = cast(Dict[str, Any], caps)
                     cur_min = int(
-                        caps.get("min_open_pct", BalanceParams().sonoff_min_open_default_pct))
+                        caps.get(
+                            "min_open_pct", BalanceParams().sonoff_min_open_default_pct
+                        )
+                    )
                     cur_max = int(caps.get("max_open_pct", 100))
                     # Nur die in dieser Phase relevanten Werte anpassen, den anderen unverändert lassen
                     new_min = cur_min
@@ -622,19 +633,27 @@ def _apply_hydraulic_balance(
                         prev_avg_v = stats.get("avg_valve_percent")
                         if isinstance(prev_avg_v, (int, float)) and prev_samples > 0:
                             stats["avg_valve_percent"] = round(
-                                (prev_avg_v * prev_samples +
-                                 float(bal.valve_percent)) / samples, 2
+                                (prev_avg_v * prev_samples + float(bal.valve_percent))
+                                / samples,
+                                2,
                             )
                         else:
                             stats["avg_valve_percent"] = round(
-                                float(bal.valve_percent), 2)
+                                float(bal.valve_percent), 2
+                            )
 
                     # Avg delta_T (target - current)
                     try:
-                        if self.bt_target_temp is not None and self.cur_temp is not None:
+                        if (
+                            self.bt_target_temp is not None
+                            and self.cur_temp is not None
+                        ):
                             dT = float(self.bt_target_temp) - float(self.cur_temp)
                             prev_avg_dT = stats.get("avg_delta_T_K")
-                            if isinstance(prev_avg_dT, (int, float)) and prev_samples > 0:
+                            if (
+                                isinstance(prev_avg_dT, (int, float))
+                                and prev_samples > 0
+                            ):
                                 stats["avg_delta_T_K"] = round(
                                     (prev_avg_dT * prev_samples + dT) / samples, 4
                                 )
@@ -776,7 +795,7 @@ def convert_outbound_states(self, entity_id, hvac_mode) -> dict | None:
                 and self.window_open is False
             )
 
-    # --- Hydraulic balance (decentralized): percentage & setpoint throttling ---
+        # --- Hydraulic balance (decentralized): percentage & setpoint throttling ---
         _new_heating_setpoint = _apply_hydraulic_balance(
             self,
             entity_id,

@@ -301,14 +301,12 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
 
         # Balance/Regelung (PID) – nach HomematicIP; Felder abhängig vom Modus
         mode_current = str(user_input.get("balance_mode", "heuristic")).lower()
-        fields[
-            vol.Optional("balance_mode", default=mode_current)
-        ] = BALANCE_MODE_SELECTOR
+        fields[vol.Optional("balance_mode", default=mode_current)] = (
+            BALANCE_MODE_SELECTOR
+        )
         # Allgemeine Balance-Parameter nur anzeigen, wenn Modus nicht 'none'
         fields[
-            vol.Optional(
-                "trend_mix_trv", default=user_input.get("trend_mix_trv", 0.7)
-            )
+            vol.Optional("trend_mix_trv", default=user_input.get("trend_mix_trv", 0.7))
         ] = vol.All(vol.Coerce(float), vol.Range(min=0, max=1))
         fields[
             vol.Optional(
@@ -324,9 +322,7 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         ] = vol.All(vol.Coerce(float), vol.Range(min=0, max=3600))
         # PID-Parameter nur anzeigen, wenn explizit gewählt
         fields[
-            vol.Optional(
-                "pid_auto_tune", default=user_input.get("pid_auto_tune", True)
-            )
+            vol.Optional("pid_auto_tune", default=user_input.get("pid_auto_tune", True))
         ] = bool
         fields[vol.Optional("pid_kp", default=user_input.get("pid_kp", 60.0))] = (
             vol.All(vol.Coerce(float), vol.Range(min=0))
@@ -334,9 +330,9 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         fields[vol.Optional("pid_ki", default=user_input.get("pid_ki", 0.01))] = (
             vol.All(vol.Coerce(float), vol.Range(min=0))
         )
-        fields[
-            vol.Optional("pid_kd", default=user_input.get("pid_kd", 2000.0))
-        ] = vol.All(vol.Coerce(float), vol.Range(min=0))
+        fields[vol.Optional("pid_kd", default=user_input.get("pid_kd", 2000.0))] = (
+            vol.All(vol.Coerce(float), vol.Range(min=0))
+        )
 
         return self.async_show_form(
             step_id="advanced",
@@ -634,9 +630,7 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
         # Allgemeine Balance-Parameter nur anzeigen, wenn Modus nicht 'none'
 
         fields[
-            vol.Optional(
-                "trend_mix_trv", default=adv_cfg.get("trend_mix_trv", 0.7)
-            )
+            vol.Optional("trend_mix_trv", default=adv_cfg.get("trend_mix_trv", 0.7))
         ] = vol.All(vol.Coerce(float), vol.Range(min=0, max=1))
         fields[
             vol.Optional(
@@ -652,19 +646,17 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
         ] = vol.All(vol.Coerce(float), vol.Range(min=0, max=3600))
         # PID-Parameter nur anzeigen, wenn explizit gewählt
         fields[
-            vol.Optional(
-                "pid_auto_tune", default=adv_cfg.get("pid_auto_tune", True)
-            )
+            vol.Optional("pid_auto_tune", default=adv_cfg.get("pid_auto_tune", True))
         ] = bool
-        fields[vol.Optional("pid_kp", default=adv_cfg.get("pid_kp", 60.0))] = (
-            vol.All(vol.Coerce(float), vol.Range(min=0))
+        fields[vol.Optional("pid_kp", default=adv_cfg.get("pid_kp", 60.0))] = vol.All(
+            vol.Coerce(float), vol.Range(min=0)
         )
-        fields[vol.Optional("pid_ki", default=adv_cfg.get("pid_ki", 0.01))] = (
-            vol.All(vol.Coerce(float), vol.Range(min=0))
+        fields[vol.Optional("pid_ki", default=adv_cfg.get("pid_ki", 0.01))] = vol.All(
+            vol.Coerce(float), vol.Range(min=0)
         )
-        fields[
-            vol.Optional("pid_kd", default=adv_cfg.get("pid_kd", 2000.0))
-        ] = vol.All(vol.Coerce(float), vol.Range(min=0))
+        fields[vol.Optional("pid_kd", default=adv_cfg.get("pid_kd", 2000.0))] = vol.All(
+            vol.Coerce(float), vol.Range(min=0)
+        )
 
         return self.async_show_form(
             step_id="advanced",
