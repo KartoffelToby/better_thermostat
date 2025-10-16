@@ -45,7 +45,7 @@ class BalanceParams:
     slope_gain_per_K_per_min: float = -1000.0  # 0.02 K/min → ~ -20%
     # Smoothing and hysteresis
     percent_smoothing_alpha: float = 0.3  # EMA
-    percent_hysteresis_pts: float = 2.0  # minimum change in %-points
+    percent_hysteresis_pts: float = 1.0  # minimum change in %-points
     min_update_interval_s: float = 60.0  # minimum time between updates
     # Sonoff minimum opening (comfort/flow noise)
     sonoff_min_open_default_pct: int = 5
@@ -162,6 +162,8 @@ def compute_balance(
     """
     now = monotonic()
     st = _BALANCE_STATES.setdefault(inp.key, BalanceState())
+    # Ensure pid_dbg exists for static analyzers; will be populated in PID branch
+    pid_dbg: Dict[str, Any] = {}
 
     # Fail-safe defaults
     percent_base = None
@@ -443,10 +445,9 @@ def compute_balance(
     try:
         if params.mode.lower() == "pid":
             # pid_dbg wurde im PID-Pfad gesetzt; falls nicht, zumindest Modus kennzeichnen
-            if "pid_dbg" in locals() and isinstance(pid_dbg, dict):
-                debug["pid"] = pid_dbg
-            else:
-                debug["pid"] = {"mode": "pid"}
+            debug["pid"] = (
+                pid_dbg if isinstance(pid_dbg, dict) and pid_dbg else {"mode": "pid"}
+            )
         else:
             debug["pid"] = {"mode": "heuristic"}
     except Exception:

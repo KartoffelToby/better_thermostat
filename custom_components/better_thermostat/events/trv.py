@@ -390,9 +390,9 @@ def _apply_hydraulic_balance(
         except Exception:
             trend_mix_trv = 0.7
         try:
-            percent_hyst = float(adv.get("percent_hysteresis_pts", 2.0))
+            percent_hyst = float(adv.get("percent_hysteresis_pts", 1.0))
         except Exception:
-            percent_hyst = 2.0
+            percent_hyst = 1.0
         try:
             min_interval = float(adv.get("min_update_interval_s", 60.0))
         except Exception:
@@ -463,6 +463,21 @@ def _apply_hydraulic_balance(
             bal.sonoff_min_open_pct,
             bal.sonoff_max_open_pct,
         )
+        # Additionally log learned PID gains (if PID mode active)
+        try:
+            dbg = getattr(bal, "debug", None) or {}
+            pid = dbg.get("pid") or {}
+            if str(pid.get("mode")).lower() == "pid":
+                _LOGGER.debug(
+                    "better_thermostat %s: balance pid gains for %s: kp=%s ki=%s kd=%s",
+                    self.device_name,
+                    entity_id,
+                    pid.get("kp"),
+                    pid.get("ki"),
+                    pid.get("kd"),
+                )
+        except Exception:
+            pass
 
         # Save debug
         self.real_trvs[entity_id]["balance"] = {

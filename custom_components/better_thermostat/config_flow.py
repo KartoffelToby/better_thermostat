@@ -311,7 +311,7 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         fields[
             vol.Optional(
                 "percent_hysteresis_pts",
-                default=user_input.get("percent_hysteresis_pts", 2.0),
+                default=user_input.get("percent_hysteresis_pts", 1.0),
             )
         ] = vol.All(vol.Coerce(float), vol.Range(min=0, max=10))
         fields[
@@ -635,7 +635,7 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
         fields[
             vol.Optional(
                 "percent_hysteresis_pts",
-                default=adv_cfg.get("percent_hysteresis_pts", 2.0),
+                default=adv_cfg.get("percent_hysteresis_pts", 1.0),
             )
         ] = vol.All(vol.Coerce(float), vol.Range(min=0, max=10))
         fields[
