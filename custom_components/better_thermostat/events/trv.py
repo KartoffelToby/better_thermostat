@@ -192,7 +192,7 @@ async def trigger_trv_change(self, event):
         and self.bt_hvac_mode is not HVACMode.OFF
     ):
         _LOGGER.debug(
-            f"better_thermostat {self.device_name}: trigger_trv_change test / _old_heating_setpoint: {_old_heating_setpoint} - _new_heating_setpoint: {_new_heating_setpoint} - _last_temperature: {self.real_trvs[entity_id]['last_temperature']}"
+            f"better_thermostat {self.device_name}: trigger_trv_change / _old_heating_setpoint: {_old_heating_setpoint} - _new_heating_setpoint: {_new_heating_setpoint} - _last_temperature: {self.real_trvs[entity_id]['last_temperature']}"
         )
         if (
             _new_heating_setpoint < self.bt_min_temp
@@ -360,6 +360,16 @@ def _apply_hydraulic_balance(
             mode = str(adv.get("balance_mode", "heuristic")).lower()
         except Exception:
             mode = "heuristic"
+
+        # Explizit deaktiviert? Dann Balance überspringen und current_setpoint zurückgeben
+        if mode in ("none", "off", ""):
+            _LOGGER.debug(
+                "better_thermostat %s: balance explicitly disabled for %s (mode=%s)",
+                self.device_name,
+                entity_id,
+                mode,
+            )
+            return current_setpoint
         try:
             kp = float(adv.get("pid_kp", 60.0))
         except Exception:

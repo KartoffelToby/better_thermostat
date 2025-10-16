@@ -1267,6 +1267,33 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
                 )
             )
 
+            # Periodischer 5-Minuten-Tick: nur aktivieren, wenn Balance konfiguriert ist
+            try:
+                any_balance = any(
+                    str((trv_info.get("advanced", {}) or {}).get(
+                        "balance_mode", "")).lower()
+                    in ("heuristic", "pid")
+                    for trv_info in self.real_trvs.values()
+                )
+            except Exception:  # noqa: BLE001
+                any_balance = False
+
+            if any_balance:
+                self.async_on_remove(
+                    async_track_time_interval(
+                        self.hass, self._trigger_time, timedelta(minutes=5)
+                    )
+                )
+                _LOGGER.debug(
+                    "better_thermostat %s: 5min balance tick enabled",
+                    self.device_name,
+                )
+            else:
+                _LOGGER.debug(
+                    "better_thermostat %s: 5min balance tick skipped (balance_mode not enabled)",
+                    self.device_name,
+                )
+
             # Periodischer Keepalive: externe Temperatur mindestens alle 30 Minuten an TRVs senden
             self.async_on_remove(
                 async_track_time_interval(

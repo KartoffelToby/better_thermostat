@@ -60,6 +60,7 @@ CALIBRATION_TYPE_SELECTOR = selector.SelectSelector(
 BALANCE_MODE_SELECTOR = selector.SelectSelector(
     selector.SelectSelectorConfig(
         options=[
+            selector.SelectOptionDict(value="none", label="None / Off"),
             selector.SelectOptionDict(value="heuristic", label="Heuristic"),
             selector.SelectOptionDict(value="pid", label="PID"),
         ],
