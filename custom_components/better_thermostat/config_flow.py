@@ -222,6 +222,7 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         _info = {}
         if _adapter is not None:
             try:
+                # type: ignore[attr-defined]
                 _info = await _adapter.get_info(self, _trv_config.get("trv"))
             except (
                 AttributeError,
@@ -286,17 +287,23 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 )
             ] = bool
 
-        # Balance/Regelung (PID) – PID-Parameter sind wirksam, wenn balance_mode=pid gewählt ist.
         fields[
             vol.Optional(
-                "balance_mode", default=user_input.get("balance_mode", "heuristic")
-            )
-        ] = BALANCE_MODE_SELECTOR
-        fields[
-            vol.Optional(
-                "pid_auto_tune", default=user_input.get("pid_auto_tune", True)
+                CONF_CHILD_LOCK, default=user_input.get(CONF_CHILD_LOCK, False)
             )
         ] = bool
+        fields[
+            vol.Optional(
+                CONF_HOMEMATICIP, default=user_input.get(CONF_HOMEMATICIP, homematic)
+            )
+        ] = bool
+
+        # Balance/Regelung (PID) – nach HomematicIP; Felder abhängig vom Modus
+        mode_current = str(user_input.get("balance_mode", "heuristic")).lower()
+        fields[
+            vol.Optional("balance_mode", default=mode_current)
+        ] = BALANCE_MODE_SELECTOR
+        # Allgemeine Balance-Parameter nur anzeigen, wenn Modus nicht 'none'
         fields[
             vol.Optional(
                 "trend_mix_trv", default=user_input.get("trend_mix_trv", 0.7)
@@ -314,26 +321,21 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 default=user_input.get("min_update_interval_s", 60.0),
             )
         ] = vol.All(vol.Coerce(float), vol.Range(min=0, max=3600))
+        # PID-Parameter nur anzeigen, wenn explizit gewählt
         fields[
-            vol.Optional("pid_kp", default=user_input.get("pid_kp", 60.0))
-        ] = vol.All(vol.Coerce(float), vol.Range(min=0))
-        fields[
-            vol.Optional("pid_ki", default=user_input.get("pid_ki", 0.01))
-        ] = vol.All(vol.Coerce(float), vol.Range(min=0))
+            vol.Optional(
+                "pid_auto_tune", default=user_input.get("pid_auto_tune", True)
+            )
+        ] = bool
+        fields[vol.Optional("pid_kp", default=user_input.get("pid_kp", 60.0))] = (
+            vol.All(vol.Coerce(float), vol.Range(min=0))
+        )
+        fields[vol.Optional("pid_ki", default=user_input.get("pid_ki", 0.01))] = (
+            vol.All(vol.Coerce(float), vol.Range(min=0))
+        )
         fields[
             vol.Optional("pid_kd", default=user_input.get("pid_kd", 2000.0))
         ] = vol.All(vol.Coerce(float), vol.Range(min=0))
-
-        fields[
-            vol.Optional(
-                CONF_CHILD_LOCK, default=user_input.get(CONF_CHILD_LOCK, False)
-            )
-        ] = bool
-        fields[
-            vol.Optional(
-                CONF_HOMEMATICIP, default=user_input.get(CONF_HOMEMATICIP, homematic)
-            )
-        ] = bool
 
         return self.async_show_form(
             step_id="advanced",
@@ -613,17 +615,22 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
                 )
             ] = bool
 
-        # Balance/Regelung (PID) – PID-Parameter sind wirksam, wenn balance_mode=pid gewählt ist.
+        fields[
+            vol.Optional(CONF_CHILD_LOCK, default=adv_cfg.get(CONF_CHILD_LOCK, False))
+        ] = bool
         fields[
             vol.Optional(
-                "balance_mode", default=adv_cfg.get("balance_mode", "heuristic")
-            )
-        ] = BALANCE_MODE_SELECTOR
-        fields[
-            vol.Optional(
-                "pid_auto_tune", default=adv_cfg.get("pid_auto_tune", True)
+                CONF_HOMEMATICIP, default=adv_cfg.get(CONF_HOMEMATICIP, homematic)
             )
         ] = bool
+
+        # Balance/Regelung (PID) – nach HomematicIP; Felder abhängig vom Modus
+        mode_current = str(adv_cfg.get("balance_mode", "heuristic")).lower()
+        fields[vol.Optional("balance_mode", default=mode_current)] = (
+            BALANCE_MODE_SELECTOR
+        )
+        # Allgemeine Balance-Parameter nur anzeigen, wenn Modus nicht 'none'
+
         fields[
             vol.Optional(
                 "trend_mix_trv", default=adv_cfg.get("trend_mix_trv", 0.7)
@@ -641,24 +648,21 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
                 default=adv_cfg.get("min_update_interval_s", 60.0),
             )
         ] = vol.All(vol.Coerce(float), vol.Range(min=0, max=3600))
+        # PID-Parameter nur anzeigen, wenn explizit gewählt
         fields[
-            vol.Optional("pid_kp", default=adv_cfg.get("pid_kp", 60.0))
-        ] = vol.All(vol.Coerce(float), vol.Range(min=0))
-        fields[
-            vol.Optional("pid_ki", default=adv_cfg.get("pid_ki", 0.01))
-        ] = vol.All(vol.Coerce(float), vol.Range(min=0))
+            vol.Optional(
+                "pid_auto_tune", default=adv_cfg.get("pid_auto_tune", True)
+            )
+        ] = bool
+        fields[vol.Optional("pid_kp", default=adv_cfg.get("pid_kp", 60.0))] = (
+            vol.All(vol.Coerce(float), vol.Range(min=0))
+        )
+        fields[vol.Optional("pid_ki", default=adv_cfg.get("pid_ki", 0.01))] = (
+            vol.All(vol.Coerce(float), vol.Range(min=0))
+        )
         fields[
             vol.Optional("pid_kd", default=adv_cfg.get("pid_kd", 2000.0))
         ] = vol.All(vol.Coerce(float), vol.Range(min=0))
-
-        fields[
-            vol.Optional(CONF_CHILD_LOCK, default=adv_cfg.get(CONF_CHILD_LOCK, False))
-        ] = bool
-        fields[
-            vol.Optional(
-                CONF_HOMEMATICIP, default=adv_cfg.get(CONF_HOMEMATICIP, homematic)
-            )
-        ] = bool
 
         return self.async_show_form(
             step_id="advanced",

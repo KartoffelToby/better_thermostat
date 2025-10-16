@@ -22,6 +22,14 @@
       "advanced": {
         "description": "Advanced configuration {trv}\n***Info about calibration types: https://better-thermostat.org/configuration#second-step***",
         "data": {
+          "balance_mode": "Hydraulic balance mode",
+          "trend_mix_trv": "Smoothing (EMA mix, 0–1)",
+          "percent_hysteresis_pts": "Hysteresis (percentage points)",
+          "min_update_interval_s": "Minimum update interval (seconds)",
+          "pid_auto_tune": "PID auto tune",
+          "pid_kp": "PID Kp",
+          "pid_ki": "PID Ki",
+          "pid_kd": "PID Kd",
           "protect_overheating": "Overheating protection?",
           "heat_auto_swapped": "If the auto means heat for your TRV and you want to swap it",
           "child_lock": "Ignore all inputs on the TRV like a child lock",
@@ -32,6 +40,14 @@
           "no_off_system_mode": "If your TRV can't handle the off mode, you can enable this to use target temperature 5°C instead"
         },
         "data_description": {
+          "balance_mode": "Choose how Better Thermostat adapts the valve opening across rooms.\n***None / Off***: No balancing; TRVs run as-is.\n***Heuristic***: Simple rule-based balancing (recommended default).\n***PID***: Advanced controller requiring tuning.",
+          "trend_mix_trv": "Exponential smoothing factor for temperature trend mixing. Lower = smoother, higher = more responsive.",
+          "percent_hysteresis_pts": "Deadband around the target to avoid valve chattering. Typical: 1.0–3.0",
+          "min_update_interval_s": "Do not send valve updates faster than this interval to spare batteries and radio.",
+          "pid_auto_tune": "Let the controller infer stable PID values over time.",
+          "pid_kp": "Proportional gain (responsiveness to error).",
+          "pid_ki": "Integral gain (eliminates steady-state error).",
+          "pid_kd": "Derivative gain (damps overshoot).",
           "protect_overheating": "Some TRVs don't close the valve completely when the temperature is reached. Or the radiator has a lot of rest heat. This can cause overheating. This option can prevent this.",
           "calibration_mode": "The kind how the calibration should be calculated\n***Normal***: In this mode, the TRV internal temperature sensor is fixed by the external temperature sensor.\n***Aggresive***: In this mode, the TRV internal temperature sensor is fixed by the external temperature sensor but set much lower/higher to get a quicker boost.\n***AI Time Based***: In this mode, the TRV internal temperature sensor is fixed by the external temperature sensor, but a custom algorithm calculates the value to improve the TRV internal algorithm.",
           "calibration": "How the calibration should be applied on the TRV (Target temp or offset)\n***Target Temperature Based***: Apply the calibration to the target temperature.\n***Offset Based***: Apply the calibration to the offset."
@@ -79,6 +95,14 @@
       "advanced": {
         "description": "Advanced configuration {trv}\n***Info about calibration types: https://better-thermostat.org/configuration#second-step***",
         "data": {
+          "balance_mode": "Hydraulic balance mode",
+          "trend_mix_trv": "Smoothing (EMA mix, 0–1)",
+          "percent_hysteresis_pts": "Hysteresis (percentage points)",
+          "min_update_interval_s": "Minimum update interval (seconds)",
+          "pid_auto_tune": "PID auto tune",
+          "pid_kp": "PID Kp",
+          "pid_ki": "PID Ki",
+          "pid_kd": "PID Kd",
           "protect_overheating": "Overheating protection?",
           "heat_auto_swapped": "If the auto means heat for your TRV and you want to swap it",
           "child_lock": "Ignore all inputs on the TRV like a child lock",
@@ -89,6 +113,14 @@
           "no_off_system_mode": "If your TRV can't handle the off mode, you can enable this to use target temperature 5°C instead"
         },
         "data_description": {
+          "balance_mode": "Choose how Better Thermostat adapts the valve opening across rooms.\n***None / Off***: No balancing; TRVs run as-is.\n***Heuristic***: Simple rule-based balancing (recommended default).\n***PID***: Advanced controller requiring tuning.",
+          "trend_mix_trv": "Exponential smoothing factor for temperature trend mixing. Lower = smoother, higher = more responsive.",
+          "percent_hysteresis_pts": "Deadband around the target to avoid valve chattering. Typical: 1.0–3.0",
+          "min_update_interval_s": "Do not send valve updates faster than this interval to spare batteries and radio.",
+          "pid_auto_tune": "Let the controller infer stable PID values over time.",
+          "pid_kp": "Proportional gain (responsiveness to error).",
+          "pid_ki": "Integral gain (eliminates steady-state error).",
+          "pid_kd": "Derivative gain (damps overshoot).",
           "protect_overheating": "Some TRVs don't close the valve completely when the temperature is reached. Or the radiator has a lot of rest heat. This can cause overheating. This option can prevent this.",
           "calibration_mode": "The kind how the calibration should be calculated\n***Normal***: In this mode, the TRV internal temperature sensor is fixed by the external temperature sensor.\n***Aggresive***: In this mode, the TRV internal temperature sensor is fixed by the external temperature sensor but set much lower/higher to get a quicker boost.\n***AI Time Based***: In this mode the TRV internal temperature sensor is fixed by the external temperature sensor, but a custom algorithm calculates the value to improve the TRV internal algorithm.",
           "calibration": "How the calibration should be applied on the TRV (Target temp or offset)\n***Target Temperature Based***: Apply the calibration to the target temperature.\n***Offset Based***: Apply the calibration to the offset."
