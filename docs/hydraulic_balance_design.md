@@ -19,6 +19,7 @@ Optional PID mode
 - The derivative measurement is smoothed via an EMA with configurable alpha to reduce noise.
 - Output u = P + I + D is clamped to 0..100% and passed through the same smoothing/hysteresis/rate-limit as the heuristic.
 - Conservative auto-tuning optionally adapts kp/ki/kd over time with a minimum interval between changes.
+  The blending parameter trend_mix_trv denotes the EXTERNAL temperature weight in [0..1] (1.0 = external only, 0.0 = internal only). Default: 0.7.
 
 ## Glossary and Symbols
 - TRV: Thermostatic Radiator Valve
@@ -116,7 +117,7 @@ All steps are per-room and require no global information.
   - $I \leftarrow I + k_i \cdot e \cdot dt$ with anti-windup clamping to configurable bounds (in percent points equivalent)
 
 3) D on measurement with blended input and smoothing
-  - Blended measurement: $m = \alpha \cdot T_{trv} + (1-\alpha) \cdot T_{ext}$ with 0≤α≤1 (trend_mix_trv)
+  - Blended measurement: $m = \alpha_{ext} \cdot T_{ext} + (1-\alpha_{ext}) \cdot T_{trv}$ with $\alpha_{ext} \in [0,1]$ (trend_mix_trv = external weight)
   - Smoothed: $m_s \leftarrow (1-\beta)\, m_s + \beta\, m$ with 0≤β≤1 (d_smoothing_alpha)
   - Derivative: $D = -k_d \cdot \frac{dm_s}{dt}$ (negative sign because derivative is on measurement)
 
@@ -153,7 +154,7 @@ All steps are per-room and require no global information.
   - balance_mode: heuristic | pid
   - pid_auto_tune: enable/disable auto-tuning (default: true)
   - pid gains: pid_kp, pid_ki, pid_kd
-  - trend_mix_trv (0..1): Anteil der TRV-internen Temperatur für den D-Term
+  - trend_mix_trv (0..1): Anteil der EXTERNEN Temperatur für den D‑Term (1.0 = nur extern, 0.0 = nur intern; Standard 0.7)
   - d_smoothing_alpha (0..1): EMA-Glättung nur für den D-Kanal
   - percent_hysteresis_pts: Hysterese am Aktuator in %-Punkten (Default: 2)
   - min_update_interval_s: Mindestabstand zwischen Stellgrößen-Updates (Default: 60s)
@@ -193,7 +194,11 @@ Suggested defaults (conservative):
   - `balance` (JSON per TRV): `{ "valve%": p, "flow_capK": c }`
   - `trv_open_caps` (JSON): per TRV `{ "current_bucket": "XX.X", "buckets": { ... } }`
   - `suggested_valve_percent`: flaches Attribut mit der aktuellen Stellgröße in % (bequem für Graphen/Automationen)
-  - PID (bei aktivem PID-Modus, bezogen auf einen repräsentativen TRV): `pid_e_K`, `pid_P`, `pid_I`, `pid_D`, `pid_u`, `pid_kp`, `pid_ki`, `pid_kd`, `pid_dt_s`, `pid_meas_blend_C`, `pid_meas_smooth_C`, `pid_d_meas_K_per_min`
+  - PID (bei aktivem PID‑Modus) – pro TRV im gespeicherten Debug unter `real_trvs[trv]['balance']['debug']['pid']`:
+    - `dt_s`, `e_K`, `p`, `i`, `d`, `u`, `kp`, `ki`, `kd`
+    - Messwerte & Mix: `meas_external_C`, `meas_trv_C`, `mix_w_external`, `mix_w_internal`, `meas_blend_C`, `meas_smooth_C`
+    - Ableitung: `d_meas_per_s` (in K/s)
+  - Zusätzlich (außerhalb von `pid`): `delta_T`, `slope_ema` (K/min)
 - Per-TRV stored debug under `real_trvs[trv]['balance']` includes Sonoff min/max.
 
 ## Testing strategy
