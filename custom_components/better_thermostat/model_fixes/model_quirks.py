@@ -16,7 +16,7 @@ async def load_model_quirks(self, model, entity_id):
     model_str = str(model) if model is not None else ""
     # Replace path separators and any non-alphanumeric/underscore with underscore
     model_sanitized = (
-        re.sub(r"[^A-Za-z0-9_]+", "_", model_str.replace("/", "_")).strip("_")
+        re.sub(r"[^A-Za-z0-9_-]+", "_", model_str.replace("/", "_")).strip("_")
         or "default"
     )
     module_path = f"custom_components.better_thermostat.model_fixes.{model_sanitized}"

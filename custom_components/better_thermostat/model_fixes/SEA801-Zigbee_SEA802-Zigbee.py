@@ -1,13 +1,16 @@
 def fix_local_calibration(self, entity_id, offset):
-    # device SEA802 fix
-    if (self.cur_temp - self.bt_target_temp) < -0.2:
+    _cur_external_temp = self.cur_temp
+    _target_temp = self.bt_target_temp
+
+    if (_cur_external_temp + 0.1) >= _target_temp:
+        offset = round(offset + 0.5, 1)
+    elif (_cur_external_temp + 0.5) >= _target_temp:
         offset -= 2.5
 
     return offset
 
 
 def fix_target_temperature_calibration(self, entity_id, temperature):
-    # device SEA802 fix
     _cur_trv_temp = float(
         self.hass.states.get(entity_id).attributes["current_temperature"]
     )
@@ -15,9 +18,10 @@ def fix_target_temperature_calibration(self, entity_id, temperature):
         return temperature
     if (
         round(temperature, 1) > round(_cur_trv_temp, 1)
-        and temperature - _cur_trv_temp < 2.5
+        and temperature - _cur_trv_temp < 1.5
     ):
-        temperature += 2.5
+        temperature += 1.5
+
     return temperature
 
 
