@@ -575,6 +575,8 @@ def _apply_hydraulic_balance(
                 if slope_ema is None:
                     slope_ema = dbg.get("slope_ema") if isinstance(dbg, dict) else None
                 slope_in = getattr(self, "temp_slope", None)
+                if slope_in is None:
+                    slope_in = pid.get("slope_in") if isinstance(pid, dict) else None
                 # Messwerte und Mischgewichte (falls vorhanden) mitloggen
                 meas_ext = pid.get("meas_external_C") if isinstance(pid, dict) else None
                 if meas_ext is None:

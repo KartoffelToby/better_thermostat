@@ -248,6 +248,16 @@ def compute_balance(
                             last_e = inp.target_temp_C - st.pid_last_meas
                             d_err = (e - last_e) / dt
                             d_term = float(st.pid_kd) * d_err
+                # Aktualisiere die Slope-EMA auch im PID-Modus (für Logging/Diagnose)
+                try:
+                    s_in = inp.temp_slope_K_per_min
+                    if s_in is not None:
+                        if st.ema_slope is None:
+                            st.ema_slope = s_in
+                        else:
+                            st.ema_slope = 0.6 * st.ema_slope + 0.4 * s_in
+                except Exception:
+                    pass
                 # Proportionalterm
                 p_term = float(st.pid_kp) * e
                 i_term = st.pid_integral
@@ -307,6 +317,9 @@ def compute_balance(
                         "kp": float(st.pid_kp) if st.pid_kp is not None else None,
                         "ki": float(st.pid_ki) if st.pid_ki is not None else None,
                         "kd": float(st.pid_kd) if st.pid_kd is not None else None,
+                        # Slope (Input und EMA)
+                        "slope_in": inp.temp_slope_K_per_min,
+                        "slope_ema": st.ema_slope,
                         # Messwerte & Mischanteile
                         "meas_external_C": inp.current_temp_C,
                         "meas_trv_C": inp.trv_temp_C,
