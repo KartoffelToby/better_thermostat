@@ -537,6 +537,39 @@ def get_balance_state(key: str) -> Optional[BalanceState]:
     return _BALANCE_STATES.get(key)
 
 
+def seed_pid_gains(
+    key: str,
+    kp: Optional[float] = None,
+    ki: Optional[float] = None,
+    kd: Optional[float] = None,
+) -> bool:
+    """Pre-seed PID gains for a given state key without overriding existing values.
+
+    Returns True if any value was set.
+    """
+    st = _BALANCE_STATES.setdefault(key, BalanceState())
+    changed = False
+    try:
+        if kp is not None and st.pid_kp is None:
+            st.pid_kp = float(kp)
+            changed = True
+    except Exception:
+        pass
+    try:
+        if ki is not None and st.pid_ki is None:
+            st.pid_ki = float(ki)
+            changed = True
+    except Exception:
+        pass
+    try:
+        if kd is not None and st.pid_kd is None:
+            st.pid_kd = float(kd)
+            changed = True
+    except Exception:
+        pass
+    return changed
+
+
 # --- Persistence helpers --------------------------------------------
 
 

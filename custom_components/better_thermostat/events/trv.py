@@ -50,13 +50,17 @@ async def trigger_trv_change(self, event):
 
     if None in (new_state, old_state, new_state.attributes):
         _LOGGER.debug(
-            f"better_thermostat {self.device_name}: TRV {entity_id} update contained not all necessary data for processing, skipping"
+            "better_thermostat %s: TRV %s update contained not all necessary data for processing, skipping",
+            self.device_name,
+            entity_id,
         )
         return
 
     if not isinstance(new_state, State) or not isinstance(old_state, State):
         _LOGGER.debug(
-            f"better_thermostat {self.device_name}: TRV {entity_id} update contained not a State, skipping"
+            "better_thermostat %s: TRV %s update contained not a State, skipping",
+            self.device_name,
+            entity_id,
         )
         return
     # set context HACK TO FIND OUT IF AN EVENT WAS SEND BY BT
@@ -128,16 +132,22 @@ async def trigger_trv_change(self, event):
         _old_temp = self.real_trvs[entity_id]["current_temperature"]
         self.real_trvs[entity_id]["current_temperature"] = _new_current_temp
         _LOGGER.debug(
-            f"better_thermostat {self.device_name}: TRV {entity_id} sends new internal temperature from {_old_temp} to {_new_current_temp}"
+            "better_thermostat %s: TRV %s sends new internal temperature from %s to %s",
+            self.device_name,
+            entity_id,
+            _old_temp,
+            _new_current_temp,
         )
         self.last_internal_sensor_change = datetime.now()
         _main_change = True
 
-        # TODO: async def in controlling?
+        # async def in controlling? (left as note)
         if self.real_trvs[entity_id]["calibration_received"] is False:
             self.real_trvs[entity_id]["calibration_received"] = True
             _LOGGER.debug(
-                f"better_thermostat {self.device_name}: calibration accepted by TRV {entity_id}"
+                "better_thermostat %s: calibration accepted by TRV %s",
+                self.device_name,
+                entity_id,
             )
             _main_change = False
             if self.real_trvs[entity_id]["calibration"] == 0:
@@ -152,7 +162,9 @@ async def trigger_trv_change(self, event):
         mapped_state = convert_inbound_states(self, entity_id, _org_trv_state)
     except TypeError:
         _LOGGER.debug(
-            f"better_thermostat {self.device_name}: remapping TRV {entity_id} state failed, skipping"
+            "better_thermostat %s: remapping TRV %s state failed, skipping",
+            self.device_name,
+            entity_id,
         )
         return
 
@@ -163,7 +175,12 @@ async def trigger_trv_change(self, event):
         ):
             _old = self.real_trvs[entity_id]["hvac_mode"]
             _LOGGER.debug(
-                f"better_thermostat {self.device_name}: TRV {entity_id} decoded TRV mode changed from {_old} to {_org_trv_state.state} - converted {new_state.state}"
+                "better_thermostat %s: TRV %s decoded TRV mode changed from %s to %s - converted %s",
+                self.device_name,
+                entity_id,
+                _old,
+                _org_trv_state.state,
+                new_state.state,
             )
             self.real_trvs[entity_id]["hvac_mode"] = _org_trv_state.state
             _main_change = True
@@ -194,14 +211,20 @@ async def trigger_trv_change(self, event):
         and self.bt_hvac_mode is not HVACMode.OFF
     ):
         _LOGGER.debug(
-            f"better_thermostat {self.device_name}: trigger_trv_change / _old_heating_setpoint: {_old_heating_setpoint} - _new_heating_setpoint: {_new_heating_setpoint} - _last_temperature: {self.real_trvs[entity_id]['last_temperature']}"
+            "better_thermostat %s: trigger_trv_change / _old_heating_setpoint: %s - _new_heating_setpoint: %s - _last_temperature: %s",
+            self.device_name,
+            _old_heating_setpoint,
+            _new_heating_setpoint,
+            self.real_trvs[entity_id]["last_temperature"],
         )
         if (
             _new_heating_setpoint < self.bt_min_temp
             or self.bt_max_temp < _new_heating_setpoint
         ):
             _LOGGER.warning(
-                f"better_thermostat {self.device_name}: New TRV {entity_id} setpoint outside of range, overwriting it"
+                "better_thermostat %s: New TRV %s setpoint outside of range, overwriting it",
+                self.device_name,
+                entity_id,
             )
 
             if _new_heating_setpoint < self.bt_min_temp:
@@ -220,7 +243,11 @@ async def trigger_trv_change(self, event):
             and self.window_open is False
         ):
             _LOGGER.debug(
-                f"better_thermostat {self.device_name}: TRV {entity_id} decoded TRV target temp changed from {self.bt_target_temp} to {_new_heating_setpoint}"
+                "better_thermostat %s: TRV %s decoded TRV target temp changed from %s to %s",
+                self.device_name,
+                entity_id,
+                self.bt_target_temp,
+                _new_heating_setpoint,
             )
             self.bt_target_temp = _new_heating_setpoint
             if self.cooler_entity_id is not None:
@@ -280,8 +307,8 @@ def _apply_hydraulic_balance(
     entity_id: str,
     hvac_mode,
     current_setpoint,
-    calibration_type,
-    calibration_mode,
+    _calibration_type,
+    _calibration_mode,
     precheck_applies: bool | None = None,
 ):
     """Compute decentralized balance suggestions and learn Sonoff/TRV open caps.
@@ -408,9 +435,23 @@ def _apply_hydraulic_balance(
             min_update_interval_s=min_interval,
         )
 
+        # Build balance state key and include target bucket (0.5°C rounded) so PID gains learn per bucket
+        try:
+            tcur = self.bt_target_temp
+            bucket_tag = (
+                f"t{round(float(tcur) * 2.0) / 2.0:.1f}"
+                if isinstance(tcur, (int, float))
+                else "tunknown"
+            )
+        except Exception:
+            bucket_tag = "tunknown"
+        # Use public unique_id property if available
+        uid = getattr(self, "unique_id", None) or getattr(self, "_unique_id", "bt")
+        balance_key = f"{uid}:{entity_id}:{bucket_tag}"
+
         bal = compute_balance(
             BalanceInput(
-                key=f"{self._unique_id}:{entity_id}",
+                key=balance_key,
                 target_temp_C=self.bt_target_temp,
                 current_temp_C=self.cur_temp,
                 trv_temp_C=self.real_trvs.get(entity_id, {}).get("current_temperature"),
@@ -421,6 +462,55 @@ def _apply_hydraulic_balance(
             ),
             params,
         )
+        # Gentle transfer of PID gains from neighboring buckets (first-time init)
+        try:
+            adv_cfg = self.real_trvs.get(entity_id, {}).get("advanced", {}) or {}
+            transfer_enable = bool(adv_cfg.get("pid_bucket_transfer", True))
+        except Exception:
+            transfer_enable = True
+        if transfer_enable and str(params.mode).lower() == "pid":
+            try:
+                from custom_components.better_thermostat.balance import (
+                    get_balance_state,
+                    seed_pid_gains,
+                )
+
+                st_cur = get_balance_state(balance_key)
+                missing = st_cur is None or (
+                    st_cur.pid_kp is None
+                    or st_cur.pid_ki is None
+                    or st_cur.pid_kd is None
+                )
+                if missing and isinstance(self.bt_target_temp, (int, float)):
+                    base = round(float(self.bt_target_temp) * 2.0) / 2.0
+                    neighbors = [
+                        f"{uid}:{entity_id}:t{base + 0.5:.1f}",
+                        f"{uid}:{entity_id}:t{base - 0.5:.1f}",
+                        f"{uid}:{entity_id}:t{base + 1.0:.1f}",
+                        f"{uid}:{entity_id}:t{base - 1.0:.1f}",
+                    ]
+                    for nk in neighbors:
+                        st_n = get_balance_state(nk)
+                        if st_n and (
+                            st_n.pid_kp is not None
+                            or st_n.pid_ki is not None
+                            or st_n.pid_kd is not None
+                        ):
+                            if seed_pid_gains(
+                                balance_key,
+                                kp=st_n.pid_kp,
+                                ki=st_n.pid_ki,
+                                kd=st_n.pid_kd,
+                            ):
+                                _LOGGER.debug(
+                                    "better_thermostat %s: seeded PID gains for %s from neighbor %s",
+                                    self.device_name,
+                                    balance_key,
+                                    nk,
+                                )
+                                break
+            except Exception:
+                pass
         # Clamp the computed valve percent to the learned max_open% for the current target bucket (if available)
         try:
             t = self.bt_target_temp
@@ -463,18 +553,38 @@ def _apply_hydraulic_balance(
             bal.sonoff_min_open_pct,
             bal.sonoff_max_open_pct,
         )
-        # Additionally log learned PID gains (if PID mode active)
+        # Additionally log learned PID gains (if PID mode active), include bucket tag for clarity
         try:
             dbg = getattr(bal, "debug", None) or {}
             pid = dbg.get("pid") or {}
             if str(pid.get("mode")).lower() == "pid":
+                try:
+                    tcur = self.bt_target_temp
+                    bucket_tag = (
+                        f"t{round(float(tcur) * 2.0) / 2.0:.1f}"
+                        if isinstance(tcur, (int, float))
+                        else "tunknown"
+                    )
+                except Exception:
+                    bucket_tag = "tunknown"
+                # Hole delta_T und slope_ema, wenn vorhanden
+                dT = dbg.get("delta_T")
+                slope = dbg.get("slope_ema")
                 _LOGGER.debug(
-                    "better_thermostat %s: balance pid gains for %s: kp=%s ki=%s kd=%s",
+                    "better_thermostat %s: balance pid for %s@%s: kp=%s ki=%s kd=%s | P=%s I=%s D=%s U=%s | dt_s=%s | dT=%sK slope=%sK/min",
                     self.device_name,
                     entity_id,
+                    bucket_tag,
                     pid.get("kp"),
                     pid.get("ki"),
                     pid.get("kd"),
+                    pid.get("p"),
+                    pid.get("i"),
+                    pid.get("d"),
+                    pid.get("u"),
+                    pid.get("dt_s"),
+                    dT,
+                    slope,
                 )
         except Exception:
             pass
@@ -780,7 +890,8 @@ def convert_outbound_states(self, entity_id, hvac_mode) -> dict | None:
 
             if not _has_system_mode:
                 _LOGGER.debug(
-                    f"better_thermostat {self.device_name}: device config expects no system mode, while the device has one. Device system mode will be ignored"
+                    "better_thermostat %s: device config expects no system mode, while the device has one. Device system mode will be ignored",
+                    self.device_name,
                 )
                 if hvac_mode == HVACMode.OFF:
                     _new_heating_setpoint = self.real_trvs[entity_id]["min_temp"]
@@ -796,19 +907,21 @@ def convert_outbound_states(self, entity_id, hvac_mode) -> dict | None:
             ):
                 _min_temp = self.real_trvs[entity_id]["min_temp"]
                 _LOGGER.debug(
-                    f"better_thermostat {self.device_name}: sending {_min_temp}°C to the TRV because this device has no system mode off and heater should be off"
+                    "better_thermostat %s: sending %s°C to the TRV because this device has no system mode off and heater should be off",
+                    self.device_name,
+                    _min_temp,
                 )
                 _new_heating_setpoint = _min_temp
                 hvac_mode = None
 
-            # Early balance precondition (simple check, full check/logging in helper)
-            _balance_precheck = (
-                self.cur_temp is not None
-                and self.bt_target_temp is not None
-                and hvac_mode is not None
-                and hvac_mode != HVACMode.OFF
-                and self.window_open is False
-            )
+        # Early balance precondition (simple check, full check/logging in helper)
+        _balance_precheck = (
+            self.cur_temp is not None
+            and self.bt_target_temp is not None
+            and hvac_mode is not None
+            and hvac_mode != HVACMode.OFF
+            and self.window_open is False
+        )
 
         # --- Hydraulic balance (decentralized): percentage & setpoint throttling ---
         _new_heating_setpoint = _apply_hydraulic_balance(
