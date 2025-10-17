@@ -78,7 +78,7 @@ class BalanceParams:
     ki_step_mul_down: float = 0.9
     ki_step_mul_up: float = 1.1
     # Kriterien
-    overshoot_threshold_K: float = 0.3
+    overshoot_threshold_K: float = 0.2
     sluggish_slope_threshold_K_min: float = 0.005
     steady_state_band_K: float = 0.1
     steady_state_duration_s: float = 900.0
