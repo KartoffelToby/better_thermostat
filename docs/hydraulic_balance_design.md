@@ -125,7 +125,7 @@ All steps are per-room and require no global information.
   - $u = P + I + D$, then clamp to 0..100 and pass through the same EMA/hysteresis/rate-limit used for the heuristic.
 
 5) Conservative auto-tuning (optional)
-  - Overshoot (sign change with amplitude > threshold): decrease k_p slightly, increase k_d slightly
+  - Overshoot (sign change with amplitude > threshold `overshoot_threshold_K`, default 0.2 K): decrease k_p slightly, increase k_d slightly
   - Sluggish (ΔT ≫ band_near and |slope| small): increase k_i slightly
   - Steady state (|ΔT| < band and u small): decrease k_i slightly to avoid drift
   - Enforce min/max bounds, and a minimum interval (e.g., 30 min) between tune steps.
@@ -158,6 +158,11 @@ All steps are per-room and require no global information.
   - d_smoothing_alpha (0..1): EMA-Glättung nur für den D-Kanal
   - percent_hysteresis_pts: Hysterese am Aktuator in %-Punkten (Default: 2)
   - min_update_interval_s: Mindestabstand zwischen Stellgrößen-Updates (Default: 60s)
+  - Auto‑Tuning Schwellen (PID):
+    - overshoot_threshold_K: Overshoot-Erkennung in Kelvin (Default: 0.2)
+    - sluggish_slope_threshold_K_min: Schwelle für „zu träge“ in K/min (Default: 0.005)
+    - steady_state_band_K: Band für quasi-stationären Zustand in Kelvin (Default: 0.1)
+    - tune_min_interval_s: Mindestabstand zwischen Tuning-Schritten (Default: 1800 s)
 - Future tuning parameters (cap_max, bands, hysteresis) can be exposed if needed.
 
 Suggested defaults (conservative):
@@ -170,6 +175,10 @@ Suggested defaults (conservative):
 - percent_smoothing_alpha = 0.3
 - percent_hysteresis_pts = 2.0
 - min_update_interval_s = 60
+ - overshoot_threshold_K = 0.2
+ - sluggish_slope_threshold_K_min = 0.005
+ - steady_state_band_K = 0.1
+ - tune_min_interval_s = 1800
 
 ## Notes
 - Works with existing BT signals only (current temperature, setpoint, window state). No valve feedback or global supply info is required.
