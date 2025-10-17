@@ -3,6 +3,7 @@ import logging
 from custom_components.better_thermostat.utils.const import CONF_HOMEMATICIP
 from custom_components.better_thermostat.utils.helpers import convert_to_float
 from datetime import datetime
+from time import monotonic
 from homeassistant.helpers import issue_registry as ir
 
 from homeassistant.const import STATE_UNAVAILABLE, STATE_UNKNOWN
@@ -123,8 +124,6 @@ async def trigger_temperature_change(self, event):
 
     # Slope calculation (simple delta per minute)
     try:
-        from time import monotonic
-
         now_m = monotonic()
         if self._slope_last_ts is not None and self.cur_temp is not None:
             dt_min = max(1e-6, (now_m - self._slope_last_ts) / 60.0)
@@ -140,7 +139,7 @@ async def trigger_temperature_change(self, event):
         pass
 
     if _is_significant and (
-        _interval_ok or (_diff is not None and _diff >= (_sig_threshold * 2))
+        _interval_ok or (_diff is not None and _diff >= _sig_threshold)
     ):
         # Verarbeite sofort, wenn Intervall abgelaufen ODER Änderung sehr groß
         _LOGGER.debug(
