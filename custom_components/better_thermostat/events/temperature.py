@@ -41,6 +41,10 @@ async def trigger_temperature_change(self, event):
     _incoming_temperature = convert_to_float(
         str(new_state.state), self.device_name, "external_temperature"
     )
+    # Quantisiere auf 2 Dezimalstellen, um FP-Artefakte zu vermeiden
+    _incoming_temperature_q = (
+        None if _incoming_temperature is None else round(_incoming_temperature, 2)
+    )
 
     # Initialize anti-flicker attributes on first run
     if not hasattr(self, "prev_stable_temp"):
@@ -67,7 +71,7 @@ async def trigger_temperature_change(self, event):
     except KeyError:
         pass
 
-    if _incoming_temperature is None or _incoming_temperature < -50:
+    if _incoming_temperature_q is None or _incoming_temperature_q < -50:
         # raise a ha repair notication
         _LOGGER.error(
             "better_thermostat %s: external_temperature is not a valid number: %s",
@@ -94,11 +98,12 @@ async def trigger_temperature_change(self, event):
         _age = (_now - self.last_external_sensor_change).total_seconds()
     except (TypeError, AttributeError):  # defensiv, sollte nicht auftreten
         _age = 999999
-    _diff = (
-        None if self.cur_temp is None else abs(_incoming_temperature - self.cur_temp)
-    )
-    _is_significant = self.cur_temp is None or (
-        _diff is not None and _diff >= _sig_threshold
+    # Gerundete Vergleichswerte
+    _cur_q = None if self.cur_temp is None else round(self.cur_temp, 2)
+    _diff = None if _cur_q is None else abs(_incoming_temperature_q - _cur_q)
+    _sig_threshold_q = round(_sig_threshold, 2)
+    _is_significant = _cur_q is None or (
+        _diff is not None and _diff >= _sig_threshold_q
     )
     _interval_ok = _age > _time_diff
 
@@ -106,17 +111,17 @@ async def trigger_temperature_change(self, event):
     # (also ein schneller Rücksprung) UND wir kürzlich erst umgestellt haben,
     # dann ignorieren wir diesen Rücksprung bis das Fenster abläuft.
     if (
-        self.cur_temp is not None
+        _cur_q is not None
         and self.prev_stable_temp is not None
-        and _incoming_temperature == self.prev_stable_temp
-        and _incoming_temperature != self.cur_temp
+        and _incoming_temperature_q == round(self.prev_stable_temp, 2)
+        and _incoming_temperature_q != _cur_q
         and _age < FLICKER_REVERT_WINDOW
     ):
         _LOGGER.debug(
-            "better_thermostat %s: external_temperature flicker revert ignored (current=%s revert=%s age=%.1fs < %ss)",
+            "better_thermostat %s: external_temperature flicker revert ignored (current=%.2f revert=%.2f age=%.1fs < %ss)",
             self.device_name,
-            self.cur_temp,
-            _incoming_temperature,
+            _cur_q,
+            _incoming_temperature_q,
             _age,
             FLICKER_REVERT_WINDOW,
         )
@@ -125,39 +130,39 @@ async def trigger_temperature_change(self, event):
     # Slope calculation (simple delta per minute)
     try:
         now_m = monotonic()
-        if self._slope_last_ts is not None and self.cur_temp is not None:
-            dt_min = max(1e-6, (now_m - self._slope_last_ts) / 60.0)
-            dT = _incoming_temperature - self.cur_temp
+        _last_ts = getattr(self, "_slope_last_ts", None)
+        if _last_ts is not None and _cur_q is not None:
+            dt_min = max(1e-6, (now_m - _last_ts) / 60.0)
+            dT = _incoming_temperature_q - _cur_q
             inst_slope = dT / dt_min
             # light smoothing
             if getattr(self, "temp_slope", None) is None:
                 self.temp_slope = inst_slope
             else:
                 self.temp_slope = 0.7 * self.temp_slope + 0.3 * inst_slope
-        self._slope_last_ts = now_m
-    except Exception:
+        setattr(self, "_slope_last_ts", now_m)
+    except (AttributeError, TypeError, ZeroDivisionError):
         pass
 
     if _is_significant and (
-        _interval_ok or (_diff is not None and _diff >= _sig_threshold)
+        _interval_ok or (_diff is not None and _diff >= _sig_threshold_q)
     ):
         # Verarbeite sofort, wenn Intervall abgelaufen ODER Änderung sehr groß
         _LOGGER.debug(
-            "better_thermostat %s: external_temperature update accepted (old=%s new=%s diff=%s age=%.1fs threshold=%.2f interval=%ss)",
+            "better_thermostat %s: external_temperature update accepted (old=%.2f new=%.2f diff=%.2f age=%.1fs threshold=%.2f interval=%ss)",
             self.device_name,
-            self.cur_temp,
-            _incoming_temperature,
-            _diff,
+            (_cur_q if _cur_q is not None else float("nan")),
+            _incoming_temperature_q,
+            (_diff if _diff is not None else float("nan")),
             _age,
-            _sig_threshold,
+            _sig_threshold_q,
             _time_diff,
         )
 
         # Remember previous value as stable pre-measure before updating
-        if self.cur_temp is not None and self.cur_temp != _incoming_temperature:
-            self.prev_stable_temp = self.cur_temp
-        old_temp = self.cur_temp
-        self.cur_temp = _incoming_temperature
+        if _cur_q is not None and _cur_q != _incoming_temperature_q:
+            self.prev_stable_temp = _cur_q
+        self.cur_temp = _incoming_temperature_q
         self.last_external_sensor_change = _now
         self.async_write_ha_state()
         # Schreibe den von BT verwendeten Wert (self.cur_temp) ins TRV
@@ -184,7 +189,7 @@ async def trigger_temperature_change(self, event):
                         getattr(self, "device_name", "unknown"),
                         trv_id,
                     )
-        except Exception:
+        except (AttributeError, KeyError, TypeError, ValueError, RuntimeError):
             _LOGGER.debug(
                 "better_thermostat %s: external_temperature write to TRV failed (non critical)",
                 getattr(self, "device_name", "unknown"),
@@ -194,13 +199,13 @@ async def trigger_temperature_change(self, event):
             await self.control_queue_task.put(self)
     else:
         _LOGGER.debug(
-            "better_thermostat %s: external_temperature ignored (old=%s new=%s diff=%s age=%.1fs sig=%s interval_ok=%s threshold=%.2f)",
+            "better_thermostat %s: external_temperature ignored (old=%.2f new=%.2f diff=%s age=%.1fs sig=%s interval_ok=%s threshold=%.2f)",
             self.device_name,
-            self.cur_temp,
-            _incoming_temperature,
-            _diff,
+            (_cur_q if _cur_q is not None else float("nan")),
+            _incoming_temperature_q,
+            (f"{_diff:.2f}" if _diff is not None else "None"),
             _age,
             _is_significant,
             _interval_ok,
-            _sig_threshold,
+            _sig_threshold_q,
         )

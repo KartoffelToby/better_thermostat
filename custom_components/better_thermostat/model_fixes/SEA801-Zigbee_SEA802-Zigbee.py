@@ -20,7 +20,10 @@ def fix_target_temperature_calibration(self, entity_id, temperature):
         round(temperature, 1) > round(_cur_trv_temp, 1)
         and temperature - _cur_trv_temp < 1.5
     ):
-        temperature += 1.5
+        # Statt die gewünschte Temperatur pauschal um 1.5°C zu erhöhen,
+        # setze sie auf mindestens (aktuelle TRV-Temp + 1.5°C).
+        # So ist der Mindestabstand garantiert, ohne unnötig zu überschießen.
+        temperature = round(_cur_trv_temp + 1.5, 1)
 
     return temperature
 
