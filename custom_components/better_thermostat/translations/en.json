@@ -22,7 +22,7 @@
       "advanced": {
         "description": "Advanced configuration {trv}\n***Info about calibration types: https://better-thermostat.org/configuration#second-step***",
         "data": {
-          "balance_mode": "Hydraulic balance mode",
+          "balance_mode": "Hydraulic balance mode (Experimental)",
           "trend_mix_trv": "Temp mix (external weight, 0–1)",
           "percent_hysteresis_pts": "Hysteresis (percentage points)",
           "min_update_interval_s": "Minimum update interval (seconds)",
@@ -40,7 +40,7 @@
           "no_off_system_mode": "If your TRV can't handle the off mode, you can enable this to use target temperature 5°C instead"
         },
         "data_description": {
-          "balance_mode": "Choose how Better Thermostat adapts the valve opening across rooms.\n***None / Off***: No balancing; TRVs run as-is.\n***Heuristic***: Simple rule-based balancing (recommended default).\n***PID***: Advanced controller requiring tuning.",
+          "balance_mode": "Choose how Better Thermostat adapts the valve opening across rooms.\n***None / Off***: No balancing; TRVs run as-is.\n***Heuristic (Experimental)***: Simple rule-based balancing.\n***PID (Experimental)***: Advanced controller requiring tuning.\n\nNote: Hydraulic balance is in Beta and may change.",
           "trend_mix_trv": "Weight of external vs. TRV internal temperature used for derivative mixing. 0.0 = internal only, 1.0 = external only. Default: 0.7.",
           "percent_hysteresis_pts": "Deadband around the target to avoid valve chattering. Typical: 1.0–3.0",
           "min_update_interval_s": "Do not send valve updates faster than this interval to spare batteries and radio.",
@@ -95,7 +95,7 @@
       "advanced": {
         "description": "Advanced configuration {trv}\n***Info about calibration types: https://better-thermostat.org/configuration#second-step***",
         "data": {
-          "balance_mode": "Hydraulic balance mode",
+          "balance_mode": "Hydraulic balance mode (Experimental)",
           "trend_mix_trv": "Temp mix (external weight, 0–1)",
           "percent_hysteresis_pts": "Hysteresis (percentage points)",
           "min_update_interval_s": "Minimum update interval (seconds)",
@@ -113,7 +113,7 @@
           "no_off_system_mode": "If your TRV can't handle the off mode, you can enable this to use target temperature 5°C instead"
         },
         "data_description": {
-          "balance_mode": "Choose how Better Thermostat adapts the valve opening across rooms.\n***None / Off***: No balancing; TRVs run as-is.\n***Heuristic***: Simple rule-based balancing (recommended default).\n***PID***: Advanced controller requiring tuning.",
+          "balance_mode": "Choose how Better Thermostat adapts the valve opening across rooms.\n***None / Off***: No balancing; TRVs run as-is.\n***Heuristic (Experimental)***: Simple rule-based balancing.\n***PID (Experimental)***: Advanced controller requiring tuning.\n\nNote: Hydraulic balance is in Beta and may change.",
           "trend_mix_trv": "Weight of external vs. TRV internal temperature used for derivative mixing. 0.0 = internal only, 1.0 = external only. Default: 0.7.",
           "percent_hysteresis_pts": "Deadband around the target to avoid valve chattering. Typical: 1.0–3.0",
           "min_update_interval_s": "Do not send valve updates faster than this interval to spare batteries and radio.",

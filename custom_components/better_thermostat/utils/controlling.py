@@ -156,7 +156,7 @@ async def control_trv(self, heater_entity_id=None):
             "calibration_mode", CalibrationMode.DEFAULT
         )
 
-        # Optional: set valve position if supported (e.g., MQTT/Z2M), otherwise try model-specific fallback (Sonoff TRVZB)
+        # Optional: set valve position if supported (e.g., MQTT/Z2M)
         try:
             bal = self.real_trvs[heater_entity_id].get("balance")
             if bal:

@@ -22,7 +22,7 @@
       "advanced": {
         "description": "Einstellungen für {trv}\n\n***Infos über die Kalibrierungstypen: https://better-thermostat.org/configuration#second-step*** ",
         "data": {
-          "balance_mode": "Hydraulischer Abgleich (Modus)",
+          "balance_mode": "Hydraulischer Abgleich (Experimental)",
           "trend_mix_trv": "Temperatur‑Mix (Außenanteil, 0–1)",
           "percent_hysteresis_pts": "Hysterese (Prozentpunkte)",
           "min_update_interval_s": "Minimales Update‑Intervall (Sek.)",
@@ -40,7 +40,7 @@
           "no_off_system_mode": "Wenn das TRV keinen Aus Modus nutzen kann, kann diese Option aktiviert werden, um das TRV stattdessen auf 5°C zu setzen."
         },
         "data_description": {
-          "balance_mode": "Wähle, wie Better Thermostat die Ventilöffnung zwischen Räumen anpasst.\n***None / Off***: Kein Abgleich; TRVs arbeiten unverändert.\n***Heuristic***: Einfache, regelbasierte Regelung (empfohlen).\n***PID***: Fortgeschrittener Regler, der Tuning erfordert.",
+          "balance_mode": "Wähle, wie Better Thermostat die Ventilöffnung zwischen Räumen anpasst.\n***None / Off***: Kein Abgleich; TRVs arbeiten unverändert.\n***Heuristic (Experimental)***: Einfache, regelbasierte Regelung.\n***PID (Experimental)***: Fortgeschrittener Regler, der Tuning erfordert.\n\nHinweis: Der hydraulische Abgleich ist in der Beta‑Phase und kann sich noch ändern.",
           "trend_mix_trv": "Gewichtung zwischen externer und TRV‑interner Temperatur für den D‑Anteil. 0,0 = nur intern, 1,0 = nur extern. Standard: 0,7.",
           "percent_hysteresis_pts": "Totzone um den Sollwert, um Klappern zu vermeiden. Typisch: 1,0–3,0.",
           "min_update_interval_s": "Sende Ventil‑Updates nicht schneller als dieses Intervall (schont Batterie und Funk).",
@@ -95,7 +95,7 @@
       "advanced": {
         "description": "Aktualisiere die Einstellungen für {trv}\n\n***Infos über die Kalibrierungstypen: https://better-thermostat.org/configuration#second-step*** ",
         "data": {
-          "balance_mode": "Hydraulischer Abgleich (Modus)",
+          "balance_mode": "Hydraulischer Abgleich (Experimental)",
           "trend_mix_trv": "Glättung (EMA‑Mix, 0–1)",
           "percent_hysteresis_pts": "Hysterese (Prozentpunkte)",
           "min_update_interval_s": "Minimales Update‑Intervall (Sek.)",
@@ -113,7 +113,7 @@
           "no_off_system_mode": "Wenn das TRV keinen Aus Modus nutzen kann, kann diese Option aktiviert werden, um das TRV stattdessen auf 5°C zu setzen."
         },
         "data_description": {
-          "balance_mode": "Wähle, wie Better Thermostat die Ventilöffnung zwischen Räumen anpasst.\n***None / Off***: Kein Abgleich; TRVs arbeiten unverändert.\n***Heuristic***: Einfache, regelbasierte Regelung (empfohlen).\n***PID***: Fortgeschrittener Regler, der Tuning erfordert.",
+          "balance_mode": "Wähle, wie Better Thermostat die Ventilöffnung zwischen Räumen anpasst.\n***None / Off***: Kein Abgleich; TRVs arbeiten unverändert.\n***Heuristic (Experimental)***: Einfache, regelbasierte Regelung.\n***PID (Experimental)***: Fortgeschrittener Regler, der Tuning erfordert.\n\nHinweis: Der hydraulische Abgleich ist in der Beta‑Phase und kann sich noch ändern.",
           "trend_mix_trv": "Exponentieller Glättungsfaktor für den Temperaturtrend. Niedriger = glätter, höher = reaktiver.",
           "percent_hysteresis_pts": "Totzone um den Sollwert, um Klappern zu vermeiden. Typisch: 1,0–3,0.",
           "min_update_interval_s": "Sende Ventil‑Updates nicht schneller als dieses Intervall (schont Batterie und Funk).",

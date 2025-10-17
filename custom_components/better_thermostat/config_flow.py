@@ -61,8 +61,10 @@ BALANCE_MODE_SELECTOR = selector.SelectSelector(
     selector.SelectSelectorConfig(
         options=[
             selector.SelectOptionDict(value="none", label="None / Off"),
-            selector.SelectOptionDict(value="heuristic", label="Heuristic"),
-            selector.SelectOptionDict(value="pid", label="PID"),
+            selector.SelectOptionDict(
+                value="heuristic", label="Heuristic (Experimental)"
+            ),
+            selector.SelectOptionDict(value="pid", label="PID (Experimental)"),
         ],
         mode=selector.SelectSelectorMode.DROPDOWN,
     )

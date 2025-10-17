@@ -14,6 +14,8 @@ from custom_components.better_thermostat.balance import (
     compute_balance,
     BalanceInput,
     BalanceParams,
+    get_balance_state,
+    seed_pid_gains,
 )
 from custom_components.better_thermostat.utils.helpers import get_device_model
 from custom_components.better_thermostat.model_fixes.model_quirks import (
@@ -74,28 +76,31 @@ async def trigger_trv_change(self, event):
     _org_trv_state = self.hass.states.get(entity_id)
     child_lock = self.real_trvs[entity_id]["advanced"].get("child_lock")
 
-    # Dynamische Modell-Erkennung: falls sich das Modell geändert hat (z. B. Z2M liefert model_id), Quirks neu laden
+    # Dynamische Modell-Erkennung: nur einmalig (z. B. beim Start) – nicht bei jedem Event
     try:
-        if _org_trv_state is not None and isinstance(_org_trv_state.attributes, dict):
-            # Nur prüfen, wenn Hinweise vorhanden sind
-            if (
-                "model_id" in _org_trv_state.attributes
-                or "device" in _org_trv_state.attributes
+        prev_model = self.real_trvs.get(entity_id, {}).get("model")
+        if not prev_model:
+            if _org_trv_state is not None and isinstance(
+                _org_trv_state.attributes, dict
             ):
-                detected = await get_device_model(self, entity_id)
-                if isinstance(detected, str) and detected:
-                    prev = self.real_trvs.get(entity_id, {}).get("model")
-                    if prev != detected:
-                        _LOGGER.info(
-                            "better_thermostat %s: TRV %s model changed: %s -> %s; reloading quirks",
-                            self.device_name,
-                            entity_id,
-                            prev,
-                            detected,
-                        )
-                        quirks = await load_model_quirks(self, detected, entity_id)
-                        self.real_trvs[entity_id]["model"] = detected
-                        self.real_trvs[entity_id]["model_quirks"] = quirks
+                # Nur prüfen, wenn Hinweise vorhanden sind
+                if (
+                    "model_id" in _org_trv_state.attributes
+                    or "device" in _org_trv_state.attributes
+                ):
+                    detected = await get_device_model(self, entity_id)
+                    if isinstance(detected, str) and detected:
+                        if prev_model != detected:
+                            _LOGGER.info(
+                                "better_thermostat %s: TRV %s model changed: %s -> %s; reloading quirks",
+                                self.device_name,
+                                entity_id,
+                                prev_model,
+                                detected,
+                            )
+                            quirks = await load_model_quirks(self, detected, entity_id)
+                            self.real_trvs[entity_id]["model"] = detected
+                            self.real_trvs[entity_id]["model_quirks"] = quirks
     except Exception as e:
         _LOGGER.debug(
             "better_thermostat %s: dynamic model detection failed for %s: %s",
@@ -307,8 +312,6 @@ def _apply_hydraulic_balance(
     entity_id: str,
     hvac_mode,
     current_setpoint,
-    _calibration_type,
-    _calibration_mode,
     precheck_applies: bool | None = None,
 ):
     """Compute decentralized balance suggestions and learn Sonoff/TRV open caps.
@@ -470,11 +473,6 @@ def _apply_hydraulic_balance(
             transfer_enable = True
         if transfer_enable and str(params.mode).lower() == "pid":
             try:
-                from custom_components.better_thermostat.balance import (
-                    get_balance_state,
-                    seed_pid_gains,
-                )
-
                 st_cur = get_balance_state(balance_key)
                 missing = st_cur is None or (
                     st_cur.pid_kp is None
@@ -877,11 +875,9 @@ def convert_outbound_states(self, entity_id, hvac_mode) -> dict | None:
                 "better_thermostat %s: no calibration type found in device config, talking to the TRV using fallback mode",
                 self.device_name,
             )
+            # Fallback: keine lokale Kalibrierung durchführen, nur Solltemperatur setzen
             _new_heating_setpoint = self.bt_target_temp
-            _new_local_calibration = calculate_calibration_local(self, entity_id)
-
-            if _new_local_calibration is None:
-                return None
+            _new_local_calibration = None
 
         else:
             if _calibration_type == CalibrationType.LOCAL_BASED:
@@ -950,21 +946,18 @@ def convert_outbound_states(self, entity_id, hvac_mode) -> dict | None:
 
         # --- Hydraulic balance (decentralized): percentage & setpoint throttling ---
         _new_heating_setpoint = _apply_hydraulic_balance(
-            self,
-            entity_id,
-            hvac_mode,
-            _new_heating_setpoint,
-            _calibration_type,
-            _calibration_mode,
-            _balance_precheck,
+            self, entity_id, hvac_mode, _new_heating_setpoint, _balance_precheck
         )
 
-        return {
+        # Build payload; include calibration only if present
+        _payload = {
             "temperature": _new_heating_setpoint,
             "local_temperature": self.real_trvs[entity_id]["current_temperature"],
             "system_mode": hvac_mode,
-            "local_temperature_calibration": _new_local_calibration,
         }
+        if _new_local_calibration is not None:
+            _payload["local_temperature_calibration"] = _new_local_calibration
+        return _payload
     except Exception as e:
         _LOGGER.error(e)
         return None
