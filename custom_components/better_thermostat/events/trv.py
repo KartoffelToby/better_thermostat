@@ -567,11 +567,16 @@ def _apply_hydraulic_balance(
                     )
                 except Exception:
                     bucket_tag = "tunknown"
-                # Hole delta_T und slope_ema, wenn vorhanden
-                dT = dbg.get("delta_T")
-                slope = dbg.get("slope_ema")
+                # Hole delta_T und slope_ema robust (erst aus pid, dann aus debug) und zusätzlich slope_in
+                dT = pid.get("delta_T") if isinstance(pid, dict) else None
+                if dT is None:
+                    dT = dbg.get("delta_T") if isinstance(dbg, dict) else None
+                slope_ema = pid.get("slope_ema") if isinstance(pid, dict) else None
+                if slope_ema is None:
+                    slope_ema = dbg.get("slope_ema") if isinstance(dbg, dict) else None
+                slope_in = getattr(self, "temp_slope", None)
                 _LOGGER.debug(
-                    "better_thermostat %s: balance pid for %s@%s: kp=%s ki=%s kd=%s | P=%s I=%s D=%s U=%s | dt_s=%s | dT=%sK slope=%sK/min",
+                    "better_thermostat %s: balance pid for %s@%s: kp=%s ki=%s kd=%s | P=%s I=%s D=%s U=%s | dt_s=%s | dT=%sK slope_in=%sK/min slope_ema=%sK/min",
                     self.device_name,
                     entity_id,
                     bucket_tag,
@@ -584,7 +589,8 @@ def _apply_hydraulic_balance(
                     pid.get("u"),
                     pid.get("dt_s"),
                     dT,
-                    slope,
+                    slope_in,
+                    slope_ema,
                 )
         except Exception:
             pass
