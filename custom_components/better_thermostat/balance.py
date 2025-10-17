@@ -58,7 +58,7 @@ class BalanceParams:
     i_max: float = 100.0
     # Ableitung auf Messwert (True) oder Fehler
     d_on_measurement: bool = True
-    # Anteil der internen TRV-Temperatur für den D-Anteil (0..1); 0=nur extern, 1=nur intern
+    # Anteil der EXTERNEN Temperatur für den D-Anteil (0..1); 0=nur intern (TRV), 1=nur extern
     trend_mix_trv: float = 0.7
     # Separate Glättung (EMA) des Messwerts für den D-Anteil (0..1)
     d_smoothing_alpha: float = 0.5
@@ -218,8 +218,9 @@ def compute_balance(
                             meas_now = None
                             if inp.current_temp_C is not None:
                                 if inp.trv_temp_C is not None:
-                                    meas_now = (mix * inp.trv_temp_C) + (
-                                        (1.0 - mix) * inp.current_temp_C
+                                    # mix = Anteil EXTERN, (1-mix) = Anteil INTERN
+                                    meas_now = (mix * inp.current_temp_C) + (
+                                        (1.0 - mix) * inp.trv_temp_C
                                     )
                                 else:
                                     meas_now = inp.current_temp_C
@@ -262,7 +263,8 @@ def compute_balance(
                     except (TypeError, ValueError):
                         mix = 0.0
                     if base is not None and inp.trv_temp_C is not None:
-                        base = (mix * inp.trv_temp_C) + ((1.0 - mix) * base)
+                        # mix = Anteil EXTERN auf base; (1-mix) = Anteil INTERN
+                        base = (mix * base) + ((1.0 - mix) * inp.trv_temp_C)
                     try:
                         a = max(0.0, min(1.0, float(params.d_smoothing_alpha)))
                     except (TypeError, ValueError):
@@ -288,6 +290,12 @@ def compute_balance(
                 # Debug-Werte ablegen
                 try:
                     # Basale Debug-Infos (auch für Graphen)
+                    # Mischgewichte für Transparenz berechnen
+                    try:
+                        _mix_ext = max(0.0, min(1.0, float(params.trend_mix_trv)))
+                    except (TypeError, ValueError):
+                        _mix_ext = None
+                    _mix_int = (1.0 - _mix_ext) if isinstance(_mix_ext, float) else None
                     pid_dbg = {
                         "mode": "pid",
                         "dt_s": dt,
@@ -299,6 +307,11 @@ def compute_balance(
                         "kp": float(st.pid_kp) if st.pid_kp is not None else None,
                         "ki": float(st.pid_ki) if st.pid_ki is not None else None,
                         "kd": float(st.pid_kd) if st.pid_kd is not None else None,
+                        # Messwerte & Mischanteile
+                        "meas_external_C": inp.current_temp_C,
+                        "meas_trv_C": inp.trv_temp_C,
+                        "mix_w_internal": _mix_int,
+                        "mix_w_external": _mix_ext,
                         "meas_blend_C": meas_now,
                         "meas_smooth_C": smoothed,
                         "d_meas_per_s": d_meas,

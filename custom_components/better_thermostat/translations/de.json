@@ -23,7 +23,7 @@
         "description": "Einstellungen für {trv}\n\n***Infos über die Kalibrierungstypen: https://better-thermostat.org/configuration#second-step*** ",
         "data": {
           "balance_mode": "Hydraulischer Abgleich (Modus)",
-          "trend_mix_trv": "Glättung (EMA‑Mix, 0–1)",
+          "trend_mix_trv": "Temperatur‑Mix (Außenanteil, 0–1)",
           "percent_hysteresis_pts": "Hysterese (Prozentpunkte)",
           "min_update_interval_s": "Minimales Update‑Intervall (Sek.)",
           "pid_auto_tune": "PID Auto‑Tuning",
@@ -41,7 +41,7 @@
         },
         "data_description": {
           "balance_mode": "Wähle, wie Better Thermostat die Ventilöffnung zwischen Räumen anpasst.\n***None / Off***: Kein Abgleich; TRVs arbeiten unverändert.\n***Heuristic***: Einfache, regelbasierte Regelung (empfohlen).\n***PID***: Fortgeschrittener Regler, der Tuning erfordert.",
-          "trend_mix_trv": "Exponentieller Glättungsfaktor für den Temperaturtrend. Niedriger = glätter, höher = reaktiver.",
+          "trend_mix_trv": "Gewichtung zwischen externer und TRV‑interner Temperatur für den D‑Anteil. 0,0 = nur intern, 1,0 = nur extern. Standard: 0,7.",
           "percent_hysteresis_pts": "Totzone um den Sollwert, um Klappern zu vermeiden. Typisch: 1,0–3,0.",
           "min_update_interval_s": "Sende Ventil‑Updates nicht schneller als dieses Intervall (schont Batterie und Funk).",
           "pid_auto_tune": "Ermittelt stabile PID‑Werte automatisch über die Zeit.",

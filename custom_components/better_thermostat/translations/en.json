@@ -23,7 +23,7 @@
         "description": "Advanced configuration {trv}\n***Info about calibration types: https://better-thermostat.org/configuration#second-step***",
         "data": {
           "balance_mode": "Hydraulic balance mode",
-          "trend_mix_trv": "Smoothing (EMA mix, 0–1)",
+          "trend_mix_trv": "Temp mix (external weight, 0–1)",
           "percent_hysteresis_pts": "Hysteresis (percentage points)",
           "min_update_interval_s": "Minimum update interval (seconds)",
           "pid_auto_tune": "PID auto tune",
@@ -41,7 +41,7 @@
         },
         "data_description": {
           "balance_mode": "Choose how Better Thermostat adapts the valve opening across rooms.\n***None / Off***: No balancing; TRVs run as-is.\n***Heuristic***: Simple rule-based balancing (recommended default).\n***PID***: Advanced controller requiring tuning.",
-          "trend_mix_trv": "Exponential smoothing factor for temperature trend mixing. Lower = smoother, higher = more responsive.",
+          "trend_mix_trv": "Weight of external vs. TRV internal temperature used for derivative mixing. 0.0 = internal only, 1.0 = external only. Default: 0.7.",
           "percent_hysteresis_pts": "Deadband around the target to avoid valve chattering. Typical: 1.0–3.0",
           "min_update_interval_s": "Do not send valve updates faster than this interval to spare batteries and radio.",
           "pid_auto_tune": "Let the controller infer stable PID values over time.",
@@ -96,7 +96,7 @@
         "description": "Advanced configuration {trv}\n***Info about calibration types: https://better-thermostat.org/configuration#second-step***",
         "data": {
           "balance_mode": "Hydraulic balance mode",
-          "trend_mix_trv": "Smoothing (EMA mix, 0–1)",
+          "trend_mix_trv": "Temp mix (external weight, 0–1)",
           "percent_hysteresis_pts": "Hysteresis (percentage points)",
           "min_update_interval_s": "Minimum update interval (seconds)",
           "pid_auto_tune": "PID auto tune",
@@ -114,7 +114,7 @@
         },
         "data_description": {
           "balance_mode": "Choose how Better Thermostat adapts the valve opening across rooms.\n***None / Off***: No balancing; TRVs run as-is.\n***Heuristic***: Simple rule-based balancing (recommended default).\n***PID***: Advanced controller requiring tuning.",
-          "trend_mix_trv": "Exponential smoothing factor for temperature trend mixing. Lower = smoother, higher = more responsive.",
+          "trend_mix_trv": "Weight of external vs. TRV internal temperature used for derivative mixing. 0.0 = internal only, 1.0 = external only. Default: 0.7.",
           "percent_hysteresis_pts": "Deadband around the target to avoid valve chattering. Typical: 1.0–3.0",
           "min_update_interval_s": "Do not send valve updates faster than this interval to spare batteries and radio.",
           "pid_auto_tune": "Let the controller infer stable PID values over time.",

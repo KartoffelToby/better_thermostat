@@ -575,8 +575,20 @@ def _apply_hydraulic_balance(
                 if slope_ema is None:
                     slope_ema = dbg.get("slope_ema") if isinstance(dbg, dict) else None
                 slope_in = getattr(self, "temp_slope", None)
+                # Messwerte und Mischgewichte (falls vorhanden) mitloggen
+                meas_ext = pid.get("meas_external_C") if isinstance(pid, dict) else None
+                if meas_ext is None:
+                    meas_ext = (
+                        dbg.get("meas_external_C") if isinstance(dbg, dict) else None
+                    )
+                meas_trv = pid.get("meas_trv_C") if isinstance(pid, dict) else None
+                if meas_trv is None:
+                    meas_trv = dbg.get("meas_trv_C") if isinstance(dbg, dict) else None
+                meas_blend = pid.get("meas_blend_C") if isinstance(pid, dict) else None
+                mix_w_int = pid.get("mix_w_internal") if isinstance(pid, dict) else None
+                mix_w_ext = pid.get("mix_w_external") if isinstance(pid, dict) else None
                 _LOGGER.debug(
-                    "better_thermostat %s: balance pid for %s@%s: kp=%s ki=%s kd=%s | P=%s I=%s D=%s U=%s | dt_s=%s | dT=%sK slope_in=%sK/min slope_ema=%sK/min",
+                    "better_thermostat %s: balance pid for %s@%s: kp=%s ki=%s kd=%s | P=%s I=%s D=%s U=%s | dt_s=%s | dT=%sK slope_in=%sK/min slope_ema=%sK/min | ext=%s°C trv=%s°C blend=%s°C mix_in=%s mix_ex=%s",
                     self.device_name,
                     entity_id,
                     bucket_tag,
@@ -591,6 +603,11 @@ def _apply_hydraulic_balance(
                     dT,
                     slope_in,
                     slope_ema,
+                    meas_ext,
+                    meas_trv,
+                    meas_blend,
+                    mix_w_int,
+                    mix_w_ext,
                 )
         except Exception:
             pass
