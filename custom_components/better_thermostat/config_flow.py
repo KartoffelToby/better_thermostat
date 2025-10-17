@@ -302,7 +302,7 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         ] = bool
 
         # Balance/Regelung (PID) – nach HomematicIP; Felder abhängig vom Modus
-        mode_current = str(user_input.get("balance_mode", "heuristic")).lower()
+        mode_current = str(user_input.get("balance_mode", "none")).lower()
         fields[vol.Optional("balance_mode", default=mode_current)] = (
             BALANCE_MODE_SELECTOR
         )
@@ -625,7 +625,7 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
         ] = bool
 
         # Balance/Regelung (PID) – nach HomematicIP; Felder abhängig vom Modus
-        mode_current = str(adv_cfg.get("balance_mode", "heuristic")).lower()
+        mode_current = str(adv_cfg.get("balance_mode", "none")).lower()
         fields[vol.Optional("balance_mode", default=mode_current)] = (
             BALANCE_MODE_SELECTOR
         )
