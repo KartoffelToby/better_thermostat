@@ -13,6 +13,11 @@ from contextlib import suppress
 from .helpers import convert_to_float
 from statistics import median
 
+from homeassistant.components.weather import (
+    DOMAIN as WEATHER_DOMAIN,
+    WeatherEntityFeature,
+)
+from homeassistant.exceptions import ServiceNotSupported, HomeAssistantError
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -38,7 +43,8 @@ async def check_weather(self) -> bool:
 
     if self.weather_entity is not None:
         _call_for_heat_weather = await check_weather_prediction(self)
-        self.call_for_heat = _call_for_heat_weather
+        if isinstance(_call_for_heat_weather, bool): # Only apply if we got a valid response
+            self.call_for_heat = _call_for_heat_weather
 
     if self.outdoor_sensor is not None:
         if None in (self.last_avg_outdoor_temp, self.off_temperature):
@@ -86,15 +92,30 @@ async def check_weather_prediction(self) -> bool:
         return None
 
     try:
+        state = self.hass.states.get(self.weather_entity)
+        features = state.attributes.get("supported_features", 0) if state else 0
+
+        if features & WeatherEntityFeature.FORECAST_DAILY:
+            ftype = "daily"
+        elif features & WeatherEntityFeature.FORECAST_TWICE_DAILY:
+            ftype = "twice_daily"
+        elif features & WeatherEntityFeature.FORECAST_HOURLY:
+            ftype = "hourly"
+        else:
+            _LOGGER.warning("better_thermostat %s: weather entity '%s' does not advertise any forecast support.", self.device_name, self.weather_entity)
+            return None
+
         forecasts = await self.hass.services.async_call(
-            "weather",
+            WEATHER_DOMAIN,
             "get_forecasts",
-            {"type": "daily", "entity_id": self.weather_entity},
+            {"type": ftype, "entity_id": [self.weather_entity]},
             blocking=True,
             return_response=True,
         )
-        forecast = forecasts.get(self.weather_entity).get("forecast")
-        if len(forecast) > 0:
+
+        entity_data = forecasts.get(self.weather_entity, {})
+        forecast = entity_data.get("forecast") or []
+        if forecast:
             cur_outside_temp = convert_to_float(
                 str(
                     self.hass.states.get(self.weather_entity).attributes.get(
@@ -104,32 +125,24 @@ async def check_weather_prediction(self) -> bool:
                 self.device_name,
                 "check_weather_prediction()",
             )
-            max_forecast_temp = int(
-                round(
-                    (
-                        convert_to_float(
-                            str(forecast[0]["temperature"]),
-                            self.device_name,
-                            "check_weather_prediction()",
-                        )
-                        + convert_to_float(
-                            str(forecast[1]["temperature"]),
-                            self.device_name,
-                            "check_weather_prediction()",
-                        )
-                    )
-                    / 2
-                )
-            )
+            horizon = forecast[:24] if ftype == "hourly" else forecast[:2]
+            temps = [
+                convert_to_float(str(p.get("temperature")), self.device_name, "check_weather_prediction()")
+                for p in horizon
+                if p.get("temperature") is not None
+            ]
+            if not temps: # Something went wrong
+                raise TypeError
+            max_forecast_temp = max(temps)
             return (
                 cur_outside_temp < self.off_temperature
                 or max_forecast_temp < self.off_temperature
             )
         else:
             raise TypeError
-    except TypeError:
+    except (TypeError, ServiceNotSupported, HomeAssistantError) as err:
         _LOGGER.warning(
-            f"better_thermostat {self.device_name}: no weather entity data found."
+            f"better_thermostat {self.device_name}: no weather entity data found ({err.__class__.__name__})."
         )
         return None
 
