@@ -33,9 +33,9 @@ class BalanceParams:
     # Algorithmus-Auswahl: 'heuristic' (Standard), 'pid'
     mode: str = "heuristic"
     # Near setpoint band where we gently throttle/refine (Kelvin)
-    band_near_K: float = 0.3
+    band_near_K: float = 0.15
     # Far band beyond which fully open/close is likely (Kelvin)
-    band_far_K: float = 0.5
+    band_far_K: float = 0.35
     # Max setpoint reduction for generic devices (Kelvin)
     cap_max_K: float = 0.8
     # Slope thresholds (K/min)
@@ -44,15 +44,15 @@ class BalanceParams:
     # Slope gain (percentage points per K/min, negative means positive slope reduces %)
     slope_gain_per_K_per_min: float = -1000.0  # 0.02 K/min → ~ -20%
     # Smoothing and hysteresis
-    percent_smoothing_alpha: float = 0.3  # EMA
+    percent_smoothing_alpha: float = 0.25  # EMA
     percent_hysteresis_pts: float = 1.0  # minimum change in %-points
     min_update_interval_s: float = 60.0  # minimum time between updates
     # Sonoff minimum opening (comfort/flow noise)
     sonoff_min_open_default_pct: int = 5
     # PID-Parameter (optional)
-    kp: float = 60.0
-    ki: float = 0.01
-    kd: float = 2000.0
+    kp: float = 50.0
+    ki: float = 0.02
+    kd: float = 2500.0
     # Integrator-Klammer (Anti-Windup) in %-Punkten umgerechnet
     i_min: float = -100.0
     i_max: float = 100.0
@@ -61,7 +61,7 @@ class BalanceParams:
     # Anteil der EXTERNEN Temperatur für den D-Anteil (0..1); 0=nur intern (TRV), 1=nur extern
     trend_mix_trv: float = 0.7
     # Separate Glättung (EMA) des Messwerts für den D-Anteil (0..1)
-    d_smoothing_alpha: float = 0.5
+    d_smoothing_alpha: float = 0.6
     # Auto-Tuning (konservativ, optional)
     auto_tune: bool = True
     tune_min_interval_s: float = 1800.0  # mind. 30min zwischen Anpassungen

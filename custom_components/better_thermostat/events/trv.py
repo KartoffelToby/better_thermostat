@@ -529,6 +529,14 @@ def _apply_hydraulic_balance(
                 ):
                     capped = int(max(0, min(int(cap_max), int(bal.valve_percent))))
                     if capped != bal.valve_percent:
+                        _LOGGER.debug(
+                            "better_thermostat %s: capped valve for %s bucket %s to %s%% (learned max %s%%)",
+                            self.device_name,
+                            entity_id,
+                            bucket_now,
+                            capped,
+                            cap_max,
+                        )
                         bal.valve_percent = capped
         except Exception:
             pass
