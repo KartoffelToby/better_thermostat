@@ -49,6 +49,9 @@ async def trigger_temperature_change(self, event):
     # Initialize anti-flicker attributes on first run
     if not hasattr(self, "prev_stable_temp"):
         self.prev_stable_temp = None  # letzter stabiler (vor-dem-Sprung) Wert
+    if not hasattr(self, "last_change_direction"):
+        # +1 = steigend, -1 = fallend, 0 = unbekannt/gleich
+        self.last_change_direction = 0
 
     # Ensure timestamp exists (first run guard)
     if getattr(self, "last_external_sensor_change", None) is None:
@@ -127,6 +130,37 @@ async def trigger_temperature_change(self, event):
         )
         return
 
+    # Richtungswechsel-Schutz: kleine Gegenbewegungen (<= Schwellwert) innerhalb des Flicker-Fensters ignorieren,
+    # um Ping-Pong um genau 0.10°C zu vermeiden.
+    _dir_now = 0
+    if _cur_q is not None:
+        if _incoming_temperature_q > _cur_q:
+            _dir_now = 1
+        elif _incoming_temperature_q < _cur_q:
+            _dir_now = -1
+    _last_dir = getattr(self, "last_change_direction", 0)
+    _block_flip_small = (
+        _dir_now != 0
+        and _last_dir != 0
+        and _dir_now != _last_dir
+        and _diff is not None
+        and _diff <= _sig_threshold_q
+        and _age < FLICKER_REVERT_WINDOW
+    )
+
+    if _block_flip_small:
+        _LOGGER.debug(
+            "better_thermostat %s: external_temperature opposite-direction change ignored (current=%.2f new=%.2f diff=%.2f age=%.1fs <= %ss threshold=%.2f)",
+            self.device_name,
+            (_cur_q if _cur_q is not None else float("nan")),
+            _incoming_temperature_q,
+            (_diff if _diff is not None else float("nan")),
+            _age,
+            FLICKER_REVERT_WINDOW,
+            _sig_threshold_q,
+        )
+        return
+
     # Slope calculation (simple delta per minute)
     try:
         now_m = monotonic()
@@ -162,6 +196,12 @@ async def trigger_temperature_change(self, event):
         # Remember previous value as stable pre-measure before updating
         if _cur_q is not None and _cur_q != _incoming_temperature_q:
             self.prev_stable_temp = _cur_q
+        # Richtung merken (nur bei echter Änderung)
+        if _cur_q is not None:
+            if _incoming_temperature_q > _cur_q:
+                self.last_change_direction = 1
+            elif _incoming_temperature_q < _cur_q:
+                self.last_change_direction = -1
         self.cur_temp = _incoming_temperature_q
         self.last_external_sensor_change = _now
         self.async_write_ha_state()
