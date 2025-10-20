@@ -41,3 +41,27 @@ set_temp_target_temperature:
     entity:
       domain: climate
       integration: better_thermostat
+
+run_valve_maintenance:
+  name: Run valve maintenance now
+  description: Run the valve maintenance cycle immediately for this Better Thermostat entity.
+  target:
+    entity:
+      domain: climate
+      integration: better_thermostat
+
+reset_pid_learnings:
+  name: Reset PID learnings
+  description: Clear all learned PID state (and optionally learned open caps) for this entity.
+  fields:
+    include_open_caps:
+      name: Also clear learned open caps
+      description: If enabled, also clears learned min/max open percentages per TRV/target bucket.
+      required: false
+      default: false
+      selector:
+        boolean: {}
+  target:
+    entity:
+      domain: climate
+      integration: better_thermostat

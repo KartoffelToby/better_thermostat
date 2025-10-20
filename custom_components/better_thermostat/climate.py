@@ -96,8 +96,10 @@ from .utils.const import (
     CONF_WINDOW_TIMEOUT,
     CONF_WINDOW_TIMEOUT_AFTER,
     SERVICE_RESET_HEATING_POWER,
+    SERVICE_RESET_PID_LEARNINGS,
     SERVICE_RESTORE_SAVED_TARGET_TEMPERATURE,
     SERVICE_SET_TEMP_TARGET_TEMPERATURE,
+    BETTERTHERMOSTAT_RESET_PID_SCHEMA,
     SUPPORT_FLAGS,
     VERSION,
 )
@@ -109,6 +111,7 @@ from .utils.helpers import normalize_hvac_mode, get_device_model
 from .balance import (
     export_states as balance_export_states,
     import_states as balance_import_states,
+    reset_balance_state as balance_reset_state,
 )
 
 
@@ -152,24 +155,13 @@ async def async_setup_platform(
     _LOGGER.debug("better_thermostat: async_setup_platform called (deprecated no-op)")
 
 
-async def async_setup_entry(hass, entry, async_add_devices):
+async def async_setup_entry(hass, entry, async_add_entities):
     """Set up Better Thermostat climate entity for a config entry."""
     _LOGGER.debug(
         "better_thermostat %s: async_setup_entry start (entry_id=%s)",
         entry.data.get(CONF_NAME),
         entry.entry_id,
     )
-
-    async def async_service_handler(entity, call):
-        """Handle the service calls."""
-        if call.service == SERVICE_RESTORE_SAVED_TARGET_TEMPERATURE:
-            await entity.restore_temp_temperature()
-        elif call.service == SERVICE_SET_TEMP_TARGET_TEMPERATURE:
-            await entity.set_temp_temperature(call.data[ATTR_TEMPERATURE])
-        elif call.service == SERVICE_RESET_HEATING_POWER:
-            await entity.reset_heating_power()
-        elif call.service == "run_valve_maintenance":
-            await entity.run_valve_maintenance_service()
 
     platform = entity_platform.async_get_current_platform()
     # Register entity services (validator done manually inside method)
@@ -187,8 +179,13 @@ async def async_setup_entry(hass, entry, async_add_devices):
     platform.async_register_entity_service(
         "run_valve_maintenance", {}, "run_valve_maintenance_service"
     )
+    platform.async_register_entity_service(
+        SERVICE_RESET_PID_LEARNINGS,
+        BETTERTHERMOSTAT_RESET_PID_SCHEMA,
+        "reset_pid_learnings_service",
+    )
 
-    async_add_devices(
+    async_add_entities(
         [
             BetterThermostat(
                 entry.data.get(CONF_NAME),
@@ -2847,3 +2844,50 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
             PRESET_ACTIVITY,
             PRESET_HOME,
         ]
+
+    async def reset_pid_learnings_service(self, include_open_caps: bool = False) -> None:
+        """Entity service: reset learned PID state for this entity.
+
+        - Clears all cached BalanceState entries for this entity (all TRVs/buckets)
+        - Optionally clears learned open caps (min/max %) when include_open_caps=True
+        - Schedules persistence saves for both maps
+        """
+        try:
+            prefix = f"{self._unique_id}:"
+            # Collect keys to reset from balance module
+            current = balance_export_states(prefix=prefix) or {}
+            count = 0
+            for key in list(current.keys()):
+                try:
+                    balance_reset_state(key)
+                    count += 1
+                except Exception:
+                    pass
+            _LOGGER.info(
+                "better_thermostat %s: reset %d PID learning state entries (prefix=%s)",
+                self.device_name,
+                count,
+                prefix,
+            )
+            # Schedule persistence of cleared balance states
+            try:
+                self._schedule_save_balance_state()
+            except Exception:
+                pass
+
+            if include_open_caps:
+                self.open_caps = {}
+                _LOGGER.info(
+                    "better_thermostat %s: cleared learned open caps map",
+                    self.device_name,
+                )
+                try:
+                    self._schedule_save_open_caps()
+                except Exception:
+                    pass
+        except Exception as e:  # noqa: BLE001
+            _LOGGER.debug(
+                "better_thermostat %s: reset_pid_learnings_service error: %s",
+                self.device_name,
+                e,
+            )
