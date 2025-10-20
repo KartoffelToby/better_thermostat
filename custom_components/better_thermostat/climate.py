@@ -2845,7 +2845,9 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
             PRESET_HOME,
         ]
 
-    async def reset_pid_learnings_service(self, include_open_caps: bool = False) -> None:
+    async def reset_pid_learnings_service(
+        self, include_open_caps: bool = False
+    ) -> None:
         """Entity service: reset learned PID state for this entity.
 
         - Clears all cached BalanceState entries for this entity (all TRVs/buckets)
