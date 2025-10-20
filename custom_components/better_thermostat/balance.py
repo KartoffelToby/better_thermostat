@@ -260,8 +260,32 @@ def compute_balance(
                     pass
                 # Proportionalterm
                 p_term = float(st.pid_kp) * e
-                i_term = st.pid_integral
+                # Konditionales Anti-Windup: nur integrieren, wenn nicht gesättigt
+                aw_blocked = False
+                i_prev = st.pid_integral
+                i_prop = i_prev
+                if dt > 0:
+                    # Vorschlag für Integrator-Update (vorläufig)
+                    i_prop = i_prev + float(st.pid_ki) * e * dt
+                    # Klammern
+                    i_prop = max(params.i_min, min(params.i_max, i_prop))
+                    # Vorläufige Stellgröße ohne Sättigung prüfen
+                    u_prop = p_term + i_prop + d_term
+                    # Gesättigte Stellgröße
+                    u_sat = max(0.0, min(100.0, u_prop))
+                    # Falls gesättigt und Fehler die Sättigung verstärken würde → Integration blockieren
+                    if (u_prop > u_sat and e > 0) or (u_prop < u_sat and e < 0):
+                        i_term = i_prev
+                        aw_blocked = True
+                    else:
+                        i_term = i_prop
+                else:
+                    i_term = i_prev
+                # Endgültige Stellgröße
                 u = p_term + i_term + d_term  # PID
+                # Integrator-Zustand nur übernehmen, wenn nicht blockiert
+                if not aw_blocked:
+                    st.pid_integral = i_term
                 # Clamp auf 0..100
                 percent = max(0.0, min(100.0, u))
                 # PID-States aktualisieren (für D-Anteil gemischten Messwert speichern)
@@ -317,6 +341,8 @@ def compute_balance(
                         "kp": float(st.pid_kp) if st.pid_kp is not None else None,
                         "ki": float(st.pid_ki) if st.pid_ki is not None else None,
                         "kd": float(st.pid_kd) if st.pid_kd is not None else None,
+                        # Anti-Windup-Indikator
+                        "anti_windup_blocked": aw_blocked,
                         # Slope (Input und EMA)
                         "slope_in": inp.temp_slope_K_per_min,
                         "slope_ema": st.ema_slope,
