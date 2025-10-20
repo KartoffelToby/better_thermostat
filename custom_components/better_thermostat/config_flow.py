@@ -326,13 +326,13 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         fields[
             vol.Optional("pid_auto_tune", default=user_input.get("pid_auto_tune", True))
         ] = bool
-        fields[vol.Optional("pid_kp", default=user_input.get("pid_kp", 60.0))] = (
+        fields[vol.Optional("pid_kp", default=user_input.get("pid_kp", 50.0))] = (
             vol.All(vol.Coerce(float), vol.Range(min=0))
         )
-        fields[vol.Optional("pid_ki", default=user_input.get("pid_ki", 0.01))] = (
+        fields[vol.Optional("pid_ki", default=user_input.get("pid_ki", 0.02))] = (
             vol.All(vol.Coerce(float), vol.Range(min=0))
         )
-        fields[vol.Optional("pid_kd", default=user_input.get("pid_kd", 2000.0))] = (
+        fields[vol.Optional("pid_kd", default=user_input.get("pid_kd", 2500.0))] = (
             vol.All(vol.Coerce(float), vol.Range(min=0))
         )
 
