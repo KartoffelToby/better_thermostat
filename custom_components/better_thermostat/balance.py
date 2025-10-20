@@ -165,6 +165,13 @@ def compute_balance(
     # Ensure pid_dbg exists for static analyzers; will be populated in PID branch
     pid_dbg: Dict[str, Any] = {}
 
+    # Helper to round values for debug/logging only
+    def _r(x: Any, n: int = 2):
+        try:
+            return round(float(x), n) if x is not None else None
+        except (TypeError, ValueError):
+            return x
+
     # Fail-safe defaults
     percent_base = None
     delta_T: Optional[float] = None
@@ -332,28 +339,28 @@ def compute_balance(
                     _mix_int = (1.0 - _mix_ext) if isinstance(_mix_ext, float) else None
                     pid_dbg = {
                         "mode": "pid",
-                        "dt_s": dt,
-                        "e_K": e,
-                        "p": p_term,
-                        "i": i_term,
-                        "d": d_term,
-                        "u": u,
+                        "dt_s": _r(dt, 2),
+                        "e_K": _r(e, 2),
+                        "p": _r(p_term, 2),
+                        "i": _r(i_term, 2),
+                        "d": _r(d_term, 2),
+                        "u": _r(u, 2),
                         "kp": float(st.pid_kp) if st.pid_kp is not None else None,
                         "ki": float(st.pid_ki) if st.pid_ki is not None else None,
                         "kd": float(st.pid_kd) if st.pid_kd is not None else None,
                         # Anti-Windup-Indikator
                         "anti_windup_blocked": aw_blocked,
                         # Slope (Input und EMA)
-                        "slope_in": inp.temp_slope_K_per_min,
-                        "slope_ema": st.ema_slope,
+                        "slope_in": _r(inp.temp_slope_K_per_min, 3),
+                        "slope_ema": _r(st.ema_slope, 3),
                         # Messwerte & Mischanteile
-                        "meas_external_C": inp.current_temp_C,
-                        "meas_trv_C": inp.trv_temp_C,
-                        "mix_w_internal": _mix_int,
-                        "mix_w_external": _mix_ext,
-                        "meas_blend_C": meas_now,
-                        "meas_smooth_C": smoothed,
-                        "d_meas_per_s": d_meas,
+                        "meas_external_C": _r(inp.current_temp_C, 2),
+                        "meas_trv_C": _r(inp.trv_temp_C, 2),
+                        "mix_w_internal": _r(_mix_int, 2) if _mix_int is not None else None,
+                        "mix_w_external": _r(_mix_ext, 2) if _mix_ext is not None else None,
+                        "meas_blend_C": _r(meas_now, 2),
+                        "meas_smooth_C": _r(smoothed, 2),
+                        "d_meas_per_s": _r(d_meas, 4),
                     }
                 except Exception:
                     pid_dbg = {"mode": "pid"}
@@ -477,19 +484,19 @@ def compute_balance(
     sonoff_min = max(0, min(sonoff_max, min_open))  # min <= max
 
     debug = {
-        "delta_T": delta_T,
-        "slope_ema": st.ema_slope,
+        "delta_T": _r(delta_T, 2) if delta_T is not None else None,
+        "slope_ema": _r(st.ema_slope, 3),
         "percent_base": (
             None
             if inp.target_temp_C is None or inp.current_temp_C is None
-            else percent_base
+            else _r(percent_base, 2)
         ),
-        "percent_raw": percent,
-        "percent_smooth": smooth,
+        "percent_raw": _r(percent, 2),
+        "percent_smooth": _r(smooth, 2),
         "too_soon": too_soon,
         "target_changed": target_changed,
-        "target_prev": getattr(st, "last_target_C", None),
-        "target_cur": inp.target_temp_C,
+        "target_prev": _r(getattr(st, "last_target_C", None), 2),
+        "target_cur": _r(inp.target_temp_C, 2) if inp.target_temp_C is not None else None,
         "force_open": force_open,
         "force_close": force_close,
     }
