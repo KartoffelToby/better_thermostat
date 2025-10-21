@@ -2846,7 +2846,12 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
         ]
 
     async def reset_pid_learnings_service(
-        self, include_open_caps: bool = False
+        self,
+        include_open_caps: bool = False,
+        apply_pid_defaults: bool = False,
+        defaults_kp: Optional[float] = None,
+        defaults_ki: Optional[float] = None,
+        defaults_kd: Optional[float] = None,
     ) -> None:
         """Entity service: reset learned PID state for this entity.
 
@@ -2887,6 +2892,58 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
                     self._schedule_save_open_caps()
                 except Exception:
                     pass
+
+            # Optionally seed PID defaults for the CURRENT target bucket(s)
+            if apply_pid_defaults:
+                try:
+                    from .balance import seed_pid_gains, BalanceParams
+
+                    # Use provided overrides or BalanceParams defaults
+                    _defs = BalanceParams()
+                    kp = float(defaults_kp) if defaults_kp is not None else _defs.kp
+                    ki = float(defaults_ki) if defaults_ki is not None else _defs.ki
+                    kd = float(defaults_kd) if defaults_kd is not None else _defs.kd
+
+                    # Build current bucket tag based on current heat target
+                    def _bucket(temp):
+                        try:
+                            return f"t{round(float(temp) * 2.0) / 2.0:.1f}"
+                        except Exception:
+                            return None
+
+                    bucket_tag = _bucket(self.bt_target_temp)
+                    uid = getattr(self, "unique_id", None) or getattr(
+                        self, "_unique_id", "bt"
+                    )
+                    seeded = 0
+                    for trv_id in self.real_trvs.keys():
+                        if not bucket_tag:
+                            continue
+                        key = f"{uid}:{trv_id}:{bucket_tag}"
+                        try:
+                            if seed_pid_gains(key, kp=kp, ki=ki, kd=kd):
+                                seeded += 1
+                        except Exception:
+                            pass
+                    if seeded > 0:
+                        _LOGGER.info(
+                            "better_thermostat %s: applied PID defaults (kp=%.3f ki=%.3f kd=%.3f) to %d bucket state(s)",
+                            self.device_name,
+                            kp,
+                            ki,
+                            kd,
+                            seeded,
+                        )
+                        try:
+                            self._schedule_save_balance_state()
+                        except Exception:
+                            pass
+                except Exception as e:  # noqa: BLE001
+                    _LOGGER.debug(
+                        "better_thermostat %s: apply_pid_defaults failed: %s",
+                        self.device_name,
+                        e,
+                    )
         except Exception as e:  # noqa: BLE001
             _LOGGER.debug(
                 "better_thermostat %s: reset_pid_learnings_service error: %s",
