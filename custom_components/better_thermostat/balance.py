@@ -33,9 +33,9 @@ class BalanceParams:
     # Algorithmus-Auswahl: 'heuristic' (Standard), 'pid'
     mode: str = "heuristic"
     # Near setpoint band where we gently throttle/refine (Kelvin)
-    band_near_K: float = 0.15
+    band_near_K: float = 0.1
     # Far band beyond which fully open/close is likely (Kelvin)
-    band_far_K: float = 0.35
+    band_far_K: float = 0.3
     # Max setpoint reduction for generic devices (Kelvin)
     cap_max_K: float = 0.8
     # Slope thresholds (K/min)
@@ -44,18 +44,18 @@ class BalanceParams:
     # Slope gain (percentage points per K/min, negative means positive slope reduces %)
     slope_gain_per_K_per_min: float = -1000.0  # 0.02 K/min → ~ -20%
     # Smoothing and hysteresis
-    percent_smoothing_alpha: float = 0.25  # EMA
-    percent_hysteresis_pts: float = 1.0  # minimum change in %-points
+    percent_smoothing_alpha: float = 0.35  # EMA (höher = schneller)
+    percent_hysteresis_pts: float = 0.5  # minimum change in %-points
     min_update_interval_s: float = 60.0  # minimum time between updates
     # Sonoff minimum opening (comfort/flow noise)
     sonoff_min_open_default_pct: int = 5
     # PID-Parameter (optional)
-    kp: float = 50.0
-    ki: float = 0.02
-    kd: float = 2500.0
+    kp: float = 100.0
+    ki: float = 0.03
+    kd: float = 2000.0
     # Integrator-Klammer (Anti-Windup) in %-Punkten umgerechnet
-    i_min: float = -100.0
-    i_max: float = 100.0
+    i_min: float = -60.0
+    i_max: float = 60.0
     # Ableitung auf Messwert (True) oder Fehler
     d_on_measurement: bool = True
     # Anteil der EXTERNEN Temperatur für den D-Anteil (0..1); 0=nur intern (TRV), 1=nur extern
@@ -133,6 +133,8 @@ class BalanceState:
     last_delta_sign: Optional[int] = None
     ss_band_entry_ts: float = 0.0
     heat_sat_entry_ts: float = 0.0
+    # Letztes Vorzeichen des Fehlers zur Erkennung von Flip-Events
+    last_error_sign: Optional[int] = None
 
 
 # Module-local storage
@@ -269,6 +271,7 @@ def compute_balance(
                 p_term = float(st.pid_kp) * e
                 # Konditionales Anti-Windup: nur integrieren, wenn nicht gesättigt
                 aw_blocked = False
+                i_relief = False
                 i_prev = st.pid_integral
                 i_prop = i_prev
                 if dt > 0:
@@ -288,6 +291,22 @@ def compute_balance(
                         i_term = i_prop
                 else:
                     i_term = i_prev
+                # Integrator-Entlastung nahe Soll: Wenn sich das Vorzeichen des Fehlers ändert
+                # und wir innerhalb der near-Band sind, reduziere den Integrator leicht,
+                # damit früher geöffnet/geschlossen wird.
+                try:
+                    cur_sign = 1 if e > 0 else (-1 if e < 0 else 0)
+                    if (
+                        st.last_error_sign is not None
+                        and cur_sign != 0
+                        and cur_sign != st.last_error_sign
+                        and abs(delta_T or 0.0) <= params.band_near_K
+                    ):
+                        decay = 0.8  # 20% Entlastung
+                        i_term *= decay
+                        i_relief = True
+                except Exception:
+                    pass
                 # Endgültige Stellgröße
                 u = p_term + i_term + d_term  # PID
                 # Integrator-Zustand nur übernehmen, wenn nicht blockiert
@@ -318,6 +337,11 @@ def compute_balance(
                 else:
                     st.pid_last_meas = inp.current_temp_C
                 st.pid_last_time = now
+                # Fehler-Vorzeichen für nächsten Zyklus merken
+                try:
+                    st.last_error_sign = 1 if e > 0 else (-1 if e < 0 else 0)
+                except Exception:
+                    pass
                 # Optionales Auto-Tuning (konservativ)
                 if params.auto_tune:
                     _auto_tune_pid(
@@ -350,6 +374,7 @@ def compute_balance(
                         "kd": float(st.pid_kd) if st.pid_kd is not None else None,
                         # Anti-Windup-Indikator
                         "anti_windup_blocked": aw_blocked,
+                        "i_relief": i_relief,
                         # Slope (Input und EMA)
                         "slope_in": _r(inp.temp_slope_K_per_min, 3),
                         "slope_ema": _r(st.ema_slope, 3),

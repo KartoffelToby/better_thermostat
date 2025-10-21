@@ -18,6 +18,8 @@ Optional PID mode
 - P/I act on the error e = target − current; the derivative term operates on the measurement (d_on_measurement) using a blended temperature input: a configurable mix of the TRV-internal temperature and the external room temperature.
 - The derivative measurement is smoothed via an EMA with configurable alpha to reduce noise.
 - Output u = P + I + D is clamped to 0..100% and passed through the same smoothing/hysteresis/rate-limit as the heuristic.
+- Anti-windup: the integrator is clamped and does not continue to charge while the output is saturated.
+- Near-setpoint integrator relief: when the error changes sign within the near band, the I-term is deliberately decayed slightly to speed up re-opening/re-closing around ±0.1 K.
 - Conservative auto-tuning optionally adapts kp/ki/kd over time with a minimum interval between changes.
   The blending parameter trend_mix_trv denotes the EXTERNAL temperature weight in [0..1] (1.0 = external only, 0.0 = internal only). Default: 0.7.
 
@@ -97,6 +99,7 @@ State (lightweight, per room key):
 7) Setpoint throttling (generic devices):
   - $c = cap\_max \cdot (1 - p/100)$
   - $setpoint\_{eff} = setpoint - c$ (apply only on overshoot/at target: ΔT ≤ 0. With heating demand (ΔT > 0) no reduction to avoid fighting the TRV.)
+  - Adapters that expose direct valve control use the valve_percent output instead. For devices without valve control, setpoint throttling can be used when calibration support is enabled; with "No Calibration" active, BT refrains from sending setpoint changes and setpoint_eff is provided for telemetry only.
 
 8) Sonoff min/max recommendations (and learning):
   - $max\_open \%= p$ (recommendation)
@@ -114,7 +117,7 @@ All steps are per-room and require no global information.
 
 2) P and I
   - $P = k_p \cdot e$
-  - $I \leftarrow I + k_i \cdot e \cdot dt$ with anti-windup clamping to configurable bounds (in percent points equivalent)
+  - $I \leftarrow I + k_i \cdot e \cdot dt$ with anti-windup clamping to configurable bounds (in percent points equivalent). When the error flips sign inside the near band, the stored I-term is decayed to enable an earlier reaction.
 
 3) D on measurement with blended input and smoothing
   - Blended measurement: $m = \alpha_{ext} \cdot T_{ext} + (1-\alpha_{ext}) \cdot T_{trv}$ with $\alpha_{ext} \in [0,1]$ (trend_mix_trv = external weight)
@@ -133,7 +136,7 @@ All steps are per-room and require no global information.
 ## Implementation
 - balance.py: pure computation, no side effects.
 - events/temperature.py: compute and store a smoothed slope (K/min).
-- events/trv.py: integrates balance to compute per-TRV recommendations und lernt Sonoff/TRV `min_open%` und `max_open%` pro Zieltemperatur-Bucket phasenabhängig (max nur beim Aufheizen, min beim Halten/Abkühlen). Keine Setpoint-Manipulation (funktioniert mit "No Calibration"). Debug-Infos pro TRV (inkl. PID) liegen unter `real_trvs[trv]['balance']`. Bei Erstinitialisierung werden sinnvolle Defaults verwendet (min ≈ 5%, max = 100%), falls in der aktuellen Phase kein Vorschlag vorliegt.
+- events/trv.py: integrates balance to compute per-TRV recommendations und lernt Sonoff/TRV `min_open%` und `max_open%` pro Zieltemperatur-Bucket phasenabhängig (max nur beim Aufheizen, min beim Halten/Abkühlen). Für Geräte ohne Ventilsteuerung kann `setpoint_eff` genutzt werden (wenn Kalibrierung/Setpoint-Schreiben erlaubt ist); mit aktivem "No Calibration" werden keine Setpoints geschrieben. Debug-Infos pro TRV (inkl. PID) liegen unter `real_trvs[trv]['balance']`. Bei Erstinitialisierung werden sinnvolle Defaults verwendet (min ≈ 5%, max = 100%), falls in der aktuellen Phase kein Vorschlag vorliegt.
 - events/temperature.py: schreibt zusätzlich die von BT verwendete externe Temperatur (ohne Hysterese) in Geräte, die eine "external_temperature_input" besitzen (z. B. Sonoff TRVZB), damit das Gerät konsistent dieselbe Referenz sieht.
 - climate.py: exposes learned caps as a JSON attribute `trv_open_caps`. Structure per TRV:
   `{ "current_bucket": "XX.X", "buckets": { "XX.X": { "min_open_pct": N, "max_open_pct": M, "suggested_min_open_pct"?: n, "suggested_max_open_pct"?: m, "stats"?: { "samples": k, "avg_slope_K_min": s, "avg_valve_percent": p, "avg_delta_T_K": d, "last_update_ts": iso } }, ... } }`. Persisted across restarts.
@@ -156,7 +159,7 @@ All steps are per-room and require no global information.
   - pid gains: pid_kp, pid_ki, pid_kd
   - trend_mix_trv (0..1): Anteil der EXTERNEN Temperatur für den D‑Term (1.0 = nur extern, 0.0 = nur intern; Standard 0.7)
   - d_smoothing_alpha (0..1): EMA-Glättung nur für den D-Kanal
-  - percent_hysteresis_pts: Hysterese am Aktuator in %-Punkten (Default: 2)
+  - percent_hysteresis_pts: Hysterese am Aktuator in %-Punkten (Default: 0.5)
   - min_update_interval_s: Mindestabstand zwischen Stellgrößen-Updates (Default: 60s)
   - Auto‑Tuning Schwellen (PID):
     - overshoot_threshold_K: Overshoot-Erkennung in Kelvin (Default: 0.2)
@@ -165,20 +168,18 @@ All steps are per-room and require no global information.
     - tune_min_interval_s: Mindestabstand zwischen Tuning-Schritten (Default: 1800 s)
 - Future tuning parameters (cap_max, bands, hysteresis) can be exposed if needed.
 
-Suggested defaults (conservative):
-- band_near_K = 0.3
-- band_far_K = 0.5
+Suggested defaults (current):
+- band_near_K = 0.1
+- band_far_K = 0.3
 - cap_max_K = 0.8
 - slope_up_K_per_min = +0.02
 - slope_down_K_per_min = −0.01
 - slope_gain_per_K_per_min = −1000.0 (e.g., +0.02 K/min → −20 pp)
-- percent_smoothing_alpha = 0.3
-- percent_hysteresis_pts = 2.0
+- percent_smoothing_alpha = 0.35
+- percent_hysteresis_pts = 0.5
 - min_update_interval_s = 60
- - overshoot_threshold_K = 0.2
- - sluggish_slope_threshold_K_min = 0.005
- - steady_state_band_K = 0.1
- - tune_min_interval_s = 1800
+- PID: kp = 100.0, ki = 0.03, kd = 2000.0, integrator clamp ±60
+- Auto‑Tuning: overshoot_threshold_K = 0.2, sluggish_slope_threshold_K_min = 0.005, steady_state_band_K = 0.1, tune_min_interval_s = 1800
 
 ## Notes
 - Works with existing BT signals only (current temperature, setpoint, window state). No valve feedback or global supply info is required.
@@ -207,6 +208,7 @@ Suggested defaults (conservative):
     - `dt_s`, `e_K`, `p`, `i`, `d`, `u`, `kp`, `ki`, `kd`
     - Messwerte & Mix: `meas_external_C`, `meas_trv_C`, `mix_w_external`, `mix_w_internal`, `meas_blend_C`, `meas_smooth_C`
     - Ableitung: `d_meas_per_s` (in K/s)
+    - Schutz/Komfort: `anti_windup_blocked` (Integrator gestoppt bei Sättigung), `i_relief` (Integrator nah am Soll bewusst entlastet)
   - Zusätzlich (außerhalb von `pid`): `delta_T`, `slope_ema` (K/min)
 - Per-TRV stored debug under `real_trvs[trv]['balance']` includes Sonoff min/max.
 
