@@ -2911,33 +2911,60 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
                         except Exception:
                             return None
 
+                    # Build list of candidate buckets: current and ±0.5°C neighbors
                     bucket_tag = _bucket(self.bt_target_temp)
+                    buckets: list[str] = []
+                    try:
+                        if isinstance(self.bt_target_temp, (int, float)):
+                            base = round(float(self.bt_target_temp) * 2.0) / 2.0
+                            buckets = [
+                                f"t{base:.1f}",
+                                f"t{base + 0.5:.1f}",
+                                f"t{base - 0.5:.1f}",
+                            ]
+                        elif bucket_tag:
+                            buckets = [bucket_tag]
+                    except Exception:
+                        if bucket_tag:
+                            buckets = [bucket_tag]
                     uid = getattr(self, "unique_id", None) or getattr(
                         self, "_unique_id", "bt"
                     )
                     seeded = 0
                     for trv_id in self.real_trvs.keys():
-                        if not bucket_tag:
-                            continue
-                        key = f"{uid}:{trv_id}:{bucket_tag}"
-                        try:
-                            if seed_pid_gains(key, kp=kp, ki=ki, kd=kd):
-                                seeded += 1
-                        except Exception:
-                            pass
+                        for b in buckets or []:
+                            key = f"{uid}:{trv_id}:{b}"
+                            try:
+                                if seed_pid_gains(key, kp=kp, ki=ki, kd=kd):
+                                    seeded += 1
+                            except Exception:
+                                pass
                     if seeded > 0:
                         _LOGGER.info(
-                            "better_thermostat %s: applied PID defaults (kp=%.3f ki=%.3f kd=%.3f) to %d bucket state(s)",
+                            "better_thermostat %s: applied PID defaults (kp=%.3f ki=%.3f kd=%.3f) to %d bucket state(s) across %d TRV(s)",
                             self.device_name,
                             kp,
                             ki,
                             kd,
                             seeded,
+                            len(list(self.real_trvs.keys()) or []),
                         )
                         try:
                             self._schedule_save_balance_state()
                         except Exception:
                             pass
+                        # Kick the control loop so the new gains are used promptly
+                        try:
+                            await self.control_queue_task.put(self)
+                        except Exception:
+                            pass
+                    else:
+                        _LOGGER.debug(
+                            "better_thermostat %s: apply_pid_defaults did not seed any bucket (bt_target_temp=%s, buckets=%s)",
+                            self.device_name,
+                            getattr(self, "bt_target_temp", None),
+                            buckets,
+                        )
                 except Exception as e:  # noqa: BLE001
                     _LOGGER.debug(
                         "better_thermostat %s: apply_pid_defaults failed: %s",
