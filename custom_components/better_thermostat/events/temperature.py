@@ -5,6 +5,7 @@ from custom_components.better_thermostat.utils.helpers import convert_to_float
 from datetime import datetime
 from time import monotonic
 from homeassistant.helpers import issue_registry as ir
+from homeassistant.helpers.event import async_call_later
 
 from homeassistant.const import STATE_UNAVAILABLE, STATE_UNKNOWN
 from homeassistant.core import callback
@@ -136,6 +137,109 @@ async def trigger_temperature_change(self, event):
         and _incoming_temperature_q != _cur_q
         and _age < FLICKER_REVERT_WINDOW
     ):
+        # Plane eine Übernahme nach Ablauf des Revert-Fensters, falls der Sensorwert stabil bleibt
+        try:
+            remaining = max(0.0, float(FLICKER_REVERT_WINDOW) - float(_age))
+        except (ValueError, TypeError):
+            remaining = float(FLICKER_REVERT_WINDOW)
+        # Merke Kandidatenwert und cancel ggf. vorherige Planung
+        cancel_cb = getattr(self, "flicker_unignore_cancel", None)
+        if callable(cancel_cb):
+            cancel_cb()
+        self.flicker_unignore_cancel = None
+        self.flicker_candidate = _incoming_temperature_q
+
+        def _deadline_cb(_now):  # executed by HA loop, schedule async body
+            async def _apply_if_stable():
+                try:
+                    # Prüfe aktuellen Sensor-Status
+                    sensor_id = getattr(self, "sensor_entity_id", None)
+                    state = (
+                        self.hass.states.get(sensor_id) if sensor_id else None
+                    )
+                    if state is None or state.state in (
+                        STATE_UNAVAILABLE,
+                        STATE_UNKNOWN,
+                        None,
+                    ):
+                        return
+                    _val = convert_to_float(
+                        str(state.state), self.device_name, "external_temperature"
+                    )
+                    _val_q = None if _val is None else round(_val, 2)
+                    cand = getattr(self, "flicker_candidate", None)
+                    # Übernehme nur, wenn Kandidatwert unverändert und ungleich cur_temp ist
+                    if _val_q is not None and cand is not None and _val_q == cand:
+                        if _val_q != getattr(self, "cur_temp", None):
+                            _LOGGER.debug(
+                                "better_thermostat %s: external_temperature flicker revert auto-accepted after %ss (value=%.2f)",
+                                getattr(self, "device_name", "unknown"),
+                                FLICKER_REVERT_WINDOW,
+                                _val_q,
+                            )
+                            # Akzeptiere Wert wie im normalen Pfad
+                            _prev = getattr(self, "cur_temp", None)
+                            if _prev is not None and _prev != _val_q:
+                                self.prev_stable_temp = _prev
+                                if _val_q > _prev:
+                                    self.last_change_direction = 1
+                                elif _val_q < _prev:
+                                    self.last_change_direction = -1
+                            self.cur_temp = _val_q
+                            self.last_external_sensor_change = datetime.now()
+                            # Reset Anti-Flicker-Akkumulatoren
+                            self.accum_delta = 0.0
+                            self.accum_dir = 0
+                            self.accum_since = datetime.now()
+                            self.pending_temp = None
+                            self.pending_since = None
+                            self.async_write_ha_state()
+                            # Schreibe TRV-External-Temp über Quirks, falls vorhanden
+                            try:
+                                trv_ids = list(getattr(self, "real_trvs", {}).keys())
+                                if not trv_ids and hasattr(self, "entity_ids"):
+                                    trv_ids = list(
+                                        getattr(self, "entity_ids", []) or [])
+                                if not trv_ids and hasattr(self, "heater_entity_id"):
+                                    trv_ids = [self.heater_entity_id]
+                                for trv_id in trv_ids:
+                                    quirks = (
+                                        self.real_trvs.get(trv_id, {}).get(
+                                            "model_quirks"
+                                        )
+                                        if hasattr(self, "real_trvs")
+                                        else None
+                                    )
+                                    if quirks and hasattr(
+                                        quirks, "maybe_set_external_temperature"
+                                    ):
+                                        await quirks.maybe_set_external_temperature(
+                                            self, trv_id, self.cur_temp
+                                        )
+                            except (
+                                AttributeError,
+                                KeyError,
+                                TypeError,
+                                ValueError,
+                                RuntimeError,
+                            ):
+                                _LOGGER.debug(
+                                    "better_thermostat %s: external_temperature write to TRV failed (non critical)",
+                                    getattr(self, "device_name", "unknown"),
+                                )
+                            if self.control_queue_task is not None:
+                                await self.control_queue_task.put(self)
+                finally:
+                    # Aufräumen
+                    self.flicker_unignore_cancel = None
+                    self.flicker_candidate = None
+
+            # schedule the async part
+            self.hass.loop.create_task(_apply_if_stable())
+
+        self.flicker_unignore_cancel = async_call_later(
+            self.hass, remaining + 0.1, _deadline_cb
+        )
         _LOGGER.debug(
             "better_thermostat %s: external_temperature flicker revert ignored (current=%.2f revert=%.2f age=%.1fs < %ss)",
             self.device_name,
