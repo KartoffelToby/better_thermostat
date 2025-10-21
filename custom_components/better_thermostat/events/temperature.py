@@ -14,6 +14,8 @@ _LOGGER = logging.getLogger(__name__)
 
 # is ignored for this time window (seconds).
 FLICKER_REVERT_WINDOW = 45  # can optionally be made configurable later
+# Accept sub-threshold changes if the new value stays stable for this window (seconds)
+PLATEAU_ACCEPT_WINDOW = 60
 
 
 @callback
@@ -52,6 +54,18 @@ async def trigger_temperature_change(self, event):
     if not hasattr(self, "last_change_direction"):
         # +1 = steigend, -1 = fallend, 0 = unbekannt/gleich
         self.last_change_direction = 0
+    # Accumulation for sub-threshold changes in the same direction
+    if not hasattr(self, "accum_delta"):
+        self.accum_delta = 0.0
+    if not hasattr(self, "accum_dir"):
+        self.accum_dir = 0
+    if not hasattr(self, "accum_since"):
+        self.accum_since = datetime.now()
+    # Pending plateau detection
+    if not hasattr(self, "pending_temp"):
+        self.pending_temp = None
+    if not hasattr(self, "pending_since"):
+        self.pending_since = None
 
     # Ensure timestamp exists (first run guard)
     if getattr(self, "last_external_sensor_change", None) is None:
@@ -104,9 +118,11 @@ async def trigger_temperature_change(self, event):
     # Gerundete Vergleichswerte
     _cur_q = None if self.cur_temp is None else round(self.cur_temp, 2)
     _diff = None if _cur_q is None else abs(_incoming_temperature_q - _cur_q)
+    # Quantisierte Differenz zur robusten Schwellenprüfung (vermeidet 0.099999-Fehler)
+    _diff_q = None if _diff is None else round(_diff, 2)
     _sig_threshold_q = round(_sig_threshold, 2)
     _is_significant = _cur_q is None or (
-        _diff is not None and _diff >= _sig_threshold_q
+        _diff_q is not None and _diff_q >= _sig_threshold_q
     )
     _interval_ok = _age > _time_diff
 
@@ -143,8 +159,8 @@ async def trigger_temperature_change(self, event):
         _dir_now != 0
         and _last_dir != 0
         and _dir_now != _last_dir
-        and _diff is not None
-        and _diff <= _sig_threshold_q
+        and _diff_q is not None
+        and _diff_q <= _sig_threshold_q
         and _age < FLICKER_REVERT_WINDOW
     )
 
@@ -178,19 +194,70 @@ async def trigger_temperature_change(self, event):
     except (AttributeError, TypeError, ZeroDivisionError):
         pass
 
-    if _is_significant and (
-        _interval_ok or (_diff is not None and _diff >= _sig_threshold_q)
+    # Accumulation of small changes in the same direction
+    _accept_reason = None
+    if _cur_q is not None:
+        _signed_delta = round(_incoming_temperature_q - _cur_q, 2)
+        if _signed_delta != 0:
+            # set direction from sign
+            _acc_dir_now = 1 if _signed_delta > 0 else -1
+            if self.accum_dir == 0 or self.accum_dir == _acc_dir_now:
+                self.accum_delta = round(self.accum_delta + _signed_delta, 2)
+                self.accum_dir = _acc_dir_now if self.accum_dir == 0 else self.accum_dir
+            else:
+                # direction flipped: reset accumulation to current delta
+                self.accum_delta = _signed_delta
+                self.accum_dir = _acc_dir_now
+                self.accum_since = datetime.now()
+            # Plateau tracking
+            if self.pending_temp != _incoming_temperature_q:
+                self.pending_temp = _incoming_temperature_q
+                self.pending_since = datetime.now()
+        else:
+            # no change: keep accumulation/pending as-is
+            pass
+
+    _accum_ok = (
+        _cur_q is not None
+        and abs(self.accum_delta) >= _sig_threshold_q
+        and _interval_ok
+    )
+
+    # Plateau acceptance: sub-threshold change persisted long enough
+    _plateau_ok = False
+    if (
+        not _is_significant
+        and _cur_q is not None
+        and self.pending_temp is not None
+        and self.pending_temp != _cur_q
+        and self.pending_since is not None
     ):
+        _plateau_age = (datetime.now() - self.pending_since).total_seconds()
+        _plateau_ok = _plateau_age >= PLATEAU_ACCEPT_WINDOW and _interval_ok
+
+    if _is_significant and (
+        _interval_ok or (_diff_q is not None and _diff_q >= _sig_threshold_q)
+    ):
+        _accept_reason = "significant"
+    elif _accum_ok:
+        _accept_reason = "accumulated"
+    elif _plateau_ok:
+        _accept_reason = "plateau"
+
+    if _accept_reason is not None:
         # Verarbeite sofort, wenn Intervall abgelaufen ODER Änderung sehr groß
         _LOGGER.debug(
-            "better_thermostat %s: external_temperature update accepted (old=%.2f new=%.2f diff=%.2f age=%.1fs threshold=%.2f interval=%ss)",
+            "better_thermostat %s: external_temperature update accepted (old=%.2f new=%.2f diff=%.2f age=%.1fs threshold=%.2f interval=%ss reason=%s accum=%.2f dir=%s)",
             self.device_name,
             (_cur_q if _cur_q is not None else float("nan")),
             _incoming_temperature_q,
-            (_diff if _diff is not None else float("nan")),
+            (_diff_q if _diff_q is not None else float("nan")),
             _age,
             _sig_threshold_q,
             _time_diff,
+            _accept_reason,
+            (self.accum_delta if _cur_q is not None else 0.0),
+            ("+" if self.accum_dir > 0 else ("-" if self.accum_dir < 0 else "0")),
         )
 
         # Remember previous value as stable pre-measure before updating
@@ -204,6 +271,12 @@ async def trigger_temperature_change(self, event):
                 self.last_change_direction = -1
         self.cur_temp = _incoming_temperature_q
         self.last_external_sensor_change = _now
+        # Reset accumulation & pending after accept
+        self.accum_delta = 0.0
+        self.accum_dir = 0
+        self.accum_since = datetime.now()
+        self.pending_temp = None
+        self.pending_since = None
         self.async_write_ha_state()
         # Schreibe den von BT verwendeten Wert (self.cur_temp) ins TRV
         try:
@@ -239,13 +312,22 @@ async def trigger_temperature_change(self, event):
             await self.control_queue_task.put(self)
     else:
         _LOGGER.debug(
-            "better_thermostat %s: external_temperature ignored (old=%.2f new=%.2f diff=%s age=%.1fs sig=%s interval_ok=%s threshold=%.2f)",
+            "better_thermostat %s: external_temperature ignored (old=%.2f new=%.2f diff=%s age=%.1fs sig=%s interval_ok=%s threshold=%.2f accum=%.2f dir=%s pending=%s pending_age=%ss)",
             self.device_name,
             (_cur_q if _cur_q is not None else float("nan")),
             _incoming_temperature_q,
-            (f"{_diff:.2f}" if _diff is not None else "None"),
+            (f"{_diff_q:.2f}" if _diff_q is not None else "None"),
             _age,
             _is_significant,
             _interval_ok,
             _sig_threshold_q,
+            (self.accum_delta if _cur_q is not None else 0.0),
+            ("+" if self.accum_dir > 0 else ("-" if self.accum_dir < 0 else "0")),
+            (f"{self.pending_temp:.2f}" if isinstance(
+                self.pending_temp, (int, float)) else None),
+            (
+                f"{(datetime.now() - self.pending_since).total_seconds():.1f}"
+                if self.pending_since is not None
+                else None
+            ),
         )
