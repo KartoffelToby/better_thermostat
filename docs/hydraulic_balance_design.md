@@ -103,11 +103,11 @@ State (lightweight, per room key):
 
 8) Sonoff min/max recommendations (and learning):
   - $max\_open \%= p$ (recommendation)
-  - $min\_open \% \approx 0$ on overshoot (ΔT ≤ −band\_near), sonst ein kleiner Komfortwert (z. B. 5%)
-  - Lernen pro Zieltemperatur-Bucket phasenabhängig:
-    - max_open wird nur aktualisiert, wenn geheizt wird (ΔT ≥ band\_near)
-    - min_open wird nur aktualisiert, wenn gehalten/abgekühlt wird (ΔT ≤ band\_near)
-    - Werte werden in sinnvollen Schritten angenähert (5% grob, 1% fein) und geclamped (0..100, min ≤ max)
+  - $min\_open \% \approx 0$ on overshoot (ΔT ≤ −band\_near), otherwise a small comfort value (e.g., 5%)
+  - Learning per target temperature bucket is phase-dependent:
+    - max_open is only updated when heating (ΔT ≥ band\_near)
+    - min_open is only updated when holding/cooling (ΔT ≤ band\_near)
+    - Values are approached in reasonable steps (5% coarse, 1% fine) and clamped (0..100, min ≤ max)
 
 All steps are per-room and require no global information.
 
