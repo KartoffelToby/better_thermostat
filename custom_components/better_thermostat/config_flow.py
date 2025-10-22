@@ -281,8 +281,7 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             )
         ] = bool
 
-        # Ventilwartung: immer anbieten; wenn keine native Ventilsteuerung vorhanden ist,
-        # nutzt die Laufzeitlogik ein Fallback über Setpoint-Extrema
+        # Valve maintenance: always offer; if no native valve control is available, the runtime logic uses a fallback via setpoint extremes
         fields[
             vol.Optional(
                 CONF_VALVE_MAINTENANCE,
