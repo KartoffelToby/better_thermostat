@@ -12,3 +12,7 @@ async def override_set_hvac_mode(self, entity_id, hvac_mode):
 
 async def override_set_temperature(self, entity_id, temperature):
     return False
+
+
+async def override_set_valve(self, entity_id, percent: int):
+    return False

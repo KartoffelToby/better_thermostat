@@ -28,6 +28,16 @@ async def get_info(self, entity_id):
 
 
 async def init(self, entity_id):
+    # Try to discover valve position entity early
+    try:
+        from ..utils.helpers import find_valve_entity as _find_valve
+
+        self.real_trvs[entity_id]["valve_position_entity"] = await _find_valve(
+            self, entity_id
+        )
+    except Exception:
+        pass
+
     if (
         self.real_trvs[entity_id]["local_temperature_calibration_entity"] is None
         and self.real_trvs[entity_id]["calibration"] != 1

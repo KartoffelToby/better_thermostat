@@ -50,6 +50,7 @@ from homeassistant.helpers.event import (
     async_track_time_interval,
 )
 from homeassistant.helpers.restore_state import RestoreEntity
+from homeassistant.helpers.storage import Store
 
 # Local imports
 from .adapters.delegate import (
@@ -59,6 +60,9 @@ from .adapters.delegate import (
     get_offset_step,
     init,
     load_adapter,
+    set_temperature as adapter_set_temperature,
+    set_hvac_mode as adapter_set_hvac_mode,
+    set_valve as adapter_set_valve,
 )
 from .events.cooler import trigger_cooler_change
 from .events.temperature import trigger_temperature_change
@@ -87,12 +91,15 @@ from .utils.const import (
     CONF_SENSOR_WINDOW,
     CONF_TARGET_TEMP_STEP,
     CONF_TOLERANCE,
+    CONF_VALVE_MAINTENANCE,
     CONF_WEATHER,
     CONF_WINDOW_TIMEOUT,
     CONF_WINDOW_TIMEOUT_AFTER,
     SERVICE_RESET_HEATING_POWER,
+    SERVICE_RESET_PID_LEARNINGS,
     SERVICE_RESTORE_SAVED_TARGET_TEMPERATURE,
     SERVICE_SET_TEMP_TARGET_TEMPERATURE,
+    BETTERTHERMOSTAT_RESET_PID_SCHEMA,
     SUPPORT_FLAGS,
     VERSION,
 )
@@ -100,7 +107,12 @@ from .utils.controlling import control_queue, control_trv
 from .utils.helpers import convert_to_float, find_battery_entity, get_hvac_bt_mode
 from .utils.watcher import check_all_entities
 from .utils.weather import check_ambient_air_temperature, check_weather
-from .utils.helpers import normalize_hvac_mode
+from .utils.helpers import normalize_hvac_mode, get_device_model
+from .balance import (
+    export_states as balance_export_states,
+    import_states as balance_import_states,
+    reset_balance_state as balance_reset_state,
+)
 
 
 _LOGGER = logging.getLogger(__name__)
@@ -143,22 +155,13 @@ async def async_setup_platform(
     _LOGGER.debug("better_thermostat: async_setup_platform called (deprecated no-op)")
 
 
-async def async_setup_entry(hass, entry, async_add_devices):
+async def async_setup_entry(hass, entry, async_add_entities):
     """Set up Better Thermostat climate entity for a config entry."""
     _LOGGER.debug(
         "better_thermostat %s: async_setup_entry start (entry_id=%s)",
         entry.data.get(CONF_NAME),
         entry.entry_id,
     )
-
-    async def async_service_handler(entity, call):
-        """Handle the service calls."""
-        if call.service == SERVICE_RESTORE_SAVED_TARGET_TEMPERATURE:
-            await entity.restore_temp_temperature()
-        elif call.service == SERVICE_SET_TEMP_TARGET_TEMPERATURE:
-            await entity.set_temp_temperature(call.data[ATTR_TEMPERATURE])
-        elif call.service == SERVICE_RESET_HEATING_POWER:
-            await entity.reset_heating_power()
 
     platform = entity_platform.async_get_current_platform()
     # Register entity services (validator done manually inside method)
@@ -173,8 +176,16 @@ async def async_setup_entry(hass, entry, async_add_devices):
     platform.async_register_entity_service(
         SERVICE_RESET_HEATING_POWER, {}, "reset_heating_power"
     )
+    platform.async_register_entity_service(
+        "run_valve_maintenance", {}, "run_valve_maintenance_service"
+    )
+    platform.async_register_entity_service(
+        SERVICE_RESET_PID_LEARNINGS,
+        BETTERTHERMOSTAT_RESET_PID_SCHEMA,
+        "reset_pid_learnings_service",
+    )
 
-    async_add_devices(
+    async_add_entities(
         [
             BetterThermostat(
                 entry.data.get(CONF_NAME),
@@ -414,6 +425,19 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
         # Short bounded history of recent heating power evaluations
         self.last_heating_power_stats = deque(maxlen=10)
         self.is_removed = False
+        # Valve maintenance control
+        self.in_maintenance = False
+        # Balance / Hydraulic: temperature trend (K/min)
+        self.temp_slope = None
+        self._slope_last_temp = None
+        self._slope_last_ts = None
+        # Persistence for balance (hydraulic) states
+        self._balance_store = None
+        self._balance_save_scheduled = False
+        # Learned Sonoff/TRV open caps (min/max %) per TRV and target temp bucket
+        self.open_caps = {}
+        self._open_caps_store = None
+        self._open_caps_save_scheduled = False
 
     async def async_added_to_hass(self):
         """Run when entity about to be added.
@@ -445,13 +469,61 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
             if _calibration_type == "hybrid_calibration":
                 _calibration = 2
             _adapter = await load_adapter(self, trv["integration"], trv["trv"])
-            _model_quirks = await load_model_quirks(self, trv["model"], trv["trv"])
+            # Resolve/refresh model dynamically at startup to ensure correct quirks
+            resolved_model = trv.get("model")
+            try:
+                # prefers state model_id when present
+                detected_model = await get_device_model(self, trv["trv"])
+                if (
+                    isinstance(detected_model, str)
+                    and detected_model
+                    and detected_model != resolved_model
+                ):
+                    _LOGGER.info(
+                        "better_thermostat %s: detected model '%s' for %s (was '%s' in config), using detected model",
+                        self.device_name,
+                        detected_model,
+                        trv["trv"],
+                        resolved_model,
+                    )
+                    resolved_model = detected_model
+            except Exception as e:
+                _LOGGER.debug(
+                    "better_thermostat %s: get_device_model(%s) failed: %s",
+                    self.device_name,
+                    trv.get("trv"),
+                    e,
+                )
+            _LOGGER.debug(
+                "better_thermostat %s: loading model quirks: model='%s' trv='%s'",
+                self.device_name,
+                resolved_model,
+                trv.get("trv"),
+            )
+            _model_quirks = await load_model_quirks(self, resolved_model, trv["trv"])
+            try:
+                mod_name = getattr(_model_quirks, "__name__", str(_model_quirks))
+                _LOGGER.debug(
+                    "better_thermostat %s: loaded model quirks module '%s' for model '%s' (trv %s)",
+                    self.device_name,
+                    mod_name,
+                    resolved_model,
+                    trv.get("trv"),
+                )
+            except Exception as e:  # noqa: BLE001
+                _LOGGER.debug(
+                    "better_thermostat %s: could not determine quirks module name for model '%s' (trv %s): %s",
+                    self.device_name,
+                    resolved_model,
+                    trv.get("trv"),
+                    e,
+                )
             self.real_trvs[trv["trv"]] = {
                 "calibration": _calibration,
                 "integration": trv["integration"],
                 "adapter": _adapter,
                 "model_quirks": _model_quirks,
-                "model": trv["model"],
+                "model": resolved_model,
                 "advanced": _advanced,
                 "ignore_trv_states": False,
                 "valve_position": None,
@@ -486,6 +558,28 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
         _LOGGER.info(
             "better_thermostat %s: Waiting for entity to be ready...", self.device_name
         )
+
+        # Initialize persistent storage for balance states and attempt to load
+        try:
+            self._balance_store = Store(self.hass, 1, f"{DOMAIN}_balance_states")
+            await self._load_balance_state()
+        except Exception as e:  # noqa: BLE001
+            _LOGGER.debug(
+                "better_thermostat %s: balance storage init/load failed: %s",
+                self.device_name,
+                e,
+            )
+
+        # Initialize persistent storage for learned open caps
+        try:
+            self._open_caps_store = Store(self.hass, 1, f"{DOMAIN}_open_caps")
+            await self._load_open_caps()
+        except Exception as e:  # noqa: BLE001
+            _LOGGER.debug(
+                "better_thermostat %s: open caps storage init/load failed: %s",
+                self.device_name,
+                e,
+            )
 
         @callback
         def _async_startup(*_):
@@ -537,6 +631,74 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
         if (event.data.get("new_state")) is None:
             return
         self.hass.async_create_task(trigger_temperature_change(self, event))
+
+    async def _external_temperature_keepalive(self, event=None):
+        """Re-send the external temperature regularly to the TRVs.
+        Many devices expect an update at least every ~30 minutes."""
+        try:
+            cur = getattr(self, "cur_temp", None)
+            if cur is None:
+                _LOGGER.debug(
+                    "better_thermostat %s: external_temperature keepalive skipped (cur_temp is None)",
+                    getattr(self, "device_name", "unknown"),
+                )
+                return
+
+            # Verwende die bekannten TRV-Entity-IDs (Keys in real_trvs)
+            trv_ids = list(getattr(self, "real_trvs", {}).keys())
+            # Fallback (sollte i.d.R. nicht benötigt werden)
+            if not trv_ids and hasattr(self, "entity_ids"):
+                trv_ids = list(getattr(self, "entity_ids", []) or [])
+            if not trv_ids and hasattr(self, "heater_entity_id"):
+                trv_ids = [self.heater_entity_id]
+            if not trv_ids:
+                _LOGGER.debug(
+                    "better_thermostat %s: external_temperature keepalive: no TRVs found",
+                    getattr(self, "device_name", "unknown"),
+                )
+                return
+            else:
+                _LOGGER.debug(
+                    "better_thermostat %s: external_temperature keepalive: %d TRV(s) found",
+                    getattr(self, "device_name", "unknown"),
+                    len(trv_ids),
+                )
+
+            for trv_id in trv_ids:
+                try:
+                    quirks = (
+                        self.real_trvs.get(trv_id, {}).get("model_quirks")
+                        if hasattr(self, "real_trvs")
+                        else None
+                    )
+                    if quirks and hasattr(quirks, "maybe_set_external_temperature"):
+                        ok = await quirks.maybe_set_external_temperature(
+                            self, trv_id, cur
+                        )
+                        _LOGGER.debug(
+                            "better_thermostat %s: external_temperature keepalive sent to %s (ok=%s, value=%s)",
+                            self.device_name,
+                            trv_id,
+                            ok,
+                            cur,
+                        )
+                    else:
+                        _LOGGER.debug(
+                            "better_thermostat %s: no quirks with maybe_set_external_temperature for %s",
+                            getattr(self, "device_name", "unknown"),
+                            trv_id,
+                        )
+                except Exception:  # noqa: BLE001
+                    _LOGGER.debug(
+                        "better_thermostat %s: external_temperature keepalive write failed for %s (non critical)",
+                        getattr(self, "device_name", "unknown"),
+                        trv_id,
+                    )
+        except Exception:  # noqa: BLE001
+            _LOGGER.debug(
+                "better_thermostat %s: external_temperature keepalive encountered an error",
+                getattr(self, "device_name", "unknown"),
+            )
 
     async def _trigger_humidity_change(self, event):
         _check = await check_all_entities(self)
@@ -600,15 +762,6 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
             )
 
             sensor_state = self.hass.states.get(self.sensor_entity_id)
-            if sensor_state is not None:
-                if sensor_state.state in (STATE_UNAVAILABLE, STATE_UNKNOWN, None):
-                    _LOGGER.info(
-                        "better_thermostat %s: waiting for sensor entity with id '%s' to become fully available...",
-                        self.device_name,
-                        self.sensor_entity_id,
-                    )
-                    await asyncio.sleep(10)
-                    continue
 
             try:
                 for trv in self.real_trvs.keys():
@@ -1044,52 +1197,42 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
                 else:
                     self.real_trvs[trv]["last_calibration"] = 0
 
+                _s = self.hass.states.get(trv)
+                _attrs = _s.attributes if _s else {}
                 self.real_trvs[trv]["valve_position"] = convert_to_float(
-                    str(
-                        self.hass.states.get(trv).attributes.get("valve_position", None)
-                    ),
-                    self.device_name,
-                    "startup",
+                    str(_attrs.get("valve_position", None)), self.device_name, "startup"
                 )
                 self.real_trvs[trv]["max_temp"] = convert_to_float(
-                    str(self.hass.states.get(trv).attributes.get("max_temp", 30)),
-                    self.device_name,
-                    "startup",
+                    str(_attrs.get("max_temp", 30)), self.device_name, "startup"
                 )
                 self.real_trvs[trv]["min_temp"] = convert_to_float(
-                    str(self.hass.states.get(trv).attributes.get("min_temp", 5)),
-                    self.device_name,
-                    "startup",
+                    str(_attrs.get("min_temp", 5)), self.device_name, "startup"
                 )
-                self.real_trvs[trv]["target_temp_step"] = convert_to_float(
-                    str(
-                        self.hass.states.get(trv).attributes.get(
-                            "target_temp_step", 0.5
-                        )
-                    ),
-                    self.device_name,
-                    "startup",
+                # Prefer configured step over device-reported step
+                cfg_step = (
+                    self.bt_target_temp_step
+                    if self.bt_target_temp_step and self.bt_target_temp_step > 0.0
+                    else None
                 )
+                if cfg_step is not None:
+                    self.real_trvs[trv]["target_temp_step"] = cfg_step
+                else:
+                    self.real_trvs[trv]["target_temp_step"] = convert_to_float(
+                        str(_attrs.get("target_temp_step", 0.5)),
+                        self.device_name,
+                        "startup",
+                    )
                 self.real_trvs[trv]["temperature"] = convert_to_float(
-                    str(self.hass.states.get(trv).attributes.get("temperature", 5)),
-                    self.device_name,
-                    "startup",
+                    str(_attrs.get("temperature", 5)), self.device_name, "startup"
                 )
-                self.real_trvs[trv]["hvac_modes"] = self.hass.states.get(
-                    trv
-                ).attributes.get("hvac_modes", None)
-                self.real_trvs[trv]["hvac_mode"] = self.hass.states.get(trv).state
-                self.real_trvs[trv]["last_hvac_mode"] = self.hass.states.get(trv).state
+                self.real_trvs[trv]["hvac_modes"] = _attrs.get("hvac_modes", None)
+                self.real_trvs[trv]["hvac_mode"] = _s.state if _s else None
+                self.real_trvs[trv]["last_hvac_mode"] = _s.state if _s else None
                 self.real_trvs[trv]["last_temperature"] = convert_to_float(
-                    str(self.hass.states.get(trv).attributes.get("temperature")),
-                    self.device_name,
-                    "startup()",
+                    str(_attrs.get("temperature")), self.device_name, "startup()"
                 )
                 self.real_trvs[trv]["current_temperature"] = convert_to_float(
-                    str(
-                        self.hass.states.get(trv).attributes.get("current_temperature")
-                        or 5
-                    ),
+                    str(_attrs.get("current_temperature") or 5),
                     self.device_name,
                     "startup()",
                 )
@@ -1134,6 +1277,71 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
                 )
             )
 
+            # Periodischer 5-Minuten-Tick: nur aktivieren, wenn Balance konfiguriert ist
+            try:
+                any_balance = any(
+                    str(
+                        (trv_info.get("advanced", {}) or {}).get("balance_mode", "")
+                    ).lower()
+                    in ("heuristic", "pid")
+                    for trv_info in self.real_trvs.values()
+                )
+            except Exception:  # noqa: BLE001
+                any_balance = False
+
+            if any_balance:
+                self.async_on_remove(
+                    async_track_time_interval(
+                        self.hass, self._trigger_time, timedelta(minutes=5)
+                    )
+                )
+                _LOGGER.debug(
+                    "better_thermostat %s: 5min balance tick enabled", self.device_name
+                )
+            else:
+                _LOGGER.debug(
+                    "better_thermostat %s: 5min balance tick skipped (balance_mode not enabled)",
+                    self.device_name,
+                )
+
+            # Periodischer Keepalive: externe Temperatur mindestens alle 30 Minuten an TRVs senden
+            self.async_on_remove(
+                async_track_time_interval(
+                    self.hass,
+                    self._external_temperature_keepalive,
+                    timedelta(minutes=30),
+                )
+            )
+
+            # Ventilwartung: separaten Tick nur aktivieren, wenn mindestens ein TRV sie eingeschaltet hat
+            try:
+                any_maintenance = any(
+                    bool(
+                        (trv_info.get("advanced", {}) or {}).get(
+                            CONF_VALVE_MAINTENANCE, False
+                        )
+                    )
+                    for trv_info in self.real_trvs.values()
+                )
+            except Exception:  # noqa: BLE001
+                any_maintenance = False
+
+            if any_maintenance:
+                self.async_on_remove(
+                    async_track_time_interval(
+                        self.hass, self._maintenance_tick, timedelta(minutes=5)
+                    )
+                )
+                _LOGGER.debug(
+                    "better_thermostat %s: valve maintenance tick enabled (5min)",
+                    self.device_name,
+                )
+            else:
+                _LOGGER.debug(
+                    "better_thermostat %s: valve maintenance tick skipped (no TRV enabled)",
+                    self.device_name,
+                )
+
             self.async_on_remove(
                 async_track_state_change_event(
                     self.hass, [self.sensor_entity_id], self._trigger_temperature_change
@@ -1164,10 +1372,343 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
                         self.hass, [self.cooler_entity_id], self._tigger_cooler_change
                     )
                 )
+            # Sende initial sofort einen Keepalive, damit TRVs nicht bis zum ersten 30min-Tick warten müssen
+            try:
+                self.hass.async_create_task(self._external_temperature_keepalive())
+            except Exception:  # noqa: BLE001
+                pass
             _LOGGER.info("better_thermostat %s: startup completed.", self.device_name)
             self.async_write_ha_state()
             await self.async_update_ha_state(force_refresh=True)
             break
+
+    async def _maintenance_tick(self, event=None):
+        """Periodic maintenance tick: runs valve exercise when due and enabled."""
+        # quick availability check
+        try:
+            ok = await check_all_entities(self)
+            if ok is False:
+                return
+        except Exception:  # noqa: BLE001
+            return
+
+        # Skip if already running or not due
+        now = datetime.now()
+        if self.in_maintenance:
+            return
+        try:
+            if self.next_valve_maintenance and now < self.next_valve_maintenance:
+                return
+        except Exception:
+            pass
+
+        # Skip when device is OFF or window open
+        if self.window_open:
+            # postpone by 6 hours to avoid hammering
+            self.next_valve_maintenance = now + timedelta(hours=6)
+            _LOGGER.debug(
+                "better_thermostat %s: valve maintenance postponed (window open)",
+                self.device_name,
+            )
+            return
+        if self.hvac_mode == HVACMode.OFF or self.bt_hvac_mode == HVACMode.OFF:
+            self.next_valve_maintenance = now + timedelta(hours=6)
+            _LOGGER.debug(
+                "better_thermostat %s: valve maintenance postponed (HVAC OFF)",
+                self.device_name,
+            )
+            return
+
+        # Check if any TRV actually has maintenance enabled
+        trvs_to_service: list[str] = []
+        try:
+            for trv_id, info in self.real_trvs.items():
+                adv = info.get("advanced", {}) or {}
+                if bool(adv.get(CONF_VALVE_MAINTENANCE, False)):
+                    trvs_to_service.append(trv_id)
+        except Exception:  # noqa: BLE001
+            trvs_to_service = []
+
+        if not trvs_to_service:
+            # no enabled TRVs => schedule far in the future to avoid frequent wakeups
+            self.next_valve_maintenance = now + timedelta(days=7)
+            return
+
+        # Run maintenance asynchronously (don't block the tick)
+        self.hass.async_create_task(self._run_valve_maintenance(trvs_to_service))
+
+    async def _run_valve_maintenance(self, trvs: list[str]) -> None:
+        """Perform valve exercise: open fully, then close, restore state, and reschedule."""
+        if self.in_maintenance:
+            return
+        self.in_maintenance = True
+        # Suppress control loop briefly
+        prev_ignore_states = self.ignore_states
+        self.ignore_states = True
+        now = datetime.now()
+
+        try:
+            _LOGGER.info(
+                "better_thermostat %s: starting valve maintenance for %d TRV(s)",
+                self.device_name,
+                len(trvs),
+            )
+
+            async def service_one(trv_id: str):
+                # Per-TRV guard
+                try:
+                    self.real_trvs[trv_id]["ignore_trv_states"] = True
+                except Exception:
+                    pass
+
+                # Read current TRV state safely
+                trv_state = self.hass.states.get(trv_id)
+                if trv_state is None:
+                    _LOGGER.debug(
+                        "better_thermostat %s: maintenance skip %s (state None)",
+                        self.device_name,
+                        trv_id,
+                    )
+                    return
+                cur_mode = trv_state.state
+                cur_temp = trv_state.attributes.get("temperature")
+
+                # Capabilities
+                valve_entity = (self.real_trvs.get(trv_id, {}) or {}).get(
+                    "valve_position_entity"
+                )
+                quirks = (self.real_trvs.get(trv_id, {}) or {}).get("model_quirks")
+                support_valve = bool(valve_entity) or bool(
+                    getattr(quirks, "override_set_valve", None)
+                )
+
+                # Helper to set valve percent with fallback to quirks
+                async def _set_valve_pct(pct: int) -> bool:
+                    try:
+                        # Prefer unified delegate path; it records method and last percent
+                        from .adapters.delegate import set_valve as _delegate_set_valve
+
+                        ok = await _delegate_set_valve(self, trv_id, int(pct))
+                        return bool(ok)
+                    except Exception:
+                        return False
+
+                try:
+                    if support_valve:
+                        # Open fully
+                        _LOGGER.debug(
+                            "better_thermostat %s: maintenance %s -> valve 100%%",
+                            self.device_name,
+                            trv_id,
+                        )
+                        await _set_valve_pct(100)
+                        await asyncio.sleep(20)
+                        # Close fully
+                        _LOGGER.debug(
+                            "better_thermostat %s: maintenance %s -> valve 0%%",
+                            self.device_name,
+                            trv_id,
+                        )
+                        await _set_valve_pct(0)
+                        await asyncio.sleep(15)
+                    else:
+                        # Fallback: use temperature extremes to force open/close
+                        max_t = (self.real_trvs.get(trv_id, {}) or {}).get(
+                            "max_temp", 30
+                        )
+                        min_t = (self.real_trvs.get(trv_id, {}) or {}).get(
+                            "min_temp", 5
+                        )
+                        # Only run if HVAC is not OFF
+                        if cur_mode != HVACMode.OFF:
+                            _LOGGER.debug(
+                                "better_thermostat %s: maintenance %s -> temp %.1f°C (open)",
+                                self.device_name,
+                                trv_id,
+                                max_t,
+                            )
+                            await adapter_set_temperature(self, trv_id, max_t)
+                            await asyncio.sleep(30)
+                            _LOGGER.debug(
+                                "better_thermostat %s: maintenance %s -> temp %.1f°C (close)",
+                                self.device_name,
+                                trv_id,
+                                min_t,
+                            )
+                            await adapter_set_temperature(self, trv_id, min_t)
+                            await asyncio.sleep(30)
+
+                    # Restore previous setpoint and mode
+                    try:
+                        if cur_temp is not None:
+                            await adapter_set_temperature(self, trv_id, cur_temp)
+                    except Exception:
+                        pass
+                    try:
+                        await adapter_set_hvac_mode(self, trv_id, cur_mode)
+                    except Exception:
+                        pass
+                except Exception as exc:  # noqa: BLE001
+                    _LOGGER.debug(
+                        "better_thermostat %s: maintenance error for %s: %s",
+                        self.device_name,
+                        trv_id,
+                        exc,
+                    )
+                finally:
+                    # Release guard
+                    try:
+                        self.real_trvs[trv_id]["ignore_trv_states"] = False
+                    except Exception:
+                        pass
+
+            # Execute sequentially to avoid stressing the system; still lightweight
+            for trv in trvs:
+                await service_one(trv)
+
+            # Re-arm next run in ~7 days with slight randomization
+            self.next_valve_maintenance = now + timedelta(days=7, hours=randint(0, 12))
+            _LOGGER.info(
+                "better_thermostat %s: valve maintenance finished; next at %s",
+                self.device_name,
+                self.next_valve_maintenance,
+            )
+        finally:
+            self.ignore_states = prev_ignore_states
+            self.in_maintenance = False
+
+    async def _load_balance_state(self) -> None:
+        """Load persisted balance states and hydrate module-level cache."""
+        if self._balance_store is None:
+            return
+        data = await self._balance_store.async_load()
+        if not data:
+            return
+        prefix = f"{self._unique_id}:"
+        try:
+            imported = balance_import_states(data, prefix_filter=prefix)
+            _LOGGER.debug(
+                "better_thermostat %s: loaded %s balance state(s) with prefix %s",
+                self.device_name,
+                imported,
+                prefix,
+            )
+        except Exception as e:  # noqa: BLE001
+            _LOGGER.debug(
+                "better_thermostat %s: failed to import balance states: %s",
+                self.device_name,
+                e,
+            )
+
+    async def _save_balance_state(self) -> None:
+        """Persist current balance states for this entity (prefix filtered)."""
+        if self._balance_store is None:
+            return
+        try:
+            prefix = f"{self._unique_id}:"
+            current = balance_export_states(prefix=prefix)
+            # Merge with existing store to avoid overwriting other entities' data
+            existing = await self._balance_store.async_load()
+            if not isinstance(existing, dict):
+                existing = {}
+            # Drop previous entries for this entity's prefix
+            to_delete = [k for k in list(existing.keys()) if str(k).startswith(prefix)]
+            for k in to_delete:
+                try:
+                    del existing[k]
+                except KeyError:
+                    pass
+            # Update with current
+            existing.update(current)
+            await self._balance_store.async_save(existing)
+            _LOGGER.debug(
+                "better_thermostat %s: saved %d balance state(s)",
+                self.device_name,
+                len(current or {}),
+            )
+        except Exception as e:  # noqa: BLE001
+            _LOGGER.debug(
+                "better_thermostat %s: saving balance states failed: %s",
+                self.device_name,
+                e,
+            )
+
+    def _schedule_save_balance_state(self, delay_s: float = 10.0) -> None:
+        """Debounced scheduling for saving balance state to storage."""
+        if self._balance_store is None or self._balance_save_scheduled:
+            return
+        self._balance_save_scheduled = True
+
+        async def _delayed_save():
+            try:
+                await asyncio.sleep(delay_s)
+                await self._save_balance_state()
+            finally:
+                self._balance_save_scheduled = False
+
+        # Fire and forget
+        self.hass.async_create_task(_delayed_save())
+
+    async def _load_open_caps(self) -> None:
+        """Load persisted open caps map for this entity."""
+        if self._open_caps_store is None:
+            return
+        data = await self._open_caps_store.async_load()
+        if not isinstance(data, dict):
+            return
+        key_prefix = f"{self._unique_id}:"
+        # Filter entries for this entity
+        entity_map = {}
+        for k, v in data.items():
+            if not isinstance(k, str) or not k.startswith(key_prefix):
+                continue
+            try:
+                _, trv, bucket = k.split(":", 2)
+            except ValueError:
+                # legacy/unknown key; skip
+                continue
+            entity_map.setdefault(trv, {})[bucket] = v
+        if entity_map:
+            self.open_caps = entity_map
+
+    async def _save_open_caps(self) -> None:
+        """Persist learned open caps map for this entity."""
+        if self._open_caps_store is None:
+            return
+        try:
+            # Merge into existing store to keep other entities' data
+            existing = await self._open_caps_store.async_load()
+            if not isinstance(existing, dict):
+                existing = {}
+            # Remove current entity keys
+            key_prefix = f"{self._unique_id}:"
+            for k in list(existing.keys()):
+                if isinstance(k, str) and k.startswith(key_prefix):
+                    del existing[k]
+            # Add current entries
+            for trv, buckets in (self.open_caps or {}).items():
+                for bucket, vals in (buckets or {}).items():
+                    existing[f"{self._unique_id}:{trv}:{bucket}"] = vals
+            await self._open_caps_store.async_save(existing)
+        except Exception as e:  # noqa: BLE001
+            _LOGGER.debug(
+                "better_thermostat %s: saving open caps failed: %s", self.device_name, e
+            )
+
+    def _schedule_save_open_caps(self, delay_s: float = 10.0) -> None:
+        """Debounced scheduling for saving open caps to storage."""
+        if self._open_caps_store is None or self._open_caps_save_scheduled:
+            return
+        self._open_caps_save_scheduled = True
+
+        async def _delayed_save():
+            try:
+                await asyncio.sleep(delay_s)
+                await self._save_open_caps()
+            finally:
+                self._open_caps_save_scheduled = False
+
+        self.hass.async_create_task(_delayed_save())
 
     async def calculate_heating_power(self):
         """Learn effective heating power (°C/min) from completed heating cycles.
@@ -1432,6 +1973,30 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
             ),
         }
 
+        # Optional: next scheduled valve maintenance (ISO8601)
+        try:
+            if (
+                hasattr(self, "next_valve_maintenance")
+                and self.next_valve_maintenance is not None
+            ):
+                dev_specific["next_valve_maintenance"] = (
+                    self.next_valve_maintenance.isoformat()
+                )
+        except Exception:
+            pass
+
+        # Optional: summarize last valve method per TRV (adapter vs override)
+        try:
+            methods = {}
+            for trv_id, info in (self.real_trvs or {}).items():
+                m = info.get("last_valve_method")
+                if m:
+                    methods[trv_id] = m
+            if methods:
+                dev_specific["valve_method"] = methods
+        except Exception:
+            pass
+
         # Optional telemetry (memory friendly): only count & last cycle + normalized power
         if hasattr(self, "heating_cycles") and len(self.heating_cycles) > 0:
             last_cycle = self.heating_cycles[-1]
@@ -1444,6 +2009,260 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
             dev_specific["heating_power_norm"] = getattr(
                 self, "heating_power_normalized", None
             )
+
+        # Optional telemetry (memory friendly): only count & last cycle + normalized power
+        if hasattr(self, "heating_cycles") and len(self.heating_cycles) > 0:
+            last_cycle = self.heating_cycles[-1]
+            try:
+                dev_specific["heating_cycle_count"] = len(self.heating_cycles)
+                dev_specific["heating_cycle_last"] = json.dumps(last_cycle)
+            except Exception:  # noqa: BLE001
+                pass
+        if hasattr(self, "heating_power_normalized"):
+            dev_specific["heating_power_norm"] = getattr(
+                self, "heating_power_normalized", None
+            )
+
+        # Balance Telemetrie (kompakt)
+        if hasattr(self, "temp_slope") and self.temp_slope is not None:
+            dev_specific["temp_slope_K_min"] = round(self.temp_slope, 4)
+        try:
+            # Führe kompakt alle TRV-Balance Infos zusammen (nur valve_percent)
+            bal_compact = {}
+            for trv, info in self.real_trvs.items():
+                bal = info.get("balance")
+                if bal:
+                    bal_compact[trv] = {
+                        "valve%": bal.get("valve_percent"),
+                        "flow_capK": bal.get("flow_cap_K"),
+                    }
+            if bal_compact:
+                dev_specific["balance"] = json.dumps(bal_compact)
+        except Exception:
+            pass
+
+        # PID/Regler-Debug als flache Attribute für Graphen (nur von repräsentativem TRV)
+        try:
+            rep_trv = None
+            for t in self.real_trvs.keys():
+                mdl = str(self.real_trvs.get(t, {}).get("model", ""))
+                if "sonoff" in mdl.lower() or "trvzb" in mdl.lower():
+                    rep_trv = t
+                    break
+            if rep_trv is None:
+                rep_trv = next(iter(self.real_trvs.keys()), None)
+            if rep_trv is not None:
+                bal = (self.real_trvs.get(rep_trv, {}) or {}).get("balance") or {}
+                dbg = bal.get("debug") or {}
+                pid = dbg.get("pid") or {}
+                # Nur wenn Modus pid ist, sonst vermeiden wir Rauschen
+                if str(pid.get("mode")).lower() == "pid":
+                    # Hilfsfunktion: sichere Float-Konvertierung
+                    def _to_float(val):
+                        try:
+                            return float(val)
+                        except Exception:
+                            return None
+
+                    # Fehler (ΔT), P/I/D/U und Gains direkt ausgeben
+                    v = _to_float(pid.get("e_K"))
+                    if v is not None:
+                        dev_specific["pid_e_K"] = round(v, 4)
+                    v = _to_float(pid.get("p"))
+                    if v is not None:
+                        dev_specific["pid_P"] = round(v, 4)
+                    v = _to_float(pid.get("i"))
+                    if v is not None:
+                        dev_specific["pid_I"] = round(v, 4)
+                    v = _to_float(pid.get("d"))
+                    if v is not None:
+                        dev_specific["pid_D"] = round(v, 4)
+                    v = _to_float(pid.get("u"))
+                    if v is not None:
+                        dev_specific["pid_u"] = round(v, 4)
+                    v = _to_float(pid.get("kp"))
+                    if v is not None:
+                        dev_specific["pid_kp"] = round(v, 6)
+                    v = _to_float(pid.get("ki"))
+                    if v is not None:
+                        dev_specific["pid_ki"] = round(v, 6)
+                    v = _to_float(pid.get("kd"))
+                    if v is not None:
+                        dev_specific["pid_kd"] = round(v, 6)
+                    v = _to_float(pid.get("meas_blend_C"))
+                    if v is not None:
+                        dev_specific["pid_meas_blend_C"] = round(v, 3)
+                    v = _to_float(pid.get("meas_smooth_C"))
+                    if v is not None:
+                        dev_specific["pid_meas_smooth_C"] = round(v, 3)
+                    # d_meas_per_s ist K/s; für Lesbarkeit auch auf K/min hochrechnen
+                    v = _to_float(pid.get("d_meas_per_s"))
+                    if v is not None:
+                        dev_specific["pid_d_meas_K_per_min"] = round(v * 60.0, 4)
+                    # dt_s
+                    v = _to_float(pid.get("dt_s"))
+                    if v is not None:
+                        dev_specific["pid_dt_s"] = round(v, 3)
+        except Exception:
+            pass
+
+        # Optional telemetry (memory friendly): only count & last cycle + normalized power
+        if hasattr(self, "heating_cycles") and len(self.heating_cycles) > 0:
+            last_cycle = self.heating_cycles[-1]
+            try:
+                dev_specific["heating_cycle_count"] = len(self.heating_cycles)
+                dev_specific["heating_cycle_last"] = json.dumps(last_cycle)
+            except Exception:  # noqa: BLE001
+                pass
+        if hasattr(self, "heating_power_normalized"):
+            dev_specific["heating_power_norm"] = getattr(
+                self, "heating_power_normalized", None
+            )
+
+        # Balance Telemetrie (kompakt)
+        if hasattr(self, "temp_slope") and self.temp_slope is not None:
+            dev_specific["temp_slope_K_min"] = round(self.temp_slope, 4)
+        try:
+            # Führe kompakt alle TRV-Balance Infos zusammen (nur valve_percent)
+            bal_compact = {}
+            for trv, info in self.real_trvs.items():
+                bal = info.get("balance")
+                if bal:
+                    bal_compact[trv] = {
+                        "valve%": bal.get("valve_percent"),
+                        "flow_capK": bal.get("flow_cap_K"),
+                    }
+            if bal_compact:
+                dev_specific["balance"] = json.dumps(bal_compact)
+        except Exception:
+            pass
+
+        # Learned open caps: expose ALL buckets per TRV, mark current bucket, and attach suggestions to current
+        try:
+            caps: dict[str, Any] = {}
+            # Bucket rounding to 0.5°C for readability
+
+            def _bucket(temp):
+                try:
+                    return f"{round(float(temp) * 2.0) / 2.0:.1f}"
+                except Exception:
+                    return "unknown"
+
+            bucket = _bucket(self.bt_target_temp)
+            for trv in self.real_trvs.keys():
+                # Collect all learned buckets for this TRV
+                trv_learned = (self.open_caps or {}).get(trv, {}) or {}
+                buckets_out: dict[str, Any] = {}
+                for b, vals in trv_learned.items():
+                    buckets_out[b] = {
+                        "min_open_pct": vals.get("min_open_pct"),
+                        "max_open_pct": vals.get("max_open_pct"),
+                    }
+
+                # Attach suggestions for the CURRENT bucket (if available)
+                bal = self.real_trvs.get(trv, {}).get("balance") or {}
+                if bal:
+                    vmin = bal.get("sonoff_min_open_pct")
+                    vmax = bal.get("sonoff_max_open_pct")
+                    cur_entry = buckets_out.get(bucket, {})
+                    if vmin is not None:
+                        try:
+                            if isinstance(vmin, (int, float)):
+                                cur_entry["suggested_min_open_pct"] = int(vmin)
+                            elif isinstance(vmin, str):
+                                cur_entry["suggested_min_open_pct"] = int(float(vmin))
+                        except Exception:  # noqa: BLE001
+                            pass
+                    if vmax is not None:
+                        try:
+                            if isinstance(vmax, (int, float)):
+                                cur_entry["suggested_max_open_pct"] = int(vmax)
+                            elif isinstance(vmax, str):
+                                cur_entry["suggested_max_open_pct"] = int(float(vmax))
+                        except Exception:  # noqa: BLE001
+                            pass
+                    if cur_entry:
+                        buckets_out[bucket] = cur_entry
+
+                if buckets_out:
+                    caps[trv] = {"current_bucket": bucket, "buckets": buckets_out}
+            if caps:
+                dev_specific["trv_open_caps"] = json.dumps(caps)
+            # Flat attributes for current bucket (pick a representative TRV; prefer Sonoff if present)
+            try:
+                rep_trv = None
+                for t in self.real_trvs.keys():
+                    mdl = str(self.real_trvs.get(t, {}).get("model", ""))
+                    if "sonoff" in mdl.lower() or "trvzb" in mdl.lower():
+                        rep_trv = t
+                        break
+                if rep_trv is None:
+                    rep_trv = next(iter(self.real_trvs.keys()), None)
+                if rep_trv is not None:
+                    learned = (self.open_caps or {}).get(rep_trv, {}).get(bucket) or {}
+                    suggested = (self.real_trvs.get(rep_trv, {}) or {}).get(
+                        "balance"
+                    ) or {}
+                    # Extract suggested values safely
+                    svalve = suggested.get("valve_percent")
+                    smin = suggested.get("sonoff_min_open_pct")
+                    smax = suggested.get("sonoff_max_open_pct")
+                    svalve_i = None
+                    smin_i = None
+                    smax_i = None
+                    try:
+                        if isinstance(svalve, (int, float)):
+                            svalve_i = int(svalve)
+                        elif isinstance(svalve, str):
+                            svalve_i = int(float(svalve))
+                    except Exception:
+                        pass
+                    try:
+                        if isinstance(smin, (int, float)):
+                            smin_i = int(smin)
+                        elif isinstance(smin, str):
+                            smin_i = int(float(smin))
+                    except Exception:
+                        pass
+                    try:
+                        if isinstance(smax, (int, float)):
+                            smax_i = int(smax)
+                        elif isinstance(smax, str):
+                            smax_i = int(float(smax))
+                    except Exception:
+                        pass
+                    # Root: expose suggested valve percent for convenience
+                    if svalve_i is not None:
+                        dev_specific["suggested_valve_percent"] = int(
+                            max(0, min(100, svalve_i))
+                        )
+                    # Root: also expose suggested_* for clarity
+                    if smin_i is not None:
+                        dev_specific["suggested_min_open_pct"] = int(
+                            max(0, min(100, smin_i))
+                        )
+                    if smax_i is not None:
+                        dev_specific["suggested_max_open_pct"] = int(
+                            max(0, min(100, smax_i))
+                        )
+
+                    # Flat attributes should PREFER suggested; fallback to learned
+                    lmin = learned.get("min_open_pct")
+                    lmax = learned.get("max_open_pct")
+                    flat_min = smin_i if smin_i is not None else lmin
+                    flat_max = smax_i if smax_i is not None else lmax
+                    if flat_min is not None:
+                        dev_specific["min_open_pct"] = int(
+                            max(0, min(100, int(flat_min)))
+                        )
+                    if flat_max is not None:
+                        dev_specific["max_open_pct"] = int(
+                            max(0, min(100, int(flat_max)))
+                        )
+            except Exception:
+                pass
+        except Exception:
+            pass
 
         return dev_specific
 
@@ -1526,7 +2345,16 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
         # Fallback if None
         if self.bt_hvac_mode is None:
             return HVACMode.OFF
-        return get_hvac_bt_mode(self, self.bt_hvac_mode)
+        mapped = get_hvac_bt_mode(self, self.bt_hvac_mode)
+        if isinstance(mapped, HVACMode):
+            return mapped
+        try:
+            return HVACMode(mapped)
+        except Exception:  # noqa: BLE001
+            try:
+                return HVACMode[mapped.upper()]
+            except Exception:  # noqa: BLE001
+                return HVACMode.OFF
 
     @property
     def hvac_modes(self) -> list[HVACMode]:
@@ -1639,7 +2467,11 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
 
         if ATTR_HVAC_MODE in kwargs:
             hvac_mode_val = kwargs.get(ATTR_HVAC_MODE, None)
-            hvac_mode_norm = normalize_hvac_mode(hvac_mode_val)
+            hvac_mode_norm = (
+                normalize_hvac_mode(hvac_mode_val)
+                if hvac_mode_val is not None
+                else None
+            )
             if hvac_mode_norm in (HVACMode.HEAT, HVACMode.HEAT_COOL, HVACMode.OFF):
                 self.bt_hvac_mode = hvac_mode_norm
             else:
@@ -1694,6 +2526,24 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
 
         if _new_setpointhigh is not None:
             self.bt_target_cooltemp = _new_setpointhigh
+
+        # Enforce ordering: cool target should be above heat target (if both in heat_cool mode)
+        if (
+            self.hvac_mode in (HVACMode.HEAT_COOL,)
+            and self.bt_target_cooltemp is not None
+            and self.bt_target_temp is not None
+            and self.bt_target_cooltemp <= self.bt_target_temp
+        ):
+            step = self.bt_target_temp_step or 0.5
+            adjusted = self.bt_target_temp + step
+            _LOGGER.warning(
+                "better_thermostat %s: cooling target %.2f adjusted to %.2f to stay above heating target %.2f",
+                self.device_name,
+                self.bt_target_cooltemp,
+                adjusted,
+                self.bt_target_temp,
+            )
+            self.bt_target_cooltemp = adjusted
 
         # If user manually changes the temperature while a preset is active,
         # update the stored preset temperature so that returning to the preset
@@ -1778,6 +2628,38 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
 
     async def async_turn_on(self) -> None:
         await self.async_set_hvac_mode(HVACMode.HEAT)
+
+    async def run_valve_maintenance_service(self) -> None:
+        """Entity service: run valve maintenance immediately (ignores schedule)."""
+        try:
+            if self.in_maintenance:
+                _LOGGER.debug(
+                    "better_thermostat %s: valve maintenance already running",
+                    self.device_name,
+                )
+                return
+            # gather enabled TRVs
+            trvs_to_service = [
+                trv_id
+                for trv_id, info in self.real_trvs.items()
+                if bool(
+                    (info.get("advanced", {}) or {}).get(CONF_VALVE_MAINTENANCE, False)
+                )
+            ]
+            if not trvs_to_service:
+                _LOGGER.debug(
+                    "better_thermostat %s: valve maintenance requested, but no TRV has it enabled",
+                    self.device_name,
+                )
+                return
+            # force immediate run
+            self.next_valve_maintenance = datetime.now()
+            await self._run_valve_maintenance(trvs_to_service)
+        except Exception:  # noqa: BLE001
+            _LOGGER.debug(
+                "better_thermostat %s: valve maintenance service encountered an error",
+                self.device_name,
+            )
 
     @property
     def min_temp(self):
@@ -1938,8 +2820,8 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
     # Backwards compatibility: If anything external still tries to call the old
     # (incorrect) async method name, provide a thin wrapper. This is intentionally
     # NOT async so HA will not pick it up as the implementation again.
-
-    def set_preset_mode(self, preset_mode: str) -> None:  # type: ignore[override] # Backward compatibility wrapper
+    # type: ignore[override] # Backward compatibility wrapper
+    def set_preset_mode(self, preset_mode: str) -> None:
         """Backward compatible wrapper.
 
         This wrapper schedules the new async method on the event loop. It should
@@ -1962,3 +2844,136 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
             PRESET_ACTIVITY,
             PRESET_HOME,
         ]
+
+    async def reset_pid_learnings_service(
+        self,
+        include_open_caps: bool = False,
+        apply_pid_defaults: bool = False,
+        defaults_kp: Optional[float] = None,
+        defaults_ki: Optional[float] = None,
+        defaults_kd: Optional[float] = None,
+    ) -> None:
+        """Entity service: reset learned PID state for this entity.
+
+        - Clears all cached BalanceState entries for this entity (all TRVs/buckets)
+        - Optionally clears learned open caps (min/max %) when include_open_caps=True
+        - Schedules persistence saves for both maps
+        """
+        try:
+            prefix = f"{self._unique_id}:"
+            # Collect keys to reset from balance module
+            current = balance_export_states(prefix=prefix) or {}
+            count = 0
+            for key in list(current.keys()):
+                try:
+                    balance_reset_state(key)
+                    count += 1
+                except Exception:
+                    pass
+            _LOGGER.info(
+                "better_thermostat %s: reset %d PID learning state entries (prefix=%s)",
+                self.device_name,
+                count,
+                prefix,
+            )
+            # Schedule persistence of cleared balance states
+            try:
+                self._schedule_save_balance_state()
+            except Exception:
+                pass
+
+            if include_open_caps:
+                self.open_caps = {}
+                _LOGGER.info(
+                    "better_thermostat %s: cleared learned open caps map",
+                    self.device_name,
+                )
+                try:
+                    self._schedule_save_open_caps()
+                except Exception:
+                    pass
+
+            # Optionally seed PID defaults for the CURRENT target bucket(s)
+            if apply_pid_defaults:
+                try:
+                    from .balance import seed_pid_gains, BalanceParams
+
+                    # Use provided overrides or BalanceParams defaults
+                    _defs = BalanceParams()
+                    kp = float(defaults_kp) if defaults_kp is not None else _defs.kp
+                    ki = float(defaults_ki) if defaults_ki is not None else _defs.ki
+                    kd = float(defaults_kd) if defaults_kd is not None else _defs.kd
+
+                    # Build current bucket tag based on current heat target
+                    def _bucket(temp):
+                        try:
+                            return f"t{round(float(temp) * 2.0) / 2.0:.1f}"
+                        except Exception:
+                            return None
+
+                    # Build list of candidate buckets: current and ±0.5°C neighbors
+                    bucket_tag = _bucket(self.bt_target_temp)
+                    buckets: list[str] = []
+                    try:
+                        if isinstance(self.bt_target_temp, (int, float)):
+                            base = round(float(self.bt_target_temp) * 2.0) / 2.0
+                            buckets = [
+                                f"t{base:.1f}",
+                                f"t{base + 0.5:.1f}",
+                                f"t{base - 0.5:.1f}",
+                            ]
+                        elif bucket_tag:
+                            buckets = [bucket_tag]
+                    except Exception:
+                        if bucket_tag:
+                            buckets = [bucket_tag]
+                    uid = getattr(self, "unique_id", None) or getattr(
+                        self, "_unique_id", "bt"
+                    )
+                    seeded = 0
+                    for trv_id in self.real_trvs.keys():
+                        for b in buckets or []:
+                            key = f"{uid}:{trv_id}:{b}"
+                            try:
+                                if seed_pid_gains(key, kp=kp, ki=ki, kd=kd):
+                                    seeded += 1
+                            except Exception:
+                                pass
+                    if seeded > 0:
+                        _LOGGER.info(
+                            "better_thermostat %s: applied PID defaults (kp=%.3f ki=%.3f kd=%.3f) to %d bucket state(s) across %d TRV(s)",
+                            self.device_name,
+                            kp,
+                            ki,
+                            kd,
+                            seeded,
+                            len(list(self.real_trvs.keys()) or []),
+                        )
+                        try:
+                            self._schedule_save_balance_state()
+                        except Exception:
+                            pass
+                        # Kick the control loop so the new gains are used promptly
+                        try:
+                            await self.control_queue_task.put(self)
+                        except Exception:
+                            pass
+                    else:
+                        _LOGGER.debug(
+                            "better_thermostat %s: apply_pid_defaults did not seed any bucket (bt_target_temp=%s, buckets=%s)",
+                            self.device_name,
+                            getattr(self, "bt_target_temp", None),
+                            buckets,
+                        )
+                except Exception as e:  # noqa: BLE001
+                    _LOGGER.debug(
+                        "better_thermostat %s: apply_pid_defaults failed: %s",
+                        self.device_name,
+                        e,
+                    )
+        except Exception as e:  # noqa: BLE001
+            _LOGGER.debug(
+                "better_thermostat %s: reset_pid_learnings_service error: %s",
+                self.device_name,
+                e,
+            )
