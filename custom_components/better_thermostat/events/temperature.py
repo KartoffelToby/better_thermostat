@@ -154,9 +154,7 @@ async def trigger_temperature_change(self, event):
                 try:
                     # Prüfe aktuellen Sensor-Status
                     sensor_id = getattr(self, "sensor_entity_id", None)
-                    state = (
-                        self.hass.states.get(sensor_id) if sensor_id else None
-                    )
+                    state = self.hass.states.get(sensor_id) if sensor_id else None
                     if state is None or state.state in (
                         STATE_UNAVAILABLE,
                         STATE_UNKNOWN,
@@ -199,7 +197,8 @@ async def trigger_temperature_change(self, event):
                                 trv_ids = list(getattr(self, "real_trvs", {}).keys())
                                 if not trv_ids and hasattr(self, "entity_ids"):
                                     trv_ids = list(
-                                        getattr(self, "entity_ids", []) or [])
+                                        getattr(self, "entity_ids", []) or []
+                                    )
                                 if not trv_ids and hasattr(self, "heater_entity_id"):
                                     trv_ids = [self.heater_entity_id]
                                 for trv_id in trv_ids:
@@ -427,8 +426,11 @@ async def trigger_temperature_change(self, event):
             _sig_threshold_q,
             (self.accum_delta if _cur_q is not None else 0.0),
             ("+" if self.accum_dir > 0 else ("-" if self.accum_dir < 0 else "0")),
-            (f"{self.pending_temp:.2f}" if isinstance(
-                self.pending_temp, (int, float)) else None),
+            (
+                f"{self.pending_temp:.2f}"
+                if isinstance(self.pending_temp, (int, float))
+                else None
+            ),
             (
                 f"{(datetime.now() - self.pending_since).total_seconds():.1f}"
                 if self.pending_since is not None

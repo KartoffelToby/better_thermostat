@@ -381,8 +381,12 @@ def compute_balance(
                         # Messwerte & Mischanteile
                         "meas_external_C": _r(inp.current_temp_C, 2),
                         "meas_trv_C": _r(inp.trv_temp_C, 2),
-                        "mix_w_internal": _r(_mix_int, 2) if _mix_int is not None else None,
-                        "mix_w_external": _r(_mix_ext, 2) if _mix_ext is not None else None,
+                        "mix_w_internal": (
+                            _r(_mix_int, 2) if _mix_int is not None else None
+                        ),
+                        "mix_w_external": (
+                            _r(_mix_ext, 2) if _mix_ext is not None else None
+                        ),
                         "meas_blend_C": _r(meas_now, 2),
                         "meas_smooth_C": _r(smoothed, 2),
                         "d_meas_per_s": _r(d_meas, 4),
@@ -521,7 +525,9 @@ def compute_balance(
         "too_soon": too_soon,
         "target_changed": target_changed,
         "target_prev": _r(getattr(st, "last_target_C", None), 2),
-        "target_cur": _r(inp.target_temp_C, 2) if inp.target_temp_C is not None else None,
+        "target_cur": (
+            _r(inp.target_temp_C, 2) if inp.target_temp_C is not None else None
+        ),
         "force_open": force_open,
         "force_close": force_close,
     }
