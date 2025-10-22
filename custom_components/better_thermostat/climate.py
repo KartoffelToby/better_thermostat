@@ -659,7 +659,7 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
                 return
             else:
                 _LOGGER.debug(
-                    "better_thermostat %s: external_temperature keepalive: %d TRV(s) gefunden",
+                    "better_thermostat %s: external_temperature keepalive: %d TRV(s) found",
                     getattr(self, "device_name", "unknown"),
                     len(trv_ids),
                 )
