@@ -454,7 +454,7 @@ async def get_device_model(self, entity_id):
                 device = dev_reg.async_get(dev_id)
         except Exception:
             device = None
-        # Auswahl ausschließlich über Device-Registry
+        # Selection exclusively via Device-Registry
         try:
             _LOGGER.debug(
                 "better_thermostat %s: device registry -> manufacturer=%s model=%s model_id=%s name=%s identifiers=%s",
