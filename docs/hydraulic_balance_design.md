@@ -142,7 +142,7 @@ All steps are per-room and require no global information.
   `{ "current_bucket": "XX.X", "buckets": { "XX.X": { "min_open_pct": N, "max_open_pct": M, "suggested_min_open_pct"?: n, "suggested_max_open_pct"?: m, "stats"?: { "samples": k, "avg_slope_K_min": s, "avg_valve_percent": p, "avg_delta_T_K": d, "last_update_ts": iso } }, ... } }`. Persisted across restarts.
 - Additionally, climate schedules an external temperature keepalive every ~30 minutes (plus an immediate send after startup) for devices requiring periodic refresh.
 - utils/controlling.py: if a valve entity exists (e.g., MQTT/Z2M), it forwards the computed percentage without an extra local hysteresis. Hysteresis/rate-limit is enforced centrally by the balance module.
-- model_quirks/TRVZB.py: direkter Zugriff auf Sonoff-Entitäten `number.*.valve_opening_degree` und `number.*.valve_closing_degree` (mit closing=100−opening) sowie `number.*.external_temperature_input` (0..99.9°C, 0.1er Schritte), um Ventil und externe Temperatur ohne Automations-Umwege zu setzen.
+- model_quirks/TRVZB.py: direct access to Sonoff entities `number.*.valve_opening_degree` and `number.*.valve_closing_degree` (with closing=100−opening), as well as `number.*.external_temperature_input` (0..99.9°C, 0.1 steps), to set the valve and external temperature without automation detours.
 
 ### Code integration points
 - `balance.py`: pure math and simple per-room in-memory state
