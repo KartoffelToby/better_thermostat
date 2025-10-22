@@ -653,7 +653,7 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
                 trv_ids = [self.heater_entity_id]
             if not trv_ids:
                 _LOGGER.debug(
-                    "better_thermostat %s: external_temperature keepalive: keine TRVs gefunden",
+                    "better_thermostat %s: external_temperature keepalive: no TRVs found",
                     getattr(self, "device_name", "unknown"),
                 )
                 return
