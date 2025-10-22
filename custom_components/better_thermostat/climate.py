@@ -633,8 +633,8 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
         self.hass.async_create_task(trigger_temperature_change(self, event))
 
     async def _external_temperature_keepalive(self, event=None):
-        """Re-sende die externe Temperatur regelmäßig zu den TRVs.
-        Viele Geräte erwarten mindestens alle ~30 Minuten ein Update."""
+        """Re-send the external temperature regularly to the TRVs.
+        Many devices expect an update at least every ~30 minutes."""
         try:
             cur = getattr(self, "cur_temp", None)
             if cur is None:
