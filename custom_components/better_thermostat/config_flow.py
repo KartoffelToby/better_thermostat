@@ -321,7 +321,7 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 default=user_input.get("min_update_interval_s", 60.0),
             )
         ] = vol.All(vol.Coerce(float), vol.Range(min=0, max=3600))
-        # PID-Parameter nur anzeigen, wenn explizit gewählt
+        # Only show PID parameters if explicitly chosen
         fields[
             vol.Optional("pid_auto_tune", default=user_input.get("pid_auto_tune", True))
         ] = bool
