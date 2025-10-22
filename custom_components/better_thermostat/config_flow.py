@@ -300,7 +300,7 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             )
         ] = bool
 
-        # Balance/Regelung (PID) – nach HomematicIP; Felder abhängig vom Modus
+        # Balance/control (PID) – after HomematicIP; fields dependent on mode
         mode_current = str(user_input.get("balance_mode", "none")).lower()
         fields[vol.Optional("balance_mode", default=mode_current)] = (
             BALANCE_MODE_SELECTOR
