@@ -305,7 +305,7 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         fields[vol.Optional("balance_mode", default=mode_current)] = (
             BALANCE_MODE_SELECTOR
         )
-        # Allgemeine Balance-Parameter nur anzeigen, wenn Modus nicht 'none'
+        # General balance parameters only show if mode is not 'none'
         fields[
             vol.Optional("trend_mix_trv", default=user_input.get("trend_mix_trv", 0.7))
         ] = vol.All(vol.Coerce(float), vol.Range(min=0, max=1))
