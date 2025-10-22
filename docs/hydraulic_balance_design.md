@@ -67,7 +67,7 @@ State (lightweight, per room key):
 - Phase-aware learning of caps:
   - Update max_open only in heating phase (ΔT ≥ band_near).
   - Update min_open only in holding/cooling phases (ΔT ≤ band_near).
-  - Ensure min_open ≤ max_open. Coarse 5%-Schritte weit vom Soll, 1%-Schritte nahe Soll.
+  - Ensure min_open ≤ max_open. Coarse 5% steps far from setpoint, 1% steps near setpoint.
 
 ## Algorithm (details)
 1) Base mapping from ΔT to p (0..100):
