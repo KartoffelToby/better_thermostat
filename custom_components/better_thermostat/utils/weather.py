@@ -13,7 +13,7 @@ from contextlib import suppress
 # import homeassistant.util.dt as dt_util
 # from homeassistant.components.recorder.history import state_changes_during_period
 
-from custom_components.better_thermostat.utils.helpers import convert_to_float
+from .helpers import convert_to_float
 
 
 _LOGGER = logging.getLogger(__name__)
