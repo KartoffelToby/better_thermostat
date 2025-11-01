@@ -2416,17 +2416,25 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
                     continue
                 if info.get("ignore_trv_states"):
                     continue
-                # 1) TRV reports hvac_mode=heat
-                mode_val = info.get("hvac_mode")
-                mode_str = str(mode_val).lower() if mode_val is not None else ""
-                if mode_val == HVACMode.HEAT or mode_str == "heat":
-                    _LOGGER.debug(
-                        "better_thermostat %s: overriding hvac_action to HEATING because TRV %s reports hvac_mode=%s",
-                        self.device_name,
-                        trv_id,
-                        mode_val,
+                # 0) Prefer explicit hvac_action from TRV if provided
+                try:
+                    action_val = info.get("hvac_action")
+                    action_str = (
+                        str(action_val).lower() if action_val is not None else ""
                     )
-                    return HVACAction.HEATING
+                    if action_val == HVACAction.HEATING or action_str == "heating":
+                        _LOGGER.debug(
+                            "better_thermostat %s: overriding hvac_action to HEATING because TRV %s reports hvac_action=%s",
+                            self.device_name,
+                            trv_id,
+                            action_val,
+                        )
+                        return HVACAction.HEATING
+                except Exception:
+                    pass
+                # 1) Previously we treated hvac_mode=heat as active heating.
+                #    This caused false positives for some TRVs that report HEAT while idling.
+                #    We now rely on hvac_action/valve signals instead, so skip this shortcut.
                 # 2) TRV shows an actual/open valve position > 0
                 vp = info.get("valve_position")
                 try:

@@ -3,7 +3,7 @@ import logging
 from typing import Any, Dict, cast
 from custom_components.better_thermostat.utils.const import CONF_HOMEMATICIP
 
-from homeassistant.components.climate.const import HVACMode
+from homeassistant.components.climate.const import HVACMode, HVACAction
 from homeassistant.core import State, callback
 from custom_components.better_thermostat.utils.helpers import (
     convert_to_float,
@@ -195,6 +195,45 @@ async def trigger_trv_change(self, event):
                 and self.real_trvs[entity_id]["last_hvac_mode"] != _org_trv_state.state
             ):
                 self.bt_hvac_mode = mapped_state
+
+    # Optional: aktualisiere erkannte hvac_action (falls vom TRV bereitgestellt)
+    try:
+        hvac_action_attr = _org_trv_state.attributes.get("hvac_action")
+        if hvac_action_attr is None:
+            # einige Integrationen verwenden 'action' statt 'hvac_action'
+            hvac_action_attr = _org_trv_state.attributes.get("action")
+        if hvac_action_attr is not None:
+            prev = self.real_trvs[entity_id].get("hvac_action")
+            # normalize to HVACAction when möglich, sonst lower-case string
+            normalized = hvac_action_attr
+            try:
+                if isinstance(hvac_action_attr, HVACAction):
+                    normalized = hvac_action_attr
+                else:
+                    s = str(hvac_action_attr).strip().lower()
+                    if s == "heating":
+                        normalized = HVACAction.HEATING
+                    elif s == "cooling":
+                        normalized = HVACAction.COOLING
+                    elif s == "idle":
+                        normalized = HVACAction.IDLE
+                    elif s == "off":
+                        normalized = HVACAction.OFF
+                    else:
+                        normalized = s  # fallback als String behalten
+            except Exception:
+                normalized = hvac_action_attr
+            if prev != normalized:
+                self.real_trvs[entity_id]["hvac_action"] = normalized
+                _LOGGER.debug(
+                    "better_thermostat %s: TRV %s hvac_action changed: %s -> %s",
+                    self.device_name,
+                    entity_id,
+                    prev,
+                    normalized,
+                )
+    except Exception:
+        pass
 
     _main_key = "temperature"
     if "temperature" not in old_state.attributes:
