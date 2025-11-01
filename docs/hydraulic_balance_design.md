@@ -67,7 +67,7 @@ State (lightweight, per room key):
 - Phase-aware learning of caps:
   - Update max_open only in heating phase (ΔT ≥ band_near).
   - Update min_open only in holding/cooling phases (ΔT ≤ band_near).
-  - Ensure min_open ≤ max_open. Coarse 5%-Schritte weit vom Soll, 1%-Schritte nahe Soll.
+  - Ensure min_open ≤ max_open. Coarse 5% steps far from setpoint, 1% steps near setpoint.
 
 ## Algorithm (details)
 1) Base mapping from ΔT to p (0..100):
@@ -103,11 +103,11 @@ State (lightweight, per room key):
 
 8) Sonoff min/max recommendations (and learning):
   - $max\_open \%= p$ (recommendation)
-  - $min\_open \% \approx 0$ on overshoot (ΔT ≤ −band\_near), sonst ein kleiner Komfortwert (z. B. 5%)
-  - Lernen pro Zieltemperatur-Bucket phasenabhängig:
-    - max_open wird nur aktualisiert, wenn geheizt wird (ΔT ≥ band\_near)
-    - min_open wird nur aktualisiert, wenn gehalten/abgekühlt wird (ΔT ≤ band\_near)
-    - Werte werden in sinnvollen Schritten angenähert (5% grob, 1% fein) und geclamped (0..100, min ≤ max)
+  - $min\_open \% \approx 0$ on overshoot (ΔT ≤ −band\_near), otherwise a small comfort value (e.g., 5%)
+  - Learning per target temperature bucket is phase-dependent:
+    - max_open is only updated when heating (ΔT ≥ band\_near)
+    - min_open is only updated when holding/cooling (ΔT ≤ band\_near)
+    - Values are approached in reasonable steps (5% coarse, 1% fine) and clamped (0..100, min ≤ max)
 
 All steps are per-room and require no global information.
 
@@ -136,13 +136,13 @@ All steps are per-room and require no global information.
 ## Implementation
 - balance.py: pure computation, no side effects.
 - events/temperature.py: compute and store a smoothed slope (K/min).
-- events/trv.py: integrates balance to compute per-TRV recommendations und lernt Sonoff/TRV `min_open%` und `max_open%` pro Zieltemperatur-Bucket phasenabhängig (max nur beim Aufheizen, min beim Halten/Abkühlen). Für Geräte ohne Ventilsteuerung kann `setpoint_eff` genutzt werden (wenn Kalibrierung/Setpoint-Schreiben erlaubt ist); mit aktivem "No Calibration" werden keine Setpoints geschrieben. Debug-Infos pro TRV (inkl. PID) liegen unter `real_trvs[trv]['balance']`. Bei Erstinitialisierung werden sinnvolle Defaults verwendet (min ≈ 5%, max = 100%), falls in der aktuellen Phase kein Vorschlag vorliegt.
-- events/temperature.py: schreibt zusätzlich die von BT verwendete externe Temperatur (ohne Hysterese) in Geräte, die eine "external_temperature_input" besitzen (z. B. Sonoff TRVZB), damit das Gerät konsistent dieselbe Referenz sieht.
+- events/trv.py: integrates balance to compute per-TRV recommendations and learns Sonoff/TRV `min_open%` and `max_open%` per target temperature bucket depending on the phase (max only during heating up, min during holding/cooling). For devices without valve control, `setpoint_eff` can be used (if calibration/setpoint writing is allowed); with active "No Calibration", no setpoints are written. Debug information per TRV (including PID) is available under `real_trvs[trv]['balance']`. On initial setup, reasonable defaults are used (min ≈ 5%, max = 100%) if no suggestion is available for the current phase.
+- events/temperature.py: additionally writes the external temperature used by BT (without hysteresis) to devices that have an "external_temperature_input" (e.g., Sonoff TRVZB), so that the device consistently sees the same reference.
 - climate.py: exposes learned caps as a JSON attribute `trv_open_caps`. Structure per TRV:
   `{ "current_bucket": "XX.X", "buckets": { "XX.X": { "min_open_pct": N, "max_open_pct": M, "suggested_min_open_pct"?: n, "suggested_max_open_pct"?: m, "stats"?: { "samples": k, "avg_slope_K_min": s, "avg_valve_percent": p, "avg_delta_T_K": d, "last_update_ts": iso } }, ... } }`. Persisted across restarts.
 - Additionally, climate schedules an external temperature keepalive every ~30 minutes (plus an immediate send after startup) for devices requiring periodic refresh.
 - utils/controlling.py: if a valve entity exists (e.g., MQTT/Z2M), it forwards the computed percentage without an extra local hysteresis. Hysteresis/rate-limit is enforced centrally by the balance module.
-- model_quirks/TRVZB.py: direkter Zugriff auf Sonoff-Entitäten `number.*.valve_opening_degree` und `number.*.valve_closing_degree` (mit closing=100−opening) sowie `number.*.external_temperature_input` (0..99.9°C, 0.1er Schritte), um Ventil und externe Temperatur ohne Automations-Umwege zu setzen.
+- model_quirks/TRVZB.py: direct access to Sonoff entities `number.*.valve_opening_degree` and `number.*.valve_closing_degree` (with closing=100−opening), as well as `number.*.external_temperature_input` (0..99.9°C, 0.1 steps), to set the valve and external temperature without automation detours.
 
 ### Code integration points
 - `balance.py`: pure math and simple per-room in-memory state

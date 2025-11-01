@@ -281,8 +281,7 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             )
         ] = bool
 
-        # Ventilwartung: immer anbieten; wenn keine native Ventilsteuerung vorhanden ist,
-        # nutzt die Laufzeitlogik ein Fallback über Setpoint-Extrema
+        # Valve maintenance: always offer; if no native valve control is available, the runtime logic uses a fallback via setpoint extremes
         fields[
             vol.Optional(
                 CONF_VALVE_MAINTENANCE,
@@ -301,12 +300,12 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             )
         ] = bool
 
-        # Balance/Regelung (PID) – nach HomematicIP; Felder abhängig vom Modus
+        # Balance/control (PID) – after HomematicIP; fields dependent on mode
         mode_current = str(user_input.get("balance_mode", "none")).lower()
         fields[vol.Optional("balance_mode", default=mode_current)] = (
             BALANCE_MODE_SELECTOR
         )
-        # Allgemeine Balance-Parameter nur anzeigen, wenn Modus nicht 'none'
+        # General balance parameters only show if mode is not 'none'
         fields[
             vol.Optional("trend_mix_trv", default=user_input.get("trend_mix_trv", 0.7))
         ] = vol.All(vol.Coerce(float), vol.Range(min=0, max=1))
@@ -322,7 +321,7 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 default=user_input.get("min_update_interval_s", 60.0),
             )
         ] = vol.All(vol.Coerce(float), vol.Range(min=0, max=3600))
-        # PID-Parameter nur anzeigen, wenn explizit gewählt
+        # Only show PID parameters if explicitly chosen
         fields[
             vol.Optional("pid_auto_tune", default=user_input.get("pid_auto_tune", True))
         ] = bool

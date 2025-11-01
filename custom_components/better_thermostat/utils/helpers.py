@@ -431,12 +431,12 @@ def get_min_value(obj, value, default):
 
 
 async def get_device_model(self, entity_id):
-    """Bestimme das Gerätemodell aus dem Device-Registry-Eintrag.
+    """Determine the device model from the Device Registry entry.
 
-    Priorität:
+    Priority:
     1) device.model_id
-    2) Modell aus Klammern in device.model (z. B. "Foo (TRVZB)")
-    3) device.model (Plain-String)
+    2) Model from parentheses in device.model (e.g., "Foo (TRVZB)")
+    3) device.model (plain string)
     4) Fallback: self.model (Config)
     5) Fallback: "generic"
     """
@@ -454,7 +454,7 @@ async def get_device_model(self, entity_id):
                 device = dev_reg.async_get(dev_id)
         except Exception:
             device = None
-        # Auswahl ausschließlich über Device-Registry
+        # Selection exclusively via Device-Registry
         try:
             _LOGGER.debug(
                 "better_thermostat %s: device registry -> manufacturer=%s model=%s model_id=%s name=%s identifiers=%s",
