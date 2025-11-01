@@ -2394,6 +2394,86 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
             and self.cur_temp > (self.bt_target_cooltemp + tol)
         ):
             return HVACAction.COOLING
+        # Base decision would be IDLE. If any real TRV indicates active heating, override to HEATING.
+        try:
+            # Skip overrides while we intentionally ignore TRV states or when window is open
+            if getattr(self, "ignore_states", False) or getattr(self, "window_open", False):
+                return HVACAction.IDLE
+            # Threshold for valve opening to be considered "heating": 5%
+
+            def _to_pct(val):
+                try:
+                    v = float(val)
+                    return v * 100.0 if v <= 1.0 else v
+                except Exception:
+                    return None
+            THRESH = 5.0
+            for trv_id, info in (self.real_trvs or {}).items():
+                if not isinstance(info, dict):
+                    continue
+                if info.get("ignore_trv_states"):
+                    continue
+                # 1) TRV reports hvac_mode=heat
+                mode_val = info.get("hvac_mode")
+                mode_str = str(mode_val).lower() if mode_val is not None else ""
+                if mode_val == HVACMode.HEAT or mode_str == "heat":
+                    _LOGGER.debug(
+                        "better_thermostat %s: overriding hvac_action to HEATING because TRV %s reports hvac_mode=%s",
+                        self.device_name,
+                        trv_id,
+                        mode_val,
+                    )
+                    return HVACAction.HEATING
+                # 2) TRV shows an actual/open valve position > 0
+                vp = info.get("valve_position")
+                try:
+                    vp_pct = _to_pct(vp)
+                    if vp_pct is not None and vp_pct > THRESH:
+                        _LOGGER.debug(
+                            "better_thermostat %s: overriding hvac_action to HEATING because TRV %s valve_position=%.1f%% (>%.1f%%)",
+                            self.device_name,
+                            trv_id,
+                            vp_pct,
+                            THRESH,
+                        )
+                        return HVACAction.HEATING
+                except Exception:
+                    pass
+                # 3) We last commanded a valve percent > 0 (adapter/override)
+                last_pct = info.get("last_valve_percent")
+                try:
+                    last_pct_n = _to_pct(last_pct)
+                    if last_pct_n is not None and last_pct_n > THRESH:
+                        _LOGGER.debug(
+                            "better_thermostat %s: overriding hvac_action to HEATING because TRV %s last_valve_percent=%.1f%% (>%.1f%%)",
+                            self.device_name,
+                            trv_id,
+                            last_pct_n,
+                            THRESH,
+                        )
+                        return HVACAction.HEATING
+                except Exception:
+                    pass
+                # 4) Balance module currently targets a valve percent > 0 (proxy for heating intent)
+                bal = info.get("balance") or {}
+                v_bal = bal.get("valve_percent") if isinstance(bal, dict) else None
+                try:
+                    v_bal_n = _to_pct(v_bal)
+                    if v_bal_n is not None and v_bal_n > THRESH:
+                        _LOGGER.debug(
+                            "better_thermostat %s: overriding hvac_action to HEATING because TRV %s balance.valve_percent=%.1f%% (>%.1f%%)",
+                            self.device_name,
+                            trv_id,
+                            v_bal_n,
+                            THRESH,
+                        )
+                        return HVACAction.HEATING
+                except Exception:
+                    pass
+        except Exception:
+            # Defensive: if anything goes wrong in overrides, fall back to IDLE
+            pass
+
         return HVACAction.IDLE
 
     @property
