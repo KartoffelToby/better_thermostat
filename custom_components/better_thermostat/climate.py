@@ -2397,7 +2397,9 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
         # Base decision would be IDLE. If any real TRV indicates active heating, override to HEATING.
         try:
             # Skip overrides while we intentionally ignore TRV states or when window is open
-            if getattr(self, "ignore_states", False) or getattr(self, "window_open", False):
+            if getattr(self, "ignore_states", False) or getattr(
+                self, "window_open", False
+            ):
                 return HVACAction.IDLE
             # Threshold for valve opening to be considered "heating": 5%
 
@@ -2407,6 +2409,7 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
                     return v * 100.0 if v <= 1.0 else v
                 except Exception:
                     return None
+
             THRESH = 5.0
             for trv_id, info in (self.real_trvs or {}).items():
                 if not isinstance(info, dict):
