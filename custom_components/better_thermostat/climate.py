@@ -2432,6 +2432,16 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
                         return HVACAction.HEATING
                 except Exception:
                     pass
+                # Only use valve percentages for overrides if balance mode is enabled for this TRV
+                try:
+                    adv = (info.get("advanced", {}) or {})
+                    bal_mode = str(adv.get("balance_mode", "") or "").strip()
+                except Exception:
+                    bal_mode = ""
+                if not bal_mode:
+                    # No balance mode configured -> skip valve-percentage-based overrides
+                    # (hvac_action-based override above still applies)
+                    continue
                 # 1) Previously we treated hvac_mode=heat as active heating.
                 #    This caused false positives for some TRVs that report HEAT while idling.
                 #    We now rely on hvac_action/valve signals instead, so skip this shortcut.
