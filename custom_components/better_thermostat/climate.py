@@ -62,7 +62,7 @@ from .adapters.delegate import (
     load_adapter,
     set_temperature as adapter_set_temperature,
     set_hvac_mode as adapter_set_hvac_mode,
-    set_valve as adapter_set_valve,
+    # set_valve as adapter_set_valve,  # removed (unused)
 )
 from .events.cooler import trigger_cooler_change
 from .events.temperature import trigger_temperature_change
@@ -1997,6 +1997,8 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
         except Exception:
             pass
 
+        # (Removed per-user request): per-TRV hvac_action debug attribute
+
         # Optional telemetry (memory friendly): only count & last cycle + normalized power
         if hasattr(self, "heating_cycles") and len(self.heating_cycles) > 0:
             last_cycle = self.heating_cycles[-1]
@@ -2422,26 +2424,52 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
                     action_str = (
                         str(action_val).lower() if action_val is not None else ""
                     )
+                    # Fallback: read directly from TRV entity attributes if not cached
+                    if not action_str:
+                        try:
+                            trv_state = self.hass.states.get(trv_id)
+                            if trv_state is not None:
+                                a2 = trv_state.attributes.get("hvac_action")
+                                if a2 is None:
+                                    a2 = trv_state.attributes.get("action")
+                                action_str = str(a2).lower() if a2 is not None else ""
+                        except Exception:
+                            action_str = ""
+                    # Determine staleness (minutes since last cached hvac_action update)
+                    stale_min = None
+                    try:
+                        ts_s = info.get("hvac_action_ts")
+                        if ts_s:
+                            ts = dt_util.parse_datetime(ts_s)
+                            if ts is not None:
+                                stale_min = (
+                                    dt_util.utcnow() - ts
+                                ).total_seconds() / 60.0
+                    except Exception:
+                        stale_min = None
+
                     if action_val == HVACAction.HEATING or action_str == "heating":
-                        _LOGGER.debug(
-                            "better_thermostat %s: overriding hvac_action to HEATING because TRV %s reports hvac_action=%s",
-                            self.device_name,
-                            trv_id,
-                            action_val,
-                        )
+                        # Direct override without temperature/balance guards
+                        if (
+                            getattr(self, "old_attr_hvac_action", None)
+                            != HVACAction.HEATING
+                        ):
+                            if isinstance(stale_min, (int, float)) and stale_min > 15.0:
+                                _LOGGER.debug(
+                                    "better_thermostat %s: overriding hvac_action to HEATING (TRV %s reports heating; cached action age ~%.1f min)",
+                                    self.device_name,
+                                    trv_id,
+                                    stale_min,
+                                )
+                            else:
+                                _LOGGER.debug(
+                                    "better_thermostat %s: overriding hvac_action to HEATING (TRV %s reports heating)",
+                                    self.device_name,
+                                    trv_id,
+                                )
                         return HVACAction.HEATING
                 except Exception:
                     pass
-                # Only use valve percentages for overrides if balance mode is enabled for this TRV
-                try:
-                    adv = (info.get("advanced", {}) or {})
-                    bal_mode = str(adv.get("balance_mode", "") or "").strip()
-                except Exception:
-                    bal_mode = ""
-                if not bal_mode:
-                    # No balance mode configured -> skip valve-percentage-based overrides
-                    # (hvac_action-based override above still applies)
-                    continue
                 # 1) Previously we treated hvac_mode=heat as active heating.
                 #    This caused false positives for some TRVs that report HEAT while idling.
                 #    We now rely on hvac_action/valve signals instead, so skip this shortcut.
@@ -2450,13 +2478,16 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
                 try:
                     vp_pct = _to_pct(vp)
                     if vp_pct is not None and vp_pct > THRESH:
-                        _LOGGER.debug(
-                            "better_thermostat %s: overriding hvac_action to HEATING because TRV %s valve_position=%.1f%% (>%.1f%%)",
-                            self.device_name,
-                            trv_id,
-                            vp_pct,
-                            THRESH,
-                        )
+                        if (
+                            getattr(self, "old_attr_hvac_action", None)
+                            != HVACAction.HEATING
+                        ):
+                            _LOGGER.debug(
+                                "better_thermostat %s: overriding hvac_action to HEATING (valve_position %.1f%%, TRV %s)",
+                                self.device_name,
+                                vp_pct,
+                                trv_id,
+                            )
                         return HVACAction.HEATING
                 except Exception:
                     pass
@@ -2465,13 +2496,16 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
                 try:
                     last_pct_n = _to_pct(last_pct)
                     if last_pct_n is not None and last_pct_n > THRESH:
-                        _LOGGER.debug(
-                            "better_thermostat %s: overriding hvac_action to HEATING because TRV %s last_valve_percent=%.1f%% (>%.1f%%)",
-                            self.device_name,
-                            trv_id,
-                            last_pct_n,
-                            THRESH,
-                        )
+                        if (
+                            getattr(self, "old_attr_hvac_action", None)
+                            != HVACAction.HEATING
+                        ):
+                            _LOGGER.debug(
+                                "better_thermostat %s: overriding hvac_action to HEATING (last_valve_percent %.1f%%, TRV %s)",
+                                self.device_name,
+                                last_pct_n,
+                                trv_id,
+                            )
                         return HVACAction.HEATING
                 except Exception:
                     pass
@@ -2481,13 +2515,16 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
                 try:
                     v_bal_n = _to_pct(v_bal)
                     if v_bal_n is not None and v_bal_n > THRESH:
-                        _LOGGER.debug(
-                            "better_thermostat %s: overriding hvac_action to HEATING because TRV %s balance.valve_percent=%.1f%% (>%.1f%%)",
-                            self.device_name,
-                            trv_id,
-                            v_bal_n,
-                            THRESH,
-                        )
+                        if (
+                            getattr(self, "old_attr_hvac_action", None)
+                            != HVACAction.HEATING
+                        ):
+                            _LOGGER.debug(
+                                "better_thermostat %s: overriding hvac_action to HEATING (balance.valve_percent %.1f%%, TRV %s)",
+                                self.device_name,
+                                v_bal_n,
+                                trv_id,
+                            )
                         return HVACAction.HEATING
                 except Exception:
                     pass

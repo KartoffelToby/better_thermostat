@@ -196,7 +196,7 @@ async def trigger_trv_change(self, event):
             ):
                 self.bt_hvac_mode = mapped_state
 
-    # Optional: aktualisiere erkannte hvac_action (falls vom TRV bereitgestellt)
+    # Aktualisiere erkannte hvac_action (falls vom TRV bereitgestellt) + Zeitstempel für Stale-Erkennung
     try:
         hvac_action_attr = _org_trv_state.attributes.get("hvac_action")
         if hvac_action_attr is None:
@@ -225,6 +225,13 @@ async def trigger_trv_change(self, event):
                 normalized = hvac_action_attr
             if prev != normalized:
                 self.real_trvs[entity_id]["hvac_action"] = normalized
+                # Zeitstempel für letzte Aktualisierung (UTC ISO) sichern
+                try:
+                    self.real_trvs[entity_id][
+                        "hvac_action_ts"
+                    ] = dt_util.utcnow().isoformat()
+                except Exception:
+                    self.real_trvs[entity_id]["hvac_action_ts"] = None
                 _LOGGER.debug(
                     "better_thermostat %s: TRV %s hvac_action changed: %s -> %s",
                     self.device_name,
@@ -232,6 +239,14 @@ async def trigger_trv_change(self, event):
                     prev,
                     normalized,
                 )
+            else:
+                # Falls Wert unverändert ist, trotzdem Zeitstempel auffrischen, damit wir wissen, dass das Device noch 'lebt'
+                try:
+                    self.real_trvs[entity_id][
+                        "hvac_action_ts"
+                    ] = dt_util.utcnow().isoformat()
+                except Exception:
+                    pass
     except Exception:
         pass
 
