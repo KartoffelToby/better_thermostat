@@ -2436,9 +2436,7 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
                         action_raw = trv_state.attributes.get("hvac_action")
                         if action_raw is None:
                             action_raw = trv_state.attributes.get("action")
-                    action_str = (
-                        str(action_raw).lower() if action_raw is not None else ""
-                    )
+                    action_str = str(action_raw).lower() if action_raw is not None else ""
                     if action_str == "heating":
                         # Log nur bei Übergang oder alle 60s (Spam-Reduktion)
                         now_ts = dt_util.utcnow()
@@ -2449,11 +2447,7 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
                                 diff_ok = (now_ts - last_log_ts).total_seconds() >= 60
                             except Exception:
                                 diff_ok = True
-                        if (
-                            getattr(self, "old_attr_hvac_action", None)
-                            != HVACAction.HEATING
-                            or diff_ok
-                        ):
+                        if getattr(self, "old_attr_hvac_action", None) != HVACAction.HEATING or diff_ok:
                             _LOGGER.debug(
                                 "better_thermostat %s: overriding hvac_action to HEATING (TRV %s reports heating)",
                                 self.device_name,
@@ -2471,10 +2465,7 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
                 try:
                     vp_pct = _to_pct(vp)
                     if vp_pct is not None and vp_pct > THRESH:
-                        if (
-                            getattr(self, "old_attr_hvac_action", None)
-                            != HVACAction.HEATING
-                        ):
+                        if getattr(self, "old_attr_hvac_action", None) != HVACAction.HEATING:
                             _LOGGER.debug(
                                 "better_thermostat %s: overriding hvac_action to HEATING (valve_position %.1f%%, TRV %s)",
                                 self.device_name,
@@ -2489,10 +2480,7 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
                 try:
                     last_pct_n = _to_pct(last_pct)
                     if last_pct_n is not None and last_pct_n > THRESH:
-                        if (
-                            getattr(self, "old_attr_hvac_action", None)
-                            != HVACAction.HEATING
-                        ):
+                        if getattr(self, "old_attr_hvac_action", None) != HVACAction.HEATING:
                             _LOGGER.debug(
                                 "better_thermostat %s: overriding hvac_action to HEATING (last_valve_percent %.1f%%, TRV %s)",
                                 self.device_name,
@@ -2508,10 +2496,7 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
                 try:
                     v_bal_n = _to_pct(v_bal)
                     if v_bal_n is not None and v_bal_n > THRESH:
-                        if (
-                            getattr(self, "old_attr_hvac_action", None)
-                            != HVACAction.HEATING
-                        ):
+                        if getattr(self, "old_attr_hvac_action", None) != HVACAction.HEATING:
                             _LOGGER.debug(
                                 "better_thermostat %s: overriding hvac_action to HEATING (balance.valve_percent %.1f%%, TRV %s)",
                                 self.device_name,
