@@ -2413,31 +2413,24 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
                     return None
 
             THRESH = 5.0
-            # Direktzugriff: Sammle alle TRV States einmalig (kein Cache mehr notwendig)
-            trv_states = {}
-            try:
-                for _tid in (self.real_trvs or {}).keys():
-                    try:
-                        trv_states[_tid] = self.hass.states.get(_tid)
-                    except Exception:
-                        trv_states[_tid] = None
-            except Exception:
-                pass
             for trv_id, info in (self.real_trvs or {}).items():
                 if not isinstance(info, dict):
                     continue
                 if info.get("ignore_trv_states"):
                     continue
-                # 0) Lies hvac_action/action immer direkt aus hass.states (Cache ignorieren)
+                # 0) Nutze zuerst den Cache (events/trv.py pflegt hvac_action), optionaler Fallback auf hass.states
                 try:
-                    trv_state = trv_states.get(trv_id)
-                    action_raw = None
-                    if trv_state is not None:
-                        action_raw = trv_state.attributes.get("hvac_action")
-                        if action_raw is None:
-                            action_raw = trv_state.attributes.get("action")
-                    action_str = str(action_raw).lower() if action_raw is not None else ""
-                    if action_str == "heating":
+                    action_val = info.get("hvac_action")
+                    action_str = str(action_val).lower() if action_val is not None else ""
+                    if not action_str:
+                        trv_state = self.hass.states.get(trv_id)
+                        action_raw = None
+                        if trv_state is not None:
+                            action_raw = trv_state.attributes.get("hvac_action")
+                            if action_raw is None:
+                                action_raw = trv_state.attributes.get("action")
+                        action_str = str(action_raw).lower() if action_raw is not None else ""
+                    if action_str == "heating" or action_val == HVACAction.HEATING:
                         # Log nur bei Übergang oder alle 60s (Spam-Reduktion)
                         now_ts = dt_util.utcnow()
                         last_log_ts = getattr(self, "_last_override_log_ts", None)

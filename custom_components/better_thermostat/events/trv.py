@@ -161,6 +161,25 @@ async def trigger_trv_change(self, event):
                 )
 
     if self.ignore_states:
+        # Trotz ignore_states: hvac_action im Cache aktualisieren, damit climate.py frische Werte hat
+        try:
+            hvac_action_attr = _org_trv_state.attributes.get("hvac_action")
+            if hvac_action_attr is None:
+                hvac_action_attr = _org_trv_state.attributes.get("action")
+            if hvac_action_attr is not None:
+                val = str(hvac_action_attr).strip().lower()
+                prev = self.real_trvs[entity_id].get("hvac_action")
+                self.real_trvs[entity_id]["hvac_action"] = val
+                if prev != val:
+                    _LOGGER.debug(
+                        "better_thermostat %s: TRV %s hvac_action changed: %s -> %s",
+                        self.device_name,
+                        entity_id,
+                        prev,
+                        val,
+                    )
+        except Exception:
+            pass
         return
 
     try:
@@ -172,6 +191,26 @@ async def trigger_trv_change(self, event):
             entity_id,
         )
         return
+
+    # hvac_action bedingungslos in den Cache schreiben (immer aktuell halten)
+    try:
+        hvac_action_attr = _org_trv_state.attributes.get("hvac_action")
+        if hvac_action_attr is None:
+            hvac_action_attr = _org_trv_state.attributes.get("action")
+        if hvac_action_attr is not None:
+            val = str(hvac_action_attr).strip().lower()
+            prev = self.real_trvs[entity_id].get("hvac_action")
+            self.real_trvs[entity_id]["hvac_action"] = val
+            if prev != val:
+                _LOGGER.debug(
+                    "better_thermostat %s: TRV %s hvac_action changed: %s -> %s",
+                    self.device_name,
+                    entity_id,
+                    prev,
+                    val,
+                )
+    except Exception:
+        pass
 
     if mapped_state in (HVACMode.OFF, HVACMode.HEAT, HVACMode.HEAT_COOL):
         if (
