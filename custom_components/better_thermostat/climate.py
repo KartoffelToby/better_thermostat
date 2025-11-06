@@ -2413,60 +2413,53 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
                     return None
 
             THRESH = 5.0
+            # Direktzugriff: Sammle alle TRV States einmalig (kein Cache mehr notwendig)
+            trv_states = {}
+            try:
+                for _tid in (self.real_trvs or {}).keys():
+                    try:
+                        trv_states[_tid] = self.hass.states.get(_tid)
+                    except Exception:
+                        trv_states[_tid] = None
+            except Exception:
+                pass
             for trv_id, info in (self.real_trvs or {}).items():
                 if not isinstance(info, dict):
                     continue
                 if info.get("ignore_trv_states"):
                     continue
-                # 0) Prefer explicit hvac_action from TRV if provided
+                # 0) Lies hvac_action/action immer direkt aus hass.states (Cache ignorieren)
                 try:
-                    action_val = info.get("hvac_action")
+                    trv_state = trv_states.get(trv_id)
+                    action_raw = None
+                    if trv_state is not None:
+                        action_raw = trv_state.attributes.get("hvac_action")
+                        if action_raw is None:
+                            action_raw = trv_state.attributes.get("action")
                     action_str = (
-                        str(action_val).lower() if action_val is not None else ""
+                        str(action_raw).lower() if action_raw is not None else ""
                     )
-                    # Fallback: read directly from TRV entity attributes if not cached
-                    if not action_str:
-                        try:
-                            trv_state = self.hass.states.get(trv_id)
-                            if trv_state is not None:
-                                a2 = trv_state.attributes.get("hvac_action")
-                                if a2 is None:
-                                    a2 = trv_state.attributes.get("action")
-                                action_str = str(a2).lower() if a2 is not None else ""
-                        except Exception:
-                            action_str = ""
-                    # Determine staleness (minutes since last cached hvac_action update)
-                    stale_min = None
-                    try:
-                        ts_s = info.get("hvac_action_ts")
-                        if ts_s:
-                            ts = dt_util.parse_datetime(ts_s)
-                            if ts is not None:
-                                stale_min = (
-                                    dt_util.utcnow() - ts
-                                ).total_seconds() / 60.0
-                    except Exception:
-                        stale_min = None
-
-                    if action_val == HVACAction.HEATING or action_str == "heating":
-                        # Direct override without temperature/balance guards
+                    if action_str == "heating":
+                        # Log nur bei Übergang oder alle 60s (Spam-Reduktion)
+                        now_ts = dt_util.utcnow()
+                        last_log_ts = getattr(self, "_last_override_log_ts", None)
+                        diff_ok = True
+                        if last_log_ts is not None:
+                            try:
+                                diff_ok = (now_ts - last_log_ts).total_seconds() >= 60
+                            except Exception:
+                                diff_ok = True
                         if (
                             getattr(self, "old_attr_hvac_action", None)
                             != HVACAction.HEATING
+                            or diff_ok
                         ):
-                            if isinstance(stale_min, (int, float)) and stale_min > 15.0:
-                                _LOGGER.debug(
-                                    "better_thermostat %s: overriding hvac_action to HEATING (TRV %s reports heating; cached action age ~%.1f min)",
-                                    self.device_name,
-                                    trv_id,
-                                    stale_min,
-                                )
-                            else:
-                                _LOGGER.debug(
-                                    "better_thermostat %s: overriding hvac_action to HEATING (TRV %s reports heating)",
-                                    self.device_name,
-                                    trv_id,
-                                )
+                            _LOGGER.debug(
+                                "better_thermostat %s: overriding hvac_action to HEATING (TRV %s reports heating)",
+                                self.device_name,
+                                trv_id,
+                            )
+                            self._last_override_log_ts = now_ts
                         return HVACAction.HEATING
                 except Exception:
                     pass
@@ -2588,7 +2581,6 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
         await self.control_queue_task.put(self)
 
     async def async_set_temperature(self, **kwargs) -> None:
-        """Set new target temperature."""
         if self.bt_hvac_mode == HVACMode.OFF:
             return
         _LOGGER.debug(
