@@ -318,7 +318,8 @@ async def trigger_trv_change(self, event):
     if _main_change is True:
         self.async_write_ha_state()
         return await self.control_queue_task.put(self)
-    self.async_write_ha_state()
+    # Keine Zustandsausgabe, wenn sich nichts Relevantes geändert hat –
+    # reduziert unnötige Property-Berechnungen (z. B. hvac_action) und entlastet HA.
     return
 
 
