@@ -199,6 +199,7 @@ async def control_trv(self, heater_entity_id=None):
             )
 
         _new_hvac_mode = handle_window_open(self, _remapped_states)
+        _new_hvac_mode = handle_hvac_mode_tolerance(self, _remapped_states)
 
         # New cooler section
         if self.cooler_entity_id is not None:
@@ -397,6 +398,22 @@ def handle_window_open(self, _remapped_states):
         _hvac_mode_send = HVACMode.OFF
 
     return _hvac_mode_send
+
+
+def handle_hvac_mode_tolerance(self, _remapped_states):
+    """handle hvac_mode regarding tolerance"""
+
+    # Add tolerance check
+    _within_tolerance = self.cur_temp >= (
+        self.bt_target_temp - self.tolerance
+    ) and self.cur_temp <= (self.bt_target_temp + self.tolerance)
+
+    if _within_tolerance:
+        # When within tolerance, HVAC is OFF
+        self.last_main_hvac_mode = _remapped_states.get("system_mode", None)
+        return HVACMode.OFF
+    else:
+        return self.last_main_hvac_mode
 
 
 async def check_system_mode(self, heater_entity_id=None):
