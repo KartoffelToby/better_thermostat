@@ -14,6 +14,7 @@ from .utils.const import (
     CONF_NO_SYSTEM_MODE_OFF,
     CONF_WINDOW_TIMEOUT,
     CONF_WINDOW_TIMEOUT_AFTER,
+    CONF_ECO_TEMPERATURE,
     CalibrationMode,
 )
 
@@ -38,7 +39,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     hass.data[DOMAIN][entry.entry_id] = {}
     try:
         await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
-    except Exception:  # noqa: BLE001
+    except Exception:
         _LOGGER.exception(
             "better_thermostat: Fehler beim Laden der Plattformen für Entry %s",
             entry.entry_id,
@@ -63,6 +64,7 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
 
 async def async_reload_entry(hass: HomeAssistant, config_entry: ConfigEntry) -> None:
+    """Reload the config entry."""
     await async_unload_entry(hass, config_entry)
     await async_setup_entry(hass, config_entry)
 
@@ -74,14 +76,12 @@ async def async_migrate_entry(hass, config_entry: ConfigEntry):
         new = {**config_entry.data}
         for trv in new[CONF_HEATER]:
             trv["advanced"].update({CalibrationMode.AGGRESIVE_CALIBRATION: False})
-        config_entry.version = 2
-        hass.config_entries.async_update_entry(config_entry, data=new)
+        hass.config_entries.async_update_entry(config_entry, data=new, version=2)
 
     if config_entry.version == 2:
         new = {**config_entry.data}
         new[CONF_WINDOW_TIMEOUT] = 0
-        config_entry.version = 3
-        hass.config_entries.async_update_entry(config_entry, data=new)
+        hass.config_entries.async_update_entry(config_entry, data=new, version=3)
 
     if config_entry.version == 3:
         new = {**config_entry.data}
@@ -95,21 +95,25 @@ async def async_migrate_entry(hass, config_entry: ConfigEntry):
                 )
             else:
                 trv["advanced"].update({CONF_CALIBRATION_MODE: CalibrationMode.DEFAULT})
-        config_entry.version = 4
-        hass.config_entries.async_update_entry(config_entry, data=new)
+        hass.config_entries.async_update_entry(config_entry, data=new, version=4)
 
     if config_entry.version == 4:
         new = {**config_entry.data}
         for trv in new[CONF_HEATER]:
             trv["advanced"].update({CONF_NO_SYSTEM_MODE_OFF: False})
-        config_entry.version = 5
-        hass.config_entries.async_update_entry(config_entry, data=new)
+        hass.config_entries.async_update_entry(config_entry, data=new, version=5)
 
     if config_entry.version == 5:
         new = {**config_entry.data}
         new[CONF_WINDOW_TIMEOUT_AFTER] = new[CONF_WINDOW_TIMEOUT]
-        config_entry.version = 6
-        hass.config_entries.async_update_entry(config_entry, data=new)
+        hass.config_entries.async_update_entry(config_entry, data=new, version=6)
+
+    if config_entry.version == 6:
+        new = {**config_entry.data}
+        # Add ECO target temperature with default value if not present
+        if CONF_ECO_TEMPERATURE not in new:
+            new[CONF_ECO_TEMPERATURE] = 18.0
+        hass.config_entries.async_update_entry(config_entry, data=new, version=7)
 
     _LOGGER.info("Migration to version %s successful", config_entry.version)
 
