@@ -226,7 +226,11 @@ async def set_valve(self, entity_id, valve):
                     self.real_trvs[entity_id]["last_valve_percent"] = int(target_pct)
                     self.real_trvs[entity_id]["last_valve_method"] = "override"
                 except Exception:
-                    pass
+                    _LOGGER.exception(
+                        "better_thermostat %s: Failed to set last_valve_percent or last_valve_method for %s in override",
+                        getattr(self, "device_name", "unknown"),
+                        entity_id,
+                    )
             return bool(ok)
     except Exception:
         _LOGGER.debug(
