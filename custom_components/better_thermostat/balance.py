@@ -89,8 +89,10 @@ class BalanceParams:
     steady_state_duration_s: float = 900.0
     # MPC-Parameter (Experimental)
     mpc_horizon_steps: int = 12  # Anzahl Vorwärtsschritte
-    mpc_step_s: float = 60.0  # Schrittweite in Sekunden (simulativ, nicht real-time tick)
-    mpc_thermal_gain: float = 0.05  # Effekt pro Schritt (Temperatur-Fehlerabbau pro 100% Ventil)
+    # Schrittweite in Sekunden (simulativ, nicht real-time tick)
+    mpc_step_s: float = 60.0
+    # Effekt pro Schritt (Temperatur-Fehlerabbau pro 100% Ventil)
+    mpc_thermal_gain: float = 0.05
     mpc_loss_coeff: float = 0.02  # Fehler-Rückfall (Leak) pro Schritt
     mpc_control_penalty: float = 0.001  # Gewicht auf hohe Ventilöffnung
     mpc_change_penalty: float = 0.05  # Gewicht auf Änderung gegenüber letztem Wert
@@ -217,39 +219,76 @@ def compute_balance(
                 e0 = delta_T
                 dt_last = now - st.mpc_last_time if st.mpc_last_time > 0 else 0.0
                 # Adaptive Modellschätzung (optional)
-                if params.mpc_adapt and st.mpc_last_temp is not None and inp.current_temp_C is not None and inp.target_temp_C is not None and dt_last > 0:
+                if (
+                    params.mpc_adapt
+                    and st.mpc_last_temp is not None
+                    and inp.current_temp_C is not None
+                    and inp.target_temp_C is not None
+                    and dt_last > 0
+                ):
                     try:
                         e_prev = inp.target_temp_C - st.mpc_last_temp
                         e_now = inp.target_temp_C - inp.current_temp_C
-                        u_last = max(0.0, min(100.0, st.last_percent if st.last_percent is not None else 0.0))
+                        u_last = max(
+                            0.0,
+                            min(
+                                100.0,
+                                st.last_percent if st.last_percent is not None else 0.0,
+                            ),
+                        )
                         if st.mpc_gain_est is None:
                             st.mpc_gain_est = params.mpc_thermal_gain
                         if st.mpc_loss_est is None:
                             st.mpc_loss_est = params.mpc_loss_coeff
                         if e_prev != 0:
-                            decay_observed = e_prev - e_now  # positiver Wert = Fehler nimmt ab
+                            decay_observed = (
+                                e_prev - e_now
+                            )  # positiver Wert = Fehler nimmt ab
                             if u_last > 0 and decay_observed > 0:
-                                gain_est_candidate = (decay_observed / abs(e_prev)) * (100.0 / u_last)
+                                gain_est_candidate = (decay_observed / abs(e_prev)) * (
+                                    100.0 / u_last
+                                )
                                 # Glättung
-                                st.mpc_gain_est = (1 - params.mpc_adapt_alpha) * st.mpc_gain_est + params.mpc_adapt_alpha * gain_est_candidate
+                                st.mpc_gain_est = (
+                                    (1 - params.mpc_adapt_alpha) * st.mpc_gain_est
+                                    + params.mpc_adapt_alpha * gain_est_candidate
+                                )
                             # Leak / Verlust (Fehler-Rückkehr)
                             leak_raw = e_now - e_prev  # >0: Fehler nimmt zu
                             if e_prev != 0:
                                 loss_est_candidate = max(0.0, leak_raw / abs(e_prev))
-                                st.mpc_loss_est = (1 - params.mpc_adapt_alpha) * st.mpc_loss_est + params.mpc_adapt_alpha * loss_est_candidate
+                                st.mpc_loss_est = (
+                                    (1 - params.mpc_adapt_alpha) * st.mpc_loss_est
+                                    + params.mpc_adapt_alpha * loss_est_candidate
+                                )
                         # Clamp
-                        st.mpc_gain_est = max(params.mpc_gain_min, min(params.mpc_gain_max, st.mpc_gain_est))
-                        st.mpc_loss_est = max(params.mpc_loss_min, min(params.mpc_loss_max, st.mpc_loss_est))
+                        st.mpc_gain_est = max(
+                            params.mpc_gain_min,
+                            min(params.mpc_gain_max, st.mpc_gain_est),
+                        )
+                        st.mpc_loss_est = max(
+                            params.mpc_loss_min,
+                            min(params.mpc_loss_max, st.mpc_loss_est),
+                        )
                     except Exception:
                         pass
-                gain = st.mpc_gain_est if st.mpc_gain_est is not None else params.mpc_thermal_gain
-                loss = st.mpc_loss_est if st.mpc_loss_est is not None else params.mpc_loss_coeff
+                gain = (
+                    st.mpc_gain_est
+                    if st.mpc_gain_est is not None
+                    else params.mpc_thermal_gain
+                )
+                loss = (
+                    st.mpc_loss_est
+                    if st.mpc_loss_est is not None
+                    else params.mpc_loss_coeff
+                )
                 horizon = max(1, int(params.mpc_horizon_steps))
                 ctrl_pen = max(0.0, float(params.mpc_control_penalty))
                 chg_pen = max(0.0, float(params.mpc_change_penalty))
                 last_p = st.last_percent if st.last_percent is not None else None
                 best_u = 0.0
                 best_cost = None
+                eval_count = 0
                 # Kandidaten (2%-Raster für feinere Auflösung)
                 for u_candidate in range(0, 101, 2):
                     e = e0 if e0 is not None else 0.0
@@ -259,6 +298,7 @@ def compute_balance(
                         # Fehler-Dynamik: e_{k+1} = e_k*(1+loss) - gain*(u/100)
                         e = e * (1.0 + loss) - gain * (u_candidate / 100.0)
                         cost += e * e
+                        eval_count += 1
                     # Strafen
                     cost += ctrl_pen * (u_candidate * u_candidate)
                     if last_p is not None:
@@ -275,6 +315,9 @@ def compute_balance(
                         "gain": _r(gain, 4),
                         "loss": _r(loss, 4),
                         "horizon": horizon,
+                        "candidate_step_pct": 2,
+                        "eval_count": eval_count,
+                        "last_percent": _r(last_p, 2),
                         "best_u": _r(best_u, 2),
                         "cost": _r(best_cost, 3),
                     }
@@ -632,7 +675,9 @@ def compute_balance(
         mode_lower_dbg = params.mode.lower()
         if mode_lower_dbg == "pid" or mode_lower_dbg == "mpc":
             debug["pid"] = (
-                pid_dbg if isinstance(pid_dbg, dict) and pid_dbg else {"mode": mode_lower_dbg}
+                pid_dbg
+                if isinstance(pid_dbg, dict) and pid_dbg
+                else {"mode": mode_lower_dbg}
             )
         else:
             debug["pid"] = {"mode": "heuristic"}

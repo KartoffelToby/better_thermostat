@@ -641,6 +641,22 @@ def _apply_hydraulic_balance(
                     mix_w_int,
                     mix_w_ext,
                 )
+            elif str(pid.get("mode")).lower() == "mpc":
+                # MPC-Modus Debug-Log
+                _LOGGER.debug(
+                    "better_thermostat %s: balance mpc for %s: e0=%sK gain=%s loss=%s horizon=%s | best_u=%s%% cost=%s | last_pct=%s%% eval_count=%s step=%s%%",
+                    self.device_name,
+                    entity_id,
+                    pid.get("e0_K"),
+                    pid.get("gain"),
+                    pid.get("loss"),
+                    pid.get("horizon"),
+                    pid.get("best_u"),
+                    pid.get("cost"),
+                    pid.get("last_percent"),
+                    pid.get("eval_count"),
+                    pid.get("candidate_step_pct"),
+                )
         except Exception:
             pass
 

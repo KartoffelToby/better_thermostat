@@ -336,13 +336,38 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             vol.All(vol.Coerce(float), vol.Range(min=0))
         )
         # MPC Felder
-        fields[vol.Optional("mpc_horizon_steps", default=user_input.get("mpc_horizon_steps", 12))] = vol.All(vol.Coerce(int), vol.Range(min=1, max=72))
-        fields[vol.Optional("mpc_step_s", default=user_input.get("mpc_step_s", 60.0))] = vol.All(vol.Coerce(float), vol.Range(min=10, max=600))
-        fields[vol.Optional("mpc_thermal_gain", default=user_input.get("mpc_thermal_gain", 0.05))] = vol.All(vol.Coerce(float), vol.Range(min=0.001, max=0.5))
-        fields[vol.Optional("mpc_loss_coeff", default=user_input.get("mpc_loss_coeff", 0.02))] = vol.All(vol.Coerce(float), vol.Range(min=0.0, max=0.2))
-        fields[vol.Optional("mpc_control_penalty", default=user_input.get("mpc_control_penalty", 0.001))] = vol.All(vol.Coerce(float), vol.Range(min=0.0, max=1.0))
-        fields[vol.Optional("mpc_change_penalty", default=user_input.get("mpc_change_penalty", 0.05))] = vol.All(vol.Coerce(float), vol.Range(min=0.0, max=5.0))
-        fields[vol.Optional("mpc_adapt", default=user_input.get("mpc_adapt", True))] = bool
+        fields[
+            vol.Optional(
+                "mpc_horizon_steps", default=user_input.get("mpc_horizon_steps", 12)
+            )
+        ] = vol.All(vol.Coerce(int), vol.Range(min=1, max=72))
+        fields[
+            vol.Optional("mpc_step_s", default=user_input.get("mpc_step_s", 60.0))
+        ] = vol.All(vol.Coerce(float), vol.Range(min=10, max=600))
+        fields[
+            vol.Optional(
+                "mpc_thermal_gain", default=user_input.get("mpc_thermal_gain", 0.05)
+            )
+        ] = vol.All(vol.Coerce(float), vol.Range(min=0.001, max=0.5))
+        fields[
+            vol.Optional(
+                "mpc_loss_coeff", default=user_input.get("mpc_loss_coeff", 0.02)
+            )
+        ] = vol.All(vol.Coerce(float), vol.Range(min=0.0, max=0.2))
+        fields[
+            vol.Optional(
+                "mpc_control_penalty",
+                default=user_input.get("mpc_control_penalty", 0.001),
+            )
+        ] = vol.All(vol.Coerce(float), vol.Range(min=0.0, max=1.0))
+        fields[
+            vol.Optional(
+                "mpc_change_penalty", default=user_input.get("mpc_change_penalty", 0.05)
+            )
+        ] = vol.All(vol.Coerce(float), vol.Range(min=0.0, max=5.0))
+        fields[vol.Optional("mpc_adapt", default=user_input.get("mpc_adapt", True))] = (
+            bool
+        )
 
         return self.async_show_form(
             step_id="advanced",
@@ -668,12 +693,32 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
             vol.Coerce(float), vol.Range(min=0)
         )
         # MPC Felder
-        fields[vol.Optional("mpc_horizon_steps", default=adv_cfg.get("mpc_horizon_steps", 12))] = vol.All(vol.Coerce(int), vol.Range(min=1, max=72))
-        fields[vol.Optional("mpc_step_s", default=adv_cfg.get("mpc_step_s", 60.0))] = vol.All(vol.Coerce(float), vol.Range(min=10, max=600))
-        fields[vol.Optional("mpc_thermal_gain", default=adv_cfg.get("mpc_thermal_gain", 0.05))] = vol.All(vol.Coerce(float), vol.Range(min=0.001, max=0.5))
-        fields[vol.Optional("mpc_loss_coeff", default=adv_cfg.get("mpc_loss_coeff", 0.02))] = vol.All(vol.Coerce(float), vol.Range(min=0.0, max=0.2))
-        fields[vol.Optional("mpc_control_penalty", default=adv_cfg.get("mpc_control_penalty", 0.001))] = vol.All(vol.Coerce(float), vol.Range(min=0.0, max=1.0))
-        fields[vol.Optional("mpc_change_penalty", default=adv_cfg.get("mpc_change_penalty", 0.05))] = vol.All(vol.Coerce(float), vol.Range(min=0.0, max=5.0))
+        fields[
+            vol.Optional(
+                "mpc_horizon_steps", default=adv_cfg.get("mpc_horizon_steps", 12)
+            )
+        ] = vol.All(vol.Coerce(int), vol.Range(min=1, max=72))
+        fields[vol.Optional("mpc_step_s", default=adv_cfg.get("mpc_step_s", 60.0))] = (
+            vol.All(vol.Coerce(float), vol.Range(min=10, max=600))
+        )
+        fields[
+            vol.Optional(
+                "mpc_thermal_gain", default=adv_cfg.get("mpc_thermal_gain", 0.05)
+            )
+        ] = vol.All(vol.Coerce(float), vol.Range(min=0.001, max=0.5))
+        fields[
+            vol.Optional("mpc_loss_coeff", default=adv_cfg.get("mpc_loss_coeff", 0.02))
+        ] = vol.All(vol.Coerce(float), vol.Range(min=0.0, max=0.2))
+        fields[
+            vol.Optional(
+                "mpc_control_penalty", default=adv_cfg.get("mpc_control_penalty", 0.001)
+            )
+        ] = vol.All(vol.Coerce(float), vol.Range(min=0.0, max=1.0))
+        fields[
+            vol.Optional(
+                "mpc_change_penalty", default=adv_cfg.get("mpc_change_penalty", 0.05)
+            )
+        ] = vol.All(vol.Coerce(float), vol.Range(min=0.0, max=5.0))
         fields[vol.Optional("mpc_adapt", default=adv_cfg.get("mpc_adapt", True))] = bool
 
         return self.async_show_form(

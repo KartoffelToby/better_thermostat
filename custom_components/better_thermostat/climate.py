@@ -2421,7 +2421,9 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
                 # 0) Nutze zuerst den Cache (events/trv.py pflegt hvac_action), optionaler Fallback auf hass.states
                 try:
                     action_val = info.get("hvac_action")
-                    action_str = str(action_val).lower() if action_val is not None else ""
+                    action_str = (
+                        str(action_val).lower() if action_val is not None else ""
+                    )
                     if not action_str:
                         trv_state = self.hass.states.get(trv_id)
                         action_raw = None
@@ -2429,7 +2431,9 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
                             action_raw = trv_state.attributes.get("hvac_action")
                             if action_raw is None:
                                 action_raw = trv_state.attributes.get("action")
-                        action_str = str(action_raw).lower() if action_raw is not None else ""
+                        action_str = (
+                            str(action_raw).lower() if action_raw is not None else ""
+                        )
                         # Fallback: wenn wir hier eine Action gefunden haben, sofort in den Cache schreiben,
                         # damit der nächste Durchlauf keine weitere State-Abfrage benötigt.
                         if action_str:
