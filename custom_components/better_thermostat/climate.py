@@ -265,12 +265,13 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
     async def set_eco_mode(self, enable: bool):
         """Set ECO mode."""
         if enable:
-            if self.eco_temperature is not None:
-                self._saved_temperature = self.bt_target_temp
-                self.bt_target_temp = self.eco_temperature
-                self.eco_mode = True
-                self.async_write_ha_state()
-                await self.control_queue_task.put(self)
+            if not self.eco_mode:
+                if self.eco_temperature is not None:
+                    self._saved_temperature = self.bt_target_temp
+                    self.bt_target_temp = self.eco_temperature
+                    self.eco_mode = True
+                    self.async_write_ha_state()
+                    await self.control_queue_task.put(self)
         else:
             if self._saved_temperature is not None:
                 self.bt_target_temp = self._saved_temperature
