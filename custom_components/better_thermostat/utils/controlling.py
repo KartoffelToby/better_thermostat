@@ -1,3 +1,5 @@
+"""Controlling module for Better Thermostat."""
+
 import asyncio
 import logging
 
@@ -27,10 +29,14 @@ _LOGGER = logging.getLogger(__name__)
 
 
 class TaskManager:
+    """Task manager for Better Thermostat."""
+
     def __init__(self):
+        """Initialize the task manager."""
         self.tasks = set()
 
     def create_task(self, coro):
+        """Create a task."""
         task = asyncio.create_task(coro)
         self.tasks.add(task)
         task.add_done_callback(self.tasks.discard)
@@ -38,8 +44,9 @@ class TaskManager:
 
 
 async def control_queue(self):
-    """The accutal control loop.
-            Parameters
+    """Control the queue.
+
+    Parameters
     ----------
     self :
             instance of better_thermostat
@@ -88,7 +95,7 @@ async def control_queue(self):
 
 
 async def control_trv(self, heater_entity_id=None):
-    """This is the main controller for the real TRV
+    """Control the TRV.
 
     Parameters
     ----------
@@ -112,7 +119,7 @@ async def control_trv(self, heater_entity_id=None):
             # Recompute current hvac action (uses internal climate logic)
             if hasattr(self, "_compute_hvac_action"):
                 self.attr_hvac_action = self._compute_hvac_action()
-        except Exception:  # noqa: BLE001
+        except Exception:
             _LOGGER.debug(
                 "better_thermostat %s: hvac action recompute failed (non critical)",
                 getattr(self, "device_name", "unknown"),
@@ -191,7 +198,7 @@ async def control_trv(self, heater_entity_id=None):
                             target_pct,
                             heater_entity_id,
                         )
-        except Exception:  # noqa: BLE001
+        except Exception:
             _LOGGER.debug(
                 "better_thermostat %s: set_valve not applied for %s (unsupported or failed)",
                 self.device_name,
@@ -372,7 +379,7 @@ async def control_trv(self, heater_entity_id=None):
 
 
 def handle_window_open(self, _remapped_states):
-    """handle window open"""
+    """Handle window open state."""
     _converted_hvac_mode = _remapped_states.get("system_mode", None)
     _hvac_mode_send = _converted_hvac_mode
 
@@ -401,8 +408,7 @@ def handle_window_open(self, _remapped_states):
 
 
 def handle_hvac_mode_tolerance(self, _remapped_states):
-    """
-    Determines the appropriate HVAC mode to display based on the current temperature and a specified tolerance.
+    """Determine the appropriate HVAC mode to display based on the current temperature and a specified tolerance.
 
     If the current temperature is within the tolerance range of the target temperature, the function returns HVACMode.OFF,
     indicating that no heating or cooling is needed. Otherwise, it returns the last main HVAC mode that was active.
@@ -440,8 +446,10 @@ def handle_hvac_mode_tolerance(self, _remapped_states):
             return self.last_main_hvac_mode
         else:
             return _remapped_states.get("system_mode", None)
+
+
 async def check_system_mode(self, heater_entity_id=None):
-    """check system mode"""
+    """Check system mode."""
     _timeout = 0
     _real_trv = self.real_trvs[heater_entity_id]
     while _real_trv["hvac_mode"] != _real_trv["last_hvac_mode"]:

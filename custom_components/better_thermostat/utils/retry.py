@@ -1,12 +1,16 @@
+"""Retry utility for Better Thermostat."""
+
 import asyncio
 import functools
 import logging
 import random
-from typing import Callable, TypeVar, Optional, Any
+from typing import TypeVar, Any
+from collections.abc import Callable
 
 _LOGGER = logging.getLogger(__name__)
 
-T = TypeVar('T')
+T = TypeVar("T")
+
 
 def async_retry(
     retries: int = 1,
@@ -16,10 +20,9 @@ def async_retry(
     max_delay: float = 60.0,
     exceptions: tuple = (Exception,),
     log_level: str = "exception",
-    identifier: str = ""
+    identifier: str = "",
 ):
-    """
-    Decorator for retrying async functions when exceptions occur.
+    """Retry async functions when exceptions occur.
 
     Args:
         retries: Number of retries before giving up
@@ -31,14 +34,17 @@ def async_retry(
         log_level: Logging level to use ("debug", "info", "warning", "error", "exception")
         identifier: Optional identifier string to include in log messages
     """
+
     def decorator(func: Callable[..., Any]) -> Callable[..., Any]:
         @functools.wraps(func)
         async def wrapper(*args, **kwargs):
             last_exception = None
 
             # Extract entity_id from args/kwargs if available for better logging
-            entity_id = kwargs.get('entity_id', None)
-            if entity_id is None and len(args) > 2:  # Assuming self and entity_id are first two args
+            entity_id = kwargs.get("entity_id", None)
+            if (
+                entity_id is None and len(args) > 2
+            ):  # Assuming self and entity_id are first two args
                 entity_id = args[1]
 
             log_prefix = f"better_thermostat{f' {identifier}' if identifier else ''}: "
@@ -53,14 +59,16 @@ def async_retry(
                     # Only log and delay if we're going to retry
                     if attempt < retries:
                         # Calculate exponential backoff
-                        delay = min(base_delay * (backoff_factor ** attempt), max_delay)
+                        delay = min(base_delay * (backoff_factor**attempt), max_delay)
 
                         # Apply jitter
                         jitter_range = delay * jitter
-                        actual_delay = delay + random.uniform(-jitter_range, jitter_range)
+                        actual_delay = delay + random.uniform(
+                            -jitter_range, jitter_range
+                        )
                         actual_delay = max(0.1, actual_delay)  # Ensure minimum delay
 
-                        log_message = f"{log_prefix}{func.__name__} attempt {attempt+1}/{retries+1} failed: {e}{entity_suffix}, retrying in {actual_delay:.2f}s"
+                        log_message = f"{log_prefix}{func.__name__} attempt {attempt + 1}/{retries + 1} failed: {e}{entity_suffix}, retrying in {actual_delay:.2f}s"
 
                         if log_level == "debug":
                             _LOGGER.debug(log_message)
@@ -76,9 +84,10 @@ def async_retry(
                         await asyncio.sleep(actual_delay)
 
             # If we got here, we ran out of retries
-            log_message = f"{log_prefix}{func.__name__} failed after {retries+1} attempts: {last_exception}{entity_suffix}"
+            log_message = f"{log_prefix}{func.__name__} failed after {retries + 1} attempts: {last_exception}{entity_suffix}"
             _LOGGER.exception(log_message)
             raise last_exception
 
         return wrapper
+
     return decorator
