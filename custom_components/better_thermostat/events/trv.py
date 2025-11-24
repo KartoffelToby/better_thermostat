@@ -646,12 +646,13 @@ def _apply_hydraulic_balance(
             elif str(pid.get("mode")).lower() == "mpc":
                 # MPC-Modus Debug-Log
                 _LOGGER.debug(
-                    "better_thermostat %s: balance mpc for %s: e0=%sK gain=%s loss=%s horizon=%s | best_u=%s%% cost=%s | last_pct=%s%% eval_count=%s step=%s%%",
+                    "better_thermostat %s: balance mpc for %s: e0=%sK gain=%s loss=%s deadzone=%s%% horizon=%s | best_u=%s%% cost=%s | last_pct=%s%% eval_count=%s step=%s%%",
                     self.device_name,
                     entity_id,
                     pid.get("e0_K"),
                     pid.get("gain"),
                     pid.get("loss"),
+                    pid.get("deadzone"),
                     pid.get("horizon"),
                     pid.get("best_u"),
                     pid.get("cost"),

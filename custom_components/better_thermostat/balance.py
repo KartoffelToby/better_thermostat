@@ -92,15 +92,15 @@ class BalanceParams:
     # Schrittweite in Sekunden (simulativ, nicht real-time tick)
     mpc_step_s: float = 60.0
     # Effekt pro Schritt (Temperatur-Fehlerabbau pro 100% Ventil)
-    mpc_thermal_gain: float = 0.05
-    mpc_loss_coeff: float = 0.02  # Fehler-Rückfall (Leak) pro Schritt
-    mpc_control_penalty: float = 0.001  # Gewicht auf hohe Ventilöffnung
+    mpc_thermal_gain: float = 0.1
+    mpc_loss_coeff: float = 0.01  # Fehler-Rückfall (Leak) pro Schritt
+    mpc_control_penalty: float = 0.0003  # Gewicht auf hohe Ventilöffnung
     mpc_change_penalty: float = 0.05  # Gewicht auf Änderung gegenüber letztem Wert
     mpc_adapt: bool = True  # Einfache Online-Anpassung der Gain/Leak Parameter
     mpc_gain_min: float = 0.005
-    mpc_gain_max: float = 0.2
+    mpc_gain_max: float = 0.5
     mpc_loss_min: float = 0.0
-    mpc_loss_max: float = 0.1
+    mpc_loss_max: float = 0.05
     mpc_deadzone_min: float = 0.0
     mpc_deadzone_max: float = 20.0
     mpc_adapt_alpha: float = 0.2  # Lernrate für adaptives Modell
