@@ -404,8 +404,13 @@ def handle_hvac_mode_tolerance(self, _remapped_states):
     """
     Determines the appropriate HVAC mode to display based on the current temperature and a specified tolerance.
 
-    If the current temperature is within the tolerance range of the target temperature, the function returns HVACMode.OFF,
-    indicating that no heating or cooling is needed. Otherwise, it returns the last main HVAC mode that was active.
+    The function implements proper hysteresis for heating control:
+    - If temperature is within tolerance band [target - tolerance, target + tolerance]: returns OFF (no heating needed)
+    - If temperature is BELOW lower bound (target - tolerance): returns HEAT mode (need to heat)
+    - If temperature is ABOVE upper bound (target + tolerance): returns OFF (too warm, don't heat)
+
+    This ensures that hvac_action and valve control are synchronized - when hvac_action shows HEATING,
+    the valve is open, and when it shows IDLE, the valve is closed.
 
     Parameters
     ----------
@@ -415,13 +420,14 @@ def handle_hvac_mode_tolerance(self, _remapped_states):
     Returns
     -------
     str
-        Returns HVACMode.OFF if the current temperature is within tolerance of the target temperature.
-        Otherwise, returns the last main HVAC mode.
+        Returns HVACMode.OFF if heating is not needed (within tolerance or above upper bound).
+        Returns the HEAT mode only when temperature is below the lower tolerance bound.
     """
-    # Add tolerance check
-    _within_tolerance = self.cur_temp >= (
-        self.bt_target_temp - self.tolerance
-    ) and self.cur_temp <= (self.bt_target_temp + self.tolerance)
+    _lower_bound = self.bt_target_temp - self.tolerance
+    _upper_bound = self.bt_target_temp + self.tolerance
+
+    _within_tolerance = self.cur_temp >= _lower_bound and self.cur_temp <= _upper_bound
+    _below_lower_bound = self.cur_temp < _lower_bound
 
     # Initialize the state tracker if it doesn't exist
     if not hasattr(self, "_was_within_tolerance"):
@@ -433,13 +439,20 @@ def handle_hvac_mode_tolerance(self, _remapped_states):
             self.last_main_hvac_mode = _remapped_states.get("system_mode", None)
         self._was_within_tolerance = True
         return HVACMode.OFF
-    else:
+    elif _below_lower_bound:
+        # Temperature is below lower bound - we need to heat
         self._was_within_tolerance = False
         # If last_main_hvac_mode is None, fall back to current system_mode
         if self.last_main_hvac_mode is not None:
             return self.last_main_hvac_mode
         else:
             return _remapped_states.get("system_mode", None)
+    else:
+        # Temperature is above upper bound - don't heat (already too warm)
+        self._was_within_tolerance = False
+        return HVACMode.OFF
+
+
 async def check_system_mode(self, heater_entity_id=None):
     """check system mode"""
     _timeout = 0
