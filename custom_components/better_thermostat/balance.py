@@ -12,6 +12,11 @@ Notes:
     stays in adapters/controlling.
 - Lightweight per-room state by a `key` (e.g., entity_id): EMA, hysteresis, rate limit.
 
+Modes:
+- heuristic: simple rule-based mapping of ΔT & slope
+- pid: classic PID with conservative auto-tuning
+- mpc: lightweight predictive control (finite horizon minimization of future error + penalties)
+
 Integration:
 - controlling.convert_outbound_states() can call `compute_balance(...)` and depending
     on device either use `set_valve(percent)` or `set_temperature(setpoint_eff)`.
@@ -30,7 +35,7 @@ from time import monotonic
 
 @dataclass
 class BalanceParams:
-    # Algorithmus-Auswahl: 'heuristic' (Standard), 'pid'
+    # Algorithmus-Auswahl: 'heuristic' (Standard), 'pid', 'mpc'
     mode: str = "heuristic"
     # Near setpoint band where we gently throttle/refine (Kelvin)
     band_near_K: float = 0.1
@@ -82,6 +87,19 @@ class BalanceParams:
     sluggish_slope_threshold_K_min: float = 0.005
     steady_state_band_K: float = 0.1
     steady_state_duration_s: float = 900.0
+    # MPC-Parameter (Experimental)
+    mpc_horizon_steps: int = 12  # Anzahl Vorwärtsschritte
+    mpc_step_s: float = 60.0  # Schrittweite in Sekunden (simulativ, nicht real-time tick)
+    mpc_thermal_gain: float = 0.05  # Effekt pro Schritt (Temperatur-Fehlerabbau pro 100% Ventil)
+    mpc_loss_coeff: float = 0.02  # Fehler-Rückfall (Leak) pro Schritt
+    mpc_control_penalty: float = 0.001  # Gewicht auf hohe Ventilöffnung
+    mpc_change_penalty: float = 0.05  # Gewicht auf Änderung gegenüber letztem Wert
+    mpc_adapt: bool = True  # Einfache Online-Anpassung der Gain/Leak Parameter
+    mpc_gain_min: float = 0.005
+    mpc_gain_max: float = 0.2
+    mpc_loss_min: float = 0.0
+    mpc_loss_max: float = 0.1
+    mpc_adapt_alpha: float = 0.2  # Lernrate für adaptives Modell
 
 
 # --- I/O and state types ---------------------------------------------
@@ -135,6 +153,11 @@ class BalanceState:
     heat_sat_entry_ts: float = 0.0
     # Letztes Vorzeichen des Fehlers zur Erkennung von Flip-Events
     last_error_sign: Optional[int] = None
+    # MPC Modell-Schätzung
+    mpc_gain_est: Optional[float] = None
+    mpc_loss_est: Optional[float] = None
+    mpc_last_temp: Optional[float] = None
+    mpc_last_time: float = 0.0
 
 
 # Module-local storage
@@ -187,7 +210,80 @@ def compute_balance(
         else:
             delta_T = inp.target_temp_C - inp.current_temp_C
 
-            if params.mode.lower() == "pid":
+            mode_lower = params.mode.lower()
+            if mode_lower == "mpc":
+                # --- MPC Regelung (prädiktiv) ---------------------------------
+                # Fehler (Soll - Ist)
+                e0 = delta_T
+                dt_last = now - st.mpc_last_time if st.mpc_last_time > 0 else 0.0
+                # Adaptive Modellschätzung (optional)
+                if params.mpc_adapt and st.mpc_last_temp is not None and inp.current_temp_C is not None and inp.target_temp_C is not None and dt_last > 0:
+                    try:
+                        e_prev = inp.target_temp_C - st.mpc_last_temp
+                        e_now = inp.target_temp_C - inp.current_temp_C
+                        u_last = max(0.0, min(100.0, st.last_percent if st.last_percent is not None else 0.0))
+                        if st.mpc_gain_est is None:
+                            st.mpc_gain_est = params.mpc_thermal_gain
+                        if st.mpc_loss_est is None:
+                            st.mpc_loss_est = params.mpc_loss_coeff
+                        if e_prev != 0:
+                            decay_observed = e_prev - e_now  # positiver Wert = Fehler nimmt ab
+                            if u_last > 0 and decay_observed > 0:
+                                gain_est_candidate = (decay_observed / abs(e_prev)) * (100.0 / u_last)
+                                # Glättung
+                                st.mpc_gain_est = (1 - params.mpc_adapt_alpha) * st.mpc_gain_est + params.mpc_adapt_alpha * gain_est_candidate
+                            # Leak / Verlust (Fehler-Rückkehr)
+                            leak_raw = e_now - e_prev  # >0: Fehler nimmt zu
+                            if e_prev != 0:
+                                loss_est_candidate = max(0.0, leak_raw / abs(e_prev))
+                                st.mpc_loss_est = (1 - params.mpc_adapt_alpha) * st.mpc_loss_est + params.mpc_adapt_alpha * loss_est_candidate
+                        # Clamp
+                        st.mpc_gain_est = max(params.mpc_gain_min, min(params.mpc_gain_max, st.mpc_gain_est))
+                        st.mpc_loss_est = max(params.mpc_loss_min, min(params.mpc_loss_max, st.mpc_loss_est))
+                    except Exception:
+                        pass
+                gain = st.mpc_gain_est if st.mpc_gain_est is not None else params.mpc_thermal_gain
+                loss = st.mpc_loss_est if st.mpc_loss_est is not None else params.mpc_loss_coeff
+                horizon = max(1, int(params.mpc_horizon_steps))
+                ctrl_pen = max(0.0, float(params.mpc_control_penalty))
+                chg_pen = max(0.0, float(params.mpc_change_penalty))
+                last_p = st.last_percent if st.last_percent is not None else None
+                best_u = 0.0
+                best_cost = None
+                # Kandidaten (2%-Raster für feinere Auflösung)
+                for u_candidate in range(0, 101, 2):
+                    e = e0 if e0 is not None else 0.0
+                    cost = 0.0
+                    # Vorwärtssimulation
+                    for _ in range(horizon):
+                        # Fehler-Dynamik: e_{k+1} = e_k*(1+loss) - gain*(u/100)
+                        e = e * (1.0 + loss) - gain * (u_candidate / 100.0)
+                        cost += e * e
+                    # Strafen
+                    cost += ctrl_pen * (u_candidate * u_candidate)
+                    if last_p is not None:
+                        cost += chg_pen * abs(u_candidate - last_p)
+                    if best_cost is None or cost < best_cost:
+                        best_cost = cost
+                        best_u = float(u_candidate)
+                percent = best_u
+                # Debug-Infos für MPC
+                try:
+                    pid_dbg = {  # reuse key 'pid' later but mark mode
+                        "mode": "mpc",
+                        "e0_K": _r(e0, 3),
+                        "gain": _r(gain, 4),
+                        "loss": _r(loss, 4),
+                        "horizon": horizon,
+                        "best_u": _r(best_u, 2),
+                        "cost": _r(best_cost, 3),
+                    }
+                except Exception:
+                    pid_dbg = {"mode": "mpc"}
+                # Update Modell-Zustände
+                st.mpc_last_temp = inp.current_temp_C
+                st.mpc_last_time = now
+            elif mode_lower == "pid":
                 # PID-Regelung
                 # Zeitdifferenz
                 dt = now - st.pid_last_time if st.pid_last_time > 0 else 0.0
@@ -533,10 +629,10 @@ def compute_balance(
     }
     # PID-Debug anhängen, falls vorhanden
     try:
-        if params.mode.lower() == "pid":
-            # pid_dbg wurde im PID-Pfad gesetzt; falls nicht, zumindest Modus kennzeichnen
+        mode_lower_dbg = params.mode.lower()
+        if mode_lower_dbg == "pid" or mode_lower_dbg == "mpc":
             debug["pid"] = (
-                pid_dbg if isinstance(pid_dbg, dict) and pid_dbg else {"mode": "pid"}
+                pid_dbg if isinstance(pid_dbg, dict) and pid_dbg else {"mode": mode_lower_dbg}
             )
         else:
             debug["pid"] = {"mode": "heuristic"}
