@@ -423,14 +423,23 @@ def handle_hvac_mode_tolerance(self, _remapped_states):
         self.bt_target_temp - self.tolerance
     ) and self.cur_temp <= (self.bt_target_temp + self.tolerance)
 
+    # Initialize the state tracker if it doesn't exist
+    if not hasattr(self, "_was_within_tolerance"):
+        self._was_within_tolerance = False
+
+    # Only update last_main_hvac_mode when entering tolerance from outside
     if _within_tolerance:
-        # When within tolerance, HVAC is OFF
-        self.last_main_hvac_mode = _remapped_states.get("system_mode", None)
+        if not self._was_within_tolerance:
+            self.last_main_hvac_mode = _remapped_states.get("system_mode", None)
+        self._was_within_tolerance = True
         return HVACMode.OFF
     else:
-        return self.last_main_hvac_mode
-
-
+        self._was_within_tolerance = False
+        # If last_main_hvac_mode is None, fall back to current system_mode
+        if self.last_main_hvac_mode is not None:
+            return self.last_main_hvac_mode
+        else:
+            return _remapped_states.get("system_mode", None)
 async def check_system_mode(self, heater_entity_id=None):
     """check system mode"""
     _timeout = 0
