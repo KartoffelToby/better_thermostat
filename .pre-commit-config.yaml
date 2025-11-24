@@ -14,7 +14,7 @@ repos:
           - --verbose 
           - --skip-magic-trailing-comma 
           - --target-version
-          - py312
+          - py313
         files: ''
   - repo: https://github.com/PyCQA/flake8
     rev: 7.3.0
