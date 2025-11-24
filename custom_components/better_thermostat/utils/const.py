@@ -54,6 +54,7 @@ CONF_INTEGRATION = "integration"
 CONF_NO_SYSTEM_MODE_OFF = "no_off_system_mode"
 CONF_TOLERANCE = "tolerance"
 CONF_TARGET_TEMP_STEP = "target_temp_step"
+
 SUPPORT_FLAGS = (
     ClimateEntityFeature.TARGET_TEMPERATURE
     | ClimateEntityFeature.TURN_OFF
@@ -64,6 +65,7 @@ ATTR_STATE_WINDOW_OPEN = "window_open"
 ATTR_STATE_CALL_FOR_HEAT = "call_for_heat"
 ATTR_STATE_LAST_CHANGE = "last_change"
 ATTR_STATE_SAVED_TEMPERATURE = "saved_temperature"
+ATTR_STATE_PRESET_TEMPERATURE = "preset_temperature"
 ATTR_VALVE_POSITION = "valve_position"
 ATTR_STATE_HUMIDIY = "humidity"
 ATTR_STATE_MAIN_MODE = "main_mode"
@@ -75,12 +77,24 @@ ATTR_STATE_BATTERIES = "batteries"
 SERVICE_RESTORE_SAVED_TARGET_TEMPERATURE = "restore_saved_target_temperature"
 SERVICE_SET_TEMP_TARGET_TEMPERATURE = "set_temp_target_temperature"
 SERVICE_RESET_HEATING_POWER = "reset_heating_power"
+SERVICE_RESET_PID_LEARNINGS = "reset_pid_learnings"
 
 BETTERTHERMOSTAT_SET_TEMPERATURE_SCHEMA = vol.All(
     cv.has_at_least_one_key(ATTR_TEMPERATURE),
     make_entity_service_schema(
         {vol.Exclusive(ATTR_TEMPERATURE, "temperature"): vol.Coerce(float)}
     ),
+)
+
+# Optional schema for resetting PID learnings
+BETTERTHERMOSTAT_RESET_PID_SCHEMA = make_entity_service_schema(
+    {
+        vol.Optional("include_open_caps", default=False): cv.boolean,
+        vol.Optional("apply_pid_defaults", default=False): cv.boolean,
+        vol.Optional("defaults_kp"): vol.Coerce(float),
+        vol.Optional("defaults_ki"): vol.Coerce(float),
+        vol.Optional("defaults_kd"): vol.Coerce(float),
+    }
 )
 
 

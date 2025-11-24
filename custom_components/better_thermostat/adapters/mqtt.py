@@ -8,6 +8,7 @@ from .generic import (
     set_hvac_mode as generic_set_hvac_mode,
     set_temperature as generic_set_temperature,
 )
+from .base import wait_for_calibration_entity_or_timeout
 from homeassistant.const import STATE_UNAVAILABLE, STATE_UNKNOWN
 
 _LOGGER = logging.getLogger(__name__)
@@ -27,6 +28,16 @@ async def get_info(self, entity_id):
 
 
 async def init(self, entity_id):
+    # Try to discover valve position entity early
+    try:
+        from ..utils.helpers import find_valve_entity as _find_valve
+
+        self.real_trvs[entity_id]["valve_position_entity"] = await _find_valve(
+            self, entity_id
+        )
+    except Exception:
+        pass
+
     if (
         self.real_trvs[entity_id]["local_temperature_calibration_entity"] is None
         and self.real_trvs[entity_id]["calibration"] != 1
@@ -39,21 +50,11 @@ async def init(self, entity_id):
             self.device_name,
             self.real_trvs[entity_id]["local_temperature_calibration_entity"],
         )
-        # Wait for the entity to be available
-        _ready = True
-        while _ready:
-            if self.hass.states.get(
-                self.real_trvs[entity_id]["local_temperature_calibration_entity"]
-            ).state in (STATE_UNAVAILABLE, STATE_UNKNOWN, None):
-                _LOGGER.info(
-                    "better_thermostat %s: waiting for TRV/climate entity with id '%s' to become fully available...",
-                    self.device_name,
-                    self.real_trvs[entity_id]["local_temperature_calibration_entity"],
-                )
-                await asyncio.sleep(5)
-                continue
-            _ready = False
-            return
+        await wait_for_calibration_entity_or_timeout(
+            self,
+            entity_id,
+            self.real_trvs[entity_id]["local_temperature_calibration_entity"],
+        )
 
         _has_preset = self.hass.states.get(entity_id).attributes.get(
             "preset_modes", None
@@ -81,13 +82,12 @@ async def set_hvac_mode(self, entity_id, hvac_mode):
 
 async def get_current_offset(self, entity_id):
     """Get current offset."""
-    return float(
-        str(
-            self.hass.states.get(
-                self.real_trvs[entity_id]["local_temperature_calibration_entity"]
-            ).state
-        )
+    state = self.hass.states.get(
+        self.real_trvs[entity_id]["local_temperature_calibration_entity"]
     )
+    if state is None or state.state in (STATE_UNAVAILABLE, STATE_UNKNOWN):
+        return None
+    return float(str(state.state))
 
 
 async def get_offset_step(self, entity_id):
