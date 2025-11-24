@@ -164,6 +164,9 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         self.data[CONF_HEATER] = self.trv_bundle
         if user_input is not None:
             if self.data is not None:
+                # Ensure adapter is not stored (it's a module object, not JSON serializable)
+                for trv in self.data.get(CONF_HEATER, []):
+                    trv["adapter"] = None
                 _LOGGER.debug("Confirm: %s", self.data[CONF_HEATER])
                 unique_trv_string = "_".join([x["trv"] for x in self.data[CONF_HEATER]])
                 await self.async_set_unique_id(
@@ -505,6 +508,9 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
                 )
 
             self.updated_config[CONF_HEATER] = self.trv_bundle
+            # Ensure adapter is not stored (it's a module object, not JSON serializable)
+            for trv in self.updated_config.get(CONF_HEATER, []):
+                trv["adapter"] = None
             _LOGGER.debug("Updated config: %s", self.updated_config)
             self.hass.config_entries.async_update_entry(
                 self.config_entry, data=self.updated_config
