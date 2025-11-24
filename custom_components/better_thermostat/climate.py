@@ -2071,7 +2071,7 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
                 dev_specific["heating_cycle_count"] = len(self.heating_cycles)
                 dev_specific["heating_cycle_last"] = json.dumps(last_cycle)
             except Exception:
-                pass
+                _LOGGER.exception("Error while serializing heating cycle telemetry")
         if hasattr(self, "heating_power_normalized"):
             dev_specific["heating_power_norm"] = getattr(
                 self, "heating_power_normalized", None
