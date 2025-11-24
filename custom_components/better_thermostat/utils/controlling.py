@@ -199,6 +199,7 @@ async def control_trv(self, heater_entity_id=None):
             )
 
         _new_hvac_mode = handle_window_open(self, _remapped_states)
+        _new_hvac_mode = handle_hvac_mode_tolerance(self, _remapped_states)
 
         # New cooler section
         if self.cooler_entity_id is not None:
@@ -399,6 +400,46 @@ def handle_window_open(self, _remapped_states):
     return _hvac_mode_send
 
 
+def handle_hvac_mode_tolerance(self, _remapped_states):
+    """
+    Determines the appropriate HVAC mode to display based on the current temperature and a specified tolerance.
+
+    If the current temperature is within the tolerance range of the target temperature, the function returns HVACMode.OFF,
+    indicating that no heating or cooling is needed. Otherwise, it returns the last main HVAC mode that was active.
+
+    Parameters
+    ----------
+    _remapped_states : dict
+        A dictionary containing the current system states, expected to include the key "system_mode".
+
+    Returns
+    -------
+    str
+        Returns HVACMode.OFF if the current temperature is within tolerance of the target temperature.
+        Otherwise, returns the last main HVAC mode.
+    """
+    # Add tolerance check
+    _within_tolerance = self.cur_temp >= (
+        self.bt_target_temp - self.tolerance
+    ) and self.cur_temp <= (self.bt_target_temp + self.tolerance)
+
+    # Initialize the state tracker if it doesn't exist
+    if not hasattr(self, "_was_within_tolerance"):
+        self._was_within_tolerance = False
+
+    # Only update last_main_hvac_mode when entering tolerance from outside
+    if _within_tolerance:
+        if not self._was_within_tolerance:
+            self.last_main_hvac_mode = _remapped_states.get("system_mode", None)
+        self._was_within_tolerance = True
+        return HVACMode.OFF
+    else:
+        self._was_within_tolerance = False
+        # If last_main_hvac_mode is None, fall back to current system_mode
+        if self.last_main_hvac_mode is not None:
+            return self.last_main_hvac_mode
+        else:
+            return _remapped_states.get("system_mode", None)
 async def check_system_mode(self, heater_entity_id=None):
     """check system mode"""
     _timeout = 0
