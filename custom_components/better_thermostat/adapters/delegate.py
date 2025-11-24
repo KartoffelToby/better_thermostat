@@ -204,8 +204,13 @@ async def set_valve(self, entity_id, valve):
             try:
                 self.real_trvs[entity_id]["last_valve_percent"] = int(target_pct)
                 self.real_trvs[entity_id]["last_valve_method"] = "adapter"
-            except Exception:
-                pass
+            except Exception as exc:
+                _LOGGER.debug(
+                    "better_thermostat %s: Failed to record last_valve_percent/method for %s: %s",
+                    getattr(self, "device_name", "unknown"),
+                    entity_id,
+                    exc,
+                )
             return True
         # Fallback: quirks override
         try:
