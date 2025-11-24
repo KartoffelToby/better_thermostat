@@ -1966,7 +1966,9 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
                         }
                     )
                 except Exception:
-                    _LOGGER.exception("Error appending heating cycle telemetry snapshot")
+                    _LOGGER.exception(
+                        "Error appending heating cycle telemetry snapshot"
+                    )
 
                 _LOGGER.debug(
                     "better_thermostat %s: heating cycle evaluated: ΔT=%.3f°C, t=%.2fmin, rate=%.4f°C/min, hp(old/new)=%.4f/%.4f, alpha=%.3f, env_factor=%.3f, norm=%s",  # noqa: E501
