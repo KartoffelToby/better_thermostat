@@ -5,8 +5,6 @@ import asyncio
 import functools
 import logging
 import random
-from typing import Callable, TypeVar, Any
-
 from ..utils.retry import async_retry
 from custom_components.better_thermostat.utils.helpers import round_by_step
 
