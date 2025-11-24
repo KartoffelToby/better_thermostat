@@ -1435,8 +1435,12 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
             # Sende initial sofort einen Keepalive, damit TRVs nicht bis zum ersten 30min-Tick warten müssen
             try:
                 self.hass.async_create_task(self._external_temperature_keepalive())
-            except Exception:
-                pass
+            except Exception as exc:
+                _LOGGER.error(
+                    "better_thermostat %s: Failed to create external temperature keepalive task: %s",
+                    self.device_name,
+                    exc,
+                )
             _LOGGER.info("better_thermostat %s: startup completed.", self.device_name)
             self.async_write_ha_state()
             await self.async_update_ha_state(force_refresh=True)
@@ -1962,7 +1966,7 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
                         }
                     )
                 except Exception:
-                    pass
+                    _LOGGER.exception("Error appending heating cycle telemetry snapshot")
 
                 _LOGGER.debug(
                     "better_thermostat %s: heating cycle evaluated: ΔT=%.3f°C, t=%.2fmin, rate=%.4f°C/min, hp(old/new)=%.4f/%.4f, alpha=%.3f, env_factor=%.3f, norm=%s",  # noqa: E501

@@ -145,8 +145,13 @@ async def set_temperature(self, entity_id, temperature):
     # Keep last_temperature in sync with the actually sent value
     try:
         self.real_trvs[entity_id]["last_temperature"] = rounded
-    except Exception:
-        pass
+    except Exception as e:
+        _LOGGER.warning(
+            "better_thermostat %s: Failed to update last_temperature for entity_id %s: %s",
+            getattr(self, "device_name", "unknown"),
+            entity_id,
+            e,
+        )
 
     return await self.real_trvs[entity_id]["adapter"].set_temperature(
         self, entity_id, rounded
@@ -199,8 +204,13 @@ async def set_valve(self, entity_id, valve):
             try:
                 self.real_trvs[entity_id]["last_valve_percent"] = int(target_pct)
                 self.real_trvs[entity_id]["last_valve_method"] = "adapter"
-            except Exception:
-                pass
+            except Exception as exc:
+                _LOGGER.debug(
+                    "better_thermostat %s: Failed to record last_valve_percent/method for %s: %s",
+                    getattr(self, "device_name", "unknown"),
+                    entity_id,
+                    exc,
+                )
             return True
         # Fallback: quirks override
         try:
@@ -216,7 +226,11 @@ async def set_valve(self, entity_id, valve):
                     self.real_trvs[entity_id]["last_valve_percent"] = int(target_pct)
                     self.real_trvs[entity_id]["last_valve_method"] = "override"
                 except Exception:
-                    pass
+                    _LOGGER.exception(
+                        "better_thermostat %s: Failed to set last_valve_percent or last_valve_method for %s in override",
+                        getattr(self, "device_name", "unknown"),
+                        entity_id,
+                    )
             return bool(ok)
     except Exception:
         _LOGGER.debug(
