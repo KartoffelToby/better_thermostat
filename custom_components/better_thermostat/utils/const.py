@@ -77,12 +77,24 @@ ATTR_STATE_BATTERIES = "batteries"
 SERVICE_RESTORE_SAVED_TARGET_TEMPERATURE = "restore_saved_target_temperature"
 SERVICE_SET_TEMP_TARGET_TEMPERATURE = "set_temp_target_temperature"
 SERVICE_RESET_HEATING_POWER = "reset_heating_power"
+SERVICE_RESET_PID_LEARNINGS = "reset_pid_learnings"
 
 BETTERTHERMOSTAT_SET_TEMPERATURE_SCHEMA = vol.All(
     cv.has_at_least_one_key(ATTR_TEMPERATURE),
     make_entity_service_schema(
         {vol.Exclusive(ATTR_TEMPERATURE, "temperature"): vol.Coerce(float)}
     ),
+)
+
+# Optional schema for resetting PID learnings
+BETTERTHERMOSTAT_RESET_PID_SCHEMA = make_entity_service_schema(
+    {
+        vol.Optional("include_open_caps", default=False): cv.boolean,
+        vol.Optional("apply_pid_defaults", default=False): cv.boolean,
+        vol.Optional("defaults_kp"): vol.Coerce(float),
+        vol.Optional("defaults_ki"): vol.Coerce(float),
+        vol.Optional("defaults_kd"): vol.Coerce(float),
+    }
 )
 
 

@@ -56,6 +56,20 @@ CALIBRATION_TYPE_SELECTOR = selector.SelectSelector(
     )
 )
 
+
+BALANCE_MODE_SELECTOR = selector.SelectSelector(
+    selector.SelectSelectorConfig(
+        options=[
+            selector.SelectOptionDict(value="none", label="None / Off"),
+            selector.SelectOptionDict(
+                value="heuristic", label="Heuristic (Experimental)"
+            ),
+            selector.SelectOptionDict(value="pid", label="PID (Experimental)"),
+        ],
+        mode=selector.SelectSelectorMode.DROPDOWN,
+    )
+)
+
 CALIBRATION_TYPE_ALL_SELECTOR = selector.SelectSelector(
     selector.SelectSelectorConfig(
         options=[
@@ -210,6 +224,7 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         _info = {}
         if _adapter is not None:
             try:
+                # type: ignore[attr-defined]
                 _info = await _adapter.get_info(self, _trv_config.get("trv"))
             except (
                 AttributeError,
@@ -266,13 +281,13 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             )
         ] = bool
 
-        if _info.get("support_valve", False):
-            fields[
-                vol.Optional(
-                    CONF_VALVE_MAINTENANCE,
-                    default=user_input.get(CONF_VALVE_MAINTENANCE, False),
-                )
-            ] = bool
+        # Valve maintenance: always offer; if no native valve control is available, the runtime logic uses a fallback via setpoint extremes
+        fields[
+            vol.Optional(
+                CONF_VALVE_MAINTENANCE,
+                default=user_input.get(CONF_VALVE_MAINTENANCE, False),
+            )
+        ] = bool
 
         fields[
             vol.Optional(
@@ -284,6 +299,41 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 CONF_HOMEMATICIP, default=user_input.get(CONF_HOMEMATICIP, homematic)
             )
         ] = bool
+
+        # Balance/control (PID) – after HomematicIP; fields dependent on mode
+        mode_current = str(user_input.get("balance_mode", "none")).lower()
+        fields[vol.Optional("balance_mode", default=mode_current)] = (
+            BALANCE_MODE_SELECTOR
+        )
+        # General balance parameters only show if mode is not 'none'
+        fields[
+            vol.Optional("trend_mix_trv", default=user_input.get("trend_mix_trv", 0.7))
+        ] = vol.All(vol.Coerce(float), vol.Range(min=0, max=1))
+        fields[
+            vol.Optional(
+                "percent_hysteresis_pts",
+                default=user_input.get("percent_hysteresis_pts", 1.0),
+            )
+        ] = vol.All(vol.Coerce(float), vol.Range(min=0, max=10))
+        fields[
+            vol.Optional(
+                "min_update_interval_s",
+                default=user_input.get("min_update_interval_s", 60.0),
+            )
+        ] = vol.All(vol.Coerce(float), vol.Range(min=0, max=3600))
+        # Only show PID parameters if explicitly chosen
+        fields[
+            vol.Optional("pid_auto_tune", default=user_input.get("pid_auto_tune", True))
+        ] = bool
+        fields[vol.Optional("pid_kp", default=user_input.get("pid_kp", 50.0))] = (
+            vol.All(vol.Coerce(float), vol.Range(min=0))
+        )
+        fields[vol.Optional("pid_ki", default=user_input.get("pid_ki", 0.02))] = (
+            vol.All(vol.Coerce(float), vol.Range(min=0))
+        )
+        fields[vol.Optional("pid_kd", default=user_input.get("pid_kd", 2500.0))] = (
+            vol.All(vol.Coerce(float), vol.Range(min=0))
+        )
 
         return self.async_show_form(
             step_id="advanced",
@@ -555,13 +605,14 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
             )
         ] = bool
 
-        if _info.get("support_valve", False):
-            fields[
-                vol.Optional(
-                    CONF_VALVE_MAINTENANCE,
-                    default=adv_cfg.get(CONF_VALVE_MAINTENANCE, False),
-                )
-            ] = bool
+        # Ventilwartung: immer anbieten; wenn keine native Ventilsteuerung vorhanden ist,
+        # nutzt die Laufzeitlogik ein Fallback über Setpoint-Extrema
+        fields[
+            vol.Optional(
+                CONF_VALVE_MAINTENANCE,
+                default=adv_cfg.get(CONF_VALVE_MAINTENANCE, False),
+            )
+        ] = bool
 
         fields[
             vol.Optional(CONF_CHILD_LOCK, default=adv_cfg.get(CONF_CHILD_LOCK, False))
@@ -571,6 +622,42 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
                 CONF_HOMEMATICIP, default=adv_cfg.get(CONF_HOMEMATICIP, homematic)
             )
         ] = bool
+
+        # Balance/Regelung (PID) – nach HomematicIP; Felder abhängig vom Modus
+        mode_current = str(adv_cfg.get("balance_mode", "none")).lower()
+        fields[vol.Optional("balance_mode", default=mode_current)] = (
+            BALANCE_MODE_SELECTOR
+        )
+        # Allgemeine Balance-Parameter nur anzeigen, wenn Modus nicht 'none'
+
+        fields[
+            vol.Optional("trend_mix_trv", default=adv_cfg.get("trend_mix_trv", 0.7))
+        ] = vol.All(vol.Coerce(float), vol.Range(min=0, max=1))
+        fields[
+            vol.Optional(
+                "percent_hysteresis_pts",
+                default=adv_cfg.get("percent_hysteresis_pts", 1.0),
+            )
+        ] = vol.All(vol.Coerce(float), vol.Range(min=0, max=10))
+        fields[
+            vol.Optional(
+                "min_update_interval_s",
+                default=adv_cfg.get("min_update_interval_s", 60.0),
+            )
+        ] = vol.All(vol.Coerce(float), vol.Range(min=0, max=3600))
+        # PID-Parameter nur anzeigen, wenn explizit gewählt
+        fields[
+            vol.Optional("pid_auto_tune", default=adv_cfg.get("pid_auto_tune", True))
+        ] = bool
+        fields[vol.Optional("pid_kp", default=adv_cfg.get("pid_kp", 60.0))] = vol.All(
+            vol.Coerce(float), vol.Range(min=0)
+        )
+        fields[vol.Optional("pid_ki", default=adv_cfg.get("pid_ki", 0.01))] = vol.All(
+            vol.Coerce(float), vol.Range(min=0)
+        )
+        fields[vol.Optional("pid_kd", default=adv_cfg.get("pid_kd", 2000.0))] = vol.All(
+            vol.Coerce(float), vol.Range(min=0)
+        )
 
         return self.async_show_form(
             step_id="advanced",

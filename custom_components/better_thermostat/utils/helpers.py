@@ -431,55 +431,78 @@ def get_min_value(obj, value, default):
 
 
 async def get_device_model(self, entity_id):
-    """Fetches the device model from HA.
-    Parameters
-    ----------
-    self :
-            self instance of better_thermostat
-    Returns
-    -------
-    string
-            the name of the thermostat model
+    """Determine the device model from the Device Registry entry.
+
+    Priority:
+    1) device.model_id
+    2) Model from parentheses in device.model (e.g., "Foo (TRVZB)")
+    3) device.model (plain string)
+    4) Fallback: self.model (Config)
+    5) Fallback: "generic"
     """
-    if self.model is None:
+    selected: str | None = None
+    source: str = "none"
+
+    try:
+        entity_reg = er.async_get(self.hass)
+        entry = entity_reg.async_get(entity_id)
+        dev_reg = dr.async_get(self.hass)
+        device = None
         try:
-            entity_reg = er.async_get(self.hass)
-            entry = entity_reg.async_get(entity_id)
-            dev_reg = dr.async_get(self.hass)
-            device = dev_reg.async_get(entry.device_id)
-            _LOGGER.debug(f"better_thermostat {self.device_name}: found device:")
-            _LOGGER.debug(device)
-            try:
-                # Z2M reports the device name as a long string with the actual model name in braces, we need to extract it
-                matches = re.findall(r"\((.+?)\)", device.model)
-                return matches[-1]
-            except IndexError:
-                # Other climate integrations might report the model name plainly, need more infos on this
-                return device.model
-        except (
-            RuntimeError,
-            ValueError,
-            AttributeError,
-            KeyError,
-            TypeError,
-            NameError,
-            IndexError,
-        ):
-            try:
-                return (
-                    self.hass.states.get(entity_id)
-                    .attributes.get("device")
-                    .get("model", "generic")
-                )
-            except (
-                RuntimeError,
-                ValueError,
-                AttributeError,
-                KeyError,
-                TypeError,
-                NameError,
-                IndexError,
-            ):
-                return "generic"
-    else:
-        return self.model
+            dev_id = getattr(entry, "device_id", None)
+            if isinstance(dev_id, str) and dev_id:
+                device = dev_reg.async_get(dev_id)
+        except Exception:
+            device = None
+        # Selection exclusively via Device-Registry
+        try:
+            _LOGGER.debug(
+                "better_thermostat %s: device registry -> manufacturer=%s model=%s model_id=%s name=%s identifiers=%s",
+                self.device_name,
+                getattr(device, "manufacturer", None),
+                getattr(device, "model", None),
+                getattr(device, "model_id", None),
+                getattr(device, "name", None),
+                list(getattr(device, "identifiers", []) or []),
+            )
+        except Exception:
+            pass
+
+        dev_model_id = getattr(device, "model_id", None)
+        if isinstance(dev_model_id, str) and len(dev_model_id.strip()) >= 2:
+            selected = dev_model_id.strip()
+            source = "devreg.model_id"
+        else:
+            model_str = getattr(device, "model", None)
+            _LOGGER.debug(
+                "better_thermostat %s: device.model raw='%s'",
+                self.device_name,
+                model_str,
+            )
+            matches = re.findall(r"\((.+?)\)", model_str or "")
+            if matches:
+                selected = matches[-1].strip()
+                source = "devreg.model(parens)"
+            elif isinstance(model_str, str) and len(model_str.strip()) >= 2:
+                selected = model_str.strip()
+                source = "devreg.model"
+    except Exception:
+        # swallow registry access issues and continue to fallback
+        pass
+
+    # Final fallback: configured model, then generic
+    if not selected and isinstance(self.model, str) and len(self.model.strip()) >= 2:
+        selected = self.model.strip()
+        source = "config.model"
+    if not selected:
+        selected = "generic"
+        source = "default"
+
+    _LOGGER.debug(
+        "better_thermostat %s: get_device_model(%s) selected='%s' via %s",
+        self.device_name,
+        entity_id,
+        selected,
+        source,
+    )
+    return selected

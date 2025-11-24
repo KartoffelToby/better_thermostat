@@ -6,7 +6,6 @@ from homeassistant.const import STATE_UNAVAILABLE, STATE_UNKNOWN
 
 from custom_components.better_thermostat.model_fixes.model_quirks import (
     override_set_hvac_mode,
-    override_set_temperature,
 )
 
 from custom_components.better_thermostat.adapters.delegate import (
@@ -14,6 +13,7 @@ from custom_components.better_thermostat.adapters.delegate import (
     get_current_offset,
     set_temperature,
     set_hvac_mode,
+    set_valve,
 )
 
 from custom_components.better_thermostat.events.trv import convert_outbound_states
@@ -155,6 +155,48 @@ async def control_trv(self, heater_entity_id=None):
         _calibration_mode = self.real_trvs[heater_entity_id]["advanced"].get(
             "calibration_mode", CalibrationMode.DEFAULT
         )
+
+        # Optional: set valve position if supported (e.g., MQTT/Z2M)
+        try:
+            bal = self.real_trvs[heater_entity_id].get("balance")
+            if bal:
+                target_pct = int(bal.get("valve_percent", 0))
+                last_pct = self.real_trvs[heater_entity_id].get("last_valve_percent")
+                # Apply if changed (let balance module handle hysteresis/min-interval). Skip only if no heating demand.
+                if self.call_for_heat is False:
+                    _LOGGER.debug(
+                        "better_thermostat %s: skipping valve update for %s (call_for_heat is False)",
+                        self.device_name,
+                        heater_entity_id,
+                    )
+                elif last_pct is not None and int(last_pct) == target_pct:
+                    _LOGGER.debug(
+                        "better_thermostat %s: skipping valve update for %s (unchanged %s%%)",
+                        self.device_name,
+                        heater_entity_id,
+                        target_pct,
+                    )
+                else:
+                    _LOGGER.debug(
+                        "better_thermostat %s: TO TRV set_valve: %s to: %s%%",
+                        self.device_name,
+                        heater_entity_id,
+                        target_pct,
+                    )
+                    ok = await set_valve(self, heater_entity_id, target_pct)
+                    if not ok:
+                        _LOGGER.debug(
+                            "better_thermostat %s: delegate.set_valve returned False (target=%s%%, entity=%s)",
+                            self.device_name,
+                            target_pct,
+                            heater_entity_id,
+                        )
+        except Exception:  # noqa: BLE001
+            _LOGGER.debug(
+                "better_thermostat %s: set_valve not applied for %s (unsupported or failed)",
+                self.device_name,
+                heater_entity_id,
+            )
 
         _new_hvac_mode = handle_window_open(self, _remapped_states)
 
@@ -316,11 +358,7 @@ async def control_trv(self, heater_entity_id=None):
                         heater_entity_id} from: {old} to: {_temperature}"
                 )
                 self.real_trvs[heater_entity_id]["last_temperature"] = _temperature
-                _tvr_has_quirk = await override_set_temperature(
-                    self, heater_entity_id, _temperature
-                )
-                if _tvr_has_quirk is False:
-                    await set_temperature(self, heater_entity_id, _temperature)
+                await set_temperature(self, heater_entity_id, _temperature)
                 if self.real_trvs[heater_entity_id]["target_temp_received"] is True:
                     self.real_trvs[heater_entity_id]["target_temp_received"] = False
                     self.task_manager.create_task(
