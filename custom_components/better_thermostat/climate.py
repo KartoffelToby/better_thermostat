@@ -273,9 +273,10 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
                     self.async_write_ha_state()
                     await self.control_queue_task.put(self)
         else:
-            if self._saved_temperature is not None:
-                self.bt_target_temp = self._saved_temperature
-                self._saved_temperature = None
+            if self.eco_mode:
+                if self._saved_temperature is not None:
+                    self.bt_target_temp = self._saved_temperature
+                    self._saved_temperature = None
             self.eco_mode = False
             self.async_write_ha_state()
             await self.control_queue_task.put(self)
