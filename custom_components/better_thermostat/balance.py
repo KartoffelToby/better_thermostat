@@ -570,8 +570,9 @@ def compute_balance(
                             percent_adj = max(percent_adj, 60.0)
                     percent = max(0.0, min(100.0, percent_adj))
 
-    # Percentage smoothing (EMA)
-    if st.last_percent is None:
+    # Percentage smoothing (EMA) - skip for MPC (has internal smoothing via change_penalty)
+    mode_lower = params.mode.lower()
+    if st.last_percent is None or mode_lower == "mpc":
         smooth = percent
     else:
         a = params.percent_smoothing_alpha

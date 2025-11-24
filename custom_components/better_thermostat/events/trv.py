@@ -534,34 +534,36 @@ def _apply_hydraulic_balance(
             except Exception:
                 pass
         # Clamp the computed valve percent to the learned max_open% for the current target bucket (if available)
+        # Skip for MPC mode - MPC self-limits via control_penalty
         try:
-            t = self.bt_target_temp
-            bucket_now = (
-                f"{round(float(t) * 2.0) / 2.0:.1f}"
-                if isinstance(t, (int, float))
-                else None
-            )
-            if bucket_now:
-                caps_trv = (self.open_caps or {}).get(entity_id, {}) or {}
-                caps_now = caps_trv.get(bucket_now)
-                if isinstance(caps_now, dict):
-                    cap_max = caps_now.get("max_open_pct")
-                else:
-                    cap_max = None
-                if isinstance(cap_max, (int, float)) and isinstance(
-                    bal.valve_percent, (int, float)
-                ):
-                    capped = int(max(0, min(int(cap_max), int(bal.valve_percent))))
-                    if capped != bal.valve_percent:
-                        _LOGGER.debug(
-                            "better_thermostat %s: capped valve for %s bucket %s to %s%% (learned max %s%%)",
-                            self.device_name,
-                            entity_id,
-                            bucket_now,
-                            capped,
-                            cap_max,
-                        )
-                        bal.valve_percent = capped
+            if params.mode.lower() != "mpc":
+                t = self.bt_target_temp
+                bucket_now = (
+                    f"{round(float(t) * 2.0) / 2.0:.1f}"
+                    if isinstance(t, (int, float))
+                    else None
+                )
+                if bucket_now:
+                    caps_trv = (self.open_caps or {}).get(entity_id, {}) or {}
+                    caps_now = caps_trv.get(bucket_now)
+                    if isinstance(caps_now, dict):
+                        cap_max = caps_now.get("max_open_pct")
+                    else:
+                        cap_max = None
+                    if isinstance(cap_max, (int, float)) and isinstance(
+                        bal.valve_percent, (int, float)
+                    ):
+                        capped = int(max(0, min(int(cap_max), int(bal.valve_percent))))
+                        if capped != bal.valve_percent:
+                            _LOGGER.debug(
+                                "better_thermostat %s: capped valve for %s bucket %s to %s%% (learned max %s%%)",
+                                self.device_name,
+                                entity_id,
+                                bucket_now,
+                                capped,
+                                cap_max,
+                            )
+                            bal.valve_percent = capped
         except Exception:
             pass
         # Schedule a debounced persistence save (if the entity supports it)
