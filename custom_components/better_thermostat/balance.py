@@ -162,6 +162,7 @@ class BalanceState:
     mpc_loss_est: Optional[float] = None
     mpc_deadzone_est: Optional[float] = None
     mpc_last_temp: Optional[float] = None
+    mpc_last_trv_temp: Optional[float] = None
     mpc_last_time: float = 0.0
 
 
@@ -249,22 +250,62 @@ def compute_balance(
                             decay_observed = (
                                 e_prev - e_now
                             )  # positiver Wert = Fehler nimmt ab
-                            # Deadzone-Erkennung: wenn u_last niedrig und kein Effekt → Deadzone erhöhen
-                            if u_last > 0 and u_last <= 20.0 and abs(decay_observed) < 0.05:
-                                # Keine Wirkung bei niedrigem u → Deadzone-Kandidat
-                                dz_candidate = u_last + 2.0  # leicht über aktuellem Wert
-                                st.mpc_deadzone_est = (
-                                    (1 - params.mpc_adapt_alpha * 0.5) *
-                                    st.mpc_deadzone_est
-                                    + (params.mpc_adapt_alpha * 0.5) * dz_candidate
-                                )
-                            elif u_last > st.mpc_deadzone_est and decay_observed > 0:
+
+                            # Deadzone-Learning via TRV-Temperatur (schneller & präziser)
+                            trv_effect = None
+                            if (
+                                inp.trv_temp_C is not None
+                                and st.mpc_last_trv_temp is not None
+                            ):
+                                # TRV-Temperaturänderung (positiv = Erwärmung)
+                                trv_effect = inp.trv_temp_C - st.mpc_last_trv_temp
+
+                            # Deadzone-Erkennung: nutze TRV wenn verfügbar, sonst Raumtemperatur
+                            if trv_effect is not None:
+                                # TRV-basiert: schnellere Reaktion (1-2 Min)
+                                if u_last > 0 and u_last <= 20.0:
+                                    if abs(trv_effect) < 0.02:
+                                        # Keine TRV-Erwärmung bei niedrigem u → Deadzone erhöhen
+                                        dz_candidate = u_last + 2.0
+                                        st.mpc_deadzone_est = (
+                                            1 - params.mpc_adapt_alpha * 0.5
+                                        ) * st.mpc_deadzone_est + (
+                                            params.mpc_adapt_alpha * 0.5
+                                        ) * dz_candidate
+                                    elif (
+                                        trv_effect > 0.05
+                                        and u_last < st.mpc_deadzone_est
+                                    ):
+                                        # TRV erwärmt sich bei u < bisheriger Deadzone → Deadzone zu hoch, reduzieren
+                                        dz_candidate = max(0.0, u_last - 1.0)
+                                        st.mpc_deadzone_est = (
+                                            1 - params.mpc_adapt_alpha * 0.3
+                                        ) * st.mpc_deadzone_est + (
+                                            params.mpc_adapt_alpha * 0.3
+                                        ) * dz_candidate
+                            else:
+                                # Fallback: Raumtemperatur-basiert (langsamer, 5-15 Min)
+                                if (
+                                    u_last > 0
+                                    and u_last <= 20.0
+                                    and abs(decay_observed) < 0.05
+                                ):
+                                    # Keine Raumtemperatur-Wirkung bei niedrigem u → Deadzone erhöhen
+                                    dz_candidate = u_last + 2.0
+                                    st.mpc_deadzone_est = (
+                                        1 - params.mpc_adapt_alpha * 0.5
+                                    ) * st.mpc_deadzone_est + (
+                                        params.mpc_adapt_alpha * 0.5
+                                    ) * dz_candidate
+
+                            # Gain-Learning: nur oberhalb Deadzone
+                            if u_last > st.mpc_deadzone_est and decay_observed > 0:
                                 # Wirkung oberhalb Deadzone → Gain lernen
                                 u_effective = u_last - st.mpc_deadzone_est
                                 if u_effective > 0:
-                                    gain_est_candidate = (decay_observed / abs(e_prev)) * (
-                                        100.0 / u_effective
-                                    )
+                                    gain_est_candidate = (
+                                        decay_observed / abs(e_prev)
+                                    ) * (100.0 / u_effective)
                                     # Glättung
                                     st.mpc_gain_est = (
                                         (1 - params.mpc_adapt_alpha) * st.mpc_gain_est
@@ -304,9 +345,7 @@ def compute_balance(
                     else params.mpc_loss_coeff
                 )
                 deadzone = (
-                    st.mpc_deadzone_est
-                    if st.mpc_deadzone_est is not None
-                    else 0.0
+                    st.mpc_deadzone_est if st.mpc_deadzone_est is not None else 0.0
                 )
                 horizon = max(1, int(params.mpc_horizon_steps))
                 ctrl_pen = max(0.0, float(params.mpc_control_penalty))
@@ -353,6 +392,7 @@ def compute_balance(
                     pid_dbg = {"mode": "mpc"}
                 # Update Modell-Zustände
                 st.mpc_last_temp = inp.current_temp_C
+                st.mpc_last_trv_temp = inp.trv_temp_C
                 st.mpc_last_time = now
             elif mode_lower == "pid":
                 # PID-Regelung
