@@ -1,5 +1,6 @@
 from homeassistant.helpers.importlib import async_import_module
-import logging
+
+from ..utils.retry import async_retry
 from custom_components.better_thermostat.utils.helpers import round_by_step
 
 _LOGGER = logging.getLogger(__name__)
@@ -40,15 +41,18 @@ async def load_adapter(self, integration, entity_id, get_name=False):
     return self.adapter
 
 
+@async_retry(retries=5)
 async def init(self, entity_id):
     """Init adapter."""
     return await self.real_trvs[entity_id]["adapter"].init(self, entity_id)
 
 
+@async_retry(retries=5)
 async def get_info(self, entity_id):
     return await self.real_trvs[entity_id]["adapter"].get_info(self, entity_id)
 
 
+@async_retry(retries=5)
 async def get_current_offset(self, entity_id):
     """Get current offset."""
     return await self.real_trvs[entity_id]["adapter"].get_current_offset(
@@ -56,21 +60,25 @@ async def get_current_offset(self, entity_id):
     )
 
 
+@async_retry(retries=5)
 async def get_offset_step(self, entity_id):
     """get offset setps."""
     return await self.real_trvs[entity_id]["adapter"].get_offset_step(self, entity_id)
 
 
+@async_retry(retries=5)
 async def get_min_offset(self, entity_id):
     """Get min offset."""
     return await self.real_trvs[entity_id]["adapter"].get_min_offset(self, entity_id)
 
 
+@async_retry(retries=5)
 async def get_max_offset(self, entity_id):
     """Get max offset."""
     return await self.real_trvs[entity_id]["adapter"].get_max_offset(self, entity_id)
 
 
+@async_retry(retries=5)
 async def set_temperature(self, entity_id, temperature):
     """Set new target temperature.
 
@@ -141,6 +149,7 @@ async def set_temperature(self, entity_id, temperature):
     )
 
 
+@async_retry(retries=5)
 async def set_hvac_mode(self, entity_id, hvac_mode):
     """Set new target hvac mode."""
     return await self.real_trvs[entity_id]["adapter"].set_hvac_mode(
@@ -150,11 +159,18 @@ async def set_hvac_mode(self, entity_id, hvac_mode):
 
 async def set_offset(self, entity_id, offset):
     """Set new target offset."""
-    return await self.real_trvs[entity_id]["adapter"].set_offset(
-        self, entity_id, offset
-    )
+    @async_retry(retries=5)
+    async def inner():
+        return await self.real_trvs[entity_id]["adapter"].set_offset(
+            self, entity_id, offset
+        )
+    try:
+        return await inner()
+    except Exception:
+        return None
 
 
+@async_retry(retries=5)
 async def set_valve(self, entity_id, valve):
     """Set new target valve.
 
