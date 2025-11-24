@@ -401,8 +401,23 @@ def handle_window_open(self, _remapped_states):
 
 
 def handle_hvac_mode_tolerance(self, _remapped_states):
-    """handle hvac_mode regarding tolerance"""
+    """
+    Determines the appropriate HVAC mode to display based on the current temperature and a specified tolerance.
 
+    If the current temperature is within the tolerance range of the target temperature, the function returns HVACMode.OFF,
+    indicating that no heating or cooling is needed. Otherwise, it returns the last main HVAC mode that was active.
+
+    Parameters
+    ----------
+    _remapped_states : dict
+        A dictionary containing the current system states, expected to include the key "system_mode".
+
+    Returns
+    -------
+    str
+        Returns HVACMode.OFF if the current temperature is within tolerance of the target temperature.
+        Otherwise, returns the last main HVAC mode.
+    """
     # Add tolerance check
     _within_tolerance = self.cur_temp >= (
         self.bt_target_temp - self.tolerance
