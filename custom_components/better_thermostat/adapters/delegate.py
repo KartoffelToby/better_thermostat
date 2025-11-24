@@ -1,9 +1,5 @@
 from homeassistant.helpers.importlib import async_import_module
 
-import logging
-import asyncio
-import functools
-import random
 from ..utils.retry import async_retry
 from custom_components.better_thermostat.utils.helpers import round_by_step
 
