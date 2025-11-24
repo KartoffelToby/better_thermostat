@@ -2019,7 +2019,6 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
             ATTR_STATE_PRESET_TEMPERATURE: self._preset_temperature,
             ATTR_STATE_HUMIDIY: self._current_humidity,
             ATTR_STATE_MAIN_MODE: self.last_main_hvac_mode,
-            "eco_mode": self.eco_mode,
             CONF_TOLERANCE: self.tolerance,
             CONF_TARGET_TEMP_STEP: self.bt_target_temp_step,
             ATTR_STATE_HEATING_POWER: self.heating_power,
