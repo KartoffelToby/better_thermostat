@@ -101,6 +101,8 @@ class BalanceParams:
     mpc_gain_max: float = 0.2
     mpc_loss_min: float = 0.0
     mpc_loss_max: float = 0.1
+    mpc_deadzone_min: float = 0.0
+    mpc_deadzone_max: float = 20.0
     mpc_adapt_alpha: float = 0.2  # Lernrate für adaptives Modell
 
 
@@ -158,6 +160,7 @@ class BalanceState:
     # MPC Modell-Schätzung
     mpc_gain_est: Optional[float] = None
     mpc_loss_est: Optional[float] = None
+    mpc_deadzone_est: Optional[float] = None
     mpc_last_temp: Optional[float] = None
     mpc_last_time: float = 0.0
 
@@ -240,19 +243,33 @@ def compute_balance(
                             st.mpc_gain_est = params.mpc_thermal_gain
                         if st.mpc_loss_est is None:
                             st.mpc_loss_est = params.mpc_loss_coeff
+                        if st.mpc_deadzone_est is None:
+                            st.mpc_deadzone_est = 0.0
                         if e_prev != 0:
                             decay_observed = (
                                 e_prev - e_now
                             )  # positiver Wert = Fehler nimmt ab
-                            if u_last > 0 and decay_observed > 0:
-                                gain_est_candidate = (decay_observed / abs(e_prev)) * (
-                                    100.0 / u_last
+                            # Deadzone-Erkennung: wenn u_last niedrig und kein Effekt → Deadzone erhöhen
+                            if u_last > 0 and u_last <= 20.0 and abs(decay_observed) < 0.05:
+                                # Keine Wirkung bei niedrigem u → Deadzone-Kandidat
+                                dz_candidate = u_last + 2.0  # leicht über aktuellem Wert
+                                st.mpc_deadzone_est = (
+                                    (1 - params.mpc_adapt_alpha * 0.5) *
+                                    st.mpc_deadzone_est
+                                    + (params.mpc_adapt_alpha * 0.5) * dz_candidate
                                 )
-                                # Glättung
-                                st.mpc_gain_est = (
-                                    (1 - params.mpc_adapt_alpha) * st.mpc_gain_est
-                                    + params.mpc_adapt_alpha * gain_est_candidate
-                                )
+                            elif u_last > st.mpc_deadzone_est and decay_observed > 0:
+                                # Wirkung oberhalb Deadzone → Gain lernen
+                                u_effective = u_last - st.mpc_deadzone_est
+                                if u_effective > 0:
+                                    gain_est_candidate = (decay_observed / abs(e_prev)) * (
+                                        100.0 / u_effective
+                                    )
+                                    # Glättung
+                                    st.mpc_gain_est = (
+                                        (1 - params.mpc_adapt_alpha) * st.mpc_gain_est
+                                        + params.mpc_adapt_alpha * gain_est_candidate
+                                    )
                             # Leak / Verlust (Fehler-Rückkehr)
                             leak_raw = e_now - e_prev  # >0: Fehler nimmt zu
                             if e_prev != 0:
@@ -270,6 +287,10 @@ def compute_balance(
                             params.mpc_loss_min,
                             min(params.mpc_loss_max, st.mpc_loss_est),
                         )
+                        st.mpc_deadzone_est = max(
+                            params.mpc_deadzone_min,
+                            min(params.mpc_deadzone_max, st.mpc_deadzone_est),
+                        )
                     except Exception:
                         pass
                 gain = (
@@ -281,6 +302,11 @@ def compute_balance(
                     st.mpc_loss_est
                     if st.mpc_loss_est is not None
                     else params.mpc_loss_coeff
+                )
+                deadzone = (
+                    st.mpc_deadzone_est
+                    if st.mpc_deadzone_est is not None
+                    else 0.0
                 )
                 horizon = max(1, int(params.mpc_horizon_steps))
                 ctrl_pen = max(0.0, float(params.mpc_control_penalty))
@@ -295,8 +321,9 @@ def compute_balance(
                     cost = 0.0
                     # Vorwärtssimulation
                     for _ in range(horizon):
-                        # Fehler-Dynamik: e_{k+1} = e_k*(1+loss) - gain*(u/100)
-                        e = e * (1.0 + loss) - gain * (u_candidate / 100.0)
+                        # Fehler-Dynamik mit Deadzone: e_{k+1} = e_k*(1+loss) - gain*max(0, u-deadzone)/100
+                        u_effective = max(0.0, u_candidate - deadzone)
+                        e = e * (1.0 + loss) - gain * (u_effective / 100.0)
                         cost += e * e
                         eval_count += 1
                     # Strafen
@@ -314,6 +341,7 @@ def compute_balance(
                         "e0_K": _r(e0, 3),
                         "gain": _r(gain, 4),
                         "loss": _r(loss, 4),
+                        "deadzone": _r(deadzone, 2),
                         "horizon": horizon,
                         "candidate_step_pct": 2,
                         "eval_count": eval_count,
@@ -822,6 +850,9 @@ def export_states(prefix: Optional[str] = None) -> Dict[str, Dict[str, Any]]:
             "pid_ki": st.pid_ki,
             "pid_kd": st.pid_kd,
             "last_tune_ts": st.last_tune_ts,
+            "mpc_gain_est": st.mpc_gain_est,
+            "mpc_loss_est": st.mpc_loss_est,
+            "mpc_deadzone_est": st.mpc_deadzone_est,
         }
     return out
 
@@ -849,6 +880,9 @@ def import_states(
                 pid_ki=v.get("pid_ki"),
                 pid_kd=v.get("pid_kd"),
                 last_tune_ts=float(v.get("last_tune_ts", 0.0)),
+                mpc_gain_est=v.get("mpc_gain_est"),
+                mpc_loss_est=v.get("mpc_loss_est"),
+                mpc_deadzone_est=v.get("mpc_deadzone_est"),
             )
             _BALANCE_STATES[str(k)] = st
             count += 1
