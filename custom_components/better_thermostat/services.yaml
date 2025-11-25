@@ -48,6 +48,14 @@ run_valve_maintenance:
   target:
     entity:
       domain: climate
+
+start_mpc_deadzone_calibration:
+  name: Start MPC deadzone calibration
+  description: Start active deadzone calibration for MPC balance mode (tests valve positions 2%, 4%, 6%... until TRV responds).
+  target:
+    entity:
+      domain: climate
+      integration: better_thermostat
       integration: better_thermostat
 
 reset_pid_learnings:

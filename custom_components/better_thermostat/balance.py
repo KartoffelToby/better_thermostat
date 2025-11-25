@@ -164,6 +164,14 @@ class BalanceState:
     mpc_last_temp: Optional[float] = None
     mpc_last_trv_temp: Optional[float] = None
     mpc_last_time: float = 0.0
+    # MPC Deadzone-Kalibrierung (aktiv)
+    mpc_deadzone_test_active: bool = False
+    mpc_deadzone_test_cooling: bool = False  # Abkühlphase vor Test
+    mpc_deadzone_test_cooling_start: float = 0.0
+    mpc_deadzone_test_u: float = 0.0
+    mpc_deadzone_test_start_ts: float = 0.0
+    mpc_deadzone_test_trv_start: Optional[float] = None
+    mpc_deadzone_test_failed_ts: float = 0.0  # Letzter fehlgeschlagener Test
 
 
 # Module-local storage
@@ -222,178 +230,301 @@ def compute_balance(
                 # Fehler (Soll - Ist)
                 e0 = delta_T
                 dt_last = now - st.mpc_last_time if st.mpc_last_time > 0 else 0.0
-                # Adaptive Modellschätzung (optional)
-                if (
-                    params.mpc_adapt
-                    and st.mpc_last_temp is not None
-                    and inp.current_temp_C is not None
-                    and inp.target_temp_C is not None
-                    and dt_last > 0
-                ):
-                    try:
-                        e_prev = inp.target_temp_C - st.mpc_last_temp
-                        e_now = inp.target_temp_C - inp.current_temp_C
-                        u_last = max(
-                            0.0,
-                            min(
-                                100.0,
-                                st.last_percent if st.last_percent is not None else 0.0,
-                            ),
-                        )
-                        if st.mpc_gain_est is None:
-                            st.mpc_gain_est = params.mpc_thermal_gain
-                        if st.mpc_loss_est is None:
-                            st.mpc_loss_est = params.mpc_loss_coeff
-                        if st.mpc_deadzone_est is None:
-                            st.mpc_deadzone_est = 0.0
-                        if e_prev != 0:
-                            decay_observed = (
-                                e_prev - e_now
-                            )  # positiver Wert = Fehler nimmt ab
 
-                            # Deadzone-Learning via TRV-Temperatur (schneller & präziser)
-                            trv_effect = None
+                # Aktive Deadzone-Kalibrierung (einmalig beim Start oder bei Reset)
+                if st.mpc_deadzone_test_cooling:
+                    # Abkühlphase: Warte 5 Min bei 0% bis TRV abgekühlt ist
+                    cooling_duration = now - st.mpc_deadzone_test_cooling_start
+                    if cooling_duration >= 300.0:  # 5 Min Abkühlung
+                        # Abkühlung fertig, starte eigentlichen Test
+                        st.mpc_deadzone_test_cooling = False
+                        st.mpc_deadzone_test_active = True
+                        st.mpc_deadzone_test_u = 2.0
+                        st.mpc_deadzone_test_start_ts = now
+                        st.mpc_deadzone_test_trv_start = inp.trv_temp_C
+                        percent = st.mpc_deadzone_test_u
+                    else:
+                        # Noch in Abkühlphase, TRV auf 0%
+                        percent = 0.0
+                elif st.mpc_deadzone_test_active:
+                    # Test läuft bereits
+                    test_duration = now - st.mpc_deadzone_test_start_ts
+                    if (
+                        test_duration >= 180.0 and inp.trv_temp_C is not None
+                    ):  # 3 Min Wartezeit
+                        # Prüfe TRV-Reaktion
+                        if st.mpc_deadzone_test_trv_start is not None:
+                            trv_rise = inp.trv_temp_C - st.mpc_deadzone_test_trv_start
                             if (
-                                inp.trv_temp_C is not None
-                                and st.mpc_last_trv_temp is not None
-                            ):
-                                # TRV-Temperaturänderung (positiv = Erwärmung)
-                                trv_effect = inp.trv_temp_C - st.mpc_last_trv_temp
+                                trv_rise > 0.1
+                            ):  # Deutliche Erwärmung → Deadzone gefunden!
+                                st.mpc_deadzone_est = max(
+                                    0.0, st.mpc_deadzone_test_u - 1.0
+                                )
+                                st.mpc_deadzone_test_active = False
+                                # Weiter mit normaler Regelung
+                            elif st.mpc_deadzone_test_u >= 20.0:
+                                # Maximaler Test erreicht ohne TRV-Reaktion
+                                # → Wahrscheinlich Boiler aus oder kein Warmwasser
+                                # Markiere als fehlgeschlagen und versuche später erneut
+                                st.mpc_deadzone_test_active = False
+                                st.mpc_deadzone_test_failed_ts = now
+                                # Setze provisorischen Wert um weiterzuarbeiten
+                                st.mpc_deadzone_est = 8.0
+                                # Test wird automatisch wiederholt wenn:
+                                # - mindestens 30 Min seit letztem Fehlschlag vergangen
+                                # - System deutlich heizt (TRV steigt ohne Test)
+                            else:
+                                # Nächster Test-Schritt
+                                st.mpc_deadzone_test_u += 2.0
+                                st.mpc_deadzone_test_start_ts = now
+                                st.mpc_deadzone_test_trv_start = inp.trv_temp_C
+                                percent = st.mpc_deadzone_test_u  # Force test value
+                        else:
+                            # Initialisiere Startwert
+                            st.mpc_deadzone_test_trv_start = inp.trv_temp_C
+                    else:
+                        # Warte weiter, setze Test-Wert
+                        percent = st.mpc_deadzone_test_u
+                elif (
+                    st.mpc_deadzone_est is None
+                    and not st.mpc_deadzone_test_cooling
+                    and not st.mpc_deadzone_test_active
+                    and inp.trv_temp_C is not None
+                ):
+                    # Starte Deadzone-Test beim ersten Mal (unabhängig von e0)
+                    # oder wenn System kalt genug ist (e0 >= 0.15K = 0.15K unter Ziel)
+                    should_start = False
 
-                            # Deadzone-Erkennung: nutze TRV wenn verfügbar, sonst Raumtemperatur
-                            if trv_effect is not None:
-                                # TRV-basiert: schnellere Reaktion (1-2 Min)
-                                if u_last > 0 and u_last <= 20.0:
-                                    if abs(trv_effect) < 0.02:
-                                        # Keine TRV-Erwärmung bei niedrigem u → Deadzone erhöhen
-                                        dz_candidate = u_last + 2.0
+                    # Prüfe ob vorheriger Test fehlgeschlagen ist (Boiler war aus)
+                    time_since_failed = (
+                        now - st.mpc_deadzone_test_failed_ts
+                        if st.mpc_deadzone_test_failed_ts > 0
+                        else 9999.0
+                    )
+
+                    # Wenn Test kürzlich fehlschlug, warte mind. 30 Min bevor erneuter Versuch
+                    # UND prüfe ob TRV aktuell steigt (zeigt: Boiler ist jetzt aktiv)
+                    if time_since_failed < 1800.0:  # 30 Min
+                        # Prüfe ob TRV gerade steigt → Boiler läuft jetzt
+                        if (
+                            st.mpc_last_trv_temp is not None
+                            and inp.trv_temp_C is not None
+                        ):
+                            trv_rising = inp.trv_temp_C - st.mpc_last_trv_temp
+                            if (
+                                trv_rising > 0.5 and dt_last > 120
+                            ):  # Deutlicher Anstieg über 2+ Min
+                                # Boiler scheint jetzt zu laufen, versuche Test erneut
+                                should_start = True
+                                st.mpc_deadzone_test_failed_ts = (
+                                    0.0  # Reset failed marker
+                                )
+                    else:
+                        # Genug Zeit vergangen oder noch nie getestet
+                        if e0 is None:
+                            # Kein Fehler bekannt, starte trotzdem beim ersten Mal
+                            should_start = True
+                        elif e0 >= 0.15:
+                            # System ist kalt genug (min 0.15K unter Ziel)
+                            should_start = True
+
+                    if should_start:
+                        # Starte mit Abkühlphase (5 Min bei 0%)
+                        st.mpc_deadzone_test_cooling = True
+                        st.mpc_deadzone_test_cooling_start = now
+                        st.mpc_deadzone_test_active = False
+                        percent = 0.0  # TRV abkühlen lassen
+
+                # Normale MPC-Regelung (nur wenn kein Test aktiv)
+                if not st.mpc_deadzone_test_active:
+                    # Adaptive Modellschätzung (optional)
+                    if (
+                        params.mpc_adapt
+                        and st.mpc_last_temp is not None
+                        and inp.current_temp_C is not None
+                        and inp.target_temp_C is not None
+                        and dt_last > 0
+                    ):
+                        try:
+                            e_prev = inp.target_temp_C - st.mpc_last_temp
+                            e_now = inp.target_temp_C - inp.current_temp_C
+                            u_last = max(
+                                0.0,
+                                min(
+                                    100.0,
+                                    (
+                                        st.last_percent
+                                        if st.last_percent is not None
+                                        else 0.0
+                                    ),
+                                ),
+                            )
+                            if st.mpc_gain_est is None:
+                                st.mpc_gain_est = params.mpc_thermal_gain
+                            if st.mpc_loss_est is None:
+                                st.mpc_loss_est = params.mpc_loss_coeff
+                            if st.mpc_deadzone_est is None:
+                                st.mpc_deadzone_est = 0.0
+                            if e_prev != 0:
+                                decay_observed = (
+                                    e_prev - e_now
+                                )  # positiver Wert = Fehler nimmt ab
+
+                                # Deadzone-Learning via TRV-Temperatur (konservativ mit Zeitfilter)
+                                trv_effect = None
+                                if (
+                                    inp.trv_temp_C is not None
+                                    and st.mpc_last_trv_temp is not None
+                                ):
+                                    # TRV-Temperaturänderung (positiv = Erwärmung)
+                                    trv_effect = inp.trv_temp_C - st.mpc_last_trv_temp
+
+                                # Deadzone-Erkennung: nutze TRV wenn verfügbar, sonst Raumtemperatur
+                                # WICHTIG: Nur bei ausreichendem Zeitabstand (mind. 120s), sonst zu frühe Erkennung
+                                if trv_effect is not None and dt_last >= 120.0:
+                                    # TRV-basiert: Reaktion braucht 2-5 Minuten
+                                    if u_last > 0 and u_last <= 15.0:
+                                        # Keine Wirkung erkannt: TRV steigt nicht trotz Ventilöffnung
+                                        if (
+                                            abs(trv_effect) < 0.01
+                                        ):  # sehr strikt: <0.01K
+                                            # Deadzone LANGSAM erhöhen (nur ~0.3% pro Zyklus bei α=0.015)
+                                            dz_candidate = u_last + 1.0
+                                            st.mpc_deadzone_est = (
+                                                1 - params.mpc_adapt_alpha * 0.015
+                                            ) * st.mpc_deadzone_est + (
+                                                params.mpc_adapt_alpha * 0.015
+                                            ) * dz_candidate
+                                    # Wirkung erkannt unterhalb bisheriger Deadzone: Deadzone zu hoch geschätzt
+                                    if (
+                                        trv_effect > 0.08  # deutliche Erwärmung
+                                        and u_last < st.mpc_deadzone_est
+                                    ):
+                                        # Deadzone SCHNELL reduzieren
+                                        dz_candidate = max(0.0, u_last - 0.5)
                                         st.mpc_deadzone_est = (
                                             1 - params.mpc_adapt_alpha * 0.5
                                         ) * st.mpc_deadzone_est + (
                                             params.mpc_adapt_alpha * 0.5
                                         ) * dz_candidate
-                                    elif (
-                                        trv_effect > 0.05
-                                        and u_last < st.mpc_deadzone_est
+                                elif trv_effect is None and dt_last >= 300.0:
+                                    # Fallback: Raumtemperatur-basiert (sehr langsam, nur bei 5+ Min Abstand)
+                                    if (
+                                        u_last > 0
+                                        and u_last <= 15.0
+                                        and abs(decay_observed) < 0.03
                                     ):
-                                        # TRV erwärmt sich bei u < bisheriger Deadzone → Deadzone zu hoch, reduzieren
-                                        dz_candidate = max(0.0, u_last - 1.0)
+                                        # Keine Raumtemperatur-Wirkung bei niedrigem u → Deadzone erhöhen
+                                        dz_candidate = u_last + 1.0
                                         st.mpc_deadzone_est = (
-                                            1 - params.mpc_adapt_alpha * 0.3
+                                            1 - params.mpc_adapt_alpha * 0.01
                                         ) * st.mpc_deadzone_est + (
-                                            params.mpc_adapt_alpha * 0.3
+                                            params.mpc_adapt_alpha * 0.01
                                         ) * dz_candidate
-                            else:
-                                # Fallback: Raumtemperatur-basiert (langsamer, 5-15 Min)
-                                if (
-                                    u_last > 0
-                                    and u_last <= 20.0
-                                    and abs(decay_observed) < 0.05
-                                ):
-                                    # Keine Raumtemperatur-Wirkung bei niedrigem u → Deadzone erhöhen
-                                    dz_candidate = u_last + 2.0
-                                    st.mpc_deadzone_est = (
-                                        1 - params.mpc_adapt_alpha * 0.5
-                                    ) * st.mpc_deadzone_est + (
-                                        params.mpc_adapt_alpha * 0.5
-                                    ) * dz_candidate
 
-                            # Gain-Learning: nur oberhalb Deadzone
-                            if u_last > st.mpc_deadzone_est and decay_observed > 0:
-                                # Wirkung oberhalb Deadzone → Gain lernen
-                                u_effective = u_last - st.mpc_deadzone_est
-                                if u_effective > 0:
-                                    gain_est_candidate = (
-                                        decay_observed / abs(e_prev)
-                                    ) * (100.0 / u_effective)
-                                    # Glättung
-                                    st.mpc_gain_est = (
-                                        (1 - params.mpc_adapt_alpha) * st.mpc_gain_est
-                                        + params.mpc_adapt_alpha * gain_est_candidate
+                                # Gain-Learning: nur oberhalb Deadzone
+                                if u_last > st.mpc_deadzone_est and decay_observed > 0:
+                                    # Wirkung oberhalb Deadzone → Gain lernen
+                                    u_effective = u_last - st.mpc_deadzone_est
+                                    if u_effective > 0:
+                                        gain_est_candidate = (
+                                            decay_observed / abs(e_prev)
+                                        ) * (100.0 / u_effective)
+                                        # Glättung
+                                        st.mpc_gain_est = (
+                                            (1 - params.mpc_adapt_alpha)
+                                            * st.mpc_gain_est
+                                            + params.mpc_adapt_alpha
+                                            * gain_est_candidate
+                                        )
+                                # Leak / Verlust (Fehler-Rückkehr)
+                                leak_raw = e_now - e_prev  # >0: Fehler nimmt zu
+                                if e_prev != 0:
+                                    loss_est_candidate = max(
+                                        0.0, leak_raw / abs(e_prev)
                                     )
-                            # Leak / Verlust (Fehler-Rückkehr)
-                            leak_raw = e_now - e_prev  # >0: Fehler nimmt zu
-                            if e_prev != 0:
-                                loss_est_candidate = max(0.0, leak_raw / abs(e_prev))
-                                st.mpc_loss_est = (
-                                    (1 - params.mpc_adapt_alpha) * st.mpc_loss_est
-                                    + params.mpc_adapt_alpha * loss_est_candidate
-                                )
-                        # Clamp
-                        st.mpc_gain_est = max(
-                            params.mpc_gain_min,
-                            min(params.mpc_gain_max, st.mpc_gain_est),
-                        )
-                        st.mpc_loss_est = max(
-                            params.mpc_loss_min,
-                            min(params.mpc_loss_max, st.mpc_loss_est),
-                        )
-                        st.mpc_deadzone_est = max(
-                            params.mpc_deadzone_min,
-                            min(params.mpc_deadzone_max, st.mpc_deadzone_est),
-                        )
+                                    st.mpc_loss_est = (
+                                        (1 - params.mpc_adapt_alpha) * st.mpc_loss_est
+                                        + params.mpc_adapt_alpha * loss_est_candidate
+                                    )
+                            # Clamp
+                            st.mpc_gain_est = max(
+                                params.mpc_gain_min,
+                                min(params.mpc_gain_max, st.mpc_gain_est),
+                            )
+                            st.mpc_loss_est = max(
+                                params.mpc_loss_min,
+                                min(params.mpc_loss_max, st.mpc_loss_est),
+                            )
+                            st.mpc_deadzone_est = max(
+                                params.mpc_deadzone_min,
+                                min(params.mpc_deadzone_max, st.mpc_deadzone_est),
+                            )
+                        except Exception:
+                            pass
+
+                    gain = (
+                        st.mpc_gain_est
+                        if st.mpc_gain_est is not None
+                        else params.mpc_thermal_gain
+                    )
+                    loss = (
+                        st.mpc_loss_est
+                        if st.mpc_loss_est is not None
+                        else params.mpc_loss_coeff
+                    )
+                    deadzone = (
+                        st.mpc_deadzone_est if st.mpc_deadzone_est is not None else 0.0
+                    )
+                    horizon = max(1, int(params.mpc_horizon_steps))
+                    ctrl_pen = max(0.0, float(params.mpc_control_penalty))
+                    chg_pen = max(0.0, float(params.mpc_change_penalty))
+                    last_p = st.last_percent if st.last_percent is not None else None
+                    best_u = 0.0
+                    best_cost = None
+                    eval_count = 0
+                    # Kandidaten (2%-Raster für feinere Auflösung)
+                    for u_candidate in range(0, 101, 2):
+                        e = e0 if e0 is not None else 0.0
+                        cost = 0.0
+                        # Vorwärtssimulation
+                        for _ in range(horizon):
+                            # Fehler-Dynamik mit Deadzone: e_{k+1} = e_k*(1+loss) - gain*max(0, u-deadzone)/100
+                            u_effective = max(0.0, u_candidate - deadzone)
+                            e = e * (1.0 + loss) - gain * (u_effective / 100.0)
+                            cost += e * e
+                            eval_count += 1
+                        # Strafen
+                        cost += ctrl_pen * (u_candidate * u_candidate)
+                        if last_p is not None:
+                            cost += chg_pen * abs(u_candidate - last_p)
+                        if best_cost is None or cost < best_cost:
+                            best_cost = cost
+                            best_u = float(u_candidate)
+                    percent = best_u
+                    # Debug-Infos für MPC
+                    try:
+                        pid_dbg = {  # reuse key 'pid' later but mark mode
+                            "mode": "mpc",
+                            "e0_K": _r(e0, 3),
+                            "gain": _r(gain, 4),
+                            "loss": _r(loss, 4),
+                            "deadzone": _r(deadzone, 2),
+                            "horizon": horizon,
+                            "candidate_step_pct": 2,
+                            "eval_count": eval_count,
+                            "last_percent": _r(last_p, 2),
+                            "best_u": _r(best_u, 2),
+                            "cost": _r(best_cost, 3),
+                        }
                     except Exception:
-                        pass
-                gain = (
-                    st.mpc_gain_est
-                    if st.mpc_gain_est is not None
-                    else params.mpc_thermal_gain
-                )
-                loss = (
-                    st.mpc_loss_est
-                    if st.mpc_loss_est is not None
-                    else params.mpc_loss_coeff
-                )
-                deadzone = (
-                    st.mpc_deadzone_est if st.mpc_deadzone_est is not None else 0.0
-                )
-                horizon = max(1, int(params.mpc_horizon_steps))
-                ctrl_pen = max(0.0, float(params.mpc_control_penalty))
-                chg_pen = max(0.0, float(params.mpc_change_penalty))
-                last_p = st.last_percent if st.last_percent is not None else None
-                best_u = 0.0
-                best_cost = None
-                eval_count = 0
-                # Kandidaten (2%-Raster für feinere Auflösung)
-                for u_candidate in range(0, 101, 2):
-                    e = e0 if e0 is not None else 0.0
-                    cost = 0.0
-                    # Vorwärtssimulation
-                    for _ in range(horizon):
-                        # Fehler-Dynamik mit Deadzone: e_{k+1} = e_k*(1+loss) - gain*max(0, u-deadzone)/100
-                        u_effective = max(0.0, u_candidate - deadzone)
-                        e = e * (1.0 + loss) - gain * (u_effective / 100.0)
-                        cost += e * e
-                        eval_count += 1
-                    # Strafen
-                    cost += ctrl_pen * (u_candidate * u_candidate)
-                    if last_p is not None:
-                        cost += chg_pen * abs(u_candidate - last_p)
-                    if best_cost is None or cost < best_cost:
-                        best_cost = cost
-                        best_u = float(u_candidate)
-                percent = best_u
-                # Debug-Infos für MPC
-                try:
-                    pid_dbg = {  # reuse key 'pid' later but mark mode
-                        "mode": "mpc",
-                        "e0_K": _r(e0, 3),
-                        "gain": _r(gain, 4),
-                        "loss": _r(loss, 4),
-                        "deadzone": _r(deadzone, 2),
-                        "horizon": horizon,
-                        "candidate_step_pct": 2,
-                        "eval_count": eval_count,
-                        "last_percent": _r(last_p, 2),
-                        "best_u": _r(best_u, 2),
-                        "cost": _r(best_cost, 3),
-                    }
-                except Exception:
-                    pid_dbg = {"mode": "mpc"}
+                        pid_dbg = {"mode": "mpc"}
                 # Update Modell-Zustände
-                st.mpc_last_temp = inp.current_temp_C
-                st.mpc_last_trv_temp = inp.trv_temp_C
-                st.mpc_last_time = now
+                if not st.mpc_deadzone_test_active:
+                    st.mpc_last_temp = inp.current_temp_C
+                    st.mpc_last_trv_temp = inp.trv_temp_C
+                    st.mpc_last_time = now
             elif mode_lower == "pid":
                 # PID-Regelung
                 # Zeitdifferenz
@@ -868,6 +999,48 @@ def seed_pid_gains(
     except Exception:
         pass
     return changed
+
+
+def reset_mpc_deadzone(key: str, start_calibration: bool = False) -> bool:
+    """Reset MPC deadzone estimation for a given state key.
+
+    Args:
+        key: State key for the room/TRV
+        start_calibration: If True, immediately start active calibration test
+
+    Returns True if deadzone was reset.
+    """
+    if key in _BALANCE_STATES:
+        st = _BALANCE_STATES[key]
+        st.mpc_deadzone_est = None
+        if start_calibration:
+            # Start cooling phase immediately (will be executed on next balance call)
+            st.mpc_deadzone_test_cooling = True
+            st.mpc_deadzone_test_cooling_start = 0.0  # Will be set on first run
+            st.mpc_deadzone_test_active = False
+            st.mpc_deadzone_test_u = 0.0
+            st.mpc_deadzone_test_start_ts = 0.0
+            st.mpc_deadzone_test_trv_start = None
+        else:
+            # Just reset, let automatic trigger handle it
+            st.mpc_deadzone_test_cooling = False
+            st.mpc_deadzone_test_cooling_start = 0.0
+            st.mpc_deadzone_test_active = False
+            st.mpc_deadzone_test_u = 0.0
+            st.mpc_deadzone_test_start_ts = 0.0
+            st.mpc_deadzone_test_trv_start = None
+        return True
+    return False
+
+
+def start_mpc_deadzone_calibration(key: str) -> bool:
+    """Start active MPC deadzone calibration for a given state key.
+
+    This will reset any existing deadzone and immediately start the test sequence.
+
+    Returns True if calibration was started.
+    """
+    return reset_mpc_deadzone(key, start_calibration=True)
 
 
 # --- Persistence helpers --------------------------------------------
