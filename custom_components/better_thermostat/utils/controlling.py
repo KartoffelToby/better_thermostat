@@ -223,23 +223,23 @@ async def control_trv(self, heater_entity_id=None):
     if not hasattr(self, "task_manager"):
         self.task_manager = TaskManager()
 
-    # Removed global lock to allow parallel execution
-    # async with self._temp_lock:
-
-    self.real_trvs[heater_entity_id]["ignore_trv_states"] = True
-    # Formerly update_hvac_action(self) (removed / centralized in climate entity)
-    try:
-        # Preserve old action for change detection if attributes exist
-        if hasattr(self, "attr_hvac_action"):
-            self.old_attr_hvac_action = getattr(self, "attr_hvac_action", None)
-        # Recompute current hvac action (uses internal climate logic)
-        if hasattr(self, "_compute_hvac_action"):
-            self.attr_hvac_action = self._compute_hvac_action()
-    except Exception:
-        _LOGGER.debug(
-            "better_thermostat %s: hvac action recompute failed (non critical)",
-            getattr(self, "device_name", "unknown"),
-        )
+    async with self._temp_lock:
+        self.real_trvs[heater_entity_id]["ignore_trv_states"] = True
+        # Formerly update_hvac_action(self) (removed / centralized in climate entity)
+        try:
+            # Preserve old action for change detection if attributes exist
+            if hasattr(self, "attr_hvac_action"):
+                self.old_attr_hvac_action = getattr(self, "attr_hvac_action", None)
+            # Recompute current hvac action (uses internal climate logic)
+            if hasattr(self, "_compute_hvac_action"):
+                self.attr_hvac_action = self._compute_hvac_action()
+        except Exception:
+            _LOGGER.debug(
+                "better_thermostat %s: hvac action recompute failed (non critical)",
+                getattr(self, "device_name", "unknown"),
+            )
+        await self.calculate_heating_power()
+        _trv = self.hass.states.get(heater_entity_id)
 
     # Removed calculate_heating_power() from here, moved to control_queue
 
@@ -315,12 +315,20 @@ async def control_trv(self, heater_entity_id=None):
                         target_pct,
                         heater_entity_id,
                     )
-    except Exception:
-        _LOGGER.debug(
-            "better_thermostat %s: set_valve not applied for %s (unsupported or failed)",
-            self.device_name,
-            heater_entity_id,
-        )
+                    ok = await set_valve(self, heater_entity_id, target_pct)
+                    if not ok:
+                        _LOGGER.debug(
+                            "better_thermostat %s: delegate.set_valve returned False (target=%s%%, entity=%s)",
+                            self.device_name,
+                            target_pct,
+                            heater_entity_id,
+                        )
+        except Exception:
+            _LOGGER.debug(
+                "better_thermostat %s: set_valve not applied for %s (unsupported or failed)",
+                self.device_name,
+                heater_entity_id,
+            )
 
     _new_hvac_mode = handle_window_open(self, _remapped_states)
     if not self.window_open:
