@@ -288,8 +288,6 @@ def compute_balance(
             if mode_lower == "mpc":
                 # --- MPC Regelung (prädiktiv) ---------------------------------
                 # Debug: Check calibration state
-                import logging
-                _LOGGER = logging.getLogger(__name__)
                 if st.mpc_deadzone_test_cooling or st.mpc_deadzone_test_active:
                     _LOGGER.debug(
                         "MPC calibration active: cooling=%s active=%s deadzone_est=%s",

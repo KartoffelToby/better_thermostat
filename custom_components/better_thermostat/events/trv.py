@@ -495,7 +495,8 @@ def _apply_hydraulic_balance(
                 )
                 if missing and isinstance(self.bt_target_temp, (int, float)):
                     # Extract uid from balance_key for neighbor keys
-                    uid = getattr(self, "unique_id", None) or getattr(self, "_unique_id", "bt")
+                    uid = getattr(self, "unique_id", None) or getattr(
+                        self, "_unique_id", "bt")
                     base = round(float(self.bt_target_temp) * 2.0) / 2.0
                     neighbors = [
                         f"{uid}:{entity_id}:t{base + 0.5:.1f}",
