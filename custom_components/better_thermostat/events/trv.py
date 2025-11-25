@@ -496,7 +496,8 @@ def _apply_hydraulic_balance(
                 if missing and isinstance(self.bt_target_temp, (int, float)):
                     # Extract uid from balance_key for neighbor keys
                     uid = getattr(self, "unique_id", None) or getattr(
-                        self, "_unique_id", "bt")
+                        self, "_unique_id", "bt"
+                    )
                     base = round(float(self.bt_target_temp) * 2.0) / 2.0
                     neighbors = [
                         f"{uid}:{entity_id}:t{base + 0.5:.1f}",
@@ -653,6 +654,32 @@ def _apply_hydraulic_balance(
                     pid.get("eval_count"),
                     pid.get("candidate_step_pct"),
                 )
+                calib = pid.get("calibration") if isinstance(pid, dict) else None
+                if isinstance(calib, dict) and calib:
+                    phase = calib.get("phase", "unknown")
+                    active = calib.get("active")
+                    parts = []
+                    for key in (
+                        "valve_pct",
+                        "elapsed_s",
+                        "remaining_s",
+                        "deadzone_pct",
+                        "fallback_deadzone_pct",
+                        "reason",
+                        "rise_K",
+                        "trv_temp_C",
+                    ):
+                        if key in calib and calib[key] is not None:
+                            parts.append(f"{key}={calib[key]}")
+                    detail = ", ".join(parts) if parts else "no extra data"
+                    _LOGGER.info(
+                        "better_thermostat %s: MPC calibration phase=%s active=%s for %s (%s)",
+                        self.device_name,
+                        phase,
+                        active,
+                        entity_id,
+                        detail,
+                    )
         except Exception:
             pass
 

@@ -300,6 +300,7 @@ def compute_balance(
                 # Fehler (Soll - Ist)
                 e0 = delta_T
                 dt_last = now - st.mpc_last_time if st.mpc_last_time > 0 else 0.0
+                calibration_status: Dict[str, Any] = {}
 
                 # Aktive Deadzone-Kalibrierung (einmalig beim Start oder bei Reset)
                 if st.mpc_deadzone_test_cooling:
@@ -319,6 +320,12 @@ def compute_balance(
                             st.mpc_deadzone_test_u,
                             _r(inp.trv_temp_C, 2),
                         )
+                        calibration_status = {
+                            "active": True,
+                            "phase": "test-start",
+                            "valve_pct": _r(st.mpc_deadzone_test_u, 2),
+                            "trv_temp_C": _r(inp.trv_temp_C, 2),
+                        }
                         percent = st.mpc_deadzone_test_u
                     else:
                         # Noch in Abkühlphase, TRV auf 0%
@@ -335,6 +342,12 @@ def compute_balance(
                                 remaining,
                             )
                             st.mpc_deadzone_last_log = now
+                        calibration_status = {
+                            "active": True,
+                            "phase": "cooling",
+                            "elapsed_s": round(cooling_duration, 1),
+                            "remaining_s": round(max(0.0, 300.0 - cooling_duration), 1),
+                        }
                 elif st.mpc_deadzone_test_active:
                     # Test läuft bereits
                     test_duration = now - st.mpc_deadzone_test_start_ts
@@ -364,6 +377,13 @@ def compute_balance(
                                     )
                                 except Exception:
                                     pass
+                                calibration_status = {
+                                    "active": False,
+                                    "phase": "complete",
+                                    "deadzone_pct": _r(st.mpc_deadzone_est, 2),
+                                    "rise_K": _r(trv_rise, 3),
+                                    "valve_pct": _r(st.mpc_deadzone_test_u, 2),
+                                }
                                 # Weiter mit normaler Regelung
                             elif st.mpc_deadzone_test_u >= 20.0:
                                 # Maximaler Test erreicht ohne TRV-Reaktion
@@ -380,6 +400,12 @@ def compute_balance(
                                     trv_key,
                                     st.mpc_deadzone_est,
                                 )
+                                calibration_status = {
+                                    "active": False,
+                                    "phase": "failed",
+                                    "fallback_deadzone_pct": _r(st.mpc_deadzone_est, 2),
+                                    "valve_pct": _r(st.mpc_deadzone_test_u, 2),
+                                }
                                 # Test wird automatisch wiederholt wenn:
                                 # - mindestens 30 Min seit letztem Fehlschlag vergangen
                                 # - System deutlich heizt (TRV steigt ohne Test)
@@ -404,6 +430,11 @@ def compute_balance(
                                 _r(inp.trv_temp_C, 2),
                                 trv_key,
                             )
+                            calibration_status = {
+                                "active": True,
+                                "phase": "test-init",
+                                "trv_temp_C": _r(inp.trv_temp_C, 2),
+                            }
                     else:
                         # Warte weiter, setze Test-Wert
                         percent = st.mpc_deadzone_test_u
@@ -418,6 +449,12 @@ def compute_balance(
                                 test_duration,
                             )
                             st.mpc_deadzone_last_log = now
+                        calibration_status = {
+                            "active": True,
+                            "phase": "holding",
+                            "valve_pct": _r(st.mpc_deadzone_test_u, 2),
+                            "elapsed_s": round(test_duration, 1),
+                        }
                 elif (
                     st.mpc_deadzone_est is None
                     and not st.mpc_deadzone_test_cooling
@@ -479,6 +516,21 @@ def compute_balance(
                             trv_key,
                             reason,
                         )
+                        calibration_status = {
+                            "active": True,
+                            "phase": "cooling",
+                            "reason": reason,
+                            "elapsed_s": 0.0,
+                            "remaining_s": 300.0,
+                        }
+                elif st.mpc_deadzone_est is None:
+                    calibration_status = {"active": False, "phase": "pending"}
+                else:
+                    calibration_status = {
+                        "active": False,
+                        "phase": "learned",
+                        "deadzone_pct": _r(st.mpc_deadzone_est, 2),
+                    }
 
                 # Normale MPC-Regelung (nur wenn kein Test aktiv und keine Abkühlphase läuft)
                 if not st.mpc_deadzone_test_active and not st.mpc_deadzone_test_cooling:
@@ -664,6 +716,10 @@ def compute_balance(
                         }
                     except Exception:
                         pid_dbg = {"mode": "mpc"}
+                if calibration_status:
+                    if not pid_dbg:
+                        pid_dbg = {"mode": "mpc"}
+                    pid_dbg["calibration"] = calibration_status
                 # Update Modell-Zustände
                 if not st.mpc_deadzone_test_active:
                     st.mpc_last_temp = inp.current_temp_C
@@ -1207,9 +1263,7 @@ def reset_mpc_deadzone(key: str, start_calibration: bool = False) -> bool:
         st.mpc_deadzone_test_start_ts = 0.0
         st.mpc_deadzone_test_trv_start = None
         st.mpc_deadzone_last_log = 0.0
-        _LOGGER.debug(
-            "reset_mpc_deadzone(%s): calibration reseted, not started", key
-        )
+        _LOGGER.debug("reset_mpc_deadzone(%s): calibration reseted, not started", key)
     return True
 
 
@@ -1224,6 +1278,8 @@ def start_mpc_deadzone_calibration(key: str) -> bool:
     result = reset_mpc_deadzone(key, start_calibration=True)
     _LOGGER.debug("start_mpc_deadzone_calibration(%s): result=%s", key, result)
     return result
+
+
 # --- Persistence helpers --------------------------------------------
 
 
