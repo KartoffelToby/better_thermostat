@@ -227,6 +227,17 @@ def compute_balance(
             mode_lower = params.mode.lower()
             if mode_lower == "mpc":
                 # --- MPC Regelung (prädiktiv) ---------------------------------
+                # Debug: Check calibration state
+                import logging
+                _LOGGER = logging.getLogger(__name__)
+                if st.mpc_deadzone_test_cooling or st.mpc_deadzone_test_active:
+                    _LOGGER.debug(
+                        "MPC calibration active: cooling=%s active=%s deadzone_est=%s",
+                        st.mpc_deadzone_test_cooling,
+                        st.mpc_deadzone_test_active,
+                        st.mpc_deadzone_est,
+                    )
+                
                 # Fehler (Soll - Ist)
                 e0 = delta_T
                 dt_last = now - st.mpc_last_time if st.mpc_last_time > 0 else 0.0
@@ -1010,6 +1021,9 @@ def reset_mpc_deadzone(key: str, start_calibration: bool = False) -> bool:
 
     Returns True if deadzone was reset.
     """
+    import logging
+    _LOGGER = logging.getLogger(__name__)
+    
     if key in _BALANCE_STATES:
         st = _BALANCE_STATES[key]
         st.mpc_deadzone_est = None
@@ -1021,6 +1035,11 @@ def reset_mpc_deadzone(key: str, start_calibration: bool = False) -> bool:
             st.mpc_deadzone_test_u = 0.0
             st.mpc_deadzone_test_start_ts = 0.0
             st.mpc_deadzone_test_trv_start = None
+            _LOGGER.info(
+                "reset_mpc_deadzone(%s): calibration started, cooling=True, cooling_start=%.1f",
+                key,
+                st.mpc_deadzone_test_cooling_start,
+            )
         else:
             # Just reset, let automatic trigger handle it
             st.mpc_deadzone_test_cooling = False
