@@ -237,7 +237,7 @@ def compute_balance(
                         st.mpc_deadzone_test_active,
                         st.mpc_deadzone_est,
                     )
-                
+
                 # Fehler (Soll - Ist)
                 e0 = delta_T
                 dt_last = now - st.mpc_last_time if st.mpc_last_time > 0 else 0.0
@@ -1023,7 +1023,7 @@ def reset_mpc_deadzone(key: str, start_calibration: bool = False) -> bool:
     """
     import logging
     _LOGGER = logging.getLogger(__name__)
-    
+
     if key in _BALANCE_STATES:
         st = _BALANCE_STATES[key]
         st.mpc_deadzone_est = None
@@ -1060,13 +1060,17 @@ def start_mpc_deadzone_calibration(key: str) -> bool:
 
     Returns True if calibration was started.
     """
+    import logging
+    _LOGGER = logging.getLogger(__name__)
+
     # Ensure state exists (create if needed)
     if key not in _BALANCE_STATES:
+        _LOGGER.info("start_mpc_deadzone_calibration(%s): creating new state", key)
         _BALANCE_STATES[key] = BalanceState()
 
-    return reset_mpc_deadzone(key, start_calibration=True)
-
-
+    result = reset_mpc_deadzone(key, start_calibration=True)
+    _LOGGER.info("start_mpc_deadzone_calibration(%s): result=%s", key, result)
+    return result
 # --- Persistence helpers --------------------------------------------
 
 
