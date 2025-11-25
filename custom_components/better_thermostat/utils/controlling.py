@@ -3,6 +3,7 @@ import logging
 
 from homeassistant.components.climate.const import HVACMode
 from homeassistant.const import STATE_UNAVAILABLE, STATE_UNKNOWN
+from homeassistant.exceptions import HomeAssistantError
 
 from custom_components.better_thermostat.model_fixes.model_quirks import (
     override_set_hvac_mode,
@@ -65,7 +66,14 @@ async def control_queue(self):
                         _temp = await control_trv(self, trv)
                         if _temp is False:
                             result = False
-                    except Exception:
+                    except (
+                        HomeAssistantError,
+                        ValueError,
+                        TypeError,
+                        RuntimeError,
+                        KeyError,
+                        AttributeError,
+                    ):
                         _LOGGER.exception(
                             "better_thermostat %s: ERROR controlling: %s",
                             self.device_name,
@@ -112,7 +120,7 @@ async def control_trv(self, heater_entity_id=None):
             # Recompute current hvac action (uses internal climate logic)
             if hasattr(self, "_compute_hvac_action"):
                 self.attr_hvac_action = self._compute_hvac_action()
-        except Exception:  # noqa: BLE001
+        except (AttributeError, ValueError, TypeError, RuntimeError):
             _LOGGER.debug(
                 "better_thermostat %s: hvac action recompute failed (non critical)",
                 getattr(self, "device_name", "unknown"),
@@ -156,42 +164,67 @@ async def control_trv(self, heater_entity_id=None):
             "calibration_mode", CalibrationMode.DEFAULT
         )
 
-        # Optional: set valve position if supported (e.g., MQTT/Z2M)
+        # Optional: set valve position if supported (e.g., MQTT/Z2M or MPC calibration)
         try:
-            bal = self.real_trvs[heater_entity_id].get("balance")
-            if bal:
+            _source = None
+            bal = None
+            if _calibration_mode == CalibrationMode.MPC_CALIBRATION:
+                cal_bal = self.real_trvs[heater_entity_id].get("calibration_balance")
+                if (
+                    isinstance(cal_bal, dict)
+                    and cal_bal.get("apply_valve")
+                    and cal_bal.get("valve_percent") is not None
+                ):
+                    bal = cal_bal
+                    _source = "mpc_calibration"
+            if bal is None:
+                raw_balance = self.real_trvs[heater_entity_id].get("balance")
+                if raw_balance and raw_balance.get("valve_percent") is not None:
+                    bal = raw_balance
+                    _source = "balance"
+            if bal is not None:
                 target_pct = int(bal.get("valve_percent", 0))
                 last_pct = self.real_trvs[heater_entity_id].get("last_valve_percent")
-                # Apply if changed (let balance module handle hysteresis/min-interval). Skip only if no heating demand.
                 if self.call_for_heat is False:
                     _LOGGER.debug(
-                        "better_thermostat %s: skipping valve update for %s (call_for_heat is False)",
+                        "better_thermostat %s: skipping valve update for %s (call_for_heat is False, source=%s)",
                         self.device_name,
                         heater_entity_id,
+                        _source,
                     )
                 elif last_pct is not None and int(last_pct) == target_pct:
                     _LOGGER.debug(
-                        "better_thermostat %s: skipping valve update for %s (unchanged %s%%)",
+                        "better_thermostat %s: skipping valve update for %s (unchanged %s%%, source=%s)",
                         self.device_name,
                         heater_entity_id,
                         target_pct,
+                        _source,
                     )
                 else:
                     _LOGGER.debug(
-                        "better_thermostat %s: TO TRV set_valve: %s to: %s%%",
+                        "better_thermostat %s: TO TRV set_valve: %s to: %s%% (source=%s)",
                         self.device_name,
                         heater_entity_id,
                         target_pct,
+                        _source,
                     )
                     ok = await set_valve(self, heater_entity_id, target_pct)
                     if not ok:
                         _LOGGER.debug(
-                            "better_thermostat %s: delegate.set_valve returned False (target=%s%%, entity=%s)",
+                            "better_thermostat %s: delegate.set_valve returned False (target=%s%%, entity=%s, source=%s)",
                             self.device_name,
                             target_pct,
                             heater_entity_id,
+                            _source,
                         )
-        except Exception:  # noqa: BLE001
+        except (
+            HomeAssistantError,
+            ValueError,
+            TypeError,
+            RuntimeError,
+            AttributeError,
+            KeyError,
+        ):
             _LOGGER.debug(
                 "better_thermostat %s: set_valve not applied for %s (unsupported or failed)",
                 self.device_name,

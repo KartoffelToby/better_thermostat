@@ -112,6 +112,9 @@ CALIBRATION_MODE_SELECTOR = selector.SelectSelector(
                 value=CalibrationMode.HEATING_POWER_CALIBRATION, label="AI Time Based"
             ),
             selector.SelectOptionDict(
+                value=CalibrationMode.MPC_CALIBRATION, label="MPC Predictive"
+            ),
+            selector.SelectOptionDict(
                 value=CalibrationMode.NO_CALIBRATION, label="No Calibration"
             ),
         ],

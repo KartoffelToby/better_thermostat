@@ -120,3 +120,4 @@ class CalibrationMode(StrEnum):
     AGGRESIVE_CALIBRATION = "fix_calibration"
     HEATING_POWER_CALIBRATION = "heating_power_calibration"
     NO_CALIBRATION = "no_calibration"
+    MPC_CALIBRATION = "mpc_calibration"
