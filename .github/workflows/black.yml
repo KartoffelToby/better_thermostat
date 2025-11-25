@@ -8,4 +8,4 @@ jobs:
       - uses: actions/checkout@v4
       - uses: psf/black@stable
         with:
-          options: "--check --verbose --skip-magic-trailing-comma --target-version py313"
+          options: "--check --verbose --safe --quiet --skip-magic-trailing-comma --target-version py313"

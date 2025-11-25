@@ -16,7 +16,8 @@
           "window_off_delay": "Ritardo prima che il termostato si spenga quando la finestra viene aperta",
           "window_off_delay_after": "Ritardo prima che il termostato si riaccenda quando la finestra viene chiusa",
           "outdoor_sensor": "Se hai un sensore esterno, puoi usarlo per ottenere la temperatura esterna",
-          "weather": "La tua entità meteo per ottenere la temperatura esterna"
+          "weather": "La tua entità meteo per ottenere la temperatura esterna",
+          "eco_temperature": "ECO Target Temp"
         }
       },
       "advanced": {
@@ -87,6 +88,7 @@
           "valve_maintenance": "Se il tuo termostato non ha una modalità di manutenzione propria, puoi usare questa",
           "calibration": "Tipo di calibrazione https://better-thermostat.org/configuration#second-step",
           "weather": "La tua entità meteo per ottenere la temperatura esterna",
+          "eco_temperature": "ECO Target Temp",
           "heat_auto_swapped": "Se 'auto' indica riscaldamento per il tuo TRV e vuoi invertirlo",
           "child_lock": "Ignora tutti gli input sul TRV come un blocco bambini",
           "homematicip": "Se usi HomematicIP, abilita questa opzione per rallentare le richieste e prevenire il ciclo di lavoro"
@@ -157,6 +159,10 @@
     "set_temp_target_temperature": {
       "name": "Imposta temperatura eco",
       "description": "Imposta la temperatura target su una modalità temporanea (come quella notturna) e salva la precedente."
+    },
+    "set_eco_mode": {
+      "name": "Set ECO Mode",
+      "description": "Enable or disable ECO mode."
     }
   }
 }

@@ -1,3 +1,5 @@
+"""Weather utils."""
+
 from collections import deque
 import logging
 from datetime import timedelta, datetime
@@ -25,7 +27,7 @@ _LOGGER = logging.getLogger(__name__)
 
 
 async def check_weather(self) -> bool:
-    """check weather predictions or ambient air temperature if available
+    """Check weather predictions or ambient air temperature if available.
 
     Parameters
     ----------
@@ -45,7 +47,9 @@ async def check_weather(self) -> bool:
 
     if self.weather_entity is not None:
         _call_for_heat_weather = await check_weather_prediction(self)
-        if isinstance(_call_for_heat_weather, bool): # Only apply if we got a valid response
+        if isinstance(
+            _call_for_heat_weather, bool
+        ):  # Only apply if we got a valid response
             self.call_for_heat = _call_for_heat_weather
 
     if self.outdoor_sensor is not None:
@@ -72,7 +76,7 @@ async def check_weather(self) -> bool:
 
 
 async def check_weather_prediction(self) -> bool:
-    """Checks configured weather entity for next two days of temperature predictions.
+    """Check configured weather entity for next two days of temperature predictions.
 
     Returns
     -------
@@ -105,7 +109,11 @@ async def check_weather_prediction(self) -> bool:
         elif features & WeatherEntityFeature.FORECAST_HOURLY:
             ftype = "hourly"
         else:
-            _LOGGER.warning("better_thermostat %s: weather entity '%s' does not advertise any forecast support.", self.device_name, self.weather_entity)
+            _LOGGER.warning(
+                "better_thermostat %s: weather entity '%s' does not advertise any forecast support.",
+                self.device_name,
+                self.weather_entity,
+            )
             return None
 
         forecasts = await self.hass.services.async_call(
@@ -118,15 +126,7 @@ async def check_weather_prediction(self) -> bool:
 
         entity_data = forecasts.get(self.weather_entity, {})
         forecast = entity_data.get("forecast") or []
-        if forecast:
-        forecast_container = (
-            forecasts.get(self.weather_entity) if isinstance(forecasts, dict) else None
-        )
-        forecast = (
-            forecast_container.get("forecast")
-            if isinstance(forecast_container, dict)
-            else None
-        )
+
         if isinstance(forecast, list) and len(forecast) > 0:
             # current outside temp from entity state (may be None)
             cur_state = self.hass.states.get(self.weather_entity)
@@ -141,34 +141,17 @@ async def check_weather_prediction(self) -> bool:
             )
             horizon = forecast[:24] if ftype == "hourly" else forecast[:2]
             temps = [
-                convert_to_float(str(p.get("temperature")), self.device_name, "check_weather_prediction()")
+                convert_to_float(
+                    str(p.get("temperature")),
+                    self.device_name,
+                    "check_weather_prediction()",
+                )
                 for p in horizon
                 if p.get("temperature") is not None
             ]
-            if not temps: # Something went wrong
+            if not temps:  # Something went wrong
                 raise TypeError
             max_forecast_temp = max(temps)
-            return (
-                cur_outside_temp < self.off_temperature
-                or max_forecast_temp < self.off_temperature
-            # compute simple average of first up-to-2 daily temps
-            temps = []
-            for i in range(min(2, len(forecast))):
-                temps.append(
-                    convert_to_float(
-                        (
-                            str(forecast[i].get("temperature"))
-                            if isinstance(forecast[i], dict)
-                            else ""
-                        ),
-                        self.device_name,
-                        "check_weather_prediction()",
-                    )
-                )
-            temps = [t for t in temps if isinstance(t, (int, float))]
-            max_forecast_temp = None
-            if temps:
-                max_forecast_temp = sum(temps) / float(len(temps))
 
             cond_cur = (
                 isinstance(cur_outside_temp, (int, float))
@@ -189,7 +172,7 @@ async def check_weather_prediction(self) -> bool:
 
 
 async def check_ambient_air_temperature(self):
-    """Gets the history for two days and evaluates the necessary for heating.
+    """Get the history for two days and evaluates the necessary for heating.
 
     Returns
     -------
@@ -276,6 +259,7 @@ async def check_ambient_air_temperature(self):
 
 class DailyHistory:
     """Stores one measurement per day for a maximum number of days.
+
     We compute an average outside temperature that better reflects the last days:
       - Track all readings per day and compute the per-day mean
       - Then compute the overall mean across the kept days
@@ -327,6 +311,7 @@ class DailyHistory:
 
     def _add_day(self, day, value):
         """Add a new day to the history.
+
         Deletes the oldest day, if the queue becomes too long.
         """
         if self._days is None:
