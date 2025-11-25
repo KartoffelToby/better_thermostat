@@ -1089,32 +1089,31 @@ def reset_mpc_deadzone(key: str, start_calibration: bool = False) -> bool:
 
     Returns True if deadzone was reset.
     """
-    if key in _BALANCE_STATES:
-        st = _BALANCE_STATES[key]
-        st.mpc_deadzone_est = None
-        if start_calibration:
-            # Start cooling phase immediately (will be executed on next balance call)
-            st.mpc_deadzone_test_cooling = True
-            st.mpc_deadzone_test_cooling_start = monotonic()  # Set to current time
-            st.mpc_deadzone_test_active = False
-            st.mpc_deadzone_test_u = 0.0
-            st.mpc_deadzone_test_start_ts = 0.0
-            st.mpc_deadzone_test_trv_start = None
-            _LOGGER.info(
-                "reset_mpc_deadzone(%s): calibration started, cooling=True, cooling_start=%.1f",
-                key,
-                st.mpc_deadzone_test_cooling_start,
-            )
-        else:
-            # Just reset, let automatic trigger handle it
-            st.mpc_deadzone_test_cooling = False
-            st.mpc_deadzone_test_cooling_start = 0.0
-            st.mpc_deadzone_test_active = False
-            st.mpc_deadzone_test_u = 0.0
-            st.mpc_deadzone_test_start_ts = 0.0
-            st.mpc_deadzone_test_trv_start = None
-        return True
-    return False
+    # Ensure state exists so we can always (re)start calibration
+    st = _BALANCE_STATES.setdefault(key, BalanceState())
+    st.mpc_deadzone_est = None
+    if start_calibration:
+        # Start cooling phase immediately (will be executed on next balance call)
+        st.mpc_deadzone_test_cooling = True
+        st.mpc_deadzone_test_cooling_start = monotonic()  # Set to current time
+        st.mpc_deadzone_test_active = False
+        st.mpc_deadzone_test_u = 0.0
+        st.mpc_deadzone_test_start_ts = 0.0
+        st.mpc_deadzone_test_trv_start = None
+        _LOGGER.info(
+            "reset_mpc_deadzone(%s): calibration started, cooling=True, cooling_start=%.1f",
+            key,
+            st.mpc_deadzone_test_cooling_start,
+        )
+    else:
+        # Just reset, let automatic trigger handle it
+        st.mpc_deadzone_test_cooling = False
+        st.mpc_deadzone_test_cooling_start = 0.0
+        st.mpc_deadzone_test_active = False
+        st.mpc_deadzone_test_u = 0.0
+        st.mpc_deadzone_test_start_ts = 0.0
+        st.mpc_deadzone_test_trv_start = None
+    return True
 
 
 def start_mpc_deadzone_calibration(key: str) -> bool:
@@ -1125,11 +1124,6 @@ def start_mpc_deadzone_calibration(key: str) -> bool:
 
     Returns True if calibration was started.
     """
-    # Ensure state exists (create if needed)
-    if key not in _BALANCE_STATES:
-        _LOGGER.info("start_mpc_deadzone_calibration(%s): creating new state", key)
-        _BALANCE_STATES[key] = BalanceState()
-
     result = reset_mpc_deadzone(key, start_calibration=True)
     _LOGGER.info("start_mpc_deadzone_calibration(%s): result=%s", key, result)
     return result
