@@ -1016,7 +1016,7 @@ def reset_mpc_deadzone(key: str, start_calibration: bool = False) -> bool:
         if start_calibration:
             # Start cooling phase immediately (will be executed on next balance call)
             st.mpc_deadzone_test_cooling = True
-            st.mpc_deadzone_test_cooling_start = 0.0  # Will be set on first run
+            st.mpc_deadzone_test_cooling_start = monotonic()  # Set to current time
             st.mpc_deadzone_test_active = False
             st.mpc_deadzone_test_u = 0.0
             st.mpc_deadzone_test_start_ts = 0.0
