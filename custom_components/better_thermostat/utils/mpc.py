@@ -9,6 +9,16 @@ from typing import Any, Dict, Optional, Tuple
 
 
 _LOGGER = logging.getLogger(__name__)
+_FALLBACK_LOGGER = logging.getLogger("custom_components.better_thermostat")
+
+
+def _debug(msg: str, *args: Any) -> None:
+    """Emit debug logs, falling back to main integration logger if needed."""
+
+    if _LOGGER.isEnabledFor(logging.DEBUG):
+        _LOGGER.debug(msg, *args)
+    elif _FALLBACK_LOGGER.isEnabledFor(logging.DEBUG):
+        _FALLBACK_LOGGER.debug(msg, *args)
 
 
 @dataclass
@@ -113,7 +123,7 @@ def compute_mpc(inp: MpcInput, params: MpcParams) -> Optional[MpcOutput]:
 
     extra_debug: Dict[str, Any] = {}
 
-    _LOGGER.debug(
+    _debug(
         "MPC %s input: target=%s current=%s trv=%s slope=%s window_open=%s allowed=%s last_percent=%s",
         inp.key,
         _round_for_debug(inp.target_temp_C, 3),
@@ -128,7 +138,7 @@ def compute_mpc(inp: MpcInput, params: MpcParams) -> Optional[MpcOutput]:
     if not inp.heating_allowed or inp.window_open:
         percent = 0.0
         delta_t = None
-        _LOGGER.debug(
+        _debug(
             "MPC %s skip heating: window_open=%s heating_allowed=%s",
             inp.key,
             inp.window_open,
@@ -138,7 +148,7 @@ def compute_mpc(inp: MpcInput, params: MpcParams) -> Optional[MpcOutput]:
         if inp.target_temp_C is None or inp.current_temp_C is None:
             percent = state.last_percent if state.last_percent is not None else 0.0
             delta_t = None
-            _LOGGER.debug(
+            _debug(
                 "MPC %s missing temps, reusing last_percent=%s",
                 inp.key,
                 _round_for_debug(percent, 2),
@@ -149,7 +159,7 @@ def compute_mpc(inp: MpcInput, params: MpcParams) -> Optional[MpcOutput]:
                 inp, params, state, now, delta_t
             )
             extra_debug = mpc_debug
-            _LOGGER.debug(
+            _debug(
                 "MPC %s raw percent=%s delta_T=%s debug=%s",
                 inp.key,
                 _round_for_debug(percent, 2),
@@ -185,7 +195,7 @@ def compute_mpc(inp: MpcInput, params: MpcParams) -> Optional[MpcOutput]:
         }
     )
 
-    _LOGGER.debug(
+    _debug(
         "MPC %s result: percent=%s flow_cap=%s setpoint_eff=%s min_effective=%s",
         inp.key,
         percent_out,
@@ -342,7 +352,7 @@ def _post_process_percent(
         and not force_close
     ):
         smooth = min_eff
-        _LOGGER.debug(
+        _debug(
             "MPC %s clamp smooth to min_effective=%s",
             inp.key,
             _round_for_debug(min_eff, 2),
@@ -377,7 +387,7 @@ def _post_process_percent(
         percent_out = int(round(min_eff))
         state.last_percent = float(percent_out)
         state.last_update_ts = now
-        _LOGGER.debug(
+        _debug(
             "MPC %s clamp percent_out to min_effective=%s",
             inp.key,
             _round_for_debug(min_eff, 2),
@@ -417,7 +427,7 @@ def _post_process_percent(
                             100.0, max(current_min, proposed)
                         )
                         state.dead_zone_hits = 0
-                        _LOGGER.debug(
+                        _debug(
                             "MPC %s dead-zone raise: proposed=%s new_min=%s",
                             inp.key,
                             _round_for_debug(proposed, 2),
@@ -433,7 +443,7 @@ def _post_process_percent(
                             state.min_effective_percent - params.deadzone_decay_pct
                         )
                         state.min_effective_percent = new_min if new_min > 0.0 else None
-                        _LOGGER.debug(
+                        _debug(
                             "MPC %s dead-zone decay: temp_delta=%s new_min=%s",
                             inp.key,
                             _round_for_debug(temp_delta, 3),
@@ -454,7 +464,7 @@ def _post_process_percent(
         percent_out = int(round(min_eff))
         state.last_percent = float(percent_out)
         state.last_update_ts = now
-        _LOGGER.debug(
+        _debug(
             "MPC %s clamp percent_out to min_effective=%s",
             inp.key,
             _round_for_debug(min_eff, 2),
