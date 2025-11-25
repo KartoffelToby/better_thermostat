@@ -95,6 +95,7 @@ from .utils.const import (
     CONF_WEATHER,
     CONF_WINDOW_TIMEOUT,
     CONF_WINDOW_TIMEOUT_AFTER,
+    CalibrationMode,
     SERVICE_RESET_HEATING_POWER,
     SERVICE_RESET_PID_LEARNINGS,
     SERVICE_RESTORE_SAVED_TARGET_TEMPERATURE,
@@ -1279,29 +1280,47 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
             )
 
             # Periodischer 5-Minuten-Tick: nur aktivieren, wenn Balance konfiguriert ist
+            balance_modes = {"heuristic", "pid", "mpc"}
+            active_balance_modes = set()
+            active_calibration_modes = set()
             try:
-                any_balance = any(
-                    str(
-                        (trv_info.get("advanced", {}) or {}).get("balance_mode", "")
-                    ).lower()
-                    in ("heuristic", "pid")
-                    for trv_info in self.real_trvs.values()
-                )
-            except Exception:  # noqa: BLE001
-                any_balance = False
+                for trv_info in self.real_trvs.values():
+                    advanced = trv_info.get("advanced", {}) or {}
 
-            if any_balance:
+                    raw_balance = advanced.get("balance_mode", "")
+                    balance_value = getattr(raw_balance, "value", raw_balance)
+                    if isinstance(balance_value, str):
+                        balance_mode = balance_value.lower()
+                        if balance_mode in balance_modes:
+                            active_balance_modes.add(balance_mode)
+
+                    raw_calibration = advanced.get("calibration_mode", "")
+                    calibration_value = getattr(
+                        raw_calibration, "value", raw_calibration
+                    )
+                    if isinstance(calibration_value, str):
+                        calibration_mode = calibration_value.lower()
+                        if calibration_mode == CalibrationMode.MPC_CALIBRATION.value:
+                            active_calibration_modes.add(calibration_mode)
+            except Exception:  # noqa: BLE001
+                active_balance_modes = set()
+                active_calibration_modes = set()
+
+            if active_balance_modes or active_calibration_modes:
                 self.async_on_remove(
                     async_track_time_interval(
                         self.hass, self._trigger_time, timedelta(minutes=5)
                     )
                 )
                 _LOGGER.debug(
-                    "better_thermostat %s: 5min balance tick enabled", self.device_name
+                    "better_thermostat %s: 5min periodic tick enabled (balance_modes=%s calibration_modes=%s)",
+                    self.device_name,
+                    sorted(active_balance_modes),
+                    sorted(active_calibration_modes),
                 )
             else:
                 _LOGGER.debug(
-                    "better_thermostat %s: 5min balance tick skipped (balance_mode not enabled)",
+                    "better_thermostat %s: 5min periodic tick skipped (no supported balance/calibration mode)",
                     self.device_name,
                 )
 

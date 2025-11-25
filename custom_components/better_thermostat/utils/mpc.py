@@ -9,16 +9,6 @@ from typing import Any, Dict, Optional, Tuple
 
 
 _LOGGER = logging.getLogger(__name__)
-_FALLBACK_LOGGER = logging.getLogger("custom_components.better_thermostat")
-
-
-def _debug(msg: str, *args: Any) -> None:
-    """Emit debug logs, also mirroring to the main integration logger."""
-
-    _LOGGER.debug(msg, *args)
-
-    if _FALLBACK_LOGGER is not _LOGGER and _FALLBACK_LOGGER.isEnabledFor(logging.DEBUG):
-        _FALLBACK_LOGGER.debug("[mpc] " + msg, *args)
 
 
 @dataclass
@@ -62,6 +52,8 @@ class MpcInput:
     temp_slope_K_per_min: Optional[float] = None
     window_open: bool = False
     heating_allowed: bool = True
+    bt_name: Optional[str] = None
+    entity_id: Optional[str] = None
 
 
 @dataclass
@@ -122,10 +114,13 @@ def compute_mpc(inp: MpcInput, params: MpcParams) -> Optional[MpcOutput]:
     state = _MPC_STATES.setdefault(inp.key, _MpcState())
 
     extra_debug: Dict[str, Any] = {}
+    name = inp.bt_name or "BT"
+    entity = inp.entity_id or "unknown"
 
-    _debug(
-        "MPC %s input: target=%s current=%s trv=%s slope=%s window_open=%s allowed=%s last_percent=%s",
-        inp.key,
+    _LOGGER.debug(
+        "better_thermostat %s: MPC input (%s) target=%s current=%s trv=%s slope=%s window_open=%s allowed=%s last_percent=%s key=%s",
+        name,
+        entity,
         _round_for_debug(inp.target_temp_C, 3),
         _round_for_debug(inp.current_temp_C, 3),
         _round_for_debug(inp.trv_temp_C, 3),
@@ -133,14 +128,18 @@ def compute_mpc(inp: MpcInput, params: MpcParams) -> Optional[MpcOutput]:
         inp.window_open,
         inp.heating_allowed,
         _round_for_debug(state.last_percent, 2),
+        inp.key,
     )
+
+    initial_delta_t: Optional[float] = None
 
     if not inp.heating_allowed or inp.window_open:
         percent = 0.0
         delta_t = None
-        _debug(
-            "MPC %s skip heating: window_open=%s heating_allowed=%s",
-            inp.key,
+        _LOGGER.debug(
+            "better_thermostat %s: MPC skip heating (%s) window_open=%s heating_allowed=%s",
+            name,
+            entity,
             inp.window_open,
             inp.heating_allowed,
         )
@@ -148,26 +147,30 @@ def compute_mpc(inp: MpcInput, params: MpcParams) -> Optional[MpcOutput]:
         if inp.target_temp_C is None or inp.current_temp_C is None:
             percent = state.last_percent if state.last_percent is not None else 0.0
             delta_t = None
-            _debug(
-                "MPC %s missing temps, reusing last_percent=%s",
-                inp.key,
+            _LOGGER.debug(
+                "better_thermostat %s: MPC missing temps (%s) reusing last_percent=%s",
+                name,
+                entity,
                 _round_for_debug(percent, 2),
             )
         else:
             delta_t = inp.target_temp_C - inp.current_temp_C
+            initial_delta_t = delta_t
             percent, mpc_debug = _compute_predictive_percent(
                 inp, params, state, now, delta_t
             )
             extra_debug = mpc_debug
-            _debug(
-                "MPC %s raw percent=%s delta_T=%s debug=%s",
-                inp.key,
+            _LOGGER.debug(
+                "better_thermostat %s: MPC raw output (%s) percent=%s delta_T=%s debug=%s",
+                name,
+                entity,
                 _round_for_debug(percent, 2),
                 _round_for_debug(delta_t, 3),
                 mpc_debug,
             )
 
     percent = max(0.0, min(100.0, percent))
+    prev_percent = state.last_percent
 
     percent_out, debug, delta_t = _post_process_percent(
         inp=inp,
@@ -195,13 +198,30 @@ def compute_mpc(inp: MpcInput, params: MpcParams) -> Optional[MpcOutput]:
         }
     )
 
-    _debug(
-        "MPC %s result: percent=%s flow_cap=%s setpoint_eff=%s min_effective=%s",
-        inp.key,
+    summary_delta = delta_t if delta_t is not None else initial_delta_t
+    min_eff = state.min_effective_percent
+    summary_gain = extra_debug.get("mpc_gain")
+    summary_loss = extra_debug.get("mpc_loss")
+    summary_horizon = extra_debug.get("mpc_horizon")
+    summary_eval = extra_debug.get("mpc_eval_count")
+    summary_cost = extra_debug.get("mpc_cost")
+
+    _LOGGER.debug(
+        "better_thermostat %s: balance mpc for %s: e0=%sK gain=%s loss=%s horizon=%s | raw=%s%% out=%s%% min_eff=%s%% last=%s%% dead_hits=%s eval=%s cost=%s flow_cap=%sK",
+        name,
+        entity,
+        _round_for_debug(summary_delta, 3),
+        _round_for_debug(summary_gain, 4),
+        _round_for_debug(summary_loss, 4),
+        summary_horizon,
+        _round_for_debug(percent, 2),
         percent_out,
+        _round_for_debug(min_eff, 2) if min_eff is not None else None,
+        _round_for_debug(prev_percent, 2),
+        state.dead_zone_hits,
+        summary_eval,
+        _round_for_debug(summary_cost, 6),
         _round_for_debug(flow_cap, 3),
-        _round_for_debug(setpoint_eff, 3),
-        _round_for_debug(state.min_effective_percent, 2),
     )
 
     return MpcOutput(
@@ -295,6 +315,12 @@ def _compute_predictive_percent(
         "mpc_eval_count": eval_count,
     }
 
+    if best_cost is not None:
+        mpc_debug["mpc_cost"] = _round_for_debug(best_cost, 6)
+
+    if last_percent is not None:
+        mpc_debug["mpc_last_percent"] = _round_for_debug(last_percent, 2)
+
     return best_percent, mpc_debug
 
 
@@ -310,6 +336,8 @@ def _post_process_percent(
 
     smooth = raw_percent
     target_changed = False
+    name = inp.bt_name or "BT"
+    entity = inp.entity_id or "unknown"
 
     if inp.target_temp_C is not None:
         prev_target = state.last_target_C
@@ -352,9 +380,10 @@ def _post_process_percent(
         and not force_close
     ):
         smooth = min_eff
-        _debug(
-            "MPC %s clamp smooth to min_effective=%s",
-            inp.key,
+        _LOGGER.debug(
+            "better_thermostat %s: MPC clamp smooth (%s) to min_effective=%s",
+            name,
+            entity,
             _round_for_debug(min_eff, 2),
         )
 
@@ -387,9 +416,10 @@ def _post_process_percent(
         percent_out = int(round(min_eff))
         state.last_percent = float(percent_out)
         state.last_update_ts = now
-        _debug(
-            "MPC %s clamp percent_out to min_effective=%s",
-            inp.key,
+        _LOGGER.debug(
+            "better_thermostat %s: MPC clamp percent_out (%s) to min_effective=%s",
+            name,
+            entity,
             _round_for_debug(min_eff, 2),
         )
 
@@ -417,6 +447,15 @@ def _post_process_percent(
 
                 if small_command and needs_heat and weak_response:
                     state.dead_zone_hits += 1
+                    _LOGGER.debug(
+                        "better_thermostat %s: MPC dead-zone observation (%s) hits=%s/%s temp_delta=%s command=%s%%",
+                        name,
+                        entity,
+                        state.dead_zone_hits,
+                        params.deadzone_hits_required,
+                        _round_for_debug(temp_delta, 3),
+                        percent_out,
+                    )
                     if (
                         params.deadzone_hits_required > 0
                         and state.dead_zone_hits >= params.deadzone_hits_required
@@ -427,13 +466,15 @@ def _post_process_percent(
                             100.0, max(current_min, proposed)
                         )
                         state.dead_zone_hits = 0
-                        _debug(
-                            "MPC %s dead-zone raise: proposed=%s new_min=%s",
-                            inp.key,
+                        _LOGGER.debug(
+                            "better_thermostat %s: MPC dead-zone raise (%s) proposed=%s new_min=%s",
+                            name,
+                            entity,
                             _round_for_debug(proposed, 2),
                             _round_for_debug(state.min_effective_percent, 2),
                         )
                 else:
+                    prev_hits = state.dead_zone_hits
                     if (
                         state.min_effective_percent is not None
                         and temp_delta is not None
@@ -443,13 +484,22 @@ def _post_process_percent(
                             state.min_effective_percent - params.deadzone_decay_pct
                         )
                         state.min_effective_percent = new_min if new_min > 0.0 else None
-                        _debug(
-                            "MPC %s dead-zone decay: temp_delta=%s new_min=%s",
-                            inp.key,
+                        _LOGGER.debug(
+                            "better_thermostat %s: MPC dead-zone decay (%s) temp_delta=%s new_min=%s",
+                            name,
+                            entity,
                             _round_for_debug(temp_delta, 3),
                             _round_for_debug(state.min_effective_percent, 2),
                         )
                     state.dead_zone_hits = 0
+                    if prev_hits:
+                        _LOGGER.debug(
+                            "better_thermostat %s: MPC dead-zone reset (%s) prev_hits=%s temp_delta=%s",
+                            name,
+                            entity,
+                            prev_hits,
+                            _round_for_debug(temp_delta, 3),
+                        )
 
                 state.last_trv_temp = inp.trv_temp_C
                 state.last_trv_temp_ts = now
@@ -464,9 +514,10 @@ def _post_process_percent(
         percent_out = int(round(min_eff))
         state.last_percent = float(percent_out)
         state.last_update_ts = now
-        _debug(
-            "MPC %s clamp percent_out to min_effective=%s",
-            inp.key,
+        _LOGGER.debug(
+            "better_thermostat %s: MPC clamp percent_out (%s) to min_effective=%s",
+            name,
+            entity,
             _round_for_debug(min_eff, 2),
         )
 
