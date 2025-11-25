@@ -313,7 +313,7 @@ def compute_balance(
                         st.mpc_deadzone_test_start_ts = now
                         st.mpc_deadzone_test_trv_start = inp.trv_temp_C
                         st.mpc_deadzone_last_log = 0.0
-                        _LOGGER.info(
+                        _LOGGER.debug(
                             "MPC deadzone calibration: cooling finished for %s, starting test at %.1f%% (trv_temp=%s)",
                             trv_key,
                             st.mpc_deadzone_test_u,
@@ -355,7 +355,7 @@ def compute_balance(
                                 # Save to global cache so other temperature buckets can use it
                                 try:
                                     _DEADZONE_CACHE[trv_key] = st.mpc_deadzone_est
-                                    _LOGGER.info(
+                                    _LOGGER.debug(
                                         "MPC deadzone calibration: response detected at %.1f%% for %s (rise=%.3fK, saved deadzone=%.1f%%)",
                                         st.mpc_deadzone_test_u,
                                         trv_key,
@@ -389,7 +389,7 @@ def compute_balance(
                                 st.mpc_deadzone_test_start_ts = now
                                 st.mpc_deadzone_test_trv_start = inp.trv_temp_C
                                 st.mpc_deadzone_last_log = 0.0
-                                _LOGGER.info(
+                                _LOGGER.debug(
                                     "MPC deadzone calibration: escalating test for %s to %.1f%% (elapsed %.0fs)",
                                     trv_key,
                                     st.mpc_deadzone_test_u,
@@ -474,14 +474,14 @@ def compute_balance(
                             reason = f"delta_T={_r(e0, 2)}K below target"
                         else:
                             reason = "initial calibration"
-                        _LOGGER.info(
+                        _LOGGER.debug(
                             "MPC deadzone calibration: starting cooling phase for %s (%s)",
                             trv_key,
                             reason,
                         )
 
-                # Normale MPC-Regelung (nur wenn kein Test aktiv)
-                if not st.mpc_deadzone_test_active:
+                # Normale MPC-Regelung (nur wenn kein Test aktiv und keine Abkühlphase läuft)
+                if not st.mpc_deadzone_test_active and not st.mpc_deadzone_test_cooling:
                     # Adaptive Modellschätzung (optional)
                     if (
                         params.mpc_adapt
@@ -1193,7 +1193,7 @@ def reset_mpc_deadzone(key: str, start_calibration: bool = False) -> bool:
         st.mpc_deadzone_test_start_ts = 0.0
         st.mpc_deadzone_test_trv_start = None
         st.mpc_deadzone_last_log = 0.0
-        _LOGGER.info(
+        _LOGGER.inf(
             "reset_mpc_deadzone(%s): calibration started, cooling=True, cooling_start=%.1f",
             key,
             st.mpc_deadzone_test_cooling_start,
@@ -1207,7 +1207,7 @@ def reset_mpc_deadzone(key: str, start_calibration: bool = False) -> bool:
         st.mpc_deadzone_test_start_ts = 0.0
         st.mpc_deadzone_test_trv_start = None
         st.mpc_deadzone_last_log = 0.0
-        _LOGGER.info(
+        _LOGGER.debug(
             "reset_mpc_deadzone(%s): calibration reseted, not started", key
         )
     return True
@@ -1222,7 +1222,7 @@ def start_mpc_deadzone_calibration(key: str) -> bool:
     Returns True if calibration was started.
     """
     result = reset_mpc_deadzone(key, start_calibration=True)
-    _LOGGER.info("start_mpc_deadzone_calibration(%s): result=%s", key, result)
+    _LOGGER.debug("start_mpc_deadzone_calibration(%s): result=%s", key, result)
     return result
 # --- Persistence helpers --------------------------------------------
 
