@@ -1,4 +1,4 @@
-""""""
+"""Constants for Better Thermostat."""
 
 import os
 import json
@@ -7,9 +7,7 @@ from enum import IntEnum, StrEnum
 import logging
 import voluptuous as vol
 import homeassistant.helpers.config_validation as cv
-from homeassistant.helpers.config_validation import (  # noqa: F401
-    make_entity_service_schema,
-)
+from homeassistant.helpers.config_validation import make_entity_service_schema
 from homeassistant.components.climate.const import ClimateEntityFeature
 from homeassistant.const import ATTR_TEMPERATURE
 
@@ -54,6 +52,7 @@ CONF_INTEGRATION = "integration"
 CONF_NO_SYSTEM_MODE_OFF = "no_off_system_mode"
 CONF_TOLERANCE = "tolerance"
 CONF_TARGET_TEMP_STEP = "target_temp_step"
+CONF_ECO_TEMPERATURE = "eco_temperature"
 
 SUPPORT_FLAGS = (
     ClimateEntityFeature.TARGET_TEMPERATURE
@@ -73,9 +72,12 @@ ATTR_STATE_HEATING_POWER = "heating_power"
 ATTR_STATE_HEATING_STATS = "heating_stats"
 ATTR_STATE_ERRORS = "errors"
 ATTR_STATE_BATTERIES = "batteries"
+ATTR_STATE_SAVED_TEMPERATURE_ECO = "saved_temperature_eco"
+ATTR_STATE_ECO_MODE = "eco_mode"
 
 SERVICE_RESTORE_SAVED_TARGET_TEMPERATURE = "restore_saved_target_temperature"
 SERVICE_SET_TEMP_TARGET_TEMPERATURE = "set_temp_target_temperature"
+SERVICE_SET_ECO_MODE = "set_eco_mode"
 SERVICE_RESET_HEATING_POWER = "reset_heating_power"
 SERVICE_RESET_PID_LEARNINGS = "reset_pid_learnings"
 
@@ -106,7 +108,7 @@ class BetterThermostatEntityFeature(IntEnum):
 
 
 class CalibrationType(StrEnum):
-    """Calibration type"""
+    """Calibration type."""
 
     TARGET_TEMP_BASED = "target_temp_based"
     LOCAL_BASED = "local_calibration_based"

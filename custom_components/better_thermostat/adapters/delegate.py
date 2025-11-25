@@ -1,3 +1,6 @@
+"""Delegate adapter."""
+
+import logging
 from homeassistant.helpers.importlib import async_import_module
 
 from ..utils.retry import async_retry
@@ -49,6 +52,7 @@ async def init(self, entity_id):
 
 @async_retry(retries=5)
 async def get_info(self, entity_id):
+    """Get info."""
     return await self.real_trvs[entity_id]["adapter"].get_info(self, entity_id)
 
 
@@ -62,7 +66,7 @@ async def get_current_offset(self, entity_id):
 
 @async_retry(retries=5)
 async def get_offset_step(self, entity_id):
-    """get offset setps."""
+    """Get offset steps."""
     return await self.real_trvs[entity_id]["adapter"].get_offset_step(self, entity_id)
 
 
@@ -103,7 +107,7 @@ async def set_temperature(self, entity_id, temperature):
         )
         step = per_trv_step or global_cfg_step or device_step or 0.5
         rounded = round_by_step(float(t), float(step))
-    except Exception:  # noqa: BLE001
+    except Exception:
         rounded = float(t)
 
     # Clamp to device min/max if available
@@ -141,8 +145,13 @@ async def set_temperature(self, entity_id, temperature):
     # Keep last_temperature in sync with the actually sent value
     try:
         self.real_trvs[entity_id]["last_temperature"] = rounded
-    except Exception:  # noqa: BLE001
-        pass
+    except Exception as e:
+        _LOGGER.warning(
+            "better_thermostat %s: Failed to update last_temperature for entity_id %s: %s",
+            getattr(self, "device_name", "unknown"),
+            entity_id,
+            e,
+        )
 
     return await self.real_trvs[entity_id]["adapter"].set_temperature(
         self, entity_id, rounded
@@ -159,11 +168,13 @@ async def set_hvac_mode(self, entity_id, hvac_mode):
 
 async def set_offset(self, entity_id, offset):
     """Set new target offset."""
+
     @async_retry(retries=5)
     async def inner():
         return await self.real_trvs[entity_id]["adapter"].set_offset(
             self, entity_id, offset
         )
+
     try:
         return await inner()
     except Exception:
@@ -180,7 +191,7 @@ async def set_valve(self, entity_id, valve):
     """
     try:
         target_pct = int(valve)
-    except Exception:  # noqa: BLE001
+    except Exception:
         target_pct = valve
     try:
         valve_entity = (self.real_trvs.get(entity_id, {}) or {}).get(
@@ -193,15 +204,20 @@ async def set_valve(self, entity_id, valve):
             try:
                 self.real_trvs[entity_id]["last_valve_percent"] = int(target_pct)
                 self.real_trvs[entity_id]["last_valve_method"] = "adapter"
-            except Exception:  # noqa: BLE001
-                pass
+            except Exception as exc:
+                _LOGGER.debug(
+                    "better_thermostat %s: Failed to record last_valve_percent/method for %s: %s",
+                    getattr(self, "device_name", "unknown"),
+                    entity_id,
+                    exc,
+                )
             return True
         # Fallback: quirks override
         try:
             from custom_components.better_thermostat.model_fixes.model_quirks import (
                 override_set_valve as _override_set_valve,
             )
-        except Exception:  # noqa: BLE001
+        except Exception:
             _override_set_valve = None
         if _override_set_valve is not None:
             ok = await _override_set_valve(self, entity_id, target_pct)
@@ -209,10 +225,14 @@ async def set_valve(self, entity_id, valve):
                 try:
                     self.real_trvs[entity_id]["last_valve_percent"] = int(target_pct)
                     self.real_trvs[entity_id]["last_valve_method"] = "override"
-                except Exception:  # noqa: BLE001
-                    pass
+                except Exception:
+                    _LOGGER.exception(
+                        "better_thermostat %s: Failed to set last_valve_percent or last_valve_method for %s in override",
+                        getattr(self, "device_name", "unknown"),
+                        entity_id,
+                    )
             return bool(ok)
-    except Exception:  # noqa: BLE001
+    except Exception:
         _LOGGER.debug(
             "better_thermostat %s: delegate.set_valve failed for %s",
             getattr(self, "device_name", "unknown"),

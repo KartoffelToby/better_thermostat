@@ -16,7 +16,8 @@
           "window_off_delay": "Oneskorenie pred vypnutím termostatu pri otvorení okna",
           "window_off_delay_after": "Oneskorenie pred zapnutím termostatu pri zatvorenom okne",
           "outdoor_sensor": "Ak máte vonkajší snímač, môžete pomocou neho zistiť vonkajšiu teplotu",
-          "weather": "Váš meteorologický subjekt na zistenie vonkajšej teploty"
+          "weather": "Váš meteorologický subjekt na zistenie vonkajšej teploty",
+          "eco_temperature": "ECO Target Temp"
         }
       },
       "advanced": {
@@ -71,6 +72,7 @@
           "valve_maintenance": "Ak váš termostat nemá vlastný režim údržby, môžete použiť tento režim",
           "calibration": "Druh kalibrácie https://better-thermostat.org/configuration#second-step",
           "weather": "Váš meteorologický subjekt na zistenie vonkajšej teploty",
+          "eco_temperature": "ECO Target Temp",
           "heat_auto_swapped": "Ak auto znamená teplo pre váš TRV a chcete ho vymeniť",
           "child_lock": "Ignorovať všetky vstupy na TRV ako detský zámok",
           "homematicip": "Ak používate HomematicIP, mali by ste túto funkciu povoliť, aby ste spomalili požiadavky a zabránili tak pracovnému cyklu"
@@ -125,6 +127,10 @@
     "set_temp_target_temperature": {
       "name": "Nastavenie eko teploty",
       "description": "Nastavte cieľovú teplotu na dočasný, napríklad nočný režim, a uložte starú teplotu."
+    },
+    "set_eco_mode": {
+      "name": "Set ECO Mode",
+      "description": "Enable or disable ECO mode."
     }
   }
 }
