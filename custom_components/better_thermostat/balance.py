@@ -28,6 +28,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Optional, Dict, Any
 from time import monotonic
+import logging
 
 
 # --- Key Builder Helper -----------------------------------------------
@@ -35,14 +36,14 @@ from time import monotonic
 
 def build_balance_key(self, entity_id: str) -> str:
     """Build consistent balance state key across all modules.
-    
+
     Format: {unique_id}:{entity_id}:t{target_temp:.1f}
     where target_temp is rounded to 0.5°C buckets.
-    
+
     Args:
         self: BetterThermostat instance with unique_id and bt_target_temp
         entity_id: TRV entity ID
-        
+
     Returns:
         Balance key string
     """
@@ -55,7 +56,7 @@ def build_balance_key(self, entity_id: str) -> str:
         )
     except Exception:
         bucket_tag = "tunknown"
-    
+
     # Use public unique_id property if available, fallback to _unique_id or "bt"
     uid = getattr(self, "unique_id", None) or getattr(self, "_unique_id", "bt")
     return f"{uid}:{entity_id}:{bucket_tag}"
@@ -205,6 +206,8 @@ class BalanceState:
     mpc_deadzone_test_failed_ts: float = 0.0  # Letzter fehlgeschlagener Test
 
 
+_LOGGER = logging.getLogger(__name__)
+
 # Module-local storage
 _BALANCE_STATES: Dict[str, BalanceState] = {}
 
@@ -250,17 +253,13 @@ def compute_balance(
         st.mpc_deadzone_est = _DEADZONE_CACHE[trv_key]
 
     # Debug: Log calibration state at start of compute_balance
-    import logging
-    _LOGGER_BAL = logging.getLogger(__name__)
-    if st.mpc_deadzone_test_cooling or st.mpc_deadzone_test_active:
-        _LOGGER_BAL.warning(
-            "compute_balance(%s): CALIBRATION STATE - cooling=%s active=%s deadzone=%s cooling_start=%.1f",
-            inp.key,
-            st.mpc_deadzone_test_cooling,
-            st.mpc_deadzone_test_active,
-            st.mpc_deadzone_est,
-            st.mpc_deadzone_test_cooling_start,
-        )
+    _LOGGER.debug(
+        "compute_balance(%s): ENTRY - cooling=%s active=%s deadzone=%s",
+        inp.key,
+        st.mpc_deadzone_test_cooling,
+        st.mpc_deadzone_test_active,
+        st.mpc_deadzone_est,
+    )
 
     # Ensure pid_dbg exists for static analyzers; will be populated in PID branch
     pid_dbg: Dict[str, Any] = {}
@@ -1092,9 +1091,6 @@ def reset_mpc_deadzone(key: str, start_calibration: bool = False) -> bool:
 
     Returns True if deadzone was reset.
     """
-    import logging
-    _LOGGER = logging.getLogger(__name__)
-
     if key in _BALANCE_STATES:
         st = _BALANCE_STATES[key]
         st.mpc_deadzone_est = None
@@ -1131,9 +1127,6 @@ def start_mpc_deadzone_calibration(key: str) -> bool:
 
     Returns True if calibration was started.
     """
-    import logging
-    _LOGGER = logging.getLogger(__name__)
-
     # Ensure state exists (create if needed)
     if key not in _BALANCE_STATES:
         _LOGGER.info("start_mpc_deadzone_calibration(%s): creating new state", key)
