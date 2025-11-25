@@ -1,3 +1,9 @@
+"""Generic adapter helpers used by multiple TRV integrations.
+
+This module implements the generic, default behaviour for TRV adapters
+used by Better Thermostat when a device-specific adapter does not exist.
+"""
+
 import asyncio
 import logging
 
@@ -21,6 +27,11 @@ async def get_info(self, entity_id):
 
 
 async def init(self, entity_id):
+    """Initialize generic adapter for an entity.
+
+    Finds and registers a local calibration entity (if configured) and waits
+    for it to appear before returning. Returns None after initialization.
+    """
     if (
         self.real_trvs[entity_id]["local_temperature_calibration_entity"] is None
         and self.real_trvs[entity_id]["calibration"] != 1
@@ -132,7 +143,7 @@ async def set_hvac_mode(self, entity_id, hvac_mode):
             entity_id,
             hvac_mode_norm,
         )
-    except Exception as exc:  # noqa: BLE001
+    except Exception as exc:
         _LOGGER.exception(
             "better_thermostat %s: Exception in set_hvac_mode for %s with %s: %s",
             self.device_name,

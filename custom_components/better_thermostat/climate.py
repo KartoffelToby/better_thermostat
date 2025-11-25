@@ -272,46 +272,36 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
             self.bt_update_lock = False
 
     async def set_eco_mode(self, enable: bool):
-        """Set ECO mode."""
+        """Enable or disable ECO mode for the thermostat.
+
+        When enabling ECO mode, we save the current target temperature in a
+        dedicated ECO save variable and set the target to the configured eco
+        temperature. When disabling, restore the saved ECO temperature if it
+        exists. This function uses a temporary update lock to avoid races.
+        """
         self.bt_update_lock = True
         try:
             if enable:
                 if not self.eco_mode:
                     if self.eco_temperature is not None:
-                        self._saved_temperature = self.bt_target_temp
+                        self._saved_temperature_eco = self.bt_target_temp
                         self.bt_target_temp = self.eco_temperature
                         self.eco_mode = True
                         self.async_write_ha_state()
                         await self.control_queue_task.put(self)
             else:
                 if self.eco_mode:
-                    if self._saved_temperature is not None:
-                        self.bt_target_temp = self._saved_temperature
-                        self._saved_temperature = None
+                    if self._saved_temperature_eco is not None:
+                        self.bt_target_temp = self._saved_temperature_eco
+                        self._saved_temperature_eco = None
                 self.eco_mode = False
                 self.async_write_ha_state()
                 await self.control_queue_task.put(self)
         finally:
             self.bt_update_lock = False
 
-    async def set_eco_mode(self, enable: bool):
-        """Set ECO mode."""
-        if enable:
-            if not self.eco_mode:
-                if self.eco_temperature is not None:
-                    self._saved_temperature_eco = self.bt_target_temp
-                    self.bt_target_temp = self.eco_temperature
-                    self.eco_mode = True
-                    self.async_write_ha_state()
-                    await self.control_queue_task.put(self)
-        else:
-            if self.eco_mode:
-                if self._saved_temperature_eco is not None:
-                    self.bt_target_temp = self._saved_temperature_eco
-                    self._saved_temperature_eco = None
-            self.eco_mode = False
-            self.async_write_ha_state()
-            await self.control_queue_task.put(self)
+    # NOTE: `set_eco_mode` is defined above (merged implementation using
+    # _saved_temperature_eco). Avoid any duplicate definitions below.
 
     async def reset_heating_power(self):
         """Reset heating power to default value."""

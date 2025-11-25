@@ -1,3 +1,9 @@
+"""Watcher helpers to verify the presence and state of configured entities.
+
+This module contains utility functions to verify entities, check batteries,
+and raise Home Assistant issues if an entity is missing or unavailable.
+"""
+
 from __future__ import annotations
 from homeassistant.helpers import issue_registry as ir
 from homeassistant.const import STATE_UNAVAILABLE, STATE_UNKNOWN
@@ -8,6 +14,11 @@ _LOGGER = logging.getLogger(__name__)
 
 
 async def check_entity(self, entity) -> bool:
+    """Check if a specific entity is present and available.
+
+    Returns True if the entity is available and known to Home Assistant,
+    otherwise raises an issue and returns False.
+    """
     if entity is None:
         return False
     entity_states = self.hass.states.get(entity)
@@ -36,6 +47,10 @@ async def check_entity(self, entity) -> bool:
 
 
 async def get_battery_status(self, entity):
+    """Read a battery entity for a device and update internal state.
+
+    Uses the provided mapping stored in `self.devices_states`.
+    """
     if entity in self.devices_states:
         battery_id = self.devices_states[entity].get("battery_id")
         if battery_id is not None:
@@ -51,6 +66,10 @@ async def get_battery_status(self, entity):
 
 
 async def check_all_entities(self) -> bool:
+    """Verify all configured entities and report missing ones as issues.
+
+    Returns True if all entities are available.
+    """
     entities = self.all_entities
     for entity in entities:
         if not await check_entity(self, entity):

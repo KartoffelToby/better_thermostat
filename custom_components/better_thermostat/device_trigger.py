@@ -1,3 +1,10 @@
+"""Device trigger helpers for Better Thermostat.
+
+This module implements the device trigger helpers and validators used by
+Home Assistant's device trigger integration for Better Thermostat climate
+devices.
+"""
+
 from __future__ import annotations
 
 import voluptuous as vol
