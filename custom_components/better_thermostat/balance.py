@@ -1193,7 +1193,7 @@ def reset_mpc_deadzone(key: str, start_calibration: bool = False) -> bool:
         st.mpc_deadzone_test_start_ts = 0.0
         st.mpc_deadzone_test_trv_start = None
         st.mpc_deadzone_last_log = 0.0
-        _LOGGER.inf(
+        _LOGGER.info(
             "reset_mpc_deadzone(%s): calibration started, cooling=True, cooling_start=%.1f",
             key,
             st.mpc_deadzone_test_cooling_start,
