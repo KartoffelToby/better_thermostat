@@ -1091,6 +1091,32 @@ def reset_mpc_deadzone(key: str, start_calibration: bool = False) -> bool:
     """
     # Ensure state exists so we can always (re)start calibration
     st = _BALANCE_STATES.setdefault(key, BalanceState())
+
+    # Build TRV-level cache key (uid + entity, without temperature bucket)
+    try:
+        trv_key = key.rsplit(":", 1)[0]
+    except Exception:  # noqa: BLE001
+        trv_key = key
+
+    # Drop any globally cached deadzone so the upcoming calibration is not short-circuited
+    if _DEADZONE_CACHE.pop(trv_key, None) is not None:
+        _LOGGER.debug(
+            "reset_mpc_deadzone(%s): cleared global deadzone cache entry for %s",
+            key,
+            trv_key,
+        )
+
+    # Also clear stale deadzone values on sibling buckets for the same TRV
+    for other_key, other_state in _BALANCE_STATES.items():
+        if other_key == key:
+            continue
+        try:
+            other_trv_key = other_key.rsplit(":", 1)[0]
+        except Exception:  # noqa: BLE001
+            other_trv_key = other_key
+        if other_trv_key == trv_key:
+            other_state.mpc_deadzone_est = None
+
     st.mpc_deadzone_est = None
     if start_calibration:
         # Start cooling phase immediately (will be executed on next balance call)
@@ -1113,6 +1139,9 @@ def reset_mpc_deadzone(key: str, start_calibration: bool = False) -> bool:
         st.mpc_deadzone_test_u = 0.0
         st.mpc_deadzone_test_start_ts = 0.0
         st.mpc_deadzone_test_trv_start = None
+        _LOGGER.info(
+            "reset_mpc_deadzone(%s): calibration reseted, not started", key
+        )
     return True
 
 
