@@ -137,6 +137,15 @@ def _compute_mpc_balance(self, entity_id: str):
         return None, False
 
     supports_valve = _supports_direct_valve_control(self, entity_id)
+    _LOGGER.debug(
+        "better_thermostat %s: MPC result for %s | valve=%s%% flow_cap=%s setpoint_eff=%s debug=%s",
+        getattr(self, "device_name", "unknown"),
+        entity_id,
+        mpc_output.valve_percent,
+        mpc_output.flow_cap_K,
+        mpc_output.setpoint_eff_C,
+        getattr(mpc_output, "debug", None),
+    )
     trv_state["calibration_balance"] = {
         "valve_percent": mpc_output.valve_percent,
         "flow_cap_K": mpc_output.flow_cap_K,
