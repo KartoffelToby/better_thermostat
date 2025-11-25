@@ -30,6 +30,37 @@ from typing import Optional, Dict, Any
 from time import monotonic
 
 
+# --- Key Builder Helper -----------------------------------------------
+
+
+def build_balance_key(self, entity_id: str) -> str:
+    """Build consistent balance state key across all modules.
+    
+    Format: {unique_id}:{entity_id}:t{target_temp:.1f}
+    where target_temp is rounded to 0.5°C buckets.
+    
+    Args:
+        self: BetterThermostat instance with unique_id and bt_target_temp
+        entity_id: TRV entity ID
+        
+    Returns:
+        Balance key string
+    """
+    try:
+        tcur = self.bt_target_temp
+        bucket_tag = (
+            f"t{round(float(tcur) * 2.0) / 2.0:.1f}"
+            if isinstance(tcur, (int, float))
+            else "tunknown"
+        )
+    except Exception:
+        bucket_tag = "tunknown"
+    
+    # Use public unique_id property if available, fallback to _unique_id or "bt"
+    uid = getattr(self, "unique_id", None) or getattr(self, "_unique_id", "bt")
+    return f"{uid}:{entity_id}:{bucket_tag}"
+
+
 # --- Default Parameter -----------------------------------------------
 
 

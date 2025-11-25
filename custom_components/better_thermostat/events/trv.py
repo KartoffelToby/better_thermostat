@@ -16,6 +16,7 @@ from custom_components.better_thermostat.balance import (
     BalanceParams,
     get_balance_state,
     seed_pid_gains,
+    build_balance_key,
 )
 from custom_components.better_thermostat.utils.helpers import get_device_model
 from custom_components.better_thermostat.model_fixes.model_quirks import (
@@ -462,19 +463,8 @@ def _apply_hydraulic_balance(
             min_update_interval_s=min_interval,
         )
 
-        # Build balance state key and include target bucket (0.5°C rounded) so PID gains learn per bucket
-        try:
-            tcur = self.bt_target_temp
-            bucket_tag = (
-                f"t{round(float(tcur) * 2.0) / 2.0:.1f}"
-                if isinstance(tcur, (int, float))
-                else "tunknown"
-            )
-        except Exception:
-            bucket_tag = "tunknown"
-        # Use public unique_id property if available
-        uid = getattr(self, "unique_id", None) or getattr(self, "_unique_id", "bt")
-        balance_key = f"{uid}:{entity_id}:{bucket_tag}"
+        # Build balance state key using central builder function
+        balance_key = build_balance_key(self, entity_id)
 
         bal = compute_balance(
             BalanceInput(
@@ -504,6 +494,8 @@ def _apply_hydraulic_balance(
                     or st_cur.pid_kd is None
                 )
                 if missing and isinstance(self.bt_target_temp, (int, float)):
+                    # Extract uid from balance_key for neighbor keys
+                    uid = getattr(self, "unique_id", None) or getattr(self, "_unique_id", "bt")
                     base = round(float(self.bt_target_temp) * 2.0) / 2.0
                     neighbors = [
                         f"{uid}:{entity_id}:t{base + 0.5:.1f}",

@@ -113,6 +113,7 @@ from .balance import (
     export_states as balance_export_states,
     import_states as balance_import_states,
     reset_balance_state as balance_reset_state,
+    build_balance_key,
 )
 
 
@@ -3100,7 +3101,6 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
         try:
             from .balance import start_mpc_deadzone_calibration
 
-            prefix = f"{self._unique_id}:"
             count = 0
 
             # Start calibration for all TRVs in this entity
@@ -3109,22 +3109,16 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
                 # Try common bucket patterns (e.g., 20.0, 21.0, etc.)
                 # In practice, we may need to trigger calibration for the current active bucket
                 try:
-                    # Get current target temp to build bucket tag
-                    # Note: bucket_tag format must match trv.py: "t{temp:.1f}" with 0.5°C rounding
-                    current_target = getattr(self, "bt_target_temp", None)
-                    if current_target is not None:
-                        # Round to 0.5°C steps like in trv.py
-                        bucket_temp = round(float(current_target) * 2.0) / 2.0
-                        bucket_tag = f"t{bucket_temp:.1f}"
-                        key = f"{prefix}{trv_id}:{bucket_tag}"
-                        if start_mpc_deadzone_calibration(key):
-                            count += 1
-                            _LOGGER.info(
-                                "better_thermostat %s: started MPC deadzone calibration for TRV %s (key=%s)",
-                                self.device_name,
-                                trv_id,
-                                key,
-                            )
+                    # Build key using central builder function for consistency
+                    key = build_balance_key(self, trv_id)
+                    if start_mpc_deadzone_calibration(key):
+                        count += 1
+                        _LOGGER.info(
+                            "better_thermostat %s: started MPC deadzone calibration for TRV %s (key=%s)",
+                            self.device_name,
+                            trv_id,
+                            key,
+                        )
                 except Exception as e:  # noqa: BLE001
                     _LOGGER.debug(
                         "better_thermostat %s: failed to start calibration for TRV %s: %s",
@@ -3146,9 +3140,8 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
                     pass
             else:
                 _LOGGER.warning(
-                    "better_thermostat %s: no MPC states found to calibrate (prefix=%s, target_temp=%s)",
+                    "better_thermostat %s: no MPC states found to calibrate (target_temp=%s)",
                     self.device_name,
-                    prefix,
                     getattr(self, "bt_target_temp", None),
                 )
         except Exception as e:  # noqa: BLE001
