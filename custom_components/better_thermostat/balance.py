@@ -1037,9 +1037,14 @@ def start_mpc_deadzone_calibration(key: str) -> bool:
     """Start active MPC deadzone calibration for a given state key.
 
     This will reset any existing deadzone and immediately start the test sequence.
+    If the state doesn't exist yet, it will be created.
 
     Returns True if calibration was started.
     """
+    # Ensure state exists (create if needed)
+    if key not in _BALANCE_STATES:
+        _BALANCE_STATES[key] = BalanceState()
+
     return reset_mpc_deadzone(key, start_calibration=True)
 
 
