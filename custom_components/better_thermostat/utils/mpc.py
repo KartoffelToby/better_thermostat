@@ -13,12 +13,12 @@ _FALLBACK_LOGGER = logging.getLogger("custom_components.better_thermostat")
 
 
 def _debug(msg: str, *args: Any) -> None:
-    """Emit debug logs, falling back to main integration logger if needed."""
+    """Emit debug logs, also mirroring to the main integration logger."""
 
-    if _LOGGER.isEnabledFor(logging.DEBUG):
-        _LOGGER.debug(msg, *args)
-    elif _FALLBACK_LOGGER.isEnabledFor(logging.DEBUG):
-        _FALLBACK_LOGGER.debug(msg, *args)
+    _LOGGER.debug(msg, *args)
+
+    if _FALLBACK_LOGGER is not _LOGGER and _FALLBACK_LOGGER.isEnabledFor(logging.DEBUG):
+        _FALLBACK_LOGGER.debug("[mpc] " + msg, *args)
 
 
 @dataclass
