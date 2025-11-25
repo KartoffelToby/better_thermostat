@@ -201,6 +201,20 @@ def compute_balance(
     """
     now = monotonic()
     st = _BALANCE_STATES.setdefault(inp.key, BalanceState())
+
+    # Debug: Log calibration state at start of compute_balance
+    import logging
+    _LOGGER_BAL = logging.getLogger(__name__)
+    if st.mpc_deadzone_test_cooling or st.mpc_deadzone_test_active:
+        _LOGGER_BAL.warning(
+            "compute_balance(%s): CALIBRATION STATE - cooling=%s active=%s deadzone=%s cooling_start=%.1f",
+            inp.key,
+            st.mpc_deadzone_test_cooling,
+            st.mpc_deadzone_test_active,
+            st.mpc_deadzone_est,
+            st.mpc_deadzone_test_cooling_start,
+        )
+
     # Ensure pid_dbg exists for static analyzers; will be populated in PID branch
     pid_dbg: Dict[str, Any] = {}
 
