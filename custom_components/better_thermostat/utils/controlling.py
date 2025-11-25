@@ -66,18 +66,46 @@ async def control_queue(self):
             controls_to_process = await self.control_queue_task.get()
             if controls_to_process is not None:
                 self.ignore_states = True
-                result = True
-                for trv in self.real_trvs.keys():
+
+                # Calculate heating power once per cycle
+                try:
+                    await self.calculate_heating_power()
+                except Exception:
+                    _LOGGER.exception(
+                        "better_thermostat %s: ERROR calculating heating power",
+                        self.device_name,
+                    )
+
+                # Handle cooler logic once per cycle
+                if self.cooler_entity_id is not None:
                     try:
-                        _temp = await control_trv(self, trv)
-                        if _temp is False:
-                            result = False
+                        await control_cooler(self)
                     except Exception:
                         _LOGGER.exception(
-                            "better_thermostat %s: ERROR controlling: %s",
+                            "better_thermostat %s: ERROR controlling cooler",
                             self.device_name,
-                            trv,
                         )
+
+                # Create tasks for all TRVs to run in parallel
+                tasks = []
+                for trv in self.real_trvs.keys():
+                    tasks.append(control_trv(self, trv))
+
+                # Run all TRV controls in parallel
+                results = await asyncio.gather(*tasks, return_exceptions=True)
+
+                result = True
+                for i, res in enumerate(results):
+                    if isinstance(res, Exception):
+                        trv_id = list(self.real_trvs.keys())[i]
+                        _LOGGER.error(
+                            "better_thermostat %s: ERROR controlling TRV %s: %s",
+                            self.device_name,
+                            trv_id,
+                            res,
+                        )
+                        result = False
+                    elif res is False:
                         result = False
 
                 # Retry task if some TRVs failed. Discard the task if the queue is full
@@ -87,11 +115,97 @@ async def control_queue(self):
                         self.control_queue_task.put_nowait(self)
                     except asyncio.QueueFull:
                         _LOGGER.debug(
-                            "better_thermostat %s: control queue is full, discarding task"
+                            "better_thermostat %s: control queue is full, discarding task",
+                            self.device_name,
                         )
 
                 self.control_queue_task.task_done()
                 self.ignore_states = False
+
+
+async def control_cooler(self):
+    """Control the cooler entity."""
+    # Determine new HVAC mode for cooler based on tolerance
+    # This logic was extracted from control_trv and simplified
+    # Note: This assumes cooler logic doesn't depend on specific TRV states other than global BT state
+
+    # We need to determine the effective HVAC mode.
+    # Since we don't have a specific TRV here, we use the BT's target temp and current temp.
+    # The original logic in control_trv used _new_hvac_mode which was derived from TRV specific remapped states.
+    # However, for the cooler, we primarily care about the global BT state.
+
+    # Simplified logic: if we are in cooling range, cool.
+
+    if self.bt_hvac_mode == HVACMode.OFF:
+        await self.hass.services.async_call(
+            "climate",
+            "set_hvac_mode",
+            {"entity_id": self.cooler_entity_id, "hvac_mode": HVACMode.OFF},
+            blocking=True,
+            context=self.context,
+        )
+        return
+
+    if (
+        self.cur_temp >= self.bt_target_cooltemp - self.tolerance
+        and self.cur_temp > self.bt_target_temp
+    ):
+        await self.hass.services.async_call(
+            "climate",
+            "set_temperature",
+            {
+                "entity_id": self.cooler_entity_id,
+                "temperature": self.bt_target_cooltemp,
+            },
+            blocking=True,
+            context=self.context,
+        )
+        await self.hass.services.async_call(
+            "climate",
+            "set_hvac_mode",
+            {"entity_id": self.cooler_entity_id, "hvac_mode": HVACMode.COOL},
+            blocking=True,
+            context=self.context,
+        )
+    elif self.cur_temp <= (self.bt_target_cooltemp - self.tolerance):
+        await self.hass.services.async_call(
+            "climate",
+            "set_temperature",
+            {
+                "entity_id": self.cooler_entity_id,
+                "temperature": self.bt_target_cooltemp,
+            },
+            blocking=True,
+            context=self.context,
+        )
+        await self.hass.services.async_call(
+            "climate",
+            "set_hvac_mode",
+            {"entity_id": self.cooler_entity_id, "hvac_mode": HVACMode.OFF},
+            blocking=True,
+            context=self.context,
+        )
+    else:
+        # Keep current state or ensure temp is set?
+        # Original logic had an else block that set temp and OFF.
+        # Let's stick to the original logic structure but adapted.
+        await self.hass.services.async_call(
+            "climate",
+            "set_temperature",
+            {
+                "entity_id": self.cooler_entity_id,
+                "temperature": self.bt_target_cooltemp,
+            },
+            blocking=True,
+            context=self.context,
+        )
+        await self.hass.services.async_call(
+            "climate",
+            "set_hvac_mode",
+            {"entity_id": self.cooler_entity_id, "hvac_mode": HVACMode.OFF},
+            blocking=True,
+            context=self.context,
+        )
 
 
 async def control_trv(self, heater_entity_id=None):
@@ -109,302 +223,220 @@ async def control_trv(self, heater_entity_id=None):
     if not hasattr(self, "task_manager"):
         self.task_manager = TaskManager()
 
-    async with self._temp_lock:
-        self.real_trvs[heater_entity_id]["ignore_trv_states"] = True
-        # Formerly update_hvac_action(self) (removed / centralized in climate entity)
-        try:
-            # Preserve old action for change detection if attributes exist
-            if hasattr(self, "attr_hvac_action"):
-                self.old_attr_hvac_action = getattr(self, "attr_hvac_action", None)
-            # Recompute current hvac action (uses internal climate logic)
-            if hasattr(self, "_compute_hvac_action"):
-                self.attr_hvac_action = self._compute_hvac_action()
-        except Exception:
-            _LOGGER.debug(
-                "better_thermostat %s: hvac action recompute failed (non critical)",
-                getattr(self, "device_name", "unknown"),
-            )
-        await self.calculate_heating_power()
-        _trv = self.hass.states.get(heater_entity_id)
+    # Removed global lock to allow parallel execution
+    # async with self._temp_lock:
 
-        # Check if TRV is available before attempting to control it
-        if _trv is None or _trv.state in (STATE_UNAVAILABLE, STATE_UNKNOWN):
-            _LOGGER.warning(
-                "better_thermostat %s: TRV %s is unavailable, skipping control cycle",
-                self.device_name,
-                heater_entity_id,
-            )
-            self.ignore_states = False
-            self.real_trvs[heater_entity_id]["ignore_trv_states"] = False
-            return True
+    self.real_trvs[heater_entity_id]["ignore_trv_states"] = True
+    # Formerly update_hvac_action(self) (removed / centralized in climate entity)
+    try:
+        # Preserve old action for change detection if attributes exist
+        if hasattr(self, "attr_hvac_action"):
+            self.old_attr_hvac_action = getattr(self, "attr_hvac_action", None)
+        # Recompute current hvac action (uses internal climate logic)
+        if hasattr(self, "_compute_hvac_action"):
+            self.attr_hvac_action = self._compute_hvac_action()
+    except Exception:
+        _LOGGER.debug(
+            "better_thermostat %s: hvac action recompute failed (non critical)",
+            getattr(self, "device_name", "unknown"),
+        )
 
-        _current_set_temperature = convert_to_float(
-            str(_trv.attributes.get("temperature", None)),
+    # Removed calculate_heating_power() from here, moved to control_queue
+
+    _trv = self.hass.states.get(heater_entity_id)
+
+    # Check if TRV is available before attempting to control it
+    if _trv is None or _trv.state in (STATE_UNAVAILABLE, STATE_UNKNOWN):
+        _LOGGER.warning(
+            "better_thermostat %s: TRV %s is unavailable, skipping control cycle",
             self.device_name,
-            "controlling()",
+            heater_entity_id,
         )
+        # self.ignore_states = False # Don't touch global ignore_states here
+        self.real_trvs[heater_entity_id]["ignore_trv_states"] = False
+        return True
 
-        _remapped_states = convert_outbound_states(
-            self, heater_entity_id, self.bt_hvac_mode
+    _current_set_temperature = convert_to_float(
+        str(_trv.attributes.get("temperature", None)), self.device_name, "controlling()"
+    )
+
+    _remapped_states = convert_outbound_states(
+        self, heater_entity_id, self.bt_hvac_mode
+    )
+    if not isinstance(_remapped_states, dict):
+        _LOGGER.debug(
+            f"better_thermostat {self.device_name}: ERROR {
+                heater_entity_id} {_remapped_states}"
         )
-        if not isinstance(_remapped_states, dict):
-            _LOGGER.debug(
-                f"better_thermostat {self.device_name}: ERROR {
-                    heater_entity_id} {_remapped_states}"
-            )
-            await asyncio.sleep(10)
-            self.ignore_states = False
-            self.real_trvs[heater_entity_id]["ignore_trv_states"] = False
-            return False
+        # Reduced sleep time on error to avoid blocking too long
+        await asyncio.sleep(2)
+        # self.ignore_states = False # Don't touch global ignore_states here
+        self.real_trvs[heater_entity_id]["ignore_trv_states"] = False
+        return False
 
-        _temperature = _remapped_states.get("temperature", None)
-        _calibration = _remapped_states.get("local_temperature_calibration", None)
-        _calibration_mode = self.real_trvs[heater_entity_id]["advanced"].get(
-            "calibration_mode", CalibrationMode.DEFAULT
-        )
+    _temperature = _remapped_states.get("temperature", None)
+    _calibration = _remapped_states.get("local_temperature_calibration", None)
+    _calibration_mode = self.real_trvs[heater_entity_id]["advanced"].get(
+        "calibration_mode", CalibrationMode.DEFAULT
+    )
 
-        # Optional: set valve position if supported (e.g., MQTT/Z2M)
-        try:
-            bal = self.real_trvs[heater_entity_id].get("balance")
-            if bal:
-                target_pct = int(bal.get("valve_percent", 0))
-                last_pct = self.real_trvs[heater_entity_id].get("last_valve_percent")
-                # Apply if changed (let balance module handle hysteresis/min-interval). Skip only if no heating demand.
-                if self.call_for_heat is False:
-                    _LOGGER.debug(
-                        "better_thermostat %s: skipping valve update for %s (call_for_heat is False)",
-                        self.device_name,
-                        heater_entity_id,
-                    )
-                elif last_pct is not None and int(last_pct) == target_pct:
-                    _LOGGER.debug(
-                        "better_thermostat %s: skipping valve update for %s (unchanged %s%%)",
-                        self.device_name,
-                        heater_entity_id,
-                        target_pct,
-                    )
-                else:
-                    _LOGGER.debug(
-                        "better_thermostat %s: TO TRV set_valve: %s to: %s%%",
-                        self.device_name,
-                        heater_entity_id,
-                        target_pct,
-                    )
-                    ok = await set_valve(self, heater_entity_id, target_pct)
-                    if not ok:
-                        _LOGGER.debug(
-                            "better_thermostat %s: delegate.set_valve returned False (target=%s%%, entity=%s)",
-                            self.device_name,
-                            target_pct,
-                            heater_entity_id,
-                        )
-        except Exception:
-            _LOGGER.debug(
-                "better_thermostat %s: set_valve not applied for %s (unsupported or failed)",
-                self.device_name,
-                heater_entity_id,
-            )
-
-        _new_hvac_mode = handle_window_open(self, _remapped_states)
-        _new_hvac_mode = handle_hvac_mode_tolerance(self, _remapped_states)
-
-        # New cooler section
-        if self.cooler_entity_id is not None:
-            if (
-                self.cur_temp >= self.bt_target_cooltemp - self.tolerance
-                and _new_hvac_mode is not HVACMode.OFF
-                and self.cur_temp > self.bt_target_temp
-            ):
-                await self.hass.services.async_call(
-                    "climate",
-                    "set_temperature",
-                    {
-                        "entity_id": self.cooler_entity_id,
-                        "temperature": self.bt_target_cooltemp,
-                    },
-                    blocking=True,
-                    context=self.context,
-                )
-                await self.hass.services.async_call(
-                    "climate",
-                    "set_hvac_mode",
-                    {"entity_id": self.cooler_entity_id, "hvac_mode": HVACMode.COOL},
-                    blocking=True,
-                    context=self.context,
-                )
-            elif (
-                self.cur_temp <= (self.bt_target_cooltemp - self.tolerance)
-                and _new_hvac_mode is not HVACMode.OFF
-            ):
-                await self.hass.services.async_call(
-                    "climate",
-                    "set_temperature",
-                    {
-                        "entity_id": self.cooler_entity_id,
-                        "temperature": self.bt_target_cooltemp,
-                    },
-                    blocking=True,
-                    context=self.context,
-                )
-                await self.hass.services.async_call(
-                    "climate",
-                    "set_hvac_mode",
-                    {"entity_id": self.cooler_entity_id, "hvac_mode": HVACMode.OFF},
-                    blocking=True,
-                    context=self.context,
-                )
-            else:
-                await self.hass.services.async_call(
-                    "climate",
-                    "set_temperature",
-                    {
-                        "entity_id": self.cooler_entity_id,
-                        "temperature": self.bt_target_cooltemp,
-                    },
-                    blocking=True,
-                    context=self.context,
-                )
-                await self.hass.services.async_call(
-                    "climate",
-                    "set_hvac_mode",
-                    {"entity_id": self.cooler_entity_id, "hvac_mode": HVACMode.OFF},
-                    blocking=True,
-                    context=self.context,
-                )
-
-        # if we don't need ot heat, we force HVACMode to be off
-        if self.call_for_heat is False:
-            _new_hvac_mode = HVACMode.OFF
-
-        # Manage TRVs with no HVACMode.OFF
-        _no_off_system_mode = (
-            HVACMode.OFF not in self.real_trvs[heater_entity_id]["hvac_modes"]
-        ) or (
-            self.real_trvs[heater_entity_id]["advanced"].get(
-                "no_off_system_mode", False
-            )
-            is True
-        )
-        if _no_off_system_mode is True and _new_hvac_mode == HVACMode.OFF:
-            _min_temp = self.real_trvs[heater_entity_id]["min_temp"]
-            _LOGGER.debug(
-                f"better_thermostat {self.device_name}: sending {
-                    _min_temp}°C to the TRV because this device has no system mode off and heater should be off"
-            )
-            _temperature = _min_temp
-
-        # send new HVAC mode to TRV, if it changed
-        if (
-            _new_hvac_mode is not None
-            and _new_hvac_mode != _trv.state
-            and (
-                (_no_off_system_mode is True and _new_hvac_mode != HVACMode.OFF)
-                or (_no_off_system_mode is False)
-            )
-        ):
-            _LOGGER.debug(
-                f"better_thermostat {self.device_name}: TO TRV set_hvac_mode: {
-                    heater_entity_id} from: {_trv.state} to: {_new_hvac_mode}"
-            )
-            self.real_trvs[heater_entity_id]["last_hvac_mode"] = _new_hvac_mode
-            _tvr_has_quirk = await override_set_hvac_mode(
-                self, heater_entity_id, _new_hvac_mode
-            )
-            if _tvr_has_quirk is False:
-                await set_hvac_mode(self, heater_entity_id, _new_hvac_mode)
-            if self.real_trvs[heater_entity_id]["system_mode_received"] is True:
-                self.real_trvs[heater_entity_id]["system_mode_received"] = False
-                self.task_manager.create_task(check_system_mode(self, heater_entity_id))
-
-        # set new calibration offset
-        if (
-            _calibration is not None
-            and _new_hvac_mode != HVACMode.OFF
-            and _calibration_mode != CalibrationMode.NO_CALIBRATION
-        ):
-            _current_calibration_s = await get_current_offset(self, heater_entity_id)
-
-            if _current_calibration_s is None:
-                _LOGGER.error(
-                    "better_thermostat %s: calibration fatal error %s",
+    # Optional: set valve position if supported (e.g., MQTT/Z2M)
+    try:
+        bal = self.real_trvs[heater_entity_id].get("balance")
+        if bal:
+            target_pct = int(bal.get("valve_percent", 0))
+            last_pct = self.real_trvs[heater_entity_id].get("last_valve_percent")
+            # Apply if changed (let balance module handle hysteresis/min-interval). Skip only if no heating demand.
+            if self.call_for_heat is False:
+                _LOGGER.debug(
+                    "better_thermostat %s: skipping valve update for %s (call_for_heat is False)",
                     self.device_name,
                     heater_entity_id,
                 )
-                # this should not be before, set_hvac_mode (because if it fails, the new hvac mode will never be sent)
-                self.ignore_states = False
-                self.real_trvs[heater_entity_id]["ignore_trv_states"] = False
-                return True
-
-            _current_calibration = convert_to_float(
-                str(_current_calibration_s), self.device_name, "controlling()"
-            )
-
-            _calibration = float(str(_calibration))
-
-            _old_calibration = self.real_trvs[heater_entity_id].get(
-                "last_calibration", _current_calibration
-            )
-
-            if self.real_trvs[heater_entity_id][
-                "calibration_received"
-            ] is True and float(_old_calibration) != float(_calibration):
+            elif last_pct is not None and int(last_pct) == target_pct:
                 _LOGGER.debug(
-                    f"better_thermostat {self.device_name}: TO TRV set_local_temperature_calibration: {
-                        heater_entity_id} from: {_old_calibration} to: {_calibration}"
+                    "better_thermostat %s: skipping valve update for %s (unchanged %s%%)",
+                    self.device_name,
+                    heater_entity_id,
+                    target_pct,
                 )
-                await set_offset(self, heater_entity_id, _calibration)
-                self.real_trvs[heater_entity_id]["calibration_received"] = False
-
-        # set new target temperature
-        if _temperature is not None and (
-            _new_hvac_mode != HVACMode.OFF or _no_off_system_mode
-        ):
-            if _temperature != _current_set_temperature:
-                old = self.real_trvs[heater_entity_id].get("last_temperature", "?")
+            else:
                 _LOGGER.debug(
-                    f"better_thermostat {self.device_name}: TO TRV set_temperature: {
-                        heater_entity_id} from: {old} to: {_temperature}"
+                    "better_thermostat %s: TO TRV set_valve: %s to: %s%%",
+                    self.device_name,
+                    heater_entity_id,
+                    target_pct,
                 )
-                self.real_trvs[heater_entity_id]["last_temperature"] = _temperature
-                await set_temperature(self, heater_entity_id, _temperature)
-                if self.real_trvs[heater_entity_id]["target_temp_received"] is True:
-                    self.real_trvs[heater_entity_id]["target_temp_received"] = False
-                    self.task_manager.create_task(
-                        check_target_temperature(self, heater_entity_id)
+                ok = await set_valve(self, heater_entity_id, target_pct)
+                if not ok:
+                    _LOGGER.debug(
+                        "better_thermostat %s: delegate.set_valve returned False (target=%s%%, entity=%s)",
+                        self.device_name,
+                        target_pct,
+                        heater_entity_id,
                     )
+    except Exception:
+        _LOGGER.debug(
+            "better_thermostat %s: set_valve not applied for %s (unsupported or failed)",
+            self.device_name,
+            heater_entity_id,
+        )
 
-        await asyncio.sleep(3)
-        self.real_trvs[heater_entity_id]["ignore_trv_states"] = False
-        return True
+    _new_hvac_mode = handle_window_open(self, _remapped_states)
+    if not self.window_open:
+        _new_hvac_mode = handle_hvac_mode_tolerance(self, _remapped_states)
+
+    # Removed cooler section from here, moved to control_queue/control_cooler
+
+    # if we don't need ot heat, we force HVACMode to be off
+    if self.call_for_heat is False:
+        _new_hvac_mode = HVACMode.OFF
+
+    # Manage TRVs with no HVACMode.OFF
+    _no_off_system_mode = (
+        HVACMode.OFF not in self.real_trvs[heater_entity_id]["hvac_modes"]
+    ) or (
+        self.real_trvs[heater_entity_id]["advanced"].get("no_off_system_mode", False)
+        is True
+    )
+    if _no_off_system_mode is True and _new_hvac_mode == HVACMode.OFF:
+        _min_temp = self.real_trvs[heater_entity_id]["min_temp"]
+        _LOGGER.debug(
+            f"better_thermostat {self.device_name}: sending {
+                _min_temp}°C to the TRV because this device has no system mode off and heater should be off"
+        )
+        _temperature = _min_temp
+
+    # send new HVAC mode to TRV, if it changed
+    if (
+        _new_hvac_mode is not None
+        and _new_hvac_mode != _trv.state
+        and (
+            (_no_off_system_mode is True and _new_hvac_mode != HVACMode.OFF)
+            or (_no_off_system_mode is False)
+        )
+    ):
+        _LOGGER.debug(
+            f"better_thermostat {self.device_name}: TO TRV set_hvac_mode: {
+                heater_entity_id} from: {_trv.state} to: {_new_hvac_mode}"
+        )
+        self.real_trvs[heater_entity_id]["last_hvac_mode"] = _new_hvac_mode
+        _tvr_has_quirk = await override_set_hvac_mode(
+            self, heater_entity_id, _new_hvac_mode
+        )
+        if _tvr_has_quirk is False:
+            await set_hvac_mode(self, heater_entity_id, _new_hvac_mode)
+        if self.real_trvs[heater_entity_id]["system_mode_received"] is True:
+            self.real_trvs[heater_entity_id]["system_mode_received"] = False
+            self.task_manager.create_task(check_system_mode(self, heater_entity_id))
+
+    # set new calibration offset
+    if (
+        _calibration is not None
+        and _new_hvac_mode != HVACMode.OFF
+        and _calibration_mode != CalibrationMode.NO_CALIBRATION
+    ):
+        _current_calibration_s = await get_current_offset(self, heater_entity_id)
+
+        if _current_calibration_s is None:
+            _LOGGER.error(
+                "better_thermostat %s: calibration fatal error %s",
+                self.device_name,
+                heater_entity_id,
+            )
+            # this should not be before, set_hvac_mode (because if it fails, the new hvac mode will never be sent)
+            # self.ignore_states = False # Don't touch global ignore_states here
+            self.real_trvs[heater_entity_id]["ignore_trv_states"] = False
+            return True
+
+        _current_calibration = convert_to_float(
+            str(_current_calibration_s), self.device_name, "controlling()"
+        )
+
+        _calibration = float(str(_calibration))
+
+        _old_calibration = self.real_trvs[heater_entity_id].get(
+            "last_calibration", _current_calibration
+        )
+
+        if self.real_trvs[heater_entity_id]["calibration_received"] is True and float(
+            _old_calibration
+        ) != float(_calibration):
+            _LOGGER.debug(
+                f"better_thermostat {self.device_name}: TO TRV set_local_temperature_calibration: {
+                    heater_entity_id} from: {_old_calibration} to: {_calibration}"
+            )
+            await set_offset(self, heater_entity_id, _calibration)
+            self.real_trvs[heater_entity_id]["calibration_received"] = False
+
+    # set new target temperature
+    if _temperature is not None and (
+        _new_hvac_mode != HVACMode.OFF or _no_off_system_mode
+    ):
+        if _temperature != _current_set_temperature:
+            old = self.real_trvs[heater_entity_id].get("last_temperature", "?")
+            _LOGGER.debug(
+                f"better_thermostat {self.device_name}: TO TRV set_temperature: {
+                    heater_entity_id} from: {old} to: {_temperature}"
+            )
+            self.real_trvs[heater_entity_id]["last_temperature"] = _temperature
+            await set_temperature(self, heater_entity_id, _temperature)
+            if self.real_trvs[heater_entity_id]["target_temp_received"] is True:
+                self.real_trvs[heater_entity_id]["target_temp_received"] = False
+                self.task_manager.create_task(
+                    check_target_temperature(self, heater_entity_id)
+                )
+
+    await asyncio.sleep(3)
+    self.real_trvs[heater_entity_id]["ignore_trv_states"] = False
+    return True
 
 
 def handle_window_open(self, _remapped_states):
     """Handle window open state."""
-    _converted_hvac_mode = _remapped_states.get("system_mode", None)
-    _hvac_mode_send = _converted_hvac_mode
-
-    if self.window_open is True and self.last_window_state is False:
-        # if the window is open or the sensor is not available, we're done
-        self.last_main_hvac_mode = _hvac_mode_send
-        _hvac_mode_send = HVACMode.OFF
-        self.last_window_state = True
-        _LOGGER.debug(
-            f"better_thermostat {
-                self.device_name}: control_trv: window is open or status of window is unknown, setting window open"
-        )
-    elif self.window_open is False and self.last_window_state is True:
-        _hvac_mode_send = self.last_main_hvac_mode
-        self.last_window_state = False
-        _LOGGER.debug(
-            f"better_thermostat {
-                self.device_name}: control_trv: window is closed, setting window closed restoring mode: {_hvac_mode_send}"
-        )
-
-    # Force off on window open
-    if self.window_open is True:
-        _hvac_mode_send = HVACMode.OFF
-
-    return _hvac_mode_send
+    if self.window_open:
+        return HVACMode.OFF
+    return _remapped_states.get("system_mode", None)
 
 
 def handle_hvac_mode_tolerance(self, _remapped_states):
@@ -429,23 +461,14 @@ def handle_hvac_mode_tolerance(self, _remapped_states):
         self.bt_target_temp - self.tolerance
     ) and self.cur_temp <= (self.bt_target_temp + self.tolerance)
 
-    # Initialize the state tracker if it doesn't exist
-    if not hasattr(self, "_was_within_tolerance"):
-        self._was_within_tolerance = False
+    # Update last_main_hvac_mode to reflect current intent
+    # This is a global attribute, so it might be overwritten by parallel tasks,
+    # but it's better than being stuck in an old state.
+    self.last_main_hvac_mode = _remapped_states.get("system_mode", None)
 
-    # Only update last_main_hvac_mode when entering tolerance from outside
     if _within_tolerance:
-        if not self._was_within_tolerance:
-            self.last_main_hvac_mode = _remapped_states.get("system_mode", None)
-        self._was_within_tolerance = True
         return HVACMode.OFF
-    else:
-        self._was_within_tolerance = False
-        # If last_main_hvac_mode is None, fall back to current system_mode
-        if self.last_main_hvac_mode is not None:
-            return self.last_main_hvac_mode
-        else:
-            return _remapped_states.get("system_mode", None)
+    return _remapped_states.get("system_mode", None)
 
 
 async def check_system_mode(self, heater_entity_id=None):

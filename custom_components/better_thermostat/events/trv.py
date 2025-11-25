@@ -1,6 +1,13 @@
+"""TRV event handlers and helpers for better_thermostat.
+
+This module contains the various Home Assistant TRV event handlers and
+helper functions used by the Better Thermostat integration to read and
+convert thermostat states and prepare outbound payloads.
+"""
+
 from datetime import datetime
 import logging
-from typing import Any, Dict, cast
+from typing import Any, cast
 from custom_components.better_thermostat.utils.const import CONF_HOMEMATICIP
 
 from homeassistant.components.climate.const import HVACMode
@@ -44,6 +51,8 @@ async def trigger_trv_change(self, event):
     if self.control_queue_task is None:
         return
     if self.bt_target_temp is None or self.cur_temp is None or self.tolerance is None:
+        return
+    if self.bt_update_lock:
         return
     _main_change = False
     old_state = event.data.get("old_state")
@@ -247,25 +256,34 @@ async def trigger_trv_change(self, event):
             and self.real_trvs[entity_id]["hvac_mode"] is not HVACMode.OFF
             and self.window_open is False
         ):
-            _LOGGER.debug(
-                "better_thermostat %s: TRV %s decoded TRV target temp changed from %s to %s",
-                self.device_name,
-                entity_id,
-                self.bt_target_temp,
-                _new_heating_setpoint,
-            )
-            self.bt_target_temp = _new_heating_setpoint
-            if self.cooler_entity_id is not None:
-                if self.bt_target_temp <= self.bt_target_cooltemp:
-                    self.bt_target_cooltemp = (
-                        self.bt_target_temp - self.bt_target_temp_step
-                    )
-                if self.bt_target_temp >= self.bt_target_cooltemp:
-                    self.bt_target_cooltemp = (
-                        self.bt_target_temp - self.bt_target_temp_step
-                    )
+            _calibration_type = self.real_trvs[entity_id]["advanced"].get("calibration")
+            if _calibration_type == CalibrationType.TARGET_TEMP_BASED:
+                _LOGGER.debug(
+                    "better_thermostat %s: TRV %s target temp change ignored because of calibration type %s",
+                    self.device_name,
+                    entity_id,
+                    _calibration_type,
+                )
+            else:
+                _LOGGER.debug(
+                    "better_thermostat %s: TRV %s decoded TRV target temp changed from %s to %s",
+                    self.device_name,
+                    entity_id,
+                    self.bt_target_temp,
+                    _new_heating_setpoint,
+                )
+                self.bt_target_temp = _new_heating_setpoint
+                if self.cooler_entity_id is not None:
+                    if self.bt_target_temp <= self.bt_target_cooltemp:
+                        self.bt_target_cooltemp = (
+                            self.bt_target_temp - self.bt_target_temp_step
+                        )
+                    if self.bt_target_temp >= self.bt_target_cooltemp:
+                        self.bt_target_cooltemp = (
+                            self.bt_target_temp - self.bt_target_temp_step
+                        )
 
-            _main_change = True
+                _main_change = True
 
         if self.real_trvs[entity_id]["advanced"].get("no_off_system_mode", False):
             if _new_heating_setpoint == self.real_trvs[entity_id]["min_temp"]:
@@ -282,13 +300,15 @@ async def trigger_trv_change(self, event):
 
 
 def convert_inbound_states(self, entity_id, state: State) -> str | None:
-    """Convert hvac mode in a thermostat state from HA
+    """Convert HVAC mode in a thermostat state from Home Assistant.
+
     Parameters
     ----------
     self :
-            self instance of better_thermostat
+        self instance of better_thermostat
     state : State
-            Inbound thermostat state, which will be modified
+        Inbound thermostat state, which will be modified
+
     Returns
     -------
     Modified state
@@ -718,7 +738,7 @@ def _apply_hydraulic_balance(
                     except Exception:
                         pass
                 else:
-                    caps = cast(Dict[str, Any], caps)
+                    caps = cast(dict[str, Any], caps)
                     cur_min = int(
                         caps.get(
                             "min_open_pct", BalanceParams().sonoff_min_open_default_pct
@@ -764,7 +784,7 @@ def _apply_hydraulic_balance(
                 # Update per-bucket stats (lightweight learning diagnostics)
                 try:
                     # Ensure dict types for stats
-                    caps = cast(Dict[str, Any], caps)
+                    caps = cast(dict[str, Any], caps)
                     stats = caps.get("stats")
                     if not isinstance(stats, dict):
                         stats = {}
@@ -850,23 +870,25 @@ def _apply_hydraulic_balance(
 
 
 def convert_outbound_states(self, entity_id, hvac_mode) -> dict | None:
-    """Creates the new outbound thermostat state.
+    """Create the outbound thermostat state payload.
+
     Parameters
     ----------
     self :
-            self instance of better_thermostat
+        self instance of better_thermostat
     hvac_mode :
-            the HA mode to convert to
+        the HA mode to convert to
+
     Returns
     -------
     dict
-            A dictionary containing the new outbound thermostat state containing the following keys:
-                    temperature: float
-                    local_temperature: float
-                    local_temperature_calibration: float
-                    system_mode: string
+        A dictionary containing the new outbound thermostat state containing the following keys:
+            temperature: float
+            local_temperature: float
+            local_temperature_calibration: float
+            system_mode: string
     None
-            In case of an error.
+        In case of an error.
     """
 
     _new_local_calibration = None
