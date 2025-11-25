@@ -204,6 +204,7 @@ class BalanceState:
     mpc_deadzone_test_start_ts: float = 0.0
     mpc_deadzone_test_trv_start: Optional[float] = None
     mpc_deadzone_test_failed_ts: float = 0.0  # Letzter fehlgeschlagener Test
+    mpc_deadzone_last_log: float = 0.0
 
 
 _LOGGER = logging.getLogger(__name__)
@@ -311,10 +312,29 @@ def compute_balance(
                         st.mpc_deadzone_test_u = 2.0
                         st.mpc_deadzone_test_start_ts = now
                         st.mpc_deadzone_test_trv_start = inp.trv_temp_C
+                        st.mpc_deadzone_last_log = 0.0
+                        _LOGGER.info(
+                            "MPC deadzone calibration: cooling finished for %s, starting test at %.1f%% (trv_temp=%s)",
+                            trv_key,
+                            st.mpc_deadzone_test_u,
+                            _r(inp.trv_temp_C, 2),
+                        )
                         percent = st.mpc_deadzone_test_u
                     else:
                         # Noch in Abkühlphase, TRV auf 0%
                         percent = 0.0
+                        if (
+                            st.mpc_deadzone_last_log == 0.0
+                            or now - st.mpc_deadzone_last_log >= 60.0
+                        ):
+                            remaining = max(0.0, 300.0 - cooling_duration)
+                            _LOGGER.debug(
+                                "MPC deadzone calibration: cooling %s (elapsed=%.0fs remaining=%.0fs)",
+                                trv_key,
+                                cooling_duration,
+                                remaining,
+                            )
+                            st.mpc_deadzone_last_log = now
                 elif st.mpc_deadzone_test_active:
                     # Test läuft bereits
                     test_duration = now - st.mpc_deadzone_test_start_ts
@@ -331,12 +351,15 @@ def compute_balance(
                                     0.0, st.mpc_deadzone_test_u - 1.0
                                 )
                                 st.mpc_deadzone_test_active = False
+                                st.mpc_deadzone_last_log = 0.0
                                 # Save to global cache so other temperature buckets can use it
                                 try:
                                     _DEADZONE_CACHE[trv_key] = st.mpc_deadzone_est
                                     _LOGGER.info(
-                                        "MPC deadzone calibration complete: trv=%s deadzone=%.1f%% (saved to global cache)",
+                                        "MPC deadzone calibration: response detected at %.1f%% for %s (rise=%.3fK, saved deadzone=%.1f%%)",
+                                        st.mpc_deadzone_test_u,
                                         trv_key,
+                                        trv_rise,
                                         st.mpc_deadzone_est,
                                     )
                                 except Exception:
@@ -350,6 +373,13 @@ def compute_balance(
                                 st.mpc_deadzone_test_failed_ts = now
                                 # Setze provisorischen Wert um weiterzuarbeiten
                                 st.mpc_deadzone_est = 8.0
+                                st.mpc_deadzone_last_log = 0.0
+                                _LOGGER.warning(
+                                    "MPC deadzone calibration: no response up to %.1f%% for %s, using fallback deadzone %.1f%%",
+                                    st.mpc_deadzone_test_u,
+                                    trv_key,
+                                    st.mpc_deadzone_est,
+                                )
                                 # Test wird automatisch wiederholt wenn:
                                 # - mindestens 30 Min seit letztem Fehlschlag vergangen
                                 # - System deutlich heizt (TRV steigt ohne Test)
@@ -358,13 +388,36 @@ def compute_balance(
                                 st.mpc_deadzone_test_u += 2.0
                                 st.mpc_deadzone_test_start_ts = now
                                 st.mpc_deadzone_test_trv_start = inp.trv_temp_C
+                                st.mpc_deadzone_last_log = 0.0
+                                _LOGGER.info(
+                                    "MPC deadzone calibration: escalating test for %s to %.1f%% (elapsed %.0fs)",
+                                    trv_key,
+                                    st.mpc_deadzone_test_u,
+                                    test_duration,
+                                )
                                 percent = st.mpc_deadzone_test_u  # Force test value
                         else:
                             # Initialisiere Startwert
                             st.mpc_deadzone_test_trv_start = inp.trv_temp_C
+                            _LOGGER.debug(
+                                "MPC deadzone calibration: captured initial TRV temperature %s for %s",
+                                _r(inp.trv_temp_C, 2),
+                                trv_key,
+                            )
                     else:
                         # Warte weiter, setze Test-Wert
                         percent = st.mpc_deadzone_test_u
+                        if (
+                            st.mpc_deadzone_last_log == 0.0
+                            or now - st.mpc_deadzone_last_log >= 60.0
+                        ):
+                            _LOGGER.debug(
+                                "MPC deadzone calibration: holding %.1f%% for %s (elapsed %.0fs of 180s)",
+                                st.mpc_deadzone_test_u,
+                                trv_key,
+                                test_duration,
+                            )
+                            st.mpc_deadzone_last_log = now
                 elif (
                     st.mpc_deadzone_est is None
                     and not st.mpc_deadzone_test_cooling
@@ -413,7 +466,19 @@ def compute_balance(
                         st.mpc_deadzone_test_cooling = True
                         st.mpc_deadzone_test_cooling_start = now
                         st.mpc_deadzone_test_active = False
+                        st.mpc_deadzone_last_log = 0.0
                         percent = 0.0  # TRV abkühlen lassen
+                        if time_since_failed < 1800.0:
+                            reason = "retry after failure"
+                        elif e0 is not None and e0 >= 0.15:
+                            reason = f"delta_T={_r(e0, 2)}K below target"
+                        else:
+                            reason = "initial calibration"
+                        _LOGGER.info(
+                            "MPC deadzone calibration: starting cooling phase for %s (%s)",
+                            trv_key,
+                            reason,
+                        )
 
                 # Normale MPC-Regelung (nur wenn kein Test aktiv)
                 if not st.mpc_deadzone_test_active:
@@ -1118,6 +1183,7 @@ def reset_mpc_deadzone(key: str, start_calibration: bool = False) -> bool:
             other_state.mpc_deadzone_est = None
 
     st.mpc_deadzone_est = None
+    st.mpc_deadzone_last_log = 0.0
     if start_calibration:
         # Start cooling phase immediately (will be executed on next balance call)
         st.mpc_deadzone_test_cooling = True
@@ -1126,6 +1192,7 @@ def reset_mpc_deadzone(key: str, start_calibration: bool = False) -> bool:
         st.mpc_deadzone_test_u = 0.0
         st.mpc_deadzone_test_start_ts = 0.0
         st.mpc_deadzone_test_trv_start = None
+        st.mpc_deadzone_last_log = 0.0
         _LOGGER.info(
             "reset_mpc_deadzone(%s): calibration started, cooling=True, cooling_start=%.1f",
             key,
@@ -1139,6 +1206,7 @@ def reset_mpc_deadzone(key: str, start_calibration: bool = False) -> bool:
         st.mpc_deadzone_test_u = 0.0
         st.mpc_deadzone_test_start_ts = 0.0
         st.mpc_deadzone_test_trv_start = None
+        st.mpc_deadzone_last_log = 0.0
         _LOGGER.info(
             "reset_mpc_deadzone(%s): calibration reseted, not started", key
         )
