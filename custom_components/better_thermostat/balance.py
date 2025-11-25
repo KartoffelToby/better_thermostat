@@ -177,6 +177,10 @@ class BalanceState:
 # Module-local storage
 _BALANCE_STATES: Dict[str, BalanceState] = {}
 
+# Global deadzone cache: key = "{uid}:{trv_id}" (without temperature bucket)
+# Deadzone is a mechanical property of the TRV, independent of target temperature
+_DEADZONE_CACHE: Dict[str, Optional[float]] = {}
+
 
 # --- Core computation -------------------------------------------------
 
@@ -201,6 +205,18 @@ def compute_balance(
     """
     now = monotonic()
     st = _BALANCE_STATES.setdefault(inp.key, BalanceState())
+
+    # Extract TRV identifier from key (format: uid:trv_id:bucket)
+    # Deadzone is TRV-specific, not temperature-specific
+    try:
+        key_parts = inp.key.rsplit(":", 1)  # Split off last part (bucket)
+        trv_key = key_parts[0] if len(key_parts) > 1 else inp.key
+    except Exception:
+        trv_key = inp.key
+
+    # Use global deadzone cache if state doesn't have deadzone yet
+    if st.mpc_deadzone_est is None and trv_key in _DEADZONE_CACHE:
+        st.mpc_deadzone_est = _DEADZONE_CACHE[trv_key]
 
     # Debug: Log calibration state at start of compute_balance
     import logging
@@ -287,6 +303,16 @@ def compute_balance(
                                     0.0, st.mpc_deadzone_test_u - 1.0
                                 )
                                 st.mpc_deadzone_test_active = False
+                                # Save to global cache so other temperature buckets can use it
+                                try:
+                                    _DEADZONE_CACHE[trv_key] = st.mpc_deadzone_est
+                                    _LOGGER.info(
+                                        "MPC deadzone calibration complete: trv=%s deadzone=%.1f%% (saved to global cache)",
+                                        trv_key,
+                                        st.mpc_deadzone_est,
+                                    )
+                                except Exception:
+                                    pass
                                 # Weiter mit normaler Regelung
                             elif st.mpc_deadzone_test_u >= 20.0:
                                 # Maximaler Test erreicht ohne TRV-Reaktion
