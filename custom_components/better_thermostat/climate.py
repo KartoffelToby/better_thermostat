@@ -3110,9 +3110,12 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
                 # In practice, we may need to trigger calibration for the current active bucket
                 try:
                     # Get current target temp to build bucket tag
+                    # Note: bucket_tag format must match trv.py: "t{temp:.1f}" with 0.5°C rounding
                     current_target = getattr(self, "bt_target_temp", None)
                     if current_target is not None:
-                        bucket_tag = f"{float(current_target):.1f}"
+                        # Round to 0.5°C steps like in trv.py
+                        bucket_temp = round(float(current_target) * 2.0) / 2.0
+                        bucket_tag = f"t{bucket_temp:.1f}"
                         key = f"{prefix}{trv_id}:{bucket_tag}"
                         if start_mpc_deadzone_calibration(key):
                             count += 1
