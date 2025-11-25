@@ -78,7 +78,6 @@ SERVICE_RESTORE_SAVED_TARGET_TEMPERATURE = "restore_saved_target_temperature"
 SERVICE_SET_TEMP_TARGET_TEMPERATURE = "set_temp_target_temperature"
 SERVICE_RESET_HEATING_POWER = "reset_heating_power"
 SERVICE_RESET_PID_LEARNINGS = "reset_pid_learnings"
-SERVICE_START_MPC_DEADZONE_CALIBRATION = "start_mpc_deadzone_calibration"
 
 BETTERTHERMOSTAT_SET_TEMPERATURE_SCHEMA = vol.All(
     cv.has_at_least_one_key(ATTR_TEMPERATURE),

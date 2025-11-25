@@ -99,7 +99,6 @@ from .utils.const import (
     SERVICE_RESET_PID_LEARNINGS,
     SERVICE_RESTORE_SAVED_TARGET_TEMPERATURE,
     SERVICE_SET_TEMP_TARGET_TEMPERATURE,
-    SERVICE_START_MPC_DEADZONE_CALIBRATION,
     BETTERTHERMOSTAT_RESET_PID_SCHEMA,
     SUPPORT_FLAGS,
     VERSION,
@@ -185,11 +184,6 @@ async def async_setup_entry(hass, entry, async_add_entities):
         SERVICE_RESET_PID_LEARNINGS,
         BETTERTHERMOSTAT_RESET_PID_SCHEMA,
         "reset_pid_learnings_service",
-    )
-    platform.async_register_entity_service(
-        SERVICE_START_MPC_DEADZONE_CALIBRATION,
-        {},
-        "start_mpc_deadzone_calibration_service",
     )
 
     async_add_entities(
@@ -3087,66 +3081,6 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
         except Exception as e:  # noqa: BLE001
             _LOGGER.warning(
                 "better_thermostat %s: reset PID learnings service failed: %s",
-                self.device_name,
-                e,
-            )
-
-    async def start_mpc_deadzone_calibration_service(self) -> None:
-        """Entity service: start active MPC deadzone calibration.
-
-        This will reset any existing deadzone estimation and immediately start
-        an active test sequence (2%, 4%, 6%... valve positions) until the TRV
-        responds, definitively measuring the deadzone.
-        """
-        try:
-            from .balance import start_mpc_deadzone_calibration
-
-            count = 0
-
-            # Start calibration for all TRVs in this entity
-            for trv_id in self.real_trvs.keys():
-                # MPC uses the same bucket keys as PID
-                # Try common bucket patterns (e.g., 20.0, 21.0, etc.)
-                # In practice, we may need to trigger calibration for the current active bucket
-                try:
-                    # Build key using central builder function for consistency
-                    key = build_balance_key(self, trv_id)
-                    if start_mpc_deadzone_calibration(key):
-                        count += 1
-                        _LOGGER.info(
-                            "better_thermostat %s: started MPC deadzone calibration for TRV %s (key=%s)",
-                            self.device_name,
-                            trv_id,
-                            key,
-                        )
-                except Exception as e:  # noqa: BLE001
-                    _LOGGER.debug(
-                        "better_thermostat %s: failed to start calibration for TRV %s: %s",
-                        self.device_name,
-                        trv_id,
-                        e,
-                    )
-
-            if count > 0:
-                _LOGGER.info(
-                    "better_thermostat %s: started MPC deadzone calibration for %d TRV(s)",
-                    self.device_name,
-                    count,
-                )
-                # Trigger control loop to start calibration immediately
-                try:
-                    await self.control_queue_task.put(self)
-                except Exception:
-                    pass
-            else:
-                _LOGGER.warning(
-                    "better_thermostat %s: no MPC states found to calibrate (target_temp=%s)",
-                    self.device_name,
-                    getattr(self, "bt_target_temp", None),
-                )
-        except Exception as e:  # noqa: BLE001
-            _LOGGER.warning(
-                "better_thermostat %s: start_mpc_deadzone_calibration_service failed: %s",
                 self.device_name,
                 e,
             )
