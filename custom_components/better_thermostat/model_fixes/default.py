@@ -30,5 +30,3 @@ async def override_set_valve(self, entity_id, percent: int):
     return False
 
 
-async def override_set_valve(self, entity_id, percent: int):
-    return False
