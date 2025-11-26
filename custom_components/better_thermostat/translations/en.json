@@ -16,7 +16,8 @@
           "window_off_delay": "Delay before the thermostat turns off when the window is opened",
           "window_off_delay_after": "Delay before the thermostat turns on when the window is closed",
           "outdoor_sensor": "If you have an outdoor sensor, you can use it to get the outdoor temperature",
-          "weather": "Your weather entity to get the outdoor temperature"
+          "weather": "Your weather entity to get the outdoor temperature",
+          "eco_temperature": "ECO Target Temp"
         }
       },
       "advanced": {
@@ -101,6 +102,7 @@
           "valve_maintenance": "If your thermostat has no own maintenance mode, you can use this one",
           "calibration": "The sort of calibration https://better-thermostat.org/configuration#second-step",
           "weather": "Your weather entity to get the outdoor temperature",
+          "eco_temperature": "ECO Target Temp",
           "heat_auto_swapped": "If the auto means heat for your TRV and you want to swap it",
           "child_lock": "Ignore all inputs on the TRV like a child lock",
           "homematicip": "If you use HomematicIP, you should enable this to slow down the requests to prevent the duty cycle"
@@ -185,6 +187,10 @@
     "set_temp_target_temperature": {
       "name": "Set eco temperature",
       "description": "Set the target temperature to a temporary like night mode, and save the old one."
+    },
+    "set_eco_mode": {
+      "name": "Set ECO Mode",
+      "description": "Enable or disable ECO mode."
     }
   }
 }

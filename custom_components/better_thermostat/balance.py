@@ -66,7 +66,13 @@ def build_balance_key(self, entity_id: str) -> str:
 
 @dataclass
 class BalanceParams:
-    # Algorithmus-Auswahl: 'heuristic' (Standard) oder 'pid'
+    """Configuration parameters for the balance computation.
+
+    Contains all tuning and mode options used by the decentralized balance
+    computation. Defaults are generally conservative and safe for first use.
+    """
+
+    # Algorithmus-Auswahl: 'heuristic' (Standard), 'pid'
     mode: str = "heuristic"
     # Near setpoint band where we gently throttle/refine (Kelvin)
     band_near_K: float = 0.1
@@ -125,58 +131,72 @@ class BalanceParams:
 
 @dataclass
 class BalanceInput:
+    """Input data that describes the current state for a room/target.
+
+    Fields include current/target temperatures, TRV internal temperature (if
+    available) and flags such as whether a window is open or heating is allowed.
+    """
+
     key: str  # z.B. Entity-ID
-    target_temp_C: Optional[float]
-    current_temp_C: Optional[float]
-    trv_temp_C: Optional[float] = None
+    target_temp_C: float | None
+    current_temp_C: float | None
+    trv_temp_C: float | None = None
     tolerance_K: float = 0.0
-    temp_slope_K_per_min: Optional[float] = None
+    temp_slope_K_per_min: float | None = None
     window_open: bool = False
     heating_allowed: bool = True  # z.B. HVAC != OFF und kein Fenster offen
 
 
 @dataclass
 class BalanceOutput:
+    """Result data from a balance computation.
+
+    Contains (recommended) valve percentages, an optional setpoint throttling
+    (flow_cap), and Sonoff TRV-specific min/max open recommendations.
+    Also provides a debug dictionary for troubleshooting.
+    """
+
     # Primary actuator (0..100)
     valve_percent: int
     # For generic devices (setpoint only):
     flow_cap_K: float  # >= 0; effective setpoint = target - flow_cap
-    setpoint_eff_C: Optional[float]
+    setpoint_eff_C: float | None
     # For Sonoff TRVZB (optional):
     sonoff_min_open_pct: int
     sonoff_max_open_pct: int
     # Debug
-    debug: Dict[str, Any] = field(default_factory=dict)
+    debug: dict[str, Any] = field(default_factory=dict)
 
 
 @dataclass
 class BalanceState:
-    last_percent: Optional[float] = None
+    """Internal per-room learning and smoothing state for the balancing algorithm."""
+
+    last_percent: float | None = None
     last_update_ts: float = 0.0
-    ema_slope: Optional[float] = None
+    ema_slope: float | None = None
     # Letzter Zielwert zur Erkennung von Setpoint-Änderungen
-    last_target_C: Optional[float] = None
+    last_target_C: float | None = None
     # PID-State
     pid_integral: float = 0.0
-    pid_last_meas: Optional[float] = None
+    pid_last_meas: float | None = None
     pid_last_time: float = 0.0
     # Lernende Gains (persistierbar)
-    pid_kp: Optional[float] = None
-    pid_ki: Optional[float] = None
-    pid_kd: Optional[float] = None
+    pid_kp: float | None = None
+    pid_ki: float | None = None
+    pid_kd: float | None = None
     last_tune_ts: float = 0.0
     # Heuristik-Zustände
-    last_delta_sign: Optional[int] = None
+    last_delta_sign: int | None = None
     ss_band_entry_ts: float = 0.0
     heat_sat_entry_ts: float = 0.0
     # Letztes Vorzeichen des Fehlers zur Erkennung von Flip-Events
-    last_error_sign: Optional[int] = None
+    last_error_sign: int | None = None
 
-
-_LOGGER = logging.getLogger(__name__)
 
 # Module-local storage
-_BALANCE_STATES: Dict[str, BalanceState] = {}
+_BALANCE_STATES: dict[str, BalanceState] = {}
+
 
 # --- Core computation -------------------------------------------------
 
@@ -201,9 +221,8 @@ def compute_balance(
     """
     now = monotonic()
     st = _BALANCE_STATES.setdefault(inp.key, BalanceState())
-
     # Ensure pid_dbg exists for static analyzers; will be populated in PID branch
-    pid_dbg: Dict[str, Any] = {}
+    pid_dbg: dict[str, Any] = {}
 
     # Helper to round values for debug/logging only
     def _r(x: Any, n: int = 2):
@@ -214,7 +233,7 @@ def compute_balance(
 
     # Fail-safe defaults
     percent_base = None
-    delta_T: Optional[float] = None
+    delta_T: float | None = None
     if not inp.heating_allowed or inp.window_open:
         percent = 0.0
     else:
@@ -225,8 +244,7 @@ def compute_balance(
         else:
             delta_T = inp.target_temp_C - inp.current_temp_C
 
-            mode_lower = params.mode.lower()
-            if mode_lower == "pid":
+            if params.mode.lower() == "pid":
                 # PID-Regelung
                 # Zeitdifferenz
                 dt = now - st.pid_last_time if st.pid_last_time > 0 else 0.0
@@ -249,12 +267,12 @@ def compute_balance(
                 # Ableitung
                 d_term = 0.0
                 # Für Debugging/Graphen
-                p_term: Optional[float] = None
-                i_term: Optional[float] = None
-                u: Optional[float] = None
-                meas_now: Optional[float] = None
-                smoothed: Optional[float] = None
-                d_meas: Optional[float] = None
+                p_term: float | None = None
+                i_term: float | None = None
+                u: float | None = None
+                meas_now: float | None = None
+                smoothed: float | None = None
+                d_meas: float | None = None
                 if params.mode.lower() == "pid":
                     if params.d_on_measurement:
                         if dt > 0:
@@ -471,7 +489,6 @@ def compute_balance(
                     percent = max(0.0, min(100.0, percent_adj))
 
     # Percentage smoothing (EMA)
-    mode_lower = params.mode.lower()
     if st.last_percent is None:
         smooth = percent
     else:
@@ -573,12 +590,10 @@ def compute_balance(
     }
     # PID-Debug anhängen, falls vorhanden
     try:
-        mode_lower_dbg = params.mode.lower()
-        if mode_lower_dbg == "pid":
+        if params.mode.lower() == "pid":
+            # pid_dbg wurde im PID-Pfad gesetzt; falls nicht, zumindest Modus kennzeichnen
             debug["pid"] = (
-                pid_dbg
-                if isinstance(pid_dbg, dict) and pid_dbg
-                else {"mode": mode_lower_dbg}
+                pid_dbg if isinstance(pid_dbg, dict) and pid_dbg else {"mode": "pid"}
             )
         else:
             debug["pid"] = {"mode": "heuristic"}
@@ -599,7 +614,7 @@ def _auto_tune_pid(
     params: BalanceParams,
     st: BalanceState,
     percent: float,
-    delta_T: Optional[float],
+    delta_T: float | None,
     slope: float,
     now_ts: float,
 ) -> None:
@@ -665,15 +680,16 @@ def reset_balance_state(key: str) -> None:
         del _BALANCE_STATES[key]
 
 
-def get_balance_state(key: str) -> Optional[BalanceState]:
+def get_balance_state(key: str) -> BalanceState | None:
+    """Return the BalanceState for key or None if missing.
+
+    This is a small helper used externally to read persisted/learned gains.
+    """
     return _BALANCE_STATES.get(key)
 
 
 def seed_pid_gains(
-    key: str,
-    kp: Optional[float] = None,
-    ki: Optional[float] = None,
-    kd: Optional[float] = None,
+    key: str, kp: float | None = None, ki: float | None = None, kd: float | None = None
 ) -> bool:
     """Pre-seed PID gains for a given state key without overriding existing values.
 
@@ -705,12 +721,12 @@ def seed_pid_gains(
 # --- Persistence helpers --------------------------------------------
 
 
-def export_states(prefix: Optional[str] = None) -> Dict[str, Dict[str, Any]]:
+def export_states(prefix: str | None = None) -> dict[str, dict[str, Any]]:
     """Export internal state to a JSON-serializable dict.
 
     prefix: if provided, only include keys starting with this prefix.
     """
-    out: Dict[str, Dict[str, Any]] = {}
+    out: dict[str, dict[str, Any]] = {}
     for k, st in _BALANCE_STATES.items():
         if prefix is not None and not k.startswith(prefix):
             continue
@@ -727,7 +743,7 @@ def export_states(prefix: Optional[str] = None) -> Dict[str, Dict[str, Any]]:
 
 
 def import_states(
-    data: Dict[str, Dict[str, Any]], prefix_filter: Optional[str] = None
+    data: dict[str, dict[str, Any]], prefix_filter: str | None = None
 ) -> int:
     """Import previously saved states into the module-local cache.
 

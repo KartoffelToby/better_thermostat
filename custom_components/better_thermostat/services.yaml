@@ -42,12 +42,28 @@ set_temp_target_temperature:
       domain: climate
       integration: better_thermostat
 
+set_eco_mode:
+  name: Set ECO mode
+  description: Enable or disable ECO mode.
+  fields:
+    enable:
+      name: Enable
+      description: Enable or disable ECO mode.
+      required: true
+      selector:
+        boolean: {}
+  target:
+    entity:
+      domain: climate
+      integration: better_thermostat
+
 run_valve_maintenance:
   name: Run valve maintenance now
   description: Run the valve maintenance cycle immediately for this Better Thermostat entity.
   target:
     entity:
       domain: climate
+      integration: better_thermostat
 
 reset_pid_learnings:
   name: Reset PID learnings

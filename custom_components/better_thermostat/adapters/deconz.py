@@ -1,3 +1,9 @@
+"""Adapter for deCONZ devices.
+
+This module implements the minimal adapter interface required by the
+Better Thermostat integration for deCONZ-controlled TRV devices.
+"""
+
 import logging
 from .generic import (
     set_temperature as generic_set_temperature,
@@ -17,6 +23,11 @@ async def get_info(self, entity_id):
 
 
 async def init(self, entity_id):
+    """Initialize adapter for an entity.
+
+    This adapter does not require any special initialization, so the
+    function returns None.
+    """
     return None
 
 

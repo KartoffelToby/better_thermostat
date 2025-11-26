@@ -1,6 +1,6 @@
 [![Active installations](https://badge.t-haber.de/badge/better_thermostat?kill_cache=1)](https://github.com/KartoffelToby/better_thermostat/)
 [![GitHub issues](https://img.shields.io/github/issues/KartoffelToby/better_thermostat?style=for-the-badge)](https://github.com/KartoffelToby/better_thermostat/issues)
-[![Version - 1.7.0](https://img.shields.io/badge/Version-1.7.0-009688?style=for-the-badge)](https://github.com/KartoffelToby/better_thermostat/releases)
+[![Version - 1.8.0](https://img.shields.io/badge/Version-1.8.0-009688?style=for-the-badge)](https://github.com/KartoffelToby/better_thermostat/releases)
 [![Discord](https://img.shields.io/discord/925725316540923914.svg?style=for-the-badge)](https://discord.gg/9BUegWTG3K)
 [![hacs_badge](https://img.shields.io/badge/HACS-Default-41BDF5.svg?style=for-the-badge)](https://github.com/hacs/integration)
 
@@ -11,7 +11,7 @@
 ### Requirements
 
 - Minimum required Home Assistant version: `2024.12`
-  (_Latest tested version: `2025.3.0`_)
+  (_Latest tested version: `2025.11.3`_)
 
 ### Companion UI
 
@@ -48,15 +48,18 @@ How it works:
 5. All customized preset (and baseline) temperatures are persisted across Home Assistant restarts (using a combination of entity state restore and config entry options for durability even in ephemeral test containers).
 
 What is stored:
-* Every preset listed in the climate entity plus the baseline (shown as no active preset) maintains its own temperature.
-* A flag `bt_preset_customized` (boolean) indicates if at least one preset deviates from the original defaults.
-* The mapping itself is exposed in the entity attributes as `bt_preset_temperatures` (JSON serialized) and is also mirrored into the integration's config entry options.
+
+- Every preset listed in the climate entity plus the baseline (shown as no active preset) maintains its own temperature.
+- A flag `bt_preset_customized` (boolean) indicates if at least one preset deviates from the original defaults.
+- The mapping itself is exposed in the entity attributes as `bt_preset_temperatures` (JSON serialized) and is also mirrored into the integration's config entry options.
 
 Resetting presets:
-* To revert a single preset: activate it and set the temperature back to the original default (see defaults below). That becomes the new stored value.
-* To revert everything quickly you can remove and re-add the integration (this clears stored options) or manually delete the `bt_preset_temperatures` key from the config entry options (advanced users via `.storage` editing—only do this while HA is stopped).
+
+- To revert a single preset: activate it and set the temperature back to the original default (see defaults below). That becomes the new stored value.
+- To revert everything quickly you can remove and re-add the integration (this clears stored options) or manually delete the `bt_preset_temperatures` key from the config entry options (advanced users via `.storage` editing—only do this while HA is stopped).
 
 Default starting values (if no customization yet):
+
 ```
 None (baseline): 20.0 °C
 Away:            16.0 °C
@@ -69,9 +72,10 @@ Activity:        22.0 °C
 ```
 
 FAQ:
-* Q: Are values lost if I restore a backup?
+
+- Q: Are values lost if I restore a backup?
   A: They are stored in the config entry options and in the last entity state, so a normal HA backup/restore keeps them.
-* Q: Can I automate per-preset changes?
+- Q: Can I automate per-preset changes?
   A: Yes—call `climate.set_temperature` while the preset is active; the stored preset temperature updates automatically.
 
 If you rely on automation logic that previously referenced static config values, update it to read the entity attribute `bt_preset_temperatures` instead.
@@ -80,7 +84,8 @@ If you rely on automation logic that previously referenced static config values,
 
 **We support all thermostats which are compatible with Home Assistant as long as they are shown up as a climate entity**
 
-***Integrations that are tested***
+**_Integrations that are tested_**
+
 - Zigbee2Mqtt
 - Deconz
 - Tado
@@ -92,8 +97,8 @@ Install this integration via HACS or copy the files from the [latest release](ht
 
 Configuration details can be found in the [documentation](docs/Configuration/configuration.md) or on our website: [better-thermostat.org](https://better-thermostat.org/configuration)
 
-
 Some nice-to-know config tips for the configuration.yaml
+
 #### Example Window/Door - Sensor config
 
 ```yaml
@@ -123,4 +128,3 @@ checkout the [CONTRIBUTING.md](CONTRIBUTING.md) file
 If you want to support this project, you can ☕ [**buy a coffee here**](https://www.buymeacoffee.com/kartoffeltoby).
 
 <a href="https://www.buymeacoffee.com/kartoffeltoby"><img src="https://img.buymeacoffee.com/button-api/?text=Buy me a coffee&emoji=&slug=kartoffeltoby&button_colour=0ac982&font_colour=000000&font_family=Cookie&outline_colour=000000&coffee_colour=ffffff"></a>
-

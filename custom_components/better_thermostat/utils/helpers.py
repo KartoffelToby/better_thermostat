@@ -63,6 +63,11 @@ def entity_uses_mpc_calibration(bt, entity_id: str) -> bool:
 
 
 def get_hvac_bt_mode(self, mode: str) -> str:
+    """Return the main HVAC mode mapping for the Better Thermostat.
+
+    The function handles simple mapping from HVACMode.HEAT to configured
+    internal modes used by the integration.
+    """
     if mode == HVACMode.HEAT:
         mode = self.map_on_hvac_mode
     elif mode == HVACMode.HEAT_COOL:
@@ -154,6 +159,12 @@ def mode_remap(self, entity_id, hvac_mode: str, inbound: bool = False) -> str:
 
 
 def heating_power_valve_position(self, entity_id):
+    """Compute an expected valve position from the heating power.
+
+    Given the global `heating_power` estimate and the target/current
+    temperature, a heuristic mapping to valve opening percentage is
+    returned (between 0.0 and 1.0).
+    """
     _temp_diff = float(float(self.bt_target_temp) - float(self.cur_temp))
 
     a = 0.019
@@ -227,22 +238,28 @@ def convert_to_float(
         return round_by_step(float(value), 0.1)
     except (ValueError, TypeError, AttributeError, KeyError):
         _LOGGER.debug(
-            f"better thermostat {instance_name}: Could not convert '{
-                value}' to float in {context}"
+            f"better thermostat {instance_name}: Could not convert '{value}' to float in {context}"
         )
         return None
 
 
 class rounding(Enum):
-    # rounding functions that avoid errors due to using floats
+    """Rounding helpers for stable step-based rounding.
+
+    Provides minor offsets to avoid floating point rounding artifacts when
+    converting values to integer steps.
+    """
 
     def up(x: float) -> float:
+        """Round up with a tiny epsilon to avoid FP artifacts."""
         return math.ceil(x - 0.0001)
 
     def down(x: float) -> float:
+        """Round down with a tiny epsilon to avoid FP artifacts."""
         return math.floor(x + 0.0001)
 
     def nearest(x: float) -> float:
+        """Round to nearest step with a small epsilon to avoid up-rounding."""
         return round(x - 0.0001)
 
 
@@ -351,8 +368,7 @@ async def find_valve_entity(self, entity_id):
         if entity.device_id == reg_entity.device_id:
             if "_valve_position" in uid or "_position" in uid:
                 _LOGGER.debug(
-                    f"better thermostat: Found valve position entity {
-                        entity.entity_id} for {entity_id}"
+                    f"better thermostat: Found valve position entity {entity.entity_id} for {entity_id}"
                 )
                 return entity.entity_id
 
@@ -363,6 +379,11 @@ async def find_valve_entity(self, entity_id):
 
 
 async def find_battery_entity(self, entity_id):
+    """Find the battery entity related to the given entity's device.
+
+    Returns the `entity_id` of the battery sensor attached to the same device
+    as `entity_id`, or None if none found.
+    """
     entity_registry = er.async_get(self.hass)
 
     entity_info = entity_registry.entities.get(entity_id)
@@ -418,8 +439,7 @@ async def find_local_calibration_entity(self, entity_id):
                 or "temperatur_offset" in uid
             ):
                 _LOGGER.debug(
-                    f"better thermostat: Found local calibration entity {
-                        entity.entity_id} for {entity_id}"
+                    f"better thermostat: Found local calibration entity {entity.entity_id} for {entity_id}"
                 )
                 return entity.entity_id
 

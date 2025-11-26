@@ -1,3 +1,9 @@
+"""Window event handling and debounce queue helper.
+
+These helpers respond to window sensor events and implement debouncing and
+delayed handling so that HVAC behavior uses window-open information reliably.
+"""
+
 import asyncio
 import logging
 
@@ -73,6 +79,12 @@ async def trigger_window_change(self, event) -> None:
 
 
 async def window_queue(self):
+    """Process queued window-open events.
+
+    This coroutine dequeues window state changes, applies configured wait
+    delays and triggers the control queue when the window remains in the
+    expected state after the delay.
+    """
     try:
         while True:
             window_event_to_process = await self.window_queue_task.get()
@@ -111,6 +123,10 @@ async def window_queue(self):
 
 
 def empty_queue(q: asyncio.Queue):
+    """Empty out a Queue of pending items.
+
+    Consumes all pending items from the queue and marks them as done.
+    """
     for _ in range(q.qsize()):
         q.get_nowait()
         q.task_done()

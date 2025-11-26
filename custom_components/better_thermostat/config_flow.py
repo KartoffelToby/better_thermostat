@@ -1,3 +1,5 @@
+"""Config flow for Better Thermostat."""
+
 import logging
 import voluptuous as vol
 
@@ -26,6 +28,7 @@ from .utils.const import (
     CONF_MODEL,
     CONF_NO_SYSTEM_MODE_OFF,
     CONF_OFF_TEMPERATURE,
+    CONF_ECO_TEMPERATURE,
     CONF_OUTDOOR_SENSOR,
     CONF_SENSOR,
     CONF_SENSOR_WINDOW,
@@ -123,7 +126,9 @@ CALIBRATION_MODE_SELECTOR = selector.SelectSelector(
 
 
 class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
-    VERSION = 6
+    """Config flow for Better Thermostat."""
+
+    VERSION = 7
     CONNECTION_CLASS = config_entries.CONN_CLASS_LOCAL_POLL
 
     def __init__(self):
@@ -242,6 +247,23 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         user_input = user_input or {}
 
         fields = OrderedDict()
+
+        _default_calibration = "target_temp_based"
+        _adapter = _trv_config.get("adapter", None)
+        _info = {}
+        if _adapter is not None:
+            try:
+                # type: ignore[attr-defined]
+                _info = await _adapter.get_info(self, _trv_config.get("trv"))
+            except (
+                AttributeError,
+                RuntimeError,
+                ValueError,
+                TypeError,
+            ):  # pragma: no cover - defensive
+                _LOGGER.debug("Adapter get_info failed", exc_info=True)
+            if _info.get("support_offset", False):
+                _default_calibration = "local_calibration_based"
 
         if _default_calibration == "local_calibration_based":
             fields[
@@ -388,6 +410,7 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         )
 
     async def async_step_user(self, user_input=None):
+        """Handle the initial step."""
         errors = {}
 
         if user_input is not None:
@@ -501,6 +524,10 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                         CONF_OFF_TEMPERATURE,
                         default=user_input.get(CONF_OFF_TEMPERATURE, 20),
                     ): int,
+                    vol.Optional(
+                        CONF_ECO_TEMPERATURE,
+                        default=user_input.get(CONF_ECO_TEMPERATURE, 18.0),
+                    ): vol.All(vol.Coerce(float), vol.Range(min=5, max=35)),
                     vol.Optional(
                         CONF_TOLERANCE, default=user_input.get(CONF_TOLERANCE, 0.0)
                     ): vol.All(vol.Coerce(float), vol.Range(min=0)),
@@ -781,6 +808,7 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
         )
 
     async def async_step_user(self, user_input=None):
+        """Handle the user step."""
         if user_input is not None:
             current_config = self.config_entry.data
             self.updated_config = dict(current_config)
@@ -820,6 +848,9 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
 
             self.updated_config[CONF_OFF_TEMPERATURE] = user_input.get(
                 CONF_OFF_TEMPERATURE
+            )
+            self.updated_config[CONF_ECO_TEMPERATURE] = float(
+                user_input.get(CONF_ECO_TEMPERATURE, 18.0)
             )
 
             self.updated_config[CONF_TOLERANCE] = float(
@@ -949,6 +980,13 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
                 default=self.config_entry.data.get(CONF_OFF_TEMPERATURE, 5),
             )
         ] = int
+
+        fields[
+            vol.Optional(
+                CONF_ECO_TEMPERATURE,
+                default=self.config_entry.data.get(CONF_ECO_TEMPERATURE, 18.0),
+            )
+        ] = vol.All(vol.Coerce(float), vol.Range(min=5, max=35))
 
         fields[
             vol.Optional(

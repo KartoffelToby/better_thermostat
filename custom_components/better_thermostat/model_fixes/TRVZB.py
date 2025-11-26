@@ -1,16 +1,22 @@
-# Quirks for Sonoff TRVZB (Zigbee thermostatic radiator valve)
+"""Quirks and helpers for Sonoff TRVZB (Zigbee TRV) devices.
+
+Provides Sonoff TRVZB specific helper functions such as writing valve
+percentages and mirroring external temperature into the TRV when supported.
+"""
+
 import logging
-from homeassistant.components.climate.const import HVACMode
 from homeassistant.helpers import entity_registry as er
 
 _LOGGER = logging.getLogger(__name__)
 
 
 def fix_local_calibration(self, entity_id, offset):
+    """Return unchanged local calibration for TRVZB by default."""
     return offset
 
 
 def fix_target_temperature_calibration(self, entity_id, temperature):
+    """Return unchanged setpoint temperature for TRVZB by default."""
     return temperature
 
 
@@ -193,7 +199,7 @@ async def maybe_set_sonoff_valve_percent(self, entity_id, percent: int) -> bool:
                 entity_id,
             )
         return wrote
-    except Exception as ex:  # noqa: BLE001
+    except Exception as ex:
         _LOGGER.debug(
             "better_thermostat %s: TRVZB maybe_set_sonoff_valve_percent exception: %s",
             self.device_name,
@@ -210,7 +216,7 @@ async def override_set_valve(self, entity_id, percent: int):
     try:
         ok = await maybe_set_sonoff_valve_percent(self, entity_id, percent)
         return bool(ok)
-    except Exception:  # noqa: BLE001
+    except Exception:
         return False
 
 
@@ -292,7 +298,7 @@ async def maybe_set_external_temperature(self, entity_id, temperature: float) ->
             entity_id,
         )
         return True
-    except Exception as ex:  # noqa: BLE001
+    except Exception as ex:
         _LOGGER.debug(
             "better_thermostat %s: TRVZB maybe_set_external_temperature exception: %s",
             self.device_name,

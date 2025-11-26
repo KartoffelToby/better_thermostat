@@ -1,11 +1,11 @@
 repos:
   - repo: https://github.com/asottile/pyupgrade
-    rev: v2.37.3
+    rev: v3.21.2
     hooks:
       - id: pyupgrade
         args: [--py311-plus]
   - repo: https://github.com/psf/black
-    rev: 24.1.1
+    rev: 25.11.0
     hooks:
       - id: black
         args:
@@ -14,18 +14,15 @@ repos:
           - --verbose 
           - --skip-magic-trailing-comma 
           - --target-version
-          - py312
+          - py313
         files: ''
   - repo: https://github.com/PyCQA/flake8
-    rev: 4.0.1
+    rev: 7.3.0
     hooks:
       - id: flake8
         additional_dependencies:
-          - pycodestyle==2.8.0
-          - pyflakes==2.4.0
-          - flake8-docstrings==1.6.0
-          - pydocstyle==6.1.1
-          - flake8-comprehensions==3.10.0
-          - flake8-noqa==1.2.8
-          - mccabe==0.6.1
+          - flake8-docstrings==1.7.0
+          - pydocstyle==6.3.0
+          - flake8-comprehensions==3.14.0
+          - flake8-noqa==1.4.0
         files: ''
