@@ -1,3 +1,9 @@
+"""MQTT adapter for TRV devices.
+
+This module implements MQTT-specific behaviour for TRV devices used by
+the Better Thermostat integration.
+"""
+
 import asyncio
 import logging
 
@@ -28,6 +34,11 @@ async def get_info(self, entity_id):
 
 
 async def init(self, entity_id):
+    """Initialize the MQTT adapter for a TRV entity.
+
+    Performs early discovery of the valve position and the local
+    calibration entity when available.
+    """
     # Try to discover valve position entity early
     try:
         from ..utils.helpers import find_valve_entity as _find_valve

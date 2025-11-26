@@ -1,3 +1,11 @@
+"""External temperature event handlers for Better Thermostat.
+
+This module includes logic to handle external temperature updates and apply
+debounce, anti-flicker, accumulation, and plateau acceptance heuristics used
+to make robust decisions about whether the external temperature should be
+propagated to the target devices.
+"""
+
 import logging
 
 from custom_components.better_thermostat.utils.const import CONF_HOMEMATICIP

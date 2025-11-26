@@ -1,3 +1,9 @@
+"""Helpers to load per-model quirks for TRVs.
+
+This module dynamically imports model-specific quirk modules and exposes
+small shim functions that delegate into the model-specific implementations.
+"""
+
 from homeassistant.helpers.importlib import async_import_module
 import re
 import logging
@@ -60,13 +66,10 @@ async def load_model_quirks(self, model, entity_id):
 
 
 def fix_local_calibration(self, entity_id, offset):
-    """Modifies the input local calibration offset, based on the TRV's model quirks,
-    to achieve the desired heating behavior.
+    """Apply model-specific local calibration fix.
 
-    Returns
-    -------
-    float
-          new local calibration offset, if the TRV model has any quirks/fixes.
+    Call the configured model quirks implementation to normalize the given
+    local calibration offset.
     """
 
     _new_offset = self.real_trvs[entity_id]["model_quirks"].fix_local_calibration(
@@ -88,13 +91,10 @@ def fix_local_calibration(self, entity_id, offset):
 
 
 def fix_target_temperature_calibration(self, entity_id, temperature):
-    """Modifies the input setpoint temperature, based on the TRV's model quirks,
-    to achieve the desired heating behavior.
+    """Apply model-specific setpoint calibration fix.
 
-    Returns
-    -------
-    float
-          new setpoint temperature, if the TRV model has any quirks/fixes.
+    Delegates to the loaded model quirks module for any adjustments to the
+    requested setpoint temperature.
     """
 
     _new_temperature = self.real_trvs[entity_id][
@@ -114,12 +114,20 @@ def fix_target_temperature_calibration(self, entity_id, temperature):
 
 
 async def override_set_hvac_mode(self, entity_id, hvac_mode):
+    """Invoke model-specific HVAC mode override, if implemented.
+
+    Returns the model-quirks module's response (True if handled).
+    """
     return await self.real_trvs[entity_id]["model_quirks"].override_set_hvac_mode(
         self, entity_id, hvac_mode
     )
 
 
 async def override_set_temperature(self, entity_id, temperature):
+    """Invoke model-specific temperature override, if implemented.
+
+    Returns the model-quirks module's response (True if handled).
+    """
     return await self.real_trvs[entity_id]["model_quirks"].override_set_temperature(
         self, entity_id, temperature
     )

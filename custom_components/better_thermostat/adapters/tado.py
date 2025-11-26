@@ -1,3 +1,9 @@
+"""Tado adapter helpers for Better Thermostat.
+
+This module implements the thin adapter that maps Better Thermostat actions
+onto the Tado climate services (offsets and modes).
+"""
+
 import logging
 from .generic import (
     set_temperature as generic_set_temperature,
@@ -14,6 +20,10 @@ async def get_info(self, entity_id):
 
 
 async def init(self, entity_id):
+    """Perform per-entity initialization for the Tado adapter.
+
+    Currently, no initialization is required and the function returns None.
+    """
     return None
 
 

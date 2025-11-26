@@ -1,3 +1,9 @@
+"""Cooler event handlers for the Better Thermostat integration.
+
+Contains the event handler that reacts to changes in the configured cooler
+entity and updates the integration state accordingly.
+"""
+
 import logging
 from homeassistant.components.climate.const import HVACMode
 from homeassistant.core import State, callback
