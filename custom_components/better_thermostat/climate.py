@@ -11,7 +11,7 @@ from statistics import mean
 # preferred for HA time handling (UTC aware)
 from homeassistant.util import dt as dt_util
 from collections import deque
-from typing import Any, Optional
+from typing import Any, Dict, Optional
 
 # Home Assistant imports
 from homeassistant.components.climate import ClimateEntity
@@ -115,6 +115,7 @@ from .balance import (
     reset_balance_state as balance_reset_state,
     build_balance_key,
 )
+from .utils.mpc import export_mpc_state_map, import_mpc_state_map
 
 
 _LOGGER = logging.getLogger(__name__)
@@ -440,6 +441,9 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
         self.open_caps = {}
         self._open_caps_store = None
         self._open_caps_save_scheduled = False
+        # MPC adaptive state persistence
+        self._mpc_store = None
+        self._mpc_save_scheduled = False
 
     async def async_added_to_hass(self):
         """Run when entity about to be added.
@@ -552,6 +556,11 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
 
         def on_remove():
             self.is_removed = True
+            if self._mpc_store is not None:
+                try:
+                    self.hass.async_create_task(self._save_mpc_states())
+                except Exception:  # noqa: BLE001
+                    pass
 
         self.async_on_remove(on_remove)
 
@@ -579,6 +588,17 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
         except Exception as e:  # noqa: BLE001
             _LOGGER.debug(
                 "better_thermostat %s: open caps storage init/load failed: %s",
+                self.device_name,
+                e,
+            )
+
+        # Initialize persistent storage for MPC adaptive state
+        try:
+            self._mpc_store = Store(self.hass, 1, f"{DOMAIN}_mpc_states")
+            await self._load_mpc_states()
+        except Exception as e:  # noqa: BLE001
+            _LOGGER.debug(
+                "better_thermostat %s: MPC storage init/load failed: %s",
                 self.device_name,
                 e,
             )
@@ -1727,6 +1747,64 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
                 await self._save_open_caps()
             finally:
                 self._open_caps_save_scheduled = False
+
+        self.hass.async_create_task(_delayed_save())
+
+    async def _load_mpc_states(self) -> None:
+        """Load persisted MPC adaptive controller states for this entity."""
+
+        if self._mpc_store is None:
+            return
+        data = await self._mpc_store.async_load()
+        if not isinstance(data, dict):
+            return
+        prefix = f"{self._unique_id}:"
+        scoped: Dict[str, Dict[str, Any]] = {}
+        for key, payload in data.items():
+            if not isinstance(key, str) or not key.startswith(prefix):
+                continue
+            if isinstance(payload, dict):
+                scoped[key] = payload
+        if scoped:
+            import_mpc_state_map(scoped)
+
+    async def _save_mpc_states(self) -> None:
+        """Persist MPC adaptive controller states for this entity."""
+
+        if self._mpc_store is None:
+            return
+        try:
+            existing = await self._mpc_store.async_load()
+            if not isinstance(existing, dict):
+                existing = {}
+            prefix = f"{self._unique_id}:"
+            for key in list(existing.keys()):
+                if isinstance(key, str) and key.startswith(prefix):
+                    del existing[key]
+            exported = export_mpc_state_map(prefix)
+            if exported:
+                existing.update(exported)
+            await self._mpc_store.async_save(existing)
+        except Exception as e:  # noqa: BLE001
+            _LOGGER.debug(
+                "better_thermostat %s: saving MPC states failed: %s",
+                self.device_name,
+                e,
+            )
+
+    def _schedule_save_mpc_states(self, delay_s: float = 15.0) -> None:
+        """Debounced scheduling for persisting MPC adaptive states."""
+
+        if self._mpc_store is None or self._mpc_save_scheduled:
+            return
+        self._mpc_save_scheduled = True
+
+        async def _delayed_save():
+            try:
+                await asyncio.sleep(delay_s)
+                await self._save_mpc_states()
+            finally:
+                self._mpc_save_scheduled = False
 
         self.hass.async_create_task(_delayed_save())
 

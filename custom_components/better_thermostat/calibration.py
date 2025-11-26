@@ -147,6 +147,10 @@ def _compute_mpc_balance(self, entity_id: str):
         "debug": getattr(mpc_output, "debug", None),
     }
 
+    _schedule_mpc = getattr(self, "_schedule_save_mpc_states", None)
+    if callable(_schedule_mpc):
+        _schedule_mpc()
+
     return mpc_output, supports_valve
 
 

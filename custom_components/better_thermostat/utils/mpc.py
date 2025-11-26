@@ -5,7 +5,7 @@ from __future__ import annotations
 import logging
 from dataclasses import dataclass, field
 from time import monotonic
-from typing import Any, Dict, Optional, Tuple
+from typing import Any, Dict, Mapping, Optional, Tuple
 
 
 _LOGGER = logging.getLogger(__name__)
@@ -82,6 +82,89 @@ class _MpcState:
 
 _MPC_STATES: Dict[str, _MpcState] = {}
 
+_STATE_EXPORT_FIELDS = (
+    "last_percent",
+    "last_target_C",
+    "ema_slope",
+    "gain_est",
+    "loss_est",
+    "last_temp",
+    "last_trv_temp",
+    "min_effective_percent",
+    "dead_zone_hits",
+)
+
+
+def _serialize_state(state: _MpcState) -> Dict[str, Any]:
+    payload: Dict[str, Any] = {}
+    for attr in _STATE_EXPORT_FIELDS:
+        value = getattr(state, attr, None)
+        if value is None:
+            continue
+        payload[attr] = value
+    return payload
+
+
+def export_mpc_state_map(prefix: Optional[str] = None) -> Dict[str, Dict[str, Any]]:
+    """Return a serializable mapping of MPC states, optionally filtered by key prefix."""
+
+    exported: Dict[str, Dict[str, Any]] = {}
+    for key, state in _MPC_STATES.items():
+        if prefix is not None and not key.startswith(prefix):
+            continue
+        payload = _serialize_state(state)
+        if payload:
+            exported[key] = payload
+    return exported
+
+
+def import_mpc_state_map(state_map: Mapping[str, Mapping[str, Any]]) -> None:
+    """Hydrate MPC states from a previously exported mapping."""
+
+    for key, payload in state_map.items():
+        if not isinstance(payload, Mapping):
+            continue
+        state = _MPC_STATES.setdefault(key, _MpcState())
+        for attr in _STATE_EXPORT_FIELDS:
+            if attr not in payload:
+                continue
+            value = payload[attr]
+            if value is None:
+                setattr(state, attr, None)
+                continue
+            try:
+                if attr == "dead_zone_hits":
+                    coerced: Any = int(value)
+                else:
+                    coerced = float(value)
+            except (TypeError, ValueError):
+                continue
+            setattr(state, attr, coerced)
+
+
+def _split_mpc_key(key: str) -> Tuple[Optional[str], Optional[str], Optional[str]]:
+    try:
+        uid, entity, bucket = key.split(":", 2)
+        return uid, entity, bucket
+    except ValueError:
+        return None, None, None
+
+
+def _seed_state_from_siblings(key: str, state: _MpcState) -> None:
+    if state.min_effective_percent is not None:
+        return
+    uid, entity, _ = _split_mpc_key(key)
+    if not uid or not entity:
+        return
+    for other_key, other_state in _MPC_STATES.items():
+        if other_key == key:
+            continue
+        ouid, oentity, _ = _split_mpc_key(other_key)
+        if ouid == uid and oentity == entity:
+            if other_state.min_effective_percent is not None:
+                state.min_effective_percent = other_state.min_effective_percent
+                return
+
 
 def build_mpc_key(bt, entity_id: str) -> str:
     """Return a stable key for MPC state tracking."""
@@ -112,6 +195,7 @@ def compute_mpc(inp: MpcInput, params: MpcParams) -> Optional[MpcOutput]:
 
     now = monotonic()
     state = _MPC_STATES.setdefault(inp.key, _MpcState())
+    _seed_state_from_siblings(inp.key, state)
 
     extra_debug: Dict[str, Any] = {}
     name = inp.bt_name or "BT"
