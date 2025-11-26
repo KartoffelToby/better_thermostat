@@ -2842,12 +2842,7 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
                         old_value,
                         applied,
                     )
-                else:
-                    _LOGGER.error(
-                        "better_thermostat %s: Unsupported hvac_mode %s",
-                        self.device_name,
-                        hvac_mode_norm,
-                    )
+
             if ATTR_TEMPERATURE in kwargs:
                 _new_setpoint = convert_to_float(
                     str(kwargs.get(ATTR_TEMPERATURE, None)),
