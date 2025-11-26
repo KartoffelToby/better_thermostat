@@ -237,12 +237,33 @@ def calculate_calibration_local(self, entity_id) -> float | None:
         if _mpc_use_valve:
             _new_trv_calibration = _current_trv_calibration
         elif _mpc_result is not None:
-            try:
-                _flow_cap = float(_mpc_result.flow_cap_K)
-            except (TypeError, ValueError):
-                _flow_cap = None
-            if _flow_cap is not None and _flow_cap > 0.0:
-                _new_trv_calibration += _flow_cap
+            _desired_trv_setpoint: float | None = None
+            _mpc_setpoint = getattr(_mpc_result, "setpoint_eff_C", None)
+            if isinstance(_mpc_setpoint, (int, float)):
+                _desired_trv_setpoint = float(_mpc_setpoint)
+            else:
+                _mpc_percent = getattr(_mpc_result, "valve_percent", None)
+                if isinstance(_mpc_percent, (int, float)):
+                    _max_temp = _convert_to_float(self.real_trvs[entity_id]["max_temp"])
+                    if _max_temp is not None:
+                        _valve_fraction = max(
+                            0.0, min(1.0, float(_mpc_percent) / 100.0)
+                        )
+                        _desired_trv_setpoint = _cur_trv_temp_f + (
+                            (float(_max_temp) - _cur_trv_temp_f) * _valve_fraction
+                        )
+
+            if _desired_trv_setpoint is not None:
+                _new_trv_calibration = _current_trv_calibration - (
+                    _desired_trv_setpoint - _cur_target_temp
+                )
+            else:
+                try:
+                    _flow_cap = float(_mpc_result.flow_cap_K)
+                except (TypeError, ValueError):
+                    _flow_cap = None
+                if _flow_cap is not None and _flow_cap > 0.0:
+                    _new_trv_calibration += _flow_cap
     else:
         self.real_trvs[entity_id].pop("calibration_balance", None)
 
@@ -405,6 +426,18 @@ def calculate_calibration_setpoint(self, entity_id) -> float | None:
                 _calibrated_setpoint = float(_mpc_setpoint)
             else:
                 _calibrated_setpoint = _cur_target_temp
+                _mpc_percent = getattr(_mpc_result, "valve_percent", None)
+                if isinstance(_mpc_percent, (int, float)):
+                    _max_temp = _convert_to_float(self.real_trvs[entity_id]["max_temp"])
+                    if _max_temp is not None:
+                        _valve_fraction = max(
+                            0.0, min(1.0, float(_mpc_percent) / 100.0)
+                        )
+                        _calibrated_setpoint = _cur_trv_temp + (
+                            (float(_max_temp) - _cur_trv_temp) * _valve_fraction
+                        )
+        else:
+            _calibrated_setpoint = _cur_target_temp
     else:
         self.real_trvs[entity_id].pop("calibration_balance", None)
 
