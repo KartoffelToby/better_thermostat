@@ -207,7 +207,7 @@ def compute_mpc(inp: MpcInput, params: MpcParams) -> Optional[MpcOutput]:
     summary_cost = extra_debug.get("mpc_cost")
 
     _LOGGER.debug(
-        "better_thermostat %s: balance mpc for %s: e0=%sK gain=%s loss=%s horizon=%s | raw=%s%% out=%s%% min_eff=%s%% last=%s%% dead_hits=%s eval=%s cost=%s flow_cap=%sK",
+        "better_thermostat %s: mpc calibration for %s: e0=%sK gain=%s loss=%s horizon=%s | raw=%s%% out=%s%% min_eff=%s%% last=%s%% dead_hits=%s eval=%s cost=%s flow_cap=%sK",
         name,
         entity,
         _round_for_debug(summary_delta, 3),

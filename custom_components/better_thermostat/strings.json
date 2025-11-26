@@ -46,7 +46,7 @@
                                         "no_off_system_mode": "If your TRV doesn't support the 'off' mode, enable this to use target temperature 5°C instead"
                                 },
                                 "data_description": {
-                                        "balance_mode": "Choose how Better Thermostat adapts the valve opening across rooms.\n***None / Off***: No balancing; TRVs run as-is.\n***Heuristic (Experimental)***: Simple rule-based balancing.\n***PID (Experimental)***: Classic feedback controller with auto-tune.\n***MPC (Experimental)***: Predictive controller minimizing future error & valve cost over a short horizon.\n\nNote: Hydraulic balance is in Beta and may change.",
+                                        "balance_mode": "Choose how Better Thermostat adapts the valve opening across rooms.\n***None / Off***: No balancing; TRVs run as-is.\n***Heuristic (Experimental)***: Simple rule-based balancing.\n***PID (Experimental)***: Classic feedback controller with auto-tune.\n\nNote: Hydraulic balance is in Beta and may change.",
                                         "mpc_horizon_steps": "Predictive horizon length. More steps = more look-ahead but higher CPU and risk of overfitting. Typical: 8–16.",
                                         "mpc_step_s": "Virtual step size (simulation granularity). Does not change real update rate.",
                                         "mpc_thermal_gain": "Estimated temperature error reduction per full valve opening per step.",
@@ -62,7 +62,7 @@
                                         "pid_ki": "Integral gain (eliminates steady-state error).",
                                         "pid_kd": "Derivative gain (damps overshoot).",
                                         "protect_overheating": "Some TRVs don't close the valve completely when the temperature is reached. Or the radiator has a lot of rest heat. This can cause overheating. This option can prevent this.",
-                                        "calibration_mode": "How the calibration is calculated\n***Normal***: In this mode, the TRV internal temperature sensor is fixed by the external temperature sensor.\n***Aggresive***: In this mode, the TRV internal temperature sensor is fixed by the external temperature sensor but set much lower/higher to get a quicker boost.\n***AI Time Based***: In this mode, the TRV internal temperature sensor is fixed by the external temperature sensor, but the value is calculated by a custom algorithm to improve the TRV internal algorithm.\n***MPC Predictive***: Uses the MPC hydraulic balance algorithm to derive a valve opening and converts it to offsets or setpoints when direct valve control is unavailable.",
+                                        "calibration_mode": "How the calibration is calculated\n***Normal***: In this mode, the TRV internal temperature sensor is fixed by the external temperature sensor.\n***Aggresive***: In this mode, the TRV internal temperature sensor is fixed by the external temperature sensor but set much lower/higher to get a quicker boost.\n***AI Time Based***: In this mode, the TRV internal temperature sensor is fixed by the external temperature sensor, but the value is calculated by a custom algorithm to improve the TRV internal algorithm.\n***MPC Predictive***: Uses the MPC predictive controller to derive a valve opening and converts it to offsets or setpoints when direct valve control is unavailable.",
                                         "calibration": "How the calibration is applied on the TRV\n***Target Temperature Based***: Apply the calibration to the target temperature.\n***Offset Based***: Apply the calibration to the temperature offset."
                                 }
                         },
@@ -133,7 +133,7 @@
                                         "no_off_system_mode": "If your TRV doesn't support the 'off' mode, enable this to use target temperature 5°C instead"
                                 },
                                 "data_description": {
-                                        "balance_mode": "Choose how Better Thermostat adapts the valve opening across rooms.\n***None / Off***: No balancing; TRVs run as-is.\n***Heuristic (Experimental)***: Simple rule-based balancing.\n***PID (Experimental)***: Classic feedback controller with auto-tune.\n***MPC (Experimental)***: Predictive controller minimizing future error & valve cost over a short horizon.\n\nNote: Hydraulic balance is in Beta and may change.",
+                                        "balance_mode": "Choose how Better Thermostat adapts the valve opening across rooms.\n***None / Off***: No balancing; TRVs run as-is.\n***Heuristic (Experimental)***: Simple rule-based balancing.\n***PID (Experimental)***: Classic feedback controller with auto-tune.\n\nNote: Hydraulic balance is in Beta and may change.",
                                         "mpc_horizon_steps": "Predictive horizon length. More steps = more look-ahead but higher CPU and risk of overfitting. Typical: 8–16.",
                                         "mpc_step_s": "Virtual step size (simulation granularity). Does not change real update rate.",
                                         "mpc_thermal_gain": "Estimated temperature error reduction per full valve opening per step.",

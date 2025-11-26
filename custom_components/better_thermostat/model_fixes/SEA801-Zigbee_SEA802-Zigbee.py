@@ -1,4 +1,12 @@
+from custom_components.better_thermostat.utils.helpers import (
+    entity_uses_mpc_calibration,
+)
+
+
 def fix_local_calibration(self, entity_id, offset):
+    if entity_uses_mpc_calibration(self, entity_id):
+        return offset
+
     _cur_external_temp = self.cur_temp
     _target_temp = self.bt_target_temp
 
@@ -11,11 +19,18 @@ def fix_local_calibration(self, entity_id, offset):
 
 
 def fix_target_temperature_calibration(self, entity_id, temperature):
-    _cur_trv_temp = float(
-        self.hass.states.get(entity_id).attributes["current_temperature"]
-    )
+    _state = self.hass.states.get(entity_id)
+    _cur_trv_temp = None
+    if _state is not None:
+        _cur_trv_temp = _state.attributes.get("current_temperature")
+
     if _cur_trv_temp is None:
         return temperature
+
+    if entity_uses_mpc_calibration(self, entity_id):
+        return temperature
+
+    _cur_trv_temp = float(_cur_trv_temp)
     if (
         round(temperature, 1) > round(_cur_trv_temp, 1)
         and temperature - _cur_trv_temp < 1.5
@@ -29,8 +44,14 @@ def fix_target_temperature_calibration(self, entity_id, temperature):
 
 
 async def override_set_hvac_mode(self, entity_id, hvac_mode):
+    del self
+    del entity_id
+    del hvac_mode
     return False
 
 
 async def override_set_temperature(self, entity_id, temperature):
+    del self
+    del entity_id
+    del temperature
     return False

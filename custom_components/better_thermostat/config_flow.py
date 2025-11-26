@@ -65,7 +65,6 @@ BALANCE_MODE_SELECTOR = selector.SelectSelector(
                 value="heuristic", label="Heuristic (Experimental)"
             ),
             selector.SelectOptionDict(value="pid", label="PID (Experimental)"),
-            selector.SelectOptionDict(value="mpc", label="MPC (Experimental)"),
         ],
         mode=selector.SelectSelectorMode.DROPDOWN,
     )
@@ -305,7 +304,12 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         ] = bool
 
         # Balance/control (PID) – after HomematicIP; fields dependent on mode
-        mode_current = str(user_input.get("balance_mode", "none")).lower()
+        mode_current_raw = str(user_input.get("balance_mode", "none")).lower()
+        mode_current = (
+            mode_current_raw
+            if mode_current_raw in {"none", "heuristic", "pid"}
+            else "heuristic"
+        )
         fields[vol.Optional("balance_mode", default=mode_current)] = (
             BALANCE_MODE_SELECTOR
         )
@@ -661,7 +665,12 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
         ] = bool
 
         # Balance/Regelung (PID) – nach HomematicIP; Felder abhängig vom Modus
-        mode_current = str(adv_cfg.get("balance_mode", "none")).lower()
+        mode_current_raw = str(adv_cfg.get("balance_mode", "none")).lower()
+        mode_current = (
+            mode_current_raw
+            if mode_current_raw in {"none", "heuristic", "pid"}
+            else "heuristic"
+        )
         fields[vol.Optional("balance_mode", default=mode_current)] = (
             BALANCE_MODE_SELECTOR
         )

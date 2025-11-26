@@ -346,6 +346,38 @@ def _apply_hydraulic_balance(
     Returns the (unchanged) current_setpoint.
     """
     try:
+        adv = (self.real_trvs.get(entity_id, {}) or {}).get("advanced", {}) or {}
+        raw_mode = adv.get("balance_mode")
+        if hasattr(raw_mode, "value"):
+            raw_mode = raw_mode.value
+        if raw_mode is None:
+            normalized_mode = None
+        else:
+            try:
+                normalized_mode = str(raw_mode).lower()
+            except Exception:  # noqa: BLE001
+                normalized_mode = "heuristic"
+
+        if normalized_mode in (None, "none", "off", ""):
+            _LOGGER.debug(
+                "better_thermostat %s: balance disabled for %s (mode=%s)",
+                self.device_name,
+                entity_id,
+                normalized_mode,
+            )
+            return current_setpoint
+
+        if normalized_mode not in {"heuristic", "pid"}:
+            _LOGGER.debug(
+                "better_thermostat %s: unsupported balance_mode '%s' for %s, falling back to heuristic",
+                self.device_name,
+                normalized_mode,
+                entity_id,
+            )
+            normalized_mode = "heuristic"
+
+        mode = normalized_mode
+
         min_t = self.real_trvs[entity_id].get("min_temp") or self.bt_min_temp
         max_t = self.real_trvs[entity_id].get("max_temp") or self.bt_max_temp
         cond_has_cur = self.cur_temp is not None
@@ -412,21 +444,6 @@ def _apply_hydraulic_balance(
             return current_setpoint
 
         # Build balance parameters (optionally from per-TRV advanced settings)
-        adv = self.real_trvs.get(entity_id, {}).get("advanced", {}) or {}
-        try:
-            mode = str(adv.get("balance_mode", "heuristic")).lower()
-        except Exception:
-            mode = "heuristic"
-
-        # Explizit deaktiviert? Dann Balance überspringen und current_setpoint zurückgeben
-        if mode in ("none", "off", ""):
-            _LOGGER.debug(
-                "better_thermostat %s: balance explicitly disabled for %s (mode=%s)",
-                self.device_name,
-                entity_id,
-                mode,
-            )
-            return current_setpoint
         try:
             kp = float(adv.get("pid_kp", 60.0))
         except Exception:
@@ -528,36 +545,34 @@ def _apply_hydraulic_balance(
             except Exception:
                 pass
         # Clamp the computed valve percent to the learned max_open% for the current target bucket (if available)
-        # Skip for MPC mode - MPC self-limits via control_penalty
         try:
-            if params.mode.lower() != "mpc":
-                t = self.bt_target_temp
-                bucket_now = (
-                    f"{round(float(t) * 2.0) / 2.0:.1f}"
-                    if isinstance(t, (int, float))
-                    else None
-                )
-                if bucket_now:
-                    caps_trv = (self.open_caps or {}).get(entity_id, {}) or {}
-                    caps_now = caps_trv.get(bucket_now)
-                    if isinstance(caps_now, dict):
-                        cap_max = caps_now.get("max_open_pct")
-                    else:
-                        cap_max = None
-                    if isinstance(cap_max, (int, float)) and isinstance(
-                        bal.valve_percent, (int, float)
-                    ):
-                        capped = int(max(0, min(int(cap_max), int(bal.valve_percent))))
-                        if capped != bal.valve_percent:
-                            _LOGGER.debug(
-                                "better_thermostat %s: capped valve for %s bucket %s to %s%% (learned max %s%%)",
-                                self.device_name,
-                                entity_id,
-                                bucket_now,
-                                capped,
-                                cap_max,
-                            )
-                            bal.valve_percent = capped
+            t = self.bt_target_temp
+            bucket_now = (
+                f"{round(float(t) * 2.0) / 2.0:.1f}"
+                if isinstance(t, (int, float))
+                else None
+            )
+            if bucket_now:
+                caps_trv = (self.open_caps or {}).get(entity_id, {}) or {}
+                caps_now = caps_trv.get(bucket_now)
+                if isinstance(caps_now, dict):
+                    cap_max = caps_now.get("max_open_pct")
+                else:
+                    cap_max = None
+                if isinstance(cap_max, (int, float)) and isinstance(
+                    bal.valve_percent, (int, float)
+                ):
+                    capped = int(max(0, min(int(cap_max), int(bal.valve_percent))))
+                    if capped != bal.valve_percent:
+                        _LOGGER.debug(
+                            "better_thermostat %s: capped valve for %s bucket %s to %s%% (learned max %s%%)",
+                            self.device_name,
+                            entity_id,
+                            bucket_now,
+                            capped,
+                            cap_max,
+                        )
+                        bal.valve_percent = capped
         except Exception:
             pass
         # Schedule a debounced persistence save (if the entity supports it)
@@ -636,22 +651,6 @@ def _apply_hydraulic_balance(
                     meas_blend,
                     mix_w_int,
                     mix_w_ext,
-                )
-            elif str(pid.get("mode")).lower() == "mpc":
-                # MPC-Modus Debug-Log
-                _LOGGER.debug(
-                    "better_thermostat %s: balance mpc for %s: e0=%sK gain=%s loss=%s horizon=%s | best_u=%s%% cost=%s | last_pct=%s%% eval_count=%s step=%s%%",
-                    self.device_name,
-                    entity_id,
-                    pid.get("e0_K"),
-                    pid.get("gain"),
-                    pid.get("loss"),
-                    pid.get("horizon"),
-                    pid.get("best_u"),
-                    pid.get("cost"),
-                    pid.get("last_percent"),
-                    pid.get("eval_count"),
-                    pid.get("candidate_step_pct"),
                 )
         except Exception:
             pass

@@ -1280,7 +1280,7 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
             )
 
             # Periodischer 5-Minuten-Tick: nur aktivieren, wenn Balance konfiguriert ist
-            balance_modes = {"heuristic", "pid", "mpc"}
+            balance_modes = {"heuristic", "pid"}
             active_balance_modes = set()
             active_calibration_modes = set()
             try:
