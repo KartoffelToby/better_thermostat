@@ -190,8 +190,35 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             # Should not happen in normal flow, fallback to confirm
             return await self.async_step_confirm()
 
+        integration_name = (
+            _trv_config.get("integration") if isinstance(_trv_config, dict) else None
+        )
+        homematic = bool(integration_name and integration_name.find("homematic") != -1)
+
+        _default_calibration = "target_temp_based"
+        _adapter = _trv_config.get("adapter", None)
+        _info = {}
+        if _adapter is not None:
+            try:
+                # type: ignore[attr-defined]
+                _info = await _adapter.get_info(self, _trv_config.get("trv"))
+            except (
+                AttributeError,
+                RuntimeError,
+                ValueError,
+                TypeError,
+            ):  # pragma: no cover - defensive
+                _LOGGER.debug("Adapter get_info failed", exc_info=True)
+            if _info.get("support_offset", False):
+                _default_calibration = "local_calibration_based"
+
         if user_input is not None:
-            self.trv_bundle[self.i]["advanced"] = user_input
+            advanced_data = dict(user_input)
+            advanced_data.setdefault(CONF_CALIBRATION, _default_calibration)
+            advanced_data.setdefault(
+                CONF_CALIBRATION_MODE, CalibrationMode.HEATING_POWER_CALIBRATION
+            )
+            self.trv_bundle[self.i]["advanced"] = advanced_data
             self.trv_bundle[self.i]["adapter"] = None
 
             self.i += 1
@@ -213,31 +240,8 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             return await self.async_step_confirm()
 
         user_input = user_input or {}
-        homematic = False
-        integration_name = (
-            _trv_config.get("integration") if isinstance(_trv_config, dict) else None
-        )
-        if integration_name and integration_name.find("homematic") != -1:
-            homematic = True
 
         fields = OrderedDict()
-
-        _default_calibration = "target_temp_based"
-        _adapter = _trv_config.get("adapter", None)
-        _info = {}
-        if _adapter is not None:
-            try:
-                # type: ignore[attr-defined]
-                _info = await _adapter.get_info(self, _trv_config.get("trv"))
-            except (
-                AttributeError,
-                RuntimeError,
-                ValueError,
-                TypeError,
-            ):  # pragma: no cover - defensive
-                _LOGGER.debug("Adapter get_info failed", exc_info=True)
-            if _info.get("support_offset", False):
-                _default_calibration = "local_calibration_based"
 
         if _default_calibration == "local_calibration_based":
             fields[
@@ -533,7 +537,43 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
     ):
         """Manage the advanced options."""
         if user_input is not None:
-            self.trv_bundle[self.i]["advanced"] = user_input
+            advanced_data = dict(user_input)
+            if isinstance(_trv_config, dict):
+                integration_name = _trv_config.get("integration") or ""
+                trv_id = _trv_config.get("trv")
+                _default_calibration = "target_temp_based"
+                _adapter = None
+                if integration_name and trv_id:
+                    try:
+                        _adapter = await load_adapter(self, integration_name, trv_id)
+                    except (
+                        RuntimeError,
+                        ValueError,
+                        TypeError,
+                    ):  # pragma: no cover - defensive
+                        _LOGGER.debug("load_adapter failed", exc_info=True)
+                _info = {}
+                if _adapter is not None and trv_id and hasattr(_adapter, "get_info"):
+                    try:
+                        # type: ignore[attr-defined]
+                        _info = await _adapter.get_info(self, trv_id)
+                    except (
+                        RuntimeError,
+                        ValueError,
+                        TypeError,
+                        AttributeError,
+                    ):  # pragma: no cover
+                        _LOGGER.debug("adapter get_info failed", exc_info=True)
+                if _info.get("support_offset", False):
+                    _default_calibration = "local_calibration_based"
+            else:
+                _default_calibration = "target_temp_based"
+
+            advanced_data.setdefault(CONF_CALIBRATION, _default_calibration)
+            advanced_data.setdefault(
+                CONF_CALIBRATION_MODE, CalibrationMode.HEATING_POWER_CALIBRATION
+            )
+            self.trv_bundle[self.i]["advanced"] = advanced_data
             self.trv_bundle[self.i]["adapter"] = None
 
             self.i += 1
