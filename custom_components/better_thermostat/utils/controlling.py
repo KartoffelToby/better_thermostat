@@ -326,14 +326,7 @@ async def control_trv(self, heater_entity_id=None):
                             heater_entity_id,
                             _source,
                         )
-        except (
-            HomeAssistantError,
-            ValueError,
-            TypeError,
-            RuntimeError,
-            AttributeError,
-            KeyError,
-        ):
+        except Exception:
             _LOGGER.debug(
                 "better_thermostat %s: set_valve not applied for %s (unsupported or failed)",
                 self.device_name,
@@ -536,7 +529,7 @@ async def control_trv(self, heater_entity_id=None):
 
     # Optional: set valve position if supported (e.g., MQTT/Z2M)
     try:
-        source = None
+        _source = None
         bal = None
         if _calibration_mode == CalibrationMode.MPC_CALIBRATION:
             cal_bal = self.real_trvs[heater_entity_id].get("calibration_balance")
@@ -546,12 +539,12 @@ async def control_trv(self, heater_entity_id=None):
                 and cal_bal.get("valve_percent") is not None
             ):
                 bal = cal_bal
-                source = "mpc_calibration"
+                _source = "mpc_calibration"
         if bal is None:
             raw_balance = self.real_trvs[heater_entity_id].get("balance")
             if raw_balance and raw_balance.get("valve_percent") is not None:
                 bal = raw_balance
-                source = "balance"
+                _source = "balance"
         if bal is not None:
             target_pct = int(bal.get("valve_percent", 0))
             last_pct = self.real_trvs[heater_entity_id].get("last_valve_percent")
@@ -560,7 +553,7 @@ async def control_trv(self, heater_entity_id=None):
                     "better_thermostat %s: skipping valve update for %s (call_for_heat is False, source=%s)",
                     self.device_name,
                     heater_entity_id,
-                    source,
+                    _source,
                 )
             elif last_pct is not None and int(last_pct) == target_pct:
                 _LOGGER.debug(
@@ -568,7 +561,7 @@ async def control_trv(self, heater_entity_id=None):
                     self.device_name,
                     heater_entity_id,
                     target_pct,
-                    source,
+                    _source,
                 )
             else:
                 _LOGGER.debug(
@@ -576,7 +569,7 @@ async def control_trv(self, heater_entity_id=None):
                     self.device_name,
                     heater_entity_id,
                     target_pct,
-                    source,
+                    _source,
                 )
                 ok = await set_valve(self, heater_entity_id, target_pct)
                 if not ok:
@@ -585,17 +578,8 @@ async def control_trv(self, heater_entity_id=None):
                         self.device_name,
                         target_pct,
                         heater_entity_id,
-                        source,
+                        _source,
                     )
-                    ok = await set_valve(self, heater_entity_id, target_pct)
-                    if not ok:
-                        _LOGGER.debug(
-                            "better_thermostat %s: delegate.set_valve returned False (target=%s%%, entity=%s, source=%s)",
-                            self.device_name,
-                            target_pct,
-                            heater_entity_id,
-                            source,
-                        )
     except Exception:
         _LOGGER.debug(
             "better_thermostat %s: set_valve not applied for %s (unsupported or failed)",
