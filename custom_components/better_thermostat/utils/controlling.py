@@ -259,8 +259,10 @@ async def control_trv(self, heater_entity_id=None):
         )
         if not isinstance(_remapped_states, dict):
             _LOGGER.debug(
-                f"better_thermostat {self.device_name}: ERROR {
-                    heater_entity_id} {_remapped_states}"
+                "better_thermostat %s: ERROR %s %s",
+                self.device_name,
+                heater_entity_id,
+                _remapped_states,
             )
             await asyncio.sleep(10)
             self.ignore_states = False
@@ -415,8 +417,9 @@ async def control_trv(self, heater_entity_id=None):
         if _no_off_system_mode is True and _new_hvac_mode == HVACMode.OFF:
             _min_temp = self.real_trvs[heater_entity_id]["min_temp"]
             _LOGGER.debug(
-                f"better_thermostat {self.device_name}: sending {
-                    _min_temp}°C to the TRV because this device has no system mode off and heater should be off"
+                "better_thermostat %s: sending %s°C to the TRV because this device has no system mode off and heater should be off",
+                self.device_name,
+                _min_temp,
             )
             _temperature = _min_temp
 
@@ -430,8 +433,11 @@ async def control_trv(self, heater_entity_id=None):
             )
         ):
             _LOGGER.debug(
-                f"better_thermostat {self.device_name}: TO TRV set_hvac_mode: {
-                    heater_entity_id} from: {_trv.state} to: {_new_hvac_mode}"
+                "better_thermostat %s: TO TRV set_hvac_mode: %s from: %s to: %s",
+                self.device_name,
+                heater_entity_id,
+                _trv.state,
+                _new_hvac_mode,
             )
             self.real_trvs[heater_entity_id]["last_hvac_mode"] = _new_hvac_mode
             _tvr_has_quirk = await override_set_hvac_mode(
@@ -476,8 +482,11 @@ async def control_trv(self, heater_entity_id=None):
                 "calibration_received"
             ] is True and float(_old_calibration) != float(_calibration):
                 _LOGGER.debug(
-                    f"better_thermostat {self.device_name}: TO TRV set_local_temperature_calibration: {
-                        heater_entity_id} from: {_old_calibration} to: {_calibration}"
+                    "better_thermostat %s: TO TRV set_local_temperature_calibration: %s from: %s to: %s",
+                    self.device_name,
+                    heater_entity_id,
+                    _old_calibration,
+                    _calibration,
                 )
                 await set_offset(self, heater_entity_id, _calibration)
                 self.real_trvs[heater_entity_id]["calibration_received"] = False
@@ -489,8 +498,11 @@ async def control_trv(self, heater_entity_id=None):
             if _temperature != _current_set_temperature:
                 old = self.real_trvs[heater_entity_id].get("last_temperature", "?")
                 _LOGGER.debug(
-                    f"better_thermostat {self.device_name}: TO TRV set_temperature: {
-                        heater_entity_id} from: {old} to: {_temperature}"
+                    "better_thermostat %s: TO TRV set_temperature: %s from: %s to: %s",
+                    self.device_name,
+                    heater_entity_id,
+                    old,
+                    _temperature,
                 )
                 self.real_trvs[heater_entity_id]["last_temperature"] = _temperature
                 await set_temperature(self, heater_entity_id, _temperature)
@@ -513,7 +525,10 @@ async def control_trv(self, heater_entity_id=None):
     )
     if not isinstance(_remapped_states, dict):
         _LOGGER.debug(
-            f"better_thermostat {self.device_name}: ERROR {heater_entity_id} {_remapped_states}"
+            "better_thermostat %s: ERROR %s %s",
+            self.device_name,
+            heater_entity_id,
+            _remapped_states,
         )
         # Reduced sleep time on error to avoid blocking too long
         await asyncio.sleep(2)
@@ -625,7 +640,11 @@ async def control_trv(self, heater_entity_id=None):
         )
     ):
         _LOGGER.debug(
-            f"better_thermostat {self.device_name}: TO TRV set_hvac_mode: {heater_entity_id} from: {_trv.state} to: {_new_hvac_mode}"
+            "better_thermostat %s: TO TRV set_hvac_mode: %s from: %s to: %s",
+            self.device_name,
+            heater_entity_id,
+            _trv.state,
+            _new_hvac_mode,
         )
         self.real_trvs[heater_entity_id]["last_hvac_mode"] = _new_hvac_mode
         _tvr_has_quirk = await override_set_hvac_mode(
@@ -670,7 +689,11 @@ async def control_trv(self, heater_entity_id=None):
             _old_calibration
         ) != float(_calibration):
             _LOGGER.debug(
-                f"better_thermostat {self.device_name}: TO TRV set_local_temperature_calibration: {heater_entity_id} from: {_old_calibration} to: {_calibration}"
+                "better_thermostat %s: TO TRV set_local_temperature_calibration: %s from: %s to: %s",
+                self.device_name,
+                heater_entity_id,
+                _old_calibration,
+                _calibration,
             )
             await set_offset(self, heater_entity_id, _calibration)
             self.real_trvs[heater_entity_id]["calibration_received"] = False
@@ -682,7 +705,11 @@ async def control_trv(self, heater_entity_id=None):
         if _temperature != _current_set_temperature:
             old = self.real_trvs[heater_entity_id].get("last_temperature", "?")
             _LOGGER.debug(
-                f"better_thermostat {self.device_name}: TO TRV set_temperature: {heater_entity_id} from: {old} to: {_temperature}"
+                "better_thermostat %s: TO TRV set_temperature: %s from: %s to: %s",
+                self.device_name,
+                heater_entity_id,
+                old,
+                _temperature,
             )
             self.real_trvs[heater_entity_id]["last_temperature"] = _temperature
             await set_temperature(self, heater_entity_id, _temperature)
@@ -704,38 +731,6 @@ def handle_window_open(self, _remapped_states):
     return _remapped_states.get("system_mode", None)
 
 
-def handle_hvac_mode_tolerance(self, _remapped_states):
-    """Determine the appropriate HVAC mode to display based on the current temperature and a specified tolerance.
-
-    If the current temperature is within the tolerance range of the target temperature, the function returns HVACMode.OFF,
-    indicating that no heating or cooling is needed. Otherwise, it returns the last main HVAC mode that was active.
-
-    Parameters
-    ----------
-    _remapped_states : dict
-        A dictionary containing the current system states, expected to include the key "system_mode".
-
-    Returns
-    -------
-    str
-        Returns HVACMode.OFF if the current temperature is within tolerance of the target temperature.
-        Otherwise, returns the last main HVAC mode.
-    """
-    # Add tolerance check
-    _within_tolerance = self.cur_temp >= (
-        self.bt_target_temp - self.tolerance
-    ) and self.cur_temp <= (self.bt_target_temp + self.tolerance)
-
-    # Update last_main_hvac_mode to reflect current intent
-    # This is a global attribute, so it might be overwritten by parallel tasks,
-    # but it's better than being stuck in an old state.
-    self.last_main_hvac_mode = _remapped_states.get("system_mode", None)
-
-    if _within_tolerance:
-        return HVACMode.OFF
-    return _remapped_states.get("system_mode", None)
-
-
 async def check_system_mode(self, heater_entity_id=None):
     """Check system mode."""
     _timeout = 0
@@ -743,7 +738,9 @@ async def check_system_mode(self, heater_entity_id=None):
     while _real_trv["hvac_mode"] != _real_trv["last_hvac_mode"]:
         if _timeout > 360:
             _LOGGER.debug(
-                f"better_thermostat {self.device_name}: {heater_entity_id} the real TRV did not respond to the system mode change"
+                "better_thermostat %s: %s the real TRV did not respond to the system mode change",
+                self.device_name,
+                heater_entity_id,
             )
             _timeout = 0
             break
@@ -770,7 +767,11 @@ async def check_target_temperature(self, heater_entity_id=None):
         )
         if _timeout == 0:
             _LOGGER.debug(
-                f"better_thermostat {self.device_name}: {heater_entity_id} / check_target_temp / _last: {_real_trv['last_temperature']} - _current: {_current_set_temperature}"
+                "better_thermostat %s: %s / check_target_temp / _last: %s - _current: %s",
+                self.device_name,
+                heater_entity_id,
+                _real_trv["last_temperature"],
+                _current_set_temperature,
             )
         if (
             _current_set_temperature is None
@@ -780,7 +781,9 @@ async def check_target_temperature(self, heater_entity_id=None):
             break
         if _timeout > 360:
             _LOGGER.debug(
-                f"better_thermostat {self.device_name}: {heater_entity_id} the real TRV did not respond to the target temperature change"
+                "better_thermostat %s: %s the real TRV did not respond to the target temperature change",
+                self.device_name,
+                heater_entity_id,
             )
             _timeout = 0
             break

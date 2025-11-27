@@ -488,6 +488,8 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
         self.context = None
         self.attr_hvac_action = None
         self.old_attr_hvac_action = None
+        self._tolerance_last_action = HVACAction.IDLE
+        self._tolerance_hold_active = False
         self.heating_start_temp = None
         self.heating_start_timestamp = None
         self.heating_end_temp = None
@@ -2545,140 +2547,185 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
         """Return the current HVAC action (delegates to helper)."""
         return self._compute_hvac_action()
 
+    def _should_heat_with_tolerance(
+        self, previous_action: HVACAction | None, tol: float
+    ) -> bool:
+        """Apply hysteresis so heating restarts only below target - tolerance."""
+        if self.bt_target_temp is None or self.cur_temp is None:
+            return False
+        tol = max(0.0, tol)
+        heat_off_threshold = self.bt_target_temp
+        heat_on_threshold = self.bt_target_temp - tol
+        if previous_action == HVACAction.HEATING:
+            return self.cur_temp < heat_off_threshold
+        return self.cur_temp < heat_on_threshold
+
     def _compute_hvac_action(self):  # helper kept internal for clarity
-        """Pure HVAC action computation without side effects.
+        """Pure HVAC action computation with tolerance based hysteresis.
 
         Rules:
         - OFF mode returns OFF regardless of temperatures
         - Open window suppresses active heating/cooling (returns IDLE)
-        - Heating if cur_temp < target - tolerance (strictly below)
+        - Heating uses a hysteresis band [target - tolerance, target]
         - Cooling if mode heat_cool and cur_temp > cool_target + tolerance
-        - Otherwise IDLE
+        - Otherwise IDLE, unless TRVs explicitly report heating and tolerance does not block it
         """
+        prev_action = getattr(self, "_tolerance_last_action", HVACAction.IDLE)
+        tol = self.tolerance if self.tolerance is not None else 0.0
+
         if self.bt_target_temp is None or self.cur_temp is None:
+            self._tolerance_hold_active = False
+            self._tolerance_last_action = HVACAction.IDLE
             return HVACAction.IDLE
         if self.hvac_mode == HVACMode.OFF or self.bt_hvac_mode == HVACMode.OFF:
+            self._tolerance_hold_active = False
+            self._tolerance_last_action = HVACAction.IDLE
             return HVACAction.OFF
         if self.window_open:
+            self._tolerance_hold_active = False
+            self._tolerance_last_action = HVACAction.IDLE
             return HVACAction.IDLE
-        tol = self.tolerance if self.tolerance is not None else 0.0
-        # Heating decision
-        # Use strict '<' so we do NOT heat when exactly at setpoint (especially when tol=0)
-        if self.cur_temp < (self.bt_target_temp - tol):
-            return HVACAction.HEATING
+
+        heating_allowed = self.hvac_mode in (HVACMode.HEAT, HVACMode.HEAT_COOL)
+        action = HVACAction.IDLE
+        tolerance_hold = False
+
+        if heating_allowed:
+            should_heat = self._should_heat_with_tolerance(prev_action, tol)
+            if should_heat:
+                action = HVACAction.HEATING
+            else:
+                tolerance_hold = True
+
         # Cooling decision (if heat_cool mode and cooling setpoint exists)
         if (
             self.hvac_mode in (HVACMode.HEAT_COOL,)
             and self.bt_target_cooltemp is not None
             and self.cur_temp > (self.bt_target_cooltemp + tol)
         ):
-            return HVACAction.COOLING
+            action = HVACAction.COOLING
+            tolerance_hold = False
+
         # Base decision would be IDLE. If any real TRV indicates active heating, override to HEATING.
-        try:
-            # Skip overrides while we intentionally ignore TRV states or when window is open
-            if getattr(self, "ignore_states", False) or getattr(
-                self, "window_open", False
-            ):
-                return HVACAction.IDLE
-            # Threshold for valve opening to be considered "heating": 5%
+        if action == HVACAction.IDLE and not tolerance_hold:
+            try:
+                # Skip overrides while we intentionally ignore TRV states or when window is open
+                if getattr(self, "ignore_states", False) or getattr(
+                    self, "window_open", False
+                ):
+                    self._tolerance_last_action = HVACAction.IDLE
+                    self._tolerance_hold_active = tolerance_hold
+                    return HVACAction.IDLE
+                # Threshold for valve opening to be considered "heating": 5%
 
-            def _to_pct(val):
-                try:
-                    v = float(val)
-                    return v * 100.0 if v <= 1.0 else v
-                except Exception:
-                    return None
+                def _to_pct(val):
+                    try:
+                        v = float(val)
+                        return v * 100.0 if v <= 1.0 else v
+                    except Exception:
+                        return None
 
-            THRESH = 5.0
-            for trv_id, info in (self.real_trvs or {}).items():
-                if not isinstance(info, dict):
-                    continue
-                if info.get("ignore_trv_states"):
-                    continue
-                # 0) Nutze zuerst den Cache (events/trv.py pflegt hvac_action), optionaler Fallback auf hass.states
-                try:
-                    action_val = info.get("hvac_action")
-                    action_str = (
-                        str(action_val).lower() if action_val is not None else ""
-                    )
-                    if not action_str:
-                        trv_state = self.hass.states.get(trv_id)
-                        action_raw = None
-                        if trv_state is not None:
-                            action_raw = trv_state.attributes.get("hvac_action")
-                            if action_raw is None:
-                                action_raw = trv_state.attributes.get("action")
+                THRESH = 5.0
+                for trv_id, info in (self.real_trvs or {}).items():
+                    if not isinstance(info, dict):
+                        continue
+                    if info.get("ignore_trv_states"):
+                        continue
+
+                    # 0) Use cached hvac_action first; fallback to hass state if missing
+                    try:
+                        action_val = info.get("hvac_action")
                         action_str = (
-                            str(action_raw).lower() if action_raw is not None else ""
+                            str(action_val).lower() if action_val is not None else ""
                         )
-                        # Fallback: wenn wir hier eine Action gefunden haben, sofort in den Cache schreiben,
-                        # damit der nächste Durchlauf keine weitere State-Abfrage benötigt.
-                        if action_str:
-                            try:
-                                info["hvac_action"] = action_str
-                                # kein Logging hier, um Spam zu vermeiden
-                            except Exception:
-                                pass
-                    if action_str == "heating" or action_val == HVACAction.HEATING:
-                        _LOGGER.debug(
-                            "better_thermostat %s: overriding hvac_action to HEATING (TRV %s reports heating)",
-                            self.device_name,
-                            trv_id,
-                        )
-                        return HVACAction.HEATING
-                except Exception:
-                    pass
-                # 1) Previously we treated hvac_mode=heat as active heating.
-                #    This caused false positives for some TRVs that report HEAT while idling.
-                #    We now rely on hvac_action/valve signals instead, so skip this shortcut.
-                # 2) TRV shows an actual/open valve position > 0
-                vp = info.get("valve_position")
-                try:
-                    vp_pct = _to_pct(vp)
-                    if vp_pct is not None and vp_pct > THRESH:
-                        _LOGGER.debug(
-                            "better_thermostat %s: overriding hvac_action to HEATING (valve_position %.1f%%, TRV %s)",
-                            self.device_name,
-                            vp_pct,
-                            trv_id,
-                        )
-                        return HVACAction.HEATING
-                except Exception:
-                    pass
-                # 3) We last commanded a valve percent > 0 (adapter/override)
-                last_pct = info.get("last_valve_percent")
-                try:
-                    last_pct_n = _to_pct(last_pct)
-                    if last_pct_n is not None and last_pct_n > THRESH:
-                        _LOGGER.debug(
-                            "better_thermostat %s: overriding hvac_action to HEATING (last_valve_percent %.1f%%, TRV %s)",
-                            self.device_name,
-                            last_pct_n,
-                            trv_id,
-                        )
-                        return HVACAction.HEATING
-                except Exception:
-                    pass
-                # 4) Balance module currently targets a valve percent > 0 (proxy for heating intent)
-                bal = info.get("balance") or {}
-                v_bal = bal.get("valve_percent") if isinstance(bal, dict) else None
-                try:
-                    v_bal_n = _to_pct(v_bal)
-                    if v_bal_n is not None and v_bal_n > THRESH:
-                        _LOGGER.debug(
-                            "better_thermostat %s: overriding hvac_action to HEATING (balance.valve_percent %.1f%%, TRV %s)",
-                            self.device_name,
-                            v_bal_n,
-                            trv_id,
-                        )
-                        return HVACAction.HEATING
-                except Exception:
-                    pass
-        except Exception:
-            # Defensive: if anything goes wrong in overrides, fall back to IDLE
-            pass
+                        if not action_str:
+                            trv_state = self.hass.states.get(trv_id)
+                            action_raw = None
+                            if trv_state is not None:
+                                action_raw = trv_state.attributes.get("hvac_action")
+                                if action_raw is None:
+                                    action_raw = trv_state.attributes.get("action")
+                            action_str = (
+                                str(action_raw).lower()
+                                if action_raw is not None
+                                else ""
+                            )
+                            if action_str:
+                                try:
+                                    info["hvac_action"] = action_str
+                                except Exception:
+                                    pass
+                        if action_str == "heating" or action_val == HVACAction.HEATING:
+                            _LOGGER.debug(
+                                "better_thermostat %s: overriding hvac_action to HEATING (TRV %s reports heating)",
+                                self.device_name,
+                                trv_id,
+                            )
+                            action = HVACAction.HEATING
+                            break
+                    except Exception:
+                        pass
 
-        return HVACAction.IDLE
+                    # 2) TRV shows an actual/open valve position > 0
+                    vp = info.get("valve_position")
+                    try:
+                        vp_pct = _to_pct(vp)
+                        if vp_pct is not None and vp_pct > THRESH:
+                            _LOGGER.debug(
+                                "better_thermostat %s: overriding hvac_action to HEATING (valve_position %.1f%%, TRV %s)",
+                                self.device_name,
+                                vp_pct,
+                                trv_id,
+                            )
+                            action = HVACAction.HEATING
+                            break
+                    except Exception:
+                        pass
+
+                    # 3) We last commanded a valve percent > 0 (adapter/override)
+                    last_pct = info.get("last_valve_percent")
+                    try:
+                        last_pct_n = _to_pct(last_pct)
+                        if last_pct_n is not None and last_pct_n > THRESH:
+                            _LOGGER.debug(
+                                "better_thermostat %s: overriding hvac_action to HEATING (last_valve_percent %.1f%%, TRV %s)",
+                                self.device_name,
+                                last_pct_n,
+                                trv_id,
+                            )
+                            action = HVACAction.HEATING
+                            break
+                    except Exception:
+                        pass
+
+                    # 4) Balance module currently targets a valve percent > 0 (proxy for heating intent)
+                    bal = info.get("balance") or {}
+                    v_bal = bal.get("valve_percent") if isinstance(bal, dict) else None
+                    try:
+                        v_bal_n = _to_pct(v_bal)
+                        if v_bal_n is not None and v_bal_n > THRESH:
+                            _LOGGER.debug(
+                                "better_thermostat %s: overriding hvac_action to HEATING (balance.valve_percent %.1f%%, TRV %s)",
+                                self.device_name,
+                                v_bal_n,
+                                trv_id,
+                            )
+                            action = HVACAction.HEATING
+                            break
+                    except Exception:
+                        pass
+            except Exception:
+                # Defensive: if anything goes wrong in overrides, fall back to IDLE
+                pass
+
+        # Persist tolerance state machine for next decision
+        self._tolerance_last_action = (
+            HVACAction.HEATING if action == HVACAction.HEATING else HVACAction.IDLE
+        )
+        self._tolerance_hold_active = bool(
+            tolerance_hold and action != HVACAction.COOLING
+        )
+        return action
 
     @property
     def target_temperature(self) -> float | None:

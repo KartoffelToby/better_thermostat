@@ -760,8 +760,7 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                     f"{self.data['name']}_{unique_trv_string}"
                 )
                 _LOGGER.debug(
-                    "Creating entry with heater bundle: %s",
-                    self.data.get(CONF_HEATER),
+                    "Creating entry with heater bundle: %s", self.data.get(CONF_HEATER)
                 )
                 self._abort_if_unique_id_configured()
                 return self.async_create_entry(title=self.data["name"], data=self.data)
@@ -816,8 +815,7 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             self._active_trv_config = None
             if len(self.trv_bundle) > self.i:
                 _LOGGER.debug(
-                    "ConfigFlow advanced step moving to next TRV index=%s",
-                    self.i,
+                    "ConfigFlow advanced step moving to next TRV index=%s", self.i
                 )
                 return await self.async_step_advanced(None, self.trv_bundle[self.i])
 
@@ -888,8 +886,9 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                             "adapter": await load_adapter(self, integration, trv),
                         }
                     )
-                _LOGGER.debug("ConfigFlow user step built trv bundle: %s",
-                              self.trv_bundle)
+                _LOGGER.debug(
+                    "ConfigFlow user step built trv bundle: %s", self.trv_bundle
+                )
                 self.data[CONF_MODEL] = "/".join([x["model"] for x in self.trv_bundle])
                 return await self.async_step_advanced(None, self.trv_bundle[0])
 
