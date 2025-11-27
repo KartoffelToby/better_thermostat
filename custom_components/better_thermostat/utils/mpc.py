@@ -25,7 +25,7 @@ class MpcParams:
     mpc_thermal_gain: float = 0.1
     mpc_loss_coeff: float = 0.01
     mpc_control_penalty: float = 0.0003
-    mpc_change_penalty: float = 0.1
+    mpc_change_penalty: float = 0.005
     mpc_adapt: bool = True
     mpc_gain_min: float = 0.005
     mpc_gain_max: float = 0.5
