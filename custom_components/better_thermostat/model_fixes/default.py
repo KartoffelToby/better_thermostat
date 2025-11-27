@@ -28,5 +28,3 @@ async def override_set_temperature(self, entity_id, temperature):
 async def override_set_valve(self, entity_id, percent: int):
     """Do not override valve by default."""
     return False
-
-
