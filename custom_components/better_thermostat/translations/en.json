@@ -17,7 +17,8 @@
           "window_off_delay_after": "Delay before the thermostat turns on when the window is closed",
           "outdoor_sensor": "If you have an outdoor sensor, you can use it to get the outdoor temperature",
           "weather": "Your weather entity to get the outdoor temperature",
-          "eco_temperature": "ECO Target Temp"
+          "eco_temperature": "ECO Target Temp",
+          "target_temp_step": "Target temperature step"
         }
       },
       "advanced": {
@@ -103,6 +104,7 @@
           "calibration": "The sort of calibration https://better-thermostat.org/configuration#second-step",
           "weather": "Your weather entity to get the outdoor temperature",
           "eco_temperature": "ECO Target Temp",
+          "target_temp_step": "Target temperature step",
           "heat_auto_swapped": "If the auto means heat for your TRV and you want to swap it",
           "child_lock": "Ignore all inputs on the TRV like a child lock",
           "homematicip": "If you use HomematicIP, you should enable this to slow down the requests to prevent the duty cycle"

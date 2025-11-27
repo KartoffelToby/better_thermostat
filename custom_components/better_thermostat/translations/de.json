@@ -17,7 +17,8 @@
           "window_off_delay_after": "Wartezeit, bevor das Thermostat bei geschlossenem Fenster angeschaltet wird.",
           "outdoor_sensor": "Wenn ein Außentemperatursensor vorhanden ist, kann dieser anstelle der Wetter-Entität genutzt werden.",
           "weather": "Die Wetter-Entität für die Außentemperatur.",
-          "eco_temperature": "ECO Target Temp"
+          "eco_temperature": "ECO Target Temp",
+          "target_temp_step": "Solltemperatur-Schritt"
         }
       },
       "advanced": {
@@ -101,6 +102,7 @@
           "outdoor_sensor": "Wenn ein Außentemperatursensor vorhanden ist, kann dieser anstelle der Wetter-Entität genutzt werden.",
           "weather": "Die Wetter-Entität für die Außentemperatur.",
           "eco_temperature": "ECO Target Temp",
+          "target_temp_step": "Solltemperatur-Schritt",
           "valve_maintenance": "Wenn Ihr Thermostat keinen eigenen Wartungsmodus hat, können Sie diesen verwenden.",
           "child_lock": "Ignorieren Sie alle Eingaben am TRV wie eine Kindersicherung.",
           "homematicip": "Wenn Sie HomematicIP verwenden, sollten Sie dies aktivieren, um die Anfragen zu verlangsamen und den Duty Cycle zu verhindern.",
