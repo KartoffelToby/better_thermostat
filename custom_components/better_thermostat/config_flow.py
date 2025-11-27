@@ -47,37 +47,6 @@ from . import DOMAIN  # pylint:disable=unused-import
 
 _LOGGER = logging.getLogger(__name__)
 
-
-def _normalize_advanced(adv_cfg: dict | None, homematic: bool = False) -> dict:
-    """Return a normalized advanced dict with default values for missing keys.
-
-    This ensures we persist a consistent shape for `advanced` options across
-    the initial config flow and the options flow, so missing keys don't lead
-    to unexpected False defaults in runtime logic.
-    """
-    adv = dict(adv_cfg or {})
-    # Calibration related
-    adv.setdefault(CONF_CALIBRATION, "target_temp_based")
-    adv.setdefault(CONF_CALIBRATION_MODE, CalibrationMode.HEATING_POWER_CALIBRATION)
-    # Basic boolean options
-    adv.setdefault(CONF_PROTECT_OVERHEATING, False)
-    adv.setdefault(CONF_NO_SYSTEM_MODE_OFF, False)
-    adv.setdefault(CONF_HEAT_AUTO_SWAPPED, False)
-    adv.setdefault(CONF_VALVE_MAINTENANCE, False)
-    adv.setdefault(CONF_CHILD_LOCK, False)
-    adv.setdefault(CONF_HOMEMATICIP, homematic)
-    # Balance / PID params
-    adv.setdefault("balance_mode", "none")
-    adv.setdefault("trend_mix_trv", 0.7)
-    adv.setdefault("percent_hysteresis_pts", 1.0)
-    adv.setdefault("min_update_interval_s", 60.0)
-    adv.setdefault("pid_auto_tune", True)
-    adv.setdefault("pid_kp", 50.0)
-    adv.setdefault("pid_ki", 0.02)
-    adv.setdefault("pid_kd", 2500.0)
-    return adv
-
-
 CALIBRATION_TYPE_SELECTOR = selector.SelectSelector(
     selector.SelectSelectorConfig(
         options=[
@@ -196,18 +165,7 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             errors["base"] = "no_data"
             return self.async_show_form(step_id="confirm", errors=errors)
 
-        # attach current trv bundle (normalize advanced options for safety)
-        for trv in self.trv_bundle:
-            trv_integration = trv.get("integration", "") or ""
-            trv_homematic = trv_integration.find("homematic") != -1
-            trv["advanced"] = _normalize_advanced(
-                trv.get("advanced", {}), trv_homematic
-            )
-            # Remove runtime-only objects (e.g. adapter instances) before
-            # persisting the configuration to Home Assistant storage to avoid
-            # storing non-JSON serializable values like modules.
-            if "adapter" in trv:
-                trv["adapter"] = None
+        # attach current trv bundle
         self.data[CONF_HEATER] = self.trv_bundle
         if user_input is not None:
             if self.data is not None:
@@ -234,24 +192,8 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             # Should not happen in normal flow, fallback to confirm
             return await self.async_step_confirm()
 
-        # Determine whether this TRV integration is homematic so the default for
-        # `CONF_HOMEMATICIP` can be set correctly when normalizing advanced
-        # options. Evaluate before processing `user_input` to avoid undefined
-        # variable usage.
-        homematic = False
-        integration_name = (
-            _trv_config.get("integration") if isinstance(_trv_config, dict) else None
-        )
-        if integration_name and integration_name.find("homematic") != -1:
-            homematic = True
-
         if user_input is not None:
-            # Ensure advanced options contain all expected keys. Some values are
-            # optional in the UI and may be omitted from `user_input`; ensure a
-            # consistent shape so the advanced dict is usable at runtime.
-            adv = dict(user_input)
-            adv = _normalize_advanced(adv, homematic)
-            self.trv_bundle[self.i]["advanced"] = adv
+            self.trv_bundle[self.i]["advanced"] = user_input
             self.trv_bundle[self.i]["adapter"] = None
 
             self.i += 1
@@ -279,7 +221,6 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         )
         if integration_name and integration_name.find("homematic") != -1:
             homematic = True
-        adv_cfg = _normalize_advanced(_trv_config.get("advanced") or {}, homematic)
 
         fields = OrderedDict()
 
@@ -327,27 +268,21 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         fields[
             vol.Optional(
                 CONF_PROTECT_OVERHEATING,
-                default=user_input.get(
-                    CONF_PROTECT_OVERHEATING, adv_cfg.get(CONF_PROTECT_OVERHEATING)
-                ),
+                default=user_input.get(CONF_PROTECT_OVERHEATING, False),
             )
         ] = bool
 
         fields[
             vol.Optional(
                 CONF_NO_SYSTEM_MODE_OFF,
-                default=user_input.get(
-                    CONF_NO_SYSTEM_MODE_OFF, adv_cfg.get(CONF_NO_SYSTEM_MODE_OFF)
-                ),
+                default=user_input.get(CONF_NO_SYSTEM_MODE_OFF, False),
             )
         ] = bool
 
         fields[
             vol.Optional(
                 CONF_HEAT_AUTO_SWAPPED,
-                default=user_input.get(
-                    CONF_HEAT_AUTO_SWAPPED, adv_cfg.get(CONF_HEAT_AUTO_SWAPPED)
-                ),
+                default=user_input.get(CONF_HEAT_AUTO_SWAPPED, False),
             )
         ] = bool
 
@@ -355,24 +290,18 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         fields[
             vol.Optional(
                 CONF_VALVE_MAINTENANCE,
-                default=user_input.get(
-                    CONF_VALVE_MAINTENANCE, adv_cfg.get(CONF_VALVE_MAINTENANCE)
-                ),
+                default=user_input.get(CONF_VALVE_MAINTENANCE, False),
             )
         ] = bool
 
         fields[
             vol.Optional(
-                CONF_CHILD_LOCK,
-                default=user_input.get(CONF_CHILD_LOCK, adv_cfg.get(CONF_CHILD_LOCK)),
+                CONF_CHILD_LOCK, default=user_input.get(CONF_CHILD_LOCK, False)
             )
         ] = bool
         fields[
             vol.Optional(
-                CONF_HOMEMATICIP,
-                default=user_input.get(
-                    CONF_HOMEMATICIP, adv_cfg.get(CONF_HOMEMATICIP, homematic)
-                ),
+                CONF_HOMEMATICIP, default=user_input.get(CONF_HOMEMATICIP, homematic)
             )
         ] = bool
 
@@ -383,54 +312,33 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         )
         # General balance parameters only show if mode is not 'none'
         fields[
-            vol.Optional(
-                "trend_mix_trv",
-                default=user_input.get(
-                    "trend_mix_trv", adv_cfg.get("trend_mix_trv", 0.7)
-                ),
-            )
+            vol.Optional("trend_mix_trv", default=user_input.get("trend_mix_trv", 0.7))
         ] = vol.All(vol.Coerce(float), vol.Range(min=0, max=1))
         fields[
             vol.Optional(
                 "percent_hysteresis_pts",
-                default=user_input.get(
-                    "percent_hysteresis_pts", adv_cfg.get("percent_hysteresis_pts", 1.0)
-                ),
+                default=user_input.get("percent_hysteresis_pts", 1.0),
             )
         ] = vol.All(vol.Coerce(float), vol.Range(min=0, max=10))
         fields[
             vol.Optional(
                 "min_update_interval_s",
-                default=user_input.get(
-                    "min_update_interval_s", adv_cfg.get("min_update_interval_s", 60.0)
-                ),
+                default=user_input.get("min_update_interval_s", 60.0),
             )
         ] = vol.All(vol.Coerce(float), vol.Range(min=0, max=3600))
         # Only show PID parameters if explicitly chosen
         fields[
-            vol.Optional(
-                "pid_auto_tune",
-                default=user_input.get(
-                    "pid_auto_tune", adv_cfg.get("pid_auto_tune", True)
-                ),
-            )
+            vol.Optional("pid_auto_tune", default=user_input.get("pid_auto_tune", True))
         ] = bool
-        fields[
-            vol.Optional(
-                "pid_kp", default=user_input.get("pid_kp", adv_cfg.get("pid_kp", 50.0))
-            )
-        ] = vol.All(vol.Coerce(float), vol.Range(min=0))
-        fields[
-            vol.Optional(
-                "pid_ki", default=user_input.get("pid_ki", adv_cfg.get("pid_ki", 0.02))
-            )
-        ] = vol.All(vol.Coerce(float), vol.Range(min=0))
-        fields[
-            vol.Optional(
-                "pid_kd",
-                default=user_input.get("pid_kd", adv_cfg.get("pid_kd", 2500.0)),
-            )
-        ] = vol.All(vol.Coerce(float), vol.Range(min=0))
+        fields[vol.Optional("pid_kp", default=user_input.get("pid_kp", 50.0))] = (
+            vol.All(vol.Coerce(float), vol.Range(min=0))
+        )
+        fields[vol.Optional("pid_ki", default=user_input.get("pid_ki", 0.02))] = (
+            vol.All(vol.Coerce(float), vol.Range(min=0))
+        )
+        fields[vol.Optional("pid_kd", default=user_input.get("pid_kd", 2500.0))] = (
+            vol.All(vol.Coerce(float), vol.Range(min=0))
+        )
 
         return self.async_show_form(
             step_id="advanced",
@@ -582,27 +490,11 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
         self.device_name = ""
         self._last_step = False
         self.updated_config = {}
-        # Do NOT explicitly assign `self.config_entry` here; Home Assistant will
-        # set it for the options flow automatically. Explicitly setting it is
-        # deprecated and will stop working in HA 2025.12.
-        # Store a fallback reference for older Home Assistant versions that
-        # expect the handler to know the config entry (avoid assigning to
-        # `self.config_entry` to prevent deprecation warnings).
-        self._passed_config_entry = config_entry
+        # Do not set `self.config_entry` directly; store in a private attribute
+        # to avoid deprecated behavior. The framework will set `config_entry` on
+        # the options flow object as needed.
+        self._config_entry = config_entry
         super().__init__()
-
-    @property
-    def current_config_entry(self) -> config_entries.ConfigEntry:
-        """Return the config entry set by Home Assistant or the passed one.
-
-        Home Assistant will set the attribute `self.config_entry` on the
-        options flow instance in newer versions. For backwards compatibility
-        we fall back to the config entry passed to the constructor if the
-        attribute isn't set yet.
-        """
-        return getattr(
-            self, "config_entry", getattr(self, "_passed_config_entry", None)
-        )
 
     async def async_step_init(self, _user_input=None):
         """Manage the options."""
@@ -612,22 +504,8 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
         self, user_input=None, _trv_config=None, _update_config=None
     ):
         """Manage the advanced options."""
-        # Evaluate homematic before using it in normalization, just like in the
-        # main config flow handler. The value depends on the current trv
-        # configuration being edited and should be available regardless of
-        # whether we're handling user input or simply building the form.
-        homematic = False
-        integration_name = (
-            _trv_config.get("integration") if isinstance(_trv_config, dict) else None
-        )
-        if integration_name and integration_name.find("homematic") != -1:
-            homematic = True
-
         if user_input is not None:
-            adv = dict(user_input)
-            # For Options flow, preserve missing options by filling defaults
-            adv = _normalize_advanced(adv, homematic)
-            self.trv_bundle[self.i]["advanced"] = adv
+            self.trv_bundle[self.i]["advanced"] = user_input
             self.trv_bundle[self.i]["adapter"] = None
 
             self.i += 1
@@ -642,7 +520,7 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
             self.updated_config[CONF_HEATER] = self.trv_bundle
             _LOGGER.debug("Updated config: %s", self.updated_config)
             self.hass.config_entries.async_update_entry(
-                self.current_config_entry, data=self.updated_config
+                self._config_entry, data=self.updated_config
             )
             return self.async_create_entry(
                 title=self.updated_config["name"], data=self.updated_config
@@ -652,7 +530,7 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
         # Ensure dict shape
         if not isinstance(_trv_config, dict):
             _trv_config = {}
-        adv_cfg = _normalize_advanced(_trv_config.get("advanced") or {}, homematic)
+        adv_cfg = _trv_config.get("advanced") or {}
         integration_name = _trv_config.get("integration") or ""
         trv_id = _trv_config.get("trv")
 
@@ -725,14 +603,18 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
             )
         ] = bool
 
-        # Do not automatically enable heat/auto swap just because a device
-        # reports 'auto' as a supported HVAC mode. The option should default
-        # to False unless explicitly enabled by the user or preserved in the
-        # saved config for existing entries.
+        has_auto = False
+        if trv_id:
+            trv_state = self.hass.states.get(trv_id)
+            if trv_state and hasattr(trv_state, "attributes"):
+                hvac_modes = trv_state.attributes.get("hvac_modes", []) or []
+                if HVACMode.AUTO in hvac_modes:
+                    has_auto = True
+
         fields[
             vol.Optional(
                 CONF_HEAT_AUTO_SWAPPED,
-                default=adv_cfg.get(CONF_HEAT_AUTO_SWAPPED, False),
+                default=adv_cfg.get(CONF_HEAT_AUTO_SWAPPED, has_auto),
             )
         ] = bool
 
@@ -800,7 +682,7 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
     async def async_step_user(self, user_input=None):
         """Handle the user step."""
         if user_input is not None:
-            current_config = self.current_config_entry.data
+            current_config = self._config_entry.data
             self.updated_config = dict(current_config)
             self.updated_config[CONF_SENSOR] = user_input.get(CONF_SENSOR, None)
             self.updated_config[CONF_SENSOR_WINDOW] = user_input.get(
@@ -864,9 +746,7 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
             vol.Optional(
                 CONF_SENSOR,
                 description={
-                    "suggested_value": self.current_config_entry.data.get(
-                        CONF_SENSOR, ""
-                    )
+                    "suggested_value": self._config_entry.data.get(CONF_SENSOR, "")
                 },
             )
         ] = selector.EntitySelector(
@@ -881,9 +761,7 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
             vol.Optional(
                 CONF_HUMIDITY,
                 description={
-                    "suggested_value": self.current_config_entry.data.get(
-                        CONF_HUMIDITY, ""
-                    )
+                    "suggested_value": self._config_entry.data.get(CONF_HUMIDITY, "")
                 },
             )
         ] = selector.EntitySelector(
@@ -898,7 +776,7 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
             vol.Optional(
                 CONF_SENSOR_WINDOW,
                 description={
-                    "suggested_value": self.current_config_entry.data.get(
+                    "suggested_value": self._config_entry.data.get(
                         CONF_SENSOR_WINDOW, ""
                     )
                 },
@@ -914,7 +792,7 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
             vol.Optional(
                 CONF_OUTDOOR_SENSOR,
                 description={
-                    "suggested_value": self.current_config_entry.data.get(
+                    "suggested_value": self._config_entry.data.get(
                         CONF_OUTDOOR_SENSOR, ""
                     )
                 },
@@ -931,16 +809,14 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
             vol.Optional(
                 CONF_WEATHER,
                 description={
-                    "suggested_value": self.current_config_entry.data.get(
-                        CONF_WEATHER, ""
-                    )
+                    "suggested_value": self._config_entry.data.get(CONF_WEATHER, "")
                 },
             )
         ] = selector.EntitySelector(
             selector.EntitySelectorConfig(domain="weather", multiple=False)
         )
 
-        _timeout = self.current_config_entry.data.get(CONF_WINDOW_TIMEOUT, 0)
+        _timeout = self._config_entry.data.get(CONF_WINDOW_TIMEOUT, 0)
         _timeout = str(cv.time_period_seconds(_timeout))
         _timeout = {
             "hours": int(_timeout.split(":", maxsplit=1)[0]),
@@ -955,7 +831,7 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
             )
         ] = selector.DurationSelector()
 
-        _timeout = self.current_config_entry.data.get(CONF_WINDOW_TIMEOUT_AFTER, 0)
+        _timeout = self._config_entry.data.get(CONF_WINDOW_TIMEOUT_AFTER, 0)
         _timeout = str(cv.time_period_seconds(_timeout))
         _timeout = {
             "hours": int(_timeout.split(":", maxsplit=1)[0]),
@@ -973,29 +849,26 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
         fields[
             vol.Optional(
                 CONF_OFF_TEMPERATURE,
-                default=self.current_config_entry.data.get(CONF_OFF_TEMPERATURE, 5),
+                default=self._config_entry.data.get(CONF_OFF_TEMPERATURE, 5),
             )
         ] = int
 
         fields[
             vol.Optional(
                 CONF_ECO_TEMPERATURE,
-                default=self.current_config_entry.data.get(CONF_ECO_TEMPERATURE, 18.0),
+                default=self._config_entry.data.get(CONF_ECO_TEMPERATURE, 18.0),
             )
         ] = vol.All(vol.Coerce(float), vol.Range(min=5, max=35))
 
         fields[
             vol.Optional(
-                CONF_TOLERANCE,
-                default=self.current_config_entry.data.get(CONF_TOLERANCE, 0.0),
+                CONF_TOLERANCE, default=self._config_entry.data.get(CONF_TOLERANCE, 0.0)
             )
         ] = vol.All(vol.Coerce(float), vol.Range(min=0))
         fields[
             vol.Optional(
                 CONF_TARGET_TEMP_STEP,
-                default=str(
-                    self.current_config_entry.data.get(CONF_TARGET_TEMP_STEP, 0.0)
-                ),
+                default=str(self._config_entry.data.get(CONF_TARGET_TEMP_STEP, 0.0)),
             )
         ] = TEMP_STEP_SELECTOR
 
