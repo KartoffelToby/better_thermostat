@@ -15,7 +15,7 @@ _LOGGER = logging.getLogger(__name__)
 class MpcParams:
     """Configuration for the predictive controller."""
 
-    band_near_K: float = 0.1
+    band_near_K: float = 0.01
     band_far_K: float = 0.3
     cap_max_K: float = 0.8
     percent_hysteresis_pts: float = 0.5
