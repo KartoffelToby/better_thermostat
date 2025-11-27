@@ -143,7 +143,6 @@ _ADVANCED_NUMERIC_SPECS: Tuple[Tuple[str, Any, Any], ...] = (
     ("pid_kp", 60.0, vol.All(vol.Coerce(float), vol.Range(min=0))),
     ("pid_ki", 0.01, vol.All(vol.Coerce(float), vol.Range(min=0))),
     ("pid_kd", 2000.0, vol.All(vol.Coerce(float), vol.Range(min=0))),
-    ("mpc_horizon_steps", 12, vol.All(vol.Coerce(int), vol.Range(min=1, max=72))),
     ("mpc_step_s", 60.0, vol.All(vol.Coerce(float), vol.Range(min=10, max=600))),
     (
         "mpc_thermal_gain",
@@ -333,7 +332,6 @@ def _build_advanced_fields(
 
     # 5) MPC block
     for key in (
-        "mpc_horizon_steps",
         "mpc_step_s",
         "mpc_thermal_gain",
         "mpc_loss_coeff",
@@ -379,7 +377,7 @@ def _normalize_advanced_submission(
     )
 
     for key, default, _validator in _ADVANCED_NUMERIC_SPECS:
-        caster = int if key == "mpc_horizon_steps" else float
+        caster = int if key.endswith("_steps") else float
         try:
             normalized[key] = caster(normalized.get(key, default))
         except (TypeError, ValueError):

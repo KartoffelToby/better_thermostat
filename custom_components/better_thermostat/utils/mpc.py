@@ -21,7 +21,6 @@ class MpcParams:
     cap_max_K: float = 0.8
     percent_hysteresis_pts: float = 0.5
     min_update_interval_s: float = 60.0
-    mpc_horizon_steps: int = 12
     mpc_step_s: float = 300.0
     mpc_thermal_gain: float = 0.1
     mpc_loss_coeff: float = 0.01
