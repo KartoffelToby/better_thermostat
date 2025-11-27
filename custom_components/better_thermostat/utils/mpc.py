@@ -535,7 +535,7 @@ def _post_process_percent(
             eval_after = max(params.deadzone_time_s, 1.0)
             if time_delta >= eval_after:
                 needs_heat = delta_t is not None and delta_t > params.band_near_K
-                small_command = 0 < percent_out < params.deadzone_threshold_pct
+                small_command = 0 < percent_out <= params.deadzone_threshold_pct
                 weak_response = (
                     temp_delta is None or temp_delta <= params.deadzone_temp_delta_K
                 )
