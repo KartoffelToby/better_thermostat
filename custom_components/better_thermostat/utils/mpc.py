@@ -18,25 +18,23 @@ class MpcParams:
     band_near_K: float = 0.1
     band_far_K: float = 0.3
     cap_max_K: float = 0.8
-    percent_smoothing_alpha: float = 0.35
     percent_hysteresis_pts: float = 0.5
     min_update_interval_s: float = 60.0
-    sonoff_min_open_default_pct: int = 5
     mpc_horizon_steps: int = 12
-    mpc_step_s: float = 60.0
+    mpc_step_s: float = 300.0
     mpc_thermal_gain: float = 0.1
     mpc_loss_coeff: float = 0.01
     mpc_control_penalty: float = 0.0003
-    mpc_change_penalty: float = 0.05
+    mpc_change_penalty: float = 0.1
     mpc_adapt: bool = True
     mpc_gain_min: float = 0.005
     mpc_gain_max: float = 0.5
     mpc_loss_min: float = 0.0
     mpc_loss_max: float = 0.05
-    mpc_adapt_alpha: float = 0.2
-    deadzone_threshold_pct: float = 15.0
-    deadzone_temp_delta_K: float = 0.02
-    deadzone_time_s: float = 180.0
+    mpc_adapt_alpha: float = 0.1
+    deadzone_threshold_pct: float = 20.0
+    deadzone_temp_delta_K: float = 0.1
+    deadzone_time_s: float = 300.0
     deadzone_hits_required: int = 3
     deadzone_raise_pct: float = 2.0
     deadzone_decay_pct: float = 1.0
@@ -343,12 +341,25 @@ def _compute_predictive_percent(
                 state.loss_est = params.mpc_loss_coeff
 
             if error_prev != 0.0:
-                decay = error_prev - error_now_current
-                if u_last > 0.0 and decay > 0.0:
-                    gain_candidate = (decay / abs(error_prev)) * (100.0 / u_last)
-                    state.gain_est = (
-                        1.0 - params.mpc_adapt_alpha
-                    ) * state.gain_est + params.mpc_adapt_alpha * gain_candidate
+                if u_last > 0.0:
+                    decay = error_prev - error_now_current
+                    if decay > 0.0:
+                        gain_candidate = (decay / abs(error_prev)) * (100.0 / u_last)
+                        state.gain_est = (
+                            1.0 - params.mpc_adapt_alpha
+                        ) * state.gain_est + params.mpc_adapt_alpha * gain_candidate
+                    else:
+                        # Reduce the assumed thermal gain if recent heating failed to shrink the error
+                        decay_ratio = 0.0
+                        try:
+                            decay_ratio = min(1.0, abs(decay) / abs(error_prev))
+                        except (TypeError, ValueError, ZeroDivisionError):
+                            decay_ratio = 0.0
+                        if decay_ratio > 0.0:
+                            shrink = 1.0 - params.mpc_adapt_alpha * decay_ratio
+                            if shrink < 0.0:
+                                shrink = 0.0
+                            state.gain_est *= shrink
 
                 leak_raw = error_now_current - error_prev
                 loss_candidate = max(0.0, leak_raw / abs(error_prev))
