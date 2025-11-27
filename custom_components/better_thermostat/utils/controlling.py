@@ -585,8 +585,10 @@ async def control_trv(self, heater_entity_id=None):
         )
 
     _new_hvac_mode = handle_window_open(self, _remapped_states)
-    if not self.window_open:
-        _new_hvac_mode = handle_hvac_mode_tolerance(self, _remapped_states)
+
+    # wtom: disabled for now, switches off the trv all the time
+    # if not self.window_open:
+    # _new_hvac_mode = handle_hvac_mode_tolerance(self, _remapped_states)
 
     # Removed cooler section from here, moved to control_queue/control_cooler
 
