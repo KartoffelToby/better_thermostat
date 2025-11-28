@@ -3,15 +3,15 @@
 from __future__ import annotations
 
 import logging
-import math
 from dataclasses import dataclass, field
 from time import monotonic
-from typing import Any, Dict, List, Mapping, Optional, Tuple
+from typing import Any, Dict, Mapping, Optional, Tuple
 
 
 _LOGGER = logging.getLogger(__name__)
 
-# MPC operates on a fixed 5-minute virtual step and 12-step horizon.
+
+# MPC operates on fixed 5-minute steps and a 12-step horizon.
 MPC_STEP_SECONDS = 300.0
 MPC_HORIZON_STEPS = 12
 
@@ -35,10 +35,6 @@ class MpcParams:
     mpc_loss_min: float = 0.0
     mpc_loss_max: float = 0.05
     mpc_adapt_alpha: float = 0.1
-    mpc_adapt_window: int = 5
-    mpc_adapt_outlier_sigma: float = 2.5
-    mpc_phase_min_percent: float = 1.0
-    mpc_room_time_constant_s: float = 600.0
     deadzone_threshold_pct: float = 20.0
     deadzone_temp_delta_K: float = 0.1
     deadzone_time_s: float = 300.0
@@ -77,20 +73,12 @@ class _MpcState:
     ema_slope: Optional[float] = None
     gain_est: Optional[float] = None
     loss_est: Optional[float] = None
-    gain_heat_est: Optional[float] = None
-    gain_cool_est: Optional[float] = None
-    loss_heat_est: Optional[float] = None
-    loss_cool_est: Optional[float] = None
     last_temp: Optional[float] = None
     last_time: float = 0.0
     last_trv_temp: Optional[float] = None
     last_trv_temp_ts: float = 0.0
     dead_zone_hits: int = 0
     min_effective_percent: Optional[float] = None
-    gain_heat_samples: List[float] = field(default_factory=list)
-    gain_cool_samples: List[float] = field(default_factory=list)
-    loss_heat_samples: List[float] = field(default_factory=list)
-    loss_cool_samples: List[float] = field(default_factory=list)
 
 
 _MPC_STATES: Dict[str, _MpcState] = {}
@@ -101,10 +89,6 @@ _STATE_EXPORT_FIELDS = (
     "ema_slope",
     "gain_est",
     "loss_est",
-    "gain_heat_est",
-    "gain_cool_est",
-    "loss_heat_est",
-    "loss_cool_est",
     "last_temp",
     "last_trv_temp",
     "min_effective_percent",
@@ -181,76 +165,6 @@ def _seed_state_from_siblings(key: str, state: _MpcState) -> None:
             if other_state.min_effective_percent is not None:
                 state.min_effective_percent = other_state.min_effective_percent
                 return
-
-
-def _filtered_sample_update(
-    samples: List[float], candidate: float, window: int, sigma: float
-) -> float:
-    """Return a smoothed value while discarding extreme outliers."""
-
-    if window <= 0:
-        return candidate
-
-    if len(samples) >= 2:
-        mean = sum(samples) / len(samples)
-        variance = sum((value - mean) ** 2 for value in samples) / len(samples)
-        stddev = math.sqrt(variance) if variance > 0 else 0.0
-        if sigma > 0 and stddev > 0 and abs(candidate - mean) > sigma * stddev:
-            return mean
-
-    samples.append(candidate)
-    if len(samples) > window:
-        del samples[0]
-
-    return sum(samples) / len(samples)
-
-
-def _select_phase_attributes(
-    state: _MpcState, heating_phase: bool
-) -> Tuple[str, str, List[float], List[float]]:
-    if heating_phase:
-        return (
-            "gain_heat_est",
-            "loss_heat_est",
-            state.gain_heat_samples,
-            state.loss_heat_samples,
-        )
-    return (
-        "gain_cool_est",
-        "loss_cool_est",
-        state.gain_cool_samples,
-        state.loss_cool_samples,
-    )
-
-
-def _select_gain_estimate(state: _MpcState, params: MpcParams, heating: bool) -> float:
-    candidates = (
-        state.gain_heat_est if heating else state.gain_cool_est,
-        state.gain_heat_est,
-        state.gain_est,
-        params.mpc_thermal_gain,
-    )
-    for value in candidates:
-        if value is not None:
-            return float(value)
-    return params.mpc_thermal_gain
-
-
-def _select_loss_estimate(state: _MpcState, params: MpcParams, heating: bool) -> float:
-    candidates = (
-        state.loss_heat_est if heating else state.loss_cool_est,
-        state.loss_heat_est,
-        state.loss_est,
-        params.mpc_loss_coeff,
-    )
-    for value in candidates:
-        if value is not None:
-            return float(value)
-    return params.mpc_loss_coeff
-
-
-def _clamp(value: float, lower: float, upper: float) -> float:
-    return max(lower, min(upper, value))
 
 
 def build_mpc_key(bt, entity_id: str) -> str:
@@ -410,15 +324,7 @@ def _compute_predictive_percent(
 
     error_now = delta_t
     dt_last = now - state.last_time if state.last_time > 0 else 0.0
-    step_seconds = MPC_STEP_SECONDS
-    step_minutes = step_seconds / 60.0
-    tau = (
-        params.mpc_room_time_constant_s
-        if params.mpc_room_time_constant_s > 0
-        else step_seconds
-    )
-    response_alpha = 1.0 - math.exp(-step_seconds / tau)
-    heating_now = error_now >= 0.0
+    step_minutes = MPC_STEP_SECONDS / 60.0
 
     if (
         params.mpc_adapt
@@ -427,47 +333,24 @@ def _compute_predictive_percent(
         and inp.target_temp_C is not None
         and dt_last > 0.0
     ):
-        adapt_alpha = params.mpc_adapt_alpha
-        if step_seconds > 0.0:
-            adapt_alpha = min(1.0, params.mpc_adapt_alpha * (dt_last / step_seconds))
         try:
             error_prev = inp.target_temp_C - state.last_temp
             error_now_current = inp.target_temp_C - inp.current_temp_C
             last_percent = state.last_percent if state.last_percent is not None else 0.0
             u_last = max(0.0, min(100.0, last_percent))
-            phase_prev = error_prev >= 0.0
-            gain_attr, loss_attr, gain_samples, loss_samples = _select_phase_attributes(
-                state, phase_prev
-            )
-            current_gain = getattr(state, gain_attr)
-            if current_gain is None:
-                current_gain = params.mpc_thermal_gain
-            current_loss = getattr(state, loss_attr)
-            if current_loss is None:
-                current_loss = params.mpc_loss_coeff
+            if state.gain_est is None:
+                state.gain_est = params.mpc_thermal_gain
+            if state.loss_est is None:
+                state.loss_est = params.mpc_loss_coeff
 
             if error_prev != 0.0:
                 if u_last > 0.0:
                     decay = error_prev - error_now_current
                     if decay > 0.0:
                         gain_candidate = (decay / abs(error_prev)) * (100.0 / u_last)
-                        filtered_gain = _filtered_sample_update(
-                            gain_samples,
-                            gain_candidate,
-                            params.mpc_adapt_window,
-                            params.mpc_adapt_outlier_sigma,
-                        )
-                        new_gain = (
-                            filtered_gain
-                            if current_gain is None
-                            else (1.0 - adapt_alpha) * current_gain
-                            + adapt_alpha * filtered_gain
-                        )
-                        new_gain = _clamp(
-                            new_gain, params.mpc_gain_min, params.mpc_gain_max
-                        )
-                        setattr(state, gain_attr, new_gain)
-                        current_gain = new_gain
+                        state.gain_est = (
+                            1.0 - params.mpc_adapt_alpha
+                        ) * state.gain_est + params.mpc_adapt_alpha * gain_candidate
                     else:
                         # Reduce the assumed thermal gain if recent heating failed to shrink the error
                         decay_ratio = 0.0
@@ -476,43 +359,28 @@ def _compute_predictive_percent(
                         except (TypeError, ValueError, ZeroDivisionError):
                             decay_ratio = 0.0
                         if decay_ratio > 0.0:
-                            shrink = 1.0 - adapt_alpha * decay_ratio
+                            shrink = 1.0 - params.mpc_adapt_alpha * decay_ratio
                             if shrink < 0.0:
                                 shrink = 0.0
-                            new_gain = _clamp(
-                                current_gain * shrink,
-                                params.mpc_gain_min,
-                                params.mpc_gain_max,
-                            )
-                            setattr(state, gain_attr, new_gain)
-                            current_gain = new_gain
+                            state.gain_est *= shrink
 
                 leak_raw = error_now_current - error_prev
                 loss_candidate = max(0.0, leak_raw / abs(error_prev))
-                filtered_loss = _filtered_sample_update(
-                    loss_samples,
-                    loss_candidate,
-                    params.mpc_adapt_window,
-                    params.mpc_adapt_outlier_sigma,
-                )
-                new_loss = (
-                    filtered_loss
-                    if current_loss is None
-                    else (1.0 - adapt_alpha) * current_loss
-                    + adapt_alpha * filtered_loss
-                )
-                new_loss = _clamp(new_loss, params.mpc_loss_min, params.mpc_loss_max)
-                setattr(state, loss_attr, new_loss)
+                state.loss_est = (
+                    1.0 - params.mpc_adapt_alpha
+                ) * state.loss_est + params.mpc_adapt_alpha * loss_candidate
 
+            state.gain_est = max(
+                params.mpc_gain_min, min(params.mpc_gain_max, state.gain_est)
+            )
+            state.loss_est = max(
+                params.mpc_loss_min, min(params.mpc_loss_max, state.loss_est)
+            )
         except (ValueError, TypeError, ZeroDivisionError):
             pass
 
-    gain = _select_gain_estimate(state, params, heating_now)
-    loss = _select_loss_estimate(state, params, heating_now)
-    gain = _clamp(gain, params.mpc_gain_min, params.mpc_gain_max)
-    loss = _clamp(loss, params.mpc_loss_min, params.mpc_loss_max)
-    state.gain_est = gain
-    state.loss_est = loss
+    gain = state.gain_est if state.gain_est is not None else params.mpc_thermal_gain
+    loss = state.loss_est if state.loss_est is not None else params.mpc_loss_coeff
     horizon = MPC_HORIZON_STEPS
     control_pen = max(0.0, float(params.mpc_control_penalty))
     change_pen = max(0.0, float(params.mpc_change_penalty))
@@ -522,13 +390,12 @@ def _compute_predictive_percent(
     best_cost = None
     eval_count = 0
     loss_step = loss * step_minutes
+    gain_step = gain * step_minutes
     for candidate in range(0, 101, 2):
         future_error = error_now
-        valve_state = last_percent if last_percent is not None else 0.0
         cost = 0.0
         for _ in range(horizon):
-            valve_state += (candidate - valve_state) * response_alpha
-            heating_effect = gain * step_minutes * (valve_state / 100.0)
+            heating_effect = gain_step * (candidate / 100.0)
             future_error = future_error * (1.0 + loss_step) - heating_effect
             cost += future_error * future_error
             eval_count += 1
@@ -547,9 +414,7 @@ def _compute_predictive_percent(
         "mpc_loss": _round_for_debug(loss, 4),
         "mpc_horizon": horizon,
         "mpc_eval_count": eval_count,
-        "mpc_phase": "heat" if heating_now else "cool",
         "mpc_step_minutes": _round_for_debug(step_minutes, 3),
-        "mpc_response_alpha": _round_for_debug(response_alpha, 4),
     }
 
     if best_cost is not None:
