@@ -20,8 +20,6 @@ MPC_HORIZON_STEPS = 12
 class MpcParams:
     """Configuration for the predictive controller."""
 
-    band_near_K: float = 0.01
-    band_far_K: float = 0.3
     cap_max_K: float = 0.8
     percent_hysteresis_pts: float = 0.5
     min_update_interval_s: float = 60.0
@@ -456,31 +454,15 @@ def _post_process_percent(
     if target_changed:
         too_soon = False
 
-    force_close = False
-    force_open = False
     if inp.target_temp_C is not None and inp.current_temp_C is not None:
         try:
-            diff = inp.target_temp_C - inp.current_temp_C
-            force_close = diff <= -params.band_far_K
-            force_open = diff >= params.band_far_K
             if delta_t is None:
-                delta_t = diff
+                delta_t = inp.target_temp_C - inp.current_temp_C
         except (TypeError, ValueError):
-            force_close = False
-            force_open = False
-
-    if force_close:
-        smooth = 0.0
-        too_soon = False
+            delta_t = None
 
     min_eff = state.min_effective_percent
-    if (
-        min_eff is not None
-        and min_eff > 0.0
-        and smooth > 0.0
-        and smooth < min_eff
-        and not force_close
-    ):
+    if min_eff is not None and min_eff > 0.0 and smooth > 0.0 and smooth < min_eff:
         smooth = min_eff
         _LOGGER.debug(
             "better_thermostat %s: MPC clamp smooth (%s) to min_effective=%s",
@@ -492,12 +474,7 @@ def _post_process_percent(
     last_percent = state.last_percent
     if last_percent is not None:
         change = abs(smooth - last_percent)
-        if (
-            change < params.percent_hysteresis_pts
-            and not force_close
-            and not target_changed
-            and not force_open
-        ) or (too_soon and not force_open):
+        if (change < params.percent_hysteresis_pts and not target_changed) or too_soon:
             percent_out = int(round(last_percent))
         else:
             percent_out = int(round(smooth))
@@ -541,7 +518,8 @@ def _post_process_percent(
             time_delta = now - state.last_trv_temp_ts
             eval_after = max(params.deadzone_time_s, 1.0)
             if time_delta >= eval_after:
-                needs_heat = delta_t is not None and delta_t > params.band_near_K
+                tol = max(inp.tolerance_K, 0.0)
+                needs_heat = delta_t is not None and delta_t > tol
                 small_command = 0 < percent_out <= params.deadzone_threshold_pct
                 weak_response = (
                     temp_delta is None or temp_delta <= params.deadzone_temp_delta_K
@@ -628,8 +606,6 @@ def _post_process_percent(
         "smooth_percent": _round_for_debug(smooth, 2),
         "too_soon": too_soon,
         "target_changed": target_changed,
-        "force_open": force_open,
-        "force_close": force_close,
         "delta_T": _round_for_debug(delta_t, 3),
         "min_effective_percent": (
             _round_for_debug(state.min_effective_percent, 2)
