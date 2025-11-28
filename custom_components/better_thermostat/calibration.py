@@ -46,7 +46,6 @@ def _build_mpc_params(self, entity_id: str) -> MpcParams:
     adv = (self.real_trvs.get(entity_id, {}) or {}).get("advanced", {}) or {}
     params = MpcParams()
     overrides = {
-        "mpc_step_s": float,
         "mpc_thermal_gain": float,
         "mpc_loss_coeff": float,
         "mpc_control_penalty": float,

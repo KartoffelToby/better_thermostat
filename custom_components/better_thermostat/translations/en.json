@@ -25,7 +25,6 @@
         "description": "Advanced configuration {trv}\n***Info about calibration types: https://better-thermostat.org/configuration#second-step***",
         "data": {
           "balance_mode": "Hydraulic balance mode (Experimental)",
-          "mpc_step_s": "MPC step length (s)",
           "mpc_thermal_gain": "MPC thermal gain",
           "mpc_loss_coeff": "MPC loss coeff",
           "mpc_control_penalty": "MPC control penalty",
@@ -49,7 +48,6 @@
         },
         "data_description": {
           "balance_mode": "Choose how Better Thermostat adapts the valve opening across rooms.\n***None / Off***: No balancing; TRVs run as-is.\n***Heuristic (Experimental)***: Simple rule-based balancing.\n***PID (Experimental)***: Classic feedback controller with auto-tune.\n\nNote: Hydraulic balance is in Beta and may change.",
-          "mpc_step_s": "Virtual step size (simulation granularity). Does not change real update rate.",
           "mpc_thermal_gain": "Estimated temperature error reduction per full valve opening per step.",
           "mpc_loss_coeff": "Fractional error drift (leak). Higher values = room loses heat quicker.",
           "mpc_control_penalty": "Weight penalizing high valve openings (energy saving).",
@@ -112,7 +110,6 @@
         "description": "Advanced configuration {trv}\n***Info about calibration types: https://better-thermostat.org/configuration#second-step***",
         "data": {
           "balance_mode": "Hydraulic balance mode (Experimental)",
-          "mpc_step_s": "MPC step length (s)",
           "mpc_thermal_gain": "MPC thermal gain",
           "mpc_loss_coeff": "MPC loss coeff",
           "mpc_control_penalty": "MPC control penalty",
@@ -136,7 +133,6 @@
         },
         "data_description": {
           "balance_mode": "Choose how Better Thermostat adapts the valve opening across rooms.\n***None / Off***: No balancing; TRVs run as-is.\n***Heuristic (Experimental)***: Simple rule-based balancing.\n***PID (Experimental)***: Classic feedback controller with auto-tune.\n\nNote: Hydraulic balance is in Beta and may change.",
-          "mpc_step_s": "Virtual step size (simulation granularity). Does not change real update rate.",
           "mpc_thermal_gain": "Estimated temperature error reduction per full valve opening per step.",
           "mpc_loss_coeff": "Fractional error drift (leak). Higher values = room loses heat quicker.",
           "mpc_control_penalty": "Weight penalizing high valve openings (energy saving).",

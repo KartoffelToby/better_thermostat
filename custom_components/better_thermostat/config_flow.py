@@ -143,7 +143,6 @@ _ADVANCED_NUMERIC_SPECS: Tuple[Tuple[str, Any, Any], ...] = (
     ("pid_kp", 60.0, vol.All(vol.Coerce(float), vol.Range(min=0))),
     ("pid_ki", 0.01, vol.All(vol.Coerce(float), vol.Range(min=0))),
     ("pid_kd", 2000.0, vol.All(vol.Coerce(float), vol.Range(min=0))),
-    ("mpc_step_s", 60.0, vol.All(vol.Coerce(float), vol.Range(min=10, max=600))),
     (
         "mpc_thermal_gain",
         0.05,
@@ -332,7 +331,6 @@ def _build_advanced_fields(
 
     # 5) MPC block
     for key in (
-        "mpc_step_s",
         "mpc_thermal_gain",
         "mpc_loss_coeff",
         "mpc_control_penalty",

@@ -25,7 +25,6 @@
         "description": "Einstellungen für {trv}\n\n***Infos über die Kalibrierungstypen: https://better-thermostat.org/configuration#second-step*** ",
         "data": {
           "balance_mode": "Hydraulischer Abgleich (Experimental)",
-          "mpc_step_s": "MPC Schrittgröße (s)",
           "mpc_thermal_gain": "MPC thermischer Gain",
           "mpc_loss_coeff": "MPC Verlustkoeffizient",
           "mpc_control_penalty": "MPC Öffnungs-Strafe",
@@ -49,7 +48,6 @@
         },
         "data_description": {
           "balance_mode": "Wähle, wie Better Thermostat die Ventilöffnung zwischen Räumen anpasst.\n***None / Off***: Kein Abgleich; TRVs arbeiten unverändert.\n***Heuristic (Experimental)***: Einfache, regelbasierte Regelung.\n***PID (Experimental)***: Klassischer Rückkopplungsregler mit Auto‑Tuning.\n\nHinweis: Der hydraulische Abgleich ist in der Beta‑Phase und kann sich noch ändern.",
-          "mpc_step_s": "Virtuelle Schrittgröße (Simulationsauflösung). Ändert nicht das reale Update-Intervall.",
           "mpc_thermal_gain": "Geschätzte Fehlerreduktion pro voller Ventilöffnung je Schritt.",
           "mpc_loss_coeff": "Anteil, mit dem sich der Fehler ohne Heizleistung wieder vergrößert (Leak). Höher = schnellerer Wärmeverlust.",
           "mpc_control_penalty": "Gewichtung, die hohe Ventilöffnungen bestraft (Energie sparen).",
@@ -112,7 +110,6 @@
         "description": "Aktualisiere die Einstellungen für {trv}\n\n***Infos über die Kalibrierungstypen: https://better-thermostat.org/configuration#second-step*** ",
         "data": {
           "balance_mode": "Hydraulischer Abgleich (Experimental)",
-          "mpc_step_s": "MPC Schrittgröße (s)",
           "mpc_thermal_gain": "MPC thermischer Gain",
           "mpc_loss_coeff": "MPC Verlustkoeffizient",
           "mpc_control_penalty": "MPC Öffnungs-Strafe",
@@ -136,7 +133,6 @@
         },
         "data_description": {
           "balance_mode": "Wähle, wie Better Thermostat die Ventilöffnung zwischen Räumen anpasst.\n***None / Off***: Kein Abgleich; TRVs arbeiten unverändert.\n***Heuristic (Experimental)***: Einfache, regelbasierte Regelung.\n***PID (Experimental)***: Klassischer Rückkopplungsregler mit Auto‑Tuning.\n\nHinweis: Der hydraulische Abgleich ist in der Beta‑Phase und kann sich noch ändern.",
-          "mpc_step_s": "Virtuelle Schrittgröße (Simulationsauflösung). Ändert nicht das reale Update-Intervall.",
           "mpc_thermal_gain": "Geschätzte Fehlerreduktion pro voller Ventilöffnung je Schritt.",
           "mpc_loss_coeff": "Anteil, mit dem sich der Fehler ohne Heizleistung wieder vergrößert (Leak). Höher = schnellerer Wärmeverlust.",
           "mpc_control_penalty": "Gewichtung, die hohe Ventilöffnungen bestraft (Energie sparen).",

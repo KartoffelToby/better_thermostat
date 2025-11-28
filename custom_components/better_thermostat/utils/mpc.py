@@ -11,6 +11,10 @@ from typing import Any, Dict, List, Mapping, Optional, Tuple
 
 _LOGGER = logging.getLogger(__name__)
 
+# MPC operates on a fixed 5-minute virtual step and 12-step horizon.
+MPC_STEP_SECONDS = 300.0
+MPC_HORIZON_STEPS = 12
+
 
 @dataclass
 class MpcParams:
@@ -21,12 +25,10 @@ class MpcParams:
     cap_max_K: float = 0.8
     percent_hysteresis_pts: float = 0.5
     min_update_interval_s: float = 60.0
-    mpc_step_s: float = 300.0
-    mpc_horizon_steps: int = 12
-    mpc_thermal_gain: float = 0.1
-    mpc_loss_coeff: float = 0.01
-    mpc_control_penalty: float = 0.0003
-    mpc_change_penalty: float = 0.005
+    mpc_thermal_gain: float = 0.08
+    mpc_loss_coeff: float = 0.015
+    mpc_control_penalty: float = 0.0002
+    mpc_change_penalty: float = 0.003
     mpc_adapt: bool = True
     mpc_gain_min: float = 0.005
     mpc_gain_max: float = 0.5
@@ -149,7 +151,7 @@ def import_mpc_state_map(state_map: Mapping[str, Mapping[str, Any]]) -> None:
                 continue
             try:
                 if attr == "dead_zone_hits":
-                    coerced: Any = int(value)
+                    coerced = int(value)
                 else:
                     coerced = float(value)
             except (TypeError, ValueError):
@@ -408,7 +410,7 @@ def _compute_predictive_percent(
 
     error_now = delta_t
     dt_last = now - state.last_time if state.last_time > 0 else 0.0
-    step_seconds = max(float(params.mpc_step_s), 1.0)
+    step_seconds = MPC_STEP_SECONDS
     step_minutes = step_seconds / 60.0
     tau = (
         params.mpc_room_time_constant_s
@@ -511,7 +513,7 @@ def _compute_predictive_percent(
     loss = _clamp(loss, params.mpc_loss_min, params.mpc_loss_max)
     state.gain_est = gain
     state.loss_est = loss
-    horizon = max(1, int(params.mpc_horizon_steps))
+    horizon = MPC_HORIZON_STEPS
     control_pen = max(0.0, float(params.mpc_control_penalty))
     change_pen = max(0.0, float(params.mpc_change_penalty))
     last_percent = state.last_percent if state.last_percent is not None else None
