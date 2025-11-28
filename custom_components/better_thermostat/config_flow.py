@@ -910,8 +910,11 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
         self.device_name = ""
         self._last_step = False
         self.updated_config = {}
-        self.config_entry = config_entry
         self._active_trv_config = None
+        # Do not set `self.config_entry` directly; store in a private attribute
+        # to avoid deprecated behavior. The framework will set `config_entry` on
+        # the options flow object as needed.
+        self._config_entry = config_entry
         super().__init__()
 
     async def async_step_init(self, _user_input=None):
@@ -974,7 +977,7 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
                 self.updated_config.get(CONF_HEATER),
             )
             self.hass.config_entries.async_update_entry(
-                self.config_entry, data=self.updated_config
+                self._config_entry, data=self.updated_config
             )
             self._active_trv_config = None
             return self.async_create_entry(
@@ -1008,7 +1011,7 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
             _LOGGER.debug("OptionsFlow user step received input: %s", user_input)
             try:
                 normalized = _normalize_user_submission(
-                    user_input, mode="update", base=self.config_entry.data
+                    user_input, mode="update", base=self._config_entry.data
                 )
             except Exception as err:  # noqa: BLE001
                 _LOGGER.exception("OptionsFlow user step normalization failed: %s", err)
@@ -1027,7 +1030,7 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
             )
 
         fields = _build_user_fields(
-            mode="update", current=self.config_entry.data, user_input=user_input
+            mode="update", current=self._config_entry.data, user_input=user_input
         )
 
         return self.async_show_form(
