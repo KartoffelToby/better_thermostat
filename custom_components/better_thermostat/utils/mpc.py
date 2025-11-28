@@ -22,6 +22,7 @@ class MpcParams:
     percent_hysteresis_pts: float = 0.5
     min_update_interval_s: float = 60.0
     mpc_step_s: float = 300.0
+    mpc_horizon_steps: int = 12
     mpc_thermal_gain: float = 0.1
     mpc_loss_coeff: float = 0.01
     mpc_control_penalty: float = 0.0003
@@ -35,10 +36,6 @@ class MpcParams:
     mpc_adapt_window: int = 5
     mpc_adapt_outlier_sigma: float = 2.5
     mpc_phase_min_percent: float = 1.0
-    mpc_horizon_min_steps: int = 6
-    mpc_horizon_max_steps: int = 36
-    mpc_small_error_threshold_K: float = 0.15
-    mpc_large_error_threshold_K: float = 1.0
     mpc_room_time_constant_s: float = 600.0
     deadzone_threshold_pct: float = 20.0
     deadzone_temp_delta_K: float = 0.1
@@ -248,22 +245,6 @@ def _select_loss_estimate(state: _MpcState, params: MpcParams, heating: bool) ->
         if value is not None:
             return float(value)
     return params.mpc_loss_coeff
-
-
-def _resolve_horizon(params: MpcParams, error_mag: float) -> int:
-    min_h = max(1, int(params.mpc_horizon_min_steps or 1))
-    max_h = max(min_h, int(params.mpc_horizon_max_steps or min_h))
-    low = max(0.0, float(params.mpc_small_error_threshold_K))
-    high = max(low + 1e-6, float(params.mpc_large_error_threshold_K))
-
-    if error_mag <= low:
-        return min_h
-    if error_mag >= high:
-        return max_h
-
-    ratio = (error_mag - low) / (high - low)
-    horizon = min_h + ratio * (max_h - min_h)
-    return max(1, int(round(horizon)))
 
 
 def _clamp(value: float, lower: float, upper: float) -> float:
@@ -530,7 +511,7 @@ def _compute_predictive_percent(
     loss = _clamp(loss, params.mpc_loss_min, params.mpc_loss_max)
     state.gain_est = gain
     state.loss_est = loss
-    horizon = _resolve_horizon(params, abs(error_now))
+    horizon = max(1, int(params.mpc_horizon_steps))
     control_pen = max(0.0, float(params.mpc_control_penalty))
     change_pen = max(0.0, float(params.mpc_change_penalty))
     last_percent = state.last_percent if state.last_percent is not None else None
