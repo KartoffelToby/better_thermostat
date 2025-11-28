@@ -5,15 +5,61 @@ import logging
 import math
 from datetime import datetime
 from enum import Enum
+from typing import Any
 from homeassistant.helpers import device_registry as dr, entity_registry as er
 from homeassistant.helpers.entity_registry import async_entries_for_config_entry
 
 from homeassistant.components.climate.const import HVACMode
 
-from custom_components.better_thermostat.utils.const import CONF_HEAT_AUTO_SWAPPED
+from custom_components.better_thermostat.utils.const import (
+    CONF_HEAT_AUTO_SWAPPED,
+    CalibrationMode,
+)
 
 
 _LOGGER = logging.getLogger(__name__)
+
+
+def normalize_calibration_mode(mode: Any) -> CalibrationMode | str | None:
+    """Normalize a calibration_mode field from TRV advanced data."""
+
+    if isinstance(mode, CalibrationMode):
+        return mode
+    if isinstance(mode, str):
+        value = mode.strip().lower()
+        try:
+            return CalibrationMode(value)
+        except ValueError:
+            return value
+    return None
+
+
+def is_calibration_mode(mode: Any, expected: CalibrationMode) -> bool:
+    """Return True if ``mode`` is the expected CalibrationMode."""
+
+    normalized = normalize_calibration_mode(mode)
+    if isinstance(normalized, CalibrationMode):
+        return normalized == expected
+    if isinstance(normalized, str):
+        return normalized == expected.value
+    return False
+
+
+def entity_uses_calibration_mode(bt, entity_id: str, expected: CalibrationMode) -> bool:
+    """Check if the given TRV has ``expected`` calibration mode configured."""
+
+    try:
+        advanced = (bt.real_trvs.get(entity_id, {}) or {}).get("advanced", {}) or {}
+    except AttributeError:
+        return False
+    mode = advanced.get("calibration_mode")
+    return is_calibration_mode(mode, expected)
+
+
+def entity_uses_mpc_calibration(bt, entity_id: str) -> bool:
+    """Helper shortcut for MPC calibration detection."""
+
+    return entity_uses_calibration_mode(bt, entity_id, CalibrationMode.MPC_CALIBRATION)
 
 
 def get_hvac_bt_mode(self, mode: str) -> str:
