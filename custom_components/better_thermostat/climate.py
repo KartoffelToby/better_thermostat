@@ -11,7 +11,7 @@ from statistics import mean
 # preferred for HA time handling (UTC aware)
 from homeassistant.util import dt as dt_util
 from collections import deque
-from typing import Any
+from typing import Any, Dict, Optional
 
 import voluptuous as vol
 import homeassistant.helpers.config_validation as cv
@@ -101,6 +101,7 @@ from .utils.const import (
     CONF_WEATHER,
     CONF_WINDOW_TIMEOUT,
     CONF_WINDOW_TIMEOUT_AFTER,
+    CalibrationMode,
     SERVICE_RESET_HEATING_POWER,
     SERVICE_RESET_PID_LEARNINGS,
     SERVICE_RESTORE_SAVED_TARGET_TEMPERATURE,
@@ -119,7 +120,9 @@ from .balance import (
     export_states as balance_export_states,
     import_states as balance_import_states,
     reset_balance_state as balance_reset_state,
+    build_balance_key,
 )
+from .utils.mpc import export_mpc_state_map, import_mpc_state_map
 
 
 _LOGGER = logging.getLogger(__name__)
@@ -485,6 +488,8 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
         self.context = None
         self.attr_hvac_action = None
         self.old_attr_hvac_action = None
+        self._tolerance_last_action = HVACAction.IDLE
+        self._tolerance_hold_active = False
         self.heating_start_temp = None
         self.heating_start_timestamp = None
         self.heating_end_temp = None
@@ -516,6 +521,9 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
         self.open_caps = {}
         self._open_caps_store = None
         self._open_caps_save_scheduled = False
+        # MPC adaptive state persistence
+        self._mpc_store = None
+        self._mpc_save_scheduled = False
 
     async def async_added_to_hass(self):
         """Run when entity about to be added.
@@ -628,6 +636,11 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
 
         def on_remove():
             self.is_removed = True
+            if self._mpc_store is not None:
+                try:
+                    self.hass.async_create_task(self._save_mpc_states())
+                except Exception:  # noqa: BLE001
+                    pass
 
         self.async_on_remove(on_remove)
 
@@ -655,6 +668,17 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
         except Exception as e:
             _LOGGER.debug(
                 "better_thermostat %s: open caps storage init/load failed: %s",
+                self.device_name,
+                e,
+            )
+
+        # Initialize persistent storage for MPC adaptive state
+        try:
+            self._mpc_store = Store(self.hass, 1, f"{DOMAIN}_mpc_states")
+            await self._load_mpc_states()
+        except Exception as e:  # noqa: BLE001
+            _LOGGER.debug(
+                "better_thermostat %s: MPC storage init/load failed: %s",
                 self.device_name,
                 e,
             )
@@ -1377,29 +1401,47 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
             )
 
             # Periodischer 5-Minuten-Tick: nur aktivieren, wenn Balance konfiguriert ist
+            balance_modes = {"heuristic", "pid"}
+            active_balance_modes = set()
+            active_calibration_modes = set()
             try:
-                any_balance = any(
-                    str(
-                        (trv_info.get("advanced", {}) or {}).get("balance_mode", "")
-                    ).lower()
-                    in ("heuristic", "pid")
-                    for trv_info in self.real_trvs.values()
-                )
-            except Exception:
-                any_balance = False
+                for trv_info in self.real_trvs.values():
+                    advanced = trv_info.get("advanced", {}) or {}
 
-            if any_balance:
+                    raw_balance = advanced.get("balance_mode", "")
+                    balance_value = getattr(raw_balance, "value", raw_balance)
+                    if isinstance(balance_value, str):
+                        balance_mode = balance_value.lower()
+                        if balance_mode in balance_modes:
+                            active_balance_modes.add(balance_mode)
+
+                    raw_calibration = advanced.get("calibration_mode", "")
+                    calibration_value = getattr(
+                        raw_calibration, "value", raw_calibration
+                    )
+                    if isinstance(calibration_value, str):
+                        calibration_mode = calibration_value.lower()
+                        if calibration_mode == CalibrationMode.MPC_CALIBRATION.value:
+                            active_calibration_modes.add(calibration_mode)
+            except Exception:  # noqa: BLE001
+                active_balance_modes = set()
+                active_calibration_modes = set()
+
+            if active_balance_modes or active_calibration_modes:
                 self.async_on_remove(
                     async_track_time_interval(
                         self.hass, self._trigger_time, timedelta(minutes=5)
                     )
                 )
                 _LOGGER.debug(
-                    "better_thermostat %s: 5min balance tick enabled", self.device_name
+                    "better_thermostat %s: 5min periodic tick enabled (balance_modes=%s calibration_modes=%s)",
+                    self.device_name,
+                    sorted(active_balance_modes),
+                    sorted(active_calibration_modes),
                 )
             else:
                 _LOGGER.debug(
-                    "better_thermostat %s: 5min balance tick skipped (balance_mode not enabled)",
+                    "better_thermostat %s: 5min periodic tick skipped (no supported balance/calibration mode)",
                     self.device_name,
                 )
 
@@ -1810,6 +1852,64 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
                 await self._save_open_caps()
             finally:
                 self._open_caps_save_scheduled = False
+
+        self.hass.async_create_task(_delayed_save())
+
+    async def _load_mpc_states(self) -> None:
+        """Load persisted MPC adaptive controller states for this entity."""
+
+        if self._mpc_store is None:
+            return
+        data = await self._mpc_store.async_load()
+        if not isinstance(data, dict):
+            return
+        prefix = f"{self._unique_id}:"
+        scoped: Dict[str, Dict[str, Any]] = {}
+        for key, payload in data.items():
+            if not isinstance(key, str) or not key.startswith(prefix):
+                continue
+            if isinstance(payload, dict):
+                scoped[key] = payload
+        if scoped:
+            import_mpc_state_map(scoped)
+
+    async def _save_mpc_states(self) -> None:
+        """Persist MPC adaptive controller states for this entity."""
+
+        if self._mpc_store is None:
+            return
+        try:
+            existing = await self._mpc_store.async_load()
+            if not isinstance(existing, dict):
+                existing = {}
+            prefix = f"{self._unique_id}:"
+            for key in list(existing.keys()):
+                if isinstance(key, str) and key.startswith(prefix):
+                    del existing[key]
+            exported = export_mpc_state_map(prefix)
+            if exported:
+                existing.update(exported)
+            await self._mpc_store.async_save(existing)
+        except Exception as e:  # noqa: BLE001
+            _LOGGER.debug(
+                "better_thermostat %s: saving MPC states failed: %s",
+                self.device_name,
+                e,
+            )
+
+    def _schedule_save_mpc_states(self, delay_s: float = 15.0) -> None:
+        """Debounced scheduling for persisting MPC adaptive states."""
+
+        if self._mpc_store is None or self._mpc_save_scheduled:
+            return
+        self._mpc_save_scheduled = True
+
+        async def _delayed_save():
+            try:
+                await asyncio.sleep(delay_s)
+                await self._save_mpc_states()
+            finally:
+                self._mpc_save_scheduled = False
 
         self.hass.async_create_task(_delayed_save())
 
@@ -2447,35 +2547,185 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
         """Return the current HVAC action (delegates to helper)."""
         return self._compute_hvac_action()
 
+    def _should_heat_with_tolerance(
+        self, previous_action: HVACAction | None, tol: float
+    ) -> bool:
+        """Apply hysteresis so heating restarts only below target - tolerance."""
+        if self.bt_target_temp is None or self.cur_temp is None:
+            return False
+        tol = max(0.0, tol)
+        heat_off_threshold = self.bt_target_temp
+        heat_on_threshold = self.bt_target_temp - tol
+        if previous_action == HVACAction.HEATING:
+            return self.cur_temp < heat_off_threshold
+        return self.cur_temp < heat_on_threshold
+
     def _compute_hvac_action(self):  # helper kept internal for clarity
-        """Pure HVAC action computation without side effects.
+        """Pure HVAC action computation with tolerance based hysteresis.
 
         Rules:
         - OFF mode returns OFF regardless of temperatures
         - Open window suppresses active heating/cooling (returns IDLE)
-        - Heating if cur_temp < target - tolerance (strictly below)
+        - Heating uses a hysteresis band [target - tolerance, target]
         - Cooling if mode heat_cool and cur_temp > cool_target + tolerance
-        - Otherwise IDLE
+        - Otherwise IDLE, unless TRVs explicitly report heating and tolerance does not block it
         """
+        prev_action = getattr(self, "_tolerance_last_action", HVACAction.IDLE)
+        tol = self.tolerance if self.tolerance is not None else 0.0
+
         if self.bt_target_temp is None or self.cur_temp is None:
+            self._tolerance_hold_active = False
+            self._tolerance_last_action = HVACAction.IDLE
             return HVACAction.IDLE
         if self.hvac_mode == HVACMode.OFF or self.bt_hvac_mode == HVACMode.OFF:
+            self._tolerance_hold_active = False
+            self._tolerance_last_action = HVACAction.IDLE
             return HVACAction.OFF
         if self.window_open:
+            self._tolerance_hold_active = False
+            self._tolerance_last_action = HVACAction.IDLE
             return HVACAction.IDLE
-        tol = self.tolerance if self.tolerance is not None else 0.0
-        # Heating decision
-        # Use strict '<' so we do NOT heat when exactly at setpoint (especially when tol=0)
-        if self.cur_temp < (self.bt_target_temp - tol):
-            return HVACAction.HEATING
+
+        heating_allowed = self.hvac_mode in (HVACMode.HEAT, HVACMode.HEAT_COOL)
+        action = HVACAction.IDLE
+        tolerance_hold = False
+
+        if heating_allowed:
+            should_heat = self._should_heat_with_tolerance(prev_action, tol)
+            if should_heat:
+                action = HVACAction.HEATING
+            else:
+                tolerance_hold = True
+
         # Cooling decision (if heat_cool mode and cooling setpoint exists)
         if (
             self.hvac_mode in (HVACMode.HEAT_COOL,)
             and self.bt_target_cooltemp is not None
             and self.cur_temp > (self.bt_target_cooltemp + tol)
         ):
-            return HVACAction.COOLING
-        return HVACAction.IDLE
+            action = HVACAction.COOLING
+            tolerance_hold = False
+
+        # Base decision would be IDLE. If any real TRV indicates active heating, override to HEATING.
+        if action == HVACAction.IDLE and not tolerance_hold:
+            try:
+                # Skip overrides while we intentionally ignore TRV states or when window is open
+                if getattr(self, "ignore_states", False) or getattr(
+                    self, "window_open", False
+                ):
+                    self._tolerance_last_action = HVACAction.IDLE
+                    self._tolerance_hold_active = tolerance_hold
+                    return HVACAction.IDLE
+                # Threshold for valve opening to be considered "heating": 5%
+
+                def _to_pct(val):
+                    try:
+                        v = float(val)
+                        return v * 100.0 if v <= 1.0 else v
+                    except Exception:
+                        return None
+
+                THRESH = 5.0
+                for trv_id, info in (self.real_trvs or {}).items():
+                    if not isinstance(info, dict):
+                        continue
+                    if info.get("ignore_trv_states"):
+                        continue
+
+                    # 0) Use cached hvac_action first; fallback to hass state if missing
+                    try:
+                        action_val = info.get("hvac_action")
+                        action_str = (
+                            str(action_val).lower() if action_val is not None else ""
+                        )
+                        if not action_str:
+                            trv_state = self.hass.states.get(trv_id)
+                            action_raw = None
+                            if trv_state is not None:
+                                action_raw = trv_state.attributes.get("hvac_action")
+                                if action_raw is None:
+                                    action_raw = trv_state.attributes.get("action")
+                            action_str = (
+                                str(action_raw).lower()
+                                if action_raw is not None
+                                else ""
+                            )
+                            if action_str:
+                                try:
+                                    info["hvac_action"] = action_str
+                                except Exception:
+                                    pass
+                        if action_str == "heating" or action_val == HVACAction.HEATING:
+                            _LOGGER.debug(
+                                "better_thermostat %s: overriding hvac_action to HEATING (TRV %s reports heating)",
+                                self.device_name,
+                                trv_id,
+                            )
+                            action = HVACAction.HEATING
+                            break
+                    except Exception:
+                        pass
+
+                    # 2) TRV shows an actual/open valve position > 0
+                    vp = info.get("valve_position")
+                    try:
+                        vp_pct = _to_pct(vp)
+                        if vp_pct is not None and vp_pct > THRESH:
+                            _LOGGER.debug(
+                                "better_thermostat %s: overriding hvac_action to HEATING (valve_position %.1f%%, TRV %s)",
+                                self.device_name,
+                                vp_pct,
+                                trv_id,
+                            )
+                            action = HVACAction.HEATING
+                            break
+                    except Exception:
+                        pass
+
+                    # 3) We last commanded a valve percent > 0 (adapter/override)
+                    last_pct = info.get("last_valve_percent")
+                    try:
+                        last_pct_n = _to_pct(last_pct)
+                        if last_pct_n is not None and last_pct_n > THRESH:
+                            _LOGGER.debug(
+                                "better_thermostat %s: overriding hvac_action to HEATING (last_valve_percent %.1f%%, TRV %s)",
+                                self.device_name,
+                                last_pct_n,
+                                trv_id,
+                            )
+                            action = HVACAction.HEATING
+                            break
+                    except Exception:
+                        pass
+
+                    # 4) Balance module currently targets a valve percent > 0 (proxy for heating intent)
+                    bal = info.get("balance") or {}
+                    v_bal = bal.get("valve_percent") if isinstance(bal, dict) else None
+                    try:
+                        v_bal_n = _to_pct(v_bal)
+                        if v_bal_n is not None and v_bal_n > THRESH:
+                            _LOGGER.debug(
+                                "better_thermostat %s: overriding hvac_action to HEATING (balance.valve_percent %.1f%%, TRV %s)",
+                                self.device_name,
+                                v_bal_n,
+                                trv_id,
+                            )
+                            action = HVACAction.HEATING
+                            break
+                    except Exception:
+                        pass
+            except Exception:
+                # Defensive: if anything goes wrong in overrides, fall back to IDLE
+                pass
+
+        # Persist tolerance state machine for next decision
+        self._tolerance_last_action = (
+            HVACAction.HEATING if action == HVACAction.HEATING else HVACAction.IDLE
+        )
+        self._tolerance_hold_active = bool(
+            tolerance_hold and action != HVACAction.COOLING
+        )
+        return action
 
     @property
     def target_temperature(self) -> float | None:
@@ -2533,11 +2783,57 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
         await self.control_queue_task.put(self)
 
     async def async_set_temperature(self, **kwargs) -> None:
-        """Set new target temperature."""
         if self.bt_hvac_mode == HVACMode.OFF:
             return
-        self.bt_update_lock = True
-        try:
+        _LOGGER.debug(
+            "better_thermostat %s: async_set_temperature kwargs=%s, current preset=%s, hvac_mode=%s",
+            self.device_name,
+            kwargs,
+            getattr(self, "_preset_mode", None),
+            getattr(self, "bt_hvac_mode", None),
+        )
+
+        _new_setpoint = None
+        _new_setpointlow = None
+        _new_setpointhigh = None
+
+        if ATTR_HVAC_MODE in kwargs:
+            hvac_mode_val = kwargs.get(ATTR_HVAC_MODE, None)
+            hvac_mode_norm = (
+                normalize_hvac_mode(hvac_mode_val)
+                if hvac_mode_val is not None
+                else None
+            )
+            if hvac_mode_norm in (HVACMode.HEAT, HVACMode.HEAT_COOL, HVACMode.OFF):
+                self.bt_hvac_mode = hvac_mode_norm
+            else:
+                _LOGGER.error(
+                    "better_thermostat %s: Unsupported hvac_mode %s",
+                    self.device_name,
+                    hvac_mode_norm,
+                )
+        if ATTR_TEMPERATURE in kwargs:
+            _new_setpoint = convert_to_float(
+                str(kwargs.get(ATTR_TEMPERATURE, None)),
+                self.device_name,
+                "controlling.settarget_temperature()",
+            )
+
+        if ATTR_TARGET_TEMP_LOW in kwargs:
+            _new_setpointlow = convert_to_float(
+                str(kwargs.get(ATTR_TARGET_TEMP_LOW, None)),
+                self.device_name,
+                "controlling.settarget_temperature_low()",
+            )
+
+        if ATTR_TARGET_TEMP_HIGH in kwargs:
+            _new_setpointhigh = convert_to_float(
+                str(kwargs.get(ATTR_TARGET_TEMP_HIGH, None)),
+                self.device_name,
+                "controlling.settarget_temperature_high()",
+            )
+
+        if _new_setpoint is None and _new_setpointlow is None:
             _LOGGER.debug(
                 "better_thermostat %s: async_set_temperature kwargs=%s, current preset=%s, hvac_mode=%s",
                 self.device_name,
@@ -2550,21 +2846,50 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
             _new_setpointlow = None
             _new_setpointhigh = None
 
-            if ATTR_HVAC_MODE in kwargs:
-                hvac_mode_val = kwargs.get(ATTR_HVAC_MODE, None)
-                hvac_mode_norm = (
-                    normalize_hvac_mode(hvac_mode_val)
-                    if hvac_mode_val is not None
-                    else None
-                )
-                if hvac_mode_norm in (HVACMode.HEAT, HVACMode.HEAT_COOL, HVACMode.OFF):
-                    self.bt_hvac_mode = hvac_mode_norm
-                else:
-                    _LOGGER.error(
-                        "better_thermostat %s: Unsupported hvac_mode %s",
+        if _new_setpointhigh is not None:
+            self.bt_target_cooltemp = _new_setpointhigh
+
+        # Enforce ordering: cool target should be above heat target (if both in heat_cool mode)
+        if (
+            self.hvac_mode in (HVACMode.HEAT_COOL,)
+            and self.bt_target_cooltemp is not None
+            and self.bt_target_temp is not None
+            and self.bt_target_cooltemp <= self.bt_target_temp
+        ):
+            step = self.bt_target_temp_step or 0.5
+            adjusted = self.bt_target_temp + step
+            _LOGGER.warning(
+                "better_thermostat %s: cooling target %.2f adjusted to %.2f to stay above heating target %.2f",
+                self.device_name,
+                self.bt_target_cooltemp,
+                adjusted,
+                self.bt_target_temp,
+            )
+            self.bt_target_cooltemp = adjusted
+
+        # If user manually changes the temperature while a preset is active,
+        # update the stored preset temperature so that returning to the preset
+        # later reuses the newly chosen value instead of the originally
+        # configured one. This applies to ALL presets including PRESET_NONE.
+        # Note: We still avoid persisting to config entry options here to
+        # prevent frequent integration reloads; persistence can be handled
+        # via state restore or an explicit save action.
+        if self._preset_mode in self._preset_temperatures and (
+            _new_setpoint is not None or _new_setpointlow is not None
+        ):
+            if self.bt_target_temp is not None:
+                applied = float(self.bt_target_temp)
+                old_value = self._preset_temperatures.get(self._preset_mode)
+                if old_value != applied:
+                    self._preset_temperatures[self._preset_mode] = applied
+                    _LOGGER.debug(
+                        "better_thermostat %s: Updated stored preset temperature for %s from %s to %s due to manual change",
                         self.device_name,
-                        hvac_mode_norm,
+                        self._preset_mode,
+                        old_value,
+                        applied,
                     )
+
             if ATTR_TEMPERATURE in kwargs:
                 _new_setpoint = convert_to_float(
                     str(kwargs.get(ATTR_TEMPERATURE, None)),
@@ -2689,8 +3014,6 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
 
             self.async_write_ha_state()
             await self.control_queue_task.put(self)
-        finally:
-            self.bt_update_lock = False
 
     def _async_persist_preset_temperatures(self) -> None:
         """Persist current preset temperature mapping to the config entry options.

@@ -7,7 +7,7 @@ convert thermostat states and prepare outbound payloads.
 
 from datetime import datetime
 import logging
-from typing import Any, cast
+from typing import Any, Dict, cast
 from custom_components.better_thermostat.utils.const import CONF_HOMEMATICIP
 
 from homeassistant.components.climate.const import HVACMode
@@ -23,6 +23,7 @@ from custom_components.better_thermostat.balance import (
     BalanceParams,
     get_balance_state,
     seed_pid_gains,
+    build_balance_key,
 )
 from custom_components.better_thermostat.utils.helpers import get_device_model
 from custom_components.better_thermostat.model_fixes.model_quirks import (
@@ -182,6 +183,27 @@ async def trigger_trv_change(self, event):
         )
         return
 
+    # hvac_action bedingungslos in den Cache schreiben (immer aktuell halten)
+    try:
+        hvac_action_attr = _org_trv_state.attributes.get("hvac_action")
+        if hvac_action_attr is None:
+            hvac_action_attr = _org_trv_state.attributes.get("action")
+        if hvac_action_attr is not None:
+            val = str(hvac_action_attr).strip().lower()
+            prev = self.real_trvs[entity_id].get("hvac_action")
+            self.real_trvs[entity_id]["hvac_action"] = val
+            if prev != val:
+                _main_change = True
+                _LOGGER.debug(
+                    "better_thermostat %s: TRV %s hvac_action changed: %s -> %s",
+                    self.device_name,
+                    entity_id,
+                    prev,
+                    val,
+                )
+    except Exception:
+        pass
+
     if mapped_state in (HVACMode.OFF, HVACMode.HEAT, HVACMode.HEAT_COOL):
         if (
             self.real_trvs[entity_id]["hvac_mode"] != _org_trv_state.state
@@ -204,6 +226,8 @@ async def trigger_trv_change(self, event):
                 and self.real_trvs[entity_id]["last_hvac_mode"] != _org_trv_state.state
             ):
                 self.bt_hvac_mode = mapped_state
+
+    # Hinweis: Kein Caching von hvac_action mehr – BT liest direkt vom TRV-State in climate.py
 
     _main_key = "temperature"
     if "temperature" not in old_state.attributes:
@@ -295,6 +319,7 @@ async def trigger_trv_change(self, event):
     if _main_change is True:
         self.async_write_ha_state()
         return await self.control_queue_task.put(self)
+
     self.async_write_ha_state()
     return
 
@@ -341,6 +366,38 @@ def _apply_hydraulic_balance(
     Returns the (unchanged) current_setpoint.
     """
     try:
+        adv = (self.real_trvs.get(entity_id, {}) or {}).get("advanced", {}) or {}
+        raw_mode = adv.get("balance_mode")
+        if hasattr(raw_mode, "value"):
+            raw_mode = raw_mode.value
+        if raw_mode is None:
+            normalized_mode = None
+        else:
+            try:
+                normalized_mode = str(raw_mode).lower()
+            except Exception:  # noqa: BLE001
+                normalized_mode = "heuristic"
+
+        if normalized_mode in (None, "none", "off", ""):
+            _LOGGER.debug(
+                "better_thermostat %s: balance disabled for %s (mode=%s)",
+                self.device_name,
+                entity_id,
+                normalized_mode,
+            )
+            return current_setpoint
+
+        if normalized_mode not in {"heuristic", "pid"}:
+            _LOGGER.debug(
+                "better_thermostat %s: unsupported balance_mode '%s' for %s, falling back to heuristic",
+                self.device_name,
+                normalized_mode,
+                entity_id,
+            )
+            normalized_mode = "heuristic"
+
+        mode = normalized_mode
+
         min_t = self.real_trvs[entity_id].get("min_temp") or self.bt_min_temp
         max_t = self.real_trvs[entity_id].get("max_temp") or self.bt_max_temp
         cond_has_cur = self.cur_temp is not None
@@ -407,21 +464,6 @@ def _apply_hydraulic_balance(
             return current_setpoint
 
         # Build balance parameters (optionally from per-TRV advanced settings)
-        adv = self.real_trvs.get(entity_id, {}).get("advanced", {}) or {}
-        try:
-            mode = str(adv.get("balance_mode", "heuristic")).lower()
-        except Exception:
-            mode = "heuristic"
-
-        # Explizit deaktiviert? Dann Balance überspringen und current_setpoint zurückgeben
-        if mode in ("none", "off", ""):
-            _LOGGER.debug(
-                "better_thermostat %s: balance explicitly disabled for %s (mode=%s)",
-                self.device_name,
-                entity_id,
-                mode,
-            )
-            return current_setpoint
         try:
             kp = float(adv.get("pid_kp", 60.0))
         except Exception:
@@ -458,19 +500,8 @@ def _apply_hydraulic_balance(
             min_update_interval_s=min_interval,
         )
 
-        # Build balance state key and include target bucket (0.5°C rounded) so PID gains learn per bucket
-        try:
-            tcur = self.bt_target_temp
-            bucket_tag = (
-                f"t{round(float(tcur) * 2.0) / 2.0:.1f}"
-                if isinstance(tcur, (int, float))
-                else "tunknown"
-            )
-        except Exception:
-            bucket_tag = "tunknown"
-        # Use public unique_id property if available
-        uid = getattr(self, "unique_id", None) or getattr(self, "_unique_id", "bt")
-        balance_key = f"{uid}:{entity_id}:{bucket_tag}"
+        # Build balance state key using central builder function
+        balance_key = build_balance_key(self, entity_id)
 
         bal = compute_balance(
             BalanceInput(
@@ -500,6 +531,10 @@ def _apply_hydraulic_balance(
                     or st_cur.pid_kd is None
                 )
                 if missing and isinstance(self.bt_target_temp, (int, float)):
+                    # Extract uid from balance_key for neighbor keys
+                    uid = getattr(self, "unique_id", None) or getattr(
+                        self, "_unique_id", "bt"
+                    )
                     base = round(float(self.bt_target_temp) * 2.0) / 2.0
                     neighbors = [
                         f"{uid}:{entity_id}:t{base + 0.5:.1f}",

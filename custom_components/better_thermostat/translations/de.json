@@ -17,13 +17,19 @@
           "window_off_delay_after": "Wartezeit, bevor das Thermostat bei geschlossenem Fenster angeschaltet wird.",
           "outdoor_sensor": "Wenn ein Außentemperatursensor vorhanden ist, kann dieser anstelle der Wetter-Entität genutzt werden.",
           "weather": "Die Wetter-Entität für die Außentemperatur.",
-          "eco_temperature": "ECO Target Temp"
+          "eco_temperature": "ECO Target Temp",
+          "target_temp_step": "Solltemperatur-Schritt"
         }
       },
       "advanced": {
         "description": "Einstellungen für {trv}\n\n***Infos über die Kalibrierungstypen: https://better-thermostat.org/configuration#second-step*** ",
         "data": {
           "balance_mode": "Hydraulischer Abgleich (Experimental)",
+          "mpc_thermal_gain": "MPC thermischer Gain",
+          "mpc_loss_coeff": "MPC Verlustkoeffizient",
+          "mpc_control_penalty": "MPC Öffnungs-Strafe",
+          "mpc_change_penalty": "MPC Änderungs-Strafe",
+          "mpc_adapt": "MPC adaptives Modell?",
           "trend_mix_trv": "Temperatur‑Mix (Außenanteil, 0–1)",
           "percent_hysteresis_pts": "Hysterese (Prozentpunkte)",
           "min_update_interval_s": "Minimales Update‑Intervall (Sek.)",
@@ -41,7 +47,12 @@
           "no_off_system_mode": "Wenn das TRV keinen Aus Modus nutzen kann, kann diese Option aktiviert werden, um das TRV stattdessen auf 5°C zu setzen."
         },
         "data_description": {
-          "balance_mode": "Wähle, wie Better Thermostat die Ventilöffnung zwischen Räumen anpasst.\n***None / Off***: Kein Abgleich; TRVs arbeiten unverändert.\n***Heuristic (Experimental)***: Einfache, regelbasierte Regelung.\n***PID (Experimental)***: Fortgeschrittener Regler, der Tuning erfordert.\n\nHinweis: Der hydraulische Abgleich ist in der Beta‑Phase und kann sich noch ändern.",
+          "balance_mode": "Wähle, wie Better Thermostat die Ventilöffnung zwischen Räumen anpasst.\n***None / Off***: Kein Abgleich; TRVs arbeiten unverändert.\n***Heuristic (Experimental)***: Einfache, regelbasierte Regelung.\n***PID (Experimental)***: Klassischer Rückkopplungsregler mit Auto‑Tuning.\n\nHinweis: Der hydraulische Abgleich ist in der Beta‑Phase und kann sich noch ändern.",
+          "mpc_thermal_gain": "Geschätzte Fehlerreduktion pro voller Ventilöffnung je Schritt.",
+          "mpc_loss_coeff": "Anteil, mit dem sich der Fehler ohne Heizleistung wieder vergrößert (Leak). Höher = schnellerer Wärmeverlust.",
+          "mpc_control_penalty": "Gewichtung, die hohe Ventilöffnungen bestraft (Energie sparen).",
+          "mpc_change_penalty": "Gewichtung, die starke Änderungen gegenüber letzter Öffnung bestraft (Stabilität).",
+          "mpc_adapt": "Lernt Gain & Leak kontinuierlich aus dem beobachteten Verhalten.",
           "trend_mix_trv": "Gewichtung zwischen externer und TRV‑interner Temperatur für den D‑Anteil. 0,0 = nur intern, 1,0 = nur extern. Standard: 0,7.",
           "percent_hysteresis_pts": "Totzone um den Sollwert, um Klappern zu vermeiden. Typisch: 1,0–3,0.",
           "min_update_interval_s": "Sende Ventil‑Updates nicht schneller als dieses Intervall (schont Batterie und Funk).",
@@ -50,7 +61,7 @@
           "pid_ki": "Integralanteil (beseitigt stationären Fehler).",
           "pid_kd": "Differentialanteil (dämpft Überschwingen).",
           "protect_overheating": "Manche TRVs schließen auch nach Erreichen der Temperatur das Ventil nicht vollständig. Dies kann zu Überhitzungen führen. Ebenso, falls der Radiator viel Restwärme abstrahlt. Diese Option kann dies verhindern.",
-          "calibration_mode": "Wie die Kalibrierung berechnet wird\n***Normal***: In diesem Modus wird die interne TRV-Temperatur an die des externen Sensors angeglichen.\n\n***Aggresive***: In diesem Modus wird die interne TRV-Temperatur an die des externen Sensors angeglichen - allerdings mit größeren Werten. Dies ist hilfreich, wenn ein Raum schnell aufgeheizt werden soll oder das TRV träge ist.\n\n***AI Time Based***: In diesem Modus wird ein eigener Algorithmus genutzt, der anhand des externen Temperatursensors die Kalibrierung berechnet. Dieser Modus versucht den TRV internen Algorithmus zu optimieren.",
+          "calibration_mode": "Wie die Kalibrierung berechnet wird\n***Normal***: In diesem Modus wird die interne TRV-Temperatur an die des externen Sensors angeglichen.\n\n***Aggresive***: In diesem Modus wird die interne TRV-Temperatur an die des externen Sensors angeglichen - allerdings mit größeren Werten. Dies ist hilfreich, wenn ein Raum schnell aufgeheizt werden soll oder das TRV träge ist.\n\n***AI Time Based***: In diesem Modus wird ein eigener Algorithmus genutzt, der anhand des externen Temperatursensors die Kalibrierung berechnet. Dieser Modus versucht den TRV internen Algorithmus zu optimieren.\n\n***MPC Predictive***: Nutzt den MPC-Prädiktivregler, um eine Ventilöffnung vorherzusagen und wandelt sie bei fehlender Ventilsteuerung in Temperatur- oder Offset-Anpassungen um.",
           "calibration": "Wie die Kalibrierung auf das TRV angewendet werden soll.\n\n***Target Temperature Based***: Kalibriert das TRV über die Zieltemperatur.\n\n***Offset Based***: Kalibriert das TRV über eine Offset Funktion im TRV selbst. (Empfohlen)"
         }
       },
@@ -87,6 +98,7 @@
           "outdoor_sensor": "Wenn ein Außentemperatursensor vorhanden ist, kann dieser anstelle der Wetter-Entität genutzt werden.",
           "weather": "Die Wetter-Entität für die Außentemperatur.",
           "eco_temperature": "ECO Target Temp",
+          "target_temp_step": "Solltemperatur-Schritt",
           "valve_maintenance": "Wenn Ihr Thermostat keinen eigenen Wartungsmodus hat, können Sie diesen verwenden.",
           "child_lock": "Ignorieren Sie alle Eingaben am TRV wie eine Kindersicherung.",
           "homematicip": "Wenn Sie HomematicIP verwenden, sollten Sie dies aktivieren, um die Anfragen zu verlangsamen und den Duty Cycle zu verhindern.",
@@ -98,6 +110,11 @@
         "description": "Aktualisiere die Einstellungen für {trv}\n\n***Infos über die Kalibrierungstypen: https://better-thermostat.org/configuration#second-step*** ",
         "data": {
           "balance_mode": "Hydraulischer Abgleich (Experimental)",
+          "mpc_thermal_gain": "MPC thermischer Gain",
+          "mpc_loss_coeff": "MPC Verlustkoeffizient",
+          "mpc_control_penalty": "MPC Öffnungs-Strafe",
+          "mpc_change_penalty": "MPC Änderungs-Strafe",
+          "mpc_adapt": "MPC adaptives Modell?",
           "trend_mix_trv": "Glättung (EMA‑Mix, 0–1)",
           "percent_hysteresis_pts": "Hysterese (Prozentpunkte)",
           "min_update_interval_s": "Minimales Update‑Intervall (Sek.)",
@@ -115,7 +132,12 @@
           "no_off_system_mode": "Wenn das TRV keinen Aus Modus nutzen kann, kann diese Option aktiviert werden, um das TRV stattdessen auf 5°C zu setzen."
         },
         "data_description": {
-          "balance_mode": "Wähle, wie Better Thermostat die Ventilöffnung zwischen Räumen anpasst.\n***None / Off***: Kein Abgleich; TRVs arbeiten unverändert.\n***Heuristic (Experimental)***: Einfache, regelbasierte Regelung.\n***PID (Experimental)***: Fortgeschrittener Regler, der Tuning erfordert.\n\nHinweis: Der hydraulische Abgleich ist in der Beta‑Phase und kann sich noch ändern.",
+          "balance_mode": "Wähle, wie Better Thermostat die Ventilöffnung zwischen Räumen anpasst.\n***None / Off***: Kein Abgleich; TRVs arbeiten unverändert.\n***Heuristic (Experimental)***: Einfache, regelbasierte Regelung.\n***PID (Experimental)***: Klassischer Rückkopplungsregler mit Auto‑Tuning.\n\nHinweis: Der hydraulische Abgleich ist in der Beta‑Phase und kann sich noch ändern.",
+          "mpc_thermal_gain": "Geschätzte Fehlerreduktion pro voller Ventilöffnung je Schritt.",
+          "mpc_loss_coeff": "Anteil, mit dem sich der Fehler ohne Heizleistung wieder vergrößert (Leak). Höher = schnellerer Wärmeverlust.",
+          "mpc_control_penalty": "Gewichtung, die hohe Ventilöffnungen bestraft (Energie sparen).",
+          "mpc_change_penalty": "Gewichtung, die starke Änderungen gegenüber letzter Öffnung bestraft (Stabilität).",
+          "mpc_adapt": "Lernt Gain & Leak kontinuierlich aus dem beobachteten Verhalten.",
           "trend_mix_trv": "Exponentieller Glättungsfaktor für den Temperaturtrend. Niedriger = glätter, höher = reaktiver.",
           "percent_hysteresis_pts": "Totzone um den Sollwert, um Klappern zu vermeiden. Typisch: 1,0–3,0.",
           "min_update_interval_s": "Sende Ventil‑Updates nicht schneller als dieses Intervall (schont Batterie und Funk).",
@@ -124,7 +146,7 @@
           "pid_ki": "Integralanteil (beseitigt stationären Fehler).",
           "pid_kd": "Differentialanteil (dämpft Überschwingen).",
           "protect_overheating": "Manche TRVs schließen auch nach Erreichen der Temperatur das Ventil nicht vollständig. Dies kann zu Überhitzungen führen. Ebenso falls der Radiator viel Restwärme abstrahlt. Diese Option kann dies verhindern.",
-          "calibration_mode": "Wie die Kalibrierung berechnet wird\n***Normal***: In diesem Modus wird die interne TRV-Temperatur an die des externen Sensors angeglichen.\n\n***Aggresive***: In diesem Modus wird die interne TRV-Temperatur an die des externen Sensors angeglichen - allerdings mit größeren Werten. Dies ist hilfreich, wenn ein Raum schnell aufgeheizt werden soll oder das TRV träge ist.\n\n***AI Time Based***: In diesem Modus wird ein eigener Algorithmus genutzt, der anhand des externen Temperatursensors die Kalibrierung berechnet. Dieser Modus versucht den TRV internen Algorithmus zu optimieren.",
+          "calibration_mode": "Wie die Kalibrierung berechnet wird\n***Normal***: In diesem Modus wird die interne TRV-Temperatur an die des externen Sensors angeglichen.\n\n***Aggresive***: In diesem Modus wird die interne TRV-Temperatur an die des externen Sensors angeglichen - allerdings mit größeren Werten. Dies ist hilfreich, wenn ein Raum schnell aufgeheizt werden soll oder das TRV träge ist.\n\n***AI Time Based***: In diesem Modus wird ein eigener Algorithmus genutzt, der anhand des externen Temperatursensors die Kalibrierung berechnet. Dieser Modus versucht den TRV internen Algorithmus zu optimieren.\n\n***MPC Predictive***: Nutzt den MPC-Algorithmus der hydraulischen Balance, um eine Ventilöffnung vorherzusagen und wandelt sie bei fehlender Ventilsteuerung in Temperatur- oder Offset-Anpassungen um.",
           "calibration": "Wie die Kalibrierung auf das TRV angewendet werden soll.\n\n***Target Temperature Based***: Kalibriert das TRV über die Zieltemperatur.\n\n***Offset Based***: Kalibriert das TRV über eine Offset Funktion im TRV selbst. (Empfohlen)"
         }
       }

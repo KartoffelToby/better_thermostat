@@ -17,13 +17,19 @@
           "window_off_delay_after": "Delay before the thermostat turns on when the window is closed",
           "outdoor_sensor": "If you have an outdoor sensor, you can use it to get the outdoor temperature",
           "weather": "Your weather entity to get the outdoor temperature",
-          "eco_temperature": "ECO Target Temp"
+          "eco_temperature": "ECO Target Temp",
+          "target_temp_step": "Target temperature step"
         }
       },
       "advanced": {
         "description": "Advanced configuration {trv}\n***Info about calibration types: https://better-thermostat.org/configuration#second-step***",
         "data": {
           "balance_mode": "Hydraulic balance mode (Experimental)",
+          "mpc_thermal_gain": "MPC thermal gain",
+          "mpc_loss_coeff": "MPC loss coeff",
+          "mpc_control_penalty": "MPC control penalty",
+          "mpc_change_penalty": "MPC delta penalty",
+          "mpc_adapt": "MPC adaptive model?",
           "trend_mix_trv": "Temp mix (external weight, 0–1)",
           "percent_hysteresis_pts": "Hysteresis (percentage points)",
           "min_update_interval_s": "Minimum update interval (seconds)",
@@ -41,7 +47,12 @@
           "no_off_system_mode": "If your TRV can't handle the off mode, you can enable this to use target temperature 5°C instead"
         },
         "data_description": {
-          "balance_mode": "Choose how Better Thermostat adapts the valve opening across rooms.\n***None / Off***: No balancing; TRVs run as-is.\n***Heuristic (Experimental)***: Simple rule-based balancing.\n***PID (Experimental)***: Advanced controller requiring tuning.\n\nNote: Hydraulic balance is in Beta and may change.",
+          "balance_mode": "Choose how Better Thermostat adapts the valve opening across rooms.\n***None / Off***: No balancing; TRVs run as-is.\n***Heuristic (Experimental)***: Simple rule-based balancing.\n***PID (Experimental)***: Classic feedback controller with auto-tune.\n\nNote: Hydraulic balance is in Beta and may change.",
+          "mpc_thermal_gain": "Estimated temperature error reduction per full valve opening per step.",
+          "mpc_loss_coeff": "Fractional error drift (leak). Higher values = room loses heat quicker.",
+          "mpc_control_penalty": "Weight penalizing high valve openings (energy saving).",
+          "mpc_change_penalty": "Weight penalizing large changes vs. last opening (stability).",
+          "mpc_adapt": "Continuously adapt gain & loss based on observed response.",
           "trend_mix_trv": "Weight of external vs. TRV internal temperature used for derivative mixing. 0.0 = internal only, 1.0 = external only. Default: 0.7.",
           "percent_hysteresis_pts": "Deadband around the target to avoid valve chattering. Typical: 1.0–3.0",
           "min_update_interval_s": "Do not send valve updates faster than this interval to spare batteries and radio.",
@@ -50,7 +61,7 @@
           "pid_ki": "Integral gain (eliminates steady-state error).",
           "pid_kd": "Derivative gain (damps overshoot).",
           "protect_overheating": "Some TRVs don't close the valve completely when the temperature is reached. Or the radiator has a lot of rest heat. This can cause overheating. This option can prevent this.",
-          "calibration_mode": "The kind how the calibration should be calculated\n***Normal***: In this mode, the TRV internal temperature sensor is fixed by the external temperature sensor.\n***Aggresive***: In this mode, the TRV internal temperature sensor is fixed by the external temperature sensor but set much lower/higher to get a quicker boost.\n***AI Time Based***: In this mode, the TRV internal temperature sensor is fixed by the external temperature sensor, but a custom algorithm calculates the value to improve the TRV internal algorithm.",
+          "calibration_mode": "The kind how the calibration should be calculated\n***Normal***: In this mode, the TRV internal temperature sensor is fixed by the external temperature sensor.\n***Aggresive***: In this mode, the TRV internal temperature sensor is fixed by the external temperature sensor but set much lower/higher to get a quicker boost.\n***AI Time Based***: In this mode, the TRV internal temperature sensor is fixed by the external temperature sensor, but a custom algorithm calculates the value to improve the TRV internal algorithm.\n***MPC Predictive***: Uses the MPC predictive controller to derive a valve opening and converts it to offsets or setpoints when direct valve control is unavailable.",
           "calibration": "How the calibration should be applied on the TRV (Target temp or offset)\n***Target Temperature Based***: Apply the calibration to the target temperature.\n***Offset Based***: Apply the calibration to the offset."
         }
       },
@@ -89,6 +100,7 @@
           "calibration": "The sort of calibration https://better-thermostat.org/configuration#second-step",
           "weather": "Your weather entity to get the outdoor temperature",
           "eco_temperature": "ECO Target Temp",
+          "target_temp_step": "Target temperature step",
           "heat_auto_swapped": "If the auto means heat for your TRV and you want to swap it",
           "child_lock": "Ignore all inputs on the TRV like a child lock",
           "homematicip": "If you use HomematicIP, you should enable this to slow down the requests to prevent the duty cycle"
@@ -98,6 +110,11 @@
         "description": "Advanced configuration {trv}\n***Info about calibration types: https://better-thermostat.org/configuration#second-step***",
         "data": {
           "balance_mode": "Hydraulic balance mode (Experimental)",
+          "mpc_thermal_gain": "MPC thermal gain",
+          "mpc_loss_coeff": "MPC loss coeff",
+          "mpc_control_penalty": "MPC control penalty",
+          "mpc_change_penalty": "MPC delta penalty",
+          "mpc_adapt": "MPC adaptive model?",
           "trend_mix_trv": "Temp mix (external weight, 0–1)",
           "percent_hysteresis_pts": "Hysteresis (percentage points)",
           "min_update_interval_s": "Minimum update interval (seconds)",
@@ -115,7 +132,12 @@
           "no_off_system_mode": "If your TRV can't handle the off mode, you can enable this to use target temperature 5°C instead"
         },
         "data_description": {
-          "balance_mode": "Choose how Better Thermostat adapts the valve opening across rooms.\n***None / Off***: No balancing; TRVs run as-is.\n***Heuristic (Experimental)***: Simple rule-based balancing.\n***PID (Experimental)***: Advanced controller requiring tuning.\n\nNote: Hydraulic balance is in Beta and may change.",
+          "balance_mode": "Choose how Better Thermostat adapts the valve opening across rooms.\n***None / Off***: No balancing; TRVs run as-is.\n***Heuristic (Experimental)***: Simple rule-based balancing.\n***PID (Experimental)***: Classic feedback controller with auto-tune.\n\nNote: Hydraulic balance is in Beta and may change.",
+          "mpc_thermal_gain": "Estimated temperature error reduction per full valve opening per step.",
+          "mpc_loss_coeff": "Fractional error drift (leak). Higher values = room loses heat quicker.",
+          "mpc_control_penalty": "Weight penalizing high valve openings (energy saving).",
+          "mpc_change_penalty": "Weight penalizing large changes vs. last opening (stability).",
+          "mpc_adapt": "Continuously adapt gain & loss based on observed response.",
           "trend_mix_trv": "Weight of external vs. TRV internal temperature used for derivative mixing. 0.0 = internal only, 1.0 = external only. Default: 0.7.",
           "percent_hysteresis_pts": "Deadband around the target to avoid valve chattering. Typical: 1.0–3.0",
           "min_update_interval_s": "Do not send valve updates faster than this interval to spare batteries and radio.",
@@ -124,7 +146,7 @@
           "pid_ki": "Integral gain (eliminates steady-state error).",
           "pid_kd": "Derivative gain (damps overshoot).",
           "protect_overheating": "Some TRVs don't close the valve completely when the temperature is reached. Or the radiator has a lot of rest heat. This can cause overheating. This option can prevent this.",
-          "calibration_mode": "The kind how the calibration should be calculated\n***Normal***: In this mode, the TRV internal temperature sensor is fixed by the external temperature sensor.\n***Aggresive***: In this mode, the TRV internal temperature sensor is fixed by the external temperature sensor but set much lower/higher to get a quicker boost.\n***AI Time Based***: In this mode the TRV internal temperature sensor is fixed by the external temperature sensor, but a custom algorithm calculates the value to improve the TRV internal algorithm.",
+          "calibration_mode": "The kind how the calibration should be calculated\n***Normal***: In this mode, the TRV internal temperature sensor is fixed by the external temperature sensor.\n***Aggresive***: In this mode, the TRV internal temperature sensor is fixed by the external temperature sensor but set much lower/higher to get a quicker boost.\n***AI Time Based***: In this mode the TRV internal temperature sensor is fixed by the external temperature sensor, but a custom algorithm calculates the value to improve the TRV internal algorithm.\n***MPC Predictive***: Uses the MPC hydraulic balance algorithm to derive a valve opening and converts it to offsets or setpoints when direct valve control is unavailable.",
           "calibration": "How the calibration should be applied on the TRV (Target temp or offset)\n***Target Temperature Based***: Apply the calibration to the target temperature.\n***Offset Based***: Apply the calibration to the offset."
         }
       }

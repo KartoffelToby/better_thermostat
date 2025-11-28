@@ -4,6 +4,9 @@ Includes device-specific offsets and behavior adaptations required for certain
 SEA801/SEA802 based devices.
 """
 
+from custom_components.better_thermostat.utils.helpers import (
+    entity_uses_mpc_calibration,
+)
 import logging
 
 _LOGGER = logging.getLogger(__name__)
@@ -15,6 +18,8 @@ def fix_local_calibration(self, entity_id, offset):
     The function applies small adjustments based on the external and target
     temperatures to avoid incorrect temperature behavior.
     """
+    if entity_uses_mpc_calibration(self, entity_id):
+        return offset
     _cur_external_temp = self.cur_temp
     _target_temp = self.bt_target_temp
 
@@ -32,16 +37,25 @@ def fix_target_temperature_calibration(self, entity_id, temperature):
     Ensures a minimum distance between the current TRV temperature and the
     target temperature to avoid short-cycling and oscillation.
     """
-    _cur_trv_temp = float(
-        self.hass.states.get(entity_id).attributes.get("current_temperature")
-    )
+    _state = self.hass.states.get(entity_id)
+    _cur_trv_temp = None
+    if _state is not None:
+        _cur_trv_temp = _state.attributes.get("current_temperature")
     if _cur_trv_temp is None:
         return temperature
+
+    if entity_uses_mpc_calibration(self, entity_id):
+        return temperature
+
+    _cur_trv_temp = float(_cur_trv_temp)
     if (
         round(temperature, 1) > round(_cur_trv_temp, 1)
         and temperature - _cur_trv_temp < 1.5
     ):
-        # Increase to at least TRV + 1.5°C if too close
+
+        # Statt die gewünschte Temperatur pauschal um 1.5°C zu erhöhen,
+        # setze sie auf mindestens (aktuelle TRV-Temp + 1.5°C).
+        # So ist der Mindestabstand garantiert, ohne unnötig zu überschießen.
         temperature = round(_cur_trv_temp + 1.5, 1)
 
     return temperature
