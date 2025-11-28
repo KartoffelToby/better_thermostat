@@ -159,10 +159,6 @@
     "set_temp_target_temperature": {
       "name": "Set eco temperature",
       "description": "Set the target temperature to a temporary like night mode, and save the old one."
-    },
-    "set_eco_mode": {
-      "name": "Set ECO Mode",
-      "description": "Enable or disable ECO mode."
     }
   }
 }

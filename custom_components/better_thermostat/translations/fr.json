@@ -127,10 +127,6 @@
     "set_temp_target_temperature": {
       "name": "Définir la température éco",
       "description": "Définissez la température cible sur une valeur temporaire comme le mode nuit, et enregistrez l'ancienne."
-    },
-    "set_eco_mode": {
-      "name": "Set ECO Mode",
-      "description": "Enable or disable ECO mode."
     }
   }
 }

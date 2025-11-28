@@ -106,10 +106,5 @@
       }
     }
   },
-  "services": {
-    "set_eco_mode": {
-      "name": "Set ECO Mode",
-      "description": "Enable or disable ECO mode."
-    }
-  }
+  "services": {}
 }
