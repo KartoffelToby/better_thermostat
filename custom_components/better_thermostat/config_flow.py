@@ -490,7 +490,10 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
         self.device_name = ""
         self._last_step = False
         self.updated_config = {}
-        self.config_entry = config_entry
+        # Do not set `self.config_entry` directly; store in a private attribute
+        # to avoid deprecated behavior. The framework will set `config_entry` on
+        # the options flow object as needed.
+        self._config_entry = config_entry
         super().__init__()
 
     async def async_step_init(self, _user_input=None):
@@ -517,7 +520,7 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
             self.updated_config[CONF_HEATER] = self.trv_bundle
             _LOGGER.debug("Updated config: %s", self.updated_config)
             self.hass.config_entries.async_update_entry(
-                self.config_entry, data=self.updated_config
+                self._config_entry, data=self.updated_config
             )
             return self.async_create_entry(
                 title=self.updated_config["name"], data=self.updated_config
@@ -679,7 +682,7 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
     async def async_step_user(self, user_input=None):
         """Handle the user step."""
         if user_input is not None:
-            current_config = self.config_entry.data
+            current_config = self._config_entry.data
             self.updated_config = dict(current_config)
             self.updated_config[CONF_SENSOR] = user_input.get(CONF_SENSOR, None)
             self.updated_config[CONF_SENSOR_WINDOW] = user_input.get(
@@ -743,7 +746,7 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
             vol.Optional(
                 CONF_SENSOR,
                 description={
-                    "suggested_value": self.config_entry.data.get(CONF_SENSOR, "")
+                    "suggested_value": self._config_entry.data.get(CONF_SENSOR, "")
                 },
             )
         ] = selector.EntitySelector(
@@ -758,7 +761,7 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
             vol.Optional(
                 CONF_HUMIDITY,
                 description={
-                    "suggested_value": self.config_entry.data.get(CONF_HUMIDITY, "")
+                    "suggested_value": self._config_entry.data.get(CONF_HUMIDITY, "")
                 },
             )
         ] = selector.EntitySelector(
@@ -773,7 +776,7 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
             vol.Optional(
                 CONF_SENSOR_WINDOW,
                 description={
-                    "suggested_value": self.config_entry.data.get(
+                    "suggested_value": self._config_entry.data.get(
                         CONF_SENSOR_WINDOW, ""
                     )
                 },
@@ -789,7 +792,7 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
             vol.Optional(
                 CONF_OUTDOOR_SENSOR,
                 description={
-                    "suggested_value": self.config_entry.data.get(
+                    "suggested_value": self._config_entry.data.get(
                         CONF_OUTDOOR_SENSOR, ""
                     )
                 },
@@ -806,14 +809,14 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
             vol.Optional(
                 CONF_WEATHER,
                 description={
-                    "suggested_value": self.config_entry.data.get(CONF_WEATHER, "")
+                    "suggested_value": self._config_entry.data.get(CONF_WEATHER, "")
                 },
             )
         ] = selector.EntitySelector(
             selector.EntitySelectorConfig(domain="weather", multiple=False)
         )
 
-        _timeout = self.config_entry.data.get(CONF_WINDOW_TIMEOUT, 0)
+        _timeout = self._config_entry.data.get(CONF_WINDOW_TIMEOUT, 0)
         _timeout = str(cv.time_period_seconds(_timeout))
         _timeout = {
             "hours": int(_timeout.split(":", maxsplit=1)[0]),
@@ -828,7 +831,7 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
             )
         ] = selector.DurationSelector()
 
-        _timeout = self.config_entry.data.get(CONF_WINDOW_TIMEOUT_AFTER, 0)
+        _timeout = self._config_entry.data.get(CONF_WINDOW_TIMEOUT_AFTER, 0)
         _timeout = str(cv.time_period_seconds(_timeout))
         _timeout = {
             "hours": int(_timeout.split(":", maxsplit=1)[0]),
@@ -846,26 +849,26 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
         fields[
             vol.Optional(
                 CONF_OFF_TEMPERATURE,
-                default=self.config_entry.data.get(CONF_OFF_TEMPERATURE, 5),
+                default=self._config_entry.data.get(CONF_OFF_TEMPERATURE, 5),
             )
         ] = int
 
         fields[
             vol.Optional(
                 CONF_ECO_TEMPERATURE,
-                default=self.config_entry.data.get(CONF_ECO_TEMPERATURE, 18.0),
+                default=self._config_entry.data.get(CONF_ECO_TEMPERATURE, 18.0),
             )
         ] = vol.All(vol.Coerce(float), vol.Range(min=5, max=35))
 
         fields[
             vol.Optional(
-                CONF_TOLERANCE, default=self.config_entry.data.get(CONF_TOLERANCE, 0.0)
+                CONF_TOLERANCE, default=self._config_entry.data.get(CONF_TOLERANCE, 0.0)
             )
         ] = vol.All(vol.Coerce(float), vol.Range(min=0))
         fields[
             vol.Optional(
                 CONF_TARGET_TEMP_STEP,
-                default=str(self.config_entry.data.get(CONF_TARGET_TEMP_STEP, 0.0)),
+                default=str(self._config_entry.data.get(CONF_TARGET_TEMP_STEP, 0.0)),
             )
         ] = TEMP_STEP_SELECTOR
 
