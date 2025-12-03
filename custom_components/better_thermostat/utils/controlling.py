@@ -312,7 +312,7 @@ async def control_trv(self, heater_entity_id=None):
                     bal = raw_balance
                     _source = "balance"
             if bal is not None:
-                target_pct = int(bal.get("valve_percent", 0))
+                target_pct = int(round(bal.get("valve_percent", 0)))
                 last_pct = self.real_trvs[heater_entity_id].get("last_valve_percent")
                 if self.call_for_heat is False:
                     _LOGGER.debug(
@@ -598,7 +598,7 @@ async def control_trv(self, heater_entity_id=None):
                 bal = raw_balance
                 _source = "balance"
         if bal is not None:
-            target_pct = int(bal.get("valve_percent", 0))
+            target_pct = int(round(bal.get("valve_percent", 0)))
             last_pct = self.real_trvs[heater_entity_id].get("last_valve_percent")
             if self.call_for_heat is False:
                 _LOGGER.debug(
