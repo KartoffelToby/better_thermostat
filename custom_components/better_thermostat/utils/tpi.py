@@ -289,7 +289,7 @@ def _estimate_slope(
                 state.loss_est = (1 - alpha) * state.loss_est + alpha * loss
 
     # Use a windowed approach to avoid oscillatory increases of minimum effective percent
-    if last_pct < params.min_effective_percent_max and slope < 0.02:
+    if last_pct < params.min_effective_percent_max and slope < 0.0:
         state._min_eff_bad_cycles = getattr(state, "_min_eff_bad_cycles", 0) + 1
         if state._min_eff_bad_cycles >= params.min_eff_increase_window:
             base = state.min_effective_percent or 0.0
@@ -297,7 +297,7 @@ def _estimate_slope(
                           params.min_effective_percent_max)
             state.min_effective_percent = new_min
             state._min_eff_bad_cycles = 0
-    elif slope > 0.03:
+    elif last_pct > 0.0 and slope > 0.0:
         # Stronger heating response - gently reduce minimum
         state._min_eff_bad_cycles = 0
         if state.min_effective_percent is None:
