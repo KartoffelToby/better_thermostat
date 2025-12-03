@@ -21,7 +21,6 @@ class TpiParams:
     """Parameters for the TPI controller."""
 
     cycle_duration_s: float = 300.0  # 5 minutes default
-    tolerance_K: float = 0.15
     clamp_min_pct: float = 0.0
     clamp_max_pct: float = 100.0
     hysteresis_pct: float = 2.0
@@ -61,7 +60,6 @@ class _TpiState:
     gain_est: Optional[float] = None  # pct per K
     loss_est: Optional[float] = None  # K/min (cooling without heating)
     min_effective_percent: Optional[float] = None
-    dead_zone_hits: int = 0
 
 
 _TPI_STATES: Dict[str, _TpiState] = {}
@@ -73,7 +71,6 @@ _STATE_EXPORT_FIELDS = (
     "loss_est",
     "last_temp",
     "min_effective_percent",
-    "dead_zone_hits",
 )
 
 
@@ -164,16 +161,6 @@ def compute_tpi(inp: TpiInput, params: TpiParams) -> Optional[TpiOutput]:
     # Error in Kelvin
     error_K = float(inp.target_temp_C) - float(inp.current_temp_C)
 
-    # Deadzone: small band around target
-    if abs(error_K) <= params.tolerance_K:
-        state.dead_zone_hits = min(state.dead_zone_hits + 1, 1000)
-        # decay last percent
-        duty_pct = max(0.0, (state.last_percent or 0.0) - params.hysteresis_pct)
-        debug = {"reason": "deadzone", "dead_zone_hits": state.dead_zone_hits}
-        return _finalize_output(inp, params, state, now, duty_pct, error_K, debug)
-    else:
-        state.dead_zone_hits = max(state.dead_zone_hits - 1, 0)
-
     # Estimate gain if we have slope from last cycle
     raw_pct = state.last_percent if state.last_percent is not None else 0.0
     slope_K_per_min = _estimate_slope(state, now, inp.current_temp_C, raw_pct)
@@ -213,7 +200,6 @@ def compute_tpi(inp: TpiInput, params: TpiParams) -> Optional[TpiOutput]:
         "loss_est_K_per_min": _round_dbg(state.loss_est, 4),
         "outdoor_influence": _round_dbg(outdoor_influence, 3),
         "raw_pct": _round_dbg(duty_pct, 2),
-        "dead_zone_hits": state.dead_zone_hits,
         "min_effective_percent": _round_dbg(min_eff, 2),
     }
 
