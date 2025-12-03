@@ -32,7 +32,7 @@ class TpiParams:
     slope_alpha: float = 0.2  # EMA weight for slope
     gain_alpha: float = 0.1  # EMA weight when updating gain_est
     loss_alpha: float = 0.15  # EMA weight when updating loss_est
-    base_gain_pct_per_K: float = 10.0  # initial mapping from error(K) -> %
+    base_gain_pct_per_K: float = 50.0  # initial mapping from error(K) -> %
     gain_min_pct_per_K: float = 1.0
     gain_max_pct_per_K: float = 100.0
     outdoor_gain_scale: float = 1.0  # multiplicative factor relative to delta_env
