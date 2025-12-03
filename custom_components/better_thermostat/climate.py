@@ -123,6 +123,7 @@ from .balance import (
     build_balance_key,
 )
 from .utils.mpc import export_mpc_state_map, import_mpc_state_map
+from .utils.tpi import export_tpi_state_map, import_tpi_state_map
 
 
 _LOGGER = logging.getLogger(__name__)
@@ -524,6 +525,9 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
         # MPC adaptive state persistence
         self._mpc_store = None
         self._mpc_save_scheduled = False
+        # TPI adaptive state persistence
+        self._tpi_store = None
+        self._tpi_save_scheduled = False
 
     async def async_added_to_hass(self):
         """Run when entity about to be added.
@@ -679,6 +683,17 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
         except Exception as e:  # noqa: BLE001
             _LOGGER.debug(
                 "better_thermostat %s: MPC storage init/load failed: %s",
+                self.device_name,
+                e,
+            )
+
+        # Initialize persistent storage for TPI adaptive state
+        try:
+            self._tpi_store = Store(self.hass, 1, f"{DOMAIN}_tpi_states")
+            await self._load_tpi_states()
+        except Exception as e:  # noqa: BLE001
+            _LOGGER.debug(
+                "better_thermostat %s: TPI storage init/load failed: %s",
                 self.device_name,
                 e,
             )
@@ -1421,7 +1436,7 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
                     )
                     if isinstance(calibration_value, str):
                         calibration_mode = calibration_value.lower()
-                        if calibration_mode == CalibrationMode.MPC_CALIBRATION.value:
+                        if calibration_mode in (CalibrationMode.MPC_CALIBRATION.value, CalibrationMode.TPI_CALIBRATION.value):
                             active_calibration_modes.add(calibration_mode)
             except Exception:  # noqa: BLE001
                 active_balance_modes = set()
@@ -1910,6 +1925,64 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
                 await self._save_mpc_states()
             finally:
                 self._mpc_save_scheduled = False
+
+        self.hass.async_create_task(_delayed_save())
+
+    async def _load_tpi_states(self) -> None:
+        """Load persisted TPI adaptive controller states for this entity."""
+
+        if self._tpi_store is None:
+            return
+        data = await self._tpi_store.async_load()
+        if not isinstance(data, dict):
+            return
+        prefix = f"{self._unique_id}:"
+        scoped: Dict[str, Dict[str, Any]] = {}
+        for key, payload in data.items():
+            if not isinstance(key, str) or not key.startswith(prefix):
+                continue
+            if isinstance(payload, dict):
+                scoped[key] = payload
+        if scoped:
+            import_tpi_state_map(scoped)
+
+    async def _save_tpi_states(self) -> None:
+        """Persist TPI adaptive controller states for this entity."""
+
+        if self._tpi_store is None:
+            return
+        try:
+            existing = await self._tpi_store.async_load()
+            if not isinstance(existing, dict):
+                existing = {}
+            prefix = f"{self._unique_id}:"
+            for key in list(existing.keys()):
+                if isinstance(key, str) and key.startswith(prefix):
+                    del existing[key]
+            exported = export_tpi_state_map(prefix)
+            if exported:
+                existing.update(exported)
+            await self._tpi_store.async_save(existing)
+        except Exception as e:  # noqa: BLE001
+            _LOGGER.debug(
+                "better_thermostat %s: saving TPI states failed: %s",
+                self.device_name,
+                e,
+            )
+
+    def _schedule_save_tpi_states(self, delay_s: float = 15.0) -> None:
+        """Debounced scheduling for persisting TPI adaptive states."""
+
+        if self._tpi_store is None or self._tpi_save_scheduled:
+            return
+        self._tpi_save_scheduled = True
+
+        async def _delayed_save():
+            try:
+                await asyncio.sleep(delay_s)
+                await self._save_tpi_states()
+            finally:
+                self._tpi_save_scheduled = False
 
         self.hass.async_create_task(_delayed_save())
 

@@ -120,6 +120,9 @@ CALIBRATION_MODE_SELECTOR = selector.SelectSelector(
                 value=CalibrationMode.MPC_CALIBRATION, label="MPC Predictive"
             ),
             selector.SelectOptionDict(
+                value=CalibrationMode.TPI_CALIBRATION, label="TPI Controller"
+            ),
+            selector.SelectOptionDict(
                 value=CalibrationMode.NO_CALIBRATION, label="No Calibration"
             ),
         ],
