@@ -23,7 +23,7 @@ class TpiParams:
     cycle_duration_s: float = 300.0  # 5 minutes default
     clamp_min_pct: float = 0.0
     clamp_max_pct: float = 100.0
-    hysteresis_pct: float = 2.0
+    hysteresis_pct: float = 1.0
     min_on_s: float = 60.0
     min_off_s: float = 60.0
     learn_rate: float = 0.1  # EMA alpha
