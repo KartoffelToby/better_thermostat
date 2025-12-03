@@ -323,9 +323,7 @@ def _finalize_output(
         debug,
     )
 
-    return TpiOutput(
-        duty_cycle_pct=duty_pct, debug=debug
-    )
+    return TpiOutput(duty_cycle_pct=duty_pct, debug=debug)
 
 
 def build_tpi_key(bt, entity_id: str) -> str:

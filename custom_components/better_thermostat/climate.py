@@ -1436,7 +1436,10 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
                     )
                     if isinstance(calibration_value, str):
                         calibration_mode = calibration_value.lower()
-                        if calibration_mode in (CalibrationMode.MPC_CALIBRATION.value, CalibrationMode.TPI_CALIBRATION.value):
+                        if calibration_mode in (
+                            CalibrationMode.MPC_CALIBRATION.value,
+                            CalibrationMode.TPI_CALIBRATION.value,
+                        ):
                             active_calibration_modes.add(calibration_mode)
             except Exception:  # noqa: BLE001
                 active_balance_modes = set()
