@@ -281,6 +281,11 @@ def _finalize_output(
     error_K: Optional[float],
     debug: Dict[str, Any],
 ) -> TpiOutput:
+    # Check if enough time has passed since last update (5 minutes)
+    if state.last_update_ts is not None and now - state.last_update_ts < 300.0:
+        debug["reason"] = "too_soon"
+        return TpiOutput(duty_cycle_pct=state.last_percent or 0.0, debug=debug)
+
     # Clamp and hysteresis
     duty_pct = max(params.clamp_min_pct, min(params.clamp_max_pct, duty_pct_raw))
 
