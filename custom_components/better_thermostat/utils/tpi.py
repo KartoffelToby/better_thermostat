@@ -19,7 +19,6 @@ _LOGGER = logging.getLogger(__name__)
 class TpiParams:
     """Parameters for the TPI controller."""
 
-    cycle_duration_s: float = 300.0  # 5 minutes default
     clamp_min_pct: float = 0.0
     clamp_max_pct: float = 100.0
     # TPI coefficients like in versatile_thermostat
@@ -56,9 +55,7 @@ class _TpiState:
 
 _TPI_STATES: Dict[str, _TpiState] = {}
 
-_STATE_EXPORT_FIELDS = (
-    "last_percent",
-)
+_STATE_EXPORT_FIELDS = ("last_percent",)
 
 
 def export_tpi_state_map(prefix: Optional[str] = None) -> Dict[str, Dict[str, Any]]:
