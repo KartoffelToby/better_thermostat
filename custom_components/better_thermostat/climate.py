@@ -2227,10 +2227,7 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
             for trv, info in self.real_trvs.items():
                 bal = info.get("balance")
                 if bal:
-                    bal_compact[trv] = {
-                        "valve%": bal.get("valve_percent"),
-                        "flow_capK": bal.get("flow_cap_K"),
-                    }
+                    bal_compact[trv] = {"valve%": bal.get("valve_percent")}
             if bal_compact:
                 dev_specific["balance"] = json.dumps(bal_compact)
         except Exception:
@@ -2310,10 +2307,7 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
             for trv, info in self.real_trvs.items():
                 bal = info.get("balance")
                 if bal:
-                    bal_compact[trv] = {
-                        "valve%": bal.get("valve_percent"),
-                        "flow_capK": bal.get("flow_cap_K"),
-                    }
+                    bal_compact[trv] = {"valve%": bal.get("valve_percent")}
             if bal_compact:
                 dev_specific["balance"] = json.dumps(bal_compact)
         except Exception:

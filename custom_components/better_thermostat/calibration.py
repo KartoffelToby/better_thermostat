@@ -75,7 +75,6 @@ def _supports_direct_valve_control(self, entity_id: str) -> bool:
     return bool(getattr(quirks, "override_set_valve", None))
 
 
-
 def _compute_mpc_balance(self, entity_id: str):
     """Run the MPC balance algorithm for calibration purposes."""
 
@@ -131,8 +130,6 @@ def _compute_mpc_balance(self, entity_id: str):
     supports_valve = _supports_direct_valve_control(self, entity_id)
     trv_state["calibration_balance"] = {
         "valve_percent": mpc_output.valve_percent,
-        "flow_cap_K": mpc_output.flow_cap_K,
-        "setpoint_eff_C": mpc_output.setpoint_eff_C,
         "apply_valve": supports_valve,
         "debug": getattr(mpc_output, "debug", None),
     }
@@ -606,20 +603,14 @@ def calculate_calibration_setpoint(self, entity_id) -> float | None:
         if _mpc_use_valve:
             _calibrated_setpoint = _cur_target_temp
         elif _mpc_result is not None:
-            _mpc_setpoint = getattr(_mpc_result, "setpoint_eff_C", None)
-            if isinstance(_mpc_setpoint, (int, float)):
-                _calibrated_setpoint = float(_mpc_setpoint)
-
-                _mpc_percent = getattr(_mpc_result, "valve_percent", None)
-                if isinstance(_mpc_percent, (int, float)):
-                    _max_temp = _convert_to_float(self.real_trvs[entity_id]["max_temp"])
-                    if _max_temp is not None:
-                        _valve_fraction = max(
-                            0.0, min(1.0, float(_mpc_percent) / 100.0)
-                        )
-                        _calibrated_setpoint = _cur_trv_temp + (
-                            (float(_max_temp) - _cur_trv_temp) * _valve_fraction
-                        )
+            _mpc_percent = getattr(_mpc_result, "valve_percent", None)
+            if isinstance(_mpc_percent, (int, float)):
+                _max_temp = _convert_to_float(self.real_trvs[entity_id]["max_temp"])
+                if _max_temp is not None:
+                    _valve_fraction = max(0.0, min(1.0, float(_mpc_percent) / 100.0))
+                    _calibrated_setpoint = _cur_trv_temp + (
+                        (float(_max_temp) - _cur_trv_temp) * _valve_fraction
+                    )
     elif _calibration_mode == CalibrationMode.TPI_CALIBRATION:
         _tpi_result, _tpi_use_valve = _compute_tpi_balance(self, entity_id)
         if _tpi_use_valve:
@@ -665,9 +656,7 @@ def calculate_calibration_setpoint(self, entity_id) -> float | None:
         if self.attr_hvac_action != HVACAction.HEATING:
             if _supports_valve:
                 self.real_trvs[entity_id]["calibration_balance"] = {
-                    "valve_percent": 0,
-                    "flow_cap_K": None,
-                    "setpoint_eff_C": None,
+                    "valve_percent": _pct,
                     "apply_valve": True,
                     "debug": {"source": "heating_power_calibration"},
                 }

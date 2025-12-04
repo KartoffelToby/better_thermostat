@@ -24,22 +24,23 @@ class MpcParams:
     cap_max_K: float = 0.8
     percent_hysteresis_pts: float = 0.5
     min_update_interval_s: float = 60.0
-    mpc_thermal_gain: float = 0.25
+    mpc_thermal_gain: float = 0.06
     mpc_loss_coeff: float = 0.01
     mpc_control_penalty = 0.00005
     mpc_change_penalty = 0.02
     mpc_adapt: bool = True
-    mpc_gain_min: float = 0.005
-    mpc_gain_max: float = 0.5
-    mpc_loss_min: float = 0.0
-    mpc_loss_max: float = 0.05
-    mpc_adapt_alpha: float = 0.1
+    mpc_gain_min: float = 0.01
+    mpc_gain_max: float = 0.2
+    mpc_loss_min: float = 0.002
+    mpc_loss_max: float = 0.03
+    mpc_adapt_alpha: float = 0.01
     deadzone_threshold_pct: float = 20.0
     deadzone_temp_delta_K: float = 0.1
     deadzone_time_s: float = 300.0
     deadzone_hits_required: int = 3
     deadzone_raise_pct: float = 2.0
     deadzone_decay_pct: float = 1.0
+    mpc_du_max_pct: float = 25.0
 
 
 @dataclass
@@ -59,8 +60,6 @@ class MpcInput:
 @dataclass
 class MpcOutput:
     valve_percent: int
-    flow_cap_K: float
-    setpoint_eff_C: Optional[float]
     debug: Dict[str, Any] = field(default_factory=dict)
 
 
@@ -78,6 +77,8 @@ class _MpcState:
     last_trv_temp_ts: float = 0.0
     dead_zone_hits: int = 0
     min_effective_percent: Optional[float] = None
+    last_learn_time: Optional[float] = None
+    last_learn_temp: Optional[float] = None
 
 
 _MPC_STATES: Dict[str, _MpcState] = {}
@@ -92,6 +93,8 @@ _STATE_EXPORT_FIELDS = (
     "last_trv_temp",
     "min_effective_percent",
     "dead_zone_hits",
+    "last_learn_time",
+    "last_learn_temp",
 )
 
 
@@ -277,20 +280,7 @@ def compute_mpc(inp: MpcInput, params: MpcParams) -> Optional[MpcOutput]:
 
     debug.update(extra_debug)
 
-    flow_cap = params.cap_max_K * (1.0 - (percent_out / 100.0))
-    setpoint_eff = None
-    if inp.target_temp_C is not None and delta_t is not None and delta_t <= 0.0:
-        setpoint_eff = inp.target_temp_C - flow_cap
-
-    debug.update(
-        {
-            "percent_out": percent_out,
-            "flow_cap_K": _round_for_debug(flow_cap, 3),
-            "setpoint_eff_C": (
-                _round_for_debug(setpoint_eff, 3) if setpoint_eff is not None else None
-            ),
-        }
-    )
+    debug.update({"percent_out": percent_out})
 
     summary_delta = delta_t if delta_t is not None else initial_delta_t
     min_eff = state.min_effective_percent
@@ -301,7 +291,7 @@ def compute_mpc(inp: MpcInput, params: MpcParams) -> Optional[MpcOutput]:
     summary_cost = extra_debug.get("mpc_cost")
 
     _LOGGER.debug(
-        "better_thermostat %s: mpc calibration for %s: e0=%sK gain=%s loss=%s horizon=%s | raw=%s%% out=%s%% min_eff=%s%% last=%s%% dead_hits=%s eval=%s cost=%s flow_cap=%sK",
+        "better_thermostat %s: mpc calibration for %s: e0=%sK gain=%s loss=%s horizon=%s | raw=%s%% out=%s%% min_eff=%s%% last=%s%% dead_hits=%s eval=%s cost=%s",
         name,
         entity,
         _round_for_debug(summary_delta, 3),
@@ -315,15 +305,9 @@ def compute_mpc(inp: MpcInput, params: MpcParams) -> Optional[MpcOutput]:
         state.dead_zone_hits,
         summary_eval,
         _round_for_debug(summary_cost, 6),
-        _round_for_debug(flow_cap, 3),
     )
 
-    return MpcOutput(
-        valve_percent=percent_out,
-        flow_cap_K=round(flow_cap, 3),
-        setpoint_eff_C=round(setpoint_eff, 3) if setpoint_eff is not None else None,
-        debug=debug,
-    )
+    return MpcOutput(valve_percent=percent_out, debug=debug)
 
 
 def _compute_predictive_percent(
@@ -343,6 +327,13 @@ def _compute_predictive_percent(
     if inp.current_temp_C is None or inp.target_temp_C is None:
         return 0.0, {"error": "missing temps"}
 
+    assert inp.current_temp_C is not None
+    assert inp.target_temp_C is not None
+
+    if state.last_learn_time is None:
+        state.last_learn_time = now
+        state.last_learn_temp = inp.current_temp_C
+
     # Convert constants & params (use existing param names for backward compatibility)
     step_s = float(getattr(params, "mpc_step_s", MPC_STEP_SECONDS))
     step_minutes = step_s / 60.0
@@ -356,59 +347,69 @@ def _compute_predictive_percent(
             state.loss_est = params.mpc_loss_coeff
 
     # Time since last measurement for adaptation
-    dt_last = now - state.last_time if state.last_time > 0 else 0.0
+    dt_last = now - state.last_learn_time
 
-    # ---- ADAPTATION (EMA) in physical units (°C/min) ----
+    # ---- ADAPTATION (EMA), physikalisch korrekt ----
     if (
         params.mpc_adapt
-        and state.last_temp is not None
+        and state.last_learn_temp is not None
         and inp.current_temp_C is not None
         and inp.target_temp_C is not None
-        and dt_last > 1e-6
+        and dt_last >= 180.0
     ):
         try:
-            # previous and current error relative to setpoint
-            e_prev = inp.target_temp_C - state.last_temp
+            # errors
+            e_prev = inp.target_temp_C - state.last_learn_temp
             e_now = inp.target_temp_C - inp.current_temp_C
+            improving = abs(e_now) < abs(e_prev)  # closer to target
+
+            # last actuator value (0.0 - 1.0)
             last_percent = state.last_percent if state.last_percent is not None else 0.0
             u_last = max(0.0, min(100.0, last_percent)) / 100.0
 
-            # observed temperature change (°C) between samples
-            delta_T = inp.current_temp_C - state.last_temp
-            dt_min = dt_last / 60.0  # minutes
-
-            # estimate rate °C/min
+            # compute delta T (°C/min)
+            delta_T = inp.current_temp_C - state.last_learn_temp
+            dt_min = dt_last / 60.0
             observed_rate = delta_T / dt_min if dt_min > 0 else 0.0
 
-            if u_last > 0.01:
-                # attempt to estimate gain as °C/min at 100% (guarded)
-                gain_candidate = observed_rate / u_last
-                if gain_candidate >= 0.0 and gain_candidate < params.mpc_gain_max * 10:
+            # Effective TRV minimum opening
+            min_open = params.deadzone_threshold_pct / 100.0
+
+            # --- GAIN LEARNING (only when heating actually reduces error) ---
+            if u_last > min_open and improving:
+                # Heating effect proportionally to actuator
+                gain_candidate = (abs(e_prev) - abs(e_now)) / max(u_last, 1e-6)
+
+                # only accept physically meaningful values
+                if 0.0 <= gain_candidate <= params.mpc_gain_max * 2:
                     state.gain_est = (
                         1.0 - params.mpc_adapt_alpha
                     ) * state.gain_est + params.mpc_adapt_alpha * gain_candidate
-                else:
-                    # guard: gentle shrink to avoid runaway
-                    state.gain_est *= 1.0 - params.mpc_adapt_alpha * 0.5
-            else:
-                # with valve closed, learn loss as passive cooling in °C/min
+                # no else-shrink: we avoid drift and noise amplification
+
+            # --- LOSS LEARNING (only when no heating and temperature is dropping) ---
+            elif u_last <= min_open * 0.5 and delta_T < 0:
+                # Room cooling rate
                 loss_candidate = max(0.0, -observed_rate)
-                if loss_candidate >= 0.0 and loss_candidate < params.mpc_loss_max * 10:
+
+                if 0.0 <= loss_candidate <= params.mpc_loss_max * 2:
                     state.loss_est = (
                         1.0 - params.mpc_adapt_alpha
                     ) * state.loss_est + params.mpc_adapt_alpha * loss_candidate
-                else:
-                    state.loss_est *= 1.0 - params.mpc_adapt_alpha * 0.5
 
-            # clamp
+            # clamp to allowed physical range
             state.gain_est = max(
                 params.mpc_gain_min, min(params.mpc_gain_max, state.gain_est)
             )
             state.loss_est = max(
                 params.mpc_loss_min, min(params.mpc_loss_max, state.loss_est)
             )
+
+            state.last_learn_time = now
+            state.last_learn_temp = inp.current_temp_C
+
         except Exception:
-            # don't crash adaptation on odd numeric issues
+            # ignore measurement noise / temporary invalid numbers
             pass
 
     # convert to per-step quantities (°C per simulation step)
@@ -430,7 +431,6 @@ def _compute_predictive_percent(
 
     # candidate search: coarse -> fine (reduces evals while keeping precision)
     best_percent = 0.0
-    best_cost = None
     eval_count = 0
 
     def simulate_cost_for_candidate(u_frac: float) -> float:
@@ -443,12 +443,11 @@ def _compute_predictive_percent(
             T = T + lag_alpha * (T_raw - T)
             e = inp.target_temp_C - T
             cost += e * e
-        eval_count_local = 0
         return cost
 
     # coarse search (0..100 step 10)
     coarse_candidates = list(range(0, 101, 10))
-    best_u_coarse = None
+    best_u_coarse = 0
     best_cost_coarse = None
     for cand in coarse_candidates:
         u_frac = cand / 100.0
@@ -511,13 +510,18 @@ def _post_process_percent(
     raw_percent: float,
     delta_t: Optional[float],
 ) -> tuple[int, Dict[str, Any], Optional[float]]:
-    """Apply smoothing, hysteresis, dead-zone detection, and produce debug info."""
+    """Apply smoothing, hysteresis, min-effective, du_max, dead-zone detection and produce debug info."""
 
-    smooth = raw_percent
-    target_changed = False
     name = inp.bt_name or "BT"
     entity = inp.entity_id or "unknown"
 
+    # ============================================================
+    # 1) INITIAL RAW VALUE
+    # ============================================================
+    smooth = raw_percent
+    target_changed = False
+
+    # track target temp changes
     if inp.target_temp_C is not None:
         prev_target = state.last_target_C
         if prev_target is not None:
@@ -529,10 +533,12 @@ def _post_process_percent(
                 target_changed = False
         state.last_target_C = inp.target_temp_C
 
+    # update frequency limiter
     too_soon = (now - state.last_update_ts) < params.min_update_interval_s
     if target_changed:
         too_soon = False
 
+    # compute delta_t if missing
     if inp.target_temp_C is not None and inp.current_temp_C is not None:
         try:
             if delta_t is None:
@@ -540,17 +546,42 @@ def _post_process_percent(
         except (TypeError, ValueError):
             delta_t = None
 
+    # ============================================================
+    # 2) MIN EFFECTIVE OPENING (FIRST!)
+    # ============================================================
     min_eff = state.min_effective_percent
     if min_eff is not None and min_eff > 0.0 and smooth > 0.0 and smooth < min_eff:
-        smooth = min_eff
         _LOGGER.debug(
-            "better_thermostat %s: MPC clamp smooth (%s) to min_effective=%s",
+            "better_thermostat %s: MPC pre-smooth clamp (%s) to min_effective=%s",
             name,
             entity,
             _round_for_debug(min_eff, 2),
         )
+        smooth = min_eff
 
+    # ============================================================
+    # 3) DU_MAX LIMIT (MAX STEPPING)
+    # ============================================================
     last_percent = state.last_percent
+    du_max = getattr(params, "mpc_du_max_pct", None)
+
+    if last_percent is not None and du_max is not None and du_max > 0:
+        delta = smooth - last_percent
+        if abs(delta) > du_max:
+            limited = last_percent + du_max * (1 if delta > 0 else -1)
+            _LOGGER.debug(
+                "better_thermostat %s: MPC du_max-limit (%s) raw=%s → limited=%s (max %s)",
+                name,
+                entity,
+                _round_for_debug(smooth, 2),
+                _round_for_debug(limited, 2),
+                du_max,
+            )
+            smooth = limited
+
+    # ============================================================
+    # 4) HYSTERESIS
+    # ============================================================
     if last_percent is not None:
         change = abs(smooth - last_percent)
         if (change < params.percent_hysteresis_pts and not target_changed) or too_soon:
@@ -564,6 +595,9 @@ def _post_process_percent(
         state.last_percent = smooth
         state.last_update_ts = now
 
+    # ============================================================
+    # 5) FINAL MIN EFFECTIVE CHECK ON INTEGER OUTPUT
+    # ============================================================
     min_eff = state.min_effective_percent
     if (
         min_eff is not None
@@ -571,16 +605,19 @@ def _post_process_percent(
         and percent_out > 0
         and percent_out < min_eff
     ):
+        _LOGGER.debug(
+            "better_thermostat %s: MPC final clamp percent_out (%s) to min_effective=%s",
+            name,
+            _round_for_debug(percent_out, 2),
+            _round_for_debug(min_eff, 2),
+        )
         percent_out = int(round(min_eff))
         state.last_percent = float(percent_out)
         state.last_update_ts = now
-        _LOGGER.debug(
-            "better_thermostat %s: MPC clamp percent_out (%s) to min_effective=%s",
-            name,
-            entity,
-            _round_for_debug(min_eff, 2),
-        )
 
+    # ============================================================
+    # 6) DEAD-ZONE DETECTION (unchanged, but uses corrected values)
+    # ============================================================
     temp_delta: Optional[float] = None
     time_delta: Optional[float] = None
 
@@ -596,6 +633,7 @@ def _post_process_percent(
             temp_delta = inp.trv_temp_C - state.last_trv_temp
             time_delta = now - state.last_trv_temp_ts
             eval_after = max(params.deadzone_time_s, 1.0)
+
             if time_delta >= eval_after:
                 tol = max(inp.tolerance_K, 0.0)
                 needs_heat = delta_t is not None and delta_t > tol
@@ -604,6 +642,7 @@ def _post_process_percent(
                     temp_delta is None or temp_delta <= params.deadzone_temp_delta_K
                 )
 
+                # --- DEADZONE HIT ---
                 if small_command and needs_heat and weak_response:
                     state.dead_zone_hits += 1
                     _LOGGER.debug(
@@ -615,6 +654,7 @@ def _post_process_percent(
                         _round_for_debug(temp_delta, 3),
                         percent_out,
                     )
+
                     if (
                         params.deadzone_hits_required > 0
                         and state.dead_zone_hits >= params.deadzone_hits_required
@@ -650,6 +690,7 @@ def _post_process_percent(
                             _round_for_debug(temp_delta, 3),
                             _round_for_debug(state.min_effective_percent, 2),
                         )
+
                     state.dead_zone_hits = 0
                     if prev_hits:
                         _LOGGER.debug(
@@ -663,23 +704,9 @@ def _post_process_percent(
                 state.last_trv_temp = inp.trv_temp_C
                 state.last_trv_temp_ts = now
 
-    min_eff = state.min_effective_percent
-    if (
-        min_eff is not None
-        and min_eff > 0.0
-        and percent_out > 0
-        and percent_out < min_eff
-    ):
-        percent_out = int(round(min_eff))
-        state.last_percent = float(percent_out)
-        state.last_update_ts = now
-        _LOGGER.debug(
-            "better_thermostat %s: MPC clamp percent_out (%s) to min_effective=%s",
-            name,
-            entity,
-            _round_for_debug(min_eff, 2),
-        )
-
+    # ============================================================
+    # 7) DEBUG INFO
+    # ============================================================
     debug: Dict[str, Any] = {
         "raw_percent": _round_for_debug(raw_percent, 2),
         "smooth_percent": _round_for_debug(smooth, 2),
@@ -696,6 +723,7 @@ def _post_process_percent(
         "trv_time_delta_s": _round_for_debug(time_delta, 1),
     }
 
+    # slope EMA unchanged
     if inp.temp_slope_K_per_min is not None:
         if state.ema_slope is None:
             state.ema_slope = inp.temp_slope_K_per_min
