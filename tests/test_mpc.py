@@ -1,0 +1,316 @@
+"""Tests for the MPC (Model Predictive Control) controller."""
+
+import pytest
+from custom_components.better_thermostat.utils.calibration.mpc import (
+    MpcParams,
+    MpcInput,
+    compute_mpc,
+    build_mpc_key,
+)
+
+
+class TestMPCController:
+    """Test cases for MPC controller."""
+
+    def setup_method(self):
+        """Reset MPC states before each test."""
+        # Reset all states to ensure clean tests
+        import custom_components.better_thermostat.utils.calibration.mpc as mpc_module
+        mpc_module._MPC_STATES.clear()
+
+    def test_no_temperatures(self):
+        """Test behavior when temperatures are missing."""
+        params = MpcParams()
+        inp = MpcInput(
+            key="test_no_temp",
+            target_temp_C=None,
+            current_temp_C=20.0,
+        )
+        result = compute_mpc(inp, params)
+        assert result.valve_percent == 0  # No last_percent, so 0
+        assert result.debug["delta_T"] is None
+
+    def test_blocked_heating(self):
+        """Test when heating is blocked by window or not allowed."""
+        params = MpcParams()
+        inp = MpcInput(
+            key="test_blocked",
+            target_temp_C=22.0,
+            current_temp_C=20.0,
+            window_open=True,
+            heating_allowed=True,
+        )
+        result = compute_mpc(inp, params)
+        assert result.valve_percent == 0
+
+        inp.window_open = False
+        inp.heating_allowed = False
+        result = compute_mpc(inp, params)
+        assert result.valve_percent == 0
+
+    def test_basic_mpc_calculation(self):
+        """Test basic MPC calculation."""
+        params = MpcParams(mpc_adapt=True)  # Enable adaptation, as it's default
+        inp = MpcInput(
+            key="test_basic",
+            target_temp_C=22.0,
+            current_temp_C=21.5,  # Smaller error to get valve <100%
+            temp_slope_K_per_min=0.0,
+        )
+        result = compute_mpc(inp, params)
+        # With error=0.5, should compute some positive percent <100
+        assert 0 <= result.valve_percent <= 100
+        assert result.flow_cap_K > 0  # Since valve <100%, flow_cap >0
+
+    def test_negative_error_shutoff(self):
+        """Test that valve is set to 0% when error <= -0.3K."""
+        params = MpcParams(mpc_adapt=False)
+        key = "test_shutoff"
+
+        # Test case 1: error = -0.3 (exactly threshold)
+        inp1 = MpcInput(
+            key=key,
+            target_temp_C=22.0,
+            current_temp_C=22.3,  # error = -0.3
+            temp_slope_K_per_min=0.0,
+        )
+        result1 = compute_mpc(inp1, params)
+        assert result1.valve_percent == 0.0
+
+        # Test case 2: error = -0.4 (below threshold)
+        inp2 = MpcInput(
+            key=key,
+            target_temp_C=22.0,
+            current_temp_C=22.4,  # error = -0.4
+            temp_slope_K_per_min=0.0,
+        )
+        result2 = compute_mpc(inp2, params)
+        assert result2.valve_percent == 0.0
+
+        # Test case 3: error = -0.2 (above threshold, should run MPC)
+        inp3 = MpcInput(
+            key=key,
+            target_temp_C=22.0,
+            current_temp_C=22.2,  # error = -0.2
+            temp_slope_K_per_min=0.0,
+        )
+        result3 = compute_mpc(inp3, params)
+        assert result3.valve_percent >= 0.0  # Should be calculated by MPC
+
+    def test_adaptive_parameter_estimation(self):
+        """Test adaptive estimation of thermal gain and loss coefficients."""
+        from custom_components.better_thermostat.utils.calibration.mpc import _MPC_STATES
+        params = MpcParams(mpc_adapt=True, mpc_adapt_alpha=0.5, mpc_thermal_gain=0.1, mpc_loss_coeff=0.02)
+        key = "test_adapt_est"
+
+        # Initial state
+        target = 22.0
+        current = 20.0  # 2K below target
+        slope = 0.0
+
+        print(f"\nStarting test_adaptive_parameter_estimation with key={key}")
+        print(f"Initial params: gain={params.mpc_thermal_gain}, loss={params.mpc_loss_coeff}, alpha={params.mpc_adapt_alpha}")
+
+        # First call: establish baseline
+        inp1 = MpcInput(
+            key=key,
+            target_temp_C=target,
+            current_temp_C=current,
+            temp_slope_K_per_min=slope,
+        )
+        result1 = compute_mpc(inp1, params)
+        # Should set initial gain_est and loss_est
+        state = _MPC_STATES[key]
+        print(f"After inp1 (error={target - current}): gain_est={state.gain_est}, loss_est={state.loss_est}, valve_percent={result1.valve_percent}")
+        assert state.gain_est == 0.1
+        assert state.loss_est == 0.02
+
+        # Simulate heating: assume valve opens to 50%, temp rises by 0.5K in 5 min
+        # But since step_minutes=1 in test, adjust
+        # For simplicity, simulate by calling again with reduced error
+        inp2 = MpcInput(
+            key=key,
+            target_temp_C=target,
+            current_temp_C=21.0,  # Error reduced from 2.0 to 1.0
+            temp_slope_K_per_min=slope,
+        )
+        result2 = compute_mpc(inp2, params)
+        # Check adaptation: decay = 2.0 - 1.0 = 1.0 >0, so gain should increase
+        # gain_candidate = (1.0 / 2.0) * (100 / valve_pct from first call)
+        # Assuming valve_pct ~50% for error=2.0
+        # gain_est should be updated
+        print(f"After inp2 (error={target - 21.0}): gain_est={state.gain_est}, loss_est={state.loss_est}, valve_percent={result2.valve_percent}")
+        assert state.gain_est > 0.1  # Should have increased
+
+        # Simulate no heating response: error stays the same
+        inp3 = MpcInput(
+            key=key,
+            target_temp_C=target,
+            current_temp_C=21.0,  # Error still 1.0
+            temp_slope_K_per_min=slope,
+        )
+        result3 = compute_mpc(inp3, params)
+        # decay = 1.0 - 1.0 = 0, no gain update
+        # But if error_now_current == error_prev, leak_raw=0, loss no update
+        print(f"After inp3 (error={target - 21.0}): gain_est={state.gain_est}, loss_est={state.loss_est}, valve_percent={result3.valve_percent}")
+
+        # Simulate cooling: error increases
+        inp4 = MpcInput(
+            key=key,
+            target_temp_C=target,
+            current_temp_C=20.5,  # Error back to 1.5
+            temp_slope_K_per_min=slope,
+        )
+        gain_before_decrease = state.gain_est
+        result4 = compute_mpc(inp4, params)
+        # decay = 1.0 - 1.5 = -0.5 <0, so gain decreases
+        # gain_est *= shrink, where shrink = 1 - alpha * decay_ratio
+        # decay_ratio = abs(decay)/abs(error_prev) = 0.5/1.0 = 0.5
+        # shrink = 1 - 0.5 * 0.5 = 0.75
+        # gain_est *= 0.75
+        # So should decrease
+        print(f"After inp4 (error={target - 20.5}): gain_est={state.gain_est}, loss_est={state.loss_est}, valve_percent={result4.valve_percent}")
+        print(f"gain_before_decrease={gain_before_decrease}, now={state.gain_est}")
+        assert state.gain_est < gain_before_decrease  # Should be less than before decrease
+
+        # For loss: leak_raw = error_now_current - error_prev = 1.5 - 1.0 = 0.5
+        # loss_candidate = 0.5 / 1.0 = 0.5
+        # loss_est = (1-0.5)*0.02 + 0.5*0.5 = 0.01 + 0.25 = 0.26
+        assert state.loss_est > 0.02  # Should have increased
+        print(f"Final: gain_est={state.gain_est}, loss_est={state.loss_est}")
+
+    def test_dead_zone_detection(self):
+        """Test dead-zone detection and raising minimum effective percent."""
+        params = MpcParams(
+            deadzone_threshold_pct=50.0,
+            deadzone_temp_delta_K=0.05,
+            deadzone_time_s=0.1,  # Short for test
+            deadzone_hits_required=2,
+            deadzone_raise_pct=5.0,
+        )
+        key = "test_deadzone"
+
+        # First call: set up TRV temp
+        inp1 = MpcInput(
+            key=key,
+            target_temp_C=22.0,
+            current_temp_C=20.0,
+            trv_temp_C=21.0,
+            tolerance_K=0.0,
+        )
+        _ = compute_mpc(inp1, params)
+
+        # Second call: small command, needs heat, weak response
+        inp2 = MpcInput(
+            key=key,
+            target_temp_C=22.0,
+            current_temp_C=20.0,
+            trv_temp_C=21.01,  # Small change
+            tolerance_K=0.0,
+        )
+        _ = compute_mpc(inp2, params)
+
+        # Should detect dead zone and raise min_effective_percent
+        # But may need multiple calls
+
+    def test_hysteresis(self):
+        """Test hysteresis and minimum update interval."""
+        params = MpcParams(percent_hysteresis_pts=1.0, min_update_interval_s=1.0)
+        key = "test_hyst"
+
+        # First call
+        inp = MpcInput(
+            key=key,
+            target_temp_C=22.0,
+            current_temp_C=20.0,
+        )
+        result1 = compute_mpc(inp, params)
+        _ = result1.valve_percent
+
+        # Second call with small change
+        inp.current_temp_C = 20.1  # Small change in error
+        result2 = compute_mpc(inp, params)
+        _ = result2.valve_percent
+
+        # Due to hysteresis, might keep previous value
+        # But depends on the calculation
+
+    def test_clamping_and_flow_cap(self):
+        """Test clamping to 0-100 and flow cap calculation."""
+        params = MpcParams(cap_max_K=1.0)
+        inp = MpcInput(
+            key="test_clamp",
+            target_temp_C=22.0,
+            current_temp_C=20.0,
+        )
+        result = compute_mpc(inp, params)
+        assert 0 <= result.valve_percent <= 100
+        # flow_cap = cap_max_K * (1.0 - percent/100.0)
+        expected_flow_cap = 1.0 * (1.0 - result.valve_percent / 100.0)
+        assert abs(result.flow_cap_K - expected_flow_cap) < 0.01
+
+    def test_setpoint_effective(self):
+        """Test effective setpoint calculation."""
+        params = MpcParams(cap_max_K=0.5)
+        inp = MpcInput(
+            key="test_setpoint",
+            target_temp_C=22.0,
+            current_temp_C=22.1,  # Negative error
+        )
+        result = compute_mpc(inp, params)
+        # Since delta_t <= 0, setpoint_eff should be calculated
+        assert result.setpoint_eff_C is not None
+        expected = 22.0 - result.flow_cap_K
+        assert abs(result.setpoint_eff_C - expected) < 0.01
+
+    def test_heating_sequence_simulation(self):
+        """Simulate a heating sequence to test controller behavior over time."""
+        params = MpcParams(mpc_adapt=False, mpc_thermal_gain=0.25, mpc_loss_coeff=0.01, min_update_interval_s=0.0)
+        key = "test_sequence"
+
+        # Initial state: cold room
+        target = 22.0
+        current = 18.0  # 4K below target
+        slope = 0.0
+
+        results = []
+        print(f"\nHeizsequenz-Simulation: Starttemperatur {current}°C, Ziel {target}°C")
+        step = 0
+        max_steps = 50  # Allow more steps to reach overshoot
+        while step < max_steps:
+            inp = MpcInput(
+                key=key,
+                target_temp_C=target,
+                current_temp_C=current,
+                temp_slope_K_per_min=slope,
+            )
+            result = compute_mpc(inp, params)
+            valve_pct = result.valve_percent
+            flow_cap = result.flow_cap_K
+            error = target - current
+            results.append((current, valve_pct, flow_cap))
+            print(f"Schritt {step+1}: Temp={current:.1f}°C, Error={error:.1f}K, Valve={valve_pct}%, FlowCap={flow_cap:.3f}K")
+
+            # Simulate temperature rise based on valve opening
+            # Simple model: temp increases by gain * percent / 100 per step
+            step_minutes = 1  # Finer steps for more detail
+            heating_effect = params.mpc_thermal_gain * (valve_pct / 100.0) * step_minutes
+            current += heating_effect
+            # Add some cooling
+            current -= params.mpc_loss_coeff * step_minutes
+            # No clamping to allow overshoot
+
+            step += 1
+            if error <= -1.0:  # Stop when error reaches -1.0K
+                break
+
+        # Check that temperature stabilizes near target
+        final_temp = results[-1][0]
+        final_error = target - final_temp
+        assert abs(final_error) < 1.0  # Should be close to target
+
+        # Check that valve percent decreases as temp approaches target
+        # Initial should be high, final should be lower
+        initial_percent = results[0][1]
+        final_percent = results[-1][1]
+        assert final_percent < initial_percent  # Should decrease

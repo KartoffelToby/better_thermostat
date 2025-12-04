@@ -23,8 +23,8 @@ class MpcParams:
     cap_max_K: float = 0.8
     percent_hysteresis_pts: float = 0.5
     min_update_interval_s: float = 60.0
-    mpc_thermal_gain: float = 0.08
-    mpc_loss_coeff: float = 0.015
+    mpc_thermal_gain: float = 0.25
+    mpc_loss_coeff: float = 0.01
     mpc_control_penalty: float = 0.0002
     mpc_change_penalty: float = 0.003
     mpc_adapt: bool = True
@@ -239,18 +239,28 @@ def compute_mpc(inp: MpcInput, params: MpcParams) -> Optional[MpcOutput]:
         else:
             delta_t = inp.target_temp_C - inp.current_temp_C
             initial_delta_t = delta_t
-            percent, mpc_debug = _compute_predictive_percent(
-                inp, params, state, now, delta_t
-            )
-            extra_debug = mpc_debug
-            _LOGGER.debug(
-                "better_thermostat %s: MPC raw output (%s) percent=%s delta_T=%s debug=%s",
-                name,
-                entity,
-                _round_for_debug(percent, 2),
-                _round_for_debug(delta_t, 3),
-                mpc_debug,
-            )
+            if delta_t <= -0.3:
+                percent = 0.0
+                extra_debug = {}
+                _LOGGER.debug(
+                    "better_thermostat %s: MPC skip heating due to negative error (%s) delta_T=%s <= -0.3",
+                    name,
+                    entity,
+                    _round_for_debug(delta_t, 3),
+                )
+            else:
+                percent, mpc_debug = _compute_predictive_percent(
+                    inp, params, state, now, delta_t
+                )
+                extra_debug = mpc_debug
+                _LOGGER.debug(
+                    "better_thermostat %s: MPC raw output (%s) percent=%s delta_T=%s debug=%s",
+                    name,
+                    entity,
+                    _round_for_debug(percent, 2),
+                    _round_for_debug(delta_t, 3),
+                    mpc_debug,
+                )
 
     percent = max(0.0, min(100.0, percent))
     prev_percent = state.last_percent
@@ -324,6 +334,12 @@ def _compute_predictive_percent(
     dt_last = now - state.last_time if state.last_time > 0 else 0.0
     step_minutes = MPC_STEP_SECONDS / 60.0
 
+    if params.mpc_adapt:
+        if state.gain_est is None:
+            state.gain_est = params.mpc_thermal_gain
+        if state.loss_est is None:
+            state.loss_est = params.mpc_loss_coeff
+
     if (
         params.mpc_adapt
         and state.last_temp is not None
@@ -336,10 +352,6 @@ def _compute_predictive_percent(
             error_now_current = inp.target_temp_C - inp.current_temp_C
             last_percent = state.last_percent if state.last_percent is not None else 0.0
             u_last = max(0.0, min(100.0, last_percent))
-            if state.gain_est is None:
-                state.gain_est = params.mpc_thermal_gain
-            if state.loss_est is None:
-                state.loss_est = params.mpc_loss_coeff
 
             if error_prev != 0.0:
                 if u_last > 0.0:
@@ -395,7 +407,7 @@ def _compute_predictive_percent(
         for _ in range(horizon):
             heating_effect = gain_step * (candidate / 100.0)
             future_error = future_error * (1.0 + loss_step) - heating_effect
-            cost += future_error * future_error
+            cost += max(0, future_error)
             eval_count += 1
         cost += control_pen * (candidate * candidate)
         if last_percent is not None:

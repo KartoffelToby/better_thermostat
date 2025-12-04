@@ -71,6 +71,8 @@ class PIDParams:
     kp_min: float = 10.0
     kp_max: float = 500.0
     kp_step_mul: float = 0.9
+    kd_min: float = 100.0
+    kd_max: float = 10000.0
     kd_step_mul: float = 1.1
     ki_min: float = 0.001
     ki_max: float = 1.0
