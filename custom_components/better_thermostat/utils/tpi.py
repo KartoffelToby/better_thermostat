@@ -27,7 +27,7 @@ class TpiParams:
     coef_ext: float = 0.01  # coef_ext for external delta
     # Thresholds to disable/enable algorithm based on error
     threshold_low: float = 0.0  # re-enable when error < threshold_low
-    threshold_high: float = 0.5  # disable when error > threshold_high
+    threshold_high: float = 0.3  # disable when error > threshold_high
 
 
 @dataclass
