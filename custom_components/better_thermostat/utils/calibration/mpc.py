@@ -385,26 +385,28 @@ def _compute_predictive_percent(
                 gain_candidate = observed_rate / u_last
                 if gain_candidate >= 0.0 and gain_candidate < params.mpc_gain_max * 10:
                     state.gain_est = (
-                        (1.0 - params.mpc_adapt_alpha) * state.gain_est
-                        + params.mpc_adapt_alpha * gain_candidate
-                    )
+                        1.0 - params.mpc_adapt_alpha
+                    ) * state.gain_est + params.mpc_adapt_alpha * gain_candidate
                 else:
                     # guard: gentle shrink to avoid runaway
-                    state.gain_est *= (1.0 - params.mpc_adapt_alpha * 0.5)
+                    state.gain_est *= 1.0 - params.mpc_adapt_alpha * 0.5
             else:
                 # with valve closed, learn loss as passive cooling in °C/min
                 loss_candidate = max(0.0, -observed_rate)
                 if loss_candidate >= 0.0 and loss_candidate < params.mpc_loss_max * 10:
                     state.loss_est = (
-                        (1.0 - params.mpc_adapt_alpha) * state.loss_est
-                        + params.mpc_adapt_alpha * loss_candidate
-                    )
+                        1.0 - params.mpc_adapt_alpha
+                    ) * state.loss_est + params.mpc_adapt_alpha * loss_candidate
                 else:
-                    state.loss_est *= (1.0 - params.mpc_adapt_alpha * 0.5)
+                    state.loss_est *= 1.0 - params.mpc_adapt_alpha * 0.5
 
             # clamp
-            state.gain_est = max(params.mpc_gain_min, min(params.mpc_gain_max, state.gain_est))
-            state.loss_est = max(params.mpc_loss_min, min(params.mpc_loss_max, state.loss_est))
+            state.gain_est = max(
+                params.mpc_gain_min, min(params.mpc_gain_max, state.gain_est)
+            )
+            state.loss_est = max(
+                params.mpc_loss_min, min(params.mpc_loss_max, state.loss_est)
+            )
         except Exception:
             # don't crash adaptation on odd numeric issues
             pass

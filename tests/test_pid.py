@@ -16,6 +16,7 @@ class TestPIDController:
         """Reset PID states before each test."""
         # Reset all states to ensure clean tests
         import custom_components.better_thermostat.utils.calibration.pid as pid_module
+
         pid_module._PID_STATES.clear()
 
     def test_no_temperatures(self):
@@ -190,6 +191,7 @@ class TestPIDController:
 
     def test_build_pid_key(self):
         """Test key building."""
+
         class MockBT:
             def __init__(self):
                 self.bt_target_temp: float | None = 22.5

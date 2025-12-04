@@ -16,16 +16,13 @@ class TestMPCController:
         """Reset MPC states before each test."""
         # Reset all states to ensure clean tests
         import custom_components.better_thermostat.utils.calibration.mpc as mpc_module
+
         mpc_module._MPC_STATES.clear()
 
     def test_no_temperatures(self):
         """Test behavior when temperatures are missing."""
         params = MpcParams()
-        inp = MpcInput(
-            key="test_no_temp",
-            target_temp_C=None,
-            current_temp_C=20.0,
-        )
+        inp = MpcInput(key="test_no_temp", target_temp_C=None, current_temp_C=20.0)
         result = compute_mpc(inp, params)
         assert result.valve_percent == 0  # No last_percent, so 0
         assert result.debug["delta_T"] is None
@@ -99,8 +96,16 @@ class TestMPCController:
 
     def test_adaptive_parameter_estimation(self):
         """Test adaptive estimation of thermal gain and loss coefficients."""
-        from custom_components.better_thermostat.utils.calibration.mpc import _MPC_STATES
-        params = MpcParams(mpc_adapt=True, mpc_adapt_alpha=0.5, mpc_thermal_gain=0.1, mpc_loss_coeff=0.02)
+        from custom_components.better_thermostat.utils.calibration.mpc import (
+            _MPC_STATES,
+        )
+
+        params = MpcParams(
+            mpc_adapt=True,
+            mpc_adapt_alpha=0.5,
+            mpc_thermal_gain=0.1,
+            mpc_loss_coeff=0.02,
+        )
         key = "test_adapt_est"
 
         # Initial state
@@ -109,7 +114,9 @@ class TestMPCController:
         slope = 0.0
 
         print(f"\nStarting test_adaptive_parameter_estimation with key={key}")
-        print(f"Initial params: gain={params.mpc_thermal_gain}, loss={params.mpc_loss_coeff}, alpha={params.mpc_adapt_alpha}")
+        print(
+            f"Initial params: gain={params.mpc_thermal_gain}, loss={params.mpc_loss_coeff}, alpha={params.mpc_adapt_alpha}"
+        )
 
         # First call: establish baseline
         inp1 = MpcInput(
@@ -121,7 +128,9 @@ class TestMPCController:
         result1 = compute_mpc(inp1, params)
         # Should set initial gain_est and loss_est
         state = _MPC_STATES[key]
-        print(f"After inp1 (error={target - current}): gain_est={state.gain_est}, loss_est={state.loss_est}, valve_percent={result1.valve_percent}")
+        print(
+            f"After inp1 (error={target - current}): gain_est={state.gain_est}, loss_est={state.loss_est}, valve_percent={result1.valve_percent}"
+        )
         assert state.gain_est == 0.1
         assert state.loss_est == 0.02
 
@@ -138,7 +147,9 @@ class TestMPCController:
         # Check adaptation: with new logic, observed_rate = delta_T / dt_min
         # delta_T=1.0, dt_min small, observed_rate large, gain_candidate large -> guard triggers shrink
         # gain_est should be shrunk
-        print(f"After inp2 (error={target - 21.0}): gain_est={state.gain_est}, loss_est={state.loss_est}, valve_percent={result2.valve_percent}")
+        print(
+            f"After inp2 (error={target - 21.0}): gain_est={state.gain_est}, loss_est={state.loss_est}, valve_percent={result2.valve_percent}"
+        )
         assert state.gain_est < 0.1  # Should have shrunk due to guard
 
         # Simulate no heating response: error stays the same
@@ -151,7 +162,9 @@ class TestMPCController:
         result3 = compute_mpc(inp3, params)
         # decay = 1.0 - 1.0 = 0, no gain update
         # But if error_now_current == error_prev, leak_raw=0, loss no update
-        print(f"After inp3 (error={target - 21.0}): gain_est={state.gain_est}, loss_est={state.loss_est}, valve_percent={result3.valve_percent}")
+        print(
+            f"After inp3 (error={target - 21.0}): gain_est={state.gain_est}, loss_est={state.loss_est}, valve_percent={result3.valve_percent}"
+        )
 
         # Simulate cooling: error increases
         inp4 = MpcInput(
@@ -168,9 +181,13 @@ class TestMPCController:
         # shrink = 1 - 0.5 * 0.5 = 0.75
         # gain_est *= 0.75
         # So should decrease
-        print(f"After inp4 (error={target - 20.5}): gain_est={state.gain_est}, loss_est={state.loss_est}, valve_percent={result4.valve_percent}")
+        print(
+            f"After inp4 (error={target - 20.5}): gain_est={state.gain_est}, loss_est={state.loss_est}, valve_percent={result4.valve_percent}"
+        )
         print(f"gain_before_decrease={gain_before_decrease}, now={state.gain_est}")
-        assert state.gain_est < gain_before_decrease  # Should be less than before decrease
+        assert (
+            state.gain_est < gain_before_decrease
+        )  # Should be less than before decrease
 
         # For loss: with new logic, loss is learned only when valve closed (u_last <=0.01)
         # Here valve is 100%, so loss_est unchanged
@@ -217,11 +234,7 @@ class TestMPCController:
         key = "test_hyst"
 
         # First call
-        inp = MpcInput(
-            key=key,
-            target_temp_C=22.0,
-            current_temp_C=20.0,
-        )
+        inp = MpcInput(key=key, target_temp_C=22.0, current_temp_C=20.0)
         result1 = compute_mpc(inp, params)
         _ = result1.valve_percent
 
@@ -236,11 +249,7 @@ class TestMPCController:
     def test_clamping_and_flow_cap(self):
         """Test clamping to 0-100 and flow cap calculation."""
         params = MpcParams(cap_max_K=1.0)
-        inp = MpcInput(
-            key="test_clamp",
-            target_temp_C=22.0,
-            current_temp_C=20.0,
-        )
+        inp = MpcInput(key="test_clamp", target_temp_C=22.0, current_temp_C=20.0)
         result = compute_mpc(inp, params)
         assert 0 <= result.valve_percent <= 100
         # flow_cap = cap_max_K * (1.0 - percent/100.0)
@@ -263,7 +272,12 @@ class TestMPCController:
 
     def test_heating_sequence_simulation(self):
         """Simulate a heating sequence to test controller behavior over time."""
-        params = MpcParams(mpc_adapt=False, mpc_thermal_gain=0.25, mpc_loss_coeff=0.01, min_update_interval_s=0.0)
+        params = MpcParams(
+            mpc_adapt=False,
+            mpc_thermal_gain=0.25,
+            mpc_loss_coeff=0.01,
+            min_update_interval_s=0.0,
+        )
         key = "test_sequence"
 
         # Initial state: cold room
@@ -287,12 +301,16 @@ class TestMPCController:
             flow_cap = result.flow_cap_K
             error = target - current
             results.append((current, valve_pct, flow_cap))
-            print(f"Schritt {step+1}: Temp={current:.1f}°C, Error={error:.1f}K, Valve={valve_pct}%, FlowCap={flow_cap:.3f}K")
+            print(
+                f"Schritt {step+1}: Temp={current:.1f}°C, Error={error:.1f}K, Valve={valve_pct}%, FlowCap={flow_cap:.3f}K"
+            )
 
             # Simulate temperature rise based on valve opening
             # Simple model: temp increases by gain * percent / 100 per step
             step_minutes = 1  # Finer steps for more detail
-            heating_effect = params.mpc_thermal_gain * (valve_pct / 100.0) * step_minutes
+            heating_effect = (
+                params.mpc_thermal_gain * (valve_pct / 100.0) * step_minutes
+            )
             current += heating_effect
             # Add some cooling
             current -= params.mpc_loss_coeff * step_minutes
