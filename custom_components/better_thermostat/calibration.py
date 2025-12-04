@@ -36,7 +36,7 @@ def _supports_direct_valve_control(self, entity_id: str) -> bool:
     trv_data = self.real_trvs.get(entity_id) or {}
     valve_entity = trv_data.get("valve_position_entity")
     writable_flag = trv_data.get("valve_position_writable")
-    if valve_entity and writable_flag is not False:
+    if valve_entity and writable_flag is True:
         return True
     quirks = trv_data.get("model_quirks")
     return bool(getattr(quirks, "override_set_valve", None))
