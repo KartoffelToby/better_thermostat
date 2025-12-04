@@ -91,7 +91,6 @@ BETTERTHERMOSTAT_SET_TEMPERATURE_SCHEMA = vol.All(
 # Optional schema for resetting PID learnings
 BETTERTHERMOSTAT_RESET_PID_SCHEMA = make_entity_service_schema(
     {
-        vol.Optional("include_open_caps", default=False): cv.boolean,
         vol.Optional("apply_pid_defaults", default=False): cv.boolean,
         vol.Optional("defaults_kp"): vol.Coerce(float),
         vol.Optional("defaults_ki"): vol.Coerce(float),
@@ -124,3 +123,4 @@ class CalibrationMode(StrEnum):
     NO_CALIBRATION = "no_calibration"
     MPC_CALIBRATION = "mpc_calibration"
     TPI_CALIBRATION = "tpi_calibration"
+    PID_CALIBRATION = "pid_calibration"

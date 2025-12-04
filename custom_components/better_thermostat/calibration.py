@@ -20,19 +20,26 @@ from custom_components.better_thermostat.model_fixes.model_quirks import (
     fix_target_temperature_calibration,
 )
 
-from custom_components.better_thermostat.utils.mpc import (
+from custom_components.better_thermostat.utils.calibration.mpc import (
     MpcInput,
     MpcParams,
     build_mpc_key,
     compute_mpc,
 )
 
-from custom_components.better_thermostat.utils.tpi import (
+from custom_components.better_thermostat.utils.calibration.tpi import (
     TpiInput,
     TpiParams,
     build_tpi_key,
     compute_tpi,
 )
+
+from custom_components.better_thermostat.utils.calibration.pid import (
+    PIDParams,
+    compute_pid,
+)
+
+from custom_components.better_thermostat.utils.calibration.pid import build_pid_key
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -245,6 +252,84 @@ def _compute_tpi_balance(self, entity_id: str):
     return tpi_output, supports_valve
 
 
+def _compute_pid_balance(self, entity_id: str):
+    """Run the PID balance algorithm for calibration purposes."""
+
+    trv_state = self.real_trvs.get(entity_id)
+    if trv_state is None:
+        return None, False
+
+    if self.bt_target_temp is None or self.cur_temp is None:
+        trv_state["calibration_balance"] = None
+        return None, False
+
+    if getattr(self, "window_open", False) is True:
+        trv_state["calibration_balance"] = None
+        return None, False
+
+    hvac_mode = getattr(self, "bt_hvac_mode", None)
+    if hvac_mode == HVACMode.OFF:
+        trv_state["calibration_balance"] = None
+        return None, False
+
+    # Build PID params from config
+    params = PIDParams(
+        kp=getattr(self, "pid_kp", 100.0),
+        ki=getattr(self, "pid_ki", 0.03),
+        kd=getattr(self, "pid_kd", 2000.0),
+        auto_tune=getattr(self, "pid_auto_tune", True),
+    )
+
+    key = build_pid_key(self, entity_id)
+
+    _LOGGER.debug(
+        "better_thermostat %s: Running PID calibration for %s",
+        getattr(self, "device_name", "unknown"),
+        entity_id,
+    )
+
+    try:
+        percent, debug = compute_pid(
+            params,
+            self.bt_target_temp,
+            self.cur_temp,
+            trv_state.get("current_temperature"),
+            getattr(self, "temp_slope", None),
+            key,
+        )
+    except (ValueError, TypeError, ZeroDivisionError) as err:
+        _LOGGER.debug(
+            "better_thermostat %s: PID calibration compute failed for %s: %s",
+            getattr(self, "device_name", "unknown"),
+            entity_id,
+            err,
+        )
+        trv_state["calibration_balance"] = None
+        return None, False
+
+    if percent is None:
+        trv_state["calibration_balance"] = None
+        return None, False
+
+    supports_valve = _supports_direct_valve_control(self, entity_id)
+    trv_state["calibration_balance"] = {
+        "valve_percent": percent,
+        "apply_valve": supports_valve,
+        "debug": debug,
+    }
+
+    _LOGGER.debug(
+        "better_thermostat %s: PID calibration for %s: valve_percent=%.1f%%, apply_valve=%s, debug=%s",
+        getattr(self, "device_name", "unknown"),
+        entity_id,
+        percent,
+        supports_valve,
+        debug,
+    )
+
+    return percent, supports_valve
+
+
 def calculate_calibration_local(self, entity_id) -> float | None:
     """Calculate local delta to adjust the setpoint of the TRV based on the air temperature of the external sensor.
 
@@ -281,11 +366,13 @@ def calculate_calibration_local(self, entity_id) -> float | None:
     )
 
     if _within_tolerance:
-        # When within tolerance, don't adjust calibration but keep MPC/TPI valve data fresh
+        # When within tolerance, don't adjust calibration but keep MPC/TPI/PID valve data fresh
         if _calibration_mode == CalibrationMode.MPC_CALIBRATION:
             _compute_mpc_balance(self, entity_id)
         elif _calibration_mode == CalibrationMode.TPI_CALIBRATION:
             _compute_tpi_balance(self, entity_id)
+        elif _calibration_mode == CalibrationMode.PID_CALIBRATION:
+            _compute_pid_balance(self, entity_id)
         else:
             self.real_trvs[entity_id].pop("calibration_balance", None)
         return self.real_trvs[entity_id]["last_calibration"]
@@ -366,6 +453,22 @@ def calculate_calibration_local(self, entity_id) -> float | None:
                     _new_trv_calibration = _current_trv_calibration - (
                         _desired_trv_setpoint - _cur_target_temp
                     )
+    elif _calibration_mode == CalibrationMode.PID_CALIBRATION:
+        _pid_result, _pid_use_valve = _compute_pid_balance(self, entity_id)
+        if _pid_use_valve:
+            _new_trv_calibration = _current_trv_calibration
+        elif _pid_result is not None:
+            _pid_percent = _pid_result
+            if isinstance(_pid_percent, (int, float)):
+                _max_temp = _convert_to_float(self.real_trvs[entity_id]["max_temp"])
+                if _max_temp is not None:
+                    _valve_fraction = max(0.0, min(1.0, float(_pid_percent) / 100.0))
+                    _desired_trv_setpoint = _cur_trv_temp_f + (
+                        (float(_max_temp) - _cur_trv_temp_f) * _valve_fraction
+                    )
+                    _new_trv_calibration = _current_trv_calibration - (
+                        _desired_trv_setpoint - _cur_target_temp
+                    )
     else:
         self.real_trvs[entity_id].pop("calibration_balance", None)
 
@@ -375,6 +478,7 @@ def calculate_calibration_local(self, entity_id) -> float | None:
     _skip_post_adjustments = _calibration_mode in (
         CalibrationMode.MPC_CALIBRATION,
         CalibrationMode.TPI_CALIBRATION,
+        CalibrationMode.PID_CALIBRATION,
     )
 
     _new_trv_calibration = float(_new_trv_calibration)
@@ -572,12 +676,26 @@ def calculate_calibration_setpoint(self, entity_id) -> float | None:
                     _calibrated_setpoint = _cur_trv_temp + (
                         (float(_max_temp) - _cur_trv_temp) * _tpi_fraction
                     )
+    elif _calibration_mode == CalibrationMode.PID_CALIBRATION:
+        _pid_result, _pid_use_valve = _compute_pid_balance(self, entity_id)
+        if _pid_use_valve:
+            _calibrated_setpoint = _cur_target_temp
+        elif _pid_result is not None:
+            _pid_percent = _pid_result
+            if isinstance(_pid_percent, (int, float)):
+                _max_temp = _convert_to_float(self.real_trvs[entity_id]["max_temp"])
+                if _max_temp is not None:
+                    _pid_fraction = max(0.0, min(1.0, float(_pid_percent) / 100.0))
+                    _calibrated_setpoint = _cur_trv_temp + (
+                        (float(_max_temp) - _cur_trv_temp) * _pid_fraction
+                    )
     else:
         self.real_trvs[entity_id].pop("calibration_balance", None)
 
     _skip_post_adjustments = _calibration_mode in (
         CalibrationMode.MPC_CALIBRATION,
         CalibrationMode.TPI_CALIBRATION,
+        CalibrationMode.PID_CALIBRATION,
     )
 
     if _calibration_mode == CalibrationMode.AGGRESIVE_CALIBRATION:

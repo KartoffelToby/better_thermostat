@@ -60,20 +60,6 @@ CALIBRATION_TYPE_SELECTOR = selector.SelectSelector(
 )
 
 
-BALANCE_MODE_SELECTOR = selector.SelectSelector(
-    selector.SelectSelectorConfig(
-        options=[
-            selector.SelectOptionDict(value="none", label="None / Off"),
-            selector.SelectOptionDict(
-                value="heuristic", label="Heuristic (Experimental)"
-            ),
-            selector.SelectOptionDict(value="pid", label="PID (Experimental)"),
-        ],
-        mode=selector.SelectSelectorMode.DROPDOWN,
-    )
-)
-
-
 CALIBRATION_TYPE_ALL_SELECTOR = selector.SelectSelector(
     selector.SelectSelectorConfig(
         options=[
@@ -121,6 +107,9 @@ CALIBRATION_MODE_SELECTOR = selector.SelectSelector(
             ),
             selector.SelectOptionDict(
                 value=CalibrationMode.TPI_CALIBRATION, label="TPI Controller"
+            ),
+            selector.SelectOptionDict(
+                value=CalibrationMode.PID_CALIBRATION, label="PID Controller"
             ),
             selector.SelectOptionDict(
                 value=CalibrationMode.NO_CALIBRATION, label="No Calibration"
@@ -187,13 +176,6 @@ def _as_bool(value: Any, default: bool = False) -> bool:
     return bool(value)
 
 
-def _normalize_balance_mode(value: Any, fallback: str) -> str:
-    allowed = {"none", "heuristic", "pid"}
-    if isinstance(value, str) and value.lower() in allowed:
-        return value.lower()
-    return fallback
-
-
 async def _load_adapter_info(
     flow: config_entries.ConfigFlow,
     integration: Optional[str],
@@ -248,6 +230,25 @@ def _build_advanced_fields(
     homematic: bool,
     has_auto: bool,
 ) -> OrderedDict:
+    # Migrate old balance_mode to calibration_mode
+    sources_list = list(sources)
+    for source in sources_list:
+        if isinstance(source, dict):
+            balance_mode = source.get("balance_mode")
+            if balance_mode == "pid":
+                # Migrate PID from balance_mode to calibration_mode
+                source["calibration_mode"] = CalibrationMode.PID_CALIBRATION.value
+                # Remove old balance_mode
+                source.pop("balance_mode", None)
+            elif balance_mode in ("heuristic", "none"):
+                # For other balance modes, set calibration_mode to default if not set
+                if "calibration_mode" not in source:
+                    source["calibration_mode"] = CalibrationMode.DEFAULT.value
+                # Remove old balance_mode
+                source.pop("balance_mode", None)
+
+    sources = sources_list
+
     def get_value(key: str, fallback: Any) -> Any:
         for source in sources:
             if isinstance(source, dict) and key in source:
@@ -265,7 +266,6 @@ def _build_advanced_fields(
         if default_calibration == "local_calibration_based"
         else CALIBRATION_TYPE_SELECTOR
     )
-    balance_default = _normalize_balance_mode(get_value("balance_mode", "none"), "none")
     ordered: OrderedDict = OrderedDict()
 
     # 1) Calibration + protection flags
@@ -305,11 +305,6 @@ def _build_advanced_fields(
     ordered[
         vol.Optional(CONF_HOMEMATICIP, default=get_bool(CONF_HOMEMATICIP, homematic))
     ] = bool
-
-    # 2) Balance mode
-    ordered[vol.Optional("balance_mode", default=balance_default)] = (
-        BALANCE_MODE_SELECTOR
-    )
 
     # 3) General numeric settings
     for key in ("trend_mix_trv", "percent_hysteresis_pts", "min_update_interval_s"):
@@ -373,9 +368,6 @@ def _normalize_advanced_submission(
     )
     normalized[CONF_CHILD_LOCK] = _as_bool(normalized.get(CONF_CHILD_LOCK), False)
     normalized[CONF_HOMEMATICIP] = _as_bool(normalized.get(CONF_HOMEMATICIP), homematic)
-    normalized["balance_mode"] = _normalize_balance_mode(
-        normalized.get("balance_mode", "none"), "none"
-    )
 
     for key, default, _validator in _ADVANCED_NUMERIC_SPECS:
         caster = int if key.endswith("_steps") else float
