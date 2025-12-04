@@ -75,49 +75,6 @@ def _supports_direct_valve_control(self, entity_id: str) -> bool:
     return bool(getattr(quirks, "override_set_valve", None))
 
 
-def _build_mpc_params(self, entity_id: str) -> MpcParams:
-    """Build MPC parameters based on advanced TRV settings."""
-
-    adv = (self.real_trvs.get(entity_id, {}) or {}).get("advanced", {}) or {}
-    params = MpcParams()
-    overrides = {
-        "mpc_thermal_gain": float,
-        "mpc_loss_coeff": float,
-        "mpc_control_penalty": float,
-        "mpc_change_penalty": float,
-        "mpc_adapt": bool,
-        "mpc_gain_min": float,
-        "mpc_gain_max": float,
-        "mpc_loss_min": float,
-        "mpc_loss_max": float,
-        "mpc_adapt_alpha": float,
-        "percent_hysteresis_pts": float,
-        "min_update_interval_s": float,
-    }
-
-    for key, caster in overrides.items():
-        if key not in adv:
-            continue
-        value = adv.get(key)
-        if value is None:
-            continue
-        if caster is bool:
-            coerced = bool(value)
-        elif caster is int:
-            try:
-                coerced = int(float(value))
-            except (TypeError, ValueError):
-                continue
-        else:
-            try:
-                coerced = caster(value)
-            except (TypeError, ValueError):
-                continue
-        if hasattr(params, key):
-            setattr(params, key, coerced)
-
-    return params
-
 
 def _compute_mpc_balance(self, entity_id: str):
     """Run the MPC balance algorithm for calibration purposes."""
@@ -139,7 +96,7 @@ def _compute_mpc_balance(self, entity_id: str):
         trv_state["calibration_balance"] = None
         return None, False
 
-    params = _build_mpc_params(self, entity_id)
+    params = MpcParams()
 
     try:
         mpc_output = compute_mpc(

@@ -135,22 +135,6 @@ _ADVANCED_NUMERIC_SPECS: Tuple[Tuple[str, Any, Any], ...] = (
     ("pid_kp", 60.0, vol.All(vol.Coerce(float), vol.Range(min=0))),
     ("pid_ki", 0.01, vol.All(vol.Coerce(float), vol.Range(min=0))),
     ("pid_kd", 2000.0, vol.All(vol.Coerce(float), vol.Range(min=0))),
-    (
-        "mpc_thermal_gain",
-        0.05,
-        vol.All(vol.Coerce(float), vol.Range(min=0.001, max=0.5)),
-    ),
-    ("mpc_loss_coeff", 0.02, vol.All(vol.Coerce(float), vol.Range(min=0.0, max=0.2))),
-    (
-        "mpc_control_penalty",
-        0.001,
-        vol.All(vol.Coerce(float), vol.Range(min=0.0, max=1.0)),
-    ),
-    (
-        "mpc_change_penalty",
-        0.05,
-        vol.All(vol.Coerce(float), vol.Range(min=0.0, max=5.0)),
-    ),
 )
 
 
@@ -307,7 +291,7 @@ def _build_advanced_fields(
     ] = bool
 
     # 3) General numeric settings
-    for key in ("trend_mix_trv", "percent_hysteresis_pts", "min_update_interval_s"):
+    for key in ("trend_mix_trv",):
         default, validator = next(
             (d, v) for (k, d, v) in _ADVANCED_NUMERIC_SPECS if k == key
         )
@@ -326,22 +310,6 @@ def _build_advanced_fields(
     ordered[vol.Optional("pid_kd", default=get_value("pid_kd", 2000.0))] = vol.All(
         vol.Coerce(float), vol.Range(min=0)
     )
-
-    # 5) MPC block
-    for key in (
-        "mpc_thermal_gain",
-        "mpc_loss_coeff",
-        "mpc_control_penalty",
-        "mpc_change_penalty",
-        "mpc_adapt",
-    ):
-        if key == "mpc_adapt":
-            ordered[vol.Optional(key, default=get_bool(key, True))] = bool
-        else:
-            default, validator = next(
-                (d, v) for (k, d, v) in _ADVANCED_NUMERIC_SPECS if k == key
-            )
-            ordered[vol.Optional(key, default=get_value(key, default))] = validator
 
     return ordered
 
@@ -377,7 +345,6 @@ def _normalize_advanced_submission(
             normalized[key] = caster(default)
 
     normalized["pid_auto_tune"] = _as_bool(normalized.get("pid_auto_tune"), True)
-    normalized["mpc_adapt"] = _as_bool(normalized.get("mpc_adapt"), True)
 
     _LOGGER.debug("Normalized advanced submission: %s", normalized)
 
