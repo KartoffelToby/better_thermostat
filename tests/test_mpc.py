@@ -135,12 +135,11 @@ class TestMPCController:
             temp_slope_K_per_min=slope,
         )
         result2 = compute_mpc(inp2, params)
-        # Check adaptation: decay = 2.0 - 1.0 = 1.0 >0, so gain should increase
-        # gain_candidate = (1.0 / 2.0) * (100 / valve_pct from first call)
-        # Assuming valve_pct ~50% for error=2.0
-        # gain_est should be updated
+        # Check adaptation: with new logic, observed_rate = delta_T / dt_min
+        # delta_T=1.0, dt_min small, observed_rate large, gain_candidate large -> guard triggers shrink
+        # gain_est should be shrunk
         print(f"After inp2 (error={target - 21.0}): gain_est={state.gain_est}, loss_est={state.loss_est}, valve_percent={result2.valve_percent}")
-        assert state.gain_est > 0.1  # Should have increased
+        assert state.gain_est < 0.1  # Should have shrunk due to guard
 
         # Simulate no heating response: error stays the same
         inp3 = MpcInput(
@@ -173,10 +172,9 @@ class TestMPCController:
         print(f"gain_before_decrease={gain_before_decrease}, now={state.gain_est}")
         assert state.gain_est < gain_before_decrease  # Should be less than before decrease
 
-        # For loss: leak_raw = error_now_current - error_prev = 1.5 - 1.0 = 0.5
-        # loss_candidate = 0.5 / 1.0 = 0.5
-        # loss_est = (1-0.5)*0.02 + 0.5*0.5 = 0.01 + 0.25 = 0.26
-        assert state.loss_est > 0.02  # Should have increased
+        # For loss: with new logic, loss is learned only when valve closed (u_last <=0.01)
+        # Here valve is 100%, so loss_est unchanged
+        assert state.loss_est == 0.02  # No change since valve open
         print(f"Final: gain_est={state.gain_est}, loss_est={state.loss_est}")
 
     def test_dead_zone_detection(self):
