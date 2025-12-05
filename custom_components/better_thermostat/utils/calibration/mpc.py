@@ -618,7 +618,7 @@ def _post_process_percent(
         state.last_update_ts = now
 
     # ============================================================
-    # 6) DEAD-ZONE DETECTION (unchanged, but uses corrected values)
+    # 6) DEAD-ZONE DETECTION (improved)
     # ============================================================
     temp_delta: Optional[float] = None
     time_delta: Optional[float] = None
@@ -637,6 +637,7 @@ def _post_process_percent(
             eval_after = max(params.deadzone_time_s, 1.0)
 
             if time_delta >= eval_after:
+
                 tol = max(inp.tolerance_K, 0.0)
                 needs_heat = delta_t is not None and delta_t > tol
                 small_command = 0 < percent_out <= params.deadzone_threshold_pct
@@ -644,16 +645,52 @@ def _post_process_percent(
                     temp_delta is None or temp_delta <= params.deadzone_temp_delta_K
                 )
 
-                # --- DEADZONE HIT ---
-                if small_command and needs_heat and weak_response:
+                # --- Expected MPC effect vs real heating ---
+                gain = state.gain_est or params.mpc_thermal_gain
+                expected_temp_rise = gain * (percent_out / 100.0) * (time_delta / 60.0)
+
+                room_temp_delta = (
+                    (inp.current_temp_C - inp.last_room_temp_C)
+                    if hasattr(inp, "last_room_temp_C")
+                    and inp.last_room_temp_C is not None
+                    else None
+                )
+
+                measured_ok = (
+                    room_temp_delta is not None
+                    and room_temp_delta > expected_temp_rise * 0.2
+                )
+
+                trv_self_heating = (
+                    temp_delta is not None
+                    and temp_delta > 0.0
+                    and room_temp_delta is not None
+                    and room_temp_delta <= 0.0
+                )
+
+                # --- DEADZONE HIT (improved logic) ---
+                deadzone_hit = (
+                    small_command
+                    and needs_heat
+                    and (weak_response or trv_self_heating or not measured_ok)
+                )
+
+                if deadzone_hit:
                     state.dead_zone_hits += 1
                     _LOGGER.debug(
-                        "better_thermostat %s: MPC dead-zone observation (%s) hits=%s/%s temp_delta=%s command=%s%%",
+                        "better_thermostat %s: MPC dead-zone HIT (%s) hits=%s/%s "
+                        "trv_temp_delta=%s room_temp_delta=%s expected=%s cmd=%s%%",
                         name,
                         entity,
                         state.dead_zone_hits,
                         params.deadzone_hits_required,
                         _round_for_debug(temp_delta, 3),
+                        (
+                            _round_for_debug(room_temp_delta, 3)
+                            if room_temp_delta is not None
+                            else None
+                        ),
+                        _round_for_debug(expected_temp_rise, 3),
                         percent_out,
                     )
 
@@ -668,13 +705,14 @@ def _post_process_percent(
                         )
                         state.dead_zone_hits = 0
                         _LOGGER.debug(
-                            "better_thermostat %s: MPC dead-zone raise (%s) proposed=%s new_min=%s",
+                            "better_thermostat %s: MPC dead-zone RAISE (%s) new_min=%s",
                             name,
                             entity,
-                            _round_for_debug(proposed, 2),
                             _round_for_debug(state.min_effective_percent, 2),
                         )
+
                 else:
+                    # --- Reset / decay ---
                     prev_hits = state.dead_zone_hits
                     if (
                         state.min_effective_percent is not None
@@ -686,21 +724,19 @@ def _post_process_percent(
                         )
                         state.min_effective_percent = new_min if new_min > 0.0 else None
                         _LOGGER.debug(
-                            "better_thermostat %s: MPC dead-zone decay (%s) temp_delta=%s new_min=%s",
+                            "better_thermostat %s: MPC dead-zone DECAY (%s) new_min=%s",
                             name,
                             entity,
-                            _round_for_debug(temp_delta, 3),
                             _round_for_debug(state.min_effective_percent, 2),
                         )
 
                     state.dead_zone_hits = 0
                     if prev_hits:
                         _LOGGER.debug(
-                            "better_thermostat %s: MPC dead-zone reset (%s) prev_hits=%s temp_delta=%s",
+                            "better_thermostat %s: MPC dead-zone RESET (%s) prev_hits=%s",
                             name,
                             entity,
                             prev_hits,
-                            _round_for_debug(temp_delta, 3),
                         )
 
                 state.last_trv_temp = inp.trv_temp_C
