@@ -223,6 +223,8 @@ def compute_mpc(inp: MpcInput, params: MpcParams) -> Optional[MpcOutput]:
     if not inp.heating_allowed or inp.window_open:
         percent = 0.0
         delta_t = None
+        state.last_learn_time = None
+        state.last_learn_temp = None
         _LOGGER.debug(
             "better_thermostat %s: MPC skip heating (%s) window_open=%s heating_allowed=%s",
             name,
