@@ -256,9 +256,10 @@ class TestMPCController:
         """Simulate a heating sequence to test controller behavior over time."""
         params = MpcParams(
             mpc_adapt=False,
-            mpc_thermal_gain=0.25,
+            mpc_thermal_gain=0.06,
             mpc_loss_coeff=0.01,
-            min_update_interval_s=0.0,
+            min_update_interval_s=0.0,  # Allow immediate updates for simulation
+            min_percent_hold_time_s=0.0,  # Disable hold time for test
         )
         key = "test_sequence"
 
@@ -289,7 +290,7 @@ class TestMPCController:
 
             # Simulate temperature rise based on valve opening
             # Simple model: temp increases by gain * percent / 100 per step
-            step_minutes = 1  # Finer steps for more detail
+            step_minutes = 5  # Finer steps for more detail
             heating_effect = (
                 params.mpc_thermal_gain * (valve_pct / 100.0) * step_minutes
             )

@@ -247,28 +247,18 @@ def compute_mpc(inp: MpcInput, params: MpcParams) -> Optional[MpcOutput]:
         else:
             delta_t = inp.target_temp_C - inp.current_temp_C
             initial_delta_t = delta_t
-            if delta_t <= -0.3:
-                percent = 0.0
-                extra_debug = {}
-                _LOGGER.debug(
-                    "better_thermostat %s: MPC skip heating due to negative error (%s) delta_T=%s <= -0.3",
-                    name,
-                    entity,
-                    _round_for_debug(delta_t, 3),
-                )
-            else:
-                percent, mpc_debug = _compute_predictive_percent(
-                    inp, params, state, now, delta_t
-                )
-                extra_debug = mpc_debug
-                _LOGGER.debug(
-                    "better_thermostat %s: MPC raw output (%s) percent=%s delta_T=%s debug=%s",
-                    name,
-                    entity,
-                    _round_for_debug(percent, 2),
-                    _round_for_debug(delta_t, 3),
-                    mpc_debug,
-                )
+            percent, mpc_debug = _compute_predictive_percent(
+                inp, params, state, now, delta_t
+            )
+            extra_debug = mpc_debug
+            _LOGGER.debug(
+                "better_thermostat %s: MPC raw output (%s) percent=%s delta_T=%s debug=%s",
+                name,
+                entity,
+                _round_for_debug(percent, 2),
+                _round_for_debug(delta_t, 3),
+                mpc_debug,
+            )
 
     percent = max(0.0, min(100.0, percent))
     prev_percent = state.last_percent
