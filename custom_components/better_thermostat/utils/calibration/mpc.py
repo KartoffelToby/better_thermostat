@@ -42,7 +42,7 @@ class MpcParams:
     deadzone_decay_pct: float = 1.0
     mpc_du_max_pct: float = 25.0
     min_percent_hold_time_s: float = 300.0  # mind. 5 Minuten Haltezeit
-    big_change_force_open_pct: float = 20.0  # >20% Änderung darf sofort fahren
+    big_change_force_open_pct: float = 33.0  # >33% Änderung darf sofort fahren
 
 
 @dataclass
