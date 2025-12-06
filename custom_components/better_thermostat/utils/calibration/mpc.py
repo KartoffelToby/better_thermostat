@@ -41,6 +41,8 @@ class MpcParams:
     deadzone_raise_pct: float = 2.0
     deadzone_decay_pct: float = 1.0
     mpc_du_max_pct: float = 25.0
+    min_percent_hold_time_s: float = 300.0  # mind. 5 Minuten Haltezeit
+    big_change_force_open_pct: float = 20.0  # >20% Änderung darf sofort fahren
 
 
 @dataclass
@@ -768,5 +770,35 @@ def _post_process_percent(
         else:
             state.ema_slope = 0.6 * state.ema_slope + 0.4 * inp.temp_slope_K_per_min
         debug["slope_ema"] = _round_for_debug(state.ema_slope, 4)
+
+    # ===========================================
+    # MINIMUM HOLD TIME – ANTI-CHATTERING
+    # ===========================================
+    hold_time = params.min_percent_hold_time_s
+
+    # Wenn wir kurz vorher ein anderes Kommando geschickt haben → blockieren
+    if state.last_percent is not None:
+        time_since_update = now - state.last_update_ts
+
+        # Ausnahme: Target wurde geändert → immer erlauben
+        if not target_changed:
+
+            # Ausnahme: große Änderung nötig (z.B. Fenster auf)
+            big_change = (
+                abs(smooth - state.last_percent) >= params.big_change_force_open_pct
+            )
+
+            if time_since_update < hold_time and not big_change:
+                percent_out = int(round(state.last_percent))
+                debug["hold_block"] = True
+                debug["hold_remaining_s"] = int(hold_time - time_since_update)
+                _LOGGER.debug(
+                    "better_thermostat %s: MPC hold-time block (%s) last_percent=%s output=%s remaining_s=%s",
+                    name,
+                    entity,
+                    _round_for_debug(state.last_percent, 2),
+                    percent_out,
+                    _round_for_debug(hold_time - time_since_update, 1),
+                )
 
     return percent_out, debug, delta_t
