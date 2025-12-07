@@ -26,8 +26,8 @@ class MpcParams:
     min_update_interval_s: float = 60.0
     mpc_thermal_gain: float = 0.06
     mpc_loss_coeff: float = 0.01
-    mpc_control_penalty = 0.00005
-    mpc_change_penalty = 0.02
+    mpc_control_penalty: float = 0.00005
+    mpc_change_penalty: float = 0.2
     mpc_adapt: bool = True
     mpc_gain_min: float = 0.01
     mpc_gain_max: float = 0.2
@@ -81,6 +81,7 @@ class _MpcState:
     min_effective_percent: Optional[float] = None
     last_learn_time: Optional[float] = None
     last_learn_temp: Optional[float] = None
+    smoothed_delta_t: Optional[float] = None
 
 
 _MPC_STATES: Dict[str, _MpcState] = {}
@@ -247,8 +248,16 @@ def compute_mpc(inp: MpcInput, params: MpcParams) -> Optional[MpcOutput]:
         else:
             delta_t = inp.target_temp_C - inp.current_temp_C
             initial_delta_t = delta_t
+            # EMA-Glättung von delta_t über 2-3 Messungen (Alpha=0.3)
+            alpha = 0.7
+            if state.smoothed_delta_t is None:
+                state.smoothed_delta_t = delta_t
+            else:
+                state.smoothed_delta_t = alpha * delta_t + (1 - alpha) * state.smoothed_delta_t
+            smoothed_delta_t = state.smoothed_delta_t
+            initial_delta_t = smoothed_delta_t
             percent, mpc_debug = _compute_predictive_percent(
-                inp, params, state, now, delta_t
+                inp, params, state, now, smoothed_delta_t
             )
             extra_debug = mpc_debug
             _LOGGER.debug(
@@ -256,7 +265,7 @@ def compute_mpc(inp: MpcInput, params: MpcParams) -> Optional[MpcOutput]:
                 name,
                 entity,
                 _round_for_debug(percent, 2),
-                _round_for_debug(delta_t, 3),
+                _round_for_debug(smoothed_delta_t, 3),
                 mpc_debug,
             )
 
@@ -440,7 +449,7 @@ def _compute_predictive_percent(
         return cost
 
     # coarse search (0..100 step 10)
-    coarse_candidates = list(range(0, 101, 10))
+    coarse_candidates = list(range(0, 101, 5))
     best_u_coarse = 0
     best_cost_coarse = None
     for cand in coarse_candidates:
