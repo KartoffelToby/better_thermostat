@@ -81,7 +81,8 @@ class _MpcState:
     min_effective_percent: Optional[float] = None
     last_learn_time: Optional[float] = None
     last_learn_temp: Optional[float] = None
-    smoothed_delta_t: Optional[float] = None
+    virtual_temp: Optional[float] = None
+    virtual_temp_ts: float = 0.0
 
 
 _MPC_STATES: Dict[str, _MpcState] = {}
@@ -98,6 +99,8 @@ _STATE_EXPORT_FIELDS = (
     "dead_zone_hits",
     "last_learn_time",
     "last_learn_temp",
+    "virtual_temp",
+    "virtual_temp_ts",
 )
 
 
@@ -246,18 +249,43 @@ def compute_mpc(inp: MpcInput, params: MpcParams) -> Optional[MpcOutput]:
                 _round_for_debug(percent, 2),
             )
         else:
-            delta_t = inp.target_temp_C - inp.current_temp_C
+            # --------------------------------------------
+            # VIRTUAL TEMPERATURE FORWARD PREDICTION
+            # --------------------------------------------
+            if state.virtual_temp is not None and state.last_percent is not None:
+                time_since_virtual = now - state.virtual_temp_ts
+
+                if time_since_virtual > 0.5:
+                    dt_min = time_since_virtual / 60.0
+
+                    u = max(0.0, min(100.0, state.last_percent)) / 100.0
+                    gain = max(params.mpc_gain_min, min(params.mpc_gain_max, state.gain_est))
+                    loss = max(params.mpc_loss_min, min(params.mpc_loss_max, state.loss_est))
+
+                    predicted_dT = gain * u * dt_min - loss * dt_min
+
+                    state.virtual_temp += predicted_dT
+                    state.virtual_temp_ts = now
+
+                    _LOGGER.debug(
+                        "better_thermostat %s: MPC virtual-temp forward %.4fK (u=%.1f, gain=%.4f, loss=%.4f)",
+                        inp.bt_name or "BT",
+                        predicted_dT,
+                        u * 100,
+                        gain,
+                        loss,
+                    )
+
+            # --------------------------------------------
+            # DELTA T USING VIRTUAL TEMPERATURE
+            # --------------------------------------------
+            if state.virtual_temp is not None and inp.target_temp_C is not None:
+                delta_t = inp.target_temp_C - state.virtual_temp
+            elif inp.target_temp_C is not None and inp.current_temp_C is not None:
+                delta_t = inp.target_temp_C - inp.current_temp_C
             initial_delta_t = delta_t
-            # EMA-Glättung von delta_t über 2-3 Messungen (Alpha=0.3)
-            alpha = 0.7
-            if state.smoothed_delta_t is None:
-                state.smoothed_delta_t = delta_t
-            else:
-                state.smoothed_delta_t = alpha * delta_t + (1 - alpha) * state.smoothed_delta_t
-            smoothed_delta_t = state.smoothed_delta_t
-            initial_delta_t = smoothed_delta_t
             percent, mpc_debug = _compute_predictive_percent(
-                inp, params, state, now, smoothed_delta_t
+                inp, params, state, now, delta_t
             )
             extra_debug = mpc_debug
             _LOGGER.debug(
@@ -265,7 +293,7 @@ def compute_mpc(inp: MpcInput, params: MpcParams) -> Optional[MpcOutput]:
                 name,
                 entity,
                 _round_for_debug(percent, 2),
-                _round_for_debug(smoothed_delta_t, 3),
+                _round_for_debug(delta_t, 3),
                 mpc_debug,
             )
 
@@ -371,7 +399,10 @@ def _compute_predictive_percent(
             u_last = max(0.0, min(100.0, last_percent)) / 100.0
 
             # compute delta T (°C/min)
-            delta_T = inp.current_temp_C - state.last_learn_temp
+            effective_temp = (
+                state.virtual_temp if state.virtual_temp is not None else inp.current_temp_C
+            )
+            delta_T = effective_temp - state.last_learn_temp
             dt_min = dt_last / 60.0
             observed_rate = delta_T / dt_min if dt_min > 0 else 0.0
 
@@ -484,7 +515,9 @@ def _compute_predictive_percent(
     best_percent = float(best_u_fine)
 
     # store last estimates
-    state.last_temp = inp.current_temp_C
+    state.last_temp = (
+        state.virtual_temp if state.virtual_temp is not None else inp.current_temp_C
+    )
     state.last_time = now
 
     # build debug
@@ -517,6 +550,13 @@ def _post_process_percent(
 
     name = inp.bt_name or "BT"
     entity = inp.entity_id or "unknown"
+
+    # --------------------------------------------
+    # VIRTUAL TEMPERATURE SYNCHRONISATION
+    # --------------------------------------------
+    if inp.current_temp_C is not None:
+        state.virtual_temp = inp.current_temp_C
+        state.virtual_temp_ts = now
 
     # ============================================================
     # 1) INITIAL RAW VALUE
