@@ -255,6 +255,8 @@ def _compute_pid_balance(self, entity_id: str):
             getattr(self, "temp_slope", None),
             key,
         )
+        # Schedule saving of updated PID states
+        self._schedule_save_pid_state()
     except (ValueError, TypeError, ZeroDivisionError) as err:
         _LOGGER.debug(
             "better_thermostat %s: PID calibration compute failed for %s: %s",

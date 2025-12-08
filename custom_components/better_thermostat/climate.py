@@ -1749,9 +1749,9 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
                 e,
             )
 
-    async def _save_balance_state(self) -> None:
-        """Persist current balance states for this entity (prefix filtered)."""
-        if self._balance_store is None:
+    async def _save_pid_state(self) -> None:
+        """Persist current PID states for this entity (prefix filtered)."""
+        if self._pid_store is None:
             return
         try:
             prefix = f"{self._unique_id}:"
@@ -1771,13 +1771,13 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
             existing.update(current)
             await self._pid_store.async_save(existing)
             _LOGGER.debug(
-                "better_thermostat %s: saved %d balance state(s)",
+                "better_thermostat %s: saved %d PID state(s)",
                 self.device_name,
                 len(current or {}),
             )
         except Exception as e:
             _LOGGER.debug(
-                "better_thermostat %s: saving balance states failed: %s",
+                "better_thermostat %s: saving PID states failed: %s",
                 self.device_name,
                 e,
             )
