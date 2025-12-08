@@ -62,7 +62,7 @@ class TestPIDController:
 
     def test_anti_windup(self):
         """Test anti-windup clamping."""
-        params = PIDParams(auto_tune=False, kp=100.0, ki=10.0, i_min=-10.0, i_max=10.0)
+        params = PIDParams(auto_tune=False, kp=100.0, ki=10.0, i_min=-10.0, i_max=10.0, slew_rate=100.0)  # Disable slew-rate for this test
         # Large error to cause windup
         percent, _ = compute_pid(
             params=params,
@@ -89,7 +89,7 @@ class TestPIDController:
         )
         key = "test_overshoot"
 
-        # First call: positive error
+        # First call: positive error > band
         compute_pid(
             params=params,
             inp_target_temp_C=22.0,
@@ -99,11 +99,11 @@ class TestPIDController:
             key=key,
         )
 
-        # Second call: overshoot (negative error > threshold)
+        # Second call: overshoot (negative error < band)
         compute_pid(
             params=params,
             inp_target_temp_C=22.0,
-            inp_current_temp_C=22.6,  # error = -0.6
+            inp_current_temp_C=22.05,  # error = -0.05 < band
             inp_trv_temp_C=21.0,
             inp_temp_slope_K_per_min=0.0,
             key=key,
@@ -125,11 +125,11 @@ class TestPIDController:
         )
         key = "test_sluggish"
 
-        # Large error, small slope -> sluggish
+        # Large error < 1.0, small slope -> sluggish
         compute_pid(
             params=params,
-            inp_target_temp_C=25.0,
-            inp_current_temp_C=20.0,  # error = 5.0 > band
+            inp_target_temp_C=20.8,  # error = 0.8 < 1.0
+            inp_current_temp_C=20.0,  # error = 0.8 > band
             inp_trv_temp_C=21.0,
             inp_temp_slope_K_per_min=0.005,  # < threshold
             key=key,
@@ -162,6 +162,197 @@ class TestPIDController:
         state = get_pid_state(key)
         # ki should be decreased
         assert state.pid_ki < params.ki
+
+    def test_auto_tune_no_tune_due_to_interval(self):
+        """Test that auto-tuning is skipped if interval is too short after a previous tune."""
+        params = PIDParams(
+            auto_tune=True,
+            tune_min_interval_s=10.0,  # Long interval
+            overshoot_threshold_K=0.5,
+            steady_state_band_K=0.1,
+            sluggish_slope_threshold_K_min=0.005,
+        )
+        key = "test_interval"
+
+        # First call: sluggish -> tune
+        compute_pid(
+            params=params,
+            inp_target_temp_C=20.8,  # error = 0.8 < 1.0
+            inp_current_temp_C=20.0,
+            inp_trv_temp_C=21.0,
+            inp_temp_slope_K_per_min=0.0,  # < threshold
+            key=key,
+        )
+
+        state_after_first = get_pid_state(key)
+        assert state_after_first is not None
+        kp_after_first = state_after_first.pid_kp
+        ki_after_first = state_after_first.pid_ki
+        kd_after_first = state_after_first.pid_kd
+        assert ki_after_first is not None
+        assert ki_after_first > params.ki  # Should have increased due to sluggish
+
+        # Immediate second call with sluggish again - should not tune due to interval
+        compute_pid(
+            params=params,
+            inp_target_temp_C=22.0,
+            inp_current_temp_C=20.0,  # same error
+            inp_trv_temp_C=21.0,
+            inp_temp_slope_K_per_min=0.0,
+            key=key,
+        )
+
+        state_after_second = get_pid_state(key)
+        assert state_after_second is not None
+        # Gains should remain the same as after first tune
+        assert state_after_second.pid_kp == kp_after_first
+        assert state_after_second.pid_ki == ki_after_first
+        assert state_after_second.pid_kd == kd_after_first
+
+    def test_auto_tune_gain_clamping(self):
+        """Test that gains are clamped to min/max values."""
+        params = PIDParams(
+            auto_tune=True,
+            tune_min_interval_s=0.0,
+            overshoot_threshold_K=0.1,  # Low threshold to trigger easily
+            kp_min=5.0,
+            kp_max=20.0,
+            kd_min=50.0,
+            kd_max=200.0,
+            kp_step_mul=0.5,  # Aggressive reduction
+            kd_step_mul=2.0,  # Aggressive increase
+        )
+        key = "test_clamp"
+
+        # Initial gains within range
+        initial_kp = 15.0
+        initial_kd = 100.0
+        params.kp = initial_kp
+        params.kd = initial_kd
+
+        # Trigger overshoot multiple times to push gains to limits
+        for _ in range(5):
+            # Positive error
+            compute_pid(
+                params=params,
+                inp_target_temp_C=22.0,
+                inp_current_temp_C=20.0,
+                inp_trv_temp_C=21.0,
+                inp_temp_slope_K_per_min=0.0,
+                key=key,
+            )
+            # Overshoot
+            compute_pid(
+                params=params,
+                inp_target_temp_C=22.0,
+                inp_current_temp_C=22.2,  # error = -0.2 > threshold
+                inp_trv_temp_C=21.0,
+                inp_temp_slope_K_per_min=0.0,
+                key=key,
+            )
+
+        state = get_pid_state(key)
+        # kp should be clamped to min, kd to max
+        assert state is not None
+        assert state.pid_kp >= params.kp_min
+        assert state.pid_kd <= params.kd_max
+
+    def test_auto_tune_combined_conditions(self):
+        """Test auto-tuning with overlapping conditions (overshoot and sluggish)."""
+        params = PIDParams(
+            auto_tune=True,
+            tune_min_interval_s=0.0,
+            overshoot_threshold_K=0.5,
+            steady_state_band_K=0.05,
+            sluggish_slope_threshold_K_min=0.01,
+            kp_step_mul=0.9,
+            ki_step_mul_up=1.2,
+            ki_step_mul_down=1.0,  # No change in steady_state
+            kp=100.0,
+        )
+        key = "test_combined"
+
+        # First: sluggish (error <1.0, small slope)
+        compute_pid(
+            params=params,
+            inp_target_temp_C=20.8,  # error = 0.8
+            inp_current_temp_C=20.0,
+            inp_trv_temp_C=21.0,
+            inp_temp_slope_K_per_min=0.005,  # sluggish
+            key=key,
+        )
+
+        state_after_sluggish = get_pid_state(key)
+        assert state_after_sluggish is not None
+        ki_after_sluggish = state_after_sluggish.pid_ki
+        assert ki_after_sluggish is not None
+        assert ki_after_sluggish > params.ki  # Increased
+
+        # Second: overshoot (previous abs > band, current abs < band)
+        compute_pid(
+            params=params,
+            inp_target_temp_C=20.8,  # error = 0.8 > band
+            inp_current_temp_C=20.0,
+            inp_trv_temp_C=21.0,
+            inp_temp_slope_K_per_min=0.02,  # > threshold, no sluggish
+            key=key,
+        )
+        compute_pid(
+            params=params,
+            inp_target_temp_C=20.8,
+            inp_current_temp_C=20.83,  # error = -0.03 < band
+            inp_trv_temp_C=21.0,
+            inp_temp_slope_K_per_min=0.0,
+            key=key,
+        )
+
+        state_after_combined = get_pid_state(key)
+        assert state_after_combined is not None
+        assert state_after_combined.pid_ki is not None
+        assert state_after_combined.pid_kp is not None
+        assert state_after_combined.pid_ki == ki_after_sluggish  # No further change to ki
+        assert state_after_combined.pid_kp < params.kp  # Decreased due to overshoot
+
+    def test_auto_tune_stability_over_cycles(self):
+        """Test stability of auto-tuning over multiple cycles without oscillation."""
+        params = PIDParams(
+            auto_tune=True,
+            tune_min_interval_s=0.0,
+            overshoot_threshold_K=0.3,
+            steady_state_band_K=0.1,
+            kp_step_mul=0.95,  # Conservative
+            ki_step_mul_up=1.05,
+            ki_step_mul_down=0.95,
+        )
+        key = "test_stability"
+
+        kp_values = []
+        ki_values = []
+
+        # Simulate 10 cycles with varying errors
+        for i in range(10):
+            error = 2.0 if i % 2 == 0 else -0.5  # Alternate positive and overshoot
+            current_temp = 20.0 + (2.0 - error)  # Adjust to create error
+            compute_pid(
+                params=params,
+                inp_target_temp_C=22.0,
+                inp_current_temp_C=current_temp,
+                inp_trv_temp_C=21.0,
+                inp_temp_slope_K_per_min=0.0,
+                key=key,
+            )
+            state = get_pid_state(key)
+            assert state is not None
+            assert state.pid_kp is not None
+            assert state.pid_ki is not None
+            kp_values.append(state.pid_kp)
+            ki_values.append(state.pid_ki)
+
+        # Check that gains don't oscillate wildly (variance should be low)
+        kp_variance = sum((x - sum(kp_values)/len(kp_values))**2 for x in kp_values) / len(kp_values)
+        ki_variance = sum((x - sum(ki_values)/len(ki_values))**2 for x in ki_values) / len(ki_values)
+        assert kp_variance < 10.0  # Arbitrary threshold for stability
+        assert ki_variance < 0.01
 
     def test_derivative_on_measurement(self):
         """Test derivative on measurement with mixing."""

@@ -125,7 +125,7 @@ class TestMPCController:
             key=key,
             target_temp_C=target,
             current_temp_C=current,
-            temp_slope_K_per_min=slope,
+            # temp_slope_K_per_min=slope,
         )
         result1 = compute_mpc(inp1, params)
         assert result1 is not None
@@ -255,11 +255,12 @@ class TestMPCController:
     def test_heating_sequence_simulation(self):
         """Simulate a heating sequence to test controller behavior over time."""
         params = MpcParams(
-            mpc_adapt=False,
+            # mpc_adapt=True,
             mpc_thermal_gain=0.06,
             mpc_loss_coeff=0.01,
             min_update_interval_s=0.0,  # Allow immediate updates for simulation
             min_percent_hold_time_s=0.0,  # Disable hold time for test
+            mpc_change_penalty=0.2,
         )
         key = "test_sequence"
 
@@ -271,13 +272,15 @@ class TestMPCController:
         results = []
         print(f"\nHeizsequenz-Simulation: Starttemperatur {current}°C, Ziel {target}°C")
         step = 0
-        max_steps = 50  # Allow more steps to reach overshoot
+        max_steps = 100  # Allow more steps to reach overshoot
         while step < max_steps:
+            # Round current temperature to 0.1K precision like real sensors
+            current_rounded = round(current, 1)
             inp = MpcInput(
                 key=key,
                 target_temp_C=target,
-                current_temp_C=current,
-                temp_slope_K_per_min=slope,
+                current_temp_C=current_rounded,
+                # temp_slope_K_per_min=slope,
             )
             result = compute_mpc(inp, params)
             assert result is not None
@@ -285,7 +288,7 @@ class TestMPCController:
             error = target - current
             results.append((current, valve_pct))
             print(
-                f"Schritt {step+1}: Temp={current:.1f}°C, Error={error:.1f}K, Valve={valve_pct}%"
+                f"Schritt {step+1}: Temp={current:.3f}°C, Error={error:.3f}K, Valve={valve_pct}%"
             )
 
             # Simulate temperature rise based on valve opening

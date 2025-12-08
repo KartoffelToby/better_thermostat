@@ -39,8 +39,12 @@ class PIDState:
     last_tune_ts: float = 0.0
     last_delta_sign: int | None = None
     last_error_sign: int | None = None
+    previous_abs_error: float | None = None
+    last_abs_error: float | None = None
     # Smoothing
     ema_slope: float | None = None
+    # Slew-rate limiter
+    last_percent: float = 0.0
 
 
 # --- PID Parameters -----------------------------------------------
@@ -54,9 +58,9 @@ class PIDParams:
     """
 
     # PID-Parameter
-    kp: float = 100.0
-    ki: float = 0.03
-    kd: float = 2000.0
+    kp: float = 20.0
+    ki: float = 0.02
+    kd: float = 400.0
     # Integrator-Klammer (Anti-Windup) in %-Punkten
     i_min: float = -60.0
     i_max: float = 60.0
@@ -64,6 +68,8 @@ class PIDParams:
     d_on_measurement: bool = True
     trend_mix_trv: float = 0.7
     d_smoothing_alpha: float = 0.5
+    # Valve slew-rate limiter (% per update)
+    slew_rate: float = 5.0
     # Auto-Tuning
     auto_tune: bool = True
     tune_min_interval_s: float = 300.0
@@ -143,9 +149,15 @@ def compute_pid(
 
     delta_T = inp_target_temp_C - inp_current_temp_C
     e = delta_T
+    # Update previous_abs_error before setting current
+    st.previous_abs_error = st.last_abs_error
+    st.last_abs_error = abs(delta_T)
 
     # Zeitdifferenz
     dt = now - st.pid_last_time if st.pid_last_time > 0 else 0.0
+    # Fix dt handling: if dt <= 0 or dt < 1.0, treat as 1.0
+    if dt <= 0 or dt < 1.0:
+        dt = 1.0
 
     # Initialisiere lernende Gains (einmalig) mit übergebenen Params
     if st.pid_kp is None:
@@ -155,11 +167,7 @@ def compute_pid(
     if st.pid_kd is None:
         st.pid_kd = params.kd
 
-    # Integrator (nur wenn dt>0)
-    if dt > 0:
-        st.pid_integral += float(st.pid_ki) * e * dt
-        # Anti-Windup (Integrator klammern)
-        st.pid_integral = max(params.i_min, min(params.i_max, st.pid_integral))
+    # Remove duplicate integrator update - only use conditional anti-windup below
 
     # Ableitung
     d_term = 0.0
@@ -266,8 +274,17 @@ def compute_pid(
     # Integrator-Zustand nur übernehmen, wenn nicht blockiert
     if not aw_blocked:
         st.pid_integral = i_term
+    # Valve slew-rate limiter
+    percent_unlimited = max(0.0, min(100.0, u))
+    change = percent_unlimited - st.last_percent
+    max_change = params.slew_rate
+    if abs(change) > max_change:
+        change = max_change if change > 0 else -max_change
+    percent = st.last_percent + change
     # Clamp auf 0..100
-    percent = max(0.0, min(100.0, u))
+    percent = max(0.0, min(100.0, percent))
+    # Update last_percent
+    st.last_percent = percent
 
     # PID-States aktualisieren (für D-Anteil gemischten Messwert speichern)
     if params.d_on_measurement:
@@ -377,10 +394,9 @@ def _auto_tune_pid(
             return
         sign = 1 if delta_T > 0 else (-1 if delta_T < 0 else 0)
         overshoot = False
-        # Overshoot-Heuristik: Vorzeichenwechsel und Amplitude über Schwellwert
-        if st.last_delta_sign is not None and sign != 0 and sign != st.last_delta_sign:
-            if abs(delta_T) >= params.overshoot_threshold_K:
-                overshoot = True
+        # Harden overshoot detection: only when previous abs(error) > band and new abs(error) < band
+        if st.previous_abs_error is not None and st.previous_abs_error > params.steady_state_band_K and abs(delta_T) < params.steady_state_band_K:
+            overshoot = True
         st.last_delta_sign = sign if sign != 0 else st.last_delta_sign
 
         tuned = False
@@ -394,10 +410,11 @@ def _auto_tune_pid(
             kd = min(params.kd_max, kd * params.kd_step_mul)
             tuned = True
 
-        # 2) Trägheit: ΔT deutlich > band_near, aber Slope sehr klein -> Ki leicht rauf
+        # 2) Trägheit: ΔT deutlich > band_near, aber Slope sehr klein -> Ki leicht rauf (only near steady-state)
         if (
             delta_T > params.steady_state_band_K
             and abs(slope) < params.sluggish_slope_threshold_K_min
+            and abs(delta_T) < 1.0  # Restrict to near steady-state
         ):
             ki = min(params.ki_max, max(params.ki_min, ki * params.ki_step_mul_up))
             tuned = True
@@ -484,7 +501,10 @@ def export_pid_states(prefix: str | None = None) -> dict[str, dict[str, Any]]:
             "last_tune_ts": st.last_tune_ts,
             "last_delta_sign": st.last_delta_sign,
             "last_error_sign": st.last_error_sign,
+            "previous_abs_error": st.previous_abs_error,
+            "last_abs_error": st.last_abs_error,
             "ema_slope": st.ema_slope,
+            "last_percent": st.last_percent,
         }
     return out
 
@@ -514,7 +534,10 @@ def import_pid_states(
                 last_tune_ts=v.get("last_tune_ts", 0.0),
                 last_delta_sign=v.get("last_delta_sign"),
                 last_error_sign=v.get("last_error_sign"),
+                previous_abs_error=v.get("previous_abs_error"),
+                last_abs_error=v.get("last_abs_error"),
                 ema_slope=v.get("ema_slope"),
+                last_percent=v.get("last_percent", 0.0),
             )
             _PID_STATES[str(k)] = st
             count += 1
