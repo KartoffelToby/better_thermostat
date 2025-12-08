@@ -132,9 +132,9 @@ _ADVANCED_NUMERIC_SPECS: Tuple[Tuple[str, Any, Any], ...] = (
         60.0,
         vol.All(vol.Coerce(float), vol.Range(min=0, max=3600)),
     ),
-    ("pid_kp", 60.0, vol.All(vol.Coerce(float), vol.Range(min=0))),
-    ("pid_ki", 0.01, vol.All(vol.Coerce(float), vol.Range(min=0))),
-    ("pid_kd", 2000.0, vol.All(vol.Coerce(float), vol.Range(min=0))),
+    ("pid_kp", 20.0, vol.All(vol.Coerce(float), vol.Range(min=0))),
+    ("pid_ki", 0.02, vol.All(vol.Coerce(float), vol.Range(min=0))),
+    ("pid_kd", 400.0, vol.All(vol.Coerce(float), vol.Range(min=0))),
 )
 
 
@@ -301,13 +301,13 @@ def _build_advanced_fields(
     ordered[vol.Optional("pid_auto_tune", default=get_bool("pid_auto_tune", True))] = (
         bool
     )
-    ordered[vol.Optional("pid_kp", default=get_value("pid_kp", 60.0))] = vol.All(
+    ordered[vol.Optional("pid_kp", default=get_value("pid_kp", 20.0))] = vol.All(
         vol.Coerce(float), vol.Range(min=0)
     )
-    ordered[vol.Optional("pid_ki", default=get_value("pid_ki", 0.01))] = vol.All(
+    ordered[vol.Optional("pid_ki", default=get_value("pid_ki", 0.02))] = vol.All(
         vol.Coerce(float), vol.Range(min=0)
     )
-    ordered[vol.Optional("pid_kd", default=get_value("pid_kd", 2000.0))] = vol.All(
+    ordered[vol.Optional("pid_kd", default=get_value("pid_kd", 400.0))] = vol.All(
         vol.Coerce(float), vol.Range(min=0)
     )
 
