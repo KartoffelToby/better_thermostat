@@ -83,6 +83,9 @@ class _MpcState:
     last_learn_temp: Optional[float] = None
     virtual_temp: Optional[float] = None
     virtual_temp_ts: float = 0.0
+    trv_profile: str = "unknown"
+    profile_confidence: float = 0.0
+    profile_samples: int = 0
 
 
 _MPC_STATES: Dict[str, _MpcState] = {}
@@ -259,8 +262,12 @@ def compute_mpc(inp: MpcInput, params: MpcParams) -> Optional[MpcOutput]:
                     dt_min = time_since_virtual / 60.0
 
                     u = max(0.0, min(100.0, state.last_percent)) / 100.0
-                    gain = max(params.mpc_gain_min, min(params.mpc_gain_max, state.gain_est))
-                    loss = max(params.mpc_loss_min, min(params.mpc_loss_max, state.loss_est))
+                    gain = max(
+                        params.mpc_gain_min, min(params.mpc_gain_max, state.gain_est)
+                    )
+                    loss = max(
+                        params.mpc_loss_min, min(params.mpc_loss_max, state.loss_est)
+                    )
 
                     predicted_dT = gain * u * dt_min - loss * dt_min
 
@@ -400,7 +407,9 @@ def _compute_predictive_percent(
 
             # compute delta T (°C/min)
             effective_temp = (
-                state.virtual_temp if state.virtual_temp is not None else inp.current_temp_C
+                state.virtual_temp
+                if state.virtual_temp is not None
+                else inp.current_temp_C
             )
             delta_T = effective_temp - state.last_learn_temp
             dt_min = dt_last / 60.0
@@ -479,8 +488,8 @@ def _compute_predictive_percent(
             cost += e * e
         return cost
 
-    # coarse search (0..100 step 10)
-    coarse_candidates = list(range(0, 101, 5))
+    # coarse search (0..100 step 3)
+    coarse_candidates = list(range(0, 101, 2))
     best_u_coarse = 0
     best_cost_coarse = None
     for cand in coarse_candidates:
@@ -536,6 +545,70 @@ def _compute_predictive_percent(
         mpc_debug["mpc_last_percent"] = _round_for_debug(last_percent, 2)
 
     return best_percent, mpc_debug
+
+
+def _detect_trv_profile(
+    state: _MpcState,
+    percent_out: float,
+    temp_delta: Optional[float],
+    time_delta: Optional[float],
+    expected_temp_rise: float,
+    params: MpcParams,
+) -> None:
+
+    if temp_delta is None or time_delta is None or time_delta <= 0:
+        return
+
+    if percent_out <= 0 or expected_temp_rise <= 0:
+        return
+
+    if expected_temp_rise <= 0:
+        return
+
+    response_ratio = temp_delta / expected_temp_rise
+    state.profile_samples += 1
+
+    is_small = percent_out <= params.deadzone_threshold_pct
+    weak_response = response_ratio < 0.3
+
+    threshold_evidence = 1.0 if (is_small and weak_response) else 0.0
+    linear_evidence = max(0.0, 1.0 - abs(response_ratio - 1.0))
+    exponential_evidence = 1.0 if (percent_out > 50 and response_ratio > 1.2) else 0.0
+
+    alpha = 0.1
+
+    if threshold_evidence > 0.5:
+        state.trv_profile = "threshold"
+        state.profile_confidence = min(1.0, state.profile_confidence + alpha)
+
+    elif linear_evidence > 0.5:
+        state.trv_profile = "linear"
+        state.profile_confidence = min(
+            1.0, state.profile_confidence + alpha * linear_evidence
+        )
+
+    elif exponential_evidence > 0.5:
+        state.trv_profile = "exponential"
+        state.profile_confidence = min(
+            1.0, state.profile_confidence + alpha * exponential_evidence
+        )
+
+    if state.profile_samples >= 20 and state.profile_confidence > 0.7:
+        _apply_profile_adjustments(state, params)
+
+
+def _apply_profile_adjustments(state: _MpcState, params: MpcParams) -> None:
+
+    if state.trv_profile == "threshold":
+        if state.min_effective_percent is None or state.min_effective_percent < 12.0:
+            state.min_effective_percent = 12.0
+
+    elif state.trv_profile == "exponential":
+        state.gain_est *= 1.1
+        state.gain_est = min(params.mpc_gain_max, state.gain_est)
+
+    elif state.trv_profile == "linear":
+        state.min_effective_percent = None
 
 
 def _post_process_percent(
@@ -671,7 +744,7 @@ def _post_process_percent(
             time_delta = now - state.last_trv_temp_ts
             eval_after = max(params.deadzone_time_s, 1.0)
 
-            if time_delta >= eval_after:
+            if time_delta >= eval_after and state.trv_profile == "unknown":
 
                 tol = max(inp.tolerance_K, 0.0)
                 needs_heat = delta_t is not None and delta_t > tol
@@ -683,6 +756,16 @@ def _post_process_percent(
                 # --- Expected MPC effect vs real heating ---
                 gain = state.gain_est or params.mpc_thermal_gain
                 expected_temp_rise = gain * (percent_out / 100.0) * (time_delta / 60.0)
+
+                # --- TRV Profile Detection ---
+                _detect_trv_profile(
+                    state,
+                    percent_out,
+                    temp_delta,
+                    time_delta,
+                    expected_temp_rise,
+                    params,
+                )
 
                 room_temp_delta = (
                     (inp.current_temp_C - inp.last_room_temp_C)
@@ -774,10 +857,14 @@ def _post_process_percent(
                             prev_hits,
                         )
 
-                state.last_trv_temp = inp.trv_temp_C
-                state.last_trv_temp_ts = now
+            else:
+                # deadzone fully disabled because TRV profile is known
+                pass
 
-    # ============================================================
+            state.last_trv_temp = inp.trv_temp_C
+            state.last_trv_temp_ts = (
+                now  # ============================================================
+            )
     # 7) DEBUG INFO
     # ============================================================
     debug: Dict[str, Any] = {
