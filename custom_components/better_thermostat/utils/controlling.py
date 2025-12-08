@@ -603,6 +603,15 @@ async def control_trv(self, heater_entity_id=None):
             ):
                 bal = cal_bal
                 _source = "heating_power_calibration"
+        elif _calibration_mode == CalibrationMode.PID_CALIBRATION:
+            cal_bal = self.real_trvs[heater_entity_id].get("calibration_balance")
+            if (
+                isinstance(cal_bal, dict)
+                and cal_bal.get("apply_valve")
+                and cal_bal.get("valve_percent") is not None
+            ):
+                bal = cal_bal
+                _source = "pid_calibration"
 
         if bal is None:
             raw_balance = self.real_trvs[heater_entity_id].get("balance")

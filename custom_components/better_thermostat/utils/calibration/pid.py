@@ -395,7 +395,11 @@ def _auto_tune_pid(
         sign = 1 if delta_T > 0 else (-1 if delta_T < 0 else 0)
         overshoot = False
         # Harden overshoot detection: only when previous abs(error) > band and new abs(error) < band
-        if st.previous_abs_error is not None and st.previous_abs_error > params.steady_state_band_K and abs(delta_T) < params.steady_state_band_K:
+        if (
+            st.previous_abs_error is not None
+            and st.previous_abs_error > params.steady_state_band_K
+            and abs(delta_T) < params.steady_state_band_K
+        ):
             overshoot = True
         st.last_delta_sign = sign if sign != 0 else st.last_delta_sign
 

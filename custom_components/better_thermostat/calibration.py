@@ -231,12 +231,24 @@ def _compute_pid_balance(self, entity_id: str):
     advanced = trv_state.get("advanced", {})
     key = build_pid_key(self, entity_id)
     pid_state = get_pid_state(key)
-    
+
     # Use learned gains if available, otherwise from config, otherwise defaults
     params = PIDParams(
-        kp=pid_state.pid_kp if pid_state and pid_state.pid_kp is not None else advanced.get("pid_kp", 20.0),
-        ki=pid_state.pid_ki if pid_state and pid_state.pid_ki is not None else advanced.get("pid_ki", 0.02),
-        kd=pid_state.pid_kd if pid_state and pid_state.pid_kd is not None else advanced.get("pid_kd", 400.0),
+        kp=(
+            pid_state.pid_kp
+            if pid_state and pid_state.pid_kp is not None
+            else advanced.get("pid_kp", 20.0)
+        ),
+        ki=(
+            pid_state.pid_ki
+            if pid_state and pid_state.pid_ki is not None
+            else advanced.get("pid_ki", 0.02)
+        ),
+        kd=(
+            pid_state.pid_kd
+            if pid_state and pid_state.pid_kd is not None
+            else advanced.get("pid_kd", 400.0)
+        ),
         auto_tune=advanced.get("pid_auto_tune", True),
     )
 

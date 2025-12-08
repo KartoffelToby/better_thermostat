@@ -62,7 +62,9 @@ class TestPIDController:
 
     def test_anti_windup(self):
         """Test anti-windup clamping."""
-        params = PIDParams(auto_tune=False, kp=100.0, ki=10.0, i_min=-10.0, i_max=10.0, slew_rate=100.0)  # Disable slew-rate for this test
+        params = PIDParams(
+            auto_tune=False, kp=100.0, ki=10.0, i_min=-10.0, i_max=10.0, slew_rate=100.0
+        )  # Disable slew-rate for this test
         # Large error to cause windup
         percent, _ = compute_pid(
             params=params,
@@ -310,7 +312,9 @@ class TestPIDController:
         assert state_after_combined is not None
         assert state_after_combined.pid_ki is not None
         assert state_after_combined.pid_kp is not None
-        assert state_after_combined.pid_ki == ki_after_sluggish  # No further change to ki
+        assert (
+            state_after_combined.pid_ki == ki_after_sluggish
+        )  # No further change to ki
         assert state_after_combined.pid_kp < params.kp  # Decreased due to overshoot
 
     def test_auto_tune_stability_over_cycles(self):
@@ -349,8 +353,12 @@ class TestPIDController:
             ki_values.append(state.pid_ki)
 
         # Check that gains don't oscillate wildly (variance should be low)
-        kp_variance = sum((x - sum(kp_values)/len(kp_values))**2 for x in kp_values) / len(kp_values)
-        ki_variance = sum((x - sum(ki_values)/len(ki_values))**2 for x in ki_values) / len(ki_values)
+        kp_variance = sum(
+            (x - sum(kp_values) / len(kp_values)) ** 2 for x in kp_values
+        ) / len(kp_values)
+        ki_variance = sum(
+            (x - sum(ki_values) / len(ki_values)) ** 2 for x in ki_values
+        ) / len(ki_values)
         assert kp_variance < 10.0  # Arbitrary threshold for stability
         assert ki_variance < 0.01
 
