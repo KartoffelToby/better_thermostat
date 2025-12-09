@@ -121,17 +121,6 @@ CALIBRATION_MODE_SELECTOR = selector.SelectSelector(
 
 
 _ADVANCED_NUMERIC_SPECS: Tuple[Tuple[str, Any, Any], ...] = (
-    ("trend_mix_trv", 0.7, vol.All(vol.Coerce(float), vol.Range(min=0, max=1))),
-    (
-        "percent_hysteresis_pts",
-        1.0,
-        vol.All(vol.Coerce(float), vol.Range(min=0, max=10)),
-    ),
-    (
-        "min_update_interval_s",
-        60.0,
-        vol.All(vol.Coerce(float), vol.Range(min=0, max=3600)),
-    ),
     ("pid_kp", 20.0, vol.All(vol.Coerce(float), vol.Range(min=0))),
     ("pid_ki", 0.02, vol.All(vol.Coerce(float), vol.Range(min=0))),
     ("pid_kd", 400.0, vol.All(vol.Coerce(float), vol.Range(min=0))),
@@ -289,13 +278,6 @@ def _build_advanced_fields(
     ordered[
         vol.Optional(CONF_HOMEMATICIP, default=get_bool(CONF_HOMEMATICIP, homematic))
     ] = bool
-
-    # 3) General numeric settings
-    for key in ("trend_mix_trv",):
-        default, validator = next(
-            (d, v) for (k, d, v) in _ADVANCED_NUMERIC_SPECS if k == key
-        )
-        ordered[vol.Optional(key, default=get_value(key, default))] = validator
 
     # 4) PID block
     ordered[vol.Optional("pid_auto_tune", default=get_bool("pid_auto_tune", True))] = (
