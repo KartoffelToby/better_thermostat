@@ -478,7 +478,7 @@ def _compute_predictive_percent(
 
     def simulate_cost_for_candidate(u_frac: float) -> float:
         """Simulate forward temperature for constant u_frac (0..1) over horizon and return cost."""
-        T = inp.current_temp_C
+        T = state.virtual_temp if state.virtual_temp is not None else inp.current_temp_C
         cost = 0.0
         for _ in range(horizon):
             heating = gain_step * u_frac
@@ -628,7 +628,13 @@ def _post_process_percent(
     # VIRTUAL TEMPERATURE SYNCHRONISATION
     # --------------------------------------------
     if inp.current_temp_C is not None:
-        state.virtual_temp = inp.current_temp_C
+        if state.virtual_temp is None:
+            state.virtual_temp = inp.current_temp_C
+        else:
+            alpha = 0.3  # Sensorvertrauen
+            state.virtual_temp = (
+                alpha * inp.current_temp_C + (1 - alpha) * state.virtual_temp
+            )
         state.virtual_temp_ts = now
 
     # ============================================================
