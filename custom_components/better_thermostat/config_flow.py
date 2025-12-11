@@ -568,7 +568,11 @@ def _normalize_user_submission(
     )
     for key in optional_keys:
         if key in user_input:
-            normalized[key] = user_input.get(key)
+            value = user_input.get(key)
+            if value == "" or value is None:
+                normalized[key] = None
+            else:
+                normalized[key] = value
         elif mode == "create" and key not in normalized:
             normalized[key] = None
 
