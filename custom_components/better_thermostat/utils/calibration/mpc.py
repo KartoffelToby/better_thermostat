@@ -419,7 +419,7 @@ def _compute_predictive_percent(
             min_open = params.deadzone_threshold_pct / 100.0
 
             # --- GAIN LEARNING (only when heating actually reduces error) ---
-            if u_last > min_open and improving:
+            if u_last > ((state.min_effective_percent or 5.0) / 100.0) and improving:
                 # Heating effect proportionally to actuator
                 gain_candidate = (abs(e_prev) - abs(e_now)) / max(u_last, 1e-6)
 
@@ -431,7 +431,9 @@ def _compute_predictive_percent(
                 # no else-shrink: we avoid drift and noise amplification
 
             # --- LOSS LEARNING (only when no heating and temperature is dropping) ---
-            elif u_last <= min_open * 0.5 and delta_T < 0:
+            if delta_T < -0.01 and u_last <= (
+                (state.min_effective_percent or 5.0) / 100.0
+            ):
                 # Room cooling rate
                 loss_candidate = max(0.0, -observed_rate)
 
