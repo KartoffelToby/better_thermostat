@@ -493,7 +493,7 @@ def _compute_predictive_percent(
         return cost
 
     # coarse search (0..100 step 3)
-    coarse_candidates = list(range(0, 101, 2))
+    coarse_candidates = list(range(0, 101, 1))
     best_u_coarse = 0
     best_cost_coarse = None
     for cand in coarse_candidates:
