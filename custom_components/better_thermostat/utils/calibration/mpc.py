@@ -276,12 +276,8 @@ def compute_mpc(inp: MpcInput, params: MpcParams) -> Optional[MpcOutput]:
                         else float(params.mpc_loss_coeff)
                     )
 
-                    gain = max(
-                        params.mpc_gain_min, min(params.mpc_gain_max, gain_est)
-                    )
-                    loss = max(
-                        params.mpc_loss_min, min(params.mpc_loss_max, loss_est)
-                    )
+                    gain = max(params.mpc_gain_min, min(params.mpc_gain_max, gain_est))
+                    loss = max(params.mpc_loss_min, min(params.mpc_loss_max, loss_est))
 
                     predicted_dT = gain * u * dt_min - loss * dt_min
 
@@ -437,7 +433,11 @@ def _compute_predictive_percent(
                     max(gain_candidate, params.mpc_gain_min), params.mpc_gain_max
                 )
 
-                gain_est = state.gain_est if state.gain_est is not None else params.mpc_thermal_gain
+                gain_est = (
+                    state.gain_est
+                    if state.gain_est is not None
+                    else params.mpc_thermal_gain
+                )
 
                 if gain_candidate > gain_est:
                     alpha = params.mpc_adapt_alpha * 0.3  # slower increase
@@ -458,7 +458,11 @@ def _compute_predictive_percent(
                 loss_candidate = max(0.0, observed_rate)
                 loss_candidate = min(loss_candidate, params.mpc_loss_max)
 
-                loss_est = state.loss_est if state.loss_est is not None else params.mpc_loss_coeff
+                loss_est = (
+                    state.loss_est
+                    if state.loss_est is not None
+                    else params.mpc_loss_coeff
+                )
 
                 if loss_candidate > loss_est:
                     alpha = params.mpc_adapt_alpha * 0.3  # slower increase
@@ -522,7 +526,11 @@ def _compute_predictive_percent(
 
     def simulate_cost_for_candidate(u_abs_frac: float, u0_frac: float) -> float:
         """Simulate forward temperature for constant u_abs_frac (0..1) over horizon and return cost."""
-        T = float(state.virtual_temp) if state.virtual_temp is not None else current_temp_C
+        T = (
+            float(state.virtual_temp)
+            if state.virtual_temp is not None
+            else current_temp_C
+        )
         cost = 0.0
         for _ in range(horizon):
             effective_u = max(0.0, u_abs_frac - u0_frac)
