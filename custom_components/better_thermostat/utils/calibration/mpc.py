@@ -302,7 +302,7 @@ def compute_mpc(inp: MpcInput, params: MpcParams) -> Optional[MpcOutput]:
                 delta_t = inp.target_temp_C - inp.current_temp_C
             initial_delta_t = delta_t
             percent, mpc_debug = _compute_predictive_percent(
-                inp, params, state, now, delta_t
+                inp, params, state, now, float(delta_t) if delta_t is not None else 0.0
             )
             extra_debug = mpc_debug
             _LOGGER.debug(
@@ -403,73 +403,87 @@ def _compute_predictive_percent(
     # Time since last measurement for adaptation
     dt_last = now - state.last_learn_time
 
-    # ---- ADAPTATION (EMA), physikalisch korrekt ----
+    # ---- ADAPTATION (rate-based identification) ----
+    # Model: dT/dt ~= gain * u - loss, where gain/loss are in °C/min and u in [0..1]
+    adapt_debug: Dict[str, Any] = {}
     if params.mpc_adapt and state.last_learn_temp is not None and dt_last >= 180.0:
         try:
-            # errors
-            e_prev = inp.target_temp_C - state.last_learn_temp
-            e_now = inp.target_temp_C - inp.current_temp_C
-            improving = abs(e_now) < abs(e_prev)  # closer to target
+            # Gate on target stability to avoid learning during setpoint steps.
+            target_changed = False
+            if state.last_target_C is not None:
+                target_changed = (
+                    abs(float(target_temp_C) - float(state.last_target_C)) >= 0.05
+                )
 
-            # last actuator value (0.0 - 1.0)
             last_percent = state.last_percent if state.last_percent is not None else 0.0
-            u_last = max(0.0, min(100.0, last_percent)) / 100.0
+            u_last = max(0.0, min(100.0, float(last_percent))) / 100.0
 
-            # compute delta T (°C/min)
-            effective_temp = inp.current_temp_C
-            delta_T = effective_temp - state.last_learn_temp
             dt_min = dt_last / 60.0
-            observed_rate = delta_T / dt_min if dt_min > 0 else 0.0
+            if dt_min <= 0:
+                dt_min = 0.0
 
-            # Effective TRV minimum opening
+            # measured temperature change
+            delta_T = float(inp.current_temp_C) - float(state.last_learn_temp)
+            observed_rate = (delta_T / dt_min) if dt_min > 0 else 0.0  # °C/min
+
+            # Learn only when the sensor actually changed (quantised sensors).
+            temp_change_threshold_C = float(
+                getattr(params, "mpc_temp_change_threshold_C", 0.05)
+            )
+            if temp_change_threshold_C <= 0:
+                temp_change_threshold_C = 0.05
+            temp_changed = abs(delta_T) >= temp_change_threshold_C
+
+            # sanity: avoid learning on extreme transients / sensor jumps
+            # (typical indoor rate is far below 1°C/min)
+            max_abs_rate = float(getattr(params, "mpc_max_abs_rate_C_per_min", 0.35))
+            if max_abs_rate <= 0:
+                max_abs_rate = 0.35
+            rate_ok = abs(observed_rate) <= max_abs_rate
+
             min_open = (state.min_effective_percent or 5.0) / 100.0
 
-            # --- GAIN LEARNING (only when heating actually reduces error) ---
-            if u_last > min_open and improving:
-                gain_candidate = (abs(e_prev) - abs(e_now)) / max(u_last, 1e-6)
+            gain_est = (
+                float(state.gain_est)
+                if state.gain_est is not None
+                else float(params.mpc_thermal_gain)
+            )
+            loss_est = (
+                float(state.loss_est)
+                if state.loss_est is not None
+                else float(params.mpc_loss_coeff)
+            )
 
-                # physical sanity clamp
-                gain_candidate = min(
-                    max(gain_candidate, params.mpc_gain_min), params.mpc_gain_max
-                )
+            updated_gain = False
+            updated_loss = False
 
-                gain_est = (
-                    state.gain_est
-                    if state.gain_est is not None
-                    else params.mpc_thermal_gain
-                )
+            if (not target_changed) and rate_ok and dt_min > 0 and temp_changed:
+                # --- LOSS learning: u ~= 0 and room cooling (or not warming) ---
+                if u_last <= min_open and observed_rate < -0.01:
+                    loss_candidate = max(0.0, -observed_rate)
+                    loss_candidate = min(loss_candidate, params.mpc_loss_max)
 
-                if gain_candidate > gain_est:
-                    alpha = params.mpc_adapt_alpha * 0.3  # slower increase
-                else:
-                    alpha = params.mpc_adapt_alpha  # faster decrease
-
-                state.gain_est = (1.0 - alpha) * gain_est + alpha * gain_candidate
-
-            # --- LOSS LEARNING (only when no heating and temperature is dropping) ---
-            if (
-                delta_T < -0.05
-                and u_last <= min_open
-                and (inp.temp_slope_K_per_min is not None)
-                and inp.temp_slope_K_per_min < -0.01
-            ):
-                # Room cooling rate
-                observed_rate = -delta_T / dt_min
-                loss_candidate = max(0.0, observed_rate)
-                loss_candidate = min(loss_candidate, params.mpc_loss_max)
-
-                loss_est = (
-                    state.loss_est
-                    if state.loss_est is not None
-                    else params.mpc_loss_coeff
-                )
-
-                if loss_candidate > loss_est:
-                    alpha = params.mpc_adapt_alpha * 0.3  # slower increase
-                else:
                     alpha = params.mpc_adapt_alpha
+                    if loss_candidate > loss_est:
+                        alpha = params.mpc_adapt_alpha * 0.3  # slower increase
+                    state.loss_est = (1.0 - alpha) * loss_est + alpha * loss_candidate
+                    updated_loss = True
 
-                state.loss_est = (1.0 - alpha) * loss_est + alpha * loss_candidate
+                # --- GAIN learning: u > min_open and room warming ---
+                if u_last > min_open and observed_rate > 0.01:
+                    # gain = (observed_rate + loss) / u
+                    denom = max(u_last, 1e-3)
+                    gain_candidate = (observed_rate + loss_est) / denom
+
+                    gain_candidate = min(
+                        max(gain_candidate, params.mpc_gain_min), params.mpc_gain_max
+                    )
+
+                    alpha = params.mpc_adapt_alpha
+                    if gain_candidate > gain_est:
+                        alpha = params.mpc_adapt_alpha * 0.3  # slower increase
+                    state.gain_est = (1.0 - alpha) * gain_est + alpha * gain_candidate
+                    updated_gain = True
 
             # clamp to allowed physical range
             if state.gain_est is not None:
@@ -481,11 +495,25 @@ def _compute_predictive_percent(
                     params.mpc_loss_min, min(params.mpc_loss_max, float(state.loss_est))
                 )
 
+            adapt_debug = {
+                "id_dt_min": _round_for_debug(dt_min, 3),
+                "id_delta_T": _round_for_debug(delta_T, 3),
+                "id_temp_changed": temp_changed,
+                "id_temp_change_threshold_C": _round_for_debug(
+                    temp_change_threshold_C, 3
+                ),
+                "id_rate": _round_for_debug(observed_rate, 4),
+                "id_rate_ok": rate_ok,
+                "id_u_last": _round_for_debug(u_last, 3),
+                "id_target_changed": target_changed,
+                "id_gain_updated": updated_gain,
+                "id_loss_updated": updated_loss,
+            }
+
             state.last_learn_time = now
             state.last_learn_temp = inp.current_temp_C
 
         except (TypeError, ValueError, ZeroDivisionError):
-            # ignore measurement noise / temporary invalid numbers
             pass
 
     # convert to per-step quantities (°C per simulation step)
@@ -605,6 +633,9 @@ def _compute_predictive_percent(
         "mpc_eval_count": eval_count,
         "mpc_step_minutes": _round_for_debug(step_minutes, 3),
     }
+
+    if adapt_debug:
+        mpc_debug.update(adapt_debug)
 
     if best_cost_fine is not None:
         mpc_debug["mpc_cost"] = _round_for_debug(best_cost_fine, 6)
@@ -843,9 +874,11 @@ def _post_process_percent(
                     params,
                 )
 
+                # Optional: upstream may attach a previous room temp dynamically.
+                last_room_temp_C = getattr(inp, "last_room_temp_C", None)
                 room_temp_delta = (
-                    (inp.current_temp_C - getattr(inp, "last_room_temp_C"))
-                    if getattr(inp, "last_room_temp_C", None) is not None
+                    (inp.current_temp_C - last_room_temp_C)
+                    if last_room_temp_C is not None and inp.current_temp_C is not None
                     else None
                 )
 
@@ -937,9 +970,7 @@ def _post_process_percent(
                 pass
 
             state.last_trv_temp = inp.trv_temp_C
-            state.last_trv_temp_ts = (
-                now  # ============================================================
-            )
+            state.last_trv_temp_ts = now
     # 7) DEBUG INFO
     # ============================================================
     debug: Dict[str, Any] = {
