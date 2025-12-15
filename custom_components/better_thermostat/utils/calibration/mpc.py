@@ -406,20 +406,16 @@ def _compute_predictive_percent(
             u_last = max(0.0, min(100.0, last_percent)) / 100.0
 
             # compute delta T (°C/min)
-            effective_temp = (
-                state.virtual_temp
-                if state.virtual_temp is not None
-                else inp.current_temp_C
-            )
+            effective_temp = inp.current_temp_C
             delta_T = effective_temp - state.last_learn_temp
             dt_min = dt_last / 60.0
             observed_rate = delta_T / dt_min if dt_min > 0 else 0.0
 
             # Effective TRV minimum opening
-            min_open = params.deadzone_threshold_pct / 100.0
+            min_open = (state.min_effective_percent or 5.0) / 100.0
 
             # --- GAIN LEARNING (only when heating actually reduces error) ---
-            if u_last > ((state.min_effective_percent or 5.0) / 100.0) and improving:
+            if u_last > min_open and improving:
                 # Heating effect proportionally to actuator
                 gain_candidate = (abs(e_prev) - abs(e_now)) / max(u_last, 1e-6)
 
@@ -431,16 +427,22 @@ def _compute_predictive_percent(
                 # no else-shrink: we avoid drift and noise amplification
 
             # --- LOSS LEARNING (only when no heating and temperature is dropping) ---
-            if delta_T < -0.01 and u_last <= (
-                (state.min_effective_percent or 5.0) / 100.0
+            if (
+                delta_T < -0.05
+                and u_last <= min_open
+                and inp.temp_slope_K_per_min < -0.01
             ):
                 # Room cooling rate
-                loss_candidate = max(0.0, -observed_rate)
+                observed_rate = -delta_T / dt_min
+                loss_candidate = max(0.0, observed_rate)
+                loss_candidate = min(loss_candidate, params.mpc_loss_max)
 
-                if 0.0 <= loss_candidate <= params.mpc_loss_max * 2:
-                    state.loss_est = (
-                        1.0 - params.mpc_adapt_alpha
-                    ) * state.loss_est + params.mpc_adapt_alpha * loss_candidate
+                if loss_candidate > state.loss_est:
+                    alpha = params.mpc_adapt_alpha * 0.3  # slower increase
+                else:
+                    alpha = params.mpc_adapt_alpha
+
+                state.loss_est = (1.0 - alpha) * state.loss_est + alpha * loss_candidate
 
             # clamp to allowed physical range
             state.gain_est = max(
