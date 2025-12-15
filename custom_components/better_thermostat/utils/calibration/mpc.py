@@ -234,6 +234,9 @@ def compute_mpc(inp: MpcInput, params: MpcParams) -> Optional[MpcOutput]:
         delta_t = None
         state.last_learn_time = None
         state.last_learn_temp = None
+        state.virtual_temp = None
+        state.virtual_temp_ts = 0.0
+        state.last_percent = None
         _LOGGER.debug(
             "better_thermostat %s: MPC skip heating (%s) window_open=%s heating_allowed=%s",
             name,
@@ -416,15 +419,19 @@ def _compute_predictive_percent(
 
             # --- GAIN LEARNING (only when heating actually reduces error) ---
             if u_last > min_open and improving:
-                # Heating effect proportionally to actuator
                 gain_candidate = (abs(e_prev) - abs(e_now)) / max(u_last, 1e-6)
 
-                # only accept physically meaningful values
-                if 0.0 <= gain_candidate <= params.mpc_gain_max * 2:
-                    state.gain_est = (
-                        1.0 - params.mpc_adapt_alpha
-                    ) * state.gain_est + params.mpc_adapt_alpha * gain_candidate
-                # no else-shrink: we avoid drift and noise amplification
+                # physical sanity clamp
+                gain_candidate = min(
+                    max(gain_candidate, params.mpc_gain_min), params.mpc_gain_max
+                )
+
+                if gain_candidate > state.gain_est:
+                    alpha = params.mpc_adapt_alpha * 0.3  # slower increase
+                else:
+                    alpha = params.mpc_adapt_alpha  # faster decrease
+
+                state.gain_est = (1.0 - alpha) * state.gain_est + alpha * gain_candidate
 
             # --- LOSS LEARNING (only when no heating and temperature is dropping) ---
             if (
