@@ -524,7 +524,7 @@ def _compute_predictive_percent(
     best_percent = 0.0
     eval_count = 0
 
-    def simulate_cost_for_candidate(u_abs_frac: float, u0_frac: float) -> float:
+    def simulate_cost_for_candidate(u_abs_frac: float) -> float:
         """Simulate forward temperature for constant u_abs_frac (0..1) over horizon and return cost."""
         T = (
             float(state.virtual_temp)
@@ -533,8 +533,7 @@ def _compute_predictive_percent(
         )
         cost = 0.0
         for _ in range(horizon):
-            effective_u = max(0.0, u_abs_frac - u0_frac)
-            heating = gain_step * effective_u
+            heating = gain_step * u_abs_frac
             T_raw = T + heating - loss_step
             T = T + lag_alpha * (T_raw - T)
             e = target_temp_C - T
@@ -551,7 +550,7 @@ def _compute_predictive_percent(
         u_abs_frac = u0_frac + du_frac
         # solver operates on du; clamp only for simulation validity
         u_abs_frac = max(0.0, min(1.0, u_abs_frac))
-        cost = simulate_cost_for_candidate(u_abs_frac, u0_frac)
+        cost = simulate_cost_for_candidate(u_abs_frac)
         eval_count += horizon
         # penalties
         cost += control_pen * (du_frac * du_frac)
@@ -573,7 +572,7 @@ def _compute_predictive_percent(
         du_frac = cand / 100.0
         u_abs_frac = u0_frac + du_frac
         u_abs_frac = max(0.0, min(1.0, u_abs_frac))
-        cost = simulate_cost_for_candidate(u_abs_frac, u0_frac)
+        cost = simulate_cost_for_candidate(u_abs_frac)
         eval_count += horizon
         cost += control_pen * (du_frac * du_frac)
         if last_percent is not None:

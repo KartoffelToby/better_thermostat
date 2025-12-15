@@ -294,8 +294,8 @@ async def trigger_temperature_change(self, event):
         _last_ts = getattr(self, "_slope_last_ts", None)
         if _last_ts is not None and _cur_q is not None:
             dt_min = max(1e-6, (now_m - _last_ts) / 60.0)
-            dT = _incoming_temperature_q - _cur_q
-            inst_slope = dT / dt_min
+            dT = _incoming_temperature_q - _cur_q  # K
+            inst_slope = dT / dt_min  # K/min
             # light smoothing
             if getattr(self, "temp_slope", None) is None:
                 self.temp_slope = inst_slope
