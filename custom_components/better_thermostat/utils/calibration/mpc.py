@@ -265,11 +265,22 @@ def compute_mpc(inp: MpcInput, params: MpcParams) -> Optional[MpcOutput]:
                     dt_min = time_since_virtual / 60.0
 
                     u = max(0.0, min(100.0, state.last_percent)) / 100.0
+                    gain_est = (
+                        float(state.gain_est)
+                        if state.gain_est is not None
+                        else float(params.mpc_thermal_gain)
+                    )
+                    loss_est = (
+                        float(state.loss_est)
+                        if state.loss_est is not None
+                        else float(params.mpc_loss_coeff)
+                    )
+
                     gain = max(
-                        params.mpc_gain_min, min(params.mpc_gain_max, state.gain_est)
+                        params.mpc_gain_min, min(params.mpc_gain_max, gain_est)
                     )
                     loss = max(
-                        params.mpc_loss_min, min(params.mpc_loss_max, state.loss_est)
+                        params.mpc_loss_min, min(params.mpc_loss_max, loss_est)
                     )
 
                     predicted_dT = gain * u * dt_min - loss * dt_min
@@ -371,6 +382,12 @@ def _compute_predictive_percent(
     assert inp.current_temp_C is not None
     assert inp.target_temp_C is not None
 
+    current_temp_C = float(inp.current_temp_C)
+    target_temp_C = float(inp.target_temp_C)
+
+    # delta_t is kept for API/backward compatibility (pre-u0 versions used it)
+    _ = delta_t
+
     if state.last_learn_time is None:
         state.last_learn_time = now
         state.last_learn_temp = inp.current_temp_C
@@ -391,13 +408,7 @@ def _compute_predictive_percent(
     dt_last = now - state.last_learn_time
 
     # ---- ADAPTATION (EMA), physikalisch korrekt ----
-    if (
-        params.mpc_adapt
-        and state.last_learn_temp is not None
-        and inp.current_temp_C is not None
-        and inp.target_temp_C is not None
-        and dt_last >= 180.0
-    ):
+    if params.mpc_adapt and state.last_learn_temp is not None and dt_last >= 180.0:
         try:
             # errors
             e_prev = inp.target_temp_C - state.last_learn_temp
@@ -426,17 +437,20 @@ def _compute_predictive_percent(
                     max(gain_candidate, params.mpc_gain_min), params.mpc_gain_max
                 )
 
-                if gain_candidate > state.gain_est:
+                gain_est = state.gain_est if state.gain_est is not None else params.mpc_thermal_gain
+
+                if gain_candidate > gain_est:
                     alpha = params.mpc_adapt_alpha * 0.3  # slower increase
                 else:
                     alpha = params.mpc_adapt_alpha  # faster decrease
 
-                state.gain_est = (1.0 - alpha) * state.gain_est + alpha * gain_candidate
+                state.gain_est = (1.0 - alpha) * gain_est + alpha * gain_candidate
 
             # --- LOSS LEARNING (only when no heating and temperature is dropping) ---
             if (
                 delta_T < -0.05
                 and u_last <= min_open
+                and (inp.temp_slope_K_per_min is not None)
                 and inp.temp_slope_K_per_min < -0.01
             ):
                 # Room cooling rate
@@ -444,25 +458,29 @@ def _compute_predictive_percent(
                 loss_candidate = max(0.0, observed_rate)
                 loss_candidate = min(loss_candidate, params.mpc_loss_max)
 
-                if loss_candidate > state.loss_est:
+                loss_est = state.loss_est if state.loss_est is not None else params.mpc_loss_coeff
+
+                if loss_candidate > loss_est:
                     alpha = params.mpc_adapt_alpha * 0.3  # slower increase
                 else:
                     alpha = params.mpc_adapt_alpha
 
-                state.loss_est = (1.0 - alpha) * state.loss_est + alpha * loss_candidate
+                state.loss_est = (1.0 - alpha) * loss_est + alpha * loss_candidate
 
             # clamp to allowed physical range
-            state.gain_est = max(
-                params.mpc_gain_min, min(params.mpc_gain_max, state.gain_est)
-            )
-            state.loss_est = max(
-                params.mpc_loss_min, min(params.mpc_loss_max, state.loss_est)
-            )
+            if state.gain_est is not None:
+                state.gain_est = max(
+                    params.mpc_gain_min, min(params.mpc_gain_max, float(state.gain_est))
+                )
+            if state.loss_est is not None:
+                state.loss_est = max(
+                    params.mpc_loss_min, min(params.mpc_loss_max, float(state.loss_est))
+                )
 
             state.last_learn_time = now
             state.last_learn_temp = inp.current_temp_C
 
-        except Exception:
+        except (TypeError, ValueError, ZeroDivisionError):
             # ignore measurement noise / temporary invalid numbers
             pass
 
@@ -471,6 +489,21 @@ def _compute_predictive_percent(
     loss = state.loss_est if state.loss_est is not None else params.mpc_loss_coeff
     gain_step = gain * step_minutes
     loss_step = loss * step_minutes
+
+    # ------------------------------------------------------------
+    # BASE LOAD u0
+    # u0 represents the steady-state opening where gain * u0 == loss.
+    # The optimizer must not control absolute u anymore; it controls du around u0.
+    # u_abs = u0 + du is applied AFTER solving (before clamping downstream).
+    # ------------------------------------------------------------
+    u0_frac: float
+    if gain and gain > 0:
+        u0_frac = loss / gain
+    else:
+        u0_frac = 0.0
+    u0_frac = max(0.0, min(1.0, u0_frac))
+    min_eff = (state.min_effective_percent or 0.0) / 100.0
+    u0_frac = max(u0_frac, min_eff)
 
     # cost penalties (normalize u in [0,1])
     control_pen = max(0.0, float(params.mpc_control_penalty))
@@ -487,52 +520,66 @@ def _compute_predictive_percent(
     best_percent = 0.0
     eval_count = 0
 
-    def simulate_cost_for_candidate(u_frac: float) -> float:
-        """Simulate forward temperature for constant u_frac (0..1) over horizon and return cost."""
-        T = state.virtual_temp if state.virtual_temp is not None else inp.current_temp_C
+    def simulate_cost_for_candidate(u_abs_frac: float, u0_frac: float) -> float:
+        """Simulate forward temperature for constant u_abs_frac (0..1) over horizon and return cost."""
+        T = float(state.virtual_temp) if state.virtual_temp is not None else current_temp_C
         cost = 0.0
         for _ in range(horizon):
-            heating = gain_step * u_frac
+            effective_u = max(0.0, u_abs_frac - u0_frac)
+            heating = gain_step * effective_u
             T_raw = T + heating - loss_step
             T = T + lag_alpha * (T_raw - T)
-            e = inp.target_temp_C - T
+            e = target_temp_C - T
             cost += e * e
         return cost
 
-    # coarse search (0..100 step 3)
-    coarse_candidates = list(range(0, 101, 1))
-    best_u_coarse = 0
+    # coarse search over du around u0
+    # du_pct is additive on a 0..100% scale and can be negative.
+    coarse_candidates = list(range(-100, 101, 1))
+    best_du_coarse = 0
     best_cost_coarse = None
     for cand in coarse_candidates:
-        u_frac = cand / 100.0
-        cost = simulate_cost_for_candidate(u_frac)
+        du_frac = cand / 100.0
+        u_abs_frac = u0_frac + du_frac
+        # solver operates on du; clamp only for simulation validity
+        u_abs_frac = max(0.0, min(1.0, u_abs_frac))
+        cost = simulate_cost_for_candidate(u_abs_frac, u0_frac)
         eval_count += horizon
         # penalties
-        cost += control_pen * (u_frac * u_frac)
+        cost += control_pen * (du_frac * du_frac)
         if last_percent is not None:
-            cost += change_pen * abs(u_frac - (last_percent / 100.0))
+            # change penalty should apply to absolute command change
+            last_du = (last_percent / 100.0) - u0_frac
+            cost += change_pen * abs(du_frac - last_du)
+            # cost += change_pen * abs(u_abs_frac - (last_percent / 100.0))
         if best_cost_coarse is None or cost < best_cost_coarse:
             best_cost_coarse = cost
-            best_u_coarse = cand
+            best_du_coarse = cand
 
-    # fine search around best coarse ±10% in 2% steps
-    best_u_fine = best_u_coarse if best_u_coarse is not None else 0
+    # fine search around best coarse du ±10% in 2% steps
+    best_du_fine = best_du_coarse if best_du_coarse is not None else 0
     best_cost_fine = best_cost_coarse if best_cost_coarse is not None else float("inf")
-    fine_lo = max(0, best_u_coarse - 10)
-    fine_hi = min(100, best_u_coarse + 10)
+    fine_lo = max(-100, best_du_coarse - 10)
+    fine_hi = min(100, best_du_coarse + 10)
     for cand in range(fine_lo, fine_hi + 1, 2):
-        u_frac = cand / 100.0
-        cost = simulate_cost_for_candidate(u_frac)
+        du_frac = cand / 100.0
+        u_abs_frac = u0_frac + du_frac
+        u_abs_frac = max(0.0, min(1.0, u_abs_frac))
+        cost = simulate_cost_for_candidate(u_abs_frac, u0_frac)
         eval_count += horizon
-        cost += control_pen * (u_frac * u_frac)
+        cost += control_pen * (du_frac * du_frac)
         if last_percent is not None:
-            cost += change_pen * abs(u_frac - (last_percent / 100.0))
+            last_du = (last_percent / 100.0) - u0_frac
+            cost += change_pen * abs(du_frac - last_du)
+            # cost += change_pen * abs(u_abs_frac - (last_percent / 100.0))
         if cost < best_cost_fine:
             best_cost_fine = cost
-            best_u_fine = cand
+            best_du_fine = cand
 
-    # result before postprocessing
-    best_percent = float(best_u_fine)
+    # result before postprocessing: convert du back to absolute percent around u0
+    du_percent = float(best_du_fine)
+    u_abs_percent = (u0_frac * 100.0) + du_percent
+    best_percent = u_abs_percent
 
     # store last estimates
     state.last_temp = (
@@ -544,6 +591,9 @@ def _compute_predictive_percent(
     mpc_debug = {
         "mpc_gain": _round_for_debug(gain, 4),
         "mpc_loss": _round_for_debug(loss, 4),
+        "mpc_u0_pct": _round_for_debug(u0_frac * 100.0, 3),
+        "mpc_du_pct": _round_for_debug(du_percent, 3),
+        "mpc_u_abs_pct": _round_for_debug(u_abs_percent, 3),
         "mpc_horizon": horizon,
         "mpc_eval_count": eval_count,
         "mpc_step_minutes": _round_for_debug(step_minutes, 3),
@@ -615,6 +665,8 @@ def _apply_profile_adjustments(state: _MpcState, params: MpcParams) -> None:
             state.min_effective_percent = 12.0
 
     elif state.trv_profile == "exponential":
+        if state.gain_est is None:
+            state.gain_est = params.mpc_thermal_gain
         state.gain_est *= 1.1
         state.gain_est = min(params.mpc_gain_max, state.gain_est)
 
@@ -785,9 +837,8 @@ def _post_process_percent(
                 )
 
                 room_temp_delta = (
-                    (inp.current_temp_C - inp.last_room_temp_C)
-                    if hasattr(inp, "last_room_temp_C")
-                    and inp.last_room_temp_C is not None
+                    (inp.current_temp_C - getattr(inp, "last_room_temp_C"))
+                    if getattr(inp, "last_room_temp_C", None) is not None
                     else None
                 )
 
