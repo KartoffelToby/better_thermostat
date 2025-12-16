@@ -70,7 +70,9 @@ def _supports_direct_valve_control(self, entity_id: str) -> bool:
     """Return True if the TRV supports writing a valve percentage."""
 
     trv_data = self.real_trvs.get(entity_id) or {}
-    if trv_data.get("valve_position_entity"):
+    valve_entity = trv_data.get("valve_position_entity")
+    writable_flag = trv_data.get("valve_position_writable")
+    if valve_entity and writable_flag is True:
         return True
     quirks = trv_data.get("model_quirks")
     return bool(getattr(quirks, "override_set_valve", None))

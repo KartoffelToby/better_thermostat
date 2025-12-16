@@ -337,23 +337,10 @@ def convert_time(time_string):
 
 
 async def find_valve_entity(self, entity_id):
-    """Find the local calibration entity for the TRV.
+    """Locate a per-TRV valve position helper entity, if available.
 
-    This is a hacky way to find the local calibration entity for the TRV. It is not possible to find the entity
-    automatically, because the entity_id is not the same as the friendly_name. The friendly_name is the same for all
-    thermostats of the same brand, but the entity_id is different.
-
-    Parameters
-    ----------
-    self :
-            self instance of better_thermostat
-
-    Returns
-    -------
-    str
-            the entity_id of the local calibration entity
-    None
-            if no local calibration entity was found
+    Returns a mapping with the entity_id, whether it appears writable, and the
+    detection reason. ``None`` if no related entity could be found.
     """
     entity_registry = er.async_get(self.hass)
     reg_entity = entity_registry.async_get(entity_id)
@@ -362,18 +349,47 @@ async def find_valve_entity(self, entity_id):
     entity_entries = async_entries_for_config_entry(
         entity_registry, reg_entity.config_entry_id
     )
+    preferred_domains = {"number", "input_number"}
+    readonly_candidate: dict[str, Any] | None = None
+
+    def _classify(uid: str, ent_id: str) -> str | None:
+        descriptor = f"{uid} {ent_id}".lower()
+        if "pi_heating_demand" in descriptor:
+            return "pi_heating_demand"
+        if "_valve_position" in descriptor:
+            return "valve_position"
+        if descriptor.endswith("_position") or descriptor.endswith(" position"):
+            return "position"
+        return None
+
     for entity in entity_entries:
-        uid = entity.unique_id
-        # Make sure we use the correct device entities
-        if entity.device_id == reg_entity.device_id:
-            if "_valve_position" in uid or "_position" in uid:
-                _LOGGER.debug(
-                    f"better thermostat: Found valve position entity {entity.entity_id} for {entity_id}"
-                )
-                return entity.entity_id
+        uid = entity.unique_id or ""
+        if entity.device_id != reg_entity.device_id:
+            continue
+        reason = _classify(uid, entity.entity_id or "")
+        if reason is None:
+            continue
+        domain = (entity.entity_id or "").split(".", 1)[0]
+        writable = domain in preferred_domains
+        info = {
+            "entity_id": entity.entity_id,
+            "writable": writable,
+            "reason": reason,
+            "domain": domain,
+        }
+        if writable:
+            _LOGGER.debug(
+                "better thermostat: Found writable valve helper %s for %s (reason=%s)",
+                entity.entity_id,
+                entity_id,
+                reason,
+            )
+            return info
+        if readonly_candidate is None:
+            readonly_candidate = info
 
     _LOGGER.debug(
-        f"better thermostat: Could not find valve position entity for {entity_id}"
+        "better thermostat: Could not find valve position entity for %s", entity_id
     )
     return None
 
@@ -439,12 +455,14 @@ async def find_local_calibration_entity(self, entity_id):
                 or "temperatur_offset" in uid
             ):
                 _LOGGER.debug(
-                    f"better thermostat: Found local calibration entity {entity.entity_id} for {entity_id}"
+                    "better thermostat: Found local calibration entity %s for %s",
+                    entity.entity_id,
+                    entity_id,
                 )
                 return entity.entity_id
 
     _LOGGER.debug(
-        f"better thermostat: Could not find local calibration entity for {entity_id}"
+        "better thermostat: Could not find local calibration entity for %s", entity_id
     )
     return None
 
@@ -478,7 +496,7 @@ def get_max_value(obj, value, default):
             _temp = obj[key].get(value, 0)
             if _temp is not None:
                 _raw.append(_temp)
-        return max(_raw, key=lambda x: float(x))
+        return max(_raw, key=float)
     except (KeyError, ValueError):
         return default
 
@@ -491,7 +509,7 @@ def get_min_value(obj, value, default):
             _temp = obj[key].get(value, 999)
             if _temp is not None:
                 _raw.append(_temp)
-        return min(_raw, key=lambda x: float(x))
+        return min(_raw, key=float)
     except (KeyError, ValueError):
         return default
 
@@ -518,7 +536,7 @@ async def get_device_model(self, entity_id):
             dev_id = getattr(entry, "device_id", None)
             if isinstance(dev_id, str) and dev_id:
                 device = dev_reg.async_get(dev_id)
-        except Exception:
+        except Exception:  # noqa: BLE001
             device = None
         # Selection exclusively via Device-Registry
         try:
@@ -531,7 +549,7 @@ async def get_device_model(self, entity_id):
                 getattr(device, "name", None),
                 list(getattr(device, "identifiers", []) or []),
             )
-        except Exception:
+        except Exception:  # noqa: BLE001
             pass
 
         dev_model_id = getattr(device, "model_id", None)
@@ -552,7 +570,7 @@ async def get_device_model(self, entity_id):
             elif isinstance(model_str, str) and len(model_str.strip()) >= 2:
                 selected = model_str.strip()
                 source = "devreg.model"
-    except Exception:
+    except Exception:  # noqa: BLE001
         # swallow registry access issues and continue to fallback
         pass
 

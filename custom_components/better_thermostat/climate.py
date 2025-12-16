@@ -11,7 +11,7 @@ from statistics import mean
 # preferred for HA time handling (UTC aware)
 from homeassistant.util import dt as dt_util
 from collections import deque
-from typing import Any, Dict, Optional
+from typing import Any, Dict
 
 import voluptuous as vol
 import homeassistant.helpers.config_validation as cv
@@ -614,6 +614,7 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
                 "ignore_trv_states": False,
                 "valve_position": None,
                 "valve_position_entity": None,
+                "valve_position_writable": None,
                 "max_temp": None,
                 "min_temp": None,
                 "target_temp_step": None,
