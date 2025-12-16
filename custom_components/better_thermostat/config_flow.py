@@ -60,20 +60,6 @@ CALIBRATION_TYPE_SELECTOR = selector.SelectSelector(
 )
 
 
-BALANCE_MODE_SELECTOR = selector.SelectSelector(
-    selector.SelectSelectorConfig(
-        options=[
-            selector.SelectOptionDict(value="none", label="None / Off"),
-            selector.SelectOptionDict(
-                value="heuristic", label="Heuristic (Experimental)"
-            ),
-            selector.SelectOptionDict(value="pid", label="PID (Experimental)"),
-        ],
-        mode=selector.SelectSelectorMode.DROPDOWN,
-    )
-)
-
-
 CALIBRATION_TYPE_ALL_SELECTOR = selector.SelectSelector(
     selector.SelectSelectorConfig(
         options=[
@@ -120,6 +106,12 @@ CALIBRATION_MODE_SELECTOR = selector.SelectSelector(
                 value=CalibrationMode.MPC_CALIBRATION, label="MPC Predictive"
             ),
             selector.SelectOptionDict(
+                value=CalibrationMode.TPI_CALIBRATION, label="TPI Controller"
+            ),
+            selector.SelectOptionDict(
+                value=CalibrationMode.PID_CALIBRATION, label="PID Controller"
+            ),
+            selector.SelectOptionDict(
                 value=CalibrationMode.NO_CALIBRATION, label="No Calibration"
             ),
         ],
@@ -129,36 +121,9 @@ CALIBRATION_MODE_SELECTOR = selector.SelectSelector(
 
 
 _ADVANCED_NUMERIC_SPECS: Tuple[Tuple[str, Any, Any], ...] = (
-    ("trend_mix_trv", 0.7, vol.All(vol.Coerce(float), vol.Range(min=0, max=1))),
-    (
-        "percent_hysteresis_pts",
-        1.0,
-        vol.All(vol.Coerce(float), vol.Range(min=0, max=10)),
-    ),
-    (
-        "min_update_interval_s",
-        60.0,
-        vol.All(vol.Coerce(float), vol.Range(min=0, max=3600)),
-    ),
-    ("pid_kp", 60.0, vol.All(vol.Coerce(float), vol.Range(min=0))),
-    ("pid_ki", 0.01, vol.All(vol.Coerce(float), vol.Range(min=0))),
-    ("pid_kd", 2000.0, vol.All(vol.Coerce(float), vol.Range(min=0))),
-    (
-        "mpc_thermal_gain",
-        0.05,
-        vol.All(vol.Coerce(float), vol.Range(min=0.001, max=0.5)),
-    ),
-    ("mpc_loss_coeff", 0.02, vol.All(vol.Coerce(float), vol.Range(min=0.0, max=0.2))),
-    (
-        "mpc_control_penalty",
-        0.001,
-        vol.All(vol.Coerce(float), vol.Range(min=0.0, max=1.0)),
-    ),
-    (
-        "mpc_change_penalty",
-        0.05,
-        vol.All(vol.Coerce(float), vol.Range(min=0.0, max=5.0)),
-    ),
+    ("pid_kp", 20.0, vol.All(vol.Coerce(float), vol.Range(min=0))),
+    ("pid_ki", 0.02, vol.All(vol.Coerce(float), vol.Range(min=0))),
+    ("pid_kd", 400.0, vol.All(vol.Coerce(float), vol.Range(min=0))),
 )
 
 
@@ -182,13 +147,6 @@ def _as_bool(value: Any, default: bool = False) -> bool:
         if lowered in {"false", "no", "0", "off"}:
             return False
     return bool(value)
-
-
-def _normalize_balance_mode(value: Any, fallback: str) -> str:
-    allowed = {"none", "heuristic", "pid"}
-    if isinstance(value, str) and value.lower() in allowed:
-        return value.lower()
-    return fallback
 
 
 async def _load_adapter_info(
@@ -245,6 +203,25 @@ def _build_advanced_fields(
     homematic: bool,
     has_auto: bool,
 ) -> OrderedDict:
+    # Migrate old balance_mode to calibration_mode
+    sources_list = list(sources)
+    for source in sources_list:
+        if isinstance(source, dict):
+            balance_mode = source.get("balance_mode")
+            if balance_mode == "pid":
+                # Migrate PID from balance_mode to calibration_mode
+                source["calibration_mode"] = CalibrationMode.PID_CALIBRATION.value
+                # Remove old balance_mode
+                source.pop("balance_mode", None)
+            elif balance_mode in ("heuristic", "none"):
+                # For other balance modes, set calibration_mode to default if not set
+                if "calibration_mode" not in source:
+                    source["calibration_mode"] = CalibrationMode.DEFAULT.value
+                # Remove old balance_mode
+                source.pop("balance_mode", None)
+
+    sources = sources_list
+
     def get_value(key: str, fallback: Any) -> Any:
         for source in sources:
             if isinstance(source, dict) and key in source:
@@ -262,7 +239,6 @@ def _build_advanced_fields(
         if default_calibration == "local_calibration_based"
         else CALIBRATION_TYPE_SELECTOR
     )
-    balance_default = _normalize_balance_mode(get_value("balance_mode", "none"), "none")
     ordered: OrderedDict = OrderedDict()
 
     # 1) Calibration + protection flags
@@ -303,47 +279,19 @@ def _build_advanced_fields(
         vol.Optional(CONF_HOMEMATICIP, default=get_bool(CONF_HOMEMATICIP, homematic))
     ] = bool
 
-    # 2) Balance mode
-    ordered[vol.Optional("balance_mode", default=balance_default)] = (
-        BALANCE_MODE_SELECTOR
-    )
-
-    # 3) General numeric settings
-    for key in ("trend_mix_trv", "percent_hysteresis_pts", "min_update_interval_s"):
-        default, validator = next(
-            (d, v) for (k, d, v) in _ADVANCED_NUMERIC_SPECS if k == key
-        )
-        ordered[vol.Optional(key, default=get_value(key, default))] = validator
-
     # 4) PID block
     ordered[vol.Optional("pid_auto_tune", default=get_bool("pid_auto_tune", True))] = (
         bool
     )
-    ordered[vol.Optional("pid_kp", default=get_value("pid_kp", 60.0))] = vol.All(
+    ordered[vol.Optional("pid_kp", default=get_value("pid_kp", 20.0))] = vol.All(
         vol.Coerce(float), vol.Range(min=0)
     )
-    ordered[vol.Optional("pid_ki", default=get_value("pid_ki", 0.01))] = vol.All(
+    ordered[vol.Optional("pid_ki", default=get_value("pid_ki", 0.02))] = vol.All(
         vol.Coerce(float), vol.Range(min=0)
     )
-    ordered[vol.Optional("pid_kd", default=get_value("pid_kd", 2000.0))] = vol.All(
+    ordered[vol.Optional("pid_kd", default=get_value("pid_kd", 400.0))] = vol.All(
         vol.Coerce(float), vol.Range(min=0)
     )
-
-    # 5) MPC block
-    for key in (
-        "mpc_thermal_gain",
-        "mpc_loss_coeff",
-        "mpc_control_penalty",
-        "mpc_change_penalty",
-        "mpc_adapt",
-    ):
-        if key == "mpc_adapt":
-            ordered[vol.Optional(key, default=get_bool(key, True))] = bool
-        else:
-            default, validator = next(
-                (d, v) for (k, d, v) in _ADVANCED_NUMERIC_SPECS if k == key
-            )
-            ordered[vol.Optional(key, default=get_value(key, default))] = validator
 
     return ordered
 
@@ -370,9 +318,6 @@ def _normalize_advanced_submission(
     )
     normalized[CONF_CHILD_LOCK] = _as_bool(normalized.get(CONF_CHILD_LOCK), False)
     normalized[CONF_HOMEMATICIP] = _as_bool(normalized.get(CONF_HOMEMATICIP), homematic)
-    normalized["balance_mode"] = _normalize_balance_mode(
-        normalized.get("balance_mode", "none"), "none"
-    )
 
     for key, default, _validator in _ADVANCED_NUMERIC_SPECS:
         caster = int if key.endswith("_steps") else float
@@ -382,7 +327,6 @@ def _normalize_advanced_submission(
             normalized[key] = caster(default)
 
     normalized["pid_auto_tune"] = _as_bool(normalized.get("pid_auto_tune"), True)
-    normalized["mpc_adapt"] = _as_bool(normalized.get("mpc_adapt"), True)
 
     _LOGGER.debug("Normalized advanced submission: %s", normalized)
 
@@ -624,7 +568,11 @@ def _normalize_user_submission(
     )
     for key in optional_keys:
         if key in user_input:
-            normalized[key] = user_input.get(key)
+            value = user_input.get(key)
+            if value == "" or value is None:
+                normalized[key] = None
+            else:
+                normalized[key] = value
         elif mode == "create" and key not in normalized:
             normalized[key] = None
 

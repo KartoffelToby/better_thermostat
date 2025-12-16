@@ -11,7 +11,7 @@ from statistics import mean
 # preferred for HA time handling (UTC aware)
 from homeassistant.util import dt as dt_util
 from collections import deque
-from typing import Any, Dict, Optional
+from typing import Any, Dict
 
 
 # Home Assistant imports
@@ -110,13 +110,14 @@ from .utils.helpers import convert_to_float, find_battery_entity, get_hvac_bt_mo
 from .utils.watcher import check_all_entities
 from .utils.weather import check_ambient_air_temperature, check_weather
 from .utils.helpers import normalize_hvac_mode, get_device_model
-from .balance import (
-    export_states as balance_export_states,
-    import_states as balance_import_states,
-    reset_balance_state as balance_reset_state,
-    build_balance_key,
+from .utils.calibration.pid import (
+    export_pid_states as pid_export_states,
+    import_pid_states as pid_import_states,
+    reset_pid_state as pid_reset_state,
+    build_pid_key,
 )
-from .utils.mpc import export_mpc_state_map, import_mpc_state_map
+from .utils.calibration.mpc import export_mpc_state_map, import_mpc_state_map
+from .utils.calibration.tpi import export_tpi_state_map, import_tpi_state_map
 
 
 _LOGGER = logging.getLogger(__name__)
@@ -473,15 +474,14 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
         self._slope_last_temp = None
         self._slope_last_ts = None
         # Persistence for balance (hydraulic) states
-        self._balance_store = None
-        self._balance_save_scheduled = False
-        # Learned Sonoff/TRV open caps (min/max %) per TRV and target temp bucket
-        self.open_caps = {}
-        self._open_caps_store = None
-        self._open_caps_save_scheduled = False
+        self._pid_store = None
+        self._pid_save_scheduled = False
         # MPC adaptive state persistence
         self._mpc_store = None
         self._mpc_save_scheduled = False
+        # TPI adaptive state persistence
+        self._tpi_store = None
+        self._tpi_save_scheduled = False
 
     async def async_added_to_hass(self):
         """Run when entity about to be added.
@@ -572,6 +572,7 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
                 "ignore_trv_states": False,
                 "valve_position": None,
                 "valve_position_entity": None,
+                "valve_position_writable": None,
                 "max_temp": None,
                 "min_temp": None,
                 "target_temp_step": None,
@@ -610,22 +611,11 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
 
         # Initialize persistent storage for balance states and attempt to load
         try:
-            self._balance_store = Store(self.hass, 1, f"{DOMAIN}_balance_states")
-            await self._load_balance_state()
+            self._pid_store = Store(self.hass, 1, f"{DOMAIN}_pid_states")
+            await self._load_pid_state()
         except Exception as e:
             _LOGGER.debug(
-                "better_thermostat %s: balance storage init/load failed: %s",
-                self.device_name,
-                e,
-            )
-
-        # Initialize persistent storage for learned open caps
-        try:
-            self._open_caps_store = Store(self.hass, 1, f"{DOMAIN}_open_caps")
-            await self._load_open_caps()
-        except Exception as e:
-            _LOGGER.debug(
-                "better_thermostat %s: open caps storage init/load failed: %s",
+                "better_thermostat %s: PID storage init/load failed: %s",
                 self.device_name,
                 e,
             )
@@ -637,6 +627,17 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
         except Exception as e:  # noqa: BLE001
             _LOGGER.debug(
                 "better_thermostat %s: MPC storage init/load failed: %s",
+                self.device_name,
+                e,
+            )
+
+        # Initialize persistent storage for TPI adaptive state
+        try:
+            self._tpi_store = Store(self.hass, 1, f"{DOMAIN}_tpi_states")
+            await self._load_tpi_states()
+        except Exception as e:  # noqa: BLE001
+            _LOGGER.debug(
+                "better_thermostat %s: TPI storage init/load failed: %s",
                 self.device_name,
                 e,
             )
@@ -1357,7 +1358,11 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
                     )
                     if isinstance(calibration_value, str):
                         calibration_mode = calibration_value.lower()
-                        if calibration_mode == CalibrationMode.MPC_CALIBRATION.value:
+                        if calibration_mode in (
+                            CalibrationMode.MPC_CALIBRATION.value,
+                            CalibrationMode.TPI_CALIBRATION.value,
+                            CalibrationMode.PID_CALIBRATION.value,
+                        ):
                             active_calibration_modes.add(calibration_mode)
             except Exception:  # noqa: BLE001
                 active_balance_modes = set()
@@ -1658,18 +1663,18 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
             self.ignore_states = prev_ignore_states
             self.in_maintenance = False
 
-    async def _load_balance_state(self) -> None:
-        """Load persisted balance states and hydrate module-level cache."""
-        if self._balance_store is None:
+    async def _load_pid_state(self) -> None:
+        """Load persisted PID states and hydrate module-level cache."""
+        if self._pid_store is None:
             return
-        data = await self._balance_store.async_load()
+        data = await self._pid_store.async_load()
         if not data:
             return
         prefix = f"{self._unique_id}:"
         try:
-            imported = balance_import_states(data, prefix_filter=prefix)
+            imported = pid_import_states(data, prefix_filter=prefix)
             _LOGGER.debug(
-                "better_thermostat %s: loaded %s balance state(s) with prefix %s",
+                "better_thermostat %s: loaded %s PID state(s) with prefix %s",
                 self.device_name,
                 imported,
                 prefix,
@@ -1681,15 +1686,15 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
                 e,
             )
 
-    async def _save_balance_state(self) -> None:
-        """Persist current balance states for this entity (prefix filtered)."""
-        if self._balance_store is None:
+    async def _save_pid_state(self) -> None:
+        """Persist current PID states for this entity (prefix filtered)."""
+        if self._pid_store is None:
             return
         try:
             prefix = f"{self._unique_id}:"
-            current = balance_export_states(prefix=prefix)
+            current = pid_export_states(prefix=prefix)
             # Merge with existing store to avoid overwriting other entities' data
-            existing = await self._balance_store.async_load()
+            existing = await self._pid_store.async_load()
             if not isinstance(existing, dict):
                 existing = {}
             # Drop previous entries for this entity's prefix
@@ -1701,94 +1706,33 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
                     pass
             # Update with current
             existing.update(current)
-            await self._balance_store.async_save(existing)
+            await self._pid_store.async_save(existing)
             _LOGGER.debug(
-                "better_thermostat %s: saved %d balance state(s)",
+                "better_thermostat %s: saved %d PID state(s)",
                 self.device_name,
                 len(current or {}),
             )
         except Exception as e:
             _LOGGER.debug(
-                "better_thermostat %s: saving balance states failed: %s",
+                "better_thermostat %s: saving PID states failed: %s",
                 self.device_name,
                 e,
             )
 
-    def _schedule_save_balance_state(self, delay_s: float = 10.0) -> None:
-        """Debounced scheduling for saving balance state to storage."""
-        if self._balance_store is None or self._balance_save_scheduled:
+    def _schedule_save_pid_state(self, delay_s: float = 10.0) -> None:
+        """Debounced scheduling for saving PID state to storage."""
+        if self._pid_store is None or self._pid_save_scheduled:
             return
-        self._balance_save_scheduled = True
+        self._pid_save_scheduled = True
 
         async def _delayed_save():
             try:
                 await asyncio.sleep(delay_s)
-                await self._save_balance_state()
+                await self._save_pid_state()
             finally:
-                self._balance_save_scheduled = False
+                self._pid_save_scheduled = False
 
         # Fire and forget
-        self.hass.async_create_task(_delayed_save())
-
-    async def _load_open_caps(self) -> None:
-        """Load persisted open caps map for this entity."""
-        if self._open_caps_store is None:
-            return
-        data = await self._open_caps_store.async_load()
-        if not isinstance(data, dict):
-            return
-        key_prefix = f"{self._unique_id}:"
-        # Filter entries for this entity
-        entity_map = {}
-        for k, v in data.items():
-            if not isinstance(k, str) or not k.startswith(key_prefix):
-                continue
-            try:
-                _, trv, bucket = k.split(":", 2)
-            except ValueError:
-                # legacy/unknown key; skip
-                continue
-            entity_map.setdefault(trv, {})[bucket] = v
-        if entity_map:
-            self.open_caps = entity_map
-
-    async def _save_open_caps(self) -> None:
-        """Persist learned open caps map for this entity."""
-        if self._open_caps_store is None:
-            return
-        try:
-            # Merge into existing store to keep other entities' data
-            existing = await self._open_caps_store.async_load()
-            if not isinstance(existing, dict):
-                existing = {}
-            # Remove current entity keys
-            key_prefix = f"{self._unique_id}:"
-            for k in list(existing.keys()):
-                if isinstance(k, str) and k.startswith(key_prefix):
-                    del existing[k]
-            # Add current entries
-            for trv, buckets in (self.open_caps or {}).items():
-                for bucket, vals in (buckets or {}).items():
-                    existing[f"{self._unique_id}:{trv}:{bucket}"] = vals
-            await self._open_caps_store.async_save(existing)
-        except Exception as e:
-            _LOGGER.debug(
-                "better_thermostat %s: saving open caps failed: %s", self.device_name, e
-            )
-
-    def _schedule_save_open_caps(self, delay_s: float = 10.0) -> None:
-        """Debounced scheduling for saving open caps to storage."""
-        if self._open_caps_store is None or self._open_caps_save_scheduled:
-            return
-        self._open_caps_save_scheduled = True
-
-        async def _delayed_save():
-            try:
-                await asyncio.sleep(delay_s)
-                await self._save_open_caps()
-            finally:
-                self._open_caps_save_scheduled = False
-
         self.hass.async_create_task(_delayed_save())
 
     async def _load_mpc_states(self) -> None:
@@ -1846,6 +1790,64 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
                 await self._save_mpc_states()
             finally:
                 self._mpc_save_scheduled = False
+
+        self.hass.async_create_task(_delayed_save())
+
+    async def _load_tpi_states(self) -> None:
+        """Load persisted TPI adaptive controller states for this entity."""
+
+        if self._tpi_store is None:
+            return
+        data = await self._tpi_store.async_load()
+        if not isinstance(data, dict):
+            return
+        prefix = f"{self._unique_id}:"
+        scoped: Dict[str, Dict[str, Any]] = {}
+        for key, payload in data.items():
+            if not isinstance(key, str) or not key.startswith(prefix):
+                continue
+            if isinstance(payload, dict):
+                scoped[key] = payload
+        if scoped:
+            import_tpi_state_map(scoped)
+
+    async def _save_tpi_states(self) -> None:
+        """Persist TPI adaptive controller states for this entity."""
+
+        if self._tpi_store is None:
+            return
+        try:
+            existing = await self._tpi_store.async_load()
+            if not isinstance(existing, dict):
+                existing = {}
+            prefix = f"{self._unique_id}:"
+            for key in list(existing.keys()):
+                if isinstance(key, str) and key.startswith(prefix):
+                    del existing[key]
+            exported = export_tpi_state_map(prefix)
+            if exported:
+                existing.update(exported)
+            await self._tpi_store.async_save(existing)
+        except Exception as e:  # noqa: BLE001
+            _LOGGER.debug(
+                "better_thermostat %s: saving TPI states failed: %s",
+                self.device_name,
+                e,
+            )
+
+    def _schedule_save_tpi_states(self, delay_s: float = 15.0) -> None:
+        """Debounced scheduling for persisting TPI adaptive states."""
+
+        if self._tpi_store is None or self._tpi_save_scheduled:
+            return
+        self._tpi_save_scheduled = True
+
+        async def _delayed_save():
+            try:
+                await asyncio.sleep(delay_s)
+                await self._save_tpi_states()
+            finally:
+                self._tpi_save_scheduled = False
 
         self.hass.async_create_task(_delayed_save())
 
@@ -2161,10 +2163,7 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
             for trv, info in self.real_trvs.items():
                 bal = info.get("balance")
                 if bal:
-                    bal_compact[trv] = {
-                        "valve%": bal.get("valve_percent"),
-                        "flow_capK": bal.get("flow_cap_K"),
-                    }
+                    bal_compact[trv] = {"valve%": bal.get("valve_percent")}
             if bal_compact:
                 dev_specific["balance"] = json.dumps(bal_compact)
         except Exception:
@@ -2244,139 +2243,12 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
             for trv, info in self.real_trvs.items():
                 bal = info.get("balance")
                 if bal:
-                    bal_compact[trv] = {
-                        "valve%": bal.get("valve_percent"),
-                        "flow_capK": bal.get("flow_cap_K"),
-                    }
+                    bal_compact[trv] = {"valve%": bal.get("valve_percent")}
             if bal_compact:
                 dev_specific["balance"] = json.dumps(bal_compact)
         except Exception:
             pass
 
-        # Learned open caps: expose ALL buckets per TRV, mark current bucket, and attach suggestions to current
-        try:
-            caps: dict[str, Any] = {}
-            # Bucket rounding to 0.5°C for readability
-
-            def _bucket(temp):
-                try:
-                    return f"{round(float(temp) * 2.0) / 2.0:.1f}"
-                except Exception:
-                    return "unknown"
-
-            bucket = _bucket(self.bt_target_temp)
-            for trv in self.real_trvs.keys():
-                # Collect all learned buckets for this TRV
-                trv_learned = (self.open_caps or {}).get(trv, {}) or {}
-                buckets_out: dict[str, Any] = {}
-                for b, vals in trv_learned.items():
-                    buckets_out[b] = {
-                        "min_open_pct": vals.get("min_open_pct"),
-                        "max_open_pct": vals.get("max_open_pct"),
-                    }
-
-                # Attach suggestions for the CURRENT bucket (if available)
-                bal = self.real_trvs.get(trv, {}).get("balance") or {}
-                if bal:
-                    vmin = bal.get("sonoff_min_open_pct")
-                    vmax = bal.get("sonoff_max_open_pct")
-                    cur_entry = buckets_out.get(bucket, {})
-                    if vmin is not None:
-                        try:
-                            if isinstance(vmin, (int, float)):
-                                cur_entry["suggested_min_open_pct"] = int(vmin)
-                            elif isinstance(vmin, str):
-                                cur_entry["suggested_min_open_pct"] = int(float(vmin))
-                        except Exception:
-                            pass
-                    if vmax is not None:
-                        try:
-                            if isinstance(vmax, (int, float)):
-                                cur_entry["suggested_max_open_pct"] = int(vmax)
-                            elif isinstance(vmax, str):
-                                cur_entry["suggested_max_open_pct"] = int(float(vmax))
-                        except Exception:
-                            pass
-                    if cur_entry:
-                        buckets_out[bucket] = cur_entry
-
-                if buckets_out:
-                    caps[trv] = {"current_bucket": bucket, "buckets": buckets_out}
-            if caps:
-                dev_specific["trv_open_caps"] = json.dumps(caps)
-            # Flat attributes for current bucket (pick a representative TRV; prefer Sonoff if present)
-            try:
-                rep_trv = None
-                for t in self.real_trvs.keys():
-                    mdl = str(self.real_trvs.get(t, {}).get("model", ""))
-                    if "sonoff" in mdl.lower() or "trvzb" in mdl.lower():
-                        rep_trv = t
-                        break
-                if rep_trv is None:
-                    rep_trv = next(iter(self.real_trvs.keys()), None)
-                if rep_trv is not None:
-                    learned = (self.open_caps or {}).get(rep_trv, {}).get(bucket) or {}
-                    suggested = (self.real_trvs.get(rep_trv, {}) or {}).get(
-                        "balance"
-                    ) or {}
-                    # Extract suggested values safely
-                    svalve = suggested.get("valve_percent")
-                    smin = suggested.get("sonoff_min_open_pct")
-                    smax = suggested.get("sonoff_max_open_pct")
-                    svalve_i = None
-                    smin_i = None
-                    smax_i = None
-                    try:
-                        if isinstance(svalve, (int, float)):
-                            svalve_i = int(svalve)
-                        elif isinstance(svalve, str):
-                            svalve_i = int(float(svalve))
-                    except Exception:
-                        pass
-                    try:
-                        if isinstance(smin, (int, float)):
-                            smin_i = int(smin)
-                        elif isinstance(smin, str):
-                            smin_i = int(float(smin))
-                    except Exception:
-                        pass
-                    try:
-                        if isinstance(smax, (int, float)):
-                            smax_i = int(smax)
-                        elif isinstance(smax, str):
-                            smax_i = int(float(smax))
-                    except Exception:
-                        pass
-                    # Root: expose suggested valve percent for convenience
-                    if svalve_i is not None:
-                        dev_specific["suggested_valve_percent"] = int(
-                            max(0, min(100, svalve_i))
-                        )
-                    # Root: also expose suggested_* for clarity
-                    if smin_i is not None:
-                        dev_specific["suggested_min_open_pct"] = int(
-                            max(0, min(100, smin_i))
-                        )
-                    if smax_i is not None:
-                        dev_specific["suggested_max_open_pct"] = int(
-                            max(0, min(100, smax_i))
-                        )
-
-                    # Flat attributes should PREFER suggested; fallback to learned
-                    lmin = learned.get("min_open_pct")
-                    lmax = learned.get("max_open_pct")
-                    flat_min = smin_i if smin_i is not None else lmin
-                    flat_max = smax_i if smax_i is not None else lmax
-                    if flat_min is not None:
-                        dev_specific["min_open_pct"] = int(
-                            max(0, min(100, int(flat_min)))
-                        )
-                    if flat_max is not None:
-                        dev_specific["max_open_pct"] = int(
-                            max(0, min(100, int(flat_max)))
-                        )
-            except Exception:
-                pass
         except Exception:
             pass
 
@@ -3207,7 +3079,6 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
 
     async def reset_pid_learnings_service(
         self,
-        include_open_caps: bool = False,
         apply_pid_defaults: bool = False,
         defaults_kp: float | None = None,
         defaults_ki: float | None = None,
@@ -3215,18 +3086,17 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
     ) -> None:
         """Entity service: reset learned PID state for this entity.
 
-        - Clears all cached BalanceState entries for this entity (all TRVs/buckets)
-        - Optionally clears learned open caps (min/max %) when include_open_caps=True
-        - Schedules persistence saves for both maps
+        - Clears all cached PIDState entries for this entity (all TRVs/buckets)
+        - Schedules persistence saves for the map
         """
         try:
             prefix = f"{self._unique_id}:"
             # Collect keys to reset from balance module
-            current = balance_export_states(prefix=prefix) or {}
+            current = pid_export_states(prefix=prefix) or {}
             count = 0
             for key in list(current.keys()):
                 try:
-                    balance_reset_state(key)
+                    pid_reset_state(key)
                     count += 1
                 except Exception:
                     pass
@@ -3236,30 +3106,19 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
                 count,
                 prefix,
             )
-            # Schedule persistence of cleared balance states
+            # Schedule persistence of cleared PID states
             try:
-                self._schedule_save_balance_state()
+                self._schedule_save_pid_state()
             except Exception:
                 pass
-
-            if include_open_caps:
-                self.open_caps = {}
-                _LOGGER.info(
-                    "better_thermostat %s: cleared learned open caps map",
-                    self.device_name,
-                )
-                try:
-                    self._schedule_save_open_caps()
-                except Exception:
-                    pass
 
             # Optionally seed PID defaults for the CURRENT target bucket(s)
             if apply_pid_defaults:
                 try:
-                    from .balance import seed_pid_gains, BalanceParams
+                    from .utils.pid import seed_pid_gains, PIDParams
 
-                    # Use provided overrides or BalanceParams defaults
-                    _defs = BalanceParams()
+                    # Use provided overrides or PIDParams defaults
+                    _defs = PIDParams()
                     kp = float(defaults_kp) if defaults_kp is not None else _defs.kp
                     ki = float(defaults_ki) if defaults_ki is not None else _defs.ki
                     kd = float(defaults_kd) if defaults_kd is not None else _defs.kd
@@ -3310,7 +3169,7 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
                             len(list(self.real_trvs.keys()) or []),
                         )
                         try:
-                            self._schedule_save_balance_state()
+                            self._schedule_save_pid_state()
                         except Exception:
                             pass
                         # Kick the control loop so the new gains are used promptly

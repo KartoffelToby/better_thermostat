@@ -288,13 +288,40 @@ async def control_trv(self, heater_entity_id=None):
                 ):
                     bal = cal_bal
                     _source = "mpc_calibration"
+            elif _calibration_mode == CalibrationMode.TPI_CALIBRATION:
+                cal_bal = self.real_trvs[heater_entity_id].get("calibration_balance")
+                if (
+                    isinstance(cal_bal, dict)
+                    and cal_bal.get("apply_valve")
+                    and cal_bal.get("valve_percent") is not None
+                ):
+                    bal = cal_bal
+                    _source = "tpi_calibration"
+            elif _calibration_mode == CalibrationMode.PID_CALIBRATION:
+                cal_bal = self.real_trvs[heater_entity_id].get("calibration_balance")
+                if (
+                    isinstance(cal_bal, dict)
+                    and cal_bal.get("apply_valve")
+                    and cal_bal.get("valve_percent") is not None
+                ):
+                    bal = cal_bal
+                    _source = "pid_calibration"
+            elif _calibration_mode == CalibrationMode.HEATING_POWER_CALIBRATION:
+                cal_bal = self.real_trvs[heater_entity_id].get("calibration_balance")
+                if (
+                    isinstance(cal_bal, dict)
+                    and cal_bal.get("apply_valve")
+                    and cal_bal.get("valve_percent") is not None
+                ):
+                    bal = cal_bal
+                    _source = "heating_power_calibration"
             if bal is None:
                 raw_balance = self.real_trvs[heater_entity_id].get("balance")
                 if raw_balance and raw_balance.get("valve_percent") is not None:
                     bal = raw_balance
                     _source = "balance"
             if bal is not None:
-                target_pct = int(bal.get("valve_percent", 0))
+                target_pct = int(round(bal.get("valve_percent", 0)))
                 last_pct = self.real_trvs[heater_entity_id].get("last_valve_percent")
                 if self.call_for_heat is False:
                     _LOGGER.debug(
@@ -495,6 +522,9 @@ async def control_trv(self, heater_entity_id=None):
         if _temperature is not None and (
             _new_hvac_mode != HVACMode.OFF or _no_off_system_mode
         ):
+            _current_set_temperature = self.real_trvs[heater_entity_id].get(
+                "temperature"
+            )
             if _temperature != _current_set_temperature:
                 old = self.real_trvs[heater_entity_id].get("last_temperature", "?")
                 _LOGGER.debug(
@@ -555,13 +585,41 @@ async def control_trv(self, heater_entity_id=None):
             ):
                 bal = cal_bal
                 _source = "mpc_calibration"
+        elif _calibration_mode == CalibrationMode.TPI_CALIBRATION:
+            cal_bal = self.real_trvs[heater_entity_id].get("calibration_balance")
+            if (
+                isinstance(cal_bal, dict)
+                and cal_bal.get("apply_valve")
+                and cal_bal.get("valve_percent") is not None
+            ):
+                bal = cal_bal
+                _source = "tpi_calibration"
+        elif _calibration_mode == CalibrationMode.HEATING_POWER_CALIBRATION:
+            cal_bal = self.real_trvs[heater_entity_id].get("calibration_balance")
+            if (
+                isinstance(cal_bal, dict)
+                and cal_bal.get("apply_valve")
+                and cal_bal.get("valve_percent") is not None
+            ):
+                bal = cal_bal
+                _source = "heating_power_calibration"
+        elif _calibration_mode == CalibrationMode.PID_CALIBRATION:
+            cal_bal = self.real_trvs[heater_entity_id].get("calibration_balance")
+            if (
+                isinstance(cal_bal, dict)
+                and cal_bal.get("apply_valve")
+                and cal_bal.get("valve_percent") is not None
+            ):
+                bal = cal_bal
+                _source = "pid_calibration"
+
         if bal is None:
             raw_balance = self.real_trvs[heater_entity_id].get("balance")
             if raw_balance and raw_balance.get("valve_percent") is not None:
                 bal = raw_balance
                 _source = "balance"
         if bal is not None:
-            target_pct = int(bal.get("valve_percent", 0))
+            target_pct = int(round(bal.get("valve_percent", 0)))
             last_pct = self.real_trvs[heater_entity_id].get("last_valve_percent")
             if self.call_for_heat is False:
                 _LOGGER.debug(

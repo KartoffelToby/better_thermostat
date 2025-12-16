@@ -60,10 +60,18 @@ async def get_current_offset(self, entity_id):
             self.real_trvs[entity_id]["local_temperature_calibration_entity"]
         )
         if state is None or state.state in (STATE_UNAVAILABLE, STATE_UNKNOWN):
-            return None
-        return float(str(state.state))
+            return 0.0
+        try:
+            return float(str(state.state))
+        except (ValueError, TypeError):
+            _LOGGER.warning(
+                "better_thermostat %s: Could not convert calibration offset '%s' to float, using 0",
+                self.device_name,
+                state.state,
+            )
+            return 0.0
     else:
-        return None
+        return 0.0
 
 
 async def get_offset_step(self, entity_id):

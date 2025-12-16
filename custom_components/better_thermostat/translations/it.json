@@ -23,10 +23,6 @@
       "advanced": {
         "description": "Configurazione avanzata {trv}\n***Informazioni sui tipi di calibrazione: https://better-thermostat.org/configuration#second-step***",
         "data": {
-          "balance_mode": "Modalità di bilanciamento idraulico (Sperimentale)",
-          "trend_mix_trv": "Mix temperatura (peso esterno, 0–1)",
-          "percent_hysteresis_pts": "Isteresi (punti percentuali)",
-          "min_update_interval_s": "Intervallo minimo di aggiornamento (secondi)",
           "pid_auto_tune": "Auto-taratura PID",
           "pid_kp": "PID Kp",
           "pid_ki": "PID Ki",
@@ -41,16 +37,12 @@
           "no_off_system_mode": "Se il tuo TRV non può gestire la modalità 'off', puoi abilitare questa opzione per usare 5°C come temperatura target"
         },
         "data_description": {
-          "balance_mode": "Scegli come Better Thermostat adatta l’apertura della valvola tra le stanze.\n***Nessuno / Off***: Nessun bilanciamento; i TRV funzionano normalmente.\n***Euristico (Sperimentale)***: Bilanciamento basato su regole semplici.\n***PID (Sperimentale)***: Controllo avanzato che richiede taratura.\n\nNota: Il bilanciamento idraulico è in Beta e può cambiare.",
-          "trend_mix_trv": "Peso della temperatura esterna rispetto a quella interna del TRV per il mix derivato. 0.0 = solo interna, 1.0 = solo esterna. Predefinito: 0.7.",
-          "percent_hysteresis_pts": "Zona morta intorno al target per evitare aperture/chiusure continue della valvola. Tipico: 1.0–3.0",
-          "min_update_interval_s": "Non inviare aggiornamenti della valvola più frequentemente di questo intervallo per risparmiare batteria e radio.",
           "pid_auto_tune": "Permette al controllore di dedurre nel tempo valori PID stabili.",
           "pid_kp": "Guadagno proporzionale (reattività all’errore).",
           "pid_ki": "Guadagno integrale (elimina errori permanenti).",
           "pid_kd": "Guadagno derivativo (smorza il superamento).",
           "protect_overheating": "Alcuni TRV non chiudono completamente la valvola quando si raggiunge la temperatura. Oppure il radiatore mantiene molto calore residuo. Questa opzione può evitare il surriscaldamento.",
-          "calibration_mode": "Modalità di calcolo della calibrazione\n***Normale***: Il sensore interno di temperatura del TRV è corretto da quello esterno.\n***Aggressiva***: Il sensore interno del TRV è corretto da quello esterno ma impostato molto più basso/alto per ottenere una risposta più rapida.\n***Basata sul tempo AI***: Il sensore interno del TRV è corretto da quello esterno, ma un algoritmo personalizzato calcola il valore per migliorare l’algoritmo interno del TRV.",
+          "calibration_mode": "Modalità di calcolo della calibrazione\n***Normale***: Il sensore interno di temperatura del TRV è corretto da quello esterno.\n***Aggressiva***: Il sensore interno del TRV è corretto da quello esterno ma impostato molto più basso/alto per ottenere una risposta più rapida.\n***Basata sul tempo AI***: Il sensore interno del TRV è corretto da quello esterno, ma un algoritmo personalizzato calcola il valore per migliorare l’algoritmo interno del TRV.\n***MPC Predictive***: Utilizza il controllore predittivo MPC per derivare un'apertura della valvola e convertirla in offset o setpoint quando il controllo diretto della valvola non è disponibile.\n***PID Controller***: Utilizza un controllore PID per regolare dinamicamente la posizione della valvola in base all'errore di temperatura, al termine proporzionale, all'accumulo integrale e alla previsione derivata.\n***TPI Controller***: Utilizza un controllore Proporzionale Integrale Temporale per un controllo della temperatura stabile e preciso nel tempo.",
           "calibration": "Come deve essere applicata la calibrazione sul TRV (temperatura target o offset)\n***Basata sulla temperatura target***: Applica la calibrazione alla temperatura impostata.\n***Basata su offset***: Applica la calibrazione come offset."
         }
       },
@@ -97,10 +89,6 @@
       "advanced": {
         "description": "Configurazione avanzata {trv}\n***Informazioni sui tipi di calibrazione: https://better-thermostat.org/configuration#second-step***",
         "data": {
-          "balance_mode": "Modalità di bilanciamento idraulico (Sperimentale)",
-          "trend_mix_trv": "Mix temperatura (peso esterno, 0–1)",
-          "percent_hysteresis_pts": "Isteresi (punti percentuali)",
-          "min_update_interval_s": "Intervallo minimo di aggiornamento (secondi)",
           "pid_auto_tune": "Auto-taratura PID",
           "pid_kp": "PID Kp",
           "pid_ki": "PID Ki",
@@ -115,16 +103,12 @@
           "no_off_system_mode": "Se il tuo TRV non può gestire la modalità 'off', puoi abilitare questa opzione per usare 5°C come temperatura target"
         },
         "data_description": {
-          "balance_mode": "Scegli come Better Thermostat adatta l’apertura della valvola tra le stanze.\n***Nessuno / Off***: Nessun bilanciamento; i TRV funzionano normalmente.\n***Euristico (Sperimentale)***: Bilanciamento basato su regole semplici.\n***PID (Sperimentale)***: Controllo avanzato che richiede taratura.\n\nNota: Il bilanciamento idraulico è in Beta e può cambiare.",
-          "trend_mix_trv": "Peso della temperatura esterna rispetto a quella interna del TRV per il mix derivato. 0.0 = solo interna, 1.0 = solo esterna. Predefinito: 0.7.",
-          "percent_hysteresis_pts": "Zona morta intorno al target per evitare aperture/chiusure continue della valvola. Tipico: 1.0–3.0",
-          "min_update_interval_s": "Non inviare aggiornamenti della valvola più frequentemente di questo intervallo per risparmiare batteria e radio.",
           "pid_auto_tune": "Permette al controllore di dedurre nel tempo valori PID stabili.",
           "pid_kp": "Guadagno proporzionale (reattività all’errore).",
           "pid_ki": "Guadagno integrale (elimina errori permanenti).",
           "pid_kd": "Guadagno derivativo (smorza il superamento).",
           "protect_overheating": "Alcuni TRV non chiudono completamente la valvola quando si raggiunge la temperatura. Oppure il radiatore mantiene molto calore residuo. Questa opzione può evitare il surriscaldamento.",
-          "calibration_mode": "Modalità di calcolo della calibrazione\n***Normale***: Il sensore interno di temperatura del TRV è corretto da quello esterno.\n***Aggressiva***: Il sensore interno del TRV è corretto da quello esterno ma impostato molto più basso/alto per ottenere una risposta più rapida.\n***Basata sul tempo AI***: Il sensore interno del TRV è corretto da quello esterno, ma un algoritmo personalizzato calcola il valore per migliorare l’algoritmo interno del TRV.",
+          "calibration_mode": "Modalità di calcolo della calibrazione\n***Normale***: Il sensore interno di temperatura del TRV è corretto da quello esterno.\n***Aggressiva***: Il sensore interno del TRV è corretto da quello esterno ma impostato molto più basso/alto per ottenere una risposta più rapida.\n***Basata sul tempo AI***: Il sensore interno del TRV è corretto da quello esterno, ma un algoritmo personalizzato calcola il valore per migliorare l’algoritmo interno del TRV.\n***MPC Predictive***: Utilizza il controllore predittivo MPC per derivare un'apertura della valvola e convertirla in offset o setpoint quando il controllo diretto della valvola non è disponibile.\n***PID Controller***: Utilizza un controllore PID per regolare dinamicamente la posizione della valvola in base all'errore di temperatura, al termine proporzionale, all'accumulo integrale e alla previsione derivata.\n***TPI Controller***: Utilizza un controllore Proporzionale Integrale Temporale per un controllo della temperatura stabile e preciso nel tempo.",
           "calibration": "Come deve essere applicata la calibrazione sul TRV (temperatura target o offset)\n***Basata sulla temperatura target***: Applica la calibrazione alla temperatura impostata.\n***Basata su offset***: Applica la calibrazione come offset."
         }
       }

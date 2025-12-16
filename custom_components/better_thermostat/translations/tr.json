@@ -1,0 +1,190 @@
+{
+  "title": "Better Thermostat",
+  "config": {
+    "step": {
+      "user": {
+        "description": "Better Thermostat'ınızı Home Assistant ile entegre etmek için yapılandırın\n**Daha fazla bilgi için: https://better-thermostat.org/configuration#first-step**",
+        "data": {
+          "name": "Ad",
+          "thermostat": "Gerçek termostat",
+          "cooler": "Soğutma cihazı (isteğe bağlı)",
+          "temperature_sensor": "Sıcaklık sensörü",
+          "humidity_sensor": "Nem sensörü",
+          "window_sensors": "Pencere sensörü",
+          "off_temperature": "Termostatın kapanacağı dış ortam sıcaklığı",
+          "tolerance": "Tolerans, termostatın çok sık açılıp kapanmasını önlemek için.",
+          "window_off_delay": "Pencere açıldığında termostatın kapanması için gecikme süresi",
+          "window_off_delay_after": "Pencere kapandığında termostatın açılması için gecikme süresi",
+          "outdoor_sensor": "Dış ortam sensörünüz varsa, dış ortam sıcaklığını almak için kullanabilirsiniz",
+          "weather": "Dış ortam sıcaklığını almak için hava durumu varlığı",
+          "eco_temperature": "ECO Hedef Sıcaklığı",
+          "target_temp_step": "Hedef sıcaklık adımı"
+        }
+      },
+      "advanced": {
+        "description": "Gelişmiş yapılandırma {trv}\n***Kalibrasyon türleri hakkında bilgi: https://better-thermostat.org/configuration#second-step***",
+        "data": {
+          "balance_mode": "Hidrolik denge modu (Deneysel)",
+          "mpc_thermal_gain": "MPC termal kazanç",
+          "mpc_loss_coeff": "MPC kayıp katsayısı",
+          "mpc_control_penalty": "MPC kontrol cezası",
+          "mpc_change_penalty": "MPC delta cezası",
+          "mpc_adapt": "MPC uyarlanabilir model?",
+          "trend_mix_trv": "Sıcaklık karışımı (dış ağırlık, 0–1)",
+          "percent_hysteresis_pts": "Histerezis (yüzde puanı)",
+          "min_update_interval_s": "Minimum güncelleme aralığı (saniye)",
+          "pid_auto_tune": "PID otomatik ayar",
+          "pid_kp": "PID Kp",
+          "pid_ki": "PID Ki",
+          "pid_kd": "PID Kd",
+          "protect_overheating": "Aşırı ısınma koruması?",
+          "heat_auto_swapped": "TRV'nizde otomatik mod ısıtma anlamına geliyorsa ve değiştirmek istiyorsanız",
+          "child_lock": "TRV üzerindeki tüm girişleri çocuk kilidi gibi yoksay",
+          "homematicip": "HomematicIP kullanıyorsanız, görev döngüsünü önlemek için istekleri yavaşlatmak amacıyla bunu etkinleştirmelisiniz",
+          "valve_maintenance": "Termostatınızın kendi bakım modu yoksa, bunu kullanabilirsiniz",
+          "calibration": "Kalibrasyon Türü",
+          "calibration_mode": "Kalibrasyon modu",
+          "no_off_system_mode": "TRV'niz kapalı modu desteklemiyorsa, bunun yerine hedef sıcaklık 5°C kullanmak için bunu etkinleştirebilirsiniz"
+        },
+        "data_description": {
+          "balance_mode": "Better Thermostat'ın odalardaki vana açıklığını nasıl uyarlayacağını seçin.\n***Yok / Kapalı***: Dengeleme yok; TRV'ler olduğu gibi çalışır.\n***Sezgisel (Deneysel)***: Basit kural tabanlı dengeleme.\n***PID (Deneysel)***: Otomatik ayarlı klasik geri bildirim denetleyicisi.\n\nNot: Hidrolik denge Beta aşamasındadır ve değişebilir.",
+          "mpc_thermal_gain": "Adım başına tam vana açıklığında tahmini sıcaklık hatası azalması.",
+          "mpc_loss_coeff": "Kesirli hata kayması (sızıntı). Daha yüksek değerler = oda daha hızlı ısı kaybeder.",
+          "mpc_control_penalty": "Yüksek vana açıklıklarını cezalandıran ağırlık (enerji tasarrufu).",
+          "mpc_change_penalty": "Son açıklığa göre büyük değişiklikleri cezalandıran ağırlık (kararlılık).",
+          "mpc_adapt": "Gözlemlenen yanıta göre kazanç ve kaybı sürekli uyarla.",
+          "trend_mix_trv": "Türev karıştırması için kullanılan dış ve TRV iç sıcaklık ağırlığı. 0.0 = sadece iç, 1.0 = sadece dış. Varsayılan: 0.7.",
+          "percent_hysteresis_pts": "Vana titreşimini önlemek için hedef etrafındaki ölü bant. Tipik: 1.0–3.0",
+          "min_update_interval_s": "Pil ve radyoyu korumak için vana güncellemelerini bu aralıktan daha hızlı göndermeyin.",
+          "pid_auto_tune": "Denetleyicinin zaman içerisinde kararlı PID değerlerini çıkarmasına izin ver.",
+          "pid_kp": "Orantısal kazanç (hataya duyarlılık).",
+          "pid_ki": "İntegral kazanç (kararlı durum hatasını ortadan kaldırır).",
+          "pid_kd": "Türev kazanç (aşımı söndürür).",
+          "protect_overheating": "Bazı TRV'ler sıcaklığa ulaşıldığında vanayı tamamen kapatmaz. Veya radyatör çok fazla artık ısıya sahiptir. Bu aşırı ısınmaya neden olabilir. Bu seçenek bunu önleyebilir.",
+          "calibration_mode": "Kalibrasyonun nasıl hesaplanacağı\n***Normal***: Bu modda, TRV iç sıcaklık sensörü dış sıcaklık sensörü tarafından düzeltilir.\n***Agresif***: Bu modda, TRV iç sıcaklık sensörü dış sıcaklık sensörü tarafından düzeltilir ancak daha hızlı bir artış için çok daha düşük/yüksek ayarlanır.\n***Yapay Zeka Zaman Tabanlı***: Bu modda, TRV iç sıcaklık sensörü dış sıcaklık sensörü tarafından düzeltilir, ancak özel bir algoritma TRV iç algoritmasını iyileştirmek için değeri hesaplar.\n***MPC Tahminli***: Doğrudan vana kontrolü mevcut olmadığında bir vana açıklığı türetmek ve bunu ofsetlere veya ayar noktasına dönüştürmek için MPC tahminli denetleyiciyi kullanır.",
+          "calibration": "Kalibrasyonun TRV'ye nasıl uygulanacağı (Hedef sıcaklık veya ofset)\n***Hedef Sıcaklık Tabanlı***: Kalibrasyonu hedef sıcaklığa uygula.\n***Ofset Tabanlı***: Kalibrasyonu ofsete uygula."
+        }
+      },
+      "confirm": {
+        "title": "Better Thermostat eklemeyi onayla",
+        "description": "`{name}` Home Assistant'a eklenecek.\n{trv} gerçek Termostat olarak kullanılacak"
+      }
+    },
+    "error": {
+      "failed": "Bir şeyler yanlış gitti.",
+      "no_name": "Lütfen bir ad girin.",
+      "no_off_mode": "Cihazınız çok özel ve kapalı modu yok :(\nBetter Thermostat bunun yerine minimum hedef sıcaklığı kullanacak.",
+      "no_outside_temp": "Dış ortam sıcaklık sensörünüz yok. Better Thermostat bunun yerine hava durumu varlığını kullanacak."
+    },
+    "abort": {
+      "single_instance_allowed": "Her gerçek termostat için yalnızca tek bir Termostat'a izin verilir.",
+      "no_devices_found": "Termostat varlığı bulunamadı, Home Assistant'ınızda bir iklim varlığı olduğundan emin olun"
+    }
+  },
+  "options": {
+    "step": {
+      "user": {
+        "description": "Better Thermostat ayarlarınızı güncelleyin",
+        "data": {
+          "name": "Ad",
+          "thermostat": "Gerçek termostat",
+          "temperature_sensor": "Sıcaklık Sensörü",
+          "humidity_sensor": "Nem sensörü",
+          "window_sensors": "Pencere Sensörü",
+          "off_temperature": "Termostatın kapanacağı dış ortam sıcaklığı",
+          "tolerance": "Tolerans, termostatın çok sık açılıp kapanmasını önlemek için.",
+          "window_off_delay": "Pencere açıldığında termostatın kapanması için gecikme süresi",
+          "window_off_delay_after": "Pencere kapandığında termostatın açılması için gecikme süresi",
+          "outdoor_sensor": "Dış ortam sensörünüz varsa, dış ortam sıcaklığını almak için kullanabilirsiniz",
+          "valve_maintenance": "Termostatınızın kendi bakım modu yoksa, bunu kullanabilirsiniz",
+          "calibration": "Kalibrasyon türü https://better-thermostat.org/configuration#second-step",
+          "weather": "Dış ortam sıcaklığını almak için hava durumu varlığı",
+          "eco_temperature": "ECO Hedef Sıcaklığı",
+          "target_temp_step": "Hedef sıcaklık adımı",
+          "heat_auto_swapped": "TRV'nizde otomatik mod ısıtma anlamına geliyorsa ve değiştirmek istiyorsanız",
+          "child_lock": "TRV üzerindeki tüm girişleri çocuk kilidi gibi yoksay",
+          "homematicip": "HomematicIP kullanıyorsanız, görev döngüsünü önlemek için istekleri yavaşlatmak amacıyla bunu etkinleştirmelisiniz"
+        }
+      },
+      "advanced": {
+        "description": "Gelişmiş yapılandırma {trv}\n***Kalibrasyon türleri hakkında bilgi: https://better-thermostat.org/configuration#second-step***",
+        "data": {
+          "balance_mode": "Hidrolik denge modu (Deneysel)",
+          "mpc_thermal_gain": "MPC termal kazanç",
+          "mpc_loss_coeff": "MPC kayıp katsayısı",
+          "mpc_control_penalty": "MPC kontrol cezası",
+          "mpc_change_penalty": "MPC delta cezası",
+          "mpc_adapt": "MPC uyarlanabilir model?",
+          "trend_mix_trv": "Sıcaklık karışımı (dış ağırlık, 0–1)",
+          "percent_hysteresis_pts": "Histerezis (yüzde puanı)",
+          "min_update_interval_s": "Minimum güncelleme aralığı (saniye)",
+          "pid_auto_tune": "PID otomatik ayar",
+          "pid_kp": "PID Kp",
+          "pid_ki": "PID Ki",
+          "pid_kd": "PID Kd",
+          "protect_overheating": "Aşırı ısınma koruması?",
+          "heat_auto_swapped": "TRV'nizde otomatik mod ısıtma anlamına geliyorsa ve değiştirmek istiyorsanız",
+          "child_lock": "TRV üzerindeki tüm girişleri çocuk kilidi gibi yoksay",
+          "homematicip": "HomematicIP kullanıyorsanız, görev döngüsünü önlemek için istekleri yavaşlatmak amacıyla bunu etkinleştirmelisiniz",
+          "valve_maintenance": "Termostatınızın kendi bakım modu yoksa, bunu kullanabilirsiniz",
+          "calibration": "Kullanmak istediğiniz kalibrasyon türü",
+          "calibration_mode": "Kalibrasyon modu",
+          "no_off_system_mode": "TRV'niz kapalı modu desteklemiyorsa, bunun yerine hedef sıcaklık 5°C kullanmak için bunu etkinleştirebilirsiniz"
+        },
+        "data_description": {
+          "balance_mode": "Better Thermostat'ın odalardaki vana açıklığını nasıl uyarlayacağını seçin.\n***Yok / Kapalı***: Dengeleme yok; TRV'ler olduğu gibi çalışır.\n***Sezgisel (Deneysel)***: Basit kural tabanlı dengeleme.\n***PID (Deneysel)***: Otomatik ayarlı klasik geri bildirim denetleyicisi.\n\nNot: Hidrolik denge Beta aşamasındadır ve değişebilir.",
+          "mpc_thermal_gain": "Adım başına tam vana açıklığında tahmini sıcaklık hatası azalması.",
+          "mpc_loss_coeff": "Kesirli hata kayması (sızıntı). Daha yüksek değerler = oda daha hızlı ısı kaybeder.",
+          "mpc_control_penalty": "Yüksek vana açıklıklarını cezalandıran ağırlık (enerji tasarrufu).",
+          "mpc_change_penalty": "Son açıklığa göre büyük değişiklikleri cezalandıran ağırlık (kararlılık).",
+          "mpc_adapt": "Gözlemlenen yanıta göre kazanç ve kaybı sürekli uyarla.",
+          "trend_mix_trv": "Türev karıştırması için kullanılan dış ve TRV iç sıcaklık ağırlığı. 0.0 = sadece iç, 1.0 = sadece dış. Varsayılan: 0.7.",
+          "percent_hysteresis_pts": "Vana titreşimini önlemek için hedef etrafındaki ölü bant. Tipik: 1.0–3.0",
+          "min_update_interval_s": "Pil ve radyoyu korumak için vana güncellemelerini bu aralıktan daha hızlı göndermeyin.",
+          "pid_auto_tune": "Denetleyicinin zaman içerisinde kararlı PID değerlerini çıkarmasına izin ver.",
+          "pid_kp": "Orantısal kazanç (hataya duyarlılık).",
+          "pid_ki": "İntegral kazanç (kararlı durum hatasını ortadan kaldırır).",
+          "pid_kd": "Türev kazanç (aşımı söndürür).",
+          "protect_overheating": "Bazı TRV'ler sıcaklığa ulaşıldığında vanayı tamamen kapatmaz. Veya radyatör çok fazla artık ısıya sahiptir. Bu aşırı ısınmaya neden olabilir. Bu seçenek bunu önleyebilir.",
+          "calibration_mode": "Kalibrasyonun nasıl hesaplanacağı\n***Normal***: Bu modda, TRV iç sıcaklık sensörü dış sıcaklık sensörü tarafından düzeltilir.\n***Agresif***: Bu modda, TRV iç sıcaklık sensörü dış sıcaklık sensörü tarafından düzeltilir ancak daha hızlı bir artış için çok daha düşük/yüksek ayarlanır.\n***Yapay Zeka Zaman Tabanlı***: Bu modda, TRV iç sıcaklık sensörü dış sıcaklık sensörü tarafından düzeltilir, ancak özel bir algoritma TRV iç algoritmasını iyileştirmek için değeri hesaplar.\n***MPC Tahminli***: Doğrudan vana kontrolü mevcut olmadığında bir vana açıklığı türetmek ve bunu ofsetlere veya ayar noktasına dönüştürmek için MPC hidrolik denge algoritmasını kullanır.",
+          "calibration": "Kalibrasyonun TRV'ye nasıl uygulanacağı (Hedef sıcaklık veya ofset)\n***Hedef Sıcaklık Tabanlı***: Kalibrasyonu hedef sıcaklığa uygula.\n***Ofset Tabanlı***: Kalibrasyonu ofsete uygula."
+        }
+      }
+    }
+  },
+  "issues": {
+    "missing_entity": {
+      "title": "BT: {name} - ilgili varlık eksik",
+      "fix_flow": {
+        "step": {
+          "confirm": {
+            "title": "İlgili varlık {entity} eksik",
+            "description": "Bunun nedeni, varlığın ({entity}) Home Assistant'ınızda mevcut olmamasıdır.\n\nCihazın pilinin dolu olup olmadığını kontrol ederek veya HA'ya yeniden bağlayarak bunu düzeltebilirsiniz. Devam etmeden önce varlığın HA'da geri olduğuna emin olun."
+          }
+        }
+      }
+    }
+  },
+  "services": {
+    "save_current_target_temperature": {
+      "name": "Mevcut Sıcaklığı Kaydet",
+      "description": "Daha sonra geri yüklemek için mevcut hedef sıcaklığı kaydet."
+    },
+    "restore_saved_target_temperature": {
+      "name": "Sıcaklığı Geri Yükle",
+      "description": "Kaydedilen hedef sıcaklığı geri yükle."
+    },
+    "reset_heating_power": {
+      "name": "Isıtma gücünü sıfırla",
+      "description": "Isıtma gücünü varsayılan değere sıfırla."
+    },
+    "set_temp_target_temperature": {
+      "name": "Eco sıcaklığını ayarla",
+      "description": "Hedef sıcaklığı gece modu gibi geçici bir değere ayarla ve eskisini kaydet."
+    },
+    "set_eco_mode": {
+      "name": "ECO Modunu Ayarla",
+      "description": "ECO modunu etkinleştir veya devre dışı bırak."
+    }
+  }
+}
