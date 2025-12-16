@@ -45,8 +45,16 @@ async def get_current_offset(self, entity_id):
     """Get current offset."""
     state = self.hass.states.get(entity_id)
     if state is None or state.state in (STATE_UNAVAILABLE, STATE_UNKNOWN):
-        return None
-    return float(str(state.attributes.get("offset", 0)))
+        return 0.0
+    try:
+        return float(str(state.attributes.get("offset", 0)))
+    except (ValueError, TypeError):
+        _LOGGER.warning(
+            "better_thermostat %s: Could not convert calibration offset '%s' to float, using 0",
+            self.device_name,
+            state.attributes.get("offset"),
+        )
+        return 0.0
 
 
 async def get_offset_step(self, entity_id):
