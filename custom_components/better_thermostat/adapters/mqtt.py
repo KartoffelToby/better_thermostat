@@ -28,8 +28,8 @@ async def get_info(self, entity_id):
     if offset is not None:
         support_offset = True
     valve = await find_valve_entity(self, entity_id)
-    if valve is not None:
-        support_valve = True
+    if valve is not None and valve.get("entity_id"):
+        support_valve = bool(valve.get("writable", False))
     return {"support_offset": support_offset, "support_valve": support_valve}
 
 
@@ -43,9 +43,12 @@ async def init(self, entity_id):
     try:
         from ..utils.helpers import find_valve_entity as _find_valve
 
-        self.real_trvs[entity_id]["valve_position_entity"] = await _find_valve(
-            self, entity_id
-        )
+        valve = await _find_valve(self, entity_id)
+        if valve is not None:
+            self.real_trvs[entity_id]["valve_position_entity"] = valve.get("entity_id")
+            self.real_trvs[entity_id]["valve_position_writable"] = bool(
+                valve.get("writable", False)
+            )
     except Exception:
         pass
 
@@ -178,8 +181,18 @@ async def set_offset(self, entity_id, offset):
 async def set_valve(self, entity_id, valve):
     """Set new target valve."""
     _LOGGER.debug(
-        f"better_thermostat {self.device_name}: TO TRV {entity_id} set_valve: {valve}"
+        "better_thermostat %s: TO TRV %s set_valve: %s",
+        self.device_name,
+        entity_id,
+        valve,
     )
+    if self.real_trvs.get(entity_id, {}).get("valve_position_writable") is False:
+        _LOGGER.debug(
+            "better_thermostat %s: valve entity for %s is read-only, skip adapter write",
+            self.device_name,
+            entity_id,
+        )
+        return
     await self.hass.services.async_call(
         "number",
         SERVICE_SET_VALUE,
