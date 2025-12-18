@@ -682,13 +682,6 @@ def calculate_calibration_setpoint(self, entity_id) -> float | None:
 
     if _calibration_mode == CalibrationMode.HEATING_POWER_CALIBRATION:
         _supports_valve = _supports_direct_valve_control(self, entity_id)
-        _LOGGER.debug(
-            "better_thermostat %s: %s - Heating Power Calibration - supports_valve: %s, hvac_action: %s",
-            self.device_name,
-            entity_id,
-            _supports_valve,
-            self.attr_hvac_action,
-        )
         if self.attr_hvac_action != HVACAction.HEATING:
             if _supports_valve:
                 self.real_trvs[entity_id]["calibration_balance"] = {
@@ -705,16 +698,6 @@ def calculate_calibration_setpoint(self, entity_id) -> float | None:
 
         elif self.attr_hvac_action == HVACAction.HEATING:
             _valve_position = heating_power_valve_position(self, entity_id)
-
-            _LOGGER.debug(
-                "better_thermostat %s: %s - Heating Power Calibration - supports_valve: %s, hvac_action: %s, valve_position: %s",
-                self.device_name,
-                entity_id,
-                _supports_valve,
-                self.attr_hvac_action,
-                _valve_position,
-            )
-
             if _supports_valve and isinstance(_valve_position, (int, float)):
                 try:
                     _pct = int(max(0, min(100, round(float(_valve_position) * 100.0))))
