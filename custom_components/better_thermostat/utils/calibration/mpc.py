@@ -463,7 +463,12 @@ def _compute_predictive_percent(
 
             # --- LOSS learning: u ~= 0 and room cooling (or not warming) ---
             # Needs a real temperature change (quantised sensors).
-            if common_ok and temp_changed and u_last <= min_open and observed_rate < -0.01:
+            if (
+                common_ok
+                and temp_changed
+                and u_last <= min_open
+                and observed_rate < -0.01
+            ):
                 loss_candidate = max(0.0, -observed_rate)
                 loss_candidate = min(loss_candidate, params.mpc_loss_max)
 
@@ -490,7 +495,10 @@ def _compute_predictive_percent(
                 # Also avoid learning when we currently observe a quantized temperature step.
                 residual_min_interval_s = 600.0  # 10min
                 residual_max_interval_s = 1800.0  # 30min (avoid stale windows)
-                if dt_last < residual_min_interval_s or dt_last > residual_max_interval_s:
+                if (
+                    dt_last < residual_min_interval_s
+                    or dt_last > residual_max_interval_s
+                ):
                     residual_rate_limited = True
                 if temp_changed:
                     residual_block_jump = True
@@ -521,7 +529,12 @@ def _compute_predictive_percent(
 
             # --- GAIN learning: u > min_open and room warming ---
             # Needs a real temperature change (quantised sensors).
-            if common_ok and temp_changed and u_last > min_open and observed_rate > 0.01:
+            if (
+                common_ok
+                and temp_changed
+                and u_last > min_open
+                and observed_rate > 0.01
+            ):
                 # gain = (observed_rate + loss) / u
                 denom = max(u_last, 1e-3)
                 gain_candidate = (observed_rate + loss_est) / denom
@@ -612,6 +625,33 @@ def _compute_predictive_percent(
     best_percent = 0.0
     eval_count = 0
 
+    # --- TRV temperature influence (prediction only; instantaneous & bounded) ---
+    # Use TRV temperature only relative to room temperature.
+    trv_excess_C = 0.0
+    if inp.trv_temp_C is not None:
+        try:
+            trv_excess_C = float(inp.trv_temp_C) - current_temp_C
+        except (TypeError, ValueError):
+            trv_excess_C = 0.0
+
+    trv_ref_excess_C = 10.0
+    if trv_ref_excess_C <= 0:
+        trv_ref_excess_C = 10.0
+    trv_factor = min(1.0, max(0.0, trv_excess_C / trv_ref_excess_C))
+
+    beta = 0.35  # small multiplier for short-term heating boost (dimensionless)
+    beta = min(1.0, max(0.0, beta))
+
+    gamma = 0.08  # small boost when heating starts (dimensionless)
+    gamma = min(0.2, max(0.0, gamma))
+
+    min_effective_fraction = (
+        (float(state.min_effective_percent) / 100.0)
+        if state.min_effective_percent is not None
+        else 0.05
+    )
+    min_effective_fraction = min(1.0, max(0.0, min_effective_fraction))
+
     def simulate_cost_for_candidate(u_abs_frac: float) -> float:
         """Simulate forward temperature for constant u_abs_frac (0..1) over horizon and return cost."""
         T = (
@@ -619,10 +659,29 @@ def _compute_predictive_percent(
             if state.virtual_temp is not None
             else current_temp_C
         )
+
+        # Optional start-boost (prediction only): if heating just starts and TRV is warm vs room,
+        # slightly increase the predicted starting temperature.
+        last_u = (float(last_percent) / 100.0) if last_percent is not None else 0.0
+        if last_u < min_effective_fraction and u_abs_frac >= min_effective_fraction:
+            if trv_excess_C > 0.0:
+                T += gamma * min(trv_ref_excess_C, max(0.0, trv_excess_C))
+
         cost = 0.0
         for _ in range(horizon):
-            heating = gain_step * u_abs_frac
-            T_raw = T + heating - loss_step
+            # Work in du around u0 to keep the model consistent with the u0 formulation.
+            # Base model: dT = gain_step * (u_abs - u0)
+            du = u_abs_frac - u0_frac
+            effective_u = max(0.0, du)
+
+            # Apply TRV influence only when heating is active.
+            heating_active = (u_abs_frac > min_effective_fraction) and (
+                effective_u > 0.0
+            )
+            trv_boost = (1.0 + beta * trv_factor) if heating_active else 1.0
+
+            effective_heating = gain_step * effective_u * trv_boost
+            T_raw = T + effective_heating - loss_step
             T = T + lag_alpha * (T_raw - T)
             e = target_temp_C - T
             cost += e * e
@@ -676,6 +735,16 @@ def _compute_predictive_percent(
     u_abs_percent = (u0_frac * 100.0) + du_percent
     best_percent = u_abs_percent
 
+    # --- TRV debug for chosen candidate ---
+    chosen_u_abs_frac = max(0.0, min(1.0, best_percent / 100.0))
+    chosen_du = chosen_u_abs_frac - u0_frac
+    chosen_effective_u = max(0.0, chosen_du)
+    chosen_heating_active = (chosen_u_abs_frac > min_effective_fraction) and (
+        chosen_effective_u > 0.0
+    )
+    chosen_trv_boost = (1.0 + beta * trv_factor) if chosen_heating_active else 1.0
+    chosen_effective_heating = gain_step * chosen_effective_u * chosen_trv_boost
+
     # store last estimates
     state.last_temp = (
         state.virtual_temp if state.virtual_temp is not None else inp.current_temp_C
@@ -692,6 +761,9 @@ def _compute_predictive_percent(
         "mpc_horizon": horizon,
         "mpc_eval_count": eval_count,
         "mpc_step_minutes": _round_for_debug(step_minutes, 3),
+        "mpc_trv_excess_C": _round_for_debug(trv_excess_C, 3),
+        "mpc_trv_factor": _round_for_debug(trv_factor, 3),
+        "mpc_trv_effective_heating": _round_for_debug(chosen_effective_heating, 6),
     }
 
     if adapt_debug:
