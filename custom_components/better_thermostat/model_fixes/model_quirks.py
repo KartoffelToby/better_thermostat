@@ -131,10 +131,3 @@ async def override_set_temperature(self, entity_id, temperature):
     return await self.real_trvs[entity_id]["model_quirks"].override_set_temperature(
         self, entity_id, temperature
     )
-
-
-async def override_set_valve(self, entity_id, percent: int):
-    """Attempt model-specific valve percent write; return True if handled."""
-    return await self.real_trvs[entity_id]["model_quirks"].override_set_valve(
-        self, entity_id, percent
-    )
