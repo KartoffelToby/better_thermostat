@@ -635,13 +635,10 @@ def _compute_predictive_percent(
 
         cost = 0.0
         for _ in range(horizon):
-            # Work in du around u0 to keep the model consistent with the u0 formulation.
-            # Base model: dT = gain_step * (u_abs - u0)
-            du = u_abs_frac - u0_frac
-            effective_u = max(0.0, du)
-
-            effective_heating = gain_step * effective_u
-            T_raw = T + effective_heating - loss_step
+            # Physical forward model (°C/step): dT = gain_step * u_abs - loss_step.
+            # u0 is used only as the search center for du; it must not change the plant model.
+            heating = gain_step * u_abs_frac
+            T_raw = T + heating - loss_step
             T = T + lag_alpha * (T_raw - T)
             e = target_temp_C - T
             cost += e * e
