@@ -388,6 +388,15 @@ async def find_valve_entity(self, entity_id):
         if readonly_candidate is None:
             readonly_candidate = info
 
+    if readonly_candidate is not None:
+        _LOGGER.debug(
+            "better thermostat: Found read-only valve helper %s for %s (reason=%s)",
+            readonly_candidate.get("entity_id"),
+            entity_id,
+            readonly_candidate.get("reason"),
+        )
+        return readonly_candidate
+
     _LOGGER.debug(
         "better thermostat: Could not find valve position entity for %s", entity_id
     )

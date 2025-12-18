@@ -456,34 +456,98 @@ def _compute_predictive_percent(
 
             updated_gain = False
             updated_loss = False
+            loss_method: Optional[str] = None
 
-            if (not target_changed) and rate_ok and dt_min > 0 and temp_changed:
-                # --- LOSS learning: u ~= 0 and room cooling (or not warming) ---
-                if u_last <= min_open and observed_rate < -0.01:
-                    loss_candidate = max(0.0, -observed_rate)
-                    loss_candidate = min(loss_candidate, params.mpc_loss_max)
+            # Common gates: don't learn during setpoint steps or crazy sensor jumps.
+            common_ok = (not target_changed) and rate_ok and dt_min > 0
+
+            # --- LOSS learning: u ~= 0 and room cooling (or not warming) ---
+            # Needs a real temperature change (quantised sensors).
+            if (
+                common_ok
+                and temp_changed
+                and u_last <= min_open
+                and observed_rate < -0.01
+            ):
+                loss_candidate = max(0.0, -observed_rate)
+                loss_candidate = min(loss_candidate, params.mpc_loss_max)
+
+                alpha = params.mpc_adapt_alpha
+                if loss_candidate > loss_est:
+                    alpha = params.mpc_adapt_alpha * 0.3  # slower increase
+                state.loss_est = (1.0 - alpha) * loss_est + alpha * loss_candidate
+                updated_loss = True
+                loss_method = "cool_u0"
+
+            # --- LOSS learning (residual): works even when valves never close ---
+            # Important: this must work even when delta_T == 0 (steady-state), so it
+            # must NOT depend on temp_changed. Instead, gate on quasi steady-state.
+            residual_ok = False
+            residual_rate_limited = False
+            residual_block_jump = False
+            u0_frac_dbg = (loss_est / gain_est) if gain_est > 0 else 0.0
+            if common_ok and (not updated_loss) and u_last > min_open:
+                ss_rate_thr = 0.02  # °C/min: quasi steady-state threshold
+                u0_band = 0.10  # fraction: |u_last - u0| must be within this band
+
+                # Rate-limit residual learning using dt_last window.
+                # MPC is typically called every 5min; we don't want to learn on every call.
+                # Also avoid learning when we currently observe a quantized temperature step.
+                residual_min_interval_s = 600.0  # 10min
+                residual_max_interval_s = 1800.0  # 30min (avoid stale windows)
+                if (
+                    dt_last < residual_min_interval_s
+                    or dt_last > residual_max_interval_s
+                ):
+                    residual_rate_limited = True
+                if temp_changed:
+                    residual_block_jump = True
+
+                u0_frac = (loss_est / gain_est) if gain_est > 0 else 0.0
+                u0_frac = max(0.0, min(1.0, u0_frac))
+                u0_near = abs(u_last - u0_frac) <= u0_band
+                residual_ok = (
+                    (not residual_rate_limited)
+                    and (not residual_block_jump)
+                    and u0_near
+                    and abs(observed_rate) <= ss_rate_thr
+                )
+
+                if residual_ok:
+                    # Use current gain estimate; avoid division.
+                    loss_candidate = (gain_est * u_last) - observed_rate
+                    loss_candidate = min(
+                        max(loss_candidate, params.mpc_loss_min), params.mpc_loss_max
+                    )
 
                     alpha = params.mpc_adapt_alpha
                     if loss_candidate > loss_est:
                         alpha = params.mpc_adapt_alpha * 0.3  # slower increase
                     state.loss_est = (1.0 - alpha) * loss_est + alpha * loss_candidate
                     updated_loss = True
+                    loss_method = "residual_u0_ss"
 
-                # --- GAIN learning: u > min_open and room warming ---
-                if u_last > min_open and observed_rate > 0.01:
-                    # gain = (observed_rate + loss) / u
-                    denom = max(u_last, 1e-3)
-                    gain_candidate = (observed_rate + loss_est) / denom
+            # --- GAIN learning: u > min_open and room warming ---
+            # Needs a real temperature change (quantised sensors).
+            if (
+                common_ok
+                and temp_changed
+                and u_last > min_open
+                and observed_rate > 0.01
+            ):
+                # gain = (observed_rate + loss) / u
+                denom = max(u_last, 1e-3)
+                gain_candidate = (observed_rate + loss_est) / denom
 
-                    gain_candidate = min(
-                        max(gain_candidate, params.mpc_gain_min), params.mpc_gain_max
-                    )
+                gain_candidate = min(
+                    max(gain_candidate, params.mpc_gain_min), params.mpc_gain_max
+                )
 
-                    alpha = params.mpc_adapt_alpha
-                    if gain_candidate > gain_est:
-                        alpha = params.mpc_adapt_alpha * 0.3  # slower increase
-                    state.gain_est = (1.0 - alpha) * gain_est + alpha * gain_candidate
-                    updated_gain = True
+                alpha = params.mpc_adapt_alpha
+                if gain_candidate > gain_est:
+                    alpha = params.mpc_adapt_alpha * 0.3  # slower increase
+                state.gain_est = (1.0 - alpha) * gain_est + alpha * gain_candidate
+                updated_gain = True
 
             # clamp to allowed physical range
             if state.gain_est is not None:
@@ -508,6 +572,13 @@ def _compute_predictive_percent(
                 "id_target_changed": target_changed,
                 "id_gain_updated": updated_gain,
                 "id_loss_updated": updated_loss,
+                "id_loss_method": loss_method,
+                "id_u0": _round_for_debug(u0_frac_dbg, 3),
+                "id_u0_band": _round_for_debug(0.10, 3),
+                "id_loss_ss_rate_thr": _round_for_debug(0.02, 4),
+                "id_residual_ok": residual_ok,
+                "id_residual_rate_limited": residual_rate_limited,
+                "id_residual_block_jump": residual_block_jump,
             }
 
             state.last_learn_time = now
@@ -534,8 +605,10 @@ def _compute_predictive_percent(
     else:
         u0_frac = 0.0
     u0_frac = max(0.0, min(1.0, u0_frac))
-    min_eff = (state.min_effective_percent or 0.0) / 100.0
-    u0_frac = max(u0_frac, min_eff)
+    # Only clamp baseline by learned min_effective_percent once we actually have evidence.
+    if state.min_effective_percent is not None and state.min_effective_percent > 0.0:
+        min_eff = float(state.min_effective_percent) / 100.0
+        u0_frac = max(u0_frac, min_eff)
 
     # cost penalties (normalize u in [0,1])
     control_pen = max(0.0, float(params.mpc_control_penalty))
@@ -559,8 +632,11 @@ def _compute_predictive_percent(
             if state.virtual_temp is not None
             else current_temp_C
         )
+
         cost = 0.0
         for _ in range(horizon):
+            # Physical forward model (°C/step): dT = gain_step * u_abs - loss_step.
+            # u0 is used only as the search center for du; it must not change the plant model.
             heating = gain_step * u_abs_frac
             T_raw = T + heating - loss_step
             T = T + lag_alpha * (T_raw - T)
@@ -699,8 +775,10 @@ def _detect_trv_profile(
 def _apply_profile_adjustments(state: _MpcState, params: MpcParams) -> None:
 
     if state.trv_profile == "threshold":
-        if state.min_effective_percent is None or state.min_effective_percent < 12.0:
-            state.min_effective_percent = 12.0
+        # Do not directly force a permanent min opening here.
+        # A threshold-like TRV should be handled by dead-zone learning (raise/decay)
+        # so it can adapt and revert if conditions change.
+        return
 
     elif state.trv_profile == "exponential":
         if state.gain_est is None:
@@ -709,7 +787,8 @@ def _apply_profile_adjustments(state: _MpcState, params: MpcParams) -> None:
         state.gain_est = min(params.mpc_gain_max, state.gain_est)
 
     elif state.trv_profile == "linear":
-        state.min_effective_percent = None
+        # Don't wipe learned min opening unconditionally; let dead-zone decay handle it.
+        return
 
 
 def _post_process_percent(
@@ -985,6 +1064,9 @@ def _post_process_percent(
             else None
         ),
         "dead_zone_hits": state.dead_zone_hits,
+        "trv_profile": state.trv_profile,
+        "trv_profile_conf": _round_for_debug(state.profile_confidence, 3),
+        "trv_profile_samples": state.profile_samples,
         "trv_temp_delta": _round_for_debug(temp_delta, 3),
         "trv_time_delta_s": _round_for_debug(time_delta, 1),
     }

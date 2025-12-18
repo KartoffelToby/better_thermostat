@@ -74,8 +74,13 @@ def _supports_direct_valve_control(self, entity_id: str) -> bool:
     writable_flag = trv_data.get("valve_position_writable")
     if valve_entity and writable_flag is True:
         return True
+
     quirks = trv_data.get("model_quirks")
-    return bool(getattr(quirks, "override_set_valve", None))
+    _override_set_valve = getattr(quirks, "override_set_valve", None)
+    if callable(_override_set_valve):
+        return True
+
+    return False
 
 
 def _compute_mpc_balance(self, entity_id: str):
@@ -687,10 +692,12 @@ def calculate_calibration_setpoint(self, entity_id) -> float | None:
                 # Keep TRV setpoint at BT target when we control valve directly
                 _calibrated_setpoint = _cur_target_temp
                 _skip_post_adjustments = True
+            else:
+                # Not heating: ensure we don't apply stale valve instructions
+                self.real_trvs[entity_id].pop("calibration_balance", None)
 
         elif self.attr_hvac_action == HVACAction.HEATING:
             _valve_position = heating_power_valve_position(self, entity_id)
-
             if _supports_valve and isinstance(_valve_position, (int, float)):
                 try:
                     _pct = int(max(0, min(100, round(float(_valve_position) * 100.0))))
@@ -702,6 +709,7 @@ def calculate_calibration_setpoint(self, entity_id) -> float | None:
                     self.real_trvs[entity_id]["calibration_balance"] = {
                         "valve_percent": _pct,
                         "apply_valve": True,
+                        "test": True,
                         "debug": {"source": "heating_power_calibration"},
                     }
                     # Keep setpoint unchanged when we control via valve

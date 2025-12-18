@@ -23,8 +23,3 @@ async def override_set_hvac_mode(self, entity_id, hvac_mode):
 async def override_set_temperature(self, entity_id, temperature):
     """Do not override set temperature by default."""
     return False
-
-
-async def override_set_valve(self, entity_id, percent: int):
-    """Do not override valve by default."""
-    return False
