@@ -322,39 +322,22 @@ async def control_trv(self, heater_entity_id=None):
                     _source = "balance"
             if bal is not None:
                 target_pct = int(round(bal.get("valve_percent", 0)))
-                last_pct = self.real_trvs[heater_entity_id].get("last_valve_percent")
-                if self.call_for_heat is False:
+                _LOGGER.debug(
+                    "better_thermostat %s: TO TRV set_valve: %s to: %s%% (source=%s)",
+                    self.device_name,
+                    heater_entity_id,
+                    target_pct,
+                    _source,
+                )
+                ok = await set_valve(self, heater_entity_id, target_pct)
+                if not ok:
                     _LOGGER.debug(
-                        "better_thermostat %s: skipping valve update for %s (call_for_heat is False, source=%s)",
+                        "better_thermostat %s: delegate.set_valve returned False (target=%s%%, entity=%s, source=%s)",
                         self.device_name,
-                        heater_entity_id,
-                        _source,
-                    )
-                elif last_pct is not None and int(last_pct) == target_pct:
-                    _LOGGER.debug(
-                        "better_thermostat %s: skipping valve update for %s (unchanged %s%%, source=%s)",
-                        self.device_name,
-                        heater_entity_id,
                         target_pct,
-                        _source,
-                    )
-                else:
-                    _LOGGER.debug(
-                        "better_thermostat %s: TO TRV set_valve: %s to: %s%% (source=%s)",
-                        self.device_name,
                         heater_entity_id,
-                        target_pct,
                         _source,
                     )
-                    ok = await set_valve(self, heater_entity_id, target_pct)
-                    if not ok:
-                        _LOGGER.debug(
-                            "better_thermostat %s: delegate.set_valve returned False (target=%s%%, entity=%s, source=%s)",
-                            self.device_name,
-                            target_pct,
-                            heater_entity_id,
-                            _source,
-                        )
         except Exception:
             _LOGGER.debug(
                 "better_thermostat %s: set_valve not applied for %s (unsupported or failed)",
@@ -620,39 +603,22 @@ async def control_trv(self, heater_entity_id=None):
                 _source = "balance"
         if bal is not None:
             target_pct = int(round(bal.get("valve_percent", 0)))
-            last_pct = self.real_trvs[heater_entity_id].get("last_valve_percent")
-            if self.call_for_heat is False:
+            _LOGGER.debug(
+                "better_thermostat %s: TO TRV set_valve: %s to: %s%% (source=%s)",
+                self.device_name,
+                heater_entity_id,
+                target_pct,
+                _source,
+            )
+            ok = await set_valve(self, heater_entity_id, target_pct)
+            if not ok:
                 _LOGGER.debug(
-                    "better_thermostat %s: skipping valve update for %s (call_for_heat is False, source=%s)",
+                    "better_thermostat %s: delegate.set_valve returned False (target=%s%%, entity=%s, source=%s)",
                     self.device_name,
-                    heater_entity_id,
-                    _source,
-                )
-            elif last_pct is not None and int(last_pct) == target_pct:
-                _LOGGER.debug(
-                    "better_thermostat %s: skipping valve update for %s (unchanged %s%%, source=%s)",
-                    self.device_name,
-                    heater_entity_id,
                     target_pct,
-                    _source,
-                )
-            else:
-                _LOGGER.debug(
-                    "better_thermostat %s: TO TRV set_valve: %s to: %s%% (source=%s)",
-                    self.device_name,
                     heater_entity_id,
-                    target_pct,
                     _source,
                 )
-                ok = await set_valve(self, heater_entity_id, target_pct)
-                if not ok:
-                    _LOGGER.debug(
-                        "better_thermostat %s: delegate.set_valve returned False (target=%s%%, entity=%s, source=%s)",
-                        self.device_name,
-                        target_pct,
-                        heater_entity_id,
-                        _source,
-                    )
     except Exception:
         _LOGGER.debug(
             "better_thermostat %s: set_valve not applied for %s (unsupported or failed)",

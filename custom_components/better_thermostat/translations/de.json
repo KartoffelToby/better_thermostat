@@ -148,10 +148,6 @@
     "set_temp_target_temperature": {
       "name": "Setze die Temperatur für ECO",
       "description": "Speichert eine ECO Temperatur, die für den ECO Modus genutzt wird."
-    },
-    "set_eco_mode": {
-      "name": "Set ECO Mode",
-      "description": "Enable or disable ECO mode."
     }
   }
 }

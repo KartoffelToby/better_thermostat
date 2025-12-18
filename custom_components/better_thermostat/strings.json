@@ -85,7 +85,7 @@
                                         "homematicip": "If you use HomematicIP, you should enable this to slow down the requests to prevent the duty cycle"
                                 }
                         },
-                                                "advanced": {
+                        "advanced": {
                                 "description": "Advanced configuration {trv}\n***Info about calibration types: https://better-thermostat.org/configuration#second-step***",
                                 "data": {
                                         "trend_mix_trv": "Temp mix (external weight, 0–1)",
@@ -148,10 +148,6 @@
                 "set_temp_target_temperature": {
                         "name": "Set eco temperature",
                         "description": "Set the target temperature to a temporary like night mode, and save the old one."
-                },
-                "set_eco_mode": {
-                        "name": "Set ECO Mode",
-                        "description": "Enable or disable ECO mode."
                 }
         }
 }

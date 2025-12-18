@@ -70,7 +70,9 @@ def _supports_direct_valve_control(self, entity_id: str) -> bool:
     """Return True if the TRV supports writing a valve percentage."""
 
     trv_data = self.real_trvs.get(entity_id) or {}
-    if trv_data.get("valve_position_entity"):
+    valve_entity = trv_data.get("valve_position_entity")
+    writable_flag = trv_data.get("valve_position_writable")
+    if valve_entity and writable_flag is True:
         return True
     quirks = trv_data.get("model_quirks")
     return bool(getattr(quirks, "override_set_valve", None))
@@ -393,11 +395,6 @@ def calculate_calibration_local(self, entity_id) -> float | None:
         if _mpc_use_valve:
             _new_trv_calibration = _current_trv_calibration
         elif _mpc_result is not None:
-            _mpc_setpoint = getattr(_mpc_result, "setpoint_eff_C", None)
-            if isinstance(_mpc_setpoint, (int, float)):
-                _new_trv_calibration = _current_trv_calibration - (
-                    _mpc_setpoint - _cur_target_temp
-                )
             _mpc_percent = getattr(_mpc_result, "valve_percent", None)
             if isinstance(_mpc_percent, (int, float)):
                 _max_temp = _convert_to_float(self.real_trvs[entity_id]["max_temp"])
@@ -461,9 +458,20 @@ def calculate_calibration_local(self, entity_id) -> float | None:
                 _new_trv_calibration -= 2.5
 
     if _calibration_mode == CalibrationMode.HEATING_POWER_CALIBRATION:
-        if self.attr_hvac_action == HVACAction.HEATING:
+        _supports_valve = _supports_direct_valve_control(self, entity_id)
+        if self.attr_hvac_action != HVACAction.HEATING:
+            if _supports_valve:
+                self.real_trvs[entity_id]["calibration_balance"] = {
+                    "valve_percent": 0,
+                    "apply_valve": True,
+                    "debug": {"source": "heating_power_calibration"},
+                }
+                # Keep TRV calibration at BT target when we control valve directly
+                _new_trv_calibration = _current_trv_calibration
+                _skip_post_adjustments = True
+
+        elif self.attr_hvac_action == HVACAction.HEATING:
             _valve_position = heating_power_valve_position(self, entity_id)
-            _supports_valve = _supports_direct_valve_control(self, entity_id)
 
             if _supports_valve and isinstance(_valve_position, (int, float)):
                 try:
@@ -475,8 +483,6 @@ def calculate_calibration_local(self, entity_id) -> float | None:
                     # Publish valve intent so controlling layer can execute set_valve
                     self.real_trvs[entity_id]["calibration_balance"] = {
                         "valve_percent": _pct,
-                        "flow_cap_K": None,
-                        "setpoint_eff_C": None,
                         "apply_valve": True,
                         "debug": {"source": "heating_power_calibration"},
                     }
@@ -674,7 +680,7 @@ def calculate_calibration_setpoint(self, entity_id) -> float | None:
         if self.attr_hvac_action != HVACAction.HEATING:
             if _supports_valve:
                 self.real_trvs[entity_id]["calibration_balance"] = {
-                    "valve_percent": _pct,
+                    "valve_percent": 0,
                     "apply_valve": True,
                     "debug": {"source": "heating_power_calibration"},
                 }
@@ -695,8 +701,6 @@ def calculate_calibration_setpoint(self, entity_id) -> float | None:
                     # Publish valve intent so controlling layer can execute set_valve
                     self.real_trvs[entity_id]["calibration_balance"] = {
                         "valve_percent": _pct,
-                        "flow_cap_K": None,
-                        "setpoint_eff_C": None,
                         "apply_valve": True,
                         "debug": {"source": "heating_power_calibration"},
                     }

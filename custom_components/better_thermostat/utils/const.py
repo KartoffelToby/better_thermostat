@@ -72,12 +72,11 @@ ATTR_STATE_HEATING_POWER = "heating_power"
 ATTR_STATE_HEATING_STATS = "heating_stats"
 ATTR_STATE_ERRORS = "errors"
 ATTR_STATE_BATTERIES = "batteries"
-ATTR_STATE_SAVED_TEMPERATURE_ECO = "saved_temperature_eco"
-ATTR_STATE_ECO_MODE = "eco_mode"
+# ECO mode logic removed; keep eco temperature for preset support
 
 SERVICE_RESTORE_SAVED_TARGET_TEMPERATURE = "restore_saved_target_temperature"
 SERVICE_SET_TEMP_TARGET_TEMPERATURE = "set_temp_target_temperature"
-SERVICE_SET_ECO_MODE = "set_eco_mode"
+# set_eco_mode service removed; ECO preset still supported via PRESET_ECO
 SERVICE_RESET_HEATING_POWER = "reset_heating_power"
 SERVICE_RESET_PID_LEARNINGS = "reset_pid_learnings"
 

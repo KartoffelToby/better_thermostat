@@ -5,7 +5,8 @@
         "de",
         "en",
         "fr",
-        "pl"
+        "pl",
+        "tr"
     ],
     "modules": [
         "https://cdn.jsdelivr.net/npm/@inlang/plugin-i18next@4/dist/index.js",

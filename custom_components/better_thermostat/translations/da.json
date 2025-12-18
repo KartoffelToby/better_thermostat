@@ -127,10 +127,6 @@
     "set_temp_target_temperature": {
       "name": "Indstil eco-temperatur",
       "description": "Indstil måltemperaturen til en midlertidig som nattilstand, og gem den gamle."
-    },
-    "set_eco_mode": {
-      "name": "Set ECO Mode",
-      "description": "Enable or disable ECO mode."
     }
   }
 }

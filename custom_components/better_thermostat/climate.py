@@ -11,11 +11,8 @@ from statistics import mean
 # preferred for HA time handling (UTC aware)
 from homeassistant.util import dt as dt_util
 from collections import deque
-from typing import Any, Dict, Optional
+from typing import Any, Dict
 
-import voluptuous as vol
-import homeassistant.helpers.config_validation as cv
-from homeassistant.helpers.config_validation import make_entity_service_schema
 
 # Home Assistant imports
 from homeassistant.components.climate import ClimateEntity
@@ -83,8 +80,6 @@ from .utils.const import (
     ATTR_STATE_SAVED_TEMPERATURE,
     ATTR_STATE_PRESET_TEMPERATURE,
     ATTR_STATE_WINDOW_OPEN,
-    ATTR_STATE_ECO_MODE,
-    ATTR_STATE_SAVED_TEMPERATURE_ECO,
     BETTERTHERMOSTAT_SET_TEMPERATURE_SCHEMA,
     CONF_COOLER,
     CONF_HEATER,
@@ -106,7 +101,6 @@ from .utils.const import (
     SERVICE_RESET_PID_LEARNINGS,
     SERVICE_RESTORE_SAVED_TARGET_TEMPERATURE,
     SERVICE_SET_TEMP_TARGET_TEMPERATURE,
-    SERVICE_SET_ECO_MODE,
     BETTERTHERMOSTAT_RESET_PID_SCHEMA,
     SUPPORT_FLAGS,
     VERSION,
@@ -180,11 +174,6 @@ async def async_setup_entry(hass, entry, async_add_entities):
         SERVICE_SET_TEMP_TARGET_TEMPERATURE,
         BETTERTHERMOSTAT_SET_TEMPERATURE_SCHEMA,
         "set_temp_temperature",
-    )
-    platform.async_register_entity_service(
-        SERVICE_SET_ECO_MODE,
-        make_entity_service_schema({vol.Required("enable"): cv.boolean}),
-        "set_eco_mode",
     )
     platform.async_register_entity_service(
         SERVICE_RESTORE_SAVED_TARGET_TEMPERATURE, {}, "restore_temp_temperature"
@@ -275,37 +264,7 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
         finally:
             self.bt_update_lock = False
 
-    async def set_eco_mode(self, enable: bool):
-        """Enable or disable ECO mode for the thermostat.
-
-        When enabling ECO mode, we save the current target temperature in a
-        dedicated ECO save variable and set the target to the configured eco
-        temperature. When disabling, restore the saved ECO temperature if it
-        exists. This function uses a temporary update lock to avoid races.
-        """
-        self.bt_update_lock = True
-        try:
-            if enable:
-                if not self.eco_mode:
-                    if self.eco_temperature is not None:
-                        self._saved_temperature_eco = self.bt_target_temp
-                        self.bt_target_temp = self.eco_temperature
-                        self.eco_mode = True
-                        self.async_write_ha_state()
-                        await self.control_queue_task.put(self)
-            else:
-                if self.eco_mode:
-                    if self._saved_temperature_eco is not None:
-                        self.bt_target_temp = self._saved_temperature_eco
-                        self._saved_temperature_eco = None
-                self.eco_mode = False
-                self.async_write_ha_state()
-                await self.control_queue_task.put(self)
-        finally:
-            self.bt_update_lock = False
-
-    # NOTE: `set_eco_mode` is defined above (merged implementation using
-    # _saved_temperature_eco). Avoid any duplicate definitions below.
+    # ECO mode removed; set_eco_mode service and logic deleted.
 
     async def reset_heating_power(self):
         """Reset heating power to default value."""
@@ -447,7 +406,6 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
         self.bt_target_cooltemp = None
         self._support_flags = SUPPORT_FLAGS | ClimateEntityFeature.PRESET_MODE
         self.bt_hvac_mode = None
-        self.eco_mode = False
         # Track min/max encountered target temps (initialize to default span)
         self.min_target_temp = 18.0
         self.max_target_temp = 21.0
@@ -463,7 +421,7 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
         self.bt_update_lock = False
         self.startup_running = True
         self._saved_temperature = None
-        self._saved_temperature_eco = None  # Separate saved temp for ECO mode
+        # ECO mode removed; preserved eco preset via PRESET_ECO and CONF_ECO_TEMPERATURE
         self._preset_temperature = (
             None  # Temperature saved before entering any preset mode
         )
@@ -614,6 +572,7 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
                 "ignore_trv_states": False,
                 "valve_position": None,
                 "valve_position_entity": None,
+                "valve_position_writable": None,
                 "max_temp": None,
                 "min_temp": None,
                 "target_temp_step": None,
@@ -1201,29 +1160,7 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
                             restored_preset,
                         )
 
-                # Restore ECO mode state
-                if old_state.attributes.get(ATTR_STATE_ECO_MODE, None) is not None:
-                    self.eco_mode = bool(old_state.attributes.get(ATTR_STATE_ECO_MODE))
-                    _LOGGER.debug(
-                        "better_thermostat %s: Restored ECO mode state: %s",
-                        self.device_name,
-                        self.eco_mode,
-                    )
-
-                # Restore saved temperature for ECO mode
-                if (
-                    old_state.attributes.get(ATTR_STATE_SAVED_TEMPERATURE_ECO, None)
-                    is not None
-                ):
-                    self._saved_temperature_eco = convert_to_float(
-                        str(
-                            old_state.attributes.get(
-                                ATTR_STATE_SAVED_TEMPERATURE_ECO, None
-                            )
-                        ),
-                        self.device_name,
-                        "startup()",
-                    )
+                # ECO mode state / saved ECO temperature not restored; Eco preset is supported via PRESET_ECO.
 
             else:
                 # No previous state, try and restore defaults
@@ -2162,7 +2099,6 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
             ATTR_STATE_CALL_FOR_HEAT: self.call_for_heat,
             ATTR_STATE_LAST_CHANGE: self.last_change.isoformat(),
             ATTR_STATE_SAVED_TEMPERATURE: self._saved_temperature,
-            ATTR_STATE_SAVED_TEMPERATURE_ECO: self._saved_temperature_eco,
             ATTR_STATE_PRESET_TEMPERATURE: self._preset_temperature,
             ATTR_STATE_HUMIDIY: self._current_humidity,
             ATTR_STATE_MAIN_MODE: self.last_main_hvac_mode,
@@ -2171,7 +2107,7 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
             ATTR_STATE_HEATING_POWER: self.heating_power,
             ATTR_STATE_ERRORS: json.dumps(self.devices_errors),
             ATTR_STATE_BATTERIES: json.dumps(self.devices_states),
-            ATTR_STATE_ECO_MODE: self.eco_mode,
+            # ECO mode attribute removed: eco preset supported via PRESET_ECO
             # Persist current preset temperature mapping so we can restore on restart
             "bt_preset_temperatures": json.dumps(self._preset_temperatures),
             # Flag if user changed at least one preset temperature from original configuration
