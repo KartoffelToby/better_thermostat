@@ -672,19 +672,8 @@ def calculate_calibration_setpoint(self, entity_id) -> float | None:
                 _calibrated_setpoint += 2.5
 
     if _calibration_mode == CalibrationMode.HEATING_POWER_CALIBRATION:
-        _supports_valve = _supports_direct_valve_control(self, entity_id)
-        if self.attr_hvac_action != HVACAction.HEATING:
-            if _supports_valve:
-                self.real_trvs[entity_id]["calibration_balance"] = {
-                    "valve_percent": _pct,
-                    "apply_valve": True,
-                    "debug": {"source": "heating_power_calibration"},
-                }
-                # Keep TRV setpoint at BT target when we control valve directly
-                _calibrated_setpoint = _cur_target_temp
-                _skip_post_adjustments = True
-
-        elif self.attr_hvac_action == HVACAction.HEATING:
+        if self.attr_hvac_action == HVACAction.HEATING:
+            _supports_valve = _supports_direct_valve_control(self, entity_id)
             _valve_position = heating_power_valve_position(self, entity_id)
 
             if _supports_valve and isinstance(_valve_position, (int, float)):
