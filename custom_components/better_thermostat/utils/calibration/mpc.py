@@ -299,6 +299,40 @@ def compute_mpc(inp: MpcInput, params: MpcParams) -> Optional[MpcOutput]:
                     )
 
             # --------------------------------------------
+            # VIRTUAL TEMPERATURE SENSOR SYNCHRONISATION (ANCHOR)
+            # --------------------------------------------
+            # Sync virtual_temp BEFORE computing delta_T / running the MPC.
+            # Otherwise MPC decisions can be based on a drifted virtual_temp even
+            # when the sensor is quantised/stale, causing abrupt valve changes.
+            if inp.current_temp_C is not None:
+                sensor_temp = float(inp.current_temp_C)
+                if state.virtual_temp is None:
+                    state.virtual_temp = sensor_temp
+                    state.virtual_temp_ts = now
+                else:
+                    tau_s = 840.0
+
+                    sensor_changed = (
+                        state.last_sensor_temp_C is None
+                        or abs(sensor_temp - float(state.last_sensor_temp_C)) >= 0.001
+                    )
+
+                    if sensor_changed:
+                        alpha = 0.3
+                    elif state.virtual_temp_ts <= 0.0:
+                        alpha = 1.0
+                    else:
+                        dt_s = max(0.0, now - state.virtual_temp_ts)
+                        alpha = 1.0 - math.exp(-dt_s / tau_s) if tau_s > 0 else 0.3
+
+                    state.virtual_temp = (
+                        alpha * sensor_temp + (1.0 - alpha) * float(state.virtual_temp)
+                    )
+                    state.virtual_temp_ts = now
+
+                state.last_sensor_temp_C = sensor_temp
+
+            # --------------------------------------------
             # DELTA T USING VIRTUAL TEMPERATURE
             # --------------------------------------------
             if state.virtual_temp is not None and inp.target_temp_C is not None:
@@ -809,38 +843,6 @@ def _post_process_percent(
     name = inp.bt_name or "BT"
     entity = inp.entity_id or "unknown"
 
-    # --------------------------------------------
-    # VIRTUAL TEMPERATURE SYNCHRONISATION
-    # --------------------------------------------
-    if inp.current_temp_C is not None:
-        if state.virtual_temp is None:
-            state.virtual_temp = inp.current_temp_C
-        else:
-            # Time-based sensor trust: for very frequent calls (few seconds apart)
-            # the controller must not pull virtual_temp aggressively to the sensor,
-            # otherwise delta_T and MPC cost jump purely due to re-triggers.
-            # Calibrate tau so that for a typical ~5min cadence alpha ~= 0.3.
-            tau_s = 840.0
-
-            sensor_changed = (
-                state.last_sensor_temp_C is None
-                or abs(float(inp.current_temp_C) - float(state.last_sensor_temp_C))
-                >= 0.001
-            )
-
-            if sensor_changed:
-                alpha = 0.3
-            elif state.virtual_temp_ts <= 0.0:
-                alpha = 1.0
-            else:
-                dt_s = max(0.0, now - state.virtual_temp_ts)
-                alpha = 1.0 - math.exp(-dt_s / tau_s) if tau_s > 0 else 0.3
-            state.virtual_temp = (
-                alpha * inp.current_temp_C + (1 - alpha) * state.virtual_temp
-            )
-        state.virtual_temp_ts = now
-        state.last_sensor_temp_C = inp.current_temp_C
-
     # ============================================================
     # 1) INITIAL RAW VALUE
     # ============================================================
@@ -1116,21 +1118,22 @@ def _post_process_percent(
         if not target_changed:
 
             # Ausnahme: große Änderung nötig (z.B. Fenster auf)
-            big_change = (
-                abs(smooth - state.last_percent) >= params.big_change_force_open_pct
-            )
+            # Only bypass hold-time for large OPENING steps (e.g. window just closed / sudden demand).
+            # Large closing steps should remain rate-limited to avoid oscillations.
+            big_open = (smooth - state.last_percent) >= params.big_change_force_open_pct
+            remaining = hold_time - time_since_update
 
-            if time_since_update < hold_time and not big_change:
+            if remaining > 0.0 and time_since_update < hold_time and not big_open:
                 percent_out = int(round(state.last_percent))
                 debug["hold_block"] = True
-                debug["hold_remaining_s"] = int(hold_time - time_since_update)
+                debug["hold_remaining_s"] = int(max(0.0, remaining))
                 _LOGGER.debug(
                     "better_thermostat %s: MPC hold-time block (%s) last_percent=%s output=%s remaining_s=%s",
                     name,
                     entity,
                     _round_for_debug(state.last_percent, 2),
                     percent_out,
-                    _round_for_debug(hold_time - time_since_update, 1),
+                    _round_for_debug(remaining, 1),
                 )
 
     # ============================================================

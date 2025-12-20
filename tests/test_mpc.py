@@ -254,6 +254,10 @@ class TestMPCController:
 
     def test_heating_sequence_simulation(self):
         """Simulate a heating sequence to test controller behavior over time."""
+        from custom_components.better_thermostat.utils.calibration.mpc import (
+            export_mpc_state_map,
+        )
+
         params = MpcParams(
             # mpc_adapt=True,
             mpc_thermal_gain=0.06,
@@ -287,10 +291,29 @@ class TestMPCController:
             result = compute_mpc(inp, params)
             assert result is not None
             valve_pct = result.valve_percent
+            dbg = result.debug or {}
+
+            state_map = export_mpc_state_map(prefix=key)
+            vtemp = None
+            if key in state_map:
+                vtemp = state_map[key].get("virtual_temp")
+
             error = target - current
             results.append((current, valve_pct))
             print(
-                f"Schritt {step + 1}: Temp={current:.3f}°C, Error={error:.3f}K, Valve={valve_pct}%"
+                "Schritt {}: Temp={:.3f}°C (virt={}), Error={:.3f}K, "
+                "Valve={}%, delta_T(ctrl)={}, u0={}, du={}, u_abs={}, cost={}".format(
+                    step + 1,
+                    current,
+                    (f"{float(vtemp):.3f}°C" if vtemp is not None else None),
+                    error,
+                    valve_pct,
+                    dbg.get("delta_T"),
+                    dbg.get("mpc_u0_pct"),
+                    dbg.get("mpc_du_pct"),
+                    dbg.get("mpc_u_abs_pct"),
+                    dbg.get("mpc_cost"),
+                )
             )
 
             # Simulate temperature rise based on valve opening
