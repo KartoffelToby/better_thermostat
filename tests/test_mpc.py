@@ -260,7 +260,9 @@ class TestMPCController:
             mpc_loss_coeff=0.01,
             min_update_interval_s=0.0,  # Allow immediate updates for simulation
             min_percent_hold_time_s=0.0,  # Disable hold time for test
-            mpc_change_penalty=0.2,
+            # Use production defaults for penalties (keep test aligned with real algorithm).
+            mpc_control_penalty=MpcParams().mpc_control_penalty,
+            mpc_change_penalty=MpcParams().mpc_change_penalty,
         )
         key = "test_sequence"
 
