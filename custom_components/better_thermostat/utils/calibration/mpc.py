@@ -83,6 +83,7 @@ class _MpcState:
     last_learn_temp: Optional[float] = None
     virtual_temp: Optional[float] = None
     virtual_temp_ts: float = 0.0
+    last_sensor_temp_C: Optional[float] = None
     trv_profile: str = "unknown"
     profile_confidence: float = 0.0
     profile_samples: int = 0
@@ -282,7 +283,11 @@ def compute_mpc(inp: MpcInput, params: MpcParams) -> Optional[MpcOutput]:
                     predicted_dT = gain * u * dt_min - loss * dt_min
 
                     state.virtual_temp += predicted_dT
-                    state.virtual_temp_ts = now
+                    # Do NOT update virtual_temp_ts here.
+                    # It is used as the reference for both forward prediction and
+                    # sensor synchronisation later in this call. Updating it here
+                    # would make the synchronisation step see dt==0 and overreact
+                    # on rapid re-triggers.
 
                     _LOGGER.debug(
                         "better_thermostat %s: MPC virtual-temp forward %.4fK (u=%.1f, gain=%.4f, loss=%.4f)",
@@ -811,11 +816,30 @@ def _post_process_percent(
         if state.virtual_temp is None:
             state.virtual_temp = inp.current_temp_C
         else:
-            alpha = 0.3  # Sensorvertrauen
+            # Time-based sensor trust: for very frequent calls (few seconds apart)
+            # the controller must not pull virtual_temp aggressively to the sensor,
+            # otherwise delta_T and MPC cost jump purely due to re-triggers.
+            # Calibrate tau so that for a typical ~5min cadence alpha ~= 0.3.
+            tau_s = 840.0
+
+            sensor_changed = (
+                state.last_sensor_temp_C is None
+                or abs(float(inp.current_temp_C) - float(state.last_sensor_temp_C))
+                >= 0.001
+            )
+
+            if sensor_changed:
+                alpha = 0.3
+            elif state.virtual_temp_ts <= 0.0:
+                alpha = 1.0
+            else:
+                dt_s = max(0.0, now - state.virtual_temp_ts)
+                alpha = 1.0 - math.exp(-dt_s / tau_s) if tau_s > 0 else 0.3
             state.virtual_temp = (
                 alpha * inp.current_temp_C + (1 - alpha) * state.virtual_temp
             )
         state.virtual_temp_ts = now
+        state.last_sensor_temp_C = inp.current_temp_C
 
     # ============================================================
     # 1) INITIAL RAW VALUE
