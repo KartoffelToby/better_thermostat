@@ -47,7 +47,7 @@ class MpcParams:
     # Virtual temperature behaviour.
     # When enabled, `virtual_temp` is used as the MPC state temperature and can be
     # forward-predicted between sensor updates.
-    use_virtual_temp: bool = True
+    use_virtual_temp: bool = False
     virtual_temp_use_slope: bool = True
     virtual_temp_max_abs_slope_C_per_min: float = 0.15
 
@@ -300,16 +300,26 @@ def compute_mpc(inp: MpcInput, params: MpcParams) -> Optional[MpcOutput]:
                     predicted_dT: float
                     slope = inp.temp_slope_K_per_min
                     use_slope = bool(getattr(params, "virtual_temp_use_slope", True))
-                    if use_slope and slope is not None:
-                        max_abs = float(
-                            getattr(params, "virtual_temp_max_abs_slope_C_per_min", 0.15)
-                        )
-                        if max_abs <= 0:
-                            max_abs = 0.15
-                        slope = max(-max_abs, min(max_abs, float(slope)))
-                        predicted_dT = float(slope) * dt_min
-                        extra_debug["virtual_temp_predict"] = "slope"
-                        extra_debug["virtual_temp_slope"] = _round_for_debug(slope, 4)
+                    if use_slope:
+                        if slope is None:
+                            predicted_dT = 0.0
+                            extra_debug["virtual_temp_predict"] = "disabled_no_slope"
+                        else:
+                            max_abs = float(
+                                getattr(
+                                    params,
+                                    "virtual_temp_max_abs_slope_C_per_min",
+                                    0.15,
+                                )
+                            )
+                            if max_abs <= 0:
+                                max_abs = 0.15
+                            slope = max(-max_abs, min(max_abs, float(slope)))
+                            predicted_dT = float(slope) * dt_min
+                            extra_debug["virtual_temp_predict"] = "slope"
+                            extra_debug["virtual_temp_slope"] = _round_for_debug(
+                                slope, 4
+                            )
                     else:
                         gain_est = (
                             float(state.gain_est)
