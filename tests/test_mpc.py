@@ -198,6 +198,87 @@ class TestMPCController:
         assert state.loss_est == 0.02  # No change since valve open
         print(f"Final: gain_est={state.gain_est}, loss_est={state.loss_est}")
 
+    def test_gain_does_not_increase_on_slope_without_sensor_change(self):
+        """Slope-only identification must not drift gain when the sensor is flat."""
+
+        from time import monotonic
+        from custom_components.better_thermostat.utils.calibration.mpc import _MPC_STATES
+
+        params = MpcParams(
+            mpc_adapt=True,
+            mpc_adapt_alpha=0.5,
+            mpc_thermal_gain=0.05,
+            mpc_loss_coeff=0.01,
+        )
+        key = "test_gain_slope_reject"
+
+        # First call initializes state.
+        inp1 = MpcInput(
+            key=key,
+            target_temp_C=22.0,
+            current_temp_C=21.5,
+            temp_slope_K_per_min=0.08,
+        )
+        _ = compute_mpc(inp1, params)
+
+        st = _MPC_STATES[key]
+        st.last_percent = 100.0
+        st.last_learn_temp = inp1.current_temp_C
+        st.last_learn_time = monotonic() - 300.0  # >=180s, but <600s (no steady-state gain)
+        gain_before = float(st.gain_est)
+
+        # Second call: sensor unchanged, but slope still positive.
+        inp2 = MpcInput(
+            key=key,
+            target_temp_C=22.0,
+            current_temp_C=21.5,
+            temp_slope_K_per_min=0.08,
+        )
+        _ = compute_mpc(inp2, params)
+        st = _MPC_STATES[key]
+
+        assert float(st.gain_est) <= gain_before
+
+    def test_gain_decreases_when_high_output_and_no_warming(self):
+        """If valve is high, temperature is flat, and still below target, gain should decrease."""
+
+        from time import monotonic
+        from custom_components.better_thermostat.utils.calibration.mpc import _MPC_STATES
+
+        params = MpcParams(
+            mpc_adapt=True,
+            mpc_adapt_alpha=0.5,
+            mpc_thermal_gain=0.1,
+            mpc_loss_coeff=0.01,
+        )
+        key = "test_gain_ss_decrease"
+
+        # First call initializes state and sets last_target_C.
+        _ = compute_mpc(
+            MpcInput(key=key, target_temp_C=22.0, current_temp_C=21.5),
+            params,
+        )
+
+        st = _MPC_STATES[key]
+        st.gain_est = 0.1
+        st.loss_est = 0.01
+        st.last_percent = 90.0
+        st.last_learn_temp = 21.5
+        st.last_learn_time = monotonic() - 900.0  # 15min -> in steady-state learning window
+
+        gain_before = float(st.gain_est)
+        _ = compute_mpc(
+            MpcInput(
+                key=key,
+                target_temp_C=22.0,
+                current_temp_C=21.5,
+                temp_slope_K_per_min=0.0,
+            ),
+            params,
+        )
+
+        assert float(st.gain_est) < gain_before
+
     def test_dead_zone_detection(self):
         """Test dead-zone detection and raising minimum effective percent."""
         params = MpcParams(
