@@ -569,6 +569,7 @@ def _compute_predictive_percent(
             # measured temperature change (fallback) and rate estimate
             delta_T = float(inp.current_temp_C) - float(state.last_learn_temp)
             observed_rate = (delta_T / dt_min) if dt_min > 0 else 0.0  # °C/min
+            observed_rate_delta = observed_rate
             rate_source = "delta"
 
             # If upstream provides a slope, prefer it for identification.
@@ -581,6 +582,8 @@ def _compute_predictive_percent(
                 except (TypeError, ValueError):
                     pass
 
+            implied_delta_T = observed_rate * dt_min if dt_min > 0 else 0.0
+
             # Learn only when the sensor actually changed (quantised sensors).
             temp_change_threshold_C = float(
                 getattr(params, "mpc_temp_change_threshold_C", 0.05)
@@ -588,7 +591,27 @@ def _compute_predictive_percent(
             if temp_change_threshold_C <= 0:
                 temp_change_threshold_C = 0.05
             temp_changed = abs(delta_T) >= temp_change_threshold_C
-            learn_signal = temp_changed or rate_source == "slope"
+
+            # For quantised/stale sensors upstream slope estimates can be non-zero even
+            # when the sensor did not change. That would cause gain/loss drift.
+            # Therefore only accept a slope-based learning signal if it is either
+            # near-zero (no impact) or consistent with the actual sensor delta.
+            slope_ok = False
+            slope_rejected = False
+            if rate_source == "slope":
+                # If the slope implies a much larger change than the sensor observed,
+                # reject it and fall back to delta-based observed_rate.
+                if abs(implied_delta_T) <= (temp_change_threshold_C * 0.5):
+                    slope_ok = True
+                elif abs(implied_delta_T - delta_T) <= (temp_change_threshold_C * 2.0):
+                    slope_ok = True
+                else:
+                    slope_rejected = True
+                    observed_rate = observed_rate_delta
+                    rate_source = "delta"
+                    implied_delta_T = observed_rate * dt_min if dt_min > 0 else 0.0
+
+            learn_signal = temp_changed or slope_ok
 
             # sanity: avoid learning on extreme transients / sensor jumps
             # (typical indoor rate is far below 1°C/min)
@@ -613,6 +636,9 @@ def _compute_predictive_percent(
             updated_gain = False
             updated_loss = False
             loss_method: Optional[str] = None
+            gain_ss_applied = False
+            gain_ss_rate_limited = False
+            gain_ss_candidate: Optional[float] = None
 
             # Common gates: don't learn during setpoint steps or crazy sensor jumps.
             common_ok = (not target_changed) and rate_ok and dt_min > 0
@@ -695,6 +721,44 @@ def _compute_predictive_percent(
                 state.gain_est = (1.0 - alpha) * gain_est + alpha * gain_candidate
                 updated_gain = True
 
+            # --- GAIN learning (steady-state high-u): ---
+            # If we apply a high valve opening for a sustained period, temperature is
+            # (almost) flat, but we're still below target, then the current gain is
+            # likely overestimated. Correct gain downward so u0 (=loss/gain) can rise.
+            if common_ok and u_last > max(min_open, 0.5):
+                ss_min_interval_s = 600.0  # 10min
+                ss_max_interval_s = 1800.0  # 30min
+                if dt_last < ss_min_interval_s or dt_last > ss_max_interval_s:
+                    gain_ss_rate_limited = True
+
+                e_now = target_temp_C - float(inp.current_temp_C)
+
+                if (
+                    (not gain_ss_rate_limited)
+                    and (not temp_changed)
+                    and e_now > 0.1
+                    and abs(observed_rate) <= 0.01
+                ):
+                    denom = max(u_last, 0.05)
+                    gain_ss_candidate = (max(0.0, observed_rate) + loss_est) / denom
+                    gain_ss_candidate = min(
+                        max(gain_ss_candidate, params.mpc_gain_min), params.mpc_gain_max
+                    )
+
+                    gain_est_current = (
+                        float(state.gain_est)
+                        if state.gain_est is not None
+                        else float(gain_est)
+                    )
+
+                    if gain_ss_candidate < gain_est_current:
+                        alpha = params.mpc_adapt_alpha  # faster decrease is OK
+                        state.gain_est = (1.0 - alpha) * gain_est_current + (
+                            alpha * gain_ss_candidate
+                        )
+                        updated_gain = True
+                        gain_ss_applied = True
+
             # clamp to allowed physical range
             if state.gain_est is not None:
                 state.gain_est = max(
@@ -708,6 +772,7 @@ def _compute_predictive_percent(
             adapt_debug = {
                 "id_dt_min": _round_for_debug(dt_min, 3),
                 "id_delta_T": _round_for_debug(delta_T, 3),
+                "id_implied_delta_T": _round_for_debug(implied_delta_T, 3),
                 "id_temp_changed": temp_changed,
                 "id_learn_signal": learn_signal,
                 "id_temp_change_threshold_C": _round_for_debug(
@@ -715,10 +780,16 @@ def _compute_predictive_percent(
                 ),
                 "id_rate": _round_for_debug(observed_rate, 4),
                 "id_rate_source": rate_source,
+                "id_slope_rejected": slope_rejected,
                 "id_rate_ok": rate_ok,
                 "id_u_last": _round_for_debug(u_last, 3),
                 "id_target_changed": target_changed,
                 "id_gain_updated": updated_gain,
+                "id_gain_ss_applied": gain_ss_applied,
+                "id_gain_ss_candidate": _round_for_debug(gain_ss_candidate, 4)
+                if gain_ss_candidate is not None
+                else None,
+                "id_gain_ss_rate_limited": gain_ss_rate_limited,
                 "id_loss_updated": updated_loss,
                 "id_loss_method": loss_method,
                 "id_u0": _round_for_debug(u0_frac_dbg, 3),
