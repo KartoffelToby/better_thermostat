@@ -14,6 +14,13 @@ from homeassistant.components.climate.const import HVACMode
 from custom_components.better_thermostat.utils.const import (
     CONF_HEAT_AUTO_SWAPPED,
     CalibrationMode,
+    MIN_HEATING_POWER,
+    MAX_HEATING_POWER,
+    VALVE_MIN_THRESHOLD_TEMP_DIFF,
+    VALVE_MIN_OPENING_LARGE_DIFF,
+    VALVE_MIN_BASE,
+    VALVE_MIN_SMALL_DIFF_THRESHOLD,
+    VALVE_MIN_PROPORTIONAL_SLOPE,
 )
 
 
@@ -165,16 +172,6 @@ def heating_power_valve_position(self, entity_id):
     temperature, a heuristic mapping to valve opening percentage is
     returned (between 0.0 and 1.0).
     """
-    from custom_components.better_thermostat.utils.const import (
-        MIN_HEATING_POWER,
-        MAX_HEATING_POWER,
-        VALVE_MIN_THRESHOLD_TEMP_DIFF,
-        VALVE_MIN_OPENING_LARGE_DIFF,
-        VALVE_MIN_BASE,
-        VALVE_MIN_SMALL_DIFF_THRESHOLD,
-        VALVE_MIN_PROPORTIONAL_SLOPE,
-    )
-    
     _temp_diff = float(float(self.bt_target_temp) - float(self.cur_temp))
     
     # Ensure heating_power is bounded to realistic values
