@@ -166,19 +166,32 @@ def heating_power_valve_position(self, entity_id):
     returned (between 0.0 and 1.0).
     """
     _temp_diff = float(float(self.bt_target_temp) - float(self.cur_temp))
+    
+    # Ensure heating_power is bounded to realistic values
+    # This protects against incorrectly learned high values
+    heating_power = max(0.005, min(0.2, float(self.heating_power)))
 
+    # Original formula with improved robustness
     a = 0.019
     b = 0.946
-    valve_pos = a * (_temp_diff / self.heating_power) ** b
+    valve_pos = a * (_temp_diff / heating_power) ** b
+    
+    # Apply minimum valve position when heating is actively needed
+    # If temp_diff > 0.3°C, ensure at least 15% valve opening
+    # This prevents the system from getting stuck with too-low valve positions
+    if _temp_diff > 0.3:
+        valve_pos = max(0.15, valve_pos)
+    elif _temp_diff > 0.1:
+        # For smaller differences, use a proportional minimum (5-15%)
+        min_valve = 0.05 + (_temp_diff - 0.1) * 0.5
+        valve_pos = max(min_valve, valve_pos)
 
-    if valve_pos < 0.0:
-        valve_pos = 0.0
-    if valve_pos > 1.0:
-        valve_pos = 1.0
+    # Bound to valid range
+    valve_pos = max(0.0, min(1.0, valve_pos))
 
     _LOGGER.debug(
         f"better_thermostat {self.device_name}: {entity_id} / heating_power_valve_position - temp diff: {round(
-            _temp_diff, 1)} - heating power: {round(self.heating_power, 4)} - expected valve position: {round(valve_pos * 100)}%"
+            _temp_diff, 1)} - heating power: {round(heating_power, 4)} (bounded) - expected valve position: {round(valve_pos * 100)}%"
     )
     return valve_pos
 
