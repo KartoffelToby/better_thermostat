@@ -14,6 +14,13 @@ from homeassistant.components.climate.const import HVACMode
 from custom_components.better_thermostat.utils.const import (
     CONF_HEAT_AUTO_SWAPPED,
     CalibrationMode,
+    MIN_HEATING_POWER,
+    MAX_HEATING_POWER,
+    VALVE_MIN_THRESHOLD_TEMP_DIFF,
+    VALVE_MIN_OPENING_LARGE_DIFF,
+    VALVE_MIN_BASE,
+    VALVE_MIN_SMALL_DIFF_THRESHOLD,
+    VALVE_MIN_PROPORTIONAL_SLOPE,
 )
 
 
@@ -166,19 +173,32 @@ def heating_power_valve_position(self, entity_id):
     returned (between 0.0 and 1.0).
     """
     _temp_diff = float(float(self.bt_target_temp) - float(self.cur_temp))
+    
+    # Ensure heating_power is bounded to realistic values
+    # This protects against incorrectly learned high values
+    heating_power = max(MIN_HEATING_POWER, min(MAX_HEATING_POWER, float(self.heating_power)))
 
+    # Original formula with improved robustness
     a = 0.019
     b = 0.946
-    valve_pos = a * (_temp_diff / self.heating_power) ** b
+    valve_pos = a * (_temp_diff / heating_power) ** b
+    
+    # Apply minimum valve position when heating is actively needed
+    # If temp_diff > threshold, ensure minimum valve opening
+    # This prevents the system from getting stuck with too-low valve positions
+    if _temp_diff > VALVE_MIN_THRESHOLD_TEMP_DIFF:
+        valve_pos = max(VALVE_MIN_OPENING_LARGE_DIFF, valve_pos)
+    elif _temp_diff > VALVE_MIN_SMALL_DIFF_THRESHOLD:
+        # For smaller differences, use a proportional minimum
+        min_valve = VALVE_MIN_BASE + (_temp_diff - VALVE_MIN_SMALL_DIFF_THRESHOLD) * VALVE_MIN_PROPORTIONAL_SLOPE
+        valve_pos = max(min_valve, valve_pos)
 
-    if valve_pos < 0.0:
-        valve_pos = 0.0
-    if valve_pos > 1.0:
-        valve_pos = 1.0
+    # Bound to valid range
+    valve_pos = max(0.0, min(1.0, valve_pos))
 
     _LOGGER.debug(
         f"better_thermostat {self.device_name}: {entity_id} / heating_power_valve_position - temp diff: {round(
-            _temp_diff, 1)} - heating power: {round(self.heating_power, 4)} - expected valve position: {round(valve_pos * 100)}%"
+            _temp_diff, 1)} - heating power: {round(heating_power, 4)} (bounded) - expected valve position: {round(valve_pos * 100)}%"
     )
     return valve_pos
 
