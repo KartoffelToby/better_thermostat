@@ -116,7 +116,6 @@ from .utils.calibration.pid import (
     export_pid_states as pid_export_states,
     import_pid_states as pid_import_states,
     reset_pid_state as pid_reset_state,
-    build_pid_key,
 )
 from .utils.calibration.mpc import export_mpc_state_map, import_mpc_state_map
 from .utils.calibration.tpi import export_tpi_state_map, import_tpi_state_map
@@ -1222,9 +1221,13 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
                         ATTR_STATE_MAIN_MODE
                     )
                 if old_state.attributes.get(ATTR_STATE_HEATING_POWER, None) is not None:
-                    self.heating_power = float(
+                    loaded_power = float(
                         old_state.attributes.get(ATTR_STATE_HEATING_POWER)
                     )
+                    # Bound to realistic values to prevent issues from incorrectly learned values
+                    MIN_HEATING_POWER = 0.005
+                    MAX_HEATING_POWER = 0.2
+                    self.heating_power = max(MIN_HEATING_POWER, min(MAX_HEATING_POWER, loaded_power))
                 if (
                     old_state.attributes.get(ATTR_STATE_PRESET_TEMPERATURE, None)
                     is not None
@@ -2212,9 +2215,17 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
                 alpha = max(0.02, min(0.25, alpha))  # Bounds
 
                 old_power = self.heating_power
-                self.heating_power = round(
-                    old_power * (1 - alpha) + heating_rate * alpha, 4
-                )
+                new_power = old_power * (1 - alpha) + heating_rate * alpha
+                
+                # Bound heating_power to realistic values for residential heating systems
+                # Typical range: 0.005 to 0.2 °C/min
+                # - Lower bound (0.005): Very slow heating (e.g., poor insulation, cold climate)
+                # - Upper bound (0.2): Very fast heating (e.g., oversized system, small room)
+                MIN_HEATING_POWER = 0.005
+                MAX_HEATING_POWER = 0.2
+                new_power = max(MIN_HEATING_POWER, min(MAX_HEATING_POWER, new_power))
+                
+                self.heating_power = round(new_power, 4)
                 heating_power_changed = self.heating_power != old_power
 
                 # Compact short stats history
