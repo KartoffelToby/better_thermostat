@@ -27,7 +27,7 @@ class MpcParams:
     mpc_thermal_gain: float = 0.06
     mpc_loss_coeff: float = 0.01
     mpc_control_penalty: float = 0.00005
-    mpc_change_penalty: float = 0.2
+    mpc_change_penalty: float = 0.05
     mpc_adapt: bool = True
     mpc_gain_min: float = 0.01
     mpc_gain_max: float = 0.2
@@ -43,6 +43,10 @@ class MpcParams:
     mpc_du_max_pct: float = 25.0
     min_percent_hold_time_s: float = 300.0  # mind. 5 Minuten Haltezeit
     big_change_force_open_pct: float = 33.0  # >33% Änderung darf sofort fahren
+
+    # Minimum effective opening / dead-zone learning.
+    # If disabled, small commands are not clamped up and dead-zone raise/decay is skipped.
+    enable_min_effective_percent: bool = False
 
     # Virtual temperature behaviour.
     # When enabled, `virtual_temp` is used as the MPC state temperature and can be
@@ -176,7 +180,9 @@ def _split_mpc_key(key: str) -> Tuple[Optional[str], Optional[str], Optional[str
         return None, None, None
 
 
-def _seed_state_from_siblings(key: str, state: _MpcState) -> None:
+def _seed_state_from_siblings(key: str, state: _MpcState, params: MpcParams) -> None:
+    if not bool(getattr(params, "enable_min_effective_percent", True)):
+        return
     if state.min_effective_percent is not None:
         return
     uid, entity, _ = _split_mpc_key(key)
@@ -221,7 +227,7 @@ def compute_mpc(inp: MpcInput, params: MpcParams) -> Optional[MpcOutput]:
 
     now = monotonic()
     state = _MPC_STATES.setdefault(inp.key, _MpcState())
-    _seed_state_from_siblings(inp.key, state)
+    _seed_state_from_siblings(inp.key, state, params)
 
     extra_debug: Dict[str, Any] = {}
     name = inp.bt_name or "BT"
@@ -307,9 +313,7 @@ def compute_mpc(inp: MpcInput, params: MpcParams) -> Optional[MpcOutput]:
                         else:
                             max_abs = float(
                                 getattr(
-                                    params,
-                                    "virtual_temp_max_abs_slope_C_per_min",
-                                    0.15,
+                                    params, "virtual_temp_max_abs_slope_C_per_min", 0.15
                                 )
                             )
                             if max_abs <= 0:
@@ -411,9 +415,7 @@ def compute_mpc(inp: MpcInput, params: MpcParams) -> Optional[MpcOutput]:
                             alpha = 1.0
                         else:
                             dt_s = max(0.0, now - state.virtual_temp_ts)
-                            alpha = (
-                                1.0 - math.exp(-dt_s / tau_s) if tau_s > 0 else 0.3
-                            )
+                            alpha = 1.0 - math.exp(-dt_s / tau_s) if tau_s > 0 else 0.3
 
                         state.virtual_temp = (
                             alpha * sensor_temp + (1.0 - alpha) * virtual_temp
@@ -613,6 +615,13 @@ def _compute_predictive_percent(
 
             learn_signal = temp_changed or slope_ok
 
+            # For quasi steady-state learning (loss residual, gain_ss), prefer the
+            # delta-based rate unless we have an actual sensor change. This prevents
+            # stale/quantised sensors with noisy slopes from biasing steady-state updates.
+            observed_rate_ss = observed_rate
+            if not temp_changed:
+                observed_rate_ss = observed_rate_delta
+
             # sanity: avoid learning on extreme transients / sensor jumps
             # (typical indoor rate is far below 1°C/min)
             max_abs_rate = float(getattr(params, "mpc_max_abs_rate_C_per_min", 0.35))
@@ -620,7 +629,15 @@ def _compute_predictive_percent(
                 max_abs_rate = 0.35
             rate_ok = abs(observed_rate) <= max_abs_rate
 
-            min_open = (state.min_effective_percent or 5.0) / 100.0
+            if bool(getattr(params, "enable_min_effective_percent", True)):
+                min_open = (state.min_effective_percent or 5.0) / 100.0
+            else:
+                min_open = 0.0
+
+            # Identification safety: avoid learning gain/loss from tiny openings.
+            # With min_open=0, u_last can be very small and would make gain_candidate
+            # numerically unstable (division) and amplify noise.
+            ident_min_u = 0.05
 
             gain_est = (
                 float(state.gain_est)
@@ -645,7 +662,12 @@ def _compute_predictive_percent(
 
             # --- LOSS learning: u ~= 0 and room cooling (or not warming) ---
             # Needs a real temperature change (quantised sensors).
-            if common_ok and learn_signal and u_last <= min_open and observed_rate < -0.01:
+            if (
+                common_ok
+                and learn_signal
+                and u_last <= min_open
+                and observed_rate < -0.01
+            ):
                 loss_candidate = max(0.0, -observed_rate)
                 loss_candidate = min(loss_candidate, params.mpc_loss_max)
 
@@ -662,16 +684,17 @@ def _compute_predictive_percent(
             residual_ok = False
             residual_rate_limited = False
             residual_block_jump = False
-            u0_frac_dbg = (loss_est / gain_est) if gain_est > 0 else 0.0
             if common_ok and (not updated_loss) and u_last > min_open:
                 ss_rate_thr = 0.02  # °C/min: quasi steady-state threshold
-                u0_band = 0.10  # fraction: |u_last - u0| must be within this band
 
                 # Rate-limit residual learning using dt_last window.
                 # MPC is typically called every 5min; we don't want to learn on every call.
                 # Also avoid learning when we currently observe a quantized temperature step.
-                residual_min_interval_s = 600.0  # 10min
-                residual_max_interval_s = 1800.0  # 30min (avoid stale windows)
+                # NOTE: dt_last is the interval between MPC calls (often ~5min).
+                # Using 10min here rate-limits residual learning forever because
+                # last_learn_time is updated every adaptation tick.
+                residual_min_interval_s = 300.0  # 5min
+                residual_max_interval_s = 3600.0  # 60min (avoid stale windows)
                 if (
                     dt_last < residual_min_interval_s
                     or dt_last > residual_max_interval_s
@@ -682,17 +705,17 @@ def _compute_predictive_percent(
 
                 u0_frac = (loss_est / gain_est) if gain_est > 0 else 0.0
                 u0_frac = max(0.0, min(1.0, u0_frac))
-                u0_near = abs(u_last - u0_frac) <= u0_band
                 residual_ok = (
                     (not residual_rate_limited)
                     and (not residual_block_jump)
-                    and u0_near
-                    and abs(observed_rate) <= ss_rate_thr
+                    and (u_last >= ident_min_u)
+                    and abs(u_last - u0_frac) <= 0.10
+                    and abs(observed_rate_ss) <= ss_rate_thr
                 )
 
                 if residual_ok:
                     # Use current gain estimate; avoid division.
-                    loss_candidate = (gain_est * u_last) - observed_rate
+                    loss_candidate = (gain_est * u_last) - observed_rate_ss
                     loss_candidate = min(
                         max(loss_candidate, params.mpc_loss_min), params.mpc_loss_max
                     )
@@ -706,7 +729,12 @@ def _compute_predictive_percent(
 
             # --- GAIN learning: u > min_open and room warming ---
             # Needs a real temperature change (quantised sensors).
-            if common_ok and learn_signal and u_last > min_open and observed_rate > 0.01:
+            if (
+                common_ok
+                and learn_signal
+                and (u_last >= max(min_open, ident_min_u))
+                and observed_rate > 0.01
+            ):
                 # gain = (observed_rate + loss) / u
                 denom = max(u_last, 1e-3)
                 gain_candidate = (observed_rate + loss_est) / denom
@@ -726,8 +754,8 @@ def _compute_predictive_percent(
             # (almost) flat, but we're still below target, then the current gain is
             # likely overestimated. Correct gain downward so u0 (=loss/gain) can rise.
             if common_ok and u_last > max(min_open, 0.5):
-                ss_min_interval_s = 600.0  # 10min
-                ss_max_interval_s = 1800.0  # 30min
+                ss_min_interval_s = 300.0  # 5min
+                ss_max_interval_s = 3600.0  # 60min
                 if dt_last < ss_min_interval_s or dt_last > ss_max_interval_s:
                     gain_ss_rate_limited = True
 
@@ -737,10 +765,10 @@ def _compute_predictive_percent(
                     (not gain_ss_rate_limited)
                     and (not temp_changed)
                     and e_now > 0.1
-                    and abs(observed_rate) <= 0.01
+                    and abs(observed_rate_ss) <= 0.01
                 ):
                     denom = max(u_last, 0.05)
-                    gain_ss_candidate = (max(0.0, observed_rate) + loss_est) / denom
+                    gain_ss_candidate = (max(0.0, observed_rate_ss) + loss_est) / denom
                     gain_ss_candidate = min(
                         max(gain_ss_candidate, params.mpc_gain_min), params.mpc_gain_max
                     )
@@ -779,6 +807,8 @@ def _compute_predictive_percent(
                     temp_change_threshold_C, 3
                 ),
                 "id_rate": _round_for_debug(observed_rate, 4),
+                "id_rate_delta": _round_for_debug(observed_rate_delta, 4),
+                "id_rate_ss": _round_for_debug(observed_rate_ss, 4),
                 "id_rate_source": rate_source,
                 "id_slope_rejected": slope_rejected,
                 "id_rate_ok": rate_ok,
@@ -786,14 +816,14 @@ def _compute_predictive_percent(
                 "id_target_changed": target_changed,
                 "id_gain_updated": updated_gain,
                 "id_gain_ss_applied": gain_ss_applied,
-                "id_gain_ss_candidate": _round_for_debug(gain_ss_candidate, 4)
-                if gain_ss_candidate is not None
-                else None,
+                "id_gain_ss_candidate": (
+                    _round_for_debug(gain_ss_candidate, 4)
+                    if gain_ss_candidate is not None
+                    else None
+                ),
                 "id_gain_ss_rate_limited": gain_ss_rate_limited,
                 "id_loss_updated": updated_loss,
                 "id_loss_method": loss_method,
-                "id_u0": _round_for_debug(u0_frac_dbg, 3),
-                "id_u0_band": _round_for_debug(0.10, 3),
                 "id_loss_ss_rate_thr": _round_for_debug(0.02, 4),
                 "id_residual_ok": residual_ok,
                 "id_residual_rate_limited": residual_rate_limited,
@@ -825,9 +855,13 @@ def _compute_predictive_percent(
         u0_frac = 0.0
     u0_frac = max(0.0, min(1.0, u0_frac))
     # Only clamp baseline by learned min_effective_percent once we actually have evidence.
-    if state.min_effective_percent is not None and state.min_effective_percent > 0.0:
-        min_eff = float(state.min_effective_percent) / 100.0
-        u0_frac = max(u0_frac, min_eff)
+    if bool(getattr(params, "enable_min_effective_percent", True)):
+        if (
+            state.min_effective_percent is not None
+            and state.min_effective_percent > 0.0
+        ):
+            min_eff = float(state.min_effective_percent) / 100.0
+            u0_frac = max(u0_frac, min_eff)
 
     # cost penalties (normalize u in [0,1])
     control_pen = max(0.0, float(params.mpc_control_penalty))
@@ -1059,15 +1093,16 @@ def _post_process_percent(
     # ============================================================
     # 2) MIN EFFECTIVE OPENING (FIRST!)
     # ============================================================
-    min_eff = state.min_effective_percent
-    if min_eff is not None and min_eff > 0.0 and smooth > 0.0 and smooth < min_eff:
-        _LOGGER.debug(
-            "better_thermostat %s: MPC pre-smooth clamp (%s) to min_effective=%s",
-            name,
-            entity,
-            _round_for_debug(min_eff, 2),
-        )
-        smooth = min_eff
+    if bool(getattr(params, "enable_min_effective_percent", True)):
+        min_eff = state.min_effective_percent
+        if min_eff is not None and min_eff > 0.0 and smooth > 0.0 and smooth < min_eff:
+            _LOGGER.debug(
+                "better_thermostat %s: MPC pre-smooth clamp (%s) to min_effective=%s",
+                name,
+                entity,
+                _round_for_debug(min_eff, 2),
+            )
+            smooth = min_eff
 
     # ============================================================
     # 3) DU_MAX LIMIT (MAX STEPPING)
@@ -1104,20 +1139,21 @@ def _post_process_percent(
     # ============================================================
     # 5) FINAL MIN EFFECTIVE CHECK ON INTEGER OUTPUT
     # ============================================================
-    min_eff = state.min_effective_percent
-    if (
-        min_eff is not None
-        and min_eff > 0.0
-        and percent_out > 0
-        and percent_out < min_eff
-    ):
-        _LOGGER.debug(
-            "better_thermostat %s: MPC final clamp percent_out (%s) to min_effective=%s",
-            name,
-            _round_for_debug(percent_out, 2),
-            _round_for_debug(min_eff, 2),
-        )
-        percent_out = int(round(min_eff))
+    if bool(getattr(params, "enable_min_effective_percent", True)):
+        min_eff = state.min_effective_percent
+        if (
+            min_eff is not None
+            and min_eff > 0.0
+            and percent_out > 0
+            and percent_out < min_eff
+        ):
+            _LOGGER.debug(
+                "better_thermostat %s: MPC final clamp percent_out (%s) to min_effective=%s",
+                name,
+                _round_for_debug(percent_out, 2),
+                _round_for_debug(min_eff, 2),
+            )
+            percent_out = int(round(min_eff))
 
     # ============================================================
     # 6) DEAD-ZONE DETECTION (improved)
@@ -1161,96 +1197,102 @@ def _post_process_percent(
                     params,
                 )
 
-                # Optional: upstream may attach a previous room temp dynamically.
-                last_room_temp_C = getattr(inp, "last_room_temp_C", None)
-                room_temp_delta = (
-                    (inp.current_temp_C - last_room_temp_C)
-                    if last_room_temp_C is not None and inp.current_temp_C is not None
-                    else None
-                )
-
-                measured_ok = (
-                    room_temp_delta is not None
-                    and room_temp_delta > expected_temp_rise * 0.2
-                )
-
-                trv_self_heating = (
-                    temp_delta is not None
-                    and temp_delta > 0.0
-                    and room_temp_delta is not None
-                    and room_temp_delta <= 0.0
-                )
-
-                # --- DEADZONE HIT (improved logic) ---
-                deadzone_hit = (
-                    small_command
-                    and needs_heat
-                    and (weak_response or trv_self_heating or not measured_ok)
-                )
-
-                if deadzone_hit:
-                    state.dead_zone_hits += 1
-                    _LOGGER.debug(
-                        "better_thermostat %s: MPC dead-zone HIT (%s) hits=%s/%s "
-                        "trv_temp_delta=%s room_temp_delta=%s expected=%s cmd=%s%%",
-                        name,
-                        entity,
-                        state.dead_zone_hits,
-                        params.deadzone_hits_required,
-                        _round_for_debug(temp_delta, 3),
-                        (
-                            _round_for_debug(room_temp_delta, 3)
-                            if room_temp_delta is not None
-                            else None
-                        ),
-                        _round_for_debug(expected_temp_rise, 3),
-                        percent_out,
+                if bool(getattr(params, "enable_min_effective_percent", True)):
+                    # Optional: upstream may attach a previous room temp dynamically.
+                    last_room_temp_C = getattr(inp, "last_room_temp_C", None)
+                    room_temp_delta = (
+                        (inp.current_temp_C - last_room_temp_C)
+                        if last_room_temp_C is not None
+                        and inp.current_temp_C is not None
+                        else None
                     )
 
-                    if (
-                        params.deadzone_hits_required > 0
-                        and state.dead_zone_hits >= params.deadzone_hits_required
-                    ):
-                        proposed = percent_out + params.deadzone_raise_pct
-                        current_min = state.min_effective_percent or 0.0
-                        state.min_effective_percent = min(
-                            100.0, max(current_min, proposed)
+                    measured_ok = (
+                        room_temp_delta is not None
+                        and room_temp_delta > expected_temp_rise * 0.2
+                    )
+
+                    trv_self_heating = (
+                        temp_delta is not None
+                        and temp_delta > 0.0
+                        and room_temp_delta is not None
+                        and room_temp_delta <= 0.0
+                    )
+
+                    # --- DEADZONE HIT (improved logic) ---
+                    deadzone_hit = (
+                        small_command
+                        and needs_heat
+                        and (weak_response or trv_self_heating or not measured_ok)
+                    )
+
+                    if deadzone_hit:
+                        state.dead_zone_hits += 1
+                        _LOGGER.debug(
+                            "better_thermostat %s: MPC dead-zone HIT (%s) hits=%s/%s "
+                            "trv_temp_delta=%s room_temp_delta=%s expected=%s cmd=%s%%",
+                            name,
+                            entity,
+                            state.dead_zone_hits,
+                            params.deadzone_hits_required,
+                            _round_for_debug(temp_delta, 3),
+                            (
+                                _round_for_debug(room_temp_delta, 3)
+                                if room_temp_delta is not None
+                                else None
+                            ),
+                            _round_for_debug(expected_temp_rise, 3),
+                            percent_out,
                         )
+
+                        if (
+                            params.deadzone_hits_required > 0
+                            and state.dead_zone_hits >= params.deadzone_hits_required
+                        ):
+                            proposed = percent_out + params.deadzone_raise_pct
+                            current_min = state.min_effective_percent or 0.0
+                            state.min_effective_percent = min(
+                                100.0, max(current_min, proposed)
+                            )
+                            state.dead_zone_hits = 0
+                            _LOGGER.debug(
+                                "better_thermostat %s: MPC dead-zone RAISE (%s) new_min=%s",
+                                name,
+                                entity,
+                                _round_for_debug(state.min_effective_percent, 2),
+                            )
+
+                    else:
+                        # --- Reset / decay ---
+                        prev_hits = state.dead_zone_hits
+                        if (
+                            state.min_effective_percent is not None
+                            and temp_delta is not None
+                            and temp_delta > params.deadzone_temp_delta_K
+                        ):
+                            new_min = (
+                                state.min_effective_percent - params.deadzone_decay_pct
+                            )
+                            state.min_effective_percent = (
+                                new_min if new_min > 0.0 else None
+                            )
+                            _LOGGER.debug(
+                                "better_thermostat %s: MPC dead-zone DECAY (%s) new_min=%s",
+                                name,
+                                entity,
+                                _round_for_debug(state.min_effective_percent, 2),
+                            )
+
                         state.dead_zone_hits = 0
-                        _LOGGER.debug(
-                            "better_thermostat %s: MPC dead-zone RAISE (%s) new_min=%s",
-                            name,
-                            entity,
-                            _round_for_debug(state.min_effective_percent, 2),
-                        )
-
+                        if prev_hits:
+                            _LOGGER.debug(
+                                "better_thermostat %s: MPC dead-zone RESET (%s) prev_hits=%s",
+                                name,
+                                entity,
+                                prev_hits,
+                            )
                 else:
-                    # --- Reset / decay ---
-                    prev_hits = state.dead_zone_hits
-                    if (
-                        state.min_effective_percent is not None
-                        and temp_delta is not None
-                        and temp_delta > params.deadzone_temp_delta_K
-                    ):
-                        new_min = (
-                            state.min_effective_percent - params.deadzone_decay_pct
-                        )
-                        state.min_effective_percent = new_min if new_min > 0.0 else None
-                        _LOGGER.debug(
-                            "better_thermostat %s: MPC dead-zone DECAY (%s) new_min=%s",
-                            name,
-                            entity,
-                            _round_for_debug(state.min_effective_percent, 2),
-                        )
-
                     state.dead_zone_hits = 0
-                    if prev_hits:
-                        _LOGGER.debug(
-                            "better_thermostat %s: MPC dead-zone RESET (%s) prev_hits=%s",
-                            name,
-                            entity,
-                            prev_hits,
-                        )
 
             else:
                 # deadzone fully disabled because TRV profile is known
