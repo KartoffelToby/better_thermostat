@@ -1,11 +1,9 @@
 """Tests for the MPC (Model Predictive Control) controller."""
 
-import pytest
 from custom_components.better_thermostat.utils.calibration.mpc import (
     MpcParams,
     MpcInput,
     compute_mpc,
-    build_mpc_key,
 )
 
 
@@ -24,6 +22,7 @@ class TestMPCController:
         params = MpcParams()
         inp = MpcInput(key="test_no_temp", target_temp_C=None, current_temp_C=20.0)
         result = compute_mpc(inp, params)
+        assert result is not None
         assert result.valve_percent == 0
 
     def test_blocked_heating(self):
@@ -37,11 +36,13 @@ class TestMPCController:
             heating_allowed=True,
         )
         result = compute_mpc(inp, params)
+        assert result is not None
         assert result.valve_percent == 0
 
         inp.window_open = False
         inp.heating_allowed = False
         result = compute_mpc(inp, params)
+        assert result is not None
         assert result.valve_percent == 0
 
     def test_basic_mpc_calculation(self):
@@ -202,7 +203,9 @@ class TestMPCController:
         """Slope-only identification must not drift gain when the sensor is flat."""
 
         from time import monotonic
-        from custom_components.better_thermostat.utils.calibration.mpc import _MPC_STATES
+        from custom_components.better_thermostat.utils.calibration.mpc import (
+            _MPC_STATES,
+        )
 
         params = MpcParams(
             mpc_adapt=True,
@@ -214,36 +217,36 @@ class TestMPCController:
 
         # First call initializes state.
         inp1 = MpcInput(
-            key=key,
-            target_temp_C=22.0,
-            current_temp_C=21.5,
-            temp_slope_K_per_min=0.08,
+            key=key, target_temp_C=22.0, current_temp_C=21.5, temp_slope_K_per_min=0.08
         )
         _ = compute_mpc(inp1, params)
 
         st = _MPC_STATES[key]
         st.last_percent = 100.0
         st.last_learn_temp = inp1.current_temp_C
-        st.last_learn_time = monotonic() - 300.0  # >=180s, but <600s (no steady-state gain)
+        st.last_learn_time = (
+            monotonic() - 300.0
+        )  # >=180s, but <600s (no steady-state gain)
+        assert st.gain_est is not None
         gain_before = float(st.gain_est)
 
         # Second call: sensor unchanged, but slope still positive.
         inp2 = MpcInput(
-            key=key,
-            target_temp_C=22.0,
-            current_temp_C=21.5,
-            temp_slope_K_per_min=0.08,
+            key=key, target_temp_C=22.0, current_temp_C=21.5, temp_slope_K_per_min=0.08
         )
         _ = compute_mpc(inp2, params)
         st = _MPC_STATES[key]
 
+        assert st.gain_est is not None
         assert float(st.gain_est) <= gain_before
 
     def test_gain_decreases_when_high_output_and_no_warming(self):
         """If valve is high, temperature is flat, and still below target, gain should decrease."""
 
         from time import monotonic
-        from custom_components.better_thermostat.utils.calibration.mpc import _MPC_STATES
+        from custom_components.better_thermostat.utils.calibration.mpc import (
+            _MPC_STATES,
+        )
 
         params = MpcParams(
             mpc_adapt=True,
@@ -255,8 +258,7 @@ class TestMPCController:
 
         # First call initializes state and sets last_target_C.
         _ = compute_mpc(
-            MpcInput(key=key, target_temp_C=22.0, current_temp_C=21.5),
-            params,
+            MpcInput(key=key, target_temp_C=22.0, current_temp_C=21.5), params
         )
 
         st = _MPC_STATES[key]
@@ -264,7 +266,9 @@ class TestMPCController:
         st.loss_est = 0.01
         st.last_percent = 90.0
         st.last_learn_temp = 21.5
-        st.last_learn_time = monotonic() - 900.0  # 15min -> in steady-state learning window
+        st.last_learn_time = (
+            monotonic() - 900.0
+        )  # 15min -> in steady-state learning window
 
         gain_before = float(st.gain_est)
         _ = compute_mpc(
@@ -278,6 +282,49 @@ class TestMPCController:
         )
 
         assert float(st.gain_est) < gain_before
+
+    def test_loss_can_learn_from_steady_state_without_valve_closing(self):
+        """Loss should be able to learn under quasi steady-state even if the valve never closes."""
+
+        from time import monotonic
+        from custom_components.better_thermostat.utils.calibration.mpc import (
+            _MPC_STATES,
+        )
+
+        params = MpcParams(
+            mpc_adapt=True,
+            mpc_adapt_alpha=0.5,
+            mpc_thermal_gain=0.12,
+            mpc_loss_coeff=0.01,
+        )
+        key = "test_loss_residual_ss"
+
+        # Init state
+        _ = compute_mpc(
+            MpcInput(key=key, target_temp_C=22.0, current_temp_C=21.8), params
+        )
+
+        st = _MPC_STATES[key]
+        st.gain_est = 0.12
+        st.loss_est = 0.01
+        st.last_percent = 36.0
+        st.last_learn_temp = 21.8
+        st.last_learn_time = monotonic() - 360.0  # 6min: >=180s and in residual window
+
+        loss_before = float(st.loss_est)
+
+        res = compute_mpc(
+            MpcInput(
+                key=key,
+                target_temp_C=22.0,
+                current_temp_C=21.8,
+                # slope may be noisy; steady-state learning should prefer delta when sensor flat
+                temp_slope_K_per_min=-0.07,
+            ),
+            params,
+        )
+        assert res is not None
+        assert float(st.loss_est) >= loss_before
 
     def test_dead_zone_detection(self):
         """Test dead-zone detection and raising minimum effective percent."""
@@ -354,7 +401,7 @@ class TestMPCController:
         # Initial state: cold room
         target = 22.0
         current = 18.0  # 4K below target
-        slope = 0.0
+        # slope intentionally unused in this simulation
 
         results = []
         print(f"\nHeizsequenz-Simulation: Starttemperatur {current}°C, Ziel {target}°C")
