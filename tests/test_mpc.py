@@ -97,6 +97,43 @@ class TestMPCController:
         assert result3 is not None
         assert result3.valve_percent >= 0.0  # Should be calculated by MPC
 
+    def test_filtered_temperature_only_affects_cost(self):
+        """Ensure filtered temperature reduces valve demand without confusing learning."""
+
+        params = MpcParams(
+            mpc_adapt=False,
+            min_update_interval_s=0.0,
+            min_percent_hold_time_s=0.0,
+            percent_hysteresis_pts=0.0,
+            mpc_control_penalty=0.0,
+            mpc_change_penalty=0.0,
+            use_virtual_temp=False,
+        )
+
+        # Raw sensor value (used for learning) is 0.7K below target.
+        base_temp = 21.3
+        target = 22.0
+
+        raw = compute_mpc(
+            MpcInput(
+                key="test_filtered_raw", target_temp_C=target, current_temp_C=base_temp
+            ),
+            params,
+        )
+
+        filtered = compute_mpc(
+            MpcInput(
+                key="test_filtered_cost",
+                target_temp_C=target,
+                current_temp_C=base_temp,
+                filtered_temp_C=21.9,  # EMA closer to target → lower cost
+            ),
+            params,
+        )
+
+        assert raw is not None and filtered is not None
+        assert filtered.valve_percent < raw.valve_percent
+
     def test_adaptive_parameter_estimation(self):
         """Test adaptive estimation of thermal gain and loss coefficients."""
         from custom_components.better_thermostat.utils.calibration.mpc import (
