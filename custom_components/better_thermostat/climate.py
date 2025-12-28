@@ -994,7 +994,9 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
                 self.window_open = False
 
             # Check If we have an old state
+            _LOGGER.debug("better_thermostat %s: calling async_get_last_state", self.device_name)
             old_state = await self.async_get_last_state()
+            _LOGGER.debug("better_thermostat %s: async_get_last_state returned", self.device_name)
             if old_state is not None:
                 # Restore external_temp_ema if available (overwrites startup init)
                 if "external_temp_ema" in old_state.attributes:
@@ -1279,20 +1281,38 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
 
             for trv in self.real_trvs.keys():
                 self.all_entities.append(trv)
-                await init(self, trv)
+                _LOGGER.debug("better_thermostat %s: initializing TRV %s", self.device_name, trv)
+                try:
+                    await asyncio.wait_for(init(self, trv), timeout=30)
+                    _LOGGER.debug("better_thermostat %s: TRV %s initialized", self.device_name, trv)
+                except asyncio.TimeoutError:
+                    _LOGGER.error("better_thermostat %s: Timeout initializing TRV %s", self.device_name, trv)
+                except Exception as exc:
+                    _LOGGER.error("better_thermostat %s: Error initializing TRV %s: %s", self.device_name, trv, exc)
+
                 if self.real_trvs[trv]["calibration"] != 1:
-                    self.real_trvs[trv]["last_calibration"] = await get_current_offset(
-                        self, trv
-                    )
-                    self.real_trvs[trv]["local_calibration_min"] = await get_min_offset(
-                        self, trv
-                    )
-                    self.real_trvs[trv]["local_calibration_max"] = await get_max_offset(
-                        self, trv
-                    )
-                    self.real_trvs[trv]["local_calibration_step"] = (
-                        await get_offset_step(self, trv)
-                    )
+                    _LOGGER.debug("better_thermostat %s: getting offsets for TRV %s", self.device_name, trv)
+                    try:
+                        async with asyncio.timeout(10):
+                            self.real_trvs[trv]["last_calibration"] = await get_current_offset(
+                                self, trv
+                            )
+                            self.real_trvs[trv]["local_calibration_min"] = await get_min_offset(
+                                self, trv
+                            )
+                            self.real_trvs[trv]["local_calibration_max"] = await get_max_offset(
+                                self, trv
+                            )
+                            self.real_trvs[trv]["local_calibration_step"] = (
+                                await get_offset_step(self, trv)
+                            )
+                        _LOGGER.debug("better_thermostat %s: offsets for TRV %s retrieved", self.device_name, trv)
+                    except asyncio.TimeoutError:
+                        _LOGGER.error("better_thermostat %s: Timeout getting offsets for TRV %s", self.device_name, trv)
+                        self.real_trvs[trv]["last_calibration"] = 0
+                    except Exception as exc:
+                        _LOGGER.error("better_thermostat %s: Error getting offsets for TRV %s: %s", self.device_name, trv, exc)
+                        self.real_trvs[trv]["last_calibration"] = 0
                 else:
                     self.real_trvs[trv]["last_calibration"] = 0
 
@@ -1425,12 +1445,6 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
                     self.device_name,
                 )
 
-            # Start periodic EMA update (every minute)
-            self.async_on_remove(
-                async_track_time_interval(
-                    self.hass, self._async_update_ema_periodic, timedelta(minutes=1)
-                )
-            )
 
             # Periodischer Keepalive: externe Temperatur mindestens alle 30 Minuten an TRVs senden
             self.async_on_remove(
@@ -1509,6 +1523,12 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
                     self.device_name,
                     exc,
                 )
+            # Start periodic EMA update (every minute)
+            self.async_on_remove(
+                async_track_time_interval(
+                    self.hass, self._async_update_ema_periodic, timedelta(minutes=1)
+                )
+            )
             _LOGGER.info("better_thermostat %s: startup completed.", self.device_name)
             self.async_write_ha_state()
             await self.async_update_ha_state(force_refresh=True)
