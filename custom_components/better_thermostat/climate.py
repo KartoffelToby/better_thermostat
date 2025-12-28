@@ -12,7 +12,7 @@ from time import monotonic
 # preferred for HA time handling (UTC aware)
 from homeassistant.util import dt as dt_util
 from collections import deque
-from typing import Any, Dict
+from typing import Any
 
 
 # Home Assistant imports
@@ -111,7 +111,11 @@ from .utils.const import (
 )
 from .utils.controlling import control_queue, control_trv
 from .utils.helpers import convert_to_float, find_battery_entity, get_hvac_bt_mode
-from .utils.watcher import check_all_entities
+from .utils.watcher import (
+    check_critical_entities,
+    check_and_update_degraded_mode,
+    is_entity_available,
+)
 from .utils.weather import check_ambient_air_temperature, check_weather
 from .utils.helpers import normalize_hvac_mode, get_device_model
 from .utils.calibration.pid import (
@@ -472,6 +476,9 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
         self.all_entities = []
         self.devices_states = {}
         self.devices_errors = []
+        # Degraded mode: thermostat continues operating with some sensors unavailable
+        self.degraded_mode = False
+        self.unavailable_sensors = []
         self.control_queue_task = asyncio.Queue(maxsize=1)
         if self.window_id is not None:
             self.window_queue_task = asyncio.Queue(maxsize=1)
@@ -697,9 +704,10 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
             self.hass.bus.async_listen_once(EVENT_HOMEASSISTANT_START, _async_startup)
 
     async def _trigger_check_weather(self, event=None):
-        _check = await check_all_entities(self)
+        _check = await check_critical_entities(self)
         if _check is False:
             return
+        await check_and_update_degraded_mode(self)
         await check_weather(self)
         if self._last_call_for_heat != self.call_for_heat:
             self._last_call_for_heat = self.call_for_heat
@@ -709,9 +717,10 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
                 await self.control_queue_task.put(self)
 
     async def _trigger_time(self, event=None):
-        _check = await check_all_entities(self)
+        _check = await check_critical_entities(self)
         if _check is False:
             return
+        await check_and_update_degraded_mode(self)
         _LOGGER.debug(
             "better_thermostat %s: get last avg outdoor temps...", self.device_name
         )
@@ -721,9 +730,10 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
             await self.control_queue_task.put(self)
 
     async def _trigger_temperature_change(self, event):
-        _check = await check_all_entities(self)
+        _check = await check_critical_entities(self)
         if _check is False:
             return
+        await check_and_update_degraded_mode(self)
         self.async_set_context(event.context)
         if (event.data.get("new_state")) is None:
             return
@@ -800,23 +810,27 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
             )
 
     async def _trigger_humidity_change(self, event):
-        _check = await check_all_entities(self)
+        _check = await check_critical_entities(self)
         if _check is False:
             return
+        await check_and_update_degraded_mode(self)
         self.async_set_context(event.context)
         if (event.data.get("new_state")) is None:
             return
-        self._current_humidity = convert_to_float(
-            str(self.hass.states.get(self.humidity_sensor_entity_id).state),
-            self.device_name,
-            "humidity_update",
-        )
+        # Only update humidity if sensor is available
+        if is_entity_available(self.hass, self.humidity_sensor_entity_id):
+            self._current_humidity = convert_to_float(
+                str(self.hass.states.get(self.humidity_sensor_entity_id).state),
+                self.device_name,
+                "humidity_update",
+            )
         self.async_write_ha_state()
 
     async def _trigger_trv_change(self, event):
-        _check = await check_all_entities(self)
+        _check = await check_critical_entities(self)
         if _check is False:
             return
+        await check_and_update_degraded_mode(self)
         self.async_set_context(event.context)
         if self._async_unsub_state_changed is None:
             return
@@ -827,19 +841,23 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
         self.hass.async_create_task(trigger_trv_change(self, event))
 
     async def _trigger_window_change(self, event):
-        _check = await check_all_entities(self)
+        _check = await check_critical_entities(self)
         if _check is False:
             return
+        await check_and_update_degraded_mode(self)
         self.async_set_context(event.context)
         if (event.data.get("new_state")) is None:
             return
 
-        self.hass.async_create_task(trigger_window_change(self, event))
+        # Only process window changes if window sensor is available
+        if is_entity_available(self.hass, self.window_id):
+            self.hass.async_create_task(trigger_window_change(self, event))
 
     async def _tigger_cooler_change(self, event):
-        _check = await check_all_entities(self)
+        _check = await check_critical_entities(self)
         if _check is False:
             return
+        await check_and_update_degraded_mode(self)
         self.async_set_context(event.context)
         if (event.data.get("new_state")) is None:
             return
@@ -892,6 +910,7 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
             except ContinueLoop:
                 continue
 
+            # Optional sensors: log warning but don't block startup (degraded mode)
             if self.window_id is not None:
                 _win_state = self.hass.states.get(self.window_id)
                 if _win_state is None or _win_state.state in (
@@ -899,13 +918,13 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
                     STATE_UNKNOWN,
                     None,
                 ):
-                    _LOGGER.info(
-                        "better_thermostat %s: waiting for window sensor entity with id '%s' to become fully available...",
+                    _LOGGER.warning(
+                        "better_thermostat %s: Window sensor '%s' unavailable at startup. "
+                        "Continuing in degraded mode (assuming window closed).",
                         self.device_name,
                         self.window_id,
                     )
-                    await asyncio.sleep(10)
-                    continue
+                    self.unavailable_sensors.append(self.window_id)
 
             if self.cooler_entity_id is not None:
                 _cool_state = self.hass.states.get(self.cooler_entity_id)
@@ -914,13 +933,13 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
                     STATE_UNKNOWN,
                     None,
                 ):
-                    _LOGGER.info(
-                        "better_thermostat %s: waiting for cooler entity with id '%s' to become fully available...",
+                    _LOGGER.warning(
+                        "better_thermostat %s: Cooler entity '%s' unavailable at startup. "
+                        "Continuing without cooling support.",
                         self.device_name,
                         self.cooler_entity_id,
                     )
-                    await asyncio.sleep(10)
-                    continue
+                    self.unavailable_sensors.append(self.cooler_entity_id)
 
             if self.humidity_sensor_entity_id is not None:
                 humidity_state = self.hass.states.get(self.humidity_sensor_entity_id)
@@ -929,13 +948,13 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
                     STATE_UNKNOWN,
                     None,
                 ):
-                    _LOGGER.info(
-                        "better_thermostat %s: waiting for humidity sensor entity with id '%s' to become fully available...",
+                    _LOGGER.warning(
+                        "better_thermostat %s: Humidity sensor '%s' unavailable at startup. "
+                        "Continuing without humidity data.",
                         self.device_name,
                         self.humidity_sensor_entity_id,
                     )
-                    await asyncio.sleep(10)
-                    continue
+                    self.unavailable_sensors.append(self.humidity_sensor_entity_id)
 
             if self.outdoor_sensor is not None:
                 _out_state = self.hass.states.get(self.outdoor_sensor)
@@ -944,13 +963,13 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
                     STATE_UNKNOWN,
                     None,
                 ):
-                    _LOGGER.info(
-                        "better_thermostat %s: waiting for outdoor sensor entity with id '%s' to become fully available...",
+                    _LOGGER.warning(
+                        "better_thermostat %s: Outdoor sensor '%s' unavailable at startup. "
+                        "Will use weather entity as fallback if configured.",
                         self.device_name,
                         self.outdoor_sensor,
                     )
-                    await asyncio.sleep(10)
-                    continue
+                    self.unavailable_sensors.append(self.outdoor_sensor)
 
             if self.weather_entity is not None:
                 _weather_state = self.hass.states.get(self.weather_entity)
@@ -959,13 +978,22 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
                     STATE_UNKNOWN,
                     None,
                 ):
-                    _LOGGER.info(
-                        "better_thermostat %s: waiting for weather entity with id '%s' to become fully available...",
+                    _LOGGER.warning(
+                        "better_thermostat %s: Weather entity '%s' unavailable at startup. "
+                        "Continuing with call_for_heat=True as default.",
                         self.device_name,
                         self.weather_entity,
                     )
-                    await asyncio.sleep(10)
-                    continue
+                    self.unavailable_sensors.append(self.weather_entity)
+
+            # Set degraded_mode flag if any sensors are unavailable
+            if self.unavailable_sensors:
+                self.degraded_mode = True
+                _LOGGER.warning(
+                    "better_thermostat %s: Starting in DEGRADED MODE. Unavailable sensors: %s",
+                    self.device_name,
+                    ", ".join(self.unavailable_sensors),
+                )
 
             states = [
                 state
@@ -983,9 +1011,52 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
 
             self.all_entities.append(self.sensor_entity_id)
 
-            self.cur_temp = convert_to_float(
-                str(sensor_state.state), self.device_name, "startup()"
-            )
+            # Handle room temperature sensor with TRV fallback
+            if sensor_state is not None and sensor_state.state not in (
+                STATE_UNAVAILABLE,
+                STATE_UNKNOWN,
+                None,
+            ):
+                self.cur_temp = convert_to_float(
+                    str(sensor_state.state), self.device_name, "startup()"
+                )
+            else:
+                # Fallback to TRV internal temperature
+                _LOGGER.warning(
+                    "better_thermostat %s: Room temperature sensor '%s' unavailable. "
+                    "Falling back to TRV internal temperature.",
+                    self.device_name,
+                    self.sensor_entity_id,
+                )
+                if self.sensor_entity_id not in self.unavailable_sensors:
+                    self.unavailable_sensors.append(self.sensor_entity_id)
+                    self.degraded_mode = True
+                # Get temperature from first available TRV
+                self.cur_temp = None
+                for trv_id in self.real_trvs.keys():
+                    trv_state = self.hass.states.get(trv_id)
+                    if trv_state is not None:
+                        trv_temp = trv_state.attributes.get("current_temperature")
+                        if trv_temp is not None:
+                            self.cur_temp = convert_to_float(
+                                str(trv_temp),
+                                self.device_name,
+                                "startup() TRV fallback",
+                            )
+                            _LOGGER.info(
+                                "better_thermostat %s: Using TRV '%s' temperature: %.1f°C",
+                                self.device_name,
+                                trv_id,
+                                self.cur_temp if self.cur_temp else 0,
+                            )
+                            break
+                if self.cur_temp is None:
+                    self.cur_temp = 20.0  # Last resort default
+                    _LOGGER.warning(
+                        "better_thermostat %s: No temperature available, using default 20.0°C",
+                        self.device_name,
+                    )
+
             # Initialize EMA with current temperature at startup
             if self.cur_temp is not None:
                 self.last_known_external_temp = self.cur_temp
@@ -1008,48 +1079,39 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
             if self.humidity_sensor_entity_id is not None:
                 self.all_entities.append(self.humidity_sensor_entity_id)
                 _hum_state = self.hass.states.get(self.humidity_sensor_entity_id)
-                if _hum_state is None:
-                    _LOGGER.warning(
-                        "better_thermostat %s: Humidity sensor %s not found or not ready at startup",
-                        self.device_name,
-                        self.humidity_sensor_entity_id,
-                    )
-                    self._current_humidity = 0
-                else:
+                if _hum_state is not None and _hum_state.state not in (
+                    STATE_UNAVAILABLE,
+                    STATE_UNKNOWN,
+                    None,
+                ):
                     self._current_humidity = convert_to_float(
                         str(_hum_state.state), self.device_name, "startup()"
                     )
+                # else: already logged warning above, _current_humidity stays None
 
             if self.cooler_entity_id is not None:
                 _cooler_state = self.hass.states.get(self.cooler_entity_id)
-                if _cooler_state is None:
-                    _LOGGER.warning(
-                        "better_thermostat %s: Cooler entity %s not found or not ready at startup",
-                        self.device_name,
-                        self.cooler_entity_id,
-                    )
-                    self.bt_target_cooltemp = (
-                        25  # Default fallback? Or handle gracefully?
-                    )
-                else:
+                if _cooler_state is not None and _cooler_state.state not in (
+                    STATE_UNAVAILABLE,
+                    STATE_UNKNOWN,
+                    None,
+                ):
                     self.bt_target_cooltemp = convert_to_float(
                         str(_cooler_state.attributes.get("temperature")),
                         self.device_name,
                         "startup()",
                     )
+                # else: already logged warning above
 
             if self.window_id is not None:
                 self.all_entities.append(self.window_id)
                 window = self.hass.states.get(self.window_id)
 
-                if window is None:
-                    _LOGGER.warning(
-                        "better_thermostat %s: Window sensor %s not found or not ready at startup",
-                        self.device_name,
-                        self.window_id,
-                    )
-                    self.window_open = False
-                else:
+                if window is not None and window.state not in (
+                    STATE_UNAVAILABLE,
+                    STATE_UNKNOWN,
+                    None,
+                ):
                     check = window.state
                     if check in ("on", "open", "true"):
                         self.window_open = True
@@ -1059,6 +1121,13 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
                         "better_thermostat %s: detected window state at startup: %s",
                         self.device_name,
                         "Open" if self.window_open else "Closed",
+                    )
+                else:
+                    # Window sensor unavailable - assume closed (safer default)
+                    self.window_open = False
+                    _LOGGER.debug(
+                        "better_thermostat %s: window sensor unavailable, assuming closed",
+                        self.device_name,
                     )
             else:
                 self.window_open = False
@@ -1545,9 +1614,10 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
                 )
 
             _LOGGER.debug(
-                "better_thermostat %s: checking all entities...", self.device_name
+                "better_thermostat %s: checking critical entities...", self.device_name
             )
-            await check_all_entities(self)
+            await check_critical_entities(self)
+            await check_and_update_degraded_mode(self)
 
             if self.is_removed:
                 return
@@ -1706,11 +1776,12 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
 
     async def _maintenance_tick(self, event=None):
         """Periodic maintenance tick: runs valve exercise when due and enabled."""
-        # quick availability check
+        # quick availability check - only critical entities needed for maintenance
         try:
-            ok = await check_all_entities(self)
+            ok = await check_critical_entities(self)
             if ok is False:
                 return
+            await check_and_update_degraded_mode(self)
         except Exception:
             return
 
@@ -1980,7 +2051,7 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
         if not isinstance(data, dict):
             return
         prefix = f"{self._unique_id}:"
-        scoped: Dict[str, Dict[str, Any]] = {}
+        scoped: dict[str, dict[str, Any]] = {}
         for key, payload in data.items():
             if not isinstance(key, str) or not key.startswith(prefix):
                 continue
@@ -2038,7 +2109,7 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
         if not isinstance(data, dict):
             return
         prefix = f"{self._unique_id}:"
-        scoped: Dict[str, Dict[str, Any]] = {}
+        scoped: dict[str, dict[str, Any]] = {}
         for key, payload in data.items():
             if not isinstance(key, str) or not key.startswith(prefix):
                 continue
@@ -2364,6 +2435,9 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
             ATTR_STATE_ERRORS: json.dumps(self.devices_errors),
             ATTR_STATE_BATTERIES: json.dumps(self.devices_states),
             "external_temp_ema": self.cur_temp_filtered,
+            # Degraded mode: thermostat running with some sensors unavailable
+            "degraded_mode": self.degraded_mode,
+            "unavailable_sensors": self.unavailable_sensors,
             # ECO mode attribute removed: eco preset supported via PRESET_ECO
         }
 
