@@ -945,6 +945,25 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
             self.cur_temp = convert_to_float(
                 str(sensor_state.state), self.device_name, "startup()"
             )
+            # Initialize EMA with current temperature at startup
+            if self.cur_temp is not None:
+                self.last_known_external_temp = self.cur_temp
+                try:
+                    from .events.temperature import _update_external_temp_ema
+
+                    _update_external_temp_ema(self, float(self.cur_temp))
+                    _LOGGER.debug(
+                        "better_thermostat %s: initialized external_temp_ema at startup with %.2f",
+                        self.device_name,
+                        self.cur_temp,
+                    )
+                except Exception as e:
+                    _LOGGER.warning(
+                        "better_thermostat %s: failed to initialize external_temp_ema at startup: %s",
+                        self.device_name,
+                        e,
+                    )
+
             if self.humidity_sensor_entity_id is not None:
                 self.all_entities.append(self.humidity_sensor_entity_id)
                 self._current_humidity = convert_to_float(
@@ -984,6 +1003,22 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
             # Check If we have an old state
             old_state = await self.async_get_last_state()
             if old_state is not None:
+                # Restore external_temp_ema if available (overwrites startup init)
+                if "external_temp_ema" in old_state.attributes:
+                    try:
+                        _restored_ema = float(old_state.attributes["external_temp_ema"])
+                        self.external_temp_ema = _restored_ema
+                        self.cur_temp_filtered = round(_restored_ema, 2)
+                        # Reset timestamp to now so the next delta is calculated from restart time
+                        self._external_temp_ema_ts = monotonic()
+                        _LOGGER.debug(
+                            "better_thermostat %s: restored external_temp_ema from state: %.2f",
+                            self.device_name,
+                            _restored_ema,
+                        )
+                    except (ValueError, TypeError):
+                        pass
+
                 # First try to load preset temps from config entry options (preferred durable source)
                 entry = self.hass.config_entries.async_get_entry(self._config_entry_id)
                 if entry and entry.options.get("bt_preset_temperatures"):
@@ -3214,16 +3249,24 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
         from .events.temperature import _update_external_temp_ema
 
         _LOGGER.debug(
-            "better_thermostat %s: _async_update_ema_periodic triggered", self.device_name)
+            "better_thermostat %s: _async_update_ema_periodic triggered",
+            self.device_name,
+        )
 
         last_raw = getattr(self, "last_known_external_temp", None)
         if last_raw is not None:
             try:
                 _LOGGER.debug(
-                    "better_thermostat %s: updating EMA with last_raw=%s", self.device_name, last_raw)
+                    "better_thermostat %s: updating EMA with last_raw=%s",
+                    self.device_name,
+                    last_raw,
+                )
                 new_ema = _update_external_temp_ema(self, float(last_raw))
-                _LOGGER.debug("better_thermostat %s: periodic EMA result=%.3f",
-                              self.device_name, new_ema)
+                _LOGGER.debug(
+                    "better_thermostat %s: periodic EMA result=%.3f",
+                    self.device_name,
+                    new_ema,
+                )
                 # If the sensor entity is listening to state changes, we should trigger an update
                 # But we don't want to spam the state machine if nothing changed significantly?
                 # The sensor entity reads `cur_temp_filtered` from `self`.
@@ -3234,10 +3277,15 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
                 self.async_write_ha_state()
             except Exception as e:
                 _LOGGER.error(
-                    "better_thermostat %s: error in _async_update_ema_periodic: %s", self.device_name, e)
+                    "better_thermostat %s: error in _async_update_ema_periodic: %s",
+                    self.device_name,
+                    e,
+                )
         else:
             _LOGGER.debug(
-                "better_thermostat %s: _async_update_ema_periodic skipped (no last_known_external_temp)", self.device_name)
+                "better_thermostat %s: _async_update_ema_periodic skipped (no last_known_external_temp)",
+                self.device_name,
+            )
 
     async def async_will_remove_from_hass(self):
         """Run when entity will be removed from hass."""
