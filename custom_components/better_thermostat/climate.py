@@ -486,8 +486,6 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
         # TPI adaptive state persistence
         self._tpi_store = None
         self._tpi_save_scheduled = False
-        # EMA periodic update
-        self._ema_update_remove = None
 
     async def async_added_to_hass(self):
         """Run when entity about to be added.
@@ -665,11 +663,6 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
             _async_startup()
         else:
             self.hass.bus.async_listen_once(EVENT_HOMEASSISTANT_START, _async_startup)
-
-        # Start periodic EMA update (every minute)
-        self._ema_update_remove = async_track_time_interval(
-            self.hass, self._async_update_ema_periodic, timedelta(minutes=1)
-        )
 
     async def _trigger_check_weather(self, event=None):
         _check = await check_all_entities(self)
@@ -1431,6 +1424,13 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
                     "better_thermostat %s: 5min periodic tick skipped (no supported balance/calibration mode)",
                     self.device_name,
                 )
+
+            # Start periodic EMA update (every minute)
+            self.async_on_remove(
+                async_track_time_interval(
+                    self.hass, self._async_update_ema_periodic, timedelta(minutes=1)
+                )
+            )
 
             # Periodischer Keepalive: externe Temperatur mindestens alle 30 Minuten an TRVs senden
             self.async_on_remove(
@@ -3246,6 +3246,10 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
 
     async def _async_update_ema_periodic(self, now=None):
         """Periodically update the EMA filter to ensure it converges even if sensor is silent."""
+        # Skip if startup is still running to avoid race conditions or confusing logs
+        if self.startup_running:
+            return
+
         from .events.temperature import _update_external_temp_ema
 
         _LOGGER.debug(
@@ -3289,7 +3293,4 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
 
     async def async_will_remove_from_hass(self):
         """Run when entity will be removed from hass."""
-        if self._ema_update_remove:
-            self._ema_update_remove()
-            self._ema_update_remove = None
         await super().async_will_remove_from_hass()
