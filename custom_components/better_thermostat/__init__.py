@@ -20,7 +20,7 @@ from .utils.const import (
 
 _LOGGER = logging.getLogger(__name__)
 DOMAIN = "better_thermostat"
-PLATFORMS = [Platform.CLIMATE, Platform.SENSOR]
+PLATFORMS = [Platform.CLIMATE, Platform.SENSOR, Platform.NUMBER]
 CONFIG_SCHEMA = vol.Schema({DOMAIN: vol.Schema({})}, extra=vol.ALLOW_EXTRA)
 
 config_entry_update_listener_lock = Lock()
@@ -38,7 +38,12 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     hass.data.setdefault(DOMAIN, {})
     hass.data[DOMAIN][entry.entry_id] = {}
     try:
-        await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
+        # Setup climate platform first to ensure entity is available for other platforms
+        await hass.config_entries.async_forward_entry_setups(entry, [Platform.CLIMATE])
+        # Setup other platforms that depend on climate entity
+        await hass.config_entries.async_forward_entry_setups(
+            entry, [Platform.SENSOR, Platform.NUMBER]
+        )
     except Exception:
         _LOGGER.exception(
             "better_thermostat: Fehler beim Laden der Plattformen für Entry %s",
