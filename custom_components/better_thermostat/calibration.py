@@ -94,11 +94,11 @@ def _compute_mpc_balance(self, entity_id: str):
         trv_state["calibration_balance"] = None
         return None, False
 
-    if getattr(self, "window_open", False) is True:
+    if self.window_open is True:
         trv_state["calibration_balance"] = None
         return None, False
 
-    hvac_mode = getattr(self, "bt_hvac_mode", None)
+    hvac_mode = self.bt_hvac_mode
     if hvac_mode == HVACMode.OFF:
         trv_state["calibration_balance"] = None
         return None, False
@@ -108,7 +108,7 @@ def _compute_mpc_balance(self, entity_id: str):
     # Optional: use filtered external temperature for MPC cost evaluation to reduce jitter.
     # `cur_temp_filtered` is maintained by events/temperature.py (EMA) and passed separately.
     mpc_current_temp = self.cur_temp
-    mpc_filtered_temp = getattr(self, "cur_temp_filtered", None)
+    mpc_filtered_temp = self.cur_temp_filtered
 
     try:
         mpc_output = compute_mpc(
@@ -118,11 +118,11 @@ def _compute_mpc_balance(self, entity_id: str):
                 current_temp_C=mpc_current_temp,
                 filtered_temp_C=mpc_filtered_temp,
                 trv_temp_C=trv_state.get("current_temperature"),
-                tolerance_K=float(getattr(self, "tolerance", 0.0) or 0.0),
-                temp_slope_K_per_min=getattr(self, "temp_slope", None),
-                window_open=getattr(self, "window_open", False),
+                tolerance_K=float(self.tolerance or 0.0),
+                temp_slope_K_per_min=self.temp_slope,
+                window_open=self.window_open or False,
                 heating_allowed=True,
-                bt_name=getattr(self, "device_name", None),
+                bt_name=self.device_name,
                 entity_id=entity_id,
             ),
             params,
@@ -130,7 +130,7 @@ def _compute_mpc_balance(self, entity_id: str):
     except (ValueError, TypeError, ZeroDivisionError) as err:
         _LOGGER.debug(
             "better_thermostat %s: MPC calibration compute failed for %s: %s",
-            getattr(self, "device_name", "unknown"),
+            self.device_name,
             entity_id,
             err,
         )
@@ -148,7 +148,7 @@ def _compute_mpc_balance(self, entity_id: str):
         "debug": getattr(mpc_output, "debug", None),
     }
 
-    _schedule_mpc = getattr(self, "_schedule_save_mpc_states", None)
+    _schedule_mpc = self._schedule_save_mpc_states
     if callable(_schedule_mpc):
         _schedule_mpc()
 
@@ -166,11 +166,11 @@ def _compute_tpi_balance(self, entity_id: str):
         trv_state["calibration_balance"] = None
         return None, False
 
-    if getattr(self, "window_open", False) is True:
+    if self.window_open is True:
         trv_state["calibration_balance"] = None
         return None, False
 
-    hvac_mode = getattr(self, "bt_hvac_mode", None)
+    hvac_mode = self.bt_hvac_mode
     if hvac_mode == HVACMode.OFF:
         trv_state["calibration_balance"] = None
         return None, False
@@ -185,9 +185,9 @@ def _compute_tpi_balance(self, entity_id: str):
                 current_temp_C=self.cur_temp,
                 target_temp_C=self.bt_target_temp,
                 outdoor_temp_C=_get_current_outdoor_temp(self),
-                window_open=getattr(self, "window_open", False),
+                window_open=self.window_open or False,
                 heating_allowed=True,
-                bt_name=getattr(self, "device_name", None),
+                bt_name=self.device_name,
                 entity_id=entity_id,
             ),
             params,
@@ -195,7 +195,7 @@ def _compute_tpi_balance(self, entity_id: str):
     except (ValueError, TypeError, ZeroDivisionError) as err:
         _LOGGER.debug(
             "better_thermostat %s: TPI calibration compute failed for %s: %s",
-            getattr(self, "device_name", "unknown"),
+            self.device_name,
             entity_id,
             err,
         )
@@ -213,7 +213,7 @@ def _compute_tpi_balance(self, entity_id: str):
         "debug": getattr(tpi_output, "debug", None),
     }
 
-    _schedule_tpi = getattr(self, "_schedule_save_tpi_states", None)
+    _schedule_tpi = self._schedule_save_tpi_states
     if callable(_schedule_tpi):
         _schedule_tpi()
 
@@ -231,11 +231,11 @@ def _compute_pid_balance(self, entity_id: str):
         trv_state["calibration_balance"] = None
         return None, False
 
-    if getattr(self, "window_open", False) is True:
+    if self.window_open is True:
         trv_state["calibration_balance"] = None
         return None, False
 
-    hvac_mode = getattr(self, "bt_hvac_mode", None)
+    hvac_mode = self.bt_hvac_mode
     if hvac_mode == HVACMode.OFF:
         trv_state["calibration_balance"] = None
         return None, False
@@ -267,7 +267,7 @@ def _compute_pid_balance(self, entity_id: str):
 
     _LOGGER.debug(
         "better_thermostat %s: Running PID calibration for %s",
-        getattr(self, "device_name", "unknown"),
+        self.device_name,
         entity_id,
     )
 
@@ -277,7 +277,7 @@ def _compute_pid_balance(self, entity_id: str):
             self.bt_target_temp,
             self.cur_temp,
             trv_state.get("current_temperature"),
-            getattr(self, "temp_slope", None),
+            self.temp_slope,
             key,
         )
         # Schedule saving of updated PID states
@@ -285,7 +285,7 @@ def _compute_pid_balance(self, entity_id: str):
     except (ValueError, TypeError, ZeroDivisionError) as err:
         _LOGGER.debug(
             "better_thermostat %s: PID calibration compute failed for %s: %s",
-            getattr(self, "device_name", "unknown"),
+            self.device_name,
             entity_id,
             err,
         )
