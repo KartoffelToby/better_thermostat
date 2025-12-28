@@ -1089,41 +1089,6 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
                     except (ValueError, TypeError):
                         pass
 
-                # First try to load preset temps from config entry options (preferred durable source)
-                _LOGGER.debug(
-                    "better_thermostat %s: loading config entry options...",
-                    self.device_name,
-                )
-                entry = self.hass.config_entries.async_get_entry(self._config_entry_id)
-                if entry and entry.options.get("bt_preset_temperatures"):
-                    _opt_presets = entry.options.get("bt_preset_temperatures")
-                    try:
-                        if isinstance(_opt_presets, str):
-                            _opt_loaded = json.loads(_opt_presets)
-                        else:
-                            _opt_loaded = _opt_presets
-                        if isinstance(_opt_loaded, dict):
-                            for k, v in _opt_loaded.items():
-                                if k in self._preset_temperatures:
-                                    try:
-                                        self._preset_temperatures[k] = float(v)
-                                    except (TypeError, ValueError):
-                                        pass
-                            _LOGGER.debug(
-                                "better_thermostat %s: Loaded preset temperatures from config entry options.",
-                                self.device_name,
-                            )
-                    except (json.JSONDecodeError, TypeError, ValueError) as exc:
-                        _LOGGER.debug(
-                            "better_thermostat %s: Failed loading config entry preset temps: %s",
-                            self.device_name,
-                            exc,
-                        )
-                _LOGGER.debug(
-                    "better_thermostat %s: config entry options loaded",
-                    self.device_name,
-                )
-
                 _LOGGER.debug(
                     "better_thermostat %s: restoring target temperature...",
                     self.device_name,
@@ -1180,55 +1145,6 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
                     self._preset_mode = _old_preset
                 else:
                     self._preset_mode = PRESET_NONE
-
-                _LOGGER.debug(
-                    "better_thermostat %s: restoring custom preset temperatures...",
-                    self.device_name,
-                )
-                # Restore stored custom preset temperatures if available
-                stored_presets = old_state.attributes.get("bt_preset_temperatures")
-                if stored_presets:
-                    try:
-                        if isinstance(stored_presets, str):
-                            loaded = json.loads(stored_presets)
-                        elif isinstance(stored_presets, dict):
-                            loaded = stored_presets
-                        else:
-                            loaded = None
-                        if isinstance(loaded, dict):
-                            for key, value in loaded.items():
-                                if (
-                                    key in self._preset_temperatures
-                                    and value is not None
-                                ):
-                                    try:
-                                        new_val = float(value)
-                                        if new_val != self._preset_temperatures[key]:
-                                            _LOGGER.debug(
-                                                "better_thermostat %s: Restored custom preset %s temperature %s (was %s)",
-                                                self.device_name,
-                                                key,
-                                                new_val,
-                                                self._preset_temperatures[key],
-                                            )
-                                        self._preset_temperatures[key] = new_val
-                                    except (ValueError, TypeError):
-                                        _LOGGER.warning(
-                                            "better_thermostat %s: Could not parse stored preset temperature for %s: %s",
-                                            self.device_name,
-                                            key,
-                                            value,
-                                        )
-                    except Exception as exc:
-                        _LOGGER.warning(
-                            "better_thermostat %s: Failed to restore custom preset temperatures: %s",
-                            self.device_name,
-                            exc,
-                        )
-                _LOGGER.debug(
-                    "better_thermostat %s: custom preset temperatures restored",
-                    self.device_name,
-                )
 
                 _LOGGER.debug(
                     "better_thermostat %s: applying restored preset temperature...",
@@ -2397,13 +2313,6 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
             ATTR_STATE_BATTERIES: json.dumps(self.devices_states),
             "external_temp_ema": self.cur_temp_filtered,
             # ECO mode attribute removed: eco preset supported via PRESET_ECO
-            # Persist current preset temperature mapping so we can restore on restart
-            "bt_preset_temperatures": json.dumps(self._preset_temperatures),
-            # Flag if user changed at least one preset temperature from original configuration
-            "bt_preset_customized": any(
-                self._preset_temperatures.get(k) != v
-                for k, v in self._original_preset_temperatures.items()
-            ),
         }
 
         # Optional: next scheduled valve maintenance (ISO8601)
@@ -2971,18 +2880,21 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
         if self._preset_mode in self._preset_temperatures and (
             _new_setpoint is not None or _new_setpointlow is not None
         ):
-            if self.bt_target_temp is not None:
-                applied = float(self.bt_target_temp)
-                old_value = self._preset_temperatures.get(self._preset_mode)
-                if old_value != applied:
-                    self._preset_temperatures[self._preset_mode] = applied
-                    _LOGGER.debug(
-                        "better_thermostat %s: Updated stored preset temperature for %s from %s to %s due to manual change",
-                        self.device_name,
-                        self._preset_mode,
-                        old_value,
-                        applied,
-                    )
+            # Only update stored preset temperature for PRESET_NONE (Manual)
+            # For other presets, the value is controlled via Number entities.
+            if self._preset_mode == PRESET_NONE:
+                if self.bt_target_temp is not None:
+                    applied = float(self.bt_target_temp)
+                    old_value = self._preset_temperatures.get(self._preset_mode)
+                    if old_value != applied:
+                        self._preset_temperatures[self._preset_mode] = applied
+                        _LOGGER.debug(
+                            "better_thermostat %s: Updated stored preset temperature for %s from %s to %s due to manual change",
+                            self.device_name,
+                            self._preset_mode,
+                            old_value,
+                            applied,
+                        )
 
             if ATTR_TEMPERATURE in kwargs:
                 _new_setpoint = convert_to_float(
@@ -3052,14 +2964,13 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
                 self.bt_target_cooltemp = adjusted
 
             # If user manually changes the temperature while a preset is active,
-            # update the stored preset temperature so that returning to the preset
-            # later reuses the newly chosen value instead of the originally
-            # configured one. This applies to ALL presets including PRESET_NONE.
-            # Note: We still avoid persisting to config entry options here to
-            # prevent frequent integration reloads; persistence can be handled
-            # via state restore or an explicit save action.
-            if self._preset_mode in self._preset_temperatures and (
-                _new_setpoint is not None or _new_setpointlow is not None
+            # we ONLY update the stored preset temperature if we are in PRESET_NONE (Manual).
+            # For specific presets (Comfort, Eco, etc.), the value is now managed via
+            # separate Number entities and should NOT be overwritten by manual setpoint changes.
+            if (
+                self._preset_mode == PRESET_NONE
+                and self._preset_mode in self._preset_temperatures
+                and (_new_setpoint is not None or _new_setpointlow is not None)
             ):
                 if self.bt_target_temp is not None:
                     applied = float(self.bt_target_temp)
@@ -3108,26 +3019,6 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
 
             self.async_write_ha_state()
             await self.control_queue_task.put(self)
-
-    def _async_persist_preset_temperatures(self) -> None:
-        """Persist current preset temperature mapping to the config entry options.
-
-        This provides durability even if RestoreState does not keep state (e.g., ephemeral
-        test containers). Runs synchronously (HA will write options asynchronously).
-        """
-        if self.hass is None:
-            return
-        entry = self.hass.config_entries.async_get_entry(self._config_entry_id)
-        if entry is None:
-            return
-        # Merge existing options keeping unrelated keys
-        new_options = dict(entry.options)
-        new_options["bt_preset_temperatures"] = self._preset_temperatures
-        # Only update if something actually changed to avoid unnecessary writes
-        if entry.options.get("bt_preset_temperatures") != self._preset_temperatures:
-            self.hass.config_entries.async_update_entry(entry, options=new_options)
-
-        # (Removed misplaced logging/state update; handled in async_set_temperature)
 
     async def async_turn_off(self) -> None:
         """Turn the entity off."""
@@ -3305,6 +3196,15 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
             ):
                 # Use the configured absolute temperature for this preset
                 configured_temp = self._preset_temperatures[preset_mode]
+
+                _LOGGER.debug(
+                    "better_thermostat %s: Preset %s configured: %.1f, Min: %.1f, Max: %.1f",
+                    self.device_name,
+                    preset_mode,
+                    configured_temp,
+                    self.min_temp,
+                    self.max_temp,
+                )
 
                 # Ensure the temperature is within min/max bounds
                 new_temp = min(self.max_temp, max(self.min_temp, configured_temp))

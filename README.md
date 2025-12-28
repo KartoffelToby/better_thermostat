@@ -35,33 +35,21 @@ This integration brings some smartness to your connected radiator thermostats se
 - Enhance the default TRV Algorithm with some smartness to reduce energy consumption
 - Dynamic preset temperature learning & persistence (each preset, incl. baseline/"no preset", remembers the last temperature you set and survives restarts)
 
-### Dynamic Preset Temperature Persistence
+### Preset Temperature Configuration
 
-Since version (next release) static preset temperature fields have been removed from the configuration flow. Preset temperatures are now fully dynamic and automatically persisted.
+Preset temperatures are now fully configurable via dedicated `number` entities.
 
 How it works:
 
-1. Select a preset (e.g. Boost, Eco, Comfort, Sleep, Activity, Home, Away) or stay in "No preset".
-2. Change the target temperature in the standard UI while that preset is active.
-3. The new value is immediately stored as that preset's temperature (or as the baseline temperature when in "No preset").
-4. Switching away and back to the preset re-applies your custom value.
-5. All customized preset (and baseline) temperatures are persisted across Home Assistant restarts (using a combination of entity state restore and config entry options for durability even in ephemeral test containers).
+1. For each available preset mode (e.g. Eco, Comfort, Sleep), a corresponding `number` entity is created (e.g., `number.better_thermostat_preset_eco`).
+2. These entities are located in the **Configuration** category of the device.
+3. You can adjust the temperature for each preset directly using these number sliders.
+4. The values are automatically persisted across Home Assistant restarts.
+5. Changing a preset temperature via the number entity immediately updates the thermostat if that preset is currently active.
 
-What is stored:
-
-- Every preset listed in the climate entity plus the baseline (shown as no active preset) maintains its own temperature.
-- A flag `bt_preset_customized` (boolean) indicates if at least one preset deviates from the original defaults.
-- The mapping itself is exposed in the entity attributes as `bt_preset_temperatures` (JSON serialized) and is also mirrored into the integration's config entry options.
-
-Resetting presets:
-
-- To revert a single preset: activate it and set the temperature back to the original default (see defaults below). That becomes the new stored value.
-- To revert everything quickly you can remove and re-add the integration (this clears stored options) or manually delete the `bt_preset_temperatures` key from the config entry options (advanced users via `.storage` editing—only do this while HA is stopped).
-
-Default starting values (if no customization yet):
+Default starting values:
 
 ```
-None (baseline): 20.0 °C
 Away:            16.0 °C
 Boost:           24.0 °C
 Comfort:         21.0 °C
@@ -70,15 +58,6 @@ Home:            20.0 °C
 Sleep:           18.0 °C
 Activity:        22.0 °C
 ```
-
-FAQ:
-
-- Q: Are values lost if I restore a backup?
-  A: They are stored in the config entry options and in the last entity state, so a normal HA backup/restore keeps them.
-- Q: Can I automate per-preset changes?
-  A: Yes—call `climate.set_temperature` while the preset is active; the stored preset temperature updates automatically.
-
-If you rely on automation logic that previously referenced static config values, update it to read the entity attribute `bt_preset_temperatures` instead.
 
 ### Which hardware do we support?
 
