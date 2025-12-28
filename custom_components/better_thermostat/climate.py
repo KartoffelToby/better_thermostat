@@ -7,6 +7,7 @@ from abc import ABC
 from datetime import datetime, timedelta
 from random import randint
 from statistics import mean
+from time import monotonic
 
 # preferred for HA time handling (UTC aware)
 from homeassistant.util import dt as dt_util
