@@ -51,7 +51,7 @@ class MpcParams:
     # Virtual temperature behaviour.
     # When enabled, `virtual_temp` is used as the MPC state temperature and can be
     # forward-predicted between sensor updates.
-    use_virtual_temp: bool = False
+    use_virtual_temp: bool = True
     virtual_temp_use_slope: bool = True
     virtual_temp_max_abs_slope_C_per_min: float = 0.15
 
