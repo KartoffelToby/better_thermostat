@@ -200,10 +200,21 @@ async def check_ambient_air_temperature(self):
         )
         return None
 
+    # Check if outdoor sensor is available
+    outdoor_state = self.hass.states.get(self.outdoor_sensor)
+    if outdoor_state is None or outdoor_state.state in ("unavailable", "unknown", None):
+        _LOGGER.debug(
+            "better_thermostat %s: outdoor sensor %s unavailable, skipping ambient check",
+            self.device_name,
+            self.outdoor_sensor,
+        )
+        # Keep last known value or default to heating enabled
+        if self.last_avg_outdoor_temp is None:
+            self.call_for_heat = True
+        return None
+
     self.last_avg_outdoor_temp = convert_to_float(
-        self.hass.states.get(self.outdoor_sensor).state,
-        self.device_name,
-        "check_ambient_air_temperature()",
+        outdoor_state.state, self.device_name, "check_ambient_air_temperature()"
     )
     if "recorder" in self.hass.config.components:
         _temp_history = DailyHistory(2)
