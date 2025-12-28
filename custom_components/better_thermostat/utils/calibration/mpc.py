@@ -320,8 +320,19 @@ def compute_mpc(inp: MpcInput, params: MpcParams) -> Optional[MpcOutput]:
                             if max_abs <= 0:
                                 max_abs = 0.15
                             slope = max(-max_abs, min(max_abs, float(slope)))
-                            predicted_dT = float(slope) * dt_min
-                            extra_debug["virtual_temp_predict"] = "slope"
+
+                            # Safety: If slope implies cooling but model implies heating,
+                            # trust the model (or zero) to avoid drift from lagging EMA slope.
+                            model_dT = (gain_dbg * u - loss_dbg) * dt_min
+                            if slope < -0.001 and model_dT > 0.001:
+                                # Conflict: Slope says cool, Physics says heat.
+                                # Likely EMA lag. Use model or 0.
+                                predicted_dT = model_dT
+                                extra_debug["virtual_temp_predict"] = "model_override_lag"
+                            else:
+                                predicted_dT = float(slope) * dt_min
+                                extra_debug["virtual_temp_predict"] = "slope"
+
                             extra_debug["virtual_temp_slope"] = _round_for_debug(
                                 slope, 4
                             )
@@ -405,12 +416,10 @@ def compute_mpc(inp: MpcInput, params: MpcParams) -> Optional[MpcOutput]:
                         state.virtual_temp_ts = now
                         extra_debug["virtual_temp_reset"] = "hard_error"
                         extra_debug["virtual_temp_error_C"] = error_C
-                    # If the sensor actually updated, trust it and anchor hard.
-                    elif sensor_changed:
-                        state.virtual_temp = sensor_temp
-                        state.virtual_temp_ts = now
-                        extra_debug["virtual_temp_sync"] = "sensor_changed"
-                        extra_debug["virtual_temp_error_C"] = error_C
+                    # REMOVED: Hard reset on sensor change.
+                    # We want the virtual temp to be able to "lead" the sensor (anti-lag).
+                    # If we reset every time the sensor updates, we lose the prediction advantage.
+                    # We rely on the soft anchor (alpha blend) below to keep it grounded.
                     else:
                         if state.virtual_temp_ts <= 0.0:
                             alpha = 1.0
@@ -524,16 +533,20 @@ def _compute_predictive_percent(
     assert inp.target_temp_C is not None
 
     current_temp_C = float(inp.current_temp_C)
+    target_temp_C = float(inp.target_temp_C)
+
+    # Determine which temperature to use for the cost function (Raw vs Filtered)
+    # Default to filtered (EMA) for stability.
+    current_temp_cost_C = current_temp_C
+    temp_cost_source = "raw"
+
     if inp.filtered_temp_C is not None:
         try:
             current_temp_cost_C = float(inp.filtered_temp_C)
+            temp_cost_source = "filtered"
         except (TypeError, ValueError):
             current_temp_cost_C = current_temp_C
             inp.filtered_temp_C = None
-    else:
-        current_temp_cost_C = current_temp_C
-    temp_cost_source = "filtered" if inp.filtered_temp_C is not None else "raw"
-    target_temp_C = float(inp.target_temp_C)
 
     use_virtual_temp = bool(getattr(params, "use_virtual_temp", True))
 
@@ -975,6 +988,7 @@ def _compute_predictive_percent(
         "mpc_step_minutes": _round_for_debug(step_minutes, 3),
         "mpc_temp_cost_C": _round_for_debug(current_temp_cost_C, 3),
         "mpc_temp_cost_source": temp_cost_source,
+        "mpc_virtual_temp": _round_for_debug(state.virtual_temp, 3) if state.virtual_temp is not None else None,
     }
 
     if adapt_debug:
