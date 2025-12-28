@@ -37,9 +37,9 @@ def _update_external_temp_ema(self, temp_q: float) -> float:
     - `external_temp_ema_tau_s` (float): time constant in seconds (e.g. 900=15min, 1800=30min)
     """
 
-    tau_s = float(getattr(self, "external_temp_ema_tau_s", 900.0) or 900.0)
+    tau_s = float(self.external_temp_ema_tau_s or 300.0)
     if tau_s <= 0:
-        tau_s = 900.0
+        tau_s = 300.0
 
     now_m = monotonic()
     prev_ts = getattr(self, "_external_temp_ema_ts", None)
@@ -462,7 +462,7 @@ async def trigger_temperature_change(self, event):
             _LOGGER.debug(
                 "better_thermostat %s: external_temperature filtered (ema_tau_s=%s) raw=%.2f ema=%.2f",
                 getattr(self, "device_name", "unknown"),
-                getattr(self, "external_temp_ema_tau_s", 900.0),
+                self.external_temp_ema_tau_s,
                 float(_incoming_temperature_q),
                 float(_ema),
             )
