@@ -67,6 +67,7 @@ class MpcInput:
     key: str
     target_temp_C: Optional[float]
     current_temp_C: Optional[float]
+    filtered_temp_C: Optional[float] = None
     trv_temp_C: Optional[float] = None
     tolerance_K: float = 0.0
     temp_slope_K_per_min: Optional[float] = None
@@ -523,6 +524,15 @@ def _compute_predictive_percent(
     assert inp.target_temp_C is not None
 
     current_temp_C = float(inp.current_temp_C)
+    if inp.filtered_temp_C is not None:
+        try:
+            current_temp_cost_C = float(inp.filtered_temp_C)
+        except (TypeError, ValueError):
+            current_temp_cost_C = current_temp_C
+            inp.filtered_temp_C = None
+    else:
+        current_temp_cost_C = current_temp_C
+    temp_cost_source = "filtered" if inp.filtered_temp_C is not None else "raw"
     target_temp_C = float(inp.target_temp_C)
 
     use_virtual_temp = bool(getattr(params, "use_virtual_temp", True))
@@ -883,7 +893,7 @@ def _compute_predictive_percent(
         T = (
             float(state.virtual_temp)
             if use_virtual_temp and state.virtual_temp is not None
-            else current_temp_C
+            else current_temp_cost_C
         )
 
         cost = 0.0
@@ -963,6 +973,8 @@ def _compute_predictive_percent(
         "mpc_horizon": horizon,
         "mpc_eval_count": eval_count,
         "mpc_step_minutes": _round_for_debug(step_minutes, 3),
+        "mpc_temp_cost_C": _round_for_debug(current_temp_cost_C, 3),
+        "mpc_temp_cost_source": temp_cost_source,
     }
 
     if adapt_debug:

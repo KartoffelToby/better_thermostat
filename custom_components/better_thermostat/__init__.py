@@ -20,7 +20,7 @@ from .utils.const import (
 
 _LOGGER = logging.getLogger(__name__)
 DOMAIN = "better_thermostat"
-PLATFORMS = [Platform.CLIMATE]
+PLATFORMS = [Platform.CLIMATE, Platform.SENSOR]
 CONFIG_SCHEMA = vol.Schema({DOMAIN: vol.Schema({})}, extra=vol.ALLOW_EXTRA)
 
 config_entry_update_listener_lock = Lock()

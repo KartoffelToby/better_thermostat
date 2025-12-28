@@ -105,12 +105,18 @@ def _compute_mpc_balance(self, entity_id: str):
 
     params = MpcParams()
 
+    # Optional: use filtered external temperature for MPC cost evaluation to reduce jitter.
+    # `cur_temp_filtered` is maintained by events/temperature.py (EMA) and passed separately.
+    mpc_current_temp = self.cur_temp
+    mpc_filtered_temp = getattr(self, "cur_temp_filtered", None)
+
     try:
         mpc_output = compute_mpc(
             MpcInput(
                 key=build_mpc_key(self, entity_id),
                 target_temp_C=self.bt_target_temp,
-                current_temp_C=self.cur_temp,
+                current_temp_C=mpc_current_temp,
+                filtered_temp_C=mpc_filtered_temp,
                 trv_temp_C=trv_state.get("current_temperature"),
                 tolerance_K=float(getattr(self, "tolerance", 0.0) or 0.0),
                 temp_slope_K_per_min=getattr(self, "temp_slope", None),

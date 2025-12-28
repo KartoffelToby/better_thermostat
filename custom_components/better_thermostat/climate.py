@@ -190,31 +190,29 @@ async def async_setup_entry(hass, entry, async_add_entities):
         "reset_pid_learnings_service",
     )
 
-    async_add_entities(
-        [
-            BetterThermostat(
-                entry.data.get(CONF_NAME),
-                entry.data.get(CONF_HEATER),
-                entry.data.get(CONF_SENSOR),
-                entry.data.get(CONF_HUMIDITY, None),
-                entry.data.get(CONF_SENSOR_WINDOW, None),
-                entry.data.get(CONF_WINDOW_TIMEOUT, None),
-                entry.data.get(CONF_WINDOW_TIMEOUT_AFTER, None),
-                entry.data.get(CONF_WEATHER, None),
-                entry.data.get(CONF_OUTDOOR_SENSOR, None),
-                entry.data.get(CONF_OFF_TEMPERATURE, None),
-                entry.data.get(CONF_ECO_TEMPERATURE, None),
-                entry.data.get(CONF_TOLERANCE, 0.0),
-                entry.data.get(CONF_TARGET_TEMP_STEP, "0.0"),
-                entry.data.get(CONF_MODEL, None),
-                entry.data.get(CONF_COOLER, None),
-                hass.config.units.temperature_unit,
-                entry.entry_id,
-                device_class="better_thermostat",
-                state_class="better_thermostat_state",
-            )
-        ]
+    bt_entity = BetterThermostat(
+        entry.data.get(CONF_NAME),
+        entry.data.get(CONF_HEATER),
+        entry.data.get(CONF_SENSOR),
+        entry.data.get(CONF_HUMIDITY, None),
+        entry.data.get(CONF_SENSOR_WINDOW, None),
+        entry.data.get(CONF_WINDOW_TIMEOUT, None),
+        entry.data.get(CONF_WINDOW_TIMEOUT_AFTER, None),
+        entry.data.get(CONF_WEATHER, None),
+        entry.data.get(CONF_OUTDOOR_SENSOR, None),
+        entry.data.get(CONF_OFF_TEMPERATURE, None),
+        entry.data.get(CONF_ECO_TEMPERATURE, None),
+        entry.data.get(CONF_TOLERANCE, 0.0),
+        entry.data.get(CONF_TARGET_TEMP_STEP, "0.0"),
+        entry.data.get(CONF_MODEL, None),
+        entry.data.get(CONF_COOLER, None),
+        hass.config.units.temperature_unit,
+        entry.entry_id,
+        device_class="better_thermostat",
+        state_class="better_thermostat_state",
     )
+    hass.data[DOMAIN][entry.entry_id]["climate"] = bt_entity
+    async_add_entities([bt_entity])
     _LOGGER.debug(
         "better_thermostat %s: async_setup_entry finished creating entity",
         entry.data.get(CONF_NAME),
@@ -473,6 +471,12 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
         self.temp_slope = None
         self._slope_last_temp = None
         self._slope_last_ts = None
+        # External temperature filter (anti-jitter for controllers like MPC)
+        # 900s = 15min, 1800s = 30min
+        self.external_temp_ema_tau_s = 900.0
+        self.external_temp_ema = None
+        self._external_temp_ema_ts = None
+        self.cur_temp_filtered = None
         # Persistence for balance (hydraulic) states
         self._pid_store = None
         self._pid_save_scheduled = False
@@ -482,6 +486,8 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
         # TPI adaptive state persistence
         self._tpi_store = None
         self._tpi_save_scheduled = False
+        # EMA periodic update
+        self._ema_update_remove = None
 
     async def async_added_to_hass(self):
         """Run when entity about to be added.
@@ -659,6 +665,11 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
             _async_startup()
         else:
             self.hass.bus.async_listen_once(EVENT_HOMEASSISTANT_START, _async_startup)
+
+        # Start periodic EMA update (every minute)
+        self._ema_update_remove = async_track_time_interval(
+            self.hass, self._async_update_ema_periodic, timedelta(minutes=1)
+        )
 
     async def _trigger_check_weather(self, event=None):
         _check = await check_all_entities(self)
@@ -2107,6 +2118,7 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
             ATTR_STATE_HEATING_POWER: self.heating_power,
             ATTR_STATE_ERRORS: json.dumps(self.devices_errors),
             ATTR_STATE_BATTERIES: json.dumps(self.devices_states),
+            "external_temp_ema": getattr(self, "cur_temp_filtered", None),
             # ECO mode attribute removed: eco preset supported via PRESET_ECO
             # Persist current preset temperature mapping so we can restore on restart
             "bt_preset_temperatures": json.dumps(self._preset_temperatures),
@@ -3196,3 +3208,40 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
                 self.device_name,
                 e,
             )
+
+    async def _async_update_ema_periodic(self, now=None):
+        """Periodically update the EMA filter to ensure it converges even if sensor is silent."""
+        from .events.temperature import _update_external_temp_ema
+
+        _LOGGER.debug(
+            "better_thermostat %s: _async_update_ema_periodic triggered", self.device_name)
+
+        last_raw = getattr(self, "last_known_external_temp", None)
+        if last_raw is not None:
+            try:
+                _LOGGER.debug(
+                    "better_thermostat %s: updating EMA with last_raw=%s", self.device_name, last_raw)
+                new_ema = _update_external_temp_ema(self, float(last_raw))
+                _LOGGER.debug("better_thermostat %s: periodic EMA result=%.3f",
+                              self.device_name, new_ema)
+                # If the sensor entity is listening to state changes, we should trigger an update
+                # But we don't want to spam the state machine if nothing changed significantly?
+                # The sensor entity reads `cur_temp_filtered` from `self`.
+                # We can just write state if we want the sensor to update.
+                # But `async_write_ha_state` updates the climate entity state.
+                # The sensor listens to the climate entity.
+                # So we should call `async_write_ha_state` if we want the sensor to see the new EMA.
+                self.async_write_ha_state()
+            except Exception as e:
+                _LOGGER.error(
+                    "better_thermostat %s: error in _async_update_ema_periodic: %s", self.device_name, e)
+        else:
+            _LOGGER.debug(
+                "better_thermostat %s: _async_update_ema_periodic skipped (no last_known_external_temp)", self.device_name)
+
+    async def async_will_remove_from_hass(self):
+        """Run when entity will be removed from hass."""
+        if self._ema_update_remove:
+            self._ema_update_remove()
+            self._ema_update_remove = None
+        await super().async_will_remove_from_hass()

@@ -7,6 +7,7 @@ propagated to the target devices.
 """
 
 import logging
+import math
 
 from custom_components.better_thermostat.utils.const import CONF_HOMEMATICIP
 from custom_components.better_thermostat.utils.helpers import convert_to_float
@@ -25,6 +26,48 @@ _LOGGER = logging.getLogger(__name__)
 FLICKER_REVERT_WINDOW = 45  # can optionally be made configurable later
 # Accept sub-threshold changes if the new value stays stable for this window (seconds)
 PLATEAU_ACCEPT_WINDOW = 60
+
+
+def _update_external_temp_ema(self, temp_q: float) -> float:
+    """Update and return EMA-filtered external temperature.
+
+    Uses a time-based EMA so varying sensor update intervals behave sensibly.
+
+    Tunables (optional attributes on `self`):
+    - `external_temp_ema_tau_s` (float): time constant in seconds (e.g. 900=15min, 1800=30min)
+    """
+
+    tau_s = float(getattr(self, "external_temp_ema_tau_s", 900.0) or 900.0)
+    if tau_s <= 0:
+        tau_s = 900.0
+
+    now_m = monotonic()
+    prev_ts = getattr(self, "_external_temp_ema_ts", None)
+    prev_ema = getattr(self, "external_temp_ema", None)
+
+    if prev_ts is None or prev_ema is None:
+        ema = float(temp_q)
+    else:
+        dt_s = max(0.0, float(now_m) - float(prev_ts))
+        # alpha = 1 - exp(-dt/tau)
+        alpha = 1.0 - math.exp(-dt_s / tau_s) if dt_s > 0 else 0.0
+        ema = float(prev_ema) + alpha * (float(temp_q) - float(prev_ema))
+
+        _LOGGER.debug(
+            "better_thermostat %s: EMA calc: prev=%.3f input=%.3f dt=%.1fs alpha=%.4f -> new=%.3f",
+            getattr(self, "device_name", "unknown"),
+            float(prev_ema),
+            float(temp_q),
+            dt_s,
+            alpha,
+            ema,
+        )
+
+    self._external_temp_ema_ts = now_m
+    self.external_temp_ema = ema
+    # Expose a generic name so consumers don't need to know EMA vs SMA
+    self.cur_temp_filtered = round(float(ema), 2)
+    return float(ema)
 
 
 @callback
@@ -57,6 +100,15 @@ async def trigger_temperature_change(self, event):
         None if _incoming_temperature is None else round(_incoming_temperature, 2)
     )
 
+    # Speichere den letzten bekannten Rohwert für periodische Updates
+    if _incoming_temperature_q is not None:
+        self.last_known_external_temp = _incoming_temperature_q
+        # Update EMA immediately on every sensor event
+        try:
+            _update_external_temp_ema(self, float(_incoming_temperature_q))
+        except Exception:
+            pass
+
     # Initialize anti-flicker attributes on first run
     if not hasattr(self, "prev_stable_temp"):
         self.prev_stable_temp = None  # letzter stabiler (vor-dem-Sprung) Wert
@@ -75,6 +127,14 @@ async def trigger_temperature_change(self, event):
         self.pending_temp = None
     if not hasattr(self, "pending_since"):
         self.pending_since = None
+
+    # Optional filtered temperature for anti-jitter control.
+    if not hasattr(self, "external_temp_ema"):
+        self.external_temp_ema = None
+    if not hasattr(self, "_external_temp_ema_ts"):
+        self._external_temp_ema_ts = None
+    if not hasattr(self, "cur_temp_filtered"):
+        self.cur_temp_filtered = None
 
     # Ensure timestamp exists (first run guard)
     if getattr(self, "last_external_sensor_change", None) is None:
@@ -192,6 +252,13 @@ async def trigger_temperature_change(self, event):
                                 elif _val_q < _prev:
                                     self.last_change_direction = -1
                             self.cur_temp = _val_q
+                            try:
+                                _update_external_temp_ema(self, float(_val_q))
+                            except Exception:
+                                _LOGGER.debug(
+                                    "better_thermostat %s: external_temperature EMA update failed (non critical)",
+                                    getattr(self, "device_name", "unknown"),
+                                )
                             self.last_external_sensor_change = datetime.now()
                             # Reset Anti-Flicker-Akkumulatoren
                             self.accum_delta = 0.0
@@ -381,6 +448,8 @@ async def trigger_temperature_change(self, event):
             elif _incoming_temperature_q < _cur_q:
                 self.last_change_direction = -1
         self.cur_temp = _incoming_temperature_q
+        # EMA is now updated at the top of the function
+        _ema = getattr(self, "external_temp_ema", None)
         self.last_external_sensor_change = _now
         # Reset accumulation & pending after accept
         self.accum_delta = 0.0
@@ -389,6 +458,14 @@ async def trigger_temperature_change(self, event):
         self.pending_temp = None
         self.pending_since = None
         self.async_write_ha_state()
+        if _ema is not None:
+            _LOGGER.debug(
+                "better_thermostat %s: external_temperature filtered (ema_tau_s=%s) raw=%.2f ema=%.2f",
+                getattr(self, "device_name", "unknown"),
+                getattr(self, "external_temp_ema_tau_s", 900.0),
+                float(_incoming_temperature_q),
+                float(_ema),
+            )
         # Schreibe den von BT verwendeten Wert (self.cur_temp) ins TRV
         try:
             # Verwende die bekannten TRV-IDs aus real_trvs (Keys)
