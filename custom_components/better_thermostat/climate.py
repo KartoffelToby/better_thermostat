@@ -488,6 +488,20 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
         self._tpi_store = None
         self._tpi_save_scheduled = False
 
+        self.last_known_external_temp = None
+        self._slope_periodic_last_ts = None
+
+        # Anti-flicker state
+        self.flicker_unignore_cancel = None
+        self.flicker_candidate = None
+        self.last_change_direction = 0
+        self.prev_stable_temp = None
+        self.accum_delta = 0.0
+        self.accum_dir = 0
+        self.accum_since = datetime.now()
+        self.pending_temp = None
+        self.pending_since = None
+
     async def async_added_to_hass(self):
         """Run when entity about to be added.
 
@@ -704,31 +718,31 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
         Many devices expect an update at least every ~30 minutes.
         """
         try:
-            cur = getattr(self, "cur_temp", None)
+            cur = self.cur_temp
             if cur is None:
                 _LOGGER.debug(
                     "better_thermostat %s: external_temperature keepalive skipped (cur_temp is None)",
-                    getattr(self, "device_name", "unknown"),
+                    self.device_name,
                 )
                 return
 
             # Verwende die bekannten TRV-Entity-IDs (Keys in real_trvs)
-            trv_ids = list(getattr(self, "real_trvs", {}).keys())
+            trv_ids = list(self.real_trvs.keys())
             # Fallback (sollte i.d.R. nicht benötigt werden)
             if not trv_ids and hasattr(self, "entity_ids"):
-                trv_ids = list(getattr(self, "entity_ids", []) or [])
+                trv_ids = list(self.entity_ids or [])
             if not trv_ids and hasattr(self, "heater_entity_id"):
                 trv_ids = [self.heater_entity_id]
             if not trv_ids:
                 _LOGGER.debug(
                     "better_thermostat %s: external_temperature keepalive: no TRVs found",
-                    getattr(self, "device_name", "unknown"),
+                    self.device_name,
                 )
                 return
             else:
                 _LOGGER.debug(
                     "better_thermostat %s: external_temperature keepalive: %d TRV(s) found",
-                    getattr(self, "device_name", "unknown"),
+                    self.device_name,
                     len(trv_ids),
                 )
 
@@ -753,19 +767,19 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
                     else:
                         _LOGGER.debug(
                             "better_thermostat %s: no quirks with maybe_set_external_temperature for %s",
-                            getattr(self, "device_name", "unknown"),
+                            self.device_name,
                             trv_id,
                         )
                 except Exception:
                     _LOGGER.debug(
                         "better_thermostat %s: external_temperature keepalive write failed for %s (non critical)",
-                        getattr(self, "device_name", "unknown"),
+                        self.device_name,
                         trv_id,
                     )
         except Exception:
             _LOGGER.debug(
                 "better_thermostat %s: external_temperature keepalive encountered an error",
-                getattr(self, "device_name", "unknown"),
+                self.device_name,
             )
 
     async def _trigger_humidity_change(self, event):
@@ -1056,6 +1070,21 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
                             "better_thermostat %s: restored external_temp_ema from state: %.2f",
                             self.device_name,
                             _restored_ema,
+                        )
+                    except (ValueError, TypeError):
+                        pass
+
+                # Restore temp_slope if available
+                if "temp_slope_K_min" in old_state.attributes:
+                    try:
+                        _restored_slope = float(
+                            old_state.attributes["temp_slope_K_min"]
+                        )
+                        self.temp_slope = _restored_slope
+                        _LOGGER.debug(
+                            "better_thermostat %s: restored temp_slope from state: %.4f",
+                            self.device_name,
+                            _restored_slope,
                         )
                     except (ValueError, TypeError):
                         pass
@@ -2366,7 +2395,7 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
             ATTR_STATE_HEATING_POWER: self.heating_power,
             ATTR_STATE_ERRORS: json.dumps(self.devices_errors),
             ATTR_STATE_BATTERIES: json.dumps(self.devices_states),
-            "external_temp_ema": getattr(self, "cur_temp_filtered", None),
+            "external_temp_ema": self.cur_temp_filtered,
             # ECO mode attribute removed: eco preset supported via PRESET_ECO
             # Persist current preset temperature mapping so we can restore on restart
             "bt_preset_temperatures": json.dumps(self._preset_temperatures),
@@ -2637,7 +2666,7 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
         - Cooling if mode heat_cool and cur_temp > cool_target + tolerance
         - Otherwise IDLE, unless TRVs explicitly report heating and tolerance does not block it
         """
-        prev_action = getattr(self, "_tolerance_last_action", HVACAction.IDLE)
+        prev_action = self._tolerance_last_action
         tol = self.tolerance if self.tolerance is not None else 0.0
 
         if self.bt_target_temp is None or self.cur_temp is None:
@@ -2677,9 +2706,7 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
         if action == HVACAction.IDLE and not tolerance_hold:
             try:
                 # Skip overrides while we intentionally ignore TRV states or when window is open
-                if getattr(self, "ignore_states", False) or getattr(
-                    self, "window_open", False
-                ):
+                if self.ignore_states or self.window_open:
                     self._tolerance_last_action = HVACAction.IDLE
                     self._tolerance_hold_active = tolerance_hold
                     return HVACAction.IDLE
@@ -2856,8 +2883,8 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
             "better_thermostat %s: async_set_temperature kwargs=%s, current preset=%s, hvac_mode=%s",
             self.device_name,
             kwargs,
-            getattr(self, "_preset_mode", None),
-            getattr(self, "bt_hvac_mode", None),
+            self._preset_mode,
+            self.bt_hvac_mode,
         )
 
         _new_setpoint = None
@@ -2905,8 +2932,8 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
                 "better_thermostat %s: async_set_temperature kwargs=%s, current preset=%s, hvac_mode=%s",
                 self.device_name,
                 kwargs,
-                getattr(self, "_preset_mode", None),
-                getattr(self, "bt_hvac_mode", None),
+                self._preset_mode,
+                self.bt_hvac_mode,
             )
 
             _new_setpoint = None
@@ -3295,8 +3322,8 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
                 self.device_name,
                 old_preset,
                 preset_mode,
-                getattr(self, "bt_target_temp", None),
-                getattr(self, "bt_hvac_mode", None),
+                self.bt_target_temp,
+                self.bt_hvac_mode,
             )
 
             self.async_write_ha_state()
@@ -3406,9 +3433,7 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
                     except Exception:
                         if bucket_tag:
                             buckets = [bucket_tag]
-                    uid = getattr(self, "unique_id", None) or getattr(
-                        self, "_unique_id", "bt"
-                    )
+                    uid = self.unique_id or self._unique_id or "bt"
                     seeded = 0
                     for trv_id in self.real_trvs.keys():
                         for b in buckets or []:
@@ -3441,7 +3466,7 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
                         _LOGGER.debug(
                             "better_thermostat %s: apply_pid_defaults did not seed any bucket (bt_target_temp=%s, buckets=%s)",
                             self.device_name,
-                            getattr(self, "bt_target_temp", None),
+                            self.bt_target_temp,
                             buckets,
                         )
                 except Exception as e:
@@ -3470,7 +3495,7 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
             self.device_name,
         )
 
-        last_raw = getattr(self, "last_known_external_temp", None)
+        last_raw = self.last_known_external_temp
         if last_raw is not None:
             try:
                 _LOGGER.debug(
@@ -3478,7 +3503,31 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
                     self.device_name,
                     last_raw,
                 )
+
+                # Calculate slope from EMA change
+                old_ema = self.external_temp_ema
+                old_ts = self._slope_periodic_last_ts
+                now_ts = monotonic()
+
                 new_ema = _update_external_temp_ema(self, float(last_raw))
+
+                if old_ema is not None and old_ts is not None:
+                    dt_min = (now_ts - old_ts) / 60.0
+                    if dt_min > 0.1:  # Avoid division by zero or tiny steps
+                        delta_T = new_ema - old_ema
+                        slope = delta_T / dt_min
+                        self.temp_slope = slope
+                        _LOGGER.debug(
+                            "better_thermostat %s: periodic slope calc: old_ema=%.3f new_ema=%.3f dt=%.2fmin -> slope=%.4f K/min",
+                            self.device_name,
+                            old_ema,
+                            new_ema,
+                            dt_min,
+                            slope,
+                        )
+
+                self._slope_periodic_last_ts = now_ts
+
                 _LOGGER.debug(
                     "better_thermostat %s: periodic EMA result=%.3f",
                     self.device_name,

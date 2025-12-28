@@ -30,7 +30,10 @@ async def async_setup_entry(
         )
         return
 
-    sensors = [BetterThermostatExternalTempSensor(bt_climate)]
+    sensors = [
+        BetterThermostatExternalTempSensor(bt_climate),
+        BetterThermostatTempSlopeSensor(bt_climate),
+    ]
     async_add_entities(sensors)
 
 
@@ -85,6 +88,51 @@ class BetterThermostatExternalTempSensor(SensorEntity):
         if val is not None:
             try:
                 self._attr_native_value = float(val)
+            except (ValueError, TypeError):
+                self._attr_native_value = None
+        else:
+            self._attr_native_value = None
+
+
+class BetterThermostatTempSlopeSensor(SensorEntity):
+    """Representation of a Better Thermostat Temperature Slope Sensor."""
+
+    _attr_has_entity_name = True
+    _attr_name = "Temperature Slope"
+    _attr_device_class = None
+    _attr_state_class = SensorStateClass.MEASUREMENT
+    _attr_native_unit_of_measurement = "K/min"
+    _attr_should_poll = False
+    _attr_icon = "mdi:chart-line"
+
+    def __init__(self, bt_climate):
+        """Initialize the sensor."""
+        self._bt_climate = bt_climate
+        self._attr_unique_id = f"{bt_climate.unique_id}_temp_slope"
+        self._attr_device_info = bt_climate.device_info
+
+    async def async_added_to_hass(self):
+        """Register callbacks."""
+        if self._bt_climate.entity_id:
+            self.async_on_remove(
+                async_track_state_change_event(
+                    self.hass, [self._bt_climate.entity_id], self._on_climate_update
+                )
+            )
+        self._update_state()
+
+    @callback
+    def _on_climate_update(self, event):
+        """Handle climate entity update."""
+        self._update_state()
+        self.async_write_ha_state()
+
+    def _update_state(self):
+        """Update state from climate entity."""
+        val = getattr(self._bt_climate, "temp_slope", None)
+        if val is not None:
+            try:
+                self._attr_native_value = round(float(val), 4)
             except (ValueError, TypeError):
                 self._attr_native_value = None
         else:

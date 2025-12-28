@@ -42,8 +42,8 @@ def _update_external_temp_ema(self, temp_q: float) -> float:
         tau_s = 300.0
 
     now_m = monotonic()
-    prev_ts = getattr(self, "_external_temp_ema_ts", None)
-    prev_ema = getattr(self, "external_temp_ema", None)
+    prev_ts = self._external_temp_ema_ts
+    prev_ema = self.external_temp_ema
 
     if prev_ts is None or prev_ema is None:
         ema = float(temp_q)
@@ -55,7 +55,7 @@ def _update_external_temp_ema(self, temp_q: float) -> float:
 
         _LOGGER.debug(
             "better_thermostat %s: EMA calc: prev=%.3f input=%.3f dt=%.1fs alpha=%.4f -> new=%.3f",
-            getattr(self, "device_name", "unknown"),
+            self.device_name,
             float(prev_ema),
             float(temp_q),
             dt_s,
@@ -109,35 +109,8 @@ async def trigger_temperature_change(self, event):
         except Exception:
             pass
 
-    # Initialize anti-flicker attributes on first run
-    if not hasattr(self, "prev_stable_temp"):
-        self.prev_stable_temp = None  # letzter stabiler (vor-dem-Sprung) Wert
-    if not hasattr(self, "last_change_direction"):
-        # +1 = steigend, -1 = fallend, 0 = unbekannt/gleich
-        self.last_change_direction = 0
-    # Accumulation for sub-threshold changes in the same direction
-    if not hasattr(self, "accum_delta"):
-        self.accum_delta = 0.0
-    if not hasattr(self, "accum_dir"):
-        self.accum_dir = 0
-    if not hasattr(self, "accum_since"):
-        self.accum_since = datetime.now()
-    # Pending plateau detection
-    if not hasattr(self, "pending_temp"):
-        self.pending_temp = None
-    if not hasattr(self, "pending_since"):
-        self.pending_since = None
-
-    # Optional filtered temperature for anti-jitter control.
-    if not hasattr(self, "external_temp_ema"):
-        self.external_temp_ema = None
-    if not hasattr(self, "_external_temp_ema_ts"):
-        self._external_temp_ema_ts = None
-    if not hasattr(self, "cur_temp_filtered"):
-        self.cur_temp_filtered = None
-
     # Ensure timestamp exists (first run guard)
-    if getattr(self, "last_external_sensor_change", None) is None:
+    if self.last_external_sensor_change is None:
         # Setze einen alten Zeitpunkt, damit erste Änderung akzeptiert wird
         self.last_external_sensor_change = datetime.now()
 
@@ -146,7 +119,7 @@ async def trigger_temperature_change(self, event):
     _time_diff = 5
     # Signifikanz-Schwelle: halbe Toleranz oder mindestens 0.1°C
     try:
-        _sig_threshold = max(0.1, (getattr(self, "tolerance", 0.0) or 0.0) / 2.0)
+        _sig_threshold = max(0.1, (self.tolerance or 0.0) / 2.0)
     except (TypeError, ValueError):
         _sig_threshold = 0.1
 
@@ -211,7 +184,7 @@ async def trigger_temperature_change(self, event):
         except (ValueError, TypeError):
             remaining = float(FLICKER_REVERT_WINDOW)
         # Merke Kandidatenwert und cancel ggf. vorherige Planung
-        cancel_cb = getattr(self, "flicker_unignore_cancel", None)
+        cancel_cb = self.flicker_unignore_cancel
         if callable(cancel_cb):
             cancel_cb()
         self.flicker_unignore_cancel = None
@@ -221,7 +194,7 @@ async def trigger_temperature_change(self, event):
             async def _apply_if_stable():
                 try:
                     # Prüfe aktuellen Sensor-Status
-                    sensor_id = getattr(self, "sensor_entity_id", None)
+                    sensor_id = self.sensor_entity_id
                     state = self.hass.states.get(sensor_id) if sensor_id else None
                     if state is None or state.state in (
                         STATE_UNAVAILABLE,
@@ -233,18 +206,18 @@ async def trigger_temperature_change(self, event):
                         str(state.state), self.device_name, "external_temperature"
                     )
                     _val_q = None if _val is None else round(_val, 2)
-                    cand = getattr(self, "flicker_candidate", None)
+                    cand = self.flicker_candidate
                     # Übernehme nur, wenn Kandidatwert unverändert und ungleich cur_temp ist
                     if _val_q is not None and cand is not None and _val_q == cand:
-                        if _val_q != getattr(self, "cur_temp", None):
+                        if _val_q != self.cur_temp:
                             _LOGGER.debug(
                                 "better_thermostat %s: external_temperature flicker revert auto-accepted after %ss (value=%.2f)",
-                                getattr(self, "device_name", "unknown"),
+                                self.device_name,
                                 FLICKER_REVERT_WINDOW,
                                 _val_q,
                             )
                             # Akzeptiere Wert wie im normalen Pfad
-                            _prev = getattr(self, "cur_temp", None)
+                            _prev = self.cur_temp
                             if _prev is not None and _prev != _val_q:
                                 self.prev_stable_temp = _prev
                                 if _val_q > _prev:
@@ -257,7 +230,7 @@ async def trigger_temperature_change(self, event):
                             except Exception:
                                 _LOGGER.debug(
                                     "better_thermostat %s: external_temperature EMA update failed (non critical)",
-                                    getattr(self, "device_name", "unknown"),
+                                    self.device_name,
                                 )
                             self.last_external_sensor_change = datetime.now()
                             # Reset Anti-Flicker-Akkumulatoren
@@ -269,11 +242,9 @@ async def trigger_temperature_change(self, event):
                             self.async_write_ha_state()
                             # Schreibe TRV-External-Temp über Quirks, falls vorhanden
                             try:
-                                trv_ids = list(getattr(self, "real_trvs", {}).keys())
+                                trv_ids = list(self.real_trvs.keys())
                                 if not trv_ids and hasattr(self, "entity_ids"):
-                                    trv_ids = list(
-                                        getattr(self, "entity_ids", []) or []
-                                    )
+                                    trv_ids = list(self.entity_ids or [])
                                 if not trv_ids and hasattr(self, "heater_entity_id"):
                                     trv_ids = [self.heater_entity_id]
                                 for trv_id in trv_ids:
@@ -299,7 +270,7 @@ async def trigger_temperature_change(self, event):
                             ):
                                 _LOGGER.debug(
                                     "better_thermostat %s: external_temperature write to TRV failed (non critical)",
-                                    getattr(self, "device_name", "unknown"),
+                                    self.device_name,
                                 )
                             if self.control_queue_task is not None:
                                 await self.control_queue_task.put(self)
@@ -332,7 +303,7 @@ async def trigger_temperature_change(self, event):
             _dir_now = 1
         elif _incoming_temperature_q < _cur_q:
             _dir_now = -1
-    _last_dir = getattr(self, "last_change_direction", 0)
+    _last_dir = self.last_change_direction
     _block_flip_small = (
         _dir_now != 0
         and _last_dir != 0
@@ -356,21 +327,22 @@ async def trigger_temperature_change(self, event):
         return
 
     # Slope calculation (simple delta per minute)
-    try:
-        now_m = monotonic()
-        _last_ts = getattr(self, "_slope_last_ts", None)
-        if _last_ts is not None and _cur_q is not None:
-            dt_min = max(1e-6, (now_m - _last_ts) / 60.0)
-            dT = _incoming_temperature_q - _cur_q  # K
-            inst_slope = dT / dt_min  # K/min
-            # light smoothing
-            if getattr(self, "temp_slope", None) is None:
-                self.temp_slope = inst_slope
-            else:
-                self.temp_slope = 0.7 * self.temp_slope + 0.3 * inst_slope
-        setattr(self, "_slope_last_ts", now_m)
-    except (AttributeError, TypeError, ZeroDivisionError):
-        pass
+    # Disabled in favor of periodic EMA-based slope calculation in climate.py
+    # try:
+    #     now_m = monotonic()
+    #     _last_ts = getattr(self, "_slope_last_ts", None)
+    #     if _last_ts is not None and _cur_q is not None:
+    #         dt_min = max(1e-6, (now_m - _last_ts) / 60.0)
+    #         dT = _incoming_temperature_q - _cur_q  # K
+    #         inst_slope = dT / dt_min  # K/min
+    #         # light smoothing
+    #         if getattr(self, "temp_slope", None) is None:
+    #             self.temp_slope = inst_slope
+    #         else:
+    #             self.temp_slope = 0.7 * self.temp_slope + 0.3 * inst_slope
+    #     setattr(self, "_slope_last_ts", now_m)
+    # except (AttributeError, TypeError, ZeroDivisionError):
+    #     pass
 
     # Accumulation of small changes in the same direction
     _accept_reason = None
@@ -449,7 +421,7 @@ async def trigger_temperature_change(self, event):
                 self.last_change_direction = -1
         self.cur_temp = _incoming_temperature_q
         # EMA is now updated at the top of the function
-        _ema = getattr(self, "external_temp_ema", None)
+        _ema = self.external_temp_ema
         self.last_external_sensor_change = _now
         # Reset accumulation & pending after accept
         self.accum_delta = 0.0
@@ -461,7 +433,7 @@ async def trigger_temperature_change(self, event):
         if _ema is not None:
             _LOGGER.debug(
                 "better_thermostat %s: external_temperature filtered (ema_tau_s=%s) raw=%.2f ema=%.2f",
-                getattr(self, "device_name", "unknown"),
+                self.device_name,
                 self.external_temp_ema_tau_s,
                 float(_incoming_temperature_q),
                 float(_ema),
@@ -469,9 +441,9 @@ async def trigger_temperature_change(self, event):
         # Schreibe den von BT verwendeten Wert (self.cur_temp) ins TRV
         try:
             # Verwende die bekannten TRV-IDs aus real_trvs (Keys)
-            trv_ids = list(getattr(self, "real_trvs", {}).keys())
+            trv_ids = list(self.real_trvs.keys())
             if not trv_ids and hasattr(self, "entity_ids"):
-                trv_ids = list(getattr(self, "entity_ids", []) or [])
+                trv_ids = list(self.entity_ids or [])
             if not trv_ids and hasattr(self, "heater_entity_id"):
                 trv_ids = [self.heater_entity_id]
             for trv_id in trv_ids:
@@ -487,13 +459,13 @@ async def trigger_temperature_change(self, event):
                 else:
                     _LOGGER.debug(
                         "better_thermostat %s: no quirks with maybe_set_external_temperature for %s",
-                        getattr(self, "device_name", "unknown"),
+                        self.device_name,
                         trv_id,
                     )
         except (AttributeError, KeyError, TypeError, ValueError, RuntimeError):
             _LOGGER.debug(
                 "better_thermostat %s: external_temperature write to TRV failed (non critical)",
-                getattr(self, "device_name", "unknown"),
+                self.device_name,
             )
         # Enqueue control action
         if self.control_queue_task is not None:
