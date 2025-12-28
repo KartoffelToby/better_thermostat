@@ -130,6 +130,9 @@ from .utils.calibration.tpi import export_tpi_state_map, import_tpi_state_map
 _LOGGER = logging.getLogger(__name__)
 DOMAIN = "better_thermostat"
 
+# Default temperature when no sensor data is available (last resort fallback)
+DEFAULT_FALLBACK_TEMPERATURE = 20.0
+
 
 class ContinueLoop(Exception):
     """Continue loop exception."""
@@ -1051,10 +1054,11 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
                             )
                             break
                 if self.cur_temp is None:
-                    self.cur_temp = 20.0  # Last resort default
+                    self.cur_temp = DEFAULT_FALLBACK_TEMPERATURE
                     _LOGGER.warning(
-                        "better_thermostat %s: No temperature available, using default 20.0°C",
+                        "better_thermostat %s: No temperature available, using default %.1f°C",
                         self.device_name,
+                        DEFAULT_FALLBACK_TEMPERATURE,
                     )
 
             # Initialize EMA with current temperature at startup
