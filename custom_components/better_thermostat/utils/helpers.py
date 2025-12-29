@@ -188,7 +188,7 @@ def heating_power_valve_position(self, entity_id):
     # This prevents the system from getting stuck with too-low valve positions
     if _temp_diff > VALVE_MIN_THRESHOLD_TEMP_DIFF:
         valve_pos = max(VALVE_MIN_OPENING_LARGE_DIFF, valve_pos)
-    elif _temp_diff > VALVE_MIN_SMALL_DIFF_THRESHOLD:
+    elif _temp_diff >= VALVE_MIN_SMALL_DIFF_THRESHOLD:
         # For smaller differences, use a proportional minimum
         min_valve = VALVE_MIN_BASE + (_temp_diff - VALVE_MIN_SMALL_DIFF_THRESHOLD) * VALVE_MIN_PROPORTIONAL_SLOPE
         valve_pos = max(min_valve, valve_pos)
