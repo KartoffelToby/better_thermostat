@@ -8,7 +8,16 @@ from typing import Any, Dict, Iterable, Optional, Tuple
 import voluptuous as vol
 
 from homeassistant import config_entries
-from homeassistant.components.climate.const import HVACMode
+from homeassistant.components.climate.const import (
+    HVACMode,
+    PRESET_AWAY,
+    PRESET_BOOST,
+    PRESET_COMFORT,
+    PRESET_ECO,
+    PRESET_HOME,
+    PRESET_SLEEP,
+    PRESET_ACTIVITY,
+)
 from homeassistant.const import CONF_NAME
 from homeassistant.core import callback
 from homeassistant.helpers import config_validation as cv
@@ -30,6 +39,7 @@ from .utils.const import (
     CONF_NO_SYSTEM_MODE_OFF,
     CONF_OFF_TEMPERATURE,
     CONF_OUTDOOR_SENSOR,
+    CONF_PRESETS,
     CONF_PROTECT_OVERHEATING,
     CONF_SENSOR,
     CONF_SENSOR_WINDOW,
@@ -116,6 +126,23 @@ CALIBRATION_MODE_SELECTOR = selector.SelectSelector(
             ),
         ],
         mode=selector.SelectSelectorMode.DROPDOWN,
+    )
+)
+
+
+PRESET_SELECTOR = selector.SelectSelector(
+    selector.SelectSelectorConfig(
+        options=[
+            selector.SelectOptionDict(value=PRESET_ECO, label="Eco"),
+            selector.SelectOptionDict(value=PRESET_AWAY, label="Away"),
+            selector.SelectOptionDict(value=PRESET_BOOST, label="Boost"),
+            selector.SelectOptionDict(value=PRESET_COMFORT, label="Comfort"),
+            selector.SelectOptionDict(value=PRESET_HOME, label="Home"),
+            selector.SelectOptionDict(value=PRESET_SLEEP, label="Sleep"),
+            selector.SelectOptionDict(value=PRESET_ACTIVITY, label="Activity"),
+        ],
+        mode=selector.SelectSelectorMode.DROPDOWN,
+        multiple=True,
     )
 )
 
@@ -501,6 +528,9 @@ def _build_user_fields(
         default=eco_temp_default,
     )
 
+    if not is_create:
+        add_field(CONF_PRESETS, PRESET_SELECTOR, default=resolve(CONF_PRESETS, []))
+
     tolerance_default = resolve(CONF_TOLERANCE, _USER_FIELD_DEFAULTS[CONF_TOLERANCE])
     try:
         tolerance_default = float(tolerance_default)
@@ -603,6 +633,11 @@ def _normalize_user_submission(
         normalized[CONF_ECO_TEMPERATURE] = float(eco_temp)
     except (TypeError, ValueError):
         normalized[CONF_ECO_TEMPERATURE] = _USER_FIELD_DEFAULTS[CONF_ECO_TEMPERATURE]
+
+    if CONF_PRESETS in user_input:
+        normalized[CONF_PRESETS] = user_input[CONF_PRESETS]
+    elif mode == "create" and CONF_PRESETS not in normalized:
+        normalized[CONF_PRESETS] = []
 
     tolerance = user_input.get(
         CONF_TOLERANCE,

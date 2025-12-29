@@ -33,7 +33,7 @@ class MpcParams:
     mpc_gain_max: float = 0.2
     mpc_loss_min: float = 0.002
     mpc_loss_max: float = 0.03
-    mpc_adapt_alpha: float = 0.01
+    mpc_adapt_alpha: float = 0.1
     deadzone_threshold_pct: float = 20.0
     deadzone_temp_delta_K: float = 0.1
     deadzone_time_s: float = 300.0
@@ -99,12 +99,16 @@ class _MpcState:
     min_effective_percent: Optional[float] = None
     last_learn_time: Optional[float] = None
     last_learn_temp: Optional[float] = None
+    last_residual_time: Optional[float] = None
     virtual_temp: Optional[float] = None
     virtual_temp_ts: float = 0.0
     last_sensor_temp_C: Optional[float] = None
     trv_profile: str = "unknown"
     profile_confidence: float = 0.0
     profile_samples: int = 0
+    u_integral: float = 0.0
+    time_integral: float = 0.0
+    last_integration_ts: float = 0.0
 
 
 _MPC_STATES: Dict[str, _MpcState] = {}
@@ -121,8 +125,12 @@ _STATE_EXPORT_FIELDS = (
     "dead_zone_hits",
     "last_learn_time",
     "last_learn_temp",
+    "last_residual_time",
     "virtual_temp",
     "virtual_temp_ts",
+    "u_integral",
+    "time_integral",
+    "last_integration_ts",
 )
 
 
@@ -230,6 +238,17 @@ def compute_mpc(inp: MpcInput, params: MpcParams) -> Optional[MpcOutput]:
     state = _MPC_STATES.setdefault(inp.key, _MpcState())
     _seed_state_from_siblings(inp.key, state, params)
 
+    # --- INTEGRATE VALVE USAGE ---
+    # We track the time-weighted average of the valve position since the last learning step.
+    # This ensures that if the valve moved during the learning interval (e.g. due to manual changes
+    # or frequent updates), we learn from the average power applied, not just the last value.
+    if state.last_integration_ts > 0.0:
+        dt_int = now - state.last_integration_ts
+        if dt_int > 0 and state.last_percent is not None:
+            state.u_integral += float(state.last_percent) * dt_int
+            state.time_integral += dt_int
+    state.last_integration_ts = now
+
     extra_debug: Dict[str, Any] = {}
     name = inp.bt_name or "BT"
     entity = inp.entity_id or "unknown"
@@ -321,14 +340,23 @@ def compute_mpc(inp: MpcInput, params: MpcParams) -> Optional[MpcOutput]:
                                 max_abs = 0.15
                             slope = max(-max_abs, min(max_abs, float(slope)))
 
-                            # Safety: If slope implies cooling but model implies heating,
-                            # trust the model (or zero) to avoid drift from lagging EMA slope.
+                            # Safety: If slope implies cooling/flat but model implies heating,
+                            # trust the model to avoid drift from lagging/stale EMA slope.
                             model_dT = (gain_dbg * u - loss_dbg) * dt_min
-                            if slope < -0.001 and model_dT > 0.001:
-                                # Conflict: Slope says cool, Physics says heat.
-                                # Likely EMA lag. Use model or 0.
+
+                            # NEW LOGIC:
+                            # If we are heating significantly (model_dT > threshold) but the slope
+                            # shows no reaction (<= 0.001), we assume lag and trust the model.
+                            # Threshold 0.005 K/min is approx 0.3 K/h.
+                            # This ensures we don't override when we are just hovering around u0 (e.g. 12% vs 9%).
+
+                            if slope <= 0.001 and model_dT > 0.005:
+                                # Conflict: Slope says flat/cool, Physics says significant heat.
+                                # Force model prediction.
                                 predicted_dT = model_dT
-                                extra_debug["virtual_temp_predict"] = "model_override_lag"
+                                extra_debug["virtual_temp_predict"] = (
+                                    "model_override_lag"
+                                )
                             else:
                                 predicted_dT = float(slope) * dt_min
                                 extra_debug["virtual_temp_predict"] = "slope"
@@ -577,6 +605,11 @@ def _compute_predictive_percent(
     adapt_debug: Dict[str, Any] = {}
     if params.mpc_adapt and state.last_learn_temp is not None and dt_last >= 180.0:
         try:
+            if state.last_residual_time is None:
+                state.last_residual_time = state.last_learn_time or now
+
+            dt_residual = now - state.last_residual_time
+
             # Gate on target stability to avoid learning during setpoint steps.
             target_changed = False
             if state.last_target_C is not None:
@@ -584,8 +617,15 @@ def _compute_predictive_percent(
                     abs(float(target_temp_C) - float(state.last_target_C)) >= 0.05
                 )
 
-            last_percent = state.last_percent if state.last_percent is not None else 0.0
-            u_last = max(0.0, min(100.0, float(last_percent))) / 100.0
+            # Use time-weighted average valve position for learning
+            if state.time_integral > 0:
+                u_avg_pct = state.u_integral / state.time_integral
+            else:
+                u_avg_pct = (
+                    state.last_percent if state.last_percent is not None else 0.0
+                )
+
+            u_last = max(0.0, min(100.0, float(u_avg_pct))) / 100.0
 
             dt_min = dt_last / 60.0
             if dt_min <= 0:
@@ -599,13 +639,15 @@ def _compute_predictive_percent(
 
             # If upstream provides a slope, prefer it for identification.
             # This helps with quantised sensors where delta_T stays at 0 for long periods.
-            slope = inp.temp_slope_K_per_min
-            if slope is not None:
-                try:
-                    observed_rate = float(slope)
-                    rate_source = "slope"
-                except (TypeError, ValueError):
-                    pass
+            # DISABLED: Slope often lags behind reality (EMA), causing wrong learning signals.
+            # We rely on the actual delta_T over the interval.
+            # slope = inp.temp_slope_K_per_min
+            # if slope is not None:
+            #     try:
+            #         observed_rate = float(slope)
+            #         rate_source = "slope"
+            #     except (TypeError, ValueError):
+            #         pass
 
             implied_delta_T = observed_rate * dt_min if dt_min > 0 else 0.0
 
@@ -617,26 +659,11 @@ def _compute_predictive_percent(
                 temp_change_threshold_C = 0.05
             temp_changed = abs(delta_T) >= temp_change_threshold_C
 
-            # For quantised/stale sensors upstream slope estimates can be non-zero even
-            # when the sensor did not change. That would cause gain/loss drift.
-            # Therefore only accept a slope-based learning signal if it is either
-            # near-zero (no impact) or consistent with the actual sensor delta.
-            slope_ok = False
+            # Slope logic disabled - we rely purely on actual temperature changes
+            # to avoid learning from lagging EMA slopes.
             slope_rejected = False
-            if rate_source == "slope":
-                # If the slope implies a much larger change than the sensor observed,
-                # reject it and fall back to delta-based observed_rate.
-                if abs(implied_delta_T) <= (temp_change_threshold_C * 0.5):
-                    slope_ok = True
-                elif abs(implied_delta_T - delta_T) <= (temp_change_threshold_C * 2.0):
-                    slope_ok = True
-                else:
-                    slope_rejected = True
-                    observed_rate = observed_rate_delta
-                    rate_source = "delta"
-                    implied_delta_T = observed_rate * dt_min if dt_min > 0 else 0.0
 
-            learn_signal = temp_changed or slope_ok
+            learn_signal = temp_changed
 
             # For quasi steady-state learning (loss residual, gain_ss), prefer the
             # delta-based rate unless we have an actual sensor change. This prevents
@@ -676,6 +703,7 @@ def _compute_predictive_percent(
             updated_gain = False
             updated_loss = False
             loss_method: Optional[str] = None
+            gain_method: Optional[str] = None
             gain_ss_applied = False
             gain_ss_rate_limited = False
             gain_ss_candidate: Optional[float] = None
@@ -695,8 +723,8 @@ def _compute_predictive_percent(
                 loss_candidate = min(loss_candidate, params.mpc_loss_max)
 
                 alpha = params.mpc_adapt_alpha
-                if loss_candidate > loss_est:
-                    alpha = params.mpc_adapt_alpha * 0.3  # slower increase
+                if loss_candidate < loss_est:
+                    alpha = params.mpc_adapt_alpha * 0.1  # slower decrease
                 state.loss_est = (1.0 - alpha) * loss_est + alpha * loss_candidate
                 updated_loss = True
                 loss_method = "cool_u0"
@@ -710,17 +738,12 @@ def _compute_predictive_percent(
             if common_ok and (not updated_loss) and u_last > min_open:
                 ss_rate_thr = 0.02  # °C/min: quasi steady-state threshold
 
-                # Rate-limit residual learning using dt_last window.
-                # MPC is typically called every 5min; we don't want to learn on every call.
-                # Also avoid learning when we currently observe a quantized temperature step.
-                # NOTE: dt_last is the interval between MPC calls (often ~5min).
-                # Using 10min here rate-limits residual learning forever because
-                # last_learn_time is updated every adaptation tick.
+                # Rate-limit residual learning using dt_residual window.
                 residual_min_interval_s = 300.0  # 5min
                 residual_max_interval_s = 3600.0  # 60min (avoid stale windows)
                 if (
-                    dt_last < residual_min_interval_s
-                    or dt_last > residual_max_interval_s
+                    dt_residual < residual_min_interval_s
+                    or dt_residual > residual_max_interval_s
                 ):
                     residual_rate_limited = True
                 if temp_changed:
@@ -732,6 +755,9 @@ def _compute_predictive_percent(
                     (not residual_rate_limited)
                     and (not residual_block_jump)
                     and (u_last >= ident_min_u)
+                    # Allow learning within 10% absolute of u0.
+                    # Relative % would be too strict for low u0 (e.g. 10% -> 12% limit),
+                    # preventing correction of the base load.
                     and abs(u_last - u0_frac) <= 0.10
                     and abs(observed_rate_ss) <= ss_rate_thr
                 )
@@ -744,8 +770,8 @@ def _compute_predictive_percent(
                     )
 
                     alpha = params.mpc_adapt_alpha
-                    if loss_candidate > loss_est:
-                        alpha = params.mpc_adapt_alpha * 0.3  # slower increase
+                    if loss_candidate < loss_est:
+                        alpha = params.mpc_adapt_alpha * 0.1  # slower decrease
                     state.loss_est = (1.0 - alpha) * loss_est + alpha * loss_candidate
                     updated_loss = True
                     loss_method = "residual_u0_ss"
@@ -771,6 +797,7 @@ def _compute_predictive_percent(
                     alpha = params.mpc_adapt_alpha * 0.3  # slower increase
                 state.gain_est = (1.0 - alpha) * gain_est + alpha * gain_candidate
                 updated_gain = True
+                gain_method = "heat_rate"
 
             # --- GAIN learning (steady-state high-u): ---
             # If we apply a high valve opening for a sustained period, temperature is
@@ -779,7 +806,7 @@ def _compute_predictive_percent(
             if common_ok and u_last > max(min_open, 0.5):
                 ss_min_interval_s = 300.0  # 5min
                 ss_max_interval_s = 3600.0  # 60min
-                if dt_last < ss_min_interval_s or dt_last > ss_max_interval_s:
+                if dt_residual < ss_min_interval_s or dt_residual > ss_max_interval_s:
                     gain_ss_rate_limited = True
 
                 e_now = target_temp_C - float(inp.current_temp_C)
@@ -808,6 +835,7 @@ def _compute_predictive_percent(
                             alpha * gain_ss_candidate
                         )
                         updated_gain = True
+                        gain_method = "high_u_ss"
                         gain_ss_applied = True
 
             # clamp to allowed physical range
@@ -837,6 +865,7 @@ def _compute_predictive_percent(
                 "id_rate_ok": rate_ok,
                 "id_u_last": _round_for_debug(u_last, 3),
                 "id_target_changed": target_changed,
+                "id_gain_method": gain_method,
                 "id_gain_updated": updated_gain,
                 "id_gain_ss_applied": gain_ss_applied,
                 "id_gain_ss_candidate": (
@@ -853,8 +882,18 @@ def _compute_predictive_percent(
                 "id_residual_block_jump": residual_block_jump,
             }
 
-            state.last_learn_time = now
-            state.last_learn_temp = inp.current_temp_C
+            # Reset main anchor only on significant changes or context switch
+            if temp_changed or target_changed:
+                state.last_learn_time = now
+                state.last_learn_temp = inp.current_temp_C
+                state.u_integral = 0.0
+                state.time_integral = 0.0
+
+            # Track last residual/steady-state update to rate limit it separately
+            if (updated_loss and loss_method == "residual_u0_ss") or (
+                updated_gain and gain_method == "high_u_ss"
+            ):
+                state.last_residual_time = now
 
         except (TypeError, ValueError, ZeroDivisionError):
             pass
@@ -891,12 +930,6 @@ def _compute_predictive_percent(
     change_pen = max(0.0, float(params.mpc_change_penalty))
     last_percent = state.last_percent if state.last_percent is not None else None
 
-    # lag alpha
-    lag_tau = float(getattr(params, "mpc_lag_tau_s", 1800.0))
-    if lag_tau <= 0:
-        lag_tau = 1800.0
-    lag_alpha = 1.0 - math.exp(-step_s / lag_tau)
-
     # candidate search: coarse -> fine (reduces evals while keeping precision)
     best_percent = 0.0
     eval_count = 0
@@ -914,15 +947,14 @@ def _compute_predictive_percent(
             # Physical forward model (°C/step): dT = gain_step * u_abs - loss_step.
             # u0 is used only as the search center for du; it must not change the plant model.
             heating = gain_step * u_abs_frac
-            T_raw = T + heating - loss_step
-            T = T + lag_alpha * (T_raw - T)
+            T = T + heating - loss_step
             e = target_temp_C - T
             cost += e * e
         return cost
 
     # coarse search over du around u0
     # du_pct is additive on a 0..100% scale and can be negative.
-    coarse_candidates = list(range(-100, 101, 1))
+    coarse_candidates = list(range(-100, 101, 5))
     best_du_coarse = 0
     best_cost_coarse = None
     for cand in coarse_candidates:
@@ -943,12 +975,12 @@ def _compute_predictive_percent(
             best_cost_coarse = cost
             best_du_coarse = cand
 
-    # fine search around best coarse du ±10% in 2% steps
+    # fine search around best coarse du ±5% in 1% steps
     best_du_fine = best_du_coarse if best_du_coarse is not None else 0
     best_cost_fine = best_cost_coarse if best_cost_coarse is not None else float("inf")
-    fine_lo = max(-100, best_du_coarse - 10)
-    fine_hi = min(100, best_du_coarse + 10)
-    for cand in range(fine_lo, fine_hi + 1, 2):
+    fine_lo = max(-100, best_du_coarse - 5)
+    fine_hi = min(100, best_du_coarse + 5)
+    for cand in range(fine_lo, fine_hi + 1, 1):
         du_frac = cand / 100.0
         u_abs_frac = u0_frac + du_frac
         u_abs_frac = max(0.0, min(1.0, u_abs_frac))
@@ -988,7 +1020,11 @@ def _compute_predictive_percent(
         "mpc_step_minutes": _round_for_debug(step_minutes, 3),
         "mpc_temp_cost_C": _round_for_debug(current_temp_cost_C, 3),
         "mpc_temp_cost_source": temp_cost_source,
-        "mpc_virtual_temp": _round_for_debug(state.virtual_temp, 3) if state.virtual_temp is not None else None,
+        "mpc_virtual_temp": (
+            _round_for_debug(state.virtual_temp, 3)
+            if state.virtual_temp is not None
+            else None
+        ),
     }
 
     if adapt_debug:

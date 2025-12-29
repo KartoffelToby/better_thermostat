@@ -89,6 +89,7 @@ from .utils.const import (
     CONF_OFF_TEMPERATURE,
     CONF_ECO_TEMPERATURE,
     CONF_OUTDOOR_SENSOR,
+    CONF_PRESETS,
     CONF_SENSOR,
     CONF_SENSOR_WINDOW,
     CONF_TARGET_TEMP_STEP,
@@ -207,6 +208,7 @@ async def async_setup_entry(hass, entry, async_add_entities):
         entry.data.get(CONF_TARGET_TEMP_STEP, "0.0"),
         entry.data.get(CONF_MODEL, None),
         entry.data.get(CONF_COOLER, None),
+        entry.data.get(CONF_PRESETS, None),
         hass.config.units.temperature_unit,
         entry.entry_id,
         device_class="better_thermostat",
@@ -298,6 +300,7 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
         target_temp_step,
         model,
         cooler_entity_id,
+        enabled_presets,
         unit,
         unique_id,
         device_class,
@@ -424,6 +427,18 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
         self._preset_temperature = (
             None  # Temperature saved before entering any preset mode
         )
+        self._enabled_presets = enabled_presets
+        if self._enabled_presets is None:
+            self._enabled_presets = [
+                PRESET_AWAY,
+                PRESET_BOOST,
+                PRESET_SLEEP,
+                PRESET_COMFORT,
+                PRESET_ECO,
+                PRESET_ACTIVITY,
+                PRESET_HOME,
+            ]
+
         self._preset_temperatures = {
             PRESET_NONE: 20.0,
             PRESET_AWAY: 16.0,
@@ -3253,16 +3268,7 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
     @property
     def preset_modes(self):
         """Return the available preset modes."""
-        return [
-            PRESET_NONE,
-            PRESET_AWAY,
-            PRESET_BOOST,
-            PRESET_SLEEP,
-            PRESET_COMFORT,
-            PRESET_ECO,
-            PRESET_ACTIVITY,
-            PRESET_HOME,
-        ]
+        return [PRESET_NONE] + self._enabled_presets
 
     async def reset_pid_learnings_service(
         self,

@@ -13,6 +13,8 @@ from homeassistant.config_entries import ConfigEntry
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.event import async_track_state_change_event
 
+from .utils.const import CONF_HEATER, CONF_CALIBRATION_MODE, CalibrationMode
+
 _LOGGER = logging.getLogger(__name__)
 DOMAIN = "better_thermostat"
 
@@ -35,6 +37,7 @@ async def async_setup_entry(
         BetterThermostatTempSlopeSensor(bt_climate),
         BetterThermostatVirtualTempSensor(bt_climate),
     ]
+
     async_add_entities(sensors)
 
 
