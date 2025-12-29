@@ -2215,11 +2215,28 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
                 alpha = max(0.02, min(0.25, alpha))  # Bounds
 
                 old_power = self.heating_power
-                new_power = old_power * (1 - alpha) + heating_rate * alpha
-                
+                unbounded_new_power = old_power * (1 - alpha) + heating_rate * alpha
+
                 # Bound heating_power to realistic values for residential heating systems
-                new_power = max(MIN_HEATING_POWER, min(MAX_HEATING_POWER, new_power))
-                
+                clamped_power = max(
+                    MIN_HEATING_POWER, min(MAX_HEATING_POWER, unbounded_new_power)
+                )
+                if clamped_power != unbounded_new_power:
+                    bound_name = (
+                        "MIN_HEATING_POWER"
+                        if clamped_power <= MIN_HEATING_POWER
+                        else "MAX_HEATING_POWER"
+                    )
+                    _LOGGER.debug(
+                        "better_thermostat: heating_power clamped from %.4f to %.4f at %s "
+                        "(min=%.4f, max=%.4f)",
+                        unbounded_new_power,
+                        clamped_power,
+                        bound_name,
+                        MIN_HEATING_POWER,
+                        MAX_HEATING_POWER,
+                    )
+                new_power = clamped_power
                 self.heating_power = round(new_power, 4)
                 heating_power_changed = self.heating_power != old_power
 
