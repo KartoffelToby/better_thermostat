@@ -1227,7 +1227,20 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
                         old_state.attributes.get(ATTR_STATE_HEATING_POWER)
                     )
                     # Bound to realistic values to prevent issues from incorrectly learned values
-                    self.heating_power = max(MIN_HEATING_POWER, min(MAX_HEATING_POWER, loaded_power))
+                    bounded_power = max(
+                        MIN_HEATING_POWER, min(MAX_HEATING_POWER, loaded_power)
+                    )
+                    if bounded_power != loaded_power:
+                        _LOGGER.info(
+                            "better_thermostat %s: Restored heating_power %.3f "
+                            "is outside allowed range [%s, %s]; clamped to %.3f",
+                            self.device_name,
+                            loaded_power,
+                            MIN_HEATING_POWER,
+                            MAX_HEATING_POWER,
+                            bounded_power,
+                        )
+                    self.heating_power = bounded_power
                 if (
                     old_state.attributes.get(ATTR_STATE_PRESET_TEMPERATURE, None)
                     is not None
