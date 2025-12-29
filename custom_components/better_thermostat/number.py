@@ -29,8 +29,9 @@ async def async_setup_entry(
 
     numbers = []
     # Create a number entity for each preset mode (except NONE)
-    _LOGGER.debug("Better Thermostat Number: Found preset modes: %s",
-                  bt_climate.preset_modes)
+    _LOGGER.debug(
+        "Better Thermostat Number: Found preset modes: %s", bt_climate.preset_modes
+    )
     for preset_mode in bt_climate.preset_modes:
         if preset_mode == PRESET_NONE:
             continue
@@ -64,7 +65,11 @@ class BetterThermostatPresetNumber(NumberEntity, RestoreEntity):
         """Run when entity about to be added."""
         await super().async_added_to_hass()
         last_state = await self.async_get_last_state()
-        if last_state is not None and last_state.state not in (None, "unknown", "unavailable"):
+        if last_state is not None and last_state.state not in (
+            None,
+            "unknown",
+            "unavailable",
+        ):
             try:
                 val = float(last_state.state)
                 self._bt_climate._preset_temperatures[self._preset_mode] = val
