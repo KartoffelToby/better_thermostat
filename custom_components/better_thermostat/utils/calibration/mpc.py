@@ -439,15 +439,15 @@ def compute_mpc(inp: MpcInput, params: MpcParams) -> Optional[MpcOutput]:
 
                     # If the internal model drifted too far away from the sensor,
                     # reset hard to avoid unstable control decisions.
-                    if hard_reset_error_C > 0 and abs(error_C) >= hard_reset_error_C:
+                    if sensor_changed:
+                        state.virtual_temp = sensor_temp
+                        state.virtual_temp_ts = now
+                        extra_debug["virtual_temp_reset"] = "sensor_change"
+                    elif hard_reset_error_C > 0 and abs(error_C) >= hard_reset_error_C:
                         state.virtual_temp = sensor_temp
                         state.virtual_temp_ts = now
                         extra_debug["virtual_temp_reset"] = "hard_error"
                         extra_debug["virtual_temp_error_C"] = error_C
-                    # REMOVED: Hard reset on sensor change.
-                    # We want the virtual temp to be able to "lead" the sensor (anti-lag).
-                    # If we reset every time the sensor updates, we lose the prediction advantage.
-                    # We rely on the soft anchor (alpha blend) below to keep it grounded.
                     else:
                         if state.virtual_temp_ts <= 0.0:
                             alpha = 1.0
