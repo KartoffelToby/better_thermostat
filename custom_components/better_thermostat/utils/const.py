@@ -128,11 +128,13 @@ class CalibrationMode(StrEnum):
 # Heating power calibration constants
 # These bounds represent realistic heating rates for residential heating systems
 MIN_HEATING_POWER = 0.005  # °C/min - Very slow heating (poor insulation, cold climate)
-MAX_HEATING_POWER = 0.2    # °C/min - Very fast heating (oversized system, small room)
+MAX_HEATING_POWER = 0.2  # °C/min - Very fast heating (oversized system, small room)
 
 # Valve position calculation constants for heating_power_valve_position()
-VALVE_MIN_THRESHOLD_TEMP_DIFF = 0.3  # °C - Above this diff, enforce minimum valve opening
+VALVE_MIN_THRESHOLD_TEMP_DIFF = (
+    0.3  # °C - Above this diff, enforce minimum valve opening
+)
 VALVE_MIN_OPENING_LARGE_DIFF = 0.15  # Minimum 15% valve opening when diff > 0.3°C
-VALVE_MIN_BASE = 0.05                # Base minimum valve opening
-VALVE_MIN_SMALL_DIFF_THRESHOLD = 0.1 # °C - Threshold for proportional minimum
-VALVE_MIN_PROPORTIONAL_SLOPE = 0.5   # Slope for proportional minimum calculation
+VALVE_MIN_BASE = 0.05  # Base minimum valve opening
+VALVE_MIN_SMALL_DIFF_THRESHOLD = 0.1  # °C - Threshold for proportional minimum
+VALVE_MIN_PROPORTIONAL_SLOPE = 0.5  # Slope for proportional minimum calculation

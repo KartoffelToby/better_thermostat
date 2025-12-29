@@ -173,16 +173,18 @@ def heating_power_valve_position(self, entity_id):
     returned (between 0.0 and 1.0).
     """
     _temp_diff = float(float(self.bt_target_temp) - float(self.cur_temp))
-    
+
     # Ensure heating_power is bounded to realistic values
     # This protects against incorrectly learned high values
-    heating_power = max(MIN_HEATING_POWER, min(MAX_HEATING_POWER, float(self.heating_power)))
+    heating_power = max(
+        MIN_HEATING_POWER, min(MAX_HEATING_POWER, float(self.heating_power))
+    )
 
     # Original formula with improved robustness
     a = 0.019
     b = 0.946
     valve_pos = a * (_temp_diff / heating_power) ** b
-    
+
     # Apply minimum valve position when heating is actively needed
     # If temp_diff > threshold, ensure minimum valve opening
     # This prevents the system from getting stuck with too-low valve positions
@@ -190,7 +192,11 @@ def heating_power_valve_position(self, entity_id):
         valve_pos = max(VALVE_MIN_OPENING_LARGE_DIFF, valve_pos)
     elif _temp_diff >= VALVE_MIN_SMALL_DIFF_THRESHOLD:
         # For smaller differences, use a proportional minimum
-        min_valve = VALVE_MIN_BASE + (_temp_diff - VALVE_MIN_SMALL_DIFF_THRESHOLD) * VALVE_MIN_PROPORTIONAL_SLOPE
+        min_valve = (
+            VALVE_MIN_BASE
+            + (_temp_diff - VALVE_MIN_SMALL_DIFF_THRESHOLD)
+            * VALVE_MIN_PROPORTIONAL_SLOPE
+        )
         valve_pos = max(min_valve, valve_pos)
 
     # Bound to valid range
