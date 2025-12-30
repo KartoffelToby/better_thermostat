@@ -583,7 +583,7 @@ def _compute_predictive_percent(
 
     if state.last_learn_time is None:
         state.last_learn_time = now
-        state.last_learn_temp = inp.current_temp_C
+        state.last_learn_temp = current_temp_cost_C
 
     # Convert constants & params (use existing param names for backward compatibility)
     step_s = float(getattr(params, "mpc_step_s", MPC_STEP_SECONDS))
@@ -632,7 +632,7 @@ def _compute_predictive_percent(
                 dt_min = 0.0
 
             # measured temperature change (fallback) and rate estimate
-            delta_T = float(inp.current_temp_C) - float(state.last_learn_temp)
+            delta_T = float(current_temp_cost_C) - float(state.last_learn_temp)
             observed_rate = (delta_T / dt_min) if dt_min > 0 else 0.0  # °C/min
             observed_rate_delta = observed_rate
             rate_source = "delta"
@@ -885,7 +885,7 @@ def _compute_predictive_percent(
             # Reset main anchor only on significant changes or context switch
             if temp_changed or target_changed:
                 state.last_learn_time = now
-                state.last_learn_temp = inp.current_temp_C
+                state.last_learn_temp = current_temp_cost_C
                 state.u_integral = 0.0
                 state.time_integral = 0.0
 
