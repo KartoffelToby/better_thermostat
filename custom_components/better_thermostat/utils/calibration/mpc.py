@@ -608,6 +608,10 @@ def _compute_predictive_percent(
             if state.last_residual_time is None:
                 state.last_residual_time = state.last_learn_time or now
 
+            # Safety: residual window cannot be longer than the current stable period
+            if state.last_learn_time is not None and state.last_residual_time < state.last_learn_time:
+                state.last_residual_time = state.last_learn_time
+
             dt_residual = now - state.last_residual_time
 
             # Gate on target stability to avoid learning during setpoint steps.
