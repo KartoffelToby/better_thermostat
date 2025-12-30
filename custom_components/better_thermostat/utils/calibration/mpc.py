@@ -739,7 +739,7 @@ def _compute_predictive_percent(
                 ss_rate_thr = 0.02  # °C/min: quasi steady-state threshold
 
                 # Rate-limit residual learning using dt_residual window.
-                residual_min_interval_s = 300.0  # 5min
+                residual_min_interval_s = 200.0  # 5min (allow some jitter)
                 residual_max_interval_s = 3600.0  # 60min (avoid stale windows)
                 if (
                     dt_residual < residual_min_interval_s
@@ -803,7 +803,7 @@ def _compute_predictive_percent(
             # If we apply a high valve opening for a sustained period, temperature is
             # (almost) flat, but we're still below target, then the current gain is
             # likely overestimated. Correct gain downward so u0 (=loss/gain) can rise.
-            if common_ok and u_last > max(min_open, 0.5):
+            if common_ok and u_last > max(min_open, 0.15):
                 ss_min_interval_s = 300.0  # 5min
                 ss_max_interval_s = 3600.0  # 60min
                 if dt_residual < ss_min_interval_s or dt_residual > ss_max_interval_s:
