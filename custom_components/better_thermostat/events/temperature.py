@@ -243,7 +243,8 @@ async def trigger_temperature_change(self, event):
     # (also ein schneller Rücksprung) UND wir kürzlich erst umgestellt haben,
     # dann ignorieren wir diesen Rücksprung bis das Fenster abläuft.
     if (
-        _cur_q is not None
+        False  # Anti-flicker disabled
+        and _cur_q is not None
         and self.prev_stable_temp is not None
         and _incoming_temperature_q == round(self.prev_stable_temp, 2)
         and _incoming_temperature_q != _cur_q
@@ -376,7 +377,8 @@ async def trigger_temperature_change(self, event):
             _dir_now = -1
     _last_dir = self.last_change_direction
     _block_flip_small = (
-        _dir_now != 0
+        False  # Anti-flicker disabled
+        and _dir_now != 0
         and _last_dir != 0
         and _dir_now != _last_dir
         and _diff_q is not None
