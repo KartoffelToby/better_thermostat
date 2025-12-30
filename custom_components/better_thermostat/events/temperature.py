@@ -192,7 +192,7 @@ async def trigger_temperature_change(self, event):
     # Signifikanz-Schwelle: 0.11°C (um 0.1°C Rauschen zu filtern).
     # Wir ignorieren die Toleranz-Einstellung hier, um auch bei größerer Regel-Toleranz
     # präzise Sensor-Updates zu erhalten.
-    _sig_threshold = 0.11
+    _sig_threshold = 0.0
 
     try:
         for trv in self.all_trvs:
