@@ -464,9 +464,26 @@ def compute_mpc(inp: MpcInput, params: MpcParams) -> Optional[MpcOutput]:
                         if max_offset_C > 0:
                             lo = sensor_temp - max_offset_C
                             hi = sensor_temp + max_offset_C
-                            clamped = min(max(float(state.virtual_temp), lo), hi)
-                            if clamped != float(state.virtual_temp):
+                            original_virtual = float(state.virtual_temp)
+                            clamped = min(max(original_virtual, lo), hi)
+
+                            if clamped != original_virtual:
                                 extra_debug["virtual_temp_clamp"] = True
+
+                                # If the model is running too hot (hitting the upper clamp),
+                                # the gain estimate is likely too high.
+                                if original_virtual > hi and bool(getattr(params, "mpc_adapt", True)):
+                                    if state.gain_est is None:
+                                        state.gain_est = float(params.mpc_thermal_gain)
+
+                                    # Decay gain to correct the model overshoot.
+                                    state.gain_est = float(state.gain_est) * 0.98
+                                    state.gain_est = max(
+                                        params.mpc_gain_min,
+                                        min(params.mpc_gain_max, state.gain_est),
+                                    )
+                                    extra_debug["mpc_gain_clamped"] = True
+
                             state.virtual_temp = clamped
 
                 state.last_sensor_temp_C = sensor_temp
