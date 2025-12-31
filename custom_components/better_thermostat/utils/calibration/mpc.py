@@ -803,7 +803,7 @@ def _compute_predictive_percent(
                 common_ok
                 and learn_signal
                 and (u_last >= max(min_open, ident_min_u))
-                and observed_rate > 0.01
+                and observed_rate > 0.001
             ):
                 # gain = (observed_rate + loss) / u
                 denom = max(u_last, 1e-3)
