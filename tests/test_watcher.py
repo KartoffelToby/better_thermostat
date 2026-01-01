@@ -299,7 +299,9 @@ class TestCheckAndUpdateDegradedMode:
         assert "sensor.room_temp" in mock_bt_instance.unavailable_sensors
 
     @pytest.mark.anyio
-    async def test_calls_get_battery_status_for_available_sensors(self, mock_bt_instance):
+    async def test_calls_get_battery_status_for_available_sensors(
+        self, mock_bt_instance
+    ):
         """Test that get_battery_status is called for available sensors."""
         from custom_components.better_thermostat.utils.watcher import (
             check_and_update_degraded_mode,
