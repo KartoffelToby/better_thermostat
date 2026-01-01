@@ -204,6 +204,8 @@ async def check_critical_entities(self) -> bool:
             if entity in self.devices_errors:
                 self.devices_errors.remove(entity)
                 ir.async_delete_issue(self.hass, DOMAIN, f"missing_entity_{entity}")
+            # Update battery status for available entities
+            self.hass.async_create_task(get_battery_status(self, entity))
     return True
 
 
@@ -229,6 +231,9 @@ async def check_and_update_degraded_mode(self) -> bool:
                 self.device_name,
                 entity,
             )
+        else:
+            # Update battery status for available optional sensors
+            self.hass.async_create_task(get_battery_status(self, entity))
 
     # Check room temperature sensor - special case with TRV fallback
     sensor_available = is_entity_available(self.hass, self.sensor_entity_id)
@@ -240,6 +245,9 @@ async def check_and_update_degraded_mode(self) -> bool:
             self.device_name,
             self.sensor_entity_id,
         )
+    else:
+        # Update battery status for room temperature sensor
+        self.hass.async_create_task(get_battery_status(self, self.sensor_entity_id))
 
     # Update instance state
     old_degraded = getattr(self, "degraded_mode", False)
