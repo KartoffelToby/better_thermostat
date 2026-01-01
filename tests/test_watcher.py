@@ -297,3 +297,72 @@ class TestCheckAndUpdateDegradedMode:
 
         assert result is True
         assert "sensor.room_temp" in mock_bt_instance.unavailable_sensors
+
+    @pytest.mark.anyio
+    async def test_calls_get_battery_status_for_available_sensors(self, mock_bt_instance):
+        """Test that get_battery_status is called for available sensors."""
+        from custom_components.better_thermostat.utils.watcher import (
+            check_and_update_degraded_mode,
+        )
+
+        mock_state = MagicMock()
+        mock_state.state = "20.0"
+        mock_bt_instance.hass.states.get.return_value = mock_state
+
+        with patch("custom_components.better_thermostat.utils.watcher.ir"):
+            with patch(
+                "custom_components.better_thermostat.utils.watcher.get_battery_status"
+            ) as mock_battery:
+                await check_and_update_degraded_mode(mock_bt_instance)
+
+                # Should be called for all available optional sensors + room sensor
+                # 4 optional sensors + 1 room sensor = 5 calls
+                assert mock_bt_instance.hass.async_create_task.call_count == 5
+
+
+class TestBatteryStatusCalls:
+    """Tests for battery status updates in entity checks."""
+
+    @pytest.mark.anyio
+    async def test_check_critical_entities_calls_battery_status(self, mock_bt_instance):
+        """Test that check_critical_entities calls get_battery_status for available TRVs."""
+        from custom_components.better_thermostat.utils.watcher import (
+            check_critical_entities,
+        )
+
+        mock_state = MagicMock()
+        mock_state.state = "heat"
+        mock_bt_instance.hass.states.get.return_value = mock_state
+
+        with patch("custom_components.better_thermostat.utils.watcher.ir"):
+            with patch(
+                "custom_components.better_thermostat.utils.watcher.get_battery_status"
+            ) as mock_battery:
+                result = await check_critical_entities(mock_bt_instance)
+
+                assert result is True
+                # Should be called for each available TRV (2 TRVs in fixture)
+                assert mock_bt_instance.hass.async_create_task.call_count == 2
+
+    @pytest.mark.anyio
+    async def test_check_critical_entities_no_battery_call_when_unavailable(
+        self, mock_bt_instance
+    ):
+        """Test that get_battery_status is not called for unavailable TRVs."""
+        from custom_components.better_thermostat.utils.watcher import (
+            check_critical_entities,
+        )
+
+        mock_state = MagicMock()
+        mock_state.state = "unavailable"
+        mock_bt_instance.hass.states.get.return_value = mock_state
+
+        with patch("custom_components.better_thermostat.utils.watcher.ir"):
+            with patch(
+                "custom_components.better_thermostat.utils.watcher.get_battery_status"
+            ) as mock_battery:
+                result = await check_critical_entities(mock_bt_instance)
+
+                assert result is False
+                # Should not be called for unavailable TRVs
+                assert mock_bt_instance.hass.async_create_task.call_count == 0

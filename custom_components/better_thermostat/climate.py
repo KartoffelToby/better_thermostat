@@ -485,9 +485,10 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
         self.control_queue_task = asyncio.Queue(maxsize=1)
         if self.window_id is not None:
             self.window_queue_task = asyncio.Queue(maxsize=1)
-        asyncio.create_task(control_queue(self))
+        self._control_task = asyncio.create_task(control_queue(self))
+        self._window_task = None
         if self.window_id is not None:
-            asyncio.create_task(window_queue(self))
+            self._window_task = asyncio.create_task(window_queue(self))
         self.heating_power = 0.01
         # Short bounded history of recent heating power evaluations
         self.last_heating_power_stats = deque(maxlen=10)
@@ -3576,4 +3577,16 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
 
     async def async_will_remove_from_hass(self):
         """Run when entity will be removed from hass."""
+        if self._control_task:
+            self._control_task.cancel()
+            try:
+                await self._control_task
+            except asyncio.CancelledError:
+                pass
+        if self._window_task:
+            self._window_task.cancel()
+            try:
+                await self._window_task
+            except asyncio.CancelledError:
+                pass
         await super().async_will_remove_from_hass()
