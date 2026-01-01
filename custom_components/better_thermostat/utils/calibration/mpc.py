@@ -768,7 +768,7 @@ def _compute_predictive_percent(
                 ss_rate_thr = 0.02  # °C/min: quasi steady-state threshold
 
                 # Rate-limit residual learning using dt_residual window.
-                residual_min_interval_s = 300.0  # 5min (allow some jitter)
+                residual_min_interval_s = 300.0  # 5min min window
                 residual_max_interval_s = 3600.0  # 60min (avoid stale windows)
                 if (
                     dt_residual < residual_min_interval_s
