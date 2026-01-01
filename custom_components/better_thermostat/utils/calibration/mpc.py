@@ -475,7 +475,9 @@ def compute_mpc(inp: MpcInput, params: MpcParams) -> Optional[MpcOutput]:
 
                                 # If the model is running too hot (hitting the upper clamp),
                                 # the gain estimate is likely too high.
-                                if original_virtual > hi and bool(getattr(params, "mpc_adapt", True)):
+                                if original_virtual > hi and bool(
+                                    getattr(params, "mpc_adapt", True)
+                                ):
                                     if state.gain_est is None:
                                         state.gain_est = float(params.mpc_thermal_gain)
 
@@ -629,7 +631,10 @@ def _compute_predictive_percent(
                 state.last_residual_time = state.last_learn_time or now
 
             # Safety: residual window cannot be longer than the current stable period
-            if state.last_learn_time is not None and state.last_residual_time < state.last_learn_time:
+            if (
+                state.last_learn_time is not None
+                and state.last_residual_time < state.last_learn_time
+            ):
                 state.last_residual_time = state.last_learn_time
 
             dt_residual = now - state.last_residual_time
