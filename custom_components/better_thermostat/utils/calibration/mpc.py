@@ -277,6 +277,9 @@ def compute_mpc(inp: MpcInput, params: MpcParams) -> Optional[MpcOutput]:
         state.virtual_temp = None
         state.virtual_temp_ts = 0.0
         state.last_percent = None
+        state.u_integral = 0.0
+        state.time_integral = 0.0
+        state.last_residual_time = None
         _LOGGER.debug(
             "better_thermostat %s: MPC skip heating (%s) window_open=%s heating_allowed=%s",
             name,
