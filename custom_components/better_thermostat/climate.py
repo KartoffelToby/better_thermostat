@@ -1490,6 +1490,15 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
                             self.real_trvs[trv]["local_calibration_step"] = (
                                 await get_offset_step(self, trv)
                             )
+                        # Ensure None values are replaced with sensible defaults
+                        if self.real_trvs[trv]["last_calibration"] is None:
+                            self.real_trvs[trv]["last_calibration"] = 0
+                        if self.real_trvs[trv]["local_calibration_min"] is None:
+                            self.real_trvs[trv]["local_calibration_min"] = -10
+                        if self.real_trvs[trv]["local_calibration_max"] is None:
+                            self.real_trvs[trv]["local_calibration_max"] = 10
+                        if self.real_trvs[trv]["local_calibration_step"] is None:
+                            self.real_trvs[trv]["local_calibration_step"] = 0.1
                         _LOGGER.debug(
                             "better_thermostat %s: offsets for TRV %s retrieved",
                             self.device_name,
@@ -1502,6 +1511,9 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
                             trv,
                         )
                         self.real_trvs[trv]["last_calibration"] = 0
+                        self.real_trvs[trv]["local_calibration_min"] = -10
+                        self.real_trvs[trv]["local_calibration_max"] = 10
+                        self.real_trvs[trv]["local_calibration_step"] = 0.1
                     except Exception as exc:
                         _LOGGER.error(
                             "better_thermostat %s: Error getting offsets for TRV %s: %s",
@@ -1510,8 +1522,14 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
                             exc,
                         )
                         self.real_trvs[trv]["last_calibration"] = 0
+                        self.real_trvs[trv]["local_calibration_min"] = -10
+                        self.real_trvs[trv]["local_calibration_max"] = 10
+                        self.real_trvs[trv]["local_calibration_step"] = 0.1
                 else:
                     self.real_trvs[trv]["last_calibration"] = 0
+                    self.real_trvs[trv]["local_calibration_min"] = -10
+                    self.real_trvs[trv]["local_calibration_max"] = 10
+                    self.real_trvs[trv]["local_calibration_step"] = 0.1
 
                 _s = self.hass.states.get(trv)
                 _attrs = _s.attributes if _s else {}
