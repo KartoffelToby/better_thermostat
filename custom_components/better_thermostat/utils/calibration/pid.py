@@ -35,6 +35,7 @@ class PIDState:
     pid_kp: float | None = None
     pid_ki: float | None = None
     pid_kd: float | None = None
+    auto_tune: bool | None = None
     # Auto-Tuning State
     last_tune_ts: float = 0.0
     last_delta_sign: int | None = None
@@ -49,6 +50,11 @@ class PIDState:
 
 # --- PID Parameters -----------------------------------------------
 
+DEFAULT_PID_KP = 20.0
+DEFAULT_PID_KI = 0.02
+DEFAULT_PID_KD = 400.0
+DEFAULT_PID_AUTO_TUNE = True
+
 
 @dataclass
 class PIDParams:
@@ -58,9 +64,9 @@ class PIDParams:
     """
 
     # PID-Parameter
-    kp: float = 20.0
-    ki: float = 0.02
-    kd: float = 400.0
+    kp: float = DEFAULT_PID_KP
+    ki: float = DEFAULT_PID_KI
+    kd: float = DEFAULT_PID_KD
     # Integrator-Klammer (Anti-Windup) in %-Punkten
     i_min: float = -60.0
     i_max: float = 60.0
@@ -71,7 +77,7 @@ class PIDParams:
     # Valve slew-rate limiter (% per update)
     slew_rate: float = 5.0
     # Auto-Tuning
-    auto_tune: bool = True
+    auto_tune: bool = DEFAULT_PID_AUTO_TUNE
     tune_min_interval_s: float = 300.0
     overshoot_threshold_K: float = 0.3
     kp_min: float = 10.0
@@ -502,6 +508,7 @@ def export_pid_states(prefix: str | None = None) -> dict[str, dict[str, Any]]:
             "pid_kp": st.pid_kp,
             "pid_ki": st.pid_ki,
             "pid_kd": st.pid_kd,
+            "auto_tune": st.auto_tune,
             "last_tune_ts": st.last_tune_ts,
             "last_delta_sign": st.last_delta_sign,
             "last_error_sign": st.last_error_sign,
@@ -535,6 +542,7 @@ def import_pid_states(
                 pid_kp=v.get("pid_kp"),
                 pid_ki=v.get("pid_ki"),
                 pid_kd=v.get("pid_kd"),
+                auto_tune=v.get("auto_tune"),
                 last_tune_ts=v.get("last_tune_ts", 0.0),
                 last_delta_sign=v.get("last_delta_sign"),
                 last_error_sign=v.get("last_error_sign"),

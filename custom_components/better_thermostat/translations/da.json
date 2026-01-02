@@ -16,8 +16,7 @@
           "window_off_delay": "Forsinkelse, før termostaten slukker, når vinduet er åbent, og tændt, når vinduet er lukket",
           "window_off_delay_after": "Forsinkelse, før termostaten tænder, når vinduet er lukket",
           "outdoor_sensor": "Hvis du har en udeføler, kan du bruge den til at få udetemperaturen",
-          "weather": "Din vejrentitet for at få udendørstemperaturen",
-          "eco_temperature": "ECO Target Temp"
+          "weather": "Din vejrentitet for at få udendørstemperaturen"
         }
       },
       "advanced": {
@@ -72,7 +71,6 @@
           "valve_maintenance": "Hvis din termostat ikke har nogen egen vedligeholdelsestilstand, kan du bruge denne",
           "calibration": "Den slags kalibrering https://better-thermostat.org/configuration#second-step",
           "weather": "Din vejrentitet for at få udendørstemperaturen",
-          "eco_temperature": "ECO Target Temp",
           "heat_auto_swapped": "Hvis auto betyder varme til din TRV, og du ønsker at bytte den",
           "child_lock": "Ignorer alle input på TRV som en børnesikring",
           "homaticip": "Hvis du bruger HomematicIP, bør du aktivere dette for at bremse anmodningerne for at forhindre arbejdscyklus"

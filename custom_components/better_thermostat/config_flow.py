@@ -30,7 +30,6 @@ from .utils.const import (
     CONF_CALIBRATION_MODE,
     CONF_CHILD_LOCK,
     CONF_COOLER,
-    CONF_ECO_TEMPERATURE,
     CONF_HEAT_AUTO_SWAPPED,
     CONF_HEATER,
     CONF_HOMEMATICIP,
@@ -143,20 +142,13 @@ PRESET_SELECTOR = selector.SelectSelector(
         ],
         mode=selector.SelectSelectorMode.DROPDOWN,
         multiple=True,
+        translation_key="presets",
     )
-)
-
-
-_ADVANCED_NUMERIC_SPECS: Tuple[Tuple[str, Any, Any], ...] = (
-    ("pid_kp", 20.0, vol.All(vol.Coerce(float), vol.Range(min=0))),
-    ("pid_ki", 0.02, vol.All(vol.Coerce(float), vol.Range(min=0))),
-    ("pid_kd", 400.0, vol.All(vol.Coerce(float), vol.Range(min=0))),
 )
 
 
 _USER_FIELD_DEFAULTS: Dict[str, Any] = {
     CONF_OFF_TEMPERATURE: 20,
-    CONF_ECO_TEMPERATURE: 18.0,
     CONF_TOLERANCE: 0.0,
     CONF_TARGET_TEMP_STEP: "0.0",
 }
@@ -291,7 +283,7 @@ def _build_advanced_fields(
     ] = bool
     ordered[
         vol.Optional(
-            CONF_HEAT_AUTO_SWAPPED, default=get_bool(CONF_HEAT_AUTO_SWAPPED, has_auto)
+            CONF_HEAT_AUTO_SWAPPED, default=get_bool(CONF_HEAT_AUTO_SWAPPED, False)
         )
     ] = bool
     ordered[
@@ -305,20 +297,6 @@ def _build_advanced_fields(
     ordered[
         vol.Optional(CONF_HOMEMATICIP, default=get_bool(CONF_HOMEMATICIP, homematic))
     ] = bool
-
-    # 4) PID block
-    ordered[vol.Optional("pid_auto_tune", default=get_bool("pid_auto_tune", True))] = (
-        bool
-    )
-    ordered[vol.Optional("pid_kp", default=get_value("pid_kp", 20.0))] = vol.All(
-        vol.Coerce(float), vol.Range(min=0)
-    )
-    ordered[vol.Optional("pid_ki", default=get_value("pid_ki", 0.02))] = vol.All(
-        vol.Coerce(float), vol.Range(min=0)
-    )
-    ordered[vol.Optional("pid_kd", default=get_value("pid_kd", 400.0))] = vol.All(
-        vol.Coerce(float), vol.Range(min=0)
-    )
 
     return ordered
 
@@ -338,22 +316,13 @@ def _normalize_advanced_submission(
         normalized.get(CONF_NO_SYSTEM_MODE_OFF), False
     )
     normalized[CONF_HEAT_AUTO_SWAPPED] = _as_bool(
-        normalized.get(CONF_HEAT_AUTO_SWAPPED), has_auto
+        normalized.get(CONF_HEAT_AUTO_SWAPPED), False
     )
     normalized[CONF_VALVE_MAINTENANCE] = _as_bool(
         normalized.get(CONF_VALVE_MAINTENANCE), False
     )
     normalized[CONF_CHILD_LOCK] = _as_bool(normalized.get(CONF_CHILD_LOCK), False)
     normalized[CONF_HOMEMATICIP] = _as_bool(normalized.get(CONF_HOMEMATICIP), homematic)
-
-    for key, default, _validator in _ADVANCED_NUMERIC_SPECS:
-        caster = int if key.endswith("_steps") else float
-        try:
-            normalized[key] = caster(normalized.get(key, default))
-        except (TypeError, ValueError):
-            normalized[key] = caster(default)
-
-    normalized["pid_auto_tune"] = _as_bool(normalized.get("pid_auto_tune"), True)
 
     _LOGGER.debug("Normalized advanced submission: %s", normalized)
 
@@ -515,19 +484,6 @@ def _build_user_fields(
         off_temp_default = _USER_FIELD_DEFAULTS[CONF_OFF_TEMPERATURE]
     add_field(CONF_OFF_TEMPERATURE, int, default=off_temp_default)
 
-    eco_temp_default = resolve(
-        CONF_ECO_TEMPERATURE, _USER_FIELD_DEFAULTS[CONF_ECO_TEMPERATURE]
-    )
-    try:
-        eco_temp_default = float(eco_temp_default)
-    except (TypeError, ValueError):
-        eco_temp_default = _USER_FIELD_DEFAULTS[CONF_ECO_TEMPERATURE]
-    add_field(
-        CONF_ECO_TEMPERATURE,
-        vol.All(vol.Coerce(float), vol.Range(min=5, max=35)),
-        default=eco_temp_default,
-    )
-
     if not is_create:
         add_field(CONF_PRESETS, PRESET_SELECTOR, default=resolve(CONF_PRESETS, []))
 
@@ -603,7 +559,7 @@ def _normalize_user_submission(
                 normalized[key] = None
             else:
                 normalized[key] = value
-        elif mode == "create" and key not in normalized:
+        else:
             normalized[key] = None
 
     for key in (CONF_WINDOW_TIMEOUT, CONF_WINDOW_TIMEOUT_AFTER):
@@ -622,17 +578,6 @@ def _normalize_user_submission(
         normalized[CONF_OFF_TEMPERATURE] = int(off_temp)
     except (TypeError, ValueError):
         normalized[CONF_OFF_TEMPERATURE] = _USER_FIELD_DEFAULTS[CONF_OFF_TEMPERATURE]
-
-    eco_temp = user_input.get(
-        CONF_ECO_TEMPERATURE,
-        normalized.get(
-            CONF_ECO_TEMPERATURE, _USER_FIELD_DEFAULTS[CONF_ECO_TEMPERATURE]
-        ),
-    )
-    try:
-        normalized[CONF_ECO_TEMPERATURE] = float(eco_temp)
-    except (TypeError, ValueError):
-        normalized[CONF_ECO_TEMPERATURE] = _USER_FIELD_DEFAULTS[CONF_ECO_TEMPERATURE]
 
     if CONF_PRESETS in user_input:
         normalized[CONF_PRESETS] = user_input[CONF_PRESETS]

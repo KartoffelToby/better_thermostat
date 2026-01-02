@@ -38,6 +38,10 @@ from custom_components.better_thermostat.utils.calibration.pid import (
     PIDParams,
     compute_pid,
     get_pid_state,
+    DEFAULT_PID_KP,
+    DEFAULT_PID_KI,
+    DEFAULT_PID_KD,
+    DEFAULT_PID_AUTO_TUNE,
 )
 
 from custom_components.better_thermostat.utils.calibration.pid import build_pid_key
@@ -233,7 +237,6 @@ def _compute_pid_balance(self, entity_id: str):
         return None, False
 
     # Build PID params from config and learned values
-    advanced = trv_state.get("advanced", {})
     key = build_pid_key(self, entity_id)
     pid_state = get_pid_state(key)
 
@@ -242,19 +245,23 @@ def _compute_pid_balance(self, entity_id: str):
         kp=(
             pid_state.pid_kp
             if pid_state and pid_state.pid_kp is not None
-            else advanced.get("pid_kp", 20.0)
+            else DEFAULT_PID_KP
         ),
         ki=(
             pid_state.pid_ki
             if pid_state and pid_state.pid_ki is not None
-            else advanced.get("pid_ki", 0.02)
+            else DEFAULT_PID_KI
         ),
         kd=(
             pid_state.pid_kd
             if pid_state and pid_state.pid_kd is not None
-            else advanced.get("pid_kd", 400.0)
+            else DEFAULT_PID_KD
         ),
-        auto_tune=advanced.get("pid_auto_tune", True),
+        auto_tune=(
+            pid_state.auto_tune
+            if pid_state and pid_state.auto_tune is not None
+            else DEFAULT_PID_AUTO_TUNE
+        ),
     )
 
     _LOGGER.debug(

@@ -17,17 +17,16 @@
           "window_off_delay_after": "Delay before the thermostat turns on when the window is closed",
           "outdoor_sensor": "If you have an outdoor sensor, you can use it to get the outdoor temperature",
           "weather": "Your weather entity to get the outdoor temperature",
-          "eco_temperature": "ECO Target Temp",
-          "target_temp_step": "Target temperature step"
+          "target_temp_step": "Target temperature step",
+          "presets": "Enabled Presets"
+        },
+        "data_description": {
+          "presets": "Select the presets you want to be available for this thermostat."
         }
       },
       "advanced": {
         "description": "Advanced configuration {trv}\n***Info about calibration types: https://better-thermostat.org/configuration#second-step***",
         "data": {
-          "pid_auto_tune": "PID auto tune",
-          "pid_kp": "PID Kp",
-          "pid_ki": "PID Ki",
-          "pid_kd": "PID Kd",
           "protect_overheating": "Overheating protection?",
           "heat_auto_swapped": "If the auto means heat for your TRV and you want to swap it",
           "child_lock": "Ignore all inputs on the TRV like a child lock",
@@ -38,10 +37,6 @@
           "no_off_system_mode": "If your TRV can't handle the off mode, you can enable this to use target temperature 5°C instead"
         },
         "data_description": {
-          "pid_auto_tune": "Let the controller infer stable PID values over time.",
-          "pid_kp": "Proportional gain (responsiveness to error).",
-          "pid_ki": "Integral gain (eliminates steady-state error).",
-          "pid_kd": "Derivative gain (damps overshoot).",
           "protect_overheating": "Some TRVs don't close the valve completely when the temperature is reached. Or the radiator has a lot of rest heat. This can cause overheating. This option can prevent this.",
           "calibration_mode": "The kind how the calibration should be calculated\n***Normal***: In this mode, the TRV internal temperature sensor is fixed by the external temperature sensor.\n***Aggressive***: In this mode, the TRV internal temperature sensor is fixed by the external temperature sensor but set much lower/higher to get a quicker boost.\n***AI Time Based***: In this mode, the TRV internal temperature sensor is fixed by the external temperature sensor, but a custom algorithm calculates the value to improve the TRV internal algorithm.\n***MPC Predictive***: Uses the MPC predictive controller to derive a valve opening and converts it to offsets or setpoints when direct valve control is unavailable.\n***PID Controller***: Uses a PID controller to dynamically adjust valve position based on temperature error, proportional term, integral accumulation, and derivative prediction.\n***TPI Controller***: Uses a Time Proportional Integral controller for stable and precise temperature control over time.",
           "calibration": "How the calibration should be applied on the TRV (Target temp or offset)\n***Target Temperature Based***: Apply the calibration to the target temperature.\n***Offset Based***: Apply the calibration to the offset."
@@ -81,11 +76,14 @@
           "valve_maintenance": "If your thermostat has no own maintenance mode, you can use this one",
           "calibration": "The sort of calibration https://better-thermostat.org/configuration#second-step",
           "weather": "Your weather entity to get the outdoor temperature",
-          "eco_temperature": "ECO Target Temp",
+          "presets": "Enabled Presets",
           "target_temp_step": "Target temperature step",
           "heat_auto_swapped": "If the auto means heat for your TRV and you want to swap it",
           "child_lock": "Ignore all inputs on the TRV like a child lock",
           "homematicip": "If you use HomematicIP, you should enable this to slow down the requests to prevent the duty cycle"
+        },
+        "data_description": {
+          "presets": "Select the presets you want to be available for this thermostat."
         }
       },
       "advanced": {
@@ -94,10 +92,6 @@
           "trend_mix_trv": "Temp mix (external weight, 0–1)",
           "percent_hysteresis_pts": "Hysteresis (percentage points)",
           "min_update_interval_s": "Minimum update interval (seconds)",
-          "pid_auto_tune": "PID auto tune",
-          "pid_kp": "PID Kp",
-          "pid_ki": "PID Ki",
-          "pid_kd": "PID Kd",
           "protect_overheating": "Overheating protection?",
           "heat_auto_swapped": "If the auto means heat for your TRV and you want to swap it",
           "child_lock": "Ignore all inputs on the TRV like a child lock",
@@ -108,12 +102,8 @@
           "no_off_system_mode": "If your TRV can't handle the off mode, you can enable this to use target temperature 5°C instead"
         },
         "data_description": {
-          "pid_auto_tune": "Let the controller infer stable PID values over time.",
-          "pid_kp": "Proportional gain (responsiveness to error).",
-          "pid_ki": "Integral gain (eliminates steady-state error).",
-          "pid_kd": "Derivative gain (damps overshoot).",
           "protect_overheating": "Some TRVs don't close the valve completely when the temperature is reached. Or the radiator has a lot of rest heat. This can cause overheating. This option can prevent this.",
-          "calibration_mode": "The kind how the calibration should be calculated\n***Normal***: In this mode, the TRV internal temperature sensor is fixed by the external temperature sensor.\n***Aggresive***: In this mode, the TRV internal temperature sensor is fixed by the external temperature sensor but set much lower/higher to get a quicker boost.\n***AI Time Based***: In this mode the TRV internal temperature sensor is fixed by the external temperature sensor, but a custom algorithm calculates the value to improve the TRV internal algorithm.\n***MPC Predictive***: Uses the MPC hydraulic balance algorithm to derive a valve opening and converts it to offsets or setpoints when direct valve control is unavailable.",
+          "calibration_mode": "The kind how the calibration should be calculated\n***Normal***: In this mode, the TRV internal temperature sensor is fixed by the external temperature sensor.\n***Aggresive***: In this mode, the TRV internal temperature sensor is fixed by the external temperature sensor but set much lower/higher to get a quicker boost.\n***AI Time Based***: In this mode the TRV internal temperature sensor is fixed by the external temperature sensor, but a custom algorithm calculates the value to improve the TRV internal algorithm.\n***MPC Predictive***: Uses the MPC hydraulic balance algorithm to derive a valve opening and converts it to offsets or setpoints when direct valve control is unavailable.\n***PID Controller***: Uses a PID controller to dynamically adjust valve position based on temperature error, proportional term, integral accumulation, and derivative prediction.\n***TPI Controller***: Uses a Time Proportional Integral controller for stable and precise temperature control over time.",
           "calibration": "How the calibration should be applied on the TRV (Target temp or offset)\n***Target Temperature Based***: Apply the calibration to the target temperature.\n***Offset Based***: Apply the calibration to the offset."
         }
       }
@@ -148,6 +138,49 @@
     "set_temp_target_temperature": {
       "name": "Set eco temperature",
       "description": "Set the target temperature to a temporary like night mode, and save the old one."
+    }
+  },
+  "selector": {
+    "presets": {
+      "options": {
+        "eco": "Eco",
+        "away": "Away",
+        "boost": "Boost",
+        "comfort": "Comfort",
+        "home": "Home",
+        "sleep": "Sleep",
+        "activity": "Activity"
+      }
+    }
+  },
+  "entity": {
+    "number": {
+      "pid_kp": {
+        "name": "{trv_name} PID Kp (Proportional)"
+      },
+      "pid_ki": {
+        "name": "{trv_name} PID Ki (Integral)"
+      },
+      "pid_kd": {
+        "name": "{trv_name} PID Kd (Derivative)"
+      },
+      "pid_kp_no_trv": {
+        "name": "PID Kp (Proportional)"
+      },
+      "pid_ki_no_trv": {
+        "name": "PID Ki (Integral)"
+      },
+      "pid_kd_no_trv": {
+        "name": "PID Kd (Derivative)"
+      }
+    },
+    "switch": {
+      "pid_auto_tune": {
+        "name": "{trv_name} PID Auto Tune"
+      },
+      "pid_auto_tune_no_trv": {
+        "name": "PID Auto Tune"
+      }
     }
   }
 }

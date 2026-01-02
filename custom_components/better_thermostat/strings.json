@@ -16,16 +16,15 @@
                                         "window_off_delay_after": "Delay before the thermostat should turn on when the window is closed",
                                         "outdoor_sensor": "Outdoor temperature sensor",
                                         "weather": "Weather entity to get the outdoor temperature",
-                                        "eco_temperature": "ECO Target Temp"
+                                        "presets": "Enabled Presets"
+                                },
+                                "data_description": {
+                                        "presets": "Select the presets you want to be available for this thermostat."
                                 }
                         },
                         "advanced": {
                                 "description": "Advanced configuration {trv}\n***Info about calibration types: https://better-thermostat.org/configuration#second-step***",
                                 "data": {
-                                        "pid_auto_tune": "PID auto tune",
-                                        "pid_kp": "PID Kp",
-                                        "pid_ki": "PID Ki",
-                                        "pid_kd": "PID Kd",
                                         "protect_overheating": "Overheating protection?",
                                         "heat_auto_swapped": "If 'auto' means 'heat' for your TRV and you want to swap it",
                                         "child_lock": "Ignore all inputs on the TRV like a child lock",
@@ -36,10 +35,6 @@
                                         "no_off_system_mode": "If your TRV doesn't support the 'off' mode, enable this to use target temperature 5°C instead"
                                 },
                                 "data_description": {
-                                        "pid_auto_tune": "Let the controller infer stable PID values over time.",
-                                        "pid_kp": "Proportional gain (responsiveness to error).",
-                                        "pid_ki": "Integral gain (eliminates steady-state error).",
-                                        "pid_kd": "Derivative gain (damps overshoot).",
                                         "protect_overheating": "Some TRVs don't close the valve completely when the temperature is reached. Or the radiator has a lot of rest heat. This can cause overheating. This option can prevent this.",
                                         "calibration_mode": "How the calibration is calculated\n***Normal***: In this mode, the TRV internal temperature sensor is fixed by the external temperature sensor.\n***Aggressive***: In this mode, the TRV internal temperature sensor is fixed by the external temperature sensor but set much lower/higher to get a quicker boost.\n***AI Time Based***: In this mode, the TRV internal temperature sensor is fixed by the external temperature sensor, but the value is calculated by a custom algorithm to improve the TRV internal algorithm.\n***MPC Predictive***: Uses the MPC predictive controller to derive a valve opening and converts it to offsets or setpoints when direct valve control is unavailable.\n***PID Controller***: Uses a PID controller to dynamically adjust valve position based on temperature error, proportional term, integral accumulation, and derivative prediction.\n***TPI Controller***: Uses a Time Proportional Integral controller for stable and precise temperature control over time.",
                                         "calibration": "How the calibration is applied on the TRV\n***Target Temperature Based***: Apply the calibration to the target temperature.\n***Offset Based***: Apply the calibration to the temperature offset."
@@ -77,7 +72,7 @@
                                         "window_off_delay_after": "Delay before the thermostat should turn on when the window is closed",
                                         "outdoor_sensor": "Outdoor temperature sensor",
                                         "weather": "Weather entity to get the outdoor temperature",
-                                        "eco_temperature": "ECO Target Temp",
+                                        "presets": "Enabled Presets",
                                         "valve_maintenance": "If your thermostat has no own maintenance mode, you can use this one",
                                         "calibration": "The sort of calibration https://better-thermostat.org/configuration#second-step",
                                         "heat_auto_swapped": "If the auto means heat for your TRV and you want to swap it",
@@ -91,10 +86,6 @@
                                         "trend_mix_trv": "Temp mix (external weight, 0–1)",
                                         "percent_hysteresis_pts": "Hysteresis (percentage points)",
                                         "min_update_interval_s": "Minimum update interval (seconds)",
-                                        "pid_auto_tune": "PID auto tune",
-                                        "pid_kp": "PID Kp",
-                                        "pid_ki": "PID Ki",
-                                        "pid_kd": "PID Kd",
                                         "protect_overheating": "Overheating protection?",
                                         "heat_auto_swapped": "If the auto means heat for your TRV and you want to swap it",
                                         "child_lock": "Ignore all inputs on the TRV like a child lock",
@@ -108,10 +99,6 @@
                                         "trend_mix_trv": "Weight of external vs. TRV internal temperature used for derivative mixing. 0.0 = internal only, 1.0 = external only. Default: 0.7.",
                                         "percent_hysteresis_pts": "Deadband around the target to avoid valve chattering. Typical: 1.0–3.0",
                                         "min_update_interval_s": "Do not send valve updates faster than this interval to spare batteries and radio.",
-                                        "pid_auto_tune": "Let the controller infer stable PID values over time.",
-                                        "pid_kp": "Proportional gain (responsiveness to error).",
-                                        "pid_ki": "Integral gain (eliminates steady-state error).",
-                                        "pid_kd": "Derivative gain (damps overshoot).",
                                         "protect_overheating": "Some TRVs don't close the valve completely when the temperature is reached. Or the radiator has a lot of rest heat. This can cause overheating. This option can prevent this.",
                                         "calibration_mode": "How the calibration is calculated\n***Normal***: In this mode, the TRV internal temperature sensor is fixed by the external temperature sensor.\n***Aggresive***: In this mode, the TRV internal temperature sensor is fixed by the external temperature sensor but set much lower/higher to get a quicker boost.\n***AI Time Based***: In this mode, the TRV internal temperature sensor is fixed by the external temperature sensor, but the value is calculated by a custom algorithm to improve the TRV internal algorithm.\n***MPC Predictive***: Uses the MPC hydraulic balance algorithm to derive a valve opening and converts it to offsets or setpoints when direct valve control is unavailable.",
                                         "calibration": "How the calibration is applied on the TRV\n***Target Temperature Based***: Apply the calibration to the target temperature.\n***Offset Based***: Apply the calibration to the temperature offset."
@@ -152,6 +139,19 @@
                 "set_temp_target_temperature": {
                         "name": "Set eco temperature",
                         "description": "Set the target temperature to a temporary like night mode, and save the old one."
+                }
+        },
+        "selector": {
+                "presets": {
+                        "options": {
+                                "eco": "Eco",
+                                "away": "Away",
+                                "boost": "Boost",
+                                "comfort": "Comfort",
+                                "home": "Home",
+                                "sleep": "Sleep",
+                                "activity": "Activity"
+                        }
                 }
         }
 }

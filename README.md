@@ -33,7 +33,20 @@ This integration brings some smartness to your connected radiator thermostats se
 - Does some valve maintenance automatically, to avoid them getting stuck closed over the summer
 - Group multiple TRVs to one (e.g. for a room with multiple radiators)
 - Enhance the default TRV Algorithm with some smartness to reduce energy consumption
-- Dynamic preset temperature learning & persistence (each preset, incl. baseline/"no preset", remembers the last temperature you set and survives restarts)
+- Dynamic preset temperature learning & persistence (baseline/"no preset" remembers the last temperature you set and survives restarts)
+- **Advanced Control Algorithms**: Choose between MPC, PID, TPI, AI Time Based or simple target temperature matching for precise control.
+- **Selectable Presets**: Configure which preset modes are available for your thermostat during setup.
+
+### Advanced Control Algorithms
+
+Better Thermostat now supports multiple advanced control strategies to optimize your heating:
+
+- **MPC (Model Predictive Control)**: Uses a physical model of your room and radiator to predict future temperature changes and optimize valve opening.
+- **PID Controller**: A classic Proportional-Integral-Derivative controller that learns your room's characteristics to maintain a stable temperature. It features auto-tuning (currently in beta) to automatically find the best parameters (Kp, Ki, Kd) for your room.
+- **TPI (Time Proportional Integral)**: A control method that cycles the valve on and off (or modulates it) to maintain a stable temperature, reducing overshoot.
+- **AI Time Based**: Uses a custom algorithm based on simple measurements and calculations (not actual AI) to calculate the required heating power and adjusts the TRV calibration to achieve it. This improves upon the standard TRV internal algorithm.
+
+These modes can be selected in the advanced configuration of the device.
 
 ### Preset Temperature Configuration
 
@@ -41,11 +54,12 @@ Preset temperatures are now fully configurable via dedicated `number` entities.
 
 How it works:
 
-1. For each available preset mode (e.g. Eco, Comfort, Sleep), a corresponding `number` entity is created (e.g., `number.better_thermostat_preset_eco`).
-2. These entities are located in the **Configuration** category of the device.
-3. You can adjust the temperature for each preset directly using these number sliders.
-4. The values are automatically persisted across Home Assistant restarts.
-5. Changing a preset temperature via the number entity immediately updates the thermostat if that preset is currently active.
+1. During setup or configuration, you can select which **Presets** you want to enable for this thermostat.
+2. For each enabled preset mode (e.g. Eco, Comfort, Sleep), a corresponding `number` entity is created (e.g., `number.better_thermostat_preset_eco`).
+3. These entities are located in the **Configuration** category of the device.
+4. You can adjust the temperature for each preset directly using these number sliders.
+5. The values are automatically persisted across Home Assistant restarts.
+6. Changing a preset temperature via the number entity immediately updates the thermostat if that preset is currently active.
 
 Default starting values:
 
