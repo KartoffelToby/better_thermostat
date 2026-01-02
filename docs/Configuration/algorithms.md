@@ -76,7 +76,7 @@ If you're unsure which algorithm to use, here's a quick guide:
 - Takes a few days to fully learn your room
 - May not be optimal during the learning period
 
-**When to use:** This is the recommended default for most users. Give it a week to learn your room's behavior for best results.
+**When to use:** This is the recommended default for most users. Expect good results after 2-3 days as it learns your room's behavior.
 
 ---
 
@@ -332,7 +332,7 @@ If you're purchasing new TRVs and want the best performance from Better Thermost
 
 1. **Give it time:** Algorithms with learning need time to learn your room:
    - **MPC Predictive**: 1 day for fine-tuned performance
-   - **AI Time Based**: 1-2 weeks for optimal performance  
+   - **AI Time Based**: 2-3 days for optimal performance  
    - **PID Controller**: 1-2 weeks for auto-tuning to settle
 
 2. **Stable placement:** Keep your external temperature sensor in a consistent location away from heat sources, drafts, and direct sunlight.
@@ -360,7 +360,8 @@ If you're purchasing new TRVs and want the best performance from Better Thermost
 
 **Algorithm isn't working well:**
 - **MPC Predictive**: Wait at least 1 day for learning
-- **AI Time Based or PID Controller**: Wait 1-2 weeks for learning/tuning
+- **AI Time Based**: Wait 2-3 days for learning
+- **PID Controller**: Wait 1-2 weeks for auto-tuning to settle
 - Check sensor placement and accuracy
 - Verify TRV is working correctly
 - Try a different algorithm
