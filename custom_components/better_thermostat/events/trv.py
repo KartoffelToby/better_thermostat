@@ -411,7 +411,7 @@ def convert_outbound_states(self, entity_id, hvac_mode) -> dict | None:
                     entity_id,
                 )
             if hvac_mode == HVACMode.OFF and (
-                HVACMode.OFF not in _system_modes
+                (_system_modes is not None and HVACMode.OFF not in _system_modes)
                 or self.real_trvs[entity_id]["advanced"].get("no_off_system_mode")
             ):
                 _min_temp = self.real_trvs[entity_id]["min_temp"]
