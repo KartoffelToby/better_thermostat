@@ -37,7 +37,15 @@ async def async_setup_entry(
         BetterThermostatTempSlopeSensor(bt_climate),
     ]
 
-    if entry.options.get(CONF_CALIBRATION_MODE) == CalibrationMode.MPC_CALIBRATION:
+    has_mpc = False
+    if hasattr(bt_climate, "all_trvs"):
+        for trv in bt_climate.all_trvs:
+            advanced = trv.get("advanced", {})
+            if advanced.get(CONF_CALIBRATION_MODE) == CalibrationMode.MPC_CALIBRATION:
+                has_mpc = True
+                break
+
+    if has_mpc:
         sensors.extend(
             [
                 BetterThermostatVirtualTempSensor(bt_climate),

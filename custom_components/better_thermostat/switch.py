@@ -9,11 +9,7 @@ from homeassistant.config_entries import ConfigEntry
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.restore_state import RestoreEntity
 
-from .utils.calibration.pid import (
-    _PID_STATES,
-    build_pid_key,
-    DEFAULT_PID_AUTO_TUNE,
-)
+from .utils.calibration.pid import _PID_STATES, build_pid_key, DEFAULT_PID_AUTO_TUNE
 from .utils.const import CalibrationMode
 
 _LOGGER = logging.getLogger(__name__)
@@ -33,8 +29,11 @@ async def async_setup_entry(
     for trv_entity_id, trv_data in bt_climate.real_trvs.items():
         advanced = trv_data.get("advanced", {})
         if advanced.get("calibration_mode") == CalibrationMode.PID_CALIBRATION:
-            switches.append(BetterThermostatPIDAutoTuneSwitch(
-                bt_climate, trv_entity_id, has_multiple_trvs))
+            switches.append(
+                BetterThermostatPIDAutoTuneSwitch(
+                    bt_climate, trv_entity_id, has_multiple_trvs
+                )
+            )
 
     async_add_entities(switches)
 
