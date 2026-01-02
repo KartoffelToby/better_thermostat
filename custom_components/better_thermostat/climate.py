@@ -1476,6 +1476,18 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
                         self.device_name,
                         trv,
                     )
+                    
+                    def _set_calibration_defaults():
+                        """Set default calibration values for TRV."""
+                        if self.real_trvs[trv].get("last_calibration") is None:
+                            self.real_trvs[trv]["last_calibration"] = 0
+                        if self.real_trvs[trv].get("local_calibration_min") is None:
+                            self.real_trvs[trv]["local_calibration_min"] = -10
+                        if self.real_trvs[trv].get("local_calibration_max") is None:
+                            self.real_trvs[trv]["local_calibration_max"] = 10
+                        if self.real_trvs[trv].get("local_calibration_step") is None:
+                            self.real_trvs[trv]["local_calibration_step"] = 0.1
+                    
                     try:
                         async with asyncio.timeout(10):
                             self.real_trvs[trv]["last_calibration"] = (
@@ -1491,14 +1503,7 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
                                 await get_offset_step(self, trv)
                             )
                         # Ensure None values are replaced with sensible defaults
-                        if self.real_trvs[trv]["last_calibration"] is None:
-                            self.real_trvs[trv]["last_calibration"] = 0
-                        if self.real_trvs[trv]["local_calibration_min"] is None:
-                            self.real_trvs[trv]["local_calibration_min"] = -10
-                        if self.real_trvs[trv]["local_calibration_max"] is None:
-                            self.real_trvs[trv]["local_calibration_max"] = 10
-                        if self.real_trvs[trv]["local_calibration_step"] is None:
-                            self.real_trvs[trv]["local_calibration_step"] = 0.1
+                        _set_calibration_defaults()
                         _LOGGER.debug(
                             "better_thermostat %s: offsets for TRV %s retrieved",
                             self.device_name,
@@ -1510,10 +1515,7 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
                             self.device_name,
                             trv,
                         )
-                        self.real_trvs[trv]["last_calibration"] = 0
-                        self.real_trvs[trv]["local_calibration_min"] = -10
-                        self.real_trvs[trv]["local_calibration_max"] = 10
-                        self.real_trvs[trv]["local_calibration_step"] = 0.1
+                        _set_calibration_defaults()
                     except Exception as exc:
                         _LOGGER.error(
                             "better_thermostat %s: Error getting offsets for TRV %s: %s",
@@ -1521,10 +1523,7 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
                             trv,
                             exc,
                         )
-                        self.real_trvs[trv]["last_calibration"] = 0
-                        self.real_trvs[trv]["local_calibration_min"] = -10
-                        self.real_trvs[trv]["local_calibration_max"] = 10
-                        self.real_trvs[trv]["local_calibration_step"] = 0.1
+                        _set_calibration_defaults()
                 else:
                     self.real_trvs[trv]["last_calibration"] = 0
                     self.real_trvs[trv]["local_calibration_min"] = -10
