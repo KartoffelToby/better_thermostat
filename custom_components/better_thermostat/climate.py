@@ -2896,8 +2896,6 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
         await self.control_queue_task.put(self)
 
     async def async_set_temperature(self, **kwargs) -> None:
-        if self.bt_hvac_mode == HVACMode.OFF:
-            return
         _LOGGER.debug(
             "better_thermostat %s: async_set_temperature kwargs=%s, current preset=%s, hvac_mode=%s",
             self.device_name,
@@ -3128,7 +3126,10 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
             )
 
             self.async_write_ha_state()
-            await self.control_queue_task.put(self)
+            # Only trigger control queue if thermostat is not OFF
+            # When OFF, we still save the temperature but don't send it to the physical device
+            if self.bt_hvac_mode != HVACMode.OFF:
+                await self.control_queue_task.put(self)
 
     async def async_turn_off(self) -> None:
         """Turn the entity off."""
