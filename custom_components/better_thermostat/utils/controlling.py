@@ -787,11 +787,12 @@ async def _set_valve_to_zero_for_window_open(self, heater_entity_id):
                 self.device_name,
                 heater_entity_id,
             )
-    except Exception:
+    except (HomeAssistantError, AttributeError, KeyError, TypeError) as e:
         _LOGGER.debug(
-            "better_thermostat %s: set_valve to 0%% not applied for %s (unsupported or failed)",
+            "better_thermostat %s: set_valve to 0%% not applied for %s (unsupported or failed): %s",
             self.device_name,
             heater_entity_id,
+            e,
         )
 
 
