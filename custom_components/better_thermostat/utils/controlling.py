@@ -359,30 +359,8 @@ async def control_trv(self, heater_entity_id=None):
 
         # For TRVs with no_off_system_mode, when window is open, we need to explicitly
         # set valve to 0% to ensure heating stops, not just set low temperature
-        if (
-            _no_off_system_mode is True
-            and _new_hvac_mode == HVACMode.OFF
-            and self.window_open
-        ):
-            try:
-                _LOGGER.debug(
-                    "better_thermostat %s: Window open with no_off_system_mode, setting valve to 0%% for %s",
-                    self.device_name,
-                    heater_entity_id,
-                )
-                ok = await set_valve(self, heater_entity_id, 0)
-                if not ok:
-                    _LOGGER.debug(
-                        "better_thermostat %s: set_valve to 0%% failed for %s (may not be supported)",
-                        self.device_name,
-                        heater_entity_id,
-                    )
-            except Exception:
-                _LOGGER.debug(
-                    "better_thermostat %s: set_valve to 0%% not applied for %s (unsupported or failed)",
-                    self.device_name,
-                    heater_entity_id,
-                )
+        if _no_off_system_mode and _new_hvac_mode == HVACMode.OFF and self.window_open:
+            await _set_valve_to_zero_for_window_open(self, heater_entity_id)
 
         # New cooler section
         if self.cooler_entity_id is not None:
@@ -667,30 +645,8 @@ async def control_trv(self, heater_entity_id=None):
 
     # For TRVs with no_off_system_mode, when window is open, we need to explicitly
     # set valve to 0% to ensure heating stops, not just set low temperature
-    if (
-        _no_off_system_mode is True
-        and _new_hvac_mode == HVACMode.OFF
-        and self.window_open
-    ):
-        try:
-            _LOGGER.debug(
-                "better_thermostat %s: Window open with no_off_system_mode, setting valve to 0%% for %s",
-                self.device_name,
-                heater_entity_id,
-            )
-            ok = await set_valve(self, heater_entity_id, 0)
-            if not ok:
-                _LOGGER.debug(
-                    "better_thermostat %s: set_valve to 0%% failed for %s (may not be supported)",
-                    self.device_name,
-                    heater_entity_id,
-                )
-        except Exception:
-            _LOGGER.debug(
-                "better_thermostat %s: set_valve to 0%% not applied for %s (unsupported or failed)",
-                self.device_name,
-                heater_entity_id,
-            )
+    if _no_off_system_mode and _new_hvac_mode == HVACMode.OFF and self.window_open:
+        await _set_valve_to_zero_for_window_open(self, heater_entity_id)
 
     # wtom: disabled for now, switches off the trv all the time
     # if not self.window_open:
@@ -810,6 +766,33 @@ async def control_trv(self, heater_entity_id=None):
     await asyncio.sleep(3)
     self.real_trvs[heater_entity_id]["ignore_trv_states"] = False
     return True
+
+
+async def _set_valve_to_zero_for_window_open(self, heater_entity_id):
+    """Set valve to 0% when window is open and no_off_system_mode is enabled.
+
+    This helper ensures that TRVs without OFF mode support have their valves
+    explicitly closed when a window opens, not just the temperature set low.
+    """
+    try:
+        _LOGGER.debug(
+            "better_thermostat %s: Window open with no_off_system_mode, setting valve to 0%% for %s",
+            self.device_name,
+            heater_entity_id,
+        )
+        ok = await set_valve(self, heater_entity_id, 0)
+        if not ok:
+            _LOGGER.debug(
+                "better_thermostat %s: set_valve to 0%% failed for %s (may not be supported)",
+                self.device_name,
+                heater_entity_id,
+            )
+    except Exception:
+        _LOGGER.debug(
+            "better_thermostat %s: set_valve to 0%% not applied for %s (unsupported or failed)",
+            self.device_name,
+            heater_entity_id,
+        )
 
 
 def handle_window_open(self, _remapped_states):
