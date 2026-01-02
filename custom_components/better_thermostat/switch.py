@@ -95,5 +95,5 @@ class BetterThermostatPIDAutoTuneSwitch(SwitchEntity, RestoreEntity):
             if key.startswith(prefix):
                 pid_state.auto_tune = state
 
-        self._bt_climate._schedule_save_pid_state()
+        self._bt_climate.schedule_save_pid_state()
         self.async_write_ha_state()

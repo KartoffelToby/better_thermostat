@@ -2026,7 +2026,7 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
                 e,
             )
 
-    def _schedule_save_pid_state(self, delay_s: float = 10.0) -> None:
+    def schedule_save_pid_state(self, delay_s: float = 10.0) -> None:
         """Debounced scheduling for saving PID state to storage."""
         if self._pid_store is None or self._pid_save_scheduled:
             return
@@ -3412,7 +3412,7 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
             )
             # Schedule persistence of cleared PID states
             try:
-                self._schedule_save_pid_state()
+                self.schedule_save_pid_state()
             except Exception:
                 pass
 
@@ -3471,7 +3471,7 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
                             len(list(self.real_trvs.keys()) or []),
                         )
                         try:
-                            self._schedule_save_pid_state()
+                            self.schedule_save_pid_state()
                         except Exception:
                             pass
                         # Kick the control loop so the new gains are used promptly
