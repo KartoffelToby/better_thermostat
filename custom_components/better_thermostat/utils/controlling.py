@@ -59,69 +59,76 @@ async def control_queue(self):
     if not hasattr(self, "task_manager"):
         self.task_manager = TaskManager()
 
-    while True:
-        if self.ignore_states or self.startup_running:
-            await asyncio.sleep(1)
-            continue
-        else:
-            controls_to_process = await self.control_queue_task.get()
-            if controls_to_process is not None:
-                self.ignore_states = True
+    try:
+        while True:
+            if self.ignore_states or self.startup_running:
+                await asyncio.sleep(1)
+                continue
+            else:
+                controls_to_process = await self.control_queue_task.get()
+                if controls_to_process is not None:
+                    self.ignore_states = True
 
-                # Calculate heating power once per cycle
-                try:
-                    await self.calculate_heating_power()
-                except Exception:
-                    _LOGGER.exception(
-                        "better_thermostat %s: ERROR calculating heating power",
-                        self.device_name,
-                    )
-
-                # Handle cooler logic once per cycle
-                if self.cooler_entity_id is not None:
+                    # Calculate heating power once per cycle
                     try:
-                        await control_cooler(self)
+                        await self.calculate_heating_power()
                     except Exception:
                         _LOGGER.exception(
-                            "better_thermostat %s: ERROR controlling cooler",
+                            "better_thermostat %s: ERROR calculating heating power",
                             self.device_name,
                         )
 
-                # Create tasks for all TRVs to run in parallel
-                tasks = []
-                for trv in self.real_trvs.keys():
-                    tasks.append(control_trv(self, trv))
+                    # Handle cooler logic once per cycle
+                    if self.cooler_entity_id is not None:
+                        try:
+                            await control_cooler(self)
+                        except Exception:
+                            _LOGGER.exception(
+                                "better_thermostat %s: ERROR controlling cooler",
+                                self.device_name,
+                            )
 
-                # Run all TRV controls in parallel
-                results = await asyncio.gather(*tasks, return_exceptions=True)
+                    # Create tasks for all TRVs to run in parallel
+                    tasks = []
+                    for trv in self.real_trvs.keys():
+                        tasks.append(control_trv(self, trv))
 
-                result = True
-                for i, res in enumerate(results):
-                    if isinstance(res, Exception):
-                        trv_id = list(self.real_trvs.keys())[i]
-                        _LOGGER.error(
-                            "better_thermostat %s: ERROR controlling TRV %s: %s",
-                            self.device_name,
-                            trv_id,
-                            res,
-                        )
-                        result = False
-                    elif res is False:
-                        result = False
+                    # Run all TRV controls in parallel
+                    results = await asyncio.gather(*tasks, return_exceptions=True)
 
-                # Retry task if some TRVs failed. Discard the task if the queue is full
-                # to avoid blocking and therefore deadlocking this function.
-                if result is False:
-                    try:
-                        self.control_queue_task.put_nowait(self)
-                    except asyncio.QueueFull:
-                        _LOGGER.debug(
-                            "better_thermostat %s: control queue is full, discarding task",
-                            self.device_name,
-                        )
+                    result = True
+                    for i, res in enumerate(results):
+                        if isinstance(res, Exception):
+                            trv_id = list(self.real_trvs.keys())[i]
+                            _LOGGER.error(
+                                "better_thermostat %s: ERROR controlling TRV %s: %s",
+                                self.device_name,
+                                trv_id,
+                                res,
+                            )
+                            result = False
+                        elif res is False:
+                            result = False
 
-                self.control_queue_task.task_done()
-                self.ignore_states = False
+                    # Retry task if some TRVs failed. Discard the task if the queue is full
+                    # to avoid blocking and therefore deadlocking this function.
+                    if result is False:
+                        try:
+                            self.control_queue_task.put_nowait(self)
+                        except asyncio.QueueFull:
+                            _LOGGER.debug(
+                                "better_thermostat %s: control queue is full, discarding task",
+                                self.device_name,
+                            )
+
+                    self.control_queue_task.task_done()
+                    self.ignore_states = False
+    except asyncio.CancelledError:
+        _LOGGER.debug(
+            "better_thermostat %s: control_queue task cancelled, cleaning up",
+            self.device_name,
+        )
+        raise
 
 
 async def control_cooler(self):
