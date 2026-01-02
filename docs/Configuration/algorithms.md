@@ -100,7 +100,7 @@ It calculates the optimal valve opening to reach your target temperature smoothl
 
 **Cons:**
 - Most complex algorithm
-- Requires a learning period (1-2 weeks for best results)
+- Requires a short learning period (typically 1 day for fine-tuned performance)
 - May seem slow to react initially (by design)
 
 **When to use:** 
@@ -109,7 +109,7 @@ It calculates the optimal valve opening to reach your target temperature smoothl
 - You want the most sophisticated control
 - Your heating system is relatively stable
 
-**Note:** MPC works best when given time to learn. Initial behavior may seem conservative, but it improves significantly after learning your room's thermal characteristics. **This algorithm has been tested and refined over 2 weeks of real-world use and is considered stable.**
+**Note:** MPC learns quickly - expect fine-tuned performance after just 1 day of operation. Initial behavior may seem conservative as it gathers data, but it rapidly adapts to your room's thermal characteristics. **This algorithm is considered stable and production-ready.**
 
 ---
 
@@ -249,7 +249,7 @@ While not recommended for most users, auto-tuning can be disabled through the ad
 
 **Notes:** 
 - "Direct Valve Benefit" indicates how much the algorithm benefits from direct valve control (see [Direct Valve Control](#direct-valve-control) section below)
-- **MPC Predictive** has been tested for 2+ weeks in real-world conditions and is considered stable
+- **MPC Predictive** is stable and production-ready
 - **PID Controller** is in beta and may require further algorithm fine-tuning
 
 ## Advanced: How the Algorithms Work Together with Calibration Types
@@ -330,7 +330,10 @@ If you're purchasing new TRVs and want the best performance from Better Thermost
 
 ## Tips for Best Results
 
-1. **Give it time:** Algorithms with learning (AI Time Based, MPC Predictive, PID Controller) need time to learn your room. Allow 1-2 weeks for optimal performance.
+1. **Give it time:** Algorithms with learning need time to learn your room:
+   - **MPC Predictive**: 1 day for fine-tuned performance
+   - **AI Time Based**: 1-2 weeks for optimal performance  
+   - **PID Controller**: 1-2 weeks for auto-tuning to settle
 
 2. **Stable placement:** Keep your external temperature sensor in a consistent location away from heat sources, drafts, and direct sunlight.
 
@@ -356,7 +359,8 @@ If you're purchasing new TRVs and want the best performance from Better Thermost
 - Or: Increase hysteresis in advanced settings
 
 **Algorithm isn't working well:**
-- Wait 1-2 weeks if using a learning algorithm
+- **MPC Predictive**: Wait at least 1 day for learning
+- **AI Time Based or PID Controller**: Wait 1-2 weeks for learning/tuning
 - Check sensor placement and accuracy
 - Verify TRV is working correctly
 - Try a different algorithm
