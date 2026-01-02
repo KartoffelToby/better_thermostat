@@ -15,8 +15,8 @@ If you're unsure which algorithm to use, here's a quick guide:
 
 - **Just starting out?** Try **AI Time Based** (default) - it works well for most situations
 - **Room heats too slowly?** Try **Aggressive**
-- **Temperature overshoots often?** Try **MPC Predictive**
-- **Have technical knowledge and want fine control?** Try **PID Controller**
+- **Temperature overshoots often?** Try **MPC Predictive** (tested & stable)
+- **Have technical knowledge and want fine control?** Try **PID Controller** (⚠️ beta)
 - **Want something simple and reliable?** Try **Normal** or **TPI Controller**
 
 ## Algorithm Descriptions
@@ -109,11 +109,13 @@ It calculates the optimal valve opening to reach your target temperature smoothl
 - You want the most sophisticated control
 - Your heating system is relatively stable
 
-**Note:** MPC works best when given time to learn. Initial behavior may seem conservative, but it improves significantly after learning your room's thermal characteristics.
+**Note:** MPC works best when given time to learn. Initial behavior may seem conservative, but it improves significantly after learning your room's thermal characteristics. **This algorithm has been tested and refined over 2 weeks of real-world use and is considered stable.**
 
 ---
 
 ### PID Controller
+
+⚠️ **Beta Status:** The PID Controller is currently in beta and may require further fine-tuning in the algorithm. While it's functional and includes auto-tuning capabilities, you may experience some edge cases that need optimization. Feedback and real-world testing are appreciated.
 
 **Best for:** Systems with varying heating power or external disturbances
 
@@ -141,6 +143,68 @@ The algorithm automatically tunes these parameters over time for optimal perform
 - You have external factors affecting room temperature (sun, drafts, etc.)
 - You want responsive temperature control
 - You have some technical knowledge
+
+#### PID Auto-Tuning and Manual Tuning
+
+The PID Controller includes an **auto-tuning feature** that is enabled by default. Here's what you need to know:
+
+**Auto-Tuning Timeline:**
+
+- **Initial period (Days 1-3):** The controller starts with default values (Kp=20, Ki=0.02, Kd=400) and begins learning your room's behavior. You may notice slight temperature oscillations as it adjusts.
+
+- **Learning phase (Days 4-7):** The algorithm makes adjustments every 5 minutes (minimum) based on:
+  - **Overshoot detection:** If temperature overshoots target, it decreases Kp (makes it less aggressive) and increases Kd (improves damping)
+  - **Sluggish response:** If heating is too slow, it increases Ki (improves steady-state accuracy)
+  - **Steady-state drift:** If temperature drifts near target, it decreases Ki (prevents accumulation)
+
+- **Settled phase (Week 2+):** After about 1-2 weeks, the parameters should stabilize and provide smooth temperature control with minimal overshooting.
+
+**What to Expect:**
+
+- Adjustments happen at least 5 minutes apart (300 seconds) to avoid over-tuning
+- Parameters are constrained to safe ranges:
+  - Kp: 10-500
+  - Ki: 0.001-1.0
+  - Kd: 100-10,000
+- Auto-tuning is conservative - it makes small changes and learns gradually
+
+**Manual Tuning (Advanced Users):**
+
+If you want to tune PID parameters manually or understand what the auto-tuning is doing:
+
+1. **Kp (Proportional gain):** Controls immediate response to temperature error
+   - Too high: Oscillations and overshoot
+   - Too low: Slow response, takes long to reach target
+   - Default: 20
+
+2. **Ki (Integral gain):** Eliminates steady-state error over time
+   - Too high: Oscillations, instability
+   - Too low: Never quite reaches target (offset)
+   - Default: 0.02
+
+3. **Kd (Derivative gain):** Predicts future error based on rate of change
+   - Too high: Sensitive to noise, erratic behavior
+   - Too low: Overshoot, slow damping
+   - Default: 400
+
+**Monitoring Auto-Tuning:**
+
+You can monitor the learned PID values in Home Assistant:
+1. Go to Developer Tools → States
+2. Find your Better Thermostat entity
+3. Look for attributes containing PID debug info showing current Kp, Ki, Kd values
+
+**Tips for Best PID Performance:**
+
+- **Be patient:** Give auto-tuning at least 1-2 weeks to fully settle
+- **Stable conditions:** Auto-tuning works best when you maintain consistent target temperatures
+- **Avoid manual interference:** During the learning phase, avoid frequently changing target temperatures
+- **Temperature sensor placement:** Ensure your external sensor is well-placed (away from heat sources, drafts)
+- **Direct valve control:** PID works best with devices that support direct valve control (see [Direct Valve Control](#direct-valve-control) section)
+
+**Disabling Auto-Tuning:**
+
+While not recommended for most users, auto-tuning can be disabled through the advanced configuration if you prefer fixed PID parameters. This is only useful if you have specific PID values you want to maintain.
 
 ---
 
@@ -180,9 +244,13 @@ The algorithm automatically tunes these parameters over time for optimal perform
 | **Response Speed** | Medium | Fast | Medium | Measured | Fast | Medium |
 | **Adaptation** | None | None | Good | Excellent | Good | None |
 | **Direct Valve Benefit** | Low | Low | Medium | **High** | **High** | Medium |
+| **Status** | Stable | Stable | Stable | **Tested & Stable** | **Beta** | Stable |
 | **Best For** | Simple setups | Fast heating | Most users | Optimization | Variable systems | Simple control |
 
-**Note:** "Direct Valve Benefit" indicates how much the algorithm benefits from direct valve control (see [Direct Valve Control](#direct-valve-control) section below).
+**Notes:** 
+- "Direct Valve Benefit" indicates how much the algorithm benefits from direct valve control (see [Direct Valve Control](#direct-valve-control) section below)
+- **MPC Predictive** has been tested for 2+ weeks in real-world conditions and is considered stable
+- **PID Controller** is in beta and may require further algorithm fine-tuning
 
 ## Advanced: How the Algorithms Work Together with Calibration Types
 
