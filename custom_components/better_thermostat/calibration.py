@@ -94,10 +94,6 @@ def _compute_mpc_balance(self, entity_id: str):
         trv_state["calibration_balance"] = None
         return None, False
 
-    if self.window_open is True:
-        trv_state["calibration_balance"] = None
-        return None, False
-
     hvac_mode = self.bt_hvac_mode
     if hvac_mode == HVACMode.OFF:
         trv_state["calibration_balance"] = None
@@ -163,10 +159,6 @@ def _compute_tpi_balance(self, entity_id: str):
         return None, False
 
     if self.bt_target_temp is None or self.cur_temp is None:
-        trv_state["calibration_balance"] = None
-        return None, False
-
-    if self.window_open is True:
         trv_state["calibration_balance"] = None
         return None, False
 
