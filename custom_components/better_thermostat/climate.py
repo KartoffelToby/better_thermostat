@@ -2485,11 +2485,11 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
             # Führe kompakt alle TRV-Balance Infos zusammen (nur valve_percent)
             bal_compact = {}
             for trv, info in self.real_trvs.items():
-                bal = info.get("balance")
+                bal = info.get("calibration_balance")
                 if bal:
                     bal_compact[trv] = {"valve%": bal.get("valve_percent")}
             if bal_compact:
-                dev_specific["balance"] = json.dumps(bal_compact)
+                dev_specific["calibration_balance"] = json.dumps(bal_compact)
         except Exception:
             pass
 
@@ -2504,7 +2504,9 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
             if rep_trv is None:
                 rep_trv = next(iter(self.real_trvs.keys()), None)
             if rep_trv is not None:
-                bal = (self.real_trvs.get(rep_trv, {}) or {}).get("balance") or {}
+                bal = (self.real_trvs.get(rep_trv, {}) or {}).get(
+                    "calibration_balance"
+                ) or {}
                 dbg = bal.get("debug") or {}
                 pid = dbg.get("pid") or {}
                 # Nur wenn Modus pid ist, sonst vermeiden wir Rauschen
@@ -2555,24 +2557,6 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
                     v = _to_float(pid.get("dt_s"))
                     if v is not None:
                         dev_specific["pid_dt_s"] = round(v, 3)
-        except Exception:
-            pass
-
-        # Balance Telemetrie (kompakt)
-        if hasattr(self, "temp_slope") and self.temp_slope is not None:
-            dev_specific["temp_slope_K_min"] = round(self.temp_slope, 4)
-        try:
-            # Führe kompakt alle TRV-Balance Infos zusammen (nur valve_percent)
-            bal_compact = {}
-            for trv, info in self.real_trvs.items():
-                bal = info.get("balance")
-                if bal:
-                    bal_compact[trv] = {"valve%": bal.get("valve_percent")}
-            if bal_compact:
-                dev_specific["balance"] = json.dumps(bal_compact)
-        except Exception:
-            pass
-
         except Exception:
             pass
 
@@ -2754,7 +2738,7 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
                     except Exception:
                         return None
 
-                THRESH = 5.0
+                THRESH = 0.0
                 for trv_id, info in (self.real_trvs or {}).items():
                     if not isinstance(info, dict):
                         continue
@@ -2828,13 +2812,13 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
                         pass
 
                     # 4) Balance module currently targets a valve percent > 0 (proxy for heating intent)
-                    bal = info.get("balance") or {}
+                    bal = info.get("calibration_balance") or {}
                     v_bal = bal.get("valve_percent") if isinstance(bal, dict) else None
                     try:
                         v_bal_n = _to_pct(v_bal)
                         if v_bal_n is not None and v_bal_n > THRESH:
                             _LOGGER.debug(
-                                "better_thermostat %s: overriding hvac_action to HEATING (balance.valve_percent %.1f%%, TRV %s)",
+                                "better_thermostat %s: overriding hvac_action to HEATING (calibration_balance.valve_percent %.1f%%, TRV %s)",
                                 self.device_name,
                                 v_bal_n,
                                 trv_id,
