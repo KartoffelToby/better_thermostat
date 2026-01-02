@@ -87,7 +87,6 @@ from .utils.const import (
     CONF_HUMIDITY,
     CONF_MODEL,
     CONF_OFF_TEMPERATURE,
-    CONF_ECO_TEMPERATURE,
     CONF_OUTDOOR_SENSOR,
     CONF_PRESETS,
     CONF_SENSOR,
@@ -211,7 +210,6 @@ async def async_setup_entry(hass, entry, async_add_entities):
         entry.data.get(CONF_WEATHER, None),
         entry.data.get(CONF_OUTDOOR_SENSOR, None),
         entry.data.get(CONF_OFF_TEMPERATURE, None),
-        entry.data.get(CONF_ECO_TEMPERATURE, None),
         entry.data.get(CONF_TOLERANCE, 0.0),
         entry.data.get(CONF_TARGET_TEMP_STEP, "0.0"),
         entry.data.get(CONF_MODEL, None),
@@ -303,7 +301,6 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
         weather_entity,
         outdoor_sensor,
         off_temperature,
-        eco_temperature,
         tolerance,
         target_temp_step,
         model,
@@ -352,25 +349,6 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
                     "better_thermostat %s: invalid off_temperature '%s', ignoring",
                     self.device_name,
                     off_temperature,
-                )
-        # Robust eco temperature parsing
-        self.eco_temperature = None
-        if eco_temperature not in (None, "", "None"):
-            try:
-                parsed_eco = float(eco_temperature)
-                if -100.0 < parsed_eco < 150.0:
-                    self.eco_temperature = parsed_eco
-                else:
-                    _LOGGER.warning(
-                        "better_thermostat %s: eco_temperature %.2f outside plausible range, ignoring",
-                        self.device_name,
-                        parsed_eco,
-                    )
-            except (TypeError, ValueError):
-                _LOGGER.warning(
-                    "better_thermostat %s: invalid eco_temperature '%s', ignoring",
-                    self.device_name,
-                    eco_temperature,
                 )
 
         # Robust tolerance parsing & sanitizing
@@ -431,7 +409,7 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
         self.bt_update_lock = False
         self.startup_running = True
         self._saved_temperature = None
-        # ECO mode removed; preserved eco preset via PRESET_ECO and CONF_ECO_TEMPERATURE
+        # ECO mode removed; preserved eco preset via PRESET_ECO
         self._preset_temperature = (
             None  # Temperature saved before entering any preset mode
         )

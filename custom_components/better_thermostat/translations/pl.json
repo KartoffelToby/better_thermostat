@@ -13,8 +13,7 @@
           "off_temperature": "Temperatura zewnętrzna, przy której termostat ma się wyłączyć",
           "window_off_delay": "Opóźnienie wyłączenia termostatu, kiedy otworzysz okno lub je zamkniesz (w sekundach)",
           "outdoor_sensor": "Jeśli masz czujnik zewnętrzny, możesz go użyć, aby uzyskać temperaturę zewnętrzną",
-          "weather": "Twoja jednostka pogodowa, aby uzyskać temperaturę zewnętrzną",
-          "eco_temperature": "ECO Target Temp"
+          "weather": "Twoja jednostka pogodowa, aby uzyskać temperaturę zewnętrzną"
         }
       },
       "advanced": {
@@ -65,7 +64,6 @@
           "valve_maintenance": "Jeżeli Twój termostat nie ma własnego trybu konserwacji, możesz użyć tej opcji.",
           "calibration": "Rodzaje kalibracji https://better-thermostat.org/configuration#second-step",
           "weather": "Twoja jednostka pogodowa, aby uzyskać temperaturę zewnętrzną",
-          "eco_temperature": "ECO Target Temp",
           "heat_auto_swapped": "Jeżeli tryb auto oznacza grzanie dla Twojego TRV i chcesz to zmienić",
           "child_lock": "Ignoruj wszystkie wejścia w TRV jak np. Blokada dziecięca",
           "homematicip": "Jeżeli używasz HomematicIP, powinienieś włączyć tę opcję żeby spowolnić żądania",

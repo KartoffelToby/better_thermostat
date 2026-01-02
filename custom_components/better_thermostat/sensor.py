@@ -35,10 +35,16 @@ async def async_setup_entry(
     sensors = [
         BetterThermostatExternalTempSensor(bt_climate),
         BetterThermostatTempSlopeSensor(bt_climate),
-        BetterThermostatVirtualTempSensor(bt_climate),
-        BetterThermostatMpcGainSensor(bt_climate),
-        BetterThermostatMpcLossSensor(bt_climate),
     ]
+
+    if entry.options.get(CONF_CALIBRATION_MODE) == CalibrationMode.MPC_CALIBRATION:
+        sensors.extend(
+            [
+                BetterThermostatVirtualTempSensor(bt_climate),
+                BetterThermostatMpcGainSensor(bt_climate),
+                BetterThermostatMpcLossSensor(bt_climate),
+            ]
+        )
 
     async_add_entities(sensors)
 
