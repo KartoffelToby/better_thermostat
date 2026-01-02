@@ -179,7 +179,10 @@ The algorithm automatically tunes these parameters over time for optimal perform
 | **Energy Efficiency** | Medium | Low | High | Very High | High | Medium |
 | **Response Speed** | Medium | Fast | Medium | Measured | Fast | Medium |
 | **Adaptation** | None | None | Good | Excellent | Good | None |
+| **Direct Valve Benefit** | Low | Low | Medium | **High** | **High** | Medium |
 | **Best For** | Simple setups | Fast heating | Most users | Optimization | Variable systems | Simple control |
+
+**Note:** "Direct Valve Benefit" indicates how much the algorithm benefits from direct valve control (see [Direct Valve Control](#direct-valve-control) section below).
 
 ## Advanced: How the Algorithms Work Together with Calibration Types
 
@@ -190,6 +193,72 @@ The **Calibration Mode** (algorithm) works together with the **Calibration Type*
 - **Offset Based:** The algorithm calculates what temperature offset to send to the TRV. For example, if the TRV's internal sensor reads 21°C but your external sensor reads 20°C, it sends an offset of -1°C.
 
 Not all TRVs support offset-based calibration. Better Thermostat will automatically detect your TRV's capabilities and offer appropriate options.
+
+## Direct Valve Control
+
+Some TRV devices support **direct valve control**, where Better Thermostat can directly set the valve opening percentage (0-100%) instead of only adjusting target temperatures or offsets. This provides more precise control and is particularly beneficial with advanced algorithms.
+
+### What is Direct Valve Control?
+
+With direct valve control, Better Thermostat can:
+- Set the exact valve opening (e.g., "open valve to 45%")
+- Bypass the TRV's internal temperature control logic
+- Achieve more precise and responsive heating control
+- Better implement advanced algorithms like MPC and PID
+
+### Which Devices Support It?
+
+Direct valve control is available for TRVs that expose valve position as a controllable entity, including:
+- **Sonoff TRVZB** (via Zigbee2MQTT or ZHA)
+- **TRVs exposed via MQTT** with valve position entities
+- **Other Zigbee TRVs** that expose valve control through their integration
+
+Better Thermostat automatically detects if your TRV supports direct valve control.
+
+### How Algorithms Use Direct Valve Control
+
+When direct valve control is available:
+
+- **MPC Predictive**: Calculates optimal valve opening based on predicted temperature changes. This is where direct valve control shines - the algorithm can precisely control heating power.
+
+- **PID Controller**: Directly outputs valve position based on temperature error and trends. Very effective with direct valve control.
+
+- **TPI Controller**: Sets valve opening based on heating duty cycle calculations.
+
+- **AI Time Based, Normal, Aggressive**: These algorithms will still work but convert their output to valve positions when direct control is available.
+
+### Without Direct Valve Control
+
+If your TRV doesn't support direct valve control, Better Thermostat uses **setpoint manipulation**:
+- Adjusts the target temperature sent to the TRV
+- Or adjusts the temperature offset (if supported)
+- The TRV's internal controller then adjusts the valve based on its own logic
+
+This still works well but gives the TRV's internal algorithm more influence over the final valve position.
+
+### Checking If You Have Direct Valve Control
+
+1. Go to your Better Thermostat device in Home Assistant
+2. Check the device attributes for entries like:
+   - `valve_position_entity`
+   - `valve_position_writable`
+3. If these are present and `valve_position_writable` is `true`, you have direct valve control
+
+For MQTT/Zigbee2MQTT users, you can also check if your TRV exposes entities like:
+- `number.your_trv_valve_position`
+- `number.your_trv_valve_opening_degree`
+
+### Benefits of Direct Valve Control
+
+✅ **More precise control** - Algorithms can set exact heating power  
+✅ **Faster response** - No waiting for TRV's internal logic  
+✅ **Better learning** - Algorithms can better understand room behavior  
+✅ **Reduced overshooting** - Finer control over heating intensity  
+✅ **Algorithm effectiveness** - MPC and PID work best with direct control  
+
+### Recommendation
+
+If you're purchasing new TRVs and want the best performance from Better Thermostat's advanced algorithms (especially MPC Predictive or PID Controller), consider devices that support direct valve control through Zigbee2MQTT or similar integrations.
 
 ## Tips for Best Results
 
