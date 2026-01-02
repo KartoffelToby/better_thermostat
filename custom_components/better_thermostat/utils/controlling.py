@@ -129,6 +129,9 @@ async def control_queue(self):
             self.device_name,
         )
         raise
+    finally:
+        # Ensure ignore_states is reset on any exit
+        self.ignore_states = False
 
 
 async def control_cooler(self):
