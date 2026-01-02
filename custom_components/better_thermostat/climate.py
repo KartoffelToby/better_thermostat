@@ -1476,18 +1476,18 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
                         self.device_name,
                         trv,
                     )
-                    
+
                     def _set_calibration_defaults():
                         """Set default calibration values for TRV."""
                         if self.real_trvs[trv].get("last_calibration") is None:
                             self.real_trvs[trv]["last_calibration"] = 0
                         if self.real_trvs[trv].get("local_calibration_min") is None:
-                            self.real_trvs[trv]["local_calibration_min"] = -10
+                            self.real_trvs[trv]["local_calibration_min"] = -7
                         if self.real_trvs[trv].get("local_calibration_max") is None:
-                            self.real_trvs[trv]["local_calibration_max"] = 10
+                            self.real_trvs[trv]["local_calibration_max"] = 7
                         if self.real_trvs[trv].get("local_calibration_step") is None:
-                            self.real_trvs[trv]["local_calibration_step"] = 0.1
-                    
+                            self.real_trvs[trv]["local_calibration_step"] = 0.5
+
                     try:
                         async with asyncio.timeout(10):
                             self.real_trvs[trv]["last_calibration"] = (
@@ -1526,9 +1526,9 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
                         _set_calibration_defaults()
                 else:
                     self.real_trvs[trv]["last_calibration"] = 0
-                    self.real_trvs[trv]["local_calibration_min"] = -10
-                    self.real_trvs[trv]["local_calibration_max"] = 10
-                    self.real_trvs[trv]["local_calibration_step"] = 0.1
+                    self.real_trvs[trv]["local_calibration_min"] = -7
+                    self.real_trvs[trv]["local_calibration_max"] = 7
+                    self.real_trvs[trv]["local_calibration_step"] = 0.5
 
                 _s = self.hass.states.get(trv)
                 _attrs = _s.attributes if _s else {}
