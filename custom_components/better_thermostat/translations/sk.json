@@ -16,7 +16,12 @@
           "window_off_delay": "Oneskorenie pred vypnutím termostatu pri otvorení okna",
           "window_off_delay_after": "Oneskorenie pred zapnutím termostatu pri zatvorenom okne",
           "outdoor_sensor": "Ak máte vonkajší snímač, môžete pomocou neho zistiť vonkajšiu teplotu",
-          "weather": "Váš meteorologický subjekt na zistenie vonkajšej teploty"
+          "weather": "Váš meteorologický subjekt na zistenie vonkajšej teploty",
+          "target_temp_step": "Krok cieľovej teploty",
+          "presets": "Povolené predvoľby"
+        },
+        "data_description": {
+          "presets": "Vyberte predvoľby, ktoré chcete mať k dispozícii pre tento termostat."
         }
       },
       "advanced": {
@@ -32,8 +37,8 @@
           "no_off_system_mode": "Ak váš TRV nedokáže pracovať v režime vypnutia, môžete namiesto toho povoliť použitie cieľovej teploty 5 °C."
         },
         "data_description": {
-          "protect_overheating": "Niektoré TRV nezatvárajú ventil úplne, keď sa dosiahne požadovaná teplota. Alebo je v radiátore veľa zvyškového tepla. To môže spôsobiť prehriatie. Táto možnosť tomu môže zabrániť.",
-          "calibration_mode": "Spôsob, ako sa má kalibrácia vypočítať\n***Normal***: V tomto režime je vnútorný snímač teploty TRV fixovaný vonkajším snímačom teploty.\n***Agresívny***: V tomto režime je vnútorný teplotný snímač TRV fixovaný vonkajším teplotným snímačom, ale je nastavený oveľa nižšie/vyššie, aby sa dosiahol rýchlejší nárast.\n***AI na základe času***: V tomto režime je vnútorný teplotný snímač TRV fixovaný vonkajším teplotným snímačom, ale hodnota sa vypočíta pomocou vlastného algoritmu na zlepšenie vnútorného algoritmu TRV.",
+          "protect_overheating": "Niektoré termostatické ventily úplne neuzatvoria ventil po dosiahnutí požadovanej teploty. Alebo má radiátor veľa zvyškového tepla. To môže spôsobiť prehriatie. Táto možnosť tomu môže zabrániť.",
+"calibration_mode": "Druh, akým sa má kalibrácia vypočítať\n***Normálny***: V tomto režime je vnútorný snímač teploty TRV fixovaný externým snímačom teploty.\n***Agresívny***: V tomto režime je vnútorný snímač teploty TRV fixovaný externým snímačom teploty, ale nastavený oveľa nižšie/vyššie, aby sa dosiahlo rýchlejšie zvýšenie teploty.\n***Časovo založený na AI***: V tomto režime je vnútorný snímač teploty TRV fixovaný externým snímačom teploty, ale vlastný algoritmus vypočíta hodnotu na zlepšenie vnútorného algoritmu TRV.\n***Prediktívny MPC***: Používa prediktívny regulátor MPC na odvodenie otvorenia ventilu a prevedie ho na posuny alebo požadované hodnoty, keď priame riadenie ventilu nie je k dispozícii.\n***PID regulátor***: Používa PID regulátor na dynamické nastavenie polohy ventilu na základe teplotnej chyby, proporcionálneho člena, integrálnej akumulácie a derivačnej predikcie.\n***TPI regulátor***: Používa časovo proporcionálny integračný regulátor pre stabilnú a presnú reguláciu teploty v priebehu času.",
           "calibration": "Ako sa má kalibrácia použiť na TRV (cieľová teplota alebo posun)\n***Na základe cieľovej teploty***: Použite kalibráciu na cieľovú teplotu.\n***Na základe ofsetu***: Použite kalibráciu na offset."
         }
       },
@@ -71,14 +76,22 @@
           "valve_maintenance": "Ak váš termostat nemá vlastný režim údržby, môžete použiť tento režim",
           "calibration": "Druh kalibrácie https://better-thermostat.org/configuration#second-step",
           "weather": "Váš meteorologický subjekt na zistenie vonkajšej teploty",
+          "presets": "Enabled Predvoľby",
+          "target_temp_step": "Krok cieľovej teploty",
           "heat_auto_swapped": "Ak auto znamená teplo pre váš TRV a chcete ho vymeniť",
           "child_lock": "Ignorovať všetky vstupy na TRV ako detský zámok",
           "homematicip": "Ak používate HomematicIP, mali by ste túto funkciu povoliť, aby ste spomalili požiadavky a zabránili tak pracovnému cyklu"
+        },
+        "data_description": {
+          "presets": "Vyberte predvoľby, ktoré chcete mať k dispozícii pre tento termostat."
         }
       },
       "advanced": {
         "description": "Rozšírená konfigurácia {trv}\n***Informácie o druhoch kalibrácie: https://better-thermostat.org/configuration#second-step***",
         "data": {
+          "trend_mix_trv": "Dočasná zmes (externá hmotnosť, 0–1)",
+          "percent_hysteresis_pts": "Hysterézia (percentuálne body)",
+          "min_update_interval_s": "Minimálny interval aktualizácie (sekundy)",
           "protect_overheating": "Ochrana proti prehriatiu?",
           "heat_auto_swapped": "Ak auto znamená teplo pre váš TRV a chcete ho vymeniť",
           "child_lock": "Ignorovať všetky vstupy na TRV ako detský zámok",
@@ -90,7 +103,7 @@
         },
         "data_description": {
           "protect_overheating": "Niektoré TRV nezatvárajú ventil úplne, keď sa dosiahne požadovaná teplota. Alebo je v radiátore veľa zvyškového tepla. To môže spôsobiť prehriatie. Táto možnosť tomu môže zabrániť.",
-          "calibration_mode": "Druh, ako sa má kalibrácia vypočítať\n***Normálna***: V tomto režime je vnútorný snímač teploty TRV fixovaný vonkajším snímačom teploty.\n***Aggresívna***: V tomto režime je vnútorný teplotný snímač TRV fixovaný vonkajším teplotným snímačom, ale je nastavený oveľa nižšie/vyššie, aby sa dosiahol rýchlejší nárast.\n***AI na základe času***: V tomto režime je vnútorný teplotný snímač TRV fixovaný vonkajším teplotným snímačom, ale hodnota sa vypočíta pomocou vlastného algoritmu na zlepšenie vnútorného algoritmu TRV.",
+          "calibration_mode": "Druh výpočtu kalibrácie\n***Normálny***: V tomto režime je vnútorný snímač teploty TRV fixovaný externým snímačom teploty.\n***Agresívny***: V tomto režime je vnútorný snímač teploty TRV fixovaný externým snímačom teploty, ale nastavený oveľa nižšie/vyššie, aby sa dosiahlo rýchlejšie zvýšenie teploty.\n***Časovo riadený AI***: V tomto režime je vnútorný snímač teploty TRV fixovaný externým snímačom teploty, ale vlastný algoritmus vypočíta hodnotu na zlepšenie vnútorného algoritmu TRV.\n***Prediktívny MPC***: Používa algoritmus hydraulického vyváženia MPC na odvodenie otvorenia ventilu a prevádza ho na posuny alebo požadované hodnoty, keď priame riadenie ventilu nie je k dispozícii.\n***PID regulátor***: Používa PID regulátor na dynamické nastavenie polohy ventilu na základe teplotnej chyby, proporcionálneho člena, integrálnej akumulácie a derivačnej predikcie.\n***TPI regulátor***: Používa časovo proporcionálny integračný regulátor pre stabilnú a presnú reguláciu teploty v priebehu času.",
           "calibration": "Ako sa má kalibrácia použiť na TRV (cieľová teplota alebo ofset)\n***Na základe cieľovej teploty***: Použite kalibráciu na cieľovú teplotu.\n***Na základe ofsetu***: Použite kalibráciu na offset."
         }
       }
@@ -125,10 +138,49 @@
     "set_temp_target_temperature": {
       "name": "Nastavenie eko teploty",
       "description": "Nastavte cieľovú teplotu na dočasný, napríklad nočný režim, a uložte starú teplotu."
+    }
+  },
+  "selector": {
+    "presets": {
+      "options": {
+        "eco": "Eko",
+        "away": "Preč",
+        "boost": "Boost",
+        "comfort": "Komfort",
+        "home": "Doma",
+        "sleep": "Spánok",
+        "activity": "Aktivita"
+      }
+    }
+  },
+  "entity": {
+    "number": {
+      "pid_kp": {
+        "name": "{trv_name} PID Kp (Proporcionálne)"
+      },
+      "pid_ki": {
+        "name": "{trv_name} PID Ki (Integrálne)"
+      },
+      "pid_kd": {
+        "name": "{trv_name} PID Kd (Derivačné)"
+      },
+      "pid_kp_no_trv": {
+        "name": "PID Kp (Proporcionálne)"
+      },
+      "pid_ki_no_trv": {
+        "name": "PID Ki (Integračné)"
+      },
+      "pid_kd_no_trv": {
+        "name": "PID Kd (Derivačné)"
+      }
     },
-    "set_eco_mode": {
-      "name": "Set ECO Mode",
-      "description": "Enable or disable ECO mode."
+    "switch": {
+      "pid_auto_tune": {
+        "name": "{trv_name} PID Auto Tune"
+      },
+      "pid_auto_tune_no_trv": {
+        "name": "PID Auto Tune"
+      }
     }
   }
 }
