@@ -18,7 +18,7 @@ from .utils.calibration.pid import (
     DEFAULT_PID_KI,
     DEFAULT_PID_KD,
 )
-from .utils.const import CalibrationMode
+from .utils.const import CalibrationMode, CONF_CALIBRATION_MODE
 
 _LOGGER = logging.getLogger(__name__)
 DOMAIN = "better_thermostat"
@@ -48,16 +48,30 @@ async def async_setup_entry(
         numbers.append(BetterThermostatPresetNumber(bt_climate, preset_mode))
 
     # Create PID numbers for each TRV if PID calibration is enabled
-    has_multiple_trvs = len(bt_climate.real_trvs) > 1
-    for trv_entity_id, trv_data in bt_climate.real_trvs.items():
-        advanced = trv_data.get("advanced", {})
-        if advanced.get("calibration_mode") == CalibrationMode.PID_CALIBRATION:
-            numbers.append(BetterThermostatPIDNumber(
-                bt_climate, trv_entity_id, "kp", has_multiple_trvs))
-            numbers.append(BetterThermostatPIDNumber(
-                bt_climate, trv_entity_id, "ki", has_multiple_trvs))
-            numbers.append(BetterThermostatPIDNumber(
-                bt_climate, trv_entity_id, "kd", has_multiple_trvs))
+    if hasattr(bt_climate, "all_trvs"):
+        has_multiple_trvs = len(bt_climate.all_trvs) > 1
+        for trv_conf in bt_climate.all_trvs:
+            trv_entity_id = trv_conf.get("trv")
+            if not trv_entity_id:
+                continue
+
+            advanced = trv_conf.get("advanced", {})
+            if advanced.get(CONF_CALIBRATION_MODE) == CalibrationMode.PID_CALIBRATION:
+                numbers.append(
+                    BetterThermostatPIDNumber(
+                        bt_climate, trv_entity_id, "kp", has_multiple_trvs
+                    )
+                )
+                numbers.append(
+                    BetterThermostatPIDNumber(
+                        bt_climate, trv_entity_id, "ki", has_multiple_trvs
+                    )
+                )
+                numbers.append(
+                    BetterThermostatPIDNumber(
+                        bt_climate, trv_entity_id, "kd", has_multiple_trvs
+                    )
+                )
 
     async_add_entities(numbers)
 
@@ -199,8 +213,12 @@ class BetterThermostatPIDNumber(NumberEntity, RestoreEntity):
 
         pid_state = _PID_STATES[key]
 
-        _LOGGER.debug("Updating PID state key %s: %s -> %s", key,
-                      getattr(pid_state, f"pid_{self._parameter}"), value)
+        _LOGGER.debug(
+            "Updating PID state key %s: %s -> %s",
+            key,
+            getattr(pid_state, f"pid_{self._parameter}"),
+            value,
+        )
         setattr(pid_state, f"pid_{self._parameter}", value)
 
         self.async_write_ha_state()
