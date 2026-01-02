@@ -357,11 +357,6 @@ async def control_trv(self, heater_entity_id=None):
 
         _new_hvac_mode = handle_window_open(self, _remapped_states)
 
-        # For TRVs with no_off_system_mode, when window is open, we need to explicitly
-        # set valve to 0% to ensure heating stops, not just set low temperature
-        if _no_off_system_mode and _new_hvac_mode == HVACMode.OFF and self.window_open:
-            await _set_valve_to_zero_for_window_open(self, heater_entity_id)
-
         # New cooler section
         if self.cooler_entity_id is not None:
             if (
@@ -441,10 +436,11 @@ async def control_trv(self, heater_entity_id=None):
         )
         if _no_off_system_mode is True and _new_hvac_mode == HVACMode.OFF:
             _min_temp = self.real_trvs[heater_entity_id]["min_temp"]
-            _LOGGER.debug(
-                "better_thermostat %s: sending %s°C to the TRV because this device has no system mode off and heater should be off",
+            _LOGGER.info(
+                "better_thermostat %s: TRV has no OFF mode - setting temperature to %s°C (min_temp) for %s because window is open or heating should be off",
                 self.device_name,
                 _min_temp,
+                heater_entity_id,
             )
             _temperature = _min_temp
 
@@ -525,12 +521,15 @@ async def control_trv(self, heater_entity_id=None):
             )
             if _temperature != _current_set_temperature:
                 old = self.real_trvs[heater_entity_id].get("last_temperature", "?")
-                _LOGGER.debug(
-                    "better_thermostat %s: TO TRV set_temperature: %s from: %s to: %s",
+                _LOGGER.info(
+                    "better_thermostat %s: TO TRV set_temperature: %s from: %s to: %s (no_off_mode=%s, hvac_mode=%s, window_open=%s)",
                     self.device_name,
                     heater_entity_id,
                     old,
                     _temperature,
+                    _no_off_system_mode,
+                    _new_hvac_mode,
+                    self.window_open,
                 )
                 self.real_trvs[heater_entity_id]["last_temperature"] = _temperature
                 await set_temperature(self, heater_entity_id, _temperature)
@@ -643,11 +642,6 @@ async def control_trv(self, heater_entity_id=None):
 
     _new_hvac_mode = handle_window_open(self, _remapped_states)
 
-    # For TRVs with no_off_system_mode, when window is open, we need to explicitly
-    # set valve to 0% to ensure heating stops, not just set low temperature
-    if _no_off_system_mode and _new_hvac_mode == HVACMode.OFF and self.window_open:
-        await _set_valve_to_zero_for_window_open(self, heater_entity_id)
-
     # wtom: disabled for now, switches off the trv all the time
     # if not self.window_open:
     # _new_hvac_mode = handle_hvac_mode_tolerance(self, _remapped_states)
@@ -667,10 +661,11 @@ async def control_trv(self, heater_entity_id=None):
     )
     if _no_off_system_mode is True and _new_hvac_mode == HVACMode.OFF:
         _min_temp = self.real_trvs[heater_entity_id]["min_temp"]
-        _LOGGER.debug(
-            "better_thermostat %s: sending %s°C to the TRV because this device has no system mode off and heater should be off",
+        _LOGGER.info(
+            "better_thermostat %s: TRV has no OFF mode - setting temperature to %s°C (min_temp) for %s because window is open or heating should be off",
             self.device_name,
             _min_temp,
+            heater_entity_id,
         )
         _temperature = _min_temp
 
@@ -748,12 +743,15 @@ async def control_trv(self, heater_entity_id=None):
     ):
         if _temperature != _current_set_temperature:
             old = self.real_trvs[heater_entity_id].get("last_temperature", "?")
-            _LOGGER.debug(
-                "better_thermostat %s: TO TRV set_temperature: %s from: %s to: %s",
+            _LOGGER.info(
+                "better_thermostat %s: TO TRV set_temperature: %s from: %s to: %s (no_off_mode=%s, hvac_mode=%s, window_open=%s)",
                 self.device_name,
                 heater_entity_id,
                 old,
                 _temperature,
+                _no_off_system_mode,
+                _new_hvac_mode,
+                self.window_open,
             )
             self.real_trvs[heater_entity_id]["last_temperature"] = _temperature
             await set_temperature(self, heater_entity_id, _temperature)
@@ -766,34 +764,6 @@ async def control_trv(self, heater_entity_id=None):
     await asyncio.sleep(3)
     self.real_trvs[heater_entity_id]["ignore_trv_states"] = False
     return True
-
-
-async def _set_valve_to_zero_for_window_open(self, heater_entity_id):
-    """Set valve to 0% when window is open and no_off_system_mode is enabled.
-
-    This helper ensures that TRVs without OFF mode support have their valves
-    explicitly closed when a window opens, not just the temperature set low.
-    """
-    try:
-        _LOGGER.debug(
-            "better_thermostat %s: Window open with no_off_system_mode, setting valve to 0%% for %s",
-            self.device_name,
-            heater_entity_id,
-        )
-        ok = await set_valve(self, heater_entity_id, 0)
-        if not ok:
-            _LOGGER.debug(
-                "better_thermostat %s: set_valve to 0%% failed for %s (may not be supported)",
-                self.device_name,
-                heater_entity_id,
-            )
-    except (HomeAssistantError, AttributeError, KeyError, TypeError) as e:
-        _LOGGER.debug(
-            "better_thermostat %s: set_valve to 0%% not applied for %s (unsupported or failed): %s",
-            self.device_name,
-            heater_entity_id,
-            e,
-        )
 
 
 def handle_window_open(self, _remapped_states):
