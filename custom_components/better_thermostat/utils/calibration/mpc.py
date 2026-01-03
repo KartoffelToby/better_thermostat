@@ -28,6 +28,7 @@ class MpcParams:
     mpc_loss_coeff: float = 0.01
     mpc_control_penalty: float = 0.05
     mpc_change_penalty: float = 1.0
+    mpc_eco_penalty: float = 2.0
     mpc_adapt: bool = True
     mpc_gain_min: float = 0.01
     mpc_gain_max: float = 0.2
@@ -764,6 +765,11 @@ def _compute_predictive_percent(
             residual_ok = False
             residual_rate_limited = False
             residual_block_jump = False
+
+            # Calculate u0_frac early for learning checks
+            u0_frac_est = (loss_est / gain_est) if gain_est > 0 else 0.0
+            u0_frac_est = max(0.0, min(1.0, u0_frac_est))
+
             if common_ok and (not updated_loss) and u_last > min_open:
                 ss_rate_thr = 0.02  # °C/min: quasi steady-state threshold
 
@@ -778,8 +784,6 @@ def _compute_predictive_percent(
                 if temp_changed:
                     residual_block_jump = True
 
-                u0_frac = (loss_est / gain_est) if gain_est > 0 else 0.0
-                u0_frac = max(0.0, min(1.0, u0_frac))
                 residual_ok = (
                     (not residual_rate_limited)
                     and (not residual_block_jump)
@@ -787,7 +791,7 @@ def _compute_predictive_percent(
                     # Allow learning within 10% absolute of u0.
                     # Relative % would be too strict for low u0 (e.g. 10% -> 12% limit),
                     # preventing correction of the base load.
-                    and abs(u_last - u0_frac) <= 0.10
+                    and abs(u_last - u0_frac_est) <= 0.10
                     and abs(observed_rate_ss) <= ss_rate_thr
                 )
 
@@ -804,6 +808,29 @@ def _compute_predictive_percent(
                     state.loss_est = (1.0 - alpha) * loss_est + alpha * loss_candidate
                     updated_loss = True
                     loss_method = "residual_u0_ss"
+
+            # --- LOSS learning (warming with low valve): ---
+            # If we are below u0 but the room is warming, loss is overestimated.
+            # This handles the case where residual_u0_ss fails because rate is too high (warming).
+            if (
+                common_ok
+                and learn_signal
+                and (not updated_loss)
+                and u_last < (u0_frac_est - 0.05)
+                and observed_rate > 0.01
+            ):
+                # We are warming, so gain*u > loss.
+                # Since u is small, loss must be very small.
+                loss_candidate = (gain_est * u_last) - observed_rate
+                loss_candidate = min(
+                    max(loss_candidate, params.mpc_loss_min), params.mpc_loss_max
+                )
+
+                # This will likely be negative or very small, driving loss down.
+                alpha = params.mpc_adapt_alpha
+                state.loss_est = (1.0 - alpha) * loss_est + alpha * loss_candidate
+                updated_loss = True
+                loss_method = "warm_low_u"
 
             # --- GAIN learning: u > min_open and room warming ---
             # Needs a real temperature change (quantised sensors).
@@ -957,6 +984,7 @@ def _compute_predictive_percent(
     # cost penalties (normalize u in [0,1])
     control_pen = max(0.0, float(params.mpc_control_penalty))
     change_pen = max(0.0, float(params.mpc_change_penalty))
+    eco_pen = max(0.0, float(getattr(params, "mpc_eco_penalty", 0.0)))
     last_percent = state.last_percent if state.last_percent is not None else None
 
     # candidate search: coarse -> fine (reduces evals while keeping precision)
@@ -979,6 +1007,8 @@ def _compute_predictive_percent(
             T = T + heating - loss_step
             e = target_temp_C - T
             cost += e * e
+            if eco_pen > 0 and T > target_temp_C:
+                cost += eco_pen * u_abs_frac
         return cost
 
     # coarse search over du around u0
