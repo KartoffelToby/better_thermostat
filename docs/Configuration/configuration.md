@@ -2,7 +2,7 @@
 layout: default
 title: Configuration
 nav_order: 2
-has_children: false
+has_children: true
 permalink: configuration
 ---
 
@@ -69,11 +69,22 @@ group:
 
 **Calibration Mode**  This is a required field. It determines how the calibration should be calculated
 
-- ***Normal***: In this mode the TRV internal temperature sensor is fixed by the external temperature sensor.
+Better Thermostat offers several algorithms to control your heating:
 
-- ***Aggressive***: In this mode the TRV internal temperature sensor is fixed by the external temperature sensor but set much lower/higher to get a quicker boost.
+- ***Normal***: Simple and reliable - uses your external sensor to correct the TRV's internal sensor
+- ***Aggressive***: Pushes the TRV harder for faster heating (good for slow-heating rooms)
+- ***AI Time Based***: **[Recommended]** Learns your room's heating patterns and adapts automatically
+- ***MPC Predictive***: Advanced algorithm that predicts temperature changes for optimal efficiency
+- ***PID Controller***: Classic control method that responds well to varying heating conditions
+- ***TPI Controller***: Simple duty-cycle based control for consistent heating
 
-- ***AI Time Based***: In this mode, the external temperature sensor fixes the TRV internal temperature sensor, but a custom algorithm calculates the value to improve the TRV's internal algorithm.
+**→ [Learn more about each algorithm and which one to choose](algorithms)**
+
+**Quick guide:**
+- First time user? → Start with **AI Time Based** (default)
+- Room heats slowly? → Try **Aggressive**
+- Temperature overshoots? → Try **MPC Predictive**
+- Want fine control? → Try **PID Controller**
 
 
 **Overheating protection** This should only be checked if you have any problems with strong overheating.
