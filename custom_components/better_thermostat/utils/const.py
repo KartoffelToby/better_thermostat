@@ -110,7 +110,7 @@ class CalibrationType(StrEnum):
 
     TARGET_TEMP_BASED = "target_temp_based"
     LOCAL_BASED = "local_calibration_based"
-    HYBRID = "hybrid_calibration"
+    DIRECT_VALVE_BASED = "direct_valve_based"
 
 
 class CalibrationMode(StrEnum):

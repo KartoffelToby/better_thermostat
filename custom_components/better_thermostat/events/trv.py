@@ -7,7 +7,6 @@ convert thermostat states and prepare outbound payloads.
 
 from datetime import datetime
 import logging
-from typing import Any, Dict, cast
 from custom_components.better_thermostat.utils.const import CONF_HOMEMATICIP
 
 from homeassistant.components.climate.const import HVACMode
@@ -26,11 +25,11 @@ from custom_components.better_thermostat.utils.const import (
     CalibrationType,
     CalibrationMode,
 )
-from homeassistant.util import dt as dt_util
 
 from custom_components.better_thermostat.calibration import (
     calculate_calibration_local,
     calculate_calibration_setpoint,
+    calculate_calibration_valve,
 )
 
 _LOGGER = logging.getLogger(__name__)
@@ -351,6 +350,7 @@ def convert_outbound_states(self, entity_id, hvac_mode) -> dict | None:
     """
     _new_local_calibration = None
     _new_heating_setpoint = None
+    _new_valve_position = None
 
     try:
         _calibration_type = self.real_trvs[entity_id]["advanced"].get("calibration")
@@ -380,6 +380,16 @@ def convert_outbound_states(self, entity_id, hvac_mode) -> dict | None:
                     _new_heating_setpoint = calculate_calibration_setpoint(
                         self, entity_id
                     )
+            elif _calibration_type == CalibrationType.DIRECT_VALVE_BASED:
+                _new_valve_position = calculate_calibration_valve(self, entity_id)
+                # When controlling valve directly, we might still want to set target temp to something?
+                # Or maybe the adapter handles it.
+                # Usually we set target temp to max or min to force valve open/close if we weren't controlling valve directly,
+                # but here we are.
+                # Let's assume we just send valve position.
+                # But we might need to set target temp to current temp or something to avoid internal TRV logic fighting back?
+                # For now, let's just set valve position.
+                _new_heating_setpoint = self.bt_target_temp
 
             _system_modes = self.real_trvs[entity_id]["hvac_modes"]
             _has_system_mode = _system_modes is not None
@@ -431,6 +441,8 @@ def convert_outbound_states(self, entity_id, hvac_mode) -> dict | None:
         }
         if _new_local_calibration is not None:
             _payload["local_temperature_calibration"] = _new_local_calibration
+        if _new_valve_position is not None:
+            _payload["valve_position"] = _new_valve_position
         return _payload
     except Exception as e:
         _LOGGER.error(e)

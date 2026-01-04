@@ -10,6 +10,11 @@ def fix_local_calibration(self, entity_id, offset):
     return offset
 
 
+def fix_valve_calibration(self, entity_id, valve):
+    """Return the given valve calibration unchanged."""
+    return valve
+
+
 def fix_target_temperature_calibration(self, entity_id, temperature):
     """Return the given target temperature unchanged."""
     return temperature

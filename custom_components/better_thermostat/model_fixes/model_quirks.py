@@ -90,6 +90,31 @@ def fix_local_calibration(self, entity_id, offset):
     return _new_offset
 
 
+def fix_valve_calibration(self, entity_id, valve):
+    """Apply model-specific valve calibration fix.
+
+    Call the configured model quirks implementation to normalize the given
+    valve calibration value.
+    """
+
+    quirks = self.real_trvs[entity_id]["model_quirks"]
+    if hasattr(quirks, "fix_valve_calibration"):
+        _new_valve = quirks.fix_valve_calibration(self, entity_id, valve)
+    else:
+        _new_valve = valve
+
+    if valve != _new_valve:
+        _LOGGER.debug(
+            "better_thermostat %s: %s - valve calibration model fix: %s to %s",
+            self.device_name,
+            entity_id,
+            valve,
+            _new_valve,
+        )
+
+    return _new_valve
+
+
 def fix_target_temperature_calibration(self, entity_id, temperature):
     """Apply model-specific setpoint calibration fix.
 
