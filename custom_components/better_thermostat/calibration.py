@@ -646,6 +646,8 @@ def calculate_calibration_setpoint(self, entity_id) -> float | None:
                     _calibrated_setpoint = _cur_trv_temp + (
                         (float(_max_temp) - _cur_trv_temp) * _valve_fraction
                     )
+                    if _valve_fraction == 0.0 and _calibrated_setpoint >= _cur_trv_temp:
+                        _calibrated_setpoint = _cur_trv_temp - 1.0
     elif _calibration_mode == CalibrationMode.TPI_CALIBRATION:
         _tpi_result, _tpi_use_valve = _compute_tpi_balance(self, entity_id)
         if _tpi_use_valve:
@@ -659,6 +661,8 @@ def calculate_calibration_setpoint(self, entity_id) -> float | None:
                     _calibrated_setpoint = _cur_trv_temp + (
                         (float(_max_temp) - _cur_trv_temp) * _tpi_fraction
                     )
+                    if _tpi_fraction == 0.0 and _calibrated_setpoint >= _cur_trv_temp:
+                        _calibrated_setpoint = _cur_trv_temp - 1.0
     elif _calibration_mode == CalibrationMode.PID_CALIBRATION:
         _pid_result, _pid_use_valve = _compute_pid_balance(self, entity_id)
         if _pid_use_valve:
@@ -672,6 +676,8 @@ def calculate_calibration_setpoint(self, entity_id) -> float | None:
                     _calibrated_setpoint = _cur_trv_temp + (
                         (float(_max_temp) - _cur_trv_temp) * _pid_fraction
                     )
+                    if _pid_fraction == 0.0 and _calibrated_setpoint >= _cur_trv_temp:
+                        _calibrated_setpoint = _cur_trv_temp - 1.0
     else:
         self.real_trvs[entity_id].pop("calibration_balance", None)
 
@@ -715,7 +721,6 @@ def calculate_calibration_setpoint(self, entity_id) -> float | None:
                     self.real_trvs[entity_id]["calibration_balance"] = {
                         "valve_percent": _pct,
                         "apply_valve": True,
-                        "test": True,
                         "debug": {"source": "heating_power_calibration"},
                     }
                     # Keep setpoint unchanged when we control via valve
