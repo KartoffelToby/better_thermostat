@@ -1,8 +1,8 @@
 """Tests for the MPC (Model Predictive Control) controller."""
 
 from custom_components.better_thermostat.utils.calibration.mpc import (
-    MpcParams,
     MpcInput,
+    MpcParams,
     compute_mpc,
 )
 
@@ -240,6 +240,7 @@ class TestMPCController:
         """Slope-only identification must not drift gain when the sensor is flat."""
 
         from time import monotonic
+
         from custom_components.better_thermostat.utils.calibration.mpc import (
             _MPC_STATES,
         )
@@ -281,6 +282,7 @@ class TestMPCController:
         """If valve is high, temperature is flat, and still below target, gain should decrease."""
 
         from time import monotonic
+
         from custom_components.better_thermostat.utils.calibration.mpc import (
             _MPC_STATES,
         )
@@ -324,6 +326,7 @@ class TestMPCController:
         """Loss should be able to learn under quasi steady-state even if the valve never closes."""
 
         from time import monotonic
+
         from custom_components.better_thermostat.utils.calibration.mpc import (
             _MPC_STATES,
         )

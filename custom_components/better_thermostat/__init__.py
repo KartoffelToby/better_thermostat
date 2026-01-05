@@ -1,10 +1,11 @@
 """The better_thermostat component."""
 
-import logging
 from asyncio import Lock
+import logging
+
+from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import Platform
 from homeassistant.core import HomeAssistant
-from homeassistant.config_entries import ConfigEntry
 from homeassistant.helpers.typing import ConfigType
 import voluptuous as vol
 

@@ -6,18 +6,18 @@ to make robust decisions about whether the external temperature should be
 propagated to the target devices.
 """
 
+from datetime import datetime
 import logging
 import math
-
-from custom_components.better_thermostat.utils.const import CONF_HOMEMATICIP
-from custom_components.better_thermostat.utils.helpers import convert_to_float
-from datetime import datetime
 from time import monotonic
-from homeassistant.helpers import issue_registry as ir
-from homeassistant.helpers.event import async_call_later
 
 from homeassistant.const import STATE_UNAVAILABLE, STATE_UNKNOWN
 from homeassistant.core import callback
+from homeassistant.helpers import issue_registry as ir
+from homeassistant.helpers.event import async_call_later
+
+from custom_components.better_thermostat.utils.const import CONF_HOMEMATICIP
+from custom_components.better_thermostat.utils.helpers import convert_to_float
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -377,7 +377,7 @@ async def trigger_temperature_change(self, event):
             _dir_now = -1
     _last_dir = self.last_change_direction
     _block_flip_small = (
-        False  # Anti-flicker disabled
+        False  # Anti-flicker disabled  # noqa: PLR1714
         and _dir_now != 0
         and _last_dir != 0
         and _dir_now != _last_dir
@@ -424,7 +424,7 @@ async def trigger_temperature_change(self, event):
         if _signed_delta != 0:
             # set direction from sign
             _acc_dir_now = 1 if _signed_delta > 0 else -1
-            if self.accum_dir == 0 or self.accum_dir == _acc_dir_now:
+            if self.accum_dir in (0, _acc_dir_now):
                 self.accum_delta = round(self.accum_delta + _signed_delta, 2)
                 self.accum_dir = _acc_dir_now if self.accum_dir == 0 else self.accum_dir
             else:
@@ -440,14 +440,13 @@ async def trigger_temperature_change(self, event):
                 if getattr(self, "plateau_timer_cancel", None) is not None:
                     self.plateau_timer_cancel()
                     self.plateau_timer_cancel = None
-        else:
-            # no change (value back to current): reset pending/timer
-            if self.pending_temp is not None:
-                self.pending_temp = None
-                self.pending_since = None
-                if getattr(self, "plateau_timer_cancel", None) is not None:
-                    self.plateau_timer_cancel()
-                    self.plateau_timer_cancel = None
+        # no change (value back to current): reset pending/timer
+        elif self.pending_temp is not None:
+            self.pending_temp = None
+            self.pending_since = None
+            if getattr(self, "plateau_timer_cancel", None) is not None:
+                self.plateau_timer_cancel()
+                self.plateau_timer_cancel = None
 
     _accum_ok = (
         _cur_q is not None

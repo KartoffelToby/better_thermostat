@@ -4,10 +4,11 @@ Includes device-specific offsets and behavior adaptations required for certain
 SEA801/SEA802 based devices.
 """
 
+import logging
+
 from custom_components.better_thermostat.utils.helpers import (
     entity_uses_mpc_calibration,
 )
-import logging
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -52,7 +53,6 @@ def fix_target_temperature_calibration(self, entity_id, temperature):
         round(temperature, 1) > round(_cur_trv_temp, 1)
         and temperature - _cur_trv_temp < 1.5
     ):
-
         # Statt die gewünschte Temperatur pauschal um 1.5°C zu erhöhen,
         # setze sie auf mindestens (aktuelle TRV-Temp + 1.5°C).
         # So ist der Mindestabstand garantiert, ohne unnötig zu überschießen.

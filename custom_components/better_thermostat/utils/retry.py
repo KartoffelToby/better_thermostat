@@ -1,11 +1,11 @@
 """Retry utility for Better Thermostat."""
 
 import asyncio
+from collections.abc import Callable
 import functools
 import logging
 import random
-from typing import TypeVar, Any
-from collections.abc import Callable
+from typing import Any, TypeVar
 
 _LOGGER = logging.getLogger(__name__)
 

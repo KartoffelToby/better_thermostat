@@ -1,27 +1,25 @@
 """Weather utils."""
 
 from collections import deque
-import logging
-from datetime import timedelta, datetime
-import homeassistant.util.dt as dt_util
-
-# get_instance location can differ between HA versions; prefer helpers API.
-from homeassistant.helpers.recorder import get_instance
-from homeassistant.components.recorder import history
 from contextlib import suppress
+from datetime import datetime, timedelta
+import logging
 
-# from datetime import datetime, timedelta
-
-# import homeassistant.util.dt as dt_util
-# from homeassistant.components.recorder.history import state_changes_during_period
-
-from .helpers import convert_to_float
-
+from homeassistant.components.recorder import history
 from homeassistant.components.weather import (
     DOMAIN as WEATHER_DOMAIN,
     WeatherEntityFeature,
 )
-from homeassistant.exceptions import ServiceNotSupported, HomeAssistantError
+from homeassistant.exceptions import HomeAssistantError, ServiceNotSupported
+
+# get_instance location can differ between HA versions; prefer helpers API.
+from homeassistant.helpers.recorder import get_instance
+import homeassistant.util.dt as dt_util
+
+# from datetime import datetime, timedelta
+# import homeassistant.util.dt as dt_util
+# from homeassistant.components.recorder.history import state_changes_during_period
+from .helpers import convert_to_float
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -278,8 +276,9 @@ async def check_ambient_air_temperature(self):
 
 
 class DailyHistory:
-    """Stores one measurement per day for a maximum number of days.
-    We compute an average outside temperature that better reflects the last days:
+    """Store one measurement per day for a maximum number of days.
+
+    Compute an average outside temperature that better reflects the last days:
       - Track all readings per day and compute the per-day mean
       - Then compute the overall mean across the kept days
 

@@ -6,6 +6,8 @@ from custom_components.better_thermostat.events import temperature as temp_event
 
 
 class DummyBT:
+    """Dummy BetterThermostat instance for testing."""
+
     def __init__(self):
         self.device_name = "dummy"
         self.external_temp_ema_tau_s = 900.0
@@ -15,6 +17,7 @@ class DummyBT:
 
 
 def test_external_temp_ema_initializes(monkeypatch):
+    """Test that external temperature EMA initializes correctly on first reading."""
     bt = DummyBT()
 
     monkeypatch.setattr(temp_events, "monotonic", lambda: 100.0)
@@ -26,6 +29,7 @@ def test_external_temp_ema_initializes(monkeypatch):
 
 
 def test_external_temp_ema_time_based(monkeypatch):
+    """Test that external temperature EMA applies time-based smoothing."""
     bt = DummyBT()
 
     # First sample
@@ -45,6 +49,7 @@ def test_external_temp_ema_time_based(monkeypatch):
 
 
 def test_external_temp_ema_zero_dt_no_change(monkeypatch):
+    """Test that EMA does not change when time delta is zero."""
     bt = DummyBT()
 
     monkeypatch.setattr(temp_events, "monotonic", lambda: 100.0)

@@ -3,13 +3,13 @@
 import logging
 
 from homeassistant.components.switch import SwitchEntity
+from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import EntityCategory
 from homeassistant.core import HomeAssistant
-from homeassistant.config_entries import ConfigEntry
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.restore_state import RestoreEntity
 
-from .utils.calibration.pid import _PID_STATES, build_pid_key, DEFAULT_PID_AUTO_TUNE
+from .utils.calibration.pid import _PID_STATES, DEFAULT_PID_AUTO_TUNE, build_pid_key
 from .utils.const import CalibrationMode
 
 _LOGGER = logging.getLogger(__name__)

@@ -1,27 +1,26 @@
 """Config flow for Better Thermostat."""
 
+from collections import OrderedDict
+from collections.abc import Iterable
 import copy
 import logging
-from collections import OrderedDict
-from typing import Any, Dict, Iterable, Optional, Tuple
-
-import voluptuous as vol
+from typing import Any
 
 from homeassistant import config_entries
 from homeassistant.components.climate.const import (
-    HVACMode,
+    PRESET_ACTIVITY,
     PRESET_AWAY,
     PRESET_BOOST,
     PRESET_COMFORT,
     PRESET_ECO,
     PRESET_HOME,
     PRESET_SLEEP,
-    PRESET_ACTIVITY,
+    HVACMode,
 )
 from homeassistant.const import CONF_NAME
 from homeassistant.core import callback
-from homeassistant.helpers import config_validation as cv
-from homeassistant.helpers import selector
+from homeassistant.helpers import config_validation as cv, selector
+import voluptuous as vol
 
 from . import DOMAIN  # pylint: disable=unused-import
 from .adapters.delegate import load_adapter
@@ -52,7 +51,6 @@ from .utils.const import (
     CalibrationType,
 )
 from .utils.helpers import get_device_model, get_trv_intigration
-
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -147,7 +145,7 @@ PRESET_SELECTOR = selector.SelectSelector(
 )
 
 
-_USER_FIELD_DEFAULTS: Dict[str, Any] = {
+_USER_FIELD_DEFAULTS: dict[str, Any] = {
     CONF_OFF_TEMPERATURE: 20,
     CONF_TOLERANCE: 0.0,
     CONF_TARGET_TEMP_STEP: "0.0",
@@ -170,13 +168,13 @@ def _as_bool(value: Any, default: bool = False) -> bool:
 
 async def _load_adapter_info(
     flow: config_entries.ConfigFlow,
-    integration: Optional[str],
-    trv_id: Optional[str],
+    integration: str | None,
+    trv_id: str | None,
     *,
-    existing_adapter: Optional[Any] = None,
-) -> Tuple[Optional[Any], Dict[str, Any]]:
+    existing_adapter: Any | None = None,
+) -> tuple[Any | None, dict[str, Any]]:
     adapter = existing_adapter
-    info: Dict[str, Any] = {}
+    info: dict[str, Any] = {}
 
     if integration and trv_id:
         if adapter is None:
@@ -199,13 +197,13 @@ async def _load_adapter_info(
     return adapter, info
 
 
-def _default_calibration_from_info(info: Dict[str, Any]) -> str:
+def _default_calibration_from_info(info: dict[str, Any]) -> str:
     if info.get("support_offset", False):
         return "local_calibration_based"
     return "target_temp_based"
 
 
-def _trv_supports_auto(flow: config_entries.ConfigFlow, trv_id: Optional[str]) -> bool:
+def _trv_supports_auto(flow: config_entries.ConfigFlow, trv_id: str | None) -> bool:
     if not trv_id:
         return False
     trv_state = flow.hass.states.get(trv_id)
@@ -217,7 +215,7 @@ def _trv_supports_auto(flow: config_entries.ConfigFlow, trv_id: Optional[str]) -
 
 def _build_advanced_fields(
     *,
-    sources: Iterable[Optional[Dict[str, Any]]],
+    sources: Iterable[dict[str, Any] | None],
     default_calibration: str,
     homematic: bool,
     has_auto: bool,
@@ -302,9 +300,9 @@ def _build_advanced_fields(
 
 
 def _normalize_advanced_submission(
-    data: Dict[str, Any], *, default_calibration: str, homematic: bool, has_auto: bool
-) -> Dict[str, Any]:
-    normalized: Dict[str, Any] = dict(data)
+    data: dict[str, Any], *, default_calibration: str, homematic: bool, has_auto: bool
+) -> dict[str, Any]:
+    normalized: dict[str, Any] = dict(data)
     normalized[CONF_CALIBRATION] = normalized.get(CONF_CALIBRATION, default_calibration)
     normalized[CONF_CALIBRATION_MODE] = normalized.get(
         CONF_CALIBRATION_MODE, CalibrationMode.HEATING_POWER_CALIBRATION
@@ -329,7 +327,7 @@ def _normalize_advanced_submission(
     return normalized
 
 
-def _duration_dict_to_seconds(duration: Optional[Any]) -> int:
+def _duration_dict_to_seconds(duration: Any | None) -> int:
     if duration is None:
         return 0
     if isinstance(duration, (int, float)):
@@ -345,20 +343,19 @@ def _duration_dict_to_seconds(duration: Optional[Any]) -> int:
     return 0
 
 
-def _seconds_to_duration_dict(value: Any) -> Dict[str, int]:
+def _seconds_to_duration_dict(value: Any) -> dict[str, int]:
     try:
         total = int(value or 0)
     except (TypeError, ValueError):
         total = 0
-    if total < 0:
-        total = 0
+    total = max(total, 0)
     hours, remainder = divmod(total, 3600)
     minutes, seconds = divmod(remainder, 60)
     return {"hours": int(hours), "minutes": int(minutes), "seconds": int(seconds)}
 
 
 def _build_user_fields(
-    *, mode: str, current: Dict[str, Any], user_input: Optional[Dict[str, Any]] = None
+    *, mode: str, current: dict[str, Any], user_input: dict[str, Any] | None = None
 ) -> OrderedDict:
     user_input = user_input or {}
     is_create = mode == "create"
@@ -395,27 +392,26 @@ def _build_user_fields(
                         else vol.Required(key)
                     )
                 ] = field_type
+        elif use_default:
+            fields[vol.Optional(key, default=default)] = field_type
         else:
-            if use_default:
-                fields[vol.Optional(key, default=default)] = field_type
-            else:
-                fields[
-                    (
-                        vol.Optional(key, description=description)
-                        if description
-                        else vol.Optional(key)
-                    )
-                ] = field_type
+            fields[
+                (
+                    vol.Optional(key, description=description)
+                    if description
+                    else vol.Optional(key)
+                )
+            ] = field_type
 
     def add_entity_selector(
         key: str,
         *,
         domain: Any,
-        device_class: Optional[str] = None,
+        device_class: str | None = None,
         multiple: bool = False,
         required: bool = False,
     ) -> None:
-        selector_kwargs: Dict[str, Any] = {"domain": domain, "multiple": multiple}
+        selector_kwargs: dict[str, Any] = {"domain": domain, "multiple": multiple}
         if device_class is not None:
             selector_kwargs["device_class"] = device_class
         selector_config = selector.EntitySelectorConfig(**selector_kwargs)
@@ -509,8 +505,8 @@ def _build_user_fields(
 
 
 def _normalize_user_submission(
-    user_input: Dict[str, Any], *, mode: str, base: Optional[Dict[str, Any]] = None
-) -> Dict[str, Any]:
+    user_input: dict[str, Any], *, mode: str, base: dict[str, Any] | None = None
+) -> dict[str, Any]:
     if base:
         if not isinstance(base, dict):
             base_dict = dict(base)
@@ -519,7 +515,7 @@ def _normalize_user_submission(
         base_copy = copy.deepcopy(base_dict)
     else:
         base_copy = {}
-    normalized: Dict[str, Any] = base_copy
+    normalized: dict[str, Any] = base_copy
 
     normalized[CONF_NAME] = user_input.get(CONF_NAME, normalized.get(CONF_NAME, ""))
 
@@ -607,8 +603,8 @@ def _normalize_user_submission(
 
 
 async def _prepare_advanced_context(
-    flow: config_entries.ConfigFlow, trv_config: Optional[Dict[str, Any]]
-) -> Dict[str, Any]:
+    flow: config_entries.ConfigFlow, trv_config: dict[str, Any] | None
+) -> dict[str, Any]:
     trv_config = trv_config or {}
     integration = trv_config.get("integration")
     trv_id = trv_config.get("trv")
@@ -779,7 +775,7 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
 
     async def async_step_user(self, user_input=None):
         """Handle the initial step."""
-        errors: Dict[str, str] = {}
+        errors: dict[str, str] = {}
         current = self.data or {}
 
         if user_input is not None:
@@ -788,7 +784,7 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 normalized = _normalize_user_submission(
                     user_input, mode="create", base=current
                 )
-            except Exception as err:  # noqa: BLE001
+            except Exception as err:
                 _LOGGER.exception("ConfigFlow user step normalization failed: %s", err)
                 raise
             self.data = normalized
@@ -941,7 +937,7 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
                 normalized = _normalize_user_submission(
                     user_input, mode="update", base=self._config_entry.data
                 )
-            except Exception as err:  # noqa: BLE001
+            except Exception as err:
                 _LOGGER.exception("OptionsFlow user step normalization failed: %s", err)
                 raise
             _LOGGER.debug("OptionsFlow user step normalized data: %s", normalized)

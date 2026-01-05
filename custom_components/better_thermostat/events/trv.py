@@ -7,28 +7,27 @@ convert thermostat states and prepare outbound payloads.
 
 from datetime import datetime
 import logging
-from custom_components.better_thermostat.utils.const import CONF_HOMEMATICIP
 
 from homeassistant.components.climate.const import HVACMode
 from homeassistant.core import State, callback
-from custom_components.better_thermostat.utils.helpers import (
-    convert_to_float,
-    mode_remap,
-)
+
 from custom_components.better_thermostat.adapters.delegate import get_current_offset
-from custom_components.better_thermostat.utils.helpers import get_device_model
-from custom_components.better_thermostat.model_fixes.model_quirks import (
-    load_model_quirks,
-)
-
-from custom_components.better_thermostat.utils.const import (
-    CalibrationType,
-    CalibrationMode,
-)
-
 from custom_components.better_thermostat.calibration import (
     calculate_calibration_local,
     calculate_calibration_setpoint,
+)
+from custom_components.better_thermostat.model_fixes.model_quirks import (
+    load_model_quirks,
+)
+from custom_components.better_thermostat.utils.const import (
+    CONF_HOMEMATICIP,
+    CalibrationMode,
+    CalibrationType,
+)
+from custom_components.better_thermostat.utils.helpers import (
+    convert_to_float,
+    get_device_model,
+    mode_remap,
 )
 
 _LOGGER = logging.getLogger(__name__)
@@ -261,9 +260,12 @@ async def trigger_trv_change(self, event):
                 _new_heating_setpoint = self.bt_max_temp
 
         if (
-            self.bt_target_temp != _new_heating_setpoint
-            and _old_heating_setpoint != _new_heating_setpoint
-            and self.real_trvs[entity_id]["last_temperature"] != _new_heating_setpoint
+            _new_heating_setpoint
+            not in (
+                self.bt_target_temp,
+                _old_heating_setpoint,
+                self.real_trvs[entity_id]["last_temperature"],
+            )
             and not child_lock
             and self.real_trvs[entity_id]["target_temp_received"] is True
             and self.real_trvs[entity_id]["system_mode_received"] is True
