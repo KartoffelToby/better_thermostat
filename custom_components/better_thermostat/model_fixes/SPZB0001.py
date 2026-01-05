@@ -40,7 +40,7 @@ async def check_operation_mode(self, entity_id, goal: str = "1"):
     device_id = reg_entity.device_id
     target_entity = None
     for ent in entity_registry.entities.values():
-        if ent.device_id != device_id or ent.domain != "number":
+        if ent.device_id != device_id or ent.domain != "select":
             continue
         en = (ent.entity_id or "").lower()
         uid = (ent.unique_id or "").lower()
@@ -59,15 +59,14 @@ async def check_operation_mode(self, entity_id, goal: str = "1"):
         return False
     if val.state != goal:
         _LOGGER.debug(
-            "better_thermostat %s: SPZB0001 check_operation_mode: setting target entity %s to 1 from %s",
+            "better_thermostat %s: SPZB0001 check_operation_mode: setting target entity %s to %s from %s",
             self.device_name,
             target_entity,
+            goal,
             val.state,
         )
-        self.hass.async_create_task(
-            self.hass.services.async_call(
-                "select", "select_option", {"entity_id": target_entity, "option": goal}
-            )
+        await self.hass.services.async_call(
+            "select", "select_option", {"entity_id": target_entity, "option": goal}
         )
 
     return True

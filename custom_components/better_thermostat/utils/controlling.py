@@ -362,6 +362,13 @@ async def control_trv(self, heater_entity_id=None):
                             heater_entity_id,
                             _source,
                         )
+            else:
+                _LOGGER.debug(
+                    "better_thermostat %s: TRV %s does not support direct valve control due to calibration type %s",
+                    self.device_name,
+                    heater_entity_id,
+                    _calibration_type,
+                )
         except Exception:
             _LOGGER.debug(
                 "better_thermostat %s: set_valve not applied for %s (unsupported or failed)",
@@ -647,6 +654,13 @@ async def control_trv(self, heater_entity_id=None):
                         heater_entity_id,
                         _source,
                     )
+        else:
+            _LOGGER.debug(
+                "better_thermostat %s: TRV %s does not support direct valve control due to calibration type %s",
+                self.device_name,
+                heater_entity_id,
+                _calibration_type,
+            )
     except Exception:
         _LOGGER.debug(
             "better_thermostat %s: set_valve not applied for %s (unsupported or failed)",
