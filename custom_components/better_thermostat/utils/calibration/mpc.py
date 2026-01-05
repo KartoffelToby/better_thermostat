@@ -12,9 +12,9 @@ import math
 _LOGGER = logging.getLogger(__name__)
 
 
-# MPC operates on fixed 5-minute steps and a 12-step horizon.
+# MPC operates on fixed 5-minute steps and a 6-step horizon.
 MPC_STEP_SECONDS = 300.0
-MPC_HORIZON_STEPS = 3
+MPC_HORIZON_STEPS = 6
 
 
 @dataclass
