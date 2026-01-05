@@ -100,11 +100,8 @@ async def set_temperature(self, entity_id, temperature):
         global_cfg_step = getattr(self, "bt_target_temp_step", None)
         if global_cfg_step in (0, 0.0):
             global_cfg_step = None
-        device_step = (
-            self.hass.states.get(entity_id).attributes.get("target_temp_step")
-            if self.hass.states.get(entity_id)
-            else None
-        )
+        state = self.hass.states.get(entity_id)
+        device_step = state.attributes.get("target_temp_step") if state else None
         step = per_trv_step or global_cfg_step or device_step or 0.5
         rounded = round_by_step(float(t), float(step))
     except Exception:
