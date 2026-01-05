@@ -458,6 +458,27 @@ def get_pid_state(key: str) -> PIDState | None:
     return _PID_STATES.get(key)
 
 
+def seed_pid_gains(key: str, kp: float, ki: float, kd: float) -> bool:
+    """Seed PID gains for a given key, creating state if missing.
+
+    Args:
+        key: PID state key (format: {unique_id}:{entity_id}:{bucket})
+        kp: Proportional gain
+        ki: Integral gain
+        kd: Derivative gain
+
+    Returns:
+        True if gains were successfully seeded
+    """
+    if key not in _PID_STATES:
+        _PID_STATES[key] = PIDState()
+    state = _PID_STATES[key]
+    state.pid_kp = kp
+    state.pid_ki = ki
+    state.pid_kd = kd
+    return True
+
+
 # --- Key Builder Helper -----------------------------------------------
 
 
