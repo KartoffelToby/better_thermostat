@@ -3404,7 +3404,7 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
             # Optionally seed PID defaults for the CURRENT target bucket(s)
             if apply_pid_defaults:
                 try:
-                    from .utils.pid import seed_pid_gains, PIDParams
+                    from .utils.calibration.pid import seed_pid_gains, PIDParams
 
                     # Use provided overrides or PIDParams defaults
                     _defs = PIDParams()
