@@ -173,6 +173,7 @@ def import_mpc_state_map(state_map: Mapping[str, Mapping[str, Any]]) -> None:
                 setattr(state, attr, None)
                 continue
             try:
+                coerced: int | float
                 if attr == "dead_zone_hits":
                     coerced = int(value)
                 else:

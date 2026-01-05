@@ -40,7 +40,7 @@ async def check_weather(self) -> bool:
             true if call_for_heat was changed
     """
     old_call_for_heat = self.call_for_heat
-    _call_for_heat_weather = False
+    _call_for_heat_weather: bool | None = None
     _call_for_heat_outdoor = False
 
     self.call_for_heat = True
@@ -75,7 +75,7 @@ async def check_weather(self) -> bool:
         return False
 
 
-async def check_weather_prediction(self) -> bool:
+async def check_weather_prediction(self) -> bool | None:
     """Check configured weather entity for next two days of temperature predictions.
 
     Returns

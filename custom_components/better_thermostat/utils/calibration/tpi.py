@@ -91,6 +91,7 @@ def import_tpi_state_map(state_map: Mapping[str, Mapping[str, Any]]) -> None:
                 setattr(state, attr, None)
                 continue
             try:
+                coerced: int | float
                 if attr in ("dead_zone_hits",):
                     coerced = int(value)
                 else:

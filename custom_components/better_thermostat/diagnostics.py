@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.core import HomeAssistant
+from homeassistant.core import HomeAssistant, State
 
 from .utils.const import CONF_HEATER, CONF_SENSOR, CONF_SENSOR_WINDOW
 
@@ -31,7 +31,7 @@ async def async_get_config_entry_diagnostics(
         }
     external_temperature = hass.states.get(config_entry.data[CONF_SENSOR])
 
-    window = "-"
+    window: str | State | None = "-"
     window_entity_id = config_entry.data.get(CONF_SENSOR_WINDOW, False)
     if window_entity_id:
         try:
