@@ -76,12 +76,10 @@ class PIDParams:
     # Derivative on measurement
     d_on_measurement: bool = True
     d_smoothing_alpha: float = 0.5
-    # Valve slew-rate limiter (% per update)
-    slew_rate: float = 5.0
     # Auto-Tuning
     auto_tune: bool = DEFAULT_PID_AUTO_TUNE
     tune_min_interval_s: float = 300.0
-    overshoot_threshold_K: float = 0.3
+    overshoot_threshold_K: float = 0.2
     kp_min: float = 10.0
     kp_max: float = 500.0
     kp_step_mul: float = 0.9
@@ -315,16 +313,8 @@ def compute_pid(
     if blocked_by_hold:
         percent = st.last_percent
     else:
-        # 5. Apply Slew Rate (only if NOT a big change)
-        # If it's a big change (e.g. window open), we jump immediately.
-        if is_big_change:
-            percent = percent_unlimited
-        else:
-            change = raw_change
-            max_change = params.slew_rate
-            if abs(change) > max_change:
-                change = max_change if change > 0 else -max_change
-            percent = st.last_percent + change
+        # 5. No Slew Rate - apply calculated value directly
+        percent = percent_unlimited
 
         # Update timestamp if value changed significantly or it's the first run
         if abs(percent - st.last_percent) >= 0.1 or st.last_output_change_ts == 0:

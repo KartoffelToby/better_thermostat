@@ -1,3 +1,8 @@
+from custom_components.better_thermostat.utils.calibration.pid import (
+    compute_pid,
+    PIDParams,
+    reset_pid_state,
+)
 import sys
 import os
 import logging
@@ -6,11 +11,6 @@ from unittest.mock import patch
 # Add workspace root to path
 sys.path.append(os.getcwd())
 
-from custom_components.better_thermostat.utils.calibration.pid import (
-    compute_pid,
-    PIDParams,
-    reset_pid_state,
-)
 
 # Setup logging
 logging.basicConfig(level=logging.INFO, format="%(message)s")
@@ -25,7 +25,6 @@ def simulate_pid():
         ki=0.02,
         kd=400.0,
         min_hold_time_s=300.0,  # 5 min
-        slew_rate=5.0,
         big_change_threshold_pct=33.0,
         auto_tune=True,
         steady_state_band_K=0.1,

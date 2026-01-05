@@ -1,4 +1,3 @@
-from unittest.mock import patch
 from custom_components.better_thermostat.utils.calibration.mpc import (
     compute_mpc,
     MpcInput,
@@ -9,6 +8,7 @@ import sys
 import os
 import logging
 from dataclasses import dataclass
+from unittest.mock import patch
 
 # Add workspace root to sys.path
 sys.path.append(os.getcwd())
