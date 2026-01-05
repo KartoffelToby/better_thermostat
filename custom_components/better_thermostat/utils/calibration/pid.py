@@ -12,8 +12,8 @@ Notes:
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
-from typing import Optional, Dict, Any
+from dataclasses import dataclass
+from typing import Dict, Any
 from time import monotonic
 import logging
 

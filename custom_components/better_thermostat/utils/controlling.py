@@ -5,7 +5,6 @@ import logging
 
 from homeassistant.components.climate.const import HVACMode
 from homeassistant.const import STATE_UNAVAILABLE, STATE_UNKNOWN
-from homeassistant.exceptions import HomeAssistantError
 
 from custom_components.better_thermostat.model_fixes.model_quirks import (
     override_set_hvac_mode,

@@ -7,7 +7,6 @@ convert thermostat states and prepare outbound payloads.
 
 from datetime import datetime
 import logging
-from typing import Any, Dict, cast
 from custom_components.better_thermostat.utils.const import CONF_HOMEMATICIP
 
 from homeassistant.components.climate.const import HVACMode
@@ -26,7 +25,6 @@ from custom_components.better_thermostat.utils.const import (
     CalibrationType,
     CalibrationMode,
 )
-from homeassistant.util import dt as dt_util
 
 from custom_components.better_thermostat.calibration import (
     calculate_calibration_local,

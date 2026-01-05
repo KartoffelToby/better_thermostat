@@ -173,7 +173,7 @@ async def check_weather_prediction(self) -> bool:
             return bool(cond_cur or cond_fc)
         else:
             raise TypeError
-    except (TypeError, ServiceNotSupported, HomeAssistantError) as err:
+    except (TypeError, ServiceNotSupported, HomeAssistantError):
         _LOGGER.warning(
             "better_thermostat %s: no weather entity data found.", self.device_name
         )
