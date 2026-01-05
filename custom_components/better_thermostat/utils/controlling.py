@@ -287,7 +287,7 @@ async def control_trv(self, heater_entity_id=None):
             "calibration_mode", CalibrationMode.DEFAULT
         )
         _calibration_type = self.real_trvs[heater_entity_id]["advanced"].get(
-            "calibration_type", CalibrationType.TARGET_TEMP_BASED
+            "calibration", CalibrationType.TARGET_TEMP_BASED
         )
 
         # Optional: set valve position if supported (e.g., MQTT/Z2M or MPC calibration)
@@ -586,7 +586,7 @@ async def control_trv(self, heater_entity_id=None):
         "calibration_mode", CalibrationMode.DEFAULT
     )
     _calibration_type = self.real_trvs[heater_entity_id]["advanced"].get(
-        "calibration_type", CalibrationType.TARGET_TEMP_BASED
+        "calibration", CalibrationType.TARGET_TEMP_BASED
     )
 
     # Optional: set valve position if supported (e.g., MQTT/Z2M)

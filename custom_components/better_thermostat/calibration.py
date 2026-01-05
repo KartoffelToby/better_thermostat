@@ -75,7 +75,7 @@ def _supports_direct_valve_control(self, entity_id: str) -> bool:
     """Return True if the TRV supports writing a valve percentage."""
 
     _calibration_type = self.real_trvs[entity_id]["advanced"].get(
-        "calibration_type", CalibrationType.TARGET_TEMP_BASED
+        "calibration", CalibrationType.TARGET_TEMP_BASED
     )
     if _calibration_type != CalibrationType.DIRECT_VALVE_BASED:
         _LOGGER.debug(

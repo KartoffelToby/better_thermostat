@@ -534,10 +534,12 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
             _calibration = 1
             _advanced = trv.get("advanced", {})
             _calibration_type = _advanced.get("calibration")
-            if _calibration_type == "local_calibration_based":
+            if _calibration_type == CalibrationType.TARGET_TEMP_BASED:
                 _calibration = 0
-            if _calibration_type == "hybrid_calibration":
+            if _calibration_type == CalibrationType.DIRECT_VALVE_BASED:
                 _calibration = 2
+            if _calibration_type == CalibrationType.LOCAL_BASED:
+                _calibration = 3
             _adapter = await load_adapter(self, trv["integration"], trv["trv"])
             # Resolve/refresh model dynamically at startup to ensure correct quirks
             resolved_model = trv.get("model")
