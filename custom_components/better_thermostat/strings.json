@@ -124,7 +124,7 @@
                 },
                 "invalid_window_state": {
                         "title": "BT: {name} - invalid window sensor state",
-                        "description": "The window sensor for Better Thermostat '{name}' reported an unrecognized state: '{state}'.\n\nExpected states are: 'on', 'off', 'true', 'false', 'open', 'closed'.\n\nPlease check your window sensor configuration."
+                        "description": "The window sensor for Better Thermostat {name} reported an unrecognized state: {state}.\n\nExpected states are: 'on', 'off', 'true', 'false', 'open', 'closed'.\n\nPlease check your window sensor configuration."
                 }
         },
         "services": {
