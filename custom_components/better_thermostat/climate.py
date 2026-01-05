@@ -880,7 +880,7 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
                     self.device_name,
                     self.sensor_entity_id,
                 )
-                await asyncio.sleep(10)
+                await asyncio.sleep(20)
                 continue
 
             try:
@@ -892,7 +892,7 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
                             self.device_name,
                             trv,
                         )
-                        await asyncio.sleep(10)
+                        await asyncio.sleep(20)
                         raise ContinueLoop
                     if trv_state is not None:
                         if trv_state.state in (STATE_UNAVAILABLE, STATE_UNKNOWN, None):
@@ -901,7 +901,7 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
                                 self.device_name,
                                 trv,
                             )
-                            await asyncio.sleep(10)
+                            await asyncio.sleep(20)
                             raise ContinueLoop
             except ContinueLoop:
                 continue
@@ -1590,8 +1590,8 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
             self._available = True
             self.async_write_ha_state()
             #
-            _LOGGER.debug("better_thermostat %s: sleeping 5s...", self.device_name)
-            await asyncio.sleep(5)
+            _LOGGER.debug("better_thermostat %s: sleeping 15s...", self.device_name)
+            await asyncio.sleep(15)
             _LOGGER.debug(
                 "better_thermostat %s: finding battery entities...", self.device_name
             )
