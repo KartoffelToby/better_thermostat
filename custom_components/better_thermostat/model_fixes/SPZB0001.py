@@ -13,7 +13,7 @@ _LOGGER = logging.getLogger(__name__)
 def fix_local_calibration(self, entity_id, offset):
     """Clamp local calibration to safe bounds for SPZB0001 devices."""
 
-    check_operation_mode(self, entity_id, "2")
+    self.hass.async_create_task(check_operation_mode(self, entity_id, "2"))
 
     if offset > 5:
         offset = 5
@@ -78,7 +78,7 @@ def fix_target_temperature_calibration(self, entity_id, temperature):
 
     Currently a no-op.
     """
-    check_operation_mode(self, entity_id, "2")
+    self.hass.async_create_task(check_operation_mode(self, entity_id, "2"))
     return temperature
 
 
