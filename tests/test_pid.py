@@ -6,6 +6,7 @@ from custom_components.better_thermostat.utils.calibration.pid import (
     compute_pid,
     get_pid_state,
     build_pid_key,
+    seed_pid_gains,
 )
 
 
@@ -403,3 +404,67 @@ class TestPIDController:
         bt.bt_target_temp = None
         key = build_pid_key(bt, "climate.test")
         assert key == "test_bt:climate.test:tunknown"
+
+    def test_seed_pid_gains_creates_new_state(self):
+        """Test that seed_pid_gains creates a new state if key doesn't exist."""
+        key = "test_seed_new"
+
+        # Ensure state doesn't exist
+        assert get_pid_state(key) is None
+
+        # Seed gains
+        result = seed_pid_gains(key, kp=15.0, ki=0.05, kd=300.0)
+
+        assert result is True
+        state = get_pid_state(key)
+        assert state is not None
+        assert state.pid_kp == 15.0
+        assert state.pid_ki == 0.05
+        assert state.pid_kd == 300.0
+
+    def test_seed_pid_gains_updates_existing_state(self):
+        """Test that seed_pid_gains updates an existing state."""
+        key = "test_seed_update"
+
+        # Create initial state with different values
+        seed_pid_gains(key, kp=10.0, ki=0.01, kd=100.0)
+        state_before = get_pid_state(key)
+        assert state_before.pid_kp == 10.0
+
+        # Update with new values
+        result = seed_pid_gains(key, kp=20.0, ki=0.02, kd=200.0)
+
+        assert result is True
+        state_after = get_pid_state(key)
+        assert state_after.pid_kp == 20.0
+        assert state_after.pid_ki == 0.02
+        assert state_after.pid_kd == 200.0
+
+    def test_seed_pid_gains_preserves_other_state_fields(self):
+        """Test that seed_pid_gains only updates gains, not other fields."""
+        key = "test_seed_preserve"
+        params = PIDParams(auto_tune=False, kp=10.0, ki=0.1, kd=50.0)
+
+        # Run PID to create state with integral value
+        compute_pid(
+            params=params,
+            inp_target_temp_C=22.0,
+            inp_current_temp_C=20.0,
+            inp_trv_temp_C=21.0,
+            inp_temp_slope_K_per_min=0.0,
+            key=key,
+        )
+
+        state_before = get_pid_state(key)
+        integral_before = state_before.pid_integral
+
+        # Seed new gains
+        seed_pid_gains(key, kp=25.0, ki=0.08, kd=400.0)
+
+        state_after = get_pid_state(key)
+        # Gains should be updated
+        assert state_after.pid_kp == 25.0
+        assert state_after.pid_ki == 0.08
+        assert state_after.pid_kd == 400.0
+        # Integral should be preserved
+        assert state_after.pid_integral == integral_before
