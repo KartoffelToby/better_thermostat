@@ -21,12 +21,12 @@ def simulate_pid():
 
     # Parameters (Defaults)
     params = PIDParams(
-        kp=20.0,
-        ki=0.02,
-        kd=400.0,
+        kp=60.0,
+        ki=0.01,
+        kd=2000.0,
         min_hold_time_s=300.0,  # 5 min
         big_change_threshold_pct=33.0,
-        auto_tune=True,
+        auto_tune=False,  # Disable auto-tune to test raw params
         steady_state_band_K=0.1,
     )
 

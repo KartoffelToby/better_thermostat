@@ -53,9 +53,9 @@ class PIDState:
 
 # --- PID Parameters -----------------------------------------------
 
-DEFAULT_PID_KP = 20.0
-DEFAULT_PID_KI = 0.02
-DEFAULT_PID_KD = 400.0
+DEFAULT_PID_KP = 60.0
+DEFAULT_PID_KI = 0.01
+DEFAULT_PID_KD = 2000.0
 DEFAULT_PID_AUTO_TUNE = True
 
 
@@ -71,8 +71,8 @@ class PIDParams:
     ki: float = DEFAULT_PID_KI
     kd: float = DEFAULT_PID_KD
     # Integrator-Klammer (Anti-Windup) in %-Punkten
-    i_min: float = -60.0
-    i_max: float = 60.0
+    i_min: float = -100.0
+    i_max: float = 100.0
     # Derivative on measurement
     d_on_measurement: bool = True
     d_smoothing_alpha: float = 0.5
@@ -83,11 +83,12 @@ class PIDParams:
     kp_min: float = 10.0
     kp_max: float = 500.0
     kp_step_mul: float = 0.9
+    kp_step_mul_up: float = 1.1
     kd_min: float = 100.0
     kd_max: float = 10000.0
     kd_step_mul: float = 1.1
     ki_min: float = 0.001
-    ki_max: float = 1.0
+    ki_max: float = 2.0
     ki_step_mul_up: float = 1.2
     ki_step_mul_down: float = 0.8
     sluggish_slope_threshold_K_min: float = 0.005
@@ -438,21 +439,23 @@ def _auto_tune_pid(
         ki = float(st.pid_ki or params.ki)
         kd = float(st.pid_kd or params.kd)
 
-        # 1) Overshoot → kp leicht runter, kd leicht rauf
+        # 1) Overshoot → kp leicht runter, kd leicht rauf, ki leicht runter
         if overshoot:
             kp = max(params.kp_min, kp * params.kp_step_mul)
             kd = min(params.kd_max, kd * params.kd_step_mul)
+            ki = max(params.ki_min, ki * params.ki_step_mul_down)
             tuned = True
 
-        # 2) Trägheit: ΔT deutlich > band_near, aber Slope sehr klein -> Ki leicht rauf (only near steady-state)
+        # 2) Trägheit: ΔT deutlich > band_near, aber Slope sehr klein -> Ki rauf, Kp rauf
         # Use EMA slope if available for more stable tuning
         check_slope = st.ema_slope if st.ema_slope is not None else slope
         if (
             delta_T > params.steady_state_band_K
             and abs(check_slope) < params.sluggish_slope_threshold_K_min
-            and abs(delta_T) < 1.0  # Restrict to near steady-state
+            and percent < 95.0
         ):
             ki = min(params.ki_max, max(params.ki_min, ki * params.ki_step_mul_up))
+            kp = min(params.kp_max, max(params.kp_min, kp * params.kp_step_mul_up))
             tuned = True
 
         # 3) Quasi stationär: |ΔT| < steady_state_band und geringe Stellgröße → Ki leicht runter
