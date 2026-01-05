@@ -18,7 +18,6 @@ from custom_components.better_thermostat.utils.helpers import (
 from custom_components.better_thermostat.model_fixes.model_quirks import (
     fix_local_calibration,
     fix_target_temperature_calibration,
-    fix_valve_calibration,
 )
 
 from custom_components.better_thermostat.utils.calibration.mpc import (
@@ -801,63 +800,3 @@ def calculate_calibration_setpoint(self, entity_id) -> float | None:
     )
 
     return _calibrated_setpoint
-
-
-def calculate_calibration_valve(self, entity_id) -> int | None:
-    """Calculate the valve position for the TRV.
-
-    Parameters
-    ----------
-    self :
-            self instance of better_thermostat
-    entity_id : str
-            the entity_id of the TRV
-
-    Returns
-    -------
-    int
-            valve position (0-100)
-    """
-    _cur_external_temp = self.real_trvs[entity_id]["last_external_temperature"]
-    _cur_target_temp = self.bt_target_temp
-    _calibration_mode = self.real_trvs[entity_id]["advanced"].get("calibration_mode")
-
-    if _cur_external_temp is None or _cur_target_temp is None:
-        return None
-
-    _valve_position = 0.0
-
-    if _calibration_mode == CalibrationMode.MPC_CALIBRATION:
-        _mpc_result, _ = _compute_mpc_balance(self, entity_id)
-        if _mpc_result is not None:
-            _mpc_percent = getattr(_mpc_result, "valve_percent", None)
-            if isinstance(_mpc_percent, (int, float)):
-                _valve_position = float(_mpc_percent) / 100.0
-    elif _calibration_mode == CalibrationMode.TPI_CALIBRATION:
-        _tpi_result, _ = _compute_tpi_balance(self, entity_id)
-        if _tpi_result is not None:
-            _tpi_percent = getattr(_tpi_result, "valve_percent", None)
-            if isinstance(_tpi_percent, (int, float)):
-                _valve_position = float(_tpi_percent) / 100.0
-    elif _calibration_mode == CalibrationMode.PID_CALIBRATION:
-        _pid_result, _ = _compute_pid_balance(self, entity_id)
-        if _pid_result is not None:
-            if isinstance(_pid_result, (int, float)):
-                _valve_position = float(_pid_result) / 100.0
-    else:
-        _valve_position = heating_power_valve_position(self, entity_id)
-
-    # Convert to percentage (0-100)
-    _valve_value = int(round(_valve_position * 100))
-    _valve_value = max(0, min(100, _valve_value))
-
-    _valve_value = fix_valve_calibration(self, entity_id, _valve_value)
-
-    _LOGGER.debug(
-        "better_thermostat %s: %s - new valve position: %s",
-        self.device_name,
-        entity_id,
-        _valve_value,
-    )
-
-    return _valve_value

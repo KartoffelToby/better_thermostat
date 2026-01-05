@@ -12,6 +12,9 @@ _LOGGER = logging.getLogger(__name__)
 
 def fix_local_calibration(self, entity_id, offset):
     """Clamp local calibration to safe bounds for SPZB0001 devices."""
+
+    check_operation_mode(self, entity_id, "2")
+
     if offset > 5:
         offset = 5
     elif offset < -5:
@@ -19,7 +22,7 @@ def fix_local_calibration(self, entity_id, offset):
     return offset
 
 
-def fix_valve_calibration(self, entity_id, valve):
+async def check_operation_mode(self, entity_id, goal: str = "1"):
     """Return a possibly adjusted valve calibration for SPZB0001.
 
     Currently a no-op.
@@ -29,7 +32,7 @@ def fix_valve_calibration(self, entity_id, valve):
     reg_entity = entity_registry.async_get(entity_id)
     if reg_entity is None:
         _LOGGER.debug(
-            "better_thermostat %s: SPZB0001 fix_valve_calibration: no registry entity for %s",
+            "better_thermostat %s: SPZB0001 check_operation_mode: no registry entity for %s",
             self.device_name,
             entity_id,
         )
@@ -42,25 +45,32 @@ def fix_valve_calibration(self, entity_id, valve):
         en = (ent.entity_id or "").lower()
         uid = (ent.unique_id or "").lower()
         name = (getattr(ent, "original_name", None) or "").lower()
-        if "_mode" in en or "_mode" in uid or "mode" in name:
+        if "_trv_mode" in en or "_trv_mode" in uid or "Trv mode" in name:
             target_entity = ent.entity_id
     if target_entity is None:
         _LOGGER.debug(
-            "better_thermostat %s: SPZB0001 fix_valve_calibration: no target entity for %s",
+            "better_thermostat %s: SPZB0001 check_operation_mode: no target entity for %s",
             self.device_name,
             entity_id,
         )
         return False
     val = self.hass.states.get(target_entity)
     if val is None:
-        if val != 1:
-            self.hass.async_create_task(
-                self.hass.services.async_call(
-                    "number", "set_value", {"entity_id": target_entity, "value": 1}
-                )
+        return False
+    if val.state != goal:
+        _LOGGER.debug(
+            "better_thermostat %s: SPZB0001 check_operation_mode: setting target entity %s to 1 from %s",
+            self.device_name,
+            target_entity,
+            val.state,
+        )
+        self.hass.async_create_task(
+            self.hass.services.async_call(
+                "select", "select_option", {"entity_id": target_entity, "option": goal}
             )
+        )
 
-    return valve
+    return True
 
 
 def fix_target_temperature_calibration(self, entity_id, temperature):
@@ -68,7 +78,20 @@ def fix_target_temperature_calibration(self, entity_id, temperature):
 
     Currently a no-op.
     """
+    check_operation_mode(self, entity_id, "2")
     return temperature
+
+
+async def override_set_valve(self, entity_id, percent: int):
+    """Override valve setting for SPZB0001 via trv_mode.* entity.
+
+    Returns True if handled (write attempted), False to let adapter fallback run.
+    """
+    try:
+        ok = await check_operation_mode(self, entity_id, "1")
+        return bool(ok)
+    except Exception:
+        return False
 
 
 async def override_set_hvac_mode(self, entity_id, hvac_mode):

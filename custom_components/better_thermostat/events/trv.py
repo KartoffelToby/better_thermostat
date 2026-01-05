@@ -29,7 +29,6 @@ from custom_components.better_thermostat.utils.const import (
 from custom_components.better_thermostat.calibration import (
     calculate_calibration_local,
     calculate_calibration_setpoint,
-    calculate_calibration_valve,
 )
 
 _LOGGER = logging.getLogger(__name__)
@@ -373,23 +372,16 @@ def convert_outbound_states(self, entity_id, hvac_mode) -> dict | None:
 
                 _new_heating_setpoint = self.bt_target_temp
 
-            elif _calibration_type == CalibrationType.TARGET_TEMP_BASED:
+            elif (
+                _calibration_type == CalibrationType.TARGET_TEMP_BASED
+                or _calibration_type == CalibrationType.DIRECT_VALVE_BASED
+            ):
                 if _calibration_mode == CalibrationMode.NO_CALIBRATION:
                     _new_heating_setpoint = self.bt_target_temp
                 else:
                     _new_heating_setpoint = calculate_calibration_setpoint(
                         self, entity_id
                     )
-            elif _calibration_type == CalibrationType.DIRECT_VALVE_BASED:
-                _new_valve_position = calculate_calibration_valve(self, entity_id)
-                # When controlling valve directly, we might still want to set target temp to something?
-                # Or maybe the adapter handles it.
-                # Usually we set target temp to max or min to force valve open/close if we weren't controlling valve directly,
-                # but here we are.
-                # Let's assume we just send valve position.
-                # But we might need to set target temp to current temp or something to avoid internal TRV logic fighting back?
-                # For now, let's just set valve position.
-                _new_heating_setpoint = self.bt_target_temp
 
             _system_modes = self.real_trvs[entity_id]["hvac_modes"]
             _has_system_mode = _system_modes is not None
