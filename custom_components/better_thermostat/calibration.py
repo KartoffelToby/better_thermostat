@@ -6,6 +6,7 @@ from homeassistant.components.climate.const import HVACAction, HVACMode
 
 from custom_components.better_thermostat.utils.const import (
     CalibrationMode,
+    CalibrationType,
     CONF_PROTECT_OVERHEATING,
 )
 
@@ -72,6 +73,12 @@ def _get_current_outdoor_temp(self) -> float | None:
 
 def _supports_direct_valve_control(self, entity_id: str) -> bool:
     """Return True if the TRV supports writing a valve percentage."""
+
+    _calibration_type = self.real_trvs[entity_id]["advanced"].get(
+        "calibration_type", CalibrationType.TARGET_TEMP_BASED
+    )
+    if _calibration_type != CalibrationType.DIRECT_VALVE_BASED:
+        return False
 
     trv_data = self.real_trvs.get(entity_id) or {}
     valve_entity = trv_data.get("valve_position_entity")

@@ -22,7 +22,10 @@ from custom_components.better_thermostat.events.trv import convert_outbound_stat
 
 from custom_components.better_thermostat.utils.helpers import convert_to_float
 
-from custom_components.better_thermostat.utils.const import CalibrationMode
+from custom_components.better_thermostat.utils.const import (
+    CalibrationMode,
+    CalibrationType,
+)
 
 
 _LOGGER = logging.getLogger(__name__)
@@ -283,70 +286,82 @@ async def control_trv(self, heater_entity_id=None):
         _calibration_mode = self.real_trvs[heater_entity_id]["advanced"].get(
             "calibration_mode", CalibrationMode.DEFAULT
         )
+        _calibration_type = self.real_trvs[heater_entity_id]["advanced"].get(
+            "calibration_type", CalibrationType.TARGET_TEMP_BASED
+        )
 
         # Optional: set valve position if supported (e.g., MQTT/Z2M or MPC calibration)
         try:
             _source = None
             bal = None
-            if _calibration_mode == CalibrationMode.MPC_CALIBRATION:
-                cal_bal = self.real_trvs[heater_entity_id].get("calibration_balance")
-                if (
-                    isinstance(cal_bal, dict)
-                    and cal_bal.get("apply_valve")
-                    and cal_bal.get("valve_percent") is not None
-                ):
-                    bal = cal_bal
-                    _source = "mpc_calibration"
-            elif _calibration_mode == CalibrationMode.TPI_CALIBRATION:
-                cal_bal = self.real_trvs[heater_entity_id].get("calibration_balance")
-                if (
-                    isinstance(cal_bal, dict)
-                    and cal_bal.get("apply_valve")
-                    and cal_bal.get("valve_percent") is not None
-                ):
-                    bal = cal_bal
-                    _source = "tpi_calibration"
-            elif _calibration_mode == CalibrationMode.PID_CALIBRATION:
-                cal_bal = self.real_trvs[heater_entity_id].get("calibration_balance")
-                if (
-                    isinstance(cal_bal, dict)
-                    and cal_bal.get("apply_valve")
-                    and cal_bal.get("valve_percent") is not None
-                ):
-                    bal = cal_bal
-                    _source = "pid_calibration"
-            elif _calibration_mode == CalibrationMode.HEATING_POWER_CALIBRATION:
-                cal_bal = self.real_trvs[heater_entity_id].get("calibration_balance")
-                if (
-                    isinstance(cal_bal, dict)
-                    and cal_bal.get("apply_valve")
-                    and cal_bal.get("valve_percent") is not None
-                ):
-                    bal = cal_bal
-                    _source = "heating_power_calibration"
-            if bal is None:
-                raw_balance = self.real_trvs[heater_entity_id].get("balance")
-                if raw_balance and raw_balance.get("valve_percent") is not None:
-                    bal = raw_balance
-                    _source = "balance"
-            if bal is not None:
-                target_pct = int(round(bal.get("valve_percent", 0)))
-                _LOGGER.debug(
-                    "better_thermostat %s: TO TRV set_valve: %s to: %s%% (source=%s)",
-                    self.device_name,
-                    heater_entity_id,
-                    target_pct,
-                    _source,
-                )
-                ok = await set_valve(self, heater_entity_id, target_pct)
-                if not ok:
+            if _calibration_type == CalibrationType.DIRECT_VALVE_BASED:
+                if _calibration_mode == CalibrationMode.MPC_CALIBRATION:
+                    cal_bal = self.real_trvs[heater_entity_id].get(
+                        "calibration_balance"
+                    )
+                    if (
+                        isinstance(cal_bal, dict)
+                        and cal_bal.get("apply_valve")
+                        and cal_bal.get("valve_percent") is not None
+                    ):
+                        bal = cal_bal
+                        _source = "mpc_calibration"
+                elif _calibration_mode == CalibrationMode.TPI_CALIBRATION:
+                    cal_bal = self.real_trvs[heater_entity_id].get(
+                        "calibration_balance"
+                    )
+                    if (
+                        isinstance(cal_bal, dict)
+                        and cal_bal.get("apply_valve")
+                        and cal_bal.get("valve_percent") is not None
+                    ):
+                        bal = cal_bal
+                        _source = "tpi_calibration"
+                elif _calibration_mode == CalibrationMode.PID_CALIBRATION:
+                    cal_bal = self.real_trvs[heater_entity_id].get(
+                        "calibration_balance"
+                    )
+                    if (
+                        isinstance(cal_bal, dict)
+                        and cal_bal.get("apply_valve")
+                        and cal_bal.get("valve_percent") is not None
+                    ):
+                        bal = cal_bal
+                        _source = "pid_calibration"
+                elif _calibration_mode == CalibrationMode.HEATING_POWER_CALIBRATION:
+                    cal_bal = self.real_trvs[heater_entity_id].get(
+                        "calibration_balance"
+                    )
+                    if (
+                        isinstance(cal_bal, dict)
+                        and cal_bal.get("apply_valve")
+                        and cal_bal.get("valve_percent") is not None
+                    ):
+                        bal = cal_bal
+                        _source = "heating_power_calibration"
+                if bal is None:
+                    raw_balance = self.real_trvs[heater_entity_id].get("balance")
+                    if raw_balance and raw_balance.get("valve_percent") is not None:
+                        bal = raw_balance
+                        _source = "balance"
+                if bal is not None:
+                    target_pct = int(round(bal.get("valve_percent", 0)))
                     _LOGGER.debug(
-                        "better_thermostat %s: delegate.set_valve returned False (target=%s%%, entity=%s, source=%s)",
+                        "better_thermostat %s: TO TRV set_valve: %s to: %s%% (source=%s)",
                         self.device_name,
-                        target_pct,
                         heater_entity_id,
+                        target_pct,
                         _source,
                     )
+                    ok = await set_valve(self, heater_entity_id, target_pct)
+                    if not ok:
+                        _LOGGER.debug(
+                            "better_thermostat %s: delegate.set_valve returned False (target=%s%%, entity=%s, source=%s)",
+                            self.device_name,
+                            target_pct,
+                            heater_entity_id,
+                            _source,
+                        )
         except Exception:
             _LOGGER.debug(
                 "better_thermostat %s: set_valve not applied for %s (unsupported or failed)",
@@ -563,71 +578,75 @@ async def control_trv(self, heater_entity_id=None):
     _calibration_mode = self.real_trvs[heater_entity_id]["advanced"].get(
         "calibration_mode", CalibrationMode.DEFAULT
     )
+    _calibration_type = self.real_trvs[heater_entity_id]["advanced"].get(
+        "calibration_type", CalibrationType.TARGET_TEMP_BASED
+    )
 
     # Optional: set valve position if supported (e.g., MQTT/Z2M)
     try:
         _source = None
         bal = None
-        if _calibration_mode == CalibrationMode.MPC_CALIBRATION:
-            cal_bal = self.real_trvs[heater_entity_id].get("calibration_balance")
-            if (
-                isinstance(cal_bal, dict)
-                and cal_bal.get("apply_valve")
-                and cal_bal.get("valve_percent") is not None
-            ):
-                bal = cal_bal
-                _source = "mpc_calibration"
-        elif _calibration_mode == CalibrationMode.TPI_CALIBRATION:
-            cal_bal = self.real_trvs[heater_entity_id].get("calibration_balance")
-            if (
-                isinstance(cal_bal, dict)
-                and cal_bal.get("apply_valve")
-                and cal_bal.get("valve_percent") is not None
-            ):
-                bal = cal_bal
-                _source = "tpi_calibration"
-        elif _calibration_mode == CalibrationMode.HEATING_POWER_CALIBRATION:
-            cal_bal = self.real_trvs[heater_entity_id].get("calibration_balance")
-            if (
-                isinstance(cal_bal, dict)
-                and cal_bal.get("apply_valve")
-                and cal_bal.get("valve_percent") is not None
-            ):
-                bal = cal_bal
-                _source = "heating_power_calibration"
-        elif _calibration_mode == CalibrationMode.PID_CALIBRATION:
-            cal_bal = self.real_trvs[heater_entity_id].get("calibration_balance")
-            if (
-                isinstance(cal_bal, dict)
-                and cal_bal.get("apply_valve")
-                and cal_bal.get("valve_percent") is not None
-            ):
-                bal = cal_bal
-                _source = "pid_calibration"
+        if _calibration_type == CalibrationType.DIRECT_VALVE_BASED:
+            if _calibration_mode == CalibrationMode.MPC_CALIBRATION:
+                cal_bal = self.real_trvs[heater_entity_id].get("calibration_balance")
+                if (
+                    isinstance(cal_bal, dict)
+                    and cal_bal.get("apply_valve")
+                    and cal_bal.get("valve_percent") is not None
+                ):
+                    bal = cal_bal
+                    _source = "mpc_calibration"
+            elif _calibration_mode == CalibrationMode.TPI_CALIBRATION:
+                cal_bal = self.real_trvs[heater_entity_id].get("calibration_balance")
+                if (
+                    isinstance(cal_bal, dict)
+                    and cal_bal.get("apply_valve")
+                    and cal_bal.get("valve_percent") is not None
+                ):
+                    bal = cal_bal
+                    _source = "tpi_calibration"
+            elif _calibration_mode == CalibrationMode.HEATING_POWER_CALIBRATION:
+                cal_bal = self.real_trvs[heater_entity_id].get("calibration_balance")
+                if (
+                    isinstance(cal_bal, dict)
+                    and cal_bal.get("apply_valve")
+                    and cal_bal.get("valve_percent") is not None
+                ):
+                    bal = cal_bal
+                    _source = "heating_power_calibration"
+            elif _calibration_mode == CalibrationMode.PID_CALIBRATION:
+                cal_bal = self.real_trvs[heater_entity_id].get("calibration_balance")
+                if (
+                    isinstance(cal_bal, dict)
+                    and cal_bal.get("apply_valve")
+                    and cal_bal.get("valve_percent") is not None
+                ):
+                    bal = cal_bal
+                    _source = "pid_calibration"
 
-        if bal is None:
-            raw_balance = self.real_trvs[heater_entity_id].get("balance")
-            if raw_balance and raw_balance.get("valve_percent") is not None:
-                bal = raw_balance
-                _source = "balance"
-        if bal is not None:
-            target_pct = int(round(bal.get("valve_percent", 0)))
-            _LOGGER.debug(
-                "better_thermostat %s: TO TRV set_valve: %s to: %s%% (source=%s)",
-                self.device_name,
-                heater_entity_id,
-                target_pct,
-                _source,
-            )
-            ok = await set_valve(self, heater_entity_id, target_pct)
-            if not ok:
+            if bal is None:
+                raw_balance = self.real_trvs[heater_entity_id].get("balance")
+                if raw_balance and raw_balance.get("valve_percent") is not None:
+                    bal = raw_balance
+                    _source = "balance"
+            if bal is not None:
+                target_pct = int(round(bal.get("valve_percent", 0)))
                 _LOGGER.debug(
-                    "better_thermostat %s: delegate.set_valve returned False (target=%s%%, entity=%s, source=%s)",
+                    "better_thermostat %s: TO TRV set_valve: %s to: %s%% (source=%s)",
                     self.device_name,
-                    target_pct,
                     heater_entity_id,
+                    target_pct,
                     _source,
                 )
+                ok = await set_valve(self, heater_entity_id, target_pct)
+                if not ok:
+                    _LOGGER.debug(
+                        "better_thermostat %s: delegate.set_valve returned False (target=%s%%, entity=%s, source=%s)",
+                        self.device_name,
+                        target_pct,
+                        heater_entity_id,
+                        _source,
+                    )
     except Exception:
         _LOGGER.debug(
             "better_thermostat %s: set_valve not applied for %s (unsupported or failed)",
