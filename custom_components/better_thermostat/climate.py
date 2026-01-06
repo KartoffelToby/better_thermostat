@@ -414,7 +414,7 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
             None  # Temperature saved before entering any preset mode
         )
         self._enabled_presets = enabled_presets
-        if self._enabled_presets is None:
+        if not self._enabled_presets:
             self._enabled_presets = [
                 PRESET_AWAY,
                 PRESET_BOOST,
