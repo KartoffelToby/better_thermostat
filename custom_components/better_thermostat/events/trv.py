@@ -156,9 +156,9 @@ async def trigger_trv_change(self, event):
             )
             _main_change = False
             if self.real_trvs[entity_id]["calibration"] == 0:
-                self.real_trvs[entity_id]["last_calibration"] = (
-                    await get_current_offset(self, entity_id)
-                )
+                self.real_trvs[entity_id][
+                    "last_calibration"
+                ] = await get_current_offset(self, entity_id)
 
     if self.ignore_states:
         return
@@ -301,7 +301,10 @@ async def trigger_trv_change(self, event):
 
         if self.real_trvs[entity_id]["advanced"].get("no_off_system_mode", False):
             if _new_heating_setpoint == self.real_trvs[entity_id]["min_temp"]:
-                self.bt_hvac_mode = HVACMode.OFF
+                # Only set OFF if window is NOT open - min_temp during window
+                # open was set by BT, not by user turning off heating
+                if not self.window_open:
+                    self.bt_hvac_mode = HVACMode.OFF
             else:
                 self.bt_hvac_mode = HVACMode.HEAT
             _main_change = True
