@@ -12,7 +12,7 @@ when window closes, causing the control logic to not restore heating.
 """
 
 import pytest
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock
 from homeassistant.components.climate import HVACMode
 
 from custom_components.better_thermostat.utils.const import (
@@ -167,7 +167,7 @@ class TestWindowCloseRestoresHeating:
         states_heating = convert_outbound_states(
             mock_bt_instance, "climate.test_trv", HVACMode.HEAT
         )
-        hvac_mode_heating = handle_window_open(mock_bt_instance, states_heating)
+        handle_window_open(mock_bt_instance, states_heating)
 
         # Should be heating (or at least not None/OFF)
         # Note: might be None for devices without system_mode, but should still heat
