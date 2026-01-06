@@ -12,8 +12,6 @@ The TRV state change event will trigger a new control cycle when it
 becomes available again. No retry loop needed.
 """
 
-import pytest
-
 
 class TestUnavailableTrvHandling:
     """Tests for unavailable TRV handling."""
