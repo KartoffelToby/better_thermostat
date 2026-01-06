@@ -13,7 +13,6 @@ bt_min_temp = max of all min_temps and bt_max_temp = min of all max_temps.
 
 import pytest
 from unittest.mock import MagicMock
-from homeassistant.const import STATE_UNAVAILABLE, STATE_UNKNOWN
 
 
 def reduce_attribute(states, attribute, reduce):

@@ -1008,6 +1008,20 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
             self.bt_min_temp = reduce_attribute(states, ATTR_MIN_TEMP, reduce=max)
             self.bt_max_temp = reduce_attribute(states, ATTR_MAX_TEMP, reduce=min)
 
+            if (
+                self.bt_min_temp is not None
+                and self.bt_max_temp is not None
+                and self.bt_min_temp > self.bt_max_temp
+            ):
+                _LOGGER.warning(
+                    "better_thermostat %s: min temp (%.1f°) > max temp (%.1f°). "
+                    "This indicates non-overlapping temperature ranges between "
+                    "heater and cooler entities. Please check your configuration.",
+                    self.device_name,
+                    self.bt_min_temp,
+                    self.bt_max_temp,
+                )
+
             if self.bt_target_temp_step == 0.0:
                 self.bt_target_temp_step = reduce_attribute(
                     states, ATTR_TARGET_TEMP_STEP, reduce=max
