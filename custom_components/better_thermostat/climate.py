@@ -994,6 +994,17 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
                 if (state := self.hass.states.get(entity_id)) is not None
             ]
 
+            # Include cooler entity in min/max calculation to ensure BT's
+            # temperature range is compatible with all controlled devices
+            if self.cooler_entity_id is not None:
+                cooler_state = self.hass.states.get(self.cooler_entity_id)
+                if cooler_state is not None and cooler_state.state not in (
+                    STATE_UNAVAILABLE,
+                    STATE_UNKNOWN,
+                    None,
+                ):
+                    states.append(cooler_state)
+
             self.bt_min_temp = reduce_attribute(states, ATTR_MIN_TEMP, reduce=max)
             self.bt_max_temp = reduce_attribute(states, ATTR_MAX_TEMP, reduce=min)
 
