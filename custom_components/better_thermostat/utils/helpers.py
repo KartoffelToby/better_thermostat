@@ -238,13 +238,13 @@ def heating_power_valve_position(self, entity_id):
 
 
 def convert_to_float(
-    value: str | float, instance_name: str, context: str
+    value: str | int | float | None, instance_name: str, context: str
 ) -> float | None:
     """Convert value to float or print error message.
 
     Parameters
     ----------
-    value : str, int, float
+    value : str | int | float | None
             the value to convert to float
     instance_name : str
             the name of the instance thermostat
@@ -253,15 +253,16 @@ def convert_to_float(
 
     Returns
     -------
-    float
-            the converted value
-    None
-            If error occurred and cannot convert the value.
+    float | None
+            the converted value, or None if conversion failed
     """
     if value is None or value == "None":
         return None
     try:
-        return round_by_step(float(value), 0.1)
+        # Use 0.01 step (2 decimal places) to preserve sensor precision.
+        # Rounding to 0.1 caused issues where 19.97 became 20.0, leading to
+        # incorrect HVAC action decisions (see issues #1792, #1789, #1785).
+        return round_by_step(float(value), 0.01)
     except (ValueError, TypeError, AttributeError, KeyError):
         _LOGGER.debug(
             f"better thermostat {instance_name}: Could not convert '{value}' to float in {context}"
