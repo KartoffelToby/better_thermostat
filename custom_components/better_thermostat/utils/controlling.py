@@ -718,6 +718,24 @@ async def control_trv(self, heater_entity_id=None):
             "last_calibration", _current_calibration
         )
 
+        # Fix for grouped TRVs: If current calibration already matches target,
+        # reset calibration_received to True. This handles the case where the
+        # TRV's state change event was ignored during the control cycle
+        # (when ignore_states=True), leaving calibration_received stuck at False.
+        if (
+            self.real_trvs[heater_entity_id]["calibration_received"] is False
+            and _current_calibration is not None
+            and abs(float(_current_calibration) - float(_calibration)) < 0.5
+        ):
+            _LOGGER.debug(
+                "better_thermostat %s: TRV %s calibration already at target (%s), "
+                "resetting calibration_received flag",
+                self.device_name,
+                heater_entity_id,
+                _calibration,
+            )
+            self.real_trvs[heater_entity_id]["calibration_received"] = True
+
         if self.real_trvs[heater_entity_id]["calibration_received"] is True and float(
             _old_calibration
         ) != float(_calibration):
