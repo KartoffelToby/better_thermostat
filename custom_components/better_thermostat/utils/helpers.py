@@ -613,15 +613,10 @@ def get_min_value(obj, value, default):
         return default
 
 
-async def get_device_model(self, entity_id):
+async def get_device_model(self, entity_id: str) -> str:
     """Determine the device model from the Device Registry entry.
 
-    Priority:
-    1) device.model_id
-    2) Model from parentheses in device.model (e.g., "Foo (TRVZB)")
-    3) device.model (plain string)
-    4) Fallback: self.model (Config)
-    5) Fallback: "generic"
+    Priority: model_id > model (before parens) > model > config > "generic"
     """
     selected: str | None = None
     source: str = "none"
@@ -662,13 +657,15 @@ async def get_device_model(self, entity_id):
                 self.device_name,
                 model_str,
             )
-            matches = re.findall(r"\((.+?)\)", model_str or "")
-            if matches:
-                selected = matches[-1].strip()
-                source = "devreg.model(parens)"
-            elif isinstance(model_str, str) and len(model_str.strip()) >= 2:
-                selected = model_str.strip()
-                source = "devreg.model"
+            if isinstance(model_str, str) and model_str.strip():
+                # Extract model before parentheses: "MODEL (Desc)" -> "MODEL"
+                model_clean: str = re.sub(r"\s*\(.*\)\s*$", "", model_str).strip()
+                if len(model_clean) >= 2:
+                    selected = model_clean
+                    source = "devreg.model(before_parens)"
+                elif len(model_str.strip()) >= 2:
+                    selected = model_str.strip()
+                    source = "devreg.model"
     except Exception:  # noqa: BLE001
         # swallow registry access issues and continue to fallback
         pass
