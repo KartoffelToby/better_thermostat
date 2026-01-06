@@ -32,7 +32,6 @@ class TestConvertToFloat:
         result = convert_to_float("19.97", "test", "test")
         assert result is not None
         # The value should be preserved with at least 2 decimal precision
-        # Currently FAILS: convert_to_float returns 20.0 instead of 19.97
         assert result == pytest.approx(19.97, abs=0.001), (
             f"convert_to_float('19.97') returned {result}, expected ~19.97. "
             "This causes BT to show 'idle' while TRV continues heating."
@@ -47,7 +46,6 @@ class TestConvertToFloat:
         """
         result = convert_to_float("19.99", "test", "test")
         assert result is not None
-        # Currently FAILS: returns 20.0 instead of 19.99
         assert result < 20.0, (
             f"convert_to_float('19.99') returned {result}, expected < 20.0. "
             "This value at the boundary is critical for correct heating decisions."
@@ -58,12 +56,11 @@ class TestConvertToFloat:
 
         When sensor reads 20.03 and target is 20.0:
         - With proper precision: 20.03 > 20.0 -> should be idle
-        - This case works correctly even with rounding
         """
         result = convert_to_float("20.03", "test", "test")
         assert result is not None
-        # This rounds to 20.0, which happens to work for the idle case
-        assert result >= 20.0
+        # The value should be preserved as ~20.03
+        assert result == pytest.approx(20.03, abs=0.001)
 
     def test_convert_to_float_various_precisions(self):
         """Test that various precision levels are handled correctly."""
@@ -108,13 +105,12 @@ class TestHvacActionPrecision:
     """Tests demonstrating the HVAC action precision issue."""
 
     def test_heating_decision_at_boundary(self):
-        """Demonstrate the bug: wrong HVAC decision due to precision loss.
+        """Verify correct HVAC decision with proper precision.
 
         Scenario from issue #1792:
         - External sensor: 19.97 C
         - Target temp: 20.0 C
         - Expected: should_heat = True (19.97 < 20.0)
-        - Bug: BT rounds 19.97 -> 20.0, then 20.0 >= 20.0 -> idle
         """
         target_temp = 20.0
         tolerance = 0.0
@@ -122,26 +118,18 @@ class TestHvacActionPrecision:
         # Simulate sensor reading
         sensor_reading = "19.97"
 
-        # What convert_to_float currently returns (BUG)
-        cur_temp_buggy = convert_to_float(sensor_reading, "test", "test")
+        # convert_to_float preserves precision
+        cur_temp = convert_to_float(sensor_reading, "test", "test")
 
-        # What it should return (FIX)
-        cur_temp_correct = float(sensor_reading)
-
-        # Heating threshold calculation (heat_on used for initial decision)
+        # Heating threshold calculation
         heat_on_threshold = target_temp - tolerance
 
-        # With buggy rounding: no heating (WRONG)
-        should_heat_buggy = cur_temp_buggy < heat_on_threshold
+        # With correct precision: 19.97 < 20.0 -> should heat
+        should_heat = cur_temp < heat_on_threshold
 
-        # With correct precision: heating (CORRECT)
-        should_heat_correct = cur_temp_correct < heat_on_threshold
-
-        # This assertion documents the bug - it will fail until fixed
-        assert should_heat_buggy == should_heat_correct, (
-            f"Precision loss causes wrong heating decision: "
-            f"buggy={should_heat_buggy} (temp={cur_temp_buggy}), "
-            f"correct={should_heat_correct} (temp={cur_temp_correct})"
+        assert should_heat is True, (
+            f"Heating decision incorrect: cur_temp={cur_temp}, "
+            f"threshold={heat_on_threshold}, should_heat={should_heat}"
         )
 
     def test_tolerance_check_precision(self):
@@ -162,8 +150,7 @@ class TestHvacActionPrecision:
             cur_temp <= (target_temp + tolerance)
         )
 
-        # With bug: within_tolerance = True (20.0 >= 20.0 and 20.0 <= 20.0)
-        # Correct: within_tolerance = False (19.97 < 20.0)
+        # With precision preserved: 19.97 < 20.0, so within_tolerance = False
         assert within_tolerance is False, (
             f"Tolerance check failed: cur_temp={cur_temp} (from {sensor_reading}), "
             f"target={target_temp}, tolerance={tolerance}. "
