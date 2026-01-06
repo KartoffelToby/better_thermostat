@@ -13,7 +13,7 @@ Example:
 
 import pytest
 import re
-from unittest.mock import MagicMock, AsyncMock, patch
+from unittest.mock import MagicMock, patch
 
 
 class TestModelDetectionFromString:
@@ -69,7 +69,7 @@ class TestModelDetectionFromString:
 
     def test_nested_parentheses_handled(self):
         """Test that nested parentheses are handled correctly."""
-        # Edge case: nested parentheses - should remove everything from first '('
+        # Edge case: nested parentheses - should remove trailing parentheses and everything within
         model_str = "Model (Description (with nested))"
         result = re.sub(r"\s*\(.*\)\s*$", "", model_str).strip()
         assert result == "Model"
@@ -82,6 +82,12 @@ class TestModelDetectionFromString:
         result = re.sub(r"\s*\(.*\)\s*$", "", model_str).strip()
         # Since ") Pro" doesn't match "\)\s*$", nothing is removed
         assert result == "Model (v2) Pro"
+
+
+@pytest.fixture
+def anyio_backend() -> str:
+    """Configure anyio to use asyncio backend."""
+    return "asyncio"
 
 
 class TestGetDeviceModelFunction:
@@ -130,7 +136,7 @@ class TestGetDeviceModelFunction:
                 result = await get_device_model(mock_self, "climate.test_trv")
 
                 # Should extract model BEFORE parentheses, not inside
-                # This test will FAIL with current buggy code
+                # This verifies the fix for issue #1672
                 assert (
                     result == "TS0601 _TZE284_cvub6xbb"
                 ), f"Expected 'TS0601 _TZE284_cvub6xbb' but got '{result}'"
