@@ -28,7 +28,7 @@ class MpcParams:
     mpc_loss_coeff: float = 0.01
     mpc_control_penalty: float = 0.05
     mpc_change_penalty: float = 1.0
-    mpc_eco_penalty: float = 5.0
+    mpc_eco_penalty: float = 1.0
     mpc_adapt: bool = True
     mpc_gain_min: float = 0.01
     mpc_gain_max: float = 0.2
