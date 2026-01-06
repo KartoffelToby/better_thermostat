@@ -368,61 +368,69 @@ def convert_outbound_states(self, entity_id, hvac_mode) -> dict | None:
             _new_heating_setpoint = self.bt_target_temp
             _new_local_calibration = None
 
-        else:
-            if _calibration_type == CalibrationType.LOCAL_BASED:
-                _new_local_calibration = calculate_calibration_local(self, entity_id)
+        elif _calibration_type == CalibrationType.LOCAL_BASED:
+            _new_local_calibration = calculate_calibration_local(self, entity_id)
+            _new_heating_setpoint = self.bt_target_temp
 
+        elif _calibration_type == CalibrationType.TARGET_TEMP_BASED:
+            if _calibration_mode == CalibrationMode.NO_CALIBRATION:
                 _new_heating_setpoint = self.bt_target_temp
+            else:
+                _new_heating_setpoint = calculate_calibration_setpoint(
+                    self, entity_id
+                )
+            _new_local_calibration = None
 
-            elif _calibration_type == CalibrationType.TARGET_TEMP_BASED:
-                if _calibration_mode == CalibrationMode.NO_CALIBRATION:
-                    _new_heating_setpoint = self.bt_target_temp
-                else:
-                    _new_heating_setpoint = calculate_calibration_setpoint(
-                        self, entity_id
-                    )
+        else:
+            # Unknown calibration type - use fallback
+            _LOGGER.warning(
+                "better_thermostat %s: unknown calibration type %s, using fallback mode",
+                self.device_name,
+                _calibration_type,
+            )
+            _new_heating_setpoint = self.bt_target_temp
+            _new_local_calibration = None
 
-            _system_modes = self.real_trvs[entity_id]["hvac_modes"]
-            _has_system_mode = _system_modes is not None
+        # System mode handling - applies to ALL calibration modes including fallback
+        _system_modes = self.real_trvs[entity_id]["hvac_modes"]
+        _has_system_mode = _system_modes is not None
 
-            # Handling different devices with or without system mode reported or contained in the device config
+        # Normalize without forcing to str to avoid values like "HVACMode.HEAT"
+        _orig_mode = hvac_mode
+        hvac_mode = mode_remap(self, entity_id, hvac_mode, False)
+        _LOGGER.debug(
+            "better_thermostat %s: convert_outbound_states(%s) system_mode in=%s out=%s",
+            self.device_name,
+            entity_id,
+            _orig_mode,
+            hvac_mode,
+        )
 
-            # Normalize without forcing to str to avoid values like "HVACMode.HEAT"
-            _orig_mode = hvac_mode
-            hvac_mode = mode_remap(self, entity_id, hvac_mode, False)
+        if not _has_system_mode:
             _LOGGER.debug(
-                "better_thermostat %s: convert_outbound_states(%s) system_mode in=%s out=%s",
+                "better_thermostat %s: device config expects no system mode, while the device has one. Device system mode will be ignored",
+                self.device_name,
+            )
+            if hvac_mode == HVACMode.OFF:
+                _new_heating_setpoint = self.real_trvs[entity_id]["min_temp"]
+            hvac_mode = None
+            _LOGGER.debug(
+                "better_thermostat %s: convert_outbound_states(%s) suppressing system_mode for no-off device",
                 self.device_name,
                 entity_id,
-                _orig_mode,
-                hvac_mode,
             )
-
-            if not _has_system_mode:
-                _LOGGER.debug(
-                    "better_thermostat %s: device config expects no system mode, while the device has one. Device system mode will be ignored",
-                    self.device_name,
-                )
-                if hvac_mode == HVACMode.OFF:
-                    _new_heating_setpoint = self.real_trvs[entity_id]["min_temp"]
-                hvac_mode = None
-                _LOGGER.debug(
-                    "better_thermostat %s: convert_outbound_states(%s) suppressing system_mode for no-off device",
-                    self.device_name,
-                    entity_id,
-                )
-            if hvac_mode == HVACMode.OFF and (
-                (_system_modes is not None and HVACMode.OFF not in _system_modes)
-                or self.real_trvs[entity_id]["advanced"].get("no_off_system_mode")
-            ):
-                _min_temp = self.real_trvs[entity_id]["min_temp"]
-                _LOGGER.debug(
-                    "better_thermostat %s: sending %s°C to the TRV because this device has no system mode off and heater should be off",
-                    self.device_name,
-                    _min_temp,
-                )
-                _new_heating_setpoint = _min_temp
-                hvac_mode = None
+        if hvac_mode == HVACMode.OFF and (
+            (_system_modes is not None and HVACMode.OFF not in _system_modes)
+            or self.real_trvs[entity_id]["advanced"].get("no_off_system_mode")
+        ):
+            _min_temp = self.real_trvs[entity_id]["min_temp"]
+            _LOGGER.debug(
+                "better_thermostat %s: sending %s°C to the TRV because this device has no system mode off and heater should be off",
+                self.device_name,
+                _min_temp,
+            )
+            _new_heating_setpoint = _min_temp
+            hvac_mode = None
 
         # Build payload; include calibration only if present
         _payload = {
