@@ -238,13 +238,13 @@ def heating_power_valve_position(self, entity_id):
 
 
 def convert_to_float(
-    value: str | float, instance_name: str, context: str
+    value: str | int | float | None, instance_name: str, context: str
 ) -> float | None:
     """Convert value to float or print error message.
 
     Parameters
     ----------
-    value : str, int, float
+    value : str | int | float | None
             the value to convert to float
     instance_name : str
             the name of the instance thermostat
@@ -253,15 +253,16 @@ def convert_to_float(
 
     Returns
     -------
-    float
-            the converted value
-    None
-            If error occurred and cannot convert the value.
+    float | None
+            the converted value, or None if conversion failed
     """
     if value is None or value == "None":
         return None
     try:
-        return round_by_step(float(value), 0.1)
+        # Use 0.01 step (2 decimal places) to preserve sensor precision.
+        # Rounding to 0.1 caused issues where 19.97 became 20.0, leading to
+        # incorrect HVAC action decisions (see issues #1792, #1789, #1785).
+        return round_by_step(float(value), 0.01)
     except (ValueError, TypeError, AttributeError, KeyError):
         _LOGGER.debug(
             f"better thermostat {instance_name}: Could not convert '{value}' to float in {context}"
@@ -429,11 +430,14 @@ async def find_valve_entity(self, entity_id):
     return None
 
 
-async def find_battery_entity(self, entity_id):
+async def find_battery_entity(self, entity_id, _visited=None):
     """Find the battery entity related to the given entity's device.
 
     Returns the `entity_id` of the battery sensor attached to the same device
     as `entity_id`, or None if none found.
+
+    For groups, returns the battery entity with the lowest battery level
+    among all group members.
     """
     entity_registry = er.async_get(self.hass)
 
@@ -444,6 +448,17 @@ async def find_battery_entity(self, entity_id):
 
     device_id = entity_info.device_id
 
+    # Groups and virtual entities have no device_id
+    # Check if this is a group and resolve member batteries
+    if device_id is None:
+        state = self.hass.states.get(entity_id)
+        if state and "entity_id" in state.attributes:
+            # It's a group - find battery with lowest level among members
+            return await _find_lowest_battery_in_group(
+                self, state.attributes["entity_id"], _visited
+            )
+        return None
+
     for entity in entity_registry.entities.values():
         if entity.device_id == device_id and (
             entity.device_class == "battery"
@@ -452,6 +467,56 @@ async def find_battery_entity(self, entity_id):
             return entity.entity_id
 
     return None
+
+
+async def _find_lowest_battery_in_group(self, member_ids, visited=None):
+    """Find the battery entity with the lowest level among group members.
+
+    Parameters
+    ----------
+    self : BetterThermostat instance
+    member_ids : list of entity_id strings
+    visited : set of already visited entity_ids to prevent infinite recursion
+
+    Returns
+    -------
+    entity_id of the battery with lowest level, or None if no batteries found
+    """
+    if visited is None:
+        visited = set()
+
+    lowest_battery_id = None
+    lowest_battery_level = None
+
+    for member_id in member_ids:
+        # Skip already visited entities to prevent infinite recursion
+        if member_id in visited:
+            continue
+        visited.add(member_id)
+
+        battery_id = await find_battery_entity(self, member_id, visited)
+        if battery_id is None:
+            continue
+
+        battery_state = self.hass.states.get(battery_id)
+        if battery_state is None:
+            continue
+
+        try:
+            level = float(battery_state.state)
+        except (ValueError, TypeError):
+            _LOGGER.debug(
+                "better_thermostat: non-numeric battery state '%s' for %s",
+                battery_state.state,
+                battery_id,
+            )
+            continue
+
+        if lowest_battery_level is None or level < lowest_battery_level:
+            lowest_battery_level = level
+            lowest_battery_id = battery_id
+
+    return lowest_battery_id
 
 
 async def find_local_calibration_entity(self, entity_id):
@@ -549,15 +614,10 @@ def get_min_value(obj, value, default):
         return default
 
 
-async def get_device_model(self, entity_id):
+async def get_device_model(self, entity_id: str) -> str:
     """Determine the device model from the Device Registry entry.
 
-    Priority:
-    1) device.model_id
-    2) Model from parentheses in device.model (e.g., "Foo (TRVZB)")
-    3) device.model (plain string)
-    4) Fallback: self.model (Config)
-    5) Fallback: "generic"
+    Priority: model_id > model (before parens) > model > config > "generic"
     """
     selected: str | None = None
     source: str = "none"
@@ -598,13 +658,15 @@ async def get_device_model(self, entity_id):
                 self.device_name,
                 model_str,
             )
-            matches = re.findall(r"\((.+?)\)", model_str or "")
-            if matches:
-                selected = matches[-1].strip()
-                source = "devreg.model(parens)"
-            elif isinstance(model_str, str) and len(model_str.strip()) >= 2:
-                selected = model_str.strip()
-                source = "devreg.model"
+            if isinstance(model_str, str) and model_str.strip():
+                # Extract model before parentheses: "MODEL (Desc)" -> "MODEL"
+                model_clean: str = re.sub(r"\s*\(.*\)\s*$", "", model_str).strip()
+                if len(model_clean) >= 2:
+                    selected = model_clean
+                    source = "devreg.model(before_parens)"
+                elif len(model_str.strip()) >= 2:
+                    selected = model_str.strip()
+                    source = "devreg.model"
     except Exception:  # noqa: BLE001
         # swallow registry access issues and continue to fallback
         pass

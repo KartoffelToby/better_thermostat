@@ -415,7 +415,7 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
             None  # Temperature saved before entering any preset mode
         )
         self._enabled_presets = enabled_presets
-        if self._enabled_presets is None:
+        if not self._enabled_presets:
             self._enabled_presets = [
                 PRESET_AWAY,
                 PRESET_BOOST,
@@ -997,8 +997,33 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
                 if (state := self.hass.states.get(entity_id)) is not None
             ]
 
+            # Include cooler entity in min/max calculation to ensure BT's
+            # temperature range is compatible with all controlled devices
+            if self.cooler_entity_id is not None:
+                cooler_state = self.hass.states.get(self.cooler_entity_id)
+                if cooler_state is not None and cooler_state.state not in (
+                    STATE_UNAVAILABLE,
+                    STATE_UNKNOWN,
+                    None,
+                ):
+                    states.append(cooler_state)
+
             self.bt_min_temp = reduce_attribute(states, ATTR_MIN_TEMP, reduce=max)
             self.bt_max_temp = reduce_attribute(states, ATTR_MAX_TEMP, reduce=min)
+
+            if (
+                self.bt_min_temp is not None
+                and self.bt_max_temp is not None
+                and self.bt_min_temp > self.bt_max_temp
+            ):
+                _LOGGER.warning(
+                    "better_thermostat %s: min temp (%.1f°) > max temp (%.1f°). "
+                    "This indicates non-overlapping temperature ranges between "
+                    "heater and cooler entities. Please check your configuration.",
+                    self.device_name,
+                    self.bt_min_temp,
+                    self.bt_max_temp,
+                )
 
             if self.bt_target_temp_step == 0.0:
                 self.bt_target_temp_step = reduce_attribute(

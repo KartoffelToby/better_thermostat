@@ -574,10 +574,14 @@ def calculate_calibration_local(self, entity_id) -> float | None:
     if _new_trv_calibration is None:
         return None
 
-    _new_trv_calibration = round(_new_trv_calibration, 1)
-    _cur_external_temp = round(_cur_external_temp, 1)
-    _cur_trv_temp_f = round(_cur_trv_temp_f, 1)
-    _current_trv_calibration = round(_current_trv_calibration, 1)
+    # Round to 2 decimals for logging only - the actual calibration value
+    # is already rounded by round_by_step based on TRV's calibration_step.
+    # Avoid rounding to 1 decimal as this caused precision loss issues
+    # (see issues #1792, #1789, #1785).
+    _log_calibration: float = round(_new_trv_calibration, 2)
+    _log_external_temp: float = round(_cur_external_temp, 2)
+    _log_trv_temp: float = round(_cur_trv_temp_f, 2)
+    _log_current_calibration: float = round(_current_trv_calibration, 2)
 
     _logmsg = (
         "better_thermostat %s: %s - new local calibration: %s | external_temp: %s, "
@@ -588,10 +592,10 @@ def calculate_calibration_local(self, entity_id) -> float | None:
         _logmsg,
         self.device_name,
         entity_id,
-        _new_trv_calibration,
-        _cur_external_temp,
-        _cur_trv_temp_f,
-        _current_trv_calibration,
+        _log_calibration,
+        _log_external_temp,
+        _log_trv_temp,
+        _log_current_calibration,
     )
 
     return _new_trv_calibration
