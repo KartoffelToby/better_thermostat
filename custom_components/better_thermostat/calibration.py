@@ -278,6 +278,7 @@ def _compute_pid_balance(self, entity_id: str):
             trv_state.get("current_temperature"),
             self.temp_slope,
             key,
+            inp_current_temp_ema_C=self.cur_temp_filtered,
         )
         # Schedule saving of updated PID states
         self.schedule_save_pid_state()
