@@ -76,15 +76,14 @@ TEMP_STEP_SELECTOR = selector.SelectSelector(
 CALIBRATION_MODE_SELECTOR = selector.SelectSelector(
     selector.SelectSelectorConfig(
         options=[
-            selector.SelectOptionDict(value=CalibrationMode.DEFAULT, label="Normal"),
+            selector.SelectOptionDict(
+                value=CalibrationMode.MPC_CALIBRATION, label="(AI) MPC Predictive"
+            ),
             selector.SelectOptionDict(
                 value=CalibrationMode.AGGRESIVE_CALIBRATION, label="Agressive"
             ),
             selector.SelectOptionDict(
-                value=CalibrationMode.HEATING_POWER_CALIBRATION, label="AI Time Based"
-            ),
-            selector.SelectOptionDict(
-                value=CalibrationMode.MPC_CALIBRATION, label="MPC Predictive"
+                value=CalibrationMode.HEATING_POWER_CALIBRATION, label="Time Based"
             ),
             selector.SelectOptionDict(
                 value=CalibrationMode.TPI_CALIBRATION, label="TPI Controller"
@@ -209,7 +208,7 @@ def _build_advanced_fields(
             elif balance_mode in ("heuristic", "none"):
                 # For other balance modes, set calibration_mode to default if not set
                 if "calibration_mode" not in source:
-                    source["calibration_mode"] = CalibrationMode.DEFAULT.value
+                    source["calibration_mode"] = CalibrationMode.MPC_CALIBRATION.value
                 # Remove old balance_mode
                 source.pop("balance_mode", None)
 
@@ -261,9 +260,7 @@ def _build_advanced_fields(
     ordered[
         vol.Required(
             CONF_CALIBRATION_MODE,
-            default=get_value(
-                CONF_CALIBRATION_MODE, CalibrationMode.HEATING_POWER_CALIBRATION
-            ),
+            default=get_value(CONF_CALIBRATION_MODE, CalibrationMode.MPC_CALIBRATION),
         )
     ] = CALIBRATION_MODE_SELECTOR
 
@@ -303,7 +300,7 @@ def _normalize_advanced_submission(
     normalized: dict[str, Any] = dict(data)
     normalized[CONF_CALIBRATION] = normalized.get(CONF_CALIBRATION, default_calibration)
     normalized[CONF_CALIBRATION_MODE] = normalized.get(
-        CONF_CALIBRATION_MODE, CalibrationMode.HEATING_POWER_CALIBRATION
+        CONF_CALIBRATION_MODE, CalibrationMode.MPC_CALIBRATION
     )
     normalized[CONF_PROTECT_OVERHEATING] = _as_bool(
         normalized.get(CONF_PROTECT_OVERHEATING), False

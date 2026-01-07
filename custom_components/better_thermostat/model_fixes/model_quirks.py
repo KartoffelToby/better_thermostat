@@ -156,3 +156,10 @@ async def override_set_temperature(self, entity_id, temperature):
     return await self.real_trvs[entity_id]["model_quirks"].override_set_temperature(
         self, entity_id, temperature
     )
+
+
+async def inital_tweak(self, entity_id):
+    """Run initial tweaks for the device."""
+    quirks = self.real_trvs[entity_id]["model_quirks"]
+    if hasattr(quirks, "inital_tweak"):
+        await quirks.inital_tweak(self, entity_id)

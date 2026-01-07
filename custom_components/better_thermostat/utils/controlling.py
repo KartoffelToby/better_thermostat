@@ -3,7 +3,7 @@
 import asyncio
 import logging
 
-from homeassistant.components.climate.const import HVACMode
+from homeassistant.components.climate.const import HVACMode, PRESET_BOOST
 from homeassistant.const import STATE_UNAVAILABLE, STATE_UNKNOWN
 
 from custom_components.better_thermostat.model_fixes.model_quirks import (
@@ -285,17 +285,33 @@ async def control_trv(self, heater_entity_id=None):
         _temperature = _remapped_states.get("temperature", None)
         _calibration = _remapped_states.get("local_temperature_calibration", None)
         _calibration_mode = self.real_trvs[heater_entity_id]["advanced"].get(
-            "calibration_mode", CalibrationMode.DEFAULT
+            "calibration_mode", CalibrationMode.MPC_CALIBRATION
         )
         _calibration_type = self.real_trvs[heater_entity_id]["advanced"].get(
             "calibration", CalibrationType.TARGET_TEMP_BASED
         )
 
+        if (
+            self.preset_mode == PRESET_BOOST
+            and self.cur_temp is not None
+            and self.bt_target_temp is not None
+            and self.cur_temp < self.bt_target_temp
+        ):
+            _temperature = self.real_trvs[heater_entity_id].get("max_temp", 30.0)
+
         # Optional: set valve position if supported (e.g., MQTT/Z2M or MPC calibration)
         try:
             _source = None
             bal = None
-            if _calibration_type == CalibrationType.DIRECT_VALVE_BASED:
+            if (
+                self.preset_mode == PRESET_BOOST
+                and self.cur_temp is not None
+                and self.bt_target_temp is not None
+                and self.cur_temp < self.bt_target_temp
+            ):
+                bal = {"valve_percent": 100, "apply_valve": True}
+                _source = "boost_mode"
+            elif _calibration_type == CalibrationType.DIRECT_VALVE_BASED:
                 if _calibration_mode == CalibrationMode.MPC_CALIBRATION:
                     cal_bal = self.real_trvs[heater_entity_id].get(
                         "calibration_balance"
@@ -587,7 +603,7 @@ async def control_trv(self, heater_entity_id=None):
     _temperature = _remapped_states.get("temperature", None)
     _calibration = _remapped_states.get("local_temperature_calibration", None)
     _calibration_mode = self.real_trvs[heater_entity_id]["advanced"].get(
-        "calibration_mode", CalibrationMode.DEFAULT
+        "calibration_mode", CalibrationMode.MPC_CALIBRATION
     )
     _calibration_type = self.real_trvs[heater_entity_id]["advanced"].get(
         "calibration", CalibrationType.TARGET_TEMP_BASED

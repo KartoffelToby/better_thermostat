@@ -4,8 +4,9 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass, field
-from time import monotonic
-from typing import Any, Dict, Mapping, Optional, Tuple
+from time import monotonic, time
+from typing import Any
+from collections.abc import Mapping
 import math
 
 
@@ -14,7 +15,7 @@ _LOGGER = logging.getLogger(__name__)
 
 # MPC operates on fixed 5-minute steps and a 12-step horizon.
 MPC_STEP_SECONDS = 300.0
-MPC_HORIZON_STEPS = 3
+MPC_HORIZON_STEPS = 12
 
 
 @dataclass
@@ -34,6 +35,10 @@ class MpcParams:
     mpc_gain_max: float = 0.2
     mpc_loss_min: float = 0.002
     mpc_loss_max: float = 0.03
+    mpc_solar_gain_initial: float = (
+        0.01  # Initial guess for solar gain (°C/min at full sun)
+    )
+    mpc_solar_gain_max: float = 0.05
     mpc_adapt_alpha: float = 0.1
     deadzone_threshold_pct: float = 20.0
     deadzone_temp_delta_K: float = 0.1
@@ -65,54 +70,65 @@ class MpcParams:
 
 @dataclass
 class MpcInput:
+    """Input parameters for the MPC controller."""
+
     key: str
-    target_temp_C: Optional[float]
-    current_temp_C: Optional[float]
-    filtered_temp_C: Optional[float] = None
-    trv_temp_C: Optional[float] = None
+    target_temp_C: float | None
+    current_temp_C: float | None
+    filtered_temp_C: float | None = None
+    trv_temp_C: float | None = None
     tolerance_K: float = 0.0
-    temp_slope_K_per_min: Optional[float] = None
+    temp_slope_K_per_min: float | None = None
     window_open: bool = False
     heating_allowed: bool = True
-    bt_name: Optional[str] = None
-    entity_id: Optional[str] = None
+    bt_name: str | None = None
+    entity_id: str | None = None
+    outdoor_temp_C: float | None = None
+    is_day: bool = True
+    other_heat_power: float = 0.0
+    solar_intensity: float = 0.0  # 0.0 to 1.0 (cloud coverage, etc.)
 
 
 @dataclass
 class MpcOutput:
+    """Output from the MPC controller."""
+
     valve_percent: int
-    debug: Dict[str, Any] = field(default_factory=dict)
+    debug: dict[str, Any] = field(default_factory=dict)
 
 
 @dataclass
 class _MpcState:
-    last_percent: Optional[float] = None
+    last_percent: float | None = None
     last_update_ts: float = 0.0
-    last_target_C: Optional[float] = None
-    ema_slope: Optional[float] = None
-    gain_est: Optional[float] = None
-    loss_est: Optional[float] = None
-    last_temp: Optional[float] = None
+    last_target_C: float | None = None
+    ema_slope: float | None = None
+    gain_est: float | None = None
+    loss_est: float | None = None
+    ka_est: float | None = None  # Insulation coefficient (loss per degree diff)
+    solar_gain_est: float | None = None  # Learned solar gain factor
+    last_temp: float | None = None
     last_time: float = 0.0
-    last_trv_temp: Optional[float] = None
+    last_trv_temp: float | None = None
     last_trv_temp_ts: float = 0.0
     dead_zone_hits: int = 0
-    min_effective_percent: Optional[float] = None
-    last_learn_time: Optional[float] = None
-    last_learn_temp: Optional[float] = None
-    last_residual_time: Optional[float] = None
-    virtual_temp: Optional[float] = None
+    min_effective_percent: float | None = None
+    last_learn_time: float | None = None
+    last_learn_temp: float | None = None
+    last_residual_time: float | None = None
+    virtual_temp: float | None = None
     virtual_temp_ts: float = 0.0
-    last_sensor_temp_C: Optional[float] = None
+    last_sensor_temp_C: float | None = None
     trv_profile: str = "unknown"
     profile_confidence: float = 0.0
     profile_samples: int = 0
     u_integral: float = 0.0
     time_integral: float = 0.0
     last_integration_ts: float = 0.0
+    created_ts: float = 0.0
 
 
-_MPC_STATES: Dict[str, _MpcState] = {}
+_MPC_STATES: dict[str, _MpcState] = {}
 
 _STATE_EXPORT_FIELDS = (
     "last_percent",
@@ -120,6 +136,8 @@ _STATE_EXPORT_FIELDS = (
     "ema_slope",
     "gain_est",
     "loss_est",
+    "ka_est",
+    "solar_gain_est",
     "last_temp",
     "last_trv_temp",
     "min_effective_percent",
@@ -132,11 +150,12 @@ _STATE_EXPORT_FIELDS = (
     "u_integral",
     "time_integral",
     "last_integration_ts",
+    "created_ts",
 )
 
 
-def _serialize_state(state: _MpcState) -> Dict[str, Any]:
-    payload: Dict[str, Any] = {}
+def _serialize_state(state: _MpcState) -> dict[str, Any]:
+    payload: dict[str, Any] = {}
     for attr in _STATE_EXPORT_FIELDS:
         value = getattr(state, attr, None)
         if value is None:
@@ -145,10 +164,10 @@ def _serialize_state(state: _MpcState) -> Dict[str, Any]:
     return payload
 
 
-def export_mpc_state_map(prefix: Optional[str] = None) -> Dict[str, Dict[str, Any]]:
+def export_mpc_state_map(prefix: str | None = None) -> dict[str, dict[str, Any]]:
     """Return a serializable mapping of MPC states, optionally filtered by key prefix."""
 
-    exported: Dict[str, Dict[str, Any]] = {}
+    exported: dict[str, dict[str, Any]] = {}
     for key, state in _MPC_STATES.items():
         if prefix is not None and not key.startswith(prefix):
             continue
@@ -183,7 +202,7 @@ def import_mpc_state_map(state_map: Mapping[str, Mapping[str, Any]]) -> None:
             setattr(state, attr, coerced)
 
 
-def _split_mpc_key(key: str) -> Tuple[Optional[str], Optional[str], Optional[str]]:
+def _split_mpc_key(key: str) -> tuple[str | None, str | None, str | None]:
     try:
         uid, entity, bucket = key.split(":", 2)
         return uid, entity, bucket
@@ -233,11 +252,19 @@ def _round_for_debug(value: Any, digits: int = 3) -> Any:
         return value
 
 
-def compute_mpc(inp: MpcInput, params: MpcParams) -> Optional[MpcOutput]:
+def compute_mpc(inp: MpcInput, params: MpcParams) -> MpcOutput | None:
     """Run the predictive controller and emit a valve recommendation."""
 
     now = monotonic()
     state = _MPC_STATES.setdefault(inp.key, _MpcState())
+    if state.created_ts == 0.0:
+        # For existing trained models, backdate the creation timestamp
+        # to avoid "Training" status if we already have confidence.
+        if state.profile_confidence > 0.5:
+            state.created_ts = time() - 90000.0
+        else:
+            state.created_ts = time()
+
     _seed_state_from_siblings(inp.key, state, params)
 
     # --- INTEGRATE VALVE USAGE ---
@@ -251,7 +278,7 @@ def compute_mpc(inp: MpcInput, params: MpcParams) -> Optional[MpcOutput]:
             state.time_integral += dt_int
     state.last_integration_ts = now
 
-    extra_debug: Dict[str, Any] = {}
+    extra_debug: dict[str, Any] = {}
     name = inp.bt_name or "BT"
     entity = inp.entity_id or "unknown"
 
@@ -269,7 +296,7 @@ def compute_mpc(inp: MpcInput, params: MpcParams) -> Optional[MpcOutput]:
         inp.key,
     )
 
-    initial_delta_t: Optional[float] = None
+    initial_delta_t: float | None = None
 
     if not inp.heating_allowed or inp.window_open:
         percent = 0.0
@@ -566,7 +593,7 @@ def compute_mpc(inp: MpcInput, params: MpcParams) -> Optional[MpcOutput]:
 
 def _compute_predictive_percent(
     inp: MpcInput, params: MpcParams, state: _MpcState, now: float, delta_t: float
-) -> Tuple[float, Dict[str, Any]]:
+) -> tuple[float, dict[str, Any]]:
     """Core MPC minimisation routine.
 
     Overhauled to use a physically consistent temperature-forward model:
@@ -620,13 +647,22 @@ def _compute_predictive_percent(
             state.gain_est = params.mpc_thermal_gain
         if state.loss_est is None:
             state.loss_est = params.mpc_loss_coeff
+        if state.solar_gain_est is None:
+            state.solar_gain_est = getattr(params, "mpc_solar_gain_initial", 0.01)
 
     # Time since last measurement for adaptation
     dt_last = now - state.last_learn_time
 
+    # Initialize ka_est if we have outdoor temp context
+    if params.mpc_adapt and inp.outdoor_temp_C is not None and state.ka_est is None:
+        # Default ka guess from current loss_est
+        _loss = state.loss_est if state.loss_est is not None else params.mpc_loss_coeff
+        _delta = max(5.0, float(current_temp_cost_C) - float(inp.outdoor_temp_C))
+        state.ka_est = _loss / _delta
+
     # ---- ADAPTATION (rate-based identification) ----
     # Model: dT/dt ~= gain * u - loss, where gain/loss are in °C/min and u in [0..1]
-    adapt_debug: Dict[str, Any] = {}
+    adapt_debug: dict[str, Any] = {}
     if params.mpc_adapt and state.last_learn_temp is not None and dt_last >= 180.0:
         try:
             if state.last_residual_time is None:
@@ -733,11 +769,11 @@ def _compute_predictive_percent(
 
             updated_gain = False
             updated_loss = False
-            loss_method: Optional[str] = None
-            gain_method: Optional[str] = None
+            loss_method: str | None = None
+            gain_method: str | None = None
             gain_ss_applied = False
             gain_ss_rate_limited = False
-            gain_ss_candidate: Optional[float] = None
+            gain_ss_candidate: float | None = None
 
             # Common gates: don't learn during setpoint steps or crazy sensor jumps.
             common_ok = (not target_changed) and rate_ok and dt_min > 0
@@ -952,14 +988,39 @@ def _compute_predictive_percent(
             ):
                 state.last_residual_time = now
 
+            # Update ka_est if loss was updated and we have context
+            if updated_loss and inp.outdoor_temp_C is not None:
+                _delta = max(
+                    5.0, float(current_temp_cost_C) - float(inp.outdoor_temp_C)
+                )
+                state.ka_est = float(state.loss_est) / _delta
+
         except (TypeError, ValueError, ZeroDivisionError):
             pass
 
     # convert to per-step quantities (°C per simulation step)
     gain = state.gain_est if state.gain_est is not None else params.mpc_thermal_gain
-    loss = state.loss_est if state.loss_est is not None else params.mpc_loss_coeff
+
+    # Calculate base loss rate for u0 calculation
+    if inp.outdoor_temp_C is not None and state.ka_est is not None:
+        _current_delta = float(current_temp_cost_C) - float(inp.outdoor_temp_C)
+        loss = float(state.ka_est) * _current_delta
+        # Clamp to bounds to ensure u0 is sane
+        loss = max(params.mpc_loss_min, min(params.mpc_loss_max, loss))
+    else:
+        loss = state.loss_est if state.loss_est is not None else params.mpc_loss_coeff
+
+    solar_gain_factor = (
+        state.solar_gain_est
+        if state.solar_gain_est is not None
+        else getattr(params, "mpc_solar_gain_initial", 0.01)
+    )
+
     gain_step = gain * step_minutes
     loss_step = loss * step_minutes
+    solar_step = (
+        solar_gain_factor * float(getattr(inp, "solar_intensity", 0.0)) * step_minutes
+    )
 
     # ------------------------------------------------------------
     # BASE LOAD u0
@@ -968,8 +1029,16 @@ def _compute_predictive_percent(
     # u_abs = u0 + du is applied AFTER solving (before clamping downstream).
     # ------------------------------------------------------------
     u0_frac: float
+    # Subtract other heat power AND solar gain from requirements:
+    # gain*u0 + other + solar = loss => gain*u0 = loss - other - solar
+    effective_loss_for_u0 = (
+        loss
+        - float(inp.other_heat_power)
+        - (solar_gain_factor * float(getattr(inp, "solar_intensity", 0.0)))
+    )
+
     if gain and gain > 0:
-        u0_frac = loss / gain
+        u0_frac = effective_loss_for_u0 / gain
     else:
         u0_frac = 0.0
     u0_frac = max(0.0, min(1.0, u0_frac))
@@ -992,6 +1061,8 @@ def _compute_predictive_percent(
     best_percent = 0.0
     eval_count = 0
 
+    other_heat_step = float(inp.other_heat_power) * step_minutes
+
     def simulate_cost_for_candidate(u_abs_frac: float) -> float:
         """Simulate forward temperature for constant u_abs_frac (0..1) over horizon and return cost."""
         T = (
@@ -1004,8 +1075,17 @@ def _compute_predictive_percent(
         for _ in range(horizon):
             # Physical forward model (°C/step): dT = gain_step * u_abs - loss_step.
             # u0 is used only as the search center for du; it must not change the plant model.
-            heating = gain_step * u_abs_frac
-            T = T + heating - loss_step
+
+            if inp.outdoor_temp_C is not None and state.ka_est is not None:
+                # Dynamic loss based on outdoor temp
+                _loss_rate = float(state.ka_est) * (T - float(inp.outdoor_temp_C))
+                # _loss_rate = max(params.mpc_loss_min, min(params.mpc_loss_max, _loss_rate))
+                current_loss_step = _loss_rate * step_minutes
+            else:
+                current_loss_step = loss_step
+
+            heating = gain_step * u_abs_frac + other_heat_step + solar_step
+            T = T + heating - current_loss_step
             e = target_temp_C - T
             cost += e * e
             if eco_pen > 0 and T > target_temp_C:
@@ -1102,8 +1182,8 @@ def _compute_predictive_percent(
 def _detect_trv_profile(
     state: _MpcState,
     percent_out: float,
-    temp_delta: Optional[float],
-    time_delta: Optional[float],
+    temp_delta: float | None,
+    time_delta: float | None,
     expected_temp_rise: float,
     params: MpcParams,
 ) -> None:
@@ -1174,8 +1254,8 @@ def _post_process_percent(
     state: _MpcState,
     now: float,
     raw_percent: float,
-    delta_t: Optional[float],
-) -> tuple[int, Dict[str, Any], Optional[float]]:
+    delta_t: float | None,
+) -> tuple[int, dict[str, Any], float | None]:
     """Apply smoothing, hysteresis, min-effective, du_max, dead-zone detection and produce debug info."""
 
     name = inp.bt_name or "BT"
@@ -1280,8 +1360,8 @@ def _post_process_percent(
     # ============================================================
     # 6) DEAD-ZONE DETECTION (improved)
     # ============================================================
-    temp_delta: Optional[float] = None
-    time_delta: Optional[float] = None
+    temp_delta: float | None = None
+    time_delta: float | None = None
 
     if inp.trv_temp_C is None:
         state.last_trv_temp = None
@@ -1424,7 +1504,7 @@ def _post_process_percent(
             state.last_trv_temp_ts = now
     # 7) DEBUG INFO
     # ============================================================
-    debug: Dict[str, Any] = {
+    debug: dict[str, Any] = {
         "raw_percent": _round_for_debug(raw_percent, 2),
         "smooth_percent": _round_for_debug(smooth, 2),
         "too_soon": too_soon,
@@ -1441,6 +1521,7 @@ def _post_process_percent(
         "trv_profile_samples": state.profile_samples,
         "trv_temp_delta": _round_for_debug(temp_delta, 3),
         "trv_time_delta_s": _round_for_debug(time_delta, 1),
+        "mpc_created_ts": state.created_ts,
     }
 
     # slope EMA unchanged

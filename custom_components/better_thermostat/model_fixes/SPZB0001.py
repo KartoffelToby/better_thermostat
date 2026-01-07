@@ -7,14 +7,13 @@ Better Thermostat integration.
 import logging
 from homeassistant.helpers import entity_registry as er
 
+from ..utils.const import CalibrationType
+
 _LOGGER = logging.getLogger(__name__)
 
 
 def fix_local_calibration(self, entity_id, offset):
     """Clamp local calibration to safe bounds for SPZB0001 devices."""
-
-    self.hass.async_create_task(check_operation_mode(self, entity_id, "2"))
-
     if offset > 5:
         offset = 5
     elif offset < -5:
@@ -72,25 +71,23 @@ async def check_operation_mode(self, entity_id, goal: str = "1"):
     return True
 
 
+async def inital_tweak(self, entity_id):
+    """Run initial tweaks for the device."""
+    _calibration_type = self.real_trvs[entity_id]["advanced"].get(
+        "calibration", CalibrationType.TARGET_TEMP_BASED
+    )
+    if _calibration_type == CalibrationType.DIRECT_VALVE_BASED:
+        await check_operation_mode(self, entity_id, goal="1")
+    else:
+        await check_operation_mode(self, entity_id, goal="2")
+
+
 def fix_target_temperature_calibration(self, entity_id, temperature):
     """Return a possibly adjusted target temperature for SPZB0001.
 
     Currently a no-op.
     """
-    self.hass.async_create_task(check_operation_mode(self, entity_id, "2"))
     return temperature
-
-
-async def override_set_valve(self, entity_id, percent: int):
-    """Override valve setting for SPZB0001 via trv_mode.* entity.
-
-    Returns True if handled (write attempted), False to let adapter fallback run.
-    """
-    try:
-        ok = await check_operation_mode(self, entity_id, "1")
-        return bool(ok)
-    except Exception:
-        return False
 
 
 async def override_set_hvac_mode(self, entity_id, hvac_mode):

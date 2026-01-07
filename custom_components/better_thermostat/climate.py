@@ -69,7 +69,7 @@ from .events.cooler import trigger_cooler_change
 from .events.temperature import trigger_temperature_change
 from .events.trv import trigger_trv_change
 from .events.window import trigger_window_change, window_queue
-from .model_fixes.model_quirks import load_model_quirks
+from .model_fixes.model_quirks import load_model_quirks, inital_tweak
 from .utils.const import (
     ATTR_STATE_BATTERIES,
     ATTR_STATE_CALL_FOR_HEAT,
@@ -1482,6 +1482,16 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
                 except Exception as exc:
                     _LOGGER.error(
                         "better_thermostat %s: Error initializing TRV %s: %s",
+                        self.device_name,
+                        trv,
+                        exc,
+                    )
+
+                try:
+                    await inital_tweak(self, trv)
+                except Exception as exc:
+                    _LOGGER.error(
+                        "better_thermostat %s: Error running initial tweak for TRV %s: %s",
                         self.device_name,
                         trv,
                         exc,
