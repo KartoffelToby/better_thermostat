@@ -8,9 +8,11 @@ outdoor, weather) can be unavailable without blocking thermostat operation.
 """
 
 from __future__ import annotations
-from homeassistant.helpers import issue_registry as ir
-from homeassistant.const import STATE_UNAVAILABLE, STATE_UNKNOWN
+
 import logging
+
+from homeassistant.const import STATE_UNAVAILABLE, STATE_UNKNOWN
+from homeassistant.helpers import issue_registry as ir
 
 DOMAIN = "better_thermostat"
 _LOGGER = logging.getLogger(__name__)
