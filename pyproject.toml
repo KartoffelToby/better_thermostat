@@ -50,6 +50,7 @@ convention = "numpy"
 known-first-party = ["custom_components.better_thermostat", "tests"]
 force-sort-within-sections = true
 combine-as-imports = true
+split-on-trailing-comma = false
 
 [tool.ruff.format]
 skip-magic-trailing-comma = true

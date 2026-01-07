@@ -14,8 +14,8 @@ from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.event import async_track_state_change_event
 
-from .utils.const import CONF_CALIBRATION_MODE, CalibrationMode
 from .calibration import _get_current_solar_intensity
+from .utils.const import CONF_CALIBRATION_MODE, CalibrationMode
 
 _LOGGER = logging.getLogger(__name__)
 DOMAIN = "better_thermostat"

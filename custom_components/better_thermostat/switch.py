@@ -4,11 +4,11 @@ import logging
 
 from homeassistant.components.switch import SwitchEntity
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.const import EntityCategory, STATE_ON, STATE_OFF
+from homeassistant.const import STATE_OFF, STATE_ON, EntityCategory
 from homeassistant.core import HomeAssistant
+from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.restore_state import RestoreEntity
-from homeassistant.helpers import entity_registry as er
 
 from .utils.calibration.pid import _PID_STATES, DEFAULT_PID_AUTO_TUNE, build_pid_key
 from .utils.const import CalibrationMode
@@ -154,9 +154,9 @@ class BetterThermostatChildLockSwitch(SwitchEntity, RestoreEntity):
         """Update the state."""
         if "advanced" not in self._bt_climate.real_trvs[self._trv_entity_id]:
             self._bt_climate.real_trvs[self._trv_entity_id]["advanced"] = {}
-        self._bt_climate.real_trvs[self._trv_entity_id]["advanced"][
-            "child_lock"
-        ] = state
+        self._bt_climate.real_trvs[self._trv_entity_id]["advanced"]["child_lock"] = (
+            state
+        )
         self.async_write_ha_state()
 
     async def _set_child_lock(self, state: bool):

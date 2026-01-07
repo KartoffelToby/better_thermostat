@@ -1,12 +1,13 @@
+import logging
+import os
+import sys
+from unittest.mock import patch
+
 from custom_components.better_thermostat.utils.calibration.pid import (
-    compute_pid,
     PIDParams,
+    compute_pid,
     reset_pid_state,
 )
-import sys
-import os
-import logging
-from unittest.mock import patch
 
 # Add workspace root to path
 sys.path.append(os.getcwd())
@@ -17,6 +18,7 @@ logging.basicConfig(level=logging.INFO, format="%(message)s")
 
 
 def simulate_pid():
+    """Simulate PID."""
     print("--- Starting PID Simulation (Realistic Physics) ---")
 
     # Parameters (Defaults)
@@ -63,9 +65,9 @@ def simulate_pid():
         window_open = 120 <= step < 135
 
         if step == 120:
-            print(f"--- WINDOW OPEN (15 min airing) ---")
+            print("--- WINDOW OPEN (15 min airing) ---")
         if step == 135:
-            print(f"--- WINDOW CLOSED ---")
+            print("--- WINDOW CLOSED ---")
 
         # 1. Update Physics
         if window_open:
@@ -112,7 +114,7 @@ def simulate_pid():
         valve_position = percent
 
         # Log every 30 mins or on events
-        if step % 30 == 0 or step == 120 or step == 135 or step == 360:
+        if step % 30 == 0 or step in (120, 135, 360):
             note = ""
             if debug.get("anti_windup_blocked"):
                 note += "AW-Block "

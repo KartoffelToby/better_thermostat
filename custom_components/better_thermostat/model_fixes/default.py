@@ -5,8 +5,9 @@ require specific quirks.
 """
 
 import logging
+
+from homeassistant.const import STATE_LOCKED, STATE_OFF, STATE_ON, STATE_UNLOCKED
 from homeassistant.helpers import entity_registry as er
-from homeassistant.const import STATE_ON, STATE_OFF, STATE_LOCKED, STATE_UNLOCKED
 
 _LOGGER = logging.getLogger(__name__)
 

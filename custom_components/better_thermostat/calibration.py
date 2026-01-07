@@ -4,18 +4,6 @@ import logging
 
 from homeassistant.components.climate.const import HVACAction, HVACMode
 
-from custom_components.better_thermostat.utils.const import (
-    CalibrationMode,
-    CalibrationType,
-    CONF_PROTECT_OVERHEATING,
-)
-
-from custom_components.better_thermostat.utils.helpers import (
-    convert_to_float,
-    round_by_step,
-    heating_power_valve_position,
-)
-
 from custom_components.better_thermostat.model_fixes.model_quirks import (
     fix_local_calibration,
     fix_target_temperature_calibration,
@@ -45,6 +33,7 @@ from custom_components.better_thermostat.utils.calibration.tpi import (
 from custom_components.better_thermostat.utils.const import (
     CONF_PROTECT_OVERHEATING,
     CalibrationMode,
+    CalibrationType,
 )
 from custom_components.better_thermostat.utils.helpers import (
     convert_to_float,

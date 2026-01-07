@@ -5,11 +5,8 @@ from __future__ import annotations
 from collections.abc import Mapping
 from dataclasses import dataclass, field
 import logging
-from time import monotonic, time
-from typing import Any
-from collections.abc import Mapping
 import math
-from time import monotonic
+from time import monotonic, time
 from typing import Any
 
 _LOGGER = logging.getLogger(__name__)

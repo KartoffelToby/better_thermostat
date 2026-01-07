@@ -5,11 +5,6 @@ from collections.abc import Iterable
 import copy
 import logging
 from typing import Any
-from collections import OrderedDict
-from typing import Any
-from collections.abc import Iterable
-
-import voluptuous as vol
 
 from homeassistant import config_entries
 from homeassistant.components.climate.const import (

@@ -68,7 +68,7 @@ from .events.cooler import trigger_cooler_change
 from .events.temperature import trigger_temperature_change
 from .events.trv import trigger_trv_change
 from .events.window import trigger_window_change, window_queue
-from .model_fixes.model_quirks import load_model_quirks
+from .model_fixes.model_quirks import inital_tweak, load_model_quirks
 from .utils.calibration.mpc import export_mpc_state_map, import_mpc_state_map
 from .utils.calibration.pid import (
     export_pid_states as pid_export_states,
@@ -76,7 +76,6 @@ from .utils.calibration.pid import (
     reset_pid_state as pid_reset_state,
 )
 from .utils.calibration.tpi import export_tpi_state_map, import_tpi_state_map
-from .model_fixes.model_quirks import load_model_quirks, inital_tweak
 from .utils.const import (
     ATTR_STATE_BATTERIES,
     ATTR_STATE_CALL_FOR_HEAT,
@@ -107,8 +106,6 @@ from .utils.const import (
     CONF_WINDOW_TIMEOUT_AFTER,
     MAX_HEATING_POWER,
     MIN_HEATING_POWER,
-    CalibrationMode,
-    CalibrationType,
     SERVICE_RESET_HEATING_POWER,
     SERVICE_RESET_PID_LEARNINGS,
     SERVICE_RESTORE_SAVED_TARGET_TEMPERATURE,
@@ -116,6 +113,7 @@ from .utils.const import (
     SUPPORT_FLAGS,
     VERSION,
     CalibrationMode,
+    CalibrationType,
 )
 from .utils.controlling import control_queue, control_trv
 from .utils.helpers import (
@@ -1629,7 +1627,7 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
             self.startup_running = False
             self._available = True
             self.async_write_ha_state()
-            #
+
             _LOGGER.debug("better_thermostat %s: sleeping 15s...", self.device_name)
             await asyncio.sleep(15)
             _LOGGER.debug(

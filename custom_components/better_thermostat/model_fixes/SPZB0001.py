@@ -5,6 +5,7 @@ Better Thermostat integration.
 """
 
 import logging
+
 from homeassistant.helpers import entity_registry as er
 
 from ..utils.const import CalibrationType
