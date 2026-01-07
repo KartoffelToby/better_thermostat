@@ -2729,7 +2729,6 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
                     self._tolerance_last_action = HVACAction.IDLE
                     self._tolerance_hold_active = tolerance_hold
                     return HVACAction.IDLE
-                # Threshold for valve opening to be considered "heating": 5%
 
                 def _to_pct(val):
                     try:
@@ -2741,8 +2740,18 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
                 THRESH = 0.0
                 for trv_id, info in (self.real_trvs or {}).items():
                     if not isinstance(info, dict):
+                        _LOGGER.debug(
+                            "better_thermostat %s: _compute_hvac_action TRV %s ignored (config invalid)",
+                            self.device_name,
+                            trv_id,
+                        )
                         continue
                     if info.get("ignore_trv_states"):
+                        _LOGGER.debug(
+                            "better_thermostat %s: _compute_hvac_action TRV %s ignored (ignore_trv_states=True)",
+                            self.device_name,
+                            trv_id,
+                        )
                         continue
 
                     # 0) Use cached hvac_action first; fallback to hass state if missing
@@ -2811,22 +2820,6 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
                     except Exception:
                         pass
 
-                    # 4) Balance module currently targets a valve percent > 0 (proxy for heating intent)
-                    bal = info.get("calibration_balance") or {}
-                    v_bal = bal.get("valve_percent") if isinstance(bal, dict) else None
-                    try:
-                        v_bal_n = _to_pct(v_bal)
-                        if v_bal_n is not None and v_bal_n > THRESH:
-                            _LOGGER.debug(
-                                "better_thermostat %s: overriding hvac_action to HEATING (calibration_balance.valve_percent %.1f%%, TRV %s)",
-                                self.device_name,
-                                v_bal_n,
-                                trv_id,
-                            )
-                            action = HVACAction.HEATING
-                            break
-                    except Exception:
-                        pass
             except Exception:
                 # Defensive: if anything goes wrong in overrides, fall back to IDLE
                 pass
