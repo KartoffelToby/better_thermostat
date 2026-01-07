@@ -3,7 +3,8 @@
 import copy
 import logging
 from collections import OrderedDict
-from typing import Any, Dict, Iterable, Optional, Tuple
+from typing import Any
+from collections.abc import Iterable
 
 import voluptuous as vol
 
@@ -56,35 +57,6 @@ from .utils.helpers import get_device_model, get_trv_intigration
 
 _LOGGER = logging.getLogger(__name__)
 
-CALIBRATION_TYPE_SELECTOR = selector.SelectSelector(
-    selector.SelectSelectorConfig(
-        options=[
-            selector.SelectOptionDict(
-                value=CalibrationType.TARGET_TEMP_BASED,
-                label="Target Temperature Based",
-            )
-        ],
-        mode=selector.SelectSelectorMode.DROPDOWN,
-    )
-)
-
-
-CALIBRATION_TYPE_ALL_SELECTOR = selector.SelectSelector(
-    selector.SelectSelectorConfig(
-        options=[
-            selector.SelectOptionDict(
-                value=CalibrationType.TARGET_TEMP_BASED,
-                label="Target Temperature Based",
-            ),
-            selector.SelectOptionDict(
-                value=CalibrationType.LOCAL_BASED, label="Offset Based"
-            ),
-            selector.SelectOptionDict(value=CalibrationType.HYBRID, label="Hybrid"),
-        ],
-        mode=selector.SelectSelectorMode.DROPDOWN,
-    )
-)
-
 
 TEMP_STEP_SELECTOR = selector.SelectSelector(
     selector.SelectSelectorConfig(
@@ -104,15 +76,14 @@ TEMP_STEP_SELECTOR = selector.SelectSelector(
 CALIBRATION_MODE_SELECTOR = selector.SelectSelector(
     selector.SelectSelectorConfig(
         options=[
-            selector.SelectOptionDict(value=CalibrationMode.DEFAULT, label="Normal"),
+            selector.SelectOptionDict(
+                value=CalibrationMode.MPC_CALIBRATION, label="(AI) MPC Predictive"
+            ),
             selector.SelectOptionDict(
                 value=CalibrationMode.AGGRESIVE_CALIBRATION, label="Agressive"
             ),
             selector.SelectOptionDict(
-                value=CalibrationMode.HEATING_POWER_CALIBRATION, label="AI Time Based"
-            ),
-            selector.SelectOptionDict(
-                value=CalibrationMode.MPC_CALIBRATION, label="MPC Predictive"
+                value=CalibrationMode.HEATING_POWER_CALIBRATION, label="Time Based"
             ),
             selector.SelectOptionDict(
                 value=CalibrationMode.TPI_CALIBRATION, label="TPI Controller"
@@ -147,7 +118,7 @@ PRESET_SELECTOR = selector.SelectSelector(
 )
 
 
-_USER_FIELD_DEFAULTS: Dict[str, Any] = {
+_USER_FIELD_DEFAULTS: dict[str, Any] = {
     CONF_OFF_TEMPERATURE: 20,
     CONF_TOLERANCE: 0.0,
     CONF_TARGET_TEMP_STEP: "0.0",
@@ -170,13 +141,13 @@ def _as_bool(value: Any, default: bool = False) -> bool:
 
 async def _load_adapter_info(
     flow: config_entries.ConfigFlow,
-    integration: Optional[str],
-    trv_id: Optional[str],
+    integration: str | None,
+    trv_id: str | None,
     *,
-    existing_adapter: Optional[Any] = None,
-) -> Tuple[Optional[Any], Dict[str, Any]]:
+    existing_adapter: Any | None = None,
+) -> tuple[Any | None, dict[str, Any]]:
     adapter = existing_adapter
-    info: Dict[str, Any] = {}
+    info: dict[str, Any] = {}
 
     if integration and trv_id:
         if adapter is None:
@@ -199,13 +170,13 @@ async def _load_adapter_info(
     return adapter, info
 
 
-def _default_calibration_from_info(info: Dict[str, Any]) -> str:
-    if info.get("support_offset", False):
-        return "local_calibration_based"
+def _default_calibration_from_info(info: dict[str, Any]) -> str:
+    if info.get("support_valve", False):
+        return "direct_valve_based"
     return "target_temp_based"
 
 
-def _trv_supports_auto(flow: config_entries.ConfigFlow, trv_id: Optional[str]) -> bool:
+def _trv_supports_auto(flow: config_entries.ConfigFlow, trv_id: str | None) -> bool:
     if not trv_id:
         return False
     trv_state = flow.hass.states.get(trv_id)
@@ -217,10 +188,12 @@ def _trv_supports_auto(flow: config_entries.ConfigFlow, trv_id: Optional[str]) -
 
 def _build_advanced_fields(
     *,
-    sources: Iterable[Optional[Dict[str, Any]]],
+    sources: Iterable[dict[str, Any] | None],
     default_calibration: str,
     homematic: bool,
     has_auto: bool,
+    support_valve: bool = False,
+    support_offset: bool = False,
 ) -> OrderedDict:
     # Migrate old balance_mode to calibration_mode
     sources_list = list(sources)
@@ -235,7 +208,7 @@ def _build_advanced_fields(
             elif balance_mode in ("heuristic", "none"):
                 # For other balance modes, set calibration_mode to default if not set
                 if "calibration_mode" not in source:
-                    source["calibration_mode"] = CalibrationMode.DEFAULT.value
+                    source["calibration_mode"] = CalibrationMode.MPC_CALIBRATION.value
                 # Remove old balance_mode
                 source.pop("balance_mode", None)
 
@@ -253,10 +226,32 @@ def _build_advanced_fields(
     # Build fields directly in the final desired order without post-reordering
     # Compute values used below
     calib_default = get_value(CONF_CALIBRATION, default_calibration)
-    calib_selector = (
-        CALIBRATION_TYPE_ALL_SELECTOR
-        if default_calibration == "local_calibration_based"
-        else CALIBRATION_TYPE_SELECTOR
+
+    options = []
+    if support_valve:
+        options.append(
+            selector.SelectOptionDict(
+                value=CalibrationType.DIRECT_VALVE_BASED, label="Direct Valve Based"
+            )
+        )
+
+    options.append(
+        selector.SelectOptionDict(
+            value=CalibrationType.TARGET_TEMP_BASED, label="Target Temperature Based"
+        )
+    )
+
+    if support_offset:
+        options.append(
+            selector.SelectOptionDict(
+                value=CalibrationType.LOCAL_BASED, label="Offset Based"
+            )
+        )
+
+    calib_selector = selector.SelectSelector(
+        selector.SelectSelectorConfig(
+            options=options, mode=selector.SelectSelectorMode.DROPDOWN
+        )
     )
     ordered: OrderedDict = OrderedDict()
 
@@ -265,15 +260,13 @@ def _build_advanced_fields(
     ordered[
         vol.Required(
             CONF_CALIBRATION_MODE,
-            default=get_value(
-                CONF_CALIBRATION_MODE, CalibrationMode.HEATING_POWER_CALIBRATION
-            ),
+            default=get_value(CONF_CALIBRATION_MODE, CalibrationMode.MPC_CALIBRATION),
         )
     ] = CALIBRATION_MODE_SELECTOR
 
     ordered[
         vol.Optional(
-            CONF_PROTECT_OVERHEATING, default=get_bool(CONF_PROTECT_OVERHEATING, False)
+            CONF_PROTECT_OVERHEATING, default=get_bool(CONF_PROTECT_OVERHEATING, True)
         )
     ] = bool
     ordered[
@@ -302,12 +295,12 @@ def _build_advanced_fields(
 
 
 def _normalize_advanced_submission(
-    data: Dict[str, Any], *, default_calibration: str, homematic: bool, has_auto: bool
-) -> Dict[str, Any]:
-    normalized: Dict[str, Any] = dict(data)
+    data: dict[str, Any], *, default_calibration: str, homematic: bool, has_auto: bool
+) -> dict[str, Any]:
+    normalized: dict[str, Any] = dict(data)
     normalized[CONF_CALIBRATION] = normalized.get(CONF_CALIBRATION, default_calibration)
     normalized[CONF_CALIBRATION_MODE] = normalized.get(
-        CONF_CALIBRATION_MODE, CalibrationMode.HEATING_POWER_CALIBRATION
+        CONF_CALIBRATION_MODE, CalibrationMode.MPC_CALIBRATION
     )
     normalized[CONF_PROTECT_OVERHEATING] = _as_bool(
         normalized.get(CONF_PROTECT_OVERHEATING), False
@@ -329,7 +322,7 @@ def _normalize_advanced_submission(
     return normalized
 
 
-def _duration_dict_to_seconds(duration: Optional[Any]) -> int:
+def _duration_dict_to_seconds(duration: Any | None) -> int:
     if duration is None:
         return 0
     if isinstance(duration, (int, float)):
@@ -345,7 +338,7 @@ def _duration_dict_to_seconds(duration: Optional[Any]) -> int:
     return 0
 
 
-def _seconds_to_duration_dict(value: Any) -> Dict[str, int]:
+def _seconds_to_duration_dict(value: Any) -> dict[str, int]:
     try:
         total = int(value or 0)
     except (TypeError, ValueError):
@@ -358,7 +351,7 @@ def _seconds_to_duration_dict(value: Any) -> Dict[str, int]:
 
 
 def _build_user_fields(
-    *, mode: str, current: Dict[str, Any], user_input: Optional[Dict[str, Any]] = None
+    *, mode: str, current: dict[str, Any], user_input: dict[str, Any] | None = None
 ) -> OrderedDict:
     user_input = user_input or {}
     is_create = mode == "create"
@@ -411,11 +404,11 @@ def _build_user_fields(
         key: str,
         *,
         domain: Any,
-        device_class: Optional[str] = None,
+        device_class: str | None = None,
         multiple: bool = False,
         required: bool = False,
     ) -> None:
-        selector_kwargs: Dict[str, Any] = {"domain": domain, "multiple": multiple}
+        selector_kwargs: dict[str, Any] = {"domain": domain, "multiple": multiple}
         if device_class is not None:
             selector_kwargs["device_class"] = device_class
         selector_config = selector.EntitySelectorConfig(**selector_kwargs)
@@ -484,8 +477,9 @@ def _build_user_fields(
         off_temp_default = _USER_FIELD_DEFAULTS[CONF_OFF_TEMPERATURE]
     add_field(CONF_OFF_TEMPERATURE, int, default=off_temp_default)
 
-    if not is_create:
-        add_field(CONF_PRESETS, PRESET_SELECTOR, default=resolve(CONF_PRESETS, []))
+    add_field(
+        CONF_PRESETS, PRESET_SELECTOR, default=resolve(CONF_PRESETS, [PRESET_ECO])
+    )
 
     tolerance_default = resolve(CONF_TOLERANCE, _USER_FIELD_DEFAULTS[CONF_TOLERANCE])
     try:
@@ -509,8 +503,8 @@ def _build_user_fields(
 
 
 def _normalize_user_submission(
-    user_input: Dict[str, Any], *, mode: str, base: Optional[Dict[str, Any]] = None
-) -> Dict[str, Any]:
+    user_input: dict[str, Any], *, mode: str, base: dict[str, Any] | None = None
+) -> dict[str, Any]:
     if base:
         if not isinstance(base, dict):
             base_dict = dict(base)
@@ -519,7 +513,7 @@ def _normalize_user_submission(
         base_copy = copy.deepcopy(base_dict)
     else:
         base_copy = {}
-    normalized: Dict[str, Any] = base_copy
+    normalized: dict[str, Any] = base_copy
 
     normalized[CONF_NAME] = user_input.get(CONF_NAME, normalized.get(CONF_NAME, ""))
 
@@ -607,8 +601,8 @@ def _normalize_user_submission(
 
 
 async def _prepare_advanced_context(
-    flow: config_entries.ConfigFlow, trv_config: Optional[Dict[str, Any]]
-) -> Dict[str, Any]:
+    flow: config_entries.ConfigFlow, trv_config: dict[str, Any] | None
+) -> dict[str, Any]:
     trv_config = trv_config or {}
     integration = trv_config.get("integration")
     trv_id = trv_config.get("trv")
@@ -758,11 +752,14 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             return await self.async_step_confirm()
 
         user_input = user_input or {}
+        info = ctx.get("info", {})
         fields = _build_advanced_fields(
             sources=(user_input, existing_adv),
             default_calibration=ctx["default_calibration"],
             homematic=ctx["homematic"],
             has_auto=ctx["has_auto"],
+            support_valve=info.get("support_valve", False),
+            support_offset=info.get("support_offset", False),
         )
         _LOGGER.debug(
             "ConfigFlow advanced step showing form for trv=%s with defaults=%s",
@@ -779,7 +776,7 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
 
     async def async_step_user(self, user_input=None):
         """Handle the initial step."""
-        errors: Dict[str, str] = {}
+        errors: dict[str, str] = {}
         current = self.data or {}
 
         if user_input is not None:
@@ -788,7 +785,7 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 normalized = _normalize_user_submission(
                     user_input, mode="create", base=current
                 )
-            except Exception as err:  # noqa: BLE001
+            except Exception as err:
                 _LOGGER.exception("ConfigFlow user step normalization failed: %s", err)
                 raise
             self.data = normalized
@@ -913,11 +910,14 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
             )
 
         user_input = user_input or {}
+        info = ctx.get("info", {})
         fields = _build_advanced_fields(
             sources=(user_input, existing_adv),
             default_calibration=ctx["default_calibration"],
             homematic=ctx["homematic"],
             has_auto=ctx["has_auto"],
+            support_valve=info.get("support_valve", False),
+            support_offset=info.get("support_offset", False),
         )
         _LOGGER.debug(
             "OptionsFlow advanced step showing form for trv=%s with defaults=%s",
@@ -941,7 +941,7 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
                 normalized = _normalize_user_submission(
                     user_input, mode="update", base=self._config_entry.data
                 )
-            except Exception as err:  # noqa: BLE001
+            except Exception as err:
                 _LOGGER.exception("OptionsFlow user step normalization failed: %s", err)
                 raise
             _LOGGER.debug("OptionsFlow user step normalized data: %s", normalized)

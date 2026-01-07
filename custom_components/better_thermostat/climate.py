@@ -69,7 +69,7 @@ from .events.cooler import trigger_cooler_change
 from .events.temperature import trigger_temperature_change
 from .events.trv import trigger_trv_change
 from .events.window import trigger_window_change, window_queue
-from .model_fixes.model_quirks import load_model_quirks
+from .model_fixes.model_quirks import load_model_quirks, inital_tweak
 from .utils.const import (
     ATTR_STATE_BATTERIES,
     ATTR_STATE_CALL_FOR_HEAT,
@@ -100,6 +100,7 @@ from .utils.const import (
     CONF_WINDOW_TIMEOUT,
     CONF_WINDOW_TIMEOUT_AFTER,
     CalibrationMode,
+    CalibrationType,
     SERVICE_RESET_HEATING_POWER,
     SERVICE_RESET_PID_LEARNINGS,
     SERVICE_RESTORE_SAVED_TARGET_TEMPERATURE,
@@ -533,10 +534,12 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
             _calibration = 1
             _advanced = trv.get("advanced", {})
             _calibration_type = _advanced.get("calibration")
-            if _calibration_type == "local_calibration_based":
+            if _calibration_type == CalibrationType.TARGET_TEMP_BASED:
                 _calibration = 0
-            if _calibration_type == "hybrid_calibration":
+            if _calibration_type == CalibrationType.DIRECT_VALVE_BASED:
                 _calibration = 2
+            if _calibration_type == CalibrationType.LOCAL_BASED:
+                _calibration = 3
             _adapter = await load_adapter(self, trv["integration"], trv["trv"])
             # Resolve/refresh model dynamically at startup to ensure correct quirks
             resolved_model = trv.get("model")
@@ -623,7 +626,7 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
             if self._mpc_store is not None:
                 try:
                     self.hass.async_create_task(self._save_mpc_states())
-                except Exception:  # noqa: BLE001
+                except Exception:
                     pass
 
         self.async_on_remove(on_remove)
@@ -649,7 +652,7 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
         try:
             self._mpc_store = Store(self.hass, 1, f"{DOMAIN}_mpc_states")
             await self._load_mpc_states()
-        except Exception as e:  # noqa: BLE001
+        except Exception as e:
             _LOGGER.debug(
                 "better_thermostat %s: MPC storage init/load failed: %s",
                 self.device_name,
@@ -660,7 +663,7 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
         try:
             self._tpi_store = Store(self.hass, 1, f"{DOMAIN}_tpi_states")
             await self._load_tpi_states()
-        except Exception as e:  # noqa: BLE001
+        except Exception as e:
             _LOGGER.debug(
                 "better_thermostat %s: TPI storage init/load failed: %s",
                 self.device_name,
@@ -877,7 +880,7 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
                     self.device_name,
                     self.sensor_entity_id,
                 )
-                await asyncio.sleep(10)
+                await asyncio.sleep(20)
                 continue
 
             try:
@@ -889,7 +892,7 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
                             self.device_name,
                             trv,
                         )
-                        await asyncio.sleep(10)
+                        await asyncio.sleep(20)
                         raise ContinueLoop
                     if trv_state is not None:
                         if trv_state.state in (STATE_UNAVAILABLE, STATE_UNKNOWN, None):
@@ -898,7 +901,7 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
                                 self.device_name,
                                 trv,
                             )
-                            await asyncio.sleep(10)
+                            await asyncio.sleep(20)
                             raise ContinueLoop
             except ContinueLoop:
                 continue
@@ -1470,7 +1473,7 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
                         self.device_name,
                         trv,
                     )
-                except asyncio.TimeoutError:
+                except TimeoutError:
                     _LOGGER.error(
                         "better_thermostat %s: Timeout initializing TRV %s",
                         self.device_name,
@@ -1479,6 +1482,16 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
                 except Exception as exc:
                     _LOGGER.error(
                         "better_thermostat %s: Error initializing TRV %s: %s",
+                        self.device_name,
+                        trv,
+                        exc,
+                    )
+
+                try:
+                    await inital_tweak(self, trv)
+                except Exception as exc:
+                    _LOGGER.error(
+                        "better_thermostat %s: Error running initial tweak for TRV %s: %s",
                         self.device_name,
                         trv,
                         exc,
@@ -1512,7 +1525,7 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
                             self.device_name,
                             trv,
                         )
-                    except asyncio.TimeoutError:
+                    except TimeoutError:
                         _LOGGER.error(
                             "better_thermostat %s: Timeout getting offsets for TRV %s",
                             self.device_name,
@@ -1585,7 +1598,7 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
                     _LOGGER.debug(
                         "better_thermostat %s: TRV %s controlled", self.device_name, trv
                     )
-                except asyncio.TimeoutError:
+                except TimeoutError:
                     _LOGGER.error(
                         "better_thermostat %s: Timeout controlling TRV %s",
                         self.device_name,
@@ -1612,8 +1625,8 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
             self._available = True
             self.async_write_ha_state()
             #
-            _LOGGER.debug("better_thermostat %s: sleeping 5s...", self.device_name)
-            await asyncio.sleep(5)
+            _LOGGER.debug("better_thermostat %s: sleeping 15s...", self.device_name)
+            await asyncio.sleep(15)
             _LOGGER.debug(
                 "better_thermostat %s: finding battery entities...", self.device_name
             )
@@ -1683,7 +1696,7 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
                             CalibrationMode.PID_CALIBRATION.value,
                         ):
                             active_calibration_modes.add(calibration_mode)
-            except Exception:  # noqa: BLE001
+            except Exception:
                 active_balance_modes = set()
                 active_calibration_modes = set()
 
@@ -1912,7 +1925,13 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
                         return False
 
                 try:
-                    if support_valve:
+                    _calibration_type = self.real_trvs[trv_id]["advanced"].get(
+                        "calibration"
+                    )
+                    if (
+                        support_valve
+                        and _calibration_type == CalibrationType.DIRECT_VALVE_BASED
+                    ):
                         # Open fully
                         _LOGGER.debug(
                             "better_thermostat %s: maintenance %s -> valve 100%%",
@@ -2102,7 +2121,7 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
             if exported:
                 existing.update(exported)
             await self._mpc_store.async_save(existing)
-        except Exception as e:  # noqa: BLE001
+        except Exception as e:
             _LOGGER.debug(
                 "better_thermostat %s: saving MPC states failed: %s",
                 self.device_name,
@@ -2160,7 +2179,7 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
             if exported:
                 existing.update(exported)
             await self._tpi_store.async_save(existing)
-        except Exception as e:  # noqa: BLE001
+        except Exception as e:
             _LOGGER.debug(
                 "better_thermostat %s: saving TPI states failed: %s",
                 self.device_name,
@@ -2914,6 +2933,7 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
         await self.control_queue_task.put(self)
 
     async def async_set_temperature(self, **kwargs) -> None:
+        """Set new target temperature."""
         _LOGGER.debug(
             "better_thermostat %s: async_set_temperature kwargs=%s, current preset=%s, hvac_mode=%s",
             self.device_name,

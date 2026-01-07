@@ -192,6 +192,26 @@ async def set_valve(self, entity_id, valve):
         target_pct = valve
     try:
         trv_state = self.real_trvs.get(entity_id, {}) or {}
+
+        # Check if the override_set_valve method is implemented in the model quirks of the trv
+        # This takes precedence over the standard adapter set_valve
+        _override_set_valve = getattr(
+            trv_state.get("model_quirks"), "override_set_valve", None
+        )
+        if _override_set_valve is not None:
+            ok = await _override_set_valve(self, entity_id, target_pct)
+            if ok:
+                try:
+                    self.real_trvs[entity_id]["last_valve_percent"] = int(target_pct)
+                    self.real_trvs[entity_id]["last_valve_method"] = "override"
+                except Exception:
+                    _LOGGER.exception(
+                        "better_thermostat %s: Failed to set last_valve_percent or last_valve_method for %s in override",
+                        getattr(self, "device_name", "unknown"),
+                        entity_id,
+                    )
+                return True
+
         valve_entity = trv_state.get("valve_position_entity")
         valve_writable = trv_state.get("valve_position_writable")
 
@@ -211,24 +231,6 @@ async def set_valve(self, entity_id, valve):
                     exc,
                 )
             return True
-        # Fallback: quirks override
-        # Check if the override_set_valve method is implemented in the model quirks of the trv
-        _override_set_valve = getattr(
-            self.real_trvs[entity_id].get("model_quirks"), "override_set_valve", None
-        )
-        if _override_set_valve is not None:
-            ok = await _override_set_valve(self, entity_id, target_pct)
-            if ok:
-                try:
-                    self.real_trvs[entity_id]["last_valve_percent"] = int(target_pct)
-                    self.real_trvs[entity_id]["last_valve_method"] = "override"
-                except Exception:
-                    _LOGGER.exception(
-                        "better_thermostat %s: Failed to set last_valve_percent or last_valve_method for %s in override",
-                        getattr(self, "device_name", "unknown"),
-                        entity_id,
-                    )
-            return bool(ok)
     except Exception:
         _LOGGER.debug(
             "better_thermostat %s: delegate.set_valve failed for %s",
