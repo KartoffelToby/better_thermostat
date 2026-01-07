@@ -464,7 +464,10 @@ def calculate_calibration_local(self, entity_id) -> float | None:
     _new_trv_calibration = float(_new_trv_calibration)
 
     if _calibration_mode == CalibrationMode.AGGRESIVE_CALIBRATION:
-        if self.attr_hvac_action == HVACAction.HEATING:
+        # Check temperature difference instead of hvac_action to avoid hysteresis
+        # band issue where aggressive calibration wouldn't be applied when
+        # temperature is between (target - tolerance) and target
+        if self.cur_temp is not None and self.cur_temp < self.bt_target_temp:
             if _new_trv_calibration > -2.5:
                 _new_trv_calibration -= 2.5
 
@@ -693,7 +696,10 @@ def calculate_calibration_setpoint(self, entity_id) -> float | None:
     )
 
     if _calibration_mode == CalibrationMode.AGGRESIVE_CALIBRATION:
-        if self.attr_hvac_action == HVACAction.HEATING:
+        # Check temperature difference instead of hvac_action to avoid hysteresis
+        # band issue where aggressive calibration wouldn't be applied when
+        # temperature is between (target - tolerance) and target
+        if self.cur_temp is not None and self.cur_temp < self.bt_target_temp:
             if _calibrated_setpoint - _cur_trv_temp < 2.5:
                 _calibrated_setpoint += 2.5
 
