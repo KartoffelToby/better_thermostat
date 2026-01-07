@@ -1,7 +1,16 @@
+"""Tado adapter helpers for Better Thermostat.
+
+This module implements the thin adapter that maps Better Thermostat actions
+onto the Tado climate services (offsets and modes).
+"""
+
 import logging
+
+from homeassistant.const import STATE_UNAVAILABLE, STATE_UNKNOWN
+
 from .generic import (
-    set_temperature as generic_set_temperature,
     set_hvac_mode as generic_set_hvac_mode,
+    set_temperature as generic_set_temperature,
 )
 
 _LOGGER = logging.getLogger(__name__)
@@ -13,6 +22,10 @@ async def get_info(self, entity_id):
 
 
 async def init(self, entity_id):
+    """Perform per-entity initialization for the Tado adapter.
+
+    Currently, no initialization is required and the function returns None.
+    """
     return None
 
 
@@ -28,14 +41,23 @@ async def set_hvac_mode(self, entity_id, hvac_mode):
 
 async def get_current_offset(self, entity_id):
     """Get current offset."""
-    return float(
-        str(self.hass.states.get(entity_id).attributes.get("offset_celsius", 0))
-    )
+    state = self.hass.states.get(entity_id)
+    if state is None or state.state in (STATE_UNAVAILABLE, STATE_UNKNOWN):
+        return 0.0
+    try:
+        return float(str(state.attributes.get("offset_celsius", 0)))
+    except (ValueError, TypeError):
+        _LOGGER.warning(
+            "better_thermostat %s: Could not convert calibration offset '%s' to float, using 0",
+            self.device_name,
+            state.attributes.get("offset_celsius"),
+        )
+        return 0.0
 
 
 async def get_offset_step(self, entity_id):
     """Get offset step."""
-    return float(0.01)
+    return 0.01
 
 
 async def get_min_offset(self, entity_id):
@@ -50,10 +72,8 @@ async def get_max_offset(self, entity_id):
 
 async def set_offset(self, entity_id, offset):
     """Set new target offset."""
-    if offset >= 10:
-        offset = 10
-    if offset <= -10:
-        offset = -10
+    offset = min(10, offset)
+    offset = max(-10, offset)
     await self.hass.services.async_call(
         "tado",
         "set_climate_temperature_offset",

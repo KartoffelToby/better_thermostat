@@ -16,7 +16,12 @@
           "window_off_delay": "Wartezeit, bevor das Thermostat bei geöffnetem Fenster abgeschaltet wird.",
           "window_off_delay_after": "Wartezeit, bevor das Thermostat bei geschlossenem Fenster angeschaltet wird.",
           "outdoor_sensor": "Wenn ein Außentemperatursensor vorhanden ist, kann dieser anstelle der Wetter-Entität genutzt werden.",
-          "weather": "Die Wetter-Entität für die Außentemperatur."
+          "weather": "Die Wetter-Entität für die Außentemperatur.",
+          "target_temp_step": "Solltemperatur-Schritt",
+          "presets": "Aktivierte Presets"
+        },
+        "data_description": {
+          "presets": "Wähle die Presets aus, die für dieses Thermostat verfügbar sein sollen."
         }
       },
       "advanced": {
@@ -33,7 +38,7 @@
         },
         "data_description": {
           "protect_overheating": "Manche TRVs schließen auch nach Erreichen der Temperatur das Ventil nicht vollständig. Dies kann zu Überhitzungen führen. Ebenso, falls der Radiator viel Restwärme abstrahlt. Diese Option kann dies verhindern.",
-          "calibration_mode": "Wie die Kalibrierung berechnet wird\n***Normal***: In diesem Modus wird die interne TRV-Temperatur an die des externen Sensors angeglichen.\n\n***Aggresive***: In diesem Modus wird die interne TRV-Temperatur an die des externen Sensors angeglichen - allerdings mit größeren Werten. Dies ist hilfreich, wenn ein Raum schnell aufgeheizt werden soll oder das TRV träge ist.\n\n***AI Time Based***: In diesem Modus wird ein eigener Algorithmus genutzt, der anhand des externen Temperatursensors die Kalibrierung berechnet. Dieser Modus versucht den TRV internen Algorithmus zu optimieren.",
+          "calibration_mode": "Wie die Kalibrierung berechnet wird\n***Normal***: In diesem Modus wird die interne TRV-Temperatur an die des externen Sensors angeglichen.\n\n***Aggressive***: In diesem Modus wird die interne TRV-Temperatur an die des externen Sensors angeglichen - allerdings mit größeren Werten. Dies ist hilfreich, wenn ein Raum schnell aufgeheizt werden soll oder das TRV träge ist.\n\n***AI Time Based***: In diesem Modus wird ein eigener Algorithmus genutzt, der anhand des externen Temperatursensors die Kalibrierung berechnet. Dieser Modus versucht den TRV internen Algorithmus zu optimieren.\n\n***MPC Predictive***: Nutzt den MPC-Prädiktivregler, um eine Ventilöffnung vorherzusagen und wandelt sie bei fehlender Ventilsteuerung in Temperatur- oder Offset-Anpassungen um.\n\n***PID Controller***: Verwendet einen PID-Regler, um die Ventilposition dynamisch basierend auf Temperaturfehler, proportionalem Anteil, integraler Akkumulation und derivativem Vorhersage anzupassen.\n\n***TPI Controller***: Verwendet einen Zeit-Proportional-Integral-Regler für stabile und präzise Temperatursteuerung über die Zeit.",
           "calibration": "Wie die Kalibrierung auf das TRV angewendet werden soll.\n\n***Target Temperature Based***: Kalibriert das TRV über die Zieltemperatur.\n\n***Offset Based***: Kalibriert das TRV über eine Offset Funktion im TRV selbst. (Empfohlen)"
         }
       },
@@ -69,16 +74,24 @@
           "window_off_delay_after": "Wartezeit, bevor das Thermostat bei geschlossenem Fenster angeschaltet wird.",
           "outdoor_sensor": "Wenn ein Außentemperatursensor vorhanden ist, kann dieser anstelle der Wetter-Entität genutzt werden.",
           "weather": "Die Wetter-Entität für die Außentemperatur.",
+          "target_temp_step": "Solltemperatur-Schritt",
+          "presets": "Aktivierte Presets",
           "valve_maintenance": "Wenn Ihr Thermostat keinen eigenen Wartungsmodus hat, können Sie diesen verwenden.",
           "child_lock": "Ignorieren Sie alle Eingaben am TRV wie eine Kindersicherung.",
           "homematicip": "Wenn Sie HomematicIP verwenden, sollten Sie dies aktivieren, um die Anfragen zu verlangsamen und den Duty Cycle zu verhindern.",
           "heat_auto_swapped": "Wenn das Auto Wärme für Ihr TRV bedeutet und Sie es austauschen möchten.",
           "calibration": "Die Art der Kalibrierung https://better-thermostat.org/configuration#second-step"
+        },
+        "data_description": {
+          "presets": "Wähle die Presets aus, die für dieses Thermostat verfügbar sein sollen."
         }
       },
       "advanced": {
         "description": "Aktualisiere die Einstellungen für {trv}\n\n***Infos über die Kalibrierungstypen: https://better-thermostat.org/configuration#second-step*** ",
         "data": {
+          "trend_mix_trv": "Glättung (EMA‑Mix, 0–1)",
+          "percent_hysteresis_pts": "Hysterese (Prozentpunkte)",
+          "min_update_interval_s": "Minimales Update‑Intervall (Sek.)",
           "protect_overheating": "Überhitzung verhindern?",
           "heat_auto_swapped": "Tauscht die Modi auto und heat, falls diese bei dem realen Thermostat vertauscht sind.",
           "child_lock": "Ignoriere alle manuellen Einstellungen am realen Thermostat (Kindersicherung).",
@@ -90,7 +103,7 @@
         },
         "data_description": {
           "protect_overheating": "Manche TRVs schließen auch nach Erreichen der Temperatur das Ventil nicht vollständig. Dies kann zu Überhitzungen führen. Ebenso falls der Radiator viel Restwärme abstrahlt. Diese Option kann dies verhindern.",
-          "calibration_mode": "Wie die Kalibrierung berechnet wird\n***Normal***: In diesem Modus wird die interne TRV-Temperatur an die des externen Sensors angeglichen.\n\n***Aggresive***: In diesem Modus wird die interne TRV-Temperatur an die des externen Sensors angeglichen - allerdings mit größeren Werten. Dies ist hilfreich, wenn ein Raum schnell aufgeheizt werden soll oder das TRV träge ist.\n\n***AI Time Based***: In diesem Modus wird ein eigener Algorithmus genutzt, der anhand des externen Temperatursensors die Kalibrierung berechnet. Dieser Modus versucht den TRV internen Algorithmus zu optimieren.",
+          "calibration_mode": "Wie die Kalibrierung berechnet wird\n***Normal***: In diesem Modus wird die interne TRV-Temperatur an die des externen Sensors angeglichen.\n\n***Aggressive***: In diesem Modus wird die interne TRV-Temperatur an die des externen Sensors angeglichen - allerdings mit größeren Werten. Dies ist hilfreich, wenn ein Raum schnell aufgeheizt werden soll oder das TRV träge ist.\n\n***AI Time Based***: In diesem Modus wird ein eigener Algorithmus genutzt, der anhand des externen Temperatursensors die Kalibrierung berechnet. Dieser Modus versucht den TRV internen Algorithmus zu optimieren.\n\n***MPC Predictive***: Nutzt den MPC-Prädiktivregler, um eine Ventilöffnung vorherzusagen und wandelt sie bei fehlender Ventilsteuerung in Temperatur- oder Offset-Anpassungen um.\n\n***PID Controller***: Verwendet einen PID-Regler, um die Ventilposition dynamisch basierend auf Temperaturfehler, proportionalem Anteil, integraler Akkumulation und derivativem Vorhersage anzupassen.\n\n***TPI Controller***: Verwendet einen Zeit-Proportional-Integral-Regler für stabile und präzise Temperatursteuerung über die Zeit.",
           "calibration": "Wie die Kalibrierung auf das TRV angewendet werden soll.\n\n***Target Temperature Based***: Kalibriert das TRV über die Zieltemperatur.\n\n***Offset Based***: Kalibriert das TRV über eine Offset Funktion im TRV selbst. (Empfohlen)"
         }
       }
@@ -125,6 +138,49 @@
     "set_temp_target_temperature": {
       "name": "Setze die Temperatur für ECO",
       "description": "Speichert eine ECO Temperatur, die für den ECO Modus genutzt wird."
+    }
+  },
+  "selector": {
+    "presets": {
+      "options": {
+        "eco": "Eco",
+        "away": "Abwesend",
+        "boost": "Boost",
+        "comfort": "Komfort",
+        "home": "Zuhause",
+        "sleep": "Schlafen",
+        "activity": "Aktivität"
+      }
+    }
+  },
+  "entity": {
+    "number": {
+      "pid_kp": {
+        "name": "{trv_name} PID Kp (Proportional)"
+      },
+      "pid_ki": {
+        "name": "{trv_name} PID Ki (Integral)"
+      },
+      "pid_kd": {
+        "name": "{trv_name} PID Kd (Differential)"
+      },
+      "pid_kp_no_trv": {
+        "name": "PID Kp (Proportional)"
+      },
+      "pid_ki_no_trv": {
+        "name": "PID Ki (Integral)"
+      },
+      "pid_kd_no_trv": {
+        "name": "PID Kd (Differential)"
+      }
+    },
+    "switch": {
+      "pid_auto_tune": {
+        "name": "{trv_name} PID Auto-Tuning"
+      },
+      "pid_auto_tune_no_trv": {
+        "name": "PID Auto-Tuning"
+      }
     }
   }
 }

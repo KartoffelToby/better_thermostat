@@ -1,0 +1,56 @@
+[tool.ruff]
+target-version = "py313"
+line-length = 88
+exclude = [
+    ".venv",
+    ".git",
+    ".tox",
+    "docs",
+    "venv",
+    "bin",
+    "lib",
+    "deps",
+    "build",
+    "__pycache__",
+    "assets",
+]
+
+[tool.ruff.lint]
+select = [
+    "E",      # pycodestyle errors
+    "F",      # pyflakes
+    "W",      # pycodestyle warnings
+    "UP",     # pyupgrade
+    "D",      # pydocstyle (docstrings)
+    "C4",     # flake8-comprehensions
+    "PL",     # pylint
+    "RUF100", # unused noqa directives
+    "I",      # isort
+]
+ignore = [
+    "E501",   # Line too long - handled by formatter where possible
+    "E203",   # Whitespace before ':' - conflicts with black/ruff formatter
+    "D100",   # Missing docstring in public module
+    "D104",   # Missing docstring in public package
+    "D202",   # No blank lines allowed after function docstring
+    "D203",   # 1 blank line required before class docstring (conflicts with D211)
+    "D213",   # Multi-line docstring summary should start at the second line (conflicts with D212)
+    "PLR2004", # Magic value comparison
+    "PLR0915", # Too many statements
+    "PLR0912", # Too many branches
+    "PLR0913", # Too many arguments
+    "PLR0911", # Too many return statements
+    "PLC0415", # Import outside top level
+]
+
+[tool.ruff.lint.pydocstyle]
+convention = "numpy"
+
+[tool.ruff.lint.isort]
+known-first-party = ["custom_components.better_thermostat", "tests"]
+force-sort-within-sections = true
+combine-as-imports = true
+split-on-trailing-comma = false
+
+[tool.ruff.format]
+skip-magic-trailing-comma = true

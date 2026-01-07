@@ -1,0 +1,130 @@
+{
+  "title": "Better Thermostat",
+  "config": {
+    "step": {
+      "user": {
+        "description": "Configura il tuo Better Thermostat per integrarlo con Home Assistant\n**Per maggiori informazioni: https://better-thermostat.org/configuration#first-step**",
+        "data": {
+          "name": "Nome",
+          "thermostat": "Il termostato reale",
+          "cooler": "Il dispositivo di raffreddamento (opzionale)",
+          "temperature_sensor": "Sensore di temperatura",
+          "humidity_sensor": "Sensore di umidità",
+          "window_sensors": "Sensore finestra",
+          "off_temperature": "Temperatura esterna alla quale il termostato si spegne",
+          "tolerance": "Tolleranza, per evitare che il termostato si accenda e spenga troppo spesso.",
+          "window_off_delay": "Ritardo prima che il termostato si spenga quando la finestra viene aperta",
+          "window_off_delay_after": "Ritardo prima che il termostato si riaccenda quando la finestra viene chiusa",
+          "outdoor_sensor": "Se hai un sensore esterno, puoi usarlo per ottenere la temperatura esterna",
+          "weather": "La tua entità meteo per ottenere la temperatura esterna"
+        }
+      },
+      "advanced": {
+        "description": "Configurazione avanzata {trv}\n***Informazioni sui tipi di calibrazione: https://better-thermostat.org/configuration#second-step***",
+        "data": {
+          "protect_overheating": "Protezione dal surriscaldamento?",
+          "heat_auto_swapped": "Se 'auto' indica riscaldamento per il tuo TRV e vuoi invertirlo",
+          "child_lock": "Ignora tutti gli input sul TRV come un blocco bambini",
+          "homematicip": "Se usi HomematicIP, abilita questa opzione per rallentare le richieste e prevenire il ciclo di lavoro eccessivo",
+          "valve_maintenance": "Se il tuo termostato non ha una modalità di manutenzione propria, puoi usare questa",
+          "calibration": "Tipo di calibrazione",
+          "calibration_mode": "Modalità di calibrazione",
+          "no_off_system_mode": "Se il tuo TRV non può gestire la modalità 'off', puoi abilitare questa opzione per usare 5°C come temperatura target"
+        },
+        "data_description": {
+          "protect_overheating": "Alcuni TRV non chiudono completamente la valvola quando si raggiunge la temperatura. Oppure il radiatore mantiene molto calore residuo. Questa opzione può evitare il surriscaldamento.",
+          "calibration_mode": "Modalità di calcolo della calibrazione\n***Normale***: Il sensore interno di temperatura del TRV è corretto da quello esterno.\n***Aggressiva***: Il sensore interno del TRV è corretto da quello esterno ma impostato molto più basso/alto per ottenere una risposta più rapida.\n***Basata sul tempo AI***: Il sensore interno del TRV è corretto da quello esterno, ma un algoritmo personalizzato calcola il valore per migliorare l’algoritmo interno del TRV.\n***MPC Predictive***: Utilizza il controllore predittivo MPC per derivare un'apertura della valvola e convertirla in offset o setpoint quando il controllo diretto della valvola non è disponibile.\n***PID Controller***: Utilizza un controllore PID per regolare dinamicamente la posizione della valvola in base all'errore di temperatura, al termine proporzionale, all'accumulo integrale e alla previsione derivata.\n***TPI Controller***: Utilizza un controllore Proporzionale Integrale Temporale per un controllo della temperatura stabile e preciso nel tempo.",
+          "calibration": "Come deve essere applicata la calibrazione sul TRV (temperatura target o offset)\n***Basata sulla temperatura target***: Applica la calibrazione alla temperatura impostata.\n***Basata su offset***: Applica la calibrazione come offset."
+        }
+      },
+      "confirm": {
+        "title": "Conferma l’aggiunta di un Better Thermostat",
+        "description": "Stai per aggiungere `{name}` a Home Assistant.\nCon {trv} come termostato reale"
+      }
+    },
+    "error": {
+      "failed": "Qualcosa è andato storto.",
+      "no_name": "Per favore inserisci un nome.",
+      "no_off_mode": "Il tuo dispositivo è particolare e non ha una modalità 'off' :(\nBetter Thermostat userà invece la temperatura target minima.",
+      "no_outside_temp": "Non hai un sensore di temperatura esterna. Better Thermostat userà l’entità meteo al suo posto."
+    },
+    "abort": {
+      "single_instance_allowed": "È consentito un solo termostato per ogni dispositivo reale.",
+      "no_devices_found": "Nessuna entità termostato trovata. Assicurati di avere un’entità climate nel tuo Home Assistant"
+    }
+  },
+  "options": {
+    "step": {
+      "user": {
+        "description": "Aggiorna le impostazioni del tuo Better Thermostat",
+        "data": {
+          "name": "Nome",
+          "thermostat": "Il termostato reale",
+          "temperature_sensor": "Sensore di temperatura",
+          "humidity_sensor": "Sensore di umidità",
+          "window_sensors": "Sensore finestra",
+          "off_temperature": "Temperatura esterna alla quale il termostato si spegne",
+          "tolerance": "Tolleranza, per evitare che il termostato si accenda e spenga troppo spesso.",
+          "window_off_delay": "Ritardo prima che il termostato si spenga quando la finestra viene aperta",
+          "window_off_delay_after": "Ritardo prima che il termostato si riaccenda quando la finestra viene chiusa",
+          "outdoor_sensor": "Se hai un sensore esterno, puoi usarlo per ottenere la temperatura esterna",
+          "valve_maintenance": "Se il tuo termostato non ha una modalità di manutenzione propria, puoi usare questa",
+          "calibration": "Tipo di calibrazione https://better-thermostat.org/configuration#second-step",
+          "weather": "La tua entità meteo per ottenere la temperatura esterna",
+          "heat_auto_swapped": "Se 'auto' indica riscaldamento per il tuo TRV e vuoi invertirlo",
+          "child_lock": "Ignora tutti gli input sul TRV come un blocco bambini",
+          "homematicip": "Se usi HomematicIP, abilita questa opzione per rallentare le richieste e prevenire il ciclo di lavoro"
+        }
+      },
+      "advanced": {
+        "description": "Configurazione avanzata {trv}\n***Informazioni sui tipi di calibrazione: https://better-thermostat.org/configuration#second-step***",
+        "data": {
+          "protect_overheating": "Protezione dal surriscaldamento?",
+          "heat_auto_swapped": "Se 'auto' indica riscaldamento per il tuo TRV e vuoi invertirlo",
+          "child_lock": "Ignora tutti gli input sul TRV come un blocco bambini",
+          "homematicip": "Se usi HomematicIP, abilita questa opzione per rallentare le richieste e prevenire il ciclo di lavoro",
+          "valve_maintenance": "Se il tuo termostato non ha una modalità di manutenzione propria, puoi usare questa",
+          "calibration": "Tipo di calibrazione che vuoi usare",
+          "calibration_mode": "Modalità di calibrazione",
+          "no_off_system_mode": "Se il tuo TRV non può gestire la modalità 'off', puoi abilitare questa opzione per usare 5°C come temperatura target"
+        },
+        "data_description": {
+          "protect_overheating": "Alcuni TRV non chiudono completamente la valvola quando si raggiunge la temperatura. Oppure il radiatore mantiene molto calore residuo. Questa opzione può evitare il surriscaldamento.",
+          "calibration_mode": "Modalità di calcolo della calibrazione\n***Normale***: Il sensore interno di temperatura del TRV è corretto da quello esterno.\n***Aggressiva***: Il sensore interno del TRV è corretto da quello esterno ma impostato molto più basso/alto per ottenere una risposta più rapida.\n***Basata sul tempo AI***: Il sensore interno del TRV è corretto da quello esterno, ma un algoritmo personalizzato calcola il valore per migliorare l’algoritmo interno del TRV.\n***MPC Predictive***: Utilizza il controllore predittivo MPC per derivare un'apertura della valvola e convertirla in offset o setpoint quando il controllo diretto della valvola non è disponibile.\n***PID Controller***: Utilizza un controllore PID per regolare dinamicamente la posizione della valvola in base all'errore di temperatura, al termine proporzionale, all'accumulo integrale e alla previsione derivata.\n***TPI Controller***: Utilizza un controllore Proporzionale Integrale Temporale per un controllo della temperatura stabile e preciso nel tempo.",
+          "calibration": "Come deve essere applicata la calibrazione sul TRV (temperatura target o offset)\n***Basata sulla temperatura target***: Applica la calibrazione alla temperatura impostata.\n***Basata su offset***: Applica la calibrazione come offset."
+        }
+      }
+    }
+  },
+  "issues": {
+    "missing_entity": {
+      "title": "BT: {name} - entità collegata mancante",
+      "fix_flow": {
+        "step": {
+          "confirm": {
+            "title": "L’entità collegata {entity} è mancante",
+            "description": "La causa è che l’entità ({entity}) non è disponibile in Home Assistant.\n\nPuoi risolvere controllando che la batteria del dispositivo sia carica o riconnettendolo a HA. Assicurati che l’entità sia di nuovo presente in HA prima di continuare."
+          }
+        }
+      }
+    }
+  },
+  "services": {
+    "save_current_target_temperature": {
+      "name": "Salva temperatura attuale",
+      "description": "Salva la temperatura target corrente per poterla ripristinare in seguito."
+    },
+    "restore_saved_target_temperature": {
+      "name": "Ripristina temperatura",
+      "description": "Ripristina la temperatura target salvata."
+    },
+    "reset_heating_power": {
+      "name": "Reimposta potenza riscaldamento",
+      "description": "Reimposta la potenza di riscaldamento al valore predefinito."
+    },
+    "set_temp_target_temperature": {
+      "name": "Imposta temperatura eco",
+      "description": "Imposta la temperatura target su una modalità temporanea (come quella notturna) e salva la precedente."
+    }
+  }
+}
