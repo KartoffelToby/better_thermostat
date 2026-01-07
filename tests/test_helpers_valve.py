@@ -1,10 +1,13 @@
-import pytest
 from unittest.mock import MagicMock, patch
+
+import pytest
+
 from custom_components.better_thermostat.utils.helpers import find_valve_entity
 
 
 @pytest.fixture
 def anyio_backend():
+    """Return the async backend to use for tests."""
     return "asyncio"
 
 
@@ -48,7 +51,6 @@ async def test_find_valve_entity_ignores_sensor_pi_heating_demand():
             "custom_components.better_thermostat.utils.helpers.async_entries_for_config_entry"
         ) as mock_entries,
     ):
-
         mock_registry = MagicMock()
         mock_er_get.return_value = mock_registry
         mock_registry.async_get.return_value = reg_entity_trv

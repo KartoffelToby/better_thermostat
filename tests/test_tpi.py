@@ -1,11 +1,10 @@
 """Tests for the TPI (Time Proportional Integrator) controller."""
 
-import pytest
 from custom_components.better_thermostat.utils.calibration.tpi import (
     TpiInput,
     TpiParams,
-    compute_tpi,
     build_tpi_key,
+    compute_tpi,
 )
 
 
@@ -61,7 +60,9 @@ class TestTpiController:
         """Test that heating is disabled on overshoot."""
         params = TpiParams(threshold_high=0.5)
         inp = TpiInput(
-            key="test", current_temp_C=22.6, target_temp_C=22.0  # error = -0.6
+            key="test",
+            current_temp_C=22.6,
+            target_temp_C=22.0,  # error = -0.6
         )
         result = compute_tpi(inp, params)
         assert result.duty_cycle_pct == 0.0

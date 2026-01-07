@@ -1,10 +1,11 @@
 """The better_thermostat component."""
 
-import logging
 from asyncio import Lock
+import logging
+
+from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import Platform
 from homeassistant.core import HomeAssistant
-from homeassistant.config_entries import ConfigEntry
 from homeassistant.helpers.typing import ConfigType
 import voluptuous as vol
 
@@ -98,7 +99,9 @@ async def async_migrate_entry(hass, config_entry: ConfigEntry):
                     {CONF_CALIBRATION_MODE: CalibrationMode.AGGRESIVE_CALIBRATION}
                 )
             else:
-                trv["advanced"].update({CONF_CALIBRATION_MODE: CalibrationMode.DEFAULT})
+                trv["advanced"].update(
+                    {CONF_CALIBRATION_MODE: CalibrationMode.MPC_CALIBRATION}
+                )
         hass.config_entries.async_update_entry(config_entry, data=new, version=4)
 
     if config_entry.version == 4:

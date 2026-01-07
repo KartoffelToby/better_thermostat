@@ -5,11 +5,13 @@ onto the Tado climate services (offsets and modes).
 """
 
 import logging
-from .generic import (
-    set_temperature as generic_set_temperature,
-    set_hvac_mode as generic_set_hvac_mode,
-)
+
 from homeassistant.const import STATE_UNAVAILABLE, STATE_UNKNOWN
+
+from .generic import (
+    set_hvac_mode as generic_set_hvac_mode,
+    set_temperature as generic_set_temperature,
+)
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -55,7 +57,7 @@ async def get_current_offset(self, entity_id):
 
 async def get_offset_step(self, entity_id):
     """Get offset step."""
-    return float(0.01)
+    return 0.01
 
 
 async def get_min_offset(self, entity_id):
@@ -70,10 +72,8 @@ async def get_max_offset(self, entity_id):
 
 async def set_offset(self, entity_id, offset):
     """Set new target offset."""
-    if offset >= 10:
-        offset = 10
-    if offset <= -10:
-        offset = -10
+    offset = min(10, offset)
+    offset = max(-10, offset)
     await self.hass.services.async_call(
         "tado",
         "set_climate_temperature_offset",

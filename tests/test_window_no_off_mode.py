@@ -12,12 +12,13 @@ when window closes, causing the control logic to not restore heating.
 """
 
 import pytest
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock
 from homeassistant.components.climate import HVACMode
+import pytest
 
 from custom_components.better_thermostat.utils.const import (
-    CalibrationType,
     CalibrationMode,
+    CalibrationType,
 )
 
 
@@ -153,11 +154,11 @@ class TestWindowCloseRestoresHeating:
         go back to heating, but currently it doesn't because the control
         logic receives None instead of HEAT.
         """
-        from custom_components.better_thermostat.utils.controlling import (
-            handle_window_open,
-        )
         from custom_components.better_thermostat.events.trv import (
             convert_outbound_states,
+        )
+        from custom_components.better_thermostat.utils.controlling import (
+            handle_window_open,
         )
 
         # Step 1: Window is closed, TRV is heating normally
@@ -167,7 +168,7 @@ class TestWindowCloseRestoresHeating:
         states_heating = convert_outbound_states(
             mock_bt_instance, "climate.test_trv", HVACMode.HEAT
         )
-        hvac_mode_heating = handle_window_open(mock_bt_instance, states_heating)
+        handle_window_open(mock_bt_instance, states_heating)
 
         # Should be heating (or at least not None/OFF)
         # Note: might be None for devices without system_mode, but should still heat
@@ -198,17 +199,17 @@ class TestWindowCloseRestoresHeating:
         # For devices without OFF mode, we need to ensure heating is restored.
 
         # The temperature should be restored to target, not min_temp
-        assert (
-            states_after_close.get("temperature") == 21.0
-        ), f"Expected temperature 21.0 but got {states_after_close.get('temperature')}"
+        assert states_after_close.get("temperature") == 21.0, (
+            f"Expected temperature 21.0 but got {states_after_close.get('temperature')}"
+        )
 
         # The hvac_mode should indicate heating should happen
         # (either HEAT or at least not OFF)
         # This is where the bug manifests - it might be None
         if hvac_mode_after_close is not None:
-            assert hvac_mode_after_close != HVACMode.OFF, (
-                f"Expected HEAT or equivalent but got {hvac_mode_after_close}"
-            )
+            assert (
+                hvac_mode_after_close != HVACMode.OFF
+            ), f"Expected HEAT or equivalent but got {hvac_mode_after_close}"
 
 
 class TestTrvStateUpdateBug:
@@ -259,9 +260,9 @@ class TestTrvStateUpdateBug:
 
         # After the buggy code runs, bt_hvac_mode is OFF
         # This is the bug - it SHOULD still be HEAT!
-        assert mock_bt_instance.bt_hvac_mode == HVACMode.OFF, (
-            "This test documents the bug - bt_hvac_mode is incorrectly set to OFF"
-        )
+        assert (
+            mock_bt_instance.bt_hvac_mode == HVACMode.OFF
+        ), "This test documents the bug - bt_hvac_mode is incorrectly set to OFF"
 
     def test_bt_hvac_mode_should_remain_heat_when_window_triggered_min_temp(
         self, mock_bt_instance
@@ -295,9 +296,9 @@ class TestTrvStateUpdateBug:
                 mock_bt_instance.bt_hvac_mode = HVACMode.HEAT
 
         # After the fix, bt_hvac_mode should still be HEAT
-        assert mock_bt_instance.bt_hvac_mode == HVACMode.HEAT, (
-            "bt_hvac_mode should remain HEAT when window caused the min_temp"
-        )
+        assert (
+            mock_bt_instance.bt_hvac_mode == HVACMode.HEAT
+        ), "bt_hvac_mode should remain HEAT when window caused the min_temp"
 
 
 class TestControlTrvWithNoOffMode:

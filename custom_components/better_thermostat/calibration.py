@@ -6,6 +6,7 @@ from homeassistant.components.climate.const import HVACAction, HVACMode
 
 from custom_components.better_thermostat.utils.const import (
     CalibrationMode,
+    CalibrationType,
     CONF_PROTECT_OVERHEATING,
 )
 
@@ -19,32 +20,37 @@ from custom_components.better_thermostat.model_fixes.model_quirks import (
     fix_local_calibration,
     fix_target_temperature_calibration,
 )
-
 from custom_components.better_thermostat.utils.calibration.mpc import (
     MpcInput,
     MpcParams,
     build_mpc_key,
     compute_mpc,
 )
-
+from custom_components.better_thermostat.utils.calibration.pid import (
+    DEFAULT_PID_AUTO_TUNE,
+    DEFAULT_PID_KD,
+    DEFAULT_PID_KI,
+    DEFAULT_PID_KP,
+    PIDParams,
+    build_pid_key,
+    compute_pid,
+    get_pid_state,
+)
 from custom_components.better_thermostat.utils.calibration.tpi import (
     TpiInput,
     TpiParams,
     build_tpi_key,
     compute_tpi,
 )
-
-from custom_components.better_thermostat.utils.calibration.pid import (
-    PIDParams,
-    compute_pid,
-    get_pid_state,
-    DEFAULT_PID_KP,
-    DEFAULT_PID_KI,
-    DEFAULT_PID_KD,
-    DEFAULT_PID_AUTO_TUNE,
+from custom_components.better_thermostat.utils.const import (
+    CONF_PROTECT_OVERHEATING,
+    CalibrationMode,
 )
-
-from custom_components.better_thermostat.utils.calibration.pid import build_pid_key
+from custom_components.better_thermostat.utils.helpers import (
+    convert_to_float,
+    heating_power_valve_position,
+    round_by_step,
+)
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -70,8 +76,92 @@ def _get_current_outdoor_temp(self) -> float | None:
     return None
 
 
+def _get_current_solar_intensity(self) -> float:
+    """Estimate solar intensity (0.0 to 1.0) based on weather entity data."""
+    if self.weather_entity is None:
+        return 0.0
+
+    state = self.hass.states.get(self.weather_entity)
+    if not state or not state.attributes:
+        return 0.0
+
+    def _get_val(data, key):
+        if not isinstance(data, dict):
+            return None
+        return data.get(key)
+
+    # Prepare data sources: Attributes, and optionally the first Forecast
+    sources = [state.attributes]
+
+    # Check forecast if available (common in many weather integrations)
+    forecast = state.attributes.get("forecast")
+    if isinstance(forecast, list) and len(forecast) > 0:
+        # We take the first forecast item as it's typically the current or next hour
+        sources.append(forecast[0])
+
+    # 1. Cloud coverage (0-100) -> Lower is better
+    for source in sources:
+        cc = _get_val(source, "cloud_coverage")
+        if cc is not None:
+            try:
+                # 0% clouds = 1.0 intensity, 100% clouds = 0.0 intensity
+                return max(0.0, min(1.0, (100.0 - float(cc)) / 100.0))
+            except (ValueError, TypeError):
+                pass
+
+    # 2. UV Index (0-10+) -> Higher is better
+    for source in sources:
+        cc = _get_val(source, "cloud_coverage")
+        if cc is not None:
+            try:
+                # 0% clouds = 1.0 intensity, 100% clouds = 0.0 intensity
+                return max(0.0, min(1.0, (100.0 - float(cc)) / 100.0))
+            except (ValueError, TypeError):
+                pass
+
+    # 2. UV Index (0-10+) -> Higher is better
+    for source in sources:
+        uv = _get_val(source, "uv_index")
+        if uv is not None:
+            try:
+                # Normalize UV index (approx 0-10 range)
+                return max(0.0, min(1.0, float(uv) / 10.0))
+            except (ValueError, TypeError):
+                pass
+
+    # 3. Weather condition mapping
+    # 'sunny', 'clear-night' -> High potential (during day)
+    # 'partlycloudy' -> Medium
+    # 'cloudy', 'fog', 'rain', etc. -> Low
+    condition = state.state
+    # If state is numeric or unknown, try condition from forecast
+    if condition in (None, "unknown", "") and len(sources) > 1:
+        condition = _get_val(sources[1], "condition")
+
+    if condition in ("sunny", "clear", "clear-night", "windy", "exceptional"):
+        return 1.0
+    if condition in ("partlycloudy",):
+        return 0.7
+    if condition in ("cloudy",):
+        return 0.4
+
+    return 0.1  # Default low for rain/snow/fog etc
+
+
 def _supports_direct_valve_control(self, entity_id: str) -> bool:
     """Return True if the TRV supports writing a valve percentage."""
+
+    _calibration_type = self.real_trvs[entity_id]["advanced"].get(
+        "calibration", CalibrationType.TARGET_TEMP_BASED
+    )
+    if _calibration_type != CalibrationType.DIRECT_VALVE_BASED:
+        _LOGGER.debug(
+            "better_thermostat %s: TRV %s does not support direct valve control due to calibration type %s",
+            self.device_name,
+            entity_id,
+            _calibration_type,
+        )
+        return False
 
     trv_data = self.real_trvs.get(entity_id) or {}
     valve_entity = trv_data.get("valve_position_entity")
@@ -110,6 +200,16 @@ def _compute_mpc_balance(self, entity_id: str):
     mpc_current_temp = self.cur_temp
     mpc_filtered_temp = self.cur_temp_filtered
 
+    _is_day = True
+    if self.hass:
+        _sun = self.hass.states.get("sun.sun")
+        if _sun and _sun.state == "below_horizon":
+            _is_day = False
+
+    _solar_intensity = 0.0
+    if _is_day:
+        _solar_intensity = _get_current_solar_intensity(self)
+
     try:
         mpc_output = compute_mpc(
             MpcInput(
@@ -124,6 +224,9 @@ def _compute_mpc_balance(self, entity_id: str):
                 heating_allowed=True,
                 bt_name=self.device_name,
                 entity_id=entity_id,
+                outdoor_temp_C=_get_current_outdoor_temp(self),
+                is_day=_is_day,
+                solar_intensity=_solar_intensity,
             ),
             params,
         )
@@ -347,7 +450,7 @@ def calculate_calibration_local(self, entity_id) -> float | None:
     ) and _cur_external_temp <= (_cur_target_temp + self.tolerance)
 
     _calibration_mode = self.real_trvs[entity_id]["advanced"].get(
-        "calibration_mode", CalibrationMode.DEFAULT
+        "calibration_mode", CalibrationMode.MPC_CALIBRATION
     )
 
     if _within_tolerance:
@@ -621,7 +724,7 @@ def calculate_calibration_setpoint(self, entity_id) -> float | None:
     _cur_target_temp = float(self.bt_target_temp)
 
     _calibration_mode = self.real_trvs[entity_id]["advanced"].get(
-        "calibration_mode", CalibrationMode.DEFAULT
+        "calibration_mode", CalibrationMode.MPC_CALIBRATION
     )
 
     _cur_trv_temp_s = self.real_trvs[entity_id]["current_temperature"]

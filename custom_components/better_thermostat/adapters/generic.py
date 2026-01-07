@@ -8,10 +8,10 @@ import asyncio
 import logging
 
 from homeassistant.components.number.const import SERVICE_SET_VALUE
-from ..utils.helpers import find_local_calibration_entity
-from .base import wait_for_calibration_entity_or_timeout
-from ..utils.helpers import normalize_hvac_mode
 from homeassistant.const import STATE_UNAVAILABLE, STATE_UNKNOWN
+
+from ..utils.helpers import find_local_calibration_entity, normalize_hvac_mode
+from .base import wait_for_calibration_entity_or_timeout
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -36,9 +36,9 @@ async def init(self, entity_id):
         self.real_trvs[entity_id]["local_temperature_calibration_entity"] is None
         and self.real_trvs[entity_id]["calibration"] != 1
     ):
-        self.real_trvs[entity_id]["local_temperature_calibration_entity"] = (
-            await find_local_calibration_entity(self, entity_id)
-        )
+        self.real_trvs[entity_id][
+            "local_temperature_calibration_entity"
+        ] = await find_local_calibration_entity(self, entity_id)
         _LOGGER.debug(
             "better_thermostat %s: uses local calibration entity %s",
             self.device_name,
@@ -49,8 +49,6 @@ async def init(self, entity_id):
             entity_id,
             self.real_trvs[entity_id]["local_temperature_calibration_entity"],
         )
-
-    return None
 
 
 async def get_current_offset(self, entity_id):
@@ -164,10 +162,8 @@ async def set_offset(self, entity_id, offset):
         max_calibration = await get_max_offset(self, entity_id)
         min_calibration = await get_min_offset(self, entity_id)
 
-        if offset >= max_calibration:
-            offset = max_calibration
-        if offset <= min_calibration:
-            offset = min_calibration
+        offset = min(max_calibration, offset)
+        offset = max(min_calibration, offset)
 
         await self.hass.services.async_call(
             "number",
