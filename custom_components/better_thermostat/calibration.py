@@ -567,10 +567,7 @@ def calculate_calibration_local(self, entity_id) -> float | None:
     _new_trv_calibration = float(_new_trv_calibration)
 
     if _calibration_mode == CalibrationMode.AGGRESIVE_CALIBRATION:
-        # Check temperature difference instead of hvac_action to avoid hysteresis
-        # band issue where aggressive calibration wouldn't be applied when
-        # temperature is between (target - tolerance) and target
-        if self.cur_temp is not None and self.cur_temp < self.bt_target_temp:
+        if self.attr_hvac_action == HVACAction.HEATING:
             if _new_trv_calibration > -2.5:
                 _new_trv_calibration -= 2.5
 
@@ -631,10 +628,12 @@ def calculate_calibration_local(self, entity_id) -> float | None:
             self.real_trvs[entity_id].pop("calibration_balance", None)
 
     # Respecting tolerance in all calibration modes, delaying heat
+    # Skip tolerance delay for aggressive mode - it should start heating faster
     if not _skip_post_adjustments:
-        if self.attr_hvac_action == HVACAction.IDLE:
-            if _new_trv_calibration < 0.0:
-                _new_trv_calibration += self.tolerance * 2.0
+        if _calibration_mode != CalibrationMode.AGGRESIVE_CALIBRATION:
+            if self.attr_hvac_action == HVACAction.IDLE:
+                if _new_trv_calibration < 0.0:
+                    _new_trv_calibration += self.tolerance * 2.0
 
     _new_trv_calibration = fix_local_calibration(self, entity_id, _new_trv_calibration)
 
@@ -799,10 +798,7 @@ def calculate_calibration_setpoint(self, entity_id) -> float | None:
     )
 
     if _calibration_mode == CalibrationMode.AGGRESIVE_CALIBRATION:
-        # Check temperature difference instead of hvac_action to avoid hysteresis
-        # band issue where aggressive calibration wouldn't be applied when
-        # temperature is between (target - tolerance) and target
-        if self.cur_temp is not None and self.cur_temp < self.bt_target_temp:
+        if self.attr_hvac_action == HVACAction.HEATING:
             if _calibrated_setpoint - _cur_trv_temp < 2.5:
                 _calibrated_setpoint += 2.5
 
@@ -865,10 +861,13 @@ def calculate_calibration_setpoint(self, entity_id) -> float | None:
 
     _calibrated_setpoint = float(_calibrated_setpoint)
 
+    # Respecting tolerance in all calibration modes, delaying heat
+    # Skip tolerance delay for aggressive mode - it should start heating faster
     if not _skip_post_adjustments:
-        if self.attr_hvac_action == HVACAction.IDLE:
-            if _calibrated_setpoint - _cur_trv_temp > 0.0:
-                _calibrated_setpoint -= self.tolerance * 2.0
+        if _calibration_mode != CalibrationMode.AGGRESIVE_CALIBRATION:
+            if self.attr_hvac_action == HVACAction.IDLE:
+                if _calibrated_setpoint - _cur_trv_temp > 0.0:
+                    _calibrated_setpoint -= self.tolerance * 2.0
 
     _calibrated_setpoint = fix_target_temperature_calibration(
         self, entity_id, _calibrated_setpoint

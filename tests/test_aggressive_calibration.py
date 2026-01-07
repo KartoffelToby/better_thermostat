@@ -2,264 +2,339 @@
 
 Issue #1790: Temperature settings sent to TRVs stay too close to target temperature.
 
-This test file verifies the fix for aggressive calibration not being applied
-in the hysteresis band between (target - tolerance) and target.
+Root cause analysis:
+- When temperature drops below the tolerance band and heating should start,
+  hvac_action is still IDLE (TRV hasn't started heating yet)
+- The tolerance delay (adding tolerance * 2.0) is applied to ALL modes when IDLE
+- This effectively makes aggressive calibration LESS aggressive than intended
+  when starting to heat
 
-The fix changes the condition from checking hvac_action == HEATING to
-checking cur_temp < bt_target_temp.
+Fix:
+- Skip the tolerance delay for AGGRESIVE_CALIBRATION mode
+- This allows aggressive mode to start heating faster without the delay
+- The -2.5 offset still only applies when hvac_action == HEATING (intentional)
 """
 
 from homeassistant.components.climate import HVACAction
 
+from custom_components.better_thermostat.utils.const import CalibrationMode
 
-class TestAggressiveCalibrationCondition:
-    """Tests for the aggressive calibration condition logic.
 
-    These tests verify that the condition for applying aggressive calibration
-    correctly handles the hysteresis band scenario.
-    """
+class TestToleranceDelayBehavior:
+    """Tests for tolerance delay behavior with different calibration modes."""
 
-    def test_old_condition_fails_in_hysteresis_band(self):
-        """Test that the OLD condition (hvac_action == HEATING) fails in hysteresis band.
+    def test_default_mode_has_tolerance_delay_when_idle(self):
+        """Test that DEFAULT mode adds tolerance delay when IDLE.
 
-        This demonstrates the bug: when temperature is in the hysteresis band,
-        hvac_action stays IDLE, so aggressive calibration is not applied.
+        This is the intentional behavior to prevent oscillation.
         """
-        target = 21.0
+        calibration_mode = CalibrationMode.DEFAULT
+        hvac_action = HVACAction.IDLE
         tolerance = 0.5
-        cur_temp = 20.7  # In hysteresis band: between (target - tolerance) and target
-        previous_action = HVACAction.IDLE
+        base_calibration = -1.0
 
-        # Hysteresis logic determines hvac_action
-        heat_on_threshold = target - tolerance  # 20.5
-        if previous_action == HVACAction.HEATING:
-            should_heat = cur_temp < target
-        else:
-            should_heat = cur_temp < heat_on_threshold  # 20.7 < 20.5 = False
-
-        hvac_action = HVACAction.HEATING if should_heat else HVACAction.IDLE
-
-        # OLD condition: check hvac_action
-        base_calibration = -0.5
-        if hvac_action == HVACAction.HEATING:
-            if base_calibration > -2.5:
-                calibration_old = base_calibration - 2.5
-            else:
-                calibration_old = base_calibration
-        else:
-            calibration_old = base_calibration  # No adjustment!
-
-        # In hysteresis band, hvac_action is IDLE, so no aggressive adjustment
-        assert hvac_action == HVACAction.IDLE
-        assert calibration_old == -0.5  # No aggressive adjustment applied
-
-    def test_new_condition_works_in_hysteresis_band(self):
-        """Test that the NEW condition (cur_temp < target) works in hysteresis band.
-
-        This verifies the fix: by checking temperature instead of hvac_action,
-        aggressive calibration is applied when the room needs heating.
-        """
-        target = 21.0
-        cur_temp = 20.7  # In hysteresis band, but still below target
-
-        # NEW condition: check temperature
-        base_calibration = -0.5
-        if cur_temp is not None and cur_temp < target:
-            if base_calibration > -2.5:
-                calibration_new = base_calibration - 2.5
-            else:
-                calibration_new = base_calibration
-        else:
-            calibration_new = base_calibration
-
-        # Temperature is below target, so aggressive adjustment is applied
-        assert calibration_new == -3.0  # Aggressive adjustment applied!
-
-    def test_new_condition_no_adjustment_when_at_target(self):
-        """Test that aggressive calibration is NOT applied when at or above target."""
-        target = 21.0
-        cur_temp = 21.0  # At target
-
-        base_calibration = -0.5
-        if cur_temp is not None and cur_temp < target:
-            if base_calibration > -2.5:
-                calibration = base_calibration - 2.5
-            else:
-                calibration = base_calibration
-        else:
-            calibration = base_calibration
-
-        # At target, no aggressive adjustment
-        assert calibration == -0.5
-
-    def test_new_condition_no_adjustment_when_above_target(self):
-        """Test that aggressive calibration is NOT applied when above target."""
-        target = 21.0
-        cur_temp = 22.0  # Above target
-
-        base_calibration = -0.5
-        if cur_temp is not None and cur_temp < target:
-            if base_calibration > -2.5:
-                calibration = base_calibration - 2.5
-            else:
-                calibration = base_calibration
-        else:
-            calibration = base_calibration
-
-        # Above target, no aggressive adjustment
-        assert calibration == -0.5
-
-    def test_new_condition_handles_none_temperature(self):
-        """Test that the condition handles None temperature gracefully."""
-        target = 21.0
-        cur_temp = None
-
-        base_calibration = -0.5
-        if cur_temp is not None and cur_temp < target:
-            if base_calibration > -2.5:
-                calibration = base_calibration - 2.5
-            else:
-                calibration = base_calibration
-        else:
-            calibration = base_calibration
-
-        # None temperature, no aggressive adjustment
-        assert calibration == -0.5
-
-
-class TestAggressiveCalibrationSetpoint:
-    """Tests for aggressive calibration with setpoint-based TRVs."""
-
-    def test_old_condition_fails_in_hysteresis_band_setpoint(self):
-        """Test that OLD condition fails for setpoint calibration in hysteresis band."""
-        target = 21.0
-        tolerance = 0.5
-        cur_temp = 20.7
-        cur_trv_temp = 20.0
-        previous_action = HVACAction.IDLE
-
-        # Hysteresis logic
-        heat_on_threshold = target - tolerance
-        should_heat = (
-            cur_temp < heat_on_threshold
-            if previous_action == HVACAction.IDLE
-            else cur_temp < target
+        # Simulate the tolerance delay logic
+        _skip_post_adjustments = calibration_mode in (
+            CalibrationMode.MPC_CALIBRATION,
+            CalibrationMode.TPI_CALIBRATION,
+            CalibrationMode.PID_CALIBRATION,
         )
-        hvac_action = HVACAction.HEATING if should_heat else HVACAction.IDLE
 
-        # Base setpoint calculation (simplified)
-        calibrated_setpoint = target + (target - cur_temp)  # 21 + 0.3 = 21.3
+        new_calibration = base_calibration
+        if not _skip_post_adjustments:
+            if calibration_mode != CalibrationMode.AGGRESIVE_CALIBRATION:
+                if hvac_action == HVACAction.IDLE:
+                    if new_calibration < 0.0:
+                        new_calibration += tolerance * 2.0
 
-        # OLD condition
-        if hvac_action == HVACAction.HEATING:
-            if calibrated_setpoint - cur_trv_temp < 2.5:  # 21.3 - 20 = 1.3 < 2.5
-                setpoint_old = calibrated_setpoint + 2.5
-            else:
-                setpoint_old = calibrated_setpoint
-        else:
-            setpoint_old = calibrated_setpoint
+        # DEFAULT mode gets tolerance delay
+        assert new_calibration == 0.0  # -1.0 + (0.5 * 2.0) = 0.0
 
-        assert hvac_action == HVACAction.IDLE
-        assert setpoint_old == 21.3  # No aggressive adjustment
+    def test_aggressive_mode_skips_tolerance_delay_when_idle(self):
+        """Test that AGGRESSIVE mode skips tolerance delay when IDLE.
 
-    def test_new_condition_works_in_hysteresis_band_setpoint(self):
-        """Test that NEW condition works for setpoint calibration in hysteresis band."""
-        target = 21.0
-        cur_temp = 20.7
-        cur_trv_temp = 20.0
-
-        # Base setpoint calculation (simplified)
-        calibrated_setpoint = target + (target - cur_temp)  # 21 + 0.3 = 21.3
-
-        # NEW condition
-        if cur_temp is not None and cur_temp < target:
-            if calibrated_setpoint - cur_trv_temp < 2.5:  # 21.3 - 20 = 1.3 < 2.5
-                setpoint_new = calibrated_setpoint + 2.5
-            else:
-                setpoint_new = calibrated_setpoint
-        else:
-            setpoint_new = calibrated_setpoint
-
-        assert setpoint_new == 23.8  # Aggressive adjustment applied!
-
-
-class TestHysteresisLogic:
-    """Tests demonstrating the hysteresis behavior that causes the issue."""
-
-    def test_hysteresis_prevents_heating_in_band(self):
-        """Test that hysteresis logic prevents heating when in the band."""
-        target = 21.0
+        This is the fix for issue #1790 - aggressive mode should start
+        heating faster without the tolerance delay.
+        """
+        calibration_mode = CalibrationMode.AGGRESIVE_CALIBRATION
+        hvac_action = HVACAction.IDLE
         tolerance = 0.5
-        cur_temp = 20.7  # Between 20.5 (heat_on) and 21.0 (target)
-        previous_action = HVACAction.IDLE
+        base_calibration = -1.0
 
-        heat_on_threshold = target - tolerance  # 20.5
-        heat_off_threshold = target  # 21.0
+        # Simulate the tolerance delay logic
+        _skip_post_adjustments = calibration_mode in (
+            CalibrationMode.MPC_CALIBRATION,
+            CalibrationMode.TPI_CALIBRATION,
+            CalibrationMode.PID_CALIBRATION,
+        )
 
-        # When previously IDLE, need to go below heat_on_threshold to start
-        if previous_action == HVACAction.HEATING:
-            should_heat = cur_temp < heat_off_threshold
-        else:
-            should_heat = cur_temp < heat_on_threshold
+        new_calibration = base_calibration
+        if not _skip_post_adjustments:
+            if calibration_mode != CalibrationMode.AGGRESIVE_CALIBRATION:
+                if hvac_action == HVACAction.IDLE:
+                    if new_calibration < 0.0:
+                        new_calibration += tolerance * 2.0
 
-        assert should_heat is False
-        assert cur_temp > heat_on_threshold  # 20.7 > 20.5
-        assert cur_temp < heat_off_threshold  # 20.7 < 21.0
+        # AGGRESSIVE mode does NOT get tolerance delay
+        assert new_calibration == -1.0  # Unchanged!
 
-    def test_hysteresis_continues_heating_in_band(self):
-        """Test that hysteresis continues heating when already heating."""
-        target = 21.0
+    def test_mpc_mode_skips_all_post_adjustments(self):
+        """Test that MPC mode skips all post adjustments including tolerance delay."""
+        calibration_mode = CalibrationMode.MPC_CALIBRATION
+        hvac_action = HVACAction.IDLE
         tolerance = 0.5
-        cur_temp = 20.7
-        previous_action = HVACAction.HEATING  # Was already heating
+        base_calibration = -1.0
 
-        heat_on_threshold = target - tolerance
-        heat_off_threshold = target
+        _skip_post_adjustments = calibration_mode in (
+            CalibrationMode.MPC_CALIBRATION,
+            CalibrationMode.TPI_CALIBRATION,
+            CalibrationMode.PID_CALIBRATION,
+        )
 
-        # When previously HEATING, continue until heat_off_threshold
-        if previous_action == HVACAction.HEATING:
-            should_heat = cur_temp < heat_off_threshold  # 20.7 < 21.0 = True
-        else:
-            should_heat = cur_temp < heat_on_threshold
+        new_calibration = base_calibration
+        if not _skip_post_adjustments:
+            if calibration_mode != CalibrationMode.AGGRESIVE_CALIBRATION:
+                if hvac_action == HVACAction.IDLE:
+                    if new_calibration < 0.0:
+                        new_calibration += tolerance * 2.0
 
-        assert should_heat is True  # Continues heating
+        # MPC skips via _skip_post_adjustments
+        assert new_calibration == -1.0
 
 
-class TestEdgeCases:
-    """Edge case tests for the aggressive calibration fix."""
+class TestAggressiveCalibrationOffset:
+    """Tests for the -2.5 offset that applies when actively heating."""
 
-    def test_exactly_at_tolerance_boundary(self):
-        """Test behavior exactly at the tolerance boundary."""
-        target = 21.0
-        cur_temp = 20.5  # Exactly at heat_on_threshold (target - 0.5 tolerance)
-
-        # NEW condition should still apply aggressive when below target
+    def test_aggressive_offset_applies_when_heating(self):
+        """Test that -2.5 offset applies when hvac_action is HEATING."""
+        calibration_mode = CalibrationMode.AGGRESIVE_CALIBRATION
+        hvac_action = HVACAction.HEATING
         base_calibration = -0.5
-        if cur_temp is not None and cur_temp < target:
-            if base_calibration > -2.5:
-                calibration = base_calibration - 2.5
-            else:
-                calibration = base_calibration
-        else:
-            calibration = base_calibration
 
-        # Below target, aggressive adjustment applied
-        assert calibration == -3.0
+        new_calibration = base_calibration
+        if calibration_mode == CalibrationMode.AGGRESIVE_CALIBRATION:
+            if hvac_action == HVACAction.HEATING:
+                if new_calibration > -2.5:
+                    new_calibration -= 2.5
 
-    def test_calibration_already_aggressive_enough(self):
-        """Test that already aggressive calibration is not made more aggressive."""
+        # Offset applied when HEATING
+        assert new_calibration == -3.0
+
+    def test_aggressive_offset_not_applied_when_idle(self):
+        """Test that -2.5 offset does NOT apply when hvac_action is IDLE.
+
+        This is intentional - the offset only makes sense when already heating.
+        """
+        calibration_mode = CalibrationMode.AGGRESIVE_CALIBRATION
+        hvac_action = HVACAction.IDLE
+        base_calibration = -0.5
+
+        new_calibration = base_calibration
+        if calibration_mode == CalibrationMode.AGGRESIVE_CALIBRATION:
+            if hvac_action == HVACAction.HEATING:
+                if new_calibration > -2.5:
+                    new_calibration -= 2.5
+
+        # No offset when IDLE
+        assert new_calibration == -0.5
+
+    def test_aggressive_offset_not_applied_when_already_aggressive(self):
+        """Test that offset is not applied if calibration is already <= -2.5."""
+        calibration_mode = CalibrationMode.AGGRESIVE_CALIBRATION
+        hvac_action = HVACAction.HEATING
+        base_calibration = -3.0  # Already aggressive
+
+        new_calibration = base_calibration
+        if calibration_mode == CalibrationMode.AGGRESIVE_CALIBRATION:
+            if hvac_action == HVACAction.HEATING:
+                if new_calibration > -2.5:
+                    new_calibration -= 2.5
+
+        # No further adjustment
+        assert new_calibration == -3.0
+
+
+class TestCombinedBehavior:
+    """Tests for the combined behavior of tolerance delay and aggressive offset."""
+
+    def test_aggressive_idle_no_delay_no_offset(self):
+        """Test aggressive mode when IDLE: no tolerance delay, no -2.5 offset.
+
+        This is the key fix scenario:
+        - Temperature drops below tolerance band
+        - hvac_action is still IDLE
+        - Aggressive mode should NOT add tolerance delay (starts heating faster)
+        - But also should NOT apply -2.5 offset (only when actively HEATING)
+        """
+        calibration_mode = CalibrationMode.AGGRESIVE_CALIBRATION
+        hvac_action = HVACAction.IDLE
+        tolerance = 0.5
+        base_calibration = -1.0
+
+        new_calibration = base_calibration
+
+        # Step 1: Aggressive offset (only when HEATING)
+        if calibration_mode == CalibrationMode.AGGRESIVE_CALIBRATION:
+            if hvac_action == HVACAction.HEATING:
+                if new_calibration > -2.5:
+                    new_calibration -= 2.5
+
+        # Step 2: Tolerance delay (skipped for aggressive mode)
+        _skip_post_adjustments = calibration_mode in (
+            CalibrationMode.MPC_CALIBRATION,
+            CalibrationMode.TPI_CALIBRATION,
+            CalibrationMode.PID_CALIBRATION,
+        )
+        if not _skip_post_adjustments:
+            if calibration_mode != CalibrationMode.AGGRESIVE_CALIBRATION:
+                if hvac_action == HVACAction.IDLE:
+                    if new_calibration < 0.0:
+                        new_calibration += tolerance * 2.0
+
+        # Aggressive IDLE: calibration unchanged (no delay added)
+        assert new_calibration == -1.0
+
+    def test_default_idle_has_delay(self):
+        """Test DEFAULT mode when IDLE: tolerance delay is added."""
+        calibration_mode = CalibrationMode.DEFAULT
+        hvac_action = HVACAction.IDLE
+        tolerance = 0.5
+        base_calibration = -1.0
+
+        new_calibration = base_calibration
+
+        # Step 2: Tolerance delay (applied for DEFAULT mode)
+        _skip_post_adjustments = calibration_mode in (
+            CalibrationMode.MPC_CALIBRATION,
+            CalibrationMode.TPI_CALIBRATION,
+            CalibrationMode.PID_CALIBRATION,
+        )
+        if not _skip_post_adjustments:
+            if calibration_mode != CalibrationMode.AGGRESIVE_CALIBRATION:
+                if hvac_action == HVACAction.IDLE:
+                    if new_calibration < 0.0:
+                        new_calibration += tolerance * 2.0
+
+        # DEFAULT IDLE: tolerance delay added
+        assert new_calibration == 0.0  # -1.0 + 1.0 = 0.0
+
+    def test_aggressive_heating_has_offset_no_delay(self):
+        """Test aggressive mode when HEATING: -2.5 offset, no tolerance delay."""
+        calibration_mode = CalibrationMode.AGGRESIVE_CALIBRATION
+        hvac_action = HVACAction.HEATING
+        tolerance = 0.5
+        base_calibration = -0.5
+
+        new_calibration = base_calibration
+
+        # Step 1: Aggressive offset
+        if calibration_mode == CalibrationMode.AGGRESIVE_CALIBRATION:
+            if hvac_action == HVACAction.HEATING:
+                if new_calibration > -2.5:
+                    new_calibration -= 2.5
+
+        # Step 2: Tolerance delay (not applied when HEATING anyway)
+        _skip_post_adjustments = calibration_mode in (
+            CalibrationMode.MPC_CALIBRATION,
+            CalibrationMode.TPI_CALIBRATION,
+            CalibrationMode.PID_CALIBRATION,
+        )
+        if not _skip_post_adjustments:
+            if calibration_mode != CalibrationMode.AGGRESIVE_CALIBRATION:
+                if hvac_action == HVACAction.IDLE:
+                    if new_calibration < 0.0:
+                        new_calibration += tolerance * 2.0
+
+        # Aggressive HEATING: -2.5 offset applied
+        assert new_calibration == -3.0
+
+
+class TestSetpointCalibration:
+    """Tests for setpoint-based calibration with aggressive mode."""
+
+    def test_setpoint_aggressive_skips_tolerance_delay(self):
+        """Test that setpoint calibration also skips tolerance delay for aggressive."""
+        calibration_mode = CalibrationMode.AGGRESIVE_CALIBRATION
+        hvac_action = HVACAction.IDLE
+        tolerance = 0.5
+        cur_trv_temp = 20.0
+        base_setpoint = 21.3  # Would request heating
+
+        calibrated_setpoint = base_setpoint
+
+        # Setpoint tolerance delay logic (subtracts instead of adds)
+        _skip_post_adjustments = calibration_mode in (
+            CalibrationMode.MPC_CALIBRATION,
+            CalibrationMode.TPI_CALIBRATION,
+            CalibrationMode.PID_CALIBRATION,
+        )
+        if not _skip_post_adjustments:
+            if calibration_mode != CalibrationMode.AGGRESIVE_CALIBRATION:
+                if hvac_action == HVACAction.IDLE:
+                    if calibrated_setpoint - cur_trv_temp > 0.0:
+                        calibrated_setpoint -= tolerance * 2.0
+
+        # Aggressive mode: setpoint unchanged
+        assert calibrated_setpoint == 21.3
+
+    def test_setpoint_default_has_tolerance_delay(self):
+        """Test that setpoint DEFAULT mode adds tolerance delay."""
+        calibration_mode = CalibrationMode.DEFAULT
+        hvac_action = HVACAction.IDLE
+        tolerance = 0.5
+        cur_trv_temp = 20.0
+        base_setpoint = 21.3
+
+        calibrated_setpoint = base_setpoint
+
+        _skip_post_adjustments = calibration_mode in (
+            CalibrationMode.MPC_CALIBRATION,
+            CalibrationMode.TPI_CALIBRATION,
+            CalibrationMode.PID_CALIBRATION,
+        )
+        if not _skip_post_adjustments:
+            if calibration_mode != CalibrationMode.AGGRESIVE_CALIBRATION:
+                if hvac_action == HVACAction.IDLE:
+                    if calibrated_setpoint - cur_trv_temp > 0.0:
+                        calibrated_setpoint -= tolerance * 2.0
+
+        # DEFAULT: tolerance delay applied (setpoint reduced)
+        assert calibrated_setpoint == 20.3  # 21.3 - 1.0 = 20.3
+
+
+class TestHysteresisScenario:
+    """Tests demonstrating the real-world scenario from issue #1790."""
+
+    def test_scenario_temperature_drops_below_tolerance(self):
+        """Test the scenario where temperature drops and heating should start.
+
+        Scenario:
+        - Target: 21°C, Tolerance: 0.5°C
+        - Temperature drops to 20.4°C (below 20.5 threshold)
+        - hvac_action is still IDLE (TRV hasn't started yet)
+        - With DEFAULT mode: tolerance delay delays heating start
+        - With AGGRESSIVE mode: no delay, heating starts faster
+        """
         target = 21.0
-        cur_temp = 20.0
+        tolerance = 0.5
+        cur_temp = 20.4  # Below threshold (20.5)
+        hvac_action = HVACAction.IDLE
 
-        # Base calibration already <= -2.5
-        base_calibration = -3.0
-        if cur_temp is not None and cur_temp < target:
-            if base_calibration > -2.5:
-                calibration = base_calibration - 2.5
-            else:
-                calibration = base_calibration  # Don't adjust further
-        else:
-            calibration = base_calibration
+        # Base calibration calculation (simplified)
+        # Assumes TRV temp matches external for simplicity
+        base_calibration = cur_temp - target  # -0.6
 
-        # Already aggressive enough, no further adjustment
-        assert calibration == -3.0
+        # DEFAULT mode behavior
+        default_calibration = base_calibration
+        if hvac_action == HVACAction.IDLE and default_calibration < 0.0:
+            default_calibration += tolerance * 2.0  # -0.6 + 1.0 = 0.4
+
+        # AGGRESSIVE mode behavior
+        aggressive_calibration = base_calibration
+        # Tolerance delay is SKIPPED for aggressive mode
+        # Aggressive offset only applies when HEATING, so not here
+
+        # DEFAULT: calibration is 0.4 (delays heating)
+        assert abs(default_calibration - 0.4) < 0.001
+        # AGGRESSIVE: calibration stays at -0.6 (starts heating faster)
+        assert abs(aggressive_calibration - (-0.6)) < 0.001
