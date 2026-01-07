@@ -4,13 +4,13 @@ import logging
 import time
 
 from homeassistant.components.sensor import (
-    SensorEntity,
     SensorDeviceClass,
+    SensorEntity,
     SensorStateClass,
 )
-from homeassistant.const import UnitOfTemperature, EntityCategory
-from homeassistant.core import callback, HomeAssistant
 from homeassistant.config_entries import ConfigEntry
+from homeassistant.const import EntityCategory, UnitOfTemperature
+from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.event import async_track_state_change_event
 

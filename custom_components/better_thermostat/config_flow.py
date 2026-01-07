@@ -1,7 +1,10 @@
 """Config flow for Better Thermostat."""
 
+from collections import OrderedDict
+from collections.abc import Iterable
 import copy
 import logging
+from typing import Any
 from collections import OrderedDict
 from typing import Any
 from collections.abc import Iterable
@@ -10,19 +13,19 @@ import voluptuous as vol
 
 from homeassistant import config_entries
 from homeassistant.components.climate.const import (
-    HVACMode,
+    PRESET_ACTIVITY,
     PRESET_AWAY,
     PRESET_BOOST,
     PRESET_COMFORT,
     PRESET_ECO,
     PRESET_HOME,
     PRESET_SLEEP,
-    PRESET_ACTIVITY,
+    HVACMode,
 )
 from homeassistant.const import CONF_NAME
 from homeassistant.core import callback
-from homeassistant.helpers import config_validation as cv
-from homeassistant.helpers import selector
+from homeassistant.helpers import config_validation as cv, selector
+import voluptuous as vol
 
 from . import DOMAIN  # pylint: disable=unused-import
 from .adapters.delegate import load_adapter
@@ -53,7 +56,6 @@ from .utils.const import (
     CalibrationType,
 )
 from .utils.helpers import get_device_model, get_trv_intigration
-
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -171,6 +173,8 @@ async def _load_adapter_info(
 
 
 def _default_calibration_from_info(info: dict[str, Any]) -> str:
+    if info.get("support_offset", False):
+        return "local_calibration_based"
     if info.get("support_valve", False):
         return "direct_valve_based"
     return "target_temp_based"
@@ -343,8 +347,7 @@ def _seconds_to_duration_dict(value: Any) -> dict[str, int]:
         total = int(value or 0)
     except (TypeError, ValueError):
         total = 0
-    if total < 0:
-        total = 0
+    total = max(total, 0)
     hours, remainder = divmod(total, 3600)
     minutes, seconds = divmod(remainder, 60)
     return {"hours": int(hours), "minutes": int(minutes), "seconds": int(seconds)}
@@ -388,17 +391,16 @@ def _build_user_fields(
                         else vol.Required(key)
                     )
                 ] = field_type
+        elif use_default:
+            fields[vol.Optional(key, default=default)] = field_type
         else:
-            if use_default:
-                fields[vol.Optional(key, default=default)] = field_type
-            else:
-                fields[
-                    (
-                        vol.Optional(key, description=description)
-                        if description
-                        else vol.Optional(key)
-                    )
-                ] = field_type
+            fields[
+                (
+                    vol.Optional(key, description=description)
+                    if description
+                    else vol.Optional(key)
+                )
+            ] = field_type
 
     def add_entity_selector(
         key: str,

@@ -5,7 +5,8 @@ Goals:
 - Provide a classic PID controller with conservative auto-tuning for temperature control.
 - Compute valve opening percentage based on temperature error and trends.
 
-Notes:
+Notes
+-----
 - This module only computes recommendations; writing to the device stays in adapters/controlling.
 - Lightweight per-room state by a `key` (e.g., entity_id): EMA, hysteresis, rate limit.
 """
@@ -13,10 +14,9 @@ Notes:
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Dict, Any
-from time import monotonic
 import logging
-
+from time import monotonic
+from typing import Any
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -100,7 +100,7 @@ class PIDParams:
 
 # --- Global State Storage -----------------------------------------------
 
-_PID_STATES: Dict[str, PIDState] = {}
+_PID_STATES: dict[str, PIDState] = {}
 
 
 # --- Helper Functions -----------------------------------------------
@@ -134,7 +134,8 @@ def compute_pid(
         key: Unique key for state storage
         inp_current_temp_ema_C: Optional EMA-filtered external temperature for learning
 
-    Returns:
+    Returns
+    -------
         Tuple of (percent_open, debug_info)
     """
     now = monotonic()
@@ -214,12 +215,11 @@ def compute_pid(
                     d_meas = (smoothed - prev) / dt
                     d_term = -float(st.pid_kd) * d_meas
                 # Update des gespeicherten (geglätteten) Messwerts erfolgt nach u-Berechnung unten
-    else:
-        # Derivative on error (benötigt letzten Fehler – approximiert über letzten Messwert)
-        if dt > 0 and st.pid_last_meas is not None:
-            last_e = inp_target_temp_C - st.pid_last_meas
-            d_err = (e - last_e) / dt
-            d_term = float(st.pid_kd) * d_err
+    # Derivative on error (benötigt letzten Fehler – approximiert über letzten Messwert)
+    elif dt > 0 and st.pid_last_meas is not None:
+        last_e = inp_target_temp_C - st.pid_last_meas
+        d_err = (e - last_e) / dt
+        d_term = float(st.pid_kd) * d_err
 
     # Aktualisiere die Slope-EMA auch im PID-Modus (für Logging/Diagnose)
     try:
@@ -265,8 +265,7 @@ def compute_pid(
         cur_sign = 1 if e > 0 else (-1 if e < 0 else 0)
         if (
             st.last_error_sign is not None
-            and cur_sign != 0
-            and cur_sign != st.last_error_sign
+            and cur_sign not in (0, st.last_error_sign)
             and abs(delta_T or 0.0) <= params.steady_state_band_K
         ):
             decay = 0.8  # 20% Entlastung
@@ -496,7 +495,8 @@ def seed_pid_gains(key: str, kp: float, ki: float, kd: float) -> bool:
         ki: Integral gain
         kd: Derivative gain
 
-    Returns:
+    Returns
+    -------
         True if gains were successfully seeded
     """
     if key not in _PID_STATES:
@@ -521,7 +521,8 @@ def build_pid_key(self, entity_id: str) -> str:
         self: BetterThermostat instance with unique_id and bt_target_temp
         entity_id: TRV entity ID
 
-    Returns:
+    Returns
+    -------
         PID key string
     """
     try:

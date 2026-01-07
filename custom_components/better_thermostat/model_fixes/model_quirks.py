@@ -4,9 +4,10 @@ This module dynamically imports model-specific quirk modules and exposes
 small shim functions that delegate into the model-specific implementations.
 """
 
-from homeassistant.helpers.importlib import async_import_module
-import re
 import logging
+import re
+
+from homeassistant.helpers.importlib import async_import_module
 
 _LOGGER = logging.getLogger(__name__)
 
