@@ -155,9 +155,9 @@ async def trigger_trv_change(self, event):
             )
             _main_change = False
             if self.real_trvs[entity_id]["calibration"] == 0:
-                self.real_trvs[entity_id]["last_calibration"] = (
-                    await get_current_offset(self, entity_id)
-                )
+                self.real_trvs[entity_id][
+                    "last_calibration"
+                ] = await get_current_offset(self, entity_id)
 
     if self.ignore_states:
         return
