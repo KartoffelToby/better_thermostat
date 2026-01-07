@@ -5,11 +5,13 @@ Better Thermostat integration for deCONZ-controlled TRV devices.
 """
 
 import logging
-from .generic import (
-    set_temperature as generic_set_temperature,
-    set_hvac_mode as generic_set_hvac_mode,
-)
+
 from homeassistant.const import STATE_UNAVAILABLE, STATE_UNKNOWN
+
+from .generic import (
+    set_hvac_mode as generic_set_hvac_mode,
+    set_temperature as generic_set_temperature,
+)
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -62,7 +64,7 @@ async def get_current_offset(self, entity_id):
 
 async def get_offset_step(self, entity_id):
     """Get offset step."""
-    return float(1.0)
+    return 1.0
 
 
 async def get_min_offset(self, entity_id):

@@ -11,8 +11,9 @@ The fix: Include the cooler entity's state in the min/max calculation so that
 bt_min_temp = max of all min_temps and bt_max_temp = min of all max_temps.
 """
 
-import pytest
 from unittest.mock import MagicMock
+
+import pytest
 
 
 def reduce_attribute(states, attribute, reduce):

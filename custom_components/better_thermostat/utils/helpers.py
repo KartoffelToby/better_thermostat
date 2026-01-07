@@ -1,28 +1,27 @@
 """Helper functions for the Better Thermostat component."""
 
-import re
-import logging
-import math
 from datetime import datetime
 from enum import Enum
+import logging
+import math
+import re
 from typing import Any
+
+from homeassistant.components.climate.const import HVACMode
 from homeassistant.helpers import device_registry as dr, entity_registry as er
 from homeassistant.helpers.entity_registry import async_entries_for_config_entry
 
-from homeassistant.components.climate.const import HVACMode
-
 from custom_components.better_thermostat.utils.const import (
     CONF_HEAT_AUTO_SWAPPED,
-    CalibrationMode,
-    MIN_HEATING_POWER,
     MAX_HEATING_POWER,
-    VALVE_MIN_THRESHOLD_TEMP_DIFF,
-    VALVE_MIN_OPENING_LARGE_DIFF,
+    MIN_HEATING_POWER,
     VALVE_MIN_BASE,
-    VALVE_MIN_SMALL_DIFF_THRESHOLD,
+    VALVE_MIN_OPENING_LARGE_DIFF,
     VALVE_MIN_PROPORTIONAL_SLOPE,
+    VALVE_MIN_SMALL_DIFF_THRESHOLD,
+    VALVE_MIN_THRESHOLD_TEMP_DIFF,
+    CalibrationMode,
 )
-
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -64,8 +63,7 @@ def entity_uses_calibration_mode(bt, entity_id: str, expected: CalibrationMode) 
 
 
 def entity_uses_mpc_calibration(bt, entity_id: str) -> bool:
-    """Helper shortcut for MPC calibration detection."""
-
+    """Check if entity uses MPC calibration mode."""
     return entity_uses_calibration_mode(bt, entity_id, CalibrationMode.MPC_CALIBRATION)
 
 
@@ -160,7 +158,8 @@ def mode_remap(self, entity_id, hvac_mode: str, inbound: bool = False) -> str:
 
     _LOGGER.error(
         f"better_thermostat {self.device_name}: {entity_id} HVAC mode {
-            hvac_mode} is not supported by this device, is it possible that you forgot to set the heat auto swapped option?"
+            hvac_mode
+        } is not supported by this device, is it possible that you forgot to set the heat auto swapped option?"
     )
     return HVACMode.OFF
 
@@ -203,8 +202,13 @@ def heating_power_valve_position(self, entity_id):
     valve_pos = max(0.0, min(1.0, valve_pos))
 
     _LOGGER.debug(
-        f"better_thermostat {self.device_name}: {entity_id} / heating_power_valve_position - temp diff: {round(
-            _temp_diff, 1)} - heating power: {round(heating_power, 4)} (bounded) - expected valve position: {round(valve_pos * 100)}%"
+        f"better_thermostat {self.device_name}: {
+            entity_id
+        } / heating_power_valve_position - temp diff: {
+            round(_temp_diff, 1)
+        } - heating power: {
+            round(heating_power, 4)
+        } (bounded) - expected valve position: {round(valve_pos * 100)}%"
     )
     return valve_pos
 
@@ -631,7 +635,7 @@ async def get_device_model(self, entity_id: str) -> str:
             dev_id = getattr(entry, "device_id", None)
             if isinstance(dev_id, str) and dev_id:
                 device = dev_reg.async_get(dev_id)
-        except Exception:  # noqa: BLE001
+        except Exception:
             device = None
         # Selection exclusively via Device-Registry
         try:
@@ -644,7 +648,7 @@ async def get_device_model(self, entity_id: str) -> str:
                 getattr(device, "name", None),
                 list(getattr(device, "identifiers", []) or []),
             )
-        except Exception:  # noqa: BLE001
+        except Exception:
             pass
 
         dev_model_id = getattr(device, "model_id", None)
@@ -667,7 +671,7 @@ async def get_device_model(self, entity_id: str) -> str:
                 elif len(model_str.strip()) >= 2:
                     selected = model_str.strip()
                     source = "devreg.model"
-    except Exception:  # noqa: BLE001
+    except Exception:
         # swallow registry access issues and continue to fallback
         pass
 
