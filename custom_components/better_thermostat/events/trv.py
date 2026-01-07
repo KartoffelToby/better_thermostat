@@ -193,7 +193,7 @@ async def trigger_trv_change(self, event):
                     prev,
                     val,
                 )
-        
+
         # valve_position aktualisieren
         val_pos = _org_trv_state.attributes.get("valve_position")
         if val_pos is not None:
