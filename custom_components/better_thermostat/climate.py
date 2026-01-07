@@ -2685,8 +2685,6 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
         - Cooling if mode heat_cool and cur_temp > cool_target + tolerance
         - Otherwise IDLE, unless TRVs explicitly report heating and tolerance does not block it
         """
-        _LOGGER.debug("better_thermostat %s: _compute_hvac_action called",
-                      self.device_name)
         prev_action = self._tolerance_last_action
         tol = self.tolerance if self.tolerance is not None else 0.0
 
@@ -2724,7 +2722,7 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
             tolerance_hold = False
 
         # Base decision would be IDLE. If any real TRV indicates active heating, override to HEATING.
-        if action == HVACAction.IDLE and not tolerance_hold:
+        if action == HVACAction.IDLE:
             try:
                 # Skip overrides while we intentionally ignore TRV states or when window is open
                 if self.ignore_states or self.window_open:
@@ -2833,8 +2831,6 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
         self._tolerance_hold_active = bool(
             tolerance_hold and action != HVACAction.COOLING
         )
-        _LOGGER.debug("better_thermostat %s: _compute_hvac_action result: %s",
-                      self.device_name, action)
         return action
 
     @property
