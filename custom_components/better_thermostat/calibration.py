@@ -544,9 +544,10 @@ def calculate_calibration_local(self, entity_id) -> float | None:
             ) * 8.0  # Reduced from 10.0 since we already add 2.0
 
     # Adjust based on the step size allowed by the local calibration entity
-    _new_trv_calibration = round_by_step(_new_trv_calibration, _calibration_step)
-    if _new_trv_calibration is None:
+    _rounded_calibration = round_by_step(_new_trv_calibration, _calibration_step)
+    if _rounded_calibration is None:
         return None
+    _new_trv_calibration = _rounded_calibration
 
     # limit new setpoint within min/max of the TRV's range
     t_min = _convert_to_float(self.real_trvs[entity_id]["local_calibration_min"])
@@ -561,10 +562,14 @@ def calculate_calibration_local(self, entity_id) -> float | None:
     if _new_trv_calibration is None:
         return None
 
-    _new_trv_calibration = round(_new_trv_calibration, 1)
-    _cur_external_temp = round(_cur_external_temp, 1)
-    _cur_trv_temp_f = round(_cur_trv_temp_f, 1)
-    _current_trv_calibration = round(_current_trv_calibration, 1)
+    # Round to 2 decimals for logging only - the actual calibration value
+    # is already rounded by round_by_step based on TRV's calibration_step.
+    # Avoid rounding to 1 decimal as this caused precision loss issues
+    # (see issues #1792, #1789, #1785).
+    _log_calibration: float = round(_new_trv_calibration, 2)
+    _log_external_temp: float = round(_cur_external_temp, 2)
+    _log_trv_temp: float = round(_cur_trv_temp_f, 2)
+    _log_current_calibration: float = round(_current_trv_calibration, 2)
 
     _logmsg = (
         "better_thermostat %s: %s - new local calibration: %s | external_temp: %s, "
@@ -575,10 +580,10 @@ def calculate_calibration_local(self, entity_id) -> float | None:
         _logmsg,
         self.device_name,
         entity_id,
-        _new_trv_calibration,
-        _cur_external_temp,
-        _cur_trv_temp_f,
-        _current_trv_calibration,
+        _log_calibration,
+        _log_external_temp,
+        _log_trv_temp,
+        _log_current_calibration,
     )
 
     return _new_trv_calibration
@@ -771,9 +776,10 @@ def calculate_calibration_setpoint(self, entity_id) -> float | None:
                 _cur_external_temp - (_cur_target_temp + self.tolerance)
             ) * 8.0  # Reduced from 10.0 since we already subtract 2.0
 
-    _calibrated_setpoint = round_by_step(_calibrated_setpoint, _trv_temp_step)
-    if _calibrated_setpoint is None:
+    _rounded_setpoint = round_by_step(_calibrated_setpoint, _trv_temp_step)
+    if _rounded_setpoint is None:
         return None
+    _calibrated_setpoint = _rounded_setpoint
 
     # limit new setpoint within min/max of the TRV's range
     t_min = _convert_to_float(self.real_trvs[entity_id]["min_temp"])

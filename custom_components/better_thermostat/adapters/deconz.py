@@ -16,7 +16,10 @@ _LOGGER = logging.getLogger(__name__)
 
 async def get_info(self, entity_id):
     """Get info from TRV."""
-    _offset = self.hass.states.get(entity_id).attributes.get("offset", None)
+    state = self.hass.states.get(entity_id)
+    if state is None:
+        return {"support_offset": False, "support_valve": False}
+    _offset = state.attributes.get("offset", None)
     if _offset is None:
         return {"support_offset": False, "support_valve": False}
     return {"support_offset": True, "support_valve": False}
