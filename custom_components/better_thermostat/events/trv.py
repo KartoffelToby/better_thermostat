@@ -190,6 +190,14 @@ async def trigger_trv_change(self, event):
                     prev,
                     val,
                 )
+
+        # valve_position aktualisieren
+        val_pos = _org_trv_state.attributes.get("valve_position")
+        if val_pos is not None:
+            self.real_trvs[entity_id]["valve_position"] = convert_to_float(
+                str(val_pos), self.device_name, "trv_event"
+            )
+
     except Exception:
         pass
 
@@ -354,6 +362,7 @@ def convert_outbound_states(self, entity_id, hvac_mode) -> dict | None:
     """
     _new_local_calibration = None
     _new_heating_setpoint = None
+    _new_valve_position = None
 
     try:
         _calibration_type = self.real_trvs[entity_id]["advanced"].get("calibration")
@@ -376,7 +385,10 @@ def convert_outbound_states(self, entity_id, hvac_mode) -> dict | None:
 
                 _new_heating_setpoint = self.bt_target_temp
 
-            elif _calibration_type == CalibrationType.TARGET_TEMP_BASED:
+            elif (
+                _calibration_type == CalibrationType.TARGET_TEMP_BASED
+                or _calibration_type == CalibrationType.DIRECT_VALVE_BASED
+            ):
                 if _calibration_mode == CalibrationMode.NO_CALIBRATION:
                     _new_heating_setpoint = self.bt_target_temp
                 else:
@@ -434,6 +446,8 @@ def convert_outbound_states(self, entity_id, hvac_mode) -> dict | None:
         }
         if _new_local_calibration is not None:
             _payload["local_temperature_calibration"] = _new_local_calibration
+        if _new_valve_position is not None:
+            _payload["valve_position"] = _new_valve_position
         return _payload
     except Exception as e:
         _LOGGER.error(e)

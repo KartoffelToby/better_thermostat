@@ -76,6 +76,7 @@ from .utils.calibration.pid import (
     reset_pid_state as pid_reset_state,
 )
 from .utils.calibration.tpi import export_tpi_state_map, import_tpi_state_map
+from .model_fixes.model_quirks import load_model_quirks, inital_tweak
 from .utils.const import (
     ATTR_STATE_BATTERIES,
     ATTR_STATE_CALL_FOR_HEAT,
@@ -106,6 +107,8 @@ from .utils.const import (
     CONF_WINDOW_TIMEOUT_AFTER,
     MAX_HEATING_POWER,
     MIN_HEATING_POWER,
+    CalibrationMode,
+    CalibrationType,
     SERVICE_RESET_HEATING_POWER,
     SERVICE_RESET_PID_LEARNINGS,
     SERVICE_RESTORE_SAVED_TARGET_TEMPERATURE,
@@ -536,10 +539,12 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
             _calibration = 1
             _advanced = trv.get("advanced", {})
             _calibration_type = _advanced.get("calibration")
-            if _calibration_type == "local_calibration_based":
+            if _calibration_type == CalibrationType.TARGET_TEMP_BASED:
                 _calibration = 0
-            if _calibration_type == "hybrid_calibration":
+            if _calibration_type == CalibrationType.DIRECT_VALVE_BASED:
                 _calibration = 2
+            if _calibration_type == CalibrationType.LOCAL_BASED:
+                _calibration = 3
             _adapter = await load_adapter(self, trv["integration"], trv["trv"])
             # Resolve/refresh model dynamically at startup to ensure correct quirks
             resolved_model = trv.get("model")
@@ -880,7 +885,7 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
                     self.device_name,
                     self.sensor_entity_id,
                 )
-                await asyncio.sleep(10)
+                await asyncio.sleep(20)
                 continue
 
             try:
@@ -892,7 +897,7 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
                             self.device_name,
                             trv,
                         )
-                        await asyncio.sleep(10)
+                        await asyncio.sleep(20)
                         raise ContinueLoop
                     if trv_state is not None:
                         if trv_state.state in (STATE_UNAVAILABLE, STATE_UNKNOWN, None):
@@ -901,7 +906,7 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
                                 self.device_name,
                                 trv,
                             )
-                            await asyncio.sleep(10)
+                            await asyncio.sleep(20)
                             raise ContinueLoop
             except ContinueLoop:
                 continue
@@ -1487,6 +1492,16 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
                         exc,
                     )
 
+                try:
+                    await inital_tweak(self, trv)
+                except Exception as exc:
+                    _LOGGER.error(
+                        "better_thermostat %s: Error running initial tweak for TRV %s: %s",
+                        self.device_name,
+                        trv,
+                        exc,
+                    )
+
                 if self.real_trvs[trv]["calibration"] != 1:
                     _LOGGER.debug(
                         "better_thermostat %s: getting offsets for TRV %s",
@@ -1614,8 +1629,9 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
             self.startup_running = False
             self._available = True
             self.async_write_ha_state()
-            _LOGGER.debug("better_thermostat %s: sleeping 5s...", self.device_name)
-            await asyncio.sleep(5)
+            #
+            _LOGGER.debug("better_thermostat %s: sleeping 15s...", self.device_name)
+            await asyncio.sleep(15)
             _LOGGER.debug(
                 "better_thermostat %s: finding battery entities...", self.device_name
             )
@@ -1914,7 +1930,13 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
                         return False
 
                 try:
-                    if support_valve:
+                    _calibration_type = self.real_trvs[trv_id]["advanced"].get(
+                        "calibration"
+                    )
+                    if (
+                        support_valve
+                        and _calibration_type == CalibrationType.DIRECT_VALVE_BASED
+                    ):
                         # Open fully
                         _LOGGER.debug(
                             "better_thermostat %s: maintenance %s -> valve 100%%",
@@ -2749,14 +2771,13 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
             tolerance_hold = False
 
         # Base decision would be IDLE. If any real TRV indicates active heating, override to HEATING.
-        if action == HVACAction.IDLE and not tolerance_hold:
+        if action == HVACAction.IDLE:
             try:
                 # Skip overrides while we intentionally ignore TRV states or when window is open
                 if self.ignore_states or self.window_open:
                     self._tolerance_last_action = HVACAction.IDLE
                     self._tolerance_hold_active = tolerance_hold
                     return HVACAction.IDLE
-                # Threshold for valve opening to be considered "heating": 5%
 
                 def _to_pct(val):
                     try:
@@ -2768,8 +2789,18 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
                 THRESH = 0.0
                 for trv_id, info in (self.real_trvs or {}).items():
                     if not isinstance(info, dict):
+                        _LOGGER.debug(
+                            "better_thermostat %s: _compute_hvac_action TRV %s ignored (config invalid)",
+                            self.device_name,
+                            trv_id,
+                        )
                         continue
                     if info.get("ignore_trv_states"):
+                        _LOGGER.debug(
+                            "better_thermostat %s: _compute_hvac_action TRV %s ignored (ignore_trv_states=True)",
+                            self.device_name,
+                            trv_id,
+                        )
                         continue
 
                     # 0) Use cached hvac_action first; fallback to hass state if missing
@@ -2838,22 +2869,6 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
                     except Exception:
                         pass
 
-                    # 4) Balance module currently targets a valve percent > 0 (proxy for heating intent)
-                    bal = info.get("calibration_balance") or {}
-                    v_bal = bal.get("valve_percent") if isinstance(bal, dict) else None
-                    try:
-                        v_bal_n = _to_pct(v_bal)
-                        if v_bal_n is not None and v_bal_n > THRESH:
-                            _LOGGER.debug(
-                                "better_thermostat %s: overriding hvac_action to HEATING (calibration_balance.valve_percent %.1f%%, TRV %s)",
-                                self.device_name,
-                                v_bal_n,
-                                trv_id,
-                            )
-                            action = HVACAction.HEATING
-                            break
-                    except Exception:
-                        pass
             except Exception:
                 # Defensive: if anything goes wrong in overrides, fall back to IDLE
                 pass

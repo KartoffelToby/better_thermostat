@@ -5,6 +5,9 @@ from __future__ import annotations
 from collections.abc import Mapping
 from dataclasses import dataclass, field
 import logging
+from time import monotonic, time
+from typing import Any
+from collections.abc import Mapping
 import math
 from time import monotonic
 from typing import Any
@@ -12,9 +15,9 @@ from typing import Any
 _LOGGER = logging.getLogger(__name__)
 
 
-# MPC operates on fixed 5-minute steps and a 12-step horizon.
+# MPC operates on fixed 5-minute steps and a 6-step horizon.
 MPC_STEP_SECONDS = 300.0
-MPC_HORIZON_STEPS = 3
+MPC_HORIZON_STEPS = 6
 
 
 @dataclass
@@ -28,12 +31,16 @@ class MpcParams:
     mpc_loss_coeff: float = 0.01
     mpc_control_penalty: float = 0.05
     mpc_change_penalty: float = 1.0
-    mpc_eco_penalty: float = 5.0
+    mpc_eco_penalty: float = 1.0
     mpc_adapt: bool = True
     mpc_gain_min: float = 0.01
     mpc_gain_max: float = 0.2
     mpc_loss_min: float = 0.002
     mpc_loss_max: float = 0.03
+    mpc_solar_gain_initial: float = (
+        0.01  # Initial guess for solar gain (°C/min at full sun)
+    )
+    mpc_solar_gain_max: float = 0.05
     mpc_adapt_alpha: float = 0.1
     deadzone_threshold_pct: float = 20.0
     deadzone_temp_delta_K: float = 0.1
@@ -78,6 +85,10 @@ class MpcInput:
     heating_allowed: bool = True
     bt_name: str | None = None
     entity_id: str | None = None
+    outdoor_temp_C: float | None = None
+    is_day: bool = True
+    other_heat_power: float = 0.0
+    solar_intensity: float = 0.0  # 0.0 to 1.0 (cloud coverage, etc.)
 
 
 @dataclass
@@ -96,6 +107,8 @@ class _MpcState:
     ema_slope: float | None = None
     gain_est: float | None = None
     loss_est: float | None = None
+    ka_est: float | None = None  # Insulation coefficient (loss per degree diff)
+    solar_gain_est: float | None = None  # Learned solar gain factor
     last_temp: float | None = None
     last_time: float = 0.0
     last_trv_temp: float | None = None
@@ -114,6 +127,7 @@ class _MpcState:
     u_integral: float = 0.0
     time_integral: float = 0.0
     last_integration_ts: float = 0.0
+    created_ts: float = 0.0
 
 
 _MPC_STATES: dict[str, _MpcState] = {}
@@ -124,6 +138,8 @@ _STATE_EXPORT_FIELDS = (
     "ema_slope",
     "gain_est",
     "loss_est",
+    "ka_est",
+    "solar_gain_est",
     "last_temp",
     "last_trv_temp",
     "min_effective_percent",
@@ -136,6 +152,7 @@ _STATE_EXPORT_FIELDS = (
     "u_integral",
     "time_integral",
     "last_integration_ts",
+    "created_ts",
 )
 
 
@@ -242,6 +259,14 @@ def compute_mpc(inp: MpcInput, params: MpcParams) -> MpcOutput | None:
 
     now = monotonic()
     state = _MPC_STATES.setdefault(inp.key, _MpcState())
+    if state.created_ts == 0.0:
+        # For existing trained models, backdate the creation timestamp
+        # to avoid "Training" status if we already have confidence.
+        if state.profile_confidence > 0.5:
+            state.created_ts = time() - 90000.0
+        else:
+            state.created_ts = time()
+
     _seed_state_from_siblings(inp.key, state, params)
 
     # --- INTEGRATE VALVE USAGE ---
@@ -613,9 +638,18 @@ def _compute_predictive_percent(
             state.gain_est = params.mpc_thermal_gain
         if state.loss_est is None:
             state.loss_est = params.mpc_loss_coeff
+        if state.solar_gain_est is None:
+            state.solar_gain_est = getattr(params, "mpc_solar_gain_initial", 0.01)
 
     # Time since last measurement for adaptation
     dt_last = now - state.last_learn_time
+
+    # Initialize ka_est if we have outdoor temp context
+    if params.mpc_adapt and inp.outdoor_temp_C is not None and state.ka_est is None:
+        # Default ka guess from current loss_est
+        _loss = state.loss_est if state.loss_est is not None else params.mpc_loss_coeff
+        _delta = max(5.0, float(current_temp_cost_C) - float(inp.outdoor_temp_C))
+        state.ka_est = _loss / _delta
 
     # ---- ADAPTATION (rate-based identification) ----
     # Model: dT/dt ~= gain * u - loss, where gain/loss are in °C/min and u in [0..1]
@@ -945,14 +979,39 @@ def _compute_predictive_percent(
             ):
                 state.last_residual_time = now
 
+            # Update ka_est if loss was updated and we have context
+            if updated_loss and inp.outdoor_temp_C is not None:
+                _delta = max(
+                    5.0, float(current_temp_cost_C) - float(inp.outdoor_temp_C)
+                )
+                state.ka_est = float(state.loss_est) / _delta
+
         except (TypeError, ValueError, ZeroDivisionError):
             pass
 
     # convert to per-step quantities (°C per simulation step)
     gain = state.gain_est if state.gain_est is not None else params.mpc_thermal_gain
-    loss = state.loss_est if state.loss_est is not None else params.mpc_loss_coeff
+
+    # Calculate base loss rate for u0 calculation
+    if inp.outdoor_temp_C is not None and state.ka_est is not None:
+        _current_delta = float(current_temp_cost_C) - float(inp.outdoor_temp_C)
+        loss = float(state.ka_est) * _current_delta
+        # Clamp to bounds to ensure u0 is sane
+        loss = max(params.mpc_loss_min, min(params.mpc_loss_max, loss))
+    else:
+        loss = state.loss_est if state.loss_est is not None else params.mpc_loss_coeff
+
+    solar_gain_factor = (
+        state.solar_gain_est
+        if state.solar_gain_est is not None
+        else getattr(params, "mpc_solar_gain_initial", 0.01)
+    )
+
     gain_step = gain * step_minutes
     loss_step = loss * step_minutes
+    solar_step = (
+        solar_gain_factor * float(getattr(inp, "solar_intensity", 0.0)) * step_minutes
+    )
 
     # ------------------------------------------------------------
     # BASE LOAD u0
@@ -961,8 +1020,16 @@ def _compute_predictive_percent(
     # u_abs = u0 + du is applied AFTER solving (before clamping downstream).
     # ------------------------------------------------------------
     u0_frac: float
+    # Subtract other heat power AND solar gain from requirements:
+    # gain*u0 + other + solar = loss => gain*u0 = loss - other - solar
+    effective_loss_for_u0 = (
+        loss
+        - float(inp.other_heat_power)
+        - (solar_gain_factor * float(getattr(inp, "solar_intensity", 0.0)))
+    )
+
     if gain and gain > 0:
-        u0_frac = loss / gain
+        u0_frac = effective_loss_for_u0 / gain
     else:
         u0_frac = 0.0
     u0_frac = max(0.0, min(1.0, u0_frac))
@@ -985,6 +1052,8 @@ def _compute_predictive_percent(
     best_percent = 0.0
     eval_count = 0
 
+    other_heat_step = float(inp.other_heat_power) * step_minutes
+
     def simulate_cost_for_candidate(u_abs_frac: float) -> float:
         """Simulate forward temperature for constant u_abs_frac (0..1) over horizon and return cost."""
         T = (
@@ -997,8 +1066,17 @@ def _compute_predictive_percent(
         for _ in range(horizon):
             # Physical forward model (°C/step): dT = gain_step * u_abs - loss_step.
             # u0 is used only as the search center for du; it must not change the plant model.
-            heating = gain_step * u_abs_frac
-            T = T + heating - loss_step
+
+            if inp.outdoor_temp_C is not None and state.ka_est is not None:
+                # Dynamic loss based on outdoor temp
+                _loss_rate = float(state.ka_est) * (T - float(inp.outdoor_temp_C))
+                # _loss_rate = max(params.mpc_loss_min, min(params.mpc_loss_max, _loss_rate))
+                current_loss_step = _loss_rate * step_minutes
+            else:
+                current_loss_step = loss_step
+
+            heating = gain_step * u_abs_frac + other_heat_step + solar_step
+            T = T + heating - current_loss_step
             e = target_temp_C - T
             cost += e * e
             if eco_pen > 0 and T > target_temp_C:
@@ -1422,6 +1500,7 @@ def _post_process_percent(
         "trv_profile_samples": state.profile_samples,
         "trv_temp_delta": _round_for_debug(temp_delta, 3),
         "trv_time_delta_s": _round_for_debug(time_delta, 1),
+        "mpc_created_ts": state.created_ts,
     }
 
     # slope EMA unchanged

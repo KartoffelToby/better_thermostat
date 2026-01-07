@@ -187,6 +187,18 @@ async def set_valve(self, entity_id, valve):
             entity_id,
         )
         return
+
+    # get min max from entity attributes
+    valve_entity = self.hass.states.get(
+        self.real_trvs[entity_id]["valve_position_entity"]
+    )
+    if valve_entity is not None:
+        min_valve = float(str(valve_entity.attributes.get("min", 0)))
+        max_valve = float(str(valve_entity.attributes.get("max", 100)))
+        valve = min_valve + (valve / 100.0) * (max_valve - min_valve)
+        step = float(str(valve_entity.attributes.get("step", 1)))
+        valve = round(valve / step) * step
+
     await self.hass.services.async_call(
         "number",
         SERVICE_SET_VALUE,

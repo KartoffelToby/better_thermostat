@@ -5,6 +5,11 @@ from collections.abc import Iterable
 import copy
 import logging
 from typing import Any
+from collections import OrderedDict
+from typing import Any
+from collections.abc import Iterable
+
+import voluptuous as vol
 
 from homeassistant import config_entries
 from homeassistant.components.climate.const import (
@@ -54,35 +59,6 @@ from .utils.helpers import get_device_model, get_trv_intigration
 
 _LOGGER = logging.getLogger(__name__)
 
-CALIBRATION_TYPE_SELECTOR = selector.SelectSelector(
-    selector.SelectSelectorConfig(
-        options=[
-            selector.SelectOptionDict(
-                value=CalibrationType.TARGET_TEMP_BASED,
-                label="Target Temperature Based",
-            )
-        ],
-        mode=selector.SelectSelectorMode.DROPDOWN,
-    )
-)
-
-
-CALIBRATION_TYPE_ALL_SELECTOR = selector.SelectSelector(
-    selector.SelectSelectorConfig(
-        options=[
-            selector.SelectOptionDict(
-                value=CalibrationType.TARGET_TEMP_BASED,
-                label="Target Temperature Based",
-            ),
-            selector.SelectOptionDict(
-                value=CalibrationType.LOCAL_BASED, label="Offset Based"
-            ),
-            selector.SelectOptionDict(value=CalibrationType.HYBRID, label="Hybrid"),
-        ],
-        mode=selector.SelectSelectorMode.DROPDOWN,
-    )
-)
-
 
 TEMP_STEP_SELECTOR = selector.SelectSelector(
     selector.SelectSelectorConfig(
@@ -102,15 +78,14 @@ TEMP_STEP_SELECTOR = selector.SelectSelector(
 CALIBRATION_MODE_SELECTOR = selector.SelectSelector(
     selector.SelectSelectorConfig(
         options=[
-            selector.SelectOptionDict(value=CalibrationMode.DEFAULT, label="Normal"),
+            selector.SelectOptionDict(
+                value=CalibrationMode.MPC_CALIBRATION, label="(AI) MPC Predictive"
+            ),
             selector.SelectOptionDict(
                 value=CalibrationMode.AGGRESIVE_CALIBRATION, label="Agressive"
             ),
             selector.SelectOptionDict(
-                value=CalibrationMode.HEATING_POWER_CALIBRATION, label="AI Time Based"
-            ),
-            selector.SelectOptionDict(
-                value=CalibrationMode.MPC_CALIBRATION, label="MPC Predictive"
+                value=CalibrationMode.HEATING_POWER_CALIBRATION, label="Time Based"
             ),
             selector.SelectOptionDict(
                 value=CalibrationMode.TPI_CALIBRATION, label="TPI Controller"
@@ -200,6 +175,8 @@ async def _load_adapter_info(
 def _default_calibration_from_info(info: dict[str, Any]) -> str:
     if info.get("support_offset", False):
         return "local_calibration_based"
+    if info.get("support_valve", False):
+        return "direct_valve_based"
     return "target_temp_based"
 
 
@@ -219,6 +196,8 @@ def _build_advanced_fields(
     default_calibration: str,
     homematic: bool,
     has_auto: bool,
+    support_valve: bool = False,
+    support_offset: bool = False,
 ) -> OrderedDict:
     # Migrate old balance_mode to calibration_mode
     sources_list = list(sources)
@@ -233,7 +212,7 @@ def _build_advanced_fields(
             elif balance_mode in ("heuristic", "none"):
                 # For other balance modes, set calibration_mode to default if not set
                 if "calibration_mode" not in source:
-                    source["calibration_mode"] = CalibrationMode.DEFAULT.value
+                    source["calibration_mode"] = CalibrationMode.MPC_CALIBRATION.value
                 # Remove old balance_mode
                 source.pop("balance_mode", None)
 
@@ -251,10 +230,32 @@ def _build_advanced_fields(
     # Build fields directly in the final desired order without post-reordering
     # Compute values used below
     calib_default = get_value(CONF_CALIBRATION, default_calibration)
-    calib_selector = (
-        CALIBRATION_TYPE_ALL_SELECTOR
-        if default_calibration == "local_calibration_based"
-        else CALIBRATION_TYPE_SELECTOR
+
+    options = []
+    if support_valve:
+        options.append(
+            selector.SelectOptionDict(
+                value=CalibrationType.DIRECT_VALVE_BASED, label="Direct Valve Based"
+            )
+        )
+
+    options.append(
+        selector.SelectOptionDict(
+            value=CalibrationType.TARGET_TEMP_BASED, label="Target Temperature Based"
+        )
+    )
+
+    if support_offset:
+        options.append(
+            selector.SelectOptionDict(
+                value=CalibrationType.LOCAL_BASED, label="Offset Based"
+            )
+        )
+
+    calib_selector = selector.SelectSelector(
+        selector.SelectSelectorConfig(
+            options=options, mode=selector.SelectSelectorMode.DROPDOWN
+        )
     )
     ordered: OrderedDict = OrderedDict()
 
@@ -263,15 +264,13 @@ def _build_advanced_fields(
     ordered[
         vol.Required(
             CONF_CALIBRATION_MODE,
-            default=get_value(
-                CONF_CALIBRATION_MODE, CalibrationMode.HEATING_POWER_CALIBRATION
-            ),
+            default=get_value(CONF_CALIBRATION_MODE, CalibrationMode.MPC_CALIBRATION),
         )
     ] = CALIBRATION_MODE_SELECTOR
 
     ordered[
         vol.Optional(
-            CONF_PROTECT_OVERHEATING, default=get_bool(CONF_PROTECT_OVERHEATING, False)
+            CONF_PROTECT_OVERHEATING, default=get_bool(CONF_PROTECT_OVERHEATING, True)
         )
     ] = bool
     ordered[
@@ -305,7 +304,7 @@ def _normalize_advanced_submission(
     normalized: dict[str, Any] = dict(data)
     normalized[CONF_CALIBRATION] = normalized.get(CONF_CALIBRATION, default_calibration)
     normalized[CONF_CALIBRATION_MODE] = normalized.get(
-        CONF_CALIBRATION_MODE, CalibrationMode.HEATING_POWER_CALIBRATION
+        CONF_CALIBRATION_MODE, CalibrationMode.MPC_CALIBRATION
     )
     normalized[CONF_PROTECT_OVERHEATING] = _as_bool(
         normalized.get(CONF_PROTECT_OVERHEATING), False
@@ -480,8 +479,9 @@ def _build_user_fields(
         off_temp_default = _USER_FIELD_DEFAULTS[CONF_OFF_TEMPERATURE]
     add_field(CONF_OFF_TEMPERATURE, int, default=off_temp_default)
 
-    if not is_create:
-        add_field(CONF_PRESETS, PRESET_SELECTOR, default=resolve(CONF_PRESETS, []))
+    add_field(
+        CONF_PRESETS, PRESET_SELECTOR, default=resolve(CONF_PRESETS, [PRESET_ECO])
+    )
 
     tolerance_default = resolve(CONF_TOLERANCE, _USER_FIELD_DEFAULTS[CONF_TOLERANCE])
     try:
@@ -754,11 +754,14 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             return await self.async_step_confirm()
 
         user_input = user_input or {}
+        info = ctx.get("info", {})
         fields = _build_advanced_fields(
             sources=(user_input, existing_adv),
             default_calibration=ctx["default_calibration"],
             homematic=ctx["homematic"],
             has_auto=ctx["has_auto"],
+            support_valve=info.get("support_valve", False),
+            support_offset=info.get("support_offset", False),
         )
         _LOGGER.debug(
             "ConfigFlow advanced step showing form for trv=%s with defaults=%s",
@@ -909,11 +912,14 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
             )
 
         user_input = user_input or {}
+        info = ctx.get("info", {})
         fields = _build_advanced_fields(
             sources=(user_input, existing_adv),
             default_calibration=ctx["default_calibration"],
             homematic=ctx["homematic"],
             has_auto=ctx["has_auto"],
+            support_valve=info.get("support_valve", False),
+            support_offset=info.get("support_offset", False),
         )
         _LOGGER.debug(
             "OptionsFlow advanced step showing form for trv=%s with defaults=%s",
