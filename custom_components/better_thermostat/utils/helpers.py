@@ -671,7 +671,7 @@ async def get_device_model(self, entity_id: str) -> str:
                 elif len(model_str.strip()) >= 2:
                     selected = model_str.strip()
                     source = "devreg.model"
-    except Exception:  # noqa: BLE001
+    except Exception:
         # swallow registry access issues and continue to fallback
         pass
 
