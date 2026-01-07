@@ -3,8 +3,9 @@
 Tests that adapters properly handle None states when entities are unavailable.
 """
 
+from unittest.mock import MagicMock
+
 import pytest
-from unittest.mock import MagicMock, AsyncMock
 
 
 @pytest.fixture

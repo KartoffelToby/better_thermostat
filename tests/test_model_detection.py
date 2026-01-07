@@ -11,9 +11,10 @@ Example:
 - Actual (bug): "Beok wall thermostat" (the description in parentheses)
 """
 
-import pytest
 import re
 from unittest.mock import MagicMock, patch
+
+import pytest
 
 
 class TestModelDetectionFromString:
@@ -137,9 +138,9 @@ class TestGetDeviceModelFunction:
 
                 # Should extract model BEFORE parentheses, not inside
                 # This verifies the fix for issue #1672
-                assert (
-                    result == "TS0601 _TZE284_cvub6xbb"
-                ), f"Expected 'TS0601 _TZE284_cvub6xbb' but got '{result}'"
+                assert result == "TS0601 _TZE284_cvub6xbb", (
+                    f"Expected 'TS0601 _TZE284_cvub6xbb' but got '{result}'"
+                )
 
     @pytest.mark.anyio
     async def test_get_device_model_with_model_id(self, mock_self):

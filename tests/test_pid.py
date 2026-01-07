@@ -1,11 +1,10 @@
 """Tests for the PID controller."""
 
-import pytest
 from custom_components.better_thermostat.utils.calibration.pid import (
     PIDParams,
+    build_pid_key,
     compute_pid,
     get_pid_state,
-    build_pid_key,
     seed_pid_gains,
 )
 

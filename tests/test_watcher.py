@@ -4,8 +4,9 @@ Tests the degraded mode functionality including entity availability checks,
 optional vs critical sensor classification, and degraded mode state management.
 """
 
-import pytest
 from unittest.mock import MagicMock, patch
+
+import pytest
 
 
 @pytest.fixture
@@ -314,7 +315,7 @@ class TestCheckAndUpdateDegradedMode:
         with patch("custom_components.better_thermostat.utils.watcher.ir"):
             with patch(
                 "custom_components.better_thermostat.utils.watcher.get_battery_status"
-            ) as mock_battery:
+            ):
                 await check_and_update_degraded_mode(mock_bt_instance)
 
                 # Should be called for all available optional sensors + room sensor
@@ -339,7 +340,7 @@ class TestBatteryStatusCalls:
         with patch("custom_components.better_thermostat.utils.watcher.ir"):
             with patch(
                 "custom_components.better_thermostat.utils.watcher.get_battery_status"
-            ) as mock_battery:
+            ):
                 result = await check_critical_entities(mock_bt_instance)
 
                 assert result is True
@@ -362,7 +363,7 @@ class TestBatteryStatusCalls:
         with patch("custom_components.better_thermostat.utils.watcher.ir"):
             with patch(
                 "custom_components.better_thermostat.utils.watcher.get_battery_status"
-            ) as mock_battery:
+            ):
                 result = await check_critical_entities(mock_bt_instance)
 
                 assert result is False
