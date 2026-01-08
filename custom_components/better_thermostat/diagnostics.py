@@ -3,9 +3,7 @@
 from __future__ import annotations
 
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.core import HomeAssistant
-
-from .adapters.delegate import load_adapter
+from homeassistant.core import HomeAssistant, State
 
 from .utils.const import CONF_HEATER, CONF_SENSOR, CONF_SENSOR_WINDOW
 
@@ -19,24 +17,21 @@ async def async_get_config_entry_diagnostics(
         trv = hass.states.get(trv_id["trv"])
         if trv is None:
             continue
-        # TODO: this does nothing but return trv_id["integration"] as adapter_name
-        # -> removing this for now, to fix diagnostic export
-        # _adapter_name = await load_adapter(
-        #     hass, trv_id["integration"], trv_id["trv"], True
-        # )
-        # trv_id["adapter"] = _adapter_name
+        trv_id["adapter"] = trv_id["integration"]
+        if trv_id["adapter"] is None:
+            trv_id["adapter"] = "unknown"
         trvs[trv_id["trv"]] = {
             "name": trv.name,
             "state": trv.state,
             "attributes": trv.attributes,
             "bt_config": trv_id["advanced"],
-            # "bt_adapter": trv_id["adapter"],
+            "bt_adapter": trv_id["adapter"],
             "bt_integration": trv_id["integration"],
             "model": trv_id["model"],
         }
     external_temperature = hass.states.get(config_entry.data[CONF_SENSOR])
 
-    window = "-"
+    window: str | State | None = "-"
     window_entity_id = config_entry.data.get(CONF_SENSOR_WINDOW, False)
     if window_entity_id:
         try:

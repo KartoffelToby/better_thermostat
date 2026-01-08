@@ -1,25 +1,43 @@
-# Quirks for BTH-RM
+"""Quirks for Bosch BTH-RM room thermostat.
+
+Provides small fixes and device behavior adjustments required for the
+Bosch BTH-RM when operated through Home Assistant integrations.
+"""
+
 import logging
-from homeassistant.helpers import device_registry as dr, entity_registry as er
+
+from homeassistant.helpers import entity_registry as er
 
 _LOGGER = logging.getLogger(__name__)
 
 
 def fix_local_calibration(self, entity_id, offset):
+    """Return a corrected local calibration offset for BTH-RM.
+
+    The BTH-RM does not require special rounding adjustments, so this
+    function is a passthrough for future extensibility.
+    """
     return offset
 
 
 def fix_target_temperature_calibration(self, entity_id, temperature):
+    """Return a corrected target temperature calibration.
+
+    For the BTH-RM this is currently a no-op.
+    """
     return temperature
 
 
 async def override_set_hvac_mode(self, entity_id, hvac_mode):
+    """No special HVAC mode override for BTH-RM."""
     return False
 
 
 async def override_set_temperature(self, entity_id, temperature):
-    """Bosch room thermostat BTH-RM has a quirk where it needs to set both high
-    and low temperature, if heat and cool modes are available in newer Z2M versions.
+    """Handle BTH-RM set_temperature quirk.
+
+    If the device reports both 'heat' and 'cool' modes, call set_temperature
+    with both `target_temp_high` and `target_temp_low` set to the same value.
     """
     model = self.real_trvs[entity_id]["model"]
     if model == "BTH-RM":

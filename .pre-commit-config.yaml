@@ -1,31 +1,7 @@
 repos:
-  - repo: https://github.com/asottile/pyupgrade
-    rev: v2.37.3
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.14.10
     hooks:
-      - id: pyupgrade
-        args: [--py311-plus]
-  - repo: https://github.com/psf/black
-    rev: 24.1.1
-    hooks:
-      - id: black
-        args:
-          - --safe
-          - --quiet
-          - --verbose 
-          - --skip-magic-trailing-comma 
-          - --target-version
-          - py312
-        files: ''
-  - repo: https://github.com/PyCQA/flake8
-    rev: 4.0.1
-    hooks:
-      - id: flake8
-        additional_dependencies:
-          - pycodestyle==2.8.0
-          - pyflakes==2.4.0
-          - flake8-docstrings==1.6.0
-          - pydocstyle==6.1.1
-          - flake8-comprehensions==3.10.0
-          - flake8-noqa==1.2.8
-          - mccabe==0.6.1
-        files: ''
+      - id: ruff
+        args: [--fix]
+      - id: ruff-format

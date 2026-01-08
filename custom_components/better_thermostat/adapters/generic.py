@@ -1,9 +1,17 @@
+"""Generic adapter helpers used by multiple TRV integrations.
+
+This module implements the generic, default behaviour for TRV adapters
+used by Better Thermostat when a device-specific adapter does not exist.
+"""
+
 import asyncio
 import logging
 
 from homeassistant.components.number.const import SERVICE_SET_VALUE
-from ..utils.helpers import find_local_calibration_entity
 from homeassistant.const import STATE_UNAVAILABLE, STATE_UNKNOWN
+
+from ..utils.helpers import find_local_calibration_entity, normalize_hvac_mode
+from .base import wait_for_calibration_entity_or_timeout
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -19,61 +27,60 @@ async def get_info(self, entity_id):
 
 
 async def init(self, entity_id):
+    """Initialize generic adapter for an entity.
+
+    Finds and registers a local calibration entity (if configured) and waits
+    for it to appear before returning. Returns None after initialization.
+    """
     if (
         self.real_trvs[entity_id]["local_temperature_calibration_entity"] is None
         and self.real_trvs[entity_id]["calibration"] != 1
     ):
-        self.real_trvs[entity_id]["local_temperature_calibration_entity"] = (
-            await find_local_calibration_entity(self, entity_id)
-        )
+        self.real_trvs[entity_id][
+            "local_temperature_calibration_entity"
+        ] = await find_local_calibration_entity(self, entity_id)
         _LOGGER.debug(
             "better_thermostat %s: uses local calibration entity %s",
             self.device_name,
             self.real_trvs[entity_id]["local_temperature_calibration_entity"],
         )
-        # Wait for the entity to be available
-        _ready = True
-        while _ready:
-            if self.hass.states.get(
-                self.real_trvs[entity_id]["local_temperature_calibration_entity"]
-            ).state in (STATE_UNAVAILABLE, STATE_UNKNOWN, None):
-                _LOGGER.info(
-                    "better_thermostat %s: waiting for TRV/climate entity with id '%s' to become fully available...",
-                    self.device_name,
-                    self.real_trvs[entity_id]["local_temperature_calibration_entity"],
-                )
-                await asyncio.sleep(5)
-                continue
-            _ready = False
-            return
-
-    return None
+        await wait_for_calibration_entity_or_timeout(
+            self,
+            entity_id,
+            self.real_trvs[entity_id]["local_temperature_calibration_entity"],
+        )
 
 
 async def get_current_offset(self, entity_id):
     """Get current offset."""
     if self.real_trvs[entity_id]["local_temperature_calibration_entity"] is not None:
-        return float(
-            str(
-                self.hass.states.get(
-                    self.real_trvs[entity_id]["local_temperature_calibration_entity"]
-                ).state
-            )
+        state = self.hass.states.get(
+            self.real_trvs[entity_id]["local_temperature_calibration_entity"]
         )
+        if state is None or state.state in (STATE_UNAVAILABLE, STATE_UNKNOWN):
+            return 0.0
+        try:
+            return float(str(state.state))
+        except (ValueError, TypeError):
+            _LOGGER.warning(
+                "better_thermostat %s: Could not convert calibration offset '%s' to float, using 0",
+                self.device_name,
+                state.state,
+            )
+            return 0.0
     else:
-        return None
+        return 0.0
 
 
-async def get_offset_steps(self, entity_id):
-    """Get offset steps."""
+async def get_offset_step(self, entity_id):
+    """Get offset step."""
     if self.real_trvs[entity_id]["local_temperature_calibration_entity"] is not None:
-        return float(
-            str(
-                self.hass.states.get(
-                    self.real_trvs[entity_id]["local_temperature_calibration_entity"]
-                ).attributes.get("step", 1)
-            )
+        state = self.hass.states.get(
+            self.real_trvs[entity_id]["local_temperature_calibration_entity"]
         )
+        if state is None:
+            return None
+        return float(str(state.attributes.get("step", 1)))
     else:
         return None
 
@@ -81,13 +88,12 @@ async def get_offset_steps(self, entity_id):
 async def get_min_offset(self, entity_id):
     """Get min offset."""
     if self.real_trvs[entity_id]["local_temperature_calibration_entity"] is not None:
-        return float(
-            str(
-                self.hass.states.get(
-                    self.real_trvs[entity_id]["local_temperature_calibration_entity"]
-                ).attributes.get("min", -10)
-            )
+        state = self.hass.states.get(
+            self.real_trvs[entity_id]["local_temperature_calibration_entity"]
         )
+        if state is None:
+            return -6.0
+        return float(str(state.attributes.get("min", -10)))
     else:
         return -6
 
@@ -95,13 +101,12 @@ async def get_min_offset(self, entity_id):
 async def get_max_offset(self, entity_id):
     """Get max offset."""
     if self.real_trvs[entity_id]["local_temperature_calibration_entity"] is not None:
-        return float(
-            str(
-                self.hass.states.get(
-                    self.real_trvs[entity_id]["local_temperature_calibration_entity"]
-                ).attributes.get("max", 10)
-            )
+        state = self.hass.states.get(
+            self.real_trvs[entity_id]["local_temperature_calibration_entity"]
         )
+        if state is None:
+            return 6.0
+        return float(str(state.attributes.get("max", 10)))
     else:
         return 6
 
@@ -119,17 +124,36 @@ async def set_temperature(self, entity_id, temperature):
 
 async def set_hvac_mode(self, entity_id, hvac_mode):
     """Set new target hvac mode."""
-    _LOGGER.debug("better_thermostat %s: set_hvac_mode %s", self.device_name, hvac_mode)
+
+    hvac_mode_norm = normalize_hvac_mode(hvac_mode)
+    _LOGGER.debug(
+        "better_thermostat %s: set_hvac_mode %s -> %s",
+        self.device_name,
+        hvac_mode,
+        hvac_mode_norm,
+    )
     try:
         await self.hass.services.async_call(
             "climate",
             "set_hvac_mode",
-            {"entity_id": entity_id, "hvac_mode": hvac_mode},
+            {"entity_id": entity_id, "hvac_mode": hvac_mode_norm},
             blocking=True,
             context=self.context,
         )
     except TypeError:
-        _LOGGER.debug("TypeError in set_hvac_mode")
+        _LOGGER.debug(
+            "TypeError in set_hvac_mode (entity=%s, hvac_mode=%s)",
+            entity_id,
+            hvac_mode_norm,
+        )
+    except Exception as exc:
+        _LOGGER.exception(
+            "better_thermostat %s: Exception in set_hvac_mode for %s with %s: %s",
+            self.device_name,
+            entity_id,
+            hvac_mode_norm,
+            exc,
+        )
 
 
 async def set_offset(self, entity_id, offset):
@@ -138,10 +162,8 @@ async def set_offset(self, entity_id, offset):
         max_calibration = await get_max_offset(self, entity_id)
         min_calibration = await get_min_offset(self, entity_id)
 
-        if offset >= max_calibration:
-            offset = max_calibration
-        if offset <= min_calibration:
-            offset = min_calibration
+        offset = min(max_calibration, offset)
+        offset = max(min_calibration, offset)
 
         await self.hass.services.async_call(
             "number",

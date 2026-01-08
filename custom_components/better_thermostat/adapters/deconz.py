@@ -1,7 +1,16 @@
+"""Adapter for deCONZ devices.
+
+This module implements the minimal adapter interface required by the
+Better Thermostat integration for deCONZ-controlled TRV devices.
+"""
+
 import logging
+
+from homeassistant.const import STATE_UNAVAILABLE, STATE_UNKNOWN
+
 from .generic import (
-    set_temperature as generic_set_temperature,
     set_hvac_mode as generic_set_hvac_mode,
+    set_temperature as generic_set_temperature,
 )
 
 _LOGGER = logging.getLogger(__name__)
@@ -9,13 +18,21 @@ _LOGGER = logging.getLogger(__name__)
 
 async def get_info(self, entity_id):
     """Get info from TRV."""
-    _offset = self.hass.states.get(entity_id).attributes.get("offset", None)
+    state = self.hass.states.get(entity_id)
+    if state is None:
+        return {"support_offset": False, "support_valve": False}
+    _offset = state.attributes.get("offset", None)
     if _offset is None:
         return {"support_offset": False, "support_valve": False}
     return {"support_offset": True, "support_valve": False}
 
 
 async def init(self, entity_id):
+    """Initialize adapter for an entity.
+
+    This adapter does not require any special initialization, so the
+    function returns None.
+    """
     return None
 
 
@@ -31,12 +48,23 @@ async def set_hvac_mode(self, entity_id, hvac_mode):
 
 async def get_current_offset(self, entity_id):
     """Get current offset."""
-    return float(str(self.hass.states.get(entity_id).attributes.get("offset", 0)))
+    state = self.hass.states.get(entity_id)
+    if state is None or state.state in (STATE_UNAVAILABLE, STATE_UNKNOWN):
+        return 0.0
+    try:
+        return float(str(state.attributes.get("offset", 0)))
+    except (ValueError, TypeError):
+        _LOGGER.warning(
+            "better_thermostat %s: Could not convert calibration offset '%s' to float, using 0",
+            self.device_name,
+            state.attributes.get("offset"),
+        )
+        return 0.0
 
 
-async def get_offset_steps(self, entity_id):
-    """Get offset steps."""
-    return float(1.0)
+async def get_offset_step(self, entity_id):
+    """Get offset step."""
+    return 1.0
 
 
 async def get_min_offset(self, entity_id):

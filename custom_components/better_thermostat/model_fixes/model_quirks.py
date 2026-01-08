@@ -1,42 +1,76 @@
-from homeassistant.helpers.importlib import async_import_module
+"""Helpers to load per-model quirks for TRVs.
+
+This module dynamically imports model-specific quirk modules and exposes
+small shim functions that delegate into the model-specific implementations.
+"""
+
 import logging
+import re
+
+from homeassistant.helpers.importlib import async_import_module
 
 _LOGGER = logging.getLogger(__name__)
 
 
 async def load_model_quirks(self, model, entity_id):
-    """Load model."""
+    """Load model quirks module for a given TRV model, falling back to default.
 
-    # remove / from model
-    model = model.replace("/", "_")
+    Adds explicit debug logs for both success and fallback paths to make it
+    visible why nothing appeared previously.
+    """
+
+    # Normalize model to a safe module suffix
+    model_str = str(model) if model is not None else ""
+    # Replace path separators and any non-alphanumeric/underscore with underscore
+    model_sanitized = (
+        re.sub(r"[^A-Za-z0-9_-]+", "_", model_str.replace("/", "_")).strip("_")
+        or "default"
+    )
+    module_path = f"custom_components.better_thermostat.model_fixes.{model_sanitized}"
 
     try:
-        self.model_quirks = await async_import_module(
-            self.hass, "custom_components.better_thermostat.model_fixes." + model
-        )
+        self.model_quirks = await async_import_module(self.hass, module_path)
         _LOGGER.debug(
-            "better_thermostat %s: uses quirks fixes for model %s for trv %s",
+            "better_thermostat %s: using quirks module '%s' for model '%s' (trv %s)",
             self.device_name,
-            model,
+            module_path,
+            model_str or "<none>",
             entity_id,
         )
-    except Exception:
-        self.model_quirks = await async_import_module(
-            self.hass, "custom_components.better_thermostat.model_fixes.default"
-        )
-        pass
+    except ImportError as e:
+        # Fallback to default and log the reason
+        default_module = "custom_components.better_thermostat.model_fixes.default"
+        try:
+            self.model_quirks = await async_import_module(self.hass, default_module)
+            _LOGGER.debug(
+                "better_thermostat %s: quirks module '%s' not available for model '%s' (trv %s): %s; using default",
+                self.device_name,
+                module_path,
+                model_str or "<none>",
+                entity_id,
+                e,
+            )
+        except ImportError as e2:
+            # This should never happen, but make it visible if it does
+            _LOGGER.error(
+                "better_thermostat %s: failed to import default quirks module '%s' after error loading '%s' for model '%s' (trv %s): %s",
+                self.device_name,
+                default_module,
+                module_path,
+                model_str or "<none>",
+                entity_id,
+                e2,
+            )
+            raise
 
     return self.model_quirks
 
 
 def fix_local_calibration(self, entity_id, offset):
-    """Modifies the input local calibration offset, based on the TRV's model quirks,
-    to achieve the desired heating behavior.
+    """Apply model-specific local calibration fix.
 
-    Returns
-    -------
-    float
-          new local calibration offset, if the TRV model has any quirks/fixes.
+    Call the configured model quirks implementation to normalize the given
+    local calibration offset.
     """
 
     _new_offset = self.real_trvs[entity_id]["model_quirks"].fix_local_calibration(
@@ -57,14 +91,36 @@ def fix_local_calibration(self, entity_id, offset):
     return _new_offset
 
 
-def fix_target_temperature_calibration(self, entity_id, temperature):
-    """Modifies the input setpoint temperature, based on the TRV's model quirks,
-    to achieve the desired heating behavior.
+def fix_valve_calibration(self, entity_id, valve):
+    """Apply model-specific valve calibration fix.
 
-    Returns
-    -------
-    float
-          new setpoint temperature, if the TRV model has any quirks/fixes.
+    Call the configured model quirks implementation to normalize the given
+    valve calibration value.
+    """
+
+    quirks = self.real_trvs[entity_id]["model_quirks"]
+    if hasattr(quirks, "fix_valve_calibration"):
+        _new_valve = quirks.fix_valve_calibration(self, entity_id, valve)
+    else:
+        _new_valve = valve
+
+    if valve != _new_valve:
+        _LOGGER.debug(
+            "better_thermostat %s: %s - valve calibration model fix: %s to %s",
+            self.device_name,
+            entity_id,
+            valve,
+            _new_valve,
+        )
+
+    return _new_valve
+
+
+def fix_target_temperature_calibration(self, entity_id, temperature):
+    """Apply model-specific setpoint calibration fix.
+
+    Delegates to the loaded model quirks module for any adjustments to the
+    requested setpoint temperature.
     """
 
     _new_temperature = self.real_trvs[entity_id][
@@ -84,12 +140,27 @@ def fix_target_temperature_calibration(self, entity_id, temperature):
 
 
 async def override_set_hvac_mode(self, entity_id, hvac_mode):
+    """Invoke model-specific HVAC mode override, if implemented.
+
+    Returns the model-quirks module's response (True if handled).
+    """
     return await self.real_trvs[entity_id]["model_quirks"].override_set_hvac_mode(
         self, entity_id, hvac_mode
     )
 
 
 async def override_set_temperature(self, entity_id, temperature):
+    """Invoke model-specific temperature override, if implemented.
+
+    Returns the model-quirks module's response (True if handled).
+    """
     return await self.real_trvs[entity_id]["model_quirks"].override_set_temperature(
         self, entity_id, temperature
     )
+
+
+async def inital_tweak(self, entity_id):
+    """Run initial tweaks for the device."""
+    quirks = self.real_trvs[entity_id]["model_quirks"]
+    if hasattr(quirks, "inital_tweak"):
+        await quirks.inital_tweak(self, entity_id)

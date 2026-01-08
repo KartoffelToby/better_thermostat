@@ -15,7 +15,11 @@
                                         "window_off_delay": "Delay before the thermostat should turn off when the window is opened",
                                         "window_off_delay_after": "Delay before the thermostat should turn on when the window is closed",
                                         "outdoor_sensor": "Outdoor temperature sensor",
-                                        "weather": "Weather entity to get the outdoor temperature"
+                                        "weather": "Weather entity to get the outdoor temperature",
+                                        "presets": "Enabled Presets"
+                                },
+                                "data_description": {
+                                        "presets": "Select the presets you want to be available for this thermostat."
                                 }
                         },
                         "advanced": {
@@ -32,7 +36,7 @@
                                 },
                                 "data_description": {
                                         "protect_overheating": "Some TRVs don't close the valve completely when the temperature is reached. Or the radiator has a lot of rest heat. This can cause overheating. This option can prevent this.",
-                                        "calibration_mode": "How the calibration is calculated\n***Normal***: In this mode, the TRV internal temperature sensor is fixed by the external temperature sensor.\n***Aggresive***: In this mode, the TRV internal temperature sensor is fixed by the external temperature sensor but set much lower/higher to get a quicker boost.\n***AI Time Based***: In this mode, the TRV internal temperature sensor is fixed by the external temperature sensor, but the value is calculated by a custom algorithm to improve the TRV internal algorithm.",
+                                        "calibration_mode": "How the calibration is calculated\n***Normal***: Uses your external temperature sensor to correct the TRV's internal sensor. Simple and reliable for most setups.\n***Aggressive***: Similar to Normal, but pushes the TRV harder to reach temperature faster. Good if your room heats slowly.\n***AI Time Based***: Learns your room's heating patterns over time and adjusts automatically. Balances comfort and efficiency.\n***MPC Predictive***: Advanced algorithm that predicts temperature changes and optimizes valve position. Best for stable, efficient heating with minimal overshooting. Learns your room's thermal behavior.\n***PID Controller***: Classic control method that responds to temperature errors. Good for systems with varying heating power or external disturbances.\n***TPI Controller***: Calculates heating duty cycles based on temperature difference. Simple and effective for consistent heating patterns.",
                                         "calibration": "How the calibration is applied on the TRV\n***Target Temperature Based***: Apply the calibration to the target temperature.\n***Offset Based***: Apply the calibration to the temperature offset."
                                 }
                         },
@@ -67,7 +71,8 @@
                                         "window_off_delay": "Delay before the thermostat should turn off when the window is opened",
                                         "window_off_delay_after": "Delay before the thermostat should turn on when the window is closed",
                                         "outdoor_sensor": "Outdoor temperature sensor",
-                                        "weather": "Weather entity to get the outdoor temperature"
+                                        "weather": "Weather entity to get the outdoor temperature",
+                                        "presets": "Enabled Presets",
                                         "valve_maintenance": "If your thermostat has no own maintenance mode, you can use this one",
                                         "calibration": "The sort of calibration https://better-thermostat.org/configuration#second-step",
                                         "heat_auto_swapped": "If the auto means heat for your TRV and you want to swap it",
@@ -78,6 +83,9 @@
                         "advanced": {
                                 "description": "Advanced configuration {trv}\n***Info about calibration types: https://better-thermostat.org/configuration#second-step***",
                                 "data": {
+                                        "trend_mix_trv": "Temp mix (external weight, 0–1)",
+                                        "percent_hysteresis_pts": "Hysteresis (percentage points)",
+                                        "min_update_interval_s": "Minimum update interval (seconds)",
                                         "protect_overheating": "Overheating protection?",
                                         "heat_auto_swapped": "If the auto means heat for your TRV and you want to swap it",
                                         "child_lock": "Ignore all inputs on the TRV like a child lock",
@@ -88,9 +96,13 @@
                                         "no_off_system_mode": "If your TRV doesn't support the 'off' mode, enable this to use target temperature 5°C instead"
                                 },
                                 "data_description": {
+                                        "trend_mix_trv": "Weight of external vs. TRV internal temperature used for derivative mixing. 0.0 = internal only, 1.0 = external only. Default: 0.7.",
+                                        "percent_hysteresis_pts": "Deadband around the target to avoid valve chattering. Typical: 1.0–3.0",
+                                        "min_update_interval_s": "Do not send valve updates faster than this interval to spare batteries and radio.",
                                         "protect_overheating": "Some TRVs don't close the valve completely when the temperature is reached. Or the radiator has a lot of rest heat. This can cause overheating. This option can prevent this.",
-                                        "calibration_mode": "How the calibration is calculated\n***Normal***: In this mode, the TRV internal temperature sensor is fixed by the external temperature sensor.\n***Aggresive***: In this mode, the TRV internal temperature sensor is fixed by the external temperature sensor but set much lower/higher to get a quicker boost.\n***AI Time Based***: In this mode, the TRV internal temperature sensor is fixed by the external temperature sensor, but the value is calculated by a custom algorithm to improve the TRV internal algorithm.",
-                                        "calibration": "How the calibration is applied on the TRV\n***Target Temperature Based***: Apply the calibration to the target temperature.\n***Offset Based***: Apply the calibration to the temperature offset."                                }
+                                        "calibration_mode": "How the calibration is calculated\n***Normal***: Uses your external temperature sensor to correct the TRV's internal sensor. Simple and reliable for most setups.\n***Aggressive***: Similar to Normal, but pushes the TRV harder to reach temperature faster. Good if your room heats slowly.\n***AI Time Based***: Learns your room's heating patterns over time and adjusts automatically. Balances comfort and efficiency.\n***MPC Predictive***: Advanced algorithm that predicts temperature changes and optimizes valve position. Best for stable, efficient heating with minimal overshooting. Learns your room's thermal behavior.\n***PID Controller***: Classic control method that responds to temperature errors. Good for systems with varying heating power or external disturbances.\n***TPI Controller***: Calculates heating duty cycles based on temperature difference. Simple and effective for consistent heating patterns.",
+                                        "calibration": "How the calibration is applied on the TRV\n***Target Temperature Based***: Apply the calibration to the target temperature.\n***Offset Based***: Apply the calibration to the temperature offset."
+                                }
                         }
                 }
         },
@@ -105,6 +117,14 @@
                                         }
                                 }
                         }
+                },
+                "degraded_mode": {
+                        "title": "BT: {name} - running in degraded mode",
+                        "description": "Better Thermostat is running in degraded mode because some sensors are unavailable: {sensors}\n\nThe thermostat will continue to operate with reduced functionality. For example:\n- If the room temperature sensor is unavailable, the TRV's internal sensor will be used instead.\n- If window sensors are unavailable, windows are assumed to be closed.\n- If outdoor/weather sensors are unavailable, heating will always be enabled.\n\nCheck if the affected devices have battery issues or connectivity problems."
+                },
+                "invalid_window_state": {
+                        "title": "BT: {name} - invalid window sensor state",
+                        "description": "The window sensor for Better Thermostat {name} reported an unrecognized state: {state}.\n\nExpected states are: 'on', 'off', 'true', 'false', 'open', 'closed'.\n\nPlease check your window sensor configuration."
                 }
         },
         "services": {
@@ -123,6 +143,19 @@
                 "set_temp_target_temperature": {
                         "name": "Set eco temperature",
                         "description": "Set the target temperature to a temporary like night mode, and save the old one."
+                }
+        },
+        "selector": {
+                "presets": {
+                        "options": {
+                                "eco": "Eco",
+                                "away": "Away",
+                                "boost": "Boost",
+                                "comfort": "Comfort",
+                                "home": "Home",
+                                "sleep": "Sleep",
+                                "activity": "Activity"
+                        }
                 }
         }
 }

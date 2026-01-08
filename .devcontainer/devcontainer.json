@@ -1,6 +1,6 @@
 // See https://aka.ms/vscode-remote/devcontainer.json for format details.
 {
-  "image": "mcr.microsoft.com/devcontainers/python:0-3.11",
+  "image": "mcr.microsoft.com/devcontainers/python:3.13-bookworm",
   "name": "BETTER THERMOSTAT development",
   "initializeCommand": "/bin/mkdir -p ${localWorkspaceFolder}/.haconfig && /bin/cp ${localWorkspaceFolder}/.devcontainer/configuration.yaml ${localWorkspaceFolder}/.haconfig",
   "containerUser": "1000",
@@ -27,9 +27,13 @@
         "editor.insertSpaces": true,
         "python.pythonPath": "/usr/bin/python3",
         "python.analysis.autoSearchPaths": false,
-        "python.linting.pylintEnabled": true,
-        "python.linting.enabled": true,
-        "python.formatting.provider": "black",
+        "[python]": {
+          "editor.defaultFormatter": "charliermarsh.ruff",
+          "editor.codeActionsOnSave": {
+            "source.fixAll.ruff": "explicit",
+            "source.organizeImports.ruff": "explicit"
+          }
+        },
         "editor.formatOnPaste": false,
         "editor.formatOnSave": true,
         "editor.formatOnType": true,
@@ -40,7 +44,7 @@
         "GitHub.copilot",
         "ryanluker.vscode-coverage-gutters",
         "ms-python.vscode-pylance",
-        "ms-python.pylint"
+        "charliermarsh.ruff"
       ]
     }
   },
