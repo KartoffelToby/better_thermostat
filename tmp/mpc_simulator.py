@@ -1,14 +1,15 @@
+from dataclasses import dataclass
+import logging
+import os
+import sys
+from unittest.mock import patch
+
 from custom_components.better_thermostat.utils.calibration.mpc import (
-    compute_mpc,
+    _MPC_STATES,
     MpcInput,
     MpcParams,
-    _MPC_STATES,
+    compute_mpc,
 )
-import sys
-import os
-import logging
-from dataclasses import dataclass
-from unittest.mock import patch
 
 # Add workspace root to sys.path
 sys.path.append(os.getcwd())
@@ -21,6 +22,8 @@ logger = logging.getLogger("mpc_sim")
 
 @dataclass
 class SimCase:
+    """Simulation case."""
+
     name: str
     gain: float
     loss: float
@@ -35,6 +38,7 @@ cases = [
 
 
 def run_simulation():
+    """Run simulation."""
     target_temp = 20.0
 
     start_temp = 19.8

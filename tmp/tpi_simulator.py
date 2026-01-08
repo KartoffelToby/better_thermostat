@@ -5,14 +5,15 @@ Simulates room temperature dynamics and runs TPI cycles to verify behavior.
 """
 
 import logging
-from custom_components.better_thermostat.utils.tpi import (
-    TpiParams,
-    TpiInput,
-    compute_tpi,
-    build_tpi_key,
-)
-import sys
 from pathlib import Path
+import sys
+
+from custom_components.better_thermostat.utils.tpi import (
+    TpiInput,
+    TpiParams,
+    build_tpi_key,
+    compute_tpi,
+)
 
 # Add the project root to sys.path
 ROOT_DIR = Path(__file__).resolve().parents[1]
@@ -24,6 +25,8 @@ if str(ROOT_DIR) not in sys.path:
 
 
 class MockBT:
+    """Mock BT object."""
+
     def __init__(self, target_temp):
         self.bt_target_temp = target_temp
         self.unique_id = "test_bt"
@@ -39,7 +42,7 @@ def simulate_room(
     room_gain: float = 0.5,
     ambient_loss: float = 0.1,
 ) -> float:
-    """Simple room model: heating adds heat, ambient cools."""
+    """Simulate a simple room model where heating adds heat and ambient cools."""
     heating_effect = duty_pct / 100.0 * room_gain * dt_min  # K increase
     cooling_effect = ambient_loss * dt_min  # K decrease
     return temp + heating_effect - cooling_effect

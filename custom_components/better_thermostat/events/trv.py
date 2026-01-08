@@ -155,9 +155,9 @@ async def trigger_trv_change(self, event):
             )
             _main_change = False
             if self.real_trvs[entity_id]["calibration"] == 0:
-                self.real_trvs[entity_id]["last_calibration"] = (
-                    await get_current_offset(self, entity_id)
-                )
+                self.real_trvs[entity_id][
+                    "last_calibration"
+                ] = await get_current_offset(self, entity_id)
 
     if self.ignore_states:
         return
@@ -383,7 +383,10 @@ def convert_outbound_states(self, entity_id, hvac_mode) -> dict | None:
             _new_local_calibration = calculate_calibration_local(self, entity_id)
             _new_heating_setpoint = self.bt_target_temp
 
-        elif _calibration_type == CalibrationType.TARGET_TEMP_BASED:
+        elif _calibration_type in (
+            CalibrationType.TARGET_TEMP_BASED,
+            CalibrationType.DIRECT_VALVE_BASED,
+        ):
             if _calibration_mode == CalibrationMode.NO_CALIBRATION:
                 _new_heating_setpoint = self.bt_target_temp
             else:

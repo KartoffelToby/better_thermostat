@@ -11,9 +11,10 @@ is inside the `else` branch and gets skipped. This means:
 - Devices without OFF mode are not handled correctly
 """
 
-import pytest
 from unittest.mock import MagicMock
+
 from homeassistant.components.climate import HVACMode
+import pytest
 
 
 @pytest.fixture
