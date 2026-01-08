@@ -2,7 +2,7 @@
 layout: default
 title: Configuration
 nav_order: 2
-has_children: false
+has_children: true
 permalink: configuration
 ---
 
@@ -13,7 +13,6 @@ permalink: configuration
 or click on the button below:
 
 <a href="https://my.home-assistant.io/redirect/config_flow_start/?domain=better_thermostat" target="_blank"><img src="https://my.home-assistant.io/badges/config_flow_start.svg" alt="Open your Home Assistant instance and start setting up a new integration." /></a>
-
 
 # Configuration
 
@@ -27,7 +26,7 @@ or click on the button below:
 
 **Temperature sensor** This is a required field. This is the temperature sensor you want to use to control the real climate entity. It's used to get a more accurate temperature reading than the sensor in the real climate entity because you can place it in the middle of the room and not close to the radiator.
 
-**Humidity sensor** This is an optional field. For now, the humidity is only used to display it in the UI. In the future, it will be used to make a better calculation of the temperature or set it up to a *feels-like* temperature.
+**Humidity sensor** This is an optional field. For now, the humidity is only used to display it in the UI. In the future, it will be used to make a better calculation of the temperature or set it up to a _feels-like_ temperature.
 
 **If you have an outdoor sensor...** This field is optional. If you have an outdoor sensor you can use it to get the outdoor temperatures, this is used to set the thermostat on or off if the threshold (the last option in this screen) is reached. It uses a mean of the last 3 days and checks it every morning at 5:00 AM.
 
@@ -61,20 +60,29 @@ group:
 
 **Calibration Type** This is a required field. How the calibration should be applied on the TRV (Target temp or offset)
 
-- ***Target Temperature Based***: Apply the calibration to the target temperature.
+- **_Target Temperature Based_**: Apply the calibration to the target temperature.
 
-- ***Offset Based***: Apply the calibration to the offset. This will not be an option if your TRV doesn't support offset mode.
+- **_Offset Based_**: Apply the calibration to the offset. This will not be an option if your TRV doesn't support offset mode.
 
+**Calibration Mode** This is a required field. It determines how the calibration should be calculated
 
+Better Thermostat offers several algorithms to control your heating:
 
-**Calibration Mode**  This is a required field. It determines how the calibration should be calculated
+- **_Normal_**: Simple and reliable - uses your external sensor to correct the TRV's internal sensor
+- **_Aggressive_**: Pushes the TRV harder for faster heating (good for slow-heating rooms)
+- **Time Based\_**: **[Recommended]** Learns your room's heating patterns and adapts automatically
+- **_MPC Predictive_**: Advanced algorithm that predicts temperature changes for optimal efficiency
+- **_PID Controller_**: Classic control method that responds well to varying heating conditions
+- **_TPI Controller_**: Simple duty-cycle based control for consistent heating
 
-- ***Normal***: In this mode the TRV internal temperature sensor is fixed by the external temperature sensor.
+**→ [Learn more about each algorithm and which one to choose](algorithms)**
 
-- ***Aggressive***: In this mode the TRV internal temperature sensor is fixed by the external temperature sensor but set much lower/higher to get a quicker boost.
+**Quick guide:**
 
-- ***AI Time Based***: In this mode, the external temperature sensor fixes the TRV internal temperature sensor, but a custom algorithm calculates the value to improve the TRV's internal algorithm.
-
+- First time user? → Start with **Time Based** (default)
+- Room heats slowly? → Try **Aggressive**
+- Temperature overshoots? → Try **MPC Predictive**
+- Want fine control? → Try **PID Controller**
 
 **Overheating protection** This should only be checked if you have any problems with strong overheating.
 
