@@ -4,6 +4,7 @@ Tests the degraded mode functionality including entity availability checks,
 optional vs critical sensor classification, and degraded mode state management.
 """
 
+import inspect
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -20,6 +21,16 @@ def mock_hass():
     """Create a mock Home Assistant instance."""
     hass = MagicMock()
     hass.states = MagicMock()
+
+    # watcher.py schedules battery checks via hass.async_create_task().
+    # In tests, we don't want to actually run coroutines, but we *must* close
+    # them to avoid "coroutine was never awaited" warnings.
+    def _async_create_task(coro):
+        if inspect.iscoroutine(coro):
+            coro.close()
+        return MagicMock()
+
+    hass.async_create_task = MagicMock(side_effect=_async_create_task)
     return hass
 
 

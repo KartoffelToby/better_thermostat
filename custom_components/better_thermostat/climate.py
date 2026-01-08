@@ -1694,6 +1694,7 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
                     if isinstance(calibration_value, str):
                         calibration_mode = calibration_value.lower()
                         if calibration_mode in (
+                            CalibrationMode.DEFAULT.value,
                             CalibrationMode.MPC_CALIBRATION.value,
                             CalibrationMode.TPI_CALIBRATION.value,
                             CalibrationMode.PID_CALIBRATION.value,

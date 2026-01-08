@@ -74,6 +74,10 @@ CALIBRATION_MODE_SELECTOR = selector.SelectSelector(
     selector.SelectSelectorConfig(
         options=[
             selector.SelectOptionDict(
+                value=CalibrationMode.DEFAULT,
+                label="External Sensor Offset Only (Default)",
+            ),
+            selector.SelectOptionDict(
                 value=CalibrationMode.MPC_CALIBRATION, label="(AI) MPC Predictive"
             ),
             selector.SelectOptionDict(
