@@ -4,47 +4,43 @@ import logging
 
 from homeassistant.components.climate.const import HVACAction, HVACMode
 
-from custom_components.better_thermostat.utils.const import (
-    CalibrationMode,
-    CONF_PROTECT_OVERHEATING,
-)
-
-from custom_components.better_thermostat.utils.helpers import (
-    convert_to_float,
-    round_by_step,
-    heating_power_valve_position,
-)
-
 from custom_components.better_thermostat.model_fixes.model_quirks import (
     fix_local_calibration,
     fix_target_temperature_calibration,
 )
-
 from custom_components.better_thermostat.utils.calibration.mpc import (
     MpcInput,
     MpcParams,
     build_mpc_key,
     compute_mpc,
 )
-
+from custom_components.better_thermostat.utils.calibration.pid import (
+    DEFAULT_PID_AUTO_TUNE,
+    DEFAULT_PID_KD,
+    DEFAULT_PID_KI,
+    DEFAULT_PID_KP,
+    PIDParams,
+    build_pid_key,
+    compute_pid,
+    get_pid_state,
+)
 from custom_components.better_thermostat.utils.calibration.tpi import (
     TpiInput,
     TpiParams,
     build_tpi_key,
     compute_tpi,
 )
-
-from custom_components.better_thermostat.utils.calibration.pid import (
-    PIDParams,
-    compute_pid,
-    get_pid_state,
-    DEFAULT_PID_KP,
-    DEFAULT_PID_KI,
-    DEFAULT_PID_KD,
-    DEFAULT_PID_AUTO_TUNE,
+from custom_components.better_thermostat.utils.const import (
+    CONF_PROTECT_OVERHEATING,
+    CalibrationMode,
+    CalibrationType,
 )
-
-from custom_components.better_thermostat.utils.calibration.pid import build_pid_key
+from custom_components.better_thermostat.utils.helpers import (
+    convert_to_float,
+    heating_power_valve_position,
+    normalize_calibration_mode,
+    round_by_step,
+)
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -70,8 +66,92 @@ def _get_current_outdoor_temp(self) -> float | None:
     return None
 
 
+def _get_current_solar_intensity(self) -> float:
+    """Estimate solar intensity (0.0 to 1.0) based on weather entity data."""
+    if self.weather_entity is None:
+        return 0.0
+
+    state = self.hass.states.get(self.weather_entity)
+    if not state or not state.attributes:
+        return 0.0
+
+    def _get_val(data, key):
+        if not isinstance(data, dict):
+            return None
+        return data.get(key)
+
+    # Prepare data sources: Attributes, and optionally the first Forecast
+    sources = [state.attributes]
+
+    # Check forecast if available (common in many weather integrations)
+    forecast = state.attributes.get("forecast")
+    if isinstance(forecast, list) and len(forecast) > 0:
+        # We take the first forecast item as it's typically the current or next hour
+        sources.append(forecast[0])
+
+    # 1. Cloud coverage (0-100) -> Lower is better
+    for source in sources:
+        cc = _get_val(source, "cloud_coverage")
+        if cc is not None:
+            try:
+                # 0% clouds = 1.0 intensity, 100% clouds = 0.0 intensity
+                return max(0.0, min(1.0, (100.0 - float(cc)) / 100.0))
+            except (ValueError, TypeError):
+                pass
+
+    # 2. UV Index (0-10+) -> Higher is better
+    for source in sources:
+        cc = _get_val(source, "cloud_coverage")
+        if cc is not None:
+            try:
+                # 0% clouds = 1.0 intensity, 100% clouds = 0.0 intensity
+                return max(0.0, min(1.0, (100.0 - float(cc)) / 100.0))
+            except (ValueError, TypeError):
+                pass
+
+    # 2. UV Index (0-10+) -> Higher is better
+    for source in sources:
+        uv = _get_val(source, "uv_index")
+        if uv is not None:
+            try:
+                # Normalize UV index (approx 0-10 range)
+                return max(0.0, min(1.0, float(uv) / 10.0))
+            except (ValueError, TypeError):
+                pass
+
+    # 3. Weather condition mapping
+    # 'sunny', 'clear-night' -> High potential (during day)
+    # 'partlycloudy' -> Medium
+    # 'cloudy', 'fog', 'rain', etc. -> Low
+    condition = state.state
+    # If state is numeric or unknown, try condition from forecast
+    if condition in (None, "unknown", "") and len(sources) > 1:
+        condition = _get_val(sources[1], "condition")
+
+    if condition in ("sunny", "clear", "clear-night", "windy", "exceptional"):
+        return 1.0
+    if condition in ("partlycloudy",):
+        return 0.7
+    if condition in ("cloudy",):
+        return 0.4
+
+    return 0.1  # Default low for rain/snow/fog etc
+
+
 def _supports_direct_valve_control(self, entity_id: str) -> bool:
     """Return True if the TRV supports writing a valve percentage."""
+
+    _calibration_type = self.real_trvs[entity_id]["advanced"].get(
+        "calibration", CalibrationType.TARGET_TEMP_BASED
+    )
+    if _calibration_type != CalibrationType.DIRECT_VALVE_BASED:
+        _LOGGER.debug(
+            "better_thermostat %s: TRV %s does not support direct valve control due to calibration type %s",
+            self.device_name,
+            entity_id,
+            _calibration_type,
+        )
+        return False
 
     trv_data = self.real_trvs.get(entity_id) or {}
     valve_entity = trv_data.get("valve_position_entity")
@@ -110,6 +190,16 @@ def _compute_mpc_balance(self, entity_id: str):
     mpc_current_temp = self.cur_temp
     mpc_filtered_temp = self.cur_temp_filtered
 
+    _is_day = True
+    if self.hass:
+        _sun = self.hass.states.get("sun.sun")
+        if _sun and _sun.state == "below_horizon":
+            _is_day = False
+
+    _solar_intensity = 0.0
+    if _is_day:
+        _solar_intensity = _get_current_solar_intensity(self)
+
     try:
         mpc_output = compute_mpc(
             MpcInput(
@@ -124,6 +214,9 @@ def _compute_mpc_balance(self, entity_id: str):
                 heating_allowed=True,
                 bt_name=self.device_name,
                 entity_id=entity_id,
+                outdoor_temp_C=_get_current_outdoor_temp(self),
+                is_day=_is_day,
+                solar_intensity=_solar_intensity,
             ),
             params,
         )
@@ -278,6 +371,7 @@ def _compute_pid_balance(self, entity_id: str):
             trv_state.get("current_temperature"),
             self.temp_slope,
             key,
+            inp_current_temp_ema_C=self.cur_temp_filtered,
         )
         # Schedule saving of updated PID states
         self.schedule_save_pid_state()
@@ -335,31 +429,42 @@ def calculate_calibration_local(self, entity_id) -> float | None:
     def _convert_to_float(value):
         return convert_to_float(value, self.name, _context)
 
-    if self.cur_temp is None or self.bt_target_temp is None:
+    _calibration_mode = normalize_calibration_mode(
+        self.real_trvs[entity_id]["advanced"].get(
+            "calibration_mode", CalibrationMode.MPC_CALIBRATION
+        )
+    )
+    if _calibration_mode is None:
+        _calibration_mode = CalibrationMode.MPC_CALIBRATION
+
+    # DEFAULT: compute a pure offset from external sensor vs TRV temperature.
+    # No predictive/controller modes, no tolerance/overheating heuristics.
+    if _calibration_mode == CalibrationMode.DEFAULT:
+        if self.cur_temp is None:
+            return None
+    elif self.cur_temp is None or self.bt_target_temp is None:
         return None
 
-    # Add tolerance check
     _cur_external_temp = self.cur_temp
     _cur_target_temp = self.bt_target_temp
-    _within_tolerance = _cur_external_temp >= (
-        _cur_target_temp - self.tolerance
-    ) and _cur_external_temp <= (_cur_target_temp + self.tolerance)
 
-    _calibration_mode = self.real_trvs[entity_id]["advanced"].get(
-        "calibration_mode", CalibrationMode.DEFAULT
-    )
+    if _calibration_mode != CalibrationMode.DEFAULT:
+        # Add tolerance check
+        _within_tolerance = _cur_external_temp >= (
+            _cur_target_temp - self.tolerance
+        ) and _cur_external_temp <= (_cur_target_temp + self.tolerance)
 
-    if _within_tolerance:
-        # When within tolerance, don't adjust calibration but keep MPC/TPI/PID valve data fresh
-        if _calibration_mode == CalibrationMode.MPC_CALIBRATION:
-            _compute_mpc_balance(self, entity_id)
-        elif _calibration_mode == CalibrationMode.TPI_CALIBRATION:
-            _compute_tpi_balance(self, entity_id)
-        elif _calibration_mode == CalibrationMode.PID_CALIBRATION:
-            _compute_pid_balance(self, entity_id)
-        else:
-            self.real_trvs[entity_id].pop("calibration_balance", None)
-        return self.real_trvs[entity_id]["last_calibration"]
+        if _within_tolerance:
+            # When within tolerance, don't adjust calibration but keep MPC/TPI/PID valve data fresh
+            if _calibration_mode == CalibrationMode.MPC_CALIBRATION:
+                _compute_mpc_balance(self, entity_id)
+            elif _calibration_mode == CalibrationMode.TPI_CALIBRATION:
+                _compute_tpi_balance(self, entity_id)
+            elif _calibration_mode == CalibrationMode.PID_CALIBRATION:
+                _compute_pid_balance(self, entity_id)
+            else:
+                self.real_trvs[entity_id].pop("calibration_balance", None)
+            return self.real_trvs[entity_id]["last_calibration"]
 
     _cur_trv_temp_s = self.real_trvs[entity_id]["current_temperature"]
     _calibration_step = self.real_trvs[entity_id]["local_calibration_step"]
@@ -389,7 +494,8 @@ def calculate_calibration_local(self, entity_id) -> float | None:
         return None
 
     _cur_external_temp = float(_cur_external_temp)
-    _cur_target_temp = float(_cur_target_temp)
+    if _calibration_mode != CalibrationMode.DEFAULT:
+        _cur_target_temp = float(_cur_target_temp)
     _cur_trv_temp_f = float(_cur_trv_temp_f)
     _current_trv_calibration = float(_current_trv_calibration)
     _calibration_step = float(_calibration_step)
@@ -400,7 +506,10 @@ def calculate_calibration_local(self, entity_id) -> float | None:
 
     _mpc_result = None
     _mpc_use_valve = False
-    if _calibration_mode == CalibrationMode.MPC_CALIBRATION:
+    if _calibration_mode == CalibrationMode.DEFAULT:
+        # Ensure no valve/controller data is carried over.
+        self.real_trvs[entity_id].pop("calibration_balance", None)
+    elif _calibration_mode == CalibrationMode.MPC_CALIBRATION:
         _mpc_result, _mpc_use_valve = _compute_mpc_balance(self, entity_id)
         if _mpc_use_valve:
             _new_trv_calibration = _current_trv_calibration
@@ -455,6 +564,7 @@ def calculate_calibration_local(self, entity_id) -> float | None:
         return None
 
     _skip_post_adjustments = _calibration_mode in (
+        CalibrationMode.DEFAULT,
         CalibrationMode.MPC_CALIBRATION,
         CalibrationMode.TPI_CALIBRATION,
         CalibrationMode.PID_CALIBRATION,
@@ -531,21 +641,23 @@ def calculate_calibration_local(self, entity_id) -> float | None:
 
     _new_trv_calibration = fix_local_calibration(self, entity_id, _new_trv_calibration)
 
-    _overheating_protection = self.real_trvs[entity_id]["advanced"].get(
-        CONF_PROTECT_OVERHEATING, False
-    )
+    if not _skip_post_adjustments:
+        _overheating_protection = self.real_trvs[entity_id]["advanced"].get(
+            CONF_PROTECT_OVERHEATING, False
+        )
 
-    # Additional adjustment if overheating protection is enabled
-    if not _skip_post_adjustments and _overheating_protection is True:
-        if self.attr_hvac_action == HVACAction.IDLE:
-            _new_trv_calibration += (
-                _cur_external_temp - (_cur_target_temp + self.tolerance)
-            ) * 8.0  # Reduced from 10.0 since we already add 2.0
+        # Additional adjustment if overheating protection is enabled
+        if _overheating_protection is True:
+            if self.attr_hvac_action == HVACAction.IDLE:
+                _new_trv_calibration += (
+                    _cur_external_temp - (_cur_target_temp + self.tolerance)
+                ) * 8.0  # Reduced from 10.0 since we already add 2.0
 
     # Adjust based on the step size allowed by the local calibration entity
-    _new_trv_calibration = round_by_step(_new_trv_calibration, _calibration_step)
-    if _new_trv_calibration is None:
+    _rounded_calibration = round_by_step(_new_trv_calibration, _calibration_step)
+    if _rounded_calibration is None:
         return None
+    _new_trv_calibration = _rounded_calibration
 
     # limit new setpoint within min/max of the TRV's range
     t_min = _convert_to_float(self.real_trvs[entity_id]["local_calibration_min"])
@@ -560,10 +672,14 @@ def calculate_calibration_local(self, entity_id) -> float | None:
     if _new_trv_calibration is None:
         return None
 
-    _new_trv_calibration = round(_new_trv_calibration, 1)
-    _cur_external_temp = round(_cur_external_temp, 1)
-    _cur_trv_temp_f = round(_cur_trv_temp_f, 1)
-    _current_trv_calibration = round(_current_trv_calibration, 1)
+    # Round to 2 decimals for logging only - the actual calibration value
+    # is already rounded by round_by_step based on TRV's calibration_step.
+    # Avoid rounding to 1 decimal as this caused precision loss issues
+    # (see issues #1792, #1789, #1785).
+    _log_calibration: float = round(_new_trv_calibration, 2)
+    _log_external_temp: float = round(_cur_external_temp, 2)
+    _log_trv_temp: float = round(_cur_trv_temp_f, 2)
+    _log_current_calibration: float = round(_current_trv_calibration, 2)
 
     _logmsg = (
         "better_thermostat %s: %s - new local calibration: %s | external_temp: %s, "
@@ -574,10 +690,10 @@ def calculate_calibration_local(self, entity_id) -> float | None:
         _logmsg,
         self.device_name,
         entity_id,
-        _new_trv_calibration,
-        _cur_external_temp,
-        _cur_trv_temp_f,
-        _current_trv_calibration,
+        _log_calibration,
+        _log_external_temp,
+        _log_trv_temp,
+        _log_current_calibration,
     )
 
     return _new_trv_calibration
@@ -604,16 +720,20 @@ def calculate_calibration_setpoint(self, entity_id) -> float | None:
     def _convert_to_float(value):
         return convert_to_float(value, self.name, _context)
 
+    _calibration_mode = normalize_calibration_mode(
+        self.real_trvs[entity_id]["advanced"].get(
+            "calibration_mode", CalibrationMode.MPC_CALIBRATION
+        )
+    )
+    if _calibration_mode is None:
+        _calibration_mode = CalibrationMode.MPC_CALIBRATION
+
     if self.cur_temp is None or self.bt_target_temp is None:
         return None
 
     # Add tolerance check
     _cur_external_temp = float(self.cur_temp)
     _cur_target_temp = float(self.bt_target_temp)
-
-    _calibration_mode = self.real_trvs[entity_id]["advanced"].get(
-        "calibration_mode", CalibrationMode.DEFAULT
-    )
 
     _cur_trv_temp_s = self.real_trvs[entity_id]["current_temperature"]
     _cur_trv_temp = _convert_to_float(_cur_trv_temp_s)
@@ -632,7 +752,9 @@ def calculate_calibration_setpoint(self, entity_id) -> float | None:
 
     _mpc_result = None
     _mpc_use_valve = False
-    if _calibration_mode == CalibrationMode.MPC_CALIBRATION:
+    if _calibration_mode == CalibrationMode.DEFAULT:
+        self.real_trvs[entity_id].pop("calibration_balance", None)
+    elif _calibration_mode == CalibrationMode.MPC_CALIBRATION:
         _mpc_result, _mpc_use_valve = _compute_mpc_balance(self, entity_id)
         if _mpc_use_valve:
             _calibrated_setpoint = _cur_target_temp
@@ -681,6 +803,7 @@ def calculate_calibration_setpoint(self, entity_id) -> float | None:
         self.real_trvs[entity_id].pop("calibration_balance", None)
 
     _skip_post_adjustments = _calibration_mode in (
+        CalibrationMode.DEFAULT,
         CalibrationMode.MPC_CALIBRATION,
         CalibrationMode.TPI_CALIBRATION,
         CalibrationMode.PID_CALIBRATION,
@@ -759,20 +882,22 @@ def calculate_calibration_setpoint(self, entity_id) -> float | None:
         self, entity_id, _calibrated_setpoint
     )
 
-    _overheating_protection = self.real_trvs[entity_id]["advanced"].get(
-        CONF_PROTECT_OVERHEATING, False
-    )
+    if not _skip_post_adjustments:
+        _overheating_protection = self.real_trvs[entity_id]["advanced"].get(
+            CONF_PROTECT_OVERHEATING, False
+        )
 
-    # Additional adjustment if overheating protection is enabled
-    if not _skip_post_adjustments and _overheating_protection is True:
-        if self.attr_hvac_action == HVACAction.IDLE:
-            _calibrated_setpoint -= (
-                _cur_external_temp - (_cur_target_temp + self.tolerance)
-            ) * 8.0  # Reduced from 10.0 since we already subtract 2.0
+        # Additional adjustment if overheating protection is enabled
+        if _overheating_protection is True:
+            if self.attr_hvac_action == HVACAction.IDLE:
+                _calibrated_setpoint -= (
+                    _cur_external_temp - (_cur_target_temp + self.tolerance)
+                ) * 8.0  # Reduced from 10.0 since we already subtract 2.0
 
-    _calibrated_setpoint = round_by_step(_calibrated_setpoint, _trv_temp_step)
-    if _calibrated_setpoint is None:
+    _rounded_setpoint = round_by_step(_calibrated_setpoint, _trv_temp_step)
+    if _rounded_setpoint is None:
         return None
+    _calibrated_setpoint = _rounded_setpoint
 
     # limit new setpoint within min/max of the TRV's range
     t_min = _convert_to_float(self.real_trvs[entity_id]["min_temp"])

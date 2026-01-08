@@ -5,18 +5,18 @@ Goals:
 - Provide a classic PID controller with conservative auto-tuning for temperature control.
 - Compute valve opening percentage based on temperature error and trends.
 
-Notes:
+Notes
+-----
 - This module only computes recommendations; writing to the device stays in adapters/controlling.
 - Lightweight per-room state by a `key` (e.g., entity_id): EMA, hysteresis, rate limit.
 """
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
-from typing import Optional, Dict, Any
-from time import monotonic
+from dataclasses import dataclass
 import logging
-
+from time import monotonic
+from typing import Any
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -46,13 +46,16 @@ class PIDState:
     ema_slope: float | None = None
     # Slew-rate limiter
     last_percent: float = 0.0
+    # Hold-time
+    last_output_change_ts: float = 0.0
+    last_target_temp: float | None = None
 
 
 # --- PID Parameters -----------------------------------------------
 
-DEFAULT_PID_KP = 20.0
-DEFAULT_PID_KI = 0.02
-DEFAULT_PID_KD = 400.0
+DEFAULT_PID_KP = 60.0
+DEFAULT_PID_KI = 0.01
+DEFAULT_PID_KD = 2000.0
 DEFAULT_PID_AUTO_TUNE = True
 
 
@@ -68,35 +71,36 @@ class PIDParams:
     ki: float = DEFAULT_PID_KI
     kd: float = DEFAULT_PID_KD
     # Integrator-Klammer (Anti-Windup) in %-Punkten
-    i_min: float = -60.0
-    i_max: float = 60.0
+    i_min: float = -100.0
+    i_max: float = 100.0
     # Derivative on measurement
     d_on_measurement: bool = True
-    trend_mix_trv: float = 0.7
     d_smoothing_alpha: float = 0.5
-    # Valve slew-rate limiter (% per update)
-    slew_rate: float = 5.0
     # Auto-Tuning
     auto_tune: bool = DEFAULT_PID_AUTO_TUNE
     tune_min_interval_s: float = 300.0
-    overshoot_threshold_K: float = 0.3
+    overshoot_threshold_K: float = 0.2
     kp_min: float = 10.0
     kp_max: float = 500.0
     kp_step_mul: float = 0.9
+    kp_step_mul_up: float = 1.1
     kd_min: float = 100.0
     kd_max: float = 10000.0
     kd_step_mul: float = 1.1
     ki_min: float = 0.001
-    ki_max: float = 1.0
+    ki_max: float = 2.0
     ki_step_mul_up: float = 1.2
     ki_step_mul_down: float = 0.8
     sluggish_slope_threshold_K_min: float = 0.005
     steady_state_band_K: float = 0.1
+    # Hold-time
+    min_hold_time_s: float = 300.0
+    big_change_threshold_pct: float = 33.0
 
 
 # --- Global State Storage -----------------------------------------------
 
-_PID_STATES: Dict[str, PIDState] = {}
+_PID_STATES: dict[str, PIDState] = {}
 
 
 # --- Helper Functions -----------------------------------------------
@@ -117,6 +121,7 @@ def compute_pid(
     inp_trv_temp_C: float | None,
     inp_temp_slope_K_per_min: float | None,
     key: str,
+    inp_current_temp_ema_C: float | None = None,
 ) -> tuple[float, dict[str, Any]]:
     """Compute PID-based valve opening percentage.
 
@@ -127,8 +132,10 @@ def compute_pid(
         inp_trv_temp_C: TRV internal temperature
         inp_temp_slope_K_per_min: Temperature slope
         key: Unique key for state storage
+        inp_current_temp_ema_C: Optional EMA-filtered external temperature for learning
 
-    Returns:
+    Returns
+    -------
         Tuple of (percent_open, debug_info)
     """
     now = monotonic()
@@ -146,15 +153,21 @@ def compute_pid(
         st.pid_kd or 0.0,
     )
 
+    # Determine effective current temperature (prefer EMA)
+    current_temp = inp_current_temp_C
+    if inp_current_temp_ema_C is not None:
+        current_temp = inp_current_temp_ema_C
+
     # Delta T
-    if inp_target_temp_C is None or inp_current_temp_C is None:
+    if inp_target_temp_C is None or current_temp is None:
         # Without temperatures we can only keep the previous value
         percent = 0.0
         pid_dbg = {"mode": "pid", "error": "no_temps"}
         return percent, pid_dbg
 
-    delta_T = inp_target_temp_C - inp_current_temp_C
+    delta_T = inp_target_temp_C - current_temp
     e = delta_T
+
     # Update previous_abs_error before setting current
     st.previous_abs_error = st.last_abs_error
     st.last_abs_error = abs(delta_T)
@@ -186,20 +199,8 @@ def compute_pid(
 
     if params.d_on_measurement:
         if dt > 0:
-            # Mischung aus externer und TRV-interner Temperatur für die Ableitung
-            try:
-                mix = max(0.0, min(1.0, float(params.trend_mix_trv)))
-            except (TypeError, ValueError):
-                mix = 0.0
-            meas_now = None
-            if inp_current_temp_C is not None:
-                if inp_trv_temp_C is not None:
-                    # mix = Anteil EXTERN, (1-mix) = Anteil INTERN
-                    meas_now = (mix * inp_current_temp_C) + (
-                        (1.0 - mix) * inp_trv_temp_C
-                    )
-                else:
-                    meas_now = inp_current_temp_C
+            # Use effective current temperature (EMA) for derivative
+            meas_now = current_temp
             if meas_now is not None:
                 # EMA-Glättung nur für den D-Kanal
                 try:
@@ -214,12 +215,11 @@ def compute_pid(
                     d_meas = (smoothed - prev) / dt
                     d_term = -float(st.pid_kd) * d_meas
                 # Update des gespeicherten (geglätteten) Messwerts erfolgt nach u-Berechnung unten
-    else:
-        # Derivative on error (benötigt letzten Fehler – approximiert über letzten Messwert)
-        if dt > 0 and st.pid_last_meas is not None:
-            last_e = inp_target_temp_C - st.pid_last_meas
-            d_err = (e - last_e) / dt
-            d_term = float(st.pid_kd) * d_err
+    # Derivative on error (benötigt letzten Fehler – approximiert über letzten Messwert)
+    elif dt > 0 and st.pid_last_meas is not None:
+        last_e = inp_target_temp_C - st.pid_last_meas
+        d_err = (e - last_e) / dt
+        d_term = float(st.pid_kd) * d_err
 
     # Aktualisiere die Slope-EMA auch im PID-Modus (für Logging/Diagnose)
     try:
@@ -265,8 +265,7 @@ def compute_pid(
         cur_sign = 1 if e > 0 else (-1 if e < 0 else 0)
         if (
             st.last_error_sign is not None
-            and cur_sign != 0
-            and cur_sign != st.last_error_sign
+            and cur_sign not in (0, st.last_error_sign)
             and abs(delta_T or 0.0) <= params.steady_state_band_K
         ):
             decay = 0.8  # 20% Entlastung
@@ -280,28 +279,56 @@ def compute_pid(
     # Integrator-Zustand nur übernehmen, wenn nicht blockiert
     if not aw_blocked:
         st.pid_integral = i_term
-    # Valve slew-rate limiter
+
+    # --- Slew-Rate & Hold-Time Logic ---
+    # 1. Calculate raw desired change (unlimited)
     percent_unlimited = max(0.0, min(100.0, u))
-    change = percent_unlimited - st.last_percent
-    max_change = params.slew_rate
-    if abs(change) > max_change:
-        change = max_change if change > 0 else -max_change
-    percent = st.last_percent + change
-    # Clamp auf 0..100
+    raw_change = percent_unlimited - st.last_percent
+
+    # 2. Check for Big Change (Bypass filters)
+    is_big_change = abs(raw_change) >= params.big_change_threshold_pct
+
+    # 3. Check Target Change
+    target_changed = False
+    if inp_target_temp_C is not None:
+        if (
+            st.last_target_temp is not None
+            and abs(inp_target_temp_C - st.last_target_temp) > 0.05
+        ):
+            target_changed = True
+        st.last_target_temp = inp_target_temp_C
+
+    # 4. Hold-Time Check
+    time_since_change = now - st.last_output_change_ts
+    blocked_by_hold = False
+
+    if (
+        not target_changed
+        and not is_big_change
+        and time_since_change < params.min_hold_time_s
+        and st.last_output_change_ts > 0
+    ):
+        blocked_by_hold = True
+
+    if blocked_by_hold:
+        percent = st.last_percent
+    else:
+        # 5. No Slew Rate - apply calculated value directly
+        percent = percent_unlimited
+
+        # Update timestamp if value changed significantly or it's the first run
+        if abs(percent - st.last_percent) >= 0.1 or st.last_output_change_ts == 0:
+            st.last_output_change_ts = now
+
+    # Clamp final result
     percent = max(0.0, min(100.0, percent))
+
     # Update last_percent
     st.last_percent = percent
 
-    # PID-States aktualisieren (für D-Anteil gemischten Messwert speichern)
+    # PID-States aktualisieren (für D-Anteil Messwert speichern)
     if params.d_on_measurement:
-        base = inp_current_temp_C
-        try:
-            mix = max(0.0, min(1.0, float(params.trend_mix_trv)))
-        except (TypeError, ValueError):
-            mix = 0.0
-        if base is not None and inp_trv_temp_C is not None:
-            # mix = Anteil EXTERN auf base; (1-mix) = Anteil INTERN
-            base = (mix * base) + ((1.0 - mix) * inp_trv_temp_C)
+        base = current_temp
         try:
             a = max(0.0, min(1.0, float(params.d_smoothing_alpha)))
         except (TypeError, ValueError):
@@ -310,7 +337,7 @@ def compute_pid(
             prev = st.pid_last_meas
             st.pid_last_meas = base if prev is None else ((1.0 - a) * prev + a * base)
     else:
-        st.pid_last_meas = inp_current_temp_C
+        st.pid_last_meas = current_temp
     st.pid_last_time = now
 
     # Fehler-Vorzeichen für nächsten Zyklus merken
@@ -328,12 +355,6 @@ def compute_pid(
     # Debug-Werte ablegen
     try:
         # Basale Debug-Infos (auch für Graphen)
-        # Mischgewichte für Transparenz berechnen
-        try:
-            _mix_ext = max(0.0, min(1.0, float(params.trend_mix_trv)))
-        except (TypeError, ValueError):
-            _mix_ext = None
-        _mix_int = (1.0 - _mix_ext) if isinstance(_mix_ext, float) else None
         pid_dbg = {
             "mode": "pid",
             "dt_s": _r(dt, 2),
@@ -351,14 +372,17 @@ def compute_pid(
             # Slope (Input und EMA)
             "slope_in": _r(inp_temp_slope_K_per_min, 3),
             "slope_ema": _r(st.ema_slope, 3),
-            # Messwerte & Mischanteile
-            "meas_external_C": _r(inp_current_temp_C, 2),
+            # Messwerte
+            "meas_current_used": _r(current_temp, 2),
+            "meas_external_raw": _r(inp_current_temp_C, 2),
             "meas_trv_C": _r(inp_trv_temp_C, 2),
-            "mix_w_internal": (_r(_mix_int, 2) if _mix_int is not None else None),
-            "mix_w_external": (_r(_mix_ext, 2) if _mix_ext is not None else None),
-            "meas_blend_C": _r(meas_now, 2),
             "meas_smooth_C": _r(smoothed, 2),
             "d_meas_per_s": _r(d_meas, 4),
+            "hold_time_rem": (
+                int(max(0, params.min_hold_time_s - (now - st.last_output_change_ts)))
+                if st.last_output_change_ts > 0
+                else 0
+            ),
         }
     except Exception:
         pid_dbg = {"mode": "pid", "error": "debug_failed"}
@@ -414,19 +438,23 @@ def _auto_tune_pid(
         ki = float(st.pid_ki or params.ki)
         kd = float(st.pid_kd or params.kd)
 
-        # 1) Overshoot → kp leicht runter, kd leicht rauf
+        # 1) Overshoot → kp leicht runter, kd leicht rauf, ki leicht runter
         if overshoot:
             kp = max(params.kp_min, kp * params.kp_step_mul)
             kd = min(params.kd_max, kd * params.kd_step_mul)
+            ki = max(params.ki_min, ki * params.ki_step_mul_down)
             tuned = True
 
-        # 2) Trägheit: ΔT deutlich > band_near, aber Slope sehr klein -> Ki leicht rauf (only near steady-state)
+        # 2) Trägheit: ΔT deutlich > band_near, aber Slope sehr klein -> Ki rauf, Kp rauf
+        # Use EMA slope if available for more stable tuning
+        check_slope = st.ema_slope if st.ema_slope is not None else slope
         if (
             delta_T > params.steady_state_band_K
-            and abs(slope) < params.sluggish_slope_threshold_K_min
-            and abs(delta_T) < 1.0  # Restrict to near steady-state
+            and abs(check_slope) < params.sluggish_slope_threshold_K_min
+            and percent < 95.0
         ):
             ki = min(params.ki_max, max(params.ki_min, ki * params.ki_step_mul_up))
+            kp = min(params.kp_max, max(params.kp_min, kp * params.kp_step_mul_up))
             tuned = True
 
         # 3) Quasi stationär: |ΔT| < steady_state_band und geringe Stellgröße → Ki leicht runter
@@ -458,6 +486,28 @@ def get_pid_state(key: str) -> PIDState | None:
     return _PID_STATES.get(key)
 
 
+def seed_pid_gains(key: str, kp: float, ki: float, kd: float) -> bool:
+    """Seed PID gains for a given key, creating state if missing.
+
+    Args:
+        key: PID state key (format: {unique_id}:{entity_id}:{bucket})
+        kp: Proportional gain
+        ki: Integral gain
+        kd: Derivative gain
+
+    Returns
+    -------
+        True if gains were successfully seeded
+    """
+    if key not in _PID_STATES:
+        _PID_STATES[key] = PIDState()
+    state = _PID_STATES[key]
+    state.pid_kp = kp
+    state.pid_ki = ki
+    state.pid_kd = kd
+    return True
+
+
 # --- Key Builder Helper -----------------------------------------------
 
 
@@ -471,7 +521,8 @@ def build_pid_key(self, entity_id: str) -> str:
         self: BetterThermostat instance with unique_id and bt_target_temp
         entity_id: TRV entity ID
 
-    Returns:
+    Returns
+    -------
         PID key string
     """
     try:
@@ -516,6 +567,8 @@ def export_pid_states(prefix: str | None = None) -> dict[str, dict[str, Any]]:
             "last_abs_error": st.last_abs_error,
             "ema_slope": st.ema_slope,
             "last_percent": st.last_percent,
+            "last_output_change_ts": st.last_output_change_ts,
+            "last_target_temp": st.last_target_temp,
         }
     return out
 
@@ -550,6 +603,8 @@ def import_pid_states(
                 last_abs_error=v.get("last_abs_error"),
                 ema_slope=v.get("ema_slope"),
                 last_percent=v.get("last_percent", 0.0),
+                last_output_change_ts=v.get("last_output_change_ts", 0.0),
+                last_target_temp=v.get("last_target_temp"),
             )
             _PID_STATES[str(k)] = st
             count += 1

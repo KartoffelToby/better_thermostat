@@ -8,14 +8,14 @@ import asyncio
 import logging
 
 from homeassistant.components.number.const import SERVICE_SET_VALUE
+from homeassistant.const import STATE_UNAVAILABLE, STATE_UNKNOWN
 
 from ..utils.helpers import find_local_calibration_entity, find_valve_entity
+from .base import wait_for_calibration_entity_or_timeout
 from .generic import (
     set_hvac_mode as generic_set_hvac_mode,
     set_temperature as generic_set_temperature,
 )
-from .base import wait_for_calibration_entity_or_timeout
-from homeassistant.const import STATE_UNAVAILABLE, STATE_UNKNOWN
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -56,9 +56,9 @@ async def init(self, entity_id):
         self.real_trvs[entity_id]["local_temperature_calibration_entity"] is None
         and self.real_trvs[entity_id]["calibration"] != 1
     ):
-        self.real_trvs[entity_id]["local_temperature_calibration_entity"] = (
-            await find_local_calibration_entity(self, entity_id)
-        )
+        self.real_trvs[entity_id][
+            "local_temperature_calibration_entity"
+        ] = await find_local_calibration_entity(self, entity_id)
         _LOGGER.debug(
             "better_thermostat %s: uses local calibration entity %s",
             self.device_name,
@@ -70,9 +70,8 @@ async def init(self, entity_id):
             self.real_trvs[entity_id]["local_temperature_calibration_entity"],
         )
 
-        _has_preset = self.hass.states.get(entity_id).attributes.get(
-            "preset_modes", None
-        )
+        state = self.hass.states.get(entity_id)
+        _has_preset = state.attributes.get("preset_modes", None) if state else None
         if _has_preset is not None:
             await self.hass.services.async_call(
                 "climate",
@@ -114,35 +113,32 @@ async def get_current_offset(self, entity_id):
 
 async def get_offset_step(self, entity_id):
     """Get offset step."""
-    return float(
-        str(
-            self.hass.states.get(
-                self.real_trvs[entity_id]["local_temperature_calibration_entity"]
-            ).attributes.get("step", 1)
-        )
+    state = self.hass.states.get(
+        self.real_trvs[entity_id]["local_temperature_calibration_entity"]
     )
+    if state is None:
+        return 1.0
+    return float(str(state.attributes.get("step", 1)))
 
 
 async def get_min_offset(self, entity_id):
     """Get min offset."""
-    return float(
-        str(
-            self.hass.states.get(
-                self.real_trvs[entity_id]["local_temperature_calibration_entity"]
-            ).attributes.get("min", -10)
-        )
+    state = self.hass.states.get(
+        self.real_trvs[entity_id]["local_temperature_calibration_entity"]
     )
+    if state is None:
+        return -10.0
+    return float(str(state.attributes.get("min", -10)))
 
 
 async def get_max_offset(self, entity_id):
     """Get max offset."""
-    return float(
-        str(
-            self.hass.states.get(
-                self.real_trvs[entity_id]["local_temperature_calibration_entity"]
-            ).attributes.get("max", 10)
-        )
+    state = self.hass.states.get(
+        self.real_trvs[entity_id]["local_temperature_calibration_entity"]
     )
+    if state is None:
+        return 10.0
+    return float(str(state.attributes.get("max", 10)))
 
 
 async def set_offset(self, entity_id, offset):
@@ -150,10 +146,8 @@ async def set_offset(self, entity_id, offset):
     max_calibration = await get_max_offset(self, entity_id)
     min_calibration = await get_min_offset(self, entity_id)
 
-    if offset >= max_calibration:
-        offset = max_calibration
-    if offset <= min_calibration:
-        offset = min_calibration
+    offset = min(max_calibration, offset)
+    offset = max(min_calibration, offset)
 
     await self.hass.services.async_call(
         "number",
@@ -193,6 +187,18 @@ async def set_valve(self, entity_id, valve):
             entity_id,
         )
         return
+
+    # get min max from entity attributes
+    valve_entity = self.hass.states.get(
+        self.real_trvs[entity_id]["valve_position_entity"]
+    )
+    if valve_entity is not None:
+        min_valve = float(str(valve_entity.attributes.get("min", 0)))
+        max_valve = float(str(valve_entity.attributes.get("max", 100)))
+        valve = min_valve + (valve / 100.0) * (max_valve - min_valve)
+        step = float(str(valve_entity.attributes.get("step", 1)))
+        valve = round(valve / step) * step
+
     await self.hass.services.async_call(
         "number",
         SERVICE_SET_VALUE,

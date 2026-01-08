@@ -1,27 +1,25 @@
 """Weather utils."""
 
 from collections import deque
-import logging
-from datetime import timedelta, datetime
-import homeassistant.util.dt as dt_util
-
-# get_instance location can differ between HA versions; prefer helpers API.
-from homeassistant.helpers.recorder import get_instance
-from homeassistant.components.recorder import history
 from contextlib import suppress
+from datetime import datetime, timedelta
+import logging
 
-# from datetime import datetime, timedelta
-
-# import homeassistant.util.dt as dt_util
-# from homeassistant.components.recorder.history import state_changes_during_period
-
-from .helpers import convert_to_float
-
+from homeassistant.components.recorder import history
 from homeassistant.components.weather import (
     DOMAIN as WEATHER_DOMAIN,
     WeatherEntityFeature,
 )
-from homeassistant.exceptions import ServiceNotSupported, HomeAssistantError
+from homeassistant.exceptions import HomeAssistantError, ServiceNotSupported
+
+# get_instance location can differ between HA versions; prefer helpers API.
+from homeassistant.helpers.recorder import get_instance
+import homeassistant.util.dt as dt_util
+
+# from datetime import datetime, timedelta
+# import homeassistant.util.dt as dt_util
+# from homeassistant.components.recorder.history import state_changes_during_period
+from .helpers import convert_to_float
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -40,7 +38,7 @@ async def check_weather(self) -> bool:
             true if call_for_heat was changed
     """
     old_call_for_heat = self.call_for_heat
-    _call_for_heat_weather = False
+    _call_for_heat_weather: bool | None = None
     _call_for_heat_outdoor = False
 
     self.call_for_heat = True
@@ -55,10 +53,26 @@ async def check_weather(self) -> bool:
     if self.outdoor_sensor is not None:
         if None in (self.last_avg_outdoor_temp, self.off_temperature):
             # TODO: add condition if heating period (oct-mar) then set it to true?
-            _LOGGER.warning(
-                "better_thermostat %s: no outdoor sensor data found. fallback to heat",
-                self.device_name,
+            # Check if sensor is currently unavailable (expected during startup)
+            _outdoor_state = self.hass.states.get(self.outdoor_sensor)
+            _sensor_unavailable = _outdoor_state is None or _outdoor_state.state in (
+                "unavailable",
+                "unknown",
+                None,
             )
+
+            if _sensor_unavailable:
+                # Sensor not ready yet - expected during startup, just debug
+                _LOGGER.debug(
+                    "better_thermostat %s: outdoor sensor not yet available, fallback to heat",
+                    self.device_name,
+                )
+            else:
+                # Sensor is available but we have no cached data - unexpected, warn
+                _LOGGER.warning(
+                    "better_thermostat %s: outdoor sensor available but no data cached, fallback to heat",
+                    self.device_name,
+                )
             _call_for_heat_outdoor = True
         else:
             _call_for_heat_outdoor = self.last_avg_outdoor_temp < self.off_temperature
@@ -75,7 +89,7 @@ async def check_weather(self) -> bool:
         return False
 
 
-async def check_weather_prediction(self) -> bool:
+async def check_weather_prediction(self) -> bool | None:
     """Check configured weather entity for next two days of temperature predictions.
 
     Returns
@@ -173,7 +187,7 @@ async def check_weather_prediction(self) -> bool:
             return bool(cond_cur or cond_fc)
         else:
             raise TypeError
-    except (TypeError, ServiceNotSupported, HomeAssistantError) as err:
+    except (TypeError, ServiceNotSupported, HomeAssistantError):
         _LOGGER.warning(
             "better_thermostat %s: no weather entity data found.", self.device_name
         )
@@ -278,8 +292,9 @@ async def check_ambient_air_temperature(self):
 
 
 class DailyHistory:
-    """Stores one measurement per day for a maximum number of days.
-    We compute an average outside temperature that better reflects the last days:
+    """Store one measurement per day for a maximum number of days.
+
+    Compute an average outside temperature that better reflects the last days:
       - Track all readings per day and compute the per-day mean
       - Then compute the overall mean across the kept days
 

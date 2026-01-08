@@ -1,8 +1,7 @@
 from __future__ import annotations
 
-import sys
 from pathlib import Path
-
+import sys
 
 # Ensure repository root is importable even when pytest runs in importlib mode.
 REPO_ROOT = Path(__file__).resolve().parents[1]

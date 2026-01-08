@@ -1,11 +1,11 @@
 """Tests for the PID controller."""
 
-import pytest
 from custom_components.better_thermostat.utils.calibration.pid import (
     PIDParams,
+    build_pid_key,
     compute_pid,
     get_pid_state,
-    build_pid_key,
+    seed_pid_gains,
 )
 
 
@@ -36,7 +36,10 @@ class TestPIDController:
 
     def test_basic_pid_calculation(self):
         """Test basic PID calculation without auto-tuning."""
-        params = PIDParams(auto_tune=False, kp=10.0, ki=0.1, kd=5.0)
+        # Disable hold-time to allow immediate output changes
+        params = PIDParams(
+            auto_tune=False, kp=10.0, ki=0.1, kd=5.0, min_hold_time_s=0.0
+        )
         # First call to initialize
         percent1, _ = compute_pid(
             params=params,
@@ -62,9 +65,7 @@ class TestPIDController:
 
     def test_anti_windup(self):
         """Test anti-windup clamping."""
-        params = PIDParams(
-            auto_tune=False, kp=100.0, ki=10.0, i_min=-10.0, i_max=10.0, slew_rate=100.0
-        )  # Disable slew-rate for this test
+        params = PIDParams(auto_tune=False, kp=100.0, ki=10.0, i_min=-10.0, i_max=10.0)
         # Large error to cause windup
         percent, _ = compute_pid(
             params=params,
@@ -363,8 +364,10 @@ class TestPIDController:
         assert ki_variance < 0.01
 
     def test_derivative_on_measurement(self):
-        """Test derivative on measurement with mixing."""
-        params = PIDParams(auto_tune=False, d_on_measurement=True, trend_mix_trv=0.5)
+        """Test derivative on measurement with smoothing."""
+        params = PIDParams(
+            auto_tune=False, d_on_measurement=True, d_smoothing_alpha=0.5
+        )
         # First call to initialize
         compute_pid(
             params=params,
@@ -383,10 +386,151 @@ class TestPIDController:
             inp_temp_slope_K_per_min=0.0,
             key="test_deriv",
         )
-        # Check that blended measurement is calculated
-        assert debug["meas_blend_C"] is not None
-        assert debug["mix_w_external"] == 0.5
-        assert debug["mix_w_internal"] == 0.5
+        # Check that smoothed measurement is calculated
+        assert debug["meas_smooth_C"] is not None
+        assert debug["meas_current_used"] is not None
+        assert debug["meas_external_raw"] is not None
+
+    def test_hold_time_blocks_small_changes(self):
+        """Test that hold-time blocks small output changes within the hold period."""
+        # Use short hold time for testing, but long enough to block
+        params = PIDParams(
+            auto_tune=False,
+            kp=10.0,
+            ki=0.0,
+            kd=0.0,
+            min_hold_time_s=300.0,  # 5 minutes hold time
+            big_change_threshold_pct=33.0,
+        )
+        key = "test_hold_block"
+
+        # First call establishes baseline
+        percent1, _ = compute_pid(
+            params=params,
+            inp_target_temp_C=22.0,
+            inp_current_temp_C=20.0,  # Error = 2.0, P = 20%
+            inp_trv_temp_C=21.0,
+            inp_temp_slope_K_per_min=0.0,
+            key=key,
+        )
+        assert percent1 == 20.0  # P-term only: 10 * 2.0 = 20
+
+        # Second call with slightly different error (small change < 33%)
+        percent2, _ = compute_pid(
+            params=params,
+            inp_target_temp_C=22.0,
+            inp_current_temp_C=20.5,  # Error = 1.5, P = 15%
+            inp_trv_temp_C=21.0,
+            inp_temp_slope_K_per_min=0.0,
+            key=key,
+        )
+        # Change would be 20 -> 15 = -5%, which is < 33%, so blocked by hold-time
+        assert percent2 == 20.0  # Stays at previous value
+
+    def test_hold_time_allows_big_changes(self):
+        """Test that big changes bypass the hold-time restriction."""
+        params = PIDParams(
+            auto_tune=False,
+            kp=10.0,
+            ki=0.0,
+            kd=0.0,
+            min_hold_time_s=300.0,
+            big_change_threshold_pct=33.0,
+        )
+        key = "test_hold_big"
+
+        # First call establishes baseline
+        percent1, _ = compute_pid(
+            params=params,
+            inp_target_temp_C=22.0,
+            inp_current_temp_C=20.0,  # Error = 2.0, P = 20%
+            inp_trv_temp_C=21.0,
+            inp_temp_slope_K_per_min=0.0,
+            key=key,
+        )
+        assert percent1 == 20.0
+
+        # Second call with large error change (big change >= 33%)
+        percent2, _ = compute_pid(
+            params=params,
+            inp_target_temp_C=22.0,
+            inp_current_temp_C=15.0,  # Error = 7.0, P = 70%
+            inp_trv_temp_C=21.0,
+            inp_temp_slope_K_per_min=0.0,
+            key=key,
+        )
+        # Change is 20 -> 70 = +50%, which is >= 33%, so bypasses hold-time
+        assert percent2 == 70.0  # Big change allowed
+
+    def test_hold_time_allows_target_temp_change(self):
+        """Test that target temperature changes bypass the hold-time restriction."""
+        params = PIDParams(
+            auto_tune=False,
+            kp=10.0,
+            ki=0.0,
+            kd=0.0,
+            min_hold_time_s=300.0,
+            big_change_threshold_pct=33.0,
+        )
+        key = "test_hold_target"
+
+        # First call establishes baseline
+        percent1, _ = compute_pid(
+            params=params,
+            inp_target_temp_C=22.0,
+            inp_current_temp_C=20.0,  # Error = 2.0, P = 20%
+            inp_trv_temp_C=21.0,
+            inp_temp_slope_K_per_min=0.0,
+            key=key,
+        )
+        assert percent1 == 20.0
+
+        # Second call with changed target temperature
+        percent2, _ = compute_pid(
+            params=params,
+            inp_target_temp_C=23.0,  # Target changed by 1.0°C (> 0.05)
+            inp_current_temp_C=20.0,  # Error = 3.0, P = 30%
+            inp_trv_temp_C=21.0,
+            inp_temp_slope_K_per_min=0.0,
+            key=key,
+        )
+        # Change is 20 -> 30 = +10% (< 33%), but target changed so bypasses hold-time
+        assert percent2 == 30.0  # Target change allowed
+
+    def test_hold_time_zero_disables_blocking(self):
+        """Test that min_hold_time_s=0 disables hold-time blocking."""
+        params = PIDParams(
+            auto_tune=False,
+            kp=10.0,
+            ki=0.0,
+            kd=0.0,
+            min_hold_time_s=0.0,  # Disabled
+            big_change_threshold_pct=33.0,
+        )
+        key = "test_hold_disabled"
+
+        # First call
+        percent1, _ = compute_pid(
+            params=params,
+            inp_target_temp_C=22.0,
+            inp_current_temp_C=20.0,
+            inp_trv_temp_C=21.0,
+            inp_temp_slope_K_per_min=0.0,
+            key=key,
+        )
+        assert percent1 == 20.0
+
+        # Second call with small change - should NOT be blocked
+        percent2, _ = compute_pid(
+            params=params,
+            inp_target_temp_C=22.0,
+            inp_current_temp_C=20.5,  # Small change
+            inp_trv_temp_C=21.0,
+            inp_temp_slope_K_per_min=0.0,
+            key=key,
+        )
+        # With hold-time disabled, small changes go through immediately
+        assert percent2 == 15.0  # 10 * 1.5 = 15
 
     def test_build_pid_key(self):
         """Test key building."""
@@ -403,3 +547,67 @@ class TestPIDController:
         bt.bt_target_temp = None
         key = build_pid_key(bt, "climate.test")
         assert key == "test_bt:climate.test:tunknown"
+
+    def test_seed_pid_gains_creates_new_state(self):
+        """Test that seed_pid_gains creates a new state if key doesn't exist."""
+        key = "test_seed_new"
+
+        # Ensure state doesn't exist
+        assert get_pid_state(key) is None
+
+        # Seed gains
+        result = seed_pid_gains(key, kp=15.0, ki=0.05, kd=300.0)
+
+        assert result is True
+        state = get_pid_state(key)
+        assert state is not None
+        assert state.pid_kp == 15.0
+        assert state.pid_ki == 0.05
+        assert state.pid_kd == 300.0
+
+    def test_seed_pid_gains_updates_existing_state(self):
+        """Test that seed_pid_gains updates an existing state."""
+        key = "test_seed_update"
+
+        # Create initial state with different values
+        seed_pid_gains(key, kp=10.0, ki=0.01, kd=100.0)
+        state_before = get_pid_state(key)
+        assert state_before.pid_kp == 10.0
+
+        # Update with new values
+        result = seed_pid_gains(key, kp=20.0, ki=0.02, kd=200.0)
+
+        assert result is True
+        state_after = get_pid_state(key)
+        assert state_after.pid_kp == 20.0
+        assert state_after.pid_ki == 0.02
+        assert state_after.pid_kd == 200.0
+
+    def test_seed_pid_gains_preserves_other_state_fields(self):
+        """Test that seed_pid_gains only updates gains, not other fields."""
+        key = "test_seed_preserve"
+        params = PIDParams(auto_tune=False, kp=10.0, ki=0.1, kd=50.0)
+
+        # Run PID to create state with integral value
+        compute_pid(
+            params=params,
+            inp_target_temp_C=22.0,
+            inp_current_temp_C=20.0,
+            inp_trv_temp_C=21.0,
+            inp_temp_slope_K_per_min=0.0,
+            key=key,
+        )
+
+        state_before = get_pid_state(key)
+        integral_before = state_before.pid_integral
+
+        # Seed new gains
+        seed_pid_gains(key, kp=25.0, ki=0.08, kd=400.0)
+
+        state_after = get_pid_state(key)
+        # Gains should be updated
+        assert state_after.pid_kp == 25.0
+        assert state_after.pid_ki == 0.08
+        assert state_after.pid_kd == 400.0
+        # Integral should be preserved
+        assert state_after.pid_integral == integral_before

@@ -6,6 +6,7 @@ compatibility with the Better Thermostat integration.
 """
 
 import logging
+
 from homeassistant.helpers import entity_registry as er
 
 _LOGGER = logging.getLogger(__name__)

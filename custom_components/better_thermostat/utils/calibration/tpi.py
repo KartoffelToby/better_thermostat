@@ -7,10 +7,11 @@ cycle duration and exposes rich debug logs for diagnostics.
 
 from __future__ import annotations
 
-import logging
+from collections.abc import Mapping
 from dataclasses import dataclass, field
+import logging
 from time import monotonic
-from typing import Any, Dict, Mapping, Optional
+from typing import Any
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -31,41 +32,45 @@ class TpiParams:
 
 @dataclass
 class TpiInput:
+    """Input parameters for TPI calibration calculation."""
+
     key: str
-    current_temp_C: Optional[float]
-    target_temp_C: Optional[float]
-    outdoor_temp_C: Optional[float] = None
+    current_temp_C: float | None
+    target_temp_C: float | None
+    outdoor_temp_C: float | None = None
     window_open: bool = False
     heating_allowed: bool = True
-    bt_name: Optional[str] = None
-    entity_id: Optional[str] = None
+    bt_name: str | None = None
+    entity_id: str | None = None
 
 
 @dataclass
 class TpiOutput:
+    """Output result from TPI calibration calculation."""
+
     duty_cycle_pct: float
-    debug: Dict[str, Any] = field(default_factory=dict)
+    debug: dict[str, Any] = field(default_factory=dict)
 
 
 @dataclass
 class _TpiState:
-    last_percent: Optional[float] = None
+    last_percent: float | None = None
     last_update_ts: float = 0.0
 
 
-_TPI_STATES: Dict[str, _TpiState] = {}
+_TPI_STATES: dict[str, _TpiState] = {}
 
 _STATE_EXPORT_FIELDS = ("last_percent",)
 
 
-def export_tpi_state_map(prefix: Optional[str] = None) -> Dict[str, Dict[str, Any]]:
+def export_tpi_state_map(prefix: str | None = None) -> dict[str, dict[str, Any]]:
     """Return a serializable mapping of TPI states, optionally filtered by key prefix."""
 
-    exported: Dict[str, Dict[str, Any]] = {}
+    exported: dict[str, dict[str, Any]] = {}
     for key, state in _TPI_STATES.items():
         if prefix is not None and not key.startswith(prefix):
             continue
-        payload: Dict[str, Any] = {}
+        payload: dict[str, Any] = {}
         for attr in _STATE_EXPORT_FIELDS:
             value = getattr(state, attr, None)
             if value is None:
@@ -91,6 +96,7 @@ def import_tpi_state_map(state_map: Mapping[str, Mapping[str, Any]]) -> None:
                 setattr(state, attr, None)
                 continue
             try:
+                coerced: int | float
                 if attr in ("dead_zone_hits",):
                     coerced = int(value)
                 else:
@@ -107,7 +113,7 @@ def _round_dbg(v: Any, d: int = 3) -> Any:
         return v
 
 
-def compute_tpi(inp: TpiInput, params: TpiParams) -> Optional[TpiOutput]:
+def compute_tpi(inp: TpiInput, params: TpiParams) -> TpiOutput | None:
     """Compute TPI duty cycle and on/off durations.
 
     Returns None if inputs are insufficient. Emits extensive debug logs.
@@ -133,7 +139,7 @@ def compute_tpi(inp: TpiInput, params: TpiParams) -> Optional[TpiOutput]:
 
     if not inp.heating_allowed or inp.window_open:
         duty_pct = 0.0
-        debug: Dict[str, Any] = {"reason": "blocked"}
+        debug: dict[str, Any] = {"reason": "blocked"}
         return _finalize_output(inp, params, state, now, duty_pct, None, debug)
 
     if inp.current_temp_C is None or inp.target_temp_C is None:
@@ -178,8 +184,8 @@ def _finalize_output(
     state: _TpiState,
     now: float,
     duty_pct_raw: float,
-    error_K: Optional[float],
-    debug: Dict[str, Any],
+    error_K: float | None,
+    debug: dict[str, Any],
 ) -> TpiOutput:
     # Clamp
     duty_pct = max(params.clamp_min_pct, min(params.clamp_max_pct, duty_pct_raw))

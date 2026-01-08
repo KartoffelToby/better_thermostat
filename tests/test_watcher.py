@@ -4,8 +4,10 @@ Tests the degraded mode functionality including entity availability checks,
 optional vs critical sensor classification, and degraded mode state management.
 """
 
-import pytest
+import inspect
 from unittest.mock import MagicMock, patch
+
+import pytest
 
 
 @pytest.fixture
@@ -19,6 +21,16 @@ def mock_hass():
     """Create a mock Home Assistant instance."""
     hass = MagicMock()
     hass.states = MagicMock()
+
+    # watcher.py schedules battery checks via hass.async_create_task().
+    # In tests, we don't want to actually run coroutines, but we *must* close
+    # them to avoid "coroutine was never awaited" warnings.
+    def _async_create_task(coro):
+        if inspect.iscoroutine(coro):
+            coro.close()
+        return MagicMock()
+
+    hass.async_create_task = MagicMock(side_effect=_async_create_task)
     return hass
 
 
@@ -314,7 +326,7 @@ class TestCheckAndUpdateDegradedMode:
         with patch("custom_components.better_thermostat.utils.watcher.ir"):
             with patch(
                 "custom_components.better_thermostat.utils.watcher.get_battery_status"
-            ) as mock_battery:
+            ):
                 await check_and_update_degraded_mode(mock_bt_instance)
 
                 # Should be called for all available optional sensors + room sensor
@@ -339,7 +351,7 @@ class TestBatteryStatusCalls:
         with patch("custom_components.better_thermostat.utils.watcher.ir"):
             with patch(
                 "custom_components.better_thermostat.utils.watcher.get_battery_status"
-            ) as mock_battery:
+            ):
                 result = await check_critical_entities(mock_bt_instance)
 
                 assert result is True
@@ -362,7 +374,7 @@ class TestBatteryStatusCalls:
         with patch("custom_components.better_thermostat.utils.watcher.ir"):
             with patch(
                 "custom_components.better_thermostat.utils.watcher.get_battery_status"
-            ) as mock_battery:
+            ):
                 result = await check_critical_entities(mock_bt_instance)
 
                 assert result is False

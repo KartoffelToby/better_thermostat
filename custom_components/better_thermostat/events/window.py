@@ -7,10 +7,11 @@ delayed handling so that HVAC behavior uses window-open information reliably.
 import asyncio
 import logging
 
-from custom_components.better_thermostat import DOMAIN
-from homeassistant.core import callback
 from homeassistant.const import STATE_OFF
+from homeassistant.core import callback
 from homeassistant.helpers import issue_registry as ir
+
+from custom_components.better_thermostat import DOMAIN
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -60,12 +61,16 @@ async def trigger_window_change(self, event) -> None:
         ir.async_create_issue(
             hass=self.hass,
             domain=DOMAIN,
-            issue_id=f"missing_entity_{self.device_name}",
-            issue_title=f"better_thermostat {self.device_name} has invalid window sensor state",
-            issue_severity="error",
-            issue_description=f"better_thermostat {self.device_name} has invalid window sensor state: {new_state}",
-            issue_category="config",
-            issue_suggested_action="Please check the window sensor",
+            issue_id=f"invalid_window_state_{self.device_name}",
+            is_fixable=False,
+            is_persistent=False,
+            learn_more_url="https://better-thermostat.org/qanda/window_sensor",
+            severity=ir.IssueSeverity.ERROR,
+            translation_key="invalid_window_state",
+            translation_placeholders={
+                "name": str(self.device_name),
+                "state": str(new_state),
+            },
         )
         return
 

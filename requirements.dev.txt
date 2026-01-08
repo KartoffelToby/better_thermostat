@@ -1,8 +1,6 @@
 
-homeassistant==2025.10.0
+homeassistant==2025.12.5
 pre-commit==3.8.0
-black==24.8.0
 codespell==2.3.0
-ruff==0.6.3
+ruff==0.14.10
 yamllint==1.35.1
-flake8==7.1.1
