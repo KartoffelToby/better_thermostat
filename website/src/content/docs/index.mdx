@@ -1,0 +1,39 @@
+---
+title: Welcome to Better Thermostat
+description: Get started with Better Thermostat for Home Assistant.
+template: splash
+hero:
+  tagline: Get started with Better Thermostat for Home Assistant.
+  image:
+    file: ../../assets/logo.png
+  actions:
+    - text: Read the Documentation
+      link: /configuration/configuration/
+      icon: right-arrow
+    - text: Go to the Project
+      link: https://github.com/KartoffelToby/better_thermostat
+      icon: external
+      variant: minimal
+    - text: Want to support this project?
+      link: /support
+      icon: external
+---
+
+import { Card, CardGrid } from '@astrojs/starlight/components';
+
+## Next steps
+
+<CardGrid stagger>
+	<Card title="Install Better Thermostat" icon="pencil">
+		<a href="https://my.home-assistant.io/redirect/hacs_repository/?owner=KartoffelToby&amp;repository=better_thermostat&amp;category=integration"><img alt="image" src="https://my.home-assistant.io/badges/hacs_repository.svg" /></a>
+	</Card>
+	<Card title="Add a new Devices to HA" icon="add-document">
+<a href="https://my.home-assistant.io/redirect/config_flow_start/?domain=better_thermostat" target="_blank"><img src="https://my.home-assistant.io/badges/config_flow_start.svg" alt="Open your Home Assistant instance and start setting up a new integration."/></a>
+	</Card>
+	<Card title="Checkout working Devices list" icon="setting">
+		Lorem
+	</Card>
+	<Card title="Read the docs" icon="open-book">
+		Learn more in [the Better Thermostat Docs](/configuration/configuration/).
+	</Card>
+</CardGrid>
