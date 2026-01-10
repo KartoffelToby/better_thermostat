@@ -81,11 +81,11 @@ async def maybe_set_sonoff_valve_percent(self, entity_id, percent: int) -> bool:
         opening_candidates = []
         closing_candidates = []
         generic_candidates = []
-        
+
         for ent in entity_registry.entities.values():
             if ent.device_id != device_id or ent.domain != "number":
                 continue
-            
+
             # Prefer translation_key for language-agnostic detection
             translation_key = getattr(ent, "translation_key", None)
             if translation_key:
@@ -106,12 +106,12 @@ async def maybe_set_sonoff_valve_percent(self, entity_id, percent: int) -> bool:
                         translation_key,
                     )
                     continue
-            
+
             # Fallback to name-based matching for backward compatibility
             en = (ent.entity_id or "").lower()
             uid = (ent.unique_id or "").lower()
             name = (getattr(ent, "original_name", None) or "").lower()
-            
+
             # Check for valve opening patterns
             if (
                 "valve_opening_degree" in en
@@ -278,11 +278,11 @@ async def maybe_set_external_temperature(self, entity_id, temperature: float) ->
             return False
         device_id = reg_entity.device_id
         target_entities = []
-        
+
         for ent in entity_registry.entities.values():
             if ent.device_id != device_id or ent.domain != "number":
                 continue
-            
+
             # Prefer translation_key for language-agnostic detection
             translation_key = getattr(ent, "translation_key", None)
             if translation_key:
@@ -295,7 +295,7 @@ async def maybe_set_external_temperature(self, entity_id, temperature: float) ->
                         translation_key,
                     )
                     continue
-            
+
             # Fallback to name-based matching for backward compatibility
             en = (ent.entity_id or "").lower()
             uid = (ent.unique_id or "").lower()

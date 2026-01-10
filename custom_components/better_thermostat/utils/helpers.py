@@ -433,15 +433,15 @@ async def find_valve_entity(self, entity_id):
 
     def _classify_by_translation_key(translation_key: str | None) -> str | None:
         """Classify entity by its translation_key (language-agnostic).
-        
+
         This is the preferred method as it works regardless of HA UI language.
         Returns classification reason string if matched, None otherwise.
         """
         if not translation_key:
             return None
-        
+
         tk = translation_key.lower().strip()
-        
+
         # Known translation keys for valve entities
         if tk in ("valve_opening_degree", "valve_opening", "opening_degree"):
             return "valve_opening_degree"
@@ -451,16 +451,16 @@ async def find_valve_entity(self, entity_id):
             return "valve_position"
         if tk == "pi_heating_demand":
             return "pi_heating_demand"
-        
+
         # Generic valve-related translation keys
         if "valve" in tk and ("position" in tk or "opening" in tk or "degree" in tk):
             return "valve_generic"
-        
+
         return None
 
     def _classify(uid: str, ent_id: str, original_name: str) -> str | None:
         """Classify entity by string matching on uid/entity_id/name (fallback method).
-        
+
         This is used when translation_key is not available.
         """
         descriptor = f"{uid} {ent_id} {original_name}".lower()
@@ -504,28 +504,27 @@ async def find_valve_entity(self, entity_id):
 
     best: dict[str, Any] | None = None
     best_score: tuple[int, int, int] = (-1, -1, -1)
-    detection_method = "none"
 
     for entity in entity_entries:
         uid = entity.unique_id or ""
         if not _device_matches(entity):
             continue
-        
+
         # Try translation_key first (language-agnostic, preferred method)
         translation_key = getattr(entity, "translation_key", None)
         reason = _classify_by_translation_key(translation_key)
         method = "translation_key" if reason else None
-        
+
         # Fall back to name-based matching if translation_key didn't match
         if reason is None:
             reason = _classify(
                 uid, entity.entity_id or "", getattr(entity, "original_name", None) or ""
             )
             method = "original_name" if reason else None
-        
+
         if reason is None:
             continue
-        
+
         domain = (entity.entity_id or "").split(".", 1)[0]
         writable = domain in preferred_domains
         info = {
@@ -540,7 +539,6 @@ async def find_valve_entity(self, entity_id):
         if best is None or score > best_score:
             best = info
             best_score = score
-            detection_method = method
         if not writable and readonly_candidate is None:
             readonly_candidate = info
 
@@ -575,7 +573,7 @@ async def find_external_temperature_entity(self, entity_id):
 
     Returns a mapping with the entity_id, whether it appears writable, and the
     detection reason. ``None`` if no related entity could be found.
-    
+
     This function uses translation_key for language-agnostic detection first,
     then falls back to name-based matching.
     """
@@ -629,37 +627,37 @@ async def find_external_temperature_entity(self, entity_id):
         """Classify entity by its translation_key (language-agnostic)."""
         if not translation_key:
             return None
-        
+
         tk = translation_key.lower().strip()
-        
+
         # Known translation keys for external temperature entities
         if tk in ("external_temperature", "external_temperature_input", "external_temp"):
             return "external_temperature"
         if tk in ("outdoor_temperature", "outdoor_temp"):
             return "outdoor_temperature"
-        
+
         # Generic patterns
         if "external" in tk and "temp" in tk:
             return "external_temp_generic"
-        
+
         return None
 
     def _classify(uid: str, ent_id: str, original_name: str) -> str | None:
         """Classify entity by string matching (fallback method)."""
         descriptor = f"{uid} {ent_id} {original_name}".lower()
-        
+
         # Explicit external temperature input patterns
         if "external_temperature_input" in descriptor:
             return "external_temperature"
         if "external_temperature" in descriptor or "external_temp" in descriptor:
             return "external_temperature"
-        
+
         # Generic patterns
         if "external" in descriptor and "temp" in descriptor:
             return "external_temp_generic"
         if "outdoor" in descriptor and "temp" in descriptor:
             return "outdoor_temperature"
-        
+
         return None
 
     def _score(reason: str, writable: bool, domain: str) -> tuple[int, int, int]:
@@ -680,22 +678,22 @@ async def find_external_temperature_entity(self, entity_id):
         uid = entity.unique_id or ""
         if not _device_matches(entity):
             continue
-        
+
         # Try translation_key first (language-agnostic, preferred method)
         translation_key = getattr(entity, "translation_key", None)
         reason = _classify_by_translation_key(translation_key)
         method = "translation_key" if reason else None
-        
+
         # Fall back to name-based matching if translation_key didn't match
         if reason is None:
             reason = _classify(
                 uid, entity.entity_id or "", getattr(entity, "original_name", None) or ""
             )
             method = "original_name" if reason else None
-        
+
         if reason is None:
             continue
-        
+
         domain = (entity.entity_id or "").split(".", 1)[0]
         writable = domain in preferred_domains
         info = {

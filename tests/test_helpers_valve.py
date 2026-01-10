@@ -164,3 +164,72 @@ async def test_find_valve_entity_trvzb_valve_opening_degree_device_mismatch():
         assert result["entity_id"] == "number.my_trv_valve_opening_degree"
         assert result["writable"] is True
         assert result["reason"] == "valve_opening_degree"
+
+
+@pytest.mark.anyio
+async def test_find_valve_entity_translation_key_detection():
+    """Test that find_valve_entity uses translation_key for language-agnostic detection.
+
+    This ensures valve entities are detected regardless of the HA UI language.
+    """
+
+    hass = MagicMock()
+    bt_instance = MagicMock()
+    bt_instance.hass = hass
+
+    trv_entity_id = "climate.my_trv"
+    trv_config_entry_id = "config_entry_123"
+    trv_device_id = "device_123"
+
+    reg_entity_trv = MagicMock()
+    reg_entity_trv.config_entry_id = trv_config_entry_id
+    reg_entity_trv.device_id = trv_device_id
+
+    # Create entity with German localized name but English translation_key
+    def make_entity_with_translation_key(eid, uid, name, translation_key):
+        e = MagicMock()
+        e.entity_id = eid
+        e.unique_id = uid
+        e.device_id = trv_device_id
+        e.original_name = name
+        e.translation_key = translation_key
+        return e
+
+    # German localized name but with translation_key for language-agnostic detection
+    entity_german = make_entity_with_translation_key(
+        "number.mein_trv_ventiloffnungswinkel",
+        "0x00124b0000abcd_valve",
+        "Ventilöffnungswinkel",  # German name
+        "valve_opening_degree",  # English translation key
+    )
+
+    with (
+        patch(
+            "custom_components.better_thermostat.utils.helpers.er.async_get"
+        ) as mock_er_get,
+        patch(
+            "custom_components.better_thermostat.utils.helpers.dr.async_get"
+        ) as mock_dr_get,
+        patch(
+            "custom_components.better_thermostat.utils.helpers.async_entries_for_config_entry"
+        ) as mock_entries,
+    ):
+        mock_registry = MagicMock()
+        mock_er_get.return_value = mock_registry
+        mock_registry.async_get.return_value = reg_entity_trv
+
+        mock_dev_reg = MagicMock()
+        mock_dr_get.return_value = mock_dev_reg
+        dev = MagicMock()
+        dev.identifiers = {("test", "device_123")}
+        mock_dev_reg.async_get.return_value = dev
+
+        # Test detection via translation_key
+        mock_entries.return_value = [entity_german]
+        result = await find_valve_entity(bt_instance, trv_entity_id)
+
+        assert result is not None
+        assert result["entity_id"] == "number.mein_trv_ventiloffnungswinkel"
+        assert result["writable"] is True
+        assert result["reason"] == "valve_opening_degree"
+        assert result["detection_method"] == "translation_key"
