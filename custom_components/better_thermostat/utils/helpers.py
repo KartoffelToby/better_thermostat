@@ -434,9 +434,9 @@ async def find_valve_entity(self, entity_id):
     def _classify(uid: str, ent_id: str, original_name: str) -> str | None:
         descriptor = f"{uid} {ent_id} {original_name}".lower()
         # Sonoff TRVZB (and some others) expose explicit valve degree entities
-        if "valve_opening_degree" in descriptor:
+        if "valve_opening_degree" in descriptor or "ventiloffnungswinkel" in descriptor:
             return "valve_opening_degree"
-        if "valve_closing_degree" in descriptor:
+        if "valve_closing_degree" in descriptor or "ventilschliesswinkel" in descriptor:
             return "valve_closing_degree"
 
         # Existing patterns
