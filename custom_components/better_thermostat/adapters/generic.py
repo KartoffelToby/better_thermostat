@@ -39,9 +39,7 @@ async def init(self, entity_id):
     """
     # Try to discover valve position entity early
     try:
-        from ..utils.helpers import find_valve_entity as _find_valve
-
-        valve = await _find_valve(self, entity_id)
+        valve = await find_valve_entity(self, entity_id)
         if valve is not None:
             self.real_trvs[entity_id]["valve_position_entity"] = valve.get("entity_id")
             self.real_trvs[entity_id]["valve_position_writable"] = bool(
