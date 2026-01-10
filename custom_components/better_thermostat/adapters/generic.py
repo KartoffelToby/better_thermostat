@@ -10,7 +10,12 @@ import logging
 from homeassistant.components.number.const import SERVICE_SET_VALUE
 from homeassistant.const import STATE_UNAVAILABLE, STATE_UNKNOWN
 
-from ..utils.helpers import find_local_calibration_entity, normalize_hvac_mode
+from ..utils.helpers import (
+    find_local_calibration_entity,
+    find_valve_entity,
+    find_external_temperature_entity,
+    normalize_hvac_mode,
+)
 from .base import wait_for_calibration_entity_or_timeout
 
 _LOGGER = logging.getLogger(__name__)
@@ -19,18 +24,27 @@ _LOGGER = logging.getLogger(__name__)
 async def get_info(self, entity_id):
     """Get info from TRV."""
     support_offset = False
+    support_valve = False
 
     offset = await find_local_calibration_entity(self, entity_id)
     if offset is not None:
         support_offset = True
-    return {"support_offset": support_offset, "support_valve": False}
+    
+    # Check if valve position entity is available (using registry-based detection)
+    valve_info = await find_valve_entity(self, entity_id)
+    if valve_info is not None:
+        support_valve = True
+    
+    return {"support_offset": support_offset, "support_valve": support_valve}
 
 
 async def init(self, entity_id):
     """Initialize generic adapter for an entity.
 
     Finds and registers a local calibration entity (if configured) and waits
-    for it to appear before returning. Returns None after initialization.
+    for it to appear before returning. Also discovers valve position and
+    external temperature entities using registry-based detection.
+    Returns None after initialization.
     """
     if (
         self.real_trvs[entity_id]["local_temperature_calibration_entity"] is None
@@ -49,6 +63,40 @@ async def init(self, entity_id):
             entity_id,
             self.real_trvs[entity_id]["local_temperature_calibration_entity"],
         )
+    
+    # Discover valve position entity using registry-based detection
+    if "valve_position_entity" not in self.real_trvs[entity_id]:
+        valve_info = await find_valve_entity(self, entity_id)
+        if valve_info is not None:
+            self.real_trvs[entity_id]["valve_position_entity"] = valve_info.get("entity_id")
+            self.real_trvs[entity_id]["valve_position_writable"] = valve_info.get("writable", False)
+            _LOGGER.debug(
+                "better_thermostat %s: discovered valve entity %s (writable=%s, method=%s)",
+                self.device_name,
+                valve_info.get("entity_id"),
+                valve_info.get("writable"),
+                valve_info.get("detection_method"),
+            )
+        else:
+            self.real_trvs[entity_id]["valve_position_entity"] = None
+            self.real_trvs[entity_id]["valve_position_writable"] = False
+    
+    # Discover external temperature entity using registry-based detection
+    if "external_temperature_entity" not in self.real_trvs[entity_id]:
+        ext_temp_info = await find_external_temperature_entity(self, entity_id)
+        if ext_temp_info is not None:
+            self.real_trvs[entity_id]["external_temperature_entity"] = ext_temp_info.get("entity_id")
+            self.real_trvs[entity_id]["external_temperature_writable"] = ext_temp_info.get("writable", False)
+            _LOGGER.debug(
+                "better_thermostat %s: discovered external temperature entity %s (writable=%s, method=%s)",
+                self.device_name,
+                ext_temp_info.get("entity_id"),
+                ext_temp_info.get("writable"),
+                ext_temp_info.get("detection_method"),
+            )
+        else:
+            self.real_trvs[entity_id]["external_temperature_entity"] = None
+            self.real_trvs[entity_id]["external_temperature_writable"] = False
 
 
 async def get_current_offset(self, entity_id):
@@ -193,5 +241,67 @@ async def set_offset(self, entity_id, offset):
 
 
 async def set_valve(self, entity_id, valve):
-    """Set new target valve."""
-    return  # Not supported
+    """Set new target valve position using registry-discovered valve entity.
+    
+    Args:
+        entity_id: The TRV climate entity
+        valve: Valve position as percentage (0.0-1.0)
+    """
+    _LOGGER.debug(
+        "better_thermostat %s: TO TRV %s set_valve: %s",
+        self.device_name,
+        entity_id,
+        valve,
+    )
+    
+    # Check if valve entity was discovered and is writable
+    valve_entity_id = self.real_trvs.get(entity_id, {}).get("valve_position_entity")
+    if not valve_entity_id:
+        _LOGGER.debug(
+            "better_thermostat %s: no valve position entity found for %s",
+            self.device_name,
+            entity_id,
+        )
+        return
+    
+    if self.real_trvs.get(entity_id, {}).get("valve_position_writable") is False:
+        _LOGGER.debug(
+            "better_thermostat %s: valve entity for %s is read-only, skip adapter write",
+            self.device_name,
+            entity_id,
+        )
+        return
+
+    # Get min/max/step from entity attributes and scale valve percentage to actual value
+    valve_entity = self.hass.states.get(valve_entity_id)
+    if valve_entity is not None:
+        min_valve = float(str(valve_entity.attributes.get("min", 0)))
+        max_valve = float(str(valve_entity.attributes.get("max", 100)))
+        valve_value = min_valve + (valve * (max_valve - min_valve))
+        step = float(str(valve_entity.attributes.get("step", 1)))
+        valve_value = round(valve_value / step) * step
+
+        _LOGGER.debug(
+            "better_thermostat %s: setting valve %s to %.1f (from percentage %.2f)",
+            self.device_name,
+            valve_entity_id,
+            valve_value,
+            valve,
+        )
+
+        await self.hass.services.async_call(
+            "number",
+            SERVICE_SET_VALUE,
+            {
+                "entity_id": valve_entity_id,
+                "value": valve_value,
+            },
+            blocking=True,
+            context=self.context,
+        )
+    else:
+        _LOGGER.debug(
+            "better_thermostat %s: valve entity %s state not available",
+            self.device_name,
+            valve_entity_id,
+        )

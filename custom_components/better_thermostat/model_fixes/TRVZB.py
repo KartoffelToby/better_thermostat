@@ -50,6 +50,7 @@ async def maybe_set_sonoff_valve_percent(self, entity_id, percent: int) -> bool:
 
     Scans the device of the given climate entity for a `number.*` entity that
     represents valve opening/position and writes the provided percentage.
+    Uses translation_key for language-agnostic detection, with fallback to name matching.
     Prefers explicit Sonoff entities:
       - number.*.valve_opening_degree = percent
       - number.*.valve_closing_degree = 100 - percent
@@ -80,13 +81,38 @@ async def maybe_set_sonoff_valve_percent(self, entity_id, percent: int) -> bool:
         opening_candidates = []
         closing_candidates = []
         generic_candidates = []
+        
         for ent in entity_registry.entities.values():
             if ent.device_id != device_id or ent.domain != "number":
                 continue
+            
+            # Prefer translation_key for language-agnostic detection
+            translation_key = getattr(ent, "translation_key", None)
+            if translation_key:
+                tk = translation_key.lower().strip()
+                if tk in ("valve_opening_degree", "valve_opening", "opening_degree"):
+                    opening_candidates.append(ent.entity_id)
+                    _LOGGER.debug(
+                        "better_thermostat %s: Found valve opening via translation_key=%s",
+                        self.device_name,
+                        translation_key,
+                    )
+                    continue
+                if tk in ("valve_closing_degree", "valve_closing", "closing_degree"):
+                    closing_candidates.append(ent.entity_id)
+                    _LOGGER.debug(
+                        "better_thermostat %s: Found valve closing via translation_key=%s",
+                        self.device_name,
+                        translation_key,
+                    )
+                    continue
+            
+            # Fallback to name-based matching for backward compatibility
             en = (ent.entity_id or "").lower()
             uid = (ent.unique_id or "").lower()
             name = (getattr(ent, "original_name", None) or "").lower()
-            # Prefer explicit Sonoff names first
+            
+            # Check for valve opening patterns
             if (
                 "valve_opening_degree" in en
                 or "valve_opening_degree" in uid
@@ -94,6 +120,7 @@ async def maybe_set_sonoff_valve_percent(self, entity_id, percent: int) -> bool:
             ):
                 opening_candidates.append(ent.entity_id)
                 continue
+            # Check for valve closing patterns
             if (
                 "valve_closing_degree" in en
                 or "valve_closing_degree" in uid
@@ -224,6 +251,7 @@ async def override_set_valve(self, entity_id, percent: int):
 async def maybe_set_external_temperature(self, entity_id, temperature: float) -> bool:
     """Set Sonoff TRVZB external temperature input via a number entity on the same device.
 
+    Uses translation_key for language-agnostic detection, with fallback to name matching.
     Looks for number.* entity matching external_temperature_input and writes the
     given temperature (clamped to 0..99.9, rounded to one decimal).
     Returns True on success, False otherwise.
@@ -250,9 +278,25 @@ async def maybe_set_external_temperature(self, entity_id, temperature: float) ->
             return False
         device_id = reg_entity.device_id
         target_entities = []
+        
         for ent in entity_registry.entities.values():
             if ent.device_id != device_id or ent.domain != "number":
                 continue
+            
+            # Prefer translation_key for language-agnostic detection
+            translation_key = getattr(ent, "translation_key", None)
+            if translation_key:
+                tk = translation_key.lower().strip()
+                if tk in ("external_temperature_input", "external_temperature", "external_temp"):
+                    target_entities.append(ent.entity_id)
+                    _LOGGER.debug(
+                        "better_thermostat %s: Found external temperature entity via translation_key=%s",
+                        self.device_name,
+                        translation_key,
+                    )
+                    continue
+            
+            # Fallback to name-based matching for backward compatibility
             en = (ent.entity_id or "").lower()
             uid = (ent.unique_id or "").lower()
             name = (getattr(ent, "original_name", None) or "").lower()
