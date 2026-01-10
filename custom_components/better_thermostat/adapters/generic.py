@@ -10,7 +10,7 @@ import logging
 from homeassistant.components.number.const import SERVICE_SET_VALUE
 from homeassistant.const import STATE_UNAVAILABLE, STATE_UNKNOWN
 
-from ..utils.helpers import find_local_calibration_entity, normalize_hvac_mode
+from ..utils.helpers import find_local_calibration_entity, normalize_hvac_mode, find_valve_entity
 from .base import wait_for_calibration_entity_or_timeout
 
 _LOGGER = logging.getLogger(__name__)
@@ -19,11 +19,16 @@ _LOGGER = logging.getLogger(__name__)
 async def get_info(self, entity_id):
     """Get info from TRV."""
     support_offset = False
+    support_valve = False
 
     offset = await find_local_calibration_entity(self, entity_id)
     if offset is not None:
         support_offset = True
-    return {"support_offset": support_offset, "support_valve": False}
+    
+    valve = await find_valve_entity(self, entity_id)
+    if valve is not None and valve.get("entity_id"):
+        support_valve = bool(valve.get("writable", False))
+    return {"support_offset": support_offset, "support_valve": support_valve}
 
 
 async def init(self, entity_id):
@@ -32,6 +37,19 @@ async def init(self, entity_id):
     Finds and registers a local calibration entity (if configured) and waits
     for it to appear before returning. Returns None after initialization.
     """
+    # Try to discover valve position entity early
+    try:
+        from ..utils.helpers import find_valve_entity as _find_valve
+
+        valve = await _find_valve(self, entity_id)
+        if valve is not None:
+            self.real_trvs[entity_id]["valve_position_entity"] = valve.get("entity_id")
+            self.real_trvs[entity_id]["valve_position_writable"] = bool(
+                valve.get("writable", False)
+            )
+    except Exception:
+        pass
+
     if (
         self.real_trvs[entity_id]["local_temperature_calibration_entity"] is None
         and self.real_trvs[entity_id]["calibration"] != 1
@@ -194,4 +212,38 @@ async def set_offset(self, entity_id, offset):
 
 async def set_valve(self, entity_id, valve):
     """Set new target valve."""
-    return  # Not supported
+    _LOGGER.debug(
+        "better_thermostat %s: TO TRV %s set_valve: %s",
+        self.device_name,
+        entity_id,
+        valve,
+    )
+    if self.real_trvs.get(entity_id, {}).get("valve_position_writable") is False:
+        _LOGGER.debug(
+            "better_thermostat %s: valve entity for %s is read-only, skip adapter write",
+            self.device_name,
+            entity_id,
+        )
+        return
+
+    # get min max from entity attributes
+    valve_entity = self.hass.states.get(
+        self.real_trvs[entity_id]["valve_position_entity"]
+    )
+    if valve_entity is not None:
+        min_valve = float(str(valve_entity.attributes.get("min", 0)))
+        max_valve = float(str(valve_entity.attributes.get("max", 100)))
+        valve = min_valve + (valve / 100.0) * (max_valve - min_valve)
+        step = float(str(valve_entity.attributes.get("step", 1)))
+        valve = round(valve / step) * step
+
+    await self.hass.services.async_call(
+        "number",
+        SERVICE_SET_VALUE,
+        {
+            "entity_id": self.real_trvs[entity_id]["valve_position_entity"],
+            "value": valve,
+        },
+        blocking=True,
+        context=self.context,
+    )
