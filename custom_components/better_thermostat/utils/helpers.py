@@ -378,6 +378,39 @@ def convert_time(time_string):
         return None
 
 
+def _create_device_matcher(dev_reg, reg_entity, base_identifiers):
+    """Create a device matcher function that checks if a candidate entity is on a related device.
+
+    Args:
+        dev_reg: Device registry or None
+        reg_entity: The base entity to match against
+        base_identifiers: Set of device identifiers for the base entity's device
+
+    Returns
+    -------
+        A function that takes a candidate entity and returns True if it's on a related device
+    """
+    def _device_matches(candidate) -> bool:
+        # Strong match: same device
+        if getattr(candidate, "device_id", None) == getattr(
+            reg_entity, "device_id", None
+        ):
+            return True
+        # Fallback: match by shared identifiers if device registry is available
+        if dev_reg is None or not base_identifiers:
+            return False
+        cand_device_id = getattr(candidate, "device_id", None)
+        if not cand_device_id:
+            return False
+        try:
+            cand_device = dev_reg.async_get(cand_device_id)
+        except Exception:
+            return False
+        cand_identifiers = set(getattr(cand_device, "identifiers", set()) or set())
+        return bool(base_identifiers.intersection(cand_identifiers))
+    return _device_matches
+
+
 async def find_valve_entity(self, entity_id):
     """Locate a per-TRV valve position helper entity, if available.
 
@@ -412,24 +445,7 @@ async def find_valve_entity(self, entity_id):
     preferred_domains = {"number", "input_number"}
     readonly_candidate: dict[str, Any] | None = None
 
-    def _device_matches(candidate) -> bool:
-        # Strong match: same device
-        if getattr(candidate, "device_id", None) == getattr(
-            reg_entity, "device_id", None
-        ):
-            return True
-        # Fallback: match by shared identifiers if device registry is available
-        if dev_reg is None or not base_identifiers:
-            return False
-        cand_device_id = getattr(candidate, "device_id", None)
-        if not cand_device_id:
-            return False
-        try:
-            cand_device = dev_reg.async_get(cand_device_id)
-        except Exception:
-            return False
-        cand_identifiers = set(getattr(cand_device, "identifiers", set()) or set())
-        return bool(base_identifiers.intersection(cand_identifiers))
+    _device_matches = _create_device_matcher(dev_reg, reg_entity, base_identifiers)
 
     def _classify_by_translation_key(translation_key: str | None) -> str | None:
         """Classify entity by its translation_key (language-agnostic).
@@ -604,24 +620,7 @@ async def find_external_temperature_entity(self, entity_id):
     preferred_domains = {"number", "input_number"}
     readonly_candidate: dict[str, Any] | None = None
 
-    def _device_matches(candidate) -> bool:
-        # Strong match: same device
-        if getattr(candidate, "device_id", None) == getattr(
-            reg_entity, "device_id", None
-        ):
-            return True
-        # Fallback: match by shared identifiers if device registry is available
-        if dev_reg is None or not base_identifiers:
-            return False
-        cand_device_id = getattr(candidate, "device_id", None)
-        if not cand_device_id:
-            return False
-        try:
-            cand_device = dev_reg.async_get(cand_device_id)
-        except Exception:
-            return False
-        cand_identifiers = set(getattr(cand_device, "identifiers", set()) or set())
-        return bool(base_identifiers.intersection(cand_identifiers))
+    _device_matches = _create_device_matcher(dev_reg, reg_entity, base_identifiers)
 
     def _classify_by_translation_key(translation_key: str | None) -> str | None:
         """Classify entity by its translation_key (language-agnostic)."""
