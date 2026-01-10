@@ -89,6 +89,7 @@ async def maybe_set_sonoff_valve_percent(self, entity_id, percent: int) -> bool:
             # Prefer explicit Sonoff names first
             if (
                 "valve_opening_degree" in en
+                or "ventiloffnungswinkel" in en
                 or "valve_opening_degree" in uid
                 or "valve opening degree" in name
             ):
@@ -96,6 +97,7 @@ async def maybe_set_sonoff_valve_percent(self, entity_id, percent: int) -> bool:
                 continue
             if (
                 "valve_closing_degree" in en
+                or "ventilschliesswinkel" in en
                 or "valve_closing_degree" in uid
                 or "valve closing degree" in name
             ):
@@ -258,6 +260,7 @@ async def maybe_set_external_temperature(self, entity_id, temperature: float) ->
             name = (getattr(ent, "original_name", None) or "").lower()
             if (
                 "external_temperature_input" in en
+                or "wert_des_externen_temperatursensors" in en
                 or "external_temperature_input" in uid
                 or "external temperature input" in name
             ):
