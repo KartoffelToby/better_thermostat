@@ -72,6 +72,7 @@ ATTR_STATE_HEATING_POWER = "heating_power"
 ATTR_STATE_HEATING_STATS = "heating_stats"
 ATTR_STATE_ERRORS = "errors"
 ATTR_STATE_BATTERIES = "batteries"
+ATTR_STATE_OUTDOOR_TEMP = "outdoor_temp"
 # ECO mode logic removed; keep eco temperature for preset support
 
 SERVICE_RESTORE_SAVED_TARGET_TEMPERATURE = "restore_saved_target_temperature"
