@@ -60,6 +60,13 @@ class MpcParams:
     virtual_temp_use_slope: bool = False
     virtual_temp_max_abs_slope_C_per_min: float = 0.15
 
+    # Virtual temperature sensor sync behaviour.
+    # `virtual_temp` is anchored to the sensor via an adaptive EMA:
+    # - small errors: slow correction (filters noise)
+    # - larger errors: faster correction (reduces perceived lag)
+    virtual_temp_sync_tau_s: float = 180.0
+    virtual_temp_sync_error_scale_C: float = 0.1
+
     # Virtual temperature safety guards.
     # If the internal forward model drifts too far away from the sensor,
     # fall back to the sensor temperature to avoid unstable control.
@@ -337,7 +344,9 @@ def compute_mpc(inp: MpcInput, params: MpcParams) -> MpcOutput | None:
         ):
             time_since_virtual = now - state.virtual_temp_ts
 
-            if time_since_virtual > 0.5:
+            # Integrate even small steps (<0.5s) to prevent physics starvation
+            # when the loop is called frequently (sync step consumes time!).
+            if time_since_virtual > 0.0:
                 dt_min = time_since_virtual / 60.0
 
                 u = max(0.0, min(100.0, state.last_percent)) / 100.0
@@ -355,7 +364,8 @@ def compute_mpc(inp: MpcInput, params: MpcParams) -> MpcOutput | None:
 
                 predicted_dT: float
                 slope = inp.temp_slope_K_per_min
-                use_slope = bool(getattr(params, "virtual_temp_use_slope", True))
+                # Prefer physics model (False) if parameter is missing, for stability.
+                use_slope = bool(getattr(params, "virtual_temp_use_slope", False))
                 if use_slope:
                     if slope is None:
                         predicted_dT = 0.0
@@ -441,9 +451,16 @@ def compute_mpc(inp: MpcInput, params: MpcParams) -> MpcOutput | None:
             else:
                 # Smoothing time constant for sensor synchronisation.
                 # Higher values make the virtual temp follow the sensor slower.
-                # 60s (1min) allows satisfying "intermediate values" on frequent updates,
-                # but catches up almost immediately on 5min intervals to prevent lag.
-                tau_s = 60.0
+                # This is an *adaptive* EMA: bigger error => faster correction.
+                tau_s = float(getattr(params, "virtual_temp_sync_tau_s", 180.0))
+                if tau_s <= 0:
+                    tau_s = 180.0
+
+                error_scale_C = float(
+                    getattr(params, "virtual_temp_sync_error_scale_C", 0.1)
+                )
+                if error_scale_C <= 0:
+                    error_scale_C = 0.1
 
                 virtual_temp = float(state.virtual_temp)
                 error_C = virtual_temp - sensor_temp
@@ -460,11 +477,32 @@ def compute_mpc(inp: MpcInput, params: MpcParams) -> MpcOutput | None:
                     extra_debug["virtual_temp_reset"] = "hard_error"
                     extra_debug["virtual_temp_error_C"] = error_C
                 else:
+                    dt_s = (
+                        max(0.0, now - state.virtual_temp_ts)
+                        if state.virtual_temp_ts > 0.0
+                        else 0.0
+                    )
+                    # Adaptive tau: as error grows, tau shrinks (faster catch-up).
+                    # This keeps noise smoothing for small errors without long steady-state lag.
+                    tau_eff_s = tau_s / (1.0 + (abs(error_C) / error_scale_C))
+                    tau_eff_s = max(1.0, float(tau_eff_s))
+
                     if state.virtual_temp_ts <= 0.0:
                         alpha = 1.0
                     else:
-                        dt_s = max(0.0, now - state.virtual_temp_ts)
-                        alpha = 1.0 - math.exp(-dt_s / tau_s) if tau_s > 0 else 0.3
+                        alpha = 1.0 - math.exp(-dt_s / tau_eff_s)
+                        alpha = max(0.0, min(1.0, float(alpha)))
+
+                    extra_debug["virtual_temp_sync_dt_s"] = _round_for_debug(dt_s, 3)
+                    extra_debug["virtual_temp_sync_tau_s"] = _round_for_debug(tau_s, 3)
+                    extra_debug["virtual_temp_sync_tau_eff_s"] = _round_for_debug(
+                        tau_eff_s, 3
+                    )
+                    extra_debug["virtual_temp_sync_error_scale_C"] = _round_for_debug(
+                        error_scale_C, 4
+                    )
+                    extra_debug["virtual_temp_sync_alpha"] = _round_for_debug(alpha, 4)
+                    extra_debug["virtual_temp_error_C"] = _round_for_debug(error_C, 4)
 
                     state.virtual_temp = (
                         alpha * sensor_temp + (1.0 - alpha) * virtual_temp
@@ -516,14 +554,15 @@ def compute_mpc(inp: MpcInput, params: MpcParams) -> MpcOutput | None:
         percent, mpc_debug = _compute_predictive_percent(
             inp, params, state, now, float(delta_t) if delta_t is not None else 0.0
         )
-        extra_debug = mpc_debug
+        # Keep any virtual-temp debug collected earlier and merge MPC debug on top.
+        extra_debug.update(mpc_debug)
         _LOGGER.debug(
             "better_thermostat %s: MPC raw output (%s) percent=%s delta_T=%s debug=%s",
             name,
             entity,
             _round_for_debug(percent, 2),
             _round_for_debug(delta_t, 3),
-            mpc_debug,
+            extra_debug,
         )
 
     percent = max(0.0, min(100.0, percent))
