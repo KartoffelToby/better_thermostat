@@ -440,9 +440,10 @@ def compute_mpc(inp: MpcInput, params: MpcParams) -> MpcOutput | None:
                 state.virtual_temp_ts = now
             else:
                 # Smoothing time constant for sensor synchronisation.
-                # Higher values make the virtual temp follow the sensor slower (trusting the internal model more).
-                # 900s (15min) helps to filter out sensor noise/quantisation jumps.
-                tau_s = 900.0
+                # Higher values make the virtual temp follow the sensor slower.
+                # 60s (1min) allows satisfying "intermediate values" on frequent updates,
+                # but catches up almost immediately on 5min intervals to prevent lag.
+                tau_s = 60.0
 
                 virtual_temp = float(state.virtual_temp)
                 error_C = virtual_temp - sensor_temp
@@ -1137,6 +1138,7 @@ def _compute_predictive_percent(
         "mpc_eval_count": eval_count,
         "mpc_step_minutes": _round_for_debug(step_minutes, 3),
         "mpc_temp_cost_C": _round_for_debug(current_temp_cost_C, 3),
+        "mpc_sensor_temp_C": _round_for_debug(inp.current_temp_C, 3),
         "mpc_temp_cost_source": temp_cost_source,
         "mpc_virtual_temp": (
             f"{state.virtual_temp:.3f}" if state.virtual_temp is not None else None
