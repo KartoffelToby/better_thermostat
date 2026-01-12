@@ -1745,14 +1745,40 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
                 any_maintenance = False
 
             if any_maintenance:
+                # Re-calculate next maintenance based on loaded TRV quirks
+                # (overrides the random 1h-5d startup default)
+                min_interval_hours = 168  # Default 7 days
+                for trv_id in self.real_trvs.keys():
+                    if bool(
+                        (self.real_trvs[trv_id].get("advanced", {}) or {}).get(
+                            CONF_VALVE_MAINTENANCE, False
+                        )
+                    ):
+                        quirks = (self.real_trvs.get(trv_id, {}) or {}).get(
+                            "model_quirks"
+                        )
+                        interval = int(
+                            getattr(quirks, "VALVE_MAINTENANCE_INTERVAL_HOURS", 168)
+                        )
+                        min_interval_hours = min(min_interval_hours, interval)
+
+                now = datetime.now()
+                # Schedule initial run: randomize within [1h, min(5d, interval)]
+                # If interval is very short (e.g. 12h), respect it.
+                max_delay_hours = min(24 * 5, min_interval_hours)
+                delay_hours = randint(1, max(2, max_delay_hours))
+
+                self.next_valve_maintenance = now + timedelta(hours=delay_hours)
+
                 self.async_on_remove(
                     async_track_time_interval(
                         self.hass, self._maintenance_tick, timedelta(minutes=5)
                     )
                 )
                 _LOGGER.debug(
-                    "better_thermostat %s: valve maintenance tick enabled (5min)",
+                    "better_thermostat %s: valve maintenance tick enabled (5min), first run at %s",
                     self.device_name,
+                    self.next_valve_maintenance,
                 )
             else:
                 _LOGGER.debug(
@@ -1840,14 +1866,14 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
         # Skip when device is OFF or window open
         if self.window_open:
             # postpone by 6 hours to avoid hammering
-            self.next_valve_maintenance = now + timedelta(hours=6)
+            self.next_valve_maintenance = now + timedelta(hours=1)
             _LOGGER.debug(
                 "better_thermostat %s: valve maintenance postponed (window open)",
                 self.device_name,
             )
             return
         if HVACMode.OFF in (self.hvac_mode, self.bt_hvac_mode):
-            self.next_valve_maintenance = now + timedelta(hours=6)
+            self.next_valve_maintenance = now + timedelta(hours=1)
             _LOGGER.debug(
                 "better_thermostat %s: valve maintenance postponed (HVAC OFF)",
                 self.device_name,

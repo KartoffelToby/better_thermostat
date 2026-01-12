@@ -439,7 +439,7 @@ def compute_mpc(inp: MpcInput, params: MpcParams) -> MpcOutput | None:
                 state.virtual_temp = sensor_temp
                 state.virtual_temp_ts = now
             else:
-                tau_s = 600.0
+                tau_s = 300.0
 
                 virtual_temp = float(state.virtual_temp)
                 error_C = virtual_temp - sensor_temp
