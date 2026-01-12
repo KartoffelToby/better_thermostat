@@ -57,7 +57,7 @@ class MpcParams:
     # When enabled, `virtual_temp` is used as the MPC state temperature and can be
     # forward-predicted between sensor updates.
     use_virtual_temp: bool = True
-    virtual_temp_use_slope: bool = True
+    virtual_temp_use_slope: bool = False
     virtual_temp_max_abs_slope_C_per_min: float = 0.15
 
     # Virtual temperature safety guards.
@@ -439,7 +439,10 @@ def compute_mpc(inp: MpcInput, params: MpcParams) -> MpcOutput | None:
                 state.virtual_temp = sensor_temp
                 state.virtual_temp_ts = now
             else:
-                tau_s = 300.0
+                # Smoothing time constant for sensor synchronisation.
+                # Higher values make the virtual temp follow the sensor slower (trusting the internal model more).
+                # 900s (15min) helps to filter out sensor noise/quantisation jumps.
+                tau_s = 900.0
 
                 virtual_temp = float(state.virtual_temp)
                 error_C = virtual_temp - sensor_temp
