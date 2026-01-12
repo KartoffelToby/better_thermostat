@@ -1936,22 +1936,25 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
                         support_valve
                         and _calibration_type == CalibrationType.DIRECT_VALVE_BASED
                     ):
-                        # Open fully
-                        _LOGGER.debug(
-                            "better_thermostat %s: maintenance %s -> valve 100%%",
-                            self.device_name,
-                            trv_id,
-                        )
-                        await _set_valve_pct(100)
-                        await asyncio.sleep(20)
-                        # Close fully
-                        _LOGGER.debug(
-                            "better_thermostat %s: maintenance %s -> valve 0%%",
-                            self.device_name,
-                            trv_id,
-                        )
-                        await _set_valve_pct(0)
-                        await asyncio.sleep(15)
+                        for i in range(2):
+                            # Open fully
+                            _LOGGER.debug(
+                                "better_thermostat %s: maintenance %s -> valve 100%% (cycle %d/2)",
+                                self.device_name,
+                                trv_id,
+                                i + 1,
+                            )
+                            await _set_valve_pct(100)
+                            await asyncio.sleep(30)
+                            # Close fully
+                            _LOGGER.debug(
+                                "better_thermostat %s: maintenance %s -> valve 0%% (cycle %d/2)",
+                                self.device_name,
+                                trv_id,
+                                i + 1,
+                            )
+                            await _set_valve_pct(0)
+                            await asyncio.sleep(30)
                     else:
                         # Fallback: use temperature extremes to force open/close
                         max_t = (self.real_trvs.get(trv_id, {}) or {}).get(
@@ -1962,22 +1965,25 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
                         )
                         # Only run if HVAC is not OFF
                         if cur_mode != HVACMode.OFF:
-                            _LOGGER.debug(
-                                "better_thermostat %s: maintenance %s -> temp %.1f°C (open)",
-                                self.device_name,
-                                trv_id,
-                                max_t,
-                            )
-                            await adapter_set_temperature(self, trv_id, max_t)
-                            await asyncio.sleep(30)
-                            _LOGGER.debug(
-                                "better_thermostat %s: maintenance %s -> temp %.1f°C (close)",
-                                self.device_name,
-                                trv_id,
-                                min_t,
-                            )
-                            await adapter_set_temperature(self, trv_id, min_t)
-                            await asyncio.sleep(30)
+                            for i in range(2):
+                                _LOGGER.debug(
+                                    "better_thermostat %s: maintenance %s -> temp %.1f°C (open) (cycle %d/2)",
+                                    self.device_name,
+                                    trv_id,
+                                    max_t,
+                                    i + 1,
+                                )
+                                await adapter_set_temperature(self, trv_id, max_t)
+                                await asyncio.sleep(30)
+                                _LOGGER.debug(
+                                    "better_thermostat %s: maintenance %s -> temp %.1f°C (close) (cycle %d/2)",
+                                    self.device_name,
+                                    trv_id,
+                                    min_t,
+                                    i + 1,
+                                )
+                                await adapter_set_temperature(self, trv_id, min_t)
+                                await asyncio.sleep(30)
 
                     # Restore previous setpoint and mode
                     try:
@@ -2013,8 +2019,7 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
                 quirks = (self.real_trvs.get(trv_id, {}) or {}).get("model_quirks")
                 # Default to 168 hours if quirk doesn't specify
                 interval = int(getattr(quirks, "VALVE_MAINTENANCE_INTERVAL_HOURS", 168))
-                if interval < min_interval_hours:
-                    min_interval_hours = interval
+                min_interval_hours = min(min_interval_hours, interval)
 
             # Add ~7% randomization
             variance = max(1, int(min_interval_hours * 0.07))

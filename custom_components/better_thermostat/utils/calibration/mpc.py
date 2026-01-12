@@ -1136,9 +1136,7 @@ def _compute_predictive_percent(
         "mpc_temp_cost_C": _round_for_debug(current_temp_cost_C, 3),
         "mpc_temp_cost_source": temp_cost_source,
         "mpc_virtual_temp": (
-            f"{state.virtual_temp:.3f}"
-            if state.virtual_temp is not None
-            else None
+            f"{state.virtual_temp:.3f}" if state.virtual_temp is not None else None
         ),
     }
 
