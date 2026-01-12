@@ -249,12 +249,18 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
                     temperature, self.device_name, "service.set_temp_temperature()"
                 )
                 self.async_write_ha_state()
+                if getattr(self, "in_maintenance", False):
+                    self._control_needed_after_maintenance = True
+                    return
                 await self.control_queue_task.put(self)
             else:
                 self.bt_target_temp = convert_to_float(
                     temperature, self.device_name, "service.set_temp_temperature()"
                 )
                 self.async_write_ha_state()
+                if getattr(self, "in_maintenance", False):
+                    self._control_needed_after_maintenance = True
+                    return
                 await self.control_queue_task.put(self)
         finally:
             self.bt_update_lock = False
@@ -271,6 +277,9 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
                 )
                 self._saved_temperature = None
                 self.async_write_ha_state()
+                if getattr(self, "in_maintenance", False):
+                    self._control_needed_after_maintenance = True
+                    return
                 await self.control_queue_task.put(self)
         finally:
             self.bt_update_lock = False
@@ -477,6 +486,9 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
         self.is_removed = False
         # Valve maintenance control
         self.in_maintenance = False
+        # If control actions are requested during valve maintenance, defer them and
+        # trigger one control cycle once maintenance finishes.
+        self._control_needed_after_maintenance = False
         # Balance / Hydraulic: temperature trend (K/min)
         self.temp_slope = None
         self._slope_last_temp = None
@@ -709,6 +721,12 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
         if _check is False:
             return
         await check_and_update_degraded_mode(self)
+        if getattr(self, "in_maintenance", False):
+            _LOGGER.debug(
+                "better_thermostat %s: periodic tick skipped (valve maintenance running)",
+                self.device_name,
+            )
+            return
         _LOGGER.debug(
             "better_thermostat %s: get last avg outdoor temps...", self.device_name
         )
@@ -819,6 +837,12 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
         if _check is False:
             return
         await check_and_update_degraded_mode(self)
+        if getattr(self, "in_maintenance", False):
+            _LOGGER.debug(
+                "better_thermostat %s: TRV change skipped (valve maintenance running)",
+                self.device_name,
+            )
+            return
         self.async_set_context(event.context)
         if self._async_unsub_state_changed is None:
             return
@@ -2058,8 +2082,21 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
                 self.next_valve_maintenance,
             )
         finally:
+            needs_control = bool(
+                getattr(self, "_control_needed_after_maintenance", False)
+            )
+            self._control_needed_after_maintenance = False
             self.ignore_states = prev_ignore_states
             self.in_maintenance = False
+
+            # If something requested a control run during maintenance (e.g. user changed
+            # target temperature), trigger a single control cycle immediately.
+            if needs_control and self.bt_hvac_mode != HVACMode.OFF:
+                try:
+                    self.control_queue_task.put_nowait(self)
+                except Exception:
+                    # Queue full or not ready; periodic tick will eventually catch up.
+                    pass
 
     async def _load_pid_state(self) -> None:
         """Load persisted PID states and hydrate module-level cache."""
@@ -2977,6 +3014,12 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
                 hvac_mode_norm,
             )
         self.async_write_ha_state()
+        # During valve maintenance we must not block on the control queue (maxsize=1)
+        # and must not override maintenance valve exercise.
+        if getattr(self, "in_maintenance", False):
+            self._control_needed_after_maintenance = True
+            return
+
         await self.control_queue_task.put(self)
 
     async def async_set_temperature(self, **kwargs) -> None:
@@ -3214,6 +3257,11 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
             # Only trigger control queue if thermostat is not OFF
             # When OFF, we still save the temperature but don't send it to the physical device
             if self.bt_hvac_mode != HVACMode.OFF:
+                # During valve maintenance we must not block on the control queue
+                # (Queue maxsize=1) and must not override maintenance.
+                if getattr(self, "in_maintenance", False):
+                    self._control_needed_after_maintenance = True
+                    return
                 await self.control_queue_task.put(self)
 
     async def async_turn_off(self) -> None:
