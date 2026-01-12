@@ -439,16 +439,7 @@ def compute_mpc(inp: MpcInput, params: MpcParams) -> MpcOutput | None:
                 state.virtual_temp = sensor_temp
                 state.virtual_temp_ts = now
             else:
-                tau_s = 840.0
-
-                prev_sensor = (
-                    float(state.last_sensor_temp_C)
-                    if state.last_sensor_temp_C is not None
-                    else None
-                )
-                sensor_changed = (
-                    prev_sensor is None or abs(sensor_temp - prev_sensor) >= 0.001
-                )
+                tau_s = 600.0
 
                 virtual_temp = float(state.virtual_temp)
                 error_C = virtual_temp - sensor_temp
@@ -459,11 +450,7 @@ def compute_mpc(inp: MpcInput, params: MpcParams) -> MpcOutput | None:
 
                 # If the internal model drifted too far away from the sensor,
                 # reset hard to avoid unstable control decisions.
-                if sensor_changed:
-                    state.virtual_temp = sensor_temp
-                    state.virtual_temp_ts = now
-                    extra_debug["virtual_temp_reset"] = "sensor_change"
-                elif hard_reset_error_C > 0 and abs(error_C) >= hard_reset_error_C:
+                if hard_reset_error_C > 0 and abs(error_C) >= hard_reset_error_C:
                     state.virtual_temp = sensor_temp
                     state.virtual_temp_ts = now
                     extra_debug["virtual_temp_reset"] = "hard_error"
@@ -1149,7 +1136,7 @@ def _compute_predictive_percent(
         "mpc_temp_cost_C": _round_for_debug(current_temp_cost_C, 3),
         "mpc_temp_cost_source": temp_cost_source,
         "mpc_virtual_temp": (
-            _round_for_debug(state.virtual_temp, 3)
+            f"{state.virtual_temp:.3f}"
             if state.virtual_temp is not None
             else None
         ),

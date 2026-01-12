@@ -13,6 +13,8 @@ STATE_LOCKED = "locked"
 STATE_UNLOCKED = "unlocked"
 _LOGGER = logging.getLogger(__name__)
 
+VALVE_MAINTENANCE_INTERVAL_HOURS = 168  # Default: 7 days
+
 
 def fix_local_calibration(self, entity_id, offset):
     """Return the given local calibration offset unchanged."""

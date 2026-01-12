@@ -2007,8 +2007,20 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
             for trv in trvs:
                 await service_one(trv)
 
-            # Re-arm next run in ~7 days with slight randomization
-            self.next_valve_maintenance = now + timedelta(days=7, hours=randint(0, 12))
+            # Determine next maintenance interval based on the quirks of enabled TRVs
+            min_interval_hours = 168  # Default 7 days
+            for trv_id in trvs:
+                quirks = (self.real_trvs.get(trv_id, {}) or {}).get("model_quirks")
+                # Default to 168 hours if quirk doesn't specify
+                interval = int(getattr(quirks, "VALVE_MAINTENANCE_INTERVAL_HOURS", 168))
+                if interval < min_interval_hours:
+                    min_interval_hours = interval
+
+            # Add ~7% randomization
+            variance = max(1, int(min_interval_hours * 0.07))
+            self.next_valve_maintenance = now + timedelta(
+                hours=min_interval_hours + randint(0, variance)
+            )
             _LOGGER.info(
                 "better_thermostat %s: valve maintenance finished; next at %s",
                 self.device_name,

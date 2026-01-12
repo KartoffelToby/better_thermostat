@@ -10,6 +10,8 @@ from homeassistant.helpers import entity_registry as er
 
 _LOGGER = logging.getLogger(__name__)
 
+VALVE_MAINTENANCE_INTERVAL_HOURS = 12
+
 
 def fix_local_calibration(self, entity_id, offset):
     """Return unchanged local calibration for TRVZB by default."""
