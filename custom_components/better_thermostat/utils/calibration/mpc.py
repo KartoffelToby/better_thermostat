@@ -334,6 +334,8 @@ def compute_mpc(inp: MpcInput, params: MpcParams) -> MpcOutput | None:
     else:
         use_virtual_temp = bool(getattr(params, "use_virtual_temp", True))
 
+        virtual_forward_dt_s: float | None = None
+
         # --------------------------------------------
         # VIRTUAL TEMPERATURE FORWARD PREDICTION
         # --------------------------------------------
@@ -347,6 +349,7 @@ def compute_mpc(inp: MpcInput, params: MpcParams) -> MpcOutput | None:
             # Integrate even small steps (<0.5s) to prevent physics starvation
             # when the loop is called frequently (sync step consumes time!).
             if time_since_virtual > 0.0:
+                virtual_forward_dt_s = time_since_virtual
                 dt_min = time_since_virtual / 60.0
 
                 u = max(0.0, min(100.0, state.last_percent)) / 100.0
@@ -422,11 +425,9 @@ def compute_mpc(inp: MpcInput, params: MpcParams) -> MpcOutput | None:
                     loss_dbg = loss
 
                 state.virtual_temp += predicted_dT
-                # Do NOT update virtual_temp_ts here.
-                # It is used as the reference for both forward prediction and
-                # sensor synchronisation later in this call. Updating it here
-                # would make the synchronisation step see dt==0 and overreact
-                # on rapid re-triggers.
+                # Update integration timestamp so forward prediction stays incremental
+                # even if we decide to skip sensor synchronisation.
+                state.virtual_temp_ts = now
 
                 _LOGGER.debug(
                     "better_thermostat %s: MPC virtual-temp forward %.4fK (u=%.1f, gain=%.4f, loss=%.4f)",
@@ -449,93 +450,119 @@ def compute_mpc(inp: MpcInput, params: MpcParams) -> MpcOutput | None:
                 state.virtual_temp = sensor_temp
                 state.virtual_temp_ts = now
             else:
-                # Smoothing time constant for sensor synchronisation.
-                # Higher values make the virtual temp follow the sensor slower.
-                # This is an *adaptive* EMA: bigger error => faster correction.
-                tau_s = float(getattr(params, "virtual_temp_sync_tau_s", 180.0))
-                if tau_s <= 0:
-                    tau_s = 180.0
-
-                error_scale_C = float(
-                    getattr(params, "virtual_temp_sync_error_scale_C", 0.1)
+                # Only anchor to the sensor when the sensor value actually changed.
+                # If the sensor is stale/quantised (same value across ticks), we want
+                # the virtual temperature to keep predicting "now" between updates.
+                prev_sensor = state.last_sensor_temp_C
+                sensor_changed = (
+                    prev_sensor is None
+                    or abs(float(sensor_temp) - float(prev_sensor)) >= 0.001
                 )
-                if error_scale_C <= 0:
-                    error_scale_C = 0.1
 
-                virtual_temp = float(state.virtual_temp)
-                error_C = virtual_temp - sensor_temp
-                hard_reset_error_C = float(
-                    getattr(params, "virtual_temp_hard_reset_error_C", 0.4)
-                )
-                max_offset_C = float(getattr(params, "virtual_temp_max_offset_C", 0.2))
-
-                # If the internal model drifted too far away from the sensor,
-                # reset hard to avoid unstable control decisions.
-                if hard_reset_error_C > 0 and abs(error_C) >= hard_reset_error_C:
-                    state.virtual_temp = sensor_temp
-                    state.virtual_temp_ts = now
-                    extra_debug["virtual_temp_reset"] = "hard_error"
-                    extra_debug["virtual_temp_error_C"] = error_C
+                if not sensor_changed:
+                    extra_debug["virtual_temp_sync"] = "skipped_sensor_unchanged"
                 else:
-                    dt_s = (
-                        max(0.0, now - state.virtual_temp_ts)
-                        if state.virtual_temp_ts > 0.0
-                        else 0.0
-                    )
-                    # Adaptive tau: as error grows, tau shrinks (faster catch-up).
-                    # This keeps noise smoothing for small errors without long steady-state lag.
-                    tau_eff_s = tau_s / (1.0 + (abs(error_C) / error_scale_C))
-                    tau_eff_s = max(1.0, float(tau_eff_s))
+                    # Smoothing time constant for sensor synchronisation.
+                    # Higher values make the virtual temp follow the sensor slower.
+                    # This is an *adaptive* EMA: bigger error => faster correction.
+                    tau_s = float(getattr(params, "virtual_temp_sync_tau_s", 180.0))
+                    if tau_s <= 0:
+                        tau_s = 180.0
 
-                    if state.virtual_temp_ts <= 0.0:
-                        alpha = 1.0
+                    error_scale_C = float(
+                        getattr(params, "virtual_temp_sync_error_scale_C", 0.1)
+                    )
+                    if error_scale_C <= 0:
+                        error_scale_C = 0.1
+
+                    virtual_temp = float(state.virtual_temp)
+                    error_C = virtual_temp - sensor_temp
+                    hard_reset_error_C = float(
+                        getattr(params, "virtual_temp_hard_reset_error_C", 0.4)
+                    )
+                    max_offset_C = float(
+                        getattr(params, "virtual_temp_max_offset_C", 0.2)
+                    )
+
+                    # If the internal model drifted too far away from the sensor,
+                    # reset hard to avoid unstable control decisions.
+                    if hard_reset_error_C > 0 and abs(error_C) >= hard_reset_error_C:
+                        state.virtual_temp = sensor_temp
+                        state.virtual_temp_ts = now
+                        extra_debug["virtual_temp_reset"] = "hard_error"
+                        extra_debug["virtual_temp_error_C"] = error_C
                     else:
-                        alpha = 1.0 - math.exp(-dt_s / tau_eff_s)
-                        alpha = max(0.0, min(1.0, float(alpha)))
+                        dt_s = (
+                            float(virtual_forward_dt_s)
+                            if virtual_forward_dt_s is not None
+                            else (
+                                max(0.0, now - state.virtual_temp_ts)
+                                if state.virtual_temp_ts > 0.0
+                                else 0.0
+                            )
+                        )
+                        # Adaptive tau: as error grows, tau shrinks (faster catch-up).
+                        # This keeps noise smoothing for small errors without long steady-state lag.
+                        tau_eff_s = tau_s / (1.0 + (abs(error_C) / error_scale_C))
+                        tau_eff_s = max(1.0, float(tau_eff_s))
 
-                    extra_debug["virtual_temp_sync_dt_s"] = _round_for_debug(dt_s, 3)
-                    extra_debug["virtual_temp_sync_tau_s"] = _round_for_debug(tau_s, 3)
-                    extra_debug["virtual_temp_sync_tau_eff_s"] = _round_for_debug(
-                        tau_eff_s, 3
-                    )
-                    extra_debug["virtual_temp_sync_error_scale_C"] = _round_for_debug(
-                        error_scale_C, 4
-                    )
-                    extra_debug["virtual_temp_sync_alpha"] = _round_for_debug(alpha, 4)
-                    extra_debug["virtual_temp_error_C"] = _round_for_debug(error_C, 4)
+                        if state.virtual_temp_ts <= 0.0:
+                            alpha = 1.0
+                        else:
+                            alpha = 1.0 - math.exp(-dt_s / tau_eff_s)
+                            alpha = max(0.0, min(1.0, float(alpha)))
 
-                    state.virtual_temp = (
-                        alpha * sensor_temp + (1.0 - alpha) * virtual_temp
-                    )
-                    state.virtual_temp_ts = now
+                        extra_debug["virtual_temp_sync_dt_s"] = _round_for_debug(
+                            dt_s, 3
+                        )
+                        extra_debug["virtual_temp_sync_tau_s"] = _round_for_debug(
+                            tau_s, 3
+                        )
+                        extra_debug["virtual_temp_sync_tau_eff_s"] = _round_for_debug(
+                            tau_eff_s, 3
+                        )
+                        extra_debug["virtual_temp_sync_error_scale_C"] = (
+                            _round_for_debug(error_scale_C, 4)
+                        )
+                        extra_debug["virtual_temp_sync_alpha"] = _round_for_debug(
+                            alpha, 4
+                        )
+                        extra_debug["virtual_temp_error_C"] = _round_for_debug(
+                            error_C, 4
+                        )
 
-                    # Keep virtual_temp near the sensor when the sensor is stale/quantised.
-                    if max_offset_C > 0:
-                        lo = sensor_temp - max_offset_C
-                        hi = sensor_temp + max_offset_C
-                        original_virtual = float(state.virtual_temp)
-                        clamped = min(max(original_virtual, lo), hi)
+                        state.virtual_temp = (
+                            alpha * sensor_temp + (1.0 - alpha) * virtual_temp
+                        )
+                        state.virtual_temp_ts = now
 
-                        if clamped != original_virtual:
-                            extra_debug["virtual_temp_clamp"] = True
+                        # Keep virtual_temp near the sensor when the sensor is stale/quantised.
+                        if max_offset_C > 0:
+                            lo = sensor_temp - max_offset_C
+                            hi = sensor_temp + max_offset_C
+                            original_virtual = float(state.virtual_temp)
+                            clamped = min(max(original_virtual, lo), hi)
 
-                            # If the model is running too hot (hitting the upper clamp),
-                            # the gain estimate is likely too high.
-                            if original_virtual > hi and bool(
-                                getattr(params, "mpc_adapt", True)
-                            ):
-                                if state.gain_est is None:
-                                    state.gain_est = float(params.mpc_thermal_gain)
+                            if clamped != original_virtual:
+                                extra_debug["virtual_temp_clamp"] = True
 
-                                # Decay gain to correct the model overshoot.
-                                state.gain_est = float(state.gain_est) * 0.98
-                                state.gain_est = max(
-                                    params.mpc_gain_min,
-                                    min(params.mpc_gain_max, state.gain_est),
-                                )
-                                extra_debug["mpc_gain_clamped"] = True
+                                # If the model is running too hot (hitting the upper clamp),
+                                # the gain estimate is likely too high.
+                                if original_virtual > hi and bool(
+                                    getattr(params, "mpc_adapt", True)
+                                ):
+                                    if state.gain_est is None:
+                                        state.gain_est = float(params.mpc_thermal_gain)
 
-                        state.virtual_temp = clamped
+                                    # Decay gain to correct the model overshoot.
+                                    state.gain_est = float(state.gain_est) * 0.98
+                                    state.gain_est = max(
+                                        params.mpc_gain_min,
+                                        min(params.mpc_gain_max, state.gain_est),
+                                    )
+                                    extra_debug["mpc_gain_clamped"] = True
+
+                            state.virtual_temp = clamped
 
             state.last_sensor_temp_C = sensor_temp
 
