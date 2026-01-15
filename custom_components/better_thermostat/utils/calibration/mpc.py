@@ -73,6 +73,10 @@ class MpcParams:
     virtual_temp_max_offset_C: float = 0.2
     virtual_temp_hard_reset_error_C: float = 0.4
 
+    # TRV performance curve sampling (data collection only)
+    perf_curve_min_window_s: float = 300.0
+    perf_curve_bin_pct: float = 2.0
+
 
 @dataclass
 class MpcInput:
@@ -125,6 +129,9 @@ class _MpcState:
     virtual_temp: float | None = None
     virtual_temp_ts: float = 0.0
     last_sensor_temp_C: float | None = None
+    last_room_temp_C: float | None = None
+    last_room_temp_ts: float = 0.0
+    perf_curve: dict[str, dict[str, float | int]] = field(default_factory=dict)
     trv_profile: str = "unknown"
     profile_confidence: float = 0.0
     profile_samples: int = 0
@@ -153,6 +160,9 @@ _STATE_EXPORT_FIELDS = (
     "last_residual_time",
     "virtual_temp",
     "virtual_temp_ts",
+    "last_room_temp_C",
+    "last_room_temp_ts",
+    "perf_curve",
     "u_integral",
     "time_integral",
     "last_integration_ts",
@@ -197,6 +207,9 @@ def import_mpc_state_map(state_map: Mapping[str, Mapping[str, Any]]) -> None:
             if value is None:
                 setattr(state, attr, None)
                 continue
+            if attr == "perf_curve" and isinstance(value, Mapping):
+                setattr(state, attr, dict(value))
+                continue
             try:
                 coerced: int | float
                 if attr == "dead_zone_hits":
@@ -206,6 +219,100 @@ def import_mpc_state_map(state_map: Mapping[str, Mapping[str, Any]]) -> None:
             except (TypeError, ValueError):
                 continue
             setattr(state, attr, coerced)
+
+
+def _curve_bin_label(percent: float, bin_pct: float) -> str:
+    bin_pct = max(1.0, float(bin_pct))
+    p = max(0.0, min(100.0, float(percent)))
+    lo = math.floor(p / bin_pct) * bin_pct
+    hi = min(100.0, lo + bin_pct)
+    if bin_pct.is_integer():
+        return f"p{int(lo):02d}_{int(hi):02d}"
+    return f"p{lo:.1f}_{hi:.1f}"
+
+
+def _update_perf_curve(
+    state: _MpcState,
+    inp: MpcInput,
+    params: MpcParams,
+    now: float,
+    extra_debug: dict[str, Any],
+) -> None:
+    if inp.current_temp_C is None:
+        return
+    if not inp.heating_allowed or inp.window_open or inp.target_temp_C is None:
+        state.last_room_temp_C = float(inp.current_temp_C)
+        state.last_room_temp_ts = now
+        return
+
+    if state.last_room_temp_ts <= 0.0 or state.last_room_temp_C is None:
+        state.last_room_temp_C = float(inp.current_temp_C)
+        state.last_room_temp_ts = now
+        return
+
+    dt_s = now - state.last_room_temp_ts
+    min_window = float(getattr(params, "perf_curve_min_window_s", 300.0))
+    if dt_s < min_window:
+        return
+
+    room_delta = float(inp.current_temp_C) - float(state.last_room_temp_C)
+    dt_min = dt_s / 60.0
+    if dt_min <= 0:
+        return
+
+    room_rate = room_delta / dt_min
+
+    if state.time_integral > 0:
+        u_avg_pct = state.u_integral / state.time_integral
+    else:
+        u_avg_pct = float(state.last_percent) if state.last_percent is not None else 0.0
+
+    bin_pct = float(getattr(params, "perf_curve_bin_pct", 5.0))
+    label = _curve_bin_label(u_avg_pct, bin_pct)
+
+    trv_rate = None
+    if inp.trv_temp_C is not None and state.last_trv_temp is not None:
+        trv_delta = float(inp.trv_temp_C) - float(state.last_trv_temp)
+        trv_rate = trv_delta / dt_min
+
+    temp_error = float(inp.target_temp_C) - float(inp.current_temp_C)
+
+    stats = state.perf_curve.setdefault(
+        label,
+        {
+            "count": 0,
+            "avg_room_rate": 0.0,
+            "avg_trv_rate": 0.0,
+            "avg_percent": 0.0,
+            "avg_temp_error": 0.0,
+        },
+    )
+
+    count = int(stats.get("count", 0)) + 1
+    stats["count"] = count
+    stats["avg_room_rate"] = (
+        stats.get("avg_room_rate", 0.0)
+        + (room_rate - stats.get("avg_room_rate", 0.0)) / count
+    )
+    if trv_rate is not None:
+        stats["avg_trv_rate"] = (
+            stats.get("avg_trv_rate", 0.0)
+            + (trv_rate - stats.get("avg_trv_rate", 0.0)) / count
+        )
+    stats["avg_percent"] = (
+        stats.get("avg_percent", 0.0)
+        + (float(u_avg_pct) - stats.get("avg_percent", 0.0)) / count
+    )
+    stats["avg_temp_error"] = (
+        stats.get("avg_temp_error", 0.0)
+        + (temp_error - stats.get("avg_temp_error", 0.0)) / count
+    )
+
+    extra_debug["perf_curve_bin"] = label
+    extra_debug["perf_room_rate"] = _round_for_debug(room_rate, 4)
+
+    state.last_room_temp_C = float(inp.current_temp_C)
+    state.last_room_temp_ts = now
 
 
 def _split_mpc_key(key: str) -> tuple[str | None, str | None, str | None]:
@@ -606,6 +713,8 @@ def compute_mpc(inp: MpcInput, params: MpcParams) -> MpcOutput | None:
 
     debug.update(extra_debug)
 
+    _update_perf_curve(state=state, inp=inp, params=params, now=now, extra_debug=debug)
+
     debug.update({"percent_out": percent_out})
 
     summary_delta = delta_t if delta_t is not None else initial_delta_t
@@ -615,9 +724,13 @@ def compute_mpc(inp: MpcInput, params: MpcParams) -> MpcOutput | None:
     summary_horizon = extra_debug.get("mpc_horizon")
     summary_eval = extra_debug.get("mpc_eval_count")
     summary_cost = extra_debug.get("mpc_cost")
+    summary_profile = debug.get("trv_profile")
+    summary_profile_conf = debug.get("trv_profile_conf")
+    summary_perf_bin = debug.get("perf_curve_bin")
+    summary_perf_rate = debug.get("perf_room_rate")
 
     _LOGGER.debug(
-        "better_thermostat %s: mpc calibration for %s: e0=%sK gain=%s loss=%s horizon=%s | raw=%s%% out=%s%% min_eff=%s%% last=%s%% dead_hits=%s eval=%s cost=%s",
+        "better_thermostat %s: mpc calibration for %s: e0=%sK gain=%s loss=%s horizon=%s | raw=%s%% out=%s%% min_eff=%s%% last=%s%% dead_hits=%s eval=%s cost=%s | trv_profile=%s conf=%s perf_bin=%s perf_rate=%s",
         name,
         entity,
         _round_for_debug(summary_delta, 3),
@@ -631,6 +744,10 @@ def compute_mpc(inp: MpcInput, params: MpcParams) -> MpcOutput | None:
         state.dead_zone_hits,
         summary_eval,
         _round_for_debug(summary_cost, 6),
+        summary_profile,
+        _round_for_debug(summary_profile_conf, 3),
+        summary_perf_bin,
+        _round_for_debug(summary_perf_rate, 4),
     )
 
     return MpcOutput(valve_percent=percent_out, debug=debug)
@@ -1252,6 +1369,9 @@ def _detect_trv_profile(
 
     alpha = 0.1
 
+    prev_profile = state.trv_profile
+    prev_conf = state.profile_confidence
+
     if threshold_evidence > 0.5:
         state.trv_profile = "threshold"
         state.profile_confidence = min(1.0, state.profile_confidence + alpha)
@@ -1266,6 +1386,16 @@ def _detect_trv_profile(
         state.trv_profile = "exponential"
         state.profile_confidence = min(
             1.0, state.profile_confidence + alpha * exponential_evidence
+        )
+
+    if prev_profile != state.trv_profile or state.profile_confidence != prev_conf:
+        _LOGGER.debug(
+            "better_thermostat: TRV profile update profile=%s conf=%s samples=%s resp_ratio=%s percent=%s",
+            state.trv_profile,
+            _round_for_debug(state.profile_confidence, 3),
+            state.profile_samples,
+            _round_for_debug(response_ratio, 3),
+            _round_for_debug(percent_out, 1),
         )
 
     if state.profile_samples >= 20 and state.profile_confidence > 0.7:
