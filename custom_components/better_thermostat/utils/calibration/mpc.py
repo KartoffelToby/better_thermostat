@@ -39,6 +39,7 @@ class MpcParams:
     )
     mpc_solar_gain_max: float = 0.05
     mpc_adapt_alpha: float = 0.1
+    mpc_adapt_window_block_s: float = 900.0
     deadzone_threshold_pct: float = 20.0
     deadzone_temp_delta_K: float = 0.1
     deadzone_time_s: float = 300.0
@@ -121,6 +122,7 @@ class _MpcState:
     last_time: float = 0.0
     last_trv_temp: float | None = None
     last_trv_temp_ts: float = 0.0
+    last_window_open_ts: float = 0.0
     dead_zone_hits: int = 0
     min_effective_percent: float | None = None
     last_learn_time: float | None = None
@@ -153,6 +155,7 @@ _STATE_EXPORT_FIELDS = (
     "solar_gain_est",
     "last_temp",
     "last_trv_temp",
+    "last_window_open_ts",
     "min_effective_percent",
     "dead_zone_hits",
     "last_learn_time",
@@ -379,6 +382,9 @@ def compute_mpc(inp: MpcInput, params: MpcParams) -> MpcOutput | None:
             state.created_ts = time()
 
     _seed_state_from_siblings(inp.key, state, params)
+
+    if inp.window_open:
+        state.last_window_open_ts = now
 
     # --- INTEGRATE VALVE USAGE ---
     # We track the time-weighted average of the valve position since the last learning step.
@@ -814,6 +820,14 @@ def _compute_predictive_percent(
 
     # Time since last measurement for adaptation
     dt_last = now - state.last_learn_time
+
+    # Block adaptation shortly after a window-open event to avoid skewing gain/loss.
+    window_block_s = float(getattr(params, "mpc_adapt_window_block_s", 0.0))
+    if window_block_s > 0 and state.last_window_open_ts > 0:
+        if now - state.last_window_open_ts < window_block_s:
+            state.last_learn_time = now
+            state.last_learn_temp = current_temp_cost_C
+            dt_last = 0.0
 
     # Initialize ka_est if we have outdoor temp context
     if params.mpc_adapt and inp.outdoor_temp_C is not None and state.ka_est is None:
