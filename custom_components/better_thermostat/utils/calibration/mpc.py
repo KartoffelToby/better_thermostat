@@ -1194,17 +1194,21 @@ def _compute_predictive_percent(
     else:
         loss = state.loss_est if state.loss_est is not None else params.mpc_loss_coeff
 
-    solar_gain_factor = (
-        state.solar_gain_est
-        if state.solar_gain_est is not None
-        else getattr(params, "mpc_solar_gain_initial", 0.01)
-    )
+    # Solar gain logic is currently disabled as we cannot determine per-room orientation.
+    # Assuming a global solar gain can lead to underheating in north-facing rooms.
+    # solar_gain_factor = (
+    #     state.solar_gain_est
+    #     if state.solar_gain_est is not None
+    #     else getattr(params, "mpc_solar_gain_initial", 0.01)
+    # )
+    solar_gain_factor = 0.0
 
     gain_step = gain * step_minutes
     loss_step = loss * step_minutes
-    solar_step = (
-        solar_gain_factor * float(getattr(inp, "solar_intensity", 0.0)) * step_minutes
-    )
+    # solar_step = (
+    #     solar_gain_factor * float(getattr(inp, "solar_intensity", 0.0)) * step_minutes
+    # )
+    solar_step = 0.0
 
     # ------------------------------------------------------------
     # BASE LOAD u0
@@ -1216,9 +1220,8 @@ def _compute_predictive_percent(
     # Subtract other heat power AND solar gain from requirements:
     # gain*u0 + other + solar = loss => gain*u0 = loss - other - solar
     effective_loss_for_u0 = (
-        loss
-        - float(inp.other_heat_power)
-        - (solar_gain_factor * float(getattr(inp, "solar_intensity", 0.0)))
+        loss - float(inp.other_heat_power)
+        # - (solar_gain_factor * float(getattr(inp, "solar_intensity", 0.0)))
     )
 
     if gain and gain > 0:
