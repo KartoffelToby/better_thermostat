@@ -818,6 +818,14 @@ def _compute_predictive_percent(
         if state.solar_gain_est is None:
             state.solar_gain_est = getattr(params, "mpc_solar_gain_initial", 0.01)
 
+    # Detect stale state (bucket switching): if this bucket wasn't updated for >15min,
+    # reset learning anchors to avoid connecting old history with current state.
+    if state.last_time > 0.0 and (now - state.last_time) > 900.0:
+        state.last_learn_time = now
+        state.last_learn_temp = current_temp_cost_C
+        state.u_integral = 0.0
+        state.time_integral = 0.0
+
     # Time since last measurement for adaptation
     dt_last = now - state.last_learn_time
 
