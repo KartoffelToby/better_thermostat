@@ -6,6 +6,7 @@ from collections.abc import Mapping
 from dataclasses import dataclass, field
 import logging
 import math
+import random
 from time import monotonic, time
 from typing import Any
 
@@ -141,6 +142,8 @@ class _MpcState:
     time_integral: float = 0.0
     last_integration_ts: float = 0.0
     created_ts: float = 0.0
+    loss_learn_count: int = 0
+    is_calibration_active: bool = False
 
 
 _MPC_STATES: dict[str, _MpcState] = {}
@@ -170,6 +173,8 @@ _STATE_EXPORT_FIELDS = (
     "time_integral",
     "last_integration_ts",
     "created_ts",
+    "loss_learn_count",
+    "is_calibration_active",
 )
 
 
@@ -214,9 +219,11 @@ def import_mpc_state_map(state_map: Mapping[str, Mapping[str, Any]]) -> None:
                 setattr(state, attr, dict(value))
                 continue
             try:
-                coerced: int | float
-                if attr == "dead_zone_hits":
+                coerced: int | float | bool
+                if attr in ("dead_zone_hits", "loss_learn_count"):
                     coerced = int(value)
+                elif attr == "is_calibration_active":
+                    coerced = bool(value)
                 else:
                     coerced = float(value)
             except (TypeError, ValueError):
@@ -428,6 +435,16 @@ def compute_mpc(inp: MpcInput, params: MpcParams) -> MpcOutput | None:
         state.u_integral = 0.0
         state.time_integral = 0.0
         state.last_residual_time = None
+
+        if state.is_calibration_active:
+            state.is_calibration_active = False
+            _LOGGER.info(
+                "better_thermostat %s: Calibration aborted (window_open=%s, heating_allowed=%s).",
+                name,
+                inp.window_open,
+                inp.heating_allowed,
+            )
+
         _LOGGER.debug(
             "better_thermostat %s: MPC skip heating (%s) window_open=%s heating_allowed=%s",
             name,
@@ -696,6 +713,42 @@ def compute_mpc(inp: MpcInput, params: MpcParams) -> MpcOutput | None:
         )
         # Keep any virtual-temp debug collected earlier and merge MPC debug on top.
         extra_debug.update(mpc_debug)
+
+        # --- FORCED LOSS CALIBRATION ---
+        # "Hybrid Learning": Use random forced calibration to get high-confidence loss samples.
+        # Trigger: current >= target. Probability: decays with number of samples.
+        # Action: Force valve closed until current < target - hysteresis.
+        if inp.current_temp_C is not None and inp.target_temp_C is not None:
+            calib_hysteresis = 0.2
+            if state.is_calibration_active:
+                if inp.current_temp_C <= (inp.target_temp_C - calib_hysteresis):
+                    state.is_calibration_active = False
+                    _LOGGER.info(
+                        "better_thermostat %s: Calibration finished (temp reached target - %.1fvK). Resuming control.",
+                        name,
+                        calib_hysteresis,
+                    )
+                else:
+                    percent = 0.0
+                    extra_debug["calib_active"] = True
+
+            elif not state.is_calibration_active:
+                # Trigger condition: Overheated/Reached target
+                # Check random chance if we have "enough" heat (delta_t <= 0 means we are at/above target)
+                if inp.current_temp_C >= inp.target_temp_C:
+                    # Chance decays with experience: 1 (100%), 0.5, 0.33, 0.25, ...
+                    chance = 1.0 / (state.loss_learn_count + 1)
+                    if random.random() < chance:
+                        state.is_calibration_active = True
+                        percent = 0.0
+                        extra_debug["calib_active"] = True
+                        _LOGGER.info(
+                            "better_thermostat %s: Starting forced calibration (chance %.2f, count %d). Forcing 0%% valve.",
+                            name,
+                            chance,
+                            state.loss_learn_count,
+                        )
+
         _LOGGER.debug(
             "better_thermostat %s: MPC raw output (%s) percent=%s delta_T=%s debug=%s",
             name,
@@ -979,6 +1032,7 @@ def _compute_predictive_percent(
                 state.loss_est = (1.0 - alpha) * loss_est + alpha * loss_candidate
                 updated_loss = True
                 loss_method = "cool_u0"
+                state.loss_learn_count += 1
 
             # --- LOSS learning (residual): works even when valves never close ---
             # Important: this must work even when delta_T == 0 (steady-state), so it
@@ -1023,9 +1077,12 @@ def _compute_predictive_percent(
                         max(loss_candidate, params.mpc_loss_min), params.mpc_loss_max
                     )
 
-                    alpha = params.mpc_adapt_alpha
+                    # Heavily reduce alpha for steady-state learning to rely more on
+                    # "cool_u0" events (forced calibration).
+                    base_alpha = params.mpc_adapt_alpha * 0.2
+                    alpha = base_alpha
                     if loss_candidate < loss_est:
-                        alpha = params.mpc_adapt_alpha * 0.1  # slower decrease
+                        alpha = base_alpha * 0.1  # slower decrease
                     state.loss_est = (1.0 - alpha) * loss_est + alpha * loss_candidate
                     updated_loss = True
                     loss_method = "residual_u0_ss"
@@ -1048,7 +1105,8 @@ def _compute_predictive_percent(
                 )
 
                 # This will likely be negative or very small, driving loss down.
-                alpha = params.mpc_adapt_alpha
+                # Reduce alpha to not overreact to solar gains etc.
+                alpha = params.mpc_adapt_alpha * 0.5
                 state.loss_est = (1.0 - alpha) * loss_est + alpha * loss_candidate
                 updated_loss = True
                 loss_method = "warm_low_u"

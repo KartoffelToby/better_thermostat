@@ -11,7 +11,7 @@ from homeassistant.helpers import entity_registry as er
 
 _LOGGER = logging.getLogger(__name__)
 
-VALVE_MAINTENANCE_INTERVAL_HOURS = 12
+VALVE_MAINTENANCE_INTERVAL_HOURS = 24
 
 # Some users report that the TRVZB motor can occasionally lose its calibration and
 # fail to fully close the valve when commanded to very small openings.
