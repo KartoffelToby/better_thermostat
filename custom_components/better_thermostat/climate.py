@@ -3162,6 +3162,48 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
                 )
                 self.bt_target_cooltemp = adjusted
 
+            # Auto-select preset if the new temperature matches a preset's temperature
+            # This allows automatic preset switching when user manually adjusts temperature
+            if self.bt_target_temp is not None:
+                # Check if the new temperature matches any preset temperature
+                # We use a small tolerance to handle floating point comparisons
+                tolerance = 0.01
+                matched_preset = None
+
+                # Iterate through all available presets to find a match
+                for preset_name, preset_temp in self._preset_temperatures.items():
+                    # Skip PRESET_NONE as it's the manual mode
+                    if preset_name == PRESET_NONE:
+                        continue
+                    # Check if this preset is enabled
+                    if preset_name not in self._enabled_presets:
+                        continue
+                    # Check if temperature matches (within tolerance)
+                    if preset_temp is not None and abs(self.bt_target_temp - preset_temp) < tolerance:
+                        matched_preset = preset_name
+                        break
+
+                # If we found a matching preset and we're not already in it, switch to it
+                if matched_preset is not None and self._preset_mode != matched_preset:
+                    _LOGGER.debug(
+                        "better_thermostat %s: Temperature %.1f matches preset %s, auto-selecting preset",
+                        self.device_name,
+                        self.bt_target_temp,
+                        matched_preset,
+                    )
+                    self._preset_mode = matched_preset
+                # If no preset matches and we're in a preset mode (not PRESET_NONE), switch to manual
+                elif matched_preset is None and self._preset_mode != PRESET_NONE:
+                    # Check if current temperature doesn't match the current preset
+                    current_preset_temp = self._preset_temperatures.get(self._preset_mode)
+                    if current_preset_temp is not None and abs(self.bt_target_temp - current_preset_temp) >= tolerance:
+                        _LOGGER.debug(
+                            "better_thermostat %s: Temperature %.1f doesn't match any preset, switching to manual mode",
+                            self.device_name,
+                            self.bt_target_temp,
+                        )
+                        self._preset_mode = PRESET_NONE
+
             _LOGGER.debug(
                 "better_thermostat %s: HA set target temperature to %s & %s",
                 self.device_name,
