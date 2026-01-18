@@ -1116,6 +1116,7 @@ def _compute_predictive_percent(
             if (
                 common_ok
                 and learn_signal
+                and (not updated_loss)
                 and (u_last >= max(min_open, ident_min_u))
                 and observed_rate > 0.001
             ):
