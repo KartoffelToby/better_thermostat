@@ -12,7 +12,6 @@ temperature manually to 21 it will still show that comfort preset is selected
 instead of home preset.
 """
 
-import pytest
 
 
 # Define preset constants (same as homeassistant.components.climate.const)
@@ -57,14 +56,12 @@ def simulate_temperature_change(thermostat, new_temp):
         tolerance = 0.01
         matched_preset = None
 
-        # Iterate through all available presets to find a match
-        for preset_name, preset_temp in thermostat._preset_temperatures.items():
-            # Skip PRESET_NONE as it's the manual mode
+        # Iterate through enabled presets in priority order (first match wins)
+        # This ensures consistent behavior if multiple presets have the same temperature
+        for preset_name in thermostat._enabled_presets:
             if preset_name == PRESET_NONE:
                 continue
-            # Check if this preset is enabled
-            if preset_name not in thermostat._enabled_presets:
-                continue
+            preset_temp = thermostat._preset_temperatures.get(preset_name)
             # Check if temperature matches (within tolerance)
             if preset_temp is not None and abs(thermostat.bt_target_temp - preset_temp) < tolerance:
                 matched_preset = preset_name
