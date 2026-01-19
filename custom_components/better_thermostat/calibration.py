@@ -612,7 +612,7 @@ def calculate_calibration_local(self, entity_id) -> float | None:
                     _skip_post_adjustments = True
                 else:
                     # Fallback to legacy behavior
-                    # Use absolute value to ensure we reduce calibration proportionally
+                    # Scale calibration adjustment based on valve position
                     _new_trv_calibration = _current_trv_calibration + (
                         self.real_trvs[entity_id]["local_calibration_min"]
                         * _valve_position
@@ -620,7 +620,7 @@ def calculate_calibration_local(self, entity_id) -> float | None:
             else:
                 # No direct valve support: compute calibration as before and clear any stale balance
                 self.real_trvs[entity_id].pop("calibration_balance", None)
-                # Use absolute value to ensure we reduce calibration proportionally
+                # Scale calibration adjustment based on valve position
                 _new_trv_calibration = _current_trv_calibration + (
                     self.real_trvs[entity_id]["local_calibration_min"]
                     * _valve_position
