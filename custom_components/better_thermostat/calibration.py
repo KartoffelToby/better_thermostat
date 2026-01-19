@@ -612,21 +612,17 @@ def calculate_calibration_local(self, entity_id) -> float | None:
                     _skip_post_adjustments = True
                 else:
                     # Fallback to legacy behavior
-                    _new_trv_calibration = _current_trv_calibration - (
-                        (
-                            self.real_trvs[entity_id]["local_calibration_min"]
-                            + _cur_trv_temp_f
-                        )
+                    # Use absolute value to ensure we reduce calibration proportionally
+                    _new_trv_calibration = _current_trv_calibration + (
+                        self.real_trvs[entity_id]["local_calibration_min"]
                         * _valve_position
                     )
             else:
                 # No direct valve support: compute calibration as before and clear any stale balance
                 self.real_trvs[entity_id].pop("calibration_balance", None)
-                _new_trv_calibration = _current_trv_calibration - (
-                    (
-                        self.real_trvs[entity_id]["local_calibration_min"]
-                        + _cur_trv_temp_f
-                    )
+                # Use absolute value to ensure we reduce calibration proportionally
+                _new_trv_calibration = _current_trv_calibration + (
+                    self.real_trvs[entity_id]["local_calibration_min"]
                     * _valve_position
                 )
         else:
@@ -662,10 +658,28 @@ def calculate_calibration_local(self, entity_id) -> float | None:
     # limit new setpoint within min/max of the TRV's range
     t_min = _convert_to_float(self.real_trvs[entity_id]["local_calibration_min"])
     t_max = _convert_to_float(self.real_trvs[entity_id]["local_calibration_max"])
-    if t_min is None or t_max is None:
-        return _new_trv_calibration
-    t_min = float(t_min)
-    t_max = float(t_max)
+    
+    # Provide safe defaults if min/max are not available
+    if t_min is None:
+        _LOGGER.warning(
+            "better_thermostat %s: %s local_calibration_min is None, using default -10",
+            self.device_name,
+            entity_id,
+        )
+        t_min = -10.0
+    else:
+        t_min = float(t_min)
+    
+    if t_max is None:
+        _LOGGER.warning(
+            "better_thermostat %s: %s local_calibration_max is None, using default 10",
+            self.device_name,
+            entity_id,
+        )
+        t_max = 10.0
+    else:
+        t_max = float(t_max)
+    
     _new_trv_calibration = max(t_min, min(_new_trv_calibration, t_max))
 
     _new_trv_calibration = _convert_to_float(_new_trv_calibration)
