@@ -3005,7 +3005,7 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
                     self.device_name,
                     self.bt_target_temp,
                 )
-                # When switching back to PRESET_NONE, restore saved temperature
+                # When switching back to PRESET_NONE, clear saved temperature
                 # Note: We don't actually change bt_target_temp here because the user just set it manually
                 # We only clear the saved temperature to indicate we're no longer in preset mode
                 self._preset_temperature = None
