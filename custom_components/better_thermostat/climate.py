@@ -2938,6 +2938,79 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
         self.async_write_ha_state()
         await self.control_queue_task.put(self)
 
+    def _auto_select_preset_based_on_temperature(self) -> None:
+        """Auto-select preset if temperature matches a preset's configured value.
+
+        This method is called after the target temperature is changed to automatically
+        switch to a matching preset or to manual mode if no preset matches.
+
+        Behavior:
+        - If temperature matches an enabled preset: switches to that preset
+        - If temperature doesn't match any preset: switches to manual mode (PRESET_NONE)
+        - Properly handles _preset_temperature save/restore mechanism
+        - Uses 0.01°C tolerance for floating-point comparison
+
+        Returns
+        -------
+        None
+        """
+        if self.bt_target_temp is None:
+            return
+
+        # Check if the new temperature matches any preset temperature
+        # We use a small tolerance to handle floating point comparisons
+        tolerance = 0.01
+        matched_preset = None
+
+        # Iterate through enabled presets in priority order (first match wins)
+        # This ensures consistent behavior if multiple presets have the same temperature
+        for preset_name in self._enabled_presets:
+            if preset_name == PRESET_NONE:
+                continue
+            preset_temp = self._preset_temperatures.get(preset_name)
+            # Check if temperature matches (within tolerance)
+            if preset_temp is not None and abs(self.bt_target_temp - preset_temp) < tolerance:
+                matched_preset = preset_name
+                break
+
+        # If we found a matching preset and we're not already in it, switch to it
+        if matched_preset is not None and self._preset_mode != matched_preset:
+            old_preset = self._preset_mode
+
+            # Handle _preset_temperature save/restore mechanism
+            # If switching from PRESET_NONE to another preset, save current temperature
+            if old_preset == PRESET_NONE and self._preset_temperature is None:
+                self._preset_temperature = self.bt_target_temp
+                _LOGGER.debug(
+                    "better_thermostat %s: Saved temperature %.1f before auto-switching to preset %s",
+                    self.device_name,
+                    self._preset_temperature,
+                    matched_preset,
+                )
+
+            _LOGGER.debug(
+                "better_thermostat %s: Temperature %.1f matches preset %s, auto-selecting preset",
+                self.device_name,
+                self.bt_target_temp,
+                matched_preset,
+            )
+            self._preset_mode = matched_preset
+        # If no preset matches and we're in a preset mode (not PRESET_NONE), switch to manual
+        elif matched_preset is None and self._preset_mode != PRESET_NONE:
+            # Check if current temperature doesn't match the current preset
+            current_preset_temp = self._preset_temperatures.get(self._preset_mode)
+            if current_preset_temp is not None and abs(self.bt_target_temp - current_preset_temp) >= tolerance:
+                _LOGGER.debug(
+                    "better_thermostat %s: Temperature %.1f doesn't match any preset, switching to manual mode",
+                    self.device_name,
+                    self.bt_target_temp,
+                )
+                # When switching back to PRESET_NONE, restore saved temperature
+                # Note: We don't actually change bt_target_temp here because the user just set it manually
+                # We only clear the saved temperature to indicate we're no longer in preset mode
+                self._preset_temperature = None
+                self._preset_mode = PRESET_NONE
+
     async def async_set_temperature(self, **kwargs) -> None:
         """Set new target temperature."""
         _LOGGER.debug(
@@ -3163,61 +3236,7 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
                 self.bt_target_cooltemp = adjusted
 
             # Auto-select preset if the new temperature matches a preset's temperature
-            # This allows automatic preset switching when user manually adjusts temperature
-            if self.bt_target_temp is not None:
-                # Check if the new temperature matches any preset temperature
-                # We use a small tolerance to handle floating point comparisons
-                tolerance = 0.01
-                matched_preset = None
-
-                # Iterate through enabled presets in priority order (first match wins)
-                # This ensures consistent behavior if multiple presets have the same temperature
-                for preset_name in self._enabled_presets:
-                    if preset_name == PRESET_NONE:
-                        continue
-                    preset_temp = self._preset_temperatures.get(preset_name)
-                    # Check if temperature matches (within tolerance)
-                    if preset_temp is not None and abs(self.bt_target_temp - preset_temp) < tolerance:
-                        matched_preset = preset_name
-                        break
-
-                # If we found a matching preset and we're not already in it, switch to it
-                if matched_preset is not None and self._preset_mode != matched_preset:
-                    old_preset = self._preset_mode
-
-                    # Handle _preset_temperature save/restore mechanism
-                    # If switching from PRESET_NONE to another preset, save current temperature
-                    if old_preset == PRESET_NONE and self._preset_temperature is None:
-                        self._preset_temperature = self.bt_target_temp
-                        _LOGGER.debug(
-                            "better_thermostat %s: Saved temperature %.1f before auto-switching to preset %s",
-                            self.device_name,
-                            self._preset_temperature,
-                            matched_preset,
-                        )
-
-                    _LOGGER.debug(
-                        "better_thermostat %s: Temperature %.1f matches preset %s, auto-selecting preset",
-                        self.device_name,
-                        self.bt_target_temp,
-                        matched_preset,
-                    )
-                    self._preset_mode = matched_preset
-                # If no preset matches and we're in a preset mode (not PRESET_NONE), switch to manual
-                elif matched_preset is None and self._preset_mode != PRESET_NONE:
-                    # Check if current temperature doesn't match the current preset
-                    current_preset_temp = self._preset_temperatures.get(self._preset_mode)
-                    if current_preset_temp is not None and abs(self.bt_target_temp - current_preset_temp) >= tolerance:
-                        _LOGGER.debug(
-                            "better_thermostat %s: Temperature %.1f doesn't match any preset, switching to manual mode",
-                            self.device_name,
-                            self.bt_target_temp,
-                        )
-                        # When switching back to PRESET_NONE, restore saved temperature
-                        # Note: We don't actually change bt_target_temp here because the user just set it manually
-                        # We only clear the saved temperature to indicate we're no longer in preset mode
-                        self._preset_temperature = None
-                        self._preset_mode = PRESET_NONE
+            self._auto_select_preset_based_on_temperature()
 
             _LOGGER.debug(
                 "better_thermostat %s: HA set target temperature to %s & %s",
