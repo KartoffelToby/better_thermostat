@@ -3183,6 +3183,19 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
 
                 # If we found a matching preset and we're not already in it, switch to it
                 if matched_preset is not None and self._preset_mode != matched_preset:
+                    old_preset = self._preset_mode
+
+                    # Handle _preset_temperature save/restore mechanism
+                    # If switching from PRESET_NONE to another preset, save current temperature
+                    if old_preset == PRESET_NONE and self._preset_temperature is None:
+                        self._preset_temperature = self.bt_target_temp
+                        _LOGGER.debug(
+                            "better_thermostat %s: Saved temperature %.1f before auto-switching to preset %s",
+                            self.device_name,
+                            self._preset_temperature,
+                            matched_preset,
+                        )
+
                     _LOGGER.debug(
                         "better_thermostat %s: Temperature %.1f matches preset %s, auto-selecting preset",
                         self.device_name,
@@ -3200,6 +3213,10 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
                             self.device_name,
                             self.bt_target_temp,
                         )
+                        # When switching back to PRESET_NONE, restore saved temperature
+                        # Note: We don't actually change bt_target_temp here because the user just set it manually
+                        # We only clear the saved temperature to indicate we're no longer in preset mode
+                        self._preset_temperature = None
                         self._preset_mode = PRESET_NONE
 
             _LOGGER.debug(

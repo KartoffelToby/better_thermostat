@@ -13,7 +13,6 @@ instead of home preset.
 """
 
 
-
 # Define preset constants (same as homeassistant.components.climate.const)
 PRESET_NONE = "none"
 PRESET_HOME = "home"
@@ -29,6 +28,7 @@ class MockBetterThermostat:
         self.device_name = "test_thermostat"
         self.bt_target_temp = 20.0
         self._preset_mode = PRESET_NONE
+        self._preset_temperature = None
         self._enabled_presets = [PRESET_HOME, PRESET_COMFORT, PRESET_ECO]
         self._preset_temperatures = {
             PRESET_NONE: 20.0,
@@ -44,9 +44,9 @@ class MockBetterThermostat:
 
 
 def simulate_temperature_change(thermostat, new_temp):
-    """Simulate the auto-selection logic from async_set_temperature.
+    """Simulate the auto-selection behavior of the actual implementation for testing.
 
-    This is extracted from the actual implementation to test the logic.
+    This replicates the logic from climate.py async_set_temperature method.
     """
     thermostat.bt_target_temp = new_temp
 
@@ -69,12 +69,21 @@ def simulate_temperature_change(thermostat, new_temp):
 
         # If we found a matching preset and we're not already in it, switch to it
         if matched_preset is not None and thermostat._preset_mode != matched_preset:
+            old_preset = thermostat._preset_mode
+
+            # Handle _preset_temperature save/restore mechanism
+            # If switching from PRESET_NONE to another preset, save current temperature
+            if old_preset == PRESET_NONE and thermostat._preset_temperature is None:
+                thermostat._preset_temperature = thermostat.bt_target_temp
+
             thermostat._preset_mode = matched_preset
         # If no preset matches and we're in a preset mode (not PRESET_NONE), switch to manual
         elif matched_preset is None and thermostat._preset_mode != PRESET_NONE:
             # Check if current temperature doesn't match the current preset
             current_preset_temp = thermostat._preset_temperatures.get(thermostat._preset_mode)
             if current_preset_temp is not None and abs(thermostat.bt_target_temp - current_preset_temp) >= tolerance:
+                # When switching back to PRESET_NONE, clear saved temperature
+                thermostat._preset_temperature = None
                 thermostat._preset_mode = PRESET_NONE
 
 
@@ -228,4 +237,72 @@ class TestPresetAutoSelection:
         assert thermostat._preset_mode == PRESET_NONE, (
             f"Expected preset to switch to NONE when temperature matches disabled preset, "
             f"but preset is {thermostat._preset_mode}"
+        )
+
+    def test_preset_temperature_saved_when_auto_switching_from_manual(self):
+        """Test that _preset_temperature is saved when auto-switching from manual.
+
+        Scenario:
+        - Currently in manual mode (PRESET_NONE)
+        - User changes temperature to 22°C (matches COMFORT preset)
+        - Expected: Should save the temperature before switching to COMFORT
+        """
+        thermostat = MockBetterThermostat()
+        thermostat._preset_mode = PRESET_NONE
+        thermostat._preset_temperature = None
+        thermostat.bt_target_temp = 20.0
+
+        # User changes temperature to 22°C (matches COMFORT preset)
+        simulate_temperature_change(thermostat, 22.0)
+
+        assert thermostat._preset_mode == PRESET_COMFORT, (
+            f"Expected preset to switch to COMFORT, but got {thermostat._preset_mode}"
+        )
+        assert thermostat._preset_temperature == 22.0, (
+            f"Expected _preset_temperature to be saved as 22.0, but got {thermostat._preset_temperature}"
+        )
+
+    def test_preset_temperature_cleared_when_switching_to_manual(self):
+        """Test that _preset_temperature is cleared when auto-switching to manual.
+
+        Scenario:
+        - Currently in COMFORT preset (22°C)
+        - User changes temperature to 20.5°C (no matching preset)
+        - Expected: Should clear _preset_temperature when switching to manual
+        """
+        thermostat = MockBetterThermostat()
+        thermostat._preset_mode = PRESET_COMFORT
+        thermostat._preset_temperature = 20.0  # Simulate saved temperature
+        thermostat.bt_target_temp = 22.0
+
+        # User changes temperature to 20.5°C (no matching preset)
+        simulate_temperature_change(thermostat, 20.5)
+
+        assert thermostat._preset_mode == PRESET_NONE, (
+            f"Expected preset to switch to NONE, but got {thermostat._preset_mode}"
+        )
+        assert thermostat._preset_temperature is None, (
+            f"Expected _preset_temperature to be cleared, but got {thermostat._preset_temperature}"
+        )
+
+    def test_preset_temperature_not_overwritten_when_already_set(self):
+        """Test that _preset_temperature is not overwritten if already saved.
+
+        Scenario:
+        - Currently in manual mode with _preset_temperature already saved
+        - User changes temperature to match a preset
+        - Expected: Should not overwrite existing _preset_temperature
+        """
+        thermostat = MockBetterThermostat()
+        thermostat._preset_mode = PRESET_NONE
+        thermostat._preset_temperature = 19.5  # Already saved from previous preset
+        thermostat.bt_target_temp = 20.0
+
+        # User changes temperature to 22°C (matches COMFORT preset)
+        simulate_temperature_change(thermostat, 22.0)
+
+        assert thermostat._preset_mode == PRESET_COMFORT
+        assert thermostat._preset_temperature == 19.5, (
+            f"Expected _preset_temperature to remain 19.5 (not overwritten), "
+            f"but got {thermostat._preset_temperature}"
         )
