@@ -243,9 +243,13 @@ class TestPresetAutoSelection:
         """Test that _preset_temperature is saved when auto-switching from manual.
 
         Scenario:
-        - Currently in manual mode (PRESET_NONE)
+        - Currently in manual mode (PRESET_NONE) at 20°C
         - User changes temperature to 22°C (matches COMFORT preset)
-        - Expected: Should save the temperature before switching to COMFORT
+        - Expected: Should save 22°C (the new temperature) before switching to COMFORT
+
+        Note: We save the NEW temperature (22.0) because the user explicitly set it.
+        This is the temperature they want, so if they switch back to manual later,
+        it should restore to 22.0, not the old 20.0.
         """
         thermostat = MockBetterThermostat()
         thermostat._preset_mode = PRESET_NONE
@@ -301,7 +305,9 @@ class TestPresetAutoSelection:
         # User changes temperature to 22°C (matches COMFORT preset)
         simulate_temperature_change(thermostat, 22.0)
 
-        assert thermostat._preset_mode == PRESET_COMFORT
+        assert thermostat._preset_mode == PRESET_COMFORT, (
+            f"Expected preset to switch to COMFORT, but got {thermostat._preset_mode}"
+        )
         assert thermostat._preset_temperature == 19.5, (
             f"Expected _preset_temperature to remain 19.5 (not overwritten), "
             f"but got {thermostat._preset_temperature}"
