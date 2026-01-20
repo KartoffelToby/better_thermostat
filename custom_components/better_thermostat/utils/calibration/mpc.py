@@ -739,8 +739,8 @@ def compute_mpc(inp: MpcInput, params: MpcParams) -> MpcOutput | None:
                 # Trigger condition: Overheated/Reached target
                 # Check random chance if we have "enough" heat (delta_t <= 0 means we are at/above target)
                 if inp.current_temp_C >= inp.target_temp_C:
-                    # Chance decays with experience: 1 (100%), 0.5, 0.33, 0.25, ...
-                    chance = 1.0 / (state.loss_learn_count + 1)
+                    # Chance decays with experience: 1 (100%), 0.5, ... but min 5%
+                    chance = max(0.05, 1.0 / (state.loss_learn_count + 1))
                     if random.random() < chance:
                         state.is_calibration_active = True
                         percent = 0.0
@@ -1027,15 +1027,24 @@ def _compute_predictive_percent(
                 and observed_rate < -0.01
             ):
                 loss_candidate = max(0.0, -observed_rate)
-                loss_candidate = min(loss_candidate, params.mpc_loss_max)
+                
+                # Check for "Open Window" scenario:
+                # If the observed cooling rate is significantly higher than the maximum allowed loss parameter,
+                # it is likely an external disturbance (open window without sensor) rather than poor insulation.
+                # Threshold: 1.5x max_loss (e.g. > 0.045 °C/min if max is 0.03).
+                max_realistic_loss = params.mpc_loss_max * 1.5
+                if loss_candidate > max_realistic_loss:
+                    adapt_debug["loss_skipped_high_rate"] = True
+                else:
+                    loss_candidate = min(loss_candidate, params.mpc_loss_max)
 
-                alpha = params.mpc_adapt_alpha
-                if loss_candidate < loss_est:
-                    alpha = params.mpc_adapt_alpha * 0.1  # slower decrease
-                state.loss_est = (1.0 - alpha) * loss_est + alpha * loss_candidate
-                updated_loss = True
-                loss_method = "cool_u0"
-                state.loss_learn_count += 1
+                    alpha = params.mpc_adapt_alpha
+                    if loss_candidate < loss_est:
+                        alpha = params.mpc_adapt_alpha * 0.1  # slower decrease
+                    state.loss_est = (1.0 - alpha) * loss_est + alpha * loss_candidate
+                    updated_loss = True
+                    loss_method = "cool_u0"
+                    state.loss_learn_count += 1
 
             # --- LOSS learning (residual): works even when valves never close ---
             # Important: this must work even when delta_T == 0 (steady-state), so it
@@ -1401,6 +1410,7 @@ def _compute_predictive_percent(
     mpc_debug = {
         "mpc_gain": _round_for_debug(gain, 4),
         "mpc_loss": _round_for_debug(loss, 4),
+        "mpc_ka": _round_for_debug(state.ka_est, 5) if state.ka_est is not None else None,
         "mpc_u0_pct": _round_for_debug(u0_frac * 100.0, 3),
         "mpc_du_pct": _round_for_debug(du_percent, 3),
         "mpc_u_abs_pct": _round_for_debug(u_abs_percent, 3),
