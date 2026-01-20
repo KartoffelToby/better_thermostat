@@ -1027,7 +1027,7 @@ def _compute_predictive_percent(
                 and observed_rate < -0.01
             ):
                 loss_candidate = max(0.0, -observed_rate)
-                
+
                 # Check for "Open Window" scenario:
                 # If the observed cooling rate is significantly higher than the maximum allowed loss parameter,
                 # it is likely an external disturbance (open window without sensor) rather than poor insulation.
@@ -1410,7 +1410,9 @@ def _compute_predictive_percent(
     mpc_debug = {
         "mpc_gain": _round_for_debug(gain, 4),
         "mpc_loss": _round_for_debug(loss, 4),
-        "mpc_ka": _round_for_debug(state.ka_est, 5) if state.ka_est is not None else None,
+        "mpc_ka": _round_for_debug(state.ka_est, 5)
+        if state.ka_est is not None
+        else None,
         "mpc_u0_pct": _round_for_debug(u0_frac * 100.0, 3),
         "mpc_du_pct": _round_for_debug(du_percent, 3),
         "mpc_u_abs_pct": _round_for_debug(u_abs_percent, 3),

@@ -338,7 +338,7 @@ class BetterThermostatMpcKaSensor(SensorEntity):
     _attr_state_class = SensorStateClass.MEASUREMENT
     _attr_native_unit_of_measurement = "1/min"
     _attr_should_poll = False
-    _attr_icon = "mdi:home-insulation"
+    _attr_icon = "mdi:home-thermometer"
     _attr_entity_category = EntityCategory.DIAGNOSTIC
 
     def __init__(self, bt_climate):
