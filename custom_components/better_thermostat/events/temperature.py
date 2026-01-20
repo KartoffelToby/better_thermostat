@@ -143,9 +143,14 @@ async def _apply_temperature_update(self, new_temp):
             "better_thermostat %s: external_temperature write to TRV failed (non critical)",
             self.device_name,
         )
-    # Enqueue control action
+    # Enqueue control action (skip during valve maintenance to avoid overwriting exercise).
+    # Still mark that a control cycle is needed after maintenance so we immediately
+    # resume with the latest temperature.
     if self.control_queue_task is not None:
-        await self.control_queue_task.put(self)
+        if getattr(self, "in_maintenance", False):
+            self._control_needed_after_maintenance = True
+        else:
+            await self.control_queue_task.put(self)
     _LOGGER.debug(
         "better_thermostat %s: _apply_temperature_update finished", self.device_name
     )

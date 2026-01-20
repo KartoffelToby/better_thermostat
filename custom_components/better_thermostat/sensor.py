@@ -54,6 +54,7 @@ async def async_setup_entry(
                 BetterThermostatVirtualTempSensor(bt_climate),
                 BetterThermostatMpcGainSensor(bt_climate),
                 BetterThermostatMpcLossSensor(bt_climate),
+                BetterThermostatMpcKaSensor(bt_climate),
                 BetterThermostatMpcStatusSensor(bt_climate),
             ]
         )
@@ -317,6 +318,61 @@ class BetterThermostatMpcLossSensor(SensorEntity):
                     debug = cal_bal["debug"]
                     if "mpc_loss" in debug:
                         val = debug["mpc_loss"]
+                        break
+
+        if val is not None:
+            try:
+                self._attr_native_value = float(val)
+            except (ValueError, TypeError):
+                self._attr_native_value = None
+        else:
+            self._attr_native_value = None
+
+
+class BetterThermostatMpcKaSensor(SensorEntity):
+    """Representation of a Better Thermostat MPC Insulation (Ka) Sensor."""
+
+    _attr_has_entity_name = True
+    _attr_name = "MPC Insulation"
+    _attr_device_class = None
+    _attr_state_class = SensorStateClass.MEASUREMENT
+    _attr_native_unit_of_measurement = "1/min"
+    _attr_should_poll = False
+    _attr_icon = "mdi:home-thermometer"
+    _attr_entity_category = EntityCategory.DIAGNOSTIC
+
+    def __init__(self, bt_climate):
+        """Initialize the sensor."""
+        self._bt_climate = bt_climate
+        self._attr_unique_id = f"{bt_climate.unique_id}_mpc_ka"
+        self._attr_device_info = bt_climate.device_info
+
+    async def async_added_to_hass(self):
+        """Register callbacks."""
+        if self._bt_climate.entity_id:
+            self.async_on_remove(
+                async_track_state_change_event(
+                    self.hass, [self._bt_climate.entity_id], self._on_climate_update
+                )
+            )
+        self._update_state()
+
+    @callback
+    def _on_climate_update(self, event):
+        """Handle climate entity update."""
+        self._update_state()
+        self.async_write_ha_state()
+
+    def _update_state(self):
+        """Update state from climate entity."""
+        val = None
+        if hasattr(self._bt_climate, "real_trvs"):
+            for trv_id, trv_data in self._bt_climate.real_trvs.items():
+                cal_bal = trv_data.get("calibration_balance")
+                if cal_bal and "debug" in cal_bal:
+                    debug = cal_bal["debug"]
+                    if "mpc_ka" in debug:
+                        val = debug["mpc_ka"]
                         break
 
         if val is not None:
