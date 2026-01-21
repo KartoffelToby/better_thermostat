@@ -37,7 +37,7 @@ async def async_setup_entry(
         )
         return
 
-    numbers = []
+    numbers: list[NumberEntity] = []
     # Create a number entity for each preset mode (except NONE)
     _LOGGER.debug(
         "Better Thermostat Number: Found preset modes: %s", bt_climate.preset_modes

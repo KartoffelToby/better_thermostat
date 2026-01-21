@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping
+
 from homeassistant.components.climate.const import (
     ATTR_HVAC_ACTION,
     ATTR_HVAC_MODE,
@@ -81,7 +83,9 @@ def async_condition_from_config(
     if config[CONF_TYPE] == "is_hvac_mode":
         hvac_mode = config[ATTR_HVAC_MODE]
 
-        def test_is_hvac_mode(hass: HomeAssistant, variables: dict) -> bool:
+        def test_is_hvac_mode(
+            hass: HomeAssistant, variables: Mapping[str, object] | None
+        ) -> bool:
             """Test if an HVAC mode condition is met."""
             state = hass.states.get(config[CONF_ENTITY_ID])
             return (
@@ -93,7 +97,9 @@ def async_condition_from_config(
     if config[CONF_TYPE] == "is_hvac_action":
         hvac_action = config[ATTR_HVAC_ACTION]
 
-        def test_is_hvac_action(hass: HomeAssistant, variables: dict) -> bool:
+        def test_is_hvac_action(
+            hass: HomeAssistant, variables: Mapping[str, object] | None
+        ) -> bool:
             """Test if an HVAC action condition is met."""
             state = hass.states.get(config[CONF_ENTITY_ID])
             return (

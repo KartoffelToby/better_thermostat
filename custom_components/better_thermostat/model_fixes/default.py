@@ -6,10 +6,14 @@ require specific quirks.
 
 import logging
 
-from homeassistant.const import STATE_LOCKED, STATE_OFF, STATE_ON, STATE_UNLOCKED
+from homeassistant.const import STATE_OFF, STATE_ON
 from homeassistant.helpers import entity_registry as er
 
 _LOGGER = logging.getLogger(__name__)
+
+# Lock states (not defined in homeassistant.const)
+STATE_LOCKED = "locked"
+STATE_UNLOCKED = "unlocked"
 
 
 def fix_local_calibration(self, entity_id, offset):

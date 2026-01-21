@@ -1,5 +1,6 @@
 """Helper functions for the Better Thermostat component."""
 
+from collections.abc import Callable
 from datetime import datetime
 from enum import Enum
 import logging
@@ -26,7 +27,9 @@ from custom_components.better_thermostat.utils.const import (
 _LOGGER = logging.getLogger(__name__)
 
 
-def normalize_calibration_mode(mode: Any) -> CalibrationMode | str | None:
+def normalize_calibration_mode(
+    mode: CalibrationMode | str | None,
+) -> CalibrationMode | str | None:
     """Normalize a calibration_mode field from TRV advanced data."""
 
     if isinstance(mode, CalibrationMode):
@@ -40,7 +43,9 @@ def normalize_calibration_mode(mode: Any) -> CalibrationMode | str | None:
     return None
 
 
-def is_calibration_mode(mode: Any, expected: CalibrationMode) -> bool:
+def is_calibration_mode(
+    mode: CalibrationMode | str | None, expected: CalibrationMode
+) -> bool:
     """Return True if ``mode`` is the expected CalibrationMode."""
 
     normalized = normalize_calibration_mode(mode)
@@ -274,28 +279,33 @@ def convert_to_float(
         return None
 
 
-class rounding(Enum):
+class rounding:
     """Rounding helpers for stable step-based rounding.
 
     Provides minor offsets to avoid floating point rounding artifacts when
     converting values to integer steps.
     """
 
+    @staticmethod
     def up(x: float) -> float:
         """Round up with a tiny epsilon to avoid FP artifacts."""
         return math.ceil(x - 0.0001)
 
+    @staticmethod
     def down(x: float) -> float:
         """Round down with a tiny epsilon to avoid FP artifacts."""
         return math.floor(x + 0.0001)
 
+    @staticmethod
     def nearest(x: float) -> float:
         """Round to nearest step with a small epsilon to avoid up-rounding."""
         return round(x - 0.0001)
 
 
 def round_by_step(
-    value: float | None, step: float | None, f_rounding: rounding = rounding.nearest
+    value: float | None,
+    step: float | None,
+    f_rounding: Callable[[float], float] = rounding.nearest,
 ) -> float | None:
     """Round the value based on the allowed decimal 'step' size.
 
