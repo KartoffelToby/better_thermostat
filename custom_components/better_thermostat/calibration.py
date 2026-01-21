@@ -333,7 +333,11 @@ def _compute_pid_balance(self, entity_id: str):
     key = build_pid_key(self, entity_id)
     pid_state = get_pid_state(key)
 
+    # Get TRV-level auto_tune setting (persists across temperature buckets)
+    trv_auto_tune = trv_state.get("advanced", {}).get("pid_auto_tune")
+
     # Use learned gains if available, otherwise from config, otherwise defaults
+    # For auto_tune: prefer PID state, then TRV-level setting, then default
     params = PIDParams(
         kp=(
             pid_state.pid_kp
@@ -353,7 +357,7 @@ def _compute_pid_balance(self, entity_id: str):
         auto_tune=(
             pid_state.auto_tune
             if pid_state and pid_state.auto_tune is not None
-            else DEFAULT_PID_AUTO_TUNE
+            else (trv_auto_tune if trv_auto_tune is not None else DEFAULT_PID_AUTO_TUNE)
         ),
     )
 
