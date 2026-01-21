@@ -1089,15 +1089,28 @@ def _compute_predictive_percent(
                         max(loss_candidate, params.mpc_loss_min), params.mpc_loss_max
                     )
 
-                    # Heavily reduce alpha for steady-state learning to rely more on
-                    # "cool_u0" events (forced calibration).
-                    base_alpha = params.mpc_adapt_alpha * 0.2
-                    alpha = base_alpha
-                    if loss_candidate < loss_est:
-                        alpha = base_alpha * 0.1  # slower decrease
-                    state.loss_est = (1.0 - alpha) * loss_est + alpha * loss_candidate
-                    updated_loss = True
-                    loss_method = "residual_u0_ss"
+                    # Logic Check: "Insufficient Heat"
+                    # If the room is significantly below target (e.g. >0.2K diff) but we are in steady state (rate ~ 0),
+                    # it means the valve is open but not delivering enough heat.
+                    # We should NOT increase the Loss estimate here (blaming insulation).
+                    # Instead, we should leave Loss alone and let "high_u_ss" reduce the Gain estimate (blaming the heater).
+                    is_insufficient_heat = (
+                        (target_temp_C - current_temp_cost_C) > 0.2
+                        and loss_candidate > loss_est
+                    )
+
+                    if not is_insufficient_heat:
+                        # Heavily reduce alpha for steady-state learning to rely more on
+                        # "cool_u0" events (forced calibration).
+                        base_alpha = params.mpc_adapt_alpha * 0.2
+                        alpha = base_alpha
+                        if loss_candidate < loss_est:
+                            alpha = base_alpha * 0.1  # slower decrease
+                        state.loss_est = (1.0 - alpha) * loss_est + alpha * loss_candidate
+                        updated_loss = True
+                        loss_method = "residual_u0_ss"
+                    else:
+                        adapt_debug["loss_skipped_insufficient_heat"] = True
 
             # --- LOSS learning (warming with low valve): ---
             # If we are below u0 but the room is warming, loss is overestimated.
