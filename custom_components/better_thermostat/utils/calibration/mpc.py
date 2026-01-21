@@ -1095,9 +1095,8 @@ def _compute_predictive_percent(
                     # We should NOT increase the Loss estimate here (blaming insulation).
                     # Instead, we should leave Loss alone and let "high_u_ss" reduce the Gain estimate (blaming the heater).
                     is_insufficient_heat = (
-                        (target_temp_C - current_temp_cost_C) > 0.2
-                        and loss_candidate > loss_est
-                    )
+                        target_temp_C - current_temp_cost_C
+                    ) > 0.2 and loss_candidate > loss_est
 
                     if not is_insufficient_heat:
                         # Heavily reduce alpha for steady-state learning to rely more on
@@ -1106,7 +1105,9 @@ def _compute_predictive_percent(
                         alpha = base_alpha
                         if loss_candidate < loss_est:
                             alpha = base_alpha * 0.1  # slower decrease
-                        state.loss_est = (1.0 - alpha) * loss_est + alpha * loss_candidate
+                        state.loss_est = (
+                            1.0 - alpha
+                        ) * loss_est + alpha * loss_candidate
                         updated_loss = True
                         loss_method = "residual_u0_ss"
                     else:
