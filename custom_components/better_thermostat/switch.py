@@ -27,9 +27,8 @@ async def async_setup_entry(
     if not bt_climate:
         return
 
-    switches = []
+    switches: list[SwitchEntity] = []
     switch_unique_ids = {}
-
     has_multiple_trvs = len(bt_climate.real_trvs) > 1
     for trv_entity_id, trv_data in bt_climate.real_trvs.items():
         advanced = trv_data.get("advanced", {})
