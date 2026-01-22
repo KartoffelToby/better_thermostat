@@ -223,14 +223,12 @@ async def test_parallel_trv_control_no_race_condition():
 
                         # If multiple operations started before this one ended, we have interleaving
                         if starts_before > ends_before + 1:
-                            # This is expected with current bug!
-                            print(f"\nRace condition detected: {starts_before} operations started before this one ended")
-                            print(f"  Event: {event}")
-                            print(f"  Events before: {operation_events[:i]}")
-                            # Don't fail - this is the bug we're documenting!
-                            return
-
-            print("\nNo interleaving detected - operations ran sequentially")
+                            raise AssertionError(
+                                f"Race condition detected: {starts_before} operations started "
+                                f"before this one ended.\n"
+                                f"  Event: {event}\n"
+                                f"  Events before: {operation_events[:i]}"
+                            )
 
 
 @pytest.mark.asyncio
