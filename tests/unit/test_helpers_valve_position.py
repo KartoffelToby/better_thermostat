@@ -189,8 +189,8 @@ class TestHeatingPowerValvePosition:
         # With 10°C difference and low heating power, should be at or near 100%
         assert result >= 0.95
 
-    def test_bug_potential_division_by_zero(self):
-        """Test potential bug: What happens if heating_power is exactly 0?"""
+    def test_potential_division_by_zero(self):
+        """Test behavior when heating_power is exactly 0."""
         mock_bt = MockThermostat(bt_target_temp=22.0, cur_temp=20.0, heating_power=0.0)
 
         # This should either handle gracefully or we've found a bug
@@ -202,8 +202,8 @@ class TestHeatingPowerValvePosition:
             # If it crashes, we've found a bug!
             pytest.fail(f"BUG: Division by zero or ValueError: {e}")
 
-    def test_bug_potential_negative_heating_power(self):
-        """Test potential bug: What happens with negative heating_power?"""
+    def test_potential_negative_heating_power(self):
+        """Test behavior with negative heating_power."""
         mock_bt = MockThermostat(
             bt_target_temp=22.0, cur_temp=20.0, heating_power=-0.01
         )
