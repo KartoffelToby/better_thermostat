@@ -626,11 +626,27 @@ async def control_trv(self, heater_entity_id=None):
         "calibration", CalibrationType.TARGET_TEMP_BASED
     )
 
+    if (
+        self.preset_mode == PRESET_BOOST
+        and self.cur_temp is not None
+        and self.bt_target_temp is not None
+        and self.cur_temp < self.bt_target_temp
+    ):
+        _temperature = self.real_trvs[heater_entity_id].get("max_temp", 30.0)
+
     # Optional: set valve position if supported (e.g., MQTT/Z2M)
     try:
         _source = None
         bal = None
-        if _calibration_type == CalibrationType.DIRECT_VALVE_BASED:
+        if (
+            self.preset_mode == PRESET_BOOST
+            and self.cur_temp is not None
+            and self.bt_target_temp is not None
+            and self.cur_temp < self.bt_target_temp
+        ):
+            bal = {"valve_percent": 100, "apply_valve": True}
+            _source = "boost_mode"
+        elif _calibration_type == CalibrationType.DIRECT_VALVE_BASED:
             if _calibration_mode == CalibrationMode.MPC_CALIBRATION:
                 cal_bal = self.real_trvs[heater_entity_id].get("calibration_balance")
                 if (
