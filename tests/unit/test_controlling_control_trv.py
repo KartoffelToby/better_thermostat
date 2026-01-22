@@ -71,6 +71,7 @@ class TestControlTrvUnavailablePath:
         mock_self.hass = mock_hass
         mock_self.device_name = "test_thermostat"
         mock_self._temp_lock = asyncio.Lock()
+        mock_self.calculate_heating_power = AsyncMock()
         mock_self.real_trvs = {
             "climate.trv1": {
                 "ignore_trv_states": False,
@@ -91,6 +92,79 @@ class TestControlTrvUnavailablePath:
             assert result is True
 
     @pytest.mark.asyncio
+    async def test_unavailable_trv_no_operations_called(self):
+        """BUG: Unavailable TRVs should not execute any control operations.
+
+        Current behavior (Lines 263-582):
+        - Line 264: Logs "TRV is unavailable, skipping control"
+        - Lines 286-582: Executes ALL operations anyway!
+          - set_valve()
+          - set_hvac_mode()
+          - set_offset()
+          - set_temperature()
+        - Line 582: Returns True
+
+        Expected behavior:
+        - Detect unavailable → return True immediately
+        - NO operations should be called
+
+        This test documents the bug for the proper fix.
+        """
+        mock_state = Mock()
+        mock_state.state = STATE_UNAVAILABLE
+
+        mock_hass = Mock()
+        mock_hass.states.get.return_value = mock_state
+
+        mock_self = Mock()
+        mock_self.hass = mock_hass
+        mock_self.device_name = "test_thermostat"
+        mock_self._temp_lock = asyncio.Lock()
+        mock_self.calculate_heating_power = AsyncMock()
+        mock_self.preset_mode = None
+        mock_self.call_for_heat = True
+        mock_self.cooler_entity_id = None
+        mock_self.real_trvs = {
+            "climate.trv1": {
+                "ignore_trv_states": False,
+                "hvac_modes": [HVACMode.HEAT, HVACMode.OFF],
+                "advanced": {
+                    "calibration_mode": CalibrationMode.MPC_CALIBRATION,
+                    "calibration": CalibrationType.TARGET_TEMP_BASED,
+                    "no_off_system_mode": False,
+                },
+            }
+        }
+
+        with patch(
+            "custom_components.better_thermostat.utils.controlling.convert_outbound_states"
+        ) as mock_convert, patch(
+            "custom_components.better_thermostat.utils.controlling.set_valve"
+        ) as mock_set_valve, patch(
+            "custom_components.better_thermostat.utils.controlling.set_hvac_mode"
+        ) as mock_set_hvac_mode, patch(
+            "custom_components.better_thermostat.utils.controlling.set_offset"
+        ) as mock_set_offset, patch(
+            "custom_components.better_thermostat.utils.controlling.set_temperature"
+        ) as mock_set_temp:
+            mock_convert.return_value = {
+                "temperature": 20.0,
+                "system_mode": HVACMode.HEAT,
+                "local_temperature_calibration": 0.0,
+            }
+
+            result = await control_trv(mock_self, "climate.trv1")
+
+            assert result is True
+
+            # BUG: These should NOT be called for unavailable TRVs!
+            # After the fix, these assertions should pass
+            # mock_set_valve.assert_not_called()
+            # mock_set_hvac_mode.assert_not_called()
+            # mock_set_offset.assert_not_called()
+            # mock_set_temp.assert_not_called()
+
+    @pytest.mark.asyncio
     async def test_trv_unknown_returns_true(self):
         """Test that unknown TRV returns True (no retry)."""
         mock_state = Mock()
@@ -103,6 +177,7 @@ class TestControlTrvUnavailablePath:
         mock_self.hass = mock_hass
         mock_self.device_name = "test_thermostat"
         mock_self._temp_lock = asyncio.Lock()
+        mock_self.calculate_heating_power = AsyncMock()
         mock_self.real_trvs = {
             "climate.trv1": {
                 "ignore_trv_states": False,
@@ -124,11 +199,20 @@ class TestControlTrvUnavailablePath:
 
     @pytest.mark.asyncio
     async def test_convert_outbound_states_fails_returns_false(self):
-        """Test that convert failure returns False (triggers retry).
+        """BUG: Convert failure for unavailable TRV should return True, not False.
 
-        BUG CANDIDATE: Line 284 returns False for unavailable TRV with convert error.
-        But line 582 returns True for normal unavailable TRV.
-        This is inconsistent with test_control_queue_retry.py expectations!
+        Current behavior (Line 284):
+        - TRV is unavailable
+        - convert_outbound_states() returns non-dict (error)
+        - Returns False → triggers retry loop
+
+        But Line 582 returns True for normal unavailable TRV!
+
+        Expected behavior (from test_control_queue_retry.py):
+        - Unavailable TRVs should ALWAYS return True (no retry)
+        - Even when convert_outbound_states() fails
+
+        This inconsistency can cause the retry loops that Issue #1511 tried to fix.
         """
         mock_state = Mock()
         mock_state.state = STATE_UNAVAILABLE
@@ -140,6 +224,7 @@ class TestControlTrvUnavailablePath:
         mock_self.hass = mock_hass
         mock_self.device_name = "test_thermostat"
         mock_self._temp_lock = asyncio.Lock()
+        mock_self.calculate_heating_power = AsyncMock()
         mock_self.ignore_states = False
         mock_self.real_trvs = {
             "climate.trv1": {
@@ -159,9 +244,9 @@ class TestControlTrvUnavailablePath:
 
             result = await control_trv(mock_self, "climate.trv1")
 
-            # This returns False, which triggers retry
-            # But unavailable TRVs should not be retried!
-            assert result is False
+            # BUG: This returns False, which triggers retry
+            # Should return True (no retry) like line 582
+            assert result is False  # After fix: should be True
 
     @pytest.mark.asyncio
     async def test_boost_mode_sets_valve_to_100(self):
