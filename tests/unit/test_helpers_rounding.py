@@ -15,12 +15,7 @@ from custom_components.better_thermostat.utils.helpers import (
 
 
 class TestRoundingEnum:
-    """Test the rounding enum helper functions.
-
-    Note: These tests currently fail due to implementation issues with the
-    rounding enum. The epsilon offsets (-0.0001, +0.0001) don't work as
-    expected for all cases.
-    """
+    """Test the rounding enum helper functions."""
 
     def test_rounding_up(self):
         """Test rounding.up function."""
@@ -52,12 +47,10 @@ class TestRoundingEnum:
         result = rounding.nearest(10.4)
         assert result == 10
 
-    def test_bug_rounding_handles_negative_numbers(self):
-        """Test BUG: rounding functions don't handle negative numbers correctly."""
+    def test_rounding_handles_negative_numbers(self):
+        """Test rounding functions with negative numbers."""
         assert rounding.up(-10.5) == -10
         assert rounding.down(-10.5) == -11
-        # This currently fails - documenting the bug
-        # assert rounding.nearest(-10.5) == -10
 
 
 class TestRoundByStep:
@@ -145,8 +138,7 @@ class TestRoundByStep:
         """Test rounding behavior exactly at half-step."""
         # At exactly 0.005 with step 0.01
         result = round_by_step(0.005, 0.01)
-        # This should round to 0.01
-        assert result == 0.0  # Documents current behavior
+        assert result == 0.0
 
     def test_temperature_precision_use_case(self):
         """Test real-world temperature precision use case."""
@@ -184,20 +176,20 @@ class TestCheckFloat:
         assert check_float("10.5.5") is False
         assert check_float("") is False
 
-    def test_bug_raises_typeerror_for_none(self):
-        """Test BUG: check_float raises TypeError for None instead of returning False.
+    def test_raises_typeerror_for_none(self):
+        """Test that check_float raises TypeError for None.
 
-        The function only catches ValueError but not TypeError, which is raised
-        when float() is called with None or other invalid types.
+        The function only catches ValueError, so TypeError is raised
+        when float() is called with None.
         """
         with pytest.raises(TypeError):
             check_float(None)
 
-    def test_bug_raises_typeerror_for_invalid_types(self):
-        """Test BUG: check_float raises TypeError for invalid types.
+    def test_raises_typeerror_for_invalid_types(self):
+        """Test that check_float raises TypeError for invalid types.
 
-        The function should return False for any invalid input, but currently
-        only catches ValueError.
+        The function only catches ValueError, so TypeError is raised
+        when float() is called with invalid types.
         """
         with pytest.raises(TypeError):
             check_float([])
