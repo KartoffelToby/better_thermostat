@@ -376,7 +376,7 @@ class TestControlQueue:
         with patch(
             "custom_components.better_thermostat.utils.controlling.control_trv",
             new=AsyncMock(return_value=False),
-        ) as mock_control_trv:
+        ):
             queue_task = asyncio.create_task(control_queue(mock_self))
             await asyncio.sleep(0.05)
 

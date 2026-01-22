@@ -2,8 +2,8 @@
 
 from unittest.mock import AsyncMock, Mock
 
-import pytest
 from homeassistant.components.climate.const import HVACMode
+import pytest
 
 from custom_components.better_thermostat.utils.controlling import control_cooler
 

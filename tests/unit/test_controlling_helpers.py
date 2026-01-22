@@ -1,10 +1,10 @@
 """Tests for helper functions in utils/controlling.py."""
 
 import asyncio
-from unittest.mock import AsyncMock, MagicMock, Mock
+from unittest.mock import Mock
 
-import pytest
 from homeassistant.components.climate.const import HVACMode
+import pytest
 
 from custom_components.better_thermostat.utils.controlling import (
     check_system_mode,

@@ -9,11 +9,11 @@ These paths have ~95% code duplication, which is a code smell and potential bug 
 """
 
 import asyncio
-from unittest.mock import AsyncMock, MagicMock, Mock, patch
+from unittest.mock import AsyncMock, Mock, patch
 
-import pytest
-from homeassistant.components.climate.const import HVACMode, PRESET_BOOST
+from homeassistant.components.climate.const import PRESET_BOOST, HVACMode
 from homeassistant.const import STATE_UNAVAILABLE, STATE_UNKNOWN
+import pytest
 
 from custom_components.better_thermostat.utils.const import (
     CalibrationMode,
@@ -348,7 +348,7 @@ class TestControlTrvUnavailablePath:
             }
             mock_set_temp.return_value = None
 
-            result = await control_trv(mock_self, "climate.trv1")
+            await control_trv(mock_self, "climate.trv1")
 
             # Should call set_temperature with max_temp (30.0)
             mock_set_temp.assert_called_once()
@@ -454,7 +454,7 @@ class TestControlTrvUnavailablePath:
             }
             mock_set_temp.return_value = None
 
-            result = await control_trv(mock_self, "climate.trv1")
+            await control_trv(mock_self, "climate.trv1")
 
             # Should set temperature to min_temp (5.0) because OFF is not available
             mock_set_temp.assert_called_once()
@@ -492,7 +492,7 @@ class TestControlTrvUnavailablePath:
                 "system_mode": HVACMode.HEAT,
             }
 
-            result = await control_trv(mock_self, "climate.trv1")
+            await control_trv(mock_self, "climate.trv1")
 
             # After completion, flag should be reset
             assert mock_self.real_trvs["climate.trv1"]["ignore_trv_states"] is False
@@ -792,7 +792,7 @@ class TestControlTrvAvailablePath:
             mock_set_hvac.return_value = None
             mock_override.return_value = False
 
-            result = await control_trv(mock_self, "climate.trv1")
+            await control_trv(mock_self, "climate.trv1")
 
             # call_for_heat=False should force mode to OFF
             # set_hvac_mode should be called with OFF
@@ -850,7 +850,7 @@ class TestControlTrvAvailablePath:
             mock_set_hvac.return_value = None
             mock_override.return_value = False
 
-            result = await control_trv(mock_self, "climate.trv1")
+            await control_trv(mock_self, "climate.trv1")
 
             # Task should be created for check_system_mode
             task_manager_mock.create_task.assert_called()

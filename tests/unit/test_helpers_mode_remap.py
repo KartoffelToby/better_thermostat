@@ -5,8 +5,8 @@ between Better Thermostat and TRVs. This includes handling quirks like
 heat_auto_swapped devices and TRVs that only support HEAT_COOL but not HEAT.
 """
 
-import pytest
 from homeassistant.components.climate.const import HVACMode
+import pytest
 
 from custom_components.better_thermostat.utils.helpers import mode_remap
 
@@ -169,13 +169,13 @@ class TestModeRemapHeatCoolTranslation:
 class TestModeRemapEdgeCases:
     """Test edge cases and potential bugs."""
 
-    def test_bug_missing_entity_id(self):
-        """Test bug: What happens if entity_id is not in real_trvs?"""
+    def test_missing_entity_id(self):
+        """Test behavior when entity_id is not in real_trvs."""
         mock_bt = MockThermostat()
         # Don't add any TRVs
 
         try:
-            result = mode_remap(
+            mode_remap(
                 mock_bt, "climate.missing", HVACMode.HEAT, inbound=False
             )
             pytest.fail("Should have raised KeyError for missing entity")
@@ -183,8 +183,8 @@ class TestModeRemapEdgeCases:
             # Expected - we found a potential crash scenario
             pass
 
-    def test_bug_missing_advanced_key(self):
-        """Test bug: What happens if 'advanced' key is missing?"""
+    def test_missing_advanced_key(self):
+        """Test behavior when 'advanced' key is missing."""
         mock_bt = MockThermostat()
         # Add TRV without 'advanced' key
         mock_bt.real_trvs["climate.test"] = {
@@ -192,7 +192,7 @@ class TestModeRemapEdgeCases:
         }
 
         try:
-            result = mode_remap(
+            mode_remap(
                 mock_bt, "climate.test", HVACMode.HEAT, inbound=False
             )
             pytest.fail("Should have raised KeyError for missing 'advanced' key")
@@ -200,15 +200,15 @@ class TestModeRemapEdgeCases:
             # Expected - we found a potential crash scenario
             pass
 
-    def test_bug_missing_hvac_modes_key(self):
-        """Test bug: What happens if 'hvac_modes' key is missing?"""
+    def test_missing_hvac_modes_key(self):
+        """Test behavior when 'hvac_modes' key is missing."""
         mock_bt = MockThermostat()
         mock_bt.real_trvs["climate.test"] = {
             "advanced": {"heat_auto_swapped": False}
         }
 
         try:
-            result = mode_remap(
+            mode_remap(
                 mock_bt, "climate.test", HVACMode.HEAT, inbound=False
             )
             pytest.fail("Should have raised KeyError for missing 'hvac_modes' key")
