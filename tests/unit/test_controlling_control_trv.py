@@ -124,10 +124,19 @@ class TestControlTrvUnavailablePath:
         mock_self.preset_mode = None
         mock_self.call_for_heat = True
         mock_self.cooler_entity_id = None
+        mock_self.window_open = False
+        mock_self.task_manager = Mock(create_task=Mock())
         mock_self.real_trvs = {
             "climate.trv1": {
                 "ignore_trv_states": False,
                 "hvac_modes": [HVACMode.HEAT, HVACMode.OFF],
+                "min_temp": 5.0,
+                "temperature": 20.0,
+                "last_hvac_mode": HVACMode.HEAT,
+                "system_mode_received": False,
+                "target_temp_received": False,
+                "calibration_received": False,
+                "model_quirks": Mock(override_set_hvac_mode=AsyncMock(return_value=False)),
                 "advanced": {
                     "calibration_mode": CalibrationMode.MPC_CALIBRATION,
                     "calibration": CalibrationType.TARGET_TEMP_BASED,
@@ -146,23 +155,27 @@ class TestControlTrvUnavailablePath:
             "custom_components.better_thermostat.utils.controlling.set_offset"
         ) as mock_set_offset, patch(
             "custom_components.better_thermostat.utils.controlling.set_temperature"
-        ) as mock_set_temp:
+        ) as mock_set_temp, patch(
+            "custom_components.better_thermostat.utils.controlling.handle_window_open"
+        ) as mock_window:
             mock_convert.return_value = {
                 "temperature": 20.0,
                 "system_mode": HVACMode.HEAT,
                 "local_temperature_calibration": 0.0,
             }
+            mock_window.return_value = HVACMode.OFF
 
             result = await control_trv(mock_self, "climate.trv1")
 
             assert result is True
 
-            # BUG: These should NOT be called for unavailable TRVs!
-            # After the fix, these assertions should pass
-            # mock_set_valve.assert_not_called()
-            # mock_set_hvac_mode.assert_not_called()
-            # mock_set_offset.assert_not_called()
-            # mock_set_temp.assert_not_called()
+            # BUG: These SHOULD NOT be called for unavailable TRVs!
+            # With current code (before fix), these will FAIL because operations are called
+            mock_convert.assert_not_called()
+            mock_set_valve.assert_not_called()
+            mock_set_hvac_mode.assert_not_called()
+            mock_set_offset.assert_not_called()
+            mock_set_temp.assert_not_called()
 
     @pytest.mark.asyncio
     async def test_trv_unknown_returns_true(self):
