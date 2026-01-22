@@ -17,9 +17,8 @@ any operations.
 import asyncio
 from unittest.mock import AsyncMock, Mock, patch
 
-import pytest
-from homeassistant.components.climate.const import HVACMode
 from homeassistant.const import STATE_UNAVAILABLE
+import pytest
 
 from custom_components.better_thermostat.utils.const import CalibrationMode
 from custom_components.better_thermostat.utils.controlling import control_trv

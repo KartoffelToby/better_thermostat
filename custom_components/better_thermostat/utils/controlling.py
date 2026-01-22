@@ -3,7 +3,7 @@
 import asyncio
 import logging
 
-from homeassistant.components.climate.const import PRESET_BOOST, HVACMode
+from homeassistant.components.climate.const import HVACMode
 from homeassistant.const import STATE_UNAVAILABLE, STATE_UNKNOWN
 
 from custom_components.better_thermostat.adapters.delegate import (
