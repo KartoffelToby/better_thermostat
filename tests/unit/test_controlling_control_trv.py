@@ -200,21 +200,13 @@ class TestControlTrvUnavailablePath:
             assert result is True
 
     @pytest.mark.asyncio
-    async def test_convert_outbound_states_fails_returns_false(self):
-        """BUG: Convert failure for unavailable TRV should return True, not False.
+    async def test_convert_outbound_states_fails_returns_true(self):
+        """Test that convert_outbound_states failure for unavailable TRV returns True.
 
-        Current behavior (Line 284):
-        - TRV is unavailable
-        - convert_outbound_states() returns non-dict (error)
-        - Returns False → triggers retry loop
-
-        But Line 582 returns True for normal unavailable TRV!
-
-        Expected behavior (from test_control_queue_retry.py):
-        - Unavailable TRVs should ALWAYS return True (no retry)
-        - Even when convert_outbound_states() fails
-
-        This inconsistency can cause the retry loops that Issue #1511 tried to fix.
+        When a TRV is unavailable and convert_outbound_states fails:
+        - control_trv should return True (no retry)
+        - This prevents unnecessary retry loops
+        - Consistent with normal unavailable TRV behavior
         """
         mock_state = Mock()
         mock_state.state = STATE_UNAVAILABLE
@@ -246,9 +238,8 @@ class TestControlTrvUnavailablePath:
 
             result = await control_trv(mock_self, "climate.trv1")
 
-            # BUG: This returns False, which triggers retry
-            # Should return True (no retry) like line 582
-            assert result is False  # After fix: should be True
+            # Unavailable TRV should return True (no retry)
+            assert result is True
 
     @pytest.mark.asyncio
     async def test_boost_mode_sets_valve_to_100(self):
@@ -413,6 +404,8 @@ class TestControlTrvUnavailablePath:
             # Window open should force mode to OFF via handle_window_open
             # set_hvac_mode should be called with OFF
             assert result is True
+            mock_set_hvac.assert_called_once()
+            assert mock_set_hvac.call_args[0][2] == HVACMode.OFF
             # Check that override was called with OFF mode
             mock_override.assert_called_once()
             override_args = mock_override.call_args[0]
@@ -877,16 +870,8 @@ class TestControlTrvAvailablePath:
         mock_hass.states.get.return_value = mock_state
 
         lock = asyncio.Lock()
-        lock_acquired = []
-
-        # Track lock acquisition
-        original_acquire = lock._acquire
-
-        async def track_acquire(*args, **kwargs):
-            lock_acquired.append(True)
-            return await original_acquire(*args, **kwargs)
-
-        lock._acquire = track_acquire
+        lock_acquire_mock = AsyncMock(wraps=lock.acquire)
+        lock.acquire = lock_acquire_mock
 
         mock_self = Mock()
         mock_self.hass = mock_hass
@@ -911,8 +896,7 @@ class TestControlTrvAvailablePath:
                 "system_mode": HVACMode.HEAT,
             }
 
-            result = await control_trv(mock_self, "climate.trv1")
+            await control_trv(mock_self, "climate.trv1")
 
             # Lock should have been acquired
-            # Note: asyncio.Lock in Python 3.10+ may not call _acquire directly
-            # This test documents the lock usage
+            lock_acquire_mock.assert_awaited()
