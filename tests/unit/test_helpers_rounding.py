@@ -133,16 +133,13 @@ class TestRoundByStep:
         result = round_by_step(10.09, 0.1, rounding.down)
         assert result == 10.0
 
-    def test_bug_very_small_values_rounded_to_zero(self):
-        """Test BUG: very small values < step/2 are incorrectly rounded to 0."""
-        # These should NOT be 0, but they are due to the bug
+    def test_very_small_values_rounded_to_zero(self):
+        """Test that very small values < step/2 are rounded to 0."""
         result = round_by_step(0.0001, 0.01)
-        # BUG: This returns 0.0 instead of 0.0
-        assert result == 0.0  # Documents current (buggy) behavior
+        assert result == 0.0
 
         result = round_by_step(0.004, 0.01)
-        # BUG: Values < 0.005 round to 0
-        assert result == 0.0  # Documents current (buggy) behavior
+        assert result == 0.0
 
     def test_edge_case_at_half_step(self):
         """Test rounding behavior exactly at half-step."""
