@@ -20,8 +20,8 @@ Related Issues:
 import asyncio
 from unittest.mock import AsyncMock, Mock, patch
 
-import pytest
 from homeassistant.components.climate.const import HVACMode
+import pytest
 
 from custom_components.better_thermostat.utils.const import (
     CalibrationMode,
