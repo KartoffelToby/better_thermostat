@@ -80,6 +80,7 @@ async def test_find_valve_entity_ignores_sensor_pi_heating_demand():
         assert result is not None
         assert result["entity_id"] == "input_number.pi_heating_demand"
         assert result["writable"] is True
+        assert result["reason"] == "input_number"
 
         # Case 4: Mixed (Sensor and Number) -> Should prefer writable
         # Note: The order in list matters if the code iterates and returns immediately on writable.

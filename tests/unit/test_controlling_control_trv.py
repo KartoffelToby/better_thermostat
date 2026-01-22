@@ -325,7 +325,11 @@ class TestControlTrvUnavailablePath:
 
             # Window open should force mode to OFF via handle_window_open
             # set_hvac_mode should be called with OFF
-            # Note: We need to check if set_hvac_mode was called with OFF
+            assert result is True
+            # Check that override was called with OFF mode
+            mock_override.assert_called_once()
+            override_args = mock_override.call_args[0]
+            assert override_args[2] == HVACMode.OFF  # Mode should be OFF
 
     @pytest.mark.asyncio
     async def test_no_off_mode_sends_min_temp_when_off_requested(self):

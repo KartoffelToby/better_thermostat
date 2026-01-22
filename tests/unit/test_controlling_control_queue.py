@@ -230,10 +230,9 @@ class TestControlQueue:
         await queue.put(mock_self)
 
         with patch(
-            "custom_components.better_thermostat.utils.controlling.control_cooler"
+            "custom_components.better_thermostat.utils.controlling.control_cooler",
+            new=AsyncMock(),
         ) as mock_control_cooler:
-            mock_control_cooler.return_value = AsyncMock()
-
             queue_task = asyncio.create_task(control_queue(mock_self))
             await asyncio.sleep(0.05)
             queue_task.cancel()
@@ -263,10 +262,9 @@ class TestControlQueue:
         await queue.put(mock_self)
 
         with patch(
-            "custom_components.better_thermostat.utils.controlling.control_cooler"
+            "custom_components.better_thermostat.utils.controlling.control_cooler",
+            new=AsyncMock(side_effect=ValueError("Test error")),
         ) as mock_control_cooler:
-            mock_control_cooler.side_effect = ValueError("Test error")
-
             queue_task = asyncio.create_task(control_queue(mock_self))
             await asyncio.sleep(0.05)
             queue_task.cancel()
@@ -299,10 +297,9 @@ class TestControlQueue:
         await queue.put(mock_self)
 
         with patch(
-            "custom_components.better_thermostat.utils.controlling.control_trv"
+            "custom_components.better_thermostat.utils.controlling.control_trv",
+            new=AsyncMock(return_value=True),
         ) as mock_control_trv:
-            mock_control_trv.return_value = True
-
             queue_task = asyncio.create_task(control_queue(mock_self))
             await asyncio.sleep(0.05)
             queue_task.cancel()
@@ -339,7 +336,8 @@ class TestControlQueue:
         await queue.put(mock_self)
 
         with patch(
-            "custom_components.better_thermostat.utils.controlling.control_trv"
+            "custom_components.better_thermostat.utils.controlling.control_trv",
+            new=AsyncMock(),
         ) as mock_control_trv:
             # First TRV raises exception, second returns True
             mock_control_trv.side_effect = [
@@ -376,10 +374,9 @@ class TestControlQueue:
         await queue.put(mock_self)
 
         with patch(
-            "custom_components.better_thermostat.utils.controlling.control_trv"
+            "custom_components.better_thermostat.utils.controlling.control_trv",
+            new=AsyncMock(return_value=False),
         ) as mock_control_trv:
-            mock_control_trv.return_value = False
-
             queue_task = asyncio.create_task(control_queue(mock_self))
             await asyncio.sleep(0.05)
 
@@ -547,3 +544,4 @@ class TestControlQueue:
 
         # ignore_states should NOT be reset because in_maintenance is True
         # Note: This tests the finally block behavior (lines 135-137)
+        assert mock_self.ignore_states is True
