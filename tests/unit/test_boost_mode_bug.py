@@ -150,20 +150,15 @@ class TestBoostModeUnavailablePath:
 
 
 class TestBoostModeAvailablePath:
-    """Test boost mode when TRV is available (lines 613+).
-
-    This test DOCUMENTS THE BUG: boost mode doesn't work in available path!
-    """
+    """Test boost mode when TRV is available."""
 
     @pytest.mark.asyncio
-    async def test_boost_mode_missing_in_available_path(self):
-        """BUG: Boost mode logic is missing in available TRV path!
+    async def test_boost_mode_sets_valve_100_and_max_temp(self):
+        """Test that boost mode sets valve to 100% and temperature to max_temp.
 
-        Lines 296-313: Boost mode exists in unavailable path
-        Lines 613+: Boost mode MISSING in available path
-
-        This is a critical bug - boost mode won't work for available TRVs!
-        After the fix, this test should pass with proper boost mode behavior.
+        When preset_mode is BOOST with DIRECT_VALVE_BASED calibration:
+        - Valve should be set to 100%
+        - Temperature should be set to max_temp
         """
         mock_state = Mock()
         mock_state.state = HVACMode.HEAT
@@ -179,6 +174,7 @@ class TestBoostModeAvailablePath:
         mock_self.preset_mode = PRESET_BOOST
         mock_self.cur_temp = 18.0
         mock_self.bt_target_temp = 22.0
+        mock_self.bt_hvac_mode = HVACMode.HEAT
         mock_self.window_open = False
         mock_self.call_for_heat = True
         mock_self.calculate_heating_power = AsyncMock()
@@ -214,14 +210,11 @@ class TestBoostModeAvailablePath:
 
             result = await control_trv(mock_self, "climate.trv1")
 
-            # After the fix: set_valve should be called with 100% in boost mode
+            assert result is True
             mock_set_valve.assert_called_once()
             args = mock_set_valve.call_args[0]
-            assert args[2] == 100  # 100% valve in boost mode
+            assert args[2] == 100
 
-            # Should also set temperature to max_temp (30.0)
             mock_set_temp.assert_called_once()
             temp_args = mock_set_temp.call_args[0]
-            assert temp_args[2] == 30.0  # max_temp
-
-            assert result is True
+            assert temp_args[2] == 30.0
