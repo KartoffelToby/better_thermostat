@@ -24,4 +24,4 @@ jobs:
 
       - name: Run mypy
         run: |
-          uv run mypy custom_components/better_thermostat --show-error-codes
+          mypy custom_components/better_thermostat --show-error-codes
