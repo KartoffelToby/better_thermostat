@@ -49,13 +49,24 @@ class TestBoostModeUnavailablePath:
         mock_self.window_open = False
         mock_self.call_for_heat = True
         mock_self.bt_hvac_mode = HVACMode.HEAT
+        mock_self.cooler_entity_id = None
+        mock_self.bt_target_cooltemp = 25.0
+        mock_self.tolerance = 0.5
         mock_self.calculate_heating_power = AsyncMock()
+        mock_adapter = Mock()
+        mock_adapter.set_hvac_mode = AsyncMock(return_value=None)
+        mock_adapter.set_temperature = AsyncMock(return_value=None)
+        mock_adapter.set_valve = AsyncMock(return_value=True)
+        mock_adapter.get_current_offset = AsyncMock(return_value=0.0)
+
         mock_self.real_trvs = {
             "climate.trv1": {
                 "ignore_trv_states": False,
                 "max_temp": 30.0,
                 "min_temp": 5.0,
                 "hvac_modes": [HVACMode.HEAT, HVACMode.OFF],
+                "model_quirks": Mock(override_set_hvac_mode=AsyncMock(return_value=False)),
+                "adapter": mock_adapter,
                 "advanced": {
                     "calibration_mode": CalibrationMode.MPC_CALIBRATION,
                     "calibration": CalibrationType.DIRECT_VALVE_BASED,
@@ -63,6 +74,7 @@ class TestBoostModeUnavailablePath:
                 },
                 "system_mode_received": False,
                 "target_temp_received": False,
+                "calibration_received": False,
             }
         }
 
@@ -108,8 +120,18 @@ class TestBoostModeUnavailablePath:
         mock_self.window_open = False
         mock_self.call_for_heat = True
         mock_self.bt_hvac_mode = HVACMode.HEAT
+        mock_self.cooler_entity_id = None
+        mock_self.bt_target_cooltemp = 25.0
+        mock_self.tolerance = 0.5
         mock_self.context = None
         mock_self.calculate_heating_power = AsyncMock()
+
+        mock_adapter = Mock()
+        mock_adapter.set_hvac_mode = AsyncMock(return_value=None)
+        mock_adapter.set_temperature = AsyncMock(return_value=None)
+        mock_adapter.set_valve = AsyncMock(return_value=True)
+        mock_adapter.get_current_offset = AsyncMock(return_value=0.0)
+
         mock_self.real_trvs = {
             "climate.trv1": {
                 "ignore_trv_states": False,
@@ -118,6 +140,8 @@ class TestBoostModeUnavailablePath:
                 "hvac_modes": [HVACMode.HEAT, HVACMode.OFF],
                 "last_temperature": 20.0,
                 "temperature": 20.0,
+                "model_quirks": Mock(override_set_hvac_mode=AsyncMock(return_value=False)),
+                "adapter": mock_adapter,
                 "advanced": {
                     "calibration_mode": CalibrationMode.NO_CALIBRATION,
                     "calibration": CalibrationType.TARGET_TEMP_BASED,
@@ -125,6 +149,7 @@ class TestBoostModeUnavailablePath:
                 },
                 "system_mode_received": False,
                 "target_temp_received": False,
+                "calibration_received": False,
             }
         }
 
@@ -177,13 +202,25 @@ class TestBoostModeAvailablePath:
         mock_self.bt_hvac_mode = HVACMode.HEAT
         mock_self.window_open = False
         mock_self.call_for_heat = True
+        mock_self.cooler_entity_id = None
+        mock_self.bt_target_cooltemp = 25.0
+        mock_self.tolerance = 0.5
         mock_self.calculate_heating_power = AsyncMock()
+
+        mock_adapter = Mock()
+        mock_adapter.set_hvac_mode = AsyncMock(return_value=None)
+        mock_adapter.set_temperature = AsyncMock(return_value=None)
+        mock_adapter.set_valve = AsyncMock(return_value=True)
+        mock_adapter.get_current_offset = AsyncMock(return_value=0.0)
+
         mock_self.real_trvs = {
             "climate.trv1": {
                 "ignore_trv_states": False,
                 "max_temp": 30.0,
                 "temperature": 20.0,
                 "hvac_modes": [HVACMode.HEAT, HVACMode.OFF],
+                "model_quirks": Mock(override_set_hvac_mode=AsyncMock(return_value=False)),
+                "adapter": mock_adapter,
                 "advanced": {
                     "calibration_mode": CalibrationMode.MPC_CALIBRATION,
                     "calibration": CalibrationType.DIRECT_VALVE_BASED,
@@ -191,6 +228,7 @@ class TestBoostModeAvailablePath:
                 },
                 "system_mode_received": False,
                 "target_temp_received": False,
+                "calibration_received": False,
             }
         }
 
