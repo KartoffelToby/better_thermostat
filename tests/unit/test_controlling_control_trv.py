@@ -93,22 +93,14 @@ class TestControlTrvUnavailablePath:
 
     @pytest.mark.asyncio
     async def test_unavailable_trv_no_operations_called(self):
-        """BUG: Unavailable TRVs should not execute any control operations.
+        """Test that unavailable TRVs skip all control operations.
 
-        Current behavior (Lines 263-582):
-        - Line 264: Logs "TRV is unavailable, skipping control"
-        - Lines 286-582: Executes ALL operations anyway!
-          - set_valve()
-          - set_hvac_mode()
-          - set_offset()
-          - set_temperature()
-        - Line 582: Returns True
+        When a TRV is unavailable, control_trv should:
+        - Return True immediately
+        - Not call set_valve, set_hvac_mode, set_offset, or set_temperature
+        - Not call convert_outbound_states
 
-        Expected behavior:
-        - Detect unavailable → return True immediately
-        - NO operations should be called
-
-        This test documents the bug for the proper fix.
+        This ensures unavailable TRVs don't trigger retries or state changes.
         """
         mock_state = Mock()
         mock_state.state = STATE_UNAVAILABLE
@@ -168,9 +160,6 @@ class TestControlTrvUnavailablePath:
             result = await control_trv(mock_self, "climate.trv1")
 
             assert result is True
-
-            # BUG: These SHOULD NOT be called for unavailable TRVs!
-            # With current code (before fix), these will FAIL because operations are called
             mock_convert.assert_not_called()
             mock_set_valve.assert_not_called()
             mock_set_hvac_mode.assert_not_called()
@@ -600,13 +589,13 @@ class TestControlTrvAvailablePath:
             assert result is False
 
     @pytest.mark.asyncio
-    async def test_boost_mode_missing_in_available_path(self):
-        """BUG: Boost mode logic is missing in available TRV path!
+    async def test_boost_mode_sets_valve_full_open(self):
+        """Test that boost mode sets valve to 100% for direct valve control.
 
-        Lines 296-313: Boost mode exists in unavailable path
-        Lines 613+: Boost mode MISSING in available path
-
-        This is a critical bug - boost mode won't work for available TRVs!
+        When preset_mode is BOOST and calibration type is DIRECT_VALVE_BASED:
+        - Valve should be set to 100%
+        - Temperature should be set to max_temp
+        - This applies to available TRVs
         """
         mock_state = Mock()
         mock_state.state = HVACMode.HEAT
@@ -654,10 +643,10 @@ class TestControlTrvAvailablePath:
 
             result = await control_trv(mock_self, "climate.trv1")
 
-            # BUG: set_valve should be called with 100% in boost mode
-            # But it's NOT because boost mode logic is missing in available path!
-            # This test DOCUMENTS the bug
             assert result is True
+            mock_set_valve.assert_called_once()
+            args = mock_set_valve.call_args[0]
+            assert args[2] == 100
 
     @pytest.mark.asyncio
     async def test_grouped_trv_calibration_fix(self):
@@ -875,7 +864,11 @@ class TestControlTrvAvailablePath:
 
     @pytest.mark.asyncio
     async def test_lock_usage(self):
-        """Test that _temp_lock is used during TRV control."""
+        """Test that _temp_lock is acquired during TRV control.
+
+        The lock prevents race conditions when multiple TRVs are controlled
+        in parallel by control_queue's asyncio.gather().
+        """
         mock_state = Mock()
         mock_state.state = HVACMode.HEAT
         mock_state.attributes = {"temperature": 20.0}
