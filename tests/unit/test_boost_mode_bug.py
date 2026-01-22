@@ -11,17 +11,15 @@ Related issue: #1817 - Support native operation modes (Boost/Vacation/Profiles)
 import asyncio
 from unittest.mock import AsyncMock, Mock, patch
 
-import pytest
-from homeassistant.components.climate.const import HVACMode, PRESET_BOOST
+from homeassistant.components.climate.const import PRESET_BOOST, HVACMode
 from homeassistant.const import STATE_UNAVAILABLE
+import pytest
 
 from custom_components.better_thermostat.utils.const import (
     CalibrationMode,
     CalibrationType,
 )
 from custom_components.better_thermostat.utils.controlling import control_trv
-
-
 
 
 class TestBoostModeUnavailablePath:
