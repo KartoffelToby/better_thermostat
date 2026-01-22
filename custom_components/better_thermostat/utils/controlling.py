@@ -383,6 +383,10 @@ async def control_trv(self, heater_entity_id=None):
     if not hasattr(self, "task_manager"):
         self.task_manager = TaskManager()
 
+    # Extended lock scope to protect all critical operations including
+    # set_valve(), set_hvac_mode(), set_offset(), set_temperature()
+    # This prevents race conditions when control_queue runs control_trv()
+    # in parallel for multiple TRVs (Issue #1839, #1145, #875, #1733, #1849)
     async with self._temp_lock:
         self.real_trvs[heater_entity_id]["ignore_trv_states"] = True
         # Formerly update_hvac_action(self) (removed / centralized in climate entity)
@@ -401,267 +405,267 @@ async def control_trv(self, heater_entity_id=None):
         await self.calculate_heating_power()
         _trv = self.hass.states.get(heater_entity_id)
 
-    # Removed calculate_heating_power() from here, moved to control_queue
+        # Removed calculate_heating_power() from here, moved to control_queue
 
-    _trv = self.hass.states.get(heater_entity_id)
+        _trv = self.hass.states.get(heater_entity_id)
 
-    # Check if TRV is available before attempting to control it
-    if _trv is None or _trv.state in (STATE_UNAVAILABLE, STATE_UNKNOWN):
-        _LOGGER.debug(
-            "better_thermostat %s: TRV %s is unavailable, skipping control. "
-            "Control will resume when TRV becomes available.",
-            self.device_name,
-            heater_entity_id,
-        )
-        self.real_trvs[heater_entity_id]["ignore_trv_states"] = False
-        return True
-
-    _current_set_temperature = convert_to_float(
-        str(_trv.attributes.get("temperature", None)), self.device_name, "controlling()"
-    )
-
-    _remapped_states = convert_outbound_states(
-        self, heater_entity_id, self.bt_hvac_mode
-    )
-    if not isinstance(_remapped_states, dict):
-        _LOGGER.debug(
-            "better_thermostat %s: ERROR %s %s",
-            self.device_name,
-            heater_entity_id,
-            _remapped_states,
-        )
-        # Reduced sleep time on error to avoid blocking too long
-        await asyncio.sleep(2)
-        # self.ignore_states = False # Don't touch global ignore_states here
-        self.real_trvs[heater_entity_id]["ignore_trv_states"] = False
-        return False
-
-    _temperature = _remapped_states.get("temperature", None)
-    _calibration = _remapped_states.get("local_temperature_calibration", None)
-    _calibration_mode = self.real_trvs[heater_entity_id]["advanced"].get(
-        "calibration_mode", CalibrationMode.MPC_CALIBRATION
-    )
-    _calibration_type = self.real_trvs[heater_entity_id]["advanced"].get(
-        "calibration", CalibrationType.TARGET_TEMP_BASED
-    )
-
-    # Optional: set valve position if supported (e.g., MQTT/Z2M)
-    try:
-        _source = None
-        bal = None
-        if _calibration_type == CalibrationType.DIRECT_VALVE_BASED:
-            if _calibration_mode == CalibrationMode.MPC_CALIBRATION:
-                cal_bal = self.real_trvs[heater_entity_id].get("calibration_balance")
-                if (
-                    isinstance(cal_bal, dict)
-                    and cal_bal.get("apply_valve")
-                    and cal_bal.get("valve_percent") is not None
-                ):
-                    bal = cal_bal
-                    _source = "mpc_calibration"
-            elif _calibration_mode == CalibrationMode.TPI_CALIBRATION:
-                cal_bal = self.real_trvs[heater_entity_id].get("calibration_balance")
-                if (
-                    isinstance(cal_bal, dict)
-                    and cal_bal.get("apply_valve")
-                    and cal_bal.get("valve_percent") is not None
-                ):
-                    bal = cal_bal
-                    _source = "tpi_calibration"
-            elif _calibration_mode == CalibrationMode.HEATING_POWER_CALIBRATION:
-                cal_bal = self.real_trvs[heater_entity_id].get("calibration_balance")
-                if (
-                    isinstance(cal_bal, dict)
-                    and cal_bal.get("apply_valve")
-                    and cal_bal.get("valve_percent") is not None
-                ):
-                    bal = cal_bal
-                    _source = "heating_power_calibration"
-            elif _calibration_mode == CalibrationMode.PID_CALIBRATION:
-                cal_bal = self.real_trvs[heater_entity_id].get("calibration_balance")
-                if (
-                    isinstance(cal_bal, dict)
-                    and cal_bal.get("apply_valve")
-                    and cal_bal.get("valve_percent") is not None
-                ):
-                    bal = cal_bal
-                    _source = "pid_calibration"
-
-            if bal is None:
-                raw_balance = self.real_trvs[heater_entity_id].get("balance")
-                if raw_balance and raw_balance.get("valve_percent") is not None:
-                    bal = raw_balance
-                    _source = "balance"
-            if bal is not None:
-                target_pct = int(round(bal.get("valve_percent", 0)))
-                _LOGGER.debug(
-                    "better_thermostat %s: TO TRV set_valve: %s to: %s%% (source=%s)",
-                    self.device_name,
-                    heater_entity_id,
-                    target_pct,
-                    _source,
-                )
-                ok = await set_valve(self, heater_entity_id, target_pct)
-                if not ok:
-                    _LOGGER.debug(
-                        "better_thermostat %s: delegate.set_valve returned False (target=%s%%, entity=%s, source=%s)",
-                        self.device_name,
-                        target_pct,
-                        heater_entity_id,
-                        _source,
-                    )
-        else:
+        # Check if TRV is available before attempting to control it
+        if _trv is None or _trv.state in (STATE_UNAVAILABLE, STATE_UNKNOWN):
             _LOGGER.debug(
-                "better_thermostat %s: TRV %s does not support direct valve control due to calibration type %s",
-                self.device_name,
-                heater_entity_id,
-                _calibration_type,
-            )
-    except Exception:
-        _LOGGER.debug(
-            "better_thermostat %s: set_valve not applied for %s (unsupported or failed)",
-            self.device_name,
-            heater_entity_id,
-        )
-
-    _new_hvac_mode = handle_window_open(self, _remapped_states)
-
-    # wtom: disabled for now, switches off the trv all the time
-    # if not self.window_open:
-    # _new_hvac_mode = handle_hvac_mode_tolerance(self, _remapped_states)
-
-    # Removed cooler section from here, moved to control_queue/control_cooler
-
-    # if we don't need ot heat, we force HVACMode to be off
-    if self.call_for_heat is False:
-        _new_hvac_mode = HVACMode.OFF
-
-    # Manage TRVs with no HVACMode.OFF
-    _no_off_system_mode = (
-        HVACMode.OFF not in self.real_trvs[heater_entity_id]["hvac_modes"]
-    ) or (
-        self.real_trvs[heater_entity_id]["advanced"].get("no_off_system_mode", False)
-        is True
-    )
-    if _no_off_system_mode is True and _new_hvac_mode == HVACMode.OFF:
-        _min_temp = self.real_trvs[heater_entity_id]["min_temp"]
-        _LOGGER.debug(
-            "better_thermostat %s: sending %s°C to the TRV because this device has no system mode off and heater should be off",
-            self.device_name,
-            _min_temp,
-        )
-        _temperature = _min_temp
-
-    # send new HVAC mode to TRV, if it changed
-    if (
-        _new_hvac_mode is not None
-        and _new_hvac_mode != _trv.state
-        and (
-            (_no_off_system_mode is True and _new_hvac_mode != HVACMode.OFF)
-            or (_no_off_system_mode is False)
-        )
-    ):
-        _LOGGER.debug(
-            "better_thermostat %s: TO TRV set_hvac_mode: %s from: %s to: %s",
-            self.device_name,
-            heater_entity_id,
-            _trv.state,
-            _new_hvac_mode,
-        )
-        self.real_trvs[heater_entity_id]["last_hvac_mode"] = _new_hvac_mode
-        _tvr_has_quirk = await override_set_hvac_mode(
-            self, heater_entity_id, _new_hvac_mode
-        )
-        if _tvr_has_quirk is False:
-            await set_hvac_mode(self, heater_entity_id, _new_hvac_mode)
-        if self.real_trvs[heater_entity_id]["system_mode_received"] is True:
-            self.real_trvs[heater_entity_id]["system_mode_received"] = False
-            self.task_manager.create_task(check_system_mode(self, heater_entity_id))
-
-    # set new calibration offset
-    if (
-        _calibration is not None
-        and _new_hvac_mode != HVACMode.OFF
-        and _calibration_mode != CalibrationMode.NO_CALIBRATION
-    ):
-        _current_calibration_s = await get_current_offset(self, heater_entity_id)
-
-        if _current_calibration_s is None:
-            _LOGGER.error(
-                "better_thermostat %s: calibration fatal error %s",
+                "better_thermostat %s: TRV %s is unavailable, skipping control. "
+                "Control will resume when TRV becomes available.",
                 self.device_name,
                 heater_entity_id,
             )
-            # this should not be before, set_hvac_mode (because if it fails, the new hvac mode will never be sent)
-            # self.ignore_states = False # Don't touch global ignore_states here
             self.real_trvs[heater_entity_id]["ignore_trv_states"] = False
             return True
 
-        _current_calibration = convert_to_float(
-            str(_current_calibration_s), self.device_name, "controlling()"
+        _current_set_temperature = convert_to_float(
+            str(_trv.attributes.get("temperature", None)), self.device_name, "controlling()"
         )
 
-        _calibration = float(str(_calibration))
+        _remapped_states = convert_outbound_states(
+            self, heater_entity_id, self.bt_hvac_mode
+        )
+        if not isinstance(_remapped_states, dict):
+            _LOGGER.debug(
+                "better_thermostat %s: ERROR %s %s",
+                self.device_name,
+                heater_entity_id,
+                _remapped_states,
+            )
+            # Reduced sleep time on error to avoid blocking too long
+            await asyncio.sleep(2)
+            # self.ignore_states = False # Don't touch global ignore_states here
+            self.real_trvs[heater_entity_id]["ignore_trv_states"] = False
+            return False
 
-        _old_calibration = self.real_trvs[heater_entity_id].get(
-            "last_calibration", _current_calibration
+        _temperature = _remapped_states.get("temperature", None)
+        _calibration = _remapped_states.get("local_temperature_calibration", None)
+        _calibration_mode = self.real_trvs[heater_entity_id]["advanced"].get(
+            "calibration_mode", CalibrationMode.MPC_CALIBRATION
+        )
+        _calibration_type = self.real_trvs[heater_entity_id]["advanced"].get(
+            "calibration", CalibrationType.TARGET_TEMP_BASED
         )
 
-        # Fix for grouped TRVs: If current calibration already matches target,
-        # reset calibration_received to True. This handles the case where the
-        # TRV's state change event was ignored during the control cycle
-        # (when ignore_states=True), leaving calibration_received stuck at False.
+        # Optional: set valve position if supported (e.g., MQTT/Z2M)
+        try:
+            _source = None
+            bal = None
+            if _calibration_type == CalibrationType.DIRECT_VALVE_BASED:
+                if _calibration_mode == CalibrationMode.MPC_CALIBRATION:
+                    cal_bal = self.real_trvs[heater_entity_id].get("calibration_balance")
+                    if (
+                        isinstance(cal_bal, dict)
+                        and cal_bal.get("apply_valve")
+                        and cal_bal.get("valve_percent") is not None
+                    ):
+                        bal = cal_bal
+                        _source = "mpc_calibration"
+                elif _calibration_mode == CalibrationMode.TPI_CALIBRATION:
+                    cal_bal = self.real_trvs[heater_entity_id].get("calibration_balance")
+                    if (
+                        isinstance(cal_bal, dict)
+                        and cal_bal.get("apply_valve")
+                        and cal_bal.get("valve_percent") is not None
+                    ):
+                        bal = cal_bal
+                        _source = "tpi_calibration"
+                elif _calibration_mode == CalibrationMode.HEATING_POWER_CALIBRATION:
+                    cal_bal = self.real_trvs[heater_entity_id].get("calibration_balance")
+                    if (
+                        isinstance(cal_bal, dict)
+                        and cal_bal.get("apply_valve")
+                        and cal_bal.get("valve_percent") is not None
+                    ):
+                        bal = cal_bal
+                        _source = "heating_power_calibration"
+                elif _calibration_mode == CalibrationMode.PID_CALIBRATION:
+                    cal_bal = self.real_trvs[heater_entity_id].get("calibration_balance")
+                    if (
+                        isinstance(cal_bal, dict)
+                        and cal_bal.get("apply_valve")
+                        and cal_bal.get("valve_percent") is not None
+                    ):
+                        bal = cal_bal
+                        _source = "pid_calibration"
+
+                if bal is None:
+                    raw_balance = self.real_trvs[heater_entity_id].get("balance")
+                    if raw_balance and raw_balance.get("valve_percent") is not None:
+                        bal = raw_balance
+                        _source = "balance"
+                if bal is not None:
+                    target_pct = int(round(bal.get("valve_percent", 0)))
+                    _LOGGER.debug(
+                        "better_thermostat %s: TO TRV set_valve: %s to: %s%% (source=%s)",
+                        self.device_name,
+                        heater_entity_id,
+                        target_pct,
+                        _source,
+                    )
+                    ok = await set_valve(self, heater_entity_id, target_pct)
+                    if not ok:
+                        _LOGGER.debug(
+                            "better_thermostat %s: delegate.set_valve returned False (target=%s%%, entity=%s, source=%s)",
+                            self.device_name,
+                            target_pct,
+                            heater_entity_id,
+                            _source,
+                        )
+            else:
+                _LOGGER.debug(
+                    "better_thermostat %s: TRV %s does not support direct valve control due to calibration type %s",
+                    self.device_name,
+                    heater_entity_id,
+                    _calibration_type,
+                )
+        except Exception:
+            _LOGGER.debug(
+                "better_thermostat %s: set_valve not applied for %s (unsupported or failed)",
+                self.device_name,
+                heater_entity_id,
+            )
+
+        _new_hvac_mode = handle_window_open(self, _remapped_states)
+
+        # wtom: disabled for now, switches off the trv all the time
+        # if not self.window_open:
+        # _new_hvac_mode = handle_hvac_mode_tolerance(self, _remapped_states)
+
+        # Removed cooler section from here, moved to control_queue/control_cooler
+
+        # if we don't need ot heat, we force HVACMode to be off
+        if self.call_for_heat is False:
+            _new_hvac_mode = HVACMode.OFF
+
+        # Manage TRVs with no HVACMode.OFF
+        _no_off_system_mode = (
+            HVACMode.OFF not in self.real_trvs[heater_entity_id]["hvac_modes"]
+        ) or (
+            self.real_trvs[heater_entity_id]["advanced"].get("no_off_system_mode", False)
+            is True
+        )
+        if _no_off_system_mode is True and _new_hvac_mode == HVACMode.OFF:
+            _min_temp = self.real_trvs[heater_entity_id]["min_temp"]
+            _LOGGER.debug(
+                "better_thermostat %s: sending %s°C to the TRV because this device has no system mode off and heater should be off",
+                self.device_name,
+                _min_temp,
+            )
+            _temperature = _min_temp
+
+        # send new HVAC mode to TRV, if it changed
         if (
-            self.real_trvs[heater_entity_id]["calibration_received"] is False
-            and _current_calibration is not None
-            and abs(float(_current_calibration) - float(_calibration)) < 0.5
+            _new_hvac_mode is not None
+            and _new_hvac_mode != _trv.state
+            and (
+                (_no_off_system_mode is True and _new_hvac_mode != HVACMode.OFF)
+                or (_no_off_system_mode is False)
+            )
         ):
             _LOGGER.debug(
-                "better_thermostat %s: TRV %s calibration already at target (%s), "
-                "resetting calibration_received flag",
+                "better_thermostat %s: TO TRV set_hvac_mode: %s from: %s to: %s",
                 self.device_name,
                 heater_entity_id,
-                _calibration,
+                _trv.state,
+                _new_hvac_mode,
             )
-            self.real_trvs[heater_entity_id]["calibration_received"] = True
+            self.real_trvs[heater_entity_id]["last_hvac_mode"] = _new_hvac_mode
+            _tvr_has_quirk = await override_set_hvac_mode(
+                self, heater_entity_id, _new_hvac_mode
+            )
+            if _tvr_has_quirk is False:
+                await set_hvac_mode(self, heater_entity_id, _new_hvac_mode)
+            if self.real_trvs[heater_entity_id]["system_mode_received"] is True:
+                self.real_trvs[heater_entity_id]["system_mode_received"] = False
+                self.task_manager.create_task(check_system_mode(self, heater_entity_id))
 
-        if self.real_trvs[heater_entity_id]["calibration_received"] is True and float(
-            _old_calibration
-        ) != float(_calibration):
-            _LOGGER.debug(
-                "better_thermostat %s: TO TRV set_local_temperature_calibration: %s from: %s to: %s",
-                self.device_name,
-                heater_entity_id,
-                _old_calibration,
-                _calibration,
-            )
-            await set_offset(self, heater_entity_id, _calibration)
-            self.real_trvs[heater_entity_id]["calibration_received"] = False
+        # set new calibration offset
+        if (
+            _calibration is not None
+            and _new_hvac_mode != HVACMode.OFF
+            and _calibration_mode != CalibrationMode.NO_CALIBRATION
+        ):
+            _current_calibration_s = await get_current_offset(self, heater_entity_id)
 
-    # set new target temperature
-    if _temperature is not None and (
-        _new_hvac_mode != HVACMode.OFF or _no_off_system_mode
-    ):
-        if _temperature != _current_set_temperature:
-            old = self.real_trvs[heater_entity_id].get("last_temperature", "?")
-            _LOGGER.debug(
-                "better_thermostat %s: TO TRV set_temperature: %s from: %s to: %s",
-                self.device_name,
-                heater_entity_id,
-                old,
-                _temperature,
-            )
-            self.real_trvs[heater_entity_id]["last_temperature"] = _temperature
-            await set_temperature(self, heater_entity_id, _temperature)
-            if self.real_trvs[heater_entity_id]["target_temp_received"] is True:
-                self.real_trvs[heater_entity_id]["target_temp_received"] = False
-                self.task_manager.create_task(
-                    check_target_temperature(self, heater_entity_id)
+            if _current_calibration_s is None:
+                _LOGGER.error(
+                    "better_thermostat %s: calibration fatal error %s",
+                    self.device_name,
+                    heater_entity_id,
                 )
+                # this should not be before, set_hvac_mode (because if it fails, the new hvac mode will never be sent)
+                # self.ignore_states = False # Don't touch global ignore_states here
+                self.real_trvs[heater_entity_id]["ignore_trv_states"] = False
+                return True
 
-    await asyncio.sleep(3)
-    self.real_trvs[heater_entity_id]["ignore_trv_states"] = False
-    return True
+            _current_calibration = convert_to_float(
+                str(_current_calibration_s), self.device_name, "controlling()"
+            )
+
+            _calibration = float(str(_calibration))
+
+            _old_calibration = self.real_trvs[heater_entity_id].get(
+                "last_calibration", _current_calibration
+            )
+
+            # Fix for grouped TRVs: If current calibration already matches target,
+            # reset calibration_received to True. This handles the case where the
+            # TRV's state change event was ignored during the control cycle
+            # (when ignore_states=True), leaving calibration_received stuck at False.
+            if (
+                self.real_trvs[heater_entity_id]["calibration_received"] is False
+                and _current_calibration is not None
+                and abs(float(_current_calibration) - float(_calibration)) < 0.5
+            ):
+                _LOGGER.debug(
+                    "better_thermostat %s: TRV %s calibration already at target (%s), "
+                    "resetting calibration_received flag",
+                    self.device_name,
+                    heater_entity_id,
+                    _calibration,
+                )
+                self.real_trvs[heater_entity_id]["calibration_received"] = True
+
+            if self.real_trvs[heater_entity_id]["calibration_received"] is True and float(
+                _old_calibration
+            ) != float(_calibration):
+                _LOGGER.debug(
+                    "better_thermostat %s: TO TRV set_local_temperature_calibration: %s from: %s to: %s",
+                    self.device_name,
+                    heater_entity_id,
+                    _old_calibration,
+                    _calibration,
+                )
+                await set_offset(self, heater_entity_id, _calibration)
+                self.real_trvs[heater_entity_id]["calibration_received"] = False
+
+        # set new target temperature
+        if _temperature is not None and (
+            _new_hvac_mode != HVACMode.OFF or _no_off_system_mode
+        ):
+            if _temperature != _current_set_temperature:
+                old = self.real_trvs[heater_entity_id].get("last_temperature", "?")
+                _LOGGER.debug(
+                    "better_thermostat %s: TO TRV set_temperature: %s from: %s to: %s",
+                    self.device_name,
+                    heater_entity_id,
+                    old,
+                    _temperature,
+                )
+                self.real_trvs[heater_entity_id]["last_temperature"] = _temperature
+                await set_temperature(self, heater_entity_id, _temperature)
+                if self.real_trvs[heater_entity_id]["target_temp_received"] is True:
+                    self.real_trvs[heater_entity_id]["target_temp_received"] = False
+                    self.task_manager.create_task(
+                        check_target_temperature(self, heater_entity_id)
+                    )
+
+        await asyncio.sleep(3)
+        self.real_trvs[heater_entity_id]["ignore_trv_states"] = False
+        return True
 
 
 def handle_window_open(self, _remapped_states):
