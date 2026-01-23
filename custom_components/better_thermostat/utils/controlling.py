@@ -482,6 +482,23 @@ async def control_trv(self, heater_entity_id=None):
         if self.call_for_heat is False:
             _new_hvac_mode = HVACMode.OFF
 
+        # If safety checks forced HVAC mode to OFF and we had set the valve (e.g., boost mode),
+        # reset valve to 0% to avoid conflicting commands (valve 100% + HVAC OFF)
+        if _new_hvac_mode == HVACMode.OFF and bal is not None and _source == "boost_mode":
+            try:
+                _LOGGER.debug(
+                    "better_thermostat %s: Safety override active (window/no_heat), resetting valve to 0%% for %s",
+                    self.device_name,
+                    heater_entity_id,
+                )
+                await set_valve(self, heater_entity_id, 0)
+            except Exception:
+                _LOGGER.debug(
+                    "better_thermostat %s: Failed to reset valve for %s during safety override",
+                    self.device_name,
+                    heater_entity_id,
+                )
+
         # Manage TRVs with no HVACMode.OFF
         _no_off_system_mode = (
             HVACMode.OFF not in self.real_trvs[heater_entity_id]["hvac_modes"]
@@ -736,6 +753,23 @@ async def control_trv(self, heater_entity_id=None):
     # if we don't need ot heat, we force HVACMode to be off
     if self.call_for_heat is False:
         _new_hvac_mode = HVACMode.OFF
+
+    # If safety checks forced HVAC mode to OFF and we had set the valve (e.g., boost mode),
+    # reset valve to 0% to avoid conflicting commands (valve 100% + HVAC OFF)
+    if _new_hvac_mode == HVACMode.OFF and bal is not None and _source == "boost_mode":
+        try:
+            _LOGGER.debug(
+                "better_thermostat %s: Safety override active (window/no_heat), resetting valve to 0%% for %s",
+                self.device_name,
+                heater_entity_id,
+            )
+            await set_valve(self, heater_entity_id, 0)
+        except Exception:
+            _LOGGER.debug(
+                "better_thermostat %s: Failed to reset valve for %s during safety override",
+                self.device_name,
+                heater_entity_id,
+            )
 
     # Manage TRVs with no HVACMode.OFF
     _no_off_system_mode = (
