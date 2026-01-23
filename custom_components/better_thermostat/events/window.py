@@ -113,9 +113,14 @@ async def window_queue(self):
                     if current_window_state == window_event_to_process:
                         self.window_open = window_event_to_process
                         self.async_write_ha_state()
-                        if not self.control_queue_task.empty():
-                            empty_queue(self.control_queue_task)
-                        await self.control_queue_task.put(self)
+                        if getattr(self, "in_maintenance", False):
+                            # Keep state up to date during maintenance, but defer control
+                            # until maintenance ends.
+                            self._control_needed_after_maintenance = True
+                        else:
+                            if not self.control_queue_task.empty():
+                                empty_queue(self.control_queue_task)
+                            await self.control_queue_task.put(self)
             except asyncio.CancelledError:
                 raise
             finally:
