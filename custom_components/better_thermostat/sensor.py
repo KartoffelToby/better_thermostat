@@ -131,6 +131,7 @@ class BetterThermostatExternalTemp1hEMASensor(SensorEntity):
     _attr_state_class = SensorStateClass.MEASUREMENT
     _attr_native_unit_of_measurement = UnitOfTemperature.CELSIUS
     _attr_should_poll = False
+    _attr_suggested_display_precision = 2
 
     def __init__(self, bt_climate):
         """Initialize the sensor."""
