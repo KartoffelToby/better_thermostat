@@ -522,6 +522,9 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
         # TPI adaptive state persistence
         self._tpi_store = None
         self._tpi_save_scheduled = False
+        # Thermal stats persistence (heating_power / heat_loss)
+        self._thermal_store = None
+        self._thermal_save_scheduled = False
 
         self.last_known_external_temp = None
         self._slope_periodic_last_ts = None
@@ -695,6 +698,17 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
         except Exception as e:
             _LOGGER.debug(
                 "better_thermostat %s: TPI storage init/load failed: %s",
+                self.device_name,
+                e,
+            )
+
+        # Initialize persistent storage for thermal stats (heating_power / heat_loss)
+        try:
+            self._thermal_store = Store(self.hass, 1, f"{DOMAIN}_thermal_stats")
+            await self._load_thermal_stats()
+        except Exception as e:
+            _LOGGER.debug(
+                "better_thermostat %s: thermal stats storage init/load failed: %s",
                 self.device_name,
                 e,
             )
@@ -1373,6 +1387,44 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
                             bounded_power,
                         )
                     self.heating_power = bounded_power
+                elif getattr(self, "_thermal_store", None) is not None:
+                    # Fallback: restore heating_power from persistent thermal stats
+                    try:
+                        data = await self._thermal_store.async_load()
+                        key = str(self._config_entry_id)
+                        if data and key in data and "heating_power" in data[key]:
+                            loaded_power = float(data[key]["heating_power"])
+                            bounded_power = max(
+                                MIN_HEATING_POWER, min(MAX_HEATING_POWER, loaded_power)
+                            )
+                            self.heating_power = bounded_power
+                    except Exception:
+                        pass
+
+                # Restore heat loss if available
+                if old_state.attributes.get(ATTR_STATE_HEAT_LOSS, None) is not None:
+                    try:
+                        loaded_loss = float(
+                            old_state.attributes.get(ATTR_STATE_HEAT_LOSS)
+                        )
+                        bounded_loss = max(
+                            MIN_HEAT_LOSS, min(MAX_HEAT_LOSS, loaded_loss)
+                        )
+                        self.heat_loss_rate = bounded_loss
+                    except (TypeError, ValueError):
+                        pass
+                elif getattr(self, "_thermal_store", None) is not None:
+                    try:
+                        data = await self._thermal_store.async_load()
+                        key = str(self._config_entry_id)
+                        if data and key in data and "heat_loss" in data[key]:
+                            loaded_loss = float(data[key]["heat_loss"])
+                            bounded_loss = max(
+                                MIN_HEAT_LOSS, min(MAX_HEAT_LOSS, loaded_loss)
+                            )
+                            self.heat_loss_rate = bounded_loss
+                    except Exception:
+                        pass
                 if (
                     old_state.attributes.get(ATTR_STATE_PRESET_TEMPERATURE, None)
                     is not None
@@ -2312,6 +2364,68 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
 
         self.hass.async_create_task(_delayed_save())
 
+    async def _load_thermal_stats(self) -> None:
+        """Load persisted thermal stats (heating_power / heat_loss)."""
+
+        if self._thermal_store is None:
+            return
+        data = await self._thermal_store.async_load()
+        if not data:
+            return
+
+        key = str(self._config_entry_id)
+        payload = data.get(key)
+        if not isinstance(payload, dict):
+            return
+
+        if "heating_power" in payload:
+            try:
+                loaded_power = float(payload["heating_power"])
+                self.heating_power = max(
+                    MIN_HEATING_POWER, min(MAX_HEATING_POWER, loaded_power)
+                )
+            except (TypeError, ValueError):
+                pass
+
+        if "heat_loss" in payload:
+            try:
+                loaded_loss = float(payload["heat_loss"])
+                self.heat_loss_rate = max(
+                    MIN_HEAT_LOSS, min(MAX_HEAT_LOSS, loaded_loss)
+                )
+            except (TypeError, ValueError):
+                pass
+
+    async def _save_thermal_stats(self) -> None:
+        """Persist thermal stats to storage (debounced)."""
+
+        if self._thermal_store is None:
+            return
+        key = str(self._config_entry_id)
+        payload = {
+            "heating_power": getattr(self, "heating_power", None),
+            "heat_loss": getattr(self, "heat_loss_rate", None),
+        }
+        existing = await self._thermal_store.async_load() or {}
+        existing[key] = payload
+        await self._thermal_store.async_save(existing)
+
+    def _schedule_save_thermal_stats(self, delay_s: float = 15.0) -> None:
+        """Debounced scheduling for persisting thermal stats."""
+
+        if self._thermal_store is None or self._thermal_save_scheduled:
+            return
+        self._thermal_save_scheduled = True
+
+        async def _delayed_save():
+            try:
+                await asyncio.sleep(delay_s)
+                await self._save_thermal_stats()
+            finally:
+                self._thermal_save_scheduled = False
+
+        self.hass.async_create_task(_delayed_save())
+
     async def calculate_heating_power(self):
         """Learn effective heating power (°C/min) from completed heating cycles.
 
@@ -2564,6 +2678,8 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
             # Store normalized power if available
             if normalized_power is not None:
                 self.heating_power_normalized = normalized_power
+            if heating_power_changed:
+                self._schedule_save_thermal_stats()
             self.async_write_ha_state()
 
     async def calculate_heat_loss(self):
@@ -2640,6 +2756,7 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
                         )
 
                     self.heat_loss_rate = round(clamped_loss, 5)
+                    loss_changed = self.heat_loss_rate != old_loss
 
                     self.last_heat_loss_stats.append(
                         {
@@ -2684,6 +2801,8 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
                         )
 
                     self.async_write_ha_state()
+                    if loss_changed:
+                        self._schedule_save_thermal_stats()
 
             # Reset after finalize
             self.loss_start_temp = None
