@@ -79,6 +79,15 @@ async def control_queue(self):
                             self.device_name,
                         )
 
+                    # Calculate heat loss once per cycle (idle cooling)
+                    try:
+                        await self.calculate_heat_loss()
+                    except Exception:
+                        _LOGGER.exception(
+                            "better_thermostat %s: ERROR calculating heat loss",
+                            self.device_name,
+                        )
+
                     # Handle cooler logic once per cycle
                     if self.cooler_entity_id is not None:
                         try:
