@@ -36,6 +36,7 @@ async def async_setup_entry(
 
     sensors = [
         BetterThermostatExternalTempSensor(bt_climate),
+        BetterThermostatExternalTemp1hEMASensor(bt_climate),
         BetterThermostatTempSlopeSensor(bt_climate),
         BetterThermostatHeatingPowerSensor(bt_climate),
         BetterThermostatHeatLossSensor(bt_climate),
@@ -121,7 +122,81 @@ class BetterThermostatExternalTempSensor(SensorEntity):
             self._attr_native_value = None
 
 
-class BetterThermostatTempSlopeSensor(SensorEntity):
+class BetterThermostatExternalTemp1hEMASensor(SensorEntity):
+    """Representation of a Better Thermostat External Temperature 1h EMA Sensor."""
+
+    _attr_has_entity_name = True
+    _attr_name = "Temperature EMA 1h"
+    _attr_device_class = SensorDeviceClass.TEMPERATURE
+    _attr_state_class = SensorStateClass.MEASUREMENT
+    _attr_native_unit_of_measurement = UnitOfTemperature.CELSIUS
+    _attr_should_poll = False
+
+    def __init__(self, bt_climate):
+        """Initialize the sensor."""
+        self._bt_climate = bt_climate
+        self._attr_unique_id = f"{bt_climate.unique_id}_external_temp_ema_1h"
+        self._attr_device_info = bt_climate.device_info
+        # EMA state
+        self._ema_value = None
+        self._last_update_ts = None
+        self._tau_s = 3600.0  # 1 hour
+
+    async def async_added_to_hass(self):
+        """Register callbacks."""
+        # Listen to state changes of the existing EMA sensor
+        ema_sensor_id = f"{self._bt_climate.unique_id}_external_temp_ema"
+        if ema_sensor_id:
+            self.async_on_remove(
+                async_track_state_change_event(
+                    self.hass, [f"sensor.{ema_sensor_id}"], self._on_ema_sensor_update
+                )
+            )
+        # Also update initially
+        self._update_state()
+
+    @callback
+    def _on_ema_sensor_update(self, event):
+        """Handle update from the existing EMA sensor."""
+        # Get the current value from the EMA sensor
+        ema_state = self.hass.states.get(
+            f"sensor.{self._bt_climate.unique_id}_external_temp_ema"
+        )
+        if ema_state and ema_state.state not in [None, "unknown", "unavailable"]:
+            try:
+                temp_value = float(ema_state.state)
+                self._update_ema(temp_value)
+                self._update_state()
+                self.async_write_ha_state()
+            except (ValueError, TypeError):
+                pass
+
+    def _update_ema(self, new_value):
+        """Update the 1h EMA with a new value."""
+        import math
+        from time import monotonic
+
+        now = monotonic()
+        prev_ts = self._last_update_ts
+        prev_ema = self._ema_value
+
+        if prev_ts is None or prev_ema is None:
+            ema = float(new_value)
+        else:
+            dt_s = max(0.0, now - prev_ts)
+            alpha = 1.0 - math.exp(-dt_s / self._tau_s) if dt_s > 0 else 0.0
+            ema = prev_ema + alpha * (new_value - prev_ema)
+
+        self._ema_value = ema
+        self._last_update_ts = now
+
+    def _update_state(self):
+        """Update state from internal EMA."""
+        if self._ema_value is not None:
+            self._attr_native_value = round(float(self._ema_value), 2)
+        else:
+            self._attr_native_value = None
+
     """Representation of a Better Thermostat Temperature Slope Sensor."""
 
     _attr_has_entity_name = True
