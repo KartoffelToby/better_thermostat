@@ -197,6 +197,8 @@ class BetterThermostatExternalTemp1hEMASensor(SensorEntity):
         else:
             self._attr_native_value = None
 
+
+class BetterThermostatTempSlopeSensor(SensorEntity):
     """Representation of a Better Thermostat Temperature Slope Sensor."""
 
     _attr_has_entity_name = True
