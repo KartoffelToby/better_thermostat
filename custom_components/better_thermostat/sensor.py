@@ -144,32 +144,26 @@ class BetterThermostatExternalTemp1hEMASensor(SensorEntity):
 
     async def async_added_to_hass(self):
         """Register callbacks."""
-        # Listen to state changes of the existing EMA sensor
-        ema_sensor_id = f"{self._bt_climate.unique_id}_external_temp_ema"
-        if ema_sensor_id:
+        # Listen to state changes of the climate entity
+        if self._bt_climate.entity_id:
             self.async_on_remove(
                 async_track_state_change_event(
-                    self.hass, [f"sensor.{ema_sensor_id}"], self._on_ema_sensor_update
+                    self.hass, [self._bt_climate.entity_id], self._on_climate_update
                 )
+            )
+        else:
+            _LOGGER.warning(
+                "Better Thermostat climate entity has no entity_id yet. "
+                "Sensor update might be delayed."
             )
         # Also update initially
         self._update_state()
 
     @callback
-    def _on_ema_sensor_update(self, event):
-        """Handle update from the existing EMA sensor."""
-        # Get the current value from the EMA sensor
-        ema_state = self.hass.states.get(
-            f"sensor.{self._bt_climate.unique_id}_external_temp_ema"
-        )
-        if ema_state and ema_state.state not in [None, "unknown", "unavailable"]:
-            try:
-                temp_value = float(ema_state.state)
-                self._update_ema(temp_value)
-                self._update_state()
-                self.async_write_ha_state()
-            except (ValueError, TypeError):
-                pass
+    def _on_climate_update(self, event):
+        """Handle update from the climate entity."""
+        self._update_state()
+        self.async_write_ha_state()
 
     def _update_ema(self, new_value):
         """Update the 1h EMA with a new value."""
@@ -192,8 +186,17 @@ class BetterThermostatExternalTemp1hEMASensor(SensorEntity):
 
     def _update_state(self):
         """Update state from internal EMA."""
-        if self._ema_value is not None:
-            self._attr_native_value = round(float(self._ema_value), 2)
+        # Prefer filtered EMA from climate, fall back to external_temp_ema
+        val = getattr(self._bt_climate, "cur_temp_filtered", None)
+        if val is None:
+            val = getattr(self._bt_climate, "external_temp_ema", None)
+
+        if val is not None:
+            try:
+                self._update_ema(float(val))
+                self._attr_native_value = round(float(self._ema_value), 2)
+            except (ValueError, TypeError):
+                self._attr_native_value = None
         else:
             self._attr_native_value = None
 
