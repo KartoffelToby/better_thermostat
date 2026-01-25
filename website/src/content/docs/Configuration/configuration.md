@@ -18,7 +18,7 @@ or click on the button below:
 
 ## First step
 
-![first step](../../assets/config_1.png)
+![first step](../../../assets/config_1.png)
 
 **Name** This is a required field. It is the name of the virtual climate. It is used as an entity key name.
 
@@ -56,7 +56,7 @@ group:
 
 ## Second step
 
-![second step](../../assets/config_2.png)
+![second step](../../../assets/config_2.png)
 
 **Calibration Type** This is a required field. How the calibration should be applied on the TRV (Target temp or offset)
 
@@ -70,8 +70,8 @@ Better Thermostat offers several algorithms to control your heating:
 
 - **_Normal_**: Simple and reliable - uses your external sensor to correct the TRV's internal sensor
 - **_Aggressive_**: Pushes the TRV harder for faster heating (good for slow-heating rooms)
-- **_Time Based_**: Learns your room's heating patterns and adapts automatically
-- **_MPC Predictive_**: **[Recommended]** Advanced algorithm that predicts temperature changes for optimal efficiency
+- **Time Based\_**: **[Recommended]** Learns your room's heating patterns and adapts automatically
+- **_MPC Predictive_**: Advanced algorithm that predicts temperature changes for optimal efficiency
 - **_PID Controller_**: Classic control method that responds well to varying heating conditions
 - **_TPI Controller_**: Simple duty-cycle based control for consistent heating
 
