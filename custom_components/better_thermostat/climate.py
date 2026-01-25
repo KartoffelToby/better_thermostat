@@ -3059,14 +3059,25 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
             return HVACMode.OFF
         mapped = get_hvac_bt_mode(self, self.bt_hvac_mode)
         if isinstance(mapped, HVACMode):
-            return mapped
-        try:
-            return HVACMode(mapped)
-        except Exception:
+            result = mapped
+        else:
             try:
-                return HVACMode[mapped.upper()]
+                result = HVACMode(mapped)
             except Exception:
-                return HVACMode.OFF
+                try:
+                    result = HVACMode[mapped.upper()]
+                except Exception:
+                    return HVACMode.OFF
+
+        # Ensure result is in available modes list                                                                                                                                                                                                         
+        if result not in self._hvac_list:
+            # HEAT should map to map_on_hvac_mode (HEAT_COOL when cooler exists)                                                                                                                                                                           
+            if result == HVACMode.HEAT and self.map_on_hvac_mode in self._hvac_list:
+                return self.map_on_hvac_mode
+                # Fallback to OFF if mode still invalid                                                                                                                                                                                                        
+            return HVACMode.OFF
+
+        return result
 
     @property
     def hvac_modes(self) -> list[HVACMode]:
