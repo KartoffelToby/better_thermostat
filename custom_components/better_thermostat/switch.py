@@ -73,7 +73,13 @@ class BetterThermostatPIDAutoTuneSwitch(SwitchEntity, RestoreEntity):
     @property
     def is_on(self) -> bool | None:
         """Return true if switch is on."""
-        # Try to get the value from the current active PID state
+        # First check the TRV-level setting (persists across temperature buckets)
+        trv_data = self._bt_climate.real_trvs.get(self._trv_entity_id, {})
+        trv_setting = trv_data.get("advanced", {}).get("pid_auto_tune")
+        if trv_setting is not None:
+            return trv_setting
+
+        # Fall back to the current active PID state
         key = build_pid_key(self._bt_climate, self._trv_entity_id)
         pid_state = _PID_STATES.get(key)
 
@@ -92,7 +98,14 @@ class BetterThermostatPIDAutoTuneSwitch(SwitchEntity, RestoreEntity):
 
     def _update_state(self, state: bool):
         """Update the state."""
-        # Update persistent PID states (if any exist for this TRV)
+        # Store at TRV level so it persists across temperature bucket changes
+        if "advanced" not in self._bt_climate.real_trvs[self._trv_entity_id]:
+            self._bt_climate.real_trvs[self._trv_entity_id]["advanced"] = {}
+        self._bt_climate.real_trvs[self._trv_entity_id]["advanced"]["pid_auto_tune"] = (
+            state
+        )
+
+        # Also update any existing PID states for this TRV
         # Use the same unique_id logic as build_pid_key to ensure matching
         uid = self._bt_climate.unique_id or "bt"
         prefix = f"{uid}:{self._trv_entity_id}:"
