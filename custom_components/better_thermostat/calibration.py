@@ -634,10 +634,12 @@ def calculate_calibration_local(self, entity_id) -> float | None:
             self.real_trvs[entity_id].pop("calibration_balance", None)
 
     # Respecting tolerance in all calibration modes, delaying heat
+    # Skip tolerance delay for aggressive mode - it should start heating faster
     if not _skip_post_adjustments:
-        if self.attr_hvac_action == HVACAction.IDLE:
-            if _new_trv_calibration < 0.0:
-                _new_trv_calibration += self.tolerance * 2.0
+        if _calibration_mode != CalibrationMode.AGGRESIVE_CALIBRATION:
+            if self.attr_hvac_action == HVACAction.IDLE:
+                if _new_trv_calibration < 0.0:
+                    _new_trv_calibration += self.tolerance * 2.0
 
     _new_trv_calibration = fix_local_calibration(self, entity_id, _new_trv_calibration)
 
@@ -873,10 +875,13 @@ def calculate_calibration_setpoint(self, entity_id) -> float | None:
 
     _calibrated_setpoint = float(_calibrated_setpoint)
 
+    # Respecting tolerance in all calibration modes, delaying heat
+    # Skip tolerance delay for aggressive mode - it should start heating faster
     if not _skip_post_adjustments:
-        if self.attr_hvac_action == HVACAction.IDLE:
-            if _calibrated_setpoint - _cur_trv_temp > 0.0:
-                _calibrated_setpoint -= self.tolerance * 2.0
+        if _calibration_mode != CalibrationMode.AGGRESIVE_CALIBRATION:
+            if self.attr_hvac_action == HVACAction.IDLE:
+                if _calibrated_setpoint - _cur_trv_temp > 0.0:
+                    _calibrated_setpoint -= self.tolerance * 2.0
 
     _calibrated_setpoint = fix_target_temperature_calibration(
         self, entity_id, _calibrated_setpoint
