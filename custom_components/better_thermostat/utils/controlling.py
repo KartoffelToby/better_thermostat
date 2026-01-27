@@ -157,14 +157,28 @@ def _apply_valve_max_opening(self, entity_id: str, target_pct: int) -> int:
 
 
 class TaskManager:
-    """Task manager for Better Thermostat."""
+    """Manages background asyncio tasks with automatic cleanup.
+
+    Tracks created tasks and automatically removes them from the set when they complete.
+    """
 
     def __init__(self):
-        """Initialize the task manager."""
+        """Initialize the task manager with an empty task set."""
         self.tasks = set()
 
     def create_task(self, coro):
-        """Create a task."""
+        """Create and track an asyncio task with automatic cleanup on completion.
+
+        Parameters
+        ----------
+        coro : Coroutine
+            The coroutine to execute as a task
+
+        Returns
+        -------
+        asyncio.Task
+            The created task
+        """
         task = asyncio.create_task(coro)
         self.tasks.add(task)
         task.add_done_callback(self.tasks.discard)
@@ -172,16 +186,24 @@ class TaskManager:
 
 
 async def control_queue(self):
-    """Control the queue.
+    """Process control commands from the queue and coordinate TRV control.
+
+    This async task runs continuously, processing control requests from the
+    control_queue_task queue. It calculates heating power once per cycle,
+    then controls all TRVs in parallel using asyncio.gather(). Cooler control
+    is executed separately if a cooler entity is configured.
+
+    The queue pauses during maintenance mode or when ignore_states is True.
 
     Parameters
     ----------
-    self :
-            instance of better_thermostat
+    self : BetterThermostat
+        The Better Thermostat climate entity instance
 
     Returns
     -------
     None
+        This function runs indefinitely in an asyncio task
     """
     if not hasattr(self, "task_manager"):
         self.task_manager = TaskManager()
@@ -277,7 +299,12 @@ async def control_queue(self):
 
 
 async def control_cooler(self):
-    """Control the cooler entity."""
+    """Control the cooler entity based on current temperature and cooling setpoint.
+
+    Activates cooling when current temperature exceeds target cooling temperature
+    minus tolerance and is above heating target. Deactivates cooling when
+    temperature drops below cooling target minus tolerance or when BT HVAC mode is OFF.
+    """
     # Get current cooler state to avoid sending redundant commands
     cooler_state = self.hass.states.get(self.cooler_entity_id)
     if cooler_state is None or cooler_state.state in (STATE_UNAVAILABLE, STATE_UNKNOWN):
@@ -369,16 +396,24 @@ async def control_cooler(self):
 
 
 async def control_trv(self, heater_entity_id=None):
-    """Control the TRV.
+    """Control a single TRV by setting temperature, HVAC mode, calibration, and valve position.
+
+    All operations are executed within self._temp_lock to ensure atomic execution when
+    multiple TRVs are controlled in parallel. Unavailable TRVs are skipped without
+    executing any control operations.
 
     Parameters
     ----------
-    self :
-            instance of better_thermostat
+    self : BetterThermostat
+        The Better Thermostat climate entity instance
+    heater_entity_id : str, optional
+        Entity ID of the TRV to control. If None, returns False.
 
     Returns
     -------
-    None
+    bool
+        True if control succeeded or TRV was skipped (unavailable)
+        False if TRV not found in real_trvs or state conversion failed
     """
     if not hasattr(self, "task_manager"):
         self.task_manager = TaskManager()
@@ -669,14 +704,43 @@ async def control_trv(self, heater_entity_id=None):
 
 
 def handle_window_open(self, _remapped_states):
-    """Handle window open state."""
+    """Override HVAC mode to OFF when window is open.
+
+    Parameters
+    ----------
+    self : BetterThermostat
+        The Better Thermostat climate entity instance
+    _remapped_states : dict
+        Dictionary containing remapped TRV states including system_mode
+
+    Returns
+    -------
+    HVACMode
+        HVACMode.OFF if window is open, otherwise the remapped system_mode
+    """
     if self.window_open:
         return HVACMode.OFF
     return _remapped_states.get("system_mode", None)
 
 
 async def check_system_mode(self, heater_entity_id=None):
-    """Check system mode."""
+    """Wait for TRV to confirm HVAC mode change, timeout after 6 minutes.
+
+    Polls the TRV state every second until hvac_mode matches last_hvac_mode
+    or timeout is reached. Sets system_mode_received flag when complete.
+
+    Parameters
+    ----------
+    self : BetterThermostat
+        The Better Thermostat climate entity instance
+    heater_entity_id : str, optional
+        Entity ID of the TRV to check
+
+    Returns
+    -------
+    bool
+        Always returns True
+    """
     _timeout = 0
     _real_trv = self.real_trvs[heater_entity_id]
     while _real_trv["hvac_mode"] != _real_trv["last_hvac_mode"]:
@@ -696,7 +760,23 @@ async def check_system_mode(self, heater_entity_id=None):
 
 
 async def check_target_temperature(self, heater_entity_id=None):
-    """Check if target temperature is reached."""
+    """Wait for TRV to confirm target temperature change, timeout after 6 minutes.
+
+    Polls the TRV temperature attribute every second until it matches
+    last_temperature or timeout is reached. Sets target_temp_received flag when complete.
+
+    Parameters
+    ----------
+    self : BetterThermostat
+        The Better Thermostat climate entity instance
+    heater_entity_id : str, optional
+        Entity ID of the TRV to check
+
+    Returns
+    -------
+    bool
+        Always returns True
+    """
     _timeout = 0
     _real_trv = self.real_trvs[heater_entity_id]
     while True:
