@@ -219,12 +219,14 @@ def _build_advanced_fields(
     sources = sources_list
 
     def get_value(key: str, fallback: Any) -> Any:
+        """Get value from first source dict that contains the key."""
         for source in sources:
             if isinstance(source, dict) and key in source:
                 return source[key]
         return fallback
 
     def get_bool(key: str, fallback: bool) -> bool:
+        """Get boolean value from sources, converting string representations."""
         return _as_bool(get_value(key, fallback), fallback)
 
     # Build fields directly in the final desired order without post-reordering
@@ -363,6 +365,7 @@ def _build_user_fields(
     fields: OrderedDict = OrderedDict()
 
     def resolve(key: str, fallback: Any = None) -> Any:
+        """Resolve field value from user input, current config, or defaults."""
         if key in user_input:
             return user_input[key]
         if key in current and current[key] is not None:
@@ -374,6 +377,7 @@ def _build_user_fields(
     def add_field(
         key: str, field_type: Any, *, required: bool = False, default: Any = None
     ) -> None:
+        """Add a field to the form schema with appropriate validation."""
         description = None
         use_default = default is not None
 
@@ -412,6 +416,7 @@ def _build_user_fields(
         multiple: bool = False,
         required: bool = False,
     ) -> None:
+        """Add an entity selector field with domain and device class filtering."""
         if device_class is not None:
             selector_config = selector.EntitySelectorConfig(
                 domain=domain, multiple=multiple, device_class=device_class
