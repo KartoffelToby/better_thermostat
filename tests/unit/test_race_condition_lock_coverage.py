@@ -118,6 +118,7 @@ async def test_parallel_trv_control_no_race_condition():
     original_lock_acquire = mock_self._temp_lock.acquire
 
     async def tracked_acquire(*args, **kwargs):
+        """Track lock acquisition events for race condition detection."""
         nonlocal lock_acquired_count
         lock_acquired_count += 1
         execution_log.append(f"lock_acquire_{lock_acquired_count}")
@@ -160,21 +161,25 @@ async def test_parallel_trv_control_no_race_condition():
 
         # Simulate network delay in critical operations
         async def delayed_set_valve(*args, **kwargs):
+            """Mock set_valve with delay to detect interleaving."""
             execution_log.append(f"set_valve_start_{args[1]}")
             await asyncio.sleep(0.01)  # Simulate network delay
             execution_log.append(f"set_valve_end_{args[1]}")
 
         async def delayed_set_hvac_mode(*args, **kwargs):
+            """Mock set_hvac_mode with delay to detect interleaving."""
             execution_log.append(f"set_hvac_mode_start_{args[1]}")
             await asyncio.sleep(0.01)
             execution_log.append(f"set_hvac_mode_end_{args[1]}")
 
         async def delayed_set_offset(*args, **kwargs):
+            """Mock set_offset with delay to detect interleaving."""
             execution_log.append(f"set_offset_start_{args[1]}")
             await asyncio.sleep(0.01)
             execution_log.append(f"set_offset_end_{args[1]}")
 
         async def delayed_set_temp(*args, **kwargs):
+            """Mock set_temperature with delay to detect interleaving."""
             execution_log.append(f"set_temp_start_{args[1]}")
             await asyncio.sleep(0.01)
             execution_log.append(f"set_temp_end_{args[1]}")
@@ -440,21 +445,25 @@ async def test_lock_protects_critical_sections():
         }
 
         async def check_lock_on_set_valve(*args, **kwargs):
+            """Record lock state when set_valve is called."""
             lock_state_during_operations.append(
                 ("set_valve", mock_self._temp_lock.locked())
             )
 
         async def check_lock_on_set_hvac_mode(*args, **kwargs):
+            """Record lock state when set_hvac_mode is called."""
             lock_state_during_operations.append(
                 ("set_hvac_mode", mock_self._temp_lock.locked())
             )
 
         async def check_lock_on_set_offset(*args, **kwargs):
+            """Record lock state when set_offset is called."""
             lock_state_during_operations.append(
                 ("set_offset", mock_self._temp_lock.locked())
             )
 
         async def check_lock_on_set_temp(*args, **kwargs):
+            """Record lock state when set_temperature is called."""
             lock_state_during_operations.append(
                 ("set_temperature", mock_self._temp_lock.locked())
             )
