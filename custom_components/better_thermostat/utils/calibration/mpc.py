@@ -380,7 +380,6 @@ def build_mpc_key(bt, entity_id: str) -> str:
     return f"{uid}:{entity_id}:{bucket}"
 
 
-
 def _detect_regime_change(recent_errors: list[float]) -> bool:
     """Detect systematic bias in prediction errors using Student's t-test.
 
@@ -413,7 +412,11 @@ def _detect_regime_change(recent_errors: list[float]) -> bool:
     return t_stat > 2.0
 
 
-def _round_for_debug(value: Any, digits: int = 3) -> Any:
+def _round_for_debug(
+    value: float | int | None, digits: int = 3
+) -> float | int | None:
+    if value is None:
+        return None
     try:
         return round(float(value), digits)
     except (TypeError, ValueError):
@@ -1352,11 +1355,15 @@ def _compute_predictive_percent(
                 state.last_residual_time = now
 
             # Update ka_est if loss was updated and we have context
-            if updated_loss and inp.outdoor_temp_C is not None:
+            if (
+                updated_loss
+                and inp.outdoor_temp_C is not None
+                and state.loss_est is not None
+            ):
                 _delta = max(
                     5.0, float(current_temp_cost_C) - float(inp.outdoor_temp_C)
                 )
-                state.ka_est = float(state.loss_est) / _delta
+                state.ka_est = state.loss_est / _delta
 
         except (TypeError, ValueError, ZeroDivisionError):
             pass
