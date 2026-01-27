@@ -184,6 +184,17 @@ def heating_power_valve_position(self, entity_id):
     """
     _temp_diff = float(float(self.bt_target_temp) - float(self.cur_temp))
 
+    # Guard against negative temp_diff (room warmer than target)
+    # This can occur in TRV override edge case when temperature rises
+    # above target but TRV still reports heating (delayed update)
+    if _temp_diff <= 0:
+        _LOGGER.debug(
+            f"better_thermostat {self.device_name}: {entity_id} "
+            f"cur_temp >= target_temp ({self.cur_temp} >= {self.bt_target_temp}), "
+            f"setting valve to 0%"
+        )
+        return 0.0
+
     # Ensure heating_power is bounded to realistic values
     # This protects against incorrectly learned high values
     heating_power = max(
