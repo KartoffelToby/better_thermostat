@@ -37,19 +37,19 @@ async def test_parallel_trv_control_no_race_condition():
     Scenario: 2 grouped TRVs controlled simultaneously (like in Issue #1839)
     Expected: Both TRVs complete successfully without state corruption
     """
-    # Mock TRV states
+    # Mock TRV states - force mismatch so set_hvac_mode and set_temperature are called
     mock_state_trv1 = Mock()
-    mock_state_trv1.state = HVACMode.HEAT
+    mock_state_trv1.state = HVACMode.OFF  # Mismatch: BT wants HEAT
     mock_state_trv1.attributes = {
-        "temperature": 22.0,
+        "temperature": 18.0,  # Mismatch: BT wants 22.0
         "current_temperature": 20.0,
         "hvac_modes": [HVACMode.HEAT, HVACMode.OFF],
     }
 
     mock_state_trv2 = Mock()
-    mock_state_trv2.state = HVACMode.HEAT
+    mock_state_trv2.state = HVACMode.OFF  # Mismatch: BT wants HEAT
     mock_state_trv2.attributes = {
-        "temperature": 22.0,
+        "temperature": 18.0,  # Mismatch: BT wants 22.0
         "current_temperature": 20.0,
         "hvac_modes": [HVACMode.HEAT, HVACMode.OFF],
     }
@@ -69,18 +69,22 @@ async def test_parallel_trv_control_no_race_condition():
     mock_self.cur_temp = 20.0
     mock_self.bt_target_temp = 22.0
     mock_self.bt_hvac_mode = HVACMode.HEAT
+    mock_self.window_open = False
+    mock_self.call_for_heat = True
 
     # Two TRVs sharing the same Better Thermostat instance
+    # Configure to force set_hvac_mode and set_temperature calls
     mock_self.real_trvs = {
         "climate.trv1": {
             "ignore_trv_states": False,
             "hvac_modes": [HVACMode.HEAT, HVACMode.OFF],
             "min_temp": 5.0,
             "max_temp": 30.0,
-            "temperature": 22.0,
-            "last_hvac_mode": HVACMode.HEAT,
-            "system_mode_received": False,
-            "target_temp_received": False,
+            "temperature": 18.0,  # Different from target to trigger set_temperature
+            "last_temperature": 18.0,
+            "last_hvac_mode": HVACMode.OFF,  # Different from target to trigger set_hvac_mode
+            "system_mode_received": True,
+            "target_temp_received": True,
             "calibration_received": False,
             "model_quirks": Mock(override_set_hvac_mode=AsyncMock(return_value=False)),
             "advanced": {
@@ -93,10 +97,11 @@ async def test_parallel_trv_control_no_race_condition():
             "hvac_modes": [HVACMode.HEAT, HVACMode.OFF],
             "min_temp": 5.0,
             "max_temp": 30.0,
-            "temperature": 22.0,
-            "last_hvac_mode": HVACMode.HEAT,
-            "system_mode_received": False,
-            "target_temp_received": False,
+            "temperature": 18.0,  # Different from target to trigger set_temperature
+            "last_temperature": 18.0,
+            "last_hvac_mode": HVACMode.OFF,  # Different from target to trigger set_hvac_mode
+            "system_mode_received": True,
+            "target_temp_received": True,
             "calibration_received": False,
             "model_quirks": Mock(override_set_hvac_mode=AsyncMock(return_value=False)),
             "advanced": {
@@ -122,18 +127,31 @@ async def test_parallel_trv_control_no_race_condition():
 
     mock_self._temp_lock.acquire = tracked_acquire
 
-    with patch(
-        "custom_components.better_thermostat.utils.controlling.convert_outbound_states"
-    ) as mock_convert, patch(
-        "custom_components.better_thermostat.utils.controlling.set_valve"
-    ) as mock_set_valve, patch(
-        "custom_components.better_thermostat.utils.controlling.set_hvac_mode"
-    ) as mock_set_hvac_mode, patch(
-        "custom_components.better_thermostat.utils.controlling.set_offset"
-    ) as mock_set_offset, patch(
-        "custom_components.better_thermostat.utils.controlling.set_temperature"
-    ) as mock_set_temp:
-
+    with (
+        patch(
+            "custom_components.better_thermostat.utils.controlling.convert_outbound_states"
+        ) as mock_convert,
+        patch(
+            "custom_components.better_thermostat.utils.controlling.set_valve"
+        ) as mock_set_valve,
+        patch(
+            "custom_components.better_thermostat.utils.controlling.set_hvac_mode"
+        ) as mock_set_hvac_mode,
+        patch(
+            "custom_components.better_thermostat.utils.controlling.set_offset"
+        ) as mock_set_offset,
+        patch(
+            "custom_components.better_thermostat.utils.controlling.set_temperature"
+        ) as mock_set_temp,
+        patch(
+            "custom_components.better_thermostat.utils.controlling.override_set_hvac_mode",
+            new=AsyncMock(return_value=False),
+        ),
+        patch(
+            "custom_components.better_thermostat.utils.controlling.get_current_offset",
+            new=AsyncMock(return_value=0.0),
+        ),
+    ):
         mock_convert.return_value = {
             "temperature": 22.0,
             "local_temperature_calibration": 0.0,
@@ -184,7 +202,9 @@ async def test_parallel_trv_control_no_race_condition():
             + mock_set_offset.call_count
             + mock_set_valve.call_count
         )
-        assert total_calls >= 2, f"Expected at least 2 operation calls, got {total_calls}"
+        assert total_calls >= 2, (
+            f"Expected at least 2 operation calls, got {total_calls}"
+        )
 
         # CRITICAL TEST: Operations should NOT interleave
         # If lock coverage is incomplete, we'll see interleaving like:
@@ -205,7 +225,9 @@ async def test_parallel_trv_control_no_race_condition():
 
         # Check for interleaving of ANY operation (not just set_temp)
         # Look for set_hvac_mode since that's what actually gets called
-        operation_events = [e for e in execution_log if "set_hvac_mode" in e or "set_temp" in e]
+        operation_events = [
+            e for e in execution_log if "set_hvac_mode" in e or "set_temp" in e
+        ]
 
         if len(operation_events) >= 4:
             # Find all starts and ends
@@ -218,7 +240,9 @@ async def test_parallel_trv_control_no_race_condition():
                 for i, event in enumerate(operation_events):
                     if "end" in event:
                         # Find how many starts came before this end
-                        starts_before = sum(1 for e in operation_events[:i] if "start" in e)
+                        starts_before = sum(
+                            1 for e in operation_events[:i] if "start" in e
+                        )
                         ends_before = sum(1 for e in operation_events[:i] if "end" in e)
 
                         # If multiple operations started before this one ended, we have interleaving
@@ -257,12 +281,8 @@ async def test_shared_state_corruption_in_parallel_execution():
     mock_self.cur_temp = 20.0
     mock_self.bt_target_temp = 22.0
     mock_self.bt_hvac_mode = HVACMode.HEAT
-
-    # Track ignore_states changes
-    ignore_states_log = []
-
-    def track_ignore_states(entity_id, value):
-        ignore_states_log.append((entity_id, value, asyncio.current_task().get_name()))
+    mock_self.window_open = False
+    mock_self.call_for_heat = True
 
     mock_self.real_trvs = {
         "climate.trv1": {
@@ -299,12 +319,20 @@ async def test_shared_state_corruption_in_parallel_execution():
         },
     }
 
-    with patch(
-        "custom_components.better_thermostat.utils.controlling.convert_outbound_states"
-    ) as mock_convert, patch(
-        "custom_components.better_thermostat.utils.controlling.set_temperature"
+    with (
+        patch(
+            "custom_components.better_thermostat.utils.controlling.convert_outbound_states"
+        ) as mock_convert,
+        patch("custom_components.better_thermostat.utils.controlling.set_temperature"),
+        patch(
+            "custom_components.better_thermostat.utils.controlling.override_set_hvac_mode",
+            new=AsyncMock(return_value=False),
+        ),
+        patch(
+            "custom_components.better_thermostat.utils.controlling.get_current_offset",
+            new=AsyncMock(return_value=0.0),
+        ),
     ):
-
         mock_convert.return_value = {
             "temperature": 22.0,
             "local_temperature_calibration": 0.0,
@@ -356,6 +384,8 @@ async def test_lock_protects_critical_sections():
     mock_self.cur_temp = 20.0
     mock_self.bt_target_temp = 22.0
     mock_self.bt_hvac_mode = HVACMode.HEAT
+    mock_self.window_open = False
+    mock_self.call_for_heat = True
     mock_self.real_trvs = {
         "climate.trv1": {
             "ignore_trv_states": False,
@@ -372,24 +402,37 @@ async def test_lock_protects_critical_sections():
                 "calibration_mode": CalibrationMode.MPC_CALIBRATION,
                 "calibration": CalibrationType.TARGET_TEMP_BASED,
             },
-        },
+        }
     }
 
     # Track lock state during critical operations
     lock_state_during_operations = []
 
-    with patch(
-        "custom_components.better_thermostat.utils.controlling.convert_outbound_states"
-    ) as mock_convert, patch(
-        "custom_components.better_thermostat.utils.controlling.set_valve"
-    ) as mock_set_valve, patch(
-        "custom_components.better_thermostat.utils.controlling.set_hvac_mode"
-    ) as mock_set_hvac_mode, patch(
-        "custom_components.better_thermostat.utils.controlling.set_offset"
-    ) as mock_set_offset, patch(
-        "custom_components.better_thermostat.utils.controlling.set_temperature"
-    ) as mock_set_temp:
-
+    with (
+        patch(
+            "custom_components.better_thermostat.utils.controlling.convert_outbound_states"
+        ) as mock_convert,
+        patch(
+            "custom_components.better_thermostat.utils.controlling.set_valve"
+        ) as mock_set_valve,
+        patch(
+            "custom_components.better_thermostat.utils.controlling.set_hvac_mode"
+        ) as mock_set_hvac_mode,
+        patch(
+            "custom_components.better_thermostat.utils.controlling.set_offset"
+        ) as mock_set_offset,
+        patch(
+            "custom_components.better_thermostat.utils.controlling.set_temperature"
+        ) as mock_set_temp,
+        patch(
+            "custom_components.better_thermostat.utils.controlling.override_set_hvac_mode",
+            new=AsyncMock(return_value=False),
+        ),
+        patch(
+            "custom_components.better_thermostat.utils.controlling.get_current_offset",
+            new=AsyncMock(return_value=0.0),
+        ),
+    ):
         mock_convert.return_value = {
             "temperature": 22.0,
             "local_temperature_calibration": 0.0,
@@ -397,16 +440,24 @@ async def test_lock_protects_critical_sections():
         }
 
         async def check_lock_on_set_valve(*args, **kwargs):
-            lock_state_during_operations.append(("set_valve", mock_self._temp_lock.locked()))
+            lock_state_during_operations.append(
+                ("set_valve", mock_self._temp_lock.locked())
+            )
 
         async def check_lock_on_set_hvac_mode(*args, **kwargs):
-            lock_state_during_operations.append(("set_hvac_mode", mock_self._temp_lock.locked()))
+            lock_state_during_operations.append(
+                ("set_hvac_mode", mock_self._temp_lock.locked())
+            )
 
         async def check_lock_on_set_offset(*args, **kwargs):
-            lock_state_during_operations.append(("set_offset", mock_self._temp_lock.locked()))
+            lock_state_during_operations.append(
+                ("set_offset", mock_self._temp_lock.locked())
+            )
 
         async def check_lock_on_set_temp(*args, **kwargs):
-            lock_state_during_operations.append(("set_temperature", mock_self._temp_lock.locked()))
+            lock_state_during_operations.append(
+                ("set_temperature", mock_self._temp_lock.locked())
+            )
 
         mock_set_valve.side_effect = check_lock_on_set_valve
         mock_set_hvac_mode.side_effect = check_lock_on_set_hvac_mode
