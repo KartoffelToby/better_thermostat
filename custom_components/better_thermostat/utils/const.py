@@ -69,6 +69,8 @@ ATTR_VALVE_POSITION = "valve_position"
 ATTR_STATE_HUMIDIY = "humidity"
 ATTR_STATE_MAIN_MODE = "main_mode"
 ATTR_STATE_HEATING_POWER = "heating_power"
+ATTR_STATE_HEAT_LOSS = "heat_loss"
+ATTR_STATE_HEAT_LOSS_STATS = "heat_loss_stats"
 ATTR_STATE_HEATING_STATS = "heating_stats"
 ATTR_STATE_ERRORS = "errors"
 ATTR_STATE_BATTERIES = "batteries"
@@ -130,6 +132,10 @@ class CalibrationMode(StrEnum):
 # These bounds represent realistic heating rates for residential heating systems
 MIN_HEATING_POWER = 0.005  # °C/min - Very slow heating (poor insulation, cold climate)
 MAX_HEATING_POWER = 0.2  # °C/min - Very fast heating (oversized system, small room)
+
+# Heat loss estimation bounds (cooling rate) for residential buildings
+MIN_HEAT_LOSS = 0.001  # °C/min - very slow cooling
+MAX_HEAT_LOSS = 0.05  # °C/min - very fast cooling / high loss
 
 # Valve position calculation constants for heating_power_valve_position()
 VALVE_MIN_THRESHOLD_TEMP_DIFF = (
