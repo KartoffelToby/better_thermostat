@@ -80,6 +80,9 @@ class MpcParams:
     perf_curve_bin_pct: float = 2.0
 
 
+
+
+
 @dataclass
 class MpcInput:
     """Input parameters for MPC calibration calculation."""
@@ -144,6 +147,9 @@ class _MpcState:
     created_ts: float = 0.0
     loss_learn_count: int = 0
     is_calibration_active: bool = False
+    recent_errors: list[float] = field(default_factory=list)
+    regime_boost_active: bool = False
+    consecutive_insufficient_heat: int = 0
 
 
 _MPC_STATES: dict[str, _MpcState] = {}
@@ -178,6 +184,9 @@ _STATE_EXPORT_FIELDS = (
     "created_ts",
     "loss_learn_count",
     "is_calibration_active",
+    "recent_errors",
+    "regime_boost_active",
+    "consecutive_insufficient_heat",
 )
 
 
@@ -369,6 +378,39 @@ def build_mpc_key(bt, entity_id: str) -> str:
 
     uid = getattr(bt, "unique_id", None) or getattr(bt, "_unique_id", "bt")
     return f"{uid}:{entity_id}:{bucket}"
+
+
+
+def _detect_regime_change(recent_errors: list[float]) -> bool:
+    """Detect systematic bias in prediction errors using Student's t-test.
+
+    If the mean error deviates significantly from 0 relative to standard deviation,
+    it indicates a regime change (e.g. window opened, weather change).
+    Adaptation should be boosted.
+    """
+    N = 10
+    if len(recent_errors) < N:
+        return False
+
+    # Check last N errors
+    errors_to_check = recent_errors[-N:]
+    mean_error = sum(errors_to_check) / N
+
+    # Std deviation
+    try:
+        variance = sum((e - mean_error) ** 2 for e in errors_to_check) / N
+        std_error = variance**0.5
+    except Exception:
+        return False
+
+    if std_error == 0:
+        return False
+
+    # t-statistic: how many std-devs is the mean away from 0?
+    t_stat = abs(mean_error) / (std_error / (N**0.5))
+
+    # Threshold > 2.0 is significant (approx 95% confidence)
+    return t_stat > 2.0
 
 
 def _round_for_debug(value: Any, digits: int = 3) -> Any:
@@ -1018,6 +1060,39 @@ def _compute_predictive_percent(
             # Common gates: don't learn during setpoint steps or crazy sensor jumps.
             common_ok = (not target_changed) and rate_ok and dt_min > 0
 
+            # --- REGIME CHANGE DETECTION ---
+            # Calculate predicted rate based on CURRENT model (before update)
+            # predicted_rate = gain * u - loss
+            predicted_rate = (gain_est * u_last) - loss_est
+
+            # Prediction error (positive = room warmer than expected)
+            pred_error = observed_rate - predicted_rate
+
+            # Only track errors when conditions are stable (common_ok)
+            if common_ok:
+                state.recent_errors.append(pred_error)
+                # Keep last 20 samples
+                if len(state.recent_errors) > 20:
+                    state.recent_errors.pop(0)
+
+            # Check for regime change
+            is_regime_change = _detect_regime_change(state.recent_errors)
+            if is_regime_change and not state.regime_boost_active:
+                state.regime_boost_active = True
+                adapt_debug["regime_boost_activated"] = True
+
+            # Calculate adaptive alpha
+            base_adapt_alpha = params.mpc_adapt_alpha
+            if state.regime_boost_active:
+                # Boost alpha significantly (e.g. 3x) but cap at reasonable limit
+                base_adapt_alpha = min(base_adapt_alpha * 3.0, 0.3)
+                adapt_debug["regime_boost_active"] = True
+
+                # Reset if detection returns False (bias gone or included in model now)
+                if not is_regime_change:
+                    state.regime_boost_active = False
+                    adapt_debug["regime_boost_reset"] = True
+
             # --- LOSS learning: u ~= 0 and room cooling (or not warming) ---
             # Needs a real temperature change (quantised sensors).
             if (
@@ -1038,9 +1113,9 @@ def _compute_predictive_percent(
                 else:
                     loss_candidate = min(loss_candidate, params.mpc_loss_max)
 
-                    alpha = params.mpc_adapt_alpha
+                    alpha = base_adapt_alpha
                     if loss_candidate < loss_est:
-                        alpha = params.mpc_adapt_alpha * 0.1  # slower decrease
+                        alpha = base_adapt_alpha * 0.1  # slower decrease
                     state.loss_est = (1.0 - alpha) * loss_est + alpha * loss_candidate
                     updated_loss = True
                     loss_method = "cool_u0"
@@ -1089,15 +1164,48 @@ def _compute_predictive_percent(
                         max(loss_candidate, params.mpc_loss_min), params.mpc_loss_max
                     )
 
-                    # Heavily reduce alpha for steady-state learning to rely more on
-                    # "cool_u0" events (forced calibration).
-                    base_alpha = params.mpc_adapt_alpha * 0.2
-                    alpha = base_alpha
-                    if loss_candidate < loss_est:
-                        alpha = base_alpha * 0.1  # slower decrease
-                    state.loss_est = (1.0 - alpha) * loss_est + alpha * loss_candidate
-                    updated_loss = True
-                    loss_method = "residual_u0_ss"
+                    # Logic Check: "Insufficient Heat"
+                    # If the room is significantly below target (e.g. >0.2K diff) but we are in steady state (rate ~ 0),
+                    # it means the valve is open but not delivering enough heat.
+                    # We should NOT increase the Loss estimate here (blaming insulation).
+                    # Instead, we should reduce the Gain estimate (blaming the heater/flow) to open the valve more.
+                    is_insufficient_heat = (
+                        target_temp_C - current_temp_cost_C
+                    ) > 0.2 and loss_candidate > loss_est
+
+                    if not is_insufficient_heat:
+                        # Heavily reduce alpha for steady-state learning to rely more on
+                        # "cool_u0" events (forced calibration).
+                        base_alpha = base_adapt_alpha * 0.2
+                        alpha = base_alpha
+                        if loss_candidate < loss_est:
+                            alpha = base_alpha * 0.1  # slower decrease
+                        state.loss_est = (
+                            1.0 - alpha
+                        ) * loss_est + alpha * loss_candidate
+                        updated_loss = True
+                        loss_method = "residual_u0_ss"
+                        state.consecutive_insufficient_heat = 0
+                    else:
+                        adapt_debug["loss_skipped_insufficient_heat"] = True
+                        state.consecutive_insufficient_heat += 1
+
+                        # INSUFFICIENT HEAT BOOST
+                        # If we have insufficient heat repeatedly, decrease Gain to boost u0 (and thus valve)
+                        if state.consecutive_insufficient_heat >= 1:
+                            # Use aggressive alpha for this correction
+                            alpha_boost = max(0.1, base_adapt_alpha * 2.0)
+                            # Reduce gain towards a lower target (e.g. 80% of current)
+                            target_gain = gain_est * 0.8
+                            target_gain = max(target_gain, params.mpc_gain_min)
+
+                            state.gain_est = (
+                                1.0 - alpha_boost
+                            ) * gain_est + alpha_boost * target_gain
+                            updated_gain = True
+                            gain_method = "insufficient_heat_boost"
+                            adapt_debug["gain_boosted_insuff"] = True
+
 
             # --- LOSS learning (warming with low valve): ---
             # If we are below u0 but the room is warming, loss is overestimated.
@@ -1118,7 +1226,7 @@ def _compute_predictive_percent(
 
                 # This will likely be negative or very small, driving loss down.
                 # Reduce alpha to not overreact to solar gains etc.
-                alpha = params.mpc_adapt_alpha * 0.5
+                alpha = base_adapt_alpha * 0.5
                 state.loss_est = (1.0 - alpha) * loss_est + alpha * loss_candidate
                 updated_loss = True
                 loss_method = "warm_low_u"
@@ -1140,9 +1248,9 @@ def _compute_predictive_percent(
                     max(gain_candidate, params.mpc_gain_min), params.mpc_gain_max
                 )
 
-                alpha = params.mpc_adapt_alpha
+                alpha = base_adapt_alpha
                 if gain_candidate > gain_est:
-                    alpha = params.mpc_adapt_alpha * 0.3  # slower increase
+                    alpha = base_adapt_alpha * 0.3  # slower increase
                 state.gain_est = (1.0 - alpha) * gain_est + alpha * gain_candidate
                 updated_gain = True
                 gain_method = "heat_rate"
@@ -1178,7 +1286,7 @@ def _compute_predictive_percent(
                     )
 
                     if gain_ss_candidate < gain_est_current:
-                        alpha = params.mpc_adapt_alpha  # faster decrease is OK
+                        alpha = base_adapt_alpha  # faster decrease is OK
                         state.gain_est = (1.0 - alpha) * gain_est_current + (
                             alpha * gain_ss_candidate
                         )
