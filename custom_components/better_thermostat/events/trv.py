@@ -279,6 +279,7 @@ async def trigger_trv_change(self, event):
             and self.real_trvs[entity_id]["system_mode_received"] is True
             and self.real_trvs[entity_id]["hvac_mode"] is not HVACMode.OFF
             and self.window_open is False
+            and not self.real_trvs[entity_id].get("ignore_trv_states", False)
         ):
             _calibration_type = self.real_trvs[entity_id]["advanced"].get("calibration")
             if _calibration_type == CalibrationType.TARGET_TEMP_BASED:
