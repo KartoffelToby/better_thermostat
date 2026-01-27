@@ -407,7 +407,7 @@ async def control_trv(self, heater_entity_id=None):
     self : BetterThermostat
         The Better Thermostat climate entity instance
     heater_entity_id : str, optional
-        Entity ID of the TRV to control. If None, returns False.
+        Entity ID of the TRV to control. If None or not found, returns False.
 
     Returns
     -------
@@ -415,6 +415,10 @@ async def control_trv(self, heater_entity_id=None):
         True if control succeeded or TRV was skipped (unavailable)
         False if TRV not found in real_trvs or state conversion failed
     """
+    # Guard against missing or invalid heater_entity_id
+    if not heater_entity_id or heater_entity_id not in self.real_trvs:
+        return False
+
     if not hasattr(self, "task_manager"):
         self.task_manager = TaskManager()
 
@@ -437,11 +441,6 @@ async def control_trv(self, heater_entity_id=None):
                 "better_thermostat %s: hvac action recompute failed (non critical)",
                 getattr(self, "device_name", "unknown"),
             )
-        await self.calculate_heating_power()
-        _trv = self.hass.states.get(heater_entity_id)
-
-        # Removed calculate_heating_power() from here, moved to control_queue
-
         _trv = self.hass.states.get(heater_entity_id)
 
         # Check if TRV is available before attempting to control it
@@ -456,7 +455,9 @@ async def control_trv(self, heater_entity_id=None):
             return True
 
         _current_set_temperature = convert_to_float(
-            str(_trv.attributes.get("temperature", None)), self.device_name, "controlling()"
+            str(_trv.attributes.get("temperature", None)),
+            self.device_name,
+            "controlling()",
         )
 
         _remapped_states = convert_outbound_states(
@@ -490,7 +491,9 @@ async def control_trv(self, heater_entity_id=None):
             bal = None
             if _calibration_type == CalibrationType.DIRECT_VALVE_BASED:
                 if _calibration_mode == CalibrationMode.MPC_CALIBRATION:
-                    cal_bal = self.real_trvs[heater_entity_id].get("calibration_balance")
+                    cal_bal = self.real_trvs[heater_entity_id].get(
+                        "calibration_balance"
+                    )
                     if (
                         isinstance(cal_bal, dict)
                         and cal_bal.get("apply_valve")
@@ -499,7 +502,9 @@ async def control_trv(self, heater_entity_id=None):
                         bal = cal_bal
                         _source = "mpc_calibration"
                 elif _calibration_mode == CalibrationMode.TPI_CALIBRATION:
-                    cal_bal = self.real_trvs[heater_entity_id].get("calibration_balance")
+                    cal_bal = self.real_trvs[heater_entity_id].get(
+                        "calibration_balance"
+                    )
                     if (
                         isinstance(cal_bal, dict)
                         and cal_bal.get("apply_valve")
@@ -508,7 +513,9 @@ async def control_trv(self, heater_entity_id=None):
                         bal = cal_bal
                         _source = "tpi_calibration"
                 elif _calibration_mode == CalibrationMode.HEATING_POWER_CALIBRATION:
-                    cal_bal = self.real_trvs[heater_entity_id].get("calibration_balance")
+                    cal_bal = self.real_trvs[heater_entity_id].get(
+                        "calibration_balance"
+                    )
                     if (
                         isinstance(cal_bal, dict)
                         and cal_bal.get("apply_valve")
@@ -517,7 +524,9 @@ async def control_trv(self, heater_entity_id=None):
                         bal = cal_bal
                         _source = "heating_power_calibration"
                 elif _calibration_mode == CalibrationMode.PID_CALIBRATION:
-                    cal_bal = self.real_trvs[heater_entity_id].get("calibration_balance")
+                    cal_bal = self.real_trvs[heater_entity_id].get(
+                        "calibration_balance"
+                    )
                     if (
                         isinstance(cal_bal, dict)
                         and cal_bal.get("apply_valve")
@@ -579,7 +588,9 @@ async def control_trv(self, heater_entity_id=None):
         _no_off_system_mode = (
             HVACMode.OFF not in self.real_trvs[heater_entity_id]["hvac_modes"]
         ) or (
-            self.real_trvs[heater_entity_id]["advanced"].get("no_off_system_mode", False)
+            self.real_trvs[heater_entity_id]["advanced"].get(
+                "no_off_system_mode", False
+            )
             is True
         )
         if _no_off_system_mode is True and _new_hvac_mode == HVACMode.OFF:
@@ -664,9 +675,9 @@ async def control_trv(self, heater_entity_id=None):
                 )
                 self.real_trvs[heater_entity_id]["calibration_received"] = True
 
-            if self.real_trvs[heater_entity_id]["calibration_received"] is True and float(
-                _old_calibration
-            ) != float(_calibration):
+            if self.real_trvs[heater_entity_id][
+                "calibration_received"
+            ] is True and float(_old_calibration) != float(_calibration):
                 _LOGGER.debug(
                     "better_thermostat %s: TO TRV set_local_temperature_calibration: %s from: %s to: %s",
                     self.device_name,
@@ -698,9 +709,11 @@ async def control_trv(self, heater_entity_id=None):
                         check_target_temperature(self, heater_entity_id)
                     )
 
-        await asyncio.sleep(3)
-        self.real_trvs[heater_entity_id]["ignore_trv_states"] = False
-        return True
+    # Sleep outside lock to allow parallel TRV control
+    # This delay lets TRV state updates propagate before accepting new state events
+    await asyncio.sleep(3)
+    self.real_trvs[heater_entity_id]["ignore_trv_states"] = False
+    return True
 
 
 def handle_window_open(self, _remapped_states):
@@ -780,12 +793,16 @@ async def check_target_temperature(self, heater_entity_id=None):
     _timeout = 0
     _real_trv = self.real_trvs[heater_entity_id]
     while True:
+        _trv_state = self.hass.states.get(heater_entity_id)
+        if _trv_state is None or _trv_state.state in (STATE_UNAVAILABLE, STATE_UNKNOWN):
+            _LOGGER.debug(
+                "better_thermostat %s: %s became unavailable during check_target_temperature",
+                self.device_name,
+                heater_entity_id,
+            )
+            break
         _current_set_temperature = convert_to_float(
-            str(
-                self.hass.states.get(heater_entity_id).attributes.get(
-                    "temperature", None
-                )
-            ),
+            str(_trv_state.attributes.get("temperature", None)),
             self.device_name,
             "check_target_temperature()",
         )
