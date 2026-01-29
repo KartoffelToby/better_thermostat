@@ -1210,7 +1210,7 @@ def _compute_predictive_percent(
                 and learn_signal
                 and (not updated_loss)
                 and u_last < (u0_frac_est - 0.05)
-                and observed_rate > 0.01
+                and observed_rate > 0.0
             ):
                 # We are warming, so gain*u > loss.
                 # Since u is small, loss must be very small.
