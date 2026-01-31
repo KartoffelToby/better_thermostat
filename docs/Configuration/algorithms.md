@@ -140,7 +140,7 @@ The algorithm automatically tunes these parameters over time for optimal perform
 
 **Cons:**
 
-- Can be aggressive initially
+- PID can be aggressive initially
 - May oscillate slightly during self-tuning
 - More technical - understanding the parameters helps
 
