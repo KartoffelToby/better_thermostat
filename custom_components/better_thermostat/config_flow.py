@@ -20,6 +20,7 @@ from homeassistant.components.climate.const import (
 from homeassistant.const import CONF_NAME
 from homeassistant.core import callback
 from homeassistant.helpers import config_validation as cv, selector
+from homeassistant.helpers.dispatcher import dispatcher_send
 import voluptuous as vol
 
 from . import DOMAIN  # pylint: disable=unused-import
@@ -902,6 +903,10 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
                 "OptionsFlow writing heater bundle: %s",
                 self.updated_config.get(CONF_HEATER),
             )
+            
+            # Check for calibration mode changes to trigger entity cleanup
+            await self._check_calibration_changes()
+            
             self.hass.config_entries.async_update_entry(
                 self._config_entry, data=self.updated_config
             )
@@ -965,3 +970,47 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
         return self.async_show_form(
             step_id="user", data_schema=vol.Schema(fields), last_step=False
         )
+    
+    async def _check_calibration_changes(self) -> None:
+        """Check for calibration mode changes and signal for entity cleanup."""
+        old_config = self._config_entry.data
+        new_config = self.updated_config
+        
+        # Get active calibration algorithms from both configs
+        old_algorithms = self._get_active_algorithms(old_config)
+        new_algorithms = self._get_active_algorithms(new_config)
+        
+        if old_algorithms != new_algorithms:
+            algorithms_added = new_algorithms - old_algorithms
+            algorithms_removed = old_algorithms - new_algorithms
+            
+            _LOGGER.info(
+                "Better Thermostat %s: Calibration algorithms changed. Added: %s, Removed: %s",
+                self.updated_config.get(CONF_NAME, "unknown"),
+                [alg.value if hasattr(alg, 'value') else str(alg) for alg in algorithms_added],
+                [alg.value if hasattr(alg, 'value') else str(alg) for alg in algorithms_removed],
+            )
+            
+            # Signal configuration change for dynamic entity management
+            signal_key = f"bt_config_changed_{self._config_entry.entry_id}"
+            dispatcher_send(self.hass, signal_key, {"entry_id": self._config_entry.entry_id})
+    
+    def _get_active_algorithms(self, config: dict[str, Any]) -> set:
+        """Get set of calibration algorithms currently in use by any TRV."""
+        if not config or CONF_HEATER not in config:
+            return set()
+            
+        active_algorithms = set()
+        for trv in config.get(CONF_HEATER, []):
+            advanced = trv.get("advanced", {})
+            calibration_mode = advanced.get(CONF_CALIBRATION_MODE)
+            if calibration_mode:
+                # Konvertiere String zu Enum falls nötig
+                if isinstance(calibration_mode, str):
+                    try:
+                        calibration_mode = CalibrationMode(calibration_mode)
+                    except ValueError:
+                        continue
+                active_algorithms.add(calibration_mode)
+        
+        return active_algorithms

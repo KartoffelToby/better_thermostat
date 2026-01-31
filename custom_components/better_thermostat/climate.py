@@ -49,6 +49,7 @@ from homeassistant.helpers.event import (
 )
 from homeassistant.helpers.restore_state import RestoreEntity
 from homeassistant.helpers.storage import Store
+from homeassistant.helpers.dispatcher import dispatcher_send
 
 # preferred for HA time handling (UTC aware)
 from homeassistant.util import dt as dt_util
@@ -135,6 +136,9 @@ DOMAIN = "better_thermostat"
 
 # Default temperature when no sensor data is available (last resort fallback)
 DEFAULT_FALLBACK_TEMPERATURE = 20.0
+
+# Signal für dynamische Entity-Updates
+SIGNAL_BT_CONFIG_CHANGED = "bt_config_changed_{}"
 
 
 class ContinueLoop(Exception):
@@ -3180,6 +3184,15 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
     async def async_turn_on(self) -> None:
         """Turn the entity on."""
         await self.async_set_hvac_mode(HVACMode.HEAT)
+
+    def _signal_config_change(self) -> None:
+        """Signal a configuration change to trigger entity cleanup/recreation."""
+        signal_key = SIGNAL_BT_CONFIG_CHANGED.format(self.entity_id)
+        dispatcher_send(self.hass, signal_key, {"entry_id": self._entry_id})
+        _LOGGER.debug(
+            "better_thermostat %s: Signaled configuration change",
+            self.device_name,
+        )
 
     async def run_valve_maintenance_service(self) -> None:
         """Entity service: run valve maintenance immediately (ignores schedule)."""
