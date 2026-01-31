@@ -49,14 +49,6 @@ async def async_setup_entry(
         BetterThermostatSolarIntensitySensor(bt_climate),
     ]
 
-    has_mpc = False
-    if hasattr(bt_climate, "all_trvs"):
-        for trv in bt_climate.all_trvs:
-            advanced = trv.get("advanced", {})
-            if advanced.get(CONF_CALIBRATION_MODE) == CalibrationMode.MPC_CALIBRATION:
-                has_mpc = True
-                break
-
     # Dynamische algorithmus-spezifische Sensor-Erstellung
     algorithm_sensors = await _setup_algorithm_sensors(hass, entry, bt_climate)
     sensors.extend(algorithm_sensors)
@@ -84,6 +76,7 @@ async def _setup_algorithm_sensors(
             BetterThermostatVirtualTempSensor(bt_climate),
             BetterThermostatMpcGainSensor(bt_climate),
             BetterThermostatMpcLossSensor(bt_climate),
+            BetterThermostatMpcKaSensor(bt_climate),
             BetterThermostatMpcStatusSensor(bt_climate),
         ]
         algorithm_sensors.extend(mpc_sensors)
@@ -95,6 +88,7 @@ async def _setup_algorithm_sensors(
             f"{bt_climate.unique_id}_virtual_temp",
             f"{bt_climate.unique_id}_mpc_gain", 
             f"{bt_climate.unique_id}_mpc_loss",
+            f"{bt_climate.unique_id}_mpc_ka",
             f"{bt_climate.unique_id}_mpc_status",
         ]
         
