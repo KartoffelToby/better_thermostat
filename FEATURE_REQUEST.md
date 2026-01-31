@@ -10,15 +10,18 @@ Automatically remove algorithm-specific sensor entities when switching calibrati
 ## Problem Description
 
 ### Current Behavior
+
 When switching between calibration algorithms (e.g., from MPC Predictive to AI Time Based, from PID Controller to Normal, etc.), algorithm-specific sensor entities remain in Home Assistant:
 
 **MPC Predictive → Other Algorithm:**
+
 - `sensor.thermostat_virtual_temp` (Virtual Temperature)
 - `sensor.thermostat_mpc_gain` (MPC Gain)
-- `sensor.thermostat_mpc_loss` (MPC Loss) 
+- `sensor.thermostat_mpc_loss` (MPC Loss)
 - `sensor.thermostat_mpc_status` (Learning Status)
 
 **Future Algorithm Entities:**
+
 - PID Controller: PID-specific diagnostic sensors
 - TPI Controller: TPI-specific monitoring sensors
 - Time Based: Time-based learning sensors
@@ -26,14 +29,16 @@ When switching between calibration algorithms (e.g., from MPC Predictive to AI T
 These orphaned entities become stale and confusing for users regardless of which algorithm transition occurs.
 
 ### Impact
+
 - **User Experience**: Confusing stale entities in entity list
-- **Maintenance**: Manual cleanup required after algorithm changes  
+- **Maintenance**: Manual cleanup required after algorithm changes
 - **Interface Pollution**: Irrelevant diagnostic sensors remain visible
 - **Consistency**: Similar behavior expected for future algorithm-specific entities
 
 ## Proposed Solution
 
 ### Technical Approach
+
 Implement dynamic entity management that:
 
 1. **Tracks Active Entities**: Monitor which algorithm-specific entities are currently active
@@ -44,6 +49,7 @@ Implement dynamic entity management that:
 ### Implementation Strategy
 
 #### 1. Enhanced Sensor Platform (`sensor.py`)
+
 ```python
 # Global tracking for all algorithm-specific entities
 _ACTIVE_ALGORITHM_ENTITIES = {}  # {entry_id: {algorithm: [entity_unique_ids]}}
@@ -71,6 +77,7 @@ async def _cleanup_stale_algorithm_entities(hass, entry_id, bt_climate, current_
 ```
 
 #### 2. Configuration Change Detection (`config_flow.py`)
+
 ```python
 async def _check_calibration_changes(self):
     """Check for calibration algorithm changes and signal entity updates."""
@@ -91,6 +98,7 @@ def _get_active_algorithms(self, config):
 ```
 
 #### 3. Signal-Based Communication (`climate.py`)
+
 ```python
 def _signal_config_change(self):
     """Signal a configuration change to trigger entity cleanup/recreation."""
@@ -101,16 +109,19 @@ def _signal_config_change(self):
 ### Architecture Benefits
 
 #### Scalable Design
+
 - **Extensible**: Easy to add cleanup for future algorithm-specific entities (PID, TPI, etc.)
 - **Modular**: Each algorithm can register its own cleanup logic
 - **Maintainable**: Clear separation between entity lifecycle and business logic
 
 #### Robust Operation
+
 - **Error Handling**: Graceful cleanup failure handling
 - **Logging**: Detailed logs for debugging entity management
 - **Performance**: Minimal overhead, only triggered on actual config changes
 
 #### User-Friendly
+
 - **Automatic**: No manual intervention required
 - **Transparent**: Clear logging of cleanup actions
 - **Reliable**: Works across integration reloads and HA restarts
@@ -118,6 +129,7 @@ def _signal_config_change(self):
 ## Expected Behavior After Implementation
 
 ### Scenario 1: MPC → AI Time Based
+
 1. User changes calibration mode from "MPC Predictive" to "AI Time Based"
 2. Config flow detects calibration mode change
 3. Cleanup automatically removes 4 MPC sensor entities
@@ -125,13 +137,15 @@ def _signal_config_change(self):
 5. Entity list shows only active, relevant entities
 
 ### Scenario 2: Normal → PID Controller
+
 1. User enables "PID Controller" calibration mode
-2. Config flow detects new PID requirement 
+2. Config flow detects new PID requirement
 3. Setup automatically creates PID diagnostic entities
 4. Logs: "Better Thermostat Living Room: Created PID sensors"
 5. PID diagnostic entities immediately available
 
 ### Scenario 3: Multiple Algorithm Changes
+
 1. User switches from "MPC Predictive" + "PID Controller" to "AI Time Based"
 2. Config flow detects removal of MPC and PID algorithms
 3. Cleanup removes all MPC and PID entities
@@ -139,6 +153,7 @@ def _signal_config_change(self):
 5. Only base sensors remain
 
 ### Scenario 4: Integration Reload
+
 1. Integration reload triggered (manual or automatic)
 2. Setup detects current configuration state
 3. Creates only algorithm-appropriate entities
@@ -147,25 +162,30 @@ def _signal_config_change(self):
 ## Implementation Files
 
 ### Core Changes
+
 - `custom_components/better_thermostat/sensor.py`: Dynamic entity management
 - `custom_components/better_thermostat/config_flow.py`: Change detection
 - `custom_components/better_thermostat/climate.py`: Signal emission
 
 ### Key Functions
+
 - `_setup_mpc_sensors()`: Conditional MPC entity creation
-- `_cleanup_mpc_entities()`: Safe entity removal via registry  
+- `_cleanup_mpc_entities()`: Safe entity removal via registry
 - `_check_calibration_changes()`: Configuration diff detection
 - `_register_dynamic_entity_callback()`: Signal-based communication
 
 ## Future Extensibility
 
 ### Algorithm Support
+
 This pattern enables automatic cleanup for:
+
 - **PID Controller**: PID-specific diagnostic entities
-- **TPI Controller**: TPI-specific monitoring entities  
+- **TPI Controller**: TPI-specific monitoring entities
 - **Future Algorithms**: Any algorithm requiring dedicated entities
 
-### Configuration  
+### Configuration
+
 ```python
 # Easy extension for new algorithms
 ALGORITHM_ENTITY_PATTERNS = {
@@ -195,6 +215,7 @@ for algorithm, config in ALGORITHM_ENTITY_PATTERNS.items():
 ## Testing Scenarios
 
 ### Manual Testing
+
 1. Create Better Thermostat with MPC mode → Verify 4 entities created
 2. Switch to AI Time Based → Verify MPC entities automatically removed
 3. Switch to PID Controller → Verify PID entities created, AI entities removed
@@ -204,12 +225,14 @@ for algorithm, config in ALGORITHM_ENTITY_PATTERNS.items():
 7. Restart Home Assistant → Verify cleanup persistence
 
 ### Algorithm Transition Testing
+
 - **Normal ↔ MPC**: Base entities ↔ Base + MPC entities
 - **PID ↔ TPI**: PID entities ↔ TPI entities  
 - **MPC + PID ↔ Normal**: Multiple algorithm entities ↔ Base entities
 - **Any ↔ Multiple**: Single algorithm ↔ Multiple algorithm combinations
 
 ### Edge Cases
+
 - Multiple rapid algorithm changes across different algorithms
 - Partial entity cleanup failures for specific algorithms
 - Mixed algorithm configurations across multiple TRVs
@@ -221,18 +244,21 @@ for algorithm, config in ALGORITHM_ENTITY_PATTERNS.items():
 ## Benefits Summary
 
 ### For Users
+
 - ✅ **No Manual Cleanup**: Automatic entity management
 - ✅ **Clean Entity List**: Only relevant entities visible
 - ✅ **Transparent Operation**: Clear logging of all actions
 - ✅ **Reliable Behavior**: Works across all HA operations
 
-### For Developers  
+### For Developers
+
 - ✅ **Maintainable Code**: Clear entity lifecycle management
 - ✅ **Extensible Pattern**: Easy to add new algorithms
 - ✅ **Robust Architecture**: Proper error handling and logging
 - ✅ **Future-Proof**: Scalable for additional entity types
 
 ### For Integration
+
 - ✅ **Professional UX**: Polished, intuitive behavior
 - ✅ **Resource Efficiency**: No unnecessary entity overhead
 - ✅ **Consistency**: Uniform behavior across all algorithms
@@ -241,12 +267,13 @@ for algorithm, config in ALGORITHM_ENTITY_PATTERNS.items():
 ## Implementation Priority
 
 **Priority**: High
-**Complexity**: Medium  
+**Complexity**: Medium
 **Risk**: Low
 **Impact**: High User Experience Improvement
 
-**🤖 AI Development Credits**  
+**🤖 AI Development Credits**
 This comprehensive feature was conceptualized, designed, and implemented through collaborative AI assistance using Claude (Anthropic). The AI provided:
+
 - Complete codebase analysis and problem identification
 - Architectural design for scalable entity management
 - Full implementation across sensor.py, config_flow.py, and climate.py
