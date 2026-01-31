@@ -484,10 +484,11 @@ async def control_trv(self, heater_entity_id=None):
         )
         if _no_off_system_mode is True and _new_hvac_mode == HVACMode.OFF:
             _min_temp = self.real_trvs[heater_entity_id]["min_temp"]
-            _LOGGER.debug(
-                "better_thermostat %s: sending %s°C to the TRV because this device has no system mode off and heater should be off",
+            _LOGGER.info(
+                "better_thermostat %s: TRV has no OFF mode - setting temperature to %s°C (min_temp) for %s because window is open or heating should be off",
                 self.device_name,
                 _min_temp,
+                heater_entity_id,
             )
             _temperature = _min_temp
 
@@ -568,12 +569,15 @@ async def control_trv(self, heater_entity_id=None):
             )
             if _temperature != _current_set_temperature:
                 old = self.real_trvs[heater_entity_id].get("last_temperature", "?")
-                _LOGGER.debug(
-                    "better_thermostat %s: TO TRV set_temperature: %s from: %s to: %s",
+                _LOGGER.info(
+                    "better_thermostat %s: TO TRV set_temperature: %s from: %s to: %s (no_off_mode=%s, hvac_mode=%s, window_open=%s)",
                     self.device_name,
                     heater_entity_id,
                     old,
                     _temperature,
+                    _no_off_system_mode,
+                    _new_hvac_mode,
+                    self.window_open,
                 )
                 self.real_trvs[heater_entity_id]["last_temperature"] = _temperature
                 await set_temperature(self, heater_entity_id, _temperature)
@@ -719,10 +723,11 @@ async def control_trv(self, heater_entity_id=None):
     )
     if _no_off_system_mode is True and _new_hvac_mode == HVACMode.OFF:
         _min_temp = self.real_trvs[heater_entity_id]["min_temp"]
-        _LOGGER.debug(
-            "better_thermostat %s: sending %s°C to the TRV because this device has no system mode off and heater should be off",
+        _LOGGER.info(
+            "better_thermostat %s: TRV has no OFF mode - setting temperature to %s°C (min_temp) for %s because window is open or heating should be off",
             self.device_name,
             _min_temp,
+            heater_entity_id,
         )
         _temperature = _min_temp
 
@@ -818,12 +823,15 @@ async def control_trv(self, heater_entity_id=None):
     ):
         if _temperature != _current_set_temperature:
             old = self.real_trvs[heater_entity_id].get("last_temperature", "?")
-            _LOGGER.debug(
-                "better_thermostat %s: TO TRV set_temperature: %s from: %s to: %s",
+            _LOGGER.info(
+                "better_thermostat %s: TO TRV set_temperature: %s from: %s to: %s (no_off_mode=%s, hvac_mode=%s, window_open=%s)",
                 self.device_name,
                 heater_entity_id,
                 old,
                 _temperature,
+                _no_off_system_mode,
+                _new_hvac_mode,
+                self.window_open,
             )
             self.real_trvs[heater_entity_id]["last_temperature"] = _temperature
             await set_temperature(self, heater_entity_id, _temperature)
