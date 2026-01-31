@@ -28,6 +28,7 @@ DOMAIN = "better_thermostat"
 # Globale Tracking-Variablen für aktive algorithmus-spezifische Entitäten
 _ACTIVE_ALGORITHM_ENTITIES = {}
 _ENTITY_CLEANUP_CALLBACKS = {}
+_DISPATCHER_UNSUBSCRIBES = {}  # Store unsubscribe functions
 
 
 async def async_setup_entry(
@@ -127,7 +128,10 @@ async def _register_dynamic_entity_callback(
     
     # Listen to configuration change signals
     signal_key = f"bt_config_changed_{entry.entry_id}"
-    async_dispatcher_connect(hass, signal_key, _on_config_change)
+    unsubscribe = async_dispatcher_connect(hass, signal_key, _on_config_change)
+    
+    # Store unsubscribe function for cleanup
+    _DISPATCHER_UNSUBSCRIBES[entry.entry_id] = unsubscribe
 
 
 async def _handle_dynamic_entity_update(
@@ -239,6 +243,11 @@ def _get_active_algorithms(bt_climate) -> set:
 async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Unload sensor entry and cleanup tracking."""
     entry_id = entry.entry_id
+    
+    # Unsubscribe from dispatcher signals
+    unsubscribe = _DISPATCHER_UNSUBSCRIBES.pop(entry_id, None)
+    if unsubscribe:
+        unsubscribe()
     
     # Cleanup tracking data
     _ACTIVE_ALGORITHM_ENTITIES.pop(entry_id, None)
