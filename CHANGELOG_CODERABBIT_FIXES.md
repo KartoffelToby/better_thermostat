@@ -25,7 +25,7 @@ class BetterThermostatMpcKaSensor(SensorEntity):
     _attr_name = "MPC Insulation (Ka)"
     _attr_device_class = None
     _attr_state_class = SensorStateClass.MEASUREMENT
-    _attr_native_unit_of_measurement = "K/min"
+   _attr_native_unit_of_measurement = "1/min"
     _attr_should_poll = False
     _attr_icon = "mdi:home-thermometer-outline"
     _attr_entity_category = EntityCategory.DIAGNOSTIC
