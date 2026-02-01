@@ -234,6 +234,12 @@ def _get_active_algorithms(bt_climate) -> set:
                 try:
                     calibration_mode = CalibrationMode(calibration_mode)
                 except ValueError:
+                    _LOGGER.warning(
+                        "Better Thermostat %s: Invalid calibration mode '%s' for TRV %s",
+                        bt_climate.device_name,
+                        calibration_mode,
+                        trv_id,
+                    )
                     continue
             active_algorithms.add(calibration_mode)
     
