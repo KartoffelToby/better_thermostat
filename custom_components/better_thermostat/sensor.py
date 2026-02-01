@@ -168,7 +168,7 @@ async def _cleanup_stale_algorithm_entities(
     if entry_id not in _ACTIVE_ALGORITHM_ENTITIES:
         return
     
-    entity_registry = async_get_entity_registry(hass)
+    entity_registry = await async_get_entity_registry(hass)
     tracked_algorithms = _ACTIVE_ALGORITHM_ENTITIES[entry_id]
     
     total_removed = 0
@@ -221,11 +221,11 @@ async def _cleanup_stale_algorithm_entities(
 
 def _get_active_algorithms(bt_climate) -> set:
     """Get set of calibration algorithms currently in use by any TRV."""
-    if not hasattr(bt_climate, "all_trvs") or not bt_climate.all_trvs:
+    if not hasattr(bt_climate, "real_trvs") or not bt_climate.real_trvs:
         return set()
         
     active_algorithms = set()
-    for trv in bt_climate.all_trvs:
+    for trv_id, trv in bt_climate.real_trvs.items():
         advanced = trv.get("advanced", {})
         calibration_mode = advanced.get(CONF_CALIBRATION_MODE)
         if calibration_mode:
