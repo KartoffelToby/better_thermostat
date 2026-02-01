@@ -46,7 +46,10 @@ async def async_setup_entry(
 
     sensors = [
         BetterThermostatExternalTempSensor(bt_climate),
+        BetterThermostatExternalTemp1hEMASensor(bt_climate),
         BetterThermostatTempSlopeSensor(bt_climate),
+        BetterThermostatHeatingPowerSensor(bt_climate),
+        BetterThermostatHeatLossSensor(bt_climate),
         BetterThermostatSolarIntensitySensor(bt_climate),
     ]
 
@@ -320,6 +323,86 @@ class BetterThermostatExternalTempSensor(SensorEntity):
             self._attr_native_value = None
 
 
+class BetterThermostatExternalTemp1hEMASensor(SensorEntity):
+    """Representation of a Better Thermostat External Temperature 1h EMA Sensor."""
+
+    _attr_has_entity_name = True
+    _attr_name = "Temperature EMA 1h"
+    _attr_device_class = SensorDeviceClass.TEMPERATURE
+    _attr_state_class = SensorStateClass.MEASUREMENT
+    _attr_native_unit_of_measurement = UnitOfTemperature.CELSIUS
+    _attr_should_poll = False
+    _attr_suggested_display_precision = 2
+
+    def __init__(self, bt_climate):
+        """Initialize the sensor."""
+        self._bt_climate = bt_climate
+        self._attr_unique_id = f"{bt_climate.unique_id}_external_temp_ema_1h"
+        self._attr_device_info = bt_climate.device_info
+        # EMA state
+        self._ema_value = None
+        self._last_update_ts = None
+        self._tau_s = 3600.0  # 1 hour
+
+    async def async_added_to_hass(self):
+        """Register callbacks."""
+        # Listen to state changes of the climate entity
+        if self._bt_climate.entity_id:
+            self.async_on_remove(
+                async_track_state_change_event(
+                    self.hass, [self._bt_climate.entity_id], self._on_climate_update
+                )
+            )
+        else:
+            _LOGGER.warning(
+                "Better Thermostat climate entity has no entity_id yet. "
+                "Sensor update might be delayed."
+            )
+        # Also update initially
+        self._update_state()
+
+    @callback
+    def _on_climate_update(self, event):
+        """Handle update from the climate entity."""
+        self._update_state()
+        self.async_write_ha_state()
+
+    def _update_ema(self, new_value):
+        """Update the 1h EMA with a new value."""
+        import math
+        from time import monotonic
+
+        now = monotonic()
+        prev_ts = self._last_update_ts
+        prev_ema = self._ema_value
+
+        if prev_ts is None or prev_ema is None:
+            ema = float(new_value)
+        else:
+            dt_s = max(0.0, now - prev_ts)
+            alpha = 1.0 - math.exp(-dt_s / self._tau_s) if dt_s > 0 else 0.0
+            ema = prev_ema + alpha * (new_value - prev_ema)
+
+        self._ema_value = ema
+        self._last_update_ts = now
+
+    def _update_state(self):
+        """Update state from internal EMA."""
+        # Prefer filtered EMA from climate, fall back to external_temp_ema
+        val = getattr(self._bt_climate, "cur_temp_filtered", None)
+        if val is None:
+            val = getattr(self._bt_climate, "external_temp_ema", None)
+
+        if val is not None:
+            try:
+                self._update_ema(float(val))
+                self._attr_native_value = round(float(self._ema_value), 2)
+            except (ValueError, TypeError):
+                self._attr_native_value = None
+        else:
+            self._attr_native_value = None
+
+
 class BetterThermostatTempSlopeSensor(SensorEntity):
     """Representation of a Better Thermostat Temperature Slope Sensor."""
 
@@ -359,6 +442,98 @@ class BetterThermostatTempSlopeSensor(SensorEntity):
         if val is not None:
             try:
                 self._attr_native_value = round(float(val), 4)
+            except (ValueError, TypeError):
+                self._attr_native_value = None
+        else:
+            self._attr_native_value = None
+
+
+class BetterThermostatHeatingPowerSensor(SensorEntity):
+    """Representation of a Better Thermostat Heating Power Sensor."""
+
+    _attr_has_entity_name = True
+    _attr_name = "Heating Power"
+    _attr_device_class = None
+    _attr_state_class = SensorStateClass.MEASUREMENT
+    _attr_native_unit_of_measurement = "K/min"
+    _attr_should_poll = False
+    _attr_icon = "mdi:thermometer-plus"
+    _attr_entity_category = EntityCategory.DIAGNOSTIC
+
+    def __init__(self, bt_climate):
+        """Initialize the sensor."""
+        self._bt_climate = bt_climate
+        self._attr_unique_id = f"{bt_climate.unique_id}_heating_power"
+        self._attr_device_info = bt_climate.device_info
+
+    async def async_added_to_hass(self):
+        """Register callbacks."""
+        if self._bt_climate.entity_id:
+            self.async_on_remove(
+                async_track_state_change_event(
+                    self.hass, [self._bt_climate.entity_id], self._on_climate_update
+                )
+            )
+        self._update_state()
+
+    @callback
+    def _on_climate_update(self, event):
+        """Handle climate entity update."""
+        self._update_state()
+        self.async_write_ha_state()
+
+    def _update_state(self):
+        """Update state from climate entity."""
+        val = getattr(self._bt_climate, "heating_power", None)
+        if val is not None:
+            try:
+                self._attr_native_value = float(val)
+            except (ValueError, TypeError):
+                self._attr_native_value = None
+        else:
+            self._attr_native_value = None
+
+
+class BetterThermostatHeatLossSensor(SensorEntity):
+    """Representation of a Better Thermostat Heat Loss Sensor."""
+
+    _attr_has_entity_name = True
+    _attr_name = "Heat Loss"
+    _attr_device_class = None
+    _attr_state_class = SensorStateClass.MEASUREMENT
+    _attr_native_unit_of_measurement = "K/min"
+    _attr_should_poll = False
+    _attr_icon = "mdi:thermometer-minus"
+    _attr_entity_category = EntityCategory.DIAGNOSTIC
+
+    def __init__(self, bt_climate):
+        """Initialize the sensor."""
+        self._bt_climate = bt_climate
+        self._attr_unique_id = f"{bt_climate.unique_id}_heat_loss"
+        self._attr_device_info = bt_climate.device_info
+
+    async def async_added_to_hass(self):
+        """Register callbacks."""
+        if self._bt_climate.entity_id:
+            self.async_on_remove(
+                async_track_state_change_event(
+                    self.hass, [self._bt_climate.entity_id], self._on_climate_update
+                )
+            )
+        self._update_state()
+
+    @callback
+    def _on_climate_update(self, event):
+        """Handle climate entity update."""
+        self._update_state()
+        self.async_write_ha_state()
+
+    def _update_state(self):
+        """Update state from climate entity."""
+        val = getattr(self._bt_climate, "heat_loss_rate", None)
+        if val is not None:
+            try:
+                self._attr_native_value = float(val)
             except (ValueError, TypeError):
                 self._attr_native_value = None
         else:
