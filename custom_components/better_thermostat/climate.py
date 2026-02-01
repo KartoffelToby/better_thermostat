@@ -3187,8 +3187,8 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
 
     def _signal_config_change(self) -> None:
         """Signal a configuration change to trigger entity cleanup/recreation."""
-        signal_key = f"bt_config_changed_{self._entry_id}"
-        dispatcher_send(self.hass, signal_key, {"entry_id": self._entry_id})
+        signal_key = f"bt_config_changed_{self._config_entry_id}"
+        dispatcher_send(self.hass, signal_key, {"entry_id": self._config_entry_id})
         _LOGGER.debug(
             "better_thermostat %s: Signaled configuration change",
             self.device_name,
