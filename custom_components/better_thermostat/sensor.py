@@ -207,8 +207,9 @@ async def _cleanup_stale_algorithm_entities(
                     algorithm.value if hasattr(algorithm, 'value') else algorithm,
                 )
                 total_removed += removed_count
-            
-            algorithms_to_remove.append(algorithm)
+
+            if removed_count == len(entity_unique_ids):
+                algorithms_to_remove.append(algorithm)
     
     # Cleanup tracking für entfernte Algorithmen
     for algorithm in algorithms_to_remove:
