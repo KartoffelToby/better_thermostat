@@ -168,7 +168,7 @@ async def _cleanup_stale_algorithm_entities(
     if entry_id not in _ACTIVE_ALGORITHM_ENTITIES:
         return
     
-    entity_registry = await async_get_entity_registry(hass)
+    entity_registry = async_get_entity_registry(hass)
     tracked_algorithms = _ACTIVE_ALGORITHM_ENTITIES[entry_id]
     
     total_removed = 0
