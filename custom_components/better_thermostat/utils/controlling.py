@@ -58,6 +58,10 @@ async def control_queue(self):
 
     try:
         while True:
+            if getattr(self, "in_maintenance", False):
+                await asyncio.sleep(1)
+                continue
+
             if self.ignore_states or self.startup_running:
                 await asyncio.sleep(1)
                 continue
@@ -72,6 +76,15 @@ async def control_queue(self):
                     except Exception:
                         _LOGGER.exception(
                             "better_thermostat %s: ERROR calculating heating power",
+                            self.device_name,
+                        )
+
+                    # Calculate heat loss once per cycle (idle cooling)
+                    try:
+                        await self.calculate_heat_loss()
+                    except Exception:
+                        _LOGGER.exception(
+                            "better_thermostat %s: ERROR calculating heat loss",
                             self.device_name,
                         )
 
@@ -119,7 +132,8 @@ async def control_queue(self):
                             )
 
                     self.control_queue_task.task_done()
-                    self.ignore_states = False
+                    if not getattr(self, "in_maintenance", False):
+                        self.ignore_states = False
     except asyncio.CancelledError:
         _LOGGER.debug(
             "better_thermostat %s: control_queue task cancelled, cleaning up",
@@ -127,8 +141,9 @@ async def control_queue(self):
         )
         raise
     finally:
-        # Ensure ignore_states is reset on any exit
-        self.ignore_states = False
+        # Ensure ignore_states is reset on any exit unless maintenance wants it suppressed.
+        if not getattr(self, "in_maintenance", False):
+            self.ignore_states = False
 
 
 async def control_cooler(self):
