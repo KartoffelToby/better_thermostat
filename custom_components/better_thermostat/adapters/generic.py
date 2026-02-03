@@ -197,11 +197,21 @@ async def set_offset(self, entity_id, offset):
         
         calibration_entity = self.real_trvs[entity_id]["local_temperature_calibration_entity"]
         entity_state = self.hass.states.get(calibration_entity)
+        domain = (entity_state.domain if entity_state else calibration_entity.split(".", 1)[0])
 
         # Check if it's a SELECT entity or NUMBER entity
-        if entity_state and entity_state.domain == "select":
+        if domain == "select":
             # For SELECT entities, format with 'k' suffix (e.g., "1.5k")
             option_value = f"{offset:.1f}k"
+            if entity_state:
+                options = entity_state.attributes.get("options", [])
+                if options and option_value not in options:
+                    try:
+                        # Snap to nearest valid option
+                        parsed = {opt: float(str(opt).replace("k", "")) for opt in options}
+                        option_value = min(parsed, key=lambda opt: abs(parsed[opt] - offset))
+                    except (ValueError, TypeError):
+                        pass
             await self.hass.services.async_call(
                 "select",
                 "select_option",
