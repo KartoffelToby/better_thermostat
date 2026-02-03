@@ -404,7 +404,7 @@ async def _cleanup_pid_number_entities(
 async def _cleanup_pid_switch_entities(
     hass: HomeAssistant, entity_registry: EntityRegistry, entry_id: str, bt_climate
 ) -> None:
-    """Remove PID switch entities for TRVs no longer using PID calibration."""
+    """Remove PID switch entities for TRVs no longer using PID calibration and child lock switches for removed TRVs."""
     tracked_switches = _ACTIVE_SWITCH_ENTITIES.get(entry_id, [])
     
     # Get current TRVs using PID calibration
@@ -428,12 +428,24 @@ async def _cleanup_pid_switch_entities(
     # Find PID switch entities to remove
     entities_to_remove = []
     for switch_unique_id in tracked_switches:
-        # Extract TRV entity ID from unique_id
+        # Extract TRV entity ID from unique_id and check if should be removed
+        should_remove = False
+        
         # Format: "{bt_unique_id}_{trv_entity_id}_pid_auto_tune"
         if "_pid_auto_tune" in switch_unique_id:
             trv_part = switch_unique_id.replace(f"{bt_climate.unique_id}_", "", 1).replace("_pid_auto_tune", "")
             if trv_part not in current_pid_trvs:
-                entities_to_remove.append(switch_unique_id)
+                should_remove = True
+        
+        # Format: "{bt_unique_id}_{trv_entity_id}_child_lock"  
+        elif "_child_lock" in switch_unique_id:
+            trv_part = switch_unique_id.replace(f"{bt_climate.unique_id}_", "", 1).replace("_child_lock", "")
+            # Remove child lock switches for TRVs that no longer exist
+            if not hasattr(bt_climate, 'real_trvs') or not bt_climate.real_trvs or trv_part not in bt_climate.real_trvs:
+                should_remove = True
+        
+        if should_remove:
+            entities_to_remove.append(switch_unique_id)
     
     # Remove entities from registry
     removed_count = 0
@@ -444,13 +456,13 @@ async def _cleanup_pid_switch_entities(
                 entity_registry.async_remove(entity_id)
                 removed_count += 1
                 _LOGGER.debug(
-                    "Better Thermostat %s: Removed unused PID switch entity %s",
+                    "Better Thermostat %s: Removed unused switch entity %s",
                     bt_climate.device_name,
                     entity_id,
                 )
             except Exception as e:
                 _LOGGER.warning(
-                    "Better Thermostat %s: Failed to remove PID switch entity %s: %s",
+                    "Better Thermostat %s: Failed to remove switch entity %s: %s",
                     bt_climate.device_name,
                     entity_id,
                     e,
@@ -471,7 +483,7 @@ async def _cleanup_pid_switch_entities(
     
     if removed_count > 0:
         _LOGGER.info(
-            "Better Thermostat %s: Cleaned up %d unused PID switch entities",
+            "Better Thermostat %s: Cleaned up %d unused switch entities",
             bt_climate.device_name,
             removed_count,
         )
