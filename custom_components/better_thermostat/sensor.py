@@ -335,7 +335,7 @@ async def _cleanup_pid_number_entities(
     """Remove PID number entities for TRVs no longer using PID calibration."""
     tracked_pid_numbers = _ACTIVE_PID_NUMBERS.get(entry_id, [])
     
-    # Get current TRVs using PID calibration
+    # Get current TRVs using PID calibration - consistent with switch cleanup
     current_pid_trvs = set()
     if hasattr(bt_climate, 'real_trvs') and bt_climate.real_trvs:
         for trv_entity_id, trv_data in bt_climate.real_trvs.items():
