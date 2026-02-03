@@ -11,7 +11,7 @@ from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.restore_state import RestoreEntity
 
 from .utils.calibration.pid import _PID_STATES, DEFAULT_PID_AUTO_TUNE, build_pid_key
-from .utils.const import CalibrationMode
+from .utils.const import CalibrationMode, CONF_CALIBRATION_MODE
 
 _LOGGER = logging.getLogger(__name__)
 DOMAIN = "better_thermostat"
@@ -34,7 +34,17 @@ async def async_setup_entry(
     has_multiple_trvs = len(bt_climate.real_trvs) > 1
     for trv_entity_id, trv_data in bt_climate.real_trvs.items():
         advanced = trv_data.get("advanced", {})
-        if advanced.get("calibration_mode") == CalibrationMode.PID_CALIBRATION:
+        calibration_mode = advanced.get(CONF_CALIBRATION_MODE)
+        
+        # Normalize string values to CalibrationMode enum
+        try:
+            if isinstance(calibration_mode, str):
+                calibration_mode = CalibrationMode(calibration_mode)
+        except (ValueError, TypeError):
+            # Invalid or unknown calibration mode, skip PID creation
+            calibration_mode = None
+            
+        if calibration_mode == CalibrationMode.PID_CALIBRATION:
             pid_switch = BetterThermostatPIDAutoTuneSwitch(
                 bt_climate, trv_entity_id, has_multiple_trvs
             )
