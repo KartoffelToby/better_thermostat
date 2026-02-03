@@ -638,6 +638,10 @@ async def find_local_calibration_entity(self, entity_id):
     entity_entries = async_entries_for_config_entry(
         entity_registry, reg_entity.config_entry_id
     )
+    calibration_entity = None
+    config_entry_id = reg_entity.config_entry_id
+    
+    # First pass: Search within the same device
     for entity in entity_entries:
         uid = entity.unique_id + " " + entity.entity_id
         # Make sure we use the correct device entities
@@ -647,17 +651,35 @@ async def find_local_calibration_entity(self, entity_id):
                 or "temperature_offset" in uid
                 or "temperatur_offset" in uid
             ):
+                calibration_entity = entity.entity_id
                 _LOGGER.debug(
                     "better thermostat: Found local calibration entity %s for %s",
                     entity.entity_id,
                     entity_id,
                 )
-                return entity.entity_id
-
-    _LOGGER.debug(
-        "better thermostat: Could not find local calibration entity for %s", entity_id
-    )
-    return None
+                break
+    
+    # Fallback: Search for SELECT entities with temperature_offset keyword
+    if calibration_entity is None:
+        for entity in entity_entries:
+            if entity.config_entry_id == config_entry_id:
+                if ("temperature_offset" in entity.unique_id.lower() or 
+                    "temperatur_offset" in entity.unique_id.lower() or
+                    "temperature_offset" in entity.entity_id.lower()):
+                    calibration_entity = entity.entity_id
+                    _LOGGER.debug(
+                        "better thermostat: Found SELECT temperature offset entity %s for %s",
+                        entity.entity_id,
+                        entity_id,
+                    )
+                    break
+    
+    if calibration_entity is None:
+        _LOGGER.debug(
+            "better thermostat: Could not find local calibration entity for %s", entity_id
+        )
+    
+    return calibration_entity
 
 
 async def get_trv_intigration(self, entity_id):
