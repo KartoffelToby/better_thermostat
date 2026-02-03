@@ -265,8 +265,8 @@ async def _cleanup_unused_number_entities(
     """Clean up unused preset and PID number entities."""
     entity_registry = async_get_entity_registry(hass)
     
-    # Get current enabled presets from climate entity
-    current_presets = set(bt_climate.preset_modes)
+    # Get current enabled presets from climate entity (guard against None)
+    current_presets = set(bt_climate.preset_modes or [])
     current_presets.discard("none")  # Remove "none" as it doesn't have a number entity
     
     # Cleanup unused preset number entities
