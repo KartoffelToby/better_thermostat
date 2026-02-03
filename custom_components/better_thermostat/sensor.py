@@ -167,9 +167,10 @@ async def _handle_dynamic_entity_update(
         new_sensors = await _setup_algorithm_sensors(hass, entry, bt_climate)
         if new_sensors:
             async_add_entities(new_sensors, True)
-        
-        # Check and cleanup unused preset and PID number entities
-        await _cleanup_unused_number_entities(hass, entry_id, bt_climate)
+    
+    # Always check and cleanup entities regardless of algorithm changes
+    # This ensures preset and PID number cleanup happens even when only presets change
+    await _cleanup_unused_number_entities(hass, entry_id, bt_climate)
 
 
 async def _cleanup_stale_algorithm_entities(
