@@ -23,6 +23,9 @@ from .utils.const import CONF_CALIBRATION_MODE, CalibrationMode
 _LOGGER = logging.getLogger(__name__)
 DOMAIN = "better_thermostat"
 
+# Import tracking variables from sensor.py
+from .sensor import _ACTIVE_PRESET_NUMBERS, _ACTIVE_PID_NUMBERS
+
 
 async def async_setup_entry(
     hass: HomeAssistant, entry: ConfigEntry, async_add_entities: AddEntitiesCallback
@@ -38,6 +41,9 @@ async def async_setup_entry(
         return
 
     numbers = []
+    preset_unique_ids = []
+    pid_unique_ids = []
+    
     # Create a number entity for each preset mode (except NONE)
     _LOGGER.debug(
         "Better Thermostat Number: Found preset modes: %s", bt_climate.preset_modes
@@ -45,7 +51,9 @@ async def async_setup_entry(
     for preset_mode in bt_climate.preset_modes:
         if preset_mode == PRESET_NONE:
             continue
-        numbers.append(BetterThermostatPresetNumber(bt_climate, preset_mode))
+        preset_number = BetterThermostatPresetNumber(bt_climate, preset_mode)
+        numbers.append(preset_number)
+        preset_unique_ids.append(preset_number._attr_unique_id)
 
     # Create PID numbers for each TRV if PID calibration is enabled
     if hasattr(bt_climate, "all_trvs"):
@@ -57,23 +65,36 @@ async def async_setup_entry(
 
             advanced = trv_conf.get("advanced", {})
             if advanced.get(CONF_CALIBRATION_MODE) == CalibrationMode.PID_CALIBRATION:
-                numbers.append(
-                    BetterThermostatPIDNumber(
-                        bt_climate, trv_entity_id, "kp", has_multiple_trvs
+                for param in ["kp", "ki", "kd"]:
+                    pid_number = BetterThermostatPIDNumber(
+                        bt_climate, trv_entity_id, param, has_multiple_trvs
                     )
-                )
-                numbers.append(
-                    BetterThermostatPIDNumber(
-                        bt_climate, trv_entity_id, "ki", has_multiple_trvs
-                    )
-                )
-                numbers.append(
-                    BetterThermostatPIDNumber(
-                        bt_climate, trv_entity_id, "kd", has_multiple_trvs
-                    )
-                )
+                    numbers.append(pid_number)
+                    pid_unique_ids.append(pid_number._attr_unique_id)
+
+    # Track created number entities for cleanup
+    _ACTIVE_PRESET_NUMBERS[entry.entry_id] = preset_unique_ids
+    _ACTIVE_PID_NUMBERS[entry.entry_id] = pid_unique_ids
+    
+    _LOGGER.debug(
+        "Better Thermostat %s: Created %d preset and %d PID number entities",
+        bt_climate.device_name,
+        len(preset_unique_ids),
+        len(pid_unique_ids),
+    )
 
     async_add_entities(numbers)
+
+
+async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
+    """Unload number entry and cleanup tracking."""
+    entry_id = entry.entry_id
+    
+    # Cleanup tracking data
+    _ACTIVE_PRESET_NUMBERS.pop(entry_id, None)
+    _ACTIVE_PID_NUMBERS.pop(entry_id, None)
+    
+    return True
 
 
 class BetterThermostatPresetNumber(NumberEntity, RestoreEntity):

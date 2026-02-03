@@ -16,6 +16,9 @@ from .utils.const import CalibrationMode
 _LOGGER = logging.getLogger(__name__)
 DOMAIN = "better_thermostat"
 
+# Import tracking variables from sensor.py
+from .sensor import _ACTIVE_SWITCH_ENTITIES
+
 
 async def async_setup_entry(
     hass: HomeAssistant, entry: ConfigEntry, async_add_entities: AddEntitiesCallback
@@ -26,22 +29,44 @@ async def async_setup_entry(
         return
 
     switches = []
+    switch_unique_ids = []
+    
     has_multiple_trvs = len(bt_climate.real_trvs) > 1
     for trv_entity_id, trv_data in bt_climate.real_trvs.items():
         advanced = trv_data.get("advanced", {})
         if advanced.get("calibration_mode") == CalibrationMode.PID_CALIBRATION:
-            switches.append(
-                BetterThermostatPIDAutoTuneSwitch(
-                    bt_climate, trv_entity_id, has_multiple_trvs
-                )
-            )
-        switches.append(
-            BetterThermostatChildLockSwitch(
+            pid_switch = BetterThermostatPIDAutoTuneSwitch(
                 bt_climate, trv_entity_id, has_multiple_trvs
             )
+            switches.append(pid_switch)
+            switch_unique_ids.append(pid_switch._attr_unique_id)
+            
+        child_lock_switch = BetterThermostatChildLockSwitch(
+            bt_climate, trv_entity_id, has_multiple_trvs
         )
+        switches.append(child_lock_switch)
+        switch_unique_ids.append(child_lock_switch._attr_unique_id)
+
+    # Track created switch entities for cleanup
+    _ACTIVE_SWITCH_ENTITIES[entry.entry_id] = switch_unique_ids
+    
+    _LOGGER.debug(
+        "Better Thermostat %s: Created %d switch entities",
+        bt_climate.device_name,
+        len(switch_unique_ids),
+    )
 
     async_add_entities(switches)
+
+
+async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
+    """Unload switch entry and cleanup tracking."""
+    entry_id = entry.entry_id
+    
+    # Cleanup tracking data
+    _ACTIVE_SWITCH_ENTITIES.pop(entry_id, None)
+    
+    return True
 
 
 class BetterThermostatPIDAutoTuneSwitch(SwitchEntity, RestoreEntity):
