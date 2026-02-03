@@ -337,13 +337,9 @@ async def _cleanup_pid_number_entities(
     
     # Get current TRVs using PID calibration
     current_pid_trvs = set()
-    if hasattr(bt_climate, 'all_trvs') and bt_climate.all_trvs:
-        for trv_conf in bt_climate.all_trvs:
-            trv_entity_id = trv_conf.get("trv")
-            if not trv_entity_id:
-                continue
-            
-            advanced = trv_conf.get("advanced", {})
+    if hasattr(bt_climate, 'real_trvs') and bt_climate.real_trvs:
+        for trv_entity_id, trv_data in bt_climate.real_trvs.items():
+            advanced = trv_data.get("advanced", {})
             if advanced.get(CONF_CALIBRATION_MODE) == CalibrationMode.PID_CALIBRATION:
                 current_pid_trvs.add(trv_entity_id)
     
@@ -406,7 +402,7 @@ async def _cleanup_pid_switch_entities(
     if hasattr(bt_climate, 'real_trvs') and bt_climate.real_trvs:
         for trv_entity_id, trv_data in bt_climate.real_trvs.items():
             advanced = trv_data.get("advanced", {})
-            if advanced.get("calibration_mode") == CalibrationMode.PID_CALIBRATION:
+            if advanced.get(CONF_CALIBRATION_MODE) == CalibrationMode.PID_CALIBRATION:
                 current_pid_trvs.add(trv_entity_id)
     
     # Find PID switch entities to remove
