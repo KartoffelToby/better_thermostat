@@ -125,7 +125,7 @@ _ACTIVE_SWITCH_ENTITIES[entry.entry_id] = switch_unique_ids
 
 ```text
 1. Konfiguration: [eco, away, boost, comfort, sleep, activity]
-2. Änderung: Deaktiviere 'sleep' und 'activity' 
+2. Änderung: Deaktiviere 'sleep' und 'activity'
 3. ✅ Result: number.bt_preset_sleep + number.bt_preset_activity entfernt
 ```
 
@@ -169,7 +169,7 @@ _ACTIVE_SWITCH_ENTITIES[entry.entry_id] = switch_unique_ids
 ### Code-Qualität
 
 - ✅ Konsistente Error-Behandlung
-- ✅ Detailliertes Debug/Info Logging
+- ✅ Detailliertes Debug-/Info-Logging
 - ✅ Type Hints und Dokumentation
 - ✅ Integration mit bestehendem Pattern
 
