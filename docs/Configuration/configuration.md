@@ -98,7 +98,7 @@ Better Thermostat offers several algorithms to control your heating:
 
 **Quick guide:**
 
-- First time user? → Start with **AI Time Based** (default)
+- First-time user? → Start with **AI Time Based** (default)
 - Room heats slowly? → Try **Aggressive**
 - Temperature overshoots? → Try **MPC Predictive**
 - Want fine control? → Try **PID Controller**
