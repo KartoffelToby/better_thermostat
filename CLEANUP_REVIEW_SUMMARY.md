@@ -10,12 +10,12 @@
 
 ## 🚀 Implemented Solutions
 
-### 1. **Preset Number Cleanup** *(Hauptanfrage)*
+### 1. **Preset Number Cleanup** *(Main Request)*
 
-**Problem:** Ungenutzte Preset Input Numbers bleiben nach Konfigurationsänderungen bestehen  
-**Lösung:** Automatisches Cleanup für deaktivierte Presets  
+**Problem:** Unused Preset Input Numbers remain after configuration changes  
+**Solution:** Automatic cleanup for deactivated presets  
 
-**Betroffene Entitäten:**
+**Affected Entities:**
 
 - `number.better_thermostat_preset_eco`
 - `number.better_thermostat_preset_away`
@@ -24,54 +24,54 @@
 - `number.better_thermostat_preset_sleep`
 - `number.better_thermostat_preset_activity`
 
-**Trigger:** Änderung der enabled presets in der Better Thermostat Konfiguration
+**Trigger:** Change of enabled presets in Better Thermostat configuration
 
-### 2. **PID Number Cleanup** *(Erweitert)*
+### 2. **PID Number Cleanup** *(Extended)*
 
-**Problem:** PID Parameter Numbers (Kp, Ki, Kd) bleiben bestehen, wenn TRV von PID auf anderen Kalibrierungsmodus wechselt  
-**Lösung:** Automatisches Cleanup für ungenutzte PID Numbers  
+**Problem:** PID Parameter Numbers (Kp, Ki, Kd) remain when TRV switches from PID to other calibration mode  
+**Solution:** Automatic cleanup for unused PID Numbers  
 
-**Betroffene Entitäten:**
+**Affected Entities:**
 
 - `number.better_thermostat_{trv}_pid_kp`
 - `number.better_thermostat_{trv}_pid_ki`
 - `number.better_thermostat_{trv}_pid_kd`
 
-**Trigger:** Änderung der calibration_mode von PID_CALIBRATION zu anderem Modus
+**Trigger:** Change of calibration_mode from PID_CALIBRATION to other mode
 
-### 3. **PID Switch Cleanup** *(Zusätzlich entdeckt)*
+### 3. **PID Switch Cleanup** *(Additionally discovered)*
 
-**Problem:** PID Auto-Tune Switches bleiben bestehen, wenn TRV PID-Kalibrierung verlässt  
-**Lösung:** Automatisches Cleanup für ungenutzte PID Switches  
+**Problem:** PID Auto-Tune Switches remain when TRV leaves PID calibration  
+**Solution:** Automatic cleanup for unused PID Switches  
 
-**Betroffene Entitäten:**
+**Affected Entities:**
 
 - `switch.better_thermostat_{trv}_pid_auto_tune`
 
-**Trigger:** Änderung der calibration_mode von PID_CALIBRATION zu anderem Modus
+**Trigger:** Change of calibration_mode from PID_CALIBRATION to other mode
 
 ---
 
-## 🏗️ Technische Implementierung
+## 🏗️ Technical Implementation
 
-### Architektur
+### Architecture
 
-- **Einheitliches System:** Erweitert vorhandenes Algorithm Sensor Cleanup
-- **Signal-basiert:** Nutzt etabliertes Dispatcher-Pattern
-- **Entity Registry:** Sichere Entfernung über Home Assistant Entity Registry
-- **Tracking System:** Globale Verfolgung aller dynamischen Entitäten
+- **Unified System:** Extends existing Algorithm Sensor Cleanup
+- **Signal-based:** Uses established Dispatcher Pattern
+- **Entity Registry:** Safe removal via Home Assistant Entity Registry
+- **Tracking System:** Global tracking of all dynamic entities
 
-### Modifizierte Dateien
+### Modified Files
 
-#### 1. `sensor.py` *(Hauptlogik)*
+#### 1. `sensor.py` *(Main logic)*
 
 ```python
-# Neue Tracking-Variablen
+# New tracking variables
 _ACTIVE_PRESET_NUMBERS = {}
 _ACTIVE_PID_NUMBERS = {}  
 _ACTIVE_SWITCH_ENTITIES = {}
 
-# Neue Cleanup-Funktionen
+# New cleanup functions
 async def _cleanup_unused_number_entities()
 async def _cleanup_preset_number_entities() 
 async def _cleanup_pid_number_entities()
@@ -102,52 +102,52 @@ switch_unique_ids = [...]
 _ACTIVE_SWITCH_ENTITIES[entry.entry_id] = switch_unique_ids
 ```
 
-### Integration mit bestehendem System
+### Integration with existing system
 
-**Trigger-Mechanismus:**
+**Trigger Mechanism:**
 
-1. Konfigurationsänderung in Config Flow
-2. Signal an `sensor.py` via Dispatcher
-3. `_handle_dynamic_entity_update()` ausgeführt
-4. Alle Cleanup-Funktionen sequenziell aufgerufen
+1. Configuration change in Config Flow
+2. Signal to `sensor.py` via Dispatcher
+3. `_handle_dynamic_entity_update()` executed
+4. All cleanup functions called sequentially
 
 **Error Handling:**
 
-- Graceful failure bei einzelnen Entity-Entfernungen
-- Detailliertes Logging aller Cleanup-Aktionen
-- Fortsetzung bei partiellen Fehlern
+- Graceful failure for individual entity removals
+- Detailed logging of all cleanup actions
+- Continuation on partial failures
 
 ---
 
-## 🧪 Test-Szenarien
+## 🧪 Test Scenarios
 
 ### Preset Cleanup
 
 ```text
-1. Konfiguration: [eco, away, boost, comfort, sleep, activity]
-2. Änderung: Deaktiviere 'sleep' und 'activity'
-3. ✅ Result: number.bt_preset_sleep + number.bt_preset_activity entfernt
+1. Configuration: [eco, away, boost, comfort, sleep, activity]
+2. Change: Disable 'sleep' and 'activity'
+3. ✅ Result: number.bt_preset_sleep + number.bt_preset_activity removed
 ```
 
 ### PID Cleanup
 
 ```text
 1. TRV: PID Calibration (3 number + 1 switch entities)
-2. Änderung: Wechsel zu MPC Calibration
-3. ✅ Result: Alle PID numbers + PID auto-tune switch entfernt
+2. Change: Switch to MPC Calibration
+3. ✅ Result: All PID numbers + PID auto-tune switch removed
 ```
 
 ### Multi-TRV Cleanup
 
 ```text  
 1. TRV1: PID, TRV2: MPC, TRV3: PID
-2. Änderung: TRV1 zu Normal Calibration  
-3. ✅ Result: Nur TRV1 PID entities entfernt, TRV3 unberührt
+2. Change: TRV1 to Normal Calibration  
+3. ✅ Result: Only TRV1 PID entities removed, TRV3 untouched
 ```
 
 ---
 
-## 📊 Cleanup-Matrix
+## 📊 Cleanup Matrix
 
 | Entity Type | Trigger | Cleanup Function | Tracking Variable |
 | ------------- | ------- | ---------------- | ----------------- |
@@ -158,68 +158,68 @@ _ACTIVE_SWITCH_ENTITIES[entry.entry_id] = switch_unique_ids
 
 ---
 
-## ✅ Qualitätssicherung
+## ✅ Quality Assurance
 
-### Syntaxvalidierung
+### Syntax Validation
 
-- ✅ `sensor.py` kompiliert erfolgreich
-- ✅ `number.py` kompiliert erfolgreich  
-- ✅ `switch.py` kompiliert erfolgreich
+- ✅ `sensor.py` compiles successfully
+- ✅ `number.py` compiles successfully  
+- ✅ `switch.py` compiles successfully
 
-### Code-Qualität
+### Code Quality
 
-- ✅ Konsistente Error-Behandlung
-- ✅ Detailliertes Debug-/Info-Logging
-- ✅ Type Hints und Dokumentation
-- ✅ Integration mit bestehendem Pattern
+- ✅ Consistent error handling
+- ✅ Detailed debug/info logging
+- ✅ Type hints and documentation
+- ✅ Integration with existing pattern
 
-### Vollständigkeit
+### Completeness
 
-- ✅ Alle dynamischen Entity-Typen abgedeckt
-- ✅ Unload-Funktionen für Cleanup implementiert
-- ✅ Cross-module Imports korrekt strukturiert
-- ✅ Tracking-Variablen in allen Entrypoints
+- ✅ All dynamic entity types covered
+- ✅ Unload functions for cleanup implemented
+- ✅ Cross-module imports correctly structured
+- ✅ Tracking variables in all entry points
 
 ---
 
 ## 🎯 Benefits
 
-### Für Nutzer
+### For Users
 
-- **🧹 Saubere UI:** Keine verwaisten Entitäten mehr
-- **🔄 Automatisch:** Keine manuelle Bereinigung nötig
-- **🎯 Präzise:** Nur relevante Entitäten sichtbar
-- **📝 Transparent:** Klare Logs aller Aktionen
+- **🧹 Clean UI:** No more orphaned entities
+- **🔄 Automatic:** No manual cleanup required
+- **🎯 Precise:** Only relevant entities visible
+- **📝 Transparent:** Clear logs of all actions
 
-### Für Entwickler  
+### For Developers  
 
-- **🏗️ Erweiterbar:** Einfache Ergänzung neuer Entity-Typen
-- **🔧 Wartbar:** Klare Trennung der Verantwortlichkeiten
-- **🛡️ Robust:** Umfassendes Error Handling
-- **📈 Skalierbar:** Effiziente Tracking-Architektur
+- **🏗️ Extensible:** Easy addition of new entity types
+- **🔧 Maintainable:** Clear separation of responsibilities
+- **🛡️ Robust:** Comprehensive error handling
+- **📈 Scalable:** Efficient tracking architecture
 
-### Für Integration
+### For Integration
 
-- **⚡ Performance:** Nur bei Konfigurationsänderungen aktiv
-- **🔗 Konsistent:** Einheitliches Cleanup-Verhalten
-- **🛠️ Professionell:** Enterprise-Grade Implementierung
-- **🔮 Zukunftssicher:** Vorbereitet für neue Entity-Typen
+- **⚡ Performance:** Only active during configuration changes
+- **🔗 Consistent:** Uniform cleanup behavior
+- **🛠️ Professional:** Enterprise-grade implementation
+- **🔮 Future-proof:** Prepared for new entity types
 
 ---
 
-## 📋 Zusammenfassung
+## 📋 Summary
 
-**Ursprüngliche Anfrage:** Cleanup für unused preset input numbers  
-**Geliefert:** Umfassendes Cleanup-System für ALLE dynamischen Entitäten
+**Original Request:** Cleanup for unused preset input numbers  
+**Delivered:** Comprehensive cleanup system for ALL dynamic entities
 
-**Implementiert:**
+**Implemented:**
 
-1. ✅ **Preset Number Cleanup** (Hauptanfrage)
-2. ✅ **PID Number Cleanup** (Erweiterung)
-3. ✅ **PID Switch Cleanup** (Zusätzlich entdeckt)
+1. ✅ **Preset Number Cleanup** (Main request)
+2. ✅ **PID Number Cleanup** (Extension)
+3. ✅ **PID Switch Cleanup** (Additionally discovered)
 
-**Code Owner @wtom's Request:** **VOLLSTÄNDIG ERFÜLLT** und darüber hinaus erweitert
+**Code Owner @wtom's Request:** **COMPLETELY FULFILLED** and extended beyond
 
-Die Implementierung geht über die ursprüngliche Anfrage hinaus und bietet eine professionelle, skalierbare Lösung für das Entity-Management in Better Thermostat.
+The implementation goes beyond the original request and provides a professional, scalable solution for entity management in Better Thermostat.
 
 ## Status: ✅ READY FOR REVIEW
