@@ -830,7 +830,9 @@ def compute_mpc(inp: MpcInput, params: MpcParams) -> MpcOutput | None:
     summary_perf_rate = debug.get("perf_room_rate")
 
     _LOGGER.debug(
-        "better_thermostat %s: mpc calibration for %s: e0=%sK gain=%s loss=%s horizon=%s | raw=%s%% out=%s%% min_eff=%s%% last=%s%% dead_hits=%s eval=%s cost=%s | trv_profile=%s conf=%s perf_bin=%s perf_rate=%s",
+        "better_thermostat %s: mpc calibration for %s: e0=%sK gain=%s loss=%s horizon=%s | " \
+        "raw=%s%% out=%s%% min_eff=%s%% last=%s%% dead_hits=%s eval=%s cost=%s | " \
+        "trv_profile=%s conf=%s perf_bin=%s perf_rate=%s",
         name,
         entity,
         _round_for_debug(summary_delta, 3),

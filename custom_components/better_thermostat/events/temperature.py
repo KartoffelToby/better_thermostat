@@ -393,7 +393,8 @@ async def trigger_temperature_change(self, event):
 
     if _block_flip_small:
         _LOGGER.debug(
-            "better_thermostat %s: external_temperature opposite-direction change ignored (current=%.2f new=%.2f diff=%.2f age=%.1fs <= %ss threshold=%.2f)",
+            "better_thermostat %s: external_temperature opposite-direction change ignored "
+            "(current=%.2f new=%.2f diff=%.2f age=%.1fs <= %ss threshold=%.2f)",
             self.device_name,
             (_cur_q if _cur_q is not None else float("nan")),
             _incoming_temperature_q,
@@ -501,7 +502,8 @@ async def trigger_temperature_change(self, event):
     if _accept_reason is not None:
         # Verarbeite sofort, wenn Intervall abgelaufen ODER Änderung sehr groß
         _LOGGER.debug(
-            "better_thermostat %s: external_temperature update accepted (old=%.2f new=%.2f diff=%.2f age=%.1fs threshold=%.2f interval=%ss reason=%s accum=%.2f dir=%s)",
+            "better_thermostat %s: external_temperature update accepted (old=%.2f new=%.2f diff=%.2f " \
+            "age=%.1fs threshold=%.2f interval=%ss reason=%s accum=%.2f dir=%s)",
             self.device_name,
             (_cur_q if _cur_q is not None else float("nan")),
             _incoming_temperature_q,
@@ -516,7 +518,8 @@ async def trigger_temperature_change(self, event):
         await _apply_temperature_update(self, _incoming_temperature_q)
     else:
         _LOGGER.debug(
-            "better_thermostat %s: external_temperature ignored (old=%.2f new=%.2f diff=%s age=%.1fs sig=%s interval_ok=%s threshold=%.2f accum=%.2f dir=%s pending=%s pending_age=%ss)",
+            "better_thermostat %s: external_temperature ignored (old=%.2f new=%.2f diff=%s " \
+            "age=%.1fs sig=%s interval_ok=%s threshold=%.2f accum=%.2f dir=%s pending=%s pending_age=%ss)",
             self.device_name,
             (_cur_q if _cur_q is not None else float("nan")),
             _incoming_temperature_q,

@@ -554,7 +554,8 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
         """
         if isinstance(self.all_trvs, str):
             return _LOGGER.error(
-                "You updated from version before 1.0.0-Beta36 of the Better Thermostat integration, you need to remove the BT devices (integration) and add it again."
+                "You updated from version before 1.0.0-Beta36 of the Better Thermostat integration, " \
+                "you need to remove the BT devices (integration) and add it again."
             )
 
         if self.cooler_entity_id is not None:
@@ -2647,7 +2648,8 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
                     )
 
                 _LOGGER.debug(
-                    "better_thermostat %s: heating cycle evaluated: ΔT=%.3f°C, t=%.2fmin, rate=%.4f°C/min, hp(old/new)=%.4f/%.4f, alpha=%.3f, env_factor=%.3f, norm=%s",
+                    "better_thermostat %s: heating cycle evaluated: ΔT=%.3f°C, t=%.2fmin, rate=%.4f°C/min, " \
+                    "hp(old/new)=%.4f/%.4f, alpha=%.3f, env_factor=%.3f, norm=%s",
                     self.device_name,
                     temp_diff,
                     duration_min,
