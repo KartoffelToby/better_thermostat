@@ -69,16 +69,6 @@ async def async_setup_entry(
     async_add_entities(switches)
 
 
-async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
-    """Unload switch entry and cleanup tracking."""
-    entry_id = entry.entry_id
-
-    # Cleanup tracking data
-    _ACTIVE_SWITCH_ENTITIES.pop(entry_id, None)
-
-    return True
-
-
 class BetterThermostatPIDAutoTuneSwitch(SwitchEntity, RestoreEntity):
     """Switch for PID Auto Tune."""
 

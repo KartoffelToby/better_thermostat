@@ -42,9 +42,8 @@ async def override_set_temperature(self, entity_id, temperature):
     model = self.real_trvs[entity_id]["model"]
     if model == "BTH-RM":
         _LOGGER.debug(
-            "better_thermostat %s: TRV %s device quirk "
-            "bth-rm for set_temperature active",
-            self.name,
+            "better_thermostat %s: TRV %s device quirk bth-rm for set_temperature active",
+            self.device_name,
             entity_id,
         )
         entity_reg = er.async_get(self.hass)
@@ -53,9 +52,8 @@ async def override_set_temperature(self, entity_id, temperature):
         hvac_modes = entry.capabilities.get("hvac_modes", [])
 
         _LOGGER.debug(
-            "better_thermostat %s: TRV %s device quirk "
-            "bth-rm found hvac_modes %s",
-            self.name,
+            "better_thermostat %s: TRV %s device quirk bth-rm found hvac_modes %s",
+            self.device_name,
             entity_id,
             hvac_modes,
         )
