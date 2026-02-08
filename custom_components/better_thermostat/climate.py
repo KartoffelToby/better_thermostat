@@ -4,6 +4,7 @@ from abc import ABC
 import asyncio
 from collections import deque
 from datetime import datetime, timedelta
+from functools import cached_property
 import json
 import logging
 from random import randint
@@ -298,7 +299,7 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
         self.heating_power = 0.01
         self.async_write_ha_state()
 
-    @property
+    @cached_property
     def device_info(self):
         """Return device info."""
         return {
@@ -858,11 +859,13 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
             return
         # Only update humidity if sensor is available
         if is_entity_available(self.hass, self.humidity_sensor_entity_id):
-            self._current_humidity = convert_to_float(
-                str(self.hass.states.get(self.humidity_sensor_entity_id).state),
-                self.device_name,
-                "humidity_update",
-            )
+            humidity_state = self.hass.states.get(self.humidity_sensor_entity_id)
+            if humidity_state is not None:
+                self._current_humidity = convert_to_float(
+                    str(humidity_state.state),
+                    self.device_name,
+                    "humidity_update",
+                )
         self.async_write_ha_state()
 
     async def _trigger_trv_change(self, event):
