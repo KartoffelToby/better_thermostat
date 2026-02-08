@@ -820,7 +820,7 @@ class BetterThermostatVirtualTempSensor(SensorEntity):
         # Try to find virtual temp in any TRV's calibration balance debug info
         val = None
         if hasattr(self._bt_climate, "real_trvs"):
-            for trv_id, trv_data in self._bt_climate.real_trvs.items():
+            for _, trv_data in self._bt_climate.real_trvs.items():
                 cal_bal = trv_data.get("calibration_balance")
                 if cal_bal and "debug" in cal_bal:
                     debug = cal_bal["debug"]
@@ -875,7 +875,7 @@ class BetterThermostatMpcGainSensor(SensorEntity):
         """Update state from climate entity."""
         val = None
         if hasattr(self._bt_climate, "real_trvs"):
-            for trv_id, trv_data in self._bt_climate.real_trvs.items():
+            for _, trv_data in self._bt_climate.real_trvs.items():
                 cal_bal = trv_data.get("calibration_balance")
                 if cal_bal and "debug" in cal_bal:
                     debug = cal_bal["debug"]
@@ -930,7 +930,7 @@ class BetterThermostatMpcLossSensor(SensorEntity):
         """Update state from climate entity."""
         val = None
         if hasattr(self._bt_climate, "real_trvs"):
-            for trv_id, trv_data in self._bt_climate.real_trvs.items():
+            for _, trv_data in self._bt_climate.real_trvs.items():
                 cal_bal = trv_data.get("calibration_balance")
                 if cal_bal and "debug" in cal_bal:
                     debug = cal_bal["debug"]
@@ -985,7 +985,7 @@ class BetterThermostatMpcKaSensor(SensorEntity):
         """Update state from climate entity."""
         val = None
         if hasattr(self._bt_climate, "real_trvs"):
-            for trv_id, trv_data in self._bt_climate.real_trvs.items():
+            for _, trv_data in self._bt_climate.real_trvs.items():
                 cal_bal = trv_data.get("calibration_balance")
                 if cal_bal and "debug" in cal_bal:
                     debug = cal_bal["debug"]
@@ -1090,7 +1090,7 @@ class BetterThermostatMpcStatusSensor(SensorEntity):
         confidence = None
 
         if hasattr(self._bt_climate, "real_trvs"):
-            for trv_id, trv_data in self._bt_climate.real_trvs.items():
+            for _, trv_data in self._bt_climate.real_trvs.items():
                 cal_bal = trv_data.get("calibration_balance")
                 if cal_bal and "debug" in cal_bal:
                     debug = cal_bal["debug"]
