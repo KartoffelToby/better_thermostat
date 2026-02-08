@@ -9,8 +9,11 @@ persistent=yes
 # user-friendly hints instead of false-positive error messages
 suggestion-mode=yes
 
-# Only check custom_components directory (ignore everything else)
+# Ignore specific directories (comma-separated list)
 ignore=tests,tmp,docs,scripts,blueprints,_sass,assets
+
+# Ignore files/directories matching these patterns
+ignore-patterns=test_.*\.py,.*_test\.py
 
 [MESSAGES CONTROL]
 disable=

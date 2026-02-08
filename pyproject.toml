@@ -60,3 +60,19 @@ filterwarnings = [
     # Upstream Home Assistant warning triggered during test imports.
     "ignore:Inheritance class HomeAssistantApplication from web\\.Application is discouraged:DeprecationWarning",
 ]
+
+[tool.pyright]
+include = ["custom_components"]
+exclude = [
+    "tests",
+    "tmp",
+    "docs",
+    "scripts",
+    "blueprints",
+    "_sass",
+    "assets",
+    "**/__pycache__",
+]
+reportMissingImports = true
+reportMissingTypeStubs = false
+pythonVersion = "3.12"
