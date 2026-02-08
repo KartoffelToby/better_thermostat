@@ -12,6 +12,7 @@ suggestion-mode=yes
 [MESSAGES CONTROL]
 disable=
     C0103,  # Disable naming convention warnings
+    C0415,  # Disable import-outside-toplevel (required for tests)
     W0613,  # Disable warnings for unused arguments
     W0718,  # Catching too general exception BaseException
     # Additional codes can be added here comma-separated
