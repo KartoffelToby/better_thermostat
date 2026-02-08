@@ -296,21 +296,24 @@ class rounding(Enum):
     converting values to integer steps.
     """
 
+    @staticmethod
     def up(x: float) -> float:
         """Round up with a tiny epsilon to avoid FP artifacts."""
         return math.ceil(x - 0.0001)
 
+    @staticmethod
     def down(x: float) -> float:
         """Round down with a tiny epsilon to avoid FP artifacts."""
         return math.floor(x + 0.0001)
 
+    @staticmethod
     def nearest(x: float) -> float:
         """Round to nearest step with a small epsilon to avoid up-rounding."""
         return round(x - 0.0001)
 
 
 def round_by_step(
-    value: float | None, step: float | None, f_rounding: rounding = rounding.nearest
+    value: float | None, step: float | None, f_rounding = None
 ) -> float | None:
     """Round the value based on the allowed decimal 'step' size.
 
@@ -320,6 +323,8 @@ def round_by_step(
             the value to round
     step : float
             size of one step
+    f_rounding : callable
+            rounding function (default: rounding.nearest)
 
     Returns
     -------
@@ -329,6 +334,9 @@ def round_by_step(
 
     if value is None or step is None:
         return None
+    # Use default rounding function if none provided
+    if f_rounding is None:
+        f_rounding = rounding.nearest
     # convert to integer number of steps for rounding, then convert back to decimal
     return f_rounding(value / step) * step
 
@@ -400,9 +408,10 @@ async def find_valve_entity(self, entity_id):
     base_identifiers: set[tuple[str, str]] = set()
     try:
         dev_reg = dr.async_get(self.hass)
+        device_id = getattr(reg_entity, "device_id", None)
         base_device = (
-            dev_reg.async_get(reg_entity.device_id)
-            if getattr(reg_entity, "device_id", None)
+            dev_reg.async_get(device_id)
+            if device_id is not None
             else None
         )
         base_identifiers = set(getattr(base_device, "identifiers", set()) or set())
@@ -410,8 +419,11 @@ async def find_valve_entity(self, entity_id):
         dev_reg = None
         base_identifiers = set()
 
+    config_entry_id = reg_entity.config_entry_id
+    if config_entry_id is None:
+        return None
     entity_entries = async_entries_for_config_entry(
-        entity_registry, reg_entity.config_entry_id
+        entity_registry, config_entry_id
     )
     preferred_domains = {"number", "input_number"}
     readonly_candidate: dict[str, Any] | None = None
@@ -639,11 +651,13 @@ async def find_local_calibration_entity(self, entity_id):
     reg_entity = entity_registry.async_get(entity_id)
     if reg_entity is None:
         return None
+    config_entry_id = reg_entity.config_entry_id
+    if config_entry_id is None:
+        return None
     entity_entries = async_entries_for_config_entry(
-        entity_registry, reg_entity.config_entry_id
+        entity_registry, config_entry_id
     )
     calibration_entity = None
-    config_entry_id = reg_entity.config_entry_id
 
     # First pass: Search within the same device
     for entity in entity_entries:
@@ -701,6 +715,8 @@ async def get_trv_intigration(self, entity_id):
     """
     entity_reg = er.async_get(self.hass)
     entry = entity_reg.async_get(entity_id)
+    if entry is None:
+        return "generic_thermostat"
     try:
         return entry.platform
     except AttributeError:
