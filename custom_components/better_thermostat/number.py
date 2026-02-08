@@ -43,7 +43,7 @@ async def async_setup_entry(
     numbers = []
     preset_unique_ids = []
     pid_unique_ids = []
-    
+
     # Create a number entity for each preset mode (except NONE)
     _LOGGER.debug(
         "Better Thermostat Number: Found preset modes: %s", bt_climate.preset_modes
@@ -75,7 +75,7 @@ async def async_setup_entry(
     # Track created number entities for cleanup
     _ACTIVE_PRESET_NUMBERS[entry.entry_id] = preset_unique_ids
     _ACTIVE_PID_NUMBERS[entry.entry_id] = pid_unique_ids
-    
+
     _LOGGER.debug(
         "Better Thermostat %s: Created %d preset and %d PID number entities",
         bt_climate.device_name,
@@ -89,11 +89,11 @@ async def async_setup_entry(
 async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Unload number entry and cleanup tracking."""
     entry_id = entry.entry_id
-    
+
     # Cleanup tracking data
     _ACTIVE_PRESET_NUMBERS.pop(entry_id, None)
     _ACTIVE_PID_NUMBERS.pop(entry_id, None)
-    
+
     return True
 
 

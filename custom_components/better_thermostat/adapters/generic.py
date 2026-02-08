@@ -95,7 +95,7 @@ async def get_min_offset(self, entity_id):
         )
         if state is None:
             return -6.0
-        
+
         # For SELECT entities, infer from options
         if state.domain == "select":
             options = state.attributes.get("options", [])
@@ -107,7 +107,7 @@ async def get_min_offset(self, entity_id):
                 except (ValueError, TypeError):
                     return -6.0
             return -6.0
-        
+
         # For NUMBER entities, use the min attribute
         return float(str(state.attributes.get("min", -10)))
     else:
@@ -122,7 +122,7 @@ async def get_max_offset(self, entity_id):
         )
         if state is None:
             return 6.0
-        
+
         # For SELECT entities, infer from options
         if state.domain == "select":
             options = state.attributes.get("options", [])
@@ -134,7 +134,7 @@ async def get_max_offset(self, entity_id):
                 except (ValueError, TypeError):
                     return 6.0
             return 6.0
-        
+
         # For NUMBER entities, use the max attribute
         return float(str(state.attributes.get("max", 10)))
     else:
@@ -194,10 +194,10 @@ async def set_offset(self, entity_id, offset):
 
         offset = min(max_calibration, offset)
         offset = max(min_calibration, offset)
-        
+
         calibration_entity = self.real_trvs[entity_id]["local_temperature_calibration_entity"]
         entity_state = self.hass.states.get(calibration_entity)
-        
+
         # Derive domain safely - from entity_state if available, otherwise from entity_id
         domain = entity_state.domain if entity_state else calibration_entity.split(".", 1)[0]
 
@@ -205,12 +205,12 @@ async def set_offset(self, entity_id, offset):
         if domain == "select":
             # For SELECT entities, format with 'k' suffix (e.g., "1.5k")
             option_value = f"{offset:.1f}k"
-            
+
             # Get available options (handle None entity_state gracefully)
             options = []
             if entity_state:
                 options = entity_state.attributes.get("options", [])
-            
+
             # Validate and snap to closest matching option if needed
             if options:
                 if option_value not in options:
@@ -222,7 +222,7 @@ async def set_offset(self, entity_id, offset):
                                 parsed_options[opt] = float(str(opt).replace("k", ""))
                             except (ValueError, TypeError):
                                 continue
-                        
+
                         if parsed_options:
                             # Find option with minimum distance to target offset
                             closest_option = min(parsed_options, key=lambda opt: abs(parsed_options[opt] - offset))
@@ -230,7 +230,7 @@ async def set_offset(self, entity_id, offset):
                     except (ValueError, TypeError):
                         # If parsing fails, keep original option_value and hope for the best
                         pass
-            
+
             await self.hass.services.async_call(
                 "select",
                 "select_option",
@@ -253,7 +253,7 @@ async def set_offset(self, entity_id, offset):
                 blocking=True,
                 context=self.context,
             )
-            
+
         self.real_trvs[entity_id]["last_calibration"] = offset
         if (
             self.real_trvs[entity_id]["last_hvac_mode"] is not None

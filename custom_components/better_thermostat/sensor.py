@@ -75,10 +75,10 @@ async def _setup_algorithm_sensors(
     algorithm_sensors = []
     entry_id = entry.entry_id
     current_algorithms = _get_active_algorithms(bt_climate)
-    
+
     # Cleanup stale algorithm entities from previous configurations
     await _cleanup_stale_algorithm_entities(hass, entry_id, bt_climate, current_algorithms)
-    
+
     # Setup MPC sensors
     if CalibrationMode.MPC_CALIBRATION in current_algorithms:
         mpc_sensors = [
@@ -89,7 +89,7 @@ async def _setup_algorithm_sensors(
             BetterThermostatMpcStatusSensor(bt_climate),
         ]
         algorithm_sensors.extend(mpc_sensors)
-        
+
         # Tracking für aktive MPC-Entitäten
         if entry_id not in _ACTIVE_ALGORITHM_ENTITIES:
             _ACTIVE_ALGORITHM_ENTITIES[entry_id] = {}
@@ -100,18 +100,18 @@ async def _setup_algorithm_sensors(
             f"{bt_climate.unique_id}_mpc_ka",
             f"{bt_climate.unique_id}_mpc_status",
         ]
-        
+
         _LOGGER.debug(
             "Better Thermostat %s: Created MPC sensors for entry %s",
             bt_climate.device_name,
             entry_id,
         )
-    
+
     # TODO: Hier können weitere Algorithmen hinzugefügt werden
     # if CalibrationMode.PID_CALIBRATION in current_algorithms:
     #     pid_sensors = [...]
     #     algorithm_sensors.extend(pid_sensors)
-    
+
     return algorithm_sensors
 
 
@@ -119,7 +119,7 @@ async def _register_dynamic_entity_callback(
     hass: HomeAssistant, entry: ConfigEntry, bt_climate, async_add_entities
 ) -> None:
     """Register callback for dynamic entity management."""
-    
+
     @callback
     def _on_config_change(data):
         """Handle configuration changes that might affect entity requirements."""
@@ -130,14 +130,14 @@ async def _register_dynamic_entity_callback(
         hass.async_create_task(
             _handle_dynamic_entity_update(hass, entry, bt_climate, async_add_entities)
         )
-    
+
     # Store callback für späteren Cleanup
     _ENTITY_CLEANUP_CALLBACKS[entry.entry_id] = _on_config_change
-    
+
     # Listen to configuration change signals
     signal_key = f"bt_config_changed_{entry.entry_id}"
     unsubscribe = async_dispatcher_connect(hass, signal_key, _on_config_change)
-    
+
     # Store unsubscribe function for cleanup
     _DISPATCHER_UNSUBSCRIBES[entry.entry_id] = unsubscribe
 
@@ -150,11 +150,11 @@ async def _handle_dynamic_entity_update(
     current_algorithms = _get_active_algorithms(bt_climate)
     had_algorithm_entities = entry_id in _ACTIVE_ALGORITHM_ENTITIES
     previous_algorithms = set(_ACTIVE_ALGORITHM_ENTITIES.get(entry_id, {}).keys()) if had_algorithm_entities else set()
-    
+
     # Prüfe auf Änderungen bei den Algorithmen
     algorithms_added = current_algorithms - previous_algorithms
     algorithms_removed = previous_algorithms - current_algorithms
-    
+
     if algorithms_added or algorithms_removed:
         _LOGGER.info(
             "Better Thermostat %s: Algorithm configuration changed. Added: %s, Removed: %s",
@@ -162,12 +162,12 @@ async def _handle_dynamic_entity_update(
             [alg.value if hasattr(alg, 'value') else str(alg) for alg in algorithms_added],
             [alg.value if hasattr(alg, 'value') else str(alg) for alg in algorithms_removed],
         )
-        
+
         # Setup neue algorithmus-spezifische Sensoren
         new_sensors = await _setup_algorithm_sensors(hass, entry, bt_climate)
         if new_sensors:
             async_add_entities(new_sensors, True)
-    
+
     # Always check and cleanup entities regardless of algorithm changes
     # This ensures preset and PID number cleanup happens even when only presets change
     await _cleanup_unused_number_entities(hass, entry_id, bt_climate)
@@ -179,13 +179,13 @@ async def _cleanup_stale_algorithm_entities(
     """Remove algorithm-specific entities that are no longer needed."""
     if entry_id not in _ACTIVE_ALGORITHM_ENTITIES:
         return
-    
+
     entity_registry = async_get_entity_registry(hass)
     tracked_algorithms = _ACTIVE_ALGORITHM_ENTITIES[entry_id]
-    
+
     total_removed = 0
     algorithms_to_remove = []
-    
+
     for algorithm, entity_unique_ids in tracked_algorithms.items():
         if algorithm not in current_algorithms:
             # Dieser Algorithmus ist nicht mehr aktiv - Entitäten entfernen
@@ -210,7 +210,7 @@ async def _cleanup_stale_algorithm_entities(
                             entity_id,
                             e,
                         )
-            
+
             if removed_count > 0:
                 _LOGGER.info(
                     "Better Thermostat %s: Removed %d %s entities",
@@ -222,11 +222,11 @@ async def _cleanup_stale_algorithm_entities(
 
             if removed_count == len(entity_unique_ids):
                 algorithms_to_remove.append(algorithm)
-    
+
     # Cleanup tracking für entfernte Algorithmen
     for algorithm in algorithms_to_remove:
         del _ACTIVE_ALGORITHM_ENTITIES[entry_id][algorithm]
-    
+
     # Entferne entry_id komplett wenn keine Algorithmen mehr getrackt werden
     if not _ACTIVE_ALGORITHM_ENTITIES[entry_id]:
         del _ACTIVE_ALGORITHM_ENTITIES[entry_id]
@@ -236,7 +236,7 @@ def _get_active_algorithms(bt_climate) -> set:
     """Get set of calibration algorithms currently in use by any TRV."""
     if not hasattr(bt_climate, "real_trvs") or not bt_climate.real_trvs:
         return set()
-        
+
     active_algorithms = set()
     for trv_id, trv in bt_climate.real_trvs.items():
         advanced = trv.get("advanced", {})
@@ -255,7 +255,7 @@ def _get_active_algorithms(bt_climate) -> set:
                     )
                     continue
             active_algorithms.add(calibration_mode)
-    
+
     return active_algorithms
 
 
@@ -264,17 +264,17 @@ async def _cleanup_unused_number_entities(
 ) -> None:
     """Clean up unused preset and PID number entities."""
     entity_registry = async_get_entity_registry(hass)
-    
+
     # Get current enabled presets from climate entity (guard against None)
     current_presets = set(bt_climate.preset_modes or [])
     current_presets.discard("none")  # Remove "none" as it doesn't have a number entity
-    
+
     # Cleanup unused preset number entities
     await _cleanup_preset_number_entities(hass, entity_registry, entry_id, bt_climate, current_presets)
-    
+
     # Cleanup unused PID number entities
     await _cleanup_pid_number_entities(hass, entity_registry, entry_id, bt_climate)
-    
+
     # Cleanup unused switch entities (PID Auto-Tune switches)
     await _cleanup_pid_switch_entities(hass, entity_registry, entry_id, bt_climate)
 
@@ -284,7 +284,7 @@ async def _cleanup_preset_number_entities(
 ) -> None:
     """Remove preset number entities for disabled presets."""
     tracked_presets = _ACTIVE_PRESET_NUMBERS.get(entry_id, [])
-    
+
     # Find number entities to remove
     entities_to_remove = []
     for preset_unique_id in tracked_presets:
@@ -292,7 +292,7 @@ async def _cleanup_preset_number_entities(
         preset_name = preset_unique_id.split('_preset_')[-1] if '_preset_' in preset_unique_id else None
         if preset_name and preset_name not in current_presets:
             entities_to_remove.append((preset_unique_id, preset_name))
-    
+
     # Remove entities from registry
     removed_count = 0
     for preset_unique_id, preset_name in entities_to_remove:
@@ -314,13 +314,13 @@ async def _cleanup_preset_number_entities(
                     entity_id,
                     e,
                 )
-    
+
     # Update tracking to reflect current preset configuration
     current_preset_unique_ids = [
         f"{bt_climate.unique_id}_preset_{preset}" for preset in current_presets
     ]
     _ACTIVE_PRESET_NUMBERS[entry_id] = current_preset_unique_ids
-    
+
     if removed_count > 0:
         _LOGGER.info(
             "Better Thermostat %s: Cleaned up %d unused preset number entities",
@@ -334,14 +334,14 @@ async def _cleanup_pid_number_entities(
 ) -> None:
     """Remove PID number entities for TRVs no longer using PID calibration."""
     tracked_pid_numbers = _ACTIVE_PID_NUMBERS.get(entry_id, [])
-    
+
     # Get current TRVs using PID calibration - consistent with switch cleanup
     current_pid_trvs = set()
     if hasattr(bt_climate, 'real_trvs') and bt_climate.real_trvs:
         for trv_entity_id, trv_data in bt_climate.real_trvs.items():
             advanced = trv_data.get("advanced", {})
             calibration_mode = advanced.get(CONF_CALIBRATION_MODE)
-            
+
             # Normalize string values to CalibrationMode enum
             try:
                 if isinstance(calibration_mode, str):
@@ -349,10 +349,10 @@ async def _cleanup_pid_number_entities(
             except (ValueError, TypeError):
                 # Invalid or unknown calibration mode, skip
                 continue
-                
+
             if calibration_mode == CalibrationMode.PID_CALIBRATION:
                 current_pid_trvs.add(trv_entity_id)
-    
+
     # Find PID number entities to remove
     entities_to_remove = []
     for pid_unique_id in tracked_pid_numbers:
@@ -363,7 +363,7 @@ async def _cleanup_pid_number_entities(
             trv_part = parts[0].replace(f"{bt_climate.unique_id}_", "", 1)
             if trv_part not in current_pid_trvs:
                 entities_to_remove.append(pid_unique_id)
-    
+
     # Remove entities from registry
     removed_count = 0
     for pid_unique_id in entities_to_remove:
@@ -384,15 +384,15 @@ async def _cleanup_pid_number_entities(
                     entity_id,
                     e,
                 )
-    
+
     # Update tracking to reflect current PID configuration
     current_pid_unique_ids = []
     for trv_entity_id in current_pid_trvs:
         for param in ["kp", "ki", "kd"]:
             current_pid_unique_ids.append(f"{bt_climate.unique_id}_{trv_entity_id}_pid_{param}")
-    
+
     _ACTIVE_PID_NUMBERS[entry_id] = current_pid_unique_ids
-    
+
     if removed_count > 0:
         _LOGGER.info(
             "Better Thermostat %s: Cleaned up %d unused PID number entities",
@@ -406,14 +406,14 @@ async def _cleanup_pid_switch_entities(
 ) -> None:
     """Remove PID switch entities for TRVs no longer using PID calibration and child lock switches for removed TRVs."""
     tracked_switches = _ACTIVE_SWITCH_ENTITIES.get(entry_id, [])
-    
+
     # Get current TRVs using PID calibration
     current_pid_trvs = set()
     if hasattr(bt_climate, 'real_trvs') and bt_climate.real_trvs:
         for trv_entity_id, trv_data in bt_climate.real_trvs.items():
             advanced = trv_data.get("advanced", {})
             calibration_mode = advanced.get(CONF_CALIBRATION_MODE)
-            
+
             # Normalize string values to CalibrationMode enum
             try:
                 if isinstance(calibration_mode, str):
@@ -421,32 +421,32 @@ async def _cleanup_pid_switch_entities(
             except (ValueError, TypeError):
                 # Invalid or unknown calibration mode, skip
                 continue
-                
+
             if calibration_mode == CalibrationMode.PID_CALIBRATION:
                 current_pid_trvs.add(trv_entity_id)
-    
+
     # Find PID switch entities to remove
     entities_to_remove = []
     for switch_unique_id in tracked_switches:
         # Extract TRV entity ID from unique_id and check if should be removed
         should_remove = False
-        
+
         # Format: "{bt_unique_id}_{trv_entity_id}_pid_auto_tune"
         if "_pid_auto_tune" in switch_unique_id:
             trv_part = switch_unique_id.replace(f"{bt_climate.unique_id}_", "", 1).replace("_pid_auto_tune", "")
             if trv_part not in current_pid_trvs:
                 should_remove = True
-        
+
         # Format: "{bt_unique_id}_{trv_entity_id}_child_lock"  
         elif "_child_lock" in switch_unique_id:
             trv_part = switch_unique_id.replace(f"{bt_climate.unique_id}_", "", 1).replace("_child_lock", "")
             # Remove child lock switches for TRVs that no longer exist
             if not hasattr(bt_climate, 'real_trvs') or not bt_climate.real_trvs or trv_part not in bt_climate.real_trvs:
                 should_remove = True
-        
+
         if should_remove:
             entities_to_remove.append(switch_unique_id)
-    
+
     # Remove entities from registry
     removed_count = 0
     for switch_unique_id in entities_to_remove:
@@ -467,20 +467,20 @@ async def _cleanup_pid_switch_entities(
                     entity_id,
                     e,
                 )
-    
+
     # Update tracking to reflect current switch configuration
     current_switch_unique_ids = []
     # Add PID Auto-Tune switches for current PID TRVs
     for trv_entity_id in current_pid_trvs:
         current_switch_unique_ids.append(f"{bt_climate.unique_id}_{trv_entity_id}_pid_auto_tune")
-    
+
     # Add Child Lock switches (always present for all TRVs)
     if hasattr(bt_climate, 'real_trvs') and bt_climate.real_trvs:
         for trv_entity_id in bt_climate.real_trvs.keys():
             current_switch_unique_ids.append(f"{bt_climate.unique_id}_{trv_entity_id}_child_lock")
-    
+
     _ACTIVE_SWITCH_ENTITIES[entry_id] = current_switch_unique_ids
-    
+
     if removed_count > 0:
         _LOGGER.info(
             "Better Thermostat %s: Cleaned up %d unused switch entities",
@@ -492,19 +492,19 @@ async def _cleanup_pid_switch_entities(
 async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Unload sensor entry and cleanup tracking."""
     entry_id = entry.entry_id
-    
+
     # Unsubscribe from dispatcher signals
     unsubscribe = _DISPATCHER_UNSUBSCRIBES.pop(entry_id, None)
     if unsubscribe:
         unsubscribe()
-    
+
     # Cleanup tracking data
     _ACTIVE_ALGORITHM_ENTITIES.pop(entry_id, None)
     _ENTITY_CLEANUP_CALLBACKS.pop(entry_id, None)
     _ACTIVE_PRESET_NUMBERS.pop(entry_id, None)
     _ACTIVE_PID_NUMBERS.pop(entry_id, None)
     _ACTIVE_SWITCH_ENTITIES.pop(entry_id, None)
-    
+
     return True
 
 

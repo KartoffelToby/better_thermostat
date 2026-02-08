@@ -75,7 +75,7 @@ class TestOffTemperatureAttribute:
         """
         # Verify the constant is available
         assert ATTR_STATE_OFF_TEMPERATURE == "off_temperature"
-        
+
         # Verify the mock has the correct value
         bt = mock_bt_with_off_temperature
         assert bt.off_temperature == 20.0
@@ -91,7 +91,7 @@ class TestOffTemperatureAttribute:
         """
         # Verify the constant is defined
         assert ATTR_STATE_OFF_TEMPERATURE == "off_temperature"
-        
+
         # Verify the mock has None when not configured
         bt = mock_bt_without_off_temperature
         assert bt.off_temperature is None
@@ -103,11 +103,11 @@ class TestOffTemperatureAttribute:
         that users might configure (e.g., 15°C, 18°C, 22°C, etc.).
         """
         test_values = [15.0, 18.0, 20.0, 22.0, 25.0, 0.0]
-        
+
         for temp_value in test_values:
             bt = MagicMock()
             bt.off_temperature = temp_value
-            
+
             # Verify the value is stored correctly
             assert bt.off_temperature == temp_value
             assert isinstance(bt.off_temperature, float)
@@ -119,7 +119,7 @@ class TestOffTemperatureAttribute:
         """
         # Verify the constant matches the expected attribute name
         assert ATTR_STATE_OFF_TEMPERATURE == "off_temperature"
-        
+
         # Verify it's a string
         assert isinstance(ATTR_STATE_OFF_TEMPERATURE, str)
 
@@ -132,7 +132,7 @@ class TestOffTemperatureAttribute:
         # Simulate the extra_state_attributes dict pattern
         mock_bt = MagicMock()
         mock_bt.off_temperature = 20.0
-        
+
         # Simulate building the attributes dict as done in climate.py
         test_attributes = {
             ATTR_STATE_OFF_TEMPERATURE: mock_bt.off_temperature,
@@ -150,12 +150,12 @@ class TestOffTemperatureAttribute:
         """
         mock_bt = MagicMock()
         mock_bt.off_temperature = None
-        
+
         # Simulate building the attributes dict
         test_attributes = {
             ATTR_STATE_OFF_TEMPERATURE: mock_bt.off_temperature,
         }
-        
+
         # Verify the attribute is in the dict with None value
         assert "off_temperature" in test_attributes
         assert test_attributes["off_temperature"] is None

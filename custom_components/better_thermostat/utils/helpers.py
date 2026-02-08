@@ -168,9 +168,11 @@ def mode_remap(self, entity_id, hvac_mode: str, inbound: bool = False) -> str:
         return hvac_mode
 
     _LOGGER.error(
-        f"better_thermostat {self.device_name}: {entity_id} HVAC mode {
-            hvac_mode
-        } is not supported by this device, is it possible that you forgot to set the heat auto swapped option?"
+        "better_thermostat %s: %s HVAC mode %s is not supported by this device, "
+        "is it possible that you forgot to set the heat auto swapped option?",
+        self.device_name,
+        entity_id,
+        hvac_mode,
     )
     return HVACMode.OFF
 
@@ -213,13 +215,12 @@ def heating_power_valve_position(self, entity_id):
     valve_pos = max(0.0, min(1.0, valve_pos))
 
     _LOGGER.debug(
-        f"better_thermostat {self.device_name}: {
-            entity_id
-        } / heating_power_valve_position - temp diff: {
-            round(_temp_diff, 1)
-        } - heating power: {
-            round(heating_power, 4)
-        } (bounded) - expected valve position: {round(valve_pos * 100)}%"
+        "better_thermostat %s: %s / heating_power_valve_position - temp diff: %s - heating power: %s (bounded) - expected valve position: %s%%",
+        self.device_name,
+        entity_id,
+        round(_temp_diff, 1),
+        round(heating_power, 4),
+        round(valve_pos * 100),
     )
     return valve_pos
 
@@ -280,7 +281,10 @@ def convert_to_float(
         return round_by_step(float(value), 0.01)
     except (ValueError, TypeError, AttributeError, KeyError):
         _LOGGER.debug(
-            f"better thermostat {instance_name}: Could not convert '{value}' to float in {context}"
+            "better thermostat %s: Could not convert '%s' to float in %s",
+            instance_name,
+            value,
+            context,
         )
         return None
 
@@ -640,7 +644,7 @@ async def find_local_calibration_entity(self, entity_id):
     )
     calibration_entity = None
     config_entry_id = reg_entity.config_entry_id
-    
+
     # First pass: Search within the same device
     for entity in entity_entries:
         uid = entity.unique_id + " " + entity.entity_id
@@ -658,7 +662,7 @@ async def find_local_calibration_entity(self, entity_id):
                     entity_id,
                 )
                 break
-    
+
     # Fallback: Search for SELECT entities with temperature_offset keyword
     if calibration_entity is None:
         for entity in entity_entries:
@@ -673,12 +677,12 @@ async def find_local_calibration_entity(self, entity_id):
                         entity_id,
                     )
                     break
-    
+
     if calibration_entity is None:
         _LOGGER.debug(
             "better thermostat: Could not find local calibration entity for %s", entity_id
         )
-    
+
     return calibration_entity
 
 

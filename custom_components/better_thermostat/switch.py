@@ -30,12 +30,12 @@ async def async_setup_entry(
 
     switches = []
     switch_unique_ids = []
-    
+
     has_multiple_trvs = len(bt_climate.real_trvs) > 1
     for trv_entity_id, trv_data in bt_climate.real_trvs.items():
         advanced = trv_data.get("advanced", {})
         calibration_mode = advanced.get(CONF_CALIBRATION_MODE)
-        
+
         # Normalize string values to CalibrationMode enum
         try:
             if isinstance(calibration_mode, str):
@@ -43,14 +43,14 @@ async def async_setup_entry(
         except (ValueError, TypeError):
             # Invalid or unknown calibration mode, skip PID creation
             calibration_mode = None
-            
+
         if calibration_mode == CalibrationMode.PID_CALIBRATION:
             pid_switch = BetterThermostatPIDAutoTuneSwitch(
                 bt_climate, trv_entity_id, has_multiple_trvs
             )
             switches.append(pid_switch)
             switch_unique_ids.append(pid_switch._attr_unique_id)
-            
+
         child_lock_switch = BetterThermostatChildLockSwitch(
             bt_climate, trv_entity_id, has_multiple_trvs
         )
@@ -59,7 +59,7 @@ async def async_setup_entry(
 
     # Track created switch entities for cleanup
     _ACTIVE_SWITCH_ENTITIES[entry.entry_id] = switch_unique_ids
-    
+
     _LOGGER.debug(
         "Better Thermostat %s: Created %d switch entities",
         bt_climate.device_name,
@@ -72,10 +72,10 @@ async def async_setup_entry(
 async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Unload switch entry and cleanup tracking."""
     entry_id = entry.entry_id
-    
+
     # Cleanup tracking data
     _ACTIVE_SWITCH_ENTITIES.pop(entry_id, None)
-    
+
     return True
 
 
