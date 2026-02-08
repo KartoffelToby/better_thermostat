@@ -595,7 +595,7 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
                         resolved_model,
                     )
                     resolved_model = detected_model
-            except Exception as e:
+            except (AttributeError, TypeError) as e:
                 _LOGGER.debug(
                     "better_thermostat %s: get_device_model(%s) failed: %s",
                     self.device_name,
@@ -618,7 +618,7 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
                     resolved_model,
                     trv.get("trv"),
                 )
-            except Exception as e:
+            except (AttributeError, TypeError) as e:
                 _LOGGER.debug(
                     "better_thermostat %s: could not determine quirks module name for model '%s' (trv %s): %s",
                     self.device_name,
@@ -662,7 +662,7 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
             if self._mpc_store is not None:
                 try:
                     self.hass.async_create_task(self._save_mpc_states())
-                except Exception:
+                except RuntimeError:
                     pass
 
         self.async_on_remove(on_remove)
@@ -677,7 +677,7 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
         try:
             self._pid_store = Store(self.hass, 1, f"{DOMAIN}_pid_states")
             await self._load_pid_state()
-        except Exception as e:
+        except (FileNotFoundError, PermissionError, RuntimeError) as e:
             _LOGGER.debug(
                 "better_thermostat %s: PID storage init/load failed: %s",
                 self.device_name,
@@ -688,7 +688,7 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
         try:
             self._mpc_store = Store(self.hass, 1, f"{DOMAIN}_mpc_states")
             await self._load_mpc_states()
-        except Exception as e:
+        except (FileNotFoundError, PermissionError, RuntimeError) as e:
             _LOGGER.debug(
                 "better_thermostat %s: MPC storage init/load failed: %s",
                 self.device_name,
@@ -699,7 +699,7 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
         try:
             self._tpi_store = Store(self.hass, 1, f"{DOMAIN}_tpi_states")
             await self._load_tpi_states()
-        except Exception as e:
+        except (FileNotFoundError, PermissionError, RuntimeError) as e:
             _LOGGER.debug(
                 "better_thermostat %s: TPI storage init/load failed: %s",
                 self.device_name,
@@ -710,7 +710,7 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
         try:
             self._thermal_store = Store(self.hass, 1, f"{DOMAIN}_thermal_stats")
             await self._load_thermal_stats()
-        except Exception as e:
+        except (FileNotFoundError, PermissionError, RuntimeError) as e:
             _LOGGER.debug(
                 "better_thermostat %s: thermal stats storage init/load failed: %s",
                 self.device_name,
@@ -835,13 +835,13 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
                             self.device_name,
                             trv_id,
                         )
-                except Exception:
+                except (OSError, RuntimeError, AttributeError, TypeError):
                     _LOGGER.debug(
                         "better_thermostat %s: external_temperature keepalive write failed for %s (non critical)",
                         self.device_name,
                         trv_id,
                     )
-        except Exception:
+        except (OSError, RuntimeError, AttributeError, TypeError):
             _LOGGER.debug(
                 "better_thermostat %s: external_temperature keepalive encountered an error",
                 self.device_name,
@@ -1150,7 +1150,7 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
                         self.device_name,
                         self.cur_temp,
                     )
-                except Exception as e:
+                except (ValueError, TypeError, ImportError) as e:
                     _LOGGER.warning(
                         "better_thermostat %s: failed to initialize external_temp_ema at startup: %s",
                         self.device_name,
@@ -1427,7 +1427,7 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
                                 MIN_HEAT_LOSS, min(MAX_HEAT_LOSS, loaded_loss)
                             )
                             self.heat_loss_rate = bounded_loss
-                    except Exception:
+                    except (ValueError, TypeError, KeyError):
                         pass
                 if (
                     old_state.attributes.get(ATTR_STATE_PRESET_TEMPERATURE, None)
