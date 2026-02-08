@@ -1273,9 +1273,11 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
                         self.bt_target_temp,
                     )
                 else:
-                    _oldtarget_temperature = float(
-                        old_state.attributes.get(ATTR_TEMPERATURE)
-                    )
+                    _temp_value = old_state.attributes.get(ATTR_TEMPERATURE)
+                    if _temp_value is not None:
+                        _oldtarget_temperature = float(_temp_value)
+                    else:
+                        _oldtarget_temperature = self.bt_target_temp
                     # if the saved temperature is lower than the min_temp, set it to min_temp
                     if _oldtarget_temperature < self.bt_min_temp:
                         _LOGGER.warning(
@@ -1308,7 +1310,7 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
                 # Restore preset mode if present
                 _old_preset = old_state.attributes.get("preset_mode")
                 if _old_preset in (
-                    [PRESET_NONE] + list(self._preset_temperatures.keys())
+                    [PRESET_NONE] + list(self._preset_temperatures)
                 ):
                     self._preset_mode = _old_preset
                 else:
@@ -1374,9 +1376,11 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
                         ATTR_STATE_MAIN_MODE
                     )
                 if old_state.attributes.get(ATTR_STATE_HEATING_POWER, None) is not None:
-                    loaded_power = float(
-                        old_state.attributes.get(ATTR_STATE_HEATING_POWER)
-                    )
+                    _power_value = old_state.attributes.get(ATTR_STATE_HEATING_POWER)
+                    if _power_value is not None:
+                        loaded_power = float(_power_value)
+                    else:
+                        loaded_power = 0.01
                     # Bound to realistic values to prevent issues from incorrectly learned values
                     bounded_power = max(
                         MIN_HEATING_POWER, min(MAX_HEATING_POWER, loaded_power)
@@ -1395,7 +1399,11 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
                 elif getattr(self, "_thermal_store", None) is not None:
                     # Fallback: restore heating_power from persistent thermal stats
                     try:
-                        data = await self._thermal_store.async_load()
+                        _thermal_store = self._thermal_store
+                        if _thermal_store is not None:
+                            data = await _thermal_store.async_load()
+                        else:
+                            data = None
                         key = str(self._config_entry_id)
                         if data and key in data and "heating_power" in data[key]:
                             loaded_power = float(data[key]["heating_power"])
@@ -1409,9 +1417,11 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
                 # Restore heat loss if available
                 if old_state.attributes.get(ATTR_STATE_HEAT_LOSS, None) is not None:
                     try:
-                        loaded_loss = float(
-                            old_state.attributes.get(ATTR_STATE_HEAT_LOSS)
-                        )
+                        _loss_value = old_state.attributes.get(ATTR_STATE_HEAT_LOSS)
+                        if _loss_value is not None:
+                            loaded_loss = float(_loss_value)
+                        else:
+                            loaded_loss = 0.01
                         bounded_loss = max(
                             MIN_HEAT_LOSS, min(MAX_HEAT_LOSS, loaded_loss)
                         )
@@ -1420,7 +1430,11 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
                         pass
                 elif getattr(self, "_thermal_store", None) is not None:
                     try:
-                        data = await self._thermal_store.async_load()
+                        _thermal_store = self._thermal_store
+                        if _thermal_store is not None:
+                            data = await _thermal_store.async_load()
+                        else:
+                            data = None
                         key = str(self._config_entry_id)
                         if data and key in data and "heat_loss" in data[key]:
                             loaded_loss = float(data[key]["heat_loss"])
