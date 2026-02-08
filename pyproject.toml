@@ -62,27 +62,21 @@ filterwarnings = [
 ]
 
 [tool.pyright]
-include = ["custom_components"]
+# Don't use include - it changes the root! Instead, exclude everything except custom_components
 exclude = [
-    "**/tests",
-    "**/tmp",
-    "**/docs",
-    "**/scripts",
-    "**/blueprints",
-    "**/_sass",
-    "**/assets",
+    "tests",
+    "tmp",
+    "docs",
+    "scripts",
+    "blueprints",
+    "_sass",
+    "assets",
     "**/__pycache__",
     ".git",
     ".venv",
-]
-ignore = [
-    "tests/**",
-    "tmp/**",
-    "docs/**",
-    "scripts/**",
-    "blueprints/**",
-    "_sass/**",
-    "assets/**",
+    "*.md",
+    "*.yml",
+    "*.yaml",
 ]
 reportMissingImports = true
 reportMissingTypeStubs = false
