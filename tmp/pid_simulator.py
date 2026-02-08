@@ -1,3 +1,8 @@
+"""PID controller simulator for testing the PID calibration logic.
+
+Simulates room temperature dynamics and runs PID cycles to verify controller behavior.
+"""
+
 import logging
 import os
 import sys

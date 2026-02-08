@@ -19,12 +19,10 @@ from .utils.calibration.pid import (
     build_pid_key,
 )
 from .utils.const import CONF_CALIBRATION_MODE, CalibrationMode
+from .sensor import _ACTIVE_PRESET_NUMBERS, _ACTIVE_PID_NUMBERS
 
 _LOGGER = logging.getLogger(__name__)
 DOMAIN = "better_thermostat"
-
-# Import tracking variables from sensor.py
-from .sensor import _ACTIVE_PRESET_NUMBERS, _ACTIVE_PID_NUMBERS
 
 
 async def async_setup_entry(

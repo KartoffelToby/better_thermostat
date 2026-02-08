@@ -149,8 +149,6 @@ SIGNAL_BT_CONFIG_CHANGED = "bt_config_changed_{}"
 class ContinueLoop(Exception):
     """Continue loop exception."""
 
-    pass
-
 
 @callback
 def async_set_temperature_service_validate(service_call: ServiceCall) -> ServiceCall:
@@ -483,6 +481,7 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
         self.heat_loss_rate = 0.01
         self.last_heat_loss_stats = deque(maxlen=10)
         self.loss_cycles = deque(maxlen=50)
+        self.heating_cycles = deque(maxlen=50)
         self._loss_last_action = None
         self._async_unsub_state_changed = None
         self.all_entities = []
@@ -499,6 +498,7 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
         if self.window_id is not None:
             self._window_task = asyncio.create_task(window_queue(self))
         self.heating_power = 0.01
+        self.heating_power_normalized = None
         # Short bounded history of recent heating power evaluations
         self.last_heating_power_stats = deque(maxlen=10)
         self.is_removed = False
@@ -944,7 +944,7 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
                 continue
 
             try:
-                for trv in self.real_trvs.keys():
+                for trv in self.real_trvs:
                     trv_state = self.hass.states.get(trv)
                     if trv_state is None:
                         _LOGGER.info(
@@ -1114,7 +1114,7 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
                     self.degraded_mode = True
                 # Get temperature from first available TRV
                 self.cur_temp = None
-                for trv_id in self.real_trvs.keys():
+                for trv_id in self.real_trvs:
                     trv_state = self.hass.states.get(trv_id)
                     if trv_state is not None:
                         trv_temp = trv_state.attributes.get("current_temperature")
@@ -1559,7 +1559,7 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
             )
             self.async_write_ha_state()
 
-            for trv in self.real_trvs.keys():
+            for trv, trv_data in self.real_trvs.items():
                 self.all_entities.append(trv)
                 _LOGGER.debug(
                     "better_thermostat %s: initializing TRV %s", self.device_name, trv
@@ -1595,7 +1595,7 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
                         exc,
                     )
 
-                if self.real_trvs[trv]["calibration"] != 1:
+                if trv_data["calibration"] != 1:
                     _LOGGER.debug(
                         "better_thermostat %s: getting offsets for TRV %s",
                         self.device_name,
@@ -1604,16 +1604,16 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
 
                     try:
                         async with asyncio.timeout(10):
-                            self.real_trvs[trv][
+                            trv_data[
                                 "last_calibration"
                             ] = await get_current_offset(self, trv)
-                            self.real_trvs[trv][
+                            trv_data[
                                 "local_calibration_min"
                             ] = await get_min_offset(self, trv)
-                            self.real_trvs[trv][
+                            trv_data[
                                 "local_calibration_max"
                             ] = await get_max_offset(self, trv)
-                            self.real_trvs[trv][
+                            trv_data[
                                 "local_calibration_step"
                             ] = await get_offset_step(self, trv)
                         # Ensure None values are replaced with sensible defaults
@@ -1639,10 +1639,10 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
                         )
                         self._set_trv_calibration_defaults(trv)
                 else:
-                    self.real_trvs[trv]["last_calibration"] = 0
-                    self.real_trvs[trv]["local_calibration_min"] = -7
-                    self.real_trvs[trv]["local_calibration_max"] = 7
-                    self.real_trvs[trv]["local_calibration_step"] = 0.5
+                    trv_data["last_calibration"] = 0
+                    trv_data["local_calibration_min"] = -7
+                    trv_data["local_calibration_max"] = 7
+                    trv_data["local_calibration_step"] = 0.5
 
                 _s = self.hass.states.get(trv)
                 _attrs = _s.attributes if _s else {}
@@ -1651,13 +1651,13 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
                     self.device_name,
                     trv,
                 )
-                self.real_trvs[trv]["valve_position"] = convert_to_float(
+                trv_data["valve_position"] = convert_to_float(
                     str(_attrs.get("valve_position", None)), self.device_name, "startup"
                 )
-                self.real_trvs[trv]["max_temp"] = convert_to_float(
+                trv_data["max_temp"] = convert_to_float(
                     str(_attrs.get("max_temp", 30)), self.device_name, "startup"
                 )
-                self.real_trvs[trv]["min_temp"] = convert_to_float(
+                trv_data["min_temp"] = convert_to_float(
                     str(_attrs.get("min_temp", 5)), self.device_name, "startup"
                 )
                 # Prefer configured step over device-reported step
@@ -1667,23 +1667,23 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
                     else None
                 )
                 if cfg_step is not None:
-                    self.real_trvs[trv]["target_temp_step"] = cfg_step
+                    trv_data["target_temp_step"] = cfg_step
                 else:
-                    self.real_trvs[trv]["target_temp_step"] = convert_to_float(
+                    trv_data["target_temp_step"] = convert_to_float(
                         str(_attrs.get("target_temp_step", 0.5)),
                         self.device_name,
                         "startup",
                     )
-                self.real_trvs[trv]["temperature"] = convert_to_float(
+                trv_data["temperature"] = convert_to_float(
                     str(_attrs.get("temperature", 5)), self.device_name, "startup"
                 )
-                self.real_trvs[trv]["hvac_modes"] = _attrs.get("hvac_modes", None)
-                self.real_trvs[trv]["hvac_mode"] = _s.state if _s else None
-                self.real_trvs[trv]["last_hvac_mode"] = _s.state if _s else None
-                self.real_trvs[trv]["last_temperature"] = convert_to_float(
+                trv_data["hvac_modes"] = _attrs.get("hvac_modes", None)
+                trv_data["hvac_mode"] = _s.state if _s else None
+                trv_data["last_hvac_mode"] = _s.state if _s else None
+                trv_data["last_temperature"] = convert_to_float(
                     str(_attrs.get("temperature")), self.device_name, "startup()"
                 )
-                self.real_trvs[trv]["current_temperature"] = convert_to_float(
+                trv_data["current_temperature"] = convert_to_float(
                     str(_attrs.get("current_temperature") or 5),
                     self.device_name,
                     "startup()",
@@ -1843,15 +1843,13 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
                 # Re-calculate next maintenance based on loaded TRV quirks
                 # (overrides the random 1h-5d startup default)
                 min_interval_hours = 168  # Default 7 days
-                for trv_id in self.real_trvs.keys():
+                for trv_id, trv_data in self.real_trvs.items():
                     if bool(
-                        (self.real_trvs[trv_id].get("advanced", {}) or {}).get(
+                        (trv_data.get("advanced", {}) or {}).get(
                             CONF_VALVE_MAINTENANCE, False
                         )
                     ):
-                        quirks = (self.real_trvs.get(trv_id, {}) or {}).get(
-                            "model_quirks"
-                        )
+                        quirks = trv_data.get("model_quirks")
                         interval = int(
                             getattr(quirks, "VALVE_MAINTENANCE_INTERVAL_HOURS", 168)
                         )
@@ -2103,12 +2101,12 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
                     len(trv_infos),
                 )
                 await asyncio.gather(
-                    *(_open_step(trv_id) for trv_id in trv_infos.keys()),
+                    *(_open_step(trv_id) for trv_id in trv_infos),
                     return_exceptions=True,
                 )
                 await asyncio.sleep(30)
                 await asyncio.gather(
-                    *(_close_step(trv_id) for trv_id in trv_infos.keys()),
+                    *(_close_step(trv_id) for trv_id in trv_infos),
                     return_exceptions=True,
                 )
                 await asyncio.sleep(30)
@@ -2133,7 +2131,7 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
                     pass
 
             await asyncio.gather(
-                *(_restore_one(trv_id) for trv_id in trv_infos.keys()),
+                *(_restore_one(trv_id) for trv_id in trv_infos),
                 return_exceptions=True,
             )
 
@@ -2453,11 +2451,7 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
         if not hasattr(self, "max_target_temp"):
             self.max_target_temp = self.bt_target_temp or 21.0
 
-        # Telemetry container (create once)
-        if not hasattr(self, "heating_cycles"):
-            # bounded length (50 cycles)
-            self.heating_cycles = deque(maxlen=50)
-
+        # Telemetry container (now initialized in __init__)
         now = dt_util.utcnow()  # UTC aware time
 
         # Determine current action early (pure computation) for transition handling
@@ -2918,7 +2912,7 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
         # PID/Regler-Debug als flache Attribute für Graphen (nur von repräsentativem TRV)
         try:
             rep_trv = None
-            for t in self.real_trvs.keys():
+            for t in self.real_trvs:
                 mdl = str(self.real_trvs.get(t, {}).get("model", ""))
                 if "sonoff" in mdl.lower() or "trvzb" in mdl.lower():
                     rep_trv = t
@@ -3873,7 +3867,7 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
                             buckets = [bucket_tag]
                     uid = self.unique_id or self._unique_id or "bt"
                     seeded = 0
-                    for trv_id in self.real_trvs.keys():
+                    for trv_id in self.real_trvs:
                         for b in buckets or []:
                             key = f"{uid}:{trv_id}:{b}"
                             try:

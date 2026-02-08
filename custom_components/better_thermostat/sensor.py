@@ -149,7 +149,7 @@ async def _handle_dynamic_entity_update(
     entry_id = entry.entry_id
     current_algorithms = _get_active_algorithms(bt_climate)
     had_algorithm_entities = entry_id in _ACTIVE_ALGORITHM_ENTITIES
-    previous_algorithms = set(_ACTIVE_ALGORITHM_ENTITIES.get(entry_id, {}).keys()) if had_algorithm_entities else set()
+    previous_algorithms = set(_ACTIVE_ALGORITHM_ENTITIES.get(entry_id, {})) if had_algorithm_entities else set()
 
     # Prüfe auf Änderungen bei den Algorithmen
     algorithms_added = current_algorithms - previous_algorithms
@@ -476,7 +476,7 @@ async def _cleanup_pid_switch_entities(
 
     # Add Child Lock switches (always present for all TRVs)
     if hasattr(bt_climate, 'real_trvs') and bt_climate.real_trvs:
-        for trv_entity_id in bt_climate.real_trvs.keys():
+        for trv_entity_id in bt_climate.real_trvs:
             current_switch_unique_ids.append(f"{bt_climate.unique_id}_{trv_entity_id}_child_lock")
 
     _ACTIVE_SWITCH_ENTITIES[entry_id] = current_switch_unique_ids

@@ -132,6 +132,10 @@ async def window_queue(self):
                                 empty_queue(self.control_queue_task)
                             await self.control_queue_task.put(self)
             except asyncio.CancelledError:
+                _LOGGER.debug(
+                    "better_thermostat %s: Window queue processing cancelled",
+                    self.device_name,
+                )
                 raise
             finally:
                 self.window_queue_task.task_done()
