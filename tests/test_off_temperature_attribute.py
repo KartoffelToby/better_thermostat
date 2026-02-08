@@ -137,7 +137,7 @@ class TestOffTemperatureAttribute:
         test_attributes = {
             ATTR_STATE_OFF_TEMPERATURE: mock_bt.off_temperature,
         }
-        
+
         # Verify the attribute is in the dict with the correct key and value
         assert "off_temperature" in test_attributes
         assert test_attributes["off_temperature"] == 20.0

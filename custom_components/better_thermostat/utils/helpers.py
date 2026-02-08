@@ -667,7 +667,7 @@ async def find_local_calibration_entity(self, entity_id):
     if calibration_entity is None:
         for entity in entity_entries:
             if entity.config_entry_id == config_entry_id:
-                if ("temperature_offset" in entity.unique_id.lower() or 
+                if ("temperature_offset" in entity.unique_id.lower() or
                     "temperatur_offset" in entity.unique_id.lower() or
                     "temperature_offset" in entity.entity_id.lower()):
                     calibration_entity = entity.entity_id

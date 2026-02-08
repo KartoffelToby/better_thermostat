@@ -95,7 +95,7 @@ async def _setup_algorithm_sensors(
             _ACTIVE_ALGORITHM_ENTITIES[entry_id] = {}
         _ACTIVE_ALGORITHM_ENTITIES[entry_id][CalibrationMode.MPC_CALIBRATION] = [
             f"{bt_climate.unique_id}_virtual_temp",
-            f"{bt_climate.unique_id}_mpc_gain", 
+            f"{bt_climate.unique_id}_mpc_gain",
             f"{bt_climate.unique_id}_mpc_loss",
             f"{bt_climate.unique_id}_mpc_ka",
             f"{bt_climate.unique_id}_mpc_status",
@@ -437,7 +437,7 @@ async def _cleanup_pid_switch_entities(
             if trv_part not in current_pid_trvs:
                 should_remove = True
 
-        # Format: "{bt_unique_id}_{trv_entity_id}_child_lock"  
+        # Format: "{bt_unique_id}_{trv_entity_id}_child_lock"
         elif "_child_lock" in switch_unique_id:
             trv_part = switch_unique_id.replace(f"{bt_climate.unique_id}_", "", 1).replace("_child_lock", "")
             # Remove child lock switches for TRVs that no longer exist

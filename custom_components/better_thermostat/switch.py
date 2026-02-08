@@ -13,12 +13,11 @@ from homeassistant.helpers.restore_state import RestoreEntity
 from .utils.calibration.pid import _PID_STATES, DEFAULT_PID_AUTO_TUNE, build_pid_key
 from .utils.const import CalibrationMode, CONF_CALIBRATION_MODE
 
-_LOGGER = logging.getLogger(__name__)
-DOMAIN = "better_thermostat"
-
 # Import tracking variables from sensor.py
 from .sensor import _ACTIVE_SWITCH_ENTITIES
 
+_LOGGER = logging.getLogger(__name__)
+DOMAIN = "better_thermostat"
 
 async def async_setup_entry(
     hass: HomeAssistant, entry: ConfigEntry, async_add_entities: AddEntitiesCallback
