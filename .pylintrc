@@ -13,8 +13,10 @@ suggestion-mode=yes
 # Disable the following messages:
 # C0103: invalid-name - Home Assistant uses naming conventions that are intentional
 #        (e.g., hvac_mode, current_temperature, async_setup_entry, etc.)
+# W0613: unused-argument - Callback handlers often have unused arguments (e.g., event parameter)
 disable=
     C0103,
+    W0613,
     # You can add more codes here as needed, comma-separated
 
 [FORMAT]
