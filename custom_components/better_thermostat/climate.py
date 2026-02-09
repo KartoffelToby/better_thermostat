@@ -1276,11 +1276,9 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
                         self.bt_target_temp,
                     )
                 else:
-                    _temp_value = old_state.attributes.get(ATTR_TEMPERATURE)
-                    if _temp_value is not None:
-                        _oldtarget_temperature = float(_temp_value)
-                    else:
-                        _oldtarget_temperature = self.bt_target_temp
+                    _oldtarget_temperature = float(
+                        old_state.attributes.get(ATTR_TEMPERATURE)
+                    )
                     # if the saved temperature is lower than the min_temp, set it to min_temp
                     if _oldtarget_temperature < self.bt_min_temp:
                         _LOGGER.warning(
