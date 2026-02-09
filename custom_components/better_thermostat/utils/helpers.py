@@ -710,22 +710,23 @@ async def find_local_calibration_entity(self, entity_id):
             calibration_entity = entity.entity_id
 
     # Second pass: fallback to string matching on unique_id / entity_id / original_name
-    for entity in entity_entries:
-        if entity.device_id != reg_entity.device_id:
-            continue
-        descriptor = f"{entity.unique_id} {entity.entity_id} {getattr(entity, 'original_name', '') or ''}".lower()
-        if (
-            "temperature_calibration" in descriptor
-            or "temperature_offset" in descriptor
-            or "temperatur_offset" in descriptor
-            or "local_temperature" in descriptor
-        ):
-            _LOGGER.debug(
-                "better thermostat: Found local calibration entity %s for %s (string match)",
-                entity.entity_id,
-                entity_id,
-            )
-            calibration_entity = entity.entity_id
+    if calibration_entity is None:
+        for entity in entity_entries:
+            if entity.device_id != reg_entity.device_id:
+                continue
+            descriptor = f"{entity.unique_id} {entity.entity_id} {getattr(entity, 'original_name', '') or ''}".lower()
+            if (
+                "temperature_calibration" in descriptor
+                or "temperature_offset" in descriptor
+                or "temperatur_offset" in descriptor
+                or "local_temperature" in descriptor
+            ):
+                _LOGGER.debug(
+                    "better thermostat: Found local calibration entity %s for %s (string match)",
+                    entity.entity_id,
+                    entity_id,
+                )
+                calibration_entity = entity.entity_id
 
     if calibration_entity is None:
         _LOGGER.debug(
