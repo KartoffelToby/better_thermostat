@@ -6,16 +6,15 @@ has_children: true
 permalink: configuration
 ---
 
-# Create a new Better Thermostat device
+## Create a new Better Thermostat device
 
-** Goto: `Settings` -> `Devices & Services` -> `Integrations` -> `+ Add Integration` -> `Better Thermostat` **
+**Goto: `Settings` -> `Devices & Services` -> `Integrations` -> `+ Add Integration` -> `Better Thermostat`**
 
 or click on the button below:
 
-<a href="https://my.home-assistant.io/redirect/config_flow_start/?domain=better_thermostat" target="_blank"><img src="https://my.home-assistant.io/badges/config_flow_start.svg" alt="Open your Home Assistant instance and start setting up a new integration." /></a>
+[![Open your Home Assistant instance and start setting up a new integration.](https://my.home-assistant.io/badges/config_flow_start.svg)](https://my.home-assistant.io/redirect/config_flow_start/?domain=better_thermostat)
 
-
-# Configuration
+## Configuration
 
 ## First step
 
@@ -33,7 +32,7 @@ or click on the button below:
 
 **Window Sensor** This is an optional field. If you have a window sensor you can use it to turn off the thermostat if the window is open and turn it on again when the window is closed. If you have more than one window in a room, you can also select window groups (see the GitHub page for more info).
 
-#### Example Window/Door - Sensor config
+### Example Window/Door - Sensor config
 
 ```yaml
 group:
@@ -65,7 +64,24 @@ group:
 
 - ***Offset Based***: Apply the calibration to the offset. This will not be an option if your TRV doesn't support offset mode.
 
+**Enhanced Compatibility:**
 
+- **NUMBER entities**: Traditional numeric offset controls (most TRVs)
+- **SELECT entities**: Dropdown-based offset selection (e.g., HomeMatic IP with predefined offset values like "1.5k", "2.0k")
+- **Automatic Detection**: Better Thermostat automatically detects and supports both entity types
+
+**HomeMatic IP/CCU Integration:**
+
+When using HomeMatic IP or CCU thermostats, Better Thermostat automatically detects and uses SELECT entities for temperature offset calibration. These entities provide predefined offset values (like "1.5k", "2.0k", "2.5k") and are fully supported for offset-based calibration.
+
+**⚠️ Important Setup Required:** For HomeMatic IP/CCU devices, the `temperature_offset` SELECT entity is hidden by default. You must explicitly enable it before it can be used with Better Thermostat:
+
+1. Navigate to your HomeMatic integration settings
+2. Go to **"Advanced settings"**
+3. Click **"UN-IGNORE parameters"**
+4. Enable **`TEMPERATURE_OFFSET:MASTER@HM-CC-RT-DN`**
+
+Only after this activation, the `select.{room}_temperature_offset` entity becomes available for Better Thermostat to use. This setup is confirmed for the HACS integration "Homematic(IP) Local for OpenCCU" - it may differ slightly for other HomeMatic integrations.
 
 **Calibration Mode**  This is a required field. It determines how the calibration should be calculated
 
@@ -81,11 +97,12 @@ Better Thermostat offers several algorithms to control your heating:
 **→ [Learn more about each algorithm and which one to choose](algorithms)**
 
 **Quick guide:**
-- First time user? → Start with **AI Time Based** (default)
+
+- First-time user? → Start with **AI Time Based** (default)
 - Room heats slowly? → Try **Aggressive**
 - Temperature overshoots? → Try **MPC Predictive**
 - Want fine control? → Try **PID Controller**
-
+- **Using HomeMatic IP/CCU?** → Offset-based calibration now supports SELECT entities automatically
 
 **Overheating protection** This should only be checked if you have any problems with strong overheating.
 

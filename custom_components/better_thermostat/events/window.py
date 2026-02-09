@@ -56,7 +56,9 @@ async def trigger_window_change(self, event) -> None:
         new_window_open = False
     else:
         _LOGGER.error(
-            f"better_thermostat {self.device_name}: New window sensor state '{new_state}' not recognized"
+            "better_thermostat %s: New window sensor state '%s' not recognized",
+            self.device_name,
+            new_state,
         )
         ir.async_create_issue(
             hass=self.hass,
@@ -77,7 +79,8 @@ async def trigger_window_change(self, event) -> None:
     # make sure to skip events which do not change the saved window state:
     if new_window_open == old_window_open:
         _LOGGER.debug(
-            f"better_thermostat {self.device_name}: Window state did not change, skipping event"
+            "better_thermostat %s: Window state did not change, skipping event",
+            self.device_name,
         )
         return
     await self.window_queue_task.put(new_window_open)
@@ -97,12 +100,18 @@ async def window_queue(self):
                 if window_event_to_process is not None:
                     if window_event_to_process:
                         _LOGGER.debug(
-                            f"better_thermostat {self.device_name}: Window opened, waiting {self.window_delay} seconds before continuing"
+                            "better_thermostat %s: Window opened, "
+                            "waiting %s seconds before continuing",
+                            self.device_name,
+                            self.window_delay,
                         )
                         await asyncio.sleep(self.window_delay)
                     else:
                         _LOGGER.debug(
-                            f"better_thermostat {self.device_name}: Window closed, waiting {self.window_delay_after} seconds before continuing"
+                            "better_thermostat %s: Window closed, "
+                            "waiting %s seconds before continuing",
+                            self.device_name,
+                            self.window_delay_after,
                         )
                         await asyncio.sleep(self.window_delay_after)
                     # remap off on to true false
@@ -122,12 +131,16 @@ async def window_queue(self):
                                 empty_queue(self.control_queue_task)
                             await self.control_queue_task.put(self)
             except asyncio.CancelledError:
+                _LOGGER.debug(
+                    "better_thermostat %s: Window queue processing cancelled",
+                    self.device_name,
+                )
                 raise
             finally:
                 self.window_queue_task.task_done()
     except asyncio.CancelledError:
         _LOGGER.debug(
-            f"better_thermostat {self.device_name}: Window queue task cancelled"
+            "better_thermostat %s: Window queue task cancelled", self.device_name
         )
         raise
 

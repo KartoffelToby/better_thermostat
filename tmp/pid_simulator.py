@@ -1,3 +1,8 @@
+"""PID controller simulator for testing the PID calibration logic.
+
+Simulates room temperature dynamics and runs PID cycles to verify controller behavior.
+"""
+
 import logging
 import os
 import sys
@@ -56,7 +61,8 @@ def simulate_pid():
     reset_pid_state(key)
 
     print(
-        f"{'Time(h)':>7} | {'T_Room':>6} | {'Target':>6} | {'Valve':>5} | {'P':>5} | {'I':>5} | {'D':>5} | {'Kp':>5} | {'Ki':>5} | {'Kd':>5} | {'Note'}"
+        f"{'Time(h)':>7} | {'T_Room':>6} | {'Target':>6} | {'Valve':>5} | {'P':>5} | "
+        f"{'I':>5} | {'D':>5} | {'Kp':>5} | {'Ki':>5} | {'Kd':>5} | {'Note'}"
     )
     print("-" * 115)
 
@@ -123,7 +129,9 @@ def simulate_pid():
 
             hours = step / 60.0
             print(
-                f"{hours:7.1f} | {room_temp:6.2f} | {target_temp:6.2f} | {valve_position:5.1f} | {debug.get('p', 0):5.1f} | {debug.get('i', 0):5.1f} | {debug.get('d', 0):5.1f} | {debug.get('kp', 0):5.1f} | {debug.get('ki', 0):5.3f} | {debug.get('kd', 0):5.1f} | {note}"
+                f"{hours:7.1f} | {room_temp:6.2f} | {target_temp:6.2f} | {valve_position:5.1f} | {debug.get('p', 0):5.1f} | "
+                f"{debug.get('i', 0):5.1f} | {debug.get('d', 0):5.1f} | {debug.get('kp', 0):5.1f} | {debug.get('ki', 0):5.3f} | "
+                f"{debug.get('kd', 0):5.1f} | {note}"
             )
 
         sim_time += dt
