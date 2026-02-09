@@ -2,13 +2,35 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from custom_components.better_thermostat.utils.helpers import find_valve_entity
+from custom_components.better_thermostat.utils.helpers import (
+    find_local_calibration_entity,
+    find_valve_entity,
+)
 
 
 @pytest.fixture
 def anyio_backend():
     """Return the async backend to use for tests."""
     return "asyncio"
+
+
+def _make_entity(eid, uid, device_id, translation_key=None, original_name=None):
+    """Create a mock entity registry entry with translation_key support."""
+    e = MagicMock()
+    e.entity_id = eid
+    e.unique_id = uid
+    e.device_id = device_id
+    e.translation_key = translation_key
+    e.original_name = original_name
+    return e
+
+
+def _make_bt_instance():
+    """Create a mock BT instance with hass."""
+    hass = MagicMock()
+    bt = MagicMock()
+    bt.hass = hass
+    return bt
 
 
 @pytest.mark.anyio
@@ -164,3 +186,309 @@ async def test_find_valve_entity_trvzb_valve_opening_degree_device_mismatch():
         assert result["entity_id"] == "number.my_trv_valve_opening_degree"
         assert result["writable"] is True
         assert result["reason"] == "valve_opening_degree"
+
+
+@pytest.mark.anyio
+async def test_find_valve_entity_by_translation_key():
+    """Test that find_valve_entity detects entities by translation_key without relying on string matching."""
+
+    bt_instance = _make_bt_instance()
+
+    trv_entity_id = "climate.my_trv"
+    device_id = "device_123"
+
+    reg_entity_trv = MagicMock()
+    reg_entity_trv.config_entry_id = "config_123"
+    reg_entity_trv.device_id = device_id
+
+    # Entity with a generic entity_id but correct translation_key
+    ent_valve = _make_entity(
+        eid="number.trv_generic_name",
+        uid="some_opaque_uid_1234",
+        device_id=device_id,
+        translation_key="valve_position",
+    )
+
+    with (
+        patch(
+            "custom_components.better_thermostat.utils.helpers.er.async_get"
+        ) as mock_er_get,
+        patch(
+            "custom_components.better_thermostat.utils.helpers.dr.async_get"
+        ) as mock_dr_get,
+        patch(
+            "custom_components.better_thermostat.utils.helpers.async_entries_for_config_entry"
+        ) as mock_entries,
+    ):
+        mock_registry = MagicMock()
+        mock_er_get.return_value = mock_registry
+        mock_registry.async_get.return_value = reg_entity_trv
+        mock_dev_reg = MagicMock()
+        mock_dr_get.return_value = mock_dev_reg
+        dev = MagicMock()
+        dev.identifiers = {("test", device_id)}
+        mock_dev_reg.async_get.return_value = dev
+
+        mock_entries.return_value = [ent_valve]
+        result = await find_valve_entity(bt_instance, trv_entity_id)
+
+        assert result is not None
+        assert result["entity_id"] == "number.trv_generic_name"
+        assert result["writable"] is True
+        assert result["reason"] == "valve_position"
+
+
+@pytest.mark.anyio
+async def test_find_valve_entity_translation_key_preferred_over_string_match():
+    """Test that translation_key match is preferred when both would match different entities."""
+
+    bt_instance = _make_bt_instance()
+    device_id = "device_123"
+
+    reg_entity_trv = MagicMock()
+    reg_entity_trv.config_entry_id = "config_123"
+    reg_entity_trv.device_id = device_id
+
+    # Entity matched by translation_key (should win)
+    ent_tk = _make_entity(
+        eid="number.trv_opaque_name",
+        uid="opaque_uid",
+        device_id=device_id,
+        translation_key="valve_position",
+    )
+    # Entity matched only by string heuristic (lower priority)
+    ent_str = _make_entity(
+        eid="sensor.trv_position",
+        uid="some_position_id",
+        device_id=device_id,
+        translation_key=None,
+    )
+
+    with (
+        patch(
+            "custom_components.better_thermostat.utils.helpers.er.async_get"
+        ) as mock_er_get,
+        patch(
+            "custom_components.better_thermostat.utils.helpers.dr.async_get"
+        ) as mock_dr_get,
+        patch(
+            "custom_components.better_thermostat.utils.helpers.async_entries_for_config_entry"
+        ) as mock_entries,
+    ):
+        mock_registry = MagicMock()
+        mock_er_get.return_value = mock_registry
+        mock_registry.async_get.return_value = reg_entity_trv
+        mock_dev_reg = MagicMock()
+        mock_dr_get.return_value = mock_dev_reg
+        dev = MagicMock()
+        dev.identifiers = {("test", device_id)}
+        mock_dev_reg.async_get.return_value = dev
+
+        mock_entries.return_value = [ent_str, ent_tk]
+        result = await find_valve_entity(bt_instance, "climate.my_trv")
+
+        assert result is not None
+        assert result["entity_id"] == "number.trv_opaque_name"
+        assert result["writable"] is True
+        assert result["reason"] == "valve_position"
+
+
+@pytest.mark.anyio
+async def test_find_valve_entity_by_translation_key_pi_heating_demand():
+    """Test that translation_key='pi_heating_demand' is detected."""
+
+    bt_instance = _make_bt_instance()
+    device_id = "device_123"
+
+    reg_entity_trv = MagicMock()
+    reg_entity_trv.config_entry_id = "config_123"
+    reg_entity_trv.device_id = device_id
+
+    ent = _make_entity(
+        eid="sensor.trv_translated_entity",
+        uid="opaque_unique_id",
+        device_id=device_id,
+        translation_key="pi_heating_demand",
+    )
+
+    with (
+        patch(
+            "custom_components.better_thermostat.utils.helpers.er.async_get"
+        ) as mock_er_get,
+        patch(
+            "custom_components.better_thermostat.utils.helpers.dr.async_get"
+        ) as mock_dr_get,
+        patch(
+            "custom_components.better_thermostat.utils.helpers.async_entries_for_config_entry"
+        ) as mock_entries,
+    ):
+        mock_registry = MagicMock()
+        mock_er_get.return_value = mock_registry
+        mock_registry.async_get.return_value = reg_entity_trv
+        mock_dev_reg = MagicMock()
+        mock_dr_get.return_value = mock_dev_reg
+        dev = MagicMock()
+        dev.identifiers = {("test", device_id)}
+        mock_dev_reg.async_get.return_value = dev
+
+        mock_entries.return_value = [ent]
+        result = await find_valve_entity(bt_instance, "climate.my_trv")
+
+        assert result is not None
+        assert result["entity_id"] == "sensor.trv_translated_entity"
+        assert result["reason"] == "pi_heating_demand"
+
+
+@pytest.mark.anyio
+async def test_find_local_calibration_entity_by_translation_key():
+    """Test that find_local_calibration_entity detects entities by translation_key."""
+
+    bt_instance = _make_bt_instance()
+    device_id = "device_123"
+
+    reg_entity_trv = MagicMock()
+    reg_entity_trv.config_entry_id = "config_123"
+    reg_entity_trv.device_id = device_id
+
+    # Entity with a completely opaque entity_id/unique_id but the right translation_key
+    ent_calib = _make_entity(
+        eid="number.trv_opaque_calibration",
+        uid="opaque_uid_xyz",
+        device_id=device_id,
+        translation_key="local_temperature_calibration",
+    )
+
+    with (
+        patch(
+            "custom_components.better_thermostat.utils.helpers.er.async_get"
+        ) as mock_er_get,
+        patch(
+            "custom_components.better_thermostat.utils.helpers.async_entries_for_config_entry"
+        ) as mock_entries,
+    ):
+        mock_registry = MagicMock()
+        mock_er_get.return_value = mock_registry
+        mock_registry.async_get.return_value = reg_entity_trv
+
+        mock_entries.return_value = [ent_calib]
+        result = await find_local_calibration_entity(bt_instance, "climate.my_trv")
+
+        assert result == "number.trv_opaque_calibration"
+
+
+@pytest.mark.anyio
+async def test_find_local_calibration_entity_by_translation_key_temperature_offset():
+    """Test that translation_key='temperature_offset' is detected for calibration."""
+
+    bt_instance = _make_bt_instance()
+    device_id = "device_123"
+
+    reg_entity_trv = MagicMock()
+    reg_entity_trv.config_entry_id = "config_123"
+    reg_entity_trv.device_id = device_id
+
+    ent_offset = _make_entity(
+        eid="number.trv_generic_entity",
+        uid="opaque_uid",
+        device_id=device_id,
+        translation_key="temperature_offset",
+    )
+
+    with (
+        patch(
+            "custom_components.better_thermostat.utils.helpers.er.async_get"
+        ) as mock_er_get,
+        patch(
+            "custom_components.better_thermostat.utils.helpers.async_entries_for_config_entry"
+        ) as mock_entries,
+    ):
+        mock_registry = MagicMock()
+        mock_er_get.return_value = mock_registry
+        mock_registry.async_get.return_value = reg_entity_trv
+
+        mock_entries.return_value = [ent_offset]
+        result = await find_local_calibration_entity(bt_instance, "climate.my_trv")
+
+        assert result == "number.trv_generic_entity"
+
+
+@pytest.mark.anyio
+async def test_find_local_calibration_entity_fallback_string_match():
+    """Test that find_local_calibration_entity falls back to string matching when no translation_key."""
+
+    bt_instance = _make_bt_instance()
+    device_id = "device_123"
+
+    reg_entity_trv = MagicMock()
+    reg_entity_trv.config_entry_id = "config_123"
+    reg_entity_trv.device_id = device_id
+
+    # No translation_key, but legacy string match on unique_id
+    ent_legacy = _make_entity(
+        eid="number.trv_temperature_calibration",
+        uid="0x1234_temperature_calibration",
+        device_id=device_id,
+        translation_key=None,
+    )
+
+    with (
+        patch(
+            "custom_components.better_thermostat.utils.helpers.er.async_get"
+        ) as mock_er_get,
+        patch(
+            "custom_components.better_thermostat.utils.helpers.async_entries_for_config_entry"
+        ) as mock_entries,
+    ):
+        mock_registry = MagicMock()
+        mock_er_get.return_value = mock_registry
+        mock_registry.async_get.return_value = reg_entity_trv
+
+        mock_entries.return_value = [ent_legacy]
+        result = await find_local_calibration_entity(bt_instance, "climate.my_trv")
+
+        assert result == "number.trv_temperature_calibration"
+
+
+@pytest.mark.anyio
+async def test_find_local_calibration_translation_key_preferred_over_string():
+    """Test that translation_key match is found first, even with a string-matchable entity."""
+
+    bt_instance = _make_bt_instance()
+    device_id = "device_123"
+
+    reg_entity_trv = MagicMock()
+    reg_entity_trv.config_entry_id = "config_123"
+    reg_entity_trv.device_id = device_id
+
+    # Entity matched by translation_key (should be found first)
+    ent_tk = _make_entity(
+        eid="number.trv_tk_entity",
+        uid="opaque_uid_1",
+        device_id=device_id,
+        translation_key="temperature_calibration",
+    )
+    # Entity matched only by string (should not be returned because tk match is found first)
+    ent_str = _make_entity(
+        eid="number.trv_temperature_offset",
+        uid="0x1234_temperature_offset",
+        device_id=device_id,
+        translation_key=None,
+    )
+
+    with (
+        patch(
+            "custom_components.better_thermostat.utils.helpers.er.async_get"
+        ) as mock_er_get,
+        patch(
+            "custom_components.better_thermostat.utils.helpers.async_entries_for_config_entry"
+        ) as mock_entries,
+    ):
+        mock_registry = MagicMock()
+        mock_er_get.return_value = mock_registry
+        mock_registry.async_get.return_value = reg_entity_trv
+
+        mock_entries.return_value = [ent_str, ent_tk]
+        result = await find_local_calibration_entity(bt_instance, "climate.my_trv")
+
+        # translation_key match should be preferred
+        assert result == "number.trv_tk_entity"
