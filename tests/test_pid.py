@@ -38,7 +38,7 @@ class TestPIDController:
         """Test basic PID calculation without auto-tuning."""
         # Disable hold-time to allow immediate output changes
         params = PIDParams(
-            auto_tune=False, kp=10.0, ki=0.1, kd=5.0, min_hold_time_s=0.0
+            auto_tune=False, kp=10.0, ki=1.0, kd=5.0, min_hold_time_s=0.0
         )
         # First call to initialize
         percent1, _ = compute_pid(
