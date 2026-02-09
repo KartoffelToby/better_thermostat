@@ -322,6 +322,8 @@ def compute_pid(
 
     # Clamp final result
     percent = max(0.0, min(100.0, percent))
+    # Round to nearest integer to avoid micro-updates that trigger TRV logic
+    percent = int(round(percent))
 
     # Update last_percent
     st.last_percent = percent
