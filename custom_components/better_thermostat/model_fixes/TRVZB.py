@@ -11,7 +11,7 @@ from homeassistant.helpers import entity_registry as er
 
 _LOGGER = logging.getLogger(__name__)
 
-VALVE_MAINTENANCE_INTERVAL_HOURS = 24
+VALVE_MAINTENANCE_INTERVAL_HOURS = 84
 
 # Some users report that the TRVZB motor can occasionally lose its calibration and
 # fail to fully close the valve when commanded to very small openings.
@@ -27,7 +27,7 @@ def _cancel_pending_valve_bump(trv_state: dict) -> None:
     if task is not None:
         try:
             task.cancel()
-        except Exception:
+        except (asyncio.CancelledError, RuntimeError):
             pass
 
 
@@ -220,7 +220,7 @@ async def maybe_set_sonoff_valve_percent(self, entity_id, percent: int) -> bool:
                 entity_id,
             )
         return wrote
-    except Exception as ex:
+    except (TypeError, ValueError, KeyError, AttributeError) as ex:
         _LOGGER.debug(
             "better_thermostat %s: TRVZB maybe_set_sonoff_valve_percent exception: %s",
             self.device_name,
@@ -252,7 +252,7 @@ async def override_set_valve(self, entity_id, percent: int):
         last_pct_raw = trv_state.get("last_valve_percent")
         try:
             last_pct = None if last_pct_raw is None else int(last_pct_raw)
-        except Exception:
+        except (TypeError, ValueError):
             last_pct = None
 
         # If we don't know the last commanded percent, just set directly.
@@ -282,7 +282,7 @@ async def override_set_valve(self, entity_id, percent: int):
                     await maybe_set_sonoff_valve_percent(self, entity_id, target_pct)
                 except asyncio.CancelledError:
                     return
-                except Exception as ex:
+                except (RuntimeError, ValueError, KeyError) as ex:
                     _LOGGER.debug(
                         "better_thermostat %s: TRVZB delayed valve set exception: %s",
                         getattr(self, "device_name", "unknown"),
@@ -297,7 +297,7 @@ async def override_set_valve(self, entity_id, percent: int):
         # Opening (or same) => set directly.
         ok = await maybe_set_sonoff_valve_percent(self, entity_id, target_pct)
         return bool(ok)
-    except Exception:
+    except (TypeError, ValueError, KeyError, AttributeError):
         return False
 
 
@@ -379,7 +379,7 @@ async def maybe_set_external_temperature(self, entity_id, temperature: float) ->
             entity_id,
         )
         return True
-    except Exception as ex:
+    except (TypeError, ValueError, KeyError, AttributeError) as ex:
         _LOGGER.debug(
             "better_thermostat %s: TRVZB maybe_set_external_temperature exception: %s",
             self.device_name,
