@@ -69,12 +69,26 @@ async def async_setup_entry(
 
 
 async def _setup_algorithm_sensors(
-    hass: HomeAssistant, entry: ConfigEntry, bt_climate
+    hass: HomeAssistant,
+    entry: ConfigEntry,
+    bt_climate,
+    algorithms_to_create: set | None = None,
 ) -> list:
-    """Set up algorithm-specific sensors based on current configuration."""
+    """Set up algorithm-specific sensors based on current configuration.
+
+    Parameters
+    ----------
+    algorithms_to_create : set | None
+        When provided, only sensors for these algorithms are created.
+        When ``None`` (initial setup), all active algorithms are created.
+    """
     algorithm_sensors = []
     entry_id = entry.entry_id
     current_algorithms = _get_active_algorithms(bt_climate)
+
+    if algorithms_to_create is not None:
+        # Only create sensors for newly added algorithms
+        current_algorithms = current_algorithms & algorithms_to_create
 
     # Cleanup stale algorithm entities from previous configurations
     await _cleanup_stale_algorithm_entities(
@@ -175,8 +189,10 @@ async def _handle_dynamic_entity_update(
             ],
         )
 
-        # Setup neue algorithmus-spezifische Sensoren
-        new_sensors = await _setup_algorithm_sensors(hass, entry, bt_climate)
+        # Setup only newly added algorithm-specific sensors
+        new_sensors = await _setup_algorithm_sensors(
+            hass, entry, bt_climate, algorithms_to_create=algorithms_added
+        )
         if new_sensors:
             async_add_entities(new_sensors, True)
 

@@ -164,7 +164,28 @@ async def control_cooler(self):
     # Determine desired state based on current conditions
     desired_temp = self.bt_target_cooltemp
 
-    if self.bt_hvac_mode == HVACMode.OFF:
+    if any(
+        v is None
+        for v in (
+            self.cur_temp,
+            self.bt_target_cooltemp,
+            self.tolerance,
+            self.bt_target_temp,
+        )
+    ):
+        _LOGGER.debug(
+            "better_thermostat %s: cooler %s one or more required values are None "
+            "(cur_temp=%s, bt_target_cooltemp=%s, tolerance=%s, bt_target_temp=%s), "
+            "defaulting to OFF",
+            self.device_name,
+            self.cooler_entity_id,
+            self.cur_temp,
+            self.bt_target_cooltemp,
+            self.tolerance,
+            self.bt_target_temp,
+        )
+        desired_mode = HVACMode.OFF
+    elif self.bt_hvac_mode == HVACMode.OFF:
         desired_mode = HVACMode.OFF
     elif (
         self.cur_temp >= self.bt_target_cooltemp - self.tolerance
@@ -175,14 +196,22 @@ async def control_cooler(self):
         desired_mode = HVACMode.OFF
 
     # Only send temperature command if it differs from current
-    if current_temp != desired_temp:
-        _LOGGER.debug(
-            "better_thermostat %s: TO COOLER set_temperature: %s from: %s to: %s",
-            self.device_name,
-            self.cooler_entity_id,
-            current_temp,
-            desired_temp,
-        )
+    if current_temp is None or current_temp != desired_temp:
+        if current_temp is None:
+            _LOGGER.debug(
+                "better_thermostat %s: cooler %s current temperature is unknown, "
+                "sending set_temperature command anyway",
+                self.device_name,
+                self.cooler_entity_id,
+            )
+        else:
+            _LOGGER.debug(
+                "better_thermostat %s: TO COOLER set_temperature: %s from: %s to: %s",
+                self.device_name,
+                self.cooler_entity_id,
+                current_temp,
+                desired_temp,
+            )
         await self.hass.services.async_call(
             "climate",
             "set_temperature",

@@ -79,7 +79,12 @@ When using HomeMatic IP or CCU thermostats, Better Thermostat automatically dete
 1. Navigate to your HomeMatic integration settings
 2. Go to **"Advanced settings"**
 3. Click **"UN-IGNORE parameters"**
-4. Enable **`TEMPERATURE_OFFSET:MASTER@HM-CC-RT-DN`**
+4. Enable the temperature offset parameter for your device model. The exact parameter path varies by model, for example:
+   - **`TEMPERATURE_OFFSET:MASTER@HM-CC-RT-DN`** (HomeMatic Classic)
+   - **`TEMPERATURE_OFFSET:MASTER@HM-CC-RT-DN-BoM`** (HomeMatic Classic BoM variant)
+   - **`TEMPERATURE_OFFSET:MASTER@HmIP-eTRV`** (HomeMatic IP)
+
+   Check your device manual or the HomeMatic integration's device parameter list for the correct parameter name.
 
 Only after this activation, the `select.{room}_temperature_offset` entity becomes available for Better Thermostat to use. This setup is confirmed for the HACS integration "Homematic(IP) Local for OpenCCU" - it may differ slightly for other HomeMatic integrations.
 

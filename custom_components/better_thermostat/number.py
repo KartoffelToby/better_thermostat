@@ -62,7 +62,16 @@ async def async_setup_entry(
                 continue
 
             advanced = trv_conf.get("advanced", {})
-            if advanced.get(CONF_CALIBRATION_MODE) == CalibrationMode.PID_CALIBRATION:
+            calibration_mode = advanced.get(CONF_CALIBRATION_MODE)
+
+            # Normalize string values to CalibrationMode enum
+            try:
+                if isinstance(calibration_mode, str):
+                    calibration_mode = CalibrationMode(calibration_mode)
+            except (ValueError, TypeError):
+                calibration_mode = None
+
+            if calibration_mode == CalibrationMode.PID_CALIBRATION:
                 for param in ["kp", "ki", "kd"]:
                     pid_number = BetterThermostatPIDNumber(
                         bt_climate, trv_entity_id, param, has_multiple_trvs
