@@ -67,7 +67,9 @@ def mock_bt_without_off_temperature():
 class TestOffTemperatureAttribute:
     """Tests for off_temperature attribute exposure in extra_state_attributes."""
 
-    def test_off_temperature_exposed_when_configured(self, mock_bt_with_off_temperature):
+    def test_off_temperature_exposed_when_configured(
+        self, mock_bt_with_off_temperature
+    ):
         """Test that off_temperature is exposed when configured.
 
         The off_temperature attribute should be present in extra_state_attributes
@@ -134,9 +136,7 @@ class TestOffTemperatureAttribute:
         mock_bt.off_temperature = 20.0
 
         # Simulate building the attributes dict as done in climate.py
-        test_attributes = {
-            ATTR_STATE_OFF_TEMPERATURE: mock_bt.off_temperature,
-        }
+        test_attributes = {ATTR_STATE_OFF_TEMPERATURE: mock_bt.off_temperature}
 
         # Verify the attribute is in the dict with the correct key and value
         assert "off_temperature" in test_attributes
@@ -152,9 +152,7 @@ class TestOffTemperatureAttribute:
         mock_bt.off_temperature = None
 
         # Simulate building the attributes dict
-        test_attributes = {
-            ATTR_STATE_OFF_TEMPERATURE: mock_bt.off_temperature,
-        }
+        test_attributes = {ATTR_STATE_OFF_TEMPERATURE: mock_bt.off_temperature}
 
         # Verify the attribute is in the dict with None value
         assert "off_temperature" in test_attributes
