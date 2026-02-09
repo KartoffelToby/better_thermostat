@@ -437,7 +437,27 @@ async def find_valve_entity(self, entity_id):
         cand_identifiers = set(getattr(cand_device, "identifiers", set()) or set())
         return bool(base_identifiers.intersection(cand_identifiers))
 
+    # Known translation_key values used by TRV integrations for valve-related entities.
+    # These are stable, language-independent identifiers set by the integration.
+    _VALVE_TRANSLATION_KEYS: dict[str, str] = {
+        "valve_position": "valve_position",
+        "valve_opening_degree": "valve_opening_degree",
+        "valve_closing_degree": "valve_closing_degree",
+        "pi_heating_demand": "pi_heating_demand",
+        "heating_demand": "pi_heating_demand",
+        # Shelly BLU TRV uses this translation_key
+        "valve": "valve_position",
+    }
+
+    def _classify_by_translation_key(entity) -> str | None:
+        """Classify entity by its translation_key (stable, language-independent)."""
+        tk = getattr(entity, "translation_key", None)
+        if tk and tk in _VALVE_TRANSLATION_KEYS:
+            return _VALVE_TRANSLATION_KEYS[tk]
+        return None
+
     def _classify(uid: str, ent_id: str, original_name: str) -> str | None:
+        """Classify by string matching (fallback for integrations without translation_key)."""
         descriptor = f"{uid} {ent_id} {original_name}".lower()
         # Sonoff TRVZB (and some others) expose explicit valve degree entities
         if "valve_opening_degree" in descriptor:
@@ -484,9 +504,15 @@ async def find_valve_entity(self, entity_id):
         uid = entity.unique_id or ""
         if not _device_matches(entity):
             continue
-        reason = _classify(
-            uid, entity.entity_id or "", getattr(entity, "original_name", None) or ""
-        )
+
+        # Prefer translation_key (stable, language-independent) over string matching
+        reason = _classify_by_translation_key(entity)
+        if reason is None:
+            reason = _classify(
+                uid,
+                entity.entity_id or "",
+                getattr(entity, "original_name", None) or "",
+            )
         if reason is None:
             continue
         domain = (entity.entity_id or "").split(".", 1)[0]
@@ -618,12 +644,25 @@ async def _find_lowest_battery_in_group(self, member_ids, visited=None):
     return lowest_battery_id
 
 
+# Known translation_key values used by TRV integrations for calibration entities.
+# These are stable, language-independent identifiers set by the integration.
+_CALIBRATION_TRANSLATION_KEYS: set[str] = {
+    "local_temperature_calibration",
+    "temperature_calibration",
+    "temperature_offset",
+    "calibration_temperature",
+    "local_temperature_offset",
+    # eq3btsmart uses "offset" as translation_key for its temperature offset
+    "offset",
+}
+
+
 async def find_local_calibration_entity(self, entity_id):
     """Find the local calibration entity for the TRV.
 
-    This is a hacky way to find the local calibration entity for the TRV. It is not possible to find the entity
-    automatically, because the entity_id is not the same as the friendly_name. The friendly_name is the same for all
-    thermostats of the same brand, but the entity_id is different.
+    Uses the entity registry's ``translation_key`` and ``original_name``
+    for a stable, language-independent lookup.  Falls back to the legacy
+    unique_id / entity_id string matching for older integrations.
 
     Parameters
     ----------
@@ -644,21 +683,38 @@ async def find_local_calibration_entity(self, entity_id):
     entity_entries = async_entries_for_config_entry(
         entity_registry, reg_entity.config_entry_id
     )
+
+    # First pass: match by translation_key (preferred, stable approach)
     for entity in entity_entries:
-        uid = entity.unique_id + " " + entity.entity_id
-        # Make sure we use the correct device entities
-        if entity.device_id == reg_entity.device_id:
-            if (
-                "temperature_calibration" in uid
-                or "temperature_offset" in uid
-                or "temperatur_offset" in uid
-            ):
-                _LOGGER.debug(
-                    "better thermostat: Found local calibration entity %s for %s",
-                    entity.entity_id,
-                    entity_id,
-                )
-                return entity.entity_id
+        if entity.device_id != reg_entity.device_id:
+            continue
+        tk = getattr(entity, "translation_key", None)
+        if tk and tk in _CALIBRATION_TRANSLATION_KEYS:
+            _LOGGER.debug(
+                "better thermostat: Found local calibration entity %s for %s (translation_key=%s)",
+                entity.entity_id,
+                entity_id,
+                tk,
+            )
+            return entity.entity_id
+
+    # Second pass: fallback to string matching on unique_id / entity_id / original_name
+    for entity in entity_entries:
+        if entity.device_id != reg_entity.device_id:
+            continue
+        descriptor = f"{entity.unique_id} {entity.entity_id} {getattr(entity, 'original_name', '') or ''}".lower()
+        if (
+            "temperature_calibration" in descriptor
+            or "temperature_offset" in descriptor
+            or "temperatur_offset" in descriptor
+            or "local_temperature" in descriptor
+        ):
+            _LOGGER.debug(
+                "better thermostat: Found local calibration entity %s for %s (string match)",
+                entity.entity_id,
+                entity_id,
+            )
+            return entity.entity_id
 
     _LOGGER.debug(
         "better thermostat: Could not find local calibration entity for %s", entity_id
