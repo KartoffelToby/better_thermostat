@@ -3,7 +3,10 @@
   "config": {
     "step": {
       "user": {
-        "description": "Setup your Better Thermostat to integrate with Home Assistant\n**If you need more info: https://better-thermostat.org/configuration#first-step**",
+        "description": "Setup your Better Thermostat to integrate with Home Assistant\n**If you need more info: [documentation]({config_url})**",
+        "description_placeholders": {
+          "config_url": "https://better-thermostat.org/configuration#first-step"
+        },
         "data": {
           "name": "Name",
           "thermostat": "The real thermostat",
@@ -25,7 +28,10 @@
         }
       },
       "advanced": {
-        "description": "Advanced configuration {trv}\n***Info about calibration types: https://better-thermostat.org/configuration#second-step***",
+        "description": "Advanced configuration {trv}\n***Info about calibration types: [documentation]({calibration_url})***",
+        "description_placeholders": {
+          "calibration_url": "https://better-thermostat.org/configuration#second-step"
+        },
         "data": {
           "protect_overheating": "Overheating protection?",
           "heat_auto_swapped": "If the auto means heat for your TRV and you want to swap it",
@@ -74,7 +80,7 @@
           "window_off_delay_after": "Delay before the thermostat turns on when the window is closed",
           "outdoor_sensor": "If you have an outdoor sensor, you can use it to get the outdoor temperature",
           "valve_maintenance": "If your thermostat has no own maintenance mode, you can use this one",
-          "calibration": "The sort of calibration https://better-thermostat.org/configuration#second-step",
+          "calibration": "The sort of calibration",
           "weather": "Your weather entity to get the outdoor temperature",
           "presets": "Enabled Presets",
           "target_temp_step": "Target temperature step",
@@ -87,7 +93,10 @@
         }
       },
       "advanced": {
-        "description": "Advanced configuration {trv}\n***Info about calibration types: https://better-thermostat.org/configuration#second-step***",
+        "description": "Advanced configuration {trv}\n***Info about calibration types: [documentation]({calibration_url})***",
+        "description_placeholders": {
+          "calibration_url": "https://better-thermostat.org/configuration#second-step"
+        },
         "data": {
           "trend_mix_trv": "Temp mix (external weight, 0–1)",
           "percent_hysteresis_pts": "Hysteresis (percentage points)",
