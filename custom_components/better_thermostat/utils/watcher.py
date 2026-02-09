@@ -66,7 +66,10 @@ async def check_entity(self, entity) -> bool:
     state = entity_states.state
     if state in UNAVAILABLE_STATES:
         _LOGGER.debug(
-            f"better_thermostat {self.device_name}: {entity} is unavailable. with state {state}"
+            "better_thermostat %s: %s is unavailable. with state %s",
+            self.device_name,
+            entity,
+            state,
         )
         return False
     if entity in self.devices_errors:
