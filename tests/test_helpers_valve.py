@@ -262,6 +262,7 @@ async def test_find_valve_entity_translation_key_preferred_over_string_match():
         uid="some_position_id",
         device_id=device_id,
         translation_key=None,
+        original_name="Valve Position",
     )
 
     with (
