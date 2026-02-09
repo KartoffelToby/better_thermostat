@@ -80,9 +80,6 @@ class MpcParams:
     perf_curve_bin_pct: float = 2.0
 
 
-
-
-
 @dataclass
 class MpcInput:
     """Input parameters for MPC calibration calculation."""
@@ -378,7 +375,6 @@ def build_mpc_key(bt, entity_id: str) -> str:
 
     uid = getattr(bt, "unique_id", None) or getattr(bt, "_unique_id", "bt")
     return f"{uid}:{entity_id}:{bucket}"
-
 
 
 def _detect_regime_change(recent_errors: list[float]) -> bool:
@@ -1099,7 +1095,7 @@ def _compute_predictive_percent(
                 common_ok
                 and learn_signal
                 and u_last <= min_open
-                and observed_rate < -0.01
+                and observed_rate < 0.0  # Allow learning even on slow cooling
             ):
                 loss_candidate = max(0.0, -observed_rate)
 
@@ -1206,7 +1202,6 @@ def _compute_predictive_percent(
                             gain_method = "insufficient_heat_boost"
                             adapt_debug["gain_boosted_insuff"] = True
 
-
             # --- LOSS learning (warming with low valve): ---
             # If we are below u0 but the room is warming, loss is overestimated.
             # This handles the case where residual_u0_ss fails because rate is too high (warming).
@@ -1215,7 +1210,7 @@ def _compute_predictive_percent(
                 and learn_signal
                 and (not updated_loss)
                 and u_last < (u0_frac_est - 0.05)
-                and observed_rate > 0.01
+                and observed_rate > 0.0
             ):
                 # We are warming, so gain*u > loss.
                 # Since u is small, loss must be very small.
