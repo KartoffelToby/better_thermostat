@@ -148,84 +148,68 @@ async def control_queue(self):
 
 async def control_cooler(self):
     """Control the cooler entity."""
-    # Determine new HVAC mode for cooler based on tolerance
-    # This logic was extracted from control_trv and simplified
-    # Note: This assumes cooler logic doesn't depend on specific TRV states other than global BT state
-
-    # We need to determine the effective HVAC mode.
-    # Since we don't have a specific TRV here, we use the BT's target temp and current temp.
-    # The original logic in control_trv used _new_hvac_mode which was derived from TRV specific remapped states.
-    # However, for the cooler, we primarily care about the global BT state.
-
-    # Simplified logic: if we are in cooling range, cool.
-
-    if self.bt_hvac_mode == HVACMode.OFF:
-        await self.hass.services.async_call(
-            "climate",
-            "set_hvac_mode",
-            {"entity_id": self.cooler_entity_id, "hvac_mode": HVACMode.OFF},
-            blocking=True,
-            context=self.context,
+    # Get current cooler state to avoid sending redundant commands
+    cooler_state = self.hass.states.get(self.cooler_entity_id)
+    if cooler_state is None or cooler_state.state in (
+            STATE_UNAVAILABLE,
+            STATE_UNKNOWN,
+    ):
+        _LOGGER.debug(
+            "better_thermostat %s: cooler %s unavailable, skipping",
+            self.device_name,
+            self.cooler_entity_id,
         )
         return
 
-    if (
+    current_hvac_mode = cooler_state.state
+    current_temp = cooler_state.attributes.get("temperature")
+
+    # Determine desired state based on current conditions
+    desired_temp = self.bt_target_cooltemp
+
+    if self.bt_hvac_mode == HVACMode.OFF:
+        desired_mode = HVACMode.OFF
+    elif (
         self.cur_temp >= self.bt_target_cooltemp - self.tolerance
         and self.cur_temp > self.bt_target_temp
     ):
-        await self.hass.services.async_call(
-            "climate",
-            "set_temperature",
-            {
-                "entity_id": self.cooler_entity_id,
-                "temperature": self.bt_target_cooltemp,
-            },
-            blocking=True,
-            context=self.context,
-        )
-        await self.hass.services.async_call(
-            "climate",
-            "set_hvac_mode",
-            {"entity_id": self.cooler_entity_id, "hvac_mode": HVACMode.COOL},
-            blocking=True,
-            context=self.context,
-        )
-    elif self.cur_temp <= (self.bt_target_cooltemp - self.tolerance):
-        await self.hass.services.async_call(
-            "climate",
-            "set_temperature",
-            {
-                "entity_id": self.cooler_entity_id,
-                "temperature": self.bt_target_cooltemp,
-            },
-            blocking=True,
-            context=self.context,
-        )
-        await self.hass.services.async_call(
-            "climate",
-            "set_hvac_mode",
-            {"entity_id": self.cooler_entity_id, "hvac_mode": HVACMode.OFF},
-            blocking=True,
-            context=self.context,
-        )
+        desired_mode = HVACMode.COOL
     else:
-        # Keep current state or ensure temp is set?
-        # Original logic had an else block that set temp and OFF.
-        # Let's stick to the original logic structure but adapted.
+        desired_mode = HVACMode.OFF
+
+    # Only send temperature command if it differs from current
+    if current_temp != desired_temp:
+        _LOGGER.debug(
+            "better_thermostat %s: TO COOLER set_temperature: %s from: %s to: %s",
+            self.device_name,
+            self.cooler_entity_id,
+            current_temp,
+            desired_temp,
+        )
         await self.hass.services.async_call(
             "climate",
             "set_temperature",
             {
                 "entity_id": self.cooler_entity_id,
-                "temperature": self.bt_target_cooltemp,
+                "temperature": desired_temp,
             },
             blocking=True,
             context=self.context,
         )
+
+    # Only send hvac_mode command if it differs from current
+    if current_hvac_mode != desired_mode:
+        _LOGGER.debug(
+            "better_thermostat %s: TO COOLER set_hvac_mode: %s from: %s to: %s",
+            self.device_name,
+            self.cooler_entity_id,
+            current_hvac_mode,
+            desired_mode,
+        )
         await self.hass.services.async_call(
             "climate",
             "set_hvac_mode",
-            {"entity_id": self.cooler_entity_id, "hvac_mode": HVACMode.OFF},
+            {"entity_id": self.cooler_entity_id, "hvac_mode": desired_mode},
             blocking=True,
             context=self.context,
         )
