@@ -68,8 +68,10 @@ def async_retry(
                         )
                         actual_delay = max(0.1, actual_delay)  # Ensure minimum delay
 
-                        log_message = f"{log_prefix}{func.__name__} attempt {attempt + 1}/{retries + 1} " \
-                                      f"failed: {e}{entity_suffix}, retrying in {actual_delay:.2f}s"
+                        log_message = (
+                            f"{log_prefix}{func.__name__} attempt {attempt + 1}/{retries + 1} "
+                            f"failed: {e}{entity_suffix}, retrying in {actual_delay:.2f}s"
+                        )
 
                         if log_level == "debug":
                             _LOGGER.debug(log_message)

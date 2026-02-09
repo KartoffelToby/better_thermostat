@@ -987,13 +987,21 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
             _LOGGER.info(
                 "Better Thermostat %s: Calibration algorithms changed. Added: %s, Removed: %s",
                 self.updated_config.get(CONF_NAME, "unknown"),
-                [alg.value if hasattr(alg, 'value') else str(alg) for alg in algorithms_added],
-                [alg.value if hasattr(alg, 'value') else str(alg) for alg in algorithms_removed],
+                [
+                    alg.value if hasattr(alg, "value") else str(alg)
+                    for alg in algorithms_added
+                ],
+                [
+                    alg.value if hasattr(alg, "value") else str(alg)
+                    for alg in algorithms_removed
+                ],
             )
 
             # Signal configuration change for dynamic entity management
             signal_key = f"bt_config_changed_{self._config_entry.entry_id}"
-            dispatcher_send(self.hass, signal_key, {"entry_id": self._config_entry.entry_id})
+            dispatcher_send(
+                self.hass, signal_key, {"entry_id": self._config_entry.entry_id}
+            )
 
     def _get_active_algorithms(self, config: dict[str, Any]) -> set:
         """Get set of calibration algorithms currently in use by any TRV."""

@@ -319,7 +319,7 @@ class rounding(Enum):
 
 
 def round_by_step(
-    value: float | None, step: float | None, f_rounding = None
+    value: float | None, step: float | None, f_rounding=None
 ) -> float | None:
     """Round the value based on the allowed decimal 'step' size.
 
@@ -415,11 +415,7 @@ async def find_valve_entity(self, entity_id):
     try:
         dev_reg = dr.async_get(self.hass)
         device_id = getattr(reg_entity, "device_id", None)
-        base_device = (
-            dev_reg.async_get(device_id)
-            if device_id is not None
-            else None
-        )
+        base_device = dev_reg.async_get(device_id) if device_id is not None else None
         base_identifiers = set(getattr(base_device, "identifiers", set()) or set())
     except Exception:
         dev_reg = None
@@ -428,9 +424,7 @@ async def find_valve_entity(self, entity_id):
     config_entry_id = reg_entity.config_entry_id
     if config_entry_id is None:
         return None
-    entity_entries = async_entries_for_config_entry(
-        entity_registry, config_entry_id
-    )
+    entity_entries = async_entries_for_config_entry(entity_registry, config_entry_id)
     preferred_domains = {"number", "input_number"}
     readonly_candidate: dict[str, Any] | None = None
 
@@ -699,10 +693,8 @@ async def find_local_calibration_entity(self, entity_id):
     config_entry_id = reg_entity.config_entry_id
     if config_entry_id is None:
         return None
-    entity_entries = async_entries_for_config_entry(
-        entity_registry, config_entry_id
-    )
-
+    entity_entries = async_entries_for_config_entry(entity_registry, config_entry_id)
+    calibration_entity = None
     # First pass: match by translation_key (preferred, stable approach)
     for entity in entity_entries:
         if entity.device_id != reg_entity.device_id:
@@ -715,7 +707,7 @@ async def find_local_calibration_entity(self, entity_id):
                 entity_id,
                 tk,
             )
-            return entity.entity_id
+            calibration_entity = entity.entity_id
 
     # Second pass: fallback to string matching on unique_id / entity_id / original_name
     for entity in entity_entries:
@@ -733,7 +725,13 @@ async def find_local_calibration_entity(self, entity_id):
                 entity.entity_id,
                 entity_id,
             )
-            return entity.entity_id
+            calibration_entity = entity.entity_id
+
+    if calibration_entity is None:
+        _LOGGER.debug(
+            "better thermostat: Could not find local calibration entity for %s",
+            entity_id,
+        )
 
     return calibration_entity
 

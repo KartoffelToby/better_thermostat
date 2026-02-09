@@ -10,6 +10,7 @@ from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.restore_state import RestoreEntity
 
+from .sensor import _ACTIVE_PID_NUMBERS, _ACTIVE_PRESET_NUMBERS
 from .utils.calibration.pid import (
     _PID_STATES,
     DEFAULT_PID_KD,
@@ -19,7 +20,6 @@ from .utils.calibration.pid import (
     build_pid_key,
 )
 from .utils.const import CONF_CALIBRATION_MODE, CalibrationMode
-from .sensor import _ACTIVE_PRESET_NUMBERS, _ACTIVE_PID_NUMBERS
 
 _LOGGER = logging.getLogger(__name__)
 DOMAIN = "better_thermostat"

@@ -61,7 +61,7 @@ async def get_current_offset(self, entity_id):
             return 0.0
         try:
             # For SELECT entities, remove the 'k' suffix if present (e.g., "1.5k" -> "1.5")
-            state_str = str(state.state).replace('k', '')
+            state_str = str(state.state).replace("k", "")
             return float(state_str)
         except (ValueError, TypeError):
             _LOGGER.warning(
@@ -102,7 +102,7 @@ async def get_min_offset(self, entity_id):
             if options:
                 try:
                     # Extract numeric values from options (remove 'k' suffix)
-                    values = [float(opt.replace('k', '')) for opt in options]
+                    values = [float(opt.replace("k", "")) for opt in options]
                     return min(values)
                 except (ValueError, TypeError):
                     return -6.0
@@ -129,7 +129,7 @@ async def get_max_offset(self, entity_id):
             if options:
                 try:
                     # Extract numeric values from options (remove 'k' suffix)
-                    values = [float(opt.replace('k', '')) for opt in options]
+                    values = [float(opt.replace("k", "")) for opt in options]
                     return max(values)
                 except (ValueError, TypeError):
                     return 6.0
@@ -195,11 +195,15 @@ async def set_offset(self, entity_id, offset):
         offset = min(max_calibration, offset)
         offset = max(min_calibration, offset)
 
-        calibration_entity = self.real_trvs[entity_id]["local_temperature_calibration_entity"]
+        calibration_entity = self.real_trvs[entity_id][
+            "local_temperature_calibration_entity"
+        ]
         entity_state = self.hass.states.get(calibration_entity)
 
         # Derive domain safely - from entity_state if available, otherwise from entity_id
-        domain = entity_state.domain if entity_state else calibration_entity.split(".", 1)[0]
+        domain = (
+            entity_state.domain if entity_state else calibration_entity.split(".", 1)[0]
+        )
 
         # Check if it's a SELECT entity or NUMBER entity
         if domain == "select":
@@ -225,7 +229,10 @@ async def set_offset(self, entity_id, offset):
 
                         if parsed_options:
                             # Find option with minimum distance to target offset
-                            closest_option = min(parsed_options, key=lambda opt: abs(parsed_options[opt] - offset))
+                            closest_option = min(
+                                parsed_options,
+                                key=lambda opt: abs(parsed_options[opt] - offset),
+                            )
                             option_value = closest_option
                     except (ValueError, TypeError):
                         # If parsing fails, keep original option_value and hope for the best
@@ -234,10 +241,7 @@ async def set_offset(self, entity_id, offset):
             await self.hass.services.async_call(
                 "select",
                 "select_option",
-                {
-                    "entity_id": calibration_entity,
-                    "option": option_value,
-                },
+                {"entity_id": calibration_entity, "option": option_value},
                 blocking=True,
                 context=self.context,
             )
@@ -246,10 +250,7 @@ async def set_offset(self, entity_id, offset):
             await self.hass.services.async_call(
                 "number",
                 SERVICE_SET_VALUE,
-                {
-                    "entity_id": calibration_entity,
-                    "value": offset,
-                },
+                {"entity_id": calibration_entity, "value": offset},
                 blocking=True,
                 context=self.context,
             )

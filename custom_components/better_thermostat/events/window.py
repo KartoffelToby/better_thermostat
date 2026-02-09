@@ -56,8 +56,7 @@ async def trigger_window_change(self, event) -> None:
         new_window_open = False
     else:
         _LOGGER.error(
-            "better_thermostat %s: New window sensor state '%s' "
-            "not recognized",
+            "better_thermostat %s: New window sensor state '%s' not recognized",
             self.device_name,
             new_state,
         )
@@ -141,8 +140,7 @@ async def window_queue(self):
                 self.window_queue_task.task_done()
     except asyncio.CancelledError:
         _LOGGER.debug(
-            "better_thermostat %s: Window queue task cancelled",
-            self.device_name,
+            "better_thermostat %s: Window queue task cancelled", self.device_name
         )
         raise
 

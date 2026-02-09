@@ -43,6 +43,7 @@ from homeassistant.const import (
 )
 from homeassistant.core import Context, CoreState, ServiceCall, callback
 from homeassistant.helpers import entity_platform
+from homeassistant.helpers.dispatcher import dispatcher_send
 from homeassistant.helpers.event import (
     async_track_state_change_event,
     async_track_time_change,
@@ -50,7 +51,6 @@ from homeassistant.helpers.event import (
 )
 from homeassistant.helpers.restore_state import RestoreEntity
 from homeassistant.helpers.storage import Store
-from homeassistant.helpers.dispatcher import dispatcher_send
 
 # preferred for HA time handling (UTC aware)
 from homeassistant.util import dt as dt_util
@@ -555,7 +555,7 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
         """
         if isinstance(self.all_trvs, str):
             return _LOGGER.error(
-                "You updated from version before 1.0.0-Beta36 of the Better Thermostat integration, " \
+                "You updated from version before 1.0.0-Beta36 of the Better Thermostat integration, "
                 "you need to remove the BT devices (integration) and add it again."
             )
 
@@ -862,9 +862,7 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
             humidity_state = self.hass.states.get(self.humidity_sensor_entity_id)
             if humidity_state is not None:
                 self._current_humidity = convert_to_float(
-                    str(humidity_state.state),
-                    self.device_name,
-                    "humidity_update",
+                    str(humidity_state.state), self.device_name, "humidity_update"
                 )
         self.async_write_ha_state()
 
@@ -1310,9 +1308,7 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
                 )
                 # Restore preset mode if present
                 _old_preset = old_state.attributes.get("preset_mode")
-                if _old_preset in (
-                    [PRESET_NONE] + list(self._preset_temperatures)
-                ):
+                if _old_preset in ([PRESET_NONE] + list(self._preset_temperatures)):
                     self._preset_mode = _old_preset
                 else:
                     self._preset_mode = PRESET_NONE
@@ -1378,7 +1374,9 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
                     )
                 if old_state.attributes.get(ATTR_STATE_HEATING_POWER, None) is not None:
                     try:
-                        _power_value = old_state.attributes.get(ATTR_STATE_HEATING_POWER)
+                        _power_value = old_state.attributes.get(
+                            ATTR_STATE_HEATING_POWER
+                        )
                         if _power_value is not None:
                             loaded_power = float(_power_value)
                         else:
@@ -1622,18 +1620,18 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
 
                     try:
                         async with asyncio.timeout(10):
-                            trv_data[
-                                "last_calibration"
-                            ] = await get_current_offset(self, trv)
-                            trv_data[
-                                "local_calibration_min"
-                            ] = await get_min_offset(self, trv)
-                            trv_data[
-                                "local_calibration_max"
-                            ] = await get_max_offset(self, trv)
-                            trv_data[
-                                "local_calibration_step"
-                            ] = await get_offset_step(self, trv)
+                            trv_data["last_calibration"] = await get_current_offset(
+                                self, trv
+                            )
+                            trv_data["local_calibration_min"] = await get_min_offset(
+                                self, trv
+                            )
+                            trv_data["local_calibration_max"] = await get_max_offset(
+                                self, trv
+                            )
+                            trv_data["local_calibration_step"] = await get_offset_step(
+                                self, trv
+                            )
                         # Ensure None values are replaced with sensible defaults
                         self._set_trv_calibration_defaults(trv)
                         _LOGGER.debug(
@@ -2149,8 +2147,7 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
                     pass
 
             await asyncio.gather(
-                *(_restore_one(trv_id) for trv_id in trv_infos),
-                return_exceptions=True,
+                *(_restore_one(trv_id) for trv_id in trv_infos), return_exceptions=True
             )
 
             # Ensure we always release the guard for TRVs that were skipped above.
@@ -2660,7 +2657,7 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
                     )
 
                 _LOGGER.debug(
-                    "better_thermostat %s: heating cycle evaluated: ΔT=%.3f°C, t=%.2fmin, rate=%.4f°C/min, " \
+                    "better_thermostat %s: heating cycle evaluated: ΔT=%.3f°C, t=%.2fmin, rate=%.4f°C/min, "
                     "hp(old/new)=%.4f/%.4f, alpha=%.3f, env_factor=%.3f, norm=%s",
                     self.device_name,
                     temp_diff,
@@ -3594,8 +3591,7 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
         signal_key = f"bt_config_changed_{self._config_entry_id}"
         dispatcher_send(self.hass, signal_key, {"entry_id": self._config_entry_id})
         _LOGGER.debug(
-            "better_thermostat %s: Signaled configuration change",
-            self.device_name,
+            "better_thermostat %s: Signaled configuration change", self.device_name
         )
 
     async def run_valve_maintenance_service(self) -> None:

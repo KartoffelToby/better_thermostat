@@ -49,9 +49,7 @@ async def trigger_cooler_change(self, event):
         return
 
     _LOGGER.debug(
-        "better_thermostat %s: Cooler %s update received",
-        self.device_name,
-        entity_id,
+        "better_thermostat %s: Cooler %s update received", self.device_name, entity_id
     )
 
     _main_key = "temperature"
