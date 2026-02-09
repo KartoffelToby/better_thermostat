@@ -3,10 +3,7 @@
   "config": {
     "step": {
       "user": {
-        "description": "Setup your Better Thermostat to integrate with Home Assistant\n**If you need more info: [documentation]({config_url})**",
-        "description_placeholders": {
-          "config_url": "https://better-thermostat.org/configuration#first-step"
-        },
+        "description": "Setup your Better Thermostat to integrate with Home Assistant",
         "data": {
           "name": "Name",
           "thermostat": "The real thermostat",
@@ -28,10 +25,7 @@
         }
       },
       "advanced": {
-        "description": "Advanced configuration {trv}\n***Info about calibration types: [documentation]({calibration_url})***",
-        "description_placeholders": {
-          "calibration_url": "https://better-thermostat.org/configuration#second-step"
-        },
+        "description": "Advanced configuration {trv}",
         "data": {
           "protect_overheating": "Overheating protection?",
           "heat_auto_swapped": "If the auto means heat for your TRV and you want to swap it",
@@ -93,10 +87,7 @@
         }
       },
       "advanced": {
-        "description": "Advanced configuration {trv}\n***Info about calibration types: [documentation]({calibration_url})***",
-        "description_placeholders": {
-          "calibration_url": "https://better-thermostat.org/configuration#second-step"
-        },
+        "description": "Advanced configuration {trv}",
         "data": {
           "trend_mix_trv": "Temp mix (external weight, 0–1)",
           "percent_hysteresis_pts": "Hysteresis (percentage points)",
