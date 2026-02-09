@@ -1377,10 +1377,13 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
                         ATTR_STATE_MAIN_MODE
                     )
                 if old_state.attributes.get(ATTR_STATE_HEATING_POWER, None) is not None:
-                    _power_value = old_state.attributes.get(ATTR_STATE_HEATING_POWER)
-                    if _power_value is not None:
-                        loaded_power = float(_power_value)
-                    else:
+                    try:
+                        _power_value = old_state.attributes.get(ATTR_STATE_HEATING_POWER)
+                        if _power_value is not None:
+                            loaded_power = float(_power_value)
+                        else:
+                            loaded_power = 0.01
+                    except (TypeError, ValueError):
                         loaded_power = 0.01
                     # Bound to realistic values to prevent issues from incorrectly learned values
                     bounded_power = max(
