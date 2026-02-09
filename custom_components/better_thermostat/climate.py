@@ -3069,12 +3069,12 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
                 except Exception:
                     return HVACMode.OFF
 
-        # Ensure result is in available modes list                                                                                                                                                                                                         
+        # Ensure result is in available modes list
         if result not in self._hvac_list:
-            # HEAT should map to map_on_hvac_mode (HEAT_COOL when cooler exists)                                                                                                                                                                           
+            # HEAT should map to map_on_hvac_mode (HEAT_COOL when cooler exists)
             if result == HVACMode.HEAT and self.map_on_hvac_mode in self._hvac_list:
                 return self.map_on_hvac_mode
-                # Fallback to OFF if mode still invalid                                                                                                                                                                                                        
+                # Fallback to OFF if mode still invalid
             return HVACMode.OFF
 
         return result

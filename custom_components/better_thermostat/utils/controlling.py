@@ -150,10 +150,7 @@ async def control_cooler(self):
     """Control the cooler entity."""
     # Get current cooler state to avoid sending redundant commands
     cooler_state = self.hass.states.get(self.cooler_entity_id)
-    if cooler_state is None or cooler_state.state in (
-            STATE_UNAVAILABLE,
-            STATE_UNKNOWN,
-    ):
+    if cooler_state is None or cooler_state.state in (STATE_UNAVAILABLE, STATE_UNKNOWN):
         _LOGGER.debug(
             "better_thermostat %s: cooler %s unavailable, skipping",
             self.device_name,
@@ -189,10 +186,7 @@ async def control_cooler(self):
         await self.hass.services.async_call(
             "climate",
             "set_temperature",
-            {
-                "entity_id": self.cooler_entity_id,
-                "temperature": desired_temp,
-            },
+            {"entity_id": self.cooler_entity_id, "temperature": desired_temp},
             blocking=True,
             context=self.context,
         )
