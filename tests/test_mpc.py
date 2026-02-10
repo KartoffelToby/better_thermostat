@@ -239,7 +239,7 @@ class TestMPCController:
     def test_gain_does_not_increase_on_slope_without_sensor_change(self):
         """Slope-only identification must not drift gain when the sensor is flat."""
 
-        from time import monotonic
+        from time import time
 
         from custom_components.better_thermostat.utils.calibration.mpc import (
             _MPC_STATES,
@@ -263,7 +263,7 @@ class TestMPCController:
         st.last_percent = 100.0
         st.last_learn_temp = inp1.current_temp_C
         st.last_learn_time = (
-            monotonic() - 300.0
+            time() - 300.0
         )  # >=180s, but <600s (no steady-state gain)
         assert st.gain_est is not None
         gain_before = float(st.gain_est)
@@ -281,7 +281,7 @@ class TestMPCController:
     def test_gain_decreases_when_high_output_and_no_warming(self):
         """If valve is high, temperature is flat, and still below target, gain should decrease."""
 
-        from time import monotonic
+        from time import time
 
         from custom_components.better_thermostat.utils.calibration.mpc import (
             _MPC_STATES,
@@ -306,8 +306,9 @@ class TestMPCController:
         st.last_percent = 90.0
         st.last_learn_temp = 21.5
         st.last_learn_time = (
-            monotonic() - 900.0
+            time() - 900.0
         )  # 15min -> in steady-state learning window
+        st.last_residual_time = st.last_learn_time  # align residual window
 
         gain_before = float(st.gain_est)
         _ = compute_mpc(
@@ -325,7 +326,7 @@ class TestMPCController:
     def test_loss_can_learn_from_steady_state_without_valve_closing(self):
         """Loss should be able to learn under quasi steady-state even if the valve never closes."""
 
-        from time import monotonic
+        from time import time
 
         from custom_components.better_thermostat.utils.calibration.mpc import (
             _MPC_STATES,
@@ -349,7 +350,8 @@ class TestMPCController:
         st.loss_est = 0.01
         st.last_percent = 36.0
         st.last_learn_temp = 21.8
-        st.last_learn_time = monotonic() - 360.0  # 6min: >=180s and in residual window
+        st.last_learn_time = time() - 360.0  # 6min: >=180s and in residual window
+        st.last_residual_time = st.last_learn_time  # align residual window
 
         loss_before = float(st.loss_est)
 
