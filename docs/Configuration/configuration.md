@@ -8,7 +8,7 @@ permalink: configuration
 
 ## Create a new Better Thermostat device
 
-**Goto: `Settings` -> `Devices & Services` -> `Integrations` -> `+ Add Integration` -> `Better Thermostat`**
+**Go to: `Settings` -> `Devices & Services` -> `Integrations` -> `+ Add Integration` -> `Better Thermostat`**
 
 or click on the button below:
 
