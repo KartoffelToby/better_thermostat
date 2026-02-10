@@ -719,6 +719,7 @@ async def find_local_calibration_entity(self, entity_id):
                 tk,
             )
             calibration_entity = entity.entity_id
+            break
 
     # Second pass: fallback to string matching on unique_id / entity_id / original_name
     if calibration_entity is None:
