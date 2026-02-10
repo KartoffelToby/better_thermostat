@@ -26,10 +26,18 @@ async def trigger_cooler_change(self, event):
     new_state = event.data.get("new_state")
     entity_id = event.data.get("entity_id")
 
-    if None in (new_state, old_state, new_state.attributes):
+    if new_state is None or old_state is None:
         _LOGGER.debug(
             "better_thermostat %s: Cooler %s update contained not all "
             "necessary data for processing, skipping",
+            self.device_name,
+            entity_id,
+        )
+        return
+
+    if new_state.attributes is None:
+        _LOGGER.debug(
+            "better_thermostat %s: Cooler %s update had no attributes, skipping",
             self.device_name,
             entity_id,
         )

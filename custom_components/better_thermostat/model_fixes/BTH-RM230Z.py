@@ -47,7 +47,25 @@ async def override_set_temperature(self, entity_id, temperature):
         entity_reg = er.async_get(self.hass)
         entry = entity_reg.async_get(entity_id)
 
-        hvac_modes = entry.capabilities.get("hvac_modes", [])
+        if entry is None:
+            _LOGGER.debug(
+                "better_thermostat %s: TRV %s not found in entity registry, "
+                "falling back to simple set_temperature",
+                self.device_name,
+                entity_id,
+            )
+            await self.hass.services.async_call(
+                "climate",
+                "set_temperature",
+                {"entity_id": entity_id, "temperature": temperature},
+                blocking=True,
+                context=self.context,
+            )
+            return True
+
+        hvac_modes = (
+            entry.capabilities.get("hvac_modes", []) if entry.capabilities else []
+        )
 
         _LOGGER.debug(
             f"better_thermostat {self.device_name}: TRV {entity_id} device quirk bth-rm230z found hvac_modes {hvac_modes}"
