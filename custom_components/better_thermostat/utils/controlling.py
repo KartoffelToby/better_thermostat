@@ -76,7 +76,11 @@ def _get_valve_control(
 
     # Fallback to raw balance
     raw_balance = self.real_trvs[heater_entity_id].get("balance")
-    if raw_balance and raw_balance.get("valve_percent") is not None:
+    if (
+        isinstance(raw_balance, dict)
+        and raw_balance.get("apply_valve")
+        and raw_balance.get("valve_percent") is not None
+    ):
         return raw_balance, "balance"
 
     return None, None
@@ -129,10 +133,11 @@ async def _reset_valve_on_safety_override(
             )
             await set_valve(self, heater_entity_id, 0)
         except Exception:
-            _LOGGER.debug(
+            _LOGGER.warning(
                 "better_thermostat %s: Failed to reset valve for %s during safety override",
                 self.device_name,
                 heater_entity_id,
+                exc_info=True,
             )
 
 

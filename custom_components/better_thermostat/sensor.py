@@ -332,7 +332,7 @@ async def _cleanup_preset_number_entities(
         if preset_name and preset_name not in current_presets:
             entities_to_remove.append((preset_unique_id, preset_name))
 
-    # Remove entities from registry
+    # Remove entities from registry – only delete tracking key on success
     removed_count = 0
     for preset_unique_id, preset_name in entities_to_remove:
         entity_id = entity_registry.async_get_entity_id(
@@ -342,6 +342,7 @@ async def _cleanup_preset_number_entities(
             try:
                 entity_registry.async_remove(entity_id)
                 removed_count += 1
+                tracked_presets.pop(preset_unique_id, None)
                 _LOGGER.debug(
                     "Better Thermostat %s: Removed unused preset number entity %s (preset: %s)",
                     bt_climate.device_name,
@@ -356,11 +357,11 @@ async def _cleanup_preset_number_entities(
                     e,
                 )
 
-    # Update tracking to reflect current preset configuration
-    _ACTIVE_PRESET_NUMBERS[entry_id] = {
-        f"{bt_climate.unique_id}_preset_{preset}": {"preset": preset}
-        for preset in current_presets
-    }
+    # Merge new entries for current presets without wiping failed removals
+    for preset in current_presets:
+        uid = f"{bt_climate.unique_id}_preset_{preset}"
+        tracked_presets[uid] = {"preset": preset}
+    _ACTIVE_PRESET_NUMBERS[entry_id] = tracked_presets
 
     if removed_count > 0:
         _LOGGER.info(
@@ -401,7 +402,7 @@ async def _cleanup_pid_number_entities(
         if trv_id and trv_id not in current_pid_trvs:
             entities_to_remove.append(pid_unique_id)
 
-    # Remove entities from registry
+    # Remove entities from registry – only delete tracking key on success
     removed_count = 0
     for pid_unique_id in entities_to_remove:
         entity_id = entity_registry.async_get_entity_id("number", DOMAIN, pid_unique_id)
@@ -409,6 +410,7 @@ async def _cleanup_pid_number_entities(
             try:
                 entity_registry.async_remove(entity_id)
                 removed_count += 1
+                tracked_pid_numbers.pop(pid_unique_id, None)
                 _LOGGER.debug(
                     "Better Thermostat %s: Removed unused PID number entity %s",
                     bt_climate.device_name,
@@ -422,14 +424,12 @@ async def _cleanup_pid_number_entities(
                     e,
                 )
 
-    # Update tracking to reflect current PID configuration
-    current_pid_map = {}
+    # Merge new entries for current PID TRVs without wiping failed removals
     for trv_entity_id in current_pid_trvs:
         for param in ["kp", "ki", "kd"]:
             uid = f"{bt_climate.unique_id}_{trv_entity_id}_pid_{param}"
-            current_pid_map[uid] = {"trv": trv_entity_id, "param": param}
-
-    _ACTIVE_PID_NUMBERS[entry_id] = current_pid_map
+            tracked_pid_numbers[uid] = {"trv": trv_entity_id, "param": param}
+    _ACTIVE_PID_NUMBERS[entry_id] = tracked_pid_numbers
 
     if removed_count > 0:
         _LOGGER.info(
@@ -485,7 +485,7 @@ async def _cleanup_pid_switch_entities(
         if should_remove:
             entities_to_remove.append(switch_unique_id)
 
-    # Remove entities from registry
+    # Remove entities from registry – only delete tracking key on success
     removed_count = 0
     for switch_unique_id in entities_to_remove:
         entity_id = entity_registry.async_get_entity_id(
@@ -495,6 +495,7 @@ async def _cleanup_pid_switch_entities(
             try:
                 entity_registry.async_remove(entity_id)
                 removed_count += 1
+                tracked_switches.pop(switch_unique_id, None)
                 _LOGGER.debug(
                     "Better Thermostat %s: Removed unused switch entity %s",
                     bt_climate.device_name,
@@ -508,20 +509,19 @@ async def _cleanup_pid_switch_entities(
                     e,
                 )
 
-    # Update tracking to reflect current switch configuration
-    current_switch_map = {}
+    # Merge new entries without wiping failed removals
     # Add PID Auto-Tune switches for current PID TRVs
     for trv_entity_id in current_pid_trvs:
         uid = f"{bt_climate.unique_id}_{trv_entity_id}_pid_auto_tune"
-        current_switch_map[uid] = {"trv": trv_entity_id, "type": "pid_auto_tune"}
+        tracked_switches[uid] = {"trv": trv_entity_id, "type": "pid_auto_tune"}
 
     # Add Child Lock switches (always present for all TRVs)
     if hasattr(bt_climate, "real_trvs") and bt_climate.real_trvs:
         for trv_entity_id in bt_climate.real_trvs:
             uid = f"{bt_climate.unique_id}_{trv_entity_id}_child_lock"
-            current_switch_map[uid] = {"trv": trv_entity_id, "type": "child_lock"}
+            tracked_switches[uid] = {"trv": trv_entity_id, "type": "child_lock"}
 
-    _ACTIVE_SWITCH_ENTITIES[entry_id] = current_switch_map
+    _ACTIVE_SWITCH_ENTITIES[entry_id] = tracked_switches
 
     if removed_count > 0:
         _LOGGER.info(
