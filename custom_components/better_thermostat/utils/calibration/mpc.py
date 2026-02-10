@@ -1375,7 +1375,7 @@ def _compute_predictive_percent(
     #     if state.solar_gain_est is not None
     #     else getattr(params, "mpc_solar_gain_initial", 0.01)
     # )
-    solar_gain_factor = 0.0
+    _solar_gain_factor = 0.0  # reserved for future solar gain
 
     gain_step = gain * step_minutes
     loss_step = loss * step_minutes
