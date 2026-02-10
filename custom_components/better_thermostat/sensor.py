@@ -31,9 +31,9 @@ _ENTITY_CLEANUP_CALLBACKS = {}
 _DISPATCHER_UNSUBSCRIBES = {}  # Store unsubscribe functions
 
 # Globale Tracking-Variablen für aktive Preset Number Entitäten
-_ACTIVE_PRESET_NUMBERS = {}  # {entry_id: [preset_unique_ids]}
-_ACTIVE_PID_NUMBERS = {}  # {entry_id: [pid_number_unique_ids]}
-_ACTIVE_SWITCH_ENTITIES = {}  # {entry_id: [switch_unique_ids]}
+_ACTIVE_PRESET_NUMBERS = {}  # {entry_id: {unique_id: {"preset": preset_name}, ...}}
+_ACTIVE_PID_NUMBERS = {}  # {entry_id: {unique_id: {"trv": trv_entity_id, "param": parameter}, ...}}
+_ACTIVE_SWITCH_ENTITIES = {}  # {entry_id: {unique_id: {"trv": trv_entity_id, "type": kind}, ...}}
 
 
 async def async_setup_entry(
@@ -323,17 +323,12 @@ async def _cleanup_preset_number_entities(
     current_presets: set,
 ) -> None:
     """Remove preset number entities for disabled presets."""
-    tracked_presets = _ACTIVE_PRESET_NUMBERS.get(entry_id, [])
+    tracked_presets = _ACTIVE_PRESET_NUMBERS.get(entry_id, {})
 
     # Find number entities to remove
     entities_to_remove = []
-    for preset_unique_id in tracked_presets:
-        # Extract preset name from unique_id (format: "{bt_unique_id}_preset_{preset_name}")
-        preset_name = (
-            preset_unique_id.split("_preset_")[-1]
-            if "_preset_" in preset_unique_id
-            else None
-        )
+    for preset_unique_id, meta in tracked_presets.items():
+        preset_name = meta.get("preset")
         if preset_name and preset_name not in current_presets:
             entities_to_remove.append((preset_unique_id, preset_name))
 
@@ -362,10 +357,10 @@ async def _cleanup_preset_number_entities(
                 )
 
     # Update tracking to reflect current preset configuration
-    current_preset_unique_ids = [
-        f"{bt_climate.unique_id}_preset_{preset}" for preset in current_presets
-    ]
-    _ACTIVE_PRESET_NUMBERS[entry_id] = current_preset_unique_ids
+    _ACTIVE_PRESET_NUMBERS[entry_id] = {
+        f"{bt_climate.unique_id}_preset_{preset}": {"preset": preset}
+        for preset in current_presets
+    }
 
     if removed_count > 0:
         _LOGGER.info(
@@ -379,7 +374,7 @@ async def _cleanup_pid_number_entities(
     hass: HomeAssistant, entity_registry: EntityRegistry, entry_id: str, bt_climate
 ) -> None:
     """Remove PID number entities for TRVs no longer using PID calibration."""
-    tracked_pid_numbers = _ACTIVE_PID_NUMBERS.get(entry_id, [])
+    tracked_pid_numbers = _ACTIVE_PID_NUMBERS.get(entry_id, {})
 
     # Get current TRVs using PID calibration - consistent with switch cleanup
     current_pid_trvs = set()
@@ -401,14 +396,10 @@ async def _cleanup_pid_number_entities(
 
     # Find PID number entities to remove
     entities_to_remove = []
-    for pid_unique_id in tracked_pid_numbers:
-        # Extract TRV entity ID from unique_id
-        # Format: "{bt_unique_id}_{trv_entity_id}_pid_{parameter}"
-        parts = pid_unique_id.split("_pid_")
-        if len(parts) == 2:
-            trv_part = parts[0].replace(f"{bt_climate.unique_id}_", "", 1)
-            if trv_part not in current_pid_trvs:
-                entities_to_remove.append(pid_unique_id)
+    for pid_unique_id, meta in tracked_pid_numbers.items():
+        trv_id = meta.get("trv")
+        if trv_id and trv_id not in current_pid_trvs:
+            entities_to_remove.append(pid_unique_id)
 
     # Remove entities from registry
     removed_count = 0
@@ -432,14 +423,13 @@ async def _cleanup_pid_number_entities(
                 )
 
     # Update tracking to reflect current PID configuration
-    current_pid_unique_ids = []
+    current_pid_map = {}
     for trv_entity_id in current_pid_trvs:
         for param in ["kp", "ki", "kd"]:
-            current_pid_unique_ids.append(
-                f"{bt_climate.unique_id}_{trv_entity_id}_pid_{param}"
-            )
+            uid = f"{bt_climate.unique_id}_{trv_entity_id}_pid_{param}"
+            current_pid_map[uid] = {"trv": trv_entity_id, "param": param}
 
-    _ACTIVE_PID_NUMBERS[entry_id] = current_pid_unique_ids
+    _ACTIVE_PID_NUMBERS[entry_id] = current_pid_map
 
     if removed_count > 0:
         _LOGGER.info(
@@ -453,7 +443,7 @@ async def _cleanup_pid_switch_entities(
     hass: HomeAssistant, entity_registry: EntityRegistry, entry_id: str, bt_climate
 ) -> None:
     """Remove PID switch entities for TRVs no longer using PID calibration and child lock switches for removed TRVs."""
-    tracked_switches = _ACTIVE_SWITCH_ENTITIES.get(entry_id, [])
+    tracked_switches = _ACTIVE_SWITCH_ENTITIES.get(entry_id, {})
 
     # Get current TRVs using PID calibration
     current_pid_trvs = set()
@@ -473,30 +463,22 @@ async def _cleanup_pid_switch_entities(
             if calibration_mode == CalibrationMode.PID_CALIBRATION:
                 current_pid_trvs.add(trv_entity_id)
 
-    # Find PID switch entities to remove
+    # Find switch entities to remove using stored metadata
     entities_to_remove = []
-    for switch_unique_id in tracked_switches:
-        # Extract TRV entity ID from unique_id and check if should be removed
+    for switch_unique_id, meta in tracked_switches.items():
+        trv_id = meta.get("trv")
+        kind = meta.get("type")
         should_remove = False
 
-        # Format: "{bt_unique_id}_{trv_entity_id}_pid_auto_tune"
-        if "_pid_auto_tune" in switch_unique_id:
-            trv_part = switch_unique_id.replace(
-                f"{bt_climate.unique_id}_", "", 1
-            ).replace("_pid_auto_tune", "")
-            if trv_part not in current_pid_trvs:
+        if kind == "pid_auto_tune":
+            if trv_id not in current_pid_trvs:
                 should_remove = True
-
-        # Format: "{bt_unique_id}_{trv_entity_id}_child_lock"
-        elif "_child_lock" in switch_unique_id:
-            trv_part = switch_unique_id.replace(
-                f"{bt_climate.unique_id}_", "", 1
-            ).replace("_child_lock", "")
+        elif kind == "child_lock":
             # Remove child lock switches for TRVs that no longer exist
             if (
                 not hasattr(bt_climate, "real_trvs")
                 or not bt_climate.real_trvs
-                or trv_part not in bt_climate.real_trvs
+                or trv_id not in bt_climate.real_trvs
             ):
                 should_remove = True
 
@@ -527,21 +509,19 @@ async def _cleanup_pid_switch_entities(
                 )
 
     # Update tracking to reflect current switch configuration
-    current_switch_unique_ids = []
+    current_switch_map = {}
     # Add PID Auto-Tune switches for current PID TRVs
     for trv_entity_id in current_pid_trvs:
-        current_switch_unique_ids.append(
-            f"{bt_climate.unique_id}_{trv_entity_id}_pid_auto_tune"
-        )
+        uid = f"{bt_climate.unique_id}_{trv_entity_id}_pid_auto_tune"
+        current_switch_map[uid] = {"trv": trv_entity_id, "type": "pid_auto_tune"}
 
     # Add Child Lock switches (always present for all TRVs)
     if hasattr(bt_climate, "real_trvs") and bt_climate.real_trvs:
         for trv_entity_id in bt_climate.real_trvs:
-            current_switch_unique_ids.append(
-                f"{bt_climate.unique_id}_{trv_entity_id}_child_lock"
-            )
+            uid = f"{bt_climate.unique_id}_{trv_entity_id}_child_lock"
+            current_switch_map[uid] = {"trv": trv_entity_id, "type": "child_lock"}
 
-    _ACTIVE_SWITCH_ENTITIES[entry_id] = current_switch_unique_ids
+    _ACTIVE_SWITCH_ENTITIES[entry_id] = current_switch_map
 
     if removed_count > 0:
         _LOGGER.info(
