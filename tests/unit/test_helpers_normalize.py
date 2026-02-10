@@ -214,24 +214,21 @@ class TestConvertToFloat:
         assert result == 0.0
 
     def test_rounds_very_small_numbers_to_zero(self):
-        """Test BY DESIGN: very small numbers < 0.005 are rounded to 0.
+        """Test that very small numbers < 0.005 are rounded to 0.
 
-        This is intentional behavior from PR #1805 which fixed issues #1792, #1789, #1785.
         The 0.01 step rounding (2 decimal precision) preserves sensor accuracy while
-        preventing floating-point artifacts. Values < 0.005°C are too small to affect
+        preventing floating-point artifacts. Values < 0.005 degrees are too small to affect
         HVAC control decisions and are below typical sensor accuracy.
-
-        Related: #1805 (fix), #1792 (original issue), test_temperature_precision.py
         """
         result = convert_to_float(0.0001, "test", "temperature")
         # Expected behavior: rounds to 0.0 due to 0.01 step
         assert result == 0.0
 
     def test_rounds_scientific_notation_to_zero(self):
-        """Test BY DESIGN: scientific notation values < 0.005 are rounded to 0.
+        """Test that scientific notation values < 0.005 are rounded to 0.
 
-        This is intentional - temperature sensors typically don't provide
-        precision below 0.01°C, so sub-0.005 values are negligible.
+        Temperature sensors typically don't provide precision below 0.01 degrees,
+        so sub-0.005 values are negligible.
         """
         result = convert_to_float("1.5e-3", "test", "temperature")
         # Expected behavior: 0.0015 rounded to 0.0 due to 0.01 step
