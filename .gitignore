@@ -1,15 +1,86 @@
+# Jekyll
 .jekyll-cache/
 _site/
-__pycache__
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+*.egg
+*.egg-info/
+dist/
+build/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+
+# Virtual Environments
 pythonenv*
-venv
-.venv
+venv/
+.venv/
+ENV/
+env/
+.env
+
+# Testing
 .coverage
-.idea
+.pytest_cache/
+.tox/
+htmlcov/
+.hypothesis/
+
+# IDEs
+.idea/
+.vscode/settings.json
+*.swp
+*.swo
+*~
+.project
+.classpath
+.settings/
+*.sublime-project
+*.sublime-workspace
+
+# OS
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+Desktop.ini
+
+# Home Assistant
 custom_components/hacs
-x_*
 .haconfig
 node_modules
 dist
 build
 *.log
+.HA_VERSION
+home-assistant.log
+home-assistant_v2.db
+*.db-shm
+*.db-wal
+
+# Project specific
+x_*
+dashboard/*
+
+# Logs
+*.log
+logs/
+
+# Temporary files
+*.tmp
+*.bak
+*.swp
+*~

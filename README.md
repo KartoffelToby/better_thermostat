@@ -1,14 +1,14 @@
+# Better Thermostat
+
 [![Active installations](https://badge.t-haber.de/badge/better_thermostat?kill_cache=1)](https://github.com/KartoffelToby/better_thermostat/)
 [![GitHub issues](https://img.shields.io/github/issues/KartoffelToby/better_thermostat?style=for-the-badge)](https://github.com/KartoffelToby/better_thermostat/issues)
 [![Version - 1.8.0](https://img.shields.io/badge/Version-1.8.0-009688?style=for-the-badge)](https://github.com/KartoffelToby/better_thermostat/releases)
 [![Discord](https://img.shields.io/discord/925725316540923914.svg?style=for-the-badge)](https://discord.gg/9BUegWTG3K)
 [![hacs_badge](https://img.shields.io/badge/HACS-Default-41BDF5.svg?style=for-the-badge)](https://github.com/hacs/integration)
 
-# Better Thermostat
+**For more info visit: <https://better-thermostat.org/>**
 
-**For more info visit: https://better-thermostat.org/**
-
-### Requirements
+## Requirements
 
 - Minimum required Home Assistant version: `2024.12`
   (_Latest tested version: `2025.11.3`_)
@@ -63,7 +63,7 @@ How it works:
 
 Default starting values:
 
-```
+```text
 Away:            16.0 °C
 Boost:           24.0 °C
 Comfort:         21.0 °C
@@ -75,7 +75,7 @@ Activity:        22.0 °C
 
 ### Which hardware do we support?
 
-**We support all thermostats which are compatible with Home Assistant as long as they are shown up as a climate entity**
+We support all thermostats which are compatible with Home Assistant as long as they are shown up as a climate entity.
 
 **_Integrations that are tested_**
 
@@ -112,12 +112,12 @@ No worry, Better Thermostat supports grouping out of the box
 
 ---
 
-# Contributing?
+## Contributing?
 
 checkout the [CONTRIBUTING.md](CONTRIBUTING.md) file
 
-# ☕ Support
+## ☕ Support
 
 If you want to support this project, you can ☕ [**buy a coffee here**](https://www.buymeacoffee.com/kartoffeltoby).
 
-<a href="https://www.buymeacoffee.com/kartoffeltoby"><img src="https://img.buymeacoffee.com/button-api/?text=Buy me a coffee&emoji=&slug=kartoffeltoby&button_colour=0ac982&font_colour=000000&font_family=Cookie&outline_colour=000000&coffee_colour=ffffff"></a>
+[![Buy me a coffee](https://img.buymeacoffee.com/button-api/?text=Buy%20me%20a%20coffee&emoji=&slug=kartoffeltoby&button_colour=0ac982&font_colour=000000&font_family=Cookie&outline_colour=000000&coffee_colour=ffffff)](https://www.buymeacoffee.com/kartoffeltoby)

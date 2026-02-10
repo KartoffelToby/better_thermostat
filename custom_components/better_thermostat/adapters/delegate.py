@@ -39,7 +39,6 @@ async def load_adapter(self, integration, entity_id, get_name=False):
             integration,
             "generic",
         )
-        pass
 
     if get_name:
         return integration
@@ -96,6 +95,9 @@ async def set_temperature(self, entity_id, temperature):
         t = float(temperature)
     except (TypeError, ValueError):
         t = 0.0
+
+    # Initialize step with default value
+    step = 0.5
     try:
         # Step precedence: per-TRV (usually from config) > global config > device attribute > default 0.5
         per_trv_step = self.real_trvs.get(entity_id, {}).get("target_temp_step")
@@ -139,7 +141,7 @@ async def set_temperature(self, entity_id, temperature):
             getattr(self, "device_name", "unknown"),
             t,
             rounded,
-            step if "step" in locals() else None,
+            step,
         )
     # Keep last_temperature in sync with the actually sent value
     try:

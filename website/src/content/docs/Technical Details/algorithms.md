@@ -146,7 +146,7 @@ The algorithm automatically tunes these parameters over time for optimal perform
 
 **Cons:**
 
-- Can be aggressive initially
+- PID can be aggressive initially
 - May oscillate slightly during self-tuning
 - More technical - understanding the parameters helps
 
@@ -358,7 +358,7 @@ If you're purchasing new TRVs and want the best performance from Better Thermost
 1. **Give it time:** Algorithms with learning need time to learn your room:
 
    - **MPC Predictive**: 1 day for fine-tuned performance
-   - **Time Based**: 2-3 days for optimal performance
+   - **AI Time Based**: 2-3 days for optimal performance
    - **PID Controller**: 1-2 weeks for auto-tuning to settle
 
 2. **Stable placement:** Keep your external temperature sensor in a consistent location away from heat sources, drafts, and direct sunlight.
@@ -407,6 +407,6 @@ For developers and advanced users who want to understand the implementation deta
 
 If you're still unsure which algorithm to use or experiencing issues:
 
-1. Check the [Q&A section](../Q&A/qanda) for common questions
+1. Check the [Q&A section](../Q&A/qanda.md) for common questions
 2. Visit the [GitHub Discussions](https://github.com/KartoffelToby/better_thermostat/discussions)
 3. Report bugs on [GitHub Issues](https://github.com/KartoffelToby/better_thermostat/issues)

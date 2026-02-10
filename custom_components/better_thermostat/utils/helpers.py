@@ -174,9 +174,11 @@ def mode_remap(self, entity_id, hvac_mode: str, inbound: bool = False) -> str:
         return hvac_mode
 
     _LOGGER.error(
-        f"better_thermostat {self.device_name}: {entity_id} HVAC mode {
-            hvac_mode
-        } is not supported by this device, is it possible that you forgot to set the heat auto swapped option?"
+        "better_thermostat %s: %s HVAC mode %s is not supported by this device, "
+        "is it possible that you forgot to set the heat auto swapped option?",
+        self.device_name,
+        entity_id,
+        hvac_mode,
     )
     return HVACMode.OFF
 
@@ -219,13 +221,12 @@ def heating_power_valve_position(self, entity_id):
     valve_pos = max(0.0, min(1.0, valve_pos))
 
     _LOGGER.debug(
-        f"better_thermostat {self.device_name}: {
-            entity_id
-        } / heating_power_valve_position - temp diff: {
-            round(_temp_diff, 1)
-        } - heating power: {
-            round(heating_power, 4)
-        } (bounded) - expected valve position: {round(valve_pos * 100)}%"
+        "better_thermostat %s: %s / heating_power_valve_position - temp diff: %s - heating power: %s (bounded) - expected valve position: %s%%",
+        self.device_name,
+        entity_id,
+        round(_temp_diff, 1),
+        round(heating_power, 4),
+        round(valve_pos * 100),
     )
     return valve_pos
 
@@ -286,7 +287,10 @@ def convert_to_float(
         return round_by_step(float(value), 0.01)
     except (ValueError, TypeError, AttributeError, KeyError):
         _LOGGER.debug(
-            f"better thermostat {instance_name}: Could not convert '{value}' to float in {context}"
+            "better thermostat %s: Could not convert '%s' to float in %s",
+            instance_name,
+            value,
+            context,
         )
         return None
 
@@ -298,21 +302,24 @@ class rounding(Enum):
     converting values to integer steps.
     """
 
+    @staticmethod
     def up(x: float) -> float:
         """Round up with a tiny epsilon to avoid FP artifacts."""
         return math.ceil(x - 0.0001)
 
+    @staticmethod
     def down(x: float) -> float:
         """Round down with a tiny epsilon to avoid FP artifacts."""
         return math.floor(x + 0.0001)
 
+    @staticmethod
     def nearest(x: float) -> float:
         """Round to nearest step with a small epsilon to avoid up-rounding."""
         return round(x - 0.0001)
 
 
 def round_by_step(
-    value: float | None, step: float | None, f_rounding: rounding = rounding.nearest
+    value: float | None, step: float | None, f_rounding=None
 ) -> float | None:
     """Round the value based on the allowed decimal 'step' size.
 
@@ -322,6 +329,8 @@ def round_by_step(
             the value to round
     step : float
             size of one step
+    f_rounding : callable
+            rounding function (default: rounding.nearest)
 
     Returns
     -------
@@ -331,6 +340,9 @@ def round_by_step(
 
     if value is None or step is None:
         return None
+    # Use default rounding function if none provided
+    if f_rounding is None:
+        f_rounding = rounding.nearest
     # convert to integer number of steps for rounding, then convert back to decimal
     return f_rounding(value / step) * step
 
@@ -402,19 +414,17 @@ async def find_valve_entity(self, entity_id):
     base_identifiers: set[tuple[str, str]] = set()
     try:
         dev_reg = dr.async_get(self.hass)
-        base_device = (
-            dev_reg.async_get(reg_entity.device_id)
-            if getattr(reg_entity, "device_id", None)
-            else None
-        )
+        device_id = getattr(reg_entity, "device_id", None)
+        base_device = dev_reg.async_get(device_id) if device_id is not None else None
         base_identifiers = set(getattr(base_device, "identifiers", set()) or set())
     except Exception:
         dev_reg = None
         base_identifiers = set()
 
-    entity_entries = async_entries_for_config_entry(
-        entity_registry, reg_entity.config_entry_id
-    )
+    config_entry_id = reg_entity.config_entry_id
+    if config_entry_id is None:
+        return None
+    entity_entries = async_entries_for_config_entry(entity_registry, config_entry_id)
     preferred_domains = {"number", "input_number"}
     readonly_candidate: dict[str, Any] | None = None
 
@@ -680,10 +690,11 @@ async def find_local_calibration_entity(self, entity_id):
     reg_entity = entity_registry.async_get(entity_id)
     if reg_entity is None:
         return None
-    entity_entries = async_entries_for_config_entry(
-        entity_registry, reg_entity.config_entry_id
-    )
-
+    config_entry_id = reg_entity.config_entry_id
+    if config_entry_id is None:
+        return None
+    entity_entries = async_entries_for_config_entry(entity_registry, config_entry_id)
+    calibration_entity = None
     # First pass: match by translation_key (preferred, stable approach)
     for entity in entity_entries:
         if entity.device_id != reg_entity.device_id:
@@ -696,30 +707,34 @@ async def find_local_calibration_entity(self, entity_id):
                 entity_id,
                 tk,
             )
-            return entity.entity_id
+            calibration_entity = entity.entity_id
 
     # Second pass: fallback to string matching on unique_id / entity_id / original_name
-    for entity in entity_entries:
-        if entity.device_id != reg_entity.device_id:
-            continue
-        descriptor = f"{entity.unique_id} {entity.entity_id} {getattr(entity, 'original_name', '') or ''}".lower()
-        if (
-            "temperature_calibration" in descriptor
-            or "temperature_offset" in descriptor
-            or "temperatur_offset" in descriptor
-            or "local_temperature" in descriptor
-        ):
-            _LOGGER.debug(
-                "better thermostat: Found local calibration entity %s for %s (string match)",
-                entity.entity_id,
-                entity_id,
-            )
-            return entity.entity_id
+    if calibration_entity is None:
+        for entity in entity_entries:
+            if entity.device_id != reg_entity.device_id:
+                continue
+            descriptor = f"{entity.unique_id} {entity.entity_id} {getattr(entity, 'original_name', '') or ''}".lower()
+            if (
+                "temperature_calibration" in descriptor
+                or "temperature_offset" in descriptor
+                or "temperatur_offset" in descriptor
+                or "local_temperature" in descriptor
+            ):
+                _LOGGER.debug(
+                    "better thermostat: Found local calibration entity %s for %s (string match)",
+                    entity.entity_id,
+                    entity_id,
+                )
+                calibration_entity = entity.entity_id
 
-    _LOGGER.debug(
-        "better thermostat: Could not find local calibration entity for %s", entity_id
-    )
-    return None
+    if calibration_entity is None:
+        _LOGGER.debug(
+            "better thermostat: Could not find local calibration entity for %s",
+            entity_id,
+        )
+
+    return calibration_entity
 
 
 async def get_trv_intigration(self, entity_id):
@@ -737,6 +752,8 @@ async def get_trv_intigration(self, entity_id):
     """
     entity_reg = er.async_get(self.hass)
     entry = entity_reg.async_get(entity_id)
+    if entry is None:
+        return "generic_thermostat"
     try:
         return entry.platform
     except AttributeError:
