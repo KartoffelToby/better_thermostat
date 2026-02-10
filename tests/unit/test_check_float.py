@@ -1,6 +1,5 @@
 """Tests for check_float function."""
 
-
 from custom_components.better_thermostat.utils.helpers import check_float
 
 
