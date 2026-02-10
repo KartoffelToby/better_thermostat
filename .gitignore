@@ -9,3 +9,7 @@ venv
 custom_components/hacs
 x_*
 .haconfig
+node_modules
+dist
+build
+*.log
