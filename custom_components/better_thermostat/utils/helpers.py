@@ -2,7 +2,6 @@
 
 from collections.abc import Callable
 from datetime import datetime
-from enum import Enum
 import logging
 import math
 import re

@@ -171,9 +171,7 @@ async def check_weather_prediction(self) -> bool | None:
                         "check_weather_prediction()",
                     )
                 )
-            valid_temps: list[float] = [
-                t for t in temps if isinstance(t, (int, float))
-            ]
+            valid_temps: list[float] = [t for t in temps if isinstance(t, (int, float))]
             max_forecast_temp = None
             if valid_temps:
                 max_forecast_temp = sum(valid_temps) / float(len(valid_temps))

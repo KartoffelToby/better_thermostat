@@ -519,9 +519,7 @@ def _detect_regime_change(recent_errors: deque | list) -> bool:
     return t_stat > 2.0
 
 
-def _round_for_debug(
-    value: float | int | None, digits: int = 3
-) -> float | int | None:
+def _round_for_debug(value: float | int | None, digits: int = 3) -> float | int | None:
     if value is None:
         return None
     try:

@@ -14,6 +14,7 @@ _LOGGER = logging.getLogger(__name__)
 
 VALVE_MAINTENANCE_INTERVAL_HOURS = 168  # Default: 7 days
 
+
 def fix_local_calibration(self, entity_id, offset):
     """Return the given local calibration offset unchanged."""
     return offset
@@ -113,7 +114,9 @@ async def inital_tweak(self, entity_id):
                             )
                     elif domain == "lock":
                         target_lock = (
-                            LockState.LOCKED if child_lock_setting else LockState.UNLOCKED
+                            LockState.LOCKED
+                            if child_lock_setting
+                            else LockState.UNLOCKED
                         )
                         cur = self.hass.states.get(cl_entity)
                         if cur and cur.state != target_lock.value:
