@@ -39,8 +39,8 @@ async def async_setup_entry(
         return
 
     numbers = []
-    preset_unique_ids = []
-    pid_unique_ids = []
+    preset_unique_ids = {}
+    pid_unique_ids = {}
 
     # Create a number entity for each preset mode (except NONE)
     _LOGGER.debug(
@@ -51,7 +51,7 @@ async def async_setup_entry(
             continue
         preset_number = BetterThermostatPresetNumber(bt_climate, preset_mode)
         numbers.append(preset_number)
-        preset_unique_ids.append(preset_number._attr_unique_id)
+        preset_unique_ids[preset_number._attr_unique_id] = {"preset": preset_mode}
 
     # Create PID numbers for each TRV if PID calibration is enabled
     if hasattr(bt_climate, "all_trvs"):
@@ -77,7 +77,10 @@ async def async_setup_entry(
                         bt_climate, trv_entity_id, param, has_multiple_trvs
                     )
                     numbers.append(pid_number)
-                    pid_unique_ids.append(pid_number._attr_unique_id)
+                    pid_unique_ids[pid_number._attr_unique_id] = {
+                        "trv": trv_entity_id,
+                        "param": param,
+                    }
 
     # Track created number entities for cleanup
     _ACTIVE_PRESET_NUMBERS[entry.entry_id] = preset_unique_ids
