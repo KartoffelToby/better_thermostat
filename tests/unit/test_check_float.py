@@ -1,8 +1,4 @@
-"""Tests for check_float function.
-
-This test file was extracted from the comprehensive helpers.py test suite
-in PR #1868 to accompany the bug fix for TypeError handling.
-"""
+"""Tests for check_float function."""
 
 
 from custom_components.better_thermostat.utils.helpers import check_float
