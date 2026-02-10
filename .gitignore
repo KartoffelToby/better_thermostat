@@ -84,3 +84,8 @@ logs/
 *.bak
 *.swp
 *~
+.haconfig
+node_modules
+dist
+build
+*.log
