@@ -112,9 +112,7 @@ class TestHeatingPowerValvePosition:
         """Test that minimum valve opening is applied for temp_diff > 1.0°C."""
         # VALVE_MIN_THRESHOLD_TEMP_DIFF = 1.0
         # VALVE_MIN_OPENING_LARGE_DIFF = 0.15
-        mock_bt = MockThermostat(
-            bt_target_temp=21.5, cur_temp=20.0, heating_power=0.05
-        )
+        mock_bt = MockThermostat(bt_target_temp=21.5, cur_temp=20.0, heating_power=0.05)
         result = heating_power_valve_position(mock_bt, "climate.test")
 
         # Should be at least VALVE_MIN_OPENING_LARGE_DIFF (15%)
@@ -123,9 +121,7 @@ class TestHeatingPowerValvePosition:
     def test_applies_proportional_minimum_for_small_diff(self):
         """Test proportional minimum for small temp differences (0.2-1.0°C)."""
         # VALVE_MIN_SMALL_DIFF_THRESHOLD = 0.2
-        mock_bt = MockThermostat(
-            bt_target_temp=20.5, cur_temp=20.0, heating_power=0.05
-        )
+        mock_bt = MockThermostat(bt_target_temp=20.5, cur_temp=20.0, heating_power=0.05)
         result = heating_power_valve_position(mock_bt, "climate.test")
 
         # Should have some minimum valve opening for 0.5°C diff
@@ -172,9 +168,7 @@ class TestHeatingPowerValvePosition:
         """Test that the formula produces expected valve positions for known inputs."""
         # From the comments in the code:
         # With heating_power of 0.02 and temp_diff of 0.5, expect ~0.3992
-        mock_bt = MockThermostat(
-            bt_target_temp=20.5, cur_temp=20.0, heating_power=0.02
-        )
+        mock_bt = MockThermostat(bt_target_temp=20.5, cur_temp=20.0, heating_power=0.02)
         result = heating_power_valve_position(mock_bt, "climate.test")
 
         # Allow some tolerance for float arithmetic and minimum valve logic
