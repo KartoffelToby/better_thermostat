@@ -3,12 +3,7 @@
 This module tests the heating power valve position calculation which uses
 a heuristic formula to map temperature difference and heating power to
 an expected valve opening percentage.
-
-Note: Some tests document bugs that occur in edge cases when the function
-is called with negative temperature differences (cur_temp > target_temp).
 """
-
-import pytest
 
 from custom_components.better_thermostat.utils.helpers import (
     heating_power_valve_position,
@@ -127,28 +122,21 @@ class TestHeatingPowerValvePosition:
         # Should have some minimum valve opening for 0.5°C diff
         assert result > 0.0
 
-    def test_bug_complex_number_when_cooling_needed(self):
-        """Test FIXED: Function now handles cur_temp > target_temp gracefully.
+    def test_no_heating_when_cooling_needed(self):
+        """Test that valve returns 0 when current temp exceeds target.
 
-        This edge case occurs in the TRV override scenario where:
-        1. System was heating (cur_temp < target_temp)
-        2. Temperature rises above target (e.g., sun, external heat)
-        3. TRV still reports "heating" (delayed update)
-        4. _compute_hvac_action() overrides to HEATING
-        5. This function is called with negative temp_diff
-
-        Previously caused complex number crash: (-x) ** 0.946
-        Now returns 0.0 (no heating needed when temp >= target)
-
-        Severity: MEDIUM-HIGH (rare edge case, but was causing crash)
+        This edge case occurs when:
+        1. Temperature rises above target (e.g., sun, external heat)
+        2. TRV still reports "heating" (delayed update)
+        3. Function is called with negative temp_diff
         """
         mock_bt = MockThermostat(bt_target_temp=20.0, cur_temp=22.0)
 
         result = heating_power_valve_position(mock_bt, "climate.test")
         assert result == 0.0  # No heating needed when room warmer than target
 
-    def test_bug_negative_temp_diff_produces_complex_number(self):
-        """Test FIXED: Negative temperature differences now handled gracefully."""
+    def test_negative_temp_diff_returns_zero(self):
+        """Test that negative temperature differences return 0."""
         mock_bt = MockThermostat(bt_target_temp=18.0, cur_temp=20.0, heating_power=0.02)
 
         result = heating_power_valve_position(mock_bt, "climate.test")
@@ -184,28 +172,18 @@ class TestHeatingPowerValvePosition:
         # With 10°C difference and low heating power, should be at or near 100%
         assert result >= 0.95
 
-    def test_potential_division_by_zero(self):
-        """Test behavior when heating_power is exactly 0."""
+    def test_zero_heating_power(self):
+        """Test that heating_power of 0 is handled without errors."""
         mock_bt = MockThermostat(bt_target_temp=22.0, cur_temp=20.0, heating_power=0.0)
 
-        # This should either handle gracefully or we've found a bug
-        try:
-            result = heating_power_valve_position(mock_bt, "climate.test")
-            # If it doesn't crash, check the result is valid
-            assert 0.0 <= result <= 1.0
-        except (ZeroDivisionError, ValueError) as e:
-            # If it crashes, we've found a bug!
-            pytest.fail(f"BUG: Division by zero or ValueError: {e}")
+        result = heating_power_valve_position(mock_bt, "climate.test")
+        assert 0.0 <= result <= 1.0
 
-    def test_potential_negative_heating_power(self):
-        """Test behavior with negative heating_power."""
+    def test_negative_heating_power(self):
+        """Test that negative heating_power is clamped to MIN_HEATING_POWER."""
         mock_bt = MockThermostat(
             bt_target_temp=22.0, cur_temp=20.0, heating_power=-0.01
         )
 
-        try:
-            result = heating_power_valve_position(mock_bt, "climate.test")
-            # Should be clamped to MIN_HEATING_POWER
-            assert 0.0 <= result <= 1.0
-        except (ValueError, ZeroDivisionError) as e:
-            pytest.fail(f"BUG: Function doesn't handle negative heating_power: {e}")
+        result = heating_power_valve_position(mock_bt, "climate.test")
+        assert 0.0 <= result <= 1.0
