@@ -3,9 +3,6 @@
 This module tests the heating power valve position calculation which uses
 a heuristic formula to map temperature difference and heating power to
 an expected valve opening percentage.
-
-Note: Some tests document bugs that occur in edge cases when the function
-is called with negative temperature differences (cur_temp > target_temp).
 """
 
 import pytest
@@ -131,31 +128,19 @@ class TestHeatingPowerValvePosition:
         # Should have some minimum valve opening for 0.5°C diff
         assert result > 0.0
 
-    def test_bug_complex_number_when_cooling_needed(self):
-        """Test BUG: Function crashes with complex number when cur_temp > target_temp.
-
-        This occurs in the TRV override edge case where:
-        1. System was heating (cur_temp < target_temp)
-        2. Temperature rises above target (e.g., sun, external heat)
-        3. TRV still reports "heating" (delayed update)
-        4. _compute_hvac_action() overrides to HEATING
-        5. This function is called with negative temp_diff
-        6. Formula produces complex number: (-x) ** 0.946
-        7. Comparison with float raises TypeError
-
-        Severity: MEDIUM-HIGH (rare edge case, but causes crash)
-        """
+    def test_returns_zero_when_cooling_needed(self):
+        """Test that valve returns 0% when cur_temp > target_temp."""
         mock_bt = MockThermostat(bt_target_temp=20.0, cur_temp=22.0)
 
-        with pytest.raises(TypeError, match="'<' not supported.*complex.*float"):
-            heating_power_valve_position(mock_bt, "climate.test")
+        result = heating_power_valve_position(mock_bt, "climate.test")
+        assert result == 0.0
 
-    def test_bug_negative_temp_diff_produces_complex_number(self):
-        """Test BUG: Negative temperature differences produce complex numbers."""
+    def test_returns_zero_for_negative_temp_diff(self):
+        """Test that negative temperature differences return 0% valve."""
         mock_bt = MockThermostat(bt_target_temp=18.0, cur_temp=20.0, heating_power=0.02)
 
-        with pytest.raises(TypeError, match="'<' not supported.*complex.*float"):
-            heating_power_valve_position(mock_bt, "climate.test")
+        result = heating_power_valve_position(mock_bt, "climate.test")
+        assert result == 0.0
 
     def test_handles_very_small_temp_diff(self):
         """Test handling of very small temperature differences."""

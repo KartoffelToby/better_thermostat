@@ -176,23 +176,11 @@ class TestCheckFloat:
         assert check_float("10.5.5") is False
         assert check_float("") is False
 
-    def test_raises_typeerror_for_none(self):
-        """Test that check_float raises TypeError for None.
+    def test_returns_false_for_none(self):
+        """Test that check_float returns False for None."""
+        assert check_float(None) is False
 
-        The function only catches ValueError, so TypeError is raised
-        when float() is called with None.
-        """
-        with pytest.raises(TypeError):
-            check_float(None)
-
-    def test_raises_typeerror_for_invalid_types(self):
-        """Test that check_float raises TypeError for invalid types.
-
-        The function only catches ValueError, so TypeError is raised
-        when float() is called with invalid types.
-        """
-        with pytest.raises(TypeError):
-            check_float([])
-
-        with pytest.raises(TypeError):
-            check_float({})
+    def test_returns_false_for_invalid_types(self):
+        """Test that check_float returns False for invalid types."""
+        assert check_float([]) is False
+        assert check_float({}) is False
