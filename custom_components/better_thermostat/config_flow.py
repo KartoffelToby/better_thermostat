@@ -1,7 +1,7 @@
 """Config flow for Better Thermostat."""
 
 from collections import OrderedDict
-from collections.abc import Iterable
+from collections.abc import Iterable, Mapping
 import copy
 import logging
 from typing import Any
@@ -328,9 +328,7 @@ def _normalize_advanced_submission(
     return normalized
 
 
-def _duration_dict_to_seconds(
-    duration: int | float | dict[str, int] | None,
-) -> int:
+def _duration_dict_to_seconds(duration: int | float | dict[str, int] | None) -> int:
     if duration is None:
         return 0
     if isinstance(duration, (int, float)):
@@ -1015,7 +1013,7 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
                 self.hass, signal_key, {"entry_id": self._config_entry.entry_id}
             )
 
-    def _get_active_algorithms(self, config: dict[str, Any]) -> set:
+    def _get_active_algorithms(self, config: Mapping[str, Any]) -> set:
         """Get set of calibration algorithms currently in use by any TRV."""
         if not config or CONF_HEATER not in config:
             return set()
