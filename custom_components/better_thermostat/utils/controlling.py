@@ -422,13 +422,8 @@ async def control_trv(self, heater_entity_id=None):
     if not hasattr(self, "task_manager"):
         self.task_manager = TaskManager()
 
-    # Extended lock scope to protect all critical operations including
-    # set_valve(), set_hvac_mode(), set_offset(), set_temperature()
-    # This prevents race conditions when control_queue runs control_trv()
-    # in parallel for multiple TRVs
     async with self._temp_lock:
         self.real_trvs[heater_entity_id]["ignore_trv_states"] = True
-        # Formerly update_hvac_action(self) (removed / centralized in climate entity)
         try:
             # Preserve old action for change detection if attributes exist
             if hasattr(self, "attr_hvac_action"):
@@ -470,9 +465,7 @@ async def control_trv(self, heater_entity_id=None):
                 heater_entity_id,
                 _remapped_states,
             )
-            # Reduced sleep time on error to avoid blocking too long
             await asyncio.sleep(2)
-            # self.ignore_states = False # Don't touch global ignore_states here
             self.real_trvs[heater_entity_id]["ignore_trv_states"] = False
             return False
 
@@ -574,13 +567,7 @@ async def control_trv(self, heater_entity_id=None):
 
         _new_hvac_mode = handle_window_open(self, _remapped_states)
 
-        # wtom: disabled for now, switches off the trv all the time
-        # if not self.window_open:
-        # _new_hvac_mode = handle_hvac_mode_tolerance(self, _remapped_states)
-
-        # Removed cooler section from here, moved to control_queue/control_cooler
-
-        # if we don't need ot heat, we force HVACMode to be off
+        # if we don't need to heat, we force HVACMode to be off
         if self.call_for_heat is False:
             _new_hvac_mode = HVACMode.OFF
 
@@ -642,8 +629,6 @@ async def control_trv(self, heater_entity_id=None):
                     self.device_name,
                     heater_entity_id,
                 )
-                # this should not be before, set_hvac_mode (because if it fails, the new hvac mode will never be sent)
-                # self.ignore_states = False # Don't touch global ignore_states here
                 self.real_trvs[heater_entity_id]["ignore_trv_states"] = False
                 return True
 
@@ -657,10 +642,8 @@ async def control_trv(self, heater_entity_id=None):
                 "last_calibration", _current_calibration
             )
 
-            # Fix for grouped TRVs: If current calibration already matches target,
-            # reset calibration_received to True. This handles the case where the
-            # TRV's state change event was ignored during the control cycle
-            # (when ignore_states=True), leaving calibration_received stuck at False.
+            # If current calibration already matches target, reset calibration_received
+            # to avoid it getting stuck at False when the state event was suppressed.
             if (
                 self.real_trvs[heater_entity_id]["calibration_received"] is False
                 and _current_calibration is not None
@@ -709,8 +692,7 @@ async def control_trv(self, heater_entity_id=None):
                         check_target_temperature(self, heater_entity_id)
                     )
 
-    # Sleep outside lock to allow parallel TRV control
-    # This delay lets TRV state updates propagate before accepting new state events
+    # Let TRV state updates propagate before accepting new state events
     await asyncio.sleep(3)
     self.real_trvs[heater_entity_id]["ignore_trv_states"] = False
     return True
