@@ -857,6 +857,25 @@ class BetterThermostatVirtualTempSensor(SensorEntity):
         self._update_state()
         self.async_write_ha_state()
 
+    @property
+    def available(self) -> bool:
+        """Return if entity is available."""
+        # Follow HA guidelines: return False when entity should be unavailable
+        # This prevents "unknown" states and properly shows "unavailable"
+        if (
+            not hasattr(self._bt_climate, "_available")
+            or not self._bt_climate._available
+        ):
+            return False
+        if getattr(self._bt_climate, "window_open", False):
+            return False
+        if (
+            hasattr(self._bt_climate, "hvac_mode")
+            and self._bt_climate.hvac_mode == "off"
+        ):
+            return False
+        return True
+
     def _update_state(self):
         """Update state from climate entity."""
         # Try to find virtual temp in any TRV's calibration balance debug info
@@ -913,6 +932,25 @@ class BetterThermostatMpcGainSensor(SensorEntity):
         self._update_state()
         self.async_write_ha_state()
 
+    @property
+    def available(self) -> bool:
+        """Return if entity is available."""
+        # Follow HA guidelines: return False when entity should be unavailable
+        # This prevents "unknown" states and properly shows "unavailable"
+        if (
+            not hasattr(self._bt_climate, "_available")
+            or not self._bt_climate._available
+        ):
+            return False
+        if getattr(self._bt_climate, "window_open", False):
+            return False
+        if (
+            hasattr(self._bt_climate, "hvac_mode")
+            and self._bt_climate.hvac_mode == "off"
+        ):
+            return False
+        return True
+
     def _update_state(self):
         """Update state from climate entity."""
         val = None
@@ -968,6 +1006,25 @@ class BetterThermostatMpcLossSensor(SensorEntity):
         self._update_state()
         self.async_write_ha_state()
 
+    @property
+    def available(self) -> bool:
+        """Return if entity is available."""
+        # Follow HA guidelines: return False when entity should be unavailable
+        # This prevents "unknown" states and properly shows "unavailable"
+        if (
+            not hasattr(self._bt_climate, "_available")
+            or not self._bt_climate._available
+        ):
+            return False
+        if getattr(self._bt_climate, "window_open", False):
+            return False
+        if (
+            hasattr(self._bt_climate, "hvac_mode")
+            and self._bt_climate.hvac_mode == "off"
+        ):
+            return False
+        return True
+
     def _update_state(self):
         """Update state from climate entity."""
         val = None
@@ -1022,6 +1079,25 @@ class BetterThermostatMpcKaSensor(SensorEntity):
         """Handle climate entity update."""
         self._update_state()
         self.async_write_ha_state()
+
+    @property
+    def available(self) -> bool:
+        """Return if entity is available."""
+        # Follow HA guidelines: return False when entity should be unavailable
+        # This prevents "unknown" states and properly shows "unavailable"
+        if (
+            not hasattr(self._bt_climate, "_available")
+            or not self._bt_climate._available
+        ):
+            return False
+        if getattr(self._bt_climate, "window_open", False):
+            return False
+        if (
+            hasattr(self._bt_climate, "hvac_mode")
+            and self._bt_climate.hvac_mode == "off"
+        ):
+            return False
+        return True
 
     def _update_state(self):
         """Update state from climate entity."""
