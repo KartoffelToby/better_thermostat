@@ -35,17 +35,17 @@ async def trigger_cooler_change(self, event):
         )
         return
 
-    if new_state.attributes is None:
+    if not isinstance(new_state, State) or not isinstance(old_state, State):
         _LOGGER.debug(
-            "better_thermostat %s: Cooler %s update had no attributes, skipping",
+            "better_thermostat %s: Cooler %s update contained not a State, skipping",
             self.device_name,
             entity_id,
         )
         return
 
-    if not isinstance(new_state, State) or not isinstance(old_state, State):
+    if new_state.attributes is None:
         _LOGGER.debug(
-            "better_thermostat %s: Cooler %s update contained not a State, skipping",
+            "better_thermostat %s: Cooler %s update had no attributes, skipping",
             self.device_name,
             entity_id,
         )

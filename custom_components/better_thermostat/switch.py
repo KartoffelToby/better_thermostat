@@ -28,7 +28,7 @@ async def async_setup_entry(
         return
 
     switches = []
-    switch_unique_ids = []
+    switch_unique_ids = {}
 
     has_multiple_trvs = len(bt_climate.real_trvs) > 1
     for trv_entity_id, trv_data in bt_climate.real_trvs.items():
@@ -48,13 +48,19 @@ async def async_setup_entry(
                 bt_climate, trv_entity_id, has_multiple_trvs
             )
             switches.append(pid_switch)
-            switch_unique_ids.append(pid_switch._attr_unique_id)
+            switch_unique_ids[pid_switch._attr_unique_id] = {
+                "trv": trv_entity_id,
+                "type": "pid_auto_tune",
+            }
 
         child_lock_switch = BetterThermostatChildLockSwitch(
             bt_climate, trv_entity_id, has_multiple_trvs
         )
         switches.append(child_lock_switch)
-        switch_unique_ids.append(child_lock_switch._attr_unique_id)
+        switch_unique_ids[child_lock_switch._attr_unique_id] = {
+            "trv": trv_entity_id,
+            "type": "child_lock",
+        }
 
     # Track created switch entities for cleanup
     _ACTIVE_SWITCH_ENTITIES[entry.entry_id] = switch_unique_ids
