@@ -29,6 +29,17 @@ _LOGGER = logging.getLogger(__name__)
 def normalize_calibration_mode(mode: Any) -> CalibrationMode | str | None:
     """Normalize a calibration_mode field from TRV advanced data."""
 
+    # Backwards compatibility: older configs stored numeric calibration modes
+    # (e.g. 0 for DEFAULT). Only map known values.
+    if isinstance(mode, (int, float)):
+        try:
+            numeric = int(mode)
+        except (TypeError, ValueError):
+            numeric = None
+        if numeric == 0:
+            return CalibrationMode.DEFAULT
+        return None
+
     if isinstance(mode, CalibrationMode):
         return mode
     if isinstance(mode, str):
@@ -377,27 +388,99 @@ async def find_valve_entity(self, entity_id):
     reg_entity = entity_registry.async_get(entity_id)
     if reg_entity is None:
         return None
+
+    # Some integrations (notably certain Zigbee stacks) may expose valve helpers
+    # under a different Home Assistant device_id than the climate entity.
+    # To support these, also match candidates by shared device identifiers.
+    dev_reg = None
+    base_identifiers: set[tuple[str, str]] = set()
+    try:
+        dev_reg = dr.async_get(self.hass)
+        base_device = (
+            dev_reg.async_get(reg_entity.device_id)
+            if getattr(reg_entity, "device_id", None)
+            else None
+        )
+        base_identifiers = set(getattr(base_device, "identifiers", set()) or set())
+    except Exception:
+        dev_reg = None
+        base_identifiers = set()
+
     entity_entries = async_entries_for_config_entry(
         entity_registry, reg_entity.config_entry_id
     )
     preferred_domains = {"number", "input_number"}
     readonly_candidate: dict[str, Any] | None = None
 
-    def _classify(uid: str, ent_id: str) -> str | None:
-        descriptor = f"{uid} {ent_id}".lower()
+    def _device_matches(candidate) -> bool:
+        # Strong match: same device
+        if getattr(candidate, "device_id", None) == getattr(
+            reg_entity, "device_id", None
+        ):
+            return True
+        # Fallback: match by shared identifiers if device registry is available
+        if dev_reg is None or not base_identifiers:
+            return False
+        cand_device_id = getattr(candidate, "device_id", None)
+        if not cand_device_id:
+            return False
+        try:
+            cand_device = dev_reg.async_get(cand_device_id)
+        except Exception:
+            return False
+        cand_identifiers = set(getattr(cand_device, "identifiers", set()) or set())
+        return bool(base_identifiers.intersection(cand_identifiers))
+
+    def _classify(uid: str, ent_id: str, original_name: str) -> str | None:
+        descriptor = f"{uid} {ent_id} {original_name}".lower()
+        # Sonoff TRVZB (and some others) expose explicit valve degree entities
+        if "valve_opening_degree" in descriptor:
+            return "valve_opening_degree"
+        if "valve_closing_degree" in descriptor:
+            return "valve_closing_degree"
+
+        # Existing patterns
         if "pi_heating_demand" in descriptor:
             return "pi_heating_demand"
-        if "_valve_position" in descriptor:
+        if "valve_position" in descriptor:
             return "valve_position"
+
+        # Generic fallbacks: try to catch "valve ... position/opening/degree"
+        if "valve" in descriptor and (
+            "position" in descriptor
+            or "opening" in descriptor
+            or "degree" in descriptor
+        ):
+            return "valve_generic"
+
         if descriptor.endswith("_position") or descriptor.endswith(" position"):
             return "position"
         return None
 
+    def _score(reason: str, writable: bool, domain: str) -> tuple[int, int, int]:
+        # Higher is better.
+        reason_score = {
+            "valve_opening_degree": 100,
+            "valve_closing_degree": 95,
+            "valve_position": 90,
+            "pi_heating_demand": 80,
+            "valve_generic": 60,
+            "position": 50,
+        }.get(reason, 0)
+        writable_score = 10 if writable else 0
+        domain_score = 1 if domain in preferred_domains else 0
+        return (reason_score, writable_score, domain_score)
+
+    best: dict[str, Any] | None = None
+    best_score: tuple[int, int, int] = (-1, -1, -1)
+
     for entity in entity_entries:
         uid = entity.unique_id or ""
-        if entity.device_id != reg_entity.device_id:
+        if not _device_matches(entity):
             continue
-        reason = _classify(uid, entity.entity_id or "")
+        reason = _classify(
+            uid, entity.entity_id or "", getattr(entity, "original_name", None) or ""
+        )
         if reason is None:
             continue
         domain = (entity.entity_id or "").split(".", 1)[0]
@@ -408,16 +491,22 @@ async def find_valve_entity(self, entity_id):
             "reason": reason,
             "domain": domain,
         }
-        if writable:
-            _LOGGER.debug(
-                "better thermostat: Found writable valve helper %s for %s (reason=%s)",
-                entity.entity_id,
-                entity_id,
-                reason,
-            )
-            return info
-        if readonly_candidate is None:
+
+        score = _score(reason, writable, domain)
+        if best is None or score > best_score:
+            best = info
+            best_score = score
+        if not writable and readonly_candidate is None:
             readonly_candidate = info
+
+    if best is not None and best.get("writable"):
+        _LOGGER.debug(
+            "better thermostat: Found writable valve helper %s for %s (reason=%s)",
+            best.get("entity_id"),
+            entity_id,
+            best.get("reason"),
+        )
+        return best
 
     if readonly_candidate is not None:
         _LOGGER.debug(
