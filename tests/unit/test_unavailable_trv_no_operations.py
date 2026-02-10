@@ -36,23 +36,27 @@ async def test_unavailable_trv_no_operations_called():
     mock_self.real_trvs = {
         "climate.trv1": {
             "ignore_trv_states": False,
-            "advanced": {
-                "calibration_mode": CalibrationMode.MPC_CALIBRATION,
-            },
+            "advanced": {"calibration_mode": CalibrationMode.MPC_CALIBRATION},
         }
     }
 
-    with patch(
-        "custom_components.better_thermostat.utils.controlling.convert_outbound_states"
-    ) as mock_convert, patch(
-        "custom_components.better_thermostat.utils.controlling.set_valve"
-    ) as mock_set_valve, patch(
-        "custom_components.better_thermostat.utils.controlling.set_hvac_mode"
-    ) as mock_set_hvac_mode, patch(
-        "custom_components.better_thermostat.utils.controlling.set_offset"
-    ) as mock_set_offset, patch(
-        "custom_components.better_thermostat.utils.controlling.set_temperature"
-    ) as mock_set_temp:
+    with (
+        patch(
+            "custom_components.better_thermostat.utils.controlling.convert_outbound_states"
+        ) as mock_convert,
+        patch(
+            "custom_components.better_thermostat.utils.controlling.set_valve"
+        ) as mock_set_valve,
+        patch(
+            "custom_components.better_thermostat.utils.controlling.set_hvac_mode"
+        ) as mock_set_hvac_mode,
+        patch(
+            "custom_components.better_thermostat.utils.controlling.set_offset"
+        ) as mock_set_offset,
+        patch(
+            "custom_components.better_thermostat.utils.controlling.set_temperature"
+        ) as mock_set_temp,
+    ):
         result = await control_trv(mock_self, "climate.trv1")
 
         assert result is True
