@@ -11,8 +11,10 @@ from custom_components.better_thermostat.model_fixes.model_quirks import (
 from custom_components.better_thermostat.utils.calibration.mpc import (
     MpcInput,
     MpcParams,
+    build_mpc_group_key,
     build_mpc_key,
     compute_mpc,
+    distribute_valve_percent,
 )
 from custom_components.better_thermostat.utils.calibration.pid import (
     DEFAULT_PID_AUTO_TUNE,
@@ -168,7 +170,16 @@ def _supports_direct_valve_control(self, entity_id: str) -> bool:
 
 
 def _compute_mpc_balance(self, entity_id: str):
-    """Run the MPC balance algorithm for calibration purposes."""
+    """Run the MPC balance algorithm for calibration purposes.
+
+    When the BT instance controls **multiple TRVs**, a single shared MPC model
+    is evaluated once (using the room-level external sensor) and the resulting
+    valve command is distributed across TRVs proportional to their internal
+    temperature deficit.  A cold TRV (low ``current_temperature``) receives
+    *more* valve opening; a warm one receives *less*.
+
+    For a **single TRV** this behaves exactly as before (no distribution step).
+    """
 
     trv_state = self.real_trvs.get(entity_id)
     if trv_state is None:
@@ -182,6 +193,8 @@ def _compute_mpc_balance(self, entity_id: str):
     if hvac_mode == HVACMode.OFF:
         trv_state["calibration_balance"] = None
         return None, False
+
+    is_multi_trv = len(self.real_trvs) > 1
 
     params = MpcParams()
 
@@ -200,10 +213,16 @@ def _compute_mpc_balance(self, entity_id: str):
     if _is_day:
         _solar_intensity = _get_current_solar_intensity(self)
 
+    # Use a group key for multi-TRV setups so all TRVs share one MPC model.
+    if is_multi_trv:
+        mpc_key = build_mpc_group_key(self)
+    else:
+        mpc_key = build_mpc_key(self, entity_id)
+
     try:
         mpc_output = compute_mpc(
             MpcInput(
-                key=build_mpc_key(self, entity_id),
+                key=mpc_key,
                 target_temp_C=self.bt_target_temp,
                 current_temp_C=mpc_current_temp,
                 filtered_temp_C=mpc_filtered_temp,
@@ -234,18 +253,64 @@ def _compute_mpc_balance(self, entity_id: str):
         trv_state["calibration_balance"] = None
         return None, False
 
+    group_valve_pct = float(mpc_output.valve_percent)
+
+    # --- Multi-TRV distribution ---
+    if is_multi_trv:
+        trv_temps: dict[str, float | None] = {}
+        for eid, tdata in self.real_trvs.items():
+            _t = tdata.get("current_temperature")
+            if _t is not None:
+                try:
+                    trv_temps[eid] = float(_t)
+                except (TypeError, ValueError):
+                    trv_temps[eid] = None
+            else:
+                trv_temps[eid] = None
+
+        distributed = distribute_valve_percent(
+            u_total_pct=group_valve_pct,
+            trv_temps=trv_temps,
+        )
+        this_trv_pct = distributed.get(entity_id, group_valve_pct)
+
+        _LOGGER.debug(
+            "better_thermostat %s: MPC grouped distribution for %s: "
+            "group_pct=%.1f%% → this_trv_pct=%.1f%% | trv_temps=%s → distributed=%s",
+            self.device_name,
+            entity_id,
+            group_valve_pct,
+            this_trv_pct,
+            {k: round(v, 1) if v is not None else None for k, v in trv_temps.items()},
+            {k: round(v, 1) for k, v in distributed.items()},
+        )
+    else:
+        this_trv_pct = group_valve_pct
+
     supports_valve = _supports_direct_valve_control(self, entity_id)
     trv_state["calibration_balance"] = {
-        "valve_percent": mpc_output.valve_percent,
+        "valve_percent": int(round(max(0.0, min(100.0, this_trv_pct)))),
         "apply_valve": supports_valve,
-        "debug": getattr(mpc_output, "debug", None),
+        "debug": {
+            **(getattr(mpc_output, "debug", None) or {}),
+            "group_valve_pct": group_valve_pct,
+            "distributed_valve_pct": this_trv_pct,
+        },
     }
 
     _schedule_mpc = self._schedule_save_mpc_states
     if callable(_schedule_mpc):
         _schedule_mpc()
 
-    return mpc_output, supports_valve
+    # Return an MpcOutput-like object with the TRV-specific valve_percent
+    from dataclasses import replace as _dc_replace
+
+    trv_output = _dc_replace(
+        mpc_output,
+        valve_percent=int(round(max(0.0, min(100.0, this_trv_pct)))),
+    )
+
+    return trv_output, supports_valve
 
 
 def _compute_tpi_balance(self, entity_id: str):

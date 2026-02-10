@@ -262,9 +262,7 @@ class TestMPCController:
         st = _MPC_STATES[key]
         st.last_percent = 100.0
         st.last_learn_temp = inp1.current_temp_C
-        st.last_learn_time = (
-            time() - 300.0
-        )  # >=180s, but <600s (no steady-state gain)
+        st.last_learn_time = time() - 300.0  # >=180s, but <600s (no steady-state gain)
         assert st.gain_est is not None
         gain_before = float(st.gain_est)
 
@@ -305,9 +303,7 @@ class TestMPCController:
         st.loss_est = 0.01
         st.last_percent = 90.0
         st.last_learn_temp = 21.5
-        st.last_learn_time = (
-            time() - 900.0
-        )  # 15min -> in steady-state learning window
+        st.last_learn_time = time() - 900.0  # 15min -> in steady-state learning window
         st.last_residual_time = st.last_learn_time  # align residual window
 
         gain_before = float(st.gain_est)

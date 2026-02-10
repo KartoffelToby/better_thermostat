@@ -366,7 +366,12 @@ def _seed_state_from_siblings(key: str, state: _MpcState, params: MpcParams) -> 
 
 
 def build_mpc_key(bt, entity_id: str) -> str:
-    """Return a stable key for MPC state tracking."""
+    """Return a stable key for MPC state tracking.
+
+    For a single-TRV BT instance this key is entity-specific.
+    For multi-TRV setups the caller should prefer ``build_mpc_group_key``
+    so that all TRVs share a single MPC model.
+    """
 
     try:
         target = bt.bt_target_temp
@@ -380,6 +385,106 @@ def build_mpc_key(bt, entity_id: str) -> str:
 
     uid = getattr(bt, "unique_id", None) or getattr(bt, "_unique_id", "bt")
     return f"{uid}:{entity_id}:{bucket}"
+
+
+def build_mpc_group_key(bt) -> str:
+    """Return a BT-level (group) key for MPC state tracking.
+
+    All TRVs under the same BT instance share this key so that a single
+    MPC model learns the room dynamics from the external sensor.
+    """
+
+    try:
+        target = bt.bt_target_temp
+        bucket = (
+            f"t{round(float(target) * 2.0) / 2.0:.1f}"
+            if isinstance(target, (int, float))
+            else "tunknown"
+        )
+    except (TypeError, ValueError):
+        bucket = "tunknown"
+
+    uid = getattr(bt, "unique_id", None) or getattr(bt, "_unique_id", "bt")
+    return f"{uid}:group:{bucket}"
+
+
+# Compensation factor: additional valve-% per Kelvin that a TRV is colder
+# than the warmest TRV in the group.  8 %/K means a TRV that is 3 K colder
+# than the warmest one gets 24 % extra opening.
+DISTRIBUTE_COMPENSATION_PCT_PER_K: float = 8.0
+
+
+def distribute_valve_percent(
+    u_total_pct: float,
+    trv_temps: dict[str, float | None],
+) -> dict[str, float]:
+    """Distribute a group MPC valve command across TRVs based on internal temps.
+
+    The **warmest TRV** is used as the reference and receives exactly
+    ``u_total_pct`` (the MPC output).  Every colder TRV gets a boost
+    proportional to how much colder it is than the warmest::
+
+        result[trv] = u_total_pct + (T_warmest - T_trv) * COMPENSATION_PCT_PER_K
+
+    This guarantees:
+    * At least one TRV always receives the exact MPC-computed value.
+    * Colder TRVs open further to compensate for their disadvantaged position
+      (e.g. near a drafty window or far from the heat source).
+    * Warmer TRVs are never penalised below the MPC value — the compensation
+      only *adds* to the baseline.
+
+    If all TRVs have the same (or ``None``) temperature the function returns
+    ``u_total_pct`` for every TRV (uniform distribution).
+
+    Parameters
+    ----------
+    u_total_pct:
+        The group-level MPC output in percent (0–100).  This is assigned
+        to the warmest TRV unchanged.
+    trv_temps:
+        Mapping ``entity_id → internal TRV temperature (°C)`` or ``None``
+        if the temperature is unavailable.
+
+    Returns
+    -------
+    dict[str, float]
+        Mapping ``entity_id → adjusted valve percent``.
+    """
+
+    n = len(trv_temps)
+    if n == 0:
+        return {}
+
+    # -- Fast path: single TRV or zero command --
+    if n == 1 or u_total_pct <= 0.0:
+        return {eid: max(0.0, min(100.0, u_total_pct)) for eid in trv_temps}
+
+    # -- Collect valid temperatures --
+    valid_temps: dict[str, float] = {}
+    for eid, trv_temp in trv_temps.items():
+        if trv_temp is not None and isinstance(trv_temp, (int, float)):
+            valid_temps[eid] = float(trv_temp)
+
+    if not valid_temps:
+        # No valid TRV temperatures → uniform
+        return {eid: max(0.0, min(100.0, u_total_pct)) for eid in trv_temps}
+
+    # -- Reference: warmest TRV --
+    warmest_temp = max(valid_temps.values())
+
+    compensation = float(DISTRIBUTE_COMPENSATION_PCT_PER_K)
+
+    result: dict[str, float] = {}
+    for eid in trv_temps:
+        if eid in valid_temps:
+            deficit_K = warmest_temp - valid_temps[eid]
+            pct = u_total_pct + deficit_K * compensation
+        else:
+            # No temperature data → assign baseline (neutral)
+            pct = u_total_pct
+        result[eid] = max(0.0, min(100.0, pct))
+
+    return result
 
 
 def _detect_regime_change(recent_errors: deque | list) -> bool:
@@ -550,8 +655,12 @@ def compute_mpc(inp: MpcInput, params: MpcParams) -> MpcOutput | None:
                         if state.loss_est is not None
                         else float(params.mpc_loss_coeff)
                     )
-                    gain_c = max(params.mpc_gain_min, min(params.mpc_gain_max, gain_est))
-                    loss_c = max(params.mpc_loss_min, min(params.mpc_loss_max, loss_est))
+                    gain_c = max(
+                        params.mpc_gain_min, min(params.mpc_gain_max, gain_est)
+                    )
+                    loss_c = max(
+                        params.mpc_loss_min, min(params.mpc_loss_max, loss_est)
+                    )
 
                     predicted_dT = gain_c * u * dt_min - loss_c * dt_min
                     state.virtual_temp += predicted_dT
@@ -559,15 +668,16 @@ def compute_mpc(inp: MpcInput, params: MpcParams) -> MpcOutput | None:
                     state.kalman_P += Q * dt_s
 
                     extra_debug["kalman_predict_dT"] = _round_for_debug(predicted_dT, 4)
-                    extra_debug["kalman_P_predict"] = _round_for_debug(state.kalman_P, 5)
+                    extra_debug["kalman_P_predict"] = _round_for_debug(
+                        state.kalman_P, 5
+                    )
 
                 state.virtual_temp_ts = now
 
             # --- UPDATE step (only when sensor actually changed) ---
             prev_sensor = state.last_sensor_temp_C
             sensor_changed = (
-                prev_sensor is None
-                or abs(sensor_temp - float(prev_sensor)) >= 0.001
+                prev_sensor is None or abs(sensor_temp - float(prev_sensor)) >= 0.001
             )
 
             if sensor_changed:
@@ -1232,7 +1342,11 @@ def _compute_predictive_percent(
                 _delta = max(
                     5.0, float(current_temp_cost_C) - float(inp.outdoor_temp_C)
                 )
-                _loss_val = state.loss_est if state.loss_est is not None else params.mpc_loss_coeff
+                _loss_val = (
+                    state.loss_est
+                    if state.loss_est is not None
+                    else params.mpc_loss_coeff
+                )
                 state.ka_est = float(_loss_val) / _delta
 
         except (TypeError, ValueError, ZeroDivisionError):
