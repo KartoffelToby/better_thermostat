@@ -1,20 +1,12 @@
-"""Test race conditions in parallel TRV control (Bug #5).
+"""Test race conditions in parallel TRV control.
 
-This test verifies that parallel execution of control_trv() for grouped TRVs
+Verifies that parallel execution of control_trv() for grouped TRVs
 doesn't cause race conditions due to incomplete lock coverage.
 
-Problem (Bug #5):
-- control_queue() runs control_trv() in parallel for all TRVs (asyncio.gather)
-- _temp_lock only protects lines 240-257
-- Critical operations outside lock: set_valve, set_hvac_mode, set_offset, set_temperature
-- Shared state access without protection: ignore_states, cur_temp, bt_target_temp
-
-Related Issues:
-- #1839: Automation stuck on climate.set_temperature (2 grouped TRVs)
-- #1145: Grouped TRVs automatically turn off
-- #875: Grouped thermostats turned to 30°C
-- #1733: BT changes Target Temp with no input from user
-- #1849: Random target temperature changes
+The _temp_lock must protect all critical operations including
+set_valve(), set_hvac_mode(), set_offset(), and set_temperature()
+to prevent shared state corruption when multiple TRVs are controlled
+concurrently via asyncio.gather().
 """
 
 import asyncio
@@ -34,8 +26,8 @@ from custom_components.better_thermostat.utils.controlling import control_trv
 async def test_parallel_trv_control_no_race_condition():
     """Test that parallel control_trv() calls don't cause race conditions.
 
-    Scenario: 2 grouped TRVs controlled simultaneously (like in Issue #1839)
-    Expected: Both TRVs complete successfully without state corruption
+    Scenario: 2 grouped TRVs controlled simultaneously.
+    Expected: Both TRVs complete successfully without state corruption.
     """
     # Mock TRV states - force mismatch so set_hvac_mode and set_temperature are called
     mock_state_trv1 = Mock()
@@ -262,10 +254,7 @@ async def test_parallel_trv_control_no_race_condition():
 
 @pytest.mark.asyncio
 async def test_shared_state_corruption_in_parallel_execution():
-    """Test that shared state doesn't get corrupted during parallel execution.
-
-    This tests the specific scenario from Issue #1839 where automation gets stuck.
-    """
+    """Test that shared state doesn't get corrupted during parallel execution."""
     mock_state = Mock()
     mock_state.state = HVACMode.HEAT
     mock_state.attributes = {
@@ -360,15 +349,12 @@ async def test_shared_state_corruption_in_parallel_execution():
         assert mock_self.real_trvs["climate.trv2"]["ignore_trv_states"] is False
 
         # With proper lock coverage, state should not be corrupted
-        # This test documents expected behavior; current code may fail
+        # Verifies state consistency after parallel execution
 
 
 @pytest.mark.asyncio
 async def test_lock_protects_critical_sections():
-    """Test that lock actually protects all critical operations.
-
-    This is a documentation test showing what SHOULD happen with proper lock coverage.
-    """
+    """Test that lock actually protects all critical operations."""
     mock_state = Mock()
     mock_state.state = HVACMode.HEAT
     mock_state.attributes = {
@@ -477,8 +463,7 @@ async def test_lock_protects_critical_sections():
 
         assert result is True
 
-        # CRITICAL: All operations should run while lock is held
-        # With current code (bug), this will FAIL because lock is released before operations
+        # All operations must run while lock is held
         print("\nLock state during critical operations:")
         for operation, locked in lock_state_during_operations:
             print(f"  {operation}: locked={locked}")

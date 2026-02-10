@@ -425,7 +425,7 @@ async def control_trv(self, heater_entity_id=None):
     # Extended lock scope to protect all critical operations including
     # set_valve(), set_hvac_mode(), set_offset(), set_temperature()
     # This prevents race conditions when control_queue runs control_trv()
-    # in parallel for multiple TRVs (Issue #1839, #1145, #875, #1733, #1849)
+    # in parallel for multiple TRVs
     async with self._temp_lock:
         self.real_trvs[heater_entity_id]["ignore_trv_states"] = True
         # Formerly update_hvac_action(self) (removed / centralized in climate entity)

@@ -1,17 +1,12 @@
 """Test that unavailable TRVs don't execute control operations.
 
-This test verifies the fix for the incomplete PR #1813 implementation.
-
-Problem: After PR #1813, the code logged "skipping control" for unavailable TRVs
-but still executed all control operations (Lines 271-582):
+Verifies that control_trv() returns True immediately when a TRV is
+unavailable, without calling any control functions:
 - convert_outbound_states()
 - set_valve()
 - set_hvac_mode()
 - set_offset()
 - set_temperature()
-
-Fix: Return True immediately after detecting unavailable TRV, without executing
-any operations.
 """
 
 import asyncio
