@@ -63,9 +63,7 @@ class TestModeRemapHeatAutoSwapped:
         mock_bt = MockThermostat()
         mock_bt.add_trv("climate.test", heat_auto_swapped=True)
 
-        result = mode_remap(
-            mock_bt, "climate.test", HVACMode.HEAT, inbound=False
-        )
+        result = mode_remap(mock_bt, "climate.test", HVACMode.HEAT, inbound=False)
         assert result == HVACMode.AUTO
 
     def test_inbound_auto_becomes_heat_when_swapped(self):
@@ -73,9 +71,7 @@ class TestModeRemapHeatAutoSwapped:
         mock_bt = MockThermostat()
         mock_bt.add_trv("climate.test", heat_auto_swapped=True)
 
-        result = mode_remap(
-            mock_bt, "climate.test", HVACMode.AUTO, inbound=True
-        )
+        result = mode_remap(mock_bt, "climate.test", HVACMode.AUTO, inbound=True)
         assert result == HVACMode.HEAT
 
     def test_other_modes_unchanged_when_swapped(self):
@@ -84,15 +80,11 @@ class TestModeRemapHeatAutoSwapped:
         mock_bt.add_trv("climate.test", heat_auto_swapped=True)
 
         # OFF should stay OFF
-        result = mode_remap(
-            mock_bt, "climate.test", HVACMode.OFF, inbound=False
-        )
+        result = mode_remap(mock_bt, "climate.test", HVACMode.OFF, inbound=False)
         assert result == HVACMode.OFF
 
         # COOL should stay COOL
-        result = mode_remap(
-            mock_bt, "climate.test", HVACMode.COOL, inbound=False
-        )
+        result = mode_remap(mock_bt, "climate.test", HVACMode.COOL, inbound=False)
         assert result == HVACMode.COOL
 
     def test_heat_auto_swap_takes_precedence(self):
@@ -106,9 +98,7 @@ class TestModeRemapHeatAutoSwapped:
         )
 
         # Should swap HEAT to AUTO, not to HEAT_COOL
-        result = mode_remap(
-            mock_bt, "climate.test", HVACMode.HEAT, inbound=False
-        )
+        result = mode_remap(mock_bt, "climate.test", HVACMode.HEAT, inbound=False)
         assert result == HVACMode.AUTO
 
 
@@ -118,51 +108,37 @@ class TestModeRemapHeatCoolTranslation:
     def test_outbound_heat_becomes_heat_cool_when_no_heat_support(self):
         """Test HEAT becomes HEAT_COOL when TRV only supports HEAT_COOL."""
         mock_bt = MockThermostat()
-        mock_bt.add_trv(
-            "climate.test", hvac_modes=[HVACMode.OFF, HVACMode.HEAT_COOL]
-        )
+        mock_bt.add_trv("climate.test", hvac_modes=[HVACMode.OFF, HVACMode.HEAT_COOL])
 
-        result = mode_remap(
-            mock_bt, "climate.test", HVACMode.HEAT, inbound=False
-        )
+        result = mode_remap(mock_bt, "climate.test", HVACMode.HEAT, inbound=False)
         assert result == HVACMode.HEAT_COOL
 
     def test_inbound_heat_cool_becomes_heat_when_no_heat_support(self):
         """Test HEAT_COOL becomes HEAT when receiving from TRV."""
         mock_bt = MockThermostat()
-        mock_bt.add_trv(
-            "climate.test", hvac_modes=[HVACMode.OFF, HVACMode.HEAT_COOL]
-        )
+        mock_bt.add_trv("climate.test", hvac_modes=[HVACMode.OFF, HVACMode.HEAT_COOL])
 
-        result = mode_remap(
-            mock_bt, "climate.test", HVACMode.HEAT_COOL, inbound=True
-        )
+        result = mode_remap(mock_bt, "climate.test", HVACMode.HEAT_COOL, inbound=True)
         assert result == HVACMode.HEAT
 
     def test_no_translation_when_heat_is_supported(self):
         """Test that HEAT is not translated when TRV supports it."""
         mock_bt = MockThermostat()
         mock_bt.add_trv(
-            "climate.test",
-            hvac_modes=[HVACMode.OFF, HVACMode.HEAT, HVACMode.HEAT_COOL],
+            "climate.test", hvac_modes=[HVACMode.OFF, HVACMode.HEAT, HVACMode.HEAT_COOL]
         )
 
-        result = mode_remap(
-            mock_bt, "climate.test", HVACMode.HEAT, inbound=False
-        )
+        result = mode_remap(mock_bt, "climate.test", HVACMode.HEAT, inbound=False)
         assert result == HVACMode.HEAT
 
     def test_heat_cool_stays_when_both_supported(self):
         """Test that HEAT_COOL stays when both HEAT and HEAT_COOL supported."""
         mock_bt = MockThermostat()
         mock_bt.add_trv(
-            "climate.test",
-            hvac_modes=[HVACMode.OFF, HVACMode.HEAT, HVACMode.HEAT_COOL],
+            "climate.test", hvac_modes=[HVACMode.OFF, HVACMode.HEAT, HVACMode.HEAT_COOL]
         )
 
-        result = mode_remap(
-            mock_bt, "climate.test", HVACMode.HEAT_COOL, inbound=False
-        )
+        result = mode_remap(mock_bt, "climate.test", HVACMode.HEAT_COOL, inbound=False)
         assert result == HVACMode.HEAT_COOL
 
 
@@ -199,9 +175,7 @@ class TestModeRemapEdgeCases:
     def test_missing_hvac_modes_key(self):
         """Test behavior when 'hvac_modes' key is missing."""
         mock_bt = MockThermostat()
-        mock_bt.real_trvs["climate.test"] = {
-            "advanced": {"heat_auto_swapped": False}
-        }
+        mock_bt.real_trvs["climate.test"] = {"advanced": {"heat_auto_swapped": False}}
 
         try:
             mode_remap(mock_bt, "climate.test", HVACMode.HEAT, inbound=False)
@@ -217,9 +191,7 @@ class TestModeRemapEdgeCases:
             "climate.test", hvac_modes=[HVACMode.OFF, HVACMode.HEAT, HVACMode.COOL]
         )
 
-        result = mode_remap(
-            mock_bt, "climate.test", HVACMode.COOL, inbound=False
-        )
+        result = mode_remap(mock_bt, "climate.test", HVACMode.COOL, inbound=False)
         assert result == HVACMode.COOL
 
     def test_dry_mode_handling(self):
@@ -229,20 +201,15 @@ class TestModeRemapEdgeCases:
             "climate.test", hvac_modes=[HVACMode.OFF, HVACMode.HEAT, HVACMode.DRY]
         )
 
-        result = mode_remap(
-            mock_bt, "climate.test", HVACMode.DRY, inbound=False
-        )
+        result = mode_remap(mock_bt, "climate.test", HVACMode.DRY, inbound=False)
         assert result == HVACMode.DRY
 
     def test_fan_only_mode_handling(self):
         """Test handling of FAN_ONLY mode."""
         mock_bt = MockThermostat()
         mock_bt.add_trv(
-            "climate.test",
-            hvac_modes=[HVACMode.OFF, HVACMode.HEAT, HVACMode.FAN_ONLY],
+            "climate.test", hvac_modes=[HVACMode.OFF, HVACMode.HEAT, HVACMode.FAN_ONLY]
         )
 
-        result = mode_remap(
-            mock_bt, "climate.test", HVACMode.FAN_ONLY, inbound=False
-        )
+        result = mode_remap(mock_bt, "climate.test", HVACMode.FAN_ONLY, inbound=False)
         assert result == HVACMode.FAN_ONLY
