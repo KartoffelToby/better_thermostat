@@ -41,18 +41,13 @@ class TestDistributeValvePercent:
 
     def test_zero_command(self):
         """When group command is 0 %, all TRVs get 0 %."""
-        result = distribute_valve_percent(
-            0.0, {"trv_a": 18.0, "trv_b": 25.0}
-        )
+        result = distribute_valve_percent(0.0, {"trv_a": 18.0, "trv_b": 25.0})
         for pct in result.values():
             assert pct == pytest.approx(0.0, abs=0.01)
 
     def test_cold_trv_gets_more_than_warm(self):
         """A colder TRV should get more valve opening than the warmest."""
-        trv_temps = {
-            "trv_cold": 18.0,
-            "trv_warm": 24.0,
-        }
+        trv_temps = {"trv_cold": 18.0, "trv_warm": 24.0}
         result = distribute_valve_percent(50.0, trv_temps)
 
         assert result["trv_cold"] > result["trv_warm"]
@@ -64,10 +59,7 @@ class TestDistributeValvePercent:
 
     def test_warmest_always_gets_mpc_value(self):
         """The warmest TRV always receives exactly u_total_pct."""
-        trv_temps = {
-            "trv_a": 28.1,
-            "trv_b": 20.3,
-        }
+        trv_temps = {"trv_a": 28.1, "trv_b": 20.3}
         result = distribute_valve_percent(60.0, trv_temps)
 
         # trv_a is warmest → gets exactly 60 %
@@ -83,11 +75,7 @@ class TestDistributeValvePercent:
         TRV_2: 24.3 °C (3.8 K colder → 45 + 3.8*8 = 75.4 %)
         TRV_3: 19.5 °C (8.6 K colder → 45 + 8.6*8 = 113.8 → clamped 100 %)
         """
-        trv_temps = {
-            "trv_1": 28.1,
-            "trv_2": 24.3,
-            "trv_3": 19.5,
-        }
+        trv_temps = {"trv_1": 28.1, "trv_2": 24.3, "trv_3": 19.5}
         result = distribute_valve_percent(45.0, trv_temps)
 
         # Warmest TRV gets exactly the MPC output
@@ -128,11 +116,7 @@ class TestDistributeValvePercent:
 
     def test_none_temperature_gets_baseline(self):
         """TRV with None temperature gets the MPC baseline (neutral)."""
-        trv_temps = {
-            "trv_cold": 18.0,
-            "trv_none": None,
-            "trv_warm": 25.0,
-        }
+        trv_temps = {"trv_cold": 18.0, "trv_none": None, "trv_warm": 25.0}
         result = distribute_valve_percent(60.0, trv_temps)
 
         # trv_none gets neutral = u_total_pct
@@ -152,10 +136,7 @@ class TestDistributeValvePercent:
 
     def test_clamped_to_100(self):
         """Extreme cold TRV with high group command doesn't exceed 100 %."""
-        trv_temps = {
-            "trv_extreme_cold": 10.0,
-            "trv_warm": 24.0,
-        }
+        trv_temps = {"trv_extreme_cold": 10.0, "trv_warm": 24.0}
         result = distribute_valve_percent(95.0, trv_temps)
 
         assert result["trv_warm"] == pytest.approx(95.0, abs=0.01)
@@ -164,12 +145,7 @@ class TestDistributeValvePercent:
 
     def test_total_power_at_least_mpc_times_n(self):
         """Total heating power is ≥ u_total_pct * N (only boosts, no cuts)."""
-        trv_temps = {
-            "a": 18.0,
-            "b": 20.0,
-            "c": 22.0,
-            "d": 25.0,
-        }
+        trv_temps = {"a": 18.0, "b": 20.0, "c": 22.0, "d": 25.0}
         result = distribute_valve_percent(50.0, trv_temps)
 
         total = sum(result.values())

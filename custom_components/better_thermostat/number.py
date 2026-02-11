@@ -18,7 +18,7 @@ from .utils.calibration.pid import (
     PIDState,
     build_pid_key,
 )
-from .utils.const import CONF_CALIBRATION_MODE, CalibrationMode
+from .utils.const import CONF_CALIBRATION, CONF_CALIBRATION_MODE, CalibrationMode, CalibrationType
 
 _LOGGER = logging.getLogger(__name__)
 DOMAIN = "better_thermostat"
@@ -70,6 +70,13 @@ async def async_setup_entry(
                 numbers.append(
                     BetterThermostatPIDNumber(
                         bt_climate, trv_entity_id, "kd", has_multiple_trvs
+                    )
+                )
+
+            if advanced.get(CONF_CALIBRATION) == CalibrationType.DIRECT_VALVE_BASED:
+                numbers.append(
+                    BetterThermostatValveMaxOpeningNumber(
+                        bt_climate, trv_entity_id, has_multiple_trvs
                     )
                 )
 
@@ -222,4 +229,76 @@ class BetterThermostatPIDNumber(NumberEntity, RestoreEntity):
         setattr(pid_state, f"pid_{self._parameter}", value)
 
         self._bt_climate.schedule_save_pid_state()
+        self.async_write_ha_state()
+
+
+class BetterThermostatValveMaxOpeningNumber(NumberEntity, RestoreEntity):
+    """Representation of a Better Thermostat Valve Max Opening Number."""
+
+    _attr_has_entity_name = True
+    _attr_mode = NumberMode.BOX
+    _attr_entity_category = EntityCategory.CONFIG
+    _attr_native_unit_of_measurement = "%"
+
+    def __init__(self, bt_climate, trv_entity_id, show_trv_name=True):
+        """Initialize the number."""
+        self._bt_climate = bt_climate
+        self._trv_entity_id = trv_entity_id
+        self._attr_unique_id = (
+            f"{bt_climate.unique_id}_{trv_entity_id}_valve_max_opening"
+        )
+
+        if show_trv_name:
+            trv_state = bt_climate.hass.states.get(trv_entity_id)
+            trv_name = trv_state.name if trv_state and trv_state.name else trv_entity_id
+            self._attr_name = f"Valve Max Opening {trv_name}"
+        else:
+            self._attr_name = "Valve Max Opening"
+
+        self._attr_native_min_value = 0.0
+        self._attr_native_max_value = 100.0
+        self._attr_native_step = 1.0
+
+    async def async_added_to_hass(self) -> None:
+        """Run when entity about to be added."""
+        await super().async_added_to_hass()
+        last_state = await self.async_get_last_state()
+        if last_state is not None and last_state.state not in (
+            None,
+            "unknown",
+            "unavailable",
+        ):
+            try:
+                val = float(last_state.state)
+                self._set_value(val)
+            except (TypeError, ValueError):
+                pass
+
+    @property
+    def device_info(self):
+        """Return the device info."""
+        return self._bt_climate.device_info
+
+    @property
+    def native_value(self) -> float | None:
+        """Return the value of the number."""
+        return self._get_value()
+
+    def _get_value(self) -> float:
+        trv_state = (self._bt_climate.real_trvs.get(self._trv_entity_id) or {})
+        val = trv_state.get("valve_max_opening", 100.0)
+        try:
+            return float(val)
+        except (TypeError, ValueError):
+            return 100.0
+
+    def _set_value(self, value: float) -> None:
+        trv_state = self._bt_climate.real_trvs.get(self._trv_entity_id)
+        if trv_state is None:
+            return
+        trv_state["valve_max_opening"] = max(0.0, min(100.0, float(value)))
+
+    async def async_set_native_value(self, value: float) -> None:
+        """Update the current value."""
+        self._set_value(value)
         self.async_write_ha_state()

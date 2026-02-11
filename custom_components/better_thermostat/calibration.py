@@ -169,6 +169,16 @@ def _supports_direct_valve_control(self, entity_id: str) -> bool:
     return False
 
 
+def _get_trv_max_opening(self, entity_id: str) -> float | None:
+    """Return the user-defined max opening percent for a TRV, if any."""
+
+    trv_state = self.real_trvs.get(entity_id) or {}
+    max_opening = trv_state.get("valve_max_opening")
+    if isinstance(max_opening, (int, float)):
+        return max(0.0, min(100.0, float(max_opening)))
+    return None
+
+
 def _compute_mpc_balance(self, entity_id: str):
     """Run the MPC balance algorithm for calibration purposes.
 
@@ -195,6 +205,29 @@ def _compute_mpc_balance(self, entity_id: str):
         return None, False
 
     is_multi_trv = len(self.real_trvs) > 1
+
+    trv_temps: dict[str, float | None] | None = None
+    warmest_trv_id = entity_id
+    if is_multi_trv:
+        trv_temps = {}
+        warmest_temp: float | None = None
+        for eid, tdata in self.real_trvs.items():
+            _t = tdata.get("current_temperature")
+            if _t is not None:
+                try:
+                    temp_val = float(_t)
+                    trv_temps[eid] = temp_val
+                    if warmest_temp is None or temp_val > warmest_temp:
+                        warmest_temp = temp_val
+                        warmest_trv_id = eid
+                except (TypeError, ValueError):
+                    trv_temps[eid] = None
+            else:
+                trv_temps[eid] = None
+
+    max_opening_pct = _get_trv_max_opening(
+        self, warmest_trv_id if is_multi_trv else entity_id
+    )
 
     params = MpcParams()
 
@@ -236,6 +269,7 @@ def _compute_mpc_balance(self, entity_id: str):
                 outdoor_temp_C=_get_current_outdoor_temp(self),
                 is_day=_is_day,
                 solar_intensity=_solar_intensity,
+                max_opening_pct=max_opening_pct,
             ),
             params,
         )
@@ -257,20 +291,9 @@ def _compute_mpc_balance(self, entity_id: str):
 
     # --- Multi-TRV distribution ---
     if is_multi_trv:
-        trv_temps: dict[str, float | None] = {}
-        for eid, tdata in self.real_trvs.items():
-            _t = tdata.get("current_temperature")
-            if _t is not None:
-                try:
-                    trv_temps[eid] = float(_t)
-                except (TypeError, ValueError):
-                    trv_temps[eid] = None
-            else:
-                trv_temps[eid] = None
-
+        trv_temps = trv_temps or {}
         distributed = distribute_valve_percent(
-            u_total_pct=group_valve_pct,
-            trv_temps=trv_temps,
+            u_total_pct=group_valve_pct, trv_temps=trv_temps
         )
         this_trv_pct = distributed.get(entity_id, group_valve_pct)
 
@@ -306,8 +329,7 @@ def _compute_mpc_balance(self, entity_id: str):
     from dataclasses import replace as _dc_replace
 
     trv_output = _dc_replace(
-        mpc_output,
-        valve_percent=int(round(max(0.0, min(100.0, this_trv_pct)))),
+        mpc_output, valve_percent=int(round(max(0.0, min(100.0, this_trv_pct))))
     )
 
     return trv_output, supports_valve
@@ -437,6 +459,7 @@ def _compute_pid_balance(self, entity_id: str):
             self.temp_slope,
             key,
             inp_current_temp_ema_C=self.cur_temp_filtered,
+            max_opening_pct=_get_trv_max_opening(self, entity_id),
         )
         # Schedule saving of updated PID states
         self.schedule_save_pid_state()

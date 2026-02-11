@@ -633,6 +633,7 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
                 "valve_position": None,
                 "valve_position_entity": None,
                 "valve_position_writable": None,
+                "valve_max_opening": 100.0,
                 "max_temp": None,
                 "min_temp": None,
                 "target_temp_step": None,

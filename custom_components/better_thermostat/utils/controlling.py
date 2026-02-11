@@ -26,6 +26,19 @@ from custom_components.better_thermostat.utils.helpers import convert_to_float
 _LOGGER = logging.getLogger(__name__)
 
 
+def _apply_valve_max_opening(self, entity_id: str, target_pct: int) -> int:
+    """Clamp target valve percent to user-defined max opening (if configured)."""
+
+    max_opening = (self.real_trvs.get(entity_id) or {}).get("valve_max_opening")
+    if isinstance(max_opening, (int, float)):
+        try:
+            max_opening = int(round(float(max_opening)))
+        except (TypeError, ValueError):
+            return target_pct
+        return min(target_pct, max(0, min(100, max_opening)))
+    return target_pct
+
+
 class TaskManager:
     """Task manager for Better Thermostat."""
 
@@ -373,6 +386,9 @@ async def control_trv(self, heater_entity_id=None):
                         _source = "balance"
                 if bal is not None:
                     target_pct = int(round(bal.get("valve_percent", 0)))
+                    target_pct = _apply_valve_max_opening(
+                        self, heater_entity_id, target_pct
+                    )
                     _LOGGER.debug(
                         "better_thermostat %s: TO TRV set_valve: %s to: %s%% (source=%s)",
                         self.device_name,
@@ -668,6 +684,9 @@ async def control_trv(self, heater_entity_id=None):
                     _source = "balance"
             if bal is not None:
                 target_pct = int(round(bal.get("valve_percent", 0)))
+                target_pct = _apply_valve_max_opening(
+                    self, heater_entity_id, target_pct
+                )
                 _LOGGER.debug(
                     "better_thermostat %s: TO TRV set_valve: %s to: %s%% (source=%s)",
                     self.device_name,

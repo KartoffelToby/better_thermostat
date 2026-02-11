@@ -91,6 +91,7 @@ class MpcInput:
     is_day: bool = True
     other_heat_power: float = 0.0
     solar_intensity: float = 0.0  # 0.0 to 1.0 (cloud coverage, etc.)
+    max_opening_pct: float | None = None
 
 
 @dataclass
@@ -415,8 +416,7 @@ DISTRIBUTE_COMPENSATION_PCT_PER_K: float = 8.0
 
 
 def distribute_valve_percent(
-    u_total_pct: float,
-    trv_temps: dict[str, float | None],
+    u_total_pct: float, trv_temps: dict[str, float | None]
 ) -> dict[str, float]:
     """Distribute a group MPC valve command across TRVs based on internal temps.
 
@@ -1890,6 +1890,17 @@ def _post_process_percent(
                     percent_out,
                     _round_for_debug(remaining, 1),
                 )
+
+    # ============================================================
+    # 7b) MAX VALVE OPENING (USER CAP)
+    # ============================================================
+    max_opening = getattr(inp, "max_opening_pct", None)
+    if isinstance(max_opening, (int, float)):
+        max_opening = max(0.0, min(100.0, float(max_opening)))
+        if percent_out > max_opening:
+            debug["max_opening_pct"] = _round_for_debug(max_opening, 2)
+            debug["max_opening_clamped"] = True
+            percent_out = int(round(max_opening))
 
     # ============================================================
     # 8) UPDATE STATE ONLY IF CHANGED
