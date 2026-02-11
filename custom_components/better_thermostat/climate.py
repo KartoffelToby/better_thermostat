@@ -3154,6 +3154,11 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
             else:
                 tolerance_hold = True
 
+        # Remember the tolerance-based decision *before* TRV overrides so the
+        # hysteresis state machine is not corrupted by a TRV that is still
+        # physically heating after the control logic decided to stop.
+        tolerance_decision = action
+
         # Cooling decision (if heat_cool mode and cooling setpoint exists)
         if (
             self.hvac_mode in (HVACMode.HEAT_COOL,)
@@ -3266,9 +3271,14 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
                 # Defensive: if anything goes wrong in overrides, fall back to IDLE
                 pass
 
-        # Persist tolerance state machine for next decision
+        # Persist tolerance state machine for next decision.
+        # Use the tolerance-based decision (before TRV overrides) so that a
+        # TRV still physically heating does not keep the hysteresis in the
+        # lenient "was-heating" mode and cause heating up to target + tolerance.
         self._tolerance_last_action = (
-            HVACAction.HEATING if action == HVACAction.HEATING else HVACAction.IDLE
+            HVACAction.HEATING
+            if tolerance_decision == HVACAction.HEATING
+            else HVACAction.IDLE
         )
         self._tolerance_hold_active = bool(
             tolerance_hold and action != HVACAction.COOLING

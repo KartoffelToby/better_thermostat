@@ -449,10 +449,13 @@ def calculate_calibration_local(self, entity_id) -> float | None:
     _cur_target_temp = self.bt_target_temp
 
     if _calibration_mode != CalibrationMode.DEFAULT:
-        # Add tolerance check
-        _within_tolerance = _cur_external_temp >= (
-            _cur_target_temp - self.tolerance
-        ) and _cur_external_temp <= (_cur_target_temp + self.tolerance)
+        # Add tolerance check – use asymmetric band [target - tol, target]
+        # so the TRV stops receiving a heating-promoting calibration once
+        # the room reaches the set temperature (not target + tolerance).
+        _within_tolerance = (
+            _cur_external_temp >= (_cur_target_temp - self.tolerance)
+            and _cur_external_temp < _cur_target_temp
+        )
 
         if _within_tolerance:
             # When within tolerance, don't adjust calibration but keep MPC/TPI/PID valve data fresh

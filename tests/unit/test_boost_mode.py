@@ -9,6 +9,7 @@ Safety override resets valve to 0% when HVAC mode is forced to OFF
 """
 
 import asyncio
+import inspect
 from unittest.mock import AsyncMock, Mock, patch
 
 from homeassistant.components.climate.const import PRESET_BOOST, HVACMode
@@ -301,6 +302,15 @@ class TestBoostModeSafetyOverride:
         mock_self.cooler_entity_id = None
         mock_self.calculate_heating_power = AsyncMock()
 
+        # Prevent 'coroutine was never awaited' warning
+        def _close_coro(coro):
+            if inspect.iscoroutine(coro):
+                coro.close()
+            return Mock()
+
+        mock_self.task_manager = Mock()
+        mock_self.task_manager.create_task = Mock(side_effect=_close_coro)
+
         mock_self.real_trvs = {
             "climate.trv1": {
                 "ignore_trv_states": False,
@@ -383,6 +393,15 @@ class TestBoostModeSafetyOverride:
         mock_self.call_for_heat = False  # No heat call
         mock_self.cooler_entity_id = None
         mock_self.calculate_heating_power = AsyncMock()
+
+        # Prevent 'coroutine was never awaited' warning
+        def _close_coro(coro):
+            if inspect.iscoroutine(coro):
+                coro.close()
+            return Mock()
+
+        mock_self.task_manager = Mock()
+        mock_self.task_manager.create_task = Mock(side_effect=_close_coro)
 
         mock_self.real_trvs = {
             "climate.trv1": {
