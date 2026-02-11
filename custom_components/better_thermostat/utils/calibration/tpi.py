@@ -106,7 +106,9 @@ def import_tpi_state_map(state_map: Mapping[str, Mapping[str, Any]]) -> None:
             setattr(state, attr, coerced)
 
 
-def _round_dbg(v: Any, d: int = 3) -> Any:
+def _round_dbg(v: float | int | None, d: int = 3) -> float | int | None:
+    if v is None:
+        return None
     try:
         return round(float(v), d)
     except (TypeError, ValueError):
