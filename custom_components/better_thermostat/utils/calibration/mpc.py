@@ -234,13 +234,22 @@ def import_mpc_state_map(state_map: Mapping[str, Mapping[str, Any]]) -> None:
                 setattr(state, attr, deque(value, maxlen=20))
                 continue
             try:
-                coerced: int | float | bool
-                if attr in ("dead_zone_hits", "loss_learn_count", "gain_learn_count"):
-                    coerced = int(value)
-                elif attr == "is_calibration_active":
-                    coerced = bool(value)
-                else:
-                    coerced = float(value)
+                coerced: int | float | bool | str
+                match attr:
+                    case (
+                        "dead_zone_hits"
+                        | "loss_learn_count"
+                        | "gain_learn_count"
+                        | "profile_samples"
+                        | "consecutive_insufficient_heat"
+                    ):
+                        coerced = int(value)
+                    case "is_calibration_active" | "regime_boost_active":
+                        coerced = bool(value)
+                    case "trv_profile":
+                        coerced = str(value)
+                    case _:
+                        coerced = float(value)
             except (TypeError, ValueError):
                 continue
             setattr(state, attr, coerced)
