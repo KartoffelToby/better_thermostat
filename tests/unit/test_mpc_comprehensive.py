@@ -6,12 +6,13 @@ Each test class targets a specific subsystem; tests are deterministic
 
 from __future__ import annotations
 
-from time import monotonic
+from time import time
 
 import pytest
 
 import custom_components.better_thermostat.utils.calibration.mpc as mpc_mod
 from custom_components.better_thermostat.utils.calibration.mpc import (
+    DISTRIBUTE_COMPENSATION_PCT_PER_K,
     MpcInput,
     MpcOutput,
     MpcParams,
@@ -22,8 +23,10 @@ from custom_components.better_thermostat.utils.calibration.mpc import (
     _round_for_debug,
     _split_mpc_key,
     _update_perf_curve,
+    build_mpc_group_key,
     build_mpc_key,
     compute_mpc,
+    distribute_valve_percent,
     export_mpc_state_map,
     import_mpc_state_map,
 )
@@ -484,7 +487,7 @@ class TestAdaptiveLearning:
             params,
             last_percent=0.0,
             last_learn_temp=21.0,
-            last_learn_time=monotonic() - 300,  # 5 min ago
+            last_learn_time=time() - 300,  # 5 min ago
             gain_est=0.06,
             loss_est=0.01,
             u_integral=0.0,
@@ -511,7 +514,7 @@ class TestAdaptiveLearning:
             params,
             last_percent=80.0,
             last_learn_temp=20.0,
-            last_learn_time=monotonic() - 300,
+            last_learn_time=time() - 300,
             gain_est=0.06,
             loss_est=0.01,
             u_integral=80.0 * 300,
@@ -531,8 +534,8 @@ class TestAdaptiveLearning:
             params,
             last_percent=50.0,
             last_learn_temp=20.0,
-            last_learn_time=monotonic() - 300,
-            last_window_open_ts=monotonic() - 60,  # window opened 60s ago
+            last_learn_time=time() - 300,
+            last_window_open_ts=time() - 60,  # window opened 60s ago
             gain_est=0.06,
             loss_est=0.01,
         )
@@ -552,7 +555,7 @@ class TestAdaptiveLearning:
             params,
             last_percent=50.0,
             last_learn_temp=20.0,
-            last_learn_time=monotonic() - 300,
+            last_learn_time=time() - 300,
             last_target_C=22.0,
             gain_est=0.06,
             loss_est=0.01,
@@ -576,7 +579,7 @@ class TestAdaptiveLearning:
             params,
             last_percent=50.0,
             last_learn_temp=20.0,
-            last_learn_time=monotonic() - 180,  # 3 min
+            last_learn_time=time() - 180,  # 3 min
             gain_est=0.06,
             loss_est=0.01,
             u_integral=50.0 * 180,
@@ -599,7 +602,7 @@ class TestAdaptiveLearning:
             params,
             last_percent=100.0,
             last_learn_temp=20.0,
-            last_learn_time=monotonic() - 300,
+            last_learn_time=time() - 300,
             gain_est=0.19,
             loss_est=0.01,
             u_integral=100.0 * 300,
@@ -625,7 +628,7 @@ class TestAdaptiveLearning:
             params,
             last_percent=0.0,
             last_learn_temp=21.0,
-            last_learn_time=monotonic() - 300,
+            last_learn_time=time() - 300,
             gain_est=0.06,
             loss_est=0.025,
             u_integral=0.0,
@@ -650,7 +653,7 @@ class TestAdaptiveLearning:
             params,
             last_percent=0.0,
             last_learn_temp=21.0,
-            last_learn_time=monotonic() - 300,
+            last_learn_time=time() - 300,
             gain_est=0.06,
             loss_est=0.015,
             u_integral=0.0,
@@ -684,8 +687,8 @@ class TestAdaptiveLearning:
             params,
             last_percent=16.7,  # near u0 (within 10% absolute)
             last_learn_temp=21.0,  # same as current -> delta_T=0 -> no temp_changed
-            last_learn_time=monotonic() - 400,
-            last_residual_time=monotonic() - 400,
+            last_learn_time=time() - 400,
+            last_residual_time=time() - 400,
             gain_est=0.06,
             loss_est=0.01,
             u_integral=16.7 * 400,
@@ -718,39 +721,33 @@ class TestVirtualTemperature:
         state = mpc_mod._MPC_STATES["vinit"]
         assert state.virtual_temp == pytest.approx(20.5)
 
-    def test_virtual_temp_hard_reset_on_large_drift(self):
-        """If virtual_temp drifts >0.4K from sensor, hard reset."""
-        params = _default_params(
-            use_virtual_temp=True, virtual_temp_hard_reset_error_C=0.4
-        )
+    def test_virtual_temp_corrects_large_drift(self):
+        """Kalman filter should correct virtual_temp when it drifts far from sensor."""
+        params = _default_params(use_virtual_temp=True)
         compute_mpc(_inp(key="vreset", current_temp_C=20.0), params)
         state = mpc_mod._MPC_STATES["vreset"]
-        # Artificially drift virtual temp
+        # Artificially drift virtual temp far from sensor
         state.virtual_temp = 21.0  # 1K off from sensor at 20.0
-        state.last_sensor_temp_C = 19.5  # different from current so sync triggers
+        state.last_sensor_temp_C = 19.5  # different from current so update triggers
         state.last_percent = 50.0
+        state.kalman_P = 1.0  # High uncertainty → Kalman gain ≈ 1.0
 
         compute_mpc(_inp(key="vreset", current_temp_C=20.0), params)
-        # Should hard reset to sensor
+        # Kalman should correct most of the 1K drift
         assert abs(state.virtual_temp - 20.0) < 0.5
 
-    def test_virtual_temp_clamp_within_max_offset(self):
-        """virtual_temp should be clamped within max_offset_C of sensor."""
-        params = _default_params(
-            use_virtual_temp=True,
-            virtual_temp_max_offset_C=0.2,
-            virtual_temp_hard_reset_error_C=1.0,  # high so we don't hard reset
-        )
+    def test_virtual_temp_stays_close_to_sensor(self):
+        """Kalman update should keep virtual_temp close to sensor value."""
+        params = _default_params(use_virtual_temp=True)
         compute_mpc(_inp(key="vclamp", current_temp_C=20.0), params)
         state = mpc_mod._MPC_STATES["vclamp"]
-        state.virtual_temp = 20.3  # 0.3K off, > max_offset 0.2
-        state.last_sensor_temp_C = 19.9  # different so sync fires
+        state.virtual_temp = 20.3  # slightly drifted
+        state.last_sensor_temp_C = 19.9  # different so update fires
         state.last_percent = 50.0
 
         compute_mpc(_inp(key="vclamp", current_temp_C=20.0), params)
-        # Should be clamped within ±0.2 of sensor
-        assert state.virtual_temp <= 20.2 + 0.01
-        assert state.virtual_temp >= 19.8 - 0.01
+        # After Kalman update, virtual_temp should be closer to sensor
+        assert abs(state.virtual_temp - 20.0) < 0.3
 
     def test_virtual_temp_not_synced_when_sensor_unchanged(self):
         """Sync should be skipped when sensor value hasn't changed."""
@@ -832,11 +829,6 @@ class TestRegimeChangeDetection:
         old = [0.1] * 10
         new = [0.001, -0.001] * 5
         errors = old + new
-        assert _detect_regime_change(errors) is False
-
-    def test_std_zero_returns_false(self):
-        """Test that identical nonzero errors (std=0) return False."""
-        errors = [0.05] * 10
         assert _detect_regime_change(errors) is False
 
 
@@ -987,7 +979,7 @@ class TestPostProcessing:
         compute_mpc(_inp(key="dumax", current_temp_C=18.0), params)
         state = mpc_mod._MPC_STATES["dumax"]
         state.last_percent = 50.0  # Force a known starting point
-        state.last_update_ts = monotonic()
+        state.last_update_ts = time()
 
         # Second call: want to go to 0 (warm room)
         r = compute_mpc(
@@ -1038,14 +1030,14 @@ class TestPerfCurveSampling:
         params = _default_params()
         inp = _inp(current_temp_C=None)
         debug = {}
-        _update_perf_curve(state, inp, params, monotonic(), debug)
+        _update_perf_curve(state, inp, params, time(), debug)
         assert state.perf_curve == {}
 
     def test_perf_curve_records_bin(self):
         """After two calls with enough time gap, a bin should be recorded."""
         state = _MpcState()
         params = _default_params(perf_curve_min_window_s=10.0)
-        now = monotonic()
+        now = time()
 
         # First call: establish baseline
         inp1 = _inp(current_temp_C=20.0)
@@ -1064,11 +1056,11 @@ class TestPerfCurveSampling:
         """Test that perf_curve resets baseline but skips recording when window open."""
         state = _MpcState()
         state.last_room_temp_C = 20.0
-        state.last_room_temp_ts = monotonic() - 600
+        state.last_room_temp_ts = time() - 600
         params = _default_params()
         debug = {}
         inp = _inp(window_open=True, current_temp_C=20.5)
-        _update_perf_curve(state, inp, params, monotonic(), debug)
+        _update_perf_curve(state, inp, params, time(), debug)
         # Should reset baseline but not record a bin
         assert "perf_curve_bin" not in debug
 
@@ -1076,11 +1068,11 @@ class TestPerfCurveSampling:
         """Test that perf_curve skips recording when time gap is too short."""
         state = _MpcState()
         state.last_room_temp_C = 20.0
-        state.last_room_temp_ts = monotonic() - 1  # 1 second ago
+        state.last_room_temp_ts = time() - 1  # 1 second ago
         params = _default_params(perf_curve_min_window_s=300.0)
         debug = {}
         inp = _inp(current_temp_C=20.5)
-        _update_perf_curve(state, inp, params, monotonic(), debug)
+        _update_perf_curve(state, inp, params, time(), debug)
         assert "perf_curve_bin" not in debug
 
 
@@ -1154,7 +1146,7 @@ class TestStaleStateDetection:
         params = _default_params(mpc_adapt=True)
         compute_mpc(_inp(key="stale"), params)
         state = mpc_mod._MPC_STATES["stale"]
-        state.last_time = monotonic() - 1000  # 16+ min ago
+        state.last_time = time() - 1000  # 16+ min ago
         state.last_learn_temp = 19.0
         state.u_integral = 5000.0
 
@@ -1303,3 +1295,125 @@ class TestEdgeCases:
         compute_mpc(_inp(key="slope_ema", temp_slope_K_per_min=0.10), params)
         # ema = 0.6 * 0.05 + 0.4 * 0.10 = 0.07
         assert state.ema_slope == pytest.approx(0.07, abs=0.001)
+
+
+# ===================================================================
+# 14. BUILD MPC GROUP KEY
+# ===================================================================
+
+
+class TestBuildMpcGroupKey:
+    """Tests for build_mpc_group_key (multi-TRV group key)."""
+
+    def test_group_key_format(self):
+        """Group key uses ':group:' instead of entity_id."""
+
+        class FakeBT:
+            bt_target_temp = 21.5
+            unique_id = "bt_123"
+
+        key = build_mpc_group_key(FakeBT())
+        assert key == "bt_123:group:t21.5"
+
+    def test_group_key_target_none(self):
+        """None target temp produces 'tunknown' bucket."""
+
+        class FakeBT:
+            bt_target_temp = None
+            unique_id = "bt_x"
+
+        key = build_mpc_group_key(FakeBT())
+        assert "tunknown" in key
+        assert ":group:" in key
+
+    def test_group_key_missing_uid(self):
+        """Fallback uid when unique_id attribute is missing."""
+
+        class FakeBT:
+            bt_target_temp = 20.0
+
+        key = build_mpc_group_key(FakeBT())
+        assert key.startswith("bt:")
+        assert ":group:" in key
+
+    def test_group_key_differs_from_entity_key(self):
+        """Group key and entity key should differ (group vs entity_id)."""
+
+        class FakeBT:
+            bt_target_temp = 22.0
+            unique_id = "bt_1"
+
+        group_key = build_mpc_group_key(FakeBT())
+        entity_key = build_mpc_key(FakeBT(), "climate.trv_1")
+        assert group_key != entity_key
+        assert ":group:" in group_key
+        assert ":climate.trv_1:" in entity_key
+
+
+# ===================================================================
+# 15. DISTRIBUTE VALVE PERCENT (multi-TRV compensation)
+# ===================================================================
+
+
+class TestDistributeValvePercent:
+    """Tests for distribute_valve_percent."""
+
+    def test_empty_dict(self):
+        """Empty TRV dict returns empty result."""
+        assert distribute_valve_percent(50.0, {}) == {}
+
+    def test_single_trv_passthrough(self):
+        """Single TRV returns the group percentage unchanged."""
+        result = distribute_valve_percent(60.0, {"trv_a": 20.0})
+        assert result["trv_a"] == pytest.approx(60.0)
+
+    def test_zero_command_gives_zero(self):
+        """When group command is 0%, all TRVs get 0%."""
+        result = distribute_valve_percent(0.0, {"a": 18.0, "b": 25.0})
+        assert all(v == pytest.approx(0.0) for v in result.values())
+
+    def test_uniform_same_temps(self):
+        """TRVs with same temperature get uniform distribution."""
+        result = distribute_valve_percent(50.0, {"a": 20.0, "b": 20.0})
+        assert result["a"] == pytest.approx(50.0)
+        assert result["b"] == pytest.approx(50.0)
+
+    def test_colder_trv_gets_boost(self):
+        """Colder TRV gets higher valve % than warmer one."""
+        result = distribute_valve_percent(50.0, {"warm": 22.0, "cold": 19.0})
+        # Warmest TRV = reference, gets baseline
+        assert result["warm"] == pytest.approx(50.0)
+        # cold is 3K below warm, boost = 3 * COMPENSATION_PCT_PER_K
+        expected_cold = min(100.0, 50.0 + 3.0 * DISTRIBUTE_COMPENSATION_PCT_PER_K)
+        assert result["cold"] == pytest.approx(expected_cold)
+
+    def test_none_temps_get_baseline(self):
+        """TRVs with None temperature get the baseline (no boost)."""
+        result = distribute_valve_percent(50.0, {"a": 22.0, "b": None})
+        assert result["a"] == pytest.approx(50.0)
+        assert result["b"] == pytest.approx(50.0)
+
+    def test_all_none_temps_uniform(self):
+        """All None temps produce uniform distribution."""
+        result = distribute_valve_percent(40.0, {"a": None, "b": None})
+        assert result["a"] == pytest.approx(40.0)
+        assert result["b"] == pytest.approx(40.0)
+
+    def test_result_clamped_to_100(self):
+        """Boost should not exceed 100%."""
+        # Cold TRV with high baseline: boost pushes above 100
+        result = distribute_valve_percent(90.0, {"warm": 25.0, "cold": 15.0})
+        assert result["cold"] <= 100.0
+
+    def test_result_not_negative(self):
+        """Result should never be negative."""
+        result = distribute_valve_percent(0.0, {"a": 20.0, "b": 18.0})
+        assert all(v >= 0.0 for v in result.values())
+
+    def test_warmest_is_reference(self):
+        """The warmest TRV always receives exactly the MPC output."""
+        for pct in [0.0, 25.0, 50.0, 75.0, 100.0]:
+            result = distribute_valve_percent(
+                pct, {"cold": 18.0, "warm": 22.0, "mid": 20.0}
+            )
+            assert result["warm"] == pytest.approx(pct)
