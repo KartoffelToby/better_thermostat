@@ -52,7 +52,7 @@ class TestPIDController:
         # Error = 2.0, P = 10*2 = 20, I accumulates, D=0
         assert percent1 > 0
 
-        # Second call with same error, I should accumulate
+        # Second call with same error; integer rounding may mask tiny increments
         percent2, _ = compute_pid(
             params=params,
             inp_target_temp_C=22.0,
@@ -61,7 +61,20 @@ class TestPIDController:
             inp_temp_slope_K_per_min=0.0,
             key="test_basic",
         )
-        assert percent2 > percent1  # Due to integral accumulation
+        assert percent2 >= percent1
+
+        # After a few iterations the integral term should raise the output
+        percent_last = percent2
+        for _ in range(6):
+            percent_last, _ = compute_pid(
+                params=params,
+                inp_target_temp_C=22.0,
+                inp_current_temp_C=20.0,
+                inp_trv_temp_C=21.0,
+                inp_temp_slope_K_per_min=0.0,
+                key="test_basic",
+            )
+        assert percent_last > percent1
 
     def test_anti_windup(self):
         """Test anti-windup clamping."""
