@@ -19,7 +19,12 @@ from .utils.calibration.pid import (
     PIDState,
     build_pid_key,
 )
-from .utils.const import CONF_CALIBRATION, CONF_CALIBRATION_MODE, CalibrationMode, CalibrationType
+from .utils.const import (
+    CONF_CALIBRATION,
+    CONF_CALIBRATION_MODE,
+    CalibrationMode,
+    CalibrationType,
+)
 
 _LOGGER = logging.getLogger(__name__)
 DOMAIN = "better_thermostat"
@@ -63,6 +68,7 @@ async def async_setup_entry(
 
             advanced = trv_conf.get("advanced", {})
             calibration_mode = advanced.get(CONF_CALIBRATION_MODE)
+            calibration_type = advanced.get(CONF_CALIBRATION)
 
             # Normalize string values to CalibrationMode enum
             try:
@@ -70,6 +76,12 @@ async def async_setup_entry(
                     calibration_mode = CalibrationMode(calibration_mode)
             except (ValueError, TypeError):
                 calibration_mode = None
+
+            try:
+                if isinstance(calibration_type, str):
+                    calibration_type = CalibrationType(calibration_type)
+            except (ValueError, TypeError):
+                calibration_type = None
 
             if calibration_mode == CalibrationMode.PID_CALIBRATION:
                 for param in ["kp", "ki", "kd"]:
@@ -82,6 +94,13 @@ async def async_setup_entry(
                         "param": param,
                     }
 
+            if calibration_type == CalibrationType.DIRECT_VALVE_BASED:
+                numbers.append(
+                    BetterThermostatValveMaxOpeningNumber(
+                        bt_climate, trv_entity_id, has_multiple_trvs
+                    )
+                )
+
     # Track created number entities for cleanup
     _ACTIVE_PRESET_NUMBERS[entry.entry_id] = preset_unique_ids
     _ACTIVE_PID_NUMBERS[entry.entry_id] = pid_unique_ids
@@ -92,13 +111,6 @@ async def async_setup_entry(
         len(preset_unique_ids),
         len(pid_unique_ids),
     )
-
-            if advanced.get(CONF_CALIBRATION) == CalibrationType.DIRECT_VALVE_BASED:
-                numbers.append(
-                    BetterThermostatValveMaxOpeningNumber(
-                        bt_climate, trv_entity_id, has_multiple_trvs
-                    )
-                )
 
     async_add_entities(numbers)
 
@@ -316,7 +328,7 @@ class BetterThermostatValveMaxOpeningNumber(NumberEntity, RestoreEntity):
         return self._get_value()
 
     def _get_value(self) -> float:
-        trv_state = (self._bt_climate.real_trvs.get(self._trv_entity_id) or {})
+        trv_state = self._bt_climate.real_trvs.get(self._trv_entity_id) or {}
         val = trv_state.get("valve_max_opening", 100.0)
         try:
             return float(val)
