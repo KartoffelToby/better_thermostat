@@ -133,6 +133,7 @@ from .utils.helpers import (
 from .utils.watcher import (
     check_and_update_degraded_mode,
     check_critical_entities,
+    get_optional_sensors,
     is_entity_available,
 )
 from .utils.weather import check_ambient_air_temperature, check_weather
@@ -968,91 +969,6 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
             except ContinueLoop:
                 continue
 
-            # Optional sensors: log warning but don't block startup (degraded mode)
-            if self.window_id is not None:
-                _win_state = self.hass.states.get(self.window_id)
-                if _win_state is None or _win_state.state in (
-                    STATE_UNAVAILABLE,
-                    STATE_UNKNOWN,
-                    None,
-                ):
-                    _LOGGER.warning(
-                        "better_thermostat %s: Window sensor '%s' unavailable at startup. "
-                        "Continuing in degraded mode (assuming window closed).",
-                        self.device_name,
-                        self.window_id,
-                    )
-                    self.unavailable_sensors.append(self.window_id)
-
-            if self.cooler_entity_id is not None:
-                _cool_state = self.hass.states.get(self.cooler_entity_id)
-                if _cool_state is None or _cool_state.state in (
-                    STATE_UNAVAILABLE,
-                    STATE_UNKNOWN,
-                    None,
-                ):
-                    _LOGGER.warning(
-                        "better_thermostat %s: Cooler entity '%s' unavailable at startup. "
-                        "Continuing without cooling support.",
-                        self.device_name,
-                        self.cooler_entity_id,
-                    )
-                    self.unavailable_sensors.append(self.cooler_entity_id)
-
-            if self.humidity_sensor_entity_id is not None:
-                humidity_state = self.hass.states.get(self.humidity_sensor_entity_id)
-                if humidity_state is None or humidity_state.state in (
-                    STATE_UNAVAILABLE,
-                    STATE_UNKNOWN,
-                    None,
-                ):
-                    _LOGGER.warning(
-                        "better_thermostat %s: Humidity sensor '%s' unavailable at startup. "
-                        "Continuing without humidity data.",
-                        self.device_name,
-                        self.humidity_sensor_entity_id,
-                    )
-                    self.unavailable_sensors.append(self.humidity_sensor_entity_id)
-
-            if self.outdoor_sensor is not None:
-                _out_state = self.hass.states.get(self.outdoor_sensor)
-                if _out_state is None or _out_state.state in (
-                    STATE_UNAVAILABLE,
-                    STATE_UNKNOWN,
-                    None,
-                ):
-                    _LOGGER.warning(
-                        "better_thermostat %s: Outdoor sensor '%s' unavailable at startup. "
-                        "Will use weather entity as fallback if configured.",
-                        self.device_name,
-                        self.outdoor_sensor,
-                    )
-                    self.unavailable_sensors.append(self.outdoor_sensor)
-
-            if self.weather_entity is not None:
-                _weather_state = self.hass.states.get(self.weather_entity)
-                if _weather_state is None or _weather_state.state in (
-                    STATE_UNAVAILABLE,
-                    STATE_UNKNOWN,
-                    None,
-                ):
-                    _LOGGER.warning(
-                        "better_thermostat %s: Weather entity '%s' unavailable at startup. "
-                        "Continuing with call_for_heat=True as default.",
-                        self.device_name,
-                        self.weather_entity,
-                    )
-                    self.unavailable_sensors.append(self.weather_entity)
-
-            # Set degraded_mode flag if any sensors are unavailable
-            if self.unavailable_sensors:
-                self.degraded_mode = True
-                _LOGGER.warning(
-                    "better_thermostat %s: Starting in DEGRADED MODE. Unavailable sensors: %s",
-                    self.device_name,
-                    ", ".join(self.unavailable_sensors),
-                )
-
             states = [
                 state
                 for entity_id in self.real_trvs
@@ -1770,6 +1686,45 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
                 "better_thermostat %s: checking critical entities...", self.device_name
             )
             await check_critical_entities(self)
+
+            # Wait for optional sensors to become available before entering
+            # degraded mode.  After a reboot sensors (especially Zigbee,
+            # Z-Wave or cloud-based weather integrations) may need 10-30+
+            # seconds to initialise.  We retry a few times so we don't
+            # trigger a misleading "degraded mode" warning for a transient
+            # startup delay.
+            # Increasing delays: short initial check catches fast local
+            # sensors, longer waits give cloud / weather integrations time.
+            # Total max wait ≈ 60 s (3+5+10+15+25).
+            _OPTIONAL_SENSOR_DELAYS = [3, 5, 10, 15, 25]
+            _elapsed = 0
+
+            for _idx, _delay in enumerate(_OPTIONAL_SENSOR_DELAYS):
+                _pending = [
+                    eid
+                    for eid in get_optional_sensors(self)
+                    if not is_entity_available(self.hass, eid)
+                ]
+                if not _pending:
+                    _LOGGER.debug(
+                        "better_thermostat %s: all optional sensors available "
+                        "(after %d s)",
+                        self.device_name,
+                        _elapsed,
+                    )
+                    break
+                _LOGGER.debug(
+                    "better_thermostat %s: waiting for optional sensors "
+                    "(attempt %d/%d, next check in %d s, pending: %s)",
+                    self.device_name,
+                    _idx + 1,
+                    len(_OPTIONAL_SENSOR_DELAYS),
+                    _delay,
+                    ", ".join(_pending),
+                )
+                await asyncio.sleep(_delay)
+                _elapsed += _delay
+
             await check_and_update_degraded_mode(self)
 
             if self.is_removed:
