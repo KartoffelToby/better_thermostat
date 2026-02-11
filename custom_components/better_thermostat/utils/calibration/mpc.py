@@ -230,9 +230,14 @@ def import_mpc_state_map(state_map: Mapping[str, Mapping[str, Any]]) -> None:
             try:
                 coerced: int | float | bool | str
                 match attr:
-                    case "dead_zone_hits" | "loss_learn_count" | "profile_samples":
+                    case (
+                        "dead_zone_hits"
+                        | "loss_learn_count"
+                        | "profile_samples"
+                        | "consecutive_insufficient_heat"
+                    ):
                         coerced = int(value)
-                    case "is_calibration_active":
+                    case "is_calibration_active" | "regime_boost_active":
                         coerced = bool(value)
                     case "trv_profile":
                         coerced = str(value)

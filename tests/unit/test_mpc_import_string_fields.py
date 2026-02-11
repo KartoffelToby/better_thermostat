@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-import custom_components.better_thermostat.utils.calibration.mpc as mpc_mod
+from custom_components.better_thermostat.utils.calibration import mpc as mpc_mod
 from custom_components.better_thermostat.utils.calibration.mpc import (
     _MpcState,
     export_mpc_state_map,
@@ -100,6 +100,48 @@ class TestImportStringFields:
 
         assert mpc_mod._MPC_STATES["k5"].loss_learn_count == 15
 
+    def test_regime_boost_active_survives_round_trip(self):
+        """regime_boost_active (bool) should survive export/import."""
+        state = _MpcState()
+        state.regime_boost_active = True
+        mpc_mod._MPC_STATES["k_rb"] = state
+
+        exported = export_mpc_state_map()
+        mpc_mod._MPC_STATES.clear()
+        import_mpc_state_map(exported)
+
+        assert mpc_mod._MPC_STATES["k_rb"].regime_boost_active is True
+
+    def test_consecutive_insufficient_heat_survives_round_trip(self):
+        """consecutive_insufficient_heat (int) should survive export/import."""
+        state = _MpcState()
+        state.consecutive_insufficient_heat = 5
+        mpc_mod._MPC_STATES["k_cih"] = state
+
+        exported = export_mpc_state_map()
+        mpc_mod._MPC_STATES.clear()
+        import_mpc_state_map(exported)
+
+        restored = mpc_mod._MPC_STATES["k_cih"]
+        assert restored.consecutive_insufficient_heat == 5
+        assert isinstance(restored.consecutive_insufficient_heat, int)
+
+    def test_perf_curve_survives_round_trip(self):
+        """perf_curve (dict) should survive export/import."""
+        state = _MpcState()
+        state.perf_curve = {"p00_10": {"rate": 0.05, "count": 3}}
+        mpc_mod._MPC_STATES["k_pc"] = state
+
+        exported = export_mpc_state_map()
+        mpc_mod._MPC_STATES.clear()
+        import_mpc_state_map(exported)
+
+        restored = mpc_mod._MPC_STATES["k_pc"]
+        assert isinstance(restored.perf_curve, dict)
+        assert "p00_10" in restored.perf_curve
+        assert restored.perf_curve["p00_10"]["rate"] == pytest.approx(0.05)
+        assert restored.perf_curve["p00_10"]["count"] == 3
+
     def test_full_state_round_trip(self):
         """All field types should survive a full export/import round-trip."""
         state = _MpcState()
@@ -113,6 +155,9 @@ class TestImportStringFields:
         state.profile_confidence = 0.85
         state.profile_samples = 10
         state.loss_learn_count = 7
+        state.regime_boost_active = True
+        state.consecutive_insufficient_heat = 3
+        state.perf_curve = {"p50_60": {"rate": 0.1, "count": 5}}
         mpc_mod._MPC_STATES["k6"] = state
 
         exported = export_mpc_state_map()
@@ -130,3 +175,6 @@ class TestImportStringFields:
         assert restored.profile_confidence == pytest.approx(0.85)
         assert restored.profile_samples == 10
         assert restored.loss_learn_count == 7
+        assert restored.regime_boost_active is True
+        assert restored.consecutive_insufficient_heat == 3
+        assert "p50_60" in restored.perf_curve
