@@ -228,6 +228,7 @@ def import_mpc_state_map(state_map: Mapping[str, Mapping[str, Any]]) -> None:
                 setattr(state, attr, dict(value))
                 continue
             try:
+                coerced: int | float | bool | str
                 match attr:
                     case "dead_zone_hits" | "loss_learn_count" | "profile_samples":
                         coerced = int(value)
