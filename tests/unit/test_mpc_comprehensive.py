@@ -1,7 +1,7 @@
 """Comprehensive tests for the MPC (Model Predictive Control) controller.
 
 Each test class targets a specific subsystem; tests are deterministic
-(time is mocked via monkeypatch where needed).
+using real time with sufficiently large deltas.
 """
 
 from __future__ import annotations
@@ -10,7 +10,7 @@ from time import time
 
 import pytest
 
-import custom_components.better_thermostat.utils.calibration.mpc as mpc_mod
+from custom_components.better_thermostat.utils.calibration import mpc as mpc_mod
 from custom_components.better_thermostat.utils.calibration.mpc import (
     DISTRIBUTE_COMPENSATION_PCT_PER_K,
     MpcInput,
@@ -376,15 +376,16 @@ class TestComputeMpcBasic:
     def test_valve_monotonically_increases_with_error(self):
         """Larger error should produce higher (or equal) valve output."""
         params = _default_params(mpc_adapt=False)
+        temps = [21.5, 21.0, 20.5, 20.0, 19.0, 18.0]
         results = []
-        for current in [21.5, 21.0, 20.5, 20.0, 19.0, 18.0]:
+        for current in temps:
             r = compute_mpc(_inp(key=f"mono_{current}", current_temp_C=current), params)
             results.append(r.valve_percent)
         # Each should be >= previous (or equal for saturation)
         for i in range(1, len(results)):
             assert results[i] >= results[i - 1], (
-                f"Valve at {21.5 - i * 0.5}°C ({results[i]}%) < valve at "
-                f"{22.0 - i * 0.5}°C ({results[i - 1]}%)"
+                f"Valve at {temps[i]}°C ({results[i]}%) < valve at "
+                f"{temps[i - 1]}°C ({results[i - 1]}%)"
             )
 
     def test_filtered_temp_reduces_valve_demand(self):
