@@ -97,6 +97,8 @@ async def _apply_valve_control(
         return False
 
     target_pct = int(round(bal.get("valve_percent", 0)))
+    target_pct = _apply_valve_max_opening(self, heater_entity_id, target_pct)
+
     _LOGGER.debug(
         "better_thermostat %s: TO TRV set_valve: %s to: %s%% (source=%s)",
         self.device_name,
@@ -139,6 +141,19 @@ async def _reset_valve_on_safety_override(
                 heater_entity_id,
                 exc_info=True,
             )
+
+
+def _apply_valve_max_opening(self, entity_id: str, target_pct: int) -> int:
+    """Clamp target valve percent to user-defined max opening (if configured)."""
+
+    max_opening = (self.real_trvs.get(entity_id) or {}).get("valve_max_opening")
+    if isinstance(max_opening, (int, float)):
+        try:
+            max_opening = int(round(float(max_opening)))
+        except (TypeError, ValueError):
+            return target_pct
+        return min(target_pct, max(0, min(100, max_opening)))
+    return target_pct
 
 
 class TaskManager:
