@@ -39,13 +39,14 @@ class TestDetectRegimeChange:
         assert _detect_regime_change(errors) is False
 
     def test_high_variance_masks_small_bias(self):
-        """High variance relative to mean should not be detected as regime change."""
-        import random as rng
+        """High variance relative to mean should not be detected as regime change.
 
-        rng.seed(42)
-        errors = [rng.gauss(0.01, 0.5) for _ in range(10)]
-        result = _detect_regime_change(errors)
-        assert isinstance(result, bool)
+        Fixed series with mean ≈ 0.01 and std ≈ 0.5 so the t-statistic
+        is too small for detection.
+        """
+        errors = [0.15, -0.42, 0.53, -0.31, 0.08, -0.47, 0.39, -0.18, 0.61, -0.28]
+        # mean ≈ 0.01, std ≈ 0.39 → t = 0.01 / (0.39/√10) ≈ 0.08
+        assert _detect_regime_change(errors) is False
 
     def test_low_variance_with_bias_detected(self):
         """Low variance with clear nonzero mean should be detected."""
