@@ -131,9 +131,9 @@ from .utils.helpers import (
     normalize_hvac_mode,
 )
 from .utils.watcher import (
+    await_optional_sensors,
     check_and_update_degraded_mode,
     check_critical_entities,
-    get_optional_sensors,
     is_entity_available,
 )
 from .utils.weather import check_ambient_air_temperature, check_weather
@@ -1687,44 +1687,9 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
             )
             await check_critical_entities(self)
 
-            # Wait for optional sensors to become available before entering
-            # degraded mode.  After a reboot sensors (especially Zigbee,
-            # Z-Wave or cloud-based weather integrations) may need 10-30+
-            # seconds to initialise.  We retry a few times so we don't
-            # trigger a misleading "degraded mode" warning for a transient
-            # startup delay.
-            # Increasing delays: short initial check catches fast local
-            # sensors, longer waits give cloud / weather integrations time.
-            # Total max wait ≈ 60 s (3+5+10+15+25).
-            _OPTIONAL_SENSOR_DELAYS = [3, 5, 10, 15, 25]
-            _elapsed = 0
-
-            for _idx, _delay in enumerate(_OPTIONAL_SENSOR_DELAYS):
-                _pending = [
-                    eid
-                    for eid in get_optional_sensors(self)
-                    if not is_entity_available(self.hass, eid)
-                ]
-                if not _pending:
-                    _LOGGER.debug(
-                        "better_thermostat %s: all optional sensors available "
-                        "(after %d s)",
-                        self.device_name,
-                        _elapsed,
-                    )
-                    break
-                _LOGGER.debug(
-                    "better_thermostat %s: waiting for optional sensors "
-                    "(attempt %d/%d, next check in %d s, pending: %s)",
-                    self.device_name,
-                    _idx + 1,
-                    len(_OPTIONAL_SENSOR_DELAYS),
-                    _delay,
-                    ", ".join(_pending),
-                )
-                await asyncio.sleep(_delay)
-                _elapsed += _delay
-
+            # Wait for optional sensors with increasing retry delays before
+            # entering degraded mode (see await_optional_sensors for details).
+            await await_optional_sensors(self)
             await check_and_update_degraded_mode(self)
 
             if self.is_removed:
