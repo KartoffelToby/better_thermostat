@@ -122,25 +122,19 @@ class TestHeatingPowerValvePosition:
         # Should have some minimum valve opening for 0.5°C diff
         assert result > 0.0
 
-    def test_no_heating_when_cooling_needed(self):
-        """Test that valve returns 0 when current temp exceeds target.
-
-        This edge case occurs when:
-        1. Temperature rises above target (e.g., sun, external heat)
-        2. TRV still reports "heating" (delayed update)
-        3. Function is called with negative temp_diff
-        """
+    def test_returns_zero_when_cooling_needed(self):
+        """Test that valve returns 0% when cur_temp > target_temp."""
         mock_bt = MockThermostat(bt_target_temp=20.0, cur_temp=22.0)
 
         result = heating_power_valve_position(mock_bt, "climate.test")
-        assert result == 0.0  # No heating needed when room warmer than target
+        assert result == 0.0
 
-    def test_negative_temp_diff_returns_zero(self):
-        """Test that negative temperature differences return 0."""
+    def test_returns_zero_for_negative_temp_diff(self):
+        """Test that negative temperature differences return 0% valve."""
         mock_bt = MockThermostat(bt_target_temp=18.0, cur_temp=20.0, heating_power=0.02)
 
         result = heating_power_valve_position(mock_bt, "climate.test")
-        assert result == 0.0  # Should return 0 when no heating needed
+        assert result == 0.0
 
     def test_handles_very_small_temp_diff(self):
         """Test handling of very small temperature differences."""
