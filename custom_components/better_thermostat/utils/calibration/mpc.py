@@ -519,7 +519,9 @@ def _detect_regime_change(recent_errors: deque | list) -> bool:
         return False
 
     if std_error == 0:
-        return False
+        # All errors are identical.  If mean is nonzero, the bias is
+        # perfectly consistent and should be treated as a regime change.
+        return mean_error != 0
 
     # t-statistic: how many std-devs is the mean away from 0?
     t_stat = abs(mean_error) / (std_error / (N**0.5))
