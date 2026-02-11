@@ -122,6 +122,7 @@ def compute_pid(
     inp_temp_slope_K_per_min: float | None,
     key: str,
     inp_current_temp_ema_C: float | None = None,
+    max_opening_pct: float | None = None,
 ) -> tuple[float, dict[str, Any]]:
     """Compute PID-based valve opening percentage.
 
@@ -140,6 +141,10 @@ def compute_pid(
     """
     now = monotonic()
     st = _PID_STATES.setdefault(key, PIDState())
+
+    max_opening = 100.0
+    if isinstance(max_opening_pct, (int, float)):
+        max_opening = max(0.0, min(100.0, float(max_opening_pct)))
 
     _LOGGER.debug(
         "better_thermostat PID: input for %s: target=%.1f current=%.1f trv=%.1f slope=%.3f kp=%.1f ki=%.3f kd=%.1f",
@@ -248,7 +253,7 @@ def compute_pid(
         # Vorläufige Stellgröße ohne Sättigung prüfen
         u_prop = p_term + i_prop + d_term
         # Gesättigte Stellgröße
-        u_sat = max(0.0, min(100.0, u_prop))
+        u_sat = max(0.0, min(max_opening, u_prop))
         # Falls gesättigt und Fehler die Sättigung verstärken würde → Integration blockieren
         if (u_prop > u_sat and e > 0) or (u_prop < u_sat and e < 0):
             i_term = i_prev
@@ -282,7 +287,7 @@ def compute_pid(
 
     # --- Slew-Rate & Hold-Time Logic ---
     # 1. Calculate raw desired change (unlimited)
-    percent_unlimited = max(0.0, min(100.0, u))
+    percent_unlimited = max(0.0, min(max_opening, u))
     raw_change = percent_unlimited - st.last_percent
 
     # 2. Check for Big Change (Bypass filters)
