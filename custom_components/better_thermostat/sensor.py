@@ -1,5 +1,6 @@
 """Better Thermostat Sensor Platform."""
 
+from collections.abc import Callable
 import logging
 import time
 
@@ -26,14 +27,22 @@ _LOGGER = logging.getLogger(__name__)
 DOMAIN = "better_thermostat"
 
 # Globale Tracking-Variablen für aktive algorithmus-spezifische Entitäten
-_ACTIVE_ALGORITHM_ENTITIES = {}
-_ENTITY_CLEANUP_CALLBACKS = {}
-_DISPATCHER_UNSUBSCRIBES = {}  # Store unsubscribe functions
+_ACTIVE_ALGORITHM_ENTITIES: dict[str, dict] = {}
+_ENTITY_CLEANUP_CALLBACKS: dict[str, Callable] = {}
+_DISPATCHER_UNSUBSCRIBES: dict[
+    str, Callable[[], None]
+] = {}  # Store unsubscribe functions
 
 # Globale Tracking-Variablen für aktive Preset Number Entitäten
-_ACTIVE_PRESET_NUMBERS = {}  # {entry_id: {unique_id: {"preset": preset_name}, ...}}
-_ACTIVE_PID_NUMBERS = {}  # {entry_id: {unique_id: {"trv": trv_entity_id, "param": parameter}, ...}}
-_ACTIVE_SWITCH_ENTITIES = {}  # {entry_id: {unique_id: {"trv": trv_entity_id, "type": kind}, ...}}
+_ACTIVE_PRESET_NUMBERS: dict[
+    str, dict[str | None, dict[str, str]]
+] = {}  # {entry_id: {unique_id: {"preset": preset_name}, ...}}
+_ACTIVE_PID_NUMBERS: dict[
+    str, dict[str | None, dict[str, str]]
+] = {}  # {entry_id: {unique_id: {"trv": trv_entity_id, "param": parameter}, ...}}
+_ACTIVE_SWITCH_ENTITIES: dict[
+    str, dict[str | None, dict[str, str]]
+] = {}  # {entry_id: {unique_id: {"trv": trv_entity_id, "type": kind}, ...}}
 
 
 async def async_setup_entry(
@@ -335,6 +344,8 @@ async def _cleanup_preset_number_entities(
     # Remove entities from registry – only delete tracking key on success
     removed_count = 0
     for preset_unique_id, preset_name in entities_to_remove:
+        if preset_unique_id is None:
+            continue
         entity_id = entity_registry.async_get_entity_id(
             "number", DOMAIN, preset_unique_id
         )
@@ -405,6 +416,8 @@ async def _cleanup_pid_number_entities(
     # Remove entities from registry – only delete tracking key on success
     removed_count = 0
     for pid_unique_id in entities_to_remove:
+        if pid_unique_id is None:
+            continue
         entity_id = entity_registry.async_get_entity_id("number", DOMAIN, pid_unique_id)
         if entity_id:
             try:
@@ -488,6 +501,8 @@ async def _cleanup_pid_switch_entities(
     # Remove entities from registry – only delete tracking key on success
     removed_count = 0
     for switch_unique_id in entities_to_remove:
+        if switch_unique_id is None:
+            continue
         entity_id = entity_registry.async_get_entity_id(
             "switch", DOMAIN, switch_unique_id
         )
