@@ -622,15 +622,15 @@ class TestMPCController:
     def test_change_penalty_reduces_output(self):
         """Activating change penalty should reduce opening in the same scenario."""
 
-        common = dict(
-            mpc_adapt=False,
-            min_update_interval_s=0.0,
-            min_percent_hold_time_s=0.0,
-            percent_hysteresis_pts=0.0,
-            mpc_control_penalty=0.0,
-            use_virtual_temp=False,
-            mpc_overshoot_penalty=0.0,
-        )
+        common = {
+            "mpc_adapt": False,
+            "min_update_interval_s": 0.0,
+            "min_percent_hold_time_s": 0.0,
+            "percent_hysteresis_pts": 0.0,
+            "mpc_control_penalty": 0.0,
+            "use_virtual_temp": False,
+            "mpc_overshoot_penalty": 0.0,
+        }
 
         no_pen = MpcParams(**common, mpc_change_penalty=0.0)
         with_pen = MpcParams(**common, mpc_change_penalty=10.0)
