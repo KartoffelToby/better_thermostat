@@ -6,11 +6,10 @@ require specific quirks.
 
 import logging
 
+from homeassistant.components.lock import LockState
 from homeassistant.const import STATE_OFF, STATE_ON
 from homeassistant.helpers import entity_registry as er
 
-STATE_LOCKED = "locked"
-STATE_UNLOCKED = "unlocked"
 _LOGGER = logging.getLogger(__name__)
 
 VALVE_MAINTENANCE_INTERVAL_HOURS = 168  # Default: 7 days
@@ -115,10 +114,12 @@ async def inital_tweak(self, entity_id):
                             )
                     elif domain == "lock":
                         target_lock = (
-                            STATE_LOCKED if child_lock_setting else STATE_UNLOCKED
+                            LockState.LOCKED
+                            if child_lock_setting
+                            else LockState.UNLOCKED
                         )
                         cur = self.hass.states.get(cl_entity)
-                        if cur and cur.state != target_lock:
+                        if cur and cur.state != target_lock.value:
                             _LOGGER.debug(
                                 "better_thermostat %s: Setting child lock (lock) for %s to %s",
                                 self.device_name,

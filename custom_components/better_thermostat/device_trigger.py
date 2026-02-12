@@ -34,10 +34,10 @@ from . import DOMAIN
 
 async def async_get_triggers(
     hass: HomeAssistant, device_id: str
-) -> list[dict[str, str]]:
+) -> list[dict[str, str | dict[str, bool]]]:
     """List device triggers for Better Thermostat devices."""
     registry = entity_registry.async_get(hass)
-    triggers = []
+    triggers: list[dict[str, str | dict[str, bool]]] = []
 
     # Get all the integrations entities for this device
     for entry in entity_registry.async_entries_for_device(registry, device_id):
