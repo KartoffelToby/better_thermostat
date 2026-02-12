@@ -1886,17 +1886,19 @@ class TestResidualRateLimiting:
 
 
 # ===================================================================
-# 24. BIG-CHANGE FORCE-OPEN BYPASS
+# 24. BIG-CHANGE HOLD BYPASS
 # ===================================================================
 
 
-class TestBigChangeForceOpen:
-    """Tests for hold-time bypass on big opening changes."""
+class TestBigChangeHoldBypass:
+    """Tests for hold-time bypass on big opening/closing changes."""
 
     def test_big_increase_bypasses_hold_time(self):
         """Change >= big_change_force_open_pct should bypass hold-time."""
         params = _default_params(
-            min_percent_hold_time_s=600.0, big_change_force_open_pct=33.0
+            min_percent_hold_time_s=600.0,
+            big_change_force_open_pct=33.0,
+            big_change_force_close_pct=10.0,
         )
         # First call: set low valve
         compute_mpc(
@@ -1913,10 +1915,12 @@ class TestBigChangeForceOpen:
         # The valve should jump up despite hold-time (raw ≈ 100%, change ≈ 90% > 33%)
         assert result.valve_percent > 10
 
-    def test_big_decrease_blocked_by_hold_time(self):
-        """Large closing changes should NOT bypass hold-time (anti-oscillation)."""
+    def test_big_decrease_bypasses_hold_time(self):
+        """Change >= big_change_force_close_pct should bypass hold-time."""
         params = _default_params(
-            min_percent_hold_time_s=600.0, big_change_force_open_pct=33.0
+            min_percent_hold_time_s=600.0,
+            big_change_force_open_pct=33.0,
+            big_change_force_close_pct=10.0,
         )
         compute_mpc(
             _inp(key="bigclose", current_temp_C=18.0, target_temp_C=22.0), params
@@ -1929,8 +1933,28 @@ class TestBigChangeForceOpen:
         result = compute_mpc(
             _inp(key="bigclose", current_temp_C=23.0, target_temp_C=22.0), params
         )
-        # Hold-time should block: output stays at 80 (big_open only for increases)
-        assert result.valve_percent == 80
+        # Closing should bypass hold-time if drop exceeds close threshold
+        assert result.valve_percent < 80
+
+    def test_small_decrease_still_blocked_by_hold_time(self):
+        """Closing below close-threshold should remain hold-time blocked."""
+        params = _default_params(
+            min_percent_hold_time_s=600.0,
+            big_change_force_open_pct=33.0,
+            big_change_force_close_pct=10.0,
+        )
+        compute_mpc(
+            _inp(key="smallclose", current_temp_C=18.0, target_temp_C=22.0), params
+        )
+        state = mpc_mod._MPC_STATES["smallclose"]
+        state.last_percent = 25.0
+        state.last_update_ts = time()
+
+        # Nearly on target -> small closing request likely below 10%
+        result = compute_mpc(
+            _inp(key="smallclose", current_temp_C=21.95, target_temp_C=22.0), params
+        )
+        assert result.valve_percent == 25
 
 
 # ===================================================================

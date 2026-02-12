@@ -49,8 +49,11 @@ class MpcParams:
     deadzone_raise_pct: float = 2.0
     deadzone_decay_pct: float = 1.0
     mpc_du_max_pct: float = 25.0
-    min_percent_hold_time_s: float = 300.0  # mind. 5 Minuten Haltezeit
-    big_change_force_open_pct: float = 33.0  # >33% Änderung darf sofort fahren
+    min_percent_hold_time_s: float = 300.0  # minimum 5-minute hold time
+    big_change_force_open_pct: float = (
+        33.0  # >33% opening change may be applied immediately
+    )
+    big_change_force_close_pct: float = 10.0  # >10% closing change may bypass hold-time
 
     # Minimum effective opening / dead-zone learning.
     # If disabled, small commands are not clamped up and dead-zone raise/decay is skipped.
@@ -1956,19 +1959,24 @@ def _post_process_percent(
     # ===========================================
     hold_time = params.min_percent_hold_time_s
 
-    # Wenn wir kurz vorher ein anderes Kommando geschickt haben → blockieren
+    # If we sent a command shortly before, block updates
     if state.last_percent is not None:
         time_since_update = now - state.last_update_ts
 
-        # Ausnahme: Target wurde geändert → immer erlauben
+        # Exception: if target changed, always allow updates
         if not target_changed:
-            # Ausnahme: große Änderung nötig (z.B. Fenster auf)
-            # Only bypass hold-time for large OPENING steps (e.g. window just closed / sudden demand).
-            # Large closing steps should remain rate-limited to avoid oscillations.
-            big_open = (smooth - state.last_percent) >= params.big_change_force_open_pct
+            delta_cmd = smooth - state.last_percent
+            # Exception: large change required (e.g. window event / fast overheat reduction)
+            big_open = delta_cmd >= params.big_change_force_open_pct
+            big_close = (-delta_cmd) >= params.big_change_force_close_pct
             remaining = hold_time - time_since_update
 
-            if remaining > 0.0 and time_since_update < hold_time and not big_open:
+            if (
+                remaining > 0.0
+                and time_since_update < hold_time
+                and not big_open
+                and not big_close
+            ):
                 percent_out = int(round(state.last_percent))
                 debug["hold_block"] = True
                 debug["hold_remaining_s"] = int(max(0.0, remaining))
