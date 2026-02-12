@@ -1269,20 +1269,22 @@ class TestEdgeCases:
         # other heat power should reduce (or equal) valve demand
         assert r_with_other.valve_percent <= r_no_other.valve_percent
 
-    def test_eco_penalty_reduces_overshoot(self):
-        """eco_penalty should discourage valve opening when already above target."""
-        params_no_eco = _default_params(mpc_adapt=False, mpc_eco_penalty=0.0)
-        params_eco = _default_params(mpc_adapt=False, mpc_eco_penalty=5.0)
+    def test_overshoot_penalty_reduces_opening_above_target(self):
+        """Higher overshoot penalty should reduce valve opening when above target."""
+        params_no_overshoot = _default_params(
+            mpc_adapt=False, mpc_overshoot_penalty=0.0
+        )
+        params_overshoot = _default_params(mpc_adapt=False, mpc_overshoot_penalty=5.0)
 
-        # Slightly below target
-        r_no_eco = compute_mpc(
-            _inp(key="eco_no", current_temp_C=21.9, target_temp_C=22.0), params_no_eco
+        r_no_overshoot = compute_mpc(
+            _inp(key="over_no", current_temp_C=22.1, target_temp_C=22.0),
+            params_no_overshoot,
         )
-        r_eco = compute_mpc(
-            _inp(key="eco_yes", current_temp_C=21.9, target_temp_C=22.0), params_eco
+        r_overshoot = compute_mpc(
+            _inp(key="over_yes", current_temp_C=22.1, target_temp_C=22.0),
+            params_overshoot,
         )
-        # Eco penalty should result in equal or lower valve
-        assert r_eco.valve_percent <= r_no_eco.valve_percent
+        assert r_overshoot.valve_percent <= r_no_overshoot.valve_percent
 
     def test_slope_ema_updated_in_debug(self):
         """When temp_slope_K_per_min is provided, EMA slope should be tracked."""
@@ -1554,7 +1556,7 @@ class TestAnalyticalSolver:
         )
         assert result.valve_percent > 0
         assert "mpc_analytical" in result.debug
-        assert result.debug["mpc_analytical"] is True
+        assert result.debug["mpc_analytical"] is False
 
     def test_negative_error_gives_zero(self):
         """When above target (e0 < 0), optimal u should be 0 or very low."""

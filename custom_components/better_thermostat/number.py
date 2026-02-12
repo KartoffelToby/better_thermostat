@@ -293,7 +293,7 @@ class BetterThermostatValveMaxOpeningNumber(NumberEntity, RestoreEntity):
         if show_trv_name:
             trv_state = bt_climate.hass.states.get(trv_entity_id)
             trv_name = trv_state.name if trv_state and trv_state.name else trv_entity_id
-            self._attr_name = f"Valve Max Opening {trv_name}"
+            self._attr_name = f"{trv_name} Valve Max Opening"
         else:
             self._attr_name = "Valve Max Opening"
 

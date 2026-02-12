@@ -3181,7 +3181,7 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
                 def _to_pct(val):
                     try:
                         v = float(val)
-                        return v * 100.0 if v <= 1.0 else v
+                        return v * 100.0 if 0.0 <= v < 1.0 else v
                     except Exception:
                         return None
 
