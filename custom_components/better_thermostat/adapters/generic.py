@@ -44,11 +44,21 @@ async def init(self, entity_id):
             self.device_name,
             self.real_trvs[entity_id]["local_temperature_calibration_entity"],
         )
-        await wait_for_calibration_entity_or_timeout(
-            self,
-            entity_id,
-            self.real_trvs[entity_id]["local_temperature_calibration_entity"],
-        )
+        if (
+            self.real_trvs[entity_id]["local_temperature_calibration_entity"]
+            is not None
+        ):
+            await wait_for_calibration_entity_or_timeout(
+                self,
+                entity_id,
+                self.real_trvs[entity_id]["local_temperature_calibration_entity"],
+            )
+        else:
+            _LOGGER.warning(
+                "better_thermostat %s: no local calibration entity found for '%s', skipping calibration init",
+                self.device_name,
+                entity_id,
+            )
 
 
 async def get_current_offset(self, entity_id):
