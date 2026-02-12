@@ -105,6 +105,7 @@ class TestBoostModeUnavailablePath:
         """Test that boost mode sets temperature to max_temp."""
         mock_state = Mock()
         mock_state.state = STATE_UNAVAILABLE
+        mock_state.attributes = {"temperature": 15.0}
 
         mock_hass = Mock()
         mock_hass.states.get.return_value = mock_state

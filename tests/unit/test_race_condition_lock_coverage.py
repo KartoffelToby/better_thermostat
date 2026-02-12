@@ -22,6 +22,12 @@ from custom_components.better_thermostat.utils.const import (
 from custom_components.better_thermostat.utils.controlling import control_trv
 
 
+def _close_coro(coro):
+    """Close coroutine to avoid RuntimeWarning."""
+    coro.close()
+    return Mock()
+
+
 @pytest.mark.asyncio
 async def test_parallel_trv_control_no_race_condition():
     """Test that parallel control_trv() calls don't cause race conditions.
@@ -57,7 +63,7 @@ async def test_parallel_trv_control_no_race_condition():
     mock_self.device_name = "test_grouped_thermostat"
     mock_self._temp_lock = asyncio.Lock()
     mock_self.calculate_heating_power = AsyncMock()
-    mock_self.task_manager = Mock(create_task=Mock())
+    mock_self.task_manager = Mock(create_task=Mock(side_effect=_close_coro))
     mock_self.cur_temp = 20.0
     mock_self.bt_target_temp = 22.0
     mock_self.bt_hvac_mode = HVACMode.HEAT
@@ -271,7 +277,7 @@ async def test_shared_state_corruption_in_parallel_execution():
     mock_self.device_name = "test_thermostat"
     mock_self._temp_lock = asyncio.Lock()
     mock_self.calculate_heating_power = AsyncMock()
-    mock_self.task_manager = Mock(create_task=Mock())
+    mock_self.task_manager = Mock(create_task=Mock(side_effect=_close_coro))
     mock_self.cur_temp = 20.0
     mock_self.bt_target_temp = 22.0
     mock_self.bt_hvac_mode = HVACMode.HEAT
@@ -371,7 +377,7 @@ async def test_lock_protects_critical_sections():
     mock_self.device_name = "test_thermostat"
     mock_self._temp_lock = asyncio.Lock()
     mock_self.calculate_heating_power = AsyncMock()
-    mock_self.task_manager = Mock(create_task=Mock())
+    mock_self.task_manager = Mock(create_task=Mock(side_effect=_close_coro))
     mock_self.cur_temp = 20.0
     mock_self.bt_target_temp = 22.0
     mock_self.bt_hvac_mode = HVACMode.HEAT
