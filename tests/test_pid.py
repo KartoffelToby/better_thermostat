@@ -22,7 +22,7 @@ class TestPIDController:
     def test_no_temperatures(self):
         """Test behavior when temperatures are missing."""
         params = PIDParams()
-        percent, debug = compute_pid(
+        percent, debug, _ = compute_pid(
             params=params,
             inp_target_temp_C=None,
             inp_current_temp_C=20.0,
@@ -41,7 +41,7 @@ class TestPIDController:
             auto_tune=False, kp=10.0, ki=1.0, kd=5.0, min_hold_time_s=0.0
         )
         # First call to initialize
-        percent1, _ = compute_pid(
+        percent1, _, _ = compute_pid(
             params=params,
             inp_target_temp_C=22.0,
             inp_current_temp_C=20.0,
@@ -53,7 +53,7 @@ class TestPIDController:
         assert percent1 > 0
 
         # Second call with same error; integer rounding may mask tiny increments
-        percent2, _ = compute_pid(
+        percent2, _, _ = compute_pid(
             params=params,
             inp_target_temp_C=22.0,
             inp_current_temp_C=20.0,
@@ -66,7 +66,7 @@ class TestPIDController:
         # After a few iterations the integral term should raise the output
         percent_last = percent2
         for _ in range(6):
-            percent_last, _ = compute_pid(
+            percent_last, _, _ = compute_pid(
                 params=params,
                 inp_target_temp_C=22.0,
                 inp_current_temp_C=20.0,
@@ -80,7 +80,7 @@ class TestPIDController:
         """Test anti-windup clamping."""
         params = PIDParams(auto_tune=False, kp=100.0, ki=10.0, i_min=-10.0, i_max=10.0)
         # Large error to cause windup
-        percent, _ = compute_pid(
+        percent, _, _ = compute_pid(
             params=params,
             inp_target_temp_C=30.0,
             inp_current_temp_C=20.0,
@@ -391,7 +391,7 @@ class TestPIDController:
             key="test_deriv",
         )
         # Second call to have dt > 0
-        _, debug = compute_pid(
+        _, debug, _ = compute_pid(
             params=params,
             inp_target_temp_C=22.0,
             inp_current_temp_C=20.0,
@@ -418,7 +418,7 @@ class TestPIDController:
         key = "test_hold_block"
 
         # First call establishes baseline
-        percent1, _ = compute_pid(
+        percent1, _, _ = compute_pid(
             params=params,
             inp_target_temp_C=22.0,
             inp_current_temp_C=20.0,  # Error = 2.0, P = 20%
@@ -429,7 +429,7 @@ class TestPIDController:
         assert percent1 == 20.0  # P-term only: 10 * 2.0 = 20
 
         # Second call with slightly different error (small change < 33%)
-        percent2, _ = compute_pid(
+        percent2, _, _ = compute_pid(
             params=params,
             inp_target_temp_C=22.0,
             inp_current_temp_C=20.5,  # Error = 1.5, P = 15%
@@ -453,7 +453,7 @@ class TestPIDController:
         key = "test_hold_big"
 
         # First call establishes baseline
-        percent1, _ = compute_pid(
+        percent1, _, _ = compute_pid(
             params=params,
             inp_target_temp_C=22.0,
             inp_current_temp_C=20.0,  # Error = 2.0, P = 20%
@@ -464,7 +464,7 @@ class TestPIDController:
         assert percent1 == 20.0
 
         # Second call with large error change (big change >= 33%)
-        percent2, _ = compute_pid(
+        percent2, _, _ = compute_pid(
             params=params,
             inp_target_temp_C=22.0,
             inp_current_temp_C=15.0,  # Error = 7.0, P = 70%
@@ -488,7 +488,7 @@ class TestPIDController:
         key = "test_hold_target"
 
         # First call establishes baseline
-        percent1, _ = compute_pid(
+        percent1, _, _ = compute_pid(
             params=params,
             inp_target_temp_C=22.0,
             inp_current_temp_C=20.0,  # Error = 2.0, P = 20%
@@ -499,7 +499,7 @@ class TestPIDController:
         assert percent1 == 20.0
 
         # Second call with changed target temperature
-        percent2, _ = compute_pid(
+        percent2, _, _ = compute_pid(
             params=params,
             inp_target_temp_C=23.0,  # Target changed by 1.0°C (> 0.05)
             inp_current_temp_C=20.0,  # Error = 3.0, P = 30%
@@ -523,7 +523,7 @@ class TestPIDController:
         key = "test_hold_disabled"
 
         # First call
-        percent1, _ = compute_pid(
+        percent1, _, _ = compute_pid(
             params=params,
             inp_target_temp_C=22.0,
             inp_current_temp_C=20.0,
@@ -534,7 +534,7 @@ class TestPIDController:
         assert percent1 == 20.0
 
         # Second call with small change - should NOT be blocked
-        percent2, _ = compute_pid(
+        percent2, _, _ = compute_pid(
             params=params,
             inp_target_temp_C=22.0,
             inp_current_temp_C=20.5,  # Small change

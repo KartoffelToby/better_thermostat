@@ -148,6 +148,11 @@ class _MpcState:
     tolerance_hold_active: bool = False
 
 
+# Public alias so callers can reference the state type without
+# importing a private name.  The underscore-prefixed original is kept
+# for backwards compatibility within this module.
+MpcState = _MpcState
+
 _MPC_STATES: dict[str, _MpcState] = {}
 
 _STATE_EXPORT_FIELDS = (
@@ -362,7 +367,12 @@ def _split_mpc_key(key: str) -> tuple[str | None, str | None, str | None]:
         return None, None, None
 
 
-def _seed_state_from_siblings(key: str, state: _MpcState, params: MpcParams) -> None:
+def _seed_state_from_siblings(
+    key: str,
+    state: _MpcState,
+    params: MpcParams,
+    all_states: dict[str, _MpcState] | None = None,
+) -> None:
     if not bool(getattr(params, "enable_min_effective_percent", True)):
         return
     if state.min_effective_percent is not None:
@@ -370,7 +380,8 @@ def _seed_state_from_siblings(key: str, state: _MpcState, params: MpcParams) -> 
     uid, entity, _ = _split_mpc_key(key)
     if not uid or not entity:
         return
-    for other_key, other_state in _MPC_STATES.items():
+    states = all_states if all_states is not None else _MPC_STATES
+    for other_key, other_state in states.items():
         if other_key == key:
             continue
         ouid, oentity, _ = _split_mpc_key(other_key)
@@ -544,11 +555,47 @@ def _round_for_debug(value: float | int | None, digits: int = 3) -> float | int 
         return value
 
 
-def compute_mpc(inp: MpcInput, params: MpcParams) -> MpcOutput | None:
-    """Run the predictive controller and emit a valve recommendation."""
+def compute_mpc(
+    inp: MpcInput,
+    params: MpcParams,
+    state: _MpcState | None = None,
+    *,
+    all_states: dict[str, _MpcState] | None = None,
+) -> tuple[MpcOutput | None, _MpcState]:
+    """Run the predictive controller and emit a valve recommendation.
+
+    Parameters
+    ----------
+    inp:
+        Current measurements and context.
+    params:
+        Controller configuration (tuning knobs).
+    state:
+        Mutable controller state for this key.  When ``None`` the function
+        falls back to the module-level ``_MPC_STATES`` dict for backwards
+        compatibility, but callers are encouraged to pass state explicitly.
+    all_states:
+        Mapping of *all* MPC states (used for sibling seeding).  When
+        ``None`` the module-level ``_MPC_STATES`` dict is used.
+
+    Returns
+    -------
+    tuple[MpcOutput | None, _MpcState]
+        The valve recommendation (or ``None`` on early exit) **and** the
+        updated state object.  The caller owns persistence.
+    """
 
     now = time()
-    state = _MPC_STATES.setdefault(inp.key, _MpcState())
+
+    # --- Resolve state ---
+    if state is None:
+        # Legacy path: use the module-level global dict.
+        state = _MPC_STATES.setdefault(inp.key, _MpcState())
+    else:
+        # Explicit state path: also store in global dict so that
+        # export_mpc_state_map() still works during the transition period.
+        _MPC_STATES[inp.key] = state
+
     if state.created_ts == 0.0:
         # For existing trained models, backdate the creation timestamp
         # to avoid "Training" status if we already have confidence.
@@ -557,7 +604,7 @@ def compute_mpc(inp: MpcInput, params: MpcParams) -> MpcOutput | None:
         else:
             state.created_ts = time()
 
-    _seed_state_from_siblings(inp.key, state, params)
+    _seed_state_from_siblings(inp.key, state, params, all_states=all_states)
 
     if inp.window_open:
         state.last_window_open_ts = now
@@ -875,7 +922,7 @@ def compute_mpc(inp: MpcInput, params: MpcParams) -> MpcOutput | None:
         _round_for_debug(summary_perf_rate, 4),
     )
 
-    return MpcOutput(valve_percent=percent_out, debug=debug)
+    return MpcOutput(valve_percent=percent_out, debug=debug), state
 
 
 def _compute_predictive_percent(

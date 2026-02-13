@@ -149,24 +149,46 @@ def compute_pid(
     key: str,
     inp_current_temp_ema_C: float | None = None,
     max_opening_pct: float | None = None,
-) -> tuple[float, PIDDebugInfo]:
+    state: PIDState | None = None,
+) -> tuple[float, PIDDebugInfo, PIDState]:
     """Compute PID-based valve opening percentage.
 
-    Args:
-        params: PID parameters
-        inp_target_temp_C: Target temperature
-        inp_current_temp_C: Current external temperature
-        inp_trv_temp_C: TRV internal temperature
-        inp_temp_slope_K_per_min: Temperature slope
-        key: Unique key for state storage
-        inp_current_temp_ema_C: Optional EMA-filtered external temperature for learning
+    Parameters
+    ----------
+    params:
+        PID tuning parameters.
+    inp_target_temp_C:
+        Target temperature.
+    inp_current_temp_C:
+        Current external temperature.
+    inp_trv_temp_C:
+        TRV internal temperature.
+    inp_temp_slope_K_per_min:
+        Temperature slope.
+    key:
+        Unique key for state storage.
+    inp_current_temp_ema_C:
+        Optional EMA-filtered external temperature for learning.
+    max_opening_pct:
+        Optional maximum valve opening percentage.
+    state:
+        Mutable controller state.  When ``None`` the function falls back
+        to the module-level ``_PID_STATES`` dict for backwards
+        compatibility, but callers are encouraged to pass state explicitly.
 
     Returns
     -------
-        Tuple of (percent_open, debug_info)
+    tuple[float, PIDDebugInfo, PIDState]
+        ``(percent_open, debug_info, updated_state)``.
     """
     now = monotonic()
-    st = _PID_STATES.setdefault(key, PIDState())
+
+    # --- Resolve state ---
+    if state is None:
+        st = _PID_STATES.setdefault(key, PIDState())
+    else:
+        st = state
+        _PID_STATES[key] = st
 
     max_opening = 100.0
     if isinstance(max_opening_pct, (int, float)):
@@ -194,7 +216,7 @@ def compute_pid(
         # Without temperatures we can only keep the previous value
         percent = 0.0
         pid_dbg: PIDDebugInfo = {"mode": "pid", "error": "no_temps"}
-        return percent, pid_dbg
+        return percent, pid_dbg, st
 
     delta_T = inp_target_temp_C - current_temp
     e = delta_T
@@ -430,7 +452,7 @@ def compute_pid(
         st.pid_integral,
     )
 
-    return percent, pid_dbg
+    return percent, pid_dbg, st
 
 
 def _auto_tune_pid(
