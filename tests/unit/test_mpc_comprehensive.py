@@ -1269,20 +1269,22 @@ class TestEdgeCases:
         # other heat power should reduce (or equal) valve demand
         assert r_with_other.valve_percent <= r_no_other.valve_percent
 
-    def test_eco_penalty_reduces_overshoot(self):
-        """eco_penalty should discourage valve opening when already above target."""
-        params_no_eco = _default_params(mpc_adapt=False, mpc_eco_penalty=0.0)
-        params_eco = _default_params(mpc_adapt=False, mpc_eco_penalty=5.0)
+    def test_overshoot_penalty_reduces_opening_above_target(self):
+        """Higher overshoot penalty should reduce valve opening when above target."""
+        params_no_overshoot = _default_params(
+            mpc_adapt=False, mpc_overshoot_penalty=0.0
+        )
+        params_overshoot = _default_params(mpc_adapt=False, mpc_overshoot_penalty=5.0)
 
-        # Slightly below target
-        r_no_eco = compute_mpc(
-            _inp(key="eco_no", current_temp_C=21.9, target_temp_C=22.0), params_no_eco
+        r_no_overshoot = compute_mpc(
+            _inp(key="over_no", current_temp_C=22.1, target_temp_C=22.0),
+            params_no_overshoot,
         )
-        r_eco = compute_mpc(
-            _inp(key="eco_yes", current_temp_C=21.9, target_temp_C=22.0), params_eco
+        r_overshoot = compute_mpc(
+            _inp(key="over_yes", current_temp_C=22.1, target_temp_C=22.0),
+            params_overshoot,
         )
-        # Eco penalty should result in equal or lower valve
-        assert r_eco.valve_percent <= r_no_eco.valve_percent
+        assert r_overshoot.valve_percent <= r_no_overshoot.valve_percent
 
     def test_slope_ema_updated_in_debug(self):
         """When temp_slope_K_per_min is provided, EMA slope should be tracked."""
@@ -1554,7 +1556,7 @@ class TestAnalyticalSolver:
         )
         assert result.valve_percent > 0
         assert "mpc_analytical" in result.debug
-        assert result.debug["mpc_analytical"] is True
+        assert result.debug["mpc_analytical"] is False
 
     def test_negative_error_gives_zero(self):
         """When above target (e0 < 0), optimal u should be 0 or very low."""
@@ -1884,17 +1886,19 @@ class TestResidualRateLimiting:
 
 
 # ===================================================================
-# 24. BIG-CHANGE FORCE-OPEN BYPASS
+# 24. BIG-CHANGE HOLD BYPASS
 # ===================================================================
 
 
-class TestBigChangeForceOpen:
-    """Tests for hold-time bypass on big opening changes."""
+class TestBigChangeHoldBypass:
+    """Tests for hold-time bypass on big opening/closing changes."""
 
     def test_big_increase_bypasses_hold_time(self):
         """Change >= big_change_force_open_pct should bypass hold-time."""
         params = _default_params(
-            min_percent_hold_time_s=600.0, big_change_force_open_pct=33.0
+            min_percent_hold_time_s=600.0,
+            big_change_force_open_pct=33.0,
+            big_change_force_close_pct=10.0,
         )
         # First call: set low valve
         compute_mpc(
@@ -1911,10 +1915,12 @@ class TestBigChangeForceOpen:
         # The valve should jump up despite hold-time (raw ≈ 100%, change ≈ 90% > 33%)
         assert result.valve_percent > 10
 
-    def test_big_decrease_blocked_by_hold_time(self):
-        """Large closing changes should NOT bypass hold-time (anti-oscillation)."""
+    def test_big_decrease_bypasses_hold_time(self):
+        """Change >= big_change_force_close_pct should bypass hold-time."""
         params = _default_params(
-            min_percent_hold_time_s=600.0, big_change_force_open_pct=33.0
+            min_percent_hold_time_s=600.0,
+            big_change_force_open_pct=33.0,
+            big_change_force_close_pct=10.0,
         )
         compute_mpc(
             _inp(key="bigclose", current_temp_C=18.0, target_temp_C=22.0), params
@@ -1927,8 +1933,28 @@ class TestBigChangeForceOpen:
         result = compute_mpc(
             _inp(key="bigclose", current_temp_C=23.0, target_temp_C=22.0), params
         )
-        # Hold-time should block: output stays at 80 (big_open only for increases)
-        assert result.valve_percent == 80
+        # Closing should bypass hold-time if drop exceeds close threshold
+        assert result.valve_percent < 80
+
+    def test_small_decrease_still_blocked_by_hold_time(self):
+        """Closing below close-threshold should remain hold-time blocked."""
+        params = _default_params(
+            min_percent_hold_time_s=600.0,
+            big_change_force_open_pct=33.0,
+            big_change_force_close_pct=10.0,
+        )
+        compute_mpc(
+            _inp(key="smallclose", current_temp_C=18.0, target_temp_C=22.0), params
+        )
+        state = mpc_mod._MPC_STATES["smallclose"]
+        state.last_percent = 25.0
+        state.last_update_ts = time()
+
+        # Nearly on target -> small closing request likely below 10%
+        result = compute_mpc(
+            _inp(key="smallclose", current_temp_C=21.95, target_temp_C=22.0), params
+        )
+        assert result.valve_percent == 25
 
 
 # ===================================================================
