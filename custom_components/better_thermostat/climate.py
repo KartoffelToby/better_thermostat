@@ -45,12 +45,12 @@ from homeassistant.core import Context, CoreState, ServiceCall, callback
 from homeassistant.helpers import entity_platform
 from homeassistant.helpers.dispatcher import dispatcher_send
 from homeassistant.helpers.event import (
+    async_call_later,
     async_track_state_change_event,
     async_track_time_change,
     async_track_time_interval,
 )
 from homeassistant.helpers.restore_state import RestoreEntity
-from homeassistant.helpers.storage import Store
 
 # preferred for HA time handling (UTC aware)
 from homeassistant.util import dt as dt_util
@@ -130,6 +130,7 @@ from .utils.helpers import (
     get_hvac_bt_mode,
     normalize_hvac_mode,
 )
+from .utils.state_manager import StateManager
 from .utils.watcher import (
     await_optional_sensors,
     check_and_update_degraded_mode,
@@ -519,18 +520,9 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
         self.external_temp_ema = None
         self._external_temp_ema_ts = None
         self.cur_temp_filtered = None
-        # Persistence for balance (hydraulic) states
-        self._pid_store = None
-        self._pid_save_scheduled = False
-        # MPC adaptive state persistence
-        self._mpc_store = None
-        self._mpc_save_scheduled = False
-        # TPI adaptive state persistence
-        self._tpi_store = None
-        self._tpi_save_scheduled = False
-        # Thermal stats persistence (heating_power / heat_loss)
-        self._thermal_store = None
-        self._thermal_save_scheduled = False
+        # Unified state persistence (replaces per-controller stores)
+        self.state_mgr: StateManager | None = None
+        self._save_cancel: callback | None = None
 
         self.last_known_external_temp = None
         self._slope_periodic_last_ts = None
@@ -663,9 +655,15 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
 
         def on_remove():
             self.is_removed = True
-            if self._mpc_store is not None:
+            # Cancel any pending debounced save so it doesn't fire after
+            # the entity is gone.  flush() below will save immediately.
+            if self._save_cancel is not None:
+                self._save_cancel()
+                self._save_cancel = None
+            if self.state_mgr is not None:
                 try:
-                    self.hass.async_create_task(self._save_mpc_states())
+                    self._sync_controllers_to_state()
+                    self.hass.async_create_task(self.state_mgr.flush())
                 except RuntimeError:
                     pass
 
@@ -677,46 +675,23 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
             "better_thermostat %s: Waiting for entity to be ready...", self.device_name
         )
 
-        # Initialize persistent storage for balance states and attempt to load
+        # Unified state persistence
         try:
-            self._pid_store = Store(self.hass, 1, f"{DOMAIN}_pid_states")
-            await self._load_pid_state()
-        except (FileNotFoundError, PermissionError, RuntimeError) as e:
-            _LOGGER.debug(
-                "better_thermostat %s: PID storage init/load failed: %s",
-                self.device_name,
-                e,
-            )
+            from .utils.migrate_v0_stores import migrate_v0_stores
 
-        # Initialize persistent storage for MPC adaptive state
-        try:
-            self._mpc_store = Store(self.hass, 1, f"{DOMAIN}_mpc_states")
-            await self._load_mpc_states()
-        except (FileNotFoundError, PermissionError, RuntimeError) as e:
-            _LOGGER.debug(
-                "better_thermostat %s: MPC storage init/load failed: %s",
-                self.device_name,
-                e,
+            self.state_mgr = StateManager(self.hass, self._config_entry_id)
+            await self.state_mgr.load()
+            await migrate_v0_stores(
+                self.hass,
+                self.state_mgr,
+                entity_prefix=f"{self._unique_id}:",
+                config_entry_id=self._config_entry_id,
             )
-
-        # Initialize persistent storage for TPI adaptive state
-        try:
-            self._tpi_store = Store(self.hass, 1, f"{DOMAIN}_tpi_states")
-            await self._load_tpi_states()
+            self._hydrate_controllers_from_state()
+            self._hydrate_thermal_from_state()
         except (FileNotFoundError, PermissionError, RuntimeError) as e:
             _LOGGER.debug(
-                "better_thermostat %s: TPI storage init/load failed: %s",
-                self.device_name,
-                e,
-            )
-
-        # Initialize persistent storage for thermal stats (heating_power / heat_loss)
-        try:
-            self._thermal_store = Store(self.hass, 1, f"{DOMAIN}_thermal_stats")
-            await self._load_thermal_stats()
-        except (FileNotFoundError, PermissionError, RuntimeError) as e:
-            _LOGGER.debug(
-                "better_thermostat %s: thermal stats storage init/load failed: %s",
+                "better_thermostat %s: state storage init/load failed: %s",
                 self.device_name,
                 e,
             )
@@ -1315,23 +1290,6 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
                             bounded_power,
                         )
                     self.heating_power = bounded_power
-                elif getattr(self, "_thermal_store", None) is not None:
-                    # Fallback: restore heating_power from persistent thermal stats
-                    try:
-                        _thermal_store = self._thermal_store
-                        if _thermal_store is not None:
-                            data = await _thermal_store.async_load()
-                        else:
-                            data = None
-                        key = str(self._config_entry_id)
-                        if data and key in data and "heating_power" in data[key]:
-                            loaded_power = float(data[key]["heating_power"])
-                            bounded_power = max(
-                                MIN_HEATING_POWER, min(MAX_HEATING_POWER, loaded_power)
-                            )
-                            self.heating_power = bounded_power
-                    except Exception:
-                        pass
 
                 # Restore heat loss if available
                 if old_state.attributes.get(ATTR_STATE_HEAT_LOSS, None) is not None:
@@ -1346,22 +1304,6 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
                         )
                         self.heat_loss_rate = bounded_loss
                     except (TypeError, ValueError):
-                        pass
-                elif getattr(self, "_thermal_store", None) is not None:
-                    try:
-                        _thermal_store = self._thermal_store
-                        if _thermal_store is not None:
-                            data = await _thermal_store.async_load()
-                        else:
-                            data = None
-                        key = str(self._config_entry_id)
-                        if data and key in data and "heat_loss" in data[key]:
-                            loaded_loss = float(data[key]["heat_loss"])
-                            bounded_loss = max(
-                                MIN_HEAT_LOSS, min(MAX_HEAT_LOSS, loaded_loss)
-                            )
-                            self.heat_loss_rate = bounded_loss
-                    except (ValueError, TypeError, KeyError):
                         pass
                 if (
                     old_state.attributes.get(ATTR_STATE_PRESET_TEMPERATURE, None)
@@ -2115,255 +2057,136 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
                     # Queue full or not ready; periodic tick will eventually catch up.
                     pass
 
-    async def _load_pid_state(self) -> None:
-        """Load persisted PID states and hydrate module-level cache."""
-        if self._pid_store is None:
+    # -- Unified state persistence helpers ------------------------------------
+
+    def _hydrate_controllers_from_state(self) -> None:
+        """Push loaded state into the module-level controller caches.
+
+        During the transition period the controllers still maintain their
+        own global ``_*_STATES`` dicts.  This method seeds them from the
+        StateManager so that ``compute_*()`` calls work immediately after
+        startup.
+        """
+        if self.state_mgr is None:
             return
-        data = await self._pid_store.async_load()
-        if not data:
-            return
+        from dataclasses import asdict as _asdict
+
         prefix = f"{self._unique_id}:"
-        try:
-            imported = pid_import_states(data, prefix_filter=prefix)
-            _LOGGER.debug(
-                "better_thermostat %s: loaded %s PID state(s) with prefix %s",
-                self.device_name,
-                imported,
-                prefix,
-            )
-        except Exception as e:
-            _LOGGER.debug(
-                "better_thermostat %s: failed to import balance states: %s",
-                self.device_name,
-                e,
-            )
 
-    async def _save_pid_state(self) -> None:
-        """Persist current PID states for this entity (prefix filtered)."""
-        if self._pid_store is None:
+        # MPC
+        mpc_data: dict[str, dict[str, Any]] = {}
+        for key, mpc in self.state_mgr.state.mpc.items():
+            if key.startswith(prefix):
+                mpc_data[key] = _asdict(mpc)
+        if mpc_data:
+            import_mpc_state_map(mpc_data)
+
+        # PID
+        pid_data: dict[str, dict[str, Any]] = {}
+        for key, pid in self.state_mgr.state.pid.items():
+            if key.startswith(prefix):
+                pid_data[key] = _asdict(pid)
+        if pid_data:
+            pid_import_states(pid_data, prefix_filter=prefix)
+
+        # TPI
+        tpi_data: dict[str, dict[str, Any]] = {}
+        for key, tpi in self.state_mgr.state.tpi.items():
+            if key.startswith(prefix):
+                tpi_data[key] = _asdict(tpi)
+        if tpi_data:
+            import_tpi_state_map(tpi_data)
+
+    def _hydrate_thermal_from_state(self) -> None:
+        """Apply thermal stats from StateManager to entity attributes."""
+        if self.state_mgr is None:
             return
-        try:
-            prefix = f"{self._unique_id}:"
-            current = pid_export_states(prefix=prefix)
-            # Merge with existing store to avoid overwriting other entities' data
-            existing = await self._pid_store.async_load()
-            if not isinstance(existing, dict):
-                existing = {}
-            # Drop previous entries for this entity's prefix
-            to_delete = [k for k in list(existing.keys()) if str(k).startswith(prefix)]
-            for k in to_delete:
-                try:
-                    del existing[k]
-                except KeyError:
-                    pass
-            # Update with current
-            existing.update(current)
-            await self._pid_store.async_save(existing)
-            _LOGGER.debug(
-                "better_thermostat %s: saved %d PID state(s)",
-                self.device_name,
-                len(current or {}),
-            )
-        except Exception as e:
-            _LOGGER.debug(
-                "better_thermostat %s: saving PID states failed: %s",
-                self.device_name,
-                e,
-            )
-
-    def schedule_save_pid_state(self, delay_s: float = 10.0) -> None:
-        """Debounced scheduling for saving PID state to storage."""
-        if self._pid_store is None or self._pid_save_scheduled:
-            return
-        self._pid_save_scheduled = True
-
-        async def _delayed_save():
+        thermal = self.state_mgr.thermal
+        if thermal.heating_power is not None:
             try:
-                await asyncio.sleep(delay_s)
-                await self._save_pid_state()
-            finally:
-                self._pid_save_scheduled = False
-
-        # Fire and forget
-        self.hass.async_create_task(_delayed_save())
-
-    async def _load_mpc_states(self) -> None:
-        """Load persisted MPC adaptive controller states for this entity."""
-
-        if self._mpc_store is None:
-            return
-        data = await self._mpc_store.async_load()
-        if not isinstance(data, dict):
-            return
-        prefix = f"{self._unique_id}:"
-        scoped: dict[str, dict[str, Any]] = {}
-        for key, payload in data.items():
-            if not isinstance(key, str) or not key.startswith(prefix):
-                continue
-            if isinstance(payload, dict):
-                scoped[key] = payload
-        if scoped:
-            import_mpc_state_map(scoped)
-
-    async def _save_mpc_states(self) -> None:
-        """Persist MPC adaptive controller states for this entity."""
-
-        if self._mpc_store is None:
-            return
-        try:
-            existing = await self._mpc_store.async_load()
-            if not isinstance(existing, dict):
-                existing = {}
-            prefix = f"{self._unique_id}:"
-            for key in list(existing.keys()):
-                if isinstance(key, str) and key.startswith(prefix):
-                    del existing[key]
-            exported = export_mpc_state_map(prefix)
-            if exported:
-                existing.update(exported)
-            await self._mpc_store.async_save(existing)
-        except Exception as e:
-            _LOGGER.debug(
-                "better_thermostat %s: saving MPC states failed: %s",
-                self.device_name,
-                e,
-            )
-
-    def _schedule_save_mpc_states(self, delay_s: float = 15.0) -> None:
-        """Debounced scheduling for persisting MPC adaptive states."""
-
-        if self._mpc_store is None or self._mpc_save_scheduled:
-            return
-        self._mpc_save_scheduled = True
-
-        async def _delayed_save():
-            try:
-                await asyncio.sleep(delay_s)
-                await self._save_mpc_states()
-            finally:
-                self._mpc_save_scheduled = False
-
-        self.hass.async_create_task(_delayed_save())
-
-    async def _load_tpi_states(self) -> None:
-        """Load persisted TPI adaptive controller states for this entity."""
-
-        if self._tpi_store is None:
-            return
-        data = await self._tpi_store.async_load()
-        if not isinstance(data, dict):
-            return
-        prefix = f"{self._unique_id}:"
-        scoped: dict[str, dict[str, Any]] = {}
-        for key, payload in data.items():
-            if not isinstance(key, str) or not key.startswith(prefix):
-                continue
-            if isinstance(payload, dict):
-                scoped[key] = payload
-        if scoped:
-            import_tpi_state_map(scoped)
-
-    async def _save_tpi_states(self) -> None:
-        """Persist TPI adaptive controller states for this entity."""
-
-        if self._tpi_store is None:
-            return
-        try:
-            existing = await self._tpi_store.async_load()
-            if not isinstance(existing, dict):
-                existing = {}
-            prefix = f"{self._unique_id}:"
-            for key in list(existing.keys()):
-                if isinstance(key, str) and key.startswith(prefix):
-                    del existing[key]
-            exported = export_tpi_state_map(prefix)
-            if exported:
-                existing.update(exported)
-            await self._tpi_store.async_save(existing)
-        except Exception as e:
-            _LOGGER.debug(
-                "better_thermostat %s: saving TPI states failed: %s",
-                self.device_name,
-                e,
-            )
-
-    def _schedule_save_tpi_states(self, delay_s: float = 15.0) -> None:
-        """Debounced scheduling for persisting TPI adaptive states."""
-
-        if self._tpi_store is None or self._tpi_save_scheduled:
-            return
-        self._tpi_save_scheduled = True
-
-        async def _delayed_save():
-            try:
-                await asyncio.sleep(delay_s)
-                await self._save_tpi_states()
-            finally:
-                self._tpi_save_scheduled = False
-
-        self.hass.async_create_task(_delayed_save())
-
-    async def _load_thermal_stats(self) -> None:
-        """Load persisted thermal stats (heating_power / heat_loss)."""
-
-        if self._thermal_store is None:
-            return
-        data = await self._thermal_store.async_load()
-        if not data:
-            return
-
-        key = str(self._config_entry_id)
-        payload = data.get(key)
-        if not isinstance(payload, dict):
-            return
-
-        if "heating_power" in payload:
-            try:
-                loaded_power = float(payload["heating_power"])
                 self.heating_power = max(
-                    MIN_HEATING_POWER, min(MAX_HEATING_POWER, loaded_power)
+                    MIN_HEATING_POWER,
+                    min(MAX_HEATING_POWER, float(thermal.heating_power)),
                 )
             except (TypeError, ValueError):
                 pass
-
-        if "heat_loss" in payload:
+        if thermal.heat_loss_rate is not None:
             try:
-                loaded_loss = float(payload["heat_loss"])
                 self.heat_loss_rate = max(
-                    MIN_HEAT_LOSS, min(MAX_HEAT_LOSS, loaded_loss)
+                    MIN_HEAT_LOSS, min(MAX_HEAT_LOSS, float(thermal.heat_loss_rate))
                 )
             except (TypeError, ValueError):
                 pass
 
-    async def _save_thermal_stats(self) -> None:
-        """Persist thermal stats to storage (debounced)."""
+    def _sync_controllers_to_state(self) -> None:
+        """Export current module-level controller state back to StateManager.
 
-        if self._thermal_store is None:
+        Called before save to ensure the unified store reflects the latest
+        runtime state from the global controller caches.
+        """
+        if self.state_mgr is None:
             return
-        key = str(self._config_entry_id)
-        payload = {
-            "heating_power": getattr(self, "heating_power", None),
-            "heat_loss": getattr(self, "heat_loss_rate", None),
-        }
-        existing = await self._thermal_store.async_load() or {}
-        existing[key] = payload
-        await self._thermal_store.async_save(existing)
+        from .utils.state_manager import (
+            ThermalStats,
+            deserialize_mpc,
+            deserialize_pid,
+            deserialize_tpi,
+        )
 
-    def _schedule_save_thermal_stats(self, delay_s: float = 15.0) -> None:
-        """Debounced scheduling for persisting thermal stats."""
+        prefix = f"{self._unique_id}:"
 
-        if self._thermal_store is None or self._thermal_save_scheduled:
+        # MPC: export from module cache → StateManager
+        mpc_exported = export_mpc_state_map(prefix)
+        for key, state_dict in mpc_exported.items():
+            if isinstance(state_dict, dict):
+                self.state_mgr.set_mpc(key, deserialize_mpc(state_dict))
+
+        # PID: export from module cache → StateManager
+        pid_exported = pid_export_states(prefix=prefix)
+        for key, state_dict in pid_exported.items():
+            if isinstance(state_dict, dict):
+                self.state_mgr.set_pid(key, deserialize_pid(state_dict))
+
+        # TPI: export from module cache → StateManager
+        tpi_exported = export_tpi_state_map(prefix)
+        for key, state_dict in tpi_exported.items():
+            if isinstance(state_dict, dict):
+                self.state_mgr.set_tpi(key, deserialize_tpi(state_dict))
+
+        # Thermal: sync from entity attributes → StateManager
+        self.state_mgr.thermal = ThermalStats(
+            heating_power=getattr(self, "heating_power", None),
+            heat_loss_rate=getattr(self, "heat_loss_rate", None),
+        )
+
+    @callback
+    def schedule_save_state(self, delay_s: float = 15.0) -> None:
+        """Schedule a debounced persist of unified state.
+
+        Uses ``async_call_later`` so the timer is cancelable and
+        HA-idiomatic.  Repeated calls within *delay_s* reset the timer
+        so that the save always happens *delay_s* after the **last**
+        trigger (true debounce).
+        """
+        if self.state_mgr is None:
             return
-        self._thermal_save_scheduled = True
 
-        async def _delayed_save():
+        # Cancel any previously scheduled save (resets the timer).
+        if self._save_cancel is not None:
+            self._save_cancel()
+            self._save_cancel = None
+
+        async def _do_save(_now: object) -> None:
+            self._save_cancel = None
             try:
-                await asyncio.sleep(delay_s)
-                await self._save_thermal_stats()
-            finally:
-                self._thermal_save_scheduled = False
+                self._sync_controllers_to_state()
+                await self.state_mgr.save_if_dirty()
+            except Exception:
+                _LOGGER.exception(
+                    "better_thermostat %s: failed to persist state", self.device_name
+                )
 
-        self.hass.async_create_task(_delayed_save())
+        self._save_cancel = async_call_later(self.hass, delay_s, _do_save)
 
     async def calculate_heating_power(self):
         """Learn effective heating power (°C/min) from completed heating cycles.
@@ -2615,7 +2438,7 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
             if normalized_power is not None:
                 self.heating_power_normalized = normalized_power
             if heating_power_changed:
-                self._schedule_save_thermal_stats()
+                self.schedule_save_state()
             self.async_write_ha_state()
 
     async def calculate_heat_loss(self):
@@ -2738,7 +2561,7 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
 
                     self.async_write_ha_state()
                     if loss_changed:
-                        self._schedule_save_thermal_stats()
+                        self.schedule_save_state()
 
             # Reset after finalize
             self.loss_start_temp = None
@@ -3783,7 +3606,7 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
             )
             # Schedule persistence of cleared PID states
             try:
-                self.schedule_save_pid_state()
+                self.schedule_save_state()
             except Exception:
                 pass
 
@@ -3842,7 +3665,7 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
                             len(list(self.real_trvs.keys()) or []),
                         )
                         try:
-                            self.schedule_save_pid_state()
+                            self.schedule_save_state()
                         except Exception:
                             pass
                         # Kick the control loop so the new gains are used promptly

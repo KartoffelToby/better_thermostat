@@ -21,13 +21,13 @@ class TestTpiController:
             window_open=True,
             heating_allowed=True,
         )
-        result = compute_tpi(inp, params)
+        result, _ = compute_tpi(inp, params)
         assert result.duty_cycle_pct == 0.0
         assert result.debug["reason"] == "blocked"
 
         inp.heating_allowed = False
         inp.window_open = False
-        result = compute_tpi(inp, params)
+        result, _ = compute_tpi(inp, params)
         assert result.duty_cycle_pct == 0.0
         assert result.debug["reason"] == "blocked"
 
@@ -35,13 +35,13 @@ class TestTpiController:
         """Test behavior when temperatures are missing."""
         params = TpiParams()
         inp = TpiInput(key="test", current_temp_C=None, target_temp_C=22.0)
-        result = compute_tpi(inp, params)
+        result, _ = compute_tpi(inp, params)
         assert result.duty_cycle_pct == 0.0  # No last_percent, so 0
         assert result.debug["reason"] == "missing_temps"
 
         # Now with last_percent
         inp.current_temp_C = 20.0
-        result = compute_tpi(inp, params)
+        result, _ = compute_tpi(inp, params)
         # Should calculate normally, clamped to 100
         assert result.duty_cycle_pct == 100.0
 
@@ -51,7 +51,7 @@ class TestTpiController:
         inp = TpiInput(
             key="test", current_temp_C=20.0, target_temp_C=22.0, outdoor_temp_C=15.0
         )
-        result = compute_tpi(inp, params)
+        result, _ = compute_tpi(inp, params)
         assert result.duty_cycle_pct == 100.0  # clamped
         assert result.debug["error_K"] == 2.0
         assert result.debug["raw_pct"] == 114.0
@@ -64,7 +64,7 @@ class TestTpiController:
             current_temp_C=22.6,
             target_temp_C=22.0,  # error = -0.6
         )
-        result = compute_tpi(inp, params)
+        result, _ = compute_tpi(inp, params)
         assert result.duty_cycle_pct == 0.0
         assert result.debug["reason"] == "threshold_high"
 
@@ -76,11 +76,11 @@ class TestTpiController:
             current_temp_C=20.0,
             target_temp_C=25.0,  # error=5, duty=500, clamped to 90
         )
-        result = compute_tpi(inp, params)
+        result, _ = compute_tpi(inp, params)
         assert result.duty_cycle_pct == 90.0
 
         inp.target_temp_C = 19.0  # error=-1, duty=-100, clamped to 10
-        result = compute_tpi(inp, params)
+        result, _ = compute_tpi(inp, params)
         assert result.duty_cycle_pct == 10.0
 
     def test_build_tpi_key(self):
