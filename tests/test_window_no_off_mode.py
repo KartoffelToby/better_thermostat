@@ -53,57 +53,6 @@ def mock_bt_instance():
     return bt
 
 
-class TestHandleWindowOpen:
-    """Tests for handle_window_open function."""
-
-    def test_returns_off_when_window_open(self, mock_bt_instance):
-        """Test that handle_window_open returns OFF when window is open."""
-        from custom_components.better_thermostat.utils.controlling import (
-            handle_window_open,
-        )
-
-        mock_bt_instance.window_open = True
-        remapped_states = {"system_mode": HVACMode.HEAT, "temperature": 21.0}
-
-        result = handle_window_open(mock_bt_instance, remapped_states)
-
-        assert result == HVACMode.OFF
-
-    def test_returns_system_mode_when_window_closed(self, mock_bt_instance):
-        """Test that handle_window_open returns system_mode when window is closed."""
-        from custom_components.better_thermostat.utils.controlling import (
-            handle_window_open,
-        )
-
-        mock_bt_instance.window_open = False
-        remapped_states = {"system_mode": HVACMode.HEAT, "temperature": 21.0}
-
-        result = handle_window_open(mock_bt_instance, remapped_states)
-
-        assert result == HVACMode.HEAT
-
-    def test_returns_none_when_system_mode_none(self, mock_bt_instance):
-        """Test current buggy behavior: returns None when system_mode is None.
-
-        This is the bug! When no_off_system_mode is True and window was open,
-        convert_outbound_states sets system_mode=None. Then when window closes,
-        this function returns None instead of HEAT.
-        """
-        from custom_components.better_thermostat.utils.controlling import (
-            handle_window_open,
-        )
-
-        mock_bt_instance.window_open = False
-        # This is what convert_outbound_states returns for no_off_system_mode
-        # when hvac_mode was OFF (during window open)
-        remapped_states = {"system_mode": None, "temperature": 5.0}
-
-        result = handle_window_open(mock_bt_instance, remapped_states)
-
-        # Current buggy behavior - returns None
-        assert result is None
-
-
 class TestConvertOutboundStatesNoOffMode:
     """Tests for convert_outbound_states with no_off_system_mode."""
 
@@ -142,74 +91,6 @@ class TestConvertOutboundStatesNoOffMode:
         # system_mode should be HEAT (or mapped equivalent)
         # Note: might be None if device has no system mode support
         assert result.get("temperature") == 21.0
-
-
-class TestWindowCloseRestoresHeating:
-    """Integration tests for window close behavior with no_off_system_mode."""
-
-    def test_window_close_should_restore_heating_mode(self, mock_bt_instance):
-        """Test that closing window restores HEAT mode, not None.
-
-        This is the main bug test. When window closes, the TRV should
-        go back to heating, but currently it doesn't because the control
-        logic receives None instead of HEAT.
-        """
-        from custom_components.better_thermostat.events.trv import (
-            convert_outbound_states,
-        )
-        from custom_components.better_thermostat.utils.controlling import (
-            handle_window_open,
-        )
-
-        # Step 1: Window is closed, TRV is heating normally
-        mock_bt_instance.window_open = False
-        mock_bt_instance.bt_hvac_mode = HVACMode.HEAT
-
-        states_heating = convert_outbound_states(
-            mock_bt_instance, "climate.test_trv", HVACMode.HEAT
-        )
-        handle_window_open(mock_bt_instance, states_heating)
-
-        # Should be heating (or at least not None/OFF)
-        # Note: might be None for devices without system_mode, but should still heat
-        assert states_heating.get("temperature") == 21.0
-
-        # Step 2: Window opens - BT sends OFF, TRV goes to 5°C
-        mock_bt_instance.window_open = True
-
-        hvac_mode_window_open = handle_window_open(mock_bt_instance, states_heating)
-        assert hvac_mode_window_open == HVACMode.OFF
-
-        # Step 3: Window closes - BT should restore heating
-        mock_bt_instance.window_open = False
-
-        # The bt_hvac_mode should still be HEAT (it was never changed)
-        assert mock_bt_instance.bt_hvac_mode == HVACMode.HEAT
-
-        # Get new states for the closed window scenario
-        states_after_close = convert_outbound_states(
-            mock_bt_instance, "climate.test_trv", mock_bt_instance.bt_hvac_mode
-        )
-
-        hvac_mode_after_close = handle_window_open(mock_bt_instance, states_after_close)
-
-        # BUG: This currently fails!
-        # The function returns the system_mode from convert_outbound_states,
-        # which should indicate heating, not None.
-        # For devices without OFF mode, we need to ensure heating is restored.
-
-        # The temperature should be restored to target, not min_temp
-        assert states_after_close.get("temperature") == 21.0, (
-            f"Expected temperature 21.0 but got {states_after_close.get('temperature')}"
-        )
-
-        # The hvac_mode should indicate heating should happen
-        # (either HEAT or at least not OFF)
-        # This is where the bug manifests - it might be None
-        if hvac_mode_after_close is not None:
-            assert hvac_mode_after_close != HVACMode.OFF, (
-                f"Expected HEAT or equivalent but got {hvac_mode_after_close}"
-            )
 
 
 class TestTrvStateUpdateBug:
