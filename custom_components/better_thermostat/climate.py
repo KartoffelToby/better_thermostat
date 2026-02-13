@@ -51,7 +51,6 @@ from homeassistant.helpers.event import (
     async_track_time_interval,
 )
 from homeassistant.helpers.restore_state import RestoreEntity
-from homeassistant.helpers.storage import Store
 
 # preferred for HA time handling (UTC aware)
 from homeassistant.util import dt as dt_util
@@ -678,9 +677,16 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
 
         # Unified state persistence
         try:
+            from .utils.migrate_v0_stores import migrate_v0_stores
+
             self.state_mgr = StateManager(self.hass, self._config_entry_id)
             await self.state_mgr.load()
-            await self._migrate_legacy_stores()
+            await migrate_v0_stores(
+                self.hass,
+                self.state_mgr,
+                entity_prefix=f"{self._unique_id}:",
+                config_entry_id=self._config_entry_id,
+            )
             self._hydrate_controllers_from_state()
             self._hydrate_thermal_from_state()
         except (FileNotFoundError, PermissionError, RuntimeError) as e:
@@ -2052,131 +2058,6 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
                     pass
 
     # -- Unified state persistence helpers ------------------------------------
-
-    async def _migrate_legacy_stores(self) -> None:
-        """One-time migration from four separate Store files to unified StateManager.
-
-        Before the unified StateManager was introduced, Better Thermostat
-        persisted calibration state across four independent HA Store files.
-        This method reads those files (if present), filters entries belonging
-        to the current config entry, and imports them into the unified store.
-
-        Skips silently when the unified store already contains data.  The
-        legacy files are not deleted so that a rollback remains possible.
-        """
-        if self.state_mgr is None:
-            return
-
-        # If the unified store already has data, skip migration.
-        current_state = self.state_mgr.state
-        if (
-            current_state.mpc
-            or current_state.pid
-            or current_state.tpi
-            or current_state.presets
-        ):
-            return
-        if (
-            current_state.thermal.heating_power is not None
-            or current_state.thermal.heat_loss_rate is not None
-        ):
-            return
-
-        from .utils.state_manager import (
-            ThermalStats,
-            deserialize_mpc,
-            deserialize_pid,
-            deserialize_tpi,
-        )
-
-        entity_prefix = f"{self._unique_id}:"
-        any_imported = False
-
-        def _filter_by_prefix(
-            raw: dict[str, Any], prefix: str
-        ) -> dict[str, dict[str, Any]]:
-            return {
-                k: v
-                for k, v in raw.items()
-                if isinstance(k, str) and k.startswith(prefix) and isinstance(v, dict)
-            }
-
-        # MPC legacy
-        try:
-            mpc_store: Store[dict[str, Any]] = Store(
-                self.hass, 1, f"{DOMAIN}_mpc_states"
-            )
-            mpc_raw = await mpc_store.async_load()
-            if isinstance(mpc_raw, dict):
-                entries = _filter_by_prefix(mpc_raw, entity_prefix)
-                for key, state_dict in entries.items():
-                    if isinstance(state_dict, dict):
-                        self.state_mgr.set_mpc(key, deserialize_mpc(state_dict))
-                        any_imported = True
-        except Exception:
-            pass
-
-        # PID legacy
-        try:
-            pid_store: Store[dict[str, Any]] = Store(
-                self.hass, 1, f"{DOMAIN}_pid_states"
-            )
-            pid_raw = await pid_store.async_load()
-            if isinstance(pid_raw, dict):
-                entries = _filter_by_prefix(pid_raw, entity_prefix)
-                for key, state_dict in entries.items():
-                    if isinstance(state_dict, dict):
-                        self.state_mgr.set_pid(key, deserialize_pid(state_dict))
-                        any_imported = True
-        except Exception:
-            pass
-
-        # TPI legacy
-        try:
-            tpi_store: Store[dict[str, Any]] = Store(
-                self.hass, 1, f"{DOMAIN}_tpi_states"
-            )
-            tpi_raw = await tpi_store.async_load()
-            if isinstance(tpi_raw, dict):
-                entries = _filter_by_prefix(tpi_raw, entity_prefix)
-                for key, state_dict in entries.items():
-                    if isinstance(state_dict, dict):
-                        self.state_mgr.set_tpi(key, deserialize_tpi(state_dict))
-                        any_imported = True
-        except Exception:
-            pass
-
-        # Thermal legacy
-        try:
-            thermal_store: Store[dict[str, Any]] = Store(
-                self.hass, 1, f"{DOMAIN}_thermal_stats"
-            )
-            thermal_raw = await thermal_store.async_load()
-            if isinstance(thermal_raw, dict):
-                thermal_entry = thermal_raw.get(str(self._config_entry_id))
-                if isinstance(thermal_entry, dict):
-                    heating_power = thermal_entry.get("heating_power")
-                    heat_loss_rate = thermal_entry.get("heat_loss_rate")
-                    self.state_mgr.thermal = ThermalStats(
-                        heating_power=(
-                            float(heating_power) if heating_power is not None else None
-                        ),
-                        heat_loss_rate=(
-                            float(heat_loss_rate)
-                            if heat_loss_rate is not None
-                            else None
-                        ),
-                    )
-                    any_imported = True
-        except Exception:
-            pass
-
-        if any_imported:
-            await self.state_mgr.save()
-            _LOGGER.info(
-                "better_thermostat [%s]: migrated v0 stores to unified state",
-                self._config_entry_id,
-            )
 
     def _hydrate_controllers_from_state(self) -> None:
         """Push loaded state into the module-level controller caches.
