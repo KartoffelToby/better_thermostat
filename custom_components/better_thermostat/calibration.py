@@ -253,7 +253,7 @@ def _compute_mpc_balance(self, entity_id: str):
         mpc_key = build_mpc_key(self, entity_id)
 
     try:
-        mpc_output = compute_mpc(
+        mpc_output, _mpc_state = compute_mpc(
             MpcInput(
                 key=mpc_key,
                 target_temp_C=self.bt_target_temp,

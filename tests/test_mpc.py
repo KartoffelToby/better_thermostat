@@ -21,7 +21,7 @@ class TestMPCController:
         """Test behavior when temperatures are missing."""
         params = MpcParams()
         inp = MpcInput(key="test_no_temp", target_temp_C=None, current_temp_C=20.0)
-        result = compute_mpc(inp, params)
+        result, _ = compute_mpc(inp, params)
         assert result is not None
         assert result.valve_percent == 0
 
@@ -35,13 +35,13 @@ class TestMPCController:
             window_open=True,
             heating_allowed=True,
         )
-        result = compute_mpc(inp, params)
+        result, _ = compute_mpc(inp, params)
         assert result is not None
         assert result.valve_percent == 0
 
         inp.window_open = False
         inp.heating_allowed = False
-        result = compute_mpc(inp, params)
+        result, _ = compute_mpc(inp, params)
         assert result is not None
         assert result.valve_percent == 0
 
@@ -54,7 +54,7 @@ class TestMPCController:
             current_temp_C=21.5,  # Smaller error to get valve <100%
             temp_slope_K_per_min=0.0,
         )
-        result = compute_mpc(inp, params)
+        result, _ = compute_mpc(inp, params)
         assert result is not None
         # With error=0.5, should compute some positive percent <100
         assert 0 <= result.valve_percent <= 100
@@ -71,7 +71,7 @@ class TestMPCController:
             current_temp_C=22.3,  # error = -0.3
             temp_slope_K_per_min=0.0,
         )
-        result1 = compute_mpc(inp1, params)
+        result1, _ = compute_mpc(inp1, params)
         assert result1 is not None
         assert result1.valve_percent == 0.0
 
@@ -82,7 +82,7 @@ class TestMPCController:
             current_temp_C=22.4,  # error = -0.4
             temp_slope_K_per_min=0.0,
         )
-        result2 = compute_mpc(inp2, params)
+        result2, _ = compute_mpc(inp2, params)
         assert result2 is not None
         assert result2.valve_percent == 0.0
 
@@ -93,7 +93,7 @@ class TestMPCController:
             current_temp_C=22.2,  # error = -0.2
             temp_slope_K_per_min=0.0,
         )
-        result3 = compute_mpc(inp3, params)
+        result3, _ = compute_mpc(inp3, params)
         assert result3 is not None
         assert result3.valve_percent >= 0.0  # Should be calculated by MPC
 
@@ -114,14 +114,14 @@ class TestMPCController:
         base_temp = 21.3
         target = 22.0
 
-        raw = compute_mpc(
+        raw, _ = compute_mpc(
             MpcInput(
                 key="test_filtered_raw", target_temp_C=target, current_temp_C=base_temp
             ),
             params,
         )
 
-        filtered = compute_mpc(
+        filtered, _ = compute_mpc(
             MpcInput(
                 key="test_filtered_cost",
                 target_temp_C=target,
@@ -165,7 +165,7 @@ class TestMPCController:
             current_temp_C=current,
             # temp_slope_K_per_min=slope,
         )
-        result1 = compute_mpc(inp1, params)
+        result1, _ = compute_mpc(inp1, params)
         assert result1 is not None
         # Should set initial gain_est and loss_est
         state = _MPC_STATES[key]
@@ -184,7 +184,7 @@ class TestMPCController:
             current_temp_C=21.0,  # Error reduced from 2.0 to 1.0
             temp_slope_K_per_min=slope,
         )
-        result2 = compute_mpc(inp2, params)
+        result2, _ = compute_mpc(inp2, params)
         assert result2 is not None
         # Check adaptation: with new logic, observed_rate = delta_T / dt_min
         # delta_T=1.0, dt_min small, observed_rate large, gain_candidate large -> guard triggers shrink
@@ -201,7 +201,7 @@ class TestMPCController:
             current_temp_C=21.0,  # Error still 1.0
             temp_slope_K_per_min=slope,
         )
-        result3 = compute_mpc(inp3, params)
+        result3, _ = compute_mpc(inp3, params)
         assert result3 is not None
         # decay = 1.0 - 1.0 = 0, no gain update
         # But if error_now_current == error_prev, leak_raw=0, loss no update
@@ -217,7 +217,7 @@ class TestMPCController:
             temp_slope_K_per_min=slope,
         )
         gain_before_decrease = state.gain_est
-        result4 = compute_mpc(inp4, params)
+        result4, _ = compute_mpc(inp4, params)
         assert result4 is not None
         # decay = 1.0 - 1.5 = -0.5 <0, so gain decreases
         # gain_est *= shrink, where shrink = 1 - alpha * decay_ratio
@@ -351,7 +351,7 @@ class TestMPCController:
 
         loss_before = float(st.loss_est)
 
-        res = compute_mpc(
+        res, _ = compute_mpc(
             MpcInput(
                 key=key,
                 target_temp_C=22.0,
@@ -405,13 +405,13 @@ class TestMPCController:
 
         # First call
         inp = MpcInput(key=key, target_temp_C=22.0, current_temp_C=20.0)
-        result1 = compute_mpc(inp, params)
+        result1, _ = compute_mpc(inp, params)
         assert result1 is not None
         _ = result1.valve_percent
 
         # Second call with small change
         inp.current_temp_C = 20.1  # Small change in error
-        result2 = compute_mpc(inp, params)
+        result2, _ = compute_mpc(inp, params)
         assert result2 is not None
         _ = result2.valve_percent
 
@@ -433,7 +433,7 @@ class TestMPCController:
         key = "test_tol_hyst"
 
         # 1) At target -> enter tolerance hold, no heating.
-        at_target = compute_mpc(
+        at_target, _ = compute_mpc(
             MpcInput(key=key, target_temp_C=21.0, current_temp_C=21.0, tolerance_K=0.5),
             params,
         )
@@ -442,7 +442,7 @@ class TestMPCController:
         assert at_target.debug.get("mpc_tolerance_hold_active") is True
 
         # 2) Still above restart threshold (target - tolerance = 20.5) -> remain off.
-        in_band = compute_mpc(
+        in_band, _ = compute_mpc(
             MpcInput(key=key, target_temp_C=21.0, current_temp_C=20.7, tolerance_K=0.5),
             params,
         )
@@ -451,7 +451,7 @@ class TestMPCController:
         assert in_band.debug.get("mpc_tolerance_hold_active") is True
 
         # 3) Below restart threshold -> resume MPC heating.
-        below_band = compute_mpc(
+        below_band, _ = compute_mpc(
             MpcInput(key=key, target_temp_C=21.0, current_temp_C=20.4, tolerance_K=0.5),
             params,
         )
@@ -475,7 +475,7 @@ class TestMPCController:
         )
         key = "test_tol_kalman"
 
-        first = compute_mpc(
+        first, _ = compute_mpc(
             MpcInput(key=key, target_temp_C=21.0, current_temp_C=21.0, tolerance_K=0.5),
             params,
         )
@@ -486,7 +486,7 @@ class TestMPCController:
         v1 = state.virtual_temp
         assert v1 is not None
 
-        second = compute_mpc(
+        second, _ = compute_mpc(
             MpcInput(key=key, target_temp_C=21.0, current_temp_C=20.8, tolerance_K=0.5),
             params,
         )
@@ -533,7 +533,7 @@ class TestMPCController:
                 current_temp_C=current_rounded,
                 # temp_slope_K_per_min=slope,
             )
-            result = compute_mpc(inp, params)
+            result, _ = compute_mpc(inp, params)
             assert result is not None
             valve_pct = result.valve_percent
             dbg = result.debug or {}
@@ -603,13 +603,13 @@ class TestMPCController:
             use_virtual_temp=False,
         )
 
-        low_overshoot = compute_mpc(
+        low_overshoot, _ = compute_mpc(
             MpcInput(
                 key="test_overshoot_pen_low", target_temp_C=20.8, current_temp_C=20.95
             ),
             MpcParams(**{**base_params.__dict__, "mpc_overshoot_penalty": 0.0}),
         )
-        high_overshoot = compute_mpc(
+        high_overshoot, _ = compute_mpc(
             MpcInput(
                 key="test_overshoot_pen_high", target_temp_C=20.8, current_temp_C=20.95
             ),
@@ -642,8 +642,8 @@ class TestMPCController:
             key="test_penalty_with", target_temp_C=22.0, current_temp_C=21.3
         )
 
-        out_no_pen = compute_mpc(inp_no_pen, no_pen)
-        out_with_pen = compute_mpc(inp_with_pen, with_pen)
+        out_no_pen, _ = compute_mpc(inp_no_pen, no_pen)
+        out_with_pen, _ = compute_mpc(inp_with_pen, with_pen)
 
         assert out_no_pen is not None and out_with_pen is not None
         assert out_with_pen.valve_percent <= out_no_pen.valve_percent
