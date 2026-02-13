@@ -58,7 +58,8 @@ class _TpiState:
     last_update_ts: float = 0.0
 
 
-# Public alias so that StateManager can reference the type.
+# Public alias so callers can reference the state type without
+# importing a private name.
 TpiState = _TpiState
 
 _TPI_STATES: dict[str, _TpiState] = {}
@@ -118,14 +119,37 @@ def _round_dbg(v: float | int | None, d: int = 3) -> float | int | None:
         return v
 
 
-def compute_tpi(inp: TpiInput, params: TpiParams) -> TpiOutput | None:
+def compute_tpi(
+    inp: TpiInput,
+    params: TpiParams,
+    state: _TpiState | None = None,
+) -> tuple[TpiOutput | None, _TpiState]:
     """Compute TPI duty cycle and on/off durations.
 
-    Returns None if inputs are insufficient. Emits extensive debug logs.
-    """
+    Parameters
+    ----------
+    inp:
+        Current measurements and context.
+    params:
+        Controller configuration.
+    state:
+        Mutable controller state.  When ``None`` the function falls back
+        to the module-level ``_TPI_STATES`` dict for backwards
+        compatibility, but callers are encouraged to pass state explicitly.
 
+    Returns
+    -------
+    tuple[TpiOutput | None, _TpiState]
+        The duty-cycle recommendation (or ``None`` on early exit) **and**
+        the updated state object.
+    """
     now = monotonic()
-    state = _TPI_STATES.setdefault(inp.key, _TpiState())
+
+    # --- Resolve state ---
+    if state is None:
+        state = _TPI_STATES.setdefault(inp.key, _TpiState())
+    else:
+        _TPI_STATES[inp.key] = state
 
     name = inp.bt_name or "BT"
     entity = inp.entity_id or "unknown"
@@ -191,7 +215,7 @@ def _finalize_output(
     duty_pct_raw: float,
     error_K: float | None,
     debug: dict[str, Any],
-) -> TpiOutput:
+) -> tuple[TpiOutput, _TpiState]:
     # Clamp
     duty_pct = max(params.clamp_min_pct, min(params.clamp_max_pct, duty_pct_raw))
 
@@ -215,7 +239,7 @@ def _finalize_output(
         debug,
     )
 
-    return TpiOutput(duty_cycle_pct=duty_pct, debug=debug)
+    return TpiOutput(duty_cycle_pct=duty_pct, debug=debug), state
 
 
 def build_tpi_key(bt, entity_id: str) -> str:
