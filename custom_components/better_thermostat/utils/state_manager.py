@@ -25,8 +25,8 @@ When ``load()`` reads a store file without a ``"version"`` key it applies
 ``_migrate_v0_to_v1`` which fills in schema defaults.  Future schema
 changes bump ``CURRENT_VERSION`` and add a new migration function.
 
-One-time data migration from the four legacy Store files is handled
-during ``async_added_to_hass`` in ``climate.py``.
+One-time data migration from the four legacy Store files is handled by
+``migrate_v0_stores`` (see ``utils/migrate_v0_stores.py``).
 """
 
 from __future__ import annotations
