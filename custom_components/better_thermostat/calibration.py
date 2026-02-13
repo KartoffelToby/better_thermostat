@@ -355,7 +355,7 @@ def _compute_tpi_balance(self, entity_id: str):
     params = TpiParams()
 
     try:
-        tpi_output = compute_tpi(
+        tpi_output, _tpi_state = compute_tpi(
             TpiInput(
                 key=build_tpi_key(self, entity_id),
                 current_temp_C=self.cur_temp,
@@ -451,7 +451,7 @@ def _compute_pid_balance(self, entity_id: str):
     )
 
     try:
-        percent, debug = compute_pid(
+        percent, debug, _pid_state = compute_pid(
             params,
             self.bt_target_temp,
             self.cur_temp,
@@ -461,8 +461,6 @@ def _compute_pid_balance(self, entity_id: str):
             inp_current_temp_ema_C=self.cur_temp_filtered,
             max_opening_pct=_get_trv_max_opening(self, entity_id),
         )
-        # Schedule saving of updated PID states
-        self.schedule_save_pid_state()
     except (ValueError, TypeError, ZeroDivisionError) as err:
         _LOGGER.debug(
             "better_thermostat %s: PID calibration compute failed for %s: %s",
