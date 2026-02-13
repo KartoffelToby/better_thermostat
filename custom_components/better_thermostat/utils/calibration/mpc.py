@@ -148,6 +148,9 @@ class _MpcState:
     tolerance_hold_active: bool = False
 
 
+# Public alias so that StateManager can reference the type.
+MpcState = _MpcState
+
 _MPC_STATES: dict[str, _MpcState] = {}
 
 _STATE_EXPORT_FIELDS = (
