@@ -29,13 +29,13 @@ class MpcParams:
     mpc_thermal_gain: float = 0.06
     mpc_loss_coeff: float = 0.01
     mpc_control_penalty: float = 0.05
-    mpc_change_penalty: float = 1.0
-    mpc_eco_penalty: float = 1.0
+    mpc_change_penalty: float = 0.2
+    mpc_overshoot_penalty: float = 8.0
     mpc_adapt: bool = True
     mpc_gain_min: float = 0.01
-    mpc_gain_max: float = 0.2
-    mpc_loss_min: float = 0.002
-    mpc_loss_max: float = 0.03
+    mpc_gain_max: float = 0.5
+    mpc_loss_min: float = 0.001
+    mpc_loss_max: float = 0.1
     mpc_solar_gain_initial: float = (
         0.01  # Initial guess for solar gain (°C/min at full sun)
     )
@@ -49,8 +49,11 @@ class MpcParams:
     deadzone_raise_pct: float = 2.0
     deadzone_decay_pct: float = 1.0
     mpc_du_max_pct: float = 25.0
-    min_percent_hold_time_s: float = 300.0  # mind. 5 Minuten Haltezeit
-    big_change_force_open_pct: float = 33.0  # >33% Änderung darf sofort fahren
+    min_percent_hold_time_s: float = 300.0  # minimum 5-minute hold time
+    big_change_force_open_pct: float = (
+        33.0  # >33% opening change may be applied immediately
+    )
+    big_change_force_close_pct: float = 10.0  # >10% closing change may bypass hold-time
 
     # Minimum effective opening / dead-zone learning.
     # If disabled, small commands are not clamped up and dead-zone raise/decay is skipped.
@@ -142,6 +145,7 @@ class _MpcState:
     regime_boost_active: bool = False
     consecutive_insufficient_heat: int = 0
     kalman_P: float = 1.0  # Kalman filter error covariance
+    tolerance_hold_active: bool = False
 
 
 _MPC_STATES: dict[str, _MpcState] = {}
@@ -184,6 +188,7 @@ _STATE_EXPORT_FIELDS = (
     "regime_boost_active",
     "consecutive_insufficient_heat",
     "kalman_P",
+    "tolerance_hold_active",
 )
 
 
@@ -571,6 +576,8 @@ def compute_mpc(inp: MpcInput, params: MpcParams) -> MpcOutput | None:
     extra_debug: dict[str, Any] = {}
     name = inp.bt_name or "BT"
     entity = inp.entity_id or "unknown"
+    percent: float = 0.0
+    delta_t: float | None = None
 
     _LOGGER.debug(
         "better_thermostat %s: MPC input (%s) target=%s current=%s trv=%s slope=%s window_open=%s allowed=%s last_percent=%s key=%s",
@@ -599,6 +606,7 @@ def compute_mpc(inp: MpcInput, params: MpcParams) -> MpcOutput | None:
         state.u_integral = 0.0
         state.time_integral = 0.0
         state.last_residual_time = None
+        state.tolerance_hold_active = False
 
         if state.is_calibration_active:
             state.is_calibration_active = False
@@ -628,6 +636,37 @@ def compute_mpc(inp: MpcInput, params: MpcParams) -> MpcOutput | None:
     else:
         use_virtual_temp = bool(getattr(params, "use_virtual_temp", True))
 
+        tolerance = max(0.0, float(inp.tolerance_K or 0.0))
+        tolerance_hold_block = False
+
+        if (
+            tolerance > 0.0
+            and inp.target_temp_C is not None
+            and inp.current_temp_C is not None
+        ):
+            current_temp = float(inp.current_temp_C)
+            target_temp = float(inp.target_temp_C)
+            restart_threshold = target_temp - tolerance
+
+            if state.tolerance_hold_active:
+                if current_temp <= restart_threshold:
+                    state.tolerance_hold_active = False
+                    extra_debug["mpc_tolerance_hold_resume"] = True
+                else:
+                    tolerance_hold_block = True
+            elif current_temp >= target_temp:
+                state.tolerance_hold_active = True
+                tolerance_hold_block = True
+
+            if tolerance_hold_block:
+                percent = 0.0
+                delta_t = target_temp - current_temp
+                extra_debug["mpc_tolerance_hold_active"] = True
+                extra_debug["mpc_tolerance_K"] = _round_for_debug(tolerance, 3)
+                extra_debug["mpc_tolerance_restart_C"] = _round_for_debug(
+                    restart_threshold, 3
+                )
+
         # --------------------------------------------
         # KALMAN FILTER FOR VIRTUAL TEMPERATURE
         # --------------------------------------------
@@ -640,6 +679,9 @@ def compute_mpc(inp: MpcInput, params: MpcParams) -> MpcOutput | None:
         # State: x = virtual_temp (scalar)
         # Model: x_k+1 = x_k + (gain*u - loss)*dt_min
         # Measurement: z_k = sensor_temp (when it changes)
+        #
+        # NOTE: Even during tolerance hold we keep this observer running so
+        # virtual temperature does not go stale before heating resumes.
         if use_virtual_temp and inp.current_temp_C is not None:
             sensor_temp = float(inp.current_temp_C)
             Q = max(1e-6, float(params.kalman_Q))  # process noise / sec
@@ -654,9 +696,16 @@ def compute_mpc(inp: MpcInput, params: MpcParams) -> MpcOutput | None:
                 extra_debug["kalman_phase"] = "init"
             else:
                 dt_s = max(0.0, now - state.virtual_temp_ts)
-                if dt_s > 0.0 and state.last_percent is not None:
+                if dt_s > 0.0:
                     dt_min = dt_s / 60.0
-                    u = max(0.0, min(100.0, state.last_percent)) / 100.0
+                    u_cmd_pct = (
+                        float(state.last_percent)
+                        if state.last_percent is not None
+                        else 0.0
+                    )
+                    if tolerance_hold_block:
+                        u_cmd_pct = 0.0
+                    u = max(0.0, min(100.0, u_cmd_pct)) / 100.0
 
                     gain_est = (
                         float(state.gain_est)
@@ -721,11 +770,13 @@ def compute_mpc(inp: MpcInput, params: MpcParams) -> MpcOutput | None:
         elif inp.target_temp_C is not None and inp.current_temp_C is not None:
             delta_t = inp.target_temp_C - inp.current_temp_C
         initial_delta_t = delta_t
-        percent, mpc_debug = _compute_predictive_percent(
-            inp, params, state, now, float(delta_t) if delta_t is not None else 0.0
-        )
-        # Keep any virtual-temp debug collected earlier and merge MPC debug on top.
-        extra_debug.update(mpc_debug)
+
+        if not tolerance_hold_block:
+            percent, mpc_debug = _compute_predictive_percent(
+                inp, params, state, now, float(delta_t) if delta_t is not None else 0.0
+            )
+            # Keep any virtual-temp debug collected earlier and merge MPC debug on top.
+            extra_debug.update(mpc_debug)
 
         # --- FORCED LOSS CALIBRATION ---
         # "Hybrid Learning": Use random forced calibration to get high-confidence loss samples.
@@ -1414,25 +1465,24 @@ def _compute_predictive_percent(
             min_eff = float(state.min_effective_percent) / 100.0
             u0_frac = max(u0_frac, min_eff)
 
-    # cost penalty for control deviation from u0 (regularisation)
+    # Cost terms
     control_pen = max(0.0, float(params.mpc_control_penalty))
+    change_pen = max(0.0, float(getattr(params, "mpc_change_penalty", 0.0)))
+    overshoot_pen = max(0.0, float(getattr(params, "mpc_overshoot_penalty", 0.0)))
     last_percent = state.last_percent if state.last_percent is not None else None
+    if last_percent is None:
+        u_last_frac = u0_frac
+    else:
+        u_last_frac = max(0.0, min(100.0, float(last_percent))) / 100.0
 
     # ----------------------------------------------------------------
-    # ANALYTICAL OPTIMAL CONTROL (replaces coarse/fine brute-force)
+    # COST-BASED OPTIMISATION
     # ----------------------------------------------------------------
-    # For the linear plant  T_{k+1} = T_k + gain_step * u - net_loss_step
-    # with quadratic tracking cost  J = sum_{k=1..H} (T_target - T_k)^2
-    #                                   + control_pen * (u - u0)^2
-    # the optimal u has a closed-form solution.
-    #
-    # After H steps of constant u:
-    #   T_k = T_0 + k * (gain_step * u + other_heat_step - loss_step)
-    # Let  a = gain_step,  b = other_heat_step - loss_step,  e0 = target - T_0
-    # Then error at step k:  e_k = e0 - k*(a*u + b)
-    # Cost = sum_{k=1..H} (e0 - k*(a*u+b))^2 + control_pen*(u-u0)^2
-    #
-    # Setting dJ/du = 0 and solving for u gives the analytical optimum.
+    # We intentionally evaluate a compact candidate set so all configured
+    # penalties are active in the objective:
+    # - tracking (quadratic), asymmetric for overshoot
+    # - control effort around u0
+    # - change penalty vs last command
     # ----------------------------------------------------------------
 
     T0 = (
@@ -1450,38 +1500,59 @@ def _compute_predictive_percent(
 
     a = gain_step  # temperature change per step per unit u
 
-    # Summation constants:  S1 = sum(k, k=1..H),  S2 = sum(k^2, k=1..H)
-    H = horizon
-    S1 = H * (H + 1) / 2.0
-    S2 = H * (H + 1) * (2 * H + 1) / 6.0
+    def _evaluate_cost(u_frac: float) -> float:
+        u_clamped = max(0.0, min(1.0, float(u_frac)))
+        temp_cost = 0.0
+        for k in range(1, horizon + 1):
+            t_k = T0 + k * (a * u_clamped + net_passive_step)
+            e_k = target_temp_C - t_k
+            if e_k >= 0.0:
+                temp_cost += e_k * e_k
+            else:
+                temp_cost += (1.0 + overshoot_pen) * (e_k * e_k)
 
-    # Analytical optimum:
-    # u* = (a * S2)^-1 * [S1 * e0 - S2 * net_passive_step] + correction from control_pen
-    # Full derivation:  dJ/du = -2*a*sum(k*(e0 - k*(a*u+b))) + 2*control_pen*(u-u0) = 0
-    # => u = [a * (S1*e0 - S2*b) ] / (a^2 * S2 + control_pen)
+        reg_cost = control_pen * ((u_clamped - u0_frac) ** 2)
+        slew_cost = change_pen * ((u_clamped - u_last_frac) ** 2)
+        return temp_cost + reg_cost + slew_cost
 
-    denom_analytical = a * a * S2 + control_pen
-    if denom_analytical > 1e-12:
-        u_star = (a * (S1 * e0 - S2 * net_passive_step)) / denom_analytical
-    else:
-        # gain is effectively zero; fall back to u0
-        u_star = u0_frac
+    # Build candidates: coarse global grid + fine local refinement.
+    # Coarse only needs to localize the area; fine pass resolves integer-% output.
+    coarse_step = 0.10
+    coarse_candidates = [
+        i * coarse_step for i in range(int(round(1.0 / coarse_step)) + 1)
+    ]
+    coarse_candidates.extend([u0_frac, u_last_frac])
 
-    # Clamp to [0, 1]
-    u_star = max(0.0, min(1.0, u_star))
+    best_u = 0.0
+    best_cost = float("inf")
+    eval_count = 0
 
-    # Compute cost at the analytical optimum for debug info
-    cost_at_star = 0.0
-    T_sim = T0
-    for k in range(1, H + 1):
-        T_sim = T0 + k * (a * u_star + net_passive_step)
-        e_k = target_temp_C - T_sim
-        cost_at_star += e_k * e_k
-    cost_at_star += control_pen * (u_star - u0_frac) ** 2
+    for u in coarse_candidates:
+        c = _evaluate_cost(u)
+        eval_count += 1
+        if c < best_cost:
+            best_cost = c
+            best_u = u
 
-    du_frac = u_star - u0_frac
+    # Valve command is emitted as integer percent, so 1% search resolution is sufficient.
+    fine_step = 0.01
+    # Keep at least half a coarse bin so the fine pass can recover the local minimum.
+    fine_window = max(0.05, coarse_step / 2.0)
+    fine_start = max(0.0, best_u - fine_window)
+    fine_end = min(1.0, best_u + fine_window)
+    n_fine = int(round((fine_end - fine_start) / fine_step))
+    for idx in range(n_fine + 1):
+        u = fine_start + idx * fine_step
+        c = _evaluate_cost(u)
+        eval_count += 1
+        if c < best_cost:
+            best_cost = c
+            best_u = u
+
+    best_u = max(0.0, min(1.0, best_u))
+    du_frac = best_u - u0_frac
     du_percent = du_frac * 100.0
-    u_abs_percent = u_star * 100.0
+    u_abs_percent = best_u * 100.0
     best_percent = u_abs_percent
 
     # store last estimates
@@ -1503,22 +1574,25 @@ def _compute_predictive_percent(
         "mpc_du_pct": _round_for_debug(du_percent, 3),
         "mpc_u_abs_pct": _round_for_debug(u_abs_percent, 3),
         "mpc_horizon": horizon,
-        "mpc_eval_count": 0,
+        "mpc_eval_count": eval_count,
         "mpc_step_minutes": _round_for_debug(step_minutes, 3),
         "mpc_temp_cost_C": _round_for_debug(current_temp_cost_C, 3),
         "mpc_sensor_temp_C": _round_for_debug(inp.current_temp_C, 3),
         "mpc_temp_cost_source": temp_cost_source,
+        "mpc_control_pen": _round_for_debug(control_pen, 4),
+        "mpc_change_pen": _round_for_debug(change_pen, 4),
+        "mpc_overshoot_pen": _round_for_debug(overshoot_pen, 4),
         "mpc_virtual_temp": (
             f"{state.virtual_temp:.3f}" if state.virtual_temp is not None else None
         ),
         "mpc_e0": _round_for_debug(e0, 3),
-        "mpc_analytical": True,
+        "mpc_analytical": False,
     }
 
     if adapt_debug:
         mpc_debug.update(adapt_debug)
 
-    mpc_debug["mpc_cost"] = _round_for_debug(cost_at_star, 6)
+    mpc_debug["mpc_cost"] = _round_for_debug(best_cost, 6)
 
     if last_percent is not None:
         mpc_debug["mpc_last_percent"] = _round_for_debug(last_percent, 2)
@@ -1885,19 +1959,24 @@ def _post_process_percent(
     # ===========================================
     hold_time = params.min_percent_hold_time_s
 
-    # Wenn wir kurz vorher ein anderes Kommando geschickt haben → blockieren
+    # If we sent a command shortly before, block updates
     if state.last_percent is not None:
         time_since_update = now - state.last_update_ts
 
-        # Ausnahme: Target wurde geändert → immer erlauben
+        # Exception: if target changed, always allow updates
         if not target_changed:
-            # Ausnahme: große Änderung nötig (z.B. Fenster auf)
-            # Only bypass hold-time for large OPENING steps (e.g. window just closed / sudden demand).
-            # Large closing steps should remain rate-limited to avoid oscillations.
-            big_open = (smooth - state.last_percent) >= params.big_change_force_open_pct
+            delta_cmd = smooth - state.last_percent
+            # Exception: large change required (e.g. window event / fast overheat reduction)
+            big_open = delta_cmd >= params.big_change_force_open_pct
+            big_close = (-delta_cmd) >= params.big_change_force_close_pct
             remaining = hold_time - time_since_update
 
-            if remaining > 0.0 and time_since_update < hold_time and not big_open:
+            if (
+                remaining > 0.0
+                and time_since_update < hold_time
+                and not big_open
+                and not big_close
+            ):
                 percent_out = int(round(state.last_percent))
                 debug["hold_block"] = True
                 debug["hold_remaining_s"] = int(max(0.0, remaining))

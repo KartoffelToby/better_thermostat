@@ -418,6 +418,85 @@ class TestMPCController:
         # Due to hysteresis, might keep previous value
         # But depends on the calculation
 
+    def test_tolerance_hysteresis_stops_and_restarts(self):
+        """MPC should stop at target and restart only below target - tolerance."""
+
+        params = MpcParams(
+            mpc_adapt=False,
+            min_update_interval_s=0.0,
+            min_percent_hold_time_s=0.0,
+            percent_hysteresis_pts=0.0,
+            mpc_control_penalty=0.0,
+            mpc_change_penalty=0.0,
+            use_virtual_temp=False,
+        )
+        key = "test_tol_hyst"
+
+        # 1) At target -> enter tolerance hold, no heating.
+        at_target = compute_mpc(
+            MpcInput(key=key, target_temp_C=21.0, current_temp_C=21.0, tolerance_K=0.5),
+            params,
+        )
+        assert at_target is not None
+        assert at_target.valve_percent == 0
+        assert at_target.debug.get("mpc_tolerance_hold_active") is True
+
+        # 2) Still above restart threshold (target - tolerance = 20.5) -> remain off.
+        in_band = compute_mpc(
+            MpcInput(key=key, target_temp_C=21.0, current_temp_C=20.7, tolerance_K=0.5),
+            params,
+        )
+        assert in_band is not None
+        assert in_band.valve_percent == 0
+        assert in_band.debug.get("mpc_tolerance_hold_active") is True
+
+        # 3) Below restart threshold -> resume MPC heating.
+        below_band = compute_mpc(
+            MpcInput(key=key, target_temp_C=21.0, current_temp_C=20.4, tolerance_K=0.5),
+            params,
+        )
+        assert below_band is not None
+        assert below_band.debug.get("mpc_tolerance_hold_resume") is True
+        assert below_band.valve_percent > 0
+
+    def test_tolerance_hold_keeps_virtual_temp_fresh(self):
+        """Virtual temperature/Kalman state should keep updating while tolerance hold is active."""
+
+        import custom_components.better_thermostat.utils.calibration.mpc as mpc_module
+
+        params = MpcParams(
+            mpc_adapt=False,
+            min_update_interval_s=0.0,
+            min_percent_hold_time_s=0.0,
+            percent_hysteresis_pts=0.0,
+            mpc_control_penalty=0.0,
+            mpc_change_penalty=0.0,
+            use_virtual_temp=True,
+        )
+        key = "test_tol_kalman"
+
+        first = compute_mpc(
+            MpcInput(key=key, target_temp_C=21.0, current_temp_C=21.0, tolerance_K=0.5),
+            params,
+        )
+        assert first is not None
+        assert first.valve_percent == 0
+
+        state = mpc_module._MPC_STATES[key]
+        v1 = state.virtual_temp
+        assert v1 is not None
+
+        second = compute_mpc(
+            MpcInput(key=key, target_temp_C=21.0, current_temp_C=20.8, tolerance_K=0.5),
+            params,
+        )
+        assert second is not None
+        assert second.valve_percent == 0
+
+        v2 = state.virtual_temp
+        assert v2 is not None
+        assert v2 < v1
+
     def test_heating_sequence_simulation(self):
         """Simulate a heating sequence to test controller behavior over time."""
         from custom_components.better_thermostat.utils.calibration.mpc import (
@@ -510,3 +589,61 @@ class TestMPCController:
         initial_percent = results[0][1]
         final_percent = results[-1][1]
         assert final_percent < initial_percent  # Should decrease
+
+    def test_overshoot_penalty_reduces_output_above_target(self):
+        """Higher overshoot penalty should reduce opening when current is above target."""
+
+        base_params = MpcParams(
+            mpc_adapt=False,
+            min_update_interval_s=0.0,
+            min_percent_hold_time_s=0.0,
+            percent_hysteresis_pts=0.0,
+            mpc_control_penalty=0.0,
+            mpc_change_penalty=0.0,
+            use_virtual_temp=False,
+        )
+
+        low_overshoot = compute_mpc(
+            MpcInput(
+                key="test_overshoot_pen_low", target_temp_C=20.8, current_temp_C=20.95
+            ),
+            MpcParams(**{**base_params.__dict__, "mpc_overshoot_penalty": 0.0}),
+        )
+        high_overshoot = compute_mpc(
+            MpcInput(
+                key="test_overshoot_pen_high", target_temp_C=20.8, current_temp_C=20.95
+            ),
+            MpcParams(**{**base_params.__dict__, "mpc_overshoot_penalty": 8.0}),
+        )
+
+        assert low_overshoot is not None and high_overshoot is not None
+        assert high_overshoot.valve_percent <= low_overshoot.valve_percent
+
+    def test_change_penalty_reduces_output(self):
+        """Activating change penalty should reduce opening in the same scenario."""
+
+        common = {
+            "mpc_adapt": False,
+            "min_update_interval_s": 0.0,
+            "min_percent_hold_time_s": 0.0,
+            "percent_hysteresis_pts": 0.0,
+            "mpc_control_penalty": 0.0,
+            "use_virtual_temp": False,
+            "mpc_overshoot_penalty": 0.0,
+        }
+
+        no_pen = MpcParams(**common, mpc_change_penalty=0.0)
+        with_pen = MpcParams(**common, mpc_change_penalty=10.0)
+
+        inp_no_pen = MpcInput(
+            key="test_penalty_none", target_temp_C=22.0, current_temp_C=21.3
+        )
+        inp_with_pen = MpcInput(
+            key="test_penalty_with", target_temp_C=22.0, current_temp_C=21.3
+        )
+
+        out_no_pen = compute_mpc(inp_no_pen, no_pen)
+        out_with_pen = compute_mpc(inp_with_pen, with_pen)
+
+        assert out_no_pen is not None and out_with_pen is not None
+        assert out_with_pen.valve_percent <= out_no_pen.valve_percent
