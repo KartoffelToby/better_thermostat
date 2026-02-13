@@ -1,5 +1,5 @@
 [tool.ruff]
-target-version = "py313"
+target-version = "py312"
 line-length = 88
 exclude = [
     ".venv",
@@ -60,3 +60,24 @@ filterwarnings = [
     # Upstream Home Assistant warning triggered during test imports.
     "ignore:Inheritance class HomeAssistantApplication from web\\.Application is discouraged:DeprecationWarning",
 ]
+
+[tool.pyright]
+# Don't use include - it changes the root! Instead, exclude everything except custom_components
+exclude = [
+    "tests",
+    "tmp",
+    "docs",
+    "scripts",
+    "blueprints",
+    "_sass",
+    "assets",
+    "**/__pycache__",
+    ".git",
+    ".venv",
+    "*.md",
+    "*.yml",
+    "*.yaml",
+]
+reportMissingImports = true
+reportMissingTypeStubs = false
+pythonVersion = "3.12"

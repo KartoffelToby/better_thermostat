@@ -1,3 +1,8 @@
+"""MPC (Model Predictive Control) simulator for testing the MPC calibration logic.
+
+Simulates room temperature dynamics and runs MPC cycles to verify controller behavior.
+"""
+
 from dataclasses import dataclass
 import logging
 import os

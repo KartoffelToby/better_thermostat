@@ -27,6 +27,14 @@ async def wait_for_calibration_entity_or_timeout(self, entity_id, calibration_en
     -------
     None
     """
+    if calibration_entity is None:
+        _LOGGER.warning(
+            "better_thermostat %s: calibration_entity is None for '%s', skipping wait",
+            self.device_name,
+            entity_id,
+        )
+        return
+
     # Wait for the entity to be available with timeout
     _ready = True
     _max_retries = 6  # 30 seconds total (6 * 5 seconds)

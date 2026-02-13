@@ -1,7 +1,7 @@
 """Helper functions for the Better Thermostat component."""
 
+from collections.abc import Callable
 from datetime import datetime
-from enum import Enum
 import logging
 import math
 import re
@@ -26,7 +26,9 @@ from custom_components.better_thermostat.utils.const import (
 _LOGGER = logging.getLogger(__name__)
 
 
-def normalize_calibration_mode(mode: Any) -> CalibrationMode | str | None:
+def normalize_calibration_mode(
+    mode: CalibrationMode | str | None,
+) -> CalibrationMode | str | None:
     """Normalize a calibration_mode field from TRV advanced data."""
 
     # Backwards compatibility: older configs stored numeric calibration modes
@@ -51,7 +53,9 @@ def normalize_calibration_mode(mode: Any) -> CalibrationMode | str | None:
     return None
 
 
-def is_calibration_mode(mode: Any, expected: CalibrationMode) -> bool:
+def is_calibration_mode(
+    mode: CalibrationMode | str | None, expected: CalibrationMode
+) -> bool:
     """Return True if ``mode`` is the expected CalibrationMode."""
 
     normalized = normalize_calibration_mode(mode)
@@ -163,14 +167,22 @@ def mode_remap(self, entity_id, hvac_mode: str, inbound: bool = False) -> str:
             return HVACMode.HEAT_COOL
         if inbound and hvac_mode == HVACMode.HEAT_COOL:
             return HVACMode.HEAT
+    if HVACMode.HEAT_COOL not in trv_modes and HVACMode.HEAT in trv_modes:
+        # entity only supports HEAT, but not HEAT_COOL - need to translate
+        if not inbound and hvac_mode == HVACMode.HEAT_COOL:
+            return HVACMode.HEAT
+        if inbound and hvac_mode == HVACMode.HEAT:
+            return HVACMode.HEAT_COOL
 
     if hvac_mode != HVACMode.AUTO:
         return hvac_mode
 
     _LOGGER.error(
-        f"better_thermostat {self.device_name}: {entity_id} HVAC mode {
-            hvac_mode
-        } is not supported by this device, is it possible that you forgot to set the heat auto swapped option?"
+        "better_thermostat %s: %s HVAC mode %s is not supported by this device, "
+        "is it possible that you forgot to set the heat auto swapped option?",
+        self.device_name,
+        entity_id,
+        hvac_mode,
     )
     return HVACMode.OFF
 
@@ -183,6 +195,17 @@ def heating_power_valve_position(self, entity_id):
     returned (between 0.0 and 1.0).
     """
     _temp_diff = float(float(self.bt_target_temp) - float(self.cur_temp))
+
+    # Guard against negative temp_diff (room warmer than target)
+    # This can occur in TRV override edge case when temperature rises
+    # above target but TRV still reports heating (delayed update)
+    if _temp_diff <= 0:
+        _LOGGER.debug(
+            f"better_thermostat {self.device_name}: {entity_id} "
+            f"cur_temp >= target_temp ({self.cur_temp} >= {self.bt_target_temp}), "
+            f"setting valve to 0%"
+        )
+        return 0.0
 
     # Ensure heating_power is bounded to realistic values
     # This protects against incorrectly learned high values
@@ -213,13 +236,12 @@ def heating_power_valve_position(self, entity_id):
     valve_pos = max(0.0, min(1.0, valve_pos))
 
     _LOGGER.debug(
-        f"better_thermostat {self.device_name}: {
-            entity_id
-        } / heating_power_valve_position - temp diff: {
-            round(_temp_diff, 1)
-        } - heating power: {
-            round(heating_power, 4)
-        } (bounded) - expected valve position: {round(valve_pos * 100)}%"
+        "better_thermostat %s: %s / heating_power_valve_position - temp diff: %s - heating power: %s (bounded) - expected valve position: %s%%",
+        self.device_name,
+        entity_id,
+        round(_temp_diff, 1),
+        round(heating_power, 4),
+        round(valve_pos * 100),
     )
     return valve_pos
 
@@ -280,33 +302,41 @@ def convert_to_float(
         return round_by_step(float(value), 0.01)
     except (ValueError, TypeError, AttributeError, KeyError):
         _LOGGER.debug(
-            f"better thermostat {instance_name}: Could not convert '{value}' to float in {context}"
+            "better thermostat %s: Could not convert '%s' to float in %s",
+            instance_name,
+            value,
+            context,
         )
         return None
 
 
-class rounding(Enum):
+class rounding:
     """Rounding helpers for stable step-based rounding.
 
     Provides minor offsets to avoid floating point rounding artifacts when
     converting values to integer steps.
     """
 
+    @staticmethod
     def up(x: float) -> float:
         """Round up with a tiny epsilon to avoid FP artifacts."""
         return math.ceil(x - 0.0001)
 
+    @staticmethod
     def down(x: float) -> float:
         """Round down with a tiny epsilon to avoid FP artifacts."""
         return math.floor(x + 0.0001)
 
+    @staticmethod
     def nearest(x: float) -> float:
         """Round to nearest step with a small epsilon to avoid up-rounding."""
         return round(x - 0.0001)
 
 
 def round_by_step(
-    value: float | None, step: float | None, f_rounding: rounding = rounding.nearest
+    value: float | None,
+    step: float | None,
+    f_rounding: Callable[[float], float] = rounding.nearest,
 ) -> float | None:
     """Round the value based on the allowed decimal 'step' size.
 
@@ -316,6 +346,8 @@ def round_by_step(
             the value to round
     step : float
             size of one step
+    f_rounding : callable
+            rounding function (default: rounding.nearest)
 
     Returns
     -------
@@ -325,6 +357,9 @@ def round_by_step(
 
     if value is None or step is None:
         return None
+    # Use default rounding function if none provided
+    if f_rounding is None:
+        f_rounding = rounding.nearest
     # convert to integer number of steps for rounding, then convert back to decimal
     return f_rounding(value / step) * step
 
@@ -346,7 +381,7 @@ def check_float(potential_float):
     try:
         float(potential_float)
         return True
-    except ValueError:
+    except (ValueError, TypeError):
         return False
 
 
@@ -396,19 +431,17 @@ async def find_valve_entity(self, entity_id):
     base_identifiers: set[tuple[str, str]] = set()
     try:
         dev_reg = dr.async_get(self.hass)
-        base_device = (
-            dev_reg.async_get(reg_entity.device_id)
-            if getattr(reg_entity, "device_id", None)
-            else None
-        )
+        device_id = getattr(reg_entity, "device_id", None)
+        base_device = dev_reg.async_get(device_id) if device_id is not None else None
         base_identifiers = set(getattr(base_device, "identifiers", set()) or set())
     except Exception:
         dev_reg = None
         base_identifiers = set()
 
-    entity_entries = async_entries_for_config_entry(
-        entity_registry, reg_entity.config_entry_id
-    )
+    config_entry_id = reg_entity.config_entry_id
+    if config_entry_id is None:
+        return None
+    entity_entries = async_entries_for_config_entry(entity_registry, config_entry_id)
     preferred_domains = {"number", "input_number"}
     readonly_candidate: dict[str, Any] | None = None
 
@@ -431,7 +464,27 @@ async def find_valve_entity(self, entity_id):
         cand_identifiers = set(getattr(cand_device, "identifiers", set()) or set())
         return bool(base_identifiers.intersection(cand_identifiers))
 
+    # Known translation_key values used by TRV integrations for valve-related entities.
+    # These are stable, language-independent identifiers set by the integration.
+    _VALVE_TRANSLATION_KEYS: dict[str, str] = {
+        "valve_position": "valve_position",
+        "valve_opening_degree": "valve_opening_degree",
+        "valve_closing_degree": "valve_closing_degree",
+        "pi_heating_demand": "pi_heating_demand",
+        "heating_demand": "pi_heating_demand",
+        # Shelly BLU TRV uses this translation_key
+        "valve": "valve_position",
+    }
+
+    def _classify_by_translation_key(entity) -> str | None:
+        """Classify entity by its translation_key (stable, language-independent)."""
+        tk = getattr(entity, "translation_key", None)
+        if tk and tk in _VALVE_TRANSLATION_KEYS:
+            return _VALVE_TRANSLATION_KEYS[tk]
+        return None
+
     def _classify(uid: str, ent_id: str, original_name: str) -> str | None:
+        """Classify by string matching (fallback for integrations without translation_key)."""
         descriptor = f"{uid} {ent_id} {original_name}".lower()
         # Sonoff TRVZB (and some others) expose explicit valve degree entities
         if "valve_opening_degree" in descriptor:
@@ -478,9 +531,15 @@ async def find_valve_entity(self, entity_id):
         uid = entity.unique_id or ""
         if not _device_matches(entity):
             continue
-        reason = _classify(
-            uid, entity.entity_id or "", getattr(entity, "original_name", None) or ""
-        )
+
+        # Prefer translation_key (stable, language-independent) over string matching
+        reason = _classify_by_translation_key(entity)
+        if reason is None:
+            reason = _classify(
+                uid,
+                entity.entity_id or "",
+                getattr(entity, "original_name", None) or "",
+            )
         if reason is None:
             continue
         domain = (entity.entity_id or "").split(".", 1)[0]
@@ -612,12 +671,25 @@ async def _find_lowest_battery_in_group(self, member_ids, visited=None):
     return lowest_battery_id
 
 
+# Known translation_key values used by TRV integrations for calibration entities.
+# These are stable, language-independent identifiers set by the integration.
+_CALIBRATION_TRANSLATION_KEYS: set[str] = {
+    "local_temperature_calibration",
+    "temperature_calibration",
+    "temperature_offset",
+    "calibration_temperature",
+    "local_temperature_offset",
+    # eq3btsmart uses "offset" as translation_key for its temperature offset
+    "offset",
+}
+
+
 async def find_local_calibration_entity(self, entity_id):
     """Find the local calibration entity for the TRV.
 
-    This is a hacky way to find the local calibration entity for the TRV. It is not possible to find the entity
-    automatically, because the entity_id is not the same as the friendly_name. The friendly_name is the same for all
-    thermostats of the same brand, but the entity_id is different.
+    Uses the entity registry's ``translation_key`` and ``original_name``
+    for a stable, language-independent lookup.  Falls back to the legacy
+    unique_id / entity_id string matching for older integrations.
 
     Parameters
     ----------
@@ -635,29 +707,52 @@ async def find_local_calibration_entity(self, entity_id):
     reg_entity = entity_registry.async_get(entity_id)
     if reg_entity is None:
         return None
-    entity_entries = async_entries_for_config_entry(
-        entity_registry, reg_entity.config_entry_id
-    )
+    config_entry_id = reg_entity.config_entry_id
+    if config_entry_id is None:
+        return None
+    entity_entries = async_entries_for_config_entry(entity_registry, config_entry_id)
+    calibration_entity = None
+    # First pass: match by translation_key (preferred, stable approach)
     for entity in entity_entries:
-        uid = entity.unique_id + " " + entity.entity_id
-        # Make sure we use the correct device entities
-        if entity.device_id == reg_entity.device_id:
+        if entity.device_id != reg_entity.device_id:
+            continue
+        tk = getattr(entity, "translation_key", None)
+        if tk and tk in _CALIBRATION_TRANSLATION_KEYS:
+            _LOGGER.debug(
+                "better thermostat: Found local calibration entity %s for %s (translation_key=%s)",
+                entity.entity_id,
+                entity_id,
+                tk,
+            )
+            calibration_entity = entity.entity_id
+            break
+
+    # Second pass: fallback to string matching on unique_id / entity_id / original_name
+    if calibration_entity is None:
+        for entity in entity_entries:
+            if entity.device_id != reg_entity.device_id:
+                continue
+            descriptor = f"{entity.unique_id} {entity.entity_id} {getattr(entity, 'original_name', '') or ''}".lower()
             if (
-                "temperature_calibration" in uid
-                or "temperature_offset" in uid
-                or "temperatur_offset" in uid
+                "temperature_calibration" in descriptor
+                or "temperature_offset" in descriptor
+                or "temperatur_offset" in descriptor
+                or "local_temperature" in descriptor
             ):
                 _LOGGER.debug(
-                    "better thermostat: Found local calibration entity %s for %s",
+                    "better thermostat: Found local calibration entity %s for %s (string match)",
                     entity.entity_id,
                     entity_id,
                 )
-                return entity.entity_id
+                calibration_entity = entity.entity_id
 
-    _LOGGER.debug(
-        "better thermostat: Could not find local calibration entity for %s", entity_id
-    )
-    return None
+    if calibration_entity is None:
+        _LOGGER.debug(
+            "better thermostat: Could not find local calibration entity for %s",
+            entity_id,
+        )
+
+    return calibration_entity
 
 
 async def get_trv_intigration(self, entity_id):
@@ -675,6 +770,8 @@ async def get_trv_intigration(self, entity_id):
     """
     entity_reg = er.async_get(self.hass)
     entry = entity_reg.async_get(entity_id)
+    if entry is None:
+        return "generic_thermostat"
     try:
         return entry.platform
     except AttributeError:

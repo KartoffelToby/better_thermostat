@@ -2,7 +2,7 @@
         "config": {
                 "step": {
                         "user": {
-                                "description": "Setup your Better Thermostat to integrate with Home Assistant\n**If you need more info: https://better-thermostat.org/configuration#first-step**",
+                                "description": "Setup your Better Thermostat to integrate with Home Assistant",
                                 "data": {
                                         "name": "Name",
                                         "thermostat": "The real thermostat",
@@ -23,7 +23,7 @@
                                 }
                         },
                         "advanced": {
-                                "description": "Advanced configuration {trv}\n***Info about calibration types: https://better-thermostat.org/configuration#second-step***",
+                                "description": "Advanced configuration {trv}",
                                 "data": {
                                         "protect_overheating": "Overheating protection?",
                                         "heat_auto_swapped": "If 'auto' means 'heat' for your TRV and you want to swap it",
@@ -74,14 +74,14 @@
                                         "weather": "Weather entity to get the outdoor temperature",
                                         "presets": "Enabled Presets",
                                         "valve_maintenance": "If your thermostat has no own maintenance mode, you can use this one",
-                                        "calibration": "The sort of calibration https://better-thermostat.org/configuration#second-step",
+                                        "calibration": "The sort of calibration",
                                         "heat_auto_swapped": "If the auto means heat for your TRV and you want to swap it",
                                         "child_lock": "Ignore all inputs on the TRV like a child lock",
                                         "homematicip": "If you use HomematicIP, you should enable this to slow down the requests to prevent the duty cycle"
                                 }
                         },
                         "advanced": {
-                                "description": "Advanced configuration {trv}\n***Info about calibration types: https://better-thermostat.org/configuration#second-step***",
+                                "description": "Advanced configuration {trv}",
                                 "data": {
                                         "trend_mix_trv": "Temp mix (external weight, 0–1)",
                                         "percent_hysteresis_pts": "Hysteresis (percentage points)",

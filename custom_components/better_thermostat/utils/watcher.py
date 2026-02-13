@@ -66,7 +66,10 @@ async def check_entity(self, entity) -> bool:
     state = entity_states.state
     if state in UNAVAILABLE_STATES:
         _LOGGER.debug(
-            f"better_thermostat {self.device_name}: {entity} is unavailable. with state {state}"
+            "better_thermostat %s: %s is unavailable. with state %s",
+            self.device_name,
+            entity,
+            state,
         )
         return False
     if entity in self.devices_errors:
@@ -209,6 +212,90 @@ async def check_critical_entities(self) -> bool:
             # Update battery status for available entities
             self.hass.async_create_task(get_battery_status(self, entity))
     return True
+
+
+# Default delays for the optional-sensor startup retry loop.
+# Short initial interval catches fast local sensors (Zigbee), longer
+# intervals give cloud / weather integrations time.  Total ≈ 60 s.
+DEFAULT_OPTIONAL_SENSOR_DELAYS: tuple[int, ...] = (3, 5, 10, 15, 25)
+
+
+async def await_optional_sensors(
+    self,
+    delays: tuple[int, ...] | list[int] = DEFAULT_OPTIONAL_SENSOR_DELAYS,
+    _sleep=None,
+) -> list[str]:
+    """Wait for optional sensors to become available with increasing delays.
+
+    After a reboot, optional sensors (outdoor, weather, window, humidity)
+    frequently need a few seconds to initialise.  This helper retries with
+    increasing intervals so that ``check_and_update_degraded_mode`` is not
+    called while sensors are still starting up.
+
+    Parameters
+    ----------
+    self :
+        BetterThermostat instance (must expose ``.hass`` and
+        ``.device_name``).
+    delays :
+        Sequence of sleep durations in seconds between retries.
+        Defaults to ``DEFAULT_OPTIONAL_SENSOR_DELAYS`` (3/5/10/15/25 s).
+    _sleep :
+        Injectable sleep coroutine for testing.  Defaults to
+        ``asyncio.sleep``.
+
+    Returns
+    -------
+    list[str]
+        Entity IDs of optional sensors that are still unavailable after
+        all retries have been exhausted (empty if all came online).
+    """
+    import asyncio
+
+    if _sleep is None:
+        _sleep = asyncio.sleep
+
+    elapsed = 0
+    pending: list[str] = []
+
+    for idx, delay in enumerate(delays):
+        pending = [
+            eid
+            for eid in get_optional_sensors(self)
+            if not is_entity_available(self.hass, eid)
+        ]
+        if not pending:
+            _LOGGER.debug(
+                "better_thermostat %s: all optional sensors available (after %d s)",
+                self.device_name,
+                elapsed,
+            )
+            return []
+        _LOGGER.debug(
+            "better_thermostat %s: waiting for optional sensors "
+            "(attempt %d/%d, next check in %d s, pending: %s)",
+            self.device_name,
+            idx + 1,
+            len(delays),
+            delay,
+            ", ".join(pending),
+        )
+        await _sleep(delay)
+        elapsed += delay
+
+    # Final check after the last sleep
+    pending = [
+        eid
+        for eid in get_optional_sensors(self)
+        if not is_entity_available(self.hass, eid)
+    ]
+    if not pending:
+        _LOGGER.debug(
+            "better_thermostat %s: all optional sensors available (after %d s)",
+            self.device_name,
+            elapsed,
+        )
+    return pending
 
 
 async def check_and_update_degraded_mode(self) -> bool:

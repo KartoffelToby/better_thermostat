@@ -1,0 +1,71 @@
+[MASTER]
+# Use multiple processes to speed up Pylint
+jobs=0
+
+# Pickle collected data for later comparisons
+persistent=yes
+
+# When enabled, pylint would attempt to guess common misconfiguration and emit
+# user-friendly hints instead of false-positive error messages
+suggestion-mode=yes
+
+# Ignore specific directories (comma-separated list)
+ignore=tests,tmp,docs,scripts,blueprints,_sass,assets
+
+# Ignore files/directories matching these patterns
+ignore-patterns=test_.*\.py,.*_test\.py
+
+[MESSAGES CONTROL]
+disable=
+    C0103,  # Disable naming convention warnings
+    C0415,  # Disable import-outside-toplevel (required for tests)
+    W0212,  # Disable protected-access (required for internal module access)
+    W0613,  # Disable warnings for unused arguments
+    W0718,  # Catching too general exception BaseException
+    # Additional codes can be added here comma-separated
+
+[FORMAT]
+# Maximum number of characters on a single line
+max-line-length=150
+
+# Maximum number of lines in a module
+max-module-lines=2000
+
+[BASIC]
+# Good variable names which should always be accepted, separated by a comma
+good-names=i,j,k,ex,_,id,db,hass
+
+# Include a hint for the correct naming format with invalid-name
+include-naming-hint=yes
+
+[DESIGN]
+# Maximum number of arguments for function / method
+max-args=10
+
+# Maximum number of attributes for a class
+max-attributes=15
+
+# Maximum number of boolean expressions in a if statement
+max-bool-expr=5
+
+# Maximum number of branch for function / method body
+max-branches=20
+
+# Maximum number of locals for function / method body
+max-locals=20
+
+# Maximum number of parents for a class
+max-parents=7
+
+# Maximum number of public methods for a class
+max-public-methods=25
+
+# Maximum number of return / yield for function / method body
+max-returns=10
+
+# Maximum number of statements in function / method body
+max-statements=100
+
+[EXCEPTIONS]
+# Exceptions that will emit a warning when being caught
+overgeneral-exceptions=builtins.BaseException,builtins.Exception

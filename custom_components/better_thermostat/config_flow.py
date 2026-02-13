@@ -1,7 +1,7 @@
 """Config flow for Better Thermostat."""
 
 from collections import OrderedDict
-from collections.abc import Iterable
+from collections.abc import Iterable, Mapping
 import copy
 import logging
 from typing import Any
@@ -20,6 +20,7 @@ from homeassistant.components.climate.const import (
 from homeassistant.const import CONF_NAME
 from homeassistant.core import callback
 from homeassistant.helpers import config_validation as cv, selector
+from homeassistant.helpers.dispatcher import dispatcher_send
 import voluptuous as vol
 
 from . import DOMAIN  # pylint: disable=unused-import
@@ -126,7 +127,7 @@ _USER_FIELD_DEFAULTS: dict[str, Any] = {
 }
 
 
-def _as_bool(value: Any, default: bool = False) -> bool:
+def _as_bool(value: bool | str | int | None, default: bool = False) -> bool:
     if isinstance(value, bool):
         return value
     if value is None:
@@ -218,12 +219,14 @@ def _build_advanced_fields(
     sources = sources_list
 
     def get_value(key: str, fallback: Any) -> Any:
+        """Get value from first source dict that contains the key."""
         for source in sources:
             if isinstance(source, dict) and key in source:
                 return source[key]
         return fallback
 
     def get_bool(key: str, fallback: bool) -> bool:
+        """Get boolean value from sources, converting string representations."""
         return _as_bool(get_value(key, fallback), fallback)
 
     # Build fields directly in the final desired order without post-reordering
@@ -325,7 +328,7 @@ def _normalize_advanced_submission(
     return normalized
 
 
-def _duration_dict_to_seconds(duration: Any | None) -> int:
+def _duration_dict_to_seconds(duration: int | float | dict[str, int] | None) -> int:
     if duration is None:
         return 0
     if isinstance(duration, (int, float)):
@@ -341,7 +344,7 @@ def _duration_dict_to_seconds(duration: Any | None) -> int:
     return 0
 
 
-def _seconds_to_duration_dict(value: Any) -> dict[str, int]:
+def _seconds_to_duration_dict(value: int | float | str | None) -> dict[str, int]:
     try:
         total = int(value or 0)
     except (TypeError, ValueError):
@@ -360,6 +363,7 @@ def _build_user_fields(
     fields: OrderedDict = OrderedDict()
 
     def resolve(key: str, fallback: Any = None) -> Any:
+        """Resolve field value from user input, current config, or defaults."""
         if key in user_input:
             return user_input[key]
         if key in current and current[key] is not None:
@@ -371,6 +375,7 @@ def _build_user_fields(
     def add_field(
         key: str, field_type: Any, *, required: bool = False, default: Any = None
     ) -> None:
+        """Add a field to the form schema with appropriate validation."""
         description = None
         use_default = default is not None
 
@@ -404,15 +409,20 @@ def _build_user_fields(
     def add_entity_selector(
         key: str,
         *,
-        domain: Any,
+        domain: str | list[str],
         device_class: str | None = None,
         multiple: bool = False,
         required: bool = False,
     ) -> None:
-        selector_kwargs: dict[str, Any] = {"domain": domain, "multiple": multiple}
+        """Add an entity selector field with domain and device class filtering."""
         if device_class is not None:
-            selector_kwargs["device_class"] = device_class
-        selector_config = selector.EntitySelectorConfig(**selector_kwargs)
+            selector_config = selector.EntitySelectorConfig(
+                domain=domain, multiple=multiple, device_class=device_class
+            )
+        else:
+            selector_config = selector.EntitySelectorConfig(
+                domain=domain, multiple=multiple
+            )
         default = resolve(key)
         if key == CONF_HEATER and isinstance(default, list):
             default = [
@@ -832,10 +842,11 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
     def __init__(self, config_entry: config_entries.ConfigEntry) -> None:
         """Initialize options flow."""
         self.i = 0
-        self.trv_bundle = []
+        # Dynamic config structures use Any as they store heterogeneous data
+        self.trv_bundle: list[dict[str, Any]] = []
         self.device_name = ""
         self._last_step = False
-        self.updated_config = {}
+        self.updated_config: dict[str, Any] = {}
         self._active_trv_config = None
         # Do not set `self.config_entry` directly; store in a private attribute
         # to avoid deprecated behavior. The framework will set `config_entry` on
@@ -902,6 +913,10 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
                 "OptionsFlow writing heater bundle: %s",
                 self.updated_config.get(CONF_HEATER),
             )
+
+            # Check for calibration mode changes to trigger entity cleanup
+            await self._check_calibration_changes()
+
             self.hass.config_entries.async_update_entry(
                 self._config_entry, data=self.updated_config
             )
@@ -965,3 +980,55 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
         return self.async_show_form(
             step_id="user", data_schema=vol.Schema(fields), last_step=False
         )
+
+    async def _check_calibration_changes(self) -> None:
+        """Check for calibration mode changes and signal for entity cleanup."""
+        old_config = self._config_entry.data
+        new_config = self.updated_config
+
+        # Get active calibration algorithms from both configs
+        old_algorithms = self._get_active_algorithms(old_config)
+        new_algorithms = self._get_active_algorithms(new_config)
+
+        if old_algorithms != new_algorithms:
+            algorithms_added = new_algorithms - old_algorithms
+            algorithms_removed = old_algorithms - new_algorithms
+
+            _LOGGER.info(
+                "Better Thermostat %s: Calibration algorithms changed. Added: %s, Removed: %s",
+                self.updated_config.get(CONF_NAME, "unknown"),
+                [
+                    alg.value if hasattr(alg, "value") else str(alg)
+                    for alg in algorithms_added
+                ],
+                [
+                    alg.value if hasattr(alg, "value") else str(alg)
+                    for alg in algorithms_removed
+                ],
+            )
+
+            # Signal configuration change for dynamic entity management
+            signal_key = f"bt_config_changed_{self._config_entry.entry_id}"
+            dispatcher_send(
+                self.hass, signal_key, {"entry_id": self._config_entry.entry_id}
+            )
+
+    def _get_active_algorithms(self, config: Mapping[str, Any]) -> set:
+        """Get set of calibration algorithms currently in use by any TRV."""
+        if not config or CONF_HEATER not in config:
+            return set()
+
+        active_algorithms = set()
+        for trv in config.get(CONF_HEATER, []):
+            advanced = trv.get("advanced", {})
+            calibration_mode = advanced.get(CONF_CALIBRATION_MODE)
+            if calibration_mode:
+                # Konvertiere String zu Enum falls nötig
+                if isinstance(calibration_mode, str):
+                    try:
+                        calibration_mode = CalibrationMode(calibration_mode)
+                    except ValueError:
+                        continue
+                active_algorithms.add(calibration_mode)
+
+        return active_algorithms

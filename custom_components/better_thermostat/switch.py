@@ -10,8 +10,10 @@ from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.restore_state import RestoreEntity
 
+# Import tracking variables from sensor.py
+from .sensor import _ACTIVE_SWITCH_ENTITIES
 from .utils.calibration.pid import _PID_STATES, DEFAULT_PID_AUTO_TUNE, build_pid_key
-from .utils.const import CalibrationMode
+from .utils.const import CONF_CALIBRATION_MODE, CalibrationMode
 
 _LOGGER = logging.getLogger(__name__)
 DOMAIN = "better_thermostat"
@@ -25,21 +27,48 @@ async def async_setup_entry(
     if not bt_climate:
         return
 
-    switches = []
+    switches: list[SwitchEntity] = []
+    switch_unique_ids = {}
     has_multiple_trvs = len(bt_climate.real_trvs) > 1
     for trv_entity_id, trv_data in bt_climate.real_trvs.items():
         advanced = trv_data.get("advanced", {})
-        if advanced.get("calibration_mode") == CalibrationMode.PID_CALIBRATION:
-            switches.append(
-                BetterThermostatPIDAutoTuneSwitch(
-                    bt_climate, trv_entity_id, has_multiple_trvs
-                )
-            )
-        switches.append(
-            BetterThermostatChildLockSwitch(
+        calibration_mode = advanced.get(CONF_CALIBRATION_MODE)
+
+        # Normalize string values to CalibrationMode enum
+        try:
+            if isinstance(calibration_mode, str):
+                calibration_mode = CalibrationMode(calibration_mode)
+        except (ValueError, TypeError):
+            # Invalid or unknown calibration mode, skip PID creation
+            calibration_mode = None
+
+        if calibration_mode == CalibrationMode.PID_CALIBRATION:
+            pid_switch = BetterThermostatPIDAutoTuneSwitch(
                 bt_climate, trv_entity_id, has_multiple_trvs
             )
+            switches.append(pid_switch)
+            switch_unique_ids[pid_switch._attr_unique_id] = {
+                "trv": trv_entity_id,
+                "type": "pid_auto_tune",
+            }
+
+        child_lock_switch = BetterThermostatChildLockSwitch(
+            bt_climate, trv_entity_id, has_multiple_trvs
         )
+        switches.append(child_lock_switch)
+        switch_unique_ids[child_lock_switch._attr_unique_id] = {
+            "trv": trv_entity_id,
+            "type": "child_lock",
+        }
+
+    # Track created switch entities for cleanup
+    _ACTIVE_SWITCH_ENTITIES[entry.entry_id] = switch_unique_ids
+
+    _LOGGER.debug(
+        "Better Thermostat %s: Created %d switch entities",
+        bt_climate.device_name,
+        len(switch_unique_ids),
+    )
 
     async_add_entities(switches)
 

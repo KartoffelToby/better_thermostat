@@ -43,7 +43,9 @@ async def override_set_hvac_mode(self, entity_id, hvac_mode):
     model = self.real_trvs[entity_id]["model"]
     if model == "TV02-Zigbee" and hvac_mode != HVACMode.OFF:
         _LOGGER.debug(
-            f"better_thermostat {self.device_name}: TRV {entity_id} device quirk hvac trv02-zigbee active"
+            "better_thermostat %s: TRV %s device quirk hvac trv02-zigbee active",
+            self.device_name,
+            entity_id,
         )
         await self.hass.services.async_call(
             "climate",
@@ -74,7 +76,9 @@ async def override_set_temperature(self, entity_id, temperature):
     model = self.real_trvs[entity_id]["model"]
     if model == "TV02-Zigbee":
         _LOGGER.debug(
-            f"better_thermostat {self.device_name}: TRV {entity_id} device quirk trv02-zigbee active"
+            "better_thermostat %s: TRV %s device quirk trv02-zigbee active",
+            self.device_name,
+            entity_id,
         )
         await self.hass.services.async_call(
             "climate",
