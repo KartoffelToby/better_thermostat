@@ -209,27 +209,38 @@ def _deserialize(raw: dict[str, Any]) -> RuntimeState:
     """Reconstruct a RuntimeState from a raw dict (loaded from Store)."""
     state = RuntimeState(version=raw.get("version", CURRENT_VERSION))
 
-    for key, state_dict in raw.get("mpc", {}).items():
-        if isinstance(state_dict, dict):
-            state.mpc[key] = deserialize_mpc(state_dict)
+    mpc_raw = raw.get("mpc", {})
+    if isinstance(mpc_raw, Mapping):
+        for key, state_dict in mpc_raw.items():
+            if isinstance(state_dict, dict):
+                state.mpc[key] = deserialize_mpc(state_dict)
 
-    for key, state_dict in raw.get("pid", {}).items():
-        if isinstance(state_dict, dict):
-            state.pid[key] = deserialize_pid(state_dict)
+    pid_raw = raw.get("pid", {})
+    if isinstance(pid_raw, Mapping):
+        for key, state_dict in pid_raw.items():
+            if isinstance(state_dict, dict):
+                state.pid[key] = deserialize_pid(state_dict)
 
-    for key, state_dict in raw.get("tpi", {}).items():
-        if isinstance(state_dict, dict):
-            state.tpi[key] = deserialize_tpi(state_dict)
+    tpi_raw = raw.get("tpi", {})
+    if isinstance(tpi_raw, Mapping):
+        for key, state_dict in tpi_raw.items():
+            if isinstance(state_dict, dict):
+                state.tpi[key] = deserialize_tpi(state_dict)
 
     thermal_raw = raw.get("thermal", {})
     if isinstance(thermal_raw, dict):
         heating_power = thermal_raw.get("heating_power")
         heat_loss_rate = thermal_raw.get("heat_loss_rate")
+        try:
+            heating_power = float(heating_power) if heating_power is not None else None
+        except (TypeError, ValueError):
+            heating_power = None
+        try:
+            heat_loss_rate = float(heat_loss_rate) if heat_loss_rate is not None else None
+        except (TypeError, ValueError):
+            heat_loss_rate = None
         state.thermal = ThermalStats(
-            heating_power=float(heating_power) if heating_power is not None else None,
-            heat_loss_rate=(
-                float(heat_loss_rate) if heat_loss_rate is not None else None
-            ),
+            heating_power=heating_power, heat_loss_rate=heat_loss_rate
         )
 
     presets_raw = raw.get("presets", {})
