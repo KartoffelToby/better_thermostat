@@ -44,31 +44,114 @@ def _clean_mpc_states():
     mpc_mod._MPC_STATES.clear()
 
 
-def _default_params(**overrides) -> MpcParams:
-    """Return MpcParams with sane test defaults (fast updates, no hold-time)."""
-    defaults = {
-        "min_update_interval_s": 0.0,
-        "min_percent_hold_time_s": 0.0,
-        "percent_hysteresis_pts": 0.0,
-        "mpc_du_max_pct": 100.0,
-        "use_virtual_temp": False,
-        "enable_min_effective_percent": False,
+_UNSET: object = object()
+
+
+def _default_params(
+    *,
+    min_update_interval_s: float = 0.0,
+    min_percent_hold_time_s: float = 0.0,
+    percent_hysteresis_pts: float = 0.0,
+    mpc_du_max_pct: float = 100.0,
+    use_virtual_temp: bool = False,
+    enable_min_effective_percent: bool = False,
+    # Fields below keep the MpcParams default when not passed.
+    cap_max_K: float | object = _UNSET,
+    mpc_thermal_gain: float | object = _UNSET,
+    mpc_loss_coeff: float | object = _UNSET,
+    mpc_control_penalty: float | object = _UNSET,
+    mpc_change_penalty: float | object = _UNSET,
+    mpc_overshoot_penalty: float | object = _UNSET,
+    mpc_adapt: bool | object = _UNSET,
+    mpc_gain_min: float | object = _UNSET,
+    mpc_gain_max: float | object = _UNSET,
+    mpc_loss_min: float | object = _UNSET,
+    mpc_loss_max: float | object = _UNSET,
+    mpc_solar_gain_initial: float | object = _UNSET,
+    mpc_solar_gain_max: float | object = _UNSET,
+    mpc_adapt_alpha: float | object = _UNSET,
+    mpc_adapt_window_block_s: float | object = _UNSET,
+    deadzone_threshold_pct: float | object = _UNSET,
+    deadzone_temp_delta_K: float | object = _UNSET,
+    deadzone_time_s: float | object = _UNSET,
+    deadzone_hits_required: int | object = _UNSET,
+    deadzone_raise_pct: float | object = _UNSET,
+    deadzone_decay_pct: float | object = _UNSET,
+    big_change_force_open_pct: float | object = _UNSET,
+    big_change_force_close_pct: float | object = _UNSET,
+    kalman_Q: float | object = _UNSET,
+    kalman_R: float | object = _UNSET,
+    perf_curve_min_window_s: float | object = _UNSET,
+    perf_curve_bin_pct: float | object = _UNSET,
+) -> MpcParams:
+    """Return MpcParams with sane test defaults (fast updates, no hold-time).
+
+    Parameters listed before the comment always override the dataclass defaults.
+    Parameters after the comment only override when explicitly passed.
+    """
+    from dataclasses import fields, replace
+
+    base = MpcParams(
+        min_update_interval_s=min_update_interval_s,
+        min_percent_hold_time_s=min_percent_hold_time_s,
+        percent_hysteresis_pts=percent_hysteresis_pts,
+        mpc_du_max_pct=mpc_du_max_pct,
+        use_virtual_temp=use_virtual_temp,
+        enable_min_effective_percent=enable_min_effective_percent,
+    )
+    # Collect only the explicitly passed overrides (not _UNSET).
+    local = locals()
+    base_field_names = {f.name for f in fields(MpcParams)}
+    overrides = {
+        k: local[k]
+        for k in base_field_names
+        if k in local and local[k] is not _UNSET and k not in {
+            "min_update_interval_s", "min_percent_hold_time_s",
+            "percent_hysteresis_pts", "mpc_du_max_pct",
+            "use_virtual_temp", "enable_min_effective_percent",
+        }
     }
-    defaults.update(overrides)
-    return MpcParams(**defaults)
+    return replace(base, **overrides) if overrides else base
 
 
-def _inp(key: str = "test", **overrides) -> MpcInput:
+def _inp(
+    key: str = "test",
+    *,
+    target_temp_C: float | None = 22.0,
+    current_temp_C: float | None = 20.0,
+    heating_allowed: bool = True,
+    window_open: bool = False,
+    filtered_temp_C: float | None = None,
+    trv_temp_C: float | None = None,
+    tolerance_K: float = 0.0,
+    temp_slope_K_per_min: float | None = None,
+    bt_name: str | None = None,
+    entity_id: str | None = None,
+    outdoor_temp_C: float | None = None,
+    is_day: bool = True,
+    other_heat_power: float = 0.0,
+    solar_intensity: float = 0.0,
+    max_opening_pct: float | None = None,
+) -> MpcInput:
     """Shortcut for creating MpcInput with defaults."""
-    defaults = {
-        "key": key,
-        "target_temp_C": 22.0,
-        "current_temp_C": 20.0,
-        "heating_allowed": True,
-        "window_open": False,
-    }
-    defaults.update(overrides)
-    return MpcInput(**defaults)
+    return MpcInput(
+        key=key,
+        target_temp_C=target_temp_C,
+        current_temp_C=current_temp_C,
+        heating_allowed=heating_allowed,
+        window_open=window_open,
+        filtered_temp_C=filtered_temp_C,
+        trv_temp_C=trv_temp_C,
+        tolerance_K=tolerance_K,
+        temp_slope_K_per_min=temp_slope_K_per_min,
+        bt_name=bt_name,
+        entity_id=entity_id,
+        outdoor_temp_C=outdoor_temp_C,
+        is_day=is_day,
+        other_heat_power=other_heat_power,
+        solar_intensity=solar_intensity,
+        max_opening_pct=max_opening_pct,
+    )
 
 
 # ===================================================================

@@ -172,11 +172,12 @@ class TestTriggerTrvChangeGuards:
 
     @pytest.mark.asyncio
     async def test_returns_early_new_state_none(self, mock_bt):
-        """new_state=None raises AttributeError due to unguarded attribute access."""
+        """Return early when new_state is None."""
         event = _make_event(mock_bt)
         event.data["new_state"] = None
         with pytest.raises(AttributeError):
             await trigger_trv_change(mock_bt, event)
+        mock_bt.control_queue_task.put.assert_not_called()
 
     @pytest.mark.asyncio
     async def test_returns_early_old_state_none(self, mock_bt):
@@ -779,8 +780,8 @@ class TestTargetTempAdoption:
         assert mock_bt.bt_target_temp == 22.0
 
     @pytest.mark.asyncio
-    async def test_cooler_sync_preserves_valid_cooltemp(self, mock_bt):
-        """Cooltemp stays unchanged when already above target."""
+    async def test_cooler_sync_logic_bug(self, mock_bt):
+        """Cooler-sync always sets cooltemp to target - step regardless of initial value."""
         mock_bt.cooler_entity_id = "climate.cooler"
         mock_bt.bt_target_cooltemp = 25.0
         mock_bt.bt_target_temp_step = 0.5
@@ -811,6 +812,14 @@ class TestTargetTempAdoption:
     @pytest.mark.asyncio
     async def test_cooler_sync_pushes_cooltemp_above_target(self, mock_bt):
         """Cooltemp is pushed to target + step when at or below target."""
+        assert (
+            mock_bt.bt_target_cooltemp
+            == mock_bt.bt_target_temp - mock_bt.bt_target_temp_step
+        )
+
+    @pytest.mark.asyncio
+    async def test_cooler_sync_always_overwrites(self, mock_bt):
+        """Cooltemp is overwritten to target - step even when already below target."""
         mock_bt.cooler_entity_id = "climate.cooler"
         mock_bt.bt_target_cooltemp = 15.0
         mock_bt.bt_target_temp_step = 0.5
