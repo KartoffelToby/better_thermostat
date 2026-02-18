@@ -240,10 +240,13 @@ async def trigger_trv_change(self, event):
         self.device_name,
         "trigger_trv_change()",
     )
+    _is_no_off_device = self.real_trvs[entity_id]["advanced"].get(
+        "no_off_system_mode", False
+    )
     if (
         _new_heating_setpoint is not None
         and _old_heating_setpoint is not None
-        and self.bt_hvac_mode is not HVACMode.OFF
+        and (self.bt_hvac_mode is not HVACMode.OFF or _is_no_off_device)
     ):
         _LOGGER.debug(
             "better_thermostat %s: trigger_trv_change / _old_heating_setpoint: %s - _new_heating_setpoint: %s - _last_temperature: %s",

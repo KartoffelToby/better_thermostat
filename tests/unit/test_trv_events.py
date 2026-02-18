@@ -868,13 +868,6 @@ class TestTargetTempAdoption:
 
         assert mock_bt.bt_hvac_mode == HVACMode.OFF
 
-    @pytest.mark.xfail(
-        reason="BUG: no_off_system_mode check (line 313) is inside the "
-        "'bt_hvac_mode is not OFF' guard (line 246). When BT is OFF "
-        "and user turns up TRV dial, the no_off_system_mode logic is "
-        "unreachable → BT stays OFF instead of switching to HEAT.",
-        strict=True,
-    )
     @pytest.mark.asyncio
     async def test_no_off_system_mode_sets_heat_above_min(self, mock_bt):
         """no_off_system_mode: setpoint above min_temp while BT is OFF switches to HEAT."""
