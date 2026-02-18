@@ -490,9 +490,10 @@ async def trigger_temperature_change(self, event):
                 self.hass, remaining, _plateau_cb
             )
 
-    if _is_significant and (
-        _interval_ok or (_diff_q is not None and _diff_q >= _sig_threshold_q)
-    ):
+    if _cur_q is None:
+        # First reading ever — always accept regardless of interval
+        _accept_reason = "first_reading"
+    elif _is_significant and _interval_ok:
         _accept_reason = "significant"
     elif _accum_ok:
         _accept_reason = "accumulated"
