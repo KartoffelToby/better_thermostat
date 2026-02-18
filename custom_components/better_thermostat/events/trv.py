@@ -49,7 +49,7 @@ async def trigger_trv_change(self, event):
     new_state = event.data.get("new_state")
     entity_id = event.data.get("entity_id")
 
-    if None in (new_state, old_state, new_state.attributes):
+    if new_state is None or old_state is None or new_state.attributes is None:
         _LOGGER.debug(
             "better_thermostat %s: TRV %s update contained not all necessary data for processing, skipping",
             self.device_name,
