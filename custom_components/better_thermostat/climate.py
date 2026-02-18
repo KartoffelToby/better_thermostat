@@ -543,7 +543,6 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
         self.prev_stable_temp = None
         self.accum_delta = 0.0
         self.accum_dir = 0
-        self.accum_since = datetime.now()
         self.pending_temp = None
         self.pending_since = None
 

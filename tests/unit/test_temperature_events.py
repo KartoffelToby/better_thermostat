@@ -49,7 +49,6 @@ def mock_bt():
     # Accumulation state
     bt.accum_delta = 0.0
     bt.accum_dir = 0
-    bt.accum_since = datetime.now()
 
     # Pending / plateau state
     bt.pending_temp = None
@@ -344,10 +343,15 @@ class TestTriggerTemperatureChangeGuards:
 
     @pytest.mark.asyncio
     async def test_first_run_rejects_reading_when_timestamp_is_none(self, mock_bt):
-        """Reject the first reading when last_external_sensor_change is None.
+        """Reject the first reading when both timestamp and cur_temp are None.
 
-        Setting the timestamp to now() makes _age=0, so _interval_ok=False.
-        With cur_temp=None, _diff_q is also None, so the accept condition fails.
+        When last_external_sensor_change is None it is set to now(), making
+        _age~0 and _interval_ok=False.  Because cur_temp is also None,
+        _diff_q becomes None so the significance branch cannot fire either.
+        The combined accept condition evaluates to False.
+
+        Note: if cur_temp were set and the diff >= 0.11, the change would be
+        accepted even with a fresh timestamp (the or-branch bypasses interval).
         """
         mock_bt.last_external_sensor_change = None
         mock_bt.cur_temp = None

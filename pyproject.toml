@@ -56,6 +56,7 @@ split-on-trailing-comma = false
 skip-magic-trailing-comma = true
 
 [tool.pytest.ini_options]
+asyncio_mode = "auto"
 filterwarnings = [
     # Upstream Home Assistant warning triggered during test imports.
     "ignore:Inheritance class HomeAssistantApplication from web\\.Application is discouraged:DeprecationWarning",
