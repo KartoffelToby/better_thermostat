@@ -59,8 +59,10 @@ _LOGGER = logging.getLogger(__name__)
 TEMP_STEP_SELECTOR = selector.SelectSelector(
     selector.SelectSelectorConfig(
         options=[
-            selector.SelectOptionDict(value="0.0", label="Auto"),  # Keep for backwards compatibility
-            selector.SelectOptionDict(value="", label="Auto (New)"), 
+            selector.SelectOptionDict(
+                value="0.0", label="Auto"
+            ),  # Keep for backwards compatibility
+            selector.SelectOptionDict(value="", label="Auto (New)"),
             selector.SelectOptionDict(value="0.1", label="0.1 °C"),
             selector.SelectOptionDict(value="0.2", label="0.2 °C"),
             selector.SelectOptionDict(value="0.25", label="0.25 °C"),
