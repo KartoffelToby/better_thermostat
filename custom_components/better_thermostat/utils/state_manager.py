@@ -236,7 +236,9 @@ def _deserialize(raw: dict[str, Any]) -> RuntimeState:
         except (TypeError, ValueError):
             heating_power = None
         try:
-            heat_loss_rate = float(heat_loss_rate) if heat_loss_rate is not None else None
+            heat_loss_rate = (
+                float(heat_loss_rate) if heat_loss_rate is not None else None
+            )
         except (TypeError, ValueError):
             heat_loss_rate = None
         state.thermal = ThermalStats(
