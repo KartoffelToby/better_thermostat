@@ -105,10 +105,16 @@ def _default_params(
     overrides = {
         k: local[k]
         for k in base_field_names
-        if k in local and local[k] is not _UNSET and k not in {
-            "min_update_interval_s", "min_percent_hold_time_s",
-            "percent_hysteresis_pts", "mpc_du_max_pct",
-            "use_virtual_temp", "enable_min_effective_percent",
+        if k in local
+        and local[k] is not _UNSET
+        and k
+        not in {
+            "min_update_interval_s",
+            "min_percent_hold_time_s",
+            "percent_hysteresis_pts",
+            "mpc_du_max_pct",
+            "use_virtual_temp",
+            "enable_min_effective_percent",
         }
     }
     return replace(base, **overrides) if overrides else base
