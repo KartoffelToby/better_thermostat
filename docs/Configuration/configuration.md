@@ -18,7 +18,7 @@ or click on the button below:
 
 ## First step
 
-![first step](../../assets/config_1.png)
+![first step](../../../assets/setup_1.png)
 
 **Name** This is a required field. It is the name of the virtual climate. It is used as an entity key name.
 
@@ -56,7 +56,7 @@ group:
 
 ## Second step
 
-![second step](../../assets/config_2.png)
+![second step](../../../assets/config_2.png)
 
 **Calibration Type** This is a required field. How the calibration should be applied on the TRV (Target temp or offset)
 

@@ -1,0 +1,22 @@
+---
+title: Interactive Configurator
+description: Step-by-step wizard to find the best Better Thermostat settings for your room.
+---
+
+import { BtConfigurator } from '../../website/src/components/Configurator.ts';
+
+Welcome to the **Better Thermostat Configurator**. 
+
+Every room is different. A small, well-insulated bathroom needs different heating settings than a large, drafty living room. This interactive guide will ask you a few simple questions about your room and recommend the optimal settings for your Better Thermostat configuration.
+
+<BtConfigurator client:load></BtConfigurator>
+
+## How to use these settings
+
+Once you have your recommended settings:
+1. Go to your Home Assistant dashboard.
+2. Navigate to **Settings** > **Devices & Services** > **Better Thermostat**.
+3. Click on **Configure** for the specific room/thermostat.
+4. Apply the recommended **Calibration Mode**, **Tolerance**, and **Window Delay**.
+
+If you want to understand more about why these settings are recommended, check out our [Algorithm Selection](/optimal-settings/algorithm-selection/) and [Hydraulic Balance](/deep-explanations/hydraulic-balance/) guides.

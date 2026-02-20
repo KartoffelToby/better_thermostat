@@ -1,0 +1,22 @@
+{
+  "name": "",
+  "type": "module",
+  "version": "0.0.1",
+  "scripts": {
+    "dev": "astro dev",
+    "start": "astro dev",
+    "build": "astro build",
+    "preview": "astro preview",
+    "astro": "astro"
+  },
+  "dependencies": {
+    "@astrojs/lit": "^4.3.0",
+    "@astrojs/starlight": "^0.32.6",
+    "astro": "^5.17.2",
+    "gsap": "^3.14.2",
+    "lit": "^3.3.2",
+    "node-gyp": "^12.2.0",
+    "sharp": "^0.32.6",
+    "starlight-theme-flexoki": "^0.1.0"
+  }
+}

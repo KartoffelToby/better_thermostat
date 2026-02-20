@@ -10,7 +10,7 @@ parent: Q&A
 # Which devices are currently supported?
 
 Generally speaking, all devices supported by Home Assistant as "climate  entities" are supported. 
-However, if you would like to use the "local calibration mode", Better Thermostat needs to support the thermostat integration of your device and your device needs to support this feature.
+However, if you would like to use the "local calibration mode" or "direct valve control mode", Better Thermostat needs to support the thermostat integration of your device and your device needs to support this feature.
 Currently, these are the integrations compatible with local calibration mode:
 
 - Tado

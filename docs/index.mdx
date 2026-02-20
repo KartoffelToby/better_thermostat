@@ -1,0 +1,52 @@
+---
+title: Welcome to Better Thermostat
+description: Get started with Better Thermostat for Home Assistant.
+template: splash
+hero:
+  tagline: Get started with Better Thermostat for Home Assistant.
+  image:
+    file: ../../assets/logo.png
+  actions:
+    - text: Read the Documentation
+      link: /setup/getting-started/
+      icon: right-arrow
+    - text: Go to the Project
+      link: https://github.com/KartoffelToby/better_thermostat
+      icon: external
+      variant: minimal
+    - text: Want to support this project?
+      link: /support
+      icon: external
+---
+
+import { Card, CardGrid } from '/node_modules/@astrojs/starlight/components';
+
+<div align="center">
+
+[![Active installations](https://badge.t-haber.de/badge/better_thermostat?kill_cache=1)](https://github.com/KartoffelToby/better_thermostat/)
+[![GitHub stars](https://img.shields.io/github/stars/KartoffelToby/better_thermostat?logo=github)](https://github.com/KartoffelToby/better_thermostat)
+
+</div>
+
+## Next steps
+
+<CardGrid stagger>
+	<Card title="Install Better Thermostat" icon="download">
+		<a href="https://my.home-assistant.io/redirect/hacs_repository/?owner=KartoffelToby&amp;repository=better_thermostat&amp;category=integration"><img alt="image" src="https://my.home-assistant.io/badges/hacs_repository.svg" /></a>
+	</Card>
+	<Card title="Add a new Devices to HA" icon="add-document">
+<a href="https://my.home-assistant.io/redirect/config_flow_start/?domain=better_thermostat" target="_blank"><img src="https://my.home-assistant.io/badges/config_flow_start.svg" alt="Open your Home Assistant instance and start setting up a new integration."/></a>
+	</Card>
+  <Card title="Check working devices" icon="approve-check">
+    See [compatibility details](/working-devices/compatibility/).
+  </Card>
+  <Card title="Tune optimal settings" icon="star">
+    Start with [recommended settings](/optimal-settings/recommended-settings/).
+  </Card>
+  <Card title="Read FAQ" icon="comment-alt">
+    Open [common questions](/faq/common-questions/).
+	</Card>
+	<Card title="Read the docs" icon="open-book">
+    Start here: [Getting started](/setup/getting-started/).
+	</Card>
+</CardGrid>

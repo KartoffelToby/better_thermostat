@@ -1,0 +1,19 @@
+---
+export interface Props {}
+---
+
+<script>
+	import { TRANSITION_AFTER_PREPARATION, TRANSITION_BEFORE_SWAP } from 'astro:transitions/client';
+
+	document.addEventListener(
+		TRANSITION_AFTER_PREPARATION,
+		() => (document.documentElement.style.cursor = 'pointer')
+	);
+	document.addEventListener(
+		TRANSITION_BEFORE_SWAP,
+		(e) => (
+			(e.newDocument.documentElement.style.cursor = 'pointer'),
+			e.viewTransition.finished.then(() => (document.documentElement.style.cursor = ''))
+		)
+	);
+</script>

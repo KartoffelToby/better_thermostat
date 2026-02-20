@@ -1,4 +1,10 @@
-# Calibration Algorithms
+---
+layout: default
+title: Calibration Algorithms
+nav_order: 2
+has_children: true
+permalink: calibration_algorithms
+---
 
 Better Thermostat offers several calibration algorithms (also called "Calibration Modes") that control how your TRV (Thermostatic Radiator Valve) is adjusted to maintain your desired temperature. Each algorithm has different characteristics and is suited for different situations.
 

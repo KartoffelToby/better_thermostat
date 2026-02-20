@@ -1,0 +1,35 @@
+---
+export interface Props {
+	fence: {
+		inside?: string[];
+		outside?: string[];
+	};
+}
+const { fence } = Astro.props;
+if (!!fence.inside === !!fence.outside) {
+	throw new Error('[BorderControl] Exactly one of `inside` or `outside` must be provided');
+}
+---
+
+<meta name="vtbot-border-control-pathname-prefix" content={JSON.stringify(fence)} />
+<script>
+	import { TRANSITION_BEFORE_PREPARATION } from 'astro:transitions/client';
+
+	const fence = JSON.parse(
+		document.querySelector<HTMLMetaElement>('meta[name="vtbot-border-control-pathname-prefix"]')
+			?.content ?? '{}'
+	);
+
+	document.addEventListener(TRANSITION_BEFORE_PREPARATION, (e) => {
+		if (
+			(fence.inside &&
+				fence.inside.every((prefix: string) => !e.from.pathname.startsWith(prefix)) &&
+				fence.inside.some((prefix: string) => e.to.pathname.startsWith(prefix))) ||
+			(fence.outside &&
+				fence.outside.some((prefix: string) => e.from.pathname.startsWith(prefix)) &&
+				fence.outside.every((prefix: string) => !e.to.pathname.startsWith(prefix)))
+		) {
+			e.navigationType === 'traverse' ? location.reload() : e.preventDefault();
+		}
+	});
+</script>

@@ -1,0 +1,72 @@
+---
+export interface Props {
+	page: string;
+	delay?: number;
+}
+const TAG = 'vtbot-portal'; // see also start of script
+const { page, delay = 0 } = Astro.props;
+---
+
+<meta name={TAG} content={page} />
+<meta name={TAG + '-delay'} content={'' + delay} />
+
+<script>
+	const TAG = 'vtbot-portal';
+
+	import {
+		TRANSITION_AFTER_SWAP,
+		TRANSITION_BEFORE_PREPARATION,
+		TRANSITION_BEFORE_SWAP,
+		type TransitionBeforeSwapEvent,
+		isTransitionBeforePreparationEvent,
+		navigate,
+	} from 'astro:transitions/client';
+
+	let page: string | null;
+
+	let redirect = false;
+	let target: URL;
+
+	let direction: string;
+	let delay = 0;
+
+	const portalPage = () =>
+		document.querySelector(`meta[name="${TAG}"]`)?.getAttribute('content') ?? null;
+
+	const portalDelay = () =>
+		parseInt(
+			document.querySelector(`meta[name="${TAG}-delay"]`)?.getAttribute('content') ?? '0',
+			10
+		);
+
+	const beforePreparation = (event: Event) => {
+		if (isTransitionBeforePreparationEvent(event)) {
+			page = portalPage();
+			redirect = !!page && event.from.pathname !== page;
+			if (redirect) {
+				redirect = true;
+				target = event.to;
+				event.to = new URL(page!, location.href);
+			} else {
+				event.direction = event.info?.direction;
+			}
+		}
+	};
+
+	const beforeSwap = (event: Event) => {
+		direction = (event as TransitionBeforeSwapEvent).direction;
+		delay = portalDelay();
+	};
+
+	const afterSwap = async () => {
+		if (redirect) {
+			delay && (await new Promise((resolve) => setTimeout(resolve, delay)));
+			await (await fetch(target.href)).text();
+			navigate(target.href, { history: 'replace', info: { direction } });
+		}
+	};
+
+	document.addEventListener(TRANSITION_BEFORE_PREPARATION, beforePreparation);
+	document.addEventListener(TRANSITION_BEFORE_SWAP, beforeSwap);
+	document.addEventListener(TRANSITION_AFTER_SWAP, afterSwap);
+</script>

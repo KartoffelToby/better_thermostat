@@ -1,0 +1,5 @@
+{
+  "devDependencies": {
+    "astro-vtbot": "^2.1.11"
+  }
+}

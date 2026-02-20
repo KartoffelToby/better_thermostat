@@ -1,0 +1,47 @@
+---
+// Including this scipt directly in VtBotDebug.astro did not work for prettier
+---
+
+<script is:inline>
+	(() => {
+		const PREFIX = '[vtbot-debug]';
+		const enabled = () => document.querySelector('meta[name="vtbot-debug"]');
+
+		/*
+		 * capture the original data of the eventsls
+		 */
+		const doCapture = (e) => {
+			window.__vtbot.debug.capture = {
+				...e,
+				type: e.type,
+				cancelable: e.cancelable,
+				defaultPrevented: e.defaultPrevented,
+				event: e,
+			};
+		};
+
+		/*
+		 * capture the event properties at beginning of the processing phase
+		 */
+		const startProcessing = (e) => {
+			doCapture(e);
+			if (enabled()) {
+				console.log(`%c${PREFIX}%c Event handler for ${e.type}`, 'color:#48f', '');
+				window.__vtbot.debug.closing = 2;
+			}
+		};
+
+		/*
+		 * Register the two "early" handlers
+		 */
+		if (window.__vtbot?.debug === undefined) {
+			if (window.__vtbot === undefined) {
+				window.__vtbot = Object.create(null);
+			}
+			window.__vtbot.debug = { listeningScripts: Object.create(null) };
+			document.addEventListener('astro:before-preparation', startProcessing);
+			document.addEventListener('astro:before-swap', startProcessing);
+		}
+		// end of "early" part
+	})();
+</script>

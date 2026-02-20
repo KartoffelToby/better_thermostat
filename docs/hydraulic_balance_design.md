@@ -1,3 +1,11 @@
+---
+layout: default
+title: Hydraulic
+nav_order: 6
+description: "BT."
+permalink: hydraulic
+---
+
 # Decentralized Hydraulic Balance in Better Thermostat
 
 This document captures the design and reasoning behind the decentralized hydraulic balance feature.
