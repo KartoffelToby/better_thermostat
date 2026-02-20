@@ -144,7 +144,7 @@ class BetterThermostatPresetNumber(NumberEntity, RestoreEntity):
         # Set min/max/step based on climate entity configuration
         self._attr_native_min_value = bt_climate.min_temp
         self._attr_native_max_value = bt_climate.max_temp
-        self._attr_native_step = bt_climate.target_temperature_step
+        self._attr_native_step = bt_climate.target_temperature_step or 0.1
 
     async def async_added_to_hass(self) -> None:
         """Run when entity about to be added."""

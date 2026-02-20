@@ -58,6 +58,9 @@ class _TpiState:
     last_update_ts: float = 0.0
 
 
+# Public alias so that StateManager can reference the type.
+TpiState = _TpiState
+
 _TPI_STATES: dict[str, _TpiState] = {}
 
 _STATE_EXPORT_FIELDS = ("last_percent",)

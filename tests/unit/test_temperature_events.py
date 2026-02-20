@@ -49,6 +49,7 @@ def mock_bt():
     # Accumulation state
     bt.accum_delta = 0.0
     bt.accum_dir = 0
+    bt.accum_since = datetime.now()
 
     # Pending / plateau state
     bt.pending_temp = None
@@ -342,24 +343,16 @@ class TestTriggerTemperatureChangeGuards:
         mock_bt.control_queue_task.put.assert_not_awaited()
 
     @pytest.mark.asyncio
-    async def test_first_run_rejects_reading_when_timestamp_is_none(self, mock_bt):
-        """Reject the first reading when both timestamp and cur_temp are None.
-
-        When last_external_sensor_change is None it is set to now(), making
-        _age~0 and _interval_ok=False.  Because cur_temp is also None,
-        _diff_q becomes None so the significance branch cannot fire either.
-        The combined accept condition evaluates to False.
-
-        Note: if cur_temp were set and the diff >= 0.11, the change would be
-        accepted even with a fresh timestamp (the or-branch bypasses interval).
-        """
+    async def test_first_run_accepts_via_first_reading_path(self, mock_bt):
+        """Accept the first reading via 'first_reading' when cur_temp is None."""
         mock_bt.last_external_sensor_change = None
         mock_bt.cur_temp = None
         event = _make_event(State(SENSOR_ID, "21.0"))
 
         await trigger_temperature_change(mock_bt, event)
 
-        mock_bt.control_queue_task.put.assert_not_awaited()
+        mock_bt.control_queue_task.put.assert_awaited_once()
+        assert mock_bt.cur_temp == 21.0
 
 
 # ---------------------------------------------------------------------------
@@ -368,7 +361,12 @@ class TestTriggerTemperatureChangeGuards:
 
 
 class TestTemperatureAcceptance:
-    """Tests for debounce and acceptance logic."""
+    """Tests for debounce and acceptance logic.
+
+    With _sig_threshold=0.11 and the accept condition requiring _interval_ok
+    on both the "significant" and "accumulated" paths, debounce is properly
+    enforced for all changes.
+    """
 
     @pytest.mark.asyncio
     async def test_first_temp_accepted_when_cur_is_none(self, mock_bt):
@@ -394,11 +392,11 @@ class TestTemperatureAcceptance:
         mock_bt.control_queue_task.put.assert_awaited_once()
 
     @pytest.mark.asyncio
-    async def test_significant_change_within_debounce_still_accepted(self, mock_bt):
-        """Accept a significant change within 5s debounce window.
+    async def test_significant_change_within_debounce_rejected(self, mock_bt):
+        """Reject a significant change within the 5s debounce window.
 
-        The accept condition's or-branch (_diff_q >= _sig_threshold_q)
-        still bypasses _interval_ok for changes above the threshold.
+        The accept condition requires _interval_ok on both the "significant"
+        and "accumulated" paths, so within-debounce changes are rejected.
         """
         mock_bt.cur_temp = 20.0
         mock_bt.last_external_sensor_change = datetime.now() - timedelta(seconds=1)
@@ -406,15 +404,12 @@ class TestTemperatureAcceptance:
 
         await trigger_temperature_change(mock_bt, event)
 
-        assert mock_bt.cur_temp == 20.5
-        mock_bt.control_queue_task.put.assert_awaited_once()
+        assert mock_bt.cur_temp == 20.0
+        mock_bt.control_queue_task.put.assert_not_awaited()
 
     @pytest.mark.asyncio
-    async def test_homematicip_significant_within_600s_still_accepted(self, mock_bt):
-        """Accept a significant HomematicIP change within the 600s window.
-
-        The or-branch bypasses the HomematicIP debounce for changes >= 0.11.
-        """
+    async def test_homematicip_within_600s_rejected(self, mock_bt):
+        """Reject a HomematicIP change within the 600s debounce window."""
         mock_bt.all_trvs = [{"advanced": {CONF_HOMEMATICIP: True}}]
         mock_bt.cur_temp = 20.0
         mock_bt.last_external_sensor_change = datetime.now() - timedelta(seconds=30)
@@ -422,8 +417,8 @@ class TestTemperatureAcceptance:
 
         await trigger_temperature_change(mock_bt, event)
 
-        assert mock_bt.cur_temp == 20.5
-        mock_bt.control_queue_task.put.assert_awaited_once()
+        assert mock_bt.cur_temp == 20.0
+        mock_bt.control_queue_task.put.assert_not_awaited()
 
     @pytest.mark.asyncio
     async def test_sub_threshold_change_not_accepted_immediately(self, mock_bt):
@@ -505,6 +500,24 @@ class TestAccumulationTracking:
         # accum_delta = 0.08 + 0.05 = 0.13 >= 0.11 threshold
         mock_bt.control_queue_task.put.assert_awaited_once()
         assert mock_bt.accum_delta == 0.0  # reset after accept
+
+    @pytest.mark.asyncio
+    async def test_accumulated_change_rejected_within_debounce(self, mock_bt):
+        """Reject accumulated changes within the debounce window.
+
+        Even though accum_delta exceeds threshold, _accum_ok also
+        requires _interval_ok, so debounce is enforced.
+        """
+        mock_bt.cur_temp = 20.0
+        mock_bt.accum_delta = 0.08
+        mock_bt.accum_dir = 1
+        mock_bt.last_external_sensor_change = datetime.now() - timedelta(seconds=1)
+
+        event = _make_event(State(SENSOR_ID, "20.05"))
+        await trigger_temperature_change(mock_bt, event)
+
+        # interval_ok=False → neither "significant" nor "accumulated" → rejected
+        mock_bt.control_queue_task.put.assert_not_awaited()
 
     @pytest.mark.asyncio
     async def test_accum_resets_on_direction_flip(self, mock_bt):
