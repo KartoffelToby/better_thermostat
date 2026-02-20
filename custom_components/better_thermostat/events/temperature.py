@@ -94,14 +94,17 @@ async def _apply_temperature_update(self, new_temp):
     # Update EMA (useful if called from timer after delay)
     try:
         _update_external_temp_ema(self, float(new_temp_q))
-    except Exception:
-        pass
+    except Exception as exc:
+        _LOGGER.debug(
+            "better_thermostat %s: EMA update failed (non-critical): %s",
+            self.device_name,
+            exc,
+        )
     _ema = self.external_temp_ema
     self.last_external_sensor_change = datetime.now()
     # Reset accumulation & pending after accept
     self.accum_delta = 0.0
     self.accum_dir = 0
-    self.accum_since = datetime.now()
     self.pending_temp = None
     self.pending_since = None
     # Cancel any pending plateau timer
@@ -197,7 +200,7 @@ async def trigger_temperature_change(self, event):
     # Signifikanz-Schwelle: 0.11°C (um 0.1°C Rauschen zu filtern).
     # Wir ignorieren die Toleranz-Einstellung hier, um auch bei größerer Regel-Toleranz
     # präzise Sensor-Updates zu erhalten.
-    _sig_threshold = 0.0
+    _sig_threshold = 0.11
 
     try:
         for trv in self.all_trvs:
@@ -437,7 +440,6 @@ async def trigger_temperature_change(self, event):
                 # direction flipped: reset accumulation to current delta
                 self.accum_delta = _signed_delta
                 self.accum_dir = _acc_dir_now
-                self.accum_since = datetime.now()
             # Plateau tracking
             if self.pending_temp != _incoming_temperature_q:
                 self.pending_temp = _incoming_temperature_q
@@ -478,7 +480,14 @@ async def trigger_temperature_change(self, event):
 
             async def _plateau_cb(_now):
                 self.plateau_timer_cancel = None
-                if self.pending_temp is not None:
+                # Re-check debounce interval so HomematicIP 600s is respected
+                _cb_age = (
+                    (datetime.now() - self.last_external_sensor_change).total_seconds()
+                    if self.last_external_sensor_change is not None
+                    else 999999
+                )
+                _cb_interval_ok = _cb_age > _time_diff
+                if self.pending_temp is not None and _cb_interval_ok:
                     _LOGGER.debug(
                         "better_thermostat %s: external_temperature plateau auto-accepted (value=%.2f)",
                         self.device_name,

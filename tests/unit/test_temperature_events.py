@@ -363,12 +363,9 @@ class TestTriggerTemperatureChangeGuards:
 class TestTemperatureAcceptance:
     """Tests for debounce and acceptance logic.
 
-    Note: With _sig_threshold=0.0 on this branch, all temperature changes
-    (including diff=0.0) are considered "significant". The accept condition
-    fix enforces _interval_ok on the "significant" path, but the
-    "accumulated" path (also threshold-dependent) catches everything that
-    misses the interval window. Full debounce enforcement requires the
-    threshold fix from PR #1930 in addition to this accept condition fix.
+    With _sig_threshold=0.11 and the accept condition requiring _interval_ok
+    on both the "significant" and "accumulated" paths, debounce is properly
+    enforced for all changes.
     """
 
     @pytest.mark.asyncio
@@ -383,8 +380,8 @@ class TestTemperatureAcceptance:
         assert mock_bt.cur_temp == 21.0
 
     @pytest.mark.asyncio
-    async def test_change_accepted_after_interval(self, mock_bt):
-        """Accept a temperature change when the debounce interval has elapsed."""
+    async def test_significant_change_accepted_after_interval(self, mock_bt):
+        """Accept a significant change (>= 0.11) when the interval has elapsed."""
         mock_bt.cur_temp = 20.0
         mock_bt.last_external_sensor_change = datetime.now() - timedelta(seconds=60)
         event = _make_event(State(SENSOR_ID, "21.0"))
@@ -395,12 +392,11 @@ class TestTemperatureAcceptance:
         mock_bt.control_queue_task.put.assert_awaited_once()
 
     @pytest.mark.asyncio
-    async def test_change_within_debounce_rejected(self, mock_bt):
-        """Reject a change within the 5s debounce window.
+    async def test_significant_change_within_debounce_rejected(self, mock_bt):
+        """Reject a significant change within the 5s debounce window.
 
-        The fix removes the or-branch that previously bypassed _interval_ok.
-        Both "significant" and "accumulated" paths require _interval_ok,
-        so within-debounce changes are now properly rejected.
+        The accept condition requires _interval_ok on both the "significant"
+        and "accumulated" paths, so within-debounce changes are rejected.
         """
         mock_bt.cur_temp = 20.0
         mock_bt.last_external_sensor_change = datetime.now() - timedelta(seconds=1)
@@ -425,15 +421,26 @@ class TestTemperatureAcceptance:
         mock_bt.control_queue_task.put.assert_not_awaited()
 
     @pytest.mark.asyncio
-    async def test_identical_temp_accepted_with_zero_threshold(self, mock_bt):
-        """Accept identical temperature since diff=0.0 >= threshold=0.0."""
+    async def test_sub_threshold_change_not_accepted_immediately(self, mock_bt):
+        """Reject a change below the 0.11 significance threshold."""
+        mock_bt.cur_temp = 20.0
+        mock_bt.last_external_sensor_change = datetime.now() - timedelta(seconds=60)
+        event = _make_event(State(SENSOR_ID, "20.05"))
+
+        await trigger_temperature_change(mock_bt, event)
+
+        mock_bt.control_queue_task.put.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_identical_temp_not_accepted(self, mock_bt):
+        """Reject an identical temperature (diff=0.0 < threshold 0.11)."""
         mock_bt.cur_temp = 20.0
         mock_bt.last_external_sensor_change = datetime.now() - timedelta(seconds=60)
         event = _make_event(State(SENSOR_ID, "20.0"))
 
         await trigger_temperature_change(mock_bt, event)
 
-        mock_bt.control_queue_task.put.assert_awaited_once()
+        mock_bt.control_queue_task.put.assert_not_awaited()
 
     @pytest.mark.asyncio
     async def test_accepted_temp_written_to_cur_temp(self, mock_bt):
@@ -464,26 +471,35 @@ class TestTemperatureAcceptance:
 
 
 class TestAccumulationTracking:
-    """Tests for accumulation state updates inside trigger_temperature_change.
-
-    With _sig_threshold=0.0, all changes are "significant" and accepted
-    after the interval elapses, so accum_delta is always reset. These tests
-    verify that accumulation state is correctly maintained before acceptance.
-    """
+    """Tests for accumulation state updates inside trigger_temperature_change."""
 
     @pytest.mark.asyncio
-    async def test_accum_delta_updated_before_accept(self, mock_bt):
-        """Update accum_delta with the change delta before accepting."""
+    async def test_sub_threshold_change_accumulates(self, mock_bt):
+        """Track sub-threshold changes in accum_delta without accepting."""
         mock_bt.cur_temp = 20.0
         mock_bt.accum_delta = 0.0
         mock_bt.accum_dir = 0
 
-        event = _make_event(State(SENSOR_ID, "20.5"))
+        event = _make_event(State(SENSOR_ID, "20.05"))
         await trigger_temperature_change(mock_bt, event)
 
-        # With threshold=0.0, accepted as "significant" → accum_delta reset to 0
+        assert mock_bt.accum_delta == 0.05
+        assert mock_bt.accum_dir == 1
+        mock_bt.control_queue_task.put.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_accumulated_change_accepted_above_threshold(self, mock_bt):
+        """Accept via accumulation when total delta reaches the threshold."""
+        mock_bt.cur_temp = 20.0
+        mock_bt.accum_delta = 0.08
+        mock_bt.accum_dir = 1
+
+        event = _make_event(State(SENSOR_ID, "20.05"))
+        await trigger_temperature_change(mock_bt, event)
+
+        # accum_delta = 0.08 + 0.05 = 0.13 >= 0.11 threshold
         mock_bt.control_queue_task.put.assert_awaited_once()
-        assert mock_bt.accum_delta == 0.0
+        assert mock_bt.accum_delta == 0.0  # reset after accept
 
     @pytest.mark.asyncio
     async def test_accumulated_change_rejected_within_debounce(self, mock_bt):
@@ -504,18 +520,28 @@ class TestAccumulationTracking:
         mock_bt.control_queue_task.put.assert_not_awaited()
 
     @pytest.mark.asyncio
-    async def test_accumulated_change_accepted_after_interval(self, mock_bt):
-        """Accept accumulated changes when debounce interval has elapsed."""
+    async def test_accum_resets_on_direction_flip(self, mock_bt):
+        """Reset accumulation to the new delta on direction change."""
         mock_bt.cur_temp = 20.0
-        mock_bt.accum_delta = 0.08
+        mock_bt.accum_delta = 0.1
         mock_bt.accum_dir = 1
-        mock_bt.last_external_sensor_change = datetime.now() - timedelta(seconds=60)
 
-        event = _make_event(State(SENSOR_ID, "20.05"))
+        event = _make_event(State(SENSOR_ID, "19.95"))
         await trigger_temperature_change(mock_bt, event)
 
-        mock_bt.control_queue_task.put.assert_awaited_once()
-        assert mock_bt.accum_delta == 0.0
+        # Direction flipped: accum_delta reset to -0.05
+        assert mock_bt.accum_delta == -0.05
+        assert mock_bt.accum_dir == -1
+
+    @pytest.mark.asyncio
+    async def test_pending_temp_set_for_sub_threshold_change(self, mock_bt):
+        """Set pending_temp for sub-threshold changes (plateau tracking)."""
+        mock_bt.cur_temp = 20.0
+        event = _make_event(State(SENSOR_ID, "20.05"))
+
+        await trigger_temperature_change(mock_bt, event)
+
+        assert mock_bt.pending_temp == 20.05
 
     @pytest.mark.asyncio
     async def test_pending_cleared_when_value_returns_to_current(self, mock_bt):
@@ -536,18 +562,11 @@ class TestAccumulationTracking:
 
 
 class TestPlateauLogic:
-    """Tests for plateau acceptance paths.
-
-    With _sig_threshold=0.0, the "not _is_significant" guard for the
-    plateau path is never True. Plateau and accumulation paths only become
-    meaningful when combined with the threshold fix (PR #1930).
-    """
+    """Tests for plateau acceptance paths."""
 
     @pytest.mark.asyncio
-    async def test_small_change_accepted_as_significant_with_zero_threshold(
-        self, mock_bt
-    ):
-        """Accept a 0.05 change as 'significant' since threshold=0.0."""
+    async def test_plateau_accepts_stable_sub_threshold_change(self, mock_bt):
+        """Accept a sub-threshold change that has been stable for 120s."""
         mock_bt.cur_temp = 20.0
         mock_bt.pending_temp = 20.05
         mock_bt.pending_since = datetime.now() - timedelta(seconds=300)
@@ -559,12 +578,13 @@ class TestPlateauLogic:
         ) as mock_timer:
             await trigger_temperature_change(mock_bt, event)
 
+        # Plateau age 300s >= 120s window → accepted directly, no timer needed
         mock_timer.assert_not_called()
         mock_bt.control_queue_task.put.assert_awaited_once()
 
     @pytest.mark.asyncio
-    async def test_any_change_accepted_skips_plateau_timer(self, mock_bt):
-        """Skip plateau timer scheduling since all changes are significant."""
+    async def test_plateau_timer_scheduled_for_new_pending(self, mock_bt):
+        """Schedule a plateau timer for a new sub-threshold pending value."""
         mock_bt.cur_temp = 20.0
 
         event = _make_event(State(SENSOR_ID, "20.01"))
@@ -574,6 +594,20 @@ class TestPlateauLogic:
         ) as mock_timer:
             await trigger_temperature_change(mock_bt, event)
 
-        # With threshold=0.0, 0.01 diff is "significant" → accepted directly
-        mock_timer.assert_not_called()
+        # Sub-threshold, just set pending → timer scheduled for PLATEAU_ACCEPT_WINDOW
+        mock_timer.assert_called_once()
+        mock_bt.control_queue_task.put.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_sub_threshold_accumulated_to_significant(self, mock_bt):
+        """Accept via accumulation when small deltas sum above the threshold."""
+        mock_bt.cur_temp = 20.0
+        mock_bt.accum_delta = 0.10
+        mock_bt.accum_dir = 1
+
+        event = _make_event(State(SENSOR_ID, "20.05"))
+
+        await trigger_temperature_change(mock_bt, event)
+
+        # accum_delta = 0.10 + 0.05 = 0.15 >= 0.11 → accepted as "accumulated"
         mock_bt.control_queue_task.put.assert_awaited_once()

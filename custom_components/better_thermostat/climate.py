@@ -409,7 +409,11 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
         self.cur_temp = None
         self._current_humidity = 0
         self.window_open = None
-        self.bt_target_temp_step = float(target_temp_step) if target_temp_step and target_temp_step != "0.0" else None
+        self.bt_target_temp_step = (
+            float(target_temp_step)
+            if target_temp_step and target_temp_step != "0.0"
+            else None
+        )
         self.bt_min_temp = 0
         self.bt_max_temp = 30
         self.bt_target_temp = 5.0
@@ -543,7 +547,6 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
         self.prev_stable_temp = None
         self.accum_delta = 0.0
         self.accum_dir = 0
-        self.accum_since = datetime.now()
         self.pending_temp = None
         self.pending_since = None
 

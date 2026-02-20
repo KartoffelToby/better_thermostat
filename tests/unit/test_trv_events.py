@@ -806,14 +806,41 @@ class TestTargetTempAdoption:
         ):
             await trigger_trv_change(mock_bt, event)
 
-        assert (
-            mock_bt.bt_target_cooltemp
-            == mock_bt.bt_target_temp - mock_bt.bt_target_temp_step
+        assert mock_bt.bt_target_cooltemp == 25.0
+
+    @pytest.mark.asyncio
+    async def test_cooler_sync_pushes_cooltemp_above_target(self, mock_bt):
+        """Cooltemp is pushed to target + step when equal to target."""
+        mock_bt.cooler_entity_id = "climate.cooler"
+        mock_bt.bt_target_cooltemp = 22.0  # equal to new target
+        mock_bt.bt_target_temp_step = 0.5
+
+        old_state = _make_state(
+            attributes={"temperature": 19.0, "current_temperature": 18.0}
         )
+        new_state = _make_state(
+            attributes={"temperature": 22.0, "current_temperature": 18.0}
+        )
+        trv_state = _make_state(
+            state_str="heat",
+            attributes={"current_temperature": 18.0, "temperature": 22.0},
+        )
+        mock_bt.hass.states.get.return_value = trv_state
+        mock_bt.real_trvs[ENTITY_ID]["last_temperature"] = 19.0
+
+        event = _make_event(mock_bt, new_state=new_state, old_state=old_state)
+
+        with patch(
+            "custom_components.better_thermostat.events.trv.convert_inbound_states",
+            return_value=HVACMode.HEAT,
+        ):
+            await trigger_trv_change(mock_bt, event)
+
+        assert mock_bt.bt_target_cooltemp == 22.0 + 0.5
 
     @pytest.mark.asyncio
     async def test_cooler_sync_always_overwrites(self, mock_bt):
-        """Cooltemp is overwritten to target - step even when already below target."""
+        """Cooltemp is pushed to target + step even when already below target."""
         mock_bt.cooler_entity_id = "climate.cooler"
         mock_bt.bt_target_cooltemp = 15.0
         mock_bt.bt_target_temp_step = 0.5
@@ -839,7 +866,7 @@ class TestTargetTempAdoption:
         ):
             await trigger_trv_change(mock_bt, event)
 
-        assert mock_bt.bt_target_cooltemp == 22.0 - 0.5
+        assert mock_bt.bt_target_cooltemp == 22.0 + 0.5
 
     @pytest.mark.asyncio
     async def test_no_off_system_mode_sets_off_at_min(self, mock_bt):
@@ -868,13 +895,6 @@ class TestTargetTempAdoption:
 
         assert mock_bt.bt_hvac_mode == HVACMode.OFF
 
-    @pytest.mark.xfail(
-        reason="BUG: no_off_system_mode check (line 313) is inside the "
-        "'bt_hvac_mode is not OFF' guard (line 246). When BT is OFF "
-        "and user turns up TRV dial, the no_off_system_mode logic is "
-        "unreachable → BT stays OFF instead of switching to HEAT.",
-        strict=True,
-    )
     @pytest.mark.asyncio
     async def test_no_off_system_mode_sets_heat_above_min(self, mock_bt):
         """no_off_system_mode: setpoint above min_temp while BT is OFF switches to HEAT."""
