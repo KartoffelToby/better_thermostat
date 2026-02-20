@@ -175,8 +175,7 @@ class TestTriggerTrvChangeGuards:
         """Return early when new_state is None."""
         event = _make_event(mock_bt)
         event.data["new_state"] = None
-        with pytest.raises(AttributeError):
-            await trigger_trv_change(mock_bt, event)
+        await trigger_trv_change(mock_bt, event)
         mock_bt.control_queue_task.put.assert_not_called()
 
     @pytest.mark.asyncio
@@ -811,15 +810,37 @@ class TestTargetTempAdoption:
 
     @pytest.mark.asyncio
     async def test_cooler_sync_pushes_cooltemp_above_target(self, mock_bt):
-        """Cooltemp is pushed to target + step when at or below target."""
-        assert (
-            mock_bt.bt_target_cooltemp
-            == mock_bt.bt_target_temp - mock_bt.bt_target_temp_step
+        """Cooltemp is pushed to target + step when equal to target."""
+        mock_bt.cooler_entity_id = "climate.cooler"
+        mock_bt.bt_target_cooltemp = 22.0  # equal to new target
+        mock_bt.bt_target_temp_step = 0.5
+
+        old_state = _make_state(
+            attributes={"temperature": 19.0, "current_temperature": 18.0}
         )
+        new_state = _make_state(
+            attributes={"temperature": 22.0, "current_temperature": 18.0}
+        )
+        trv_state = _make_state(
+            state_str="heat",
+            attributes={"current_temperature": 18.0, "temperature": 22.0},
+        )
+        mock_bt.hass.states.get.return_value = trv_state
+        mock_bt.real_trvs[ENTITY_ID]["last_temperature"] = 19.0
+
+        event = _make_event(mock_bt, new_state=new_state, old_state=old_state)
+
+        with patch(
+            "custom_components.better_thermostat.events.trv.convert_inbound_states",
+            return_value=HVACMode.HEAT,
+        ):
+            await trigger_trv_change(mock_bt, event)
+
+        assert mock_bt.bt_target_cooltemp == 22.0 + 0.5
 
     @pytest.mark.asyncio
     async def test_cooler_sync_always_overwrites(self, mock_bt):
-        """Cooltemp is overwritten to target - step even when already below target."""
+        """Cooltemp is pushed to target + step even when already below target."""
         mock_bt.cooler_entity_id = "climate.cooler"
         mock_bt.bt_target_cooltemp = 15.0
         mock_bt.bt_target_temp_step = 0.5
