@@ -3587,7 +3587,10 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
                         self.device_name,
                         self._preset_temperature,
                     )
-                if self.cooler_entity_id is not None and self._preset_cool_temperature is None:
+                if (
+                    self.cooler_entity_id is not None
+                    and self._preset_cool_temperature is None
+                ):
                     self._preset_cool_temperature = self.bt_target_cooltemp
 
             # If switching back to PRESET_NONE, restore saved temperature
@@ -3599,7 +3602,10 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
                     self.device_name,
                     self.bt_target_temp,
                 )
-                if self.cooler_entity_id is not None and self._preset_cool_temperature is not None:
+                if (
+                    self.cooler_entity_id is not None
+                    and self._preset_cool_temperature is not None
+                ):
                     self.bt_target_cooltemp = self._preset_cool_temperature
                     self._preset_cool_temperature = None
 
@@ -3631,9 +3637,14 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
                 )
 
                 # Apply cooling preset if cooler is configured
-                if self.cooler_entity_id is not None and preset_mode in self._preset_cool_temperatures:
+                if (
+                    self.cooler_entity_id is not None
+                    and preset_mode in self._preset_cool_temperatures
+                ):
                     cool_temp = self._preset_cool_temperatures[preset_mode]
-                    self.bt_target_cooltemp = min(self.max_temp, max(self.min_temp, cool_temp))
+                    self.bt_target_cooltemp = min(
+                        self.max_temp, max(self.min_temp, cool_temp)
+                    )
                     _LOGGER.debug(
                         "better_thermostat %s: Applied preset %s cooling temperature: %s°C",
                         self.device_name,

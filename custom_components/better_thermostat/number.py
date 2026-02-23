@@ -62,7 +62,10 @@ async def async_setup_entry(
         if has_cooler:
             cool_number = BetterThermostatPresetCoolNumber(bt_climate, preset_mode)
             numbers.append(cool_number)
-            preset_unique_ids[cool_number._attr_unique_id] = {"preset": preset_mode, "cool": True}
+            preset_unique_ids[cool_number._attr_unique_id] = {
+                "preset": preset_mode,
+                "cool": True,
+            }
 
     # Create PID numbers for each TRV if PID calibration is enabled
     if hasattr(bt_climate, "all_trvs"):
