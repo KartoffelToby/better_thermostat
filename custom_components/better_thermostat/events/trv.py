@@ -464,5 +464,10 @@ def convert_outbound_states(self, entity_id, hvac_mode) -> dict | None:
             _payload["valve_position"] = _new_valve_position
         return _payload
     except Exception as e:
-        _LOGGER.error(e)
+        _LOGGER.exception(
+            "better_thermostat %s: exception in convert_outbound_states for %s: %s",
+            self.device_name,
+            entity_id,
+            e,
+        )
         return None

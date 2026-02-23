@@ -147,12 +147,6 @@ def _supports_direct_valve_control(self, entity_id: str) -> bool:
         "calibration", CalibrationType.TARGET_TEMP_BASED
     )
     if _calibration_type != CalibrationType.DIRECT_VALVE_BASED:
-        _LOGGER.debug(
-            "better_thermostat %s: TRV %s does not support direct valve control due to calibration type %s",
-            self.device_name,
-            entity_id,
-            _calibration_type,
-        )
         return False
 
     trv_data = self.real_trvs.get(entity_id) or {}
@@ -321,7 +315,7 @@ def _compute_mpc_balance(self, entity_id: str):
         },
     }
 
-    _schedule_mpc = self._schedule_save_mpc_states
+    _schedule_mpc = getattr(self, "schedule_save_state", None)
     if callable(_schedule_mpc):
         _schedule_mpc()
 

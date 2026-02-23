@@ -462,11 +462,12 @@ async def control_trv(self, heater_entity_id=None):
             self, heater_entity_id, self.bt_hvac_mode
         )
         if not isinstance(_remapped_states, dict):
-            _LOGGER.debug(
-                "better_thermostat %s: ERROR %s %s",
+            _LOGGER.warning(
+                "better_thermostat %s: convert_outbound_states returned %r for %s "
+                "(expected dict) — skipping control cycle",
                 self.device_name,
-                heater_entity_id,
                 _remapped_states,
+                heater_entity_id,
             )
             await asyncio.sleep(2)
             self.real_trvs[heater_entity_id]["ignore_trv_states"] = False
@@ -507,12 +508,7 @@ async def control_trv(self, heater_entity_id=None):
                         _source,
                     )
             elif _calibration_type != CalibrationType.DIRECT_VALVE_BASED:
-                _LOGGER.debug(
-                    "better_thermostat %s: TRV %s does not support direct valve control due to calibration type %s",
-                    self.device_name,
-                    heater_entity_id,
-                    _calibration_type,
-                )
+                pass  # non-valve TRV: no valve control expected
         except Exception:
             _LOGGER.debug(
                 "better_thermostat %s: set_valve not applied for %s (unsupported or failed)",
