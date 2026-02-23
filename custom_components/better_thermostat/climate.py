@@ -412,7 +412,7 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
         self._preset_cool_temperatures = {
             PRESET_NONE: 24.0,
             PRESET_AWAY: 28.0,
-            PRESET_BOOST: 20.0,
+            PRESET_BOOST: 28.0,
             PRESET_COMFORT: 24.0,
             PRESET_ECO: 27.0,
             PRESET_HOME: 24.0,
@@ -1276,6 +1276,17 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
                             old_state.attributes.get(
                                 ATTR_STATE_PRESET_TEMPERATURE, None
                             )
+                        ),
+                        self.device_name,
+                        "startup()",
+                    )
+                if (
+                    old_state.attributes.get("bt_preset_cool_temperature", None)
+                    is not None
+                ):
+                    self._preset_cool_temperature = convert_to_float(
+                        str(
+                            old_state.attributes.get("bt_preset_cool_temperature", None)
                         ),
                         self.device_name,
                         "startup()",
@@ -2673,6 +2684,7 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
             ATTR_STATE_LAST_CHANGE: self.last_change.isoformat(),
             ATTR_STATE_SAVED_TEMPERATURE: self._saved_temperature,
             ATTR_STATE_PRESET_TEMPERATURE: self._preset_temperature,
+            "bt_preset_cool_temperature": self._preset_cool_temperature,
             ATTR_STATE_HUMIDIY: self._current_humidity,
             ATTR_STATE_MAIN_MODE: self.last_main_hvac_mode,
             ATTR_STATE_OFF_TEMPERATURE: self.off_temperature,
@@ -3650,6 +3662,24 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
                         self.device_name,
                         preset_mode,
                         self.bt_target_cooltemp,
+                    )
+
+                # Enforce ordering: cooling target must be above heating target
+                if (
+                    self.cooler_entity_id is not None
+                    and self.bt_target_cooltemp is not None
+                    and self.bt_target_temp is not None
+                    and self.bt_target_cooltemp <= self.bt_target_temp
+                ):
+                    step = self.bt_target_temp_step or 0.5
+                    self.bt_target_cooltemp = self.bt_target_temp + step
+                    _LOGGER.warning(
+                        "better_thermostat %s: Preset %s cooling target adjusted to %.2f"
+                        " to stay above heating target %.2f",
+                        self.device_name,
+                        preset_mode,
+                        self.bt_target_cooltemp,
+                        self.bt_target_temp,
                     )
 
             _LOGGER.debug(

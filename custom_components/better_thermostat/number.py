@@ -2,7 +2,7 @@
 
 import logging
 
-from homeassistant.components.climate.const import PRESET_NONE
+from homeassistant.components.climate.const import PRESET_NONE, HVACMode
 from homeassistant.components.number import NumberDeviceClass, NumberEntity, NumberMode
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import EntityCategory, UnitOfTemperature
@@ -259,9 +259,14 @@ class BetterThermostatPresetCoolNumber(NumberEntity, RestoreEntity):
         """Update the current value."""
         self._bt_climate._preset_cool_temperatures[self._preset_mode] = value
 
-        # If this preset is currently active, update the cooling target immediately
+        # If this preset is currently active, update the cooling target immediately.
+        # We set bt_target_cooltemp directly and trigger the control queue because
+        # async_set_temperature does not trigger the control queue when only
+        # target_temp_high is provided.
         if self._bt_climate.preset_mode == self._preset_mode:
-            await self._bt_climate.async_set_temperature(target_temp_high=value)
+            self._bt_climate.bt_target_cooltemp = value
+            if self._bt_climate.bt_hvac_mode != HVACMode.OFF:
+                await self._bt_climate.control_queue_task.put(self._bt_climate)
 
         self.async_write_ha_state()
         self._bt_climate.async_write_ha_state()
