@@ -135,8 +135,8 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     return True
 
 
-class BetterThermostatPresetNumber(NumberEntity, RestoreEntity):
-    """Representation of a Better Thermostat Preset Temperature Number."""
+class _BetterThermostatPresetBaseNumber(NumberEntity, RestoreEntity):
+    """Base class for Better Thermostat Preset Temperature Numbers."""
 
     _attr_has_entity_name = True
     _attr_device_class = NumberDeviceClass.TEMPERATURE
@@ -144,21 +144,25 @@ class BetterThermostatPresetNumber(NumberEntity, RestoreEntity):
     _attr_mode = NumberMode.BOX
     _attr_entity_category = EntityCategory.CONFIG
 
+    # Subclasses set these
+    _is_cooling: bool = False
+
     def __init__(self, bt_climate, preset_mode):
         """Initialize the number."""
         self._bt_climate = bt_climate
         self._preset_mode = preset_mode
-        self._attr_unique_id = f"{bt_climate.unique_id}_preset_{preset_mode}"
-        # Use "Min" suffix when cooler is present to distinguish from cooling preset
-        if bt_climate.cooler_entity_id is not None:
-            self._attr_name = f"{preset_mode.capitalize()} Min"
-        else:
-            self._attr_name = f"{preset_mode.capitalize()}"
 
         # Set min/max/step based on climate entity configuration
         self._attr_native_min_value = bt_climate.min_temp
         self._attr_native_max_value = bt_climate.max_temp
         self._attr_native_step = bt_climate.target_temperature_step or 0.1
+
+    @property
+    def _temp_dict(self) -> dict:
+        """Return the preset temperature dict this entity reads/writes."""
+        if self._is_cooling:
+            return self._bt_climate._preset_cool_temperatures
+        return self._bt_climate._preset_temperatures
 
     async def async_added_to_hass(self) -> None:
         """Run when entity about to be added."""
@@ -171,9 +175,10 @@ class BetterThermostatPresetNumber(NumberEntity, RestoreEntity):
         ):
             try:
                 val = float(last_state.state)
-                self._bt_climate._preset_temperatures[self._preset_mode] = val
+                self._temp_dict[self._preset_mode] = val
                 _LOGGER.debug(
-                    "Restored preset %s to %s from number entity state",
+                    "Restored %spreset %s to %s from number entity state",
+                    "cool " if self._is_cooling else "",
                     self._preset_mode,
                     val,
                 )
@@ -188,76 +193,49 @@ class BetterThermostatPresetNumber(NumberEntity, RestoreEntity):
     @property
     def native_value(self) -> float | None:
         """Return the value of the number."""
-        return self._bt_climate._preset_temperatures.get(self._preset_mode)
+        return self._temp_dict.get(self._preset_mode)
+
+
+class BetterThermostatPresetNumber(_BetterThermostatPresetBaseNumber):
+    """Heating preset temperature number."""
+
+    _is_cooling = False
+
+    def __init__(self, bt_climate, preset_mode):
+        """Initialize the number."""
+        super().__init__(bt_climate, preset_mode)
+        self._attr_unique_id = f"{bt_climate.unique_id}_preset_{preset_mode}"
+        if bt_climate.cooler_entity_id is not None:
+            self._attr_name = f"{preset_mode.capitalize()} Min"
+        else:
+            self._attr_name = f"{preset_mode.capitalize()}"
 
     async def async_set_native_value(self, value: float) -> None:
         """Update the current value."""
-        # Update the storage in the climate entity
-        self._bt_climate._preset_temperatures[self._preset_mode] = value
+        self._temp_dict[self._preset_mode] = value
 
         # If this preset is currently active, update the target temperature immediately
         if self._bt_climate.preset_mode == self._preset_mode:
             await self._bt_climate.async_set_temperature(temperature=value)
 
         self.async_write_ha_state()
-        # Force update of climate entity state to persist the new preset temperature in attributes
         self._bt_climate.async_write_ha_state()
 
 
-class BetterThermostatPresetCoolNumber(NumberEntity, RestoreEntity):
-    """Representation of a Better Thermostat Preset Cooling Temperature Number."""
+class BetterThermostatPresetCoolNumber(_BetterThermostatPresetBaseNumber):
+    """Cooling preset temperature number."""
 
-    _attr_has_entity_name = True
-    _attr_device_class = NumberDeviceClass.TEMPERATURE
-    _attr_native_unit_of_measurement = UnitOfTemperature.CELSIUS
-    _attr_mode = NumberMode.BOX
-    _attr_entity_category = EntityCategory.CONFIG
+    _is_cooling = True
 
     def __init__(self, bt_climate, preset_mode):
         """Initialize the number."""
-        self._bt_climate = bt_climate
-        self._preset_mode = preset_mode
+        super().__init__(bt_climate, preset_mode)
         self._attr_unique_id = f"{bt_climate.unique_id}_preset_{preset_mode}_cool"
         self._attr_name = f"{preset_mode.capitalize()} Max"
 
-        # Set min/max/step based on climate entity configuration
-        self._attr_native_min_value = bt_climate.min_temp
-        self._attr_native_max_value = bt_climate.max_temp
-        self._attr_native_step = bt_climate.target_temperature_step or 0.1
-
-    async def async_added_to_hass(self) -> None:
-        """Run when entity about to be added."""
-        await super().async_added_to_hass()
-        last_state = await self.async_get_last_state()
-        if last_state is not None and last_state.state not in (
-            None,
-            "unknown",
-            "unavailable",
-        ):
-            try:
-                val = float(last_state.state)
-                self._bt_climate._preset_cool_temperatures[self._preset_mode] = val
-                _LOGGER.debug(
-                    "Restored cool preset %s to %s from number entity state",
-                    self._preset_mode,
-                    val,
-                )
-            except ValueError:
-                pass
-
-    @property
-    def device_info(self):
-        """Return the device info."""
-        return self._bt_climate.device_info
-
-    @property
-    def native_value(self) -> float | None:
-        """Return the value of the number."""
-        return self._bt_climate._preset_cool_temperatures.get(self._preset_mode)
-
     async def async_set_native_value(self, value: float) -> None:
         """Update the current value."""
-        self._bt_climate._preset_cool_temperatures[self._preset_mode] = value
+        self._temp_dict[self._preset_mode] = value
 
         # If this preset is currently active, update the cooling target immediately.
         # We set bt_target_cooltemp directly and trigger the control queue because
@@ -265,6 +243,17 @@ class BetterThermostatPresetCoolNumber(NumberEntity, RestoreEntity):
         # target_temp_high is provided.
         if self._bt_climate.preset_mode == self._preset_mode:
             self._bt_climate.bt_target_cooltemp = value
+
+            # Enforce ordering: cooling target must stay above heating target
+            if (
+                self._bt_climate.bt_target_temp is not None
+                and value <= self._bt_climate.bt_target_temp
+            ):
+                step = self._bt_climate.bt_target_temp_step or 0.5
+                self._bt_climate.bt_target_cooltemp = (
+                    self._bt_climate.bt_target_temp + step
+                )
+
             if self._bt_climate.bt_hvac_mode != HVACMode.OFF:
                 await self._bt_climate.control_queue_task.put(self._bt_climate)
 
