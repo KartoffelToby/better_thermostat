@@ -206,7 +206,7 @@ async def trigger_temperature_change(self, event):
         for trv in self.all_trvs:
             if trv["advanced"][CONF_HOMEMATICIP]:
                 _time_diff = 600
-    except KeyError:
+    except (KeyError, TypeError):
         pass
 
     if _incoming_temperature_q is None or _incoming_temperature_q < -50:
