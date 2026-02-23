@@ -181,12 +181,7 @@ async def _handle_dynamic_entity_update(
     """Handle dynamic entity creation/removal based on configuration."""
     entry_id = entry.entry_id
     current_algorithms = _get_active_algorithms(bt_climate)
-    had_algorithm_entities = entry_id in _ACTIVE_ALGORITHM_ENTITIES
-    previous_algorithms = (
-        set(_ACTIVE_ALGORITHM_ENTITIES.get(entry_id, {}))
-        if had_algorithm_entities
-        else set()
-    )
+    previous_algorithms = set(_ACTIVE_ALGORITHM_ENTITIES.get(entry_id, {}))
 
     # Prüfe auf Änderungen bei den Algorithmen
     algorithms_added = current_algorithms - previous_algorithms
@@ -197,11 +192,11 @@ async def _handle_dynamic_entity_update(
             "Better Thermostat %s: Algorithm configuration changed. Added: %s, Removed: %s",
             bt_climate.device_name,
             [
-                alg.value if hasattr(alg, "value") else str(alg)
+                alg.value
                 for alg in algorithms_added
             ],
             [
-                alg.value if hasattr(alg, "value") else str(alg)
+                alg.value
                 for alg in algorithms_removed
             ],
         )
@@ -231,7 +226,6 @@ async def _cleanup_stale_algorithm_entities(
     entity_registry = async_get_entity_registry(hass)
     tracked_algorithms = _ACTIVE_ALGORITHM_ENTITIES[entry_id]
 
-    total_removed = 0
     algorithms_to_remove = []
 
     for algorithm, entity_unique_ids in tracked_algorithms.items():
@@ -249,18 +243,14 @@ async def _cleanup_stale_algorithm_entities(
                         _LOGGER.debug(
                             "Better Thermostat %s: Removed %s entity %s",
                             bt_climate.device_name,
-                            algorithm.value
-                            if hasattr(algorithm, "value")
-                            else algorithm,
+                            algorithm.value,
                             entity_id,
                         )
                     except Exception as e:
                         _LOGGER.warning(
                             "Better Thermostat %s: Failed to remove %s entity %s: %s",
                             bt_climate.device_name,
-                            algorithm.value
-                            if hasattr(algorithm, "value")
-                            else algorithm,
+                            algorithm.value,
                             entity_id,
                             e,
                         )
@@ -270,9 +260,8 @@ async def _cleanup_stale_algorithm_entities(
                     "Better Thermostat %s: Removed %d %s entities",
                     bt_climate.device_name,
                     removed_count,
-                    algorithm.value if hasattr(algorithm, "value") else algorithm,
+                    algorithm.value,
                 )
-                total_removed += removed_count
 
             if removed_count == len(entity_unique_ids):
                 algorithms_to_remove.append(algorithm)
@@ -288,10 +277,10 @@ async def _cleanup_stale_algorithm_entities(
 
 def _get_active_algorithms(bt_climate: BetterThermostat) -> set[CalibrationMode]:
     """Get set of calibration algorithms currently in use by any TRV."""
-    if not hasattr(bt_climate, "real_trvs") or not bt_climate.real_trvs:
+    if not bt_climate.real_trvs:
         return set()
 
-    active_algorithms = set()
+    active_algorithms: set[CalibrationMode] = set()
     for trv_id, trv in bt_climate.real_trvs.items():
         advanced = trv.get("advanced", {})
         calibration_mode = advanced.get(CONF_CALIBRATION_MODE)
@@ -311,6 +300,24 @@ def _get_active_algorithms(bt_climate: BetterThermostat) -> set[CalibrationMode]
             active_algorithms.add(calibration_mode)
 
     return active_algorithms
+
+
+def _get_pid_trvs(bt_climate: BetterThermostat) -> set[str]:
+    """Return entity IDs of TRVs currently using PID calibration."""
+    pid_trvs: set[str] = set()
+    if not bt_climate.real_trvs:
+        return pid_trvs
+    for trv_entity_id, trv_data in bt_climate.real_trvs.items():
+        advanced = trv_data.get("advanced", {})
+        calibration_mode = advanced.get(CONF_CALIBRATION_MODE)
+        if isinstance(calibration_mode, str):
+            try:
+                calibration_mode = CalibrationMode(calibration_mode)
+            except (ValueError, TypeError):
+                continue
+        if calibration_mode == CalibrationMode.PID_CALIBRATION:
+            pid_trvs.add(trv_entity_id)
+    return pid_trvs
 
 
 async def _cleanup_unused_number_entities(
@@ -401,24 +408,7 @@ async def _cleanup_pid_number_entities(
 ) -> None:
     """Remove PID number entities for TRVs no longer using PID calibration."""
     tracked_pid_numbers = _ACTIVE_PID_NUMBERS.get(entry_id, {})
-
-    # Get current TRVs using PID calibration - consistent with switch cleanup
-    current_pid_trvs = set()
-    if hasattr(bt_climate, "real_trvs") and bt_climate.real_trvs:
-        for trv_entity_id, trv_data in bt_climate.real_trvs.items():
-            advanced = trv_data.get("advanced", {})
-            calibration_mode = advanced.get(CONF_CALIBRATION_MODE)
-
-            # Normalize string values to CalibrationMode enum
-            try:
-                if isinstance(calibration_mode, str):
-                    calibration_mode = CalibrationMode(calibration_mode)
-            except (ValueError, TypeError):
-                # Invalid or unknown calibration mode, skip
-                continue
-
-            if calibration_mode == CalibrationMode.PID_CALIBRATION:
-                current_pid_trvs.add(trv_entity_id)
+    current_pid_trvs = _get_pid_trvs(bt_climate)
 
     # Find PID number entities to remove
     entities_to_remove = []
@@ -474,24 +464,7 @@ async def _cleanup_pid_switch_entities(
 ) -> None:
     """Remove PID switch entities for TRVs no longer using PID calibration and child lock switches for removed TRVs."""
     tracked_switches = _ACTIVE_SWITCH_ENTITIES.get(entry_id, {})
-
-    # Get current TRVs using PID calibration
-    current_pid_trvs = set()
-    if hasattr(bt_climate, "real_trvs") and bt_climate.real_trvs:
-        for trv_entity_id, trv_data in bt_climate.real_trvs.items():
-            advanced = trv_data.get("advanced", {})
-            calibration_mode = advanced.get(CONF_CALIBRATION_MODE)
-
-            # Normalize string values to CalibrationMode enum
-            try:
-                if isinstance(calibration_mode, str):
-                    calibration_mode = CalibrationMode(calibration_mode)
-            except (ValueError, TypeError):
-                # Invalid or unknown calibration mode, skip
-                continue
-
-            if calibration_mode == CalibrationMode.PID_CALIBRATION:
-                current_pid_trvs.add(trv_entity_id)
+    current_pid_trvs = _get_pid_trvs(bt_climate)
 
     # Find switch entities to remove using stored metadata
     entities_to_remove = []
@@ -505,11 +478,7 @@ async def _cleanup_pid_switch_entities(
                 should_remove = True
         elif kind == "child_lock":
             # Remove child lock switches for TRVs that no longer exist
-            if (
-                not hasattr(bt_climate, "real_trvs")
-                or not bt_climate.real_trvs
-                or trv_id not in bt_climate.real_trvs
-            ):
+            if not bt_climate.real_trvs or trv_id not in bt_climate.real_trvs:
                 should_remove = True
 
         if should_remove:
@@ -548,7 +517,7 @@ async def _cleanup_pid_switch_entities(
         tracked_switches[uid] = {"trv": trv_entity_id, "type": "pid_auto_tune"}
 
     # Add Child Lock switches (always present for all TRVs)
-    if hasattr(bt_climate, "real_trvs") and bt_climate.real_trvs:
+    if bt_climate.real_trvs:
         for trv_entity_id in bt_climate.real_trvs:
             uid = f"{bt_climate.unique_id}_{trv_entity_id}_child_lock"
             tracked_switches[uid] = {"trv": trv_entity_id, "type": "child_lock"}
@@ -648,25 +617,19 @@ class _BtMpcSensorBase(_BtSensorBase):
     @property
     def available(self) -> bool:
         """Return if entity is available."""
-        if (
-            not hasattr(self._bt_climate, "_available")
-            or not self._bt_climate._available
-        ):
+        if not self._bt_climate._available:
             return False
-        if getattr(self._bt_climate, "window_open", False):
+        if self._bt_climate.window_open:
             return False
-        if (
-            hasattr(self._bt_climate, "hvac_mode")
-            and self._bt_climate.hvac_mode == "off"
-        ):
+        if self._bt_climate.hvac_mode == "off":
             return False
         return True
 
     def _update_state(self) -> None:
         """Update state from calibration_balance debug data."""
         val = None
-        if hasattr(self._bt_climate, "real_trvs"):
-            for _, trv_data in self._bt_climate.real_trvs.items():
+        if self._bt_climate.real_trvs:
+            for trv_data in self._bt_climate.real_trvs.values():
                 cal_bal = trv_data.get("calibration_balance")
                 if cal_bal and "debug" in cal_bal:
                     debug = cal_bal["debug"]
