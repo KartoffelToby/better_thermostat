@@ -563,6 +563,32 @@ class TestHvacModeUpdate:
 
         assert mock_bt.real_trvs[ENTITY_ID]["hvac_mode"] == "heat"
 
+    @pytest.mark.asyncio
+    async def test_child_lock_none_blocks_mode_propagation(self, mock_bt):
+        """Mode cache updates but bt_hvac_mode does not propagate when child_lock is None."""
+        mock_bt.real_trvs[ENTITY_ID]["advanced"].pop("child_lock", None)
+        trv_state = _make_state(
+            state_str="off",
+            attributes={"current_temperature": 18.0, "temperature": 19.0},
+        )
+        mock_bt.hass.states.get.return_value = trv_state
+        mock_bt.real_trvs[ENTITY_ID]["hvac_mode"] = "heat"
+        mock_bt.real_trvs[ENTITY_ID]["system_mode_received"] = True
+        mock_bt.real_trvs[ENTITY_ID]["last_hvac_mode"] = "heat"
+
+        event = _make_event(
+            mock_bt, new_state=trv_state, old_state=_make_state(state_str="heat")
+        )
+
+        with patch(
+            "custom_components.better_thermostat.events.trv.convert_inbound_states",
+            return_value=HVACMode.OFF,
+        ):
+            await trigger_trv_change(mock_bt, event)
+
+        assert mock_bt.real_trvs[ENTITY_ID]["hvac_mode"] == "off"
+        assert mock_bt.bt_hvac_mode == HVACMode.HEAT
+
 
 # ---------------------------------------------------------------------------
 # 5. Target temperature adoption
