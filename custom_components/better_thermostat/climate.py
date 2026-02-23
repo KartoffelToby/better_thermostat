@@ -409,6 +409,18 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
         }
         # Keep a copy of original configured preset temperatures to detect user customization
         self._original_preset_temperatures = self._preset_temperatures.copy()
+        self._preset_cool_temperatures = {
+            PRESET_NONE: 24.0,
+            PRESET_AWAY: 28.0,
+            PRESET_BOOST: 20.0,
+            PRESET_COMFORT: 24.0,
+            PRESET_ECO: 27.0,
+            PRESET_HOME: 24.0,
+            PRESET_SLEEP: 22.0,
+            PRESET_ACTIVITY: 23.0,
+        }
+        self._original_preset_cool_temperatures = self._preset_cool_temperatures.copy()
+        self._preset_cool_temperature = None  # saved cool temp before entering preset
         # Config entry id (same as unique id passed in) used for durable persistence beyond RestoreEntity
         self._config_entry_id = self._unique_id
         self.last_avg_outdoor_temp = None
@@ -1171,6 +1183,14 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
                             preset_temp,
                         )
                         self.bt_target_temp = preset_temp
+                    # Also restore cooling preset if cooler is configured
+                    if (
+                        self.cooler_entity_id is not None
+                        and self._preset_mode in self._preset_cool_temperatures
+                    ):
+                        cool_temp = self._preset_cool_temperatures[self._preset_mode]
+                        if isinstance(cool_temp, (int, float)):
+                            self.bt_target_cooltemp = cool_temp
                 _LOGGER.debug(
                     "better_thermostat %s: restored preset temperature applied",
                     self.device_name,
@@ -2666,6 +2686,7 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
             "degraded_mode": self.degraded_mode,
             "unavailable_sensors": self.unavailable_sensors,
             # ECO mode attribute removed: eco preset supported via PRESET_ECO
+            "bt_preset_cool_temperatures": json.dumps(self._preset_cool_temperatures),
         }
 
         # Optional: next scheduled valve maintenance (ISO8601)
@@ -3565,6 +3586,8 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
                         self.device_name,
                         self._preset_temperature,
                     )
+                if self.cooler_entity_id is not None and self._preset_cool_temperature is None:
+                    self._preset_cool_temperature = self.bt_target_cooltemp
 
             # If switching back to PRESET_NONE, restore saved temperature
             if preset_mode == PRESET_NONE and self._preset_temperature is not None:
@@ -3575,6 +3598,9 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
                     self.device_name,
                     self.bt_target_temp,
                 )
+                if self.cooler_entity_id is not None and self._preset_cool_temperature is not None:
+                    self.bt_target_cooltemp = self._preset_cool_temperature
+                    self._preset_cool_temperature = None
 
             # Apply configured preset temperature
             elif (
@@ -3602,6 +3628,17 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
                     preset_mode,
                     new_temp,
                 )
+
+                # Apply cooling preset if cooler is configured
+                if self.cooler_entity_id is not None and preset_mode in self._preset_cool_temperatures:
+                    cool_temp = self._preset_cool_temperatures[preset_mode]
+                    self.bt_target_cooltemp = min(self.max_temp, max(self.min_temp, cool_temp))
+                    _LOGGER.debug(
+                        "better_thermostat %s: Applied preset %s cooling temperature: %s°C",
+                        self.device_name,
+                        preset_mode,
+                        self.bt_target_cooltemp,
+                    )
 
             _LOGGER.debug(
                 "better_thermostat %s: After preset change %s -> %s, bt_target_temp=%s, bt_hvac_mode=%s",
