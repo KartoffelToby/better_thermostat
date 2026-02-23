@@ -1,7 +1,10 @@
 """Better Thermostat Sensor Platform."""
 
+from __future__ import annotations
+
 from collections.abc import Callable
 import logging
+from typing import TYPE_CHECKING, Any
 
 from homeassistant.components.sensor import (
     SensorDeviceClass,
@@ -10,7 +13,7 @@ from homeassistant.components.sensor import (
 )
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import EntityCategory, UnitOfTemperature
-from homeassistant.core import HomeAssistant, callback
+from homeassistant.core import Event, HomeAssistant, callback
 from homeassistant.helpers.dispatcher import async_dispatcher_connect
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.entity_registry import (
@@ -22,15 +25,16 @@ from homeassistant.helpers.event import async_track_state_change_event
 from .calibration import _get_current_solar_intensity
 from .utils.const import CONF_CALIBRATION_MODE, CalibrationMode
 
+if TYPE_CHECKING:
+    from .climate import BetterThermostat
+
 _LOGGER = logging.getLogger(__name__)
 DOMAIN = "better_thermostat"
 
 # Globale Tracking-Variablen für aktive algorithmus-spezifische Entitäten
-_ACTIVE_ALGORITHM_ENTITIES: dict[str, dict] = {}
-_ENTITY_CLEANUP_CALLBACKS: dict[str, Callable] = {}
-_DISPATCHER_UNSUBSCRIBES: dict[
-    str, Callable[[], None]
-] = {}  # Store unsubscribe functions
+_ACTIVE_ALGORITHM_ENTITIES: dict[str, dict[CalibrationMode, list[str]]] = {}
+_ENTITY_CLEANUP_CALLBACKS: dict[str, Callable[..., None]] = {}
+_DISPATCHER_UNSUBSCRIBES: dict[str, Callable[[], None]] = {}
 
 # Globale Tracking-Variablen für aktive Preset Number Entitäten
 _ACTIVE_PRESET_NUMBERS: dict[
@@ -57,7 +61,7 @@ async def async_setup_entry(
         )
         return
 
-    sensors = [
+    sensors: list[SensorEntity] = [
         BetterThermostatExternalTempSensor(bt_climate),
         BetterThermostatExternalTemp1hEMASensor(bt_climate),
         BetterThermostatTempSlopeSensor(bt_climate),
@@ -79,9 +83,9 @@ async def async_setup_entry(
 async def _setup_algorithm_sensors(
     hass: HomeAssistant,
     entry: ConfigEntry,
-    bt_climate,
-    algorithms_to_create: set | None = None,
-) -> list:
+    bt_climate: BetterThermostat,
+    algorithms_to_create: set[CalibrationMode] | None = None,
+) -> list[SensorEntity]:
     """Set up algorithm-specific sensors based on current configuration.
 
     Parameters
@@ -90,7 +94,7 @@ async def _setup_algorithm_sensors(
         When provided, only sensors for these algorithms are created.
         When ``None`` (initial setup), all active algorithms are created.
     """
-    algorithm_sensors = []
+    algorithm_sensors: list[SensorEntity] = []
     entry_id = entry.entry_id
     current_algorithms = _get_active_algorithms(bt_climate)
 
@@ -139,12 +143,15 @@ async def _setup_algorithm_sensors(
 
 
 async def _register_dynamic_entity_callback(
-    hass: HomeAssistant, entry: ConfigEntry, bt_climate, async_add_entities
+    hass: HomeAssistant,
+    entry: ConfigEntry,
+    bt_climate: BetterThermostat,
+    async_add_entities: AddEntitiesCallback,
 ) -> None:
     """Register callback for dynamic entity management."""
 
     @callback
-    def _on_config_change(data):
+    def _on_config_change(data: Any) -> None:
         """Handle configuration changes that might affect entity requirements."""
         _LOGGER.debug(
             "Better Thermostat %s: Configuration change detected via signal, checking entity requirements",
@@ -166,7 +173,10 @@ async def _register_dynamic_entity_callback(
 
 
 async def _handle_dynamic_entity_update(
-    hass: HomeAssistant, entry: ConfigEntry, bt_climate, async_add_entities
+    hass: HomeAssistant,
+    entry: ConfigEntry,
+    bt_climate: BetterThermostat,
+    async_add_entities: AddEntitiesCallback,
 ) -> None:
     """Handle dynamic entity creation/removal based on configuration."""
     entry_id = entry.entry_id
@@ -209,7 +219,10 @@ async def _handle_dynamic_entity_update(
 
 
 async def _cleanup_stale_algorithm_entities(
-    hass: HomeAssistant, entry_id: str, bt_climate, current_algorithms: set
+    hass: HomeAssistant,
+    entry_id: str,
+    bt_climate: BetterThermostat,
+    current_algorithms: set[CalibrationMode],
 ) -> None:
     """Remove algorithm-specific entities that are no longer needed."""
     if entry_id not in _ACTIVE_ALGORITHM_ENTITIES:
@@ -273,7 +286,7 @@ async def _cleanup_stale_algorithm_entities(
         del _ACTIVE_ALGORITHM_ENTITIES[entry_id]
 
 
-def _get_active_algorithms(bt_climate) -> set:
+def _get_active_algorithms(bt_climate: BetterThermostat) -> set[CalibrationMode]:
     """Get set of calibration algorithms currently in use by any TRV."""
     if not hasattr(bt_climate, "real_trvs") or not bt_climate.real_trvs:
         return set()
@@ -301,7 +314,7 @@ def _get_active_algorithms(bt_climate) -> set:
 
 
 async def _cleanup_unused_number_entities(
-    hass: HomeAssistant, entry_id: str, bt_climate
+    hass: HomeAssistant, entry_id: str, bt_climate: BetterThermostat
 ) -> None:
     """Clean up unused preset and PID number entities."""
     entity_registry = async_get_entity_registry(hass)
@@ -326,8 +339,8 @@ async def _cleanup_preset_number_entities(
     hass: HomeAssistant,
     entity_registry: EntityRegistry,
     entry_id: str,
-    bt_climate,
-    current_presets: set,
+    bt_climate: BetterThermostat,
+    current_presets: set[str],
 ) -> None:
     """Remove preset number entities for disabled presets."""
     tracked_presets = _ACTIVE_PRESET_NUMBERS.get(entry_id, {})
@@ -381,7 +394,10 @@ async def _cleanup_preset_number_entities(
 
 
 async def _cleanup_pid_number_entities(
-    hass: HomeAssistant, entity_registry: EntityRegistry, entry_id: str, bt_climate
+    hass: HomeAssistant,
+    entity_registry: EntityRegistry,
+    entry_id: str,
+    bt_climate: BetterThermostat,
 ) -> None:
     """Remove PID number entities for TRVs no longer using PID calibration."""
     tracked_pid_numbers = _ACTIVE_PID_NUMBERS.get(entry_id, {})
@@ -451,7 +467,10 @@ async def _cleanup_pid_number_entities(
 
 
 async def _cleanup_pid_switch_entities(
-    hass: HomeAssistant, entity_registry: EntityRegistry, entry_id: str, bt_climate
+    hass: HomeAssistant,
+    entity_registry: EntityRegistry,
+    entry_id: str,
+    bt_climate: BetterThermostat,
 ) -> None:
     """Remove PID switch entities for TRVs no longer using PID calibration and child lock switches for removed TRVs."""
     tracked_switches = _ACTIVE_SWITCH_ENTITIES.get(entry_id, {})
@@ -568,9 +587,9 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 # ---------------------------------------------------------------------------
 
 
-def _get_filtered_temp(bt_climate):
+def _get_filtered_temp(bt_climate: BetterThermostat) -> float | None:
     """Return cur_temp_filtered with fallback to external_temp_ema."""
-    val = getattr(bt_climate, "cur_temp_filtered", None)
+    val: float | None = getattr(bt_climate, "cur_temp_filtered", None)
     if val is None:
         val = getattr(bt_climate, "external_temp_ema", None)
     return val
@@ -589,13 +608,13 @@ class _BtSensorBase(SensorEntity):
     _attr_should_poll = False
     _unique_id_suffix: str
 
-    def __init__(self, bt_climate):
+    def __init__(self, bt_climate: BetterThermostat) -> None:
         """Initialize the sensor."""
         self._bt_climate = bt_climate
         self._attr_unique_id = f"{bt_climate.unique_id}_{self._unique_id_suffix}"
         self._attr_device_info = bt_climate.device_info
 
-    async def async_added_to_hass(self):
+    async def async_added_to_hass(self) -> None:
         """Register callbacks."""
         if self._bt_climate.entity_id:
             self.async_on_remove(
@@ -611,12 +630,12 @@ class _BtSensorBase(SensorEntity):
         self._update_state()
 
     @callback
-    def _on_climate_update(self, event):
+    def _on_climate_update(self, event: Event[Any]) -> None:
         """Handle climate entity update."""
         self._update_state()
         self.async_write_ha_state()
 
-    def _update_state(self):
+    def _update_state(self) -> None:
         """Update state from climate entity. Override in subclasses."""
         raise NotImplementedError
 
@@ -643,7 +662,7 @@ class _BtMpcSensorBase(_BtSensorBase):
             return False
         return True
 
-    def _update_state(self):
+    def _update_state(self) -> None:
         """Update state from calibration_balance debug data."""
         val = None
         if hasattr(self._bt_climate, "real_trvs"):
@@ -670,12 +689,12 @@ class _BtSimpleAttributeSensor(_BtSensorBase):
     _climate_attr: str
     _rounding: int | None = None
 
-    def _update_state(self):
+    def _update_state(self) -> None:
         """Update state from a climate entity attribute."""
-        val = getattr(self._bt_climate, self._climate_attr, None)
+        val: object = getattr(self._bt_climate, self._climate_attr, None)
         if val is not None:
             try:
-                fval = float(val)
+                fval = float(val)  # type: ignore[arg-type]
                 self._attr_native_value = (
                     round(fval, self._rounding)
                     if self._rounding is not None
@@ -700,7 +719,7 @@ class BetterThermostatExternalTempSensor(_BtSensorBase):
     _attr_native_unit_of_measurement = UnitOfTemperature.CELSIUS
     _unique_id_suffix = "external_temp_ema"
 
-    def _update_state(self):
+    def _update_state(self) -> None:
         """Update state from climate entity."""
         val = _get_filtered_temp(self._bt_climate)
         if val is not None:
@@ -721,14 +740,14 @@ class BetterThermostatExternalTemp1hEMASensor(_BtSensorBase):
     _attr_suggested_display_precision = 2
     _unique_id_suffix = "external_temp_ema_1h"
 
-    def __init__(self, bt_climate):
+    def __init__(self, bt_climate: BetterThermostat) -> None:
         """Initialize the sensor."""
         super().__init__(bt_climate)
-        self._ema_value = None
-        self._last_update_ts = None
-        self._tau_s = 3600.0  # 1 hour
+        self._ema_value: float | None = None
+        self._last_update_ts: float | None = None
+        self._tau_s: float = 3600.0  # 1 hour
 
-    def _update_ema(self, new_value):
+    def _update_ema(self, new_value: float) -> None:
         """Update the 1h EMA with a new value."""
         import math
         from time import monotonic
@@ -747,13 +766,14 @@ class BetterThermostatExternalTemp1hEMASensor(_BtSensorBase):
         self._ema_value = ema
         self._last_update_ts = now
 
-    def _update_state(self):
+    def _update_state(self) -> None:
         """Update state from internal EMA."""
         val = _get_filtered_temp(self._bt_climate)
         if val is not None:
             try:
                 self._update_ema(float(val))
-                self._attr_native_value = round(float(self._ema_value), 2)
+                assert self._ema_value is not None  # set by _update_ema
+                self._attr_native_value = round(self._ema_value, 2)
             except (ValueError, TypeError):
                 self._attr_native_value = None
         else:
@@ -854,7 +874,7 @@ class BetterThermostatSolarIntensitySensor(_BtSensorBase):
     _attr_icon = "mdi:solar-power"
     _unique_id_suffix = "solar_intensity"
 
-    def _update_state(self):
+    def _update_state(self) -> None:
         """Update state using utility function."""
         try:
             val = _get_current_solar_intensity(self._bt_climate)
