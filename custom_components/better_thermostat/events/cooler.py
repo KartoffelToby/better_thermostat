@@ -60,20 +60,19 @@ async def trigger_cooler_change(self, event):
         "better_thermostat %s: Cooler %s update received", self.device_name, entity_id
     )
 
-    _main_key = "temperature"
-    if "temperature" not in old_state.attributes:
-        _main_key = "target_temp_high"
+    def _get_cooling_setpoint(state):
+        """Extract cooling setpoint from state, checking both attribute keys."""
+        for key in ("temperature", "target_temp_high"):
+            if key in state.attributes:
+                return convert_to_float(
+                    str(state.attributes[key]),
+                    self.device_name,
+                    "trigger_cooler_change()",
+                )
+        return None
 
-    _old_cooling_setpoint = convert_to_float(
-        str(old_state.attributes.get(_main_key, None)),
-        self.device_name,
-        "trigger_cooler_change()",
-    )
-    _new_cooling_setpoint = convert_to_float(
-        str(new_state.attributes.get(_main_key, None)),
-        self.device_name,
-        "trigger_cooler_change()",
-    )
+    _old_cooling_setpoint = _get_cooling_setpoint(old_state)
+    _new_cooling_setpoint = _get_cooling_setpoint(new_state)
     if (
         _new_cooling_setpoint is not None
         and _old_cooling_setpoint is not None
