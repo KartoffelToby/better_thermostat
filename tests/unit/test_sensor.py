@@ -351,10 +351,10 @@ class TestMpcSensorAvailability:
         BetterThermostatMpcLossSensor,
         BetterThermostatMpcKaSensor,
     ])
-    def test_available_missing_attr_returns_false(self, SensorClass):
-        """If _available attribute is missing entirely, sensor should be unavailable."""
+    def test_available_false_when_not_available(self, SensorClass):
+        """If _available is False, sensor should be unavailable."""
         bt = _make_bt_climate()
-        del bt._available  # remove attribute
+        bt._available = False
         sensor = SensorClass(bt)
         assert sensor.available is False
 
@@ -407,9 +407,8 @@ class TestMpcSensorState:
         sensor._update_state()
         assert sensor._attr_native_value is None
 
-    def test_no_real_trvs_attr_returns_none(self):
-        bt = _make_bt_climate()
-        del bt.real_trvs
+    def test_real_trvs_none_returns_none(self):
+        bt = _make_bt_climate(real_trvs=None)
         sensor = BetterThermostatVirtualTempSensor(bt)
         sensor._update_state()
         assert sensor._attr_native_value is None
@@ -502,9 +501,8 @@ class TestGetActiveAlgorithms:
         bt = _make_bt_climate(real_trvs={})
         assert _get_active_algorithms(bt) == set()
 
-    def test_no_real_trvs_attr_returns_empty(self):
-        bt = _make_bt_climate()
-        del bt.real_trvs
+    def test_real_trvs_none_returns_empty(self):
+        bt = _make_bt_climate(real_trvs=None)
         assert _get_active_algorithms(bt) == set()
 
     def test_mpc_calibration_detected(self):
@@ -1048,8 +1046,7 @@ class TestCleanupPidSwitchEntities:
         _ACTIVE_SWITCH_ENTITIES["entry_1"] = {
             "uid_lock": {"trv": "trv_1", "type": "child_lock"},
         }
-        bt = _make_bt_climate()
-        del bt.real_trvs
+        bt = _make_bt_climate(real_trvs=None)
         await _cleanup_pid_switch_entities(
             hass=MagicMock(), entity_registry=reg, entry_id="entry_1", bt_climate=bt,
         )
@@ -1064,11 +1061,7 @@ class TestEdgeCasesAndPotentialBugs:
     """Tests probing edge cases that might reveal bugs."""
 
     def test_mpc_sensor_real_trvs_none_does_not_crash(self):
-        """If real_trvs is None instead of dict, _update_state should not crash.
-
-        The code checks `hasattr(self._bt_climate, 'real_trvs')` but a MagicMock
-        always has every attribute → it will try to iterate None.
-        """
+        """If real_trvs is None instead of dict, _update_state should not crash."""
         bt = _make_bt_climate()
         bt.real_trvs = None
         sensor = BetterThermostatVirtualTempSensor(bt)
