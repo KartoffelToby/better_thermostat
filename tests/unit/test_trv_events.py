@@ -194,6 +194,15 @@ class TestTriggerTrvChangeGuards:
         await trigger_trv_change(mock_bt, event)
         mock_bt.control_queue_task.put.assert_not_called()
 
+    @pytest.mark.asyncio
+    async def test_org_trv_state_none_returns_early(self, mock_bt):
+        """Return early when hass.states.get() returns None (no crash)."""
+        mock_bt.hass.states.get.return_value = None
+        event = _make_event(mock_bt)
+
+        await trigger_trv_change(mock_bt, event)
+        mock_bt.control_queue_task.put.assert_not_called()
+
 
 # ---------------------------------------------------------------------------
 # 2. Internal temperature change

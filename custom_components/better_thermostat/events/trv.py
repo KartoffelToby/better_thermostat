@@ -73,6 +73,14 @@ async def trigger_trv_change(self, event):
     # _LOGGER.debug(f"better_thermostat {self.device_name}: TRV {entity_id} update received")
 
     _org_trv_state = self.hass.states.get(entity_id)
+    if _org_trv_state is None:
+        _LOGGER.debug(
+            "better_thermostat %s: TRV %s state not found in registry, skipping",
+            self.device_name,
+            entity_id,
+        )
+        return
+
     child_lock = self.real_trvs[entity_id]["advanced"].get("child_lock")
 
     # Dynamische Modell-Erkennung: nur einmalig (z. B. beim Start) – nicht bei jedem Event
