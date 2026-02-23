@@ -29,6 +29,9 @@ from custom_components.better_thermostat.sensor import (
     _ACTIVE_PID_NUMBERS,
     _ACTIVE_PRESET_NUMBERS,
     _ACTIVE_SWITCH_ENTITIES,
+    _BtMpcSensorBase,
+    _BtSensorBase,
+    _BtSimpleAttributeSensor,
     _DISPATCHER_UNSUBSCRIBES,
     _ENTITY_CLEANUP_CALLBACKS,
     _cleanup_pid_number_entities,
@@ -36,6 +39,7 @@ from custom_components.better_thermostat.sensor import (
     _cleanup_preset_number_entities,
     _cleanup_stale_algorithm_entities,
     _get_active_algorithms,
+    _get_filtered_temp,
     _setup_algorithm_sensors,
     async_setup_entry,
     async_unload_entry,
@@ -1202,3 +1206,115 @@ class TestEdgeCasesAndPotentialBugs:
 
         with pytest.raises(KeyError):
             await async_setup_entry(hass, entry, async_add_entities)
+
+
+# ===========================================================================
+# 15. Base class tests
+# ===========================================================================
+
+class TestBtSensorBase:
+    """Tests for _BtSensorBase.__init__ and shared behavior."""
+
+    def test_init_sets_unique_id_from_suffix(self):
+        bt = _make_bt_climate()
+        sensor = BetterThermostatTempSlopeSensor(bt)
+        assert sensor._attr_unique_id == "test_bt_123_temp_slope"
+
+    def test_init_stores_bt_climate(self):
+        bt = _make_bt_climate()
+        sensor = BetterThermostatHeatingPowerSensor(bt)
+        assert sensor._bt_climate is bt
+
+    def test_init_sets_device_info(self):
+        bt = _make_bt_climate()
+        sensor = BetterThermostatHeatLossSensor(bt)
+        assert sensor._attr_device_info == bt.device_info
+
+    def test_all_sensors_inherit_from_base(self):
+        """All concrete sensor classes should inherit from _BtSensorBase."""
+        bt = _make_bt_climate()
+        for cls in [
+            BetterThermostatExternalTempSensor,
+            BetterThermostatExternalTemp1hEMASensor,
+            BetterThermostatTempSlopeSensor,
+            BetterThermostatHeatingPowerSensor,
+            BetterThermostatHeatLossSensor,
+            BetterThermostatVirtualTempSensor,
+            BetterThermostatMpcGainSensor,
+            BetterThermostatMpcLossSensor,
+            BetterThermostatMpcKaSensor,
+            BetterThermostatSolarIntensitySensor,
+        ]:
+            sensor = cls(bt)
+            assert isinstance(sensor, _BtSensorBase), f"{cls.__name__} should inherit from _BtSensorBase"
+
+    def test_mpc_sensors_inherit_from_mpc_base(self):
+        """All MPC sensors should inherit from _BtMpcSensorBase."""
+        bt = _make_bt_climate()
+        for cls in [
+            BetterThermostatVirtualTempSensor,
+            BetterThermostatMpcGainSensor,
+            BetterThermostatMpcLossSensor,
+            BetterThermostatMpcKaSensor,
+        ]:
+            sensor = cls(bt)
+            assert isinstance(sensor, _BtMpcSensorBase), f"{cls.__name__} should inherit from _BtMpcSensorBase"
+
+    def test_simple_sensors_inherit_from_simple_base(self):
+        """Simple attribute sensors should inherit from _BtSimpleAttributeSensor."""
+        bt = _make_bt_climate()
+        for cls in [
+            BetterThermostatTempSlopeSensor,
+            BetterThermostatHeatingPowerSensor,
+            BetterThermostatHeatLossSensor,
+        ]:
+            sensor = cls(bt)
+            assert isinstance(sensor, _BtSimpleAttributeSensor), f"{cls.__name__} should inherit from _BtSimpleAttributeSensor"
+
+
+class TestGetFilteredTemp:
+    """Tests for _get_filtered_temp helper."""
+
+    def test_prefers_cur_temp_filtered(self):
+        bt = _make_bt_climate(cur_temp_filtered=21.5, external_temp_ema=22.0)
+        assert _get_filtered_temp(bt) == 21.5
+
+    def test_falls_back_to_external_temp_ema(self):
+        bt = _make_bt_climate(cur_temp_filtered=None, external_temp_ema=22.0)
+        assert _get_filtered_temp(bt) == 22.0
+
+    def test_returns_none_when_both_missing(self):
+        bt = _make_bt_climate(cur_temp_filtered=None, external_temp_ema=None)
+        assert _get_filtered_temp(bt) is None
+
+    def test_zero_value_not_treated_as_none(self):
+        bt = _make_bt_climate(cur_temp_filtered=0.0, external_temp_ema=22.0)
+        assert _get_filtered_temp(bt) == 0.0
+
+
+class TestBtSimpleAttributeSensor:
+    """Tests for _BtSimpleAttributeSensor base behavior."""
+
+    def test_rounding_applied_when_set(self):
+        bt = _make_bt_climate(temp_slope=0.01236789)
+        sensor = BetterThermostatTempSlopeSensor(bt)
+        sensor._update_state()
+        assert sensor._attr_native_value == 0.0124
+
+    def test_no_rounding_when_none(self):
+        bt = _make_bt_climate(heating_power=0.05123456)
+        sensor = BetterThermostatHeatingPowerSensor(bt)
+        sensor._update_state()
+        assert sensor._attr_native_value == 0.05123456
+
+    def test_none_attribute_gives_none(self):
+        bt = _make_bt_climate(heating_power=None)
+        sensor = BetterThermostatHeatingPowerSensor(bt)
+        sensor._update_state()
+        assert sensor._attr_native_value is None
+
+    def test_invalid_string_gives_none(self):
+        bt = _make_bt_climate(temp_slope="not_a_number")
+        sensor = BetterThermostatTempSlopeSensor(bt)
+        sensor._update_state()
+        assert sensor._attr_native_value is None
