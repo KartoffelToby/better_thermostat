@@ -104,7 +104,10 @@ async def trigger_cooler_change(self, event):
 
         self.bt_target_cooltemp = _new_cooling_setpoint
         if self.bt_target_temp >= self.bt_target_cooltemp:
-            self.bt_target_temp = self.bt_target_cooltemp - self.bt_target_temp_step
+            self.bt_target_temp = max(
+                self.bt_target_cooltemp - max(self.bt_target_temp_step, 0.5),
+                self.bt_min_temp,
+            )
         _main_change = True
 
     if _main_change is True:
