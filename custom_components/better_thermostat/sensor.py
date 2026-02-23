@@ -310,6 +310,7 @@ def _get_pid_trvs(bt_climate: BetterThermostat) -> set[str]:
     for trv_entity_id, trv_data in bt_climate.real_trvs.items():
         advanced = trv_data.get("advanced", {})
         calibration_mode = advanced.get(CONF_CALIBRATION_MODE)
+        # Normalize string values to CalibrationMode enum
         if isinstance(calibration_mode, str):
             try:
                 calibration_mode = CalibrationMode(calibration_mode)
@@ -596,6 +597,7 @@ class _BtSensorBase(SensorEntity):
                 "Better Thermostat climate entity has no entity_id yet. "
                 "Sensor update might be delayed."
             )
+        # Also update initially
         self._update_state()
 
     @callback
@@ -616,7 +618,11 @@ class _BtMpcSensorBase(_BtSensorBase):
 
     @property
     def available(self) -> bool:
-        """Return if entity is available."""
+        """Return if entity is available.
+
+        Follow HA guidelines: return False when entity should be unavailable.
+        This prevents "unknown" states and properly shows "unavailable".
+        """
         if not self._bt_climate._available:
             return False
         if self._bt_climate.window_open:
@@ -833,7 +839,7 @@ class BetterThermostatSolarIntensitySensor(_BtSensorBase):
     _attr_device_class = None
     _attr_native_unit_of_measurement = "%"
     _attr_entity_category = EntityCategory.DIAGNOSTIC
-    _attr_should_poll = True
+    _attr_should_poll = True  # Weather entity updates not strictly coupled to climate state
     _attr_icon = "mdi:solar-power"
     _unique_id_suffix = "solar_intensity"
 
@@ -842,6 +848,7 @@ class BetterThermostatSolarIntensitySensor(_BtSensorBase):
         try:
             val = _get_current_solar_intensity(self._bt_climate)
             if val is not None:
+                # Function returns 0.0-1.0, convert to %
                 self._attr_native_value = round(float(val) * 100.0, 1)
             else:
                 self._attr_native_value = 0.0
