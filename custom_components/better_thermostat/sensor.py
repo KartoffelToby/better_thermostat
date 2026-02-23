@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Callable
 import logging
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING
 
 from homeassistant.components.sensor import (
     SensorDeviceClass,
@@ -13,7 +13,7 @@ from homeassistant.components.sensor import (
 )
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import EntityCategory, UnitOfTemperature
-from homeassistant.core import Event, HomeAssistant, callback
+from homeassistant.core import Event, EventStateChangedData, HomeAssistant, callback
 from homeassistant.helpers.dispatcher import async_dispatcher_connect
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.entity_registry import (
@@ -151,7 +151,7 @@ async def _register_dynamic_entity_callback(
     """Register callback for dynamic entity management."""
 
     @callback
-    def _on_config_change(data: Any) -> None:
+    def _on_config_change(data: object) -> None:
         """Handle configuration changes that might affect entity requirements."""
         _LOGGER.debug(
             "Better Thermostat %s: Configuration change detected via signal, checking entity requirements",
@@ -463,7 +463,7 @@ async def _cleanup_pid_switch_entities(
     entry_id: str,
     bt_climate: BetterThermostat,
 ) -> None:
-    """Remove PID switch entities for TRVs no longer using PID calibration and child lock switches for removed TRVs."""
+    """Remove PID switch and child lock entities for TRVs that changed or were removed."""
     tracked_switches = _ACTIVE_SWITCH_ENTITIES.get(entry_id, {})
     current_pid_trvs = _get_pid_trvs(bt_climate)
 
@@ -601,13 +601,13 @@ class _BtSensorBase(SensorEntity):
         self._update_state()
 
     @callback
-    def _on_climate_update(self, event: Event[Any]) -> None:
+    def _on_climate_update(self, event: Event[EventStateChangedData]) -> None:
         """Handle climate entity update."""
         self._update_state()
         self.async_write_ha_state()
 
     def _update_state(self) -> None:
-        """Update state from climate entity. Override in subclasses."""
+        """Update state from climate entity."""
         raise NotImplementedError
 
 
