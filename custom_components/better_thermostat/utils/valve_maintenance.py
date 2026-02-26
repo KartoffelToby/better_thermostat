@@ -1,8 +1,7 @@
 """Pure-logic helpers for periodic TRV valve maintenance.
 
-Extracted from climate.py to keep the main entity slim.  All functions
-are side-effect-free (aside from the async callbacks they receive) and
-can be tested without Home Assistant.
+All functions are side-effect-free (aside from the async callbacks they
+receive) and can be tested without Home Assistant.
 """
 
 from __future__ import annotations

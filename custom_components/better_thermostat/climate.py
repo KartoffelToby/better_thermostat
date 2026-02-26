@@ -1796,9 +1796,9 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
     async def _run_valve_maintenance(self, trvs: list[str]) -> None:
         """Perform valve exercise: open fully, then close, restore state, and reschedule.
 
-        State mutations (ignore_states, in_maintenance, control_queue,
-        ignore_trv_states) stay here; the pure open/close/restore logic
-        lives in ``utils.valve_maintenance``.
+        Manages state flags (ignore_states, in_maintenance,
+        ignore_trv_states, control_queue) around the pure maintenance
+        logic in ``utils.valve_maintenance``.
         """
         if self.in_maintenance:
             return
