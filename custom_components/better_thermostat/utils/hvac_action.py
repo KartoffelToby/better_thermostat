@@ -92,7 +92,16 @@ def compute_hvac_action(
     trv_snapshots: list[TrvSnapshot],
     device_name: str = "",
 ) -> HvacActionResult:
-    """Compute the current HVAC action without mutating *hysteresis*."""
+    """Compute the current HVAC action without mutating *hysteresis*.
+
+    Rules
+    -----
+    - OFF mode → OFF regardless of temperatures.
+    - Open window → IDLE (suppresses active heating/cooling).
+    - Heating uses a hysteresis band ``[target - tolerance, target]``.
+    - Cooling when ``heat_cool`` and ``cur_temp > cool_target + tolerance``.
+    - Otherwise IDLE, unless a TRV explicitly reports heating.
+    """
     prev_action = hysteresis.last_action
 
     if target_temp is None or cur_temp is None:
@@ -191,7 +200,9 @@ def compute_hvac_action(
                 action = HVACAction.HEATING
                 break
 
-    # Hysteresis state follows tolerance_decision, not the TRV-overridden action
+    # Hysteresis state follows tolerance_decision, not the TRV-overridden action.
+    # A TRV still physically heating must not keep the state machine in the
+    # lenient "was-heating" mode, which would cause heating past target + tolerance.
     new_last_action = (
         HVACAction.HEATING
         if tolerance_decision == HVACAction.HEATING
