@@ -193,6 +193,7 @@ async def open_step(
     if info.use_direct_valve:
         await _set_valve_pct(info.entity_id, 100, set_valve_fn)
         return
+    # Temp-extremes fallback: only when TRV is not OFF (OFF TRVs ignore temp changes)
     if info.cur_mode != HVACMode.OFF:
         await set_temperature_fn(info.entity_id, info.max_temp)
 
@@ -207,6 +208,7 @@ async def close_step(
     if info.use_direct_valve:
         await _set_valve_pct(info.entity_id, 0, set_valve_fn)
         return
+    # Temp-extremes fallback: only when TRV is not OFF (OFF TRVs ignore temp changes)
     if info.cur_mode != HVACMode.OFF:
         await set_temperature_fn(info.entity_id, info.min_temp)
 
@@ -255,6 +257,8 @@ async def run_valve_maintenance(
         len(infos),
     )
 
+    # Execute in synchronized steps across all TRVs (much faster than sequential).
+    # Open all → wait → close all → wait (repeat twice).
     for i in range(2):
         _LOGGER.debug(
             "better_thermostat %s: valve maintenance cycle %d/2 starting for %d TRV(s)",

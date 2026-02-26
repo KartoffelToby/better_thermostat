@@ -1803,6 +1803,7 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
         if self.in_maintenance:
             return
         self.in_maintenance = True
+        # Suppress control loop briefly to prevent interference during maintenance
         self.ignore_states = True
 
         try:
@@ -1870,14 +1871,19 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
             )
         finally:
             self._control_needed_after_maintenance = False
+            # Always release ignore_states after maintenance.
+            # If we restore a previous True here, the control_queue loop can get
+            # stuck sleeping forever and never consume queued control actions.
             self.ignore_states = False
             self.in_maintenance = False
 
-            # Trigger one control cycle after maintenance so BT immediately resumes
+            # Trigger one control cycle after maintenance so BT immediately
+            # resumes with the latest window/temp/target states.
             if self.bt_hvac_mode != HVACMode.OFF:
                 try:
                     self.control_queue_task.put_nowait(self)
                 except Exception:
+                    # Queue full or not ready; periodic tick will eventually catch up.
                     pass
 
     # -- Unified state persistence helpers ------------------------------------
