@@ -104,7 +104,6 @@ from .utils.const import (
     CONF_SENSOR_WINDOW,
     CONF_TARGET_TEMP_STEP,
     CONF_TOLERANCE,
-    CONF_VALVE_MAINTENANCE,
     CONF_WEATHER,
     CONF_WINDOW_TIMEOUT,
     CONF_WINDOW_TIMEOUT_AFTER,
@@ -128,6 +127,13 @@ from .utils.helpers import (
     normalize_hvac_mode,
 )
 from .utils.state_manager import StateManager
+from .utils.valve_maintenance import (
+    build_trv_snapshots,
+    collect_maintenance_trvs,
+    compute_initial_maintenance,
+    compute_next_maintenance,
+    run_valve_maintenance,
+)
 from .utils.watcher import (
     await_optional_sensors,
     check_and_update_degraded_mode,
@@ -1655,41 +1661,14 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
 
             # Ventilwartung: separaten Tick nur aktivieren, wenn mindestens ein TRV sie eingeschaltet hat
             try:
-                any_maintenance = any(
-                    bool(
-                        (trv_info.get("advanced", {}) or {}).get(
-                            CONF_VALVE_MAINTENANCE, False
-                        )
-                    )
-                    for trv_info in self.real_trvs.values()
-                )
+                maint_trvs = collect_maintenance_trvs(self.real_trvs)
             except Exception:
-                any_maintenance = False
+                maint_trvs = []
 
-            if any_maintenance:
-                # Re-calculate next maintenance based on loaded TRV quirks
-                # (overrides the random 1h-5d startup default)
-                min_interval_hours = 168  # Default 7 days
-                for trv_id, trv_data in self.real_trvs.items():
-                    if bool(
-                        (trv_data.get("advanced", {}) or {}).get(
-                            CONF_VALVE_MAINTENANCE, False
-                        )
-                    ):
-                        quirks = trv_data.get("model_quirks")
-                        interval = int(
-                            getattr(quirks, "VALVE_MAINTENANCE_INTERVAL_HOURS", 168)
-                        )
-                        min_interval_hours = min(min_interval_hours, interval)
-
-                now = datetime.now()
-                # Schedule initial run: randomize within [1h, min(5d, interval)]
-                # If interval is very short (e.g. 12h), respect it.
-                max_delay_hours = min(24 * 5, min_interval_hours)
-                delay_hours = randint(1, max(2, max_delay_hours))
-
-                self.next_valve_maintenance = now + timedelta(hours=delay_hours)
-
+            if maint_trvs:
+                self.next_valve_maintenance = compute_initial_maintenance(
+                    self.real_trvs, maint_trvs
+                )
                 self.async_on_remove(
                     async_track_time_interval(
                         self.hass, self._maintenance_tick, timedelta(minutes=5)
@@ -1801,12 +1780,8 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
             return
 
         # Check if any TRV actually has maintenance enabled
-        trvs_to_service: list[str] = []
         try:
-            for trv_id, info in self.real_trvs.items():
-                adv = info.get("advanced", {}) or {}
-                if bool(adv.get(CONF_VALVE_MAINTENANCE, False)):
-                    trvs_to_service.append(trv_id)
+            trvs_to_service = collect_maintenance_trvs(self.real_trvs)
         except Exception:
             trvs_to_service = []
 
@@ -1819,190 +1794,90 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
         self.hass.async_create_task(self._run_valve_maintenance(trvs_to_service))
 
     async def _run_valve_maintenance(self, trvs: list[str]) -> None:
-        """Perform valve exercise: open fully, then close, restore state, and reschedule."""
+        """Perform valve exercise: open fully, then close, restore state, and reschedule.
+
+        State mutations (ignore_states, in_maintenance, control_queue,
+        ignore_trv_states) stay here; the pure open/close/restore logic
+        lives in ``utils.valve_maintenance``.
+        """
         if self.in_maintenance:
             return
         self.in_maintenance = True
-        # Suppress control loop briefly
         self.ignore_states = True
-        now = datetime.now()
 
         try:
-            _LOGGER.info(
-                "better_thermostat %s: starting valve maintenance for %d TRV(s)",
-                self.device_name,
-                len(trvs),
-            )
-
-            # Snapshot TRV states & determine method per TRV
-            trv_infos: dict[str, dict] = {}
-
-            # Helper to set valve percent; delegate records last percent/method.
-            async def _set_valve_pct(trv_id: str, pct: int) -> bool:
-                try:
-                    from .adapters.delegate import set_valve as _delegate_set_valve
-
-                    ok = await _delegate_set_valve(self, trv_id, int(pct))
-                    return bool(ok)
-                except Exception:
-                    return False
-
+            # Set per-TRV guard
             for trv_id in trvs:
-                # Per-TRV guard
                 try:
                     self.real_trvs[trv_id]["ignore_trv_states"] = True
                 except Exception:
                     pass
 
-                trv_state = self.hass.states.get(trv_id)
-                if trv_state is None:
-                    _LOGGER.debug(
-                        "better_thermostat %s: maintenance skip %s (state None)",
-                        self.device_name,
-                        trv_id,
-                    )
-                    # Release guard for this TRV (we won't touch it)
+            # Build snapshots (skips TRVs with state=None)
+            infos = build_trv_snapshots(
+                self.real_trvs, trvs, self.hass.states.get, self.device_name
+            )
+            serviced_ids = {info.entity_id for info in infos}
+
+            # Release guard for TRVs that were skipped (state=None)
+            for trv_id in trvs:
+                if trv_id not in serviced_ids:
                     try:
                         self.real_trvs[trv_id]["ignore_trv_states"] = False
                     except Exception:
                         pass
-                    continue
 
-                cur_mode = trv_state.state
-                cur_temp = trv_state.attributes.get("temperature")
+            # Bind adapter callbacks to self
+            from .adapters.delegate import set_valve as _delegate_set_valve
 
-                valve_entity = (self.real_trvs.get(trv_id, {}) or {}).get(
-                    "valve_position_entity"
-                )
-                quirks = (self.real_trvs.get(trv_id, {}) or {}).get("model_quirks")
-                support_valve = bool(valve_entity) or bool(
-                    getattr(quirks, "override_set_valve", None)
-                )
-                _calibration_type = (
-                    (self.real_trvs.get(trv_id, {}) or {})
-                    .get("advanced", {})
-                    .get("calibration")
-                )
-
-                use_direct_valve = bool(
-                    support_valve
-                    and _calibration_type == CalibrationType.DIRECT_VALVE_BASED
-                )
-
-                trv_infos[trv_id] = {
-                    "cur_mode": cur_mode,
-                    "cur_temp": cur_temp,
-                    "use_direct_valve": use_direct_valve,
-                    "max_t": (self.real_trvs.get(trv_id, {}) or {}).get("max_temp", 30),
-                    "min_t": (self.real_trvs.get(trv_id, {}) or {}).get("min_temp", 5),
-                }
-
-            async def _open_step(trv_id: str):
-                info = trv_infos.get(trv_id)
-                if not info:
-                    return
-                if info["use_direct_valve"]:
-                    await _set_valve_pct(trv_id, 100)
-                    return
-                # temp-extremes fallback: only when TRV is not OFF
-                if info["cur_mode"] != HVACMode.OFF:
-                    await adapter_set_temperature(self, trv_id, info["max_t"])
-
-            async def _close_step(trv_id: str):
-                info = trv_infos.get(trv_id)
-                if not info:
-                    return
-                if info["use_direct_valve"]:
-                    await _set_valve_pct(trv_id, 0)
-                    return
-                if info["cur_mode"] != HVACMode.OFF:
-                    await adapter_set_temperature(self, trv_id, info["min_t"])
-
-            # Execute in synchronized steps across all TRVs (much faster than sequential).
-            # Open all -> wait -> close all -> wait (repeat twice)
-            for i in range(2):
-                _LOGGER.debug(
-                    "better_thermostat %s: valve maintenance cycle %d/2 starting for %d TRV(s)",
-                    self.device_name,
-                    i + 1,
-                    len(trv_infos),
-                )
-                await asyncio.gather(
-                    *(_open_step(trv_id) for trv_id in trv_infos),
-                    return_exceptions=True,
-                )
-                await asyncio.sleep(30)
-                await asyncio.gather(
-                    *(_close_step(trv_id) for trv_id in trv_infos),
-                    return_exceptions=True,
-                )
-                await asyncio.sleep(30)
-
-            # Restore previous setpoint and mode for all TRVs
-            async def _restore_one(trv_id: str):
-                info = trv_infos.get(trv_id)
-                if not info:
-                    return
+            async def _set_valve(entity_id: str, pct: int) -> bool:
                 try:
-                    if info.get("cur_temp") is not None:
-                        await adapter_set_temperature(self, trv_id, info["cur_temp"])
+                    ok = await _delegate_set_valve(self, entity_id, int(pct))
+                    return bool(ok)
                 except Exception:
-                    pass
-                try:
-                    await adapter_set_hvac_mode(self, trv_id, info["cur_mode"])
-                except Exception:
-                    pass
-                try:
-                    self.real_trvs[trv_id]["ignore_trv_states"] = False
-                except Exception:
-                    pass
+                    return False
 
-            await asyncio.gather(
-                *(_restore_one(trv_id) for trv_id in trv_infos), return_exceptions=True
+            async def _set_temp(entity_id: str, temp: float) -> None:
+                await adapter_set_temperature(self, entity_id, temp)
+
+            async def _set_mode(entity_id: str, mode: str) -> None:
+                await adapter_set_hvac_mode(self, entity_id, mode)
+
+            # Run 2× open/close + restore
+            await run_valve_maintenance(
+                infos,
+                set_valve_fn=_set_valve,
+                set_temperature_fn=_set_temp,
+                set_hvac_mode_fn=_set_mode,
+                device_name=self.device_name,
             )
 
-            # Ensure we always release the guard for TRVs that were skipped above.
-            for trv_id in trvs:
-                if trv_id in trv_infos:
-                    continue
+            # Release per-TRV guard for serviced TRVs
+            for trv_id in serviced_ids:
                 try:
                     self.real_trvs[trv_id]["ignore_trv_states"] = False
                 except Exception:
                     pass
 
-            # Determine next maintenance interval based on the quirks of enabled TRVs
-            min_interval_hours = 168  # Default 7 days
-            for trv_id in trvs:
-                quirks = (self.real_trvs.get(trv_id, {}) or {}).get("model_quirks")
-                # Default to 168 hours if quirk doesn't specify
-                interval = int(getattr(quirks, "VALVE_MAINTENANCE_INTERVAL_HOURS", 168))
-                min_interval_hours = min(min_interval_hours, interval)
-
-            # Add ~7% randomization
-            variance = max(1, int(min_interval_hours * 0.07))
-            self.next_valve_maintenance = now + timedelta(
-                hours=min_interval_hours + randint(0, variance)
+            # Schedule next run
+            self.next_valve_maintenance = compute_next_maintenance(
+                self.real_trvs, trvs
             )
             _LOGGER.info(
-                "better_thermostat %s: valve maintenance finished; next at %s",
+                "better_thermostat %s: next valve maintenance at %s",
                 self.device_name,
                 self.next_valve_maintenance,
             )
         finally:
             self._control_needed_after_maintenance = False
-            # Always release ignore_states after maintenance.
-            # If we restore a previous True here, the control_queue loop can get stuck
-            # sleeping forever and never consume queued control actions.
             self.ignore_states = False
             self.in_maintenance = False
 
             # Trigger one control cycle after maintenance so BT immediately resumes
-            # with the latest window/temp/target states.
             if self.bt_hvac_mode != HVACMode.OFF:
                 try:
                     self.control_queue_task.put_nowait(self)
                 except Exception:
-                    # Queue full or not ready; periodic tick will eventually catch up.
                     pass
 
     # -- Unified state persistence helpers ------------------------------------
@@ -3305,14 +3180,7 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
                     self.device_name,
                 )
                 return
-            # gather enabled TRVs
-            trvs_to_service = [
-                trv_id
-                for trv_id, info in self.real_trvs.items()
-                if bool(
-                    (info.get("advanced", {}) or {}).get(CONF_VALVE_MAINTENANCE, False)
-                )
-            ]
+            trvs_to_service = collect_maintenance_trvs(self.real_trvs)
             if not trvs_to_service:
                 _LOGGER.debug(
                     "better_thermostat %s: valve maintenance requested, but no TRV has it enabled",
