@@ -11,13 +11,17 @@ import logging
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from random import randint
-from typing import Any, Awaitable, Callable
+from typing import Awaitable, Callable
 
 from homeassistant.components.climate.const import HVACMode
+from homeassistant.core import State
 
 from .const import CONF_VALVE_MAINTENANCE, CalibrationType
 
 _LOGGER = logging.getLogger(__name__)
+
+# Type alias for the nested TRV config dicts used throughout the codebase.
+TrvMap = dict[str, dict[str, object]]
 
 # ---------------------------------------------------------------------------
 # Data types
@@ -41,18 +45,24 @@ class MaintenanceTrvInfo:
 # ---------------------------------------------------------------------------
 
 
-def collect_maintenance_trvs(real_trvs: dict[str, dict[str, Any]]) -> list[str]:
+def _get_advanced(info: dict[str, object]) -> dict[str, object]:
+    """Safely extract the ``advanced`` sub-dict from a TRV config entry."""
+    adv = info.get("advanced")
+    return adv if isinstance(adv, dict) else {}
+
+
+def collect_maintenance_trvs(real_trvs: TrvMap) -> list[str]:
     """Return entity-ids of TRVs that have valve maintenance enabled."""
     result: list[str] = []
     for trv_id, info in real_trvs.items():
-        adv = info.get("advanced", {}) or {}
+        adv = _get_advanced(info)
         if bool(adv.get(CONF_VALVE_MAINTENANCE, False)):
             result.append(trv_id)
     return result
 
 
 def compute_next_maintenance(
-    real_trvs: dict[str, dict[str, Any]],
+    real_trvs: TrvMap,
     trv_ids: list[str],
     *,
     now: datetime | None = None,
@@ -76,7 +86,7 @@ def compute_next_maintenance(
 
 
 def compute_initial_maintenance(
-    real_trvs: dict[str, dict[str, Any]],
+    real_trvs: TrvMap,
     trv_ids: list[str],
     *,
     now: datetime | None = None,
@@ -106,9 +116,9 @@ def compute_initial_maintenance(
 
 
 def build_trv_snapshots(
-    real_trvs: dict[str, dict[str, Any]],
+    real_trvs: TrvMap,
     trv_ids: list[str],
-    get_state: Callable[[str], Any],
+    get_state: Callable[[str], State | None],
     device_name: str,
 ) -> list[MaintenanceTrvInfo]:
     """Build per-TRV snapshots needed for the maintenance cycle.
@@ -133,19 +143,22 @@ def build_trv_snapshots(
         support_valve = bool(valve_entity) or bool(
             getattr(quirks, "override_set_valve", None)
         )
-        cal_type = (trv_data.get("advanced", {}) or {}).get("calibration")
+        adv = _get_advanced(trv_data)
+        cal_type = adv.get("calibration")
         use_direct = bool(
             support_valve and cal_type == CalibrationType.DIRECT_VALVE_BASED
         )
 
+        raw_max = trv_data.get("max_temp", 30)
+        raw_min = trv_data.get("min_temp", 5)
         infos.append(
             MaintenanceTrvInfo(
                 entity_id=trv_id,
                 cur_mode=trv_state.state,
                 cur_temp=trv_state.attributes.get("temperature"),
                 use_direct_valve=use_direct,
-                max_temp=trv_data.get("max_temp", 30),
-                min_temp=trv_data.get("min_temp", 5),
+                max_temp=float(raw_max) if isinstance(raw_max, (int, float)) else 30.0,
+                min_temp=float(raw_min) if isinstance(raw_min, (int, float)) else 5.0,
             )
         )
     return infos
