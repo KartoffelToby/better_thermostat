@@ -41,7 +41,7 @@ from homeassistant.const import (
     STATE_UNAVAILABLE,
     STATE_UNKNOWN,
 )
-from homeassistant.core import Context, CoreState, ServiceCall, callback
+from homeassistant.core import Context, CoreState, ServiceCall, State, callback
 from homeassistant.helpers import entity_platform
 from homeassistant.helpers.dispatcher import dispatcher_send
 from homeassistant.helpers.event import (
@@ -145,9 +145,6 @@ DEFAULT_FALLBACK_TEMPERATURE = 20.0
 # Signal für dynamische Entity-Updates
 SIGNAL_BT_CONFIG_CHANGED = "bt_config_changed_{}"
 
-
-class ContinueLoop(Exception):
-    """Continue loop exception."""
 
 
 @callback
@@ -352,15 +349,15 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
             hours=randint(1, 24 * 5)
         )
         self.cur_temp = None
-        self._current_humidity = 0
+        self._current_humidity: float = 0.0
         self.window_open = None
         self.bt_target_temp_step = (
             float(target_temp_step)
             if target_temp_step and target_temp_step != "0.0"
             else None
         )
-        self.bt_min_temp = 0
-        self.bt_max_temp = 30
+        self.bt_min_temp: float = 0.0
+        self.bt_max_temp: float = 30.0
         self.bt_target_temp = 5.0
         self.bt_target_cooltemp = None
         self._support_flags = SUPPORT_FLAGS | ClimateEntityFeature.PRESET_MODE
@@ -846,8 +843,8 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
         if self.real_trvs[trv].get("local_calibration_step") is None:
             self.real_trvs[trv]["local_calibration_step"] = 0.5
 
-    async def startup(self):
-        """Run when entity about to be added."""
+    async def startup(self) -> None:
+        """Orchestrate entity startup."""
         while self.startup_running:
             _LOGGER.info(
                 "better_thermostat %s: Starting version %s. Waiting for entity to be ready...",
@@ -856,911 +853,932 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
             )
 
             sensor_state = self.hass.states.get(self.sensor_entity_id)
-            if sensor_state is None or sensor_state.state in (
+            if not self._check_entities_ready(sensor_state):
+                await asyncio.sleep(20)
+                continue
+
+            states = self._collect_trv_states()
+            self._resolve_temperature_range(states)
+            self._initialize_sensors(sensor_state)
+            await self._restore_state(states)
+            self._validate_hvac_mode(states)
+            await self._initialize_trvs()
+            await self._finalize_startup()
+            break
+
+    def _check_entities_ready(self, sensor_state: State | None) -> bool:
+        """Check whether sensor and all TRVs are available.
+
+        Returns True when every entity is ready, False otherwise.
+        """
+        if sensor_state is None or sensor_state.state in (
+            STATE_UNAVAILABLE,
+            STATE_UNKNOWN,
+            None,
+        ):
+            _LOGGER.info(
+                "better_thermostat %s: waiting for sensor entity with id '%s' to become fully available...",
+                self.device_name,
+                self.sensor_entity_id,
+            )
+            return False
+
+        for trv in self.real_trvs:
+            trv_state = self.hass.states.get(trv)
+            if trv_state is None or trv_state.state in (
                 STATE_UNAVAILABLE,
                 STATE_UNKNOWN,
                 None,
             ):
                 _LOGGER.info(
-                    "better_thermostat %s: waiting for sensor entity with id '%s' to become fully available...",
+                    "better_thermostat %s: waiting for TRV/climate entity with id '%s' to become fully available...",
                     self.device_name,
-                    self.sensor_entity_id,
+                    trv,
                 )
-                await asyncio.sleep(20)
-                continue
+                return False
+        return True
 
-            try:
-                for trv in self.real_trvs:
-                    trv_state = self.hass.states.get(trv)
-                    if trv_state is None:
-                        _LOGGER.info(
-                            "better_thermostat %s: waiting for TRV/climate entity with id '%s' to become fully available...",
-                            self.device_name,
-                            trv,
-                        )
-                        await asyncio.sleep(20)
-                        raise ContinueLoop
-                    if trv_state is not None:
-                        if trv_state.state in (STATE_UNAVAILABLE, STATE_UNKNOWN, None):
-                            _LOGGER.info(
-                                "better_thermostat %s: waiting for TRV/climate entity with id '%s' to become fully available...",
-                                self.device_name,
-                                trv,
-                            )
-                            await asyncio.sleep(20)
-                            raise ContinueLoop
-            except ContinueLoop:
-                continue
+    def _collect_trv_states(self) -> list[State]:
+        """Collect current State objects for all TRVs and optional cooler."""
+        states = [
+            state
+            for entity_id in self.real_trvs
+            if (state := self.hass.states.get(entity_id)) is not None
+        ]
 
-            states = [
-                state
-                for entity_id in self.real_trvs
-                if (state := self.hass.states.get(entity_id)) is not None
-            ]
-
-            # Include cooler entity in min/max calculation to ensure BT's
-            # temperature range is compatible with all controlled devices
-            if self.cooler_entity_id is not None:
-                cooler_state = self.hass.states.get(self.cooler_entity_id)
-                if cooler_state is not None and cooler_state.state not in (
-                    STATE_UNAVAILABLE,
-                    STATE_UNKNOWN,
-                    None,
-                ):
-                    states.append(cooler_state)
-
-            self.bt_min_temp = reduce_attribute(states, ATTR_MIN_TEMP, reduce=max)
-            self.bt_max_temp = reduce_attribute(states, ATTR_MAX_TEMP, reduce=min)
-
-            if (
-                self.bt_min_temp is not None
-                and self.bt_max_temp is not None
-                and self.bt_min_temp > self.bt_max_temp
-            ):
-                _LOGGER.warning(
-                    "better_thermostat %s: min temp (%.1f°) > max temp (%.1f°). "
-                    "This indicates non-overlapping temperature ranges between "
-                    "heater and cooler entities. Please check your configuration.",
-                    self.device_name,
-                    self.bt_min_temp,
-                    self.bt_max_temp,
-                )
-
-            if self.bt_target_temp_step is None:
-                self.bt_target_temp_step = reduce_attribute(
-                    states, ATTR_TARGET_TEMP_STEP, reduce=max
-                )
-
-            self.all_entities.append(self.sensor_entity_id)
-
-            # Handle room temperature sensor with TRV fallback
-            if sensor_state is not None and sensor_state.state not in (
+        # Include cooler entity in min/max calculation to ensure BT's
+        # temperature range is compatible with all controlled devices
+        if self.cooler_entity_id is not None:
+            cooler_state = self.hass.states.get(self.cooler_entity_id)
+            if cooler_state is not None and cooler_state.state not in (
                 STATE_UNAVAILABLE,
                 STATE_UNKNOWN,
                 None,
             ):
-                self.cur_temp = convert_to_float(
-                    str(sensor_state.state), self.device_name, "startup()"
-                )
-            else:
-                # Fallback to TRV internal temperature
-                _LOGGER.warning(
-                    "better_thermostat %s: Room temperature sensor '%s' unavailable. "
-                    "Falling back to TRV internal temperature.",
-                    self.device_name,
-                    self.sensor_entity_id,
-                )
-                if self.sensor_entity_id not in self.unavailable_sensors:
-                    self.unavailable_sensors.append(self.sensor_entity_id)
-                    self.degraded_mode = True
-                # Get temperature from first available TRV
-                self.cur_temp = None
-                for trv_id in self.real_trvs:
-                    trv_state = self.hass.states.get(trv_id)
-                    if trv_state is not None:
-                        trv_temp = trv_state.attributes.get("current_temperature")
-                        if trv_temp is not None:
-                            self.cur_temp = convert_to_float(
-                                str(trv_temp),
-                                self.device_name,
-                                "startup() TRV fallback",
-                            )
-                            _LOGGER.info(
-                                "better_thermostat %s: Using TRV '%s' temperature: %.1f°C",
-                                self.device_name,
-                                trv_id,
-                                self.cur_temp if self.cur_temp else 0,
-                            )
-                            break
-                if self.cur_temp is None:
-                    self.cur_temp = DEFAULT_FALLBACK_TEMPERATURE
-                    _LOGGER.warning(
-                        "better_thermostat %s: No temperature available, using default %.1f°C",
-                        self.device_name,
-                        DEFAULT_FALLBACK_TEMPERATURE,
-                    )
+                states.append(cooler_state)
 
-            # Initialize EMA with current temperature at startup
-            if self.cur_temp is not None:
-                self.last_known_external_temp = self.cur_temp
-                try:
-                    from .events.temperature import _update_external_temp_ema
+        return states
 
-                    _update_external_temp_ema(self, float(self.cur_temp))
-                    _LOGGER.debug(
-                        "better_thermostat %s: initialized external_temp_ema at startup with %.2f",
-                        self.device_name,
-                        self.cur_temp,
-                    )
-                except (ValueError, TypeError, ImportError) as e:
-                    _LOGGER.warning(
-                        "better_thermostat %s: failed to initialize external_temp_ema at startup: %s",
-                        self.device_name,
-                        e,
-                    )
+    def _resolve_temperature_range(self, states: list[State]) -> None:
+        """Derive min/max/step temperature from TRV states."""
+        self.bt_min_temp = reduce_attribute(states, ATTR_MIN_TEMP, reduce=max)
+        self.bt_max_temp = reduce_attribute(states, ATTR_MAX_TEMP, reduce=min)
 
-            if self.humidity_sensor_entity_id is not None:
-                self.all_entities.append(self.humidity_sensor_entity_id)
-                _hum_state = self.hass.states.get(self.humidity_sensor_entity_id)
-                if _hum_state is not None and _hum_state.state not in (
-                    STATE_UNAVAILABLE,
-                    STATE_UNKNOWN,
-                    None,
-                ):
-                    self._current_humidity = convert_to_float(
-                        str(_hum_state.state), self.device_name, "startup()"
-                    )
-                # else: already logged warning above, _current_humidity stays None
-
-            if self.cooler_entity_id is not None:
-                _cooler_state = self.hass.states.get(self.cooler_entity_id)
-                if _cooler_state is not None and _cooler_state.state not in (
-                    STATE_UNAVAILABLE,
-                    STATE_UNKNOWN,
-                    None,
-                ):
-                    self.bt_target_cooltemp = convert_to_float(
-                        str(_cooler_state.attributes.get("temperature")),
-                        self.device_name,
-                        "startup()",
-                    )
-                # else: already logged warning above
-
-            if self.window_id is not None:
-                self.all_entities.append(self.window_id)
-                window = self.hass.states.get(self.window_id)
-
-                if window is not None and window.state not in (
-                    STATE_UNAVAILABLE,
-                    STATE_UNKNOWN,
-                    None,
-                ):
-                    check = window.state
-                    if check in ("on", "open", "true"):
-                        self.window_open = True
-                    else:
-                        self.window_open = False
-                    _LOGGER.debug(
-                        "better_thermostat %s: detected window state at startup: %s",
-                        self.device_name,
-                        "Open" if self.window_open else "Closed",
-                    )
-                else:
-                    # Window sensor unavailable - assume closed (safer default)
-                    self.window_open = False
-                    _LOGGER.debug(
-                        "better_thermostat %s: window sensor unavailable, assuming closed",
-                        self.device_name,
-                    )
-            else:
-                self.window_open = False
-
-            # Check If we have an old state
-            _LOGGER.debug(
-                "better_thermostat %s: calling async_get_last_state", self.device_name
-            )
-            old_state = await self.async_get_last_state()
-            _LOGGER.debug(
-                "better_thermostat %s: async_get_last_state returned", self.device_name
-            )
-            if old_state is not None:
-                _LOGGER.debug(
-                    "better_thermostat %s: restoring state...", self.device_name
-                )
-                # Restore external_temp_ema if available (overwrites startup init)
-                if "external_temp_ema" in old_state.attributes:
-                    try:
-                        _restored_ema = float(old_state.attributes["external_temp_ema"])
-                        self.external_temp_ema = _restored_ema
-                        self.cur_temp_filtered = round(_restored_ema, 2)
-                        # Reset timestamp to now so the next delta is calculated from restart time
-                        self._external_temp_ema_ts = monotonic()
-                        _LOGGER.debug(
-                            "better_thermostat %s: restored external_temp_ema from state: %.2f",
-                            self.device_name,
-                            _restored_ema,
-                        )
-                    except (ValueError, TypeError):
-                        pass
-
-                # Restore temp_slope if available
-                if "temp_slope_K_min" in old_state.attributes:
-                    try:
-                        _restored_slope = float(
-                            old_state.attributes["temp_slope_K_min"]
-                        )
-                        self.temp_slope = _restored_slope
-                        _LOGGER.debug(
-                            "better_thermostat %s: restored temp_slope from state: %.4f",
-                            self.device_name,
-                            _restored_slope,
-                        )
-                    except (ValueError, TypeError):
-                        pass
-
-                _LOGGER.debug(
-                    "better_thermostat %s: restoring target temperature...",
-                    self.device_name,
-                )
-                # If we have no initial temperature, restore
-                # If we have a previously saved temperature
-                if old_state.attributes.get(ATTR_TEMPERATURE) is None:
-                    self.bt_target_temp = reduce_attribute(
-                        states, ATTR_TEMPERATURE, reduce=lambda *data: mean(data)
-                    )
-                    _LOGGER.debug(
-                        "better_thermostat %s: Undefined target temperature, falling back to %s",
-                        self.device_name,
-                        self.bt_target_temp,
-                    )
-                else:
-                    _oldtarget_temperature = float(
-                        old_state.attributes.get(ATTR_TEMPERATURE)
-                    )
-                    # if the saved temperature is lower than the min_temp, set it to min_temp
-                    if _oldtarget_temperature < self.bt_min_temp:
-                        _LOGGER.warning(
-                            "better_thermostat %s: Saved target temperature %s is lower than min_temp %s, setting to min_temp",
-                            self.device_name,
-                            _oldtarget_temperature,
-                            self.bt_min_temp,
-                        )
-                        _oldtarget_temperature = self.bt_min_temp
-                    # if the saved temperature is higher than the max_temp, set it to max_temp
-                    elif _oldtarget_temperature > self.bt_max_temp:
-                        _LOGGER.warning(
-                            "better_thermostat %s: Saved target temperature %s is higher than max_temp %s, setting to max_temp",
-                            self.device_name,
-                            _oldtarget_temperature,
-                            self.bt_min_temp,
-                        )
-                        _oldtarget_temperature = self.bt_max_temp
-                    self.bt_target_temp = convert_to_float(
-                        str(_oldtarget_temperature), self.device_name, "startup()"
-                    )
-                _LOGGER.debug(
-                    "better_thermostat %s: target temperature restored",
-                    self.device_name,
-                )
-
-                _LOGGER.debug(
-                    "better_thermostat %s: restoring preset mode...", self.device_name
-                )
-                # Restore preset mode if present
-                _old_preset = old_state.attributes.get("preset_mode")
-                if _old_preset in ([PRESET_NONE] + list(self._preset_temperatures)):
-                    self._preset_mode = _old_preset
-                else:
-                    self._preset_mode = PRESET_NONE
-
-                _LOGGER.debug(
-                    "better_thermostat %s: applying restored preset temperature...",
-                    self.device_name,
-                )
-                # If we restored a preset (not NONE) and we have a stored temperature for it,
-                # ensure target temp matches (unless the restored target was already equal).
-                if (
-                    self._preset_mode is not None
-                    and self._preset_mode != PRESET_NONE
-                    and self._preset_mode in self._preset_temperatures
-                ):
-                    preset_temp = self._preset_temperatures[self._preset_mode]
-                    # Only override if different to avoid masking manual restore logic
-                    if (
-                        isinstance(preset_temp, (int, float))
-                        and preset_temp is not None
-                        and self.bt_target_temp != preset_temp
-                    ):
-                        _LOGGER.debug(
-                            "better_thermostat %s: Applying restored preset %s temperature %s after startup",
-                            self.device_name,
-                            self._preset_mode,
-                            preset_temp,
-                        )
-                        self.bt_target_temp = preset_temp
-                _LOGGER.debug(
-                    "better_thermostat %s: restored preset temperature applied",
-                    self.device_name,
-                )
-
-                _LOGGER.debug(
-                    "better_thermostat %s: restoring other attributes...",
-                    self.device_name,
-                )
-                if old_state.state not in (STATE_UNAVAILABLE, STATE_UNKNOWN, None):
-                    self.bt_hvac_mode = old_state.state
-                if old_state.attributes.get(ATTR_STATE_CALL_FOR_HEAT, None) is not None:
-                    self.call_for_heat = old_state.attributes.get(
-                        ATTR_STATE_CALL_FOR_HEAT
-                    )
-                if (
-                    old_state.attributes.get(ATTR_STATE_SAVED_TEMPERATURE, None)
-                    is not None
-                ):
-                    self._saved_temperature = convert_to_float(
-                        str(
-                            old_state.attributes.get(ATTR_STATE_SAVED_TEMPERATURE, None)
-                        ),
-                        self.device_name,
-                        "startup()",
-                    )
-                if old_state.attributes.get(ATTR_STATE_HUMIDIY, None) is not None:
-                    self._current_humidity = old_state.attributes.get(
-                        ATTR_STATE_HUMIDIY
-                    )
-                if old_state.attributes.get(ATTR_STATE_MAIN_MODE, None) is not None:
-                    self.last_main_hvac_mode = old_state.attributes.get(
-                        ATTR_STATE_MAIN_MODE
-                    )
-                if old_state.attributes.get(ATTR_STATE_HEATING_POWER, None) is not None:
-                    try:
-                        _power_value = old_state.attributes.get(
-                            ATTR_STATE_HEATING_POWER
-                        )
-                        if _power_value is not None:
-                            loaded_power = float(_power_value)
-                        else:
-                            loaded_power = 0.01
-                    except (TypeError, ValueError):
-                        loaded_power = 0.01
-                    # Bound to realistic values to prevent issues from incorrectly learned values
-                    bounded_power = max(
-                        MIN_HEATING_POWER, min(MAX_HEATING_POWER, loaded_power)
-                    )
-                    if bounded_power != loaded_power:
-                        _LOGGER.info(
-                            "better_thermostat %s: Restored heating_power %.3f "
-                            "is outside allowed range [%s, %s]; clamped to %.3f",
-                            self.device_name,
-                            loaded_power,
-                            MIN_HEATING_POWER,
-                            MAX_HEATING_POWER,
-                            bounded_power,
-                        )
-                    self.heating_power = bounded_power
-
-                # Restore heat loss if available
-                if old_state.attributes.get(ATTR_STATE_HEAT_LOSS, None) is not None:
-                    try:
-                        _loss_value = old_state.attributes.get(ATTR_STATE_HEAT_LOSS)
-                        if _loss_value is not None:
-                            loaded_loss = float(_loss_value)
-                        else:
-                            loaded_loss = 0.01
-                        bounded_loss = max(
-                            MIN_HEAT_LOSS, min(MAX_HEAT_LOSS, loaded_loss)
-                        )
-                        self.heat_loss_rate = bounded_loss
-                    except (TypeError, ValueError):
-                        pass
-                if (
-                    old_state.attributes.get(ATTR_STATE_PRESET_TEMPERATURE, None)
-                    is not None
-                ):
-                    self._preset_temperature = convert_to_float(
-                        str(
-                            old_state.attributes.get(
-                                ATTR_STATE_PRESET_TEMPERATURE, None
-                            )
-                        ),
-                        self.device_name,
-                        "startup()",
-                    )
-                # Restore preset mode
-                if old_state.attributes.get("preset_mode", None) is not None:
-                    restored_preset = old_state.attributes.get("preset_mode")
-                    if restored_preset in self.preset_modes:
-                        self._preset_mode = restored_preset
-                        _LOGGER.debug(
-                            "better_thermostat %s: Restored preset mode: %s",
-                            self.device_name,
-                            restored_preset,
-                        )
-                _LOGGER.debug(
-                    "better_thermostat %s: state restoration completed",
-                    self.device_name,
-                )
-
-                # ECO mode state / saved ECO temperature not restored; Eco preset is supported via PRESET_ECO.
-
-            else:
-                # No previous state, try and restore defaults
-                _LOGGER.debug(
-                    "better_thermostat %s: no previous state, restoring defaults...",
-                    self.device_name,
-                )
-                if self.bt_target_temp is None or not isinstance(
-                    self.bt_target_temp, float
-                ):
-                    _LOGGER.info(
-                        "better_thermostat %s: No previously saved temperature found on startup, get it from the TRV",
-                        self.device_name,
-                    )
-                    self.bt_target_temp = reduce_attribute(
-                        states, ATTR_TEMPERATURE, reduce=lambda *data: mean(data)
-                    )
-                _LOGGER.debug(
-                    "better_thermostat %s: defaults restored", self.device_name
-                )
-
-            # if hvac mode could not be restored, turn heat off
-            _LOGGER.debug(
-                "better_thermostat %s: checking hvac mode...", self.device_name
-            )
-            if self.bt_hvac_mode in (STATE_UNAVAILABLE, STATE_UNKNOWN, None):
-                current_hvac_modes = [
-                    x.state for x in states if x.state != HVACMode.OFF
-                ]
-                # return the most common hvac mode (what the thermostat is set to do) except OFF
-                if current_hvac_modes:
-                    _temp_bt_hvac_mode = max(
-                        set(current_hvac_modes), key=current_hvac_modes.count
-                    )
-                    if _temp_bt_hvac_mode is not HVACMode.OFF:
-                        self.bt_hvac_mode = HVACMode.HEAT
-                    else:
-                        self.bt_hvac_mode = HVACMode.OFF
-                    _LOGGER.debug(
-                        "better_thermostat %s: No previously hvac mode found on startup, turn bt to trv mode %s",
-                        self.device_name,
-                        self.bt_hvac_mode,
-                    )
-                # return off if all are off
-                elif all(x.state == HVACMode.OFF for x in states):
-                    self.bt_hvac_mode = HVACMode.OFF
-                    _LOGGER.debug(
-                        "better_thermostat %s: No previously hvac mode found on startup, turn bt to trv mode %s",
-                        self.device_name,
-                        self.bt_hvac_mode,
-                    )
-                else:
-                    _LOGGER.warning(
-                        "better_thermostat %s: No previously hvac mode found on startup, turn heat off",
-                        self.device_name,
-                    )
-                    self.bt_hvac_mode = HVACMode.OFF
-
-            _LOGGER.debug(
-                "better_thermostat %s: Startup config, BT hvac mode is %s, Target temp %s",
+        if (
+            self.bt_min_temp is not None
+            and self.bt_max_temp is not None
+            and self.bt_min_temp > self.bt_max_temp
+        ):
+            _LOGGER.warning(
+                "better_thermostat %s: min temp (%.1f°) > max temp (%.1f°). "
+                "This indicates non-overlapping temperature ranges between "
+                "heater and cooler entities. Please check your configuration.",
                 self.device_name,
-                self.bt_hvac_mode,
-                self.bt_target_temp,
+                self.bt_min_temp,
+                self.bt_max_temp,
             )
 
-            if self.last_main_hvac_mode is None:
-                self.last_main_hvac_mode = self.bt_hvac_mode
-
-            _LOGGER.debug(
-                "better_thermostat %s: checking humidity sensor...", self.device_name
+        if self.bt_target_temp_step is None:
+            self.bt_target_temp_step = reduce_attribute(
+                states, ATTR_TARGET_TEMP_STEP, reduce=max
             )
-            if self.humidity_sensor_entity_id is not None:
-                _hum_state = self.hass.states.get(self.humidity_sensor_entity_id)
-                if _hum_state is None:
-                    _LOGGER.warning(
-                        "better_thermostat %s: Humidity sensor %s not found or not ready",
-                        self.device_name,
-                        self.humidity_sensor_entity_id,
-                    )
-                    self._current_humidity = 0
-                else:
-                    self._current_humidity = convert_to_float(
-                        str(_hum_state.state), self.device_name, "startup()"
-                    )
-            else:
-                self._current_humidity = 0
 
-            self.last_window_state = self.window_open
-            if self.bt_hvac_mode not in (
-                HVACMode.OFF,
-                HVACMode.HEAT_COOL,
-                HVACMode.HEAT,
-            ):
-                self.bt_hvac_mode = HVACMode.HEAT
+    def _initialize_sensors(self, sensor_state: State | None) -> None:
+        """Set up room temperature, humidity, cooler and window sensors."""
+        self.all_entities.append(self.sensor_entity_id)
 
-            _LOGGER.debug(
-                "better_thermostat %s: writing initial state...", self.device_name
+        # Handle room temperature sensor with TRV fallback
+        if sensor_state is not None and sensor_state.state not in (
+            STATE_UNAVAILABLE,
+            STATE_UNKNOWN,
+            None,
+        ):
+            self.cur_temp = convert_to_float(
+                str(sensor_state.state), self.device_name, "startup()"
             )
-            self.async_write_ha_state()
-
-            for trv, trv_data in self.real_trvs.items():
-                self.all_entities.append(trv)
-                _LOGGER.debug(
-                    "better_thermostat %s: initializing TRV %s", self.device_name, trv
-                )
-                try:
-                    await asyncio.wait_for(init(self, trv), timeout=30)
-                    _LOGGER.debug(
-                        "better_thermostat %s: TRV %s initialized",
-                        self.device_name,
-                        trv,
-                    )
-                except TimeoutError:
-                    _LOGGER.error(
-                        "better_thermostat %s: Timeout initializing TRV %s",
-                        self.device_name,
-                        trv,
-                    )
-                except Exception as exc:
-                    _LOGGER.error(
-                        "better_thermostat %s: Error initializing TRV %s: %s",
-                        self.device_name,
-                        trv,
-                        exc,
-                    )
-
-                try:
-                    await inital_tweak(self, trv)
-                except Exception as exc:
-                    _LOGGER.error(
-                        "better_thermostat %s: Error running initial tweak for TRV %s: %s",
-                        self.device_name,
-                        trv,
-                        exc,
-                    )
-
-                if trv_data["calibration"] != 1:
-                    _LOGGER.debug(
-                        "better_thermostat %s: getting offsets for TRV %s",
-                        self.device_name,
-                        trv,
-                    )
-
-                    try:
-                        async with asyncio.timeout(10):
-                            trv_data["last_calibration"] = await get_current_offset(
-                                self, trv
-                            )
-                            trv_data["local_calibration_min"] = await get_min_offset(
-                                self, trv
-                            )
-                            trv_data["local_calibration_max"] = await get_max_offset(
-                                self, trv
-                            )
-                            trv_data["local_calibration_step"] = await get_offset_step(
-                                self, trv
-                            )
-                        # Ensure None values are replaced with sensible defaults
-                        self._set_trv_calibration_defaults(trv)
-                        _LOGGER.debug(
-                            "better_thermostat %s: offsets for TRV %s retrieved",
+        else:
+            # Fallback to TRV internal temperature
+            _LOGGER.warning(
+                "better_thermostat %s: Room temperature sensor '%s' unavailable. "
+                "Falling back to TRV internal temperature.",
+                self.device_name,
+                self.sensor_entity_id,
+            )
+            if self.sensor_entity_id not in self.unavailable_sensors:
+                self.unavailable_sensors.append(self.sensor_entity_id)
+                self.degraded_mode = True
+            # Get temperature from first available TRV
+            self.cur_temp = None
+            for trv_id in self.real_trvs:
+                trv_state = self.hass.states.get(trv_id)
+                if trv_state is not None:
+                    trv_temp = trv_state.attributes.get("current_temperature")
+                    if trv_temp is not None:
+                        self.cur_temp = convert_to_float(
+                            str(trv_temp),
                             self.device_name,
-                            trv,
+                            "startup() TRV fallback",
                         )
-                    except TimeoutError:
-                        _LOGGER.error(
-                            "better_thermostat %s: Timeout getting offsets for TRV %s",
+                        _LOGGER.info(
+                            "better_thermostat %s: Using TRV '%s' temperature: %.1f°C",
                             self.device_name,
-                            trv,
+                            trv_id,
+                            self.cur_temp if self.cur_temp else 0,
                         )
-                        self._set_trv_calibration_defaults(trv)
-                    except Exception as exc:
-                        _LOGGER.error(
-                            "better_thermostat %s: Error getting offsets for TRV %s: %s",
-                            self.device_name,
-                            trv,
-                            exc,
-                        )
-                        self._set_trv_calibration_defaults(trv)
-                else:
-                    trv_data["last_calibration"] = 0
-                    trv_data["local_calibration_min"] = -7
-                    trv_data["local_calibration_max"] = 7
-                    trv_data["local_calibration_step"] = 0.5
-
-                _s = self.hass.states.get(trv)
-                _attrs = _s.attributes if _s else {}
-                _LOGGER.debug(
-                    "better_thermostat %s: reading TRV %s attributes...",
+                        break
+            if self.cur_temp is None:
+                self.cur_temp = DEFAULT_FALLBACK_TEMPERATURE
+                _LOGGER.warning(
+                    "better_thermostat %s: No temperature available, using default %.1f°C",
                     self.device_name,
-                    trv,
+                    DEFAULT_FALLBACK_TEMPERATURE,
                 )
-                trv_data["valve_position"] = convert_to_float(
-                    str(_attrs.get("valve_position", None)), self.device_name, "startup"
+
+        # Initialize EMA with current temperature at startup
+        if self.cur_temp is not None:
+            self.last_known_external_temp = self.cur_temp
+            try:
+                from .events.temperature import _update_external_temp_ema
+
+                _update_external_temp_ema(self, float(self.cur_temp))
+                _LOGGER.debug(
+                    "better_thermostat %s: initialized external_temp_ema at startup with %.2f",
+                    self.device_name,
+                    self.cur_temp,
                 )
-                trv_data["max_temp"] = convert_to_float(
-                    str(_attrs.get("max_temp", 30)), self.device_name, "startup"
+            except (ValueError, TypeError, ImportError) as e:
+                _LOGGER.warning(
+                    "better_thermostat %s: failed to initialize external_temp_ema at startup: %s",
+                    self.device_name,
+                    e,
                 )
-                trv_data["min_temp"] = convert_to_float(
-                    str(_attrs.get("min_temp", 5)), self.device_name, "startup"
-                )
-                # Prefer configured step over device-reported step
-                cfg_step = (
-                    self.bt_target_temp_step
-                    if self.bt_target_temp_step and self.bt_target_temp_step > 0.0
-                    else None
-                )
-                if cfg_step is not None:
-                    trv_data["target_temp_step"] = cfg_step
-                else:
-                    trv_data["target_temp_step"] = convert_to_float(
-                        str(_attrs.get("target_temp_step", 0.5)),
-                        self.device_name,
-                        "startup",
-                    )
-                trv_data["temperature"] = convert_to_float(
-                    str(_attrs.get("temperature", 5)), self.device_name, "startup"
-                )
-                trv_data["hvac_modes"] = _attrs.get("hvac_modes", None)
-                trv_data["hvac_mode"] = _s.state if _s else None
-                trv_data["last_hvac_mode"] = _s.state if _s else None
-                trv_data["last_temperature"] = convert_to_float(
-                    str(_attrs.get("temperature")), self.device_name, "startup()"
-                )
-                trv_data["current_temperature"] = convert_to_float(
-                    str(_attrs.get("current_temperature") or 5),
+
+        if self.humidity_sensor_entity_id is not None:
+            self.all_entities.append(self.humidity_sensor_entity_id)
+            _hum_state = self.hass.states.get(self.humidity_sensor_entity_id)
+            if _hum_state is not None and _hum_state.state not in (
+                STATE_UNAVAILABLE,
+                STATE_UNKNOWN,
+                None,
+            ):
+                self._current_humidity = convert_to_float(
+                    str(_hum_state.state), self.device_name, "startup()"
+                ) or 0.0
+            # else: already logged warning above, _current_humidity stays None
+
+        if self.cooler_entity_id is not None:
+            _cooler_state = self.hass.states.get(self.cooler_entity_id)
+            if _cooler_state is not None and _cooler_state.state not in (
+                STATE_UNAVAILABLE,
+                STATE_UNKNOWN,
+                None,
+            ):
+                self.bt_target_cooltemp = convert_to_float(
+                    str(_cooler_state.attributes.get("temperature")),
                     self.device_name,
                     "startup()",
                 )
+            # else: already logged warning above
+
+        if self.window_id is not None:
+            self.all_entities.append(self.window_id)
+            window = self.hass.states.get(self.window_id)
+
+            if window is not None and window.state not in (
+                STATE_UNAVAILABLE,
+                STATE_UNKNOWN,
+                None,
+            ):
+                check = window.state
+                if check in ("on", "open", "true"):
+                    self.window_open = True
+                else:
+                    self.window_open = False
                 _LOGGER.debug(
-                    "better_thermostat %s: controlling TRV %s...", self.device_name, trv
+                    "better_thermostat %s: detected window state at startup: %s",
+                    self.device_name,
+                    "Open" if self.window_open else "Closed",
                 )
+            else:
+                # Window sensor unavailable - assume closed (safer default)
+                self.window_open = False
+                _LOGGER.debug(
+                    "better_thermostat %s: window sensor unavailable, assuming closed",
+                    self.device_name,
+                )
+        else:
+            self.window_open = False
+
+    async def _restore_state(self, states: list[State]) -> None:
+        """Restore previous state from HA state machine or fall back to defaults."""
+        _LOGGER.debug(
+            "better_thermostat %s: calling async_get_last_state", self.device_name
+        )
+        old_state = await self.async_get_last_state()
+        _LOGGER.debug(
+            "better_thermostat %s: async_get_last_state returned", self.device_name
+        )
+        if old_state is not None:
+            _LOGGER.debug(
+                "better_thermostat %s: restoring state...", self.device_name
+            )
+            # Restore external_temp_ema if available (overwrites startup init)
+            if "external_temp_ema" in old_state.attributes:
                 try:
-                    await asyncio.wait_for(control_trv(self, trv), timeout=10)
+                    _restored_ema = float(old_state.attributes["external_temp_ema"])
+                    self.external_temp_ema = _restored_ema
+                    self.cur_temp_filtered = round(_restored_ema, 2)
+                    # Reset timestamp to now so the next delta is calculated from restart time
+                    self._external_temp_ema_ts = monotonic()
                     _LOGGER.debug(
-                        "better_thermostat %s: TRV %s controlled", self.device_name, trv
+                        "better_thermostat %s: restored external_temp_ema from state: %.2f",
+                        self.device_name,
+                        _restored_ema,
                     )
-                except TimeoutError:
-                    _LOGGER.error(
-                        "better_thermostat %s: Timeout controlling TRV %s",
+                except (ValueError, TypeError):
+                    pass
+
+            # Restore temp_slope if available
+            if "temp_slope_K_min" in old_state.attributes:
+                try:
+                    _restored_slope = float(
+                        old_state.attributes["temp_slope_K_min"]
+                    )
+                    self.temp_slope = _restored_slope
+                    _LOGGER.debug(
+                        "better_thermostat %s: restored temp_slope from state: %.4f",
+                        self.device_name,
+                        _restored_slope,
+                    )
+                except (ValueError, TypeError):
+                    pass
+
+            _LOGGER.debug(
+                "better_thermostat %s: restoring target temperature...",
+                self.device_name,
+            )
+            # If we have no initial temperature, restore
+            # If we have a previously saved temperature
+            if old_state.attributes.get(ATTR_TEMPERATURE) is None:
+                self.bt_target_temp = reduce_attribute(
+                    states, ATTR_TEMPERATURE, reduce=lambda *data: mean(data)
+                )
+                _LOGGER.debug(
+                    "better_thermostat %s: Undefined target temperature, falling back to %s",
+                    self.device_name,
+                    self.bt_target_temp,
+                )
+            else:
+                _oldtarget_temperature = float(
+                    old_state.attributes[ATTR_TEMPERATURE]
+                )
+                # if the saved temperature is lower than the min_temp, set it to min_temp
+                if _oldtarget_temperature < self.bt_min_temp:
+                    _LOGGER.warning(
+                        "better_thermostat %s: Saved target temperature %s is lower than min_temp %s, setting to min_temp",
+                        self.device_name,
+                        _oldtarget_temperature,
+                        self.bt_min_temp,
+                    )
+                    _oldtarget_temperature = self.bt_min_temp
+                # if the saved temperature is higher than the max_temp, set it to max_temp
+                elif _oldtarget_temperature > self.bt_max_temp:
+                    _LOGGER.warning(
+                        "better_thermostat %s: Saved target temperature %s is higher than max_temp %s, setting to max_temp",
+                        self.device_name,
+                        _oldtarget_temperature,
+                        self.bt_min_temp,
+                    )
+                    _oldtarget_temperature = self.bt_max_temp
+                self.bt_target_temp = _oldtarget_temperature
+            _LOGGER.debug(
+                "better_thermostat %s: target temperature restored",
+                self.device_name,
+            )
+
+            _LOGGER.debug(
+                "better_thermostat %s: restoring preset mode...", self.device_name
+            )
+            # Restore preset mode if present
+            _old_preset = old_state.attributes.get("preset_mode")
+            if _old_preset in ([PRESET_NONE] + list(self._preset_temperatures)):
+                self._preset_mode = _old_preset
+            else:
+                self._preset_mode = PRESET_NONE
+
+            _LOGGER.debug(
+                "better_thermostat %s: applying restored preset temperature...",
+                self.device_name,
+            )
+            # If we restored a preset (not NONE) and we have a stored temperature for it,
+            # ensure target temp matches (unless the restored target was already equal).
+            if (
+                self._preset_mode is not None
+                and self._preset_mode != PRESET_NONE
+                and self._preset_mode in self._preset_temperatures
+            ):
+                preset_temp = self._preset_temperatures[self._preset_mode]
+                # Only override if different to avoid masking manual restore logic
+                if (
+                    isinstance(preset_temp, (int, float))
+                    and preset_temp is not None
+                    and self.bt_target_temp != preset_temp
+                ):
+                    _LOGGER.debug(
+                        "better_thermostat %s: Applying restored preset %s temperature %s after startup",
+                        self.device_name,
+                        self._preset_mode,
+                        preset_temp,
+                    )
+                    self.bt_target_temp = preset_temp
+            _LOGGER.debug(
+                "better_thermostat %s: restored preset temperature applied",
+                self.device_name,
+            )
+
+            _LOGGER.debug(
+                "better_thermostat %s: restoring other attributes...",
+                self.device_name,
+            )
+            if old_state.state not in (STATE_UNAVAILABLE, STATE_UNKNOWN, None):
+                self.bt_hvac_mode = old_state.state
+            if old_state.attributes.get(ATTR_STATE_CALL_FOR_HEAT, None) is not None:
+                self.call_for_heat = bool(
+                    old_state.attributes.get(ATTR_STATE_CALL_FOR_HEAT)
+                )
+            if (
+                old_state.attributes.get(ATTR_STATE_SAVED_TEMPERATURE, None)
+                is not None
+            ):
+                self._saved_temperature = convert_to_float(
+                    str(
+                        old_state.attributes.get(ATTR_STATE_SAVED_TEMPERATURE, None)
+                    ),
+                    self.device_name,
+                    "startup()",
+                )
+            if old_state.attributes.get(ATTR_STATE_HUMIDIY, None) is not None:
+                self._current_humidity = float(
+                    old_state.attributes[ATTR_STATE_HUMIDIY]
+                )
+            if old_state.attributes.get(ATTR_STATE_MAIN_MODE, None) is not None:
+                self.last_main_hvac_mode = str(
+                    old_state.attributes[ATTR_STATE_MAIN_MODE]
+                )
+            if old_state.attributes.get(ATTR_STATE_HEATING_POWER, None) is not None:
+                try:
+                    _power_value = old_state.attributes.get(
+                        ATTR_STATE_HEATING_POWER
+                    )
+                    if _power_value is not None:
+                        loaded_power = float(_power_value)
+                    else:
+                        loaded_power = 0.01
+                except (TypeError, ValueError):
+                    loaded_power = 0.01
+                # Bound to realistic values to prevent issues from incorrectly learned values
+                bounded_power = max(
+                    MIN_HEATING_POWER, min(MAX_HEATING_POWER, loaded_power)
+                )
+                if bounded_power != loaded_power:
+                    _LOGGER.info(
+                        "better_thermostat %s: Restored heating_power %.3f "
+                        "is outside allowed range [%s, %s]; clamped to %.3f",
+                        self.device_name,
+                        loaded_power,
+                        MIN_HEATING_POWER,
+                        MAX_HEATING_POWER,
+                        bounded_power,
+                    )
+                self.heating_power = bounded_power
+
+            # Restore heat loss if available
+            if old_state.attributes.get(ATTR_STATE_HEAT_LOSS, None) is not None:
+                try:
+                    _loss_value = old_state.attributes.get(ATTR_STATE_HEAT_LOSS)
+                    if _loss_value is not None:
+                        loaded_loss = float(_loss_value)
+                    else:
+                        loaded_loss = 0.01
+                    bounded_loss = max(
+                        MIN_HEAT_LOSS, min(MAX_HEAT_LOSS, loaded_loss)
+                    )
+                    self.heat_loss_rate = bounded_loss
+                except (TypeError, ValueError):
+                    pass
+            if (
+                old_state.attributes.get(ATTR_STATE_PRESET_TEMPERATURE, None)
+                is not None
+            ):
+                self._preset_temperature = convert_to_float(
+                    str(
+                        old_state.attributes.get(
+                            ATTR_STATE_PRESET_TEMPERATURE, None
+                        )
+                    ),
+                    self.device_name,
+                    "startup()",
+                )
+            # Restore preset mode
+            if old_state.attributes.get("preset_mode", None) is not None:
+                restored_preset: str = str(old_state.attributes["preset_mode"])
+                if restored_preset in self.preset_modes:
+                    self._preset_mode = restored_preset
+                    _LOGGER.debug(
+                        "better_thermostat %s: Restored preset mode: %s",
+                        self.device_name,
+                        restored_preset,
+                    )
+            _LOGGER.debug(
+                "better_thermostat %s: state restoration completed",
+                self.device_name,
+            )
+
+            # ECO mode state / saved ECO temperature not restored; Eco preset is supported via PRESET_ECO.
+
+        else:
+            # No previous state, try and restore defaults
+            _LOGGER.debug(
+                "better_thermostat %s: no previous state, restoring defaults...",
+                self.device_name,
+            )
+            if self.bt_target_temp is None or not isinstance(
+                self.bt_target_temp, float
+            ):
+                _LOGGER.info(
+                    "better_thermostat %s: No previously saved temperature found on startup, get it from the TRV",
+                    self.device_name,
+                )
+                self.bt_target_temp = reduce_attribute(
+                    states, ATTR_TEMPERATURE, reduce=lambda *data: mean(data)
+                )
+            _LOGGER.debug(
+                "better_thermostat %s: defaults restored", self.device_name
+            )
+
+    def _validate_hvac_mode(self, states: list[State]) -> None:
+        """Validate and fix HVAC mode after state restoration."""
+        # if hvac mode could not be restored, turn heat off
+        _LOGGER.debug(
+            "better_thermostat %s: checking hvac mode...", self.device_name
+        )
+        if self.bt_hvac_mode in (STATE_UNAVAILABLE, STATE_UNKNOWN, None):
+            current_hvac_modes = [
+                x.state for x in states if x.state != HVACMode.OFF
+            ]
+            # return the most common hvac mode (what the thermostat is set to do) except OFF
+            if current_hvac_modes:
+                _temp_bt_hvac_mode = max(
+                    set(current_hvac_modes), key=current_hvac_modes.count
+                )
+                if _temp_bt_hvac_mode is not HVACMode.OFF:
+                    self.bt_hvac_mode = HVACMode.HEAT
+                else:
+                    self.bt_hvac_mode = HVACMode.OFF
+                _LOGGER.debug(
+                    "better_thermostat %s: No previously hvac mode found on startup, turn bt to trv mode %s",
+                    self.device_name,
+                    self.bt_hvac_mode,
+                )
+            # return off if all are off
+            elif all(x.state == HVACMode.OFF for x in states):
+                self.bt_hvac_mode = HVACMode.OFF
+                _LOGGER.debug(
+                    "better_thermostat %s: No previously hvac mode found on startup, turn bt to trv mode %s",
+                    self.device_name,
+                    self.bt_hvac_mode,
+                )
+            else:
+                _LOGGER.warning(
+                    "better_thermostat %s: No previously hvac mode found on startup, turn heat off",
+                    self.device_name,
+                )
+                self.bt_hvac_mode = HVACMode.OFF
+
+        _LOGGER.debug(
+            "better_thermostat %s: Startup config, BT hvac mode is %s, Target temp %s",
+            self.device_name,
+            self.bt_hvac_mode,
+            self.bt_target_temp,
+        )
+
+        if self.last_main_hvac_mode is None:
+            self.last_main_hvac_mode = self.bt_hvac_mode
+
+        _LOGGER.debug(
+            "better_thermostat %s: checking humidity sensor...", self.device_name
+        )
+        if self.humidity_sensor_entity_id is not None:
+            _hum_state = self.hass.states.get(self.humidity_sensor_entity_id)
+            if _hum_state is None:
+                _LOGGER.warning(
+                    "better_thermostat %s: Humidity sensor %s not found or not ready",
+                    self.device_name,
+                    self.humidity_sensor_entity_id,
+                )
+                self._current_humidity = 0
+            else:
+                self._current_humidity = convert_to_float(
+                    str(_hum_state.state), self.device_name, "startup()"
+                ) or 0.0
+        else:
+            self._current_humidity = 0.0
+
+        self.last_window_state = self.window_open
+        if self.bt_hvac_mode not in (
+            HVACMode.OFF,
+            HVACMode.HEAT_COOL,
+            HVACMode.HEAT,
+        ):
+            self.bt_hvac_mode = HVACMode.HEAT
+
+        _LOGGER.debug(
+            "better_thermostat %s: writing initial state...", self.device_name
+        )
+        self.async_write_ha_state()
+
+    async def _initialize_trvs(self) -> None:
+        """Initialize each TRV: init, tweak, calibration offsets, attributes, control."""
+        for trv, trv_data in self.real_trvs.items():
+            self.all_entities.append(trv)
+            _LOGGER.debug(
+                "better_thermostat %s: initializing TRV %s", self.device_name, trv
+            )
+            try:
+                await asyncio.wait_for(init(self, trv), timeout=30)
+                _LOGGER.debug(
+                    "better_thermostat %s: TRV %s initialized",
+                    self.device_name,
+                    trv,
+                )
+            except TimeoutError:
+                _LOGGER.error(
+                    "better_thermostat %s: Timeout initializing TRV %s",
+                    self.device_name,
+                    trv,
+                )
+            except Exception as exc:
+                _LOGGER.error(
+                    "better_thermostat %s: Error initializing TRV %s: %s",
+                    self.device_name,
+                    trv,
+                    exc,
+                )
+
+            try:
+                await inital_tweak(self, trv)
+            except Exception as exc:
+                _LOGGER.error(
+                    "better_thermostat %s: Error running initial tweak for TRV %s: %s",
+                    self.device_name,
+                    trv,
+                    exc,
+                )
+
+            if trv_data["calibration"] != 1:
+                _LOGGER.debug(
+                    "better_thermostat %s: getting offsets for TRV %s",
+                    self.device_name,
+                    trv,
+                )
+
+                try:
+                    async with asyncio.timeout(10):
+                        trv_data["last_calibration"] = await get_current_offset(
+                            self, trv
+                        )
+                        trv_data["local_calibration_min"] = await get_min_offset(
+                            self, trv
+                        )
+                        trv_data["local_calibration_max"] = await get_max_offset(
+                            self, trv
+                        )
+                        trv_data["local_calibration_step"] = await get_offset_step(
+                            self, trv
+                        )
+                    # Ensure None values are replaced with sensible defaults
+                    self._set_trv_calibration_defaults(trv)
+                    _LOGGER.debug(
+                        "better_thermostat %s: offsets for TRV %s retrieved",
                         self.device_name,
                         trv,
                     )
+                except TimeoutError:
+                    _LOGGER.error(
+                        "better_thermostat %s: Timeout getting offsets for TRV %s",
+                        self.device_name,
+                        trv,
+                    )
+                    self._set_trv_calibration_defaults(trv)
                 except Exception as exc:
                     _LOGGER.error(
-                        "better_thermostat %s: Error controlling TRV %s: %s",
+                        "better_thermostat %s: Error getting offsets for TRV %s: %s",
                         self.device_name,
                         trv,
                         exc,
                     )
-
-            _LOGGER.debug("better_thermostat %s: triggering time...", self.device_name)
-            await self._trigger_time(None)
-            _LOGGER.debug(
-                "better_thermostat %s: triggering check weather...", self.device_name
-            )
-            await self._trigger_check_weather(None)
-            _LOGGER.debug(
-                "better_thermostat %s: startup finishing...", self.device_name
-            )
-            self.startup_running = False
-            self._available = True
-            self.async_write_ha_state()
-
-            _LOGGER.debug("better_thermostat %s: sleeping 15s...", self.device_name)
-            await asyncio.sleep(15)
-            _LOGGER.debug(
-                "better_thermostat %s: finding battery entities...", self.device_name
-            )
-
-            # try to find battery entities for all related entities
-            for entity in self.all_entities:
-                if entity is not None:
-                    battery_id = await find_battery_entity(self, entity)
-                    if battery_id is not None:
-                        self.devices_states[entity] = {
-                            "battery_id": battery_id,
-                            "battery": None,
-                        }
-
-            if self.is_removed:
-                return
-
-            # Add listener
-            if self.outdoor_sensor is not None:
-                self.all_entities.append(self.outdoor_sensor)
-                self.async_on_remove(
-                    async_track_time_change(self.hass, self._trigger_time, 5, 0, 0)
-                )
-
-            _LOGGER.debug(
-                "better_thermostat %s: checking critical entities...", self.device_name
-            )
-            await check_critical_entities(self)
-
-            # Wait for optional sensors with increasing retry delays before
-            # entering degraded mode (see await_optional_sensors for details).
-            await await_optional_sensors(self)
-            await check_and_update_degraded_mode(self)
-
-            if self.is_removed:
-                return
-
-            _LOGGER.debug(
-                "better_thermostat %s: registering periodic tasks...", self.device_name
-            )
-            self.async_on_remove(
-                async_track_time_interval(
-                    self.hass, self._trigger_check_weather, timedelta(hours=1)
-                )
-            )
-
-            # Periodischer 5-Minuten-Tick: nur aktivieren, wenn Balance konfiguriert ist
-            balance_modes = {"heuristic", "pid"}
-            active_balance_modes = set()
-            active_calibration_modes = set()
-            try:
-                for trv_info in self.real_trvs.values():
-                    advanced = trv_info.get("advanced", {}) or {}
-
-                    raw_balance = advanced.get("balance_mode", "")
-                    balance_value = getattr(raw_balance, "value", raw_balance)
-                    if isinstance(balance_value, str):
-                        balance_mode = balance_value.lower()
-                        if balance_mode in balance_modes:
-                            active_balance_modes.add(balance_mode)
-
-                    raw_calibration = advanced.get("calibration_mode", "")
-                    calibration_value = getattr(
-                        raw_calibration, "value", raw_calibration
-                    )
-                    if isinstance(calibration_value, str):
-                        calibration_mode = calibration_value.lower()
-                        if calibration_mode in (
-                            CalibrationMode.DEFAULT.value,
-                            CalibrationMode.MPC_CALIBRATION.value,
-                            CalibrationMode.TPI_CALIBRATION.value,
-                            CalibrationMode.PID_CALIBRATION.value,
-                        ):
-                            active_calibration_modes.add(calibration_mode)
-            except Exception:
-                active_balance_modes = set()
-                active_calibration_modes = set()
-
-            if active_balance_modes or active_calibration_modes:
-                self.async_on_remove(
-                    async_track_time_interval(
-                        self.hass, self._trigger_time, timedelta(minutes=5)
-                    )
-                )
-                _LOGGER.debug(
-                    "better_thermostat %s: 5min periodic tick enabled (balance_modes=%s calibration_modes=%s)",
-                    self.device_name,
-                    sorted(active_balance_modes),
-                    sorted(active_calibration_modes),
-                )
+                    self._set_trv_calibration_defaults(trv)
             else:
-                _LOGGER.debug(
-                    "better_thermostat %s: 5min periodic tick skipped (no supported balance/calibration mode)",
-                    self.device_name,
-                )
+                trv_data["last_calibration"] = 0
+                trv_data["local_calibration_min"] = -7
+                trv_data["local_calibration_max"] = 7
+                trv_data["local_calibration_step"] = 0.5
 
-            # Periodischer Keepalive: externe Temperatur mindestens alle 30 Minuten an TRVs senden
-            self.async_on_remove(
-                async_track_time_interval(
-                    self.hass,
-                    self._external_temperature_keepalive,
-                    timedelta(minutes=30),
-                )
+            _s = self.hass.states.get(trv)
+            _attrs = _s.attributes if _s else {}
+            _LOGGER.debug(
+                "better_thermostat %s: reading TRV %s attributes...",
+                self.device_name,
+                trv,
             )
-
-            # Ventilwartung: separaten Tick nur aktivieren, wenn mindestens ein TRV sie eingeschaltet hat
-            try:
-                any_maintenance = any(
-                    bool(
-                        (trv_info.get("advanced", {}) or {}).get(
-                            CONF_VALVE_MAINTENANCE, False
-                        )
-                    )
-                    for trv_info in self.real_trvs.values()
-                )
-            except Exception:
-                any_maintenance = False
-
-            if any_maintenance:
-                # Re-calculate next maintenance based on loaded TRV quirks
-                # (overrides the random 1h-5d startup default)
-                min_interval_hours = 168  # Default 7 days
-                for trv_id, trv_data in self.real_trvs.items():
-                    if bool(
-                        (trv_data.get("advanced", {}) or {}).get(
-                            CONF_VALVE_MAINTENANCE, False
-                        )
-                    ):
-                        quirks = trv_data.get("model_quirks")
-                        interval = int(
-                            getattr(quirks, "VALVE_MAINTENANCE_INTERVAL_HOURS", 168)
-                        )
-                        min_interval_hours = min(min_interval_hours, interval)
-
-                now = datetime.now()
-                # Schedule initial run: randomize within [1h, min(5d, interval)]
-                # If interval is very short (e.g. 12h), respect it.
-                max_delay_hours = min(24 * 5, min_interval_hours)
-                delay_hours = randint(1, max(2, max_delay_hours))
-
-                self.next_valve_maintenance = now + timedelta(hours=delay_hours)
-
-                self.async_on_remove(
-                    async_track_time_interval(
-                        self.hass, self._maintenance_tick, timedelta(minutes=5)
-                    )
-                )
-                _LOGGER.debug(
-                    "better_thermostat %s: valve maintenance tick enabled (5min), first run at %s",
-                    self.device_name,
-                    self.next_valve_maintenance,
-                )
+            trv_data["valve_position"] = convert_to_float(
+                str(_attrs.get("valve_position", None)), self.device_name, "startup"
+            )
+            trv_data["max_temp"] = convert_to_float(
+                str(_attrs.get("max_temp", 30)), self.device_name, "startup"
+            )
+            trv_data["min_temp"] = convert_to_float(
+                str(_attrs.get("min_temp", 5)), self.device_name, "startup"
+            )
+            # Prefer configured step over device-reported step
+            cfg_step = (
+                self.bt_target_temp_step
+                if self.bt_target_temp_step and self.bt_target_temp_step > 0.0
+                else None
+            )
+            if cfg_step is not None:
+                trv_data["target_temp_step"] = cfg_step
             else:
-                _LOGGER.debug(
-                    "better_thermostat %s: valve maintenance tick skipped (no TRV enabled)",
+                trv_data["target_temp_step"] = convert_to_float(
+                    str(_attrs.get("target_temp_step", 0.5)),
                     self.device_name,
+                    "startup",
                 )
-
-            self.async_on_remove(
-                async_track_state_change_event(
-                    self.hass, [self.sensor_entity_id], self._trigger_temperature_change
-                )
+            trv_data["temperature"] = convert_to_float(
+                str(_attrs.get("temperature", 5)), self.device_name, "startup"
             )
-            if self.humidity_sensor_entity_id is not None:
-                self.async_on_remove(
-                    async_track_state_change_event(
-                        self.hass,
-                        [self.humidity_sensor_entity_id],
-                        self._trigger_humidity_change,
-                    )
-                )
-            if self._async_unsub_state_changed is None:
-                self._async_unsub_state_changed = async_track_state_change_event(
-                    self.hass, self.entity_ids, self._trigger_trv_change
-                )
-                self.async_on_remove(self._async_unsub_state_changed)
-            if self.window_id is not None:
-                self.async_on_remove(
-                    async_track_state_change_event(
-                        self.hass, [self.window_id], self._trigger_window_change
-                    )
-                )
-            if self.cooler_entity_id is not None:
-                self.async_on_remove(
-                    async_track_state_change_event(
-                        self.hass, [self.cooler_entity_id], self._tigger_cooler_change
-                    )
-                )
-            # Sende initial sofort einen Keepalive, damit TRVs nicht bis zum ersten 30min-Tick warten müssen
+            trv_data["hvac_modes"] = _attrs.get("hvac_modes", None)
+            trv_data["hvac_mode"] = _s.state if _s else None
+            trv_data["last_hvac_mode"] = _s.state if _s else None
+            trv_data["last_temperature"] = convert_to_float(
+                str(_attrs.get("temperature")), self.device_name, "startup()"
+            )
+            trv_data["current_temperature"] = convert_to_float(
+                str(_attrs.get("current_temperature") or 5),
+                self.device_name,
+                "startup()",
+            )
+            _LOGGER.debug(
+                "better_thermostat %s: controlling TRV %s...", self.device_name, trv
+            )
             try:
+                await asyncio.wait_for(control_trv(self, trv), timeout=10)
                 _LOGGER.debug(
-                    "better_thermostat %s: creating keepalive task...", self.device_name
+                    "better_thermostat %s: TRV %s controlled", self.device_name, trv
                 )
-                self.hass.async_create_task(self._external_temperature_keepalive())
+            except TimeoutError:
+                _LOGGER.error(
+                    "better_thermostat %s: Timeout controlling TRV %s",
+                    self.device_name,
+                    trv,
+                )
             except Exception as exc:
                 _LOGGER.error(
-                    "better_thermostat %s: Failed to create external temperature keepalive task: %s",
+                    "better_thermostat %s: Error controlling TRV %s: %s",
                     self.device_name,
+                    trv,
                     exc,
                 )
-            # Start periodic EMA update (every minute)
-            _LOGGER.debug(
-                "better_thermostat %s: starting EMA timer...", self.device_name
+
+    async def _finalize_startup(self) -> None:
+        """Run post-init tasks: triggers, listeners, periodic jobs."""
+        _LOGGER.debug("better_thermostat %s: triggering time...", self.device_name)
+        await self._trigger_time(None)
+        _LOGGER.debug(
+            "better_thermostat %s: triggering check weather...", self.device_name
+        )
+        await self._trigger_check_weather(None)
+        _LOGGER.debug(
+            "better_thermostat %s: startup finishing...", self.device_name
+        )
+        self.startup_running = False
+        self._available = True
+        self.async_write_ha_state()
+
+        _LOGGER.debug("better_thermostat %s: sleeping 15s...", self.device_name)
+        await asyncio.sleep(15)
+        _LOGGER.debug(
+            "better_thermostat %s: finding battery entities...", self.device_name
+        )
+
+        # try to find battery entities for all related entities
+        for entity in self.all_entities:
+            if entity is not None:
+                battery_id = await find_battery_entity(self, entity)
+                if battery_id is not None:
+                    self.devices_states[entity] = {
+                        "battery_id": battery_id,
+                        "battery": None,
+                    }
+
+        if self.is_removed:
+            return
+
+        # Add listener
+        if self.outdoor_sensor is not None:
+            self.all_entities.append(self.outdoor_sensor)
+            self.async_on_remove(
+                async_track_time_change(self.hass, self._trigger_time, 5, 0, 0)
             )
+
+        _LOGGER.debug(
+            "better_thermostat %s: checking critical entities...", self.device_name
+        )
+        await check_critical_entities(self)
+
+        # Wait for optional sensors with increasing retry delays before
+        # entering degraded mode (see await_optional_sensors for details).
+        await await_optional_sensors(self)
+        await check_and_update_degraded_mode(self)
+
+        if self.is_removed:
+            return
+
+        _LOGGER.debug(
+            "better_thermostat %s: registering periodic tasks...", self.device_name
+        )
+        self.async_on_remove(
+            async_track_time_interval(
+                self.hass, self._trigger_check_weather, timedelta(hours=1)
+            )
+        )
+
+        # Periodischer 5-Minuten-Tick: nur aktivieren, wenn Balance konfiguriert ist
+        balance_modes = {"heuristic", "pid"}
+        active_balance_modes = set()
+        active_calibration_modes = set()
+        try:
+            for trv_info in self.real_trvs.values():
+                advanced = trv_info.get("advanced", {}) or {}
+
+                raw_balance = advanced.get("balance_mode", "")
+                balance_value = getattr(raw_balance, "value", raw_balance)
+                if isinstance(balance_value, str):
+                    balance_mode = balance_value.lower()
+                    if balance_mode in balance_modes:
+                        active_balance_modes.add(balance_mode)
+
+                raw_calibration = advanced.get("calibration_mode", "")
+                calibration_value = getattr(
+                    raw_calibration, "value", raw_calibration
+                )
+                if isinstance(calibration_value, str):
+                    calibration_mode = calibration_value.lower()
+                    if calibration_mode in (
+                        CalibrationMode.DEFAULT.value,
+                        CalibrationMode.MPC_CALIBRATION.value,
+                        CalibrationMode.TPI_CALIBRATION.value,
+                        CalibrationMode.PID_CALIBRATION.value,
+                    ):
+                        active_calibration_modes.add(calibration_mode)
+        except Exception:
+            active_balance_modes = set()
+            active_calibration_modes = set()
+
+        if active_balance_modes or active_calibration_modes:
             self.async_on_remove(
                 async_track_time_interval(
-                    self.hass, self._async_update_ema_periodic, timedelta(minutes=1)
+                    self.hass, self._trigger_time, timedelta(minutes=5)
                 )
             )
-            _LOGGER.info("better_thermostat %s: startup completed.", self.device_name)
-            self.async_write_ha_state()
-            await self.async_update_ha_state(force_refresh=True)
-            break
+            _LOGGER.debug(
+                "better_thermostat %s: 5min periodic tick enabled (balance_modes=%s calibration_modes=%s)",
+                self.device_name,
+                sorted(active_balance_modes),
+                sorted(active_calibration_modes),
+            )
+        else:
+            _LOGGER.debug(
+                "better_thermostat %s: 5min periodic tick skipped (no supported balance/calibration mode)",
+                self.device_name,
+            )
+
+        # Periodischer Keepalive: externe Temperatur mindestens alle 30 Minuten an TRVs senden
+        self.async_on_remove(
+            async_track_time_interval(
+                self.hass,
+                self._external_temperature_keepalive,
+                timedelta(minutes=30),
+            )
+        )
+
+        # Ventilwartung: separaten Tick nur aktivieren, wenn mindestens ein TRV sie eingeschaltet hat
+        try:
+            any_maintenance = any(
+                bool(
+                    (trv_info.get("advanced", {}) or {}).get(
+                        CONF_VALVE_MAINTENANCE, False
+                    )
+                )
+                for trv_info in self.real_trvs.values()
+            )
+        except Exception:
+            any_maintenance = False
+
+        if any_maintenance:
+            # Re-calculate next maintenance based on loaded TRV quirks
+            # (overrides the random 1h-5d startup default)
+            min_interval_hours = 168  # Default 7 days
+            for trv_id, trv_data in self.real_trvs.items():
+                if bool(
+                    (trv_data.get("advanced", {}) or {}).get(
+                        CONF_VALVE_MAINTENANCE, False
+                    )
+                ):
+                    quirks = trv_data.get("model_quirks")
+                    interval = int(
+                        getattr(quirks, "VALVE_MAINTENANCE_INTERVAL_HOURS", 168)
+                    )
+                    min_interval_hours = min(min_interval_hours, interval)
+
+            now = datetime.now()
+            # Schedule initial run: randomize within [1h, min(5d, interval)]
+            # If interval is very short (e.g. 12h), respect it.
+            max_delay_hours = min(24 * 5, min_interval_hours)
+            delay_hours = randint(1, max(2, max_delay_hours))
+
+            self.next_valve_maintenance = now + timedelta(hours=delay_hours)
+
+            self.async_on_remove(
+                async_track_time_interval(
+                    self.hass, self._maintenance_tick, timedelta(minutes=5)
+                )
+            )
+            _LOGGER.debug(
+                "better_thermostat %s: valve maintenance tick enabled (5min), first run at %s",
+                self.device_name,
+                self.next_valve_maintenance,
+            )
+        else:
+            _LOGGER.debug(
+                "better_thermostat %s: valve maintenance tick skipped (no TRV enabled)",
+                self.device_name,
+            )
+
+        self.async_on_remove(
+            async_track_state_change_event(
+                self.hass, [self.sensor_entity_id], self._trigger_temperature_change
+            )
+        )
+        if self.humidity_sensor_entity_id is not None:
+            self.async_on_remove(
+                async_track_state_change_event(
+                    self.hass,
+                    [self.humidity_sensor_entity_id],
+                    self._trigger_humidity_change,
+                )
+            )
+        if self._async_unsub_state_changed is None:
+            self._async_unsub_state_changed = async_track_state_change_event(
+                self.hass, self.entity_ids, self._trigger_trv_change
+            )
+            self.async_on_remove(self._async_unsub_state_changed)
+        if self.window_id is not None:
+            self.async_on_remove(
+                async_track_state_change_event(
+                    self.hass, [self.window_id], self._trigger_window_change
+                )
+            )
+        if self.cooler_entity_id is not None:
+            self.async_on_remove(
+                async_track_state_change_event(
+                    self.hass, [self.cooler_entity_id], self._tigger_cooler_change
+                )
+            )
+        # Sende initial sofort einen Keepalive, damit TRVs nicht bis zum ersten 30min-Tick warten müssen
+        try:
+            _LOGGER.debug(
+                "better_thermostat %s: creating keepalive task...", self.device_name
+            )
+            self.hass.async_create_task(self._external_temperature_keepalive())
+        except Exception as exc:
+            _LOGGER.error(
+                "better_thermostat %s: Failed to create external temperature keepalive task: %s",
+                self.device_name,
+                exc,
+            )
+        # Start periodic EMA update (every minute)
+        _LOGGER.debug(
+            "better_thermostat %s: starting EMA timer...", self.device_name
+        )
+        self.async_on_remove(
+            async_track_time_interval(
+                self.hass, self._async_update_ema_periodic, timedelta(minutes=1)
+            )
+        )
+        _LOGGER.info("better_thermostat %s: startup completed.", self.device_name)
+        self.async_write_ha_state()
+        await self.async_update_ha_state(force_refresh=True)
 
     async def _maintenance_tick(self, event=None):
         """Periodic maintenance tick: runs valve exercise when due and enabled."""
