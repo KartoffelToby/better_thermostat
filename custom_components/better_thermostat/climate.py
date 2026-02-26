@@ -72,6 +72,12 @@ from .events.trv import trigger_trv_change
 from .events.window import trigger_window_change, window_queue
 from .model_fixes.model_quirks import inital_tweak, load_model_quirks
 from .utils.calibration.mpc import export_mpc_state_map, import_mpc_state_map
+from .utils.hvac_action import (
+    ToleranceHysteresis,
+    TrvSnapshot,
+    compute_hvac_action,
+    should_heat_with_tolerance,
+)
 from .utils.calibration.pid import (
     export_pid_states as pid_export_states,
     import_pid_states as pid_import_states,
@@ -418,8 +424,7 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
         self.context = None
         self.attr_hvac_action = None
         self.old_attr_hvac_action = None
-        self._tolerance_last_action = HVACAction.IDLE
-        self._tolerance_hold_active = False
+        self._hysteresis = ToleranceHysteresis()
         self.heating_start_temp = None
         self.heating_start_timestamp = None
         self.heating_end_temp = None
@@ -2161,8 +2166,10 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
         # Telemetry container (now initialized in __init__)
         now = dt_util.utcnow()  # UTC aware time
 
-        # Determine current action early (pure computation) for transition handling
-        current_action = self._compute_hvac_action()
+        # Determine current action for transition handling
+        result = self._compute_hvac_action_pure()
+        self._commit_hvac_action(result)
+        current_action = result.action
 
         action_changed = current_action != self.old_attr_hvac_action
 
@@ -2400,7 +2407,9 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
             return
 
         now = dt_util.utcnow()
-        current_action = self._compute_hvac_action()
+        result = self._compute_hvac_action_pure()
+        self._commit_hvac_action(result)
+        current_action = result.action
 
         # Do not learn when window is open
         if self.window_open:
@@ -2793,8 +2802,10 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
 
     @property
     def hvac_action(self):
-        """Return the current HVAC action (delegates to helper)."""
-        return self._compute_hvac_action()
+        """Return the current HVAC action."""
+        if self.attr_hvac_action is not None:
+            return self.attr_hvac_action
+        return self._compute_hvac_action_pure().action
 
     def _should_heat_with_tolerance(
         self, previous_action: HVACAction | None, tol: float
@@ -2802,180 +2813,75 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
         """Apply hysteresis so heating restarts only below target - tolerance."""
         if self.bt_target_temp is None or self.cur_temp is None:
             return False
-        tol = max(0.0, tol)
-        heat_off_threshold = self.bt_target_temp
-        heat_on_threshold = self.bt_target_temp - tol
-        if previous_action == HVACAction.HEATING:
-            return self.cur_temp < heat_off_threshold
-        return self.cur_temp < heat_on_threshold
-
-    def _compute_hvac_action(self):  # helper kept internal for clarity
-        """Pure HVAC action computation with tolerance based hysteresis.
-
-        Rules:
-        - OFF mode returns OFF regardless of temperatures
-        - Open window suppresses active heating/cooling (returns IDLE)
-        - Heating uses a hysteresis band [target - tolerance, target]
-        - Cooling if mode heat_cool and cur_temp > cool_target + tolerance
-        - Otherwise IDLE, unless TRVs explicitly report heating and tolerance does not block it
-        """
-        prev_action = self._tolerance_last_action
-        tol = self.tolerance if self.tolerance is not None else 0.0
-
-        if self.bt_target_temp is None or self.cur_temp is None:
-            self._tolerance_hold_active = False
-            self._tolerance_last_action = HVACAction.IDLE
-            return HVACAction.IDLE
-        if HVACMode.OFF in (self.hvac_mode, self.bt_hvac_mode):
-            self._tolerance_hold_active = False
-            self._tolerance_last_action = HVACAction.IDLE
-            return HVACAction.OFF
-        if self.window_open:
-            self._tolerance_hold_active = False
-            self._tolerance_last_action = HVACAction.IDLE
-            return HVACAction.IDLE
-
-        heating_allowed = self.hvac_mode in (HVACMode.HEAT, HVACMode.HEAT_COOL)
-        action = HVACAction.IDLE
-        tolerance_hold = False
-
-        if heating_allowed:
-            should_heat = self._should_heat_with_tolerance(prev_action, tol)
-            if should_heat:
-                action = HVACAction.HEATING
-            else:
-                tolerance_hold = True
-
-        # Remember the tolerance-based decision *before* TRV overrides so the
-        # hysteresis state machine is not corrupted by a TRV that is still
-        # physically heating after the control logic decided to stop.
-        tolerance_decision = action
-
-        # Cooling decision (if heat_cool mode and cooling setpoint exists)
-        if (
-            self.hvac_mode in (HVACMode.HEAT_COOL,)
-            and self.bt_target_cooltemp is not None
-            and self.cur_temp > (self.bt_target_cooltemp + tol)
-        ):
-            action = HVACAction.COOLING
-            tolerance_hold = False
-
-        # Base decision would be IDLE. If any real TRV indicates active heating, override to HEATING.
-        if action == HVACAction.IDLE:
-            try:
-                # Skip overrides while we intentionally ignore TRV states or when window is open
-                if self.ignore_states or self.window_open:
-                    self._tolerance_last_action = HVACAction.IDLE
-                    self._tolerance_hold_active = tolerance_hold
-                    return HVACAction.IDLE
-
-                def _to_pct(val):
-                    try:
-                        v = float(val)
-                        return v * 100.0 if 0.0 <= v < 1.0 else v
-                    except Exception:
-                        return None
-
-                THRESH = 0.0
-                for trv_id, info in (self.real_trvs or {}).items():
-                    if not isinstance(info, dict):
-                        _LOGGER.debug(
-                            "better_thermostat %s: _compute_hvac_action TRV %s ignored (config invalid)",
-                            self.device_name,
-                            trv_id,
-                        )
-                        continue
-                    if info.get("ignore_trv_states"):
-                        _LOGGER.debug(
-                            "better_thermostat %s: _compute_hvac_action TRV %s ignored (ignore_trv_states=True)",
-                            self.device_name,
-                            trv_id,
-                        )
-                        continue
-
-                    # 0) Use cached hvac_action first; fallback to hass state if missing
-                    try:
-                        action_val = info.get("hvac_action")
-                        action_str = (
-                            str(action_val).lower() if action_val is not None else ""
-                        )
-                        if not action_str:
-                            trv_state = self.hass.states.get(trv_id)
-                            action_raw = None
-                            if trv_state is not None:
-                                action_raw = trv_state.attributes.get("hvac_action")
-                                if action_raw is None:
-                                    action_raw = trv_state.attributes.get("action")
-                            action_str = (
-                                str(action_raw).lower()
-                                if action_raw is not None
-                                else ""
-                            )
-                            if action_str:
-                                try:
-                                    info["hvac_action"] = action_str
-                                except Exception:
-                                    pass
-                        if action_str == "heating" or action_val == HVACAction.HEATING:
-                            _LOGGER.debug(
-                                "better_thermostat %s: overriding hvac_action to HEATING (TRV %s reports heating)",
-                                self.device_name,
-                                trv_id,
-                            )
-                            action = HVACAction.HEATING
-                            break
-                    except Exception:
-                        pass
-
-                    # 2) TRV shows an actual/open valve position > 0
-                    vp = info.get("valve_position")
-                    try:
-                        vp_pct = _to_pct(vp)
-                        if vp_pct is not None and vp_pct > THRESH:
-                            _LOGGER.debug(
-                                "better_thermostat %s: overriding hvac_action to HEATING (valve_position %.1f%%, TRV %s)",
-                                self.device_name,
-                                vp_pct,
-                                trv_id,
-                            )
-                            action = HVACAction.HEATING
-                            break
-                    except Exception:
-                        pass
-
-                    # 3) We last commanded a valve percent > 0 (adapter/override)
-                    last_pct = info.get("last_valve_percent")
-                    try:
-                        last_pct_n = _to_pct(last_pct)
-                        if last_pct_n is not None and last_pct_n > THRESH:
-                            _LOGGER.debug(
-                                "better_thermostat %s: overriding hvac_action to HEATING (last_valve_percent %.1f%%, TRV %s)",
-                                self.device_name,
-                                last_pct_n,
-                                trv_id,
-                            )
-                            action = HVACAction.HEATING
-                            break
-                    except Exception:
-                        pass
-
-            except Exception:
-                # Defensive: if anything goes wrong in overrides, fall back to IDLE
-                pass
-
-        # Persist tolerance state machine for next decision.
-        # Use the tolerance-based decision (before TRV overrides) so that a
-        # TRV still physically heating does not keep the hysteresis in the
-        # lenient "was-heating" mode and cause heating up to target + tolerance.
-        self._tolerance_last_action = (
-            HVACAction.HEATING
-            if tolerance_decision == HVACAction.HEATING
-            else HVACAction.IDLE
+        return should_heat_with_tolerance(
+            self.cur_temp, self.bt_target_temp, tol, previous_action
         )
-        self._tolerance_hold_active = bool(
-            tolerance_hold and action != HVACAction.COOLING
+
+    def _build_trv_snapshots(self) -> list[TrvSnapshot]:
+        """Build TrvSnapshot list from real_trvs with hass state fallback."""
+        snapshots: list[TrvSnapshot] = []
+        for trv_id, info in (self.real_trvs or {}).items():
+            if not isinstance(info, dict):
+                continue
+
+            # Resolve hvac_action: cached first, hass state fallback
+            action_val = info.get("hvac_action")
+            action_str = str(action_val).lower() if action_val is not None else ""
+            if not action_str:
+                try:
+                    trv_state = self.hass.states.get(trv_id)
+                    action_raw = None
+                    if trv_state is not None:
+                        action_raw = trv_state.attributes.get("hvac_action")
+                        if action_raw is None:
+                            action_raw = trv_state.attributes.get("action")
+                    action_str = (
+                        str(action_raw).lower() if action_raw is not None else ""
+                    )
+                    if action_str:
+                        try:
+                            info["hvac_action"] = action_str
+                        except Exception:
+                            pass
+                except Exception:
+                    action_str = ""
+
+            # HVACAction enum also counts as "heating"
+            if action_val == HVACAction.HEATING and action_str != "heating":
+                action_str = "heating"
+
+            snapshots.append(
+                TrvSnapshot(
+                    trv_id=trv_id,
+                    ignore_trv_states=bool(info.get("ignore_trv_states")),
+                    hvac_action=action_str or None,
+                    valve_position=info.get("valve_position"),
+                    last_valve_percent=info.get("last_valve_percent"),
+                )
+            )
+        return snapshots
+
+    def _compute_hvac_action_pure(self):
+        """Compute current HVAC action."""
+        return compute_hvac_action(
+            hysteresis=self._hysteresis,
+            cur_temp=self.cur_temp,
+            target_temp=self.bt_target_temp,
+            cool_target=self.bt_target_cooltemp,
+            hvac_mode=self.hvac_mode,
+            bt_hvac_mode=self.bt_hvac_mode,
+            window_open=self.window_open,
+            tolerance=self.tolerance or 0.0,
+            ignore_states=self.ignore_states,
+            trv_snapshots=self._build_trv_snapshots(),
+            device_name=self.device_name,
         )
-        return action
+
+    def _commit_hvac_action(self, result) -> None:
+        """Apply computed hysteresis state."""
+        self._hysteresis.last_action = result.new_last_action
+        self._hysteresis.hold_active = result.new_hold_active
+
 
     @property
     def target_temperature(self) -> float | None:
