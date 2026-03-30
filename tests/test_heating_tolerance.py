@@ -15,6 +15,8 @@ from unittest.mock import MagicMock
 from homeassistant.components.climate.const import HVACAction, HVACMode
 import pytest
 
+from custom_components.better_thermostat.utils.hvac_action import ToleranceHysteresis
+
 # ---------------------------------------------------------------------------
 # Fixtures
 # ---------------------------------------------------------------------------
@@ -33,8 +35,7 @@ def mock_bt():
     bt.window_open = False
     bt.ignore_states = False
     bt.real_trvs = {}
-    bt._tolerance_last_action = HVACAction.IDLE
-    bt._tolerance_hold_active = False
+    bt._hysteresis = ToleranceHysteresis()
     bt.device_name = "Test"
     bt._hvac_list = [HVACMode.HEAT, HVACMode.OFF]
     bt.cooler_entity_id = None
@@ -47,10 +48,23 @@ def mock_bt():
     bt._should_heat_with_tolerance = types.MethodType(
         BetterThermostat._should_heat_with_tolerance, bt
     )
-    bt._compute_hvac_action = types.MethodType(
-        BetterThermostat._compute_hvac_action, bt
+    bt._build_trv_snapshots = types.MethodType(
+        BetterThermostat._build_trv_snapshots, bt
+    )
+    bt._compute_hvac_action_pure = types.MethodType(
+        BetterThermostat._compute_hvac_action_pure, bt
+    )
+    bt._commit_hvac_action = types.MethodType(
+        BetterThermostat._commit_hvac_action, bt
     )
     return bt
+
+
+def _compute_and_commit(bt) -> HVACAction:
+    """Helper: compute + commit, return the action."""
+    result = bt._compute_hvac_action_pure()
+    bt._commit_hvac_action(result)
+    return result.action
 
 
 # ---------------------------------------------------------------------------
@@ -93,7 +107,7 @@ class TestShouldHeatWithTolerance:
 
 
 # ---------------------------------------------------------------------------
-# _compute_hvac_action – full integration of tolerance + TRV override
+# _compute_hvac_action_pure – full integration of tolerance + TRV override
 # ---------------------------------------------------------------------------
 
 
@@ -103,22 +117,22 @@ class TestComputeHvacActionTolerance:
     def test_heating_starts_below_target_minus_tolerance(self, mock_bt):
         """Test that heating starts when temperature is below target minus tolerance."""
         mock_bt.cur_temp = 20.4
-        mock_bt._tolerance_last_action = HVACAction.IDLE
-        action = mock_bt._compute_hvac_action()
+        mock_bt._hysteresis.last_action = HVACAction.IDLE
+        action = _compute_and_commit(mock_bt)
         assert action == HVACAction.HEATING
 
     def test_heating_continues_until_target(self, mock_bt):
         """Test that heating continues when temperature is below target."""
         mock_bt.cur_temp = 20.8
-        mock_bt._tolerance_last_action = HVACAction.HEATING
-        action = mock_bt._compute_hvac_action()
+        mock_bt._hysteresis.last_action = HVACAction.HEATING
+        action = _compute_and_commit(mock_bt)
         assert action == HVACAction.HEATING
 
     def test_heating_stops_at_target(self, mock_bt):
         """Test that heating stops when temperature reaches target."""
         mock_bt.cur_temp = 21.0
-        mock_bt._tolerance_last_action = HVACAction.HEATING
-        action = mock_bt._compute_hvac_action()
+        mock_bt._hysteresis.last_action = HVACAction.HEATING
+        action = _compute_and_commit(mock_bt)
         assert action == HVACAction.IDLE
 
     def test_no_heating_above_target_even_if_below_target_plus_tol(self, mock_bt):
@@ -128,8 +142,8 @@ class TestComputeHvacActionTolerance:
         should NOT keep heating.
         """
         mock_bt.cur_temp = 21.3
-        mock_bt._tolerance_last_action = HVACAction.HEATING
-        action = mock_bt._compute_hvac_action()
+        mock_bt._hysteresis.last_action = HVACAction.HEATING
+        action = _compute_and_commit(mock_bt)
         assert action == HVACAction.IDLE
 
     def test_heating_does_not_restart_above_target_minus_tol(self, mock_bt):
@@ -139,15 +153,15 @@ class TestComputeHvacActionTolerance:
         NOT restart heating (hysteresis).
         """
         mock_bt.cur_temp = 20.7
-        mock_bt._tolerance_last_action = HVACAction.IDLE
-        action = mock_bt._compute_hvac_action()
+        mock_bt._hysteresis.last_action = HVACAction.IDLE
+        action = _compute_and_commit(mock_bt)
         assert action == HVACAction.IDLE
 
     def test_heating_restarts_at_target_minus_tolerance(self, mock_bt):
         """Heating restarts once temp drops back to target - tolerance."""
         mock_bt.cur_temp = 20.49  # just below 20.5
-        mock_bt._tolerance_last_action = HVACAction.IDLE
-        action = mock_bt._compute_hvac_action()
+        mock_bt._hysteresis.last_action = HVACAction.IDLE
+        action = _compute_and_commit(mock_bt)
         assert action == HVACAction.HEATING
 
 
@@ -155,7 +169,7 @@ class TestTrvOverrideDoesNotCorruptHysteresis:
     """Verify that TRV reporting 'heating' does NOT break the hysteresis state.
 
     Even when the TRV is still physically heating (e.g. thermal inertia),
-    the internal hysteresis state (_tolerance_last_action) must remain
+    the internal hysteresis state (_hysteresis.last_action) must remain
     based on the tolerance decision, not the TRV override.
     """
 
@@ -163,11 +177,11 @@ class TestTrvOverrideDoesNotCorruptHysteresis:
         """Test that hysteresis state survives TRV override.
 
         After tolerance says stop, a heating TRV must not corrupt
-        _tolerance_last_action so that the next cycle uses the strict threshold.
+        _hysteresis.last_action so that the next cycle uses the strict threshold.
         """
         # Step 1: temp reaches target → tolerance says IDLE
         mock_bt.cur_temp = 21.0
-        mock_bt._tolerance_last_action = HVACAction.HEATING
+        mock_bt._hysteresis.last_action = HVACAction.HEATING
 
         # Simulate TRV still reporting heating
         mock_bt.real_trvs = {
@@ -175,11 +189,11 @@ class TestTrvOverrideDoesNotCorruptHysteresis:
         }
         mock_bt.hass = MagicMock()
 
-        mock_bt._compute_hvac_action()
+        _compute_and_commit(mock_bt)
         # The reported action may be HEATING (TRV override), that's OK for display
         # But the hysteresis state must NOT be HEATING:
-        assert mock_bt._tolerance_last_action == HVACAction.IDLE, (
-            "TRV override corrupted _tolerance_last_action; "
+        assert mock_bt._hysteresis.last_action == HVACAction.IDLE, (
+            "TRV override corrupted _hysteresis.last_action; "
             "next cycle would use lenient threshold, heating up to target + tol"
         )
 
@@ -196,13 +210,13 @@ class TestTrvOverrideDoesNotCorruptHysteresis:
 
         # Cycle 1: At target, tolerance says stop
         mock_bt.cur_temp = 21.0
-        mock_bt._tolerance_last_action = HVACAction.HEATING
-        mock_bt._compute_hvac_action()
+        mock_bt._hysteresis.last_action = HVACAction.HEATING
+        _compute_and_commit(mock_bt)
 
         # Cycle 2: TRV stops heating, temp drops slightly but still above target - tol
         mock_bt.real_trvs["climate.trv_1"]["hvac_action"] = "idle"
         mock_bt.cur_temp = 20.8  # between target - tol (20.5) and target (21.0)
-        action = mock_bt._compute_hvac_action()
+        action = _compute_and_commit(mock_bt)
 
         assert action == HVACAction.IDLE, (
             f"Expected IDLE at {mock_bt.cur_temp}°C (between target-tol and target "

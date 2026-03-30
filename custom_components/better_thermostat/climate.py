@@ -72,6 +72,12 @@ from .events.trv import trigger_trv_change
 from .events.window import trigger_window_change, window_queue
 from .model_fixes.model_quirks import inital_tweak, load_model_quirks
 from .utils.calibration.mpc import export_mpc_state_map, import_mpc_state_map
+from .utils.hvac_action import (
+    ToleranceHysteresis,
+    TrvSnapshot,
+    compute_hvac_action,
+    should_heat_with_tolerance,
+)
 from .utils.calibration.pid import (
     export_pid_states as pid_export_states,
     import_pid_states as pid_import_states,
@@ -104,7 +110,6 @@ from .utils.const import (
     CONF_SENSOR_WINDOW,
     CONF_TARGET_TEMP_STEP,
     CONF_TOLERANCE,
-    CONF_VALVE_MAINTENANCE,
     CONF_WEATHER,
     CONF_WINDOW_TIMEOUT,
     CONF_WINDOW_TIMEOUT_AFTER,
@@ -120,6 +125,7 @@ from .utils.const import (
     CalibrationType,
 )
 from .utils.controlling import control_queue, control_trv
+from .utils.thermal_learning import HeatingPowerTracker, HeatLossTracker
 from .utils.helpers import (
     convert_to_float,
     find_battery_entity,
@@ -128,6 +134,13 @@ from .utils.helpers import (
     normalize_hvac_mode,
 )
 from .utils.state_manager import StateManager
+from .utils.valve_maintenance import (
+    build_trv_snapshots,
+    collect_maintenance_trvs,
+    compute_initial_maintenance,
+    compute_next_maintenance,
+    run_valve_maintenance,
+)
 from .utils.watcher import (
     await_optional_sensors,
     check_and_update_degraded_mode,
@@ -239,8 +252,61 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
 
     async def reset_heating_power(self):
         """Reset heating power to default value."""
-        self.heating_power = 0.01
+        self._heating_tracker.reset_power()
         self.async_write_ha_state()
+
+    # ------------------------------------------------------------------
+    # Thermal tracker properties
+    # Used by: extra_state_attributes, helpers.py, sensor.py,
+    #          _restore_state, _hydrate_thermal_from_state,
+    #          _sync_controllers_to_state
+    # TODO: Eliminate most of these by accessing trackers directly.
+    #   - heating_power_normalized, last_heating_power_stats, heating_cycles,
+    #     last_heat_loss_stats, loss_cycles: only read by extra_state_attributes
+    #   - heat_loss_rate: only used within climate.py
+    #   - heating_power + heat_loss_rate: keep until sensor.py generic
+    #     attribute mapping (_climate_attr) is refactored
+    # ------------------------------------------------------------------
+
+    @property
+    def heating_power(self) -> float:
+        return self._heating_tracker.heating_power
+
+    @heating_power.setter
+    def heating_power(self, value: float) -> None:
+        self._heating_tracker.heating_power = value
+
+    @property
+    def heating_power_normalized(self) -> float | None:
+        return self._heating_tracker.normalized_power
+
+    @heating_power_normalized.setter
+    def heating_power_normalized(self, value: float | None) -> None:
+        self._heating_tracker.normalized_power = value
+
+    @property
+    def last_heating_power_stats(self) -> deque:
+        return self._heating_tracker.stats
+
+    @property
+    def heating_cycles(self) -> deque:
+        return self._heating_tracker.cycles
+
+    @property
+    def heat_loss_rate(self) -> float:
+        return self._loss_tracker.heat_loss_rate
+
+    @heat_loss_rate.setter
+    def heat_loss_rate(self, value: float) -> None:
+        self._loss_tracker.heat_loss_rate = value
+
+    @property
+    def last_heat_loss_stats(self) -> deque:
+        return self._loss_tracker.stats
+
+    @property
+    def loss_cycles(self) -> deque:
+        return self._loss_tracker.cycles
 
     @cached_property
     def device_info(self):
@@ -415,8 +481,7 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
         self.context = None
         self.attr_hvac_action = None
         self.old_attr_hvac_action = None
-        self._tolerance_last_action = HVACAction.IDLE
-        self._tolerance_hold_active = False
+        self._hysteresis = ToleranceHysteresis()
         self.heating_start_temp = None
         self.heating_start_timestamp = None
         self.heating_end_temp = None
@@ -431,6 +496,11 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
         self.loss_cycles = deque(maxlen=50)
         self.heating_cycles = deque(maxlen=50)
         self._loss_last_action = None
+        self._tolerance_last_action = HVACAction.IDLE
+        self._tolerance_hold_active = False
+        # Thermal learning trackers (state machines for heating power / heat loss)
+        self._heating_tracker = HeatingPowerTracker()
+        self._loss_tracker = HeatLossTracker()
         self._async_unsub_state_changed = None
         self.all_entities = []
         self.devices_states = {}
@@ -445,10 +515,6 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
         self._window_task = None
         if self.window_id is not None:
             self._window_task = asyncio.create_task(window_queue(self))
-        self.heating_power = 0.01
-        self.heating_power_normalized = None
-        # Short bounded history of recent heating power evaluations
-        self.last_heating_power_stats = deque(maxlen=10)
         self.is_removed = False
         # Valve maintenance control
         self.in_maintenance = False
@@ -1663,55 +1729,30 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
                 self.device_name,
             )
 
-        # Periodischer Keepalive: externe Temperatur mindestens alle 30 Minuten an TRVs senden
-        self.async_on_remove(
-            async_track_time_interval(
-                self.hass,
-                self._external_temperature_keepalive,
-                timedelta(minutes=30),
-            )
-        )
+            # Ventilwartung: separaten Tick nur aktivieren, wenn mindestens ein TRV sie eingeschaltet hat
+            try:
+                maint_trvs = collect_maintenance_trvs(self.real_trvs)
+            except Exception:
+                maint_trvs = []
 
-        # Ventilwartung: separaten Tick nur aktivieren, wenn mindestens ein TRV sie eingeschaltet hat
-        try:
-            any_maintenance = any(
-                bool(
-                    (trv_info.get("advanced", {}) or {}).get(
-                        CONF_VALVE_MAINTENANCE, False
+            if maint_trvs:
+                self.next_valve_maintenance = compute_initial_maintenance(
+                    self.real_trvs, maint_trvs
+                )
+                self.async_on_remove(
+                    async_track_time_interval(
+                        self.hass, self._maintenance_tick, timedelta(minutes=5)
                     )
                 )
-                for trv_info in self.real_trvs.values()
-            )
-        except Exception:
-            any_maintenance = False
-
-        if any_maintenance:
-            # Re-calculate next maintenance based on loaded TRV quirks
-            # (overrides the random 1h-5d startup default)
-            min_interval_hours = 168  # Default 7 days
-            for trv_id, trv_data in self.real_trvs.items():
-                if bool(
-                    (trv_data.get("advanced", {}) or {}).get(
-                        CONF_VALVE_MAINTENANCE, False
-                    )
-                ):
-                    quirks = trv_data.get("model_quirks")
-                    interval = int(
-                        getattr(quirks, "VALVE_MAINTENANCE_INTERVAL_HOURS", 168)
-                    )
-                    min_interval_hours = min(min_interval_hours, interval)
-
-            now = datetime.now()
-            # Schedule initial run: randomize within [1h, min(5d, interval)]
-            # If interval is very short (e.g. 12h), respect it.
-            max_delay_hours = min(24 * 5, min_interval_hours)
-            delay_hours = randint(1, max(2, max_delay_hours))
-
-            self.next_valve_maintenance = now + timedelta(hours=delay_hours)
-
-            self.async_on_remove(
-                async_track_time_interval(
-                    self.hass, self._maintenance_tick, timedelta(minutes=5)
+                _LOGGER.debug(
+                    "better_thermostat %s: valve maintenance tick enabled (5min), first run at %s",
+                    self.device_name,
+                    self.next_valve_maintenance,
+                )
+            else:
+                _LOGGER.debug(
+                    "better_thermostat %s: valve maintenance tick skipped (no TRV enabled)",
+                    self.device_name,
                 )
             )
             _LOGGER.debug(
@@ -1819,12 +1860,8 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
             return
 
         # Check if any TRV actually has maintenance enabled
-        trvs_to_service: list[str] = []
         try:
-            for trv_id, info in self.real_trvs.items():
-                adv = info.get("advanced", {}) or {}
-                if bool(adv.get(CONF_VALVE_MAINTENANCE, False)):
-                    trvs_to_service.append(trv_id)
+            trvs_to_service = collect_maintenance_trvs(self.real_trvs)
         except Exception:
             trvs_to_service = []
 
@@ -1837,185 +1874,91 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
         self.hass.async_create_task(self._run_valve_maintenance(trvs_to_service))
 
     async def _run_valve_maintenance(self, trvs: list[str]) -> None:
-        """Perform valve exercise: open fully, then close, restore state, and reschedule."""
+        """Perform valve exercise: open fully, then close, restore state, and reschedule.
+
+        Manages state flags (ignore_states, in_maintenance,
+        ignore_trv_states, control_queue) around the pure maintenance
+        logic in ``utils.valve_maintenance``.
+        """
         if self.in_maintenance:
             return
         self.in_maintenance = True
-        # Suppress control loop briefly
+        # Suppress control loop briefly to prevent interference during maintenance
         self.ignore_states = True
-        now = datetime.now()
 
         try:
-            _LOGGER.info(
-                "better_thermostat %s: starting valve maintenance for %d TRV(s)",
-                self.device_name,
-                len(trvs),
-            )
-
-            # Snapshot TRV states & determine method per TRV
-            trv_infos: dict[str, dict] = {}
-
-            # Helper to set valve percent; delegate records last percent/method.
-            async def _set_valve_pct(trv_id: str, pct: int) -> bool:
-                try:
-                    from .adapters.delegate import set_valve as _delegate_set_valve
-
-                    ok = await _delegate_set_valve(self, trv_id, int(pct))
-                    return bool(ok)
-                except Exception:
-                    return False
-
+            # Set per-TRV guard
             for trv_id in trvs:
-                # Per-TRV guard
                 try:
                     self.real_trvs[trv_id]["ignore_trv_states"] = True
                 except Exception:
                     pass
 
-                trv_state = self.hass.states.get(trv_id)
-                if trv_state is None:
-                    _LOGGER.debug(
-                        "better_thermostat %s: maintenance skip %s (state None)",
-                        self.device_name,
-                        trv_id,
-                    )
-                    # Release guard for this TRV (we won't touch it)
+            # Build snapshots (skips TRVs with state=None)
+            infos = build_trv_snapshots(
+                self.real_trvs, trvs, self.hass.states.get, self.device_name
+            )
+            serviced_ids = {info.entity_id for info in infos}
+
+            # Release guard for TRVs that were skipped (state=None)
+            for trv_id in trvs:
+                if trv_id not in serviced_ids:
                     try:
                         self.real_trvs[trv_id]["ignore_trv_states"] = False
                     except Exception:
                         pass
-                    continue
 
-                cur_mode = trv_state.state
-                cur_temp = trv_state.attributes.get("temperature")
+            # Bind adapter callbacks to self
+            from .adapters.delegate import set_valve as _delegate_set_valve
 
-                valve_entity = (self.real_trvs.get(trv_id, {}) or {}).get(
-                    "valve_position_entity"
-                )
-                quirks = (self.real_trvs.get(trv_id, {}) or {}).get("model_quirks")
-                support_valve = bool(valve_entity) or bool(
-                    getattr(quirks, "override_set_valve", None)
-                )
-                _calibration_type = (
-                    (self.real_trvs.get(trv_id, {}) or {})
-                    .get("advanced", {})
-                    .get("calibration")
-                )
-
-                use_direct_valve = bool(
-                    support_valve
-                    and _calibration_type == CalibrationType.DIRECT_VALVE_BASED
-                )
-
-                trv_infos[trv_id] = {
-                    "cur_mode": cur_mode,
-                    "cur_temp": cur_temp,
-                    "use_direct_valve": use_direct_valve,
-                    "max_t": (self.real_trvs.get(trv_id, {}) or {}).get("max_temp", 30),
-                    "min_t": (self.real_trvs.get(trv_id, {}) or {}).get("min_temp", 5),
-                }
-
-            async def _open_step(trv_id: str):
-                info = trv_infos.get(trv_id)
-                if not info:
-                    return
-                if info["use_direct_valve"]:
-                    await _set_valve_pct(trv_id, 100)
-                    return
-                # temp-extremes fallback: only when TRV is not OFF
-                if info["cur_mode"] != HVACMode.OFF:
-                    await adapter_set_temperature(self, trv_id, info["max_t"])
-
-            async def _close_step(trv_id: str):
-                info = trv_infos.get(trv_id)
-                if not info:
-                    return
-                if info["use_direct_valve"]:
-                    await _set_valve_pct(trv_id, 0)
-                    return
-                if info["cur_mode"] != HVACMode.OFF:
-                    await adapter_set_temperature(self, trv_id, info["min_t"])
-
-            # Execute in synchronized steps across all TRVs (much faster than sequential).
-            # Open all -> wait -> close all -> wait (repeat twice)
-            for i in range(2):
-                _LOGGER.debug(
-                    "better_thermostat %s: valve maintenance cycle %d/2 starting for %d TRV(s)",
-                    self.device_name,
-                    i + 1,
-                    len(trv_infos),
-                )
-                await asyncio.gather(
-                    *(_open_step(trv_id) for trv_id in trv_infos),
-                    return_exceptions=True,
-                )
-                await asyncio.sleep(30)
-                await asyncio.gather(
-                    *(_close_step(trv_id) for trv_id in trv_infos),
-                    return_exceptions=True,
-                )
-                await asyncio.sleep(30)
-
-            # Restore previous setpoint and mode for all TRVs
-            async def _restore_one(trv_id: str):
-                info = trv_infos.get(trv_id)
-                if not info:
-                    return
+            async def _set_valve(entity_id: str, pct: int) -> bool:
                 try:
-                    if info.get("cur_temp") is not None:
-                        await adapter_set_temperature(self, trv_id, info["cur_temp"])
+                    ok = await _delegate_set_valve(self, entity_id, int(pct))
+                    return bool(ok)
                 except Exception:
-                    pass
-                try:
-                    await adapter_set_hvac_mode(self, trv_id, info["cur_mode"])
-                except Exception:
-                    pass
-                try:
-                    self.real_trvs[trv_id]["ignore_trv_states"] = False
-                except Exception:
-                    pass
+                    return False
 
-            await asyncio.gather(
-                *(_restore_one(trv_id) for trv_id in trv_infos), return_exceptions=True
+            async def _set_temp(entity_id: str, temp: float) -> None:
+                await adapter_set_temperature(self, entity_id, temp)
+
+            async def _set_mode(entity_id: str, mode: str) -> None:
+                await adapter_set_hvac_mode(self, entity_id, mode)
+
+            # Run 2× open/close + restore
+            await run_valve_maintenance(
+                infos,
+                set_valve_fn=_set_valve,
+                set_temperature_fn=_set_temp,
+                set_hvac_mode_fn=_set_mode,
+                device_name=self.device_name,
             )
 
-            # Ensure we always release the guard for TRVs that were skipped above.
-            for trv_id in trvs:
-                if trv_id in trv_infos:
-                    continue
+            # Release per-TRV guard for serviced TRVs
+            for trv_id in serviced_ids:
                 try:
                     self.real_trvs[trv_id]["ignore_trv_states"] = False
                 except Exception:
                     pass
 
-            # Determine next maintenance interval based on the quirks of enabled TRVs
-            min_interval_hours = 168  # Default 7 days
-            for trv_id in trvs:
-                quirks = (self.real_trvs.get(trv_id, {}) or {}).get("model_quirks")
-                # Default to 168 hours if quirk doesn't specify
-                interval = int(getattr(quirks, "VALVE_MAINTENANCE_INTERVAL_HOURS", 168))
-                min_interval_hours = min(min_interval_hours, interval)
-
-            # Add ~7% randomization
-            variance = max(1, int(min_interval_hours * 0.07))
-            self.next_valve_maintenance = now + timedelta(
-                hours=min_interval_hours + randint(0, variance)
+            # Schedule next run
+            self.next_valve_maintenance = compute_next_maintenance(
+                self.real_trvs, trvs
             )
             _LOGGER.info(
-                "better_thermostat %s: valve maintenance finished; next at %s",
+                "better_thermostat %s: next valve maintenance at %s",
                 self.device_name,
                 self.next_valve_maintenance,
             )
         finally:
             self._control_needed_after_maintenance = False
             # Always release ignore_states after maintenance.
-            # If we restore a previous True here, the control_queue loop can get stuck
-            # sleeping forever and never consume queued control actions.
+            # If we restore a previous True here, the control_queue loop can get
+            # stuck sleeping forever and never consume queued control actions.
             self.ignore_states = False
             self.in_maintenance = False
 
-            # Trigger one control cycle after maintenance so BT immediately resumes
-            # with the latest window/temp/target states.
+            # Trigger one control cycle after maintenance so BT immediately
+            # resumes with the latest window/temp/target states.
             if self.bt_hvac_mode != HVACMode.OFF:
                 try:
                     self.control_queue_task.put_nowait(self)
@@ -2157,16 +2100,8 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
     async def calculate_heating_power(self):
         """Learn effective heating power (°C/min) from completed heating cycles.
 
-        Improvements over the original implementation:
-        - Minimum duration of 1 minute (otherwise cycle is ignored)
-        - Wait for the post-heating temperature peak (thermal inertia) after HEATING stops
-        - Timeout based finalization if the temperature does not fall (prevents stuck cycles)
-        - Outdoor temperature (if available) is used for normalization & adaptive weighting
-        - Bounded telemetry (deque) for minimal memory footprint
-        - Reduced state writes (only on changes / cycle finalization / action switches)
+        Delegates to :class:`HeatingPowerTracker` and handles HA side-effects.
         """
-
-        # Skip if we have no current temperature
         if self.cur_temp is None:
             return
 
@@ -2176,366 +2111,65 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
         if not hasattr(self, "max_target_temp"):
             self.max_target_temp = self.bt_target_temp or 21.0
 
-        # Telemetry container (now initialized in __init__)
-        now = dt_util.utcnow()  # UTC aware time
-
-        # Determine current action early (pure computation) for transition handling
+        result = self._heating_tracker.update(
+            self.cur_temp,
+            current_action,
+            dt_util.utcnow(),
+            target_temp=self.bt_target_temp,
+            outdoor_temp=outdoor_temp,
+        )
+        
+        self._commit_hvac_action(result)
+        current_action = result.action
         current_action = self._compute_hvac_action()
+        outdoor_temp = self._get_outdoor_temp()
 
-        action_changed = current_action != self.old_attr_hvac_action
+        if result.action_changed:
+            self.old_attr_hvac_action = result.current_action
+            self.attr_hvac_action = result.current_action
 
-        # Transition: heating starts
-        if (
-            current_action == HVACAction.HEATING
-            and self.old_attr_hvac_action != HVACAction.HEATING
-        ):
-            self.heating_start_temp = self.cur_temp
-            self.heating_start_timestamp = now
-            self.heating_end_temp = None
-            self.heating_end_timestamp = None
-
-        # Transition: heating stops (candidate end)
-        elif (
-            current_action != HVACAction.HEATING
-            and self.old_attr_hvac_action == HVACAction.HEATING
-            and self.heating_start_temp is not None
-            and self.heating_end_temp is None
-        ):
-            self.heating_end_temp = self.cur_temp
-            self.heating_end_timestamp = now
-
-        # Peak tracking: temperature still rising after heating already stopped
-        elif (
-            current_action != HVACAction.HEATING
-            and self.heating_start_temp is not None
-            and self.heating_end_temp is not None
-            and self.cur_temp > self.heating_end_temp
-        ):
-            self.heating_end_temp = self.cur_temp
-            self.heating_end_timestamp = now
-
-        # Finalization criteria: temperature drops OR timeout triggers
-        finalize = False
-        TIMEOUT_MIN = 30  # safety timeout after 30 minutes of plateau
-
-        if (
-            self.heating_start_temp is not None
-            and self.heating_end_temp is not None
-            and self.cur_temp < self.heating_end_temp  # peak passed (temp falling)
-        ):
-            finalize = True
-        elif self.heating_end_timestamp is not None and (
-            now - self.heating_end_timestamp
-        ) > timedelta(minutes=TIMEOUT_MIN):
-            finalize = True
-
-        heating_power_changed = False
-        normalized_power = None
-
-        if finalize:
-            if (
-                self.heating_end_temp is not None
-                and self.heating_start_temp is not None
-            ):
-                temp_diff = self.heating_end_temp - self.heating_start_temp
-            else:
-                temp_diff = 0
-            duration_min = (
-                (
-                    self.heating_end_timestamp - self.heating_start_timestamp
-                ).total_seconds()
-                / 60.0
-                if self.heating_end_timestamp and self.heating_start_timestamp
-                else 0
-            )
-            # Require minimum duration and positive temperature increase
-            if duration_min >= 1.0 and temp_diff > 0:
-                # Base weighting via relative position within target range
-                temp_range = max(self.max_target_temp - self.min_target_temp, 0.1)
-                relative_pos = (
-                    (self.bt_target_temp - self.min_target_temp) / temp_range
-                    if self.bt_target_temp is not None
-                    else 0.5
-                )
-                weight_factor = max(0.5, min(1.5, 0.5 + relative_pos))
-
-                # Consider outdoor temperature if available
-                outdoor = None
-                try:
-                    if self.outdoor_sensor is not None:
-                        outdoor_state = self.hass.states.get(self.outdoor_sensor)
-                        if outdoor_state is not None:
-                            outdoor = convert_to_float(
-                                str(outdoor_state.state),
-                                self.device_name,
-                                "calculate_heating_power.outdoor",
-                            )
-                except Exception:
-                    outdoor = None
-
-                # Environmental delta (setpoint - outdoor) for normalization
-                if outdoor is not None and self.bt_target_temp is not None:
-                    delta_env = max(self.bt_target_temp - outdoor, 0.1)
-                    # Normalized heating rate (°C/min relative to thermal gradient)
-                    normalized_power = round((temp_diff / duration_min) / delta_env, 5)
-                    # Environment factor influences smoothing weight (larger gradient -> slightly higher weight)
-                    env_factor = max(0.7, min(1.3, delta_env / 20.0))
-                else:
-                    env_factor = 1.0
-
-                heating_rate = round(temp_diff / duration_min, 4)  # °C / min
-
-                # Adaptive exponential smoothing (alpha)
-                base_alpha = 0.10
-                alpha = base_alpha * weight_factor * env_factor
-                alpha = max(0.02, min(0.25, alpha))  # Bounds
-
-                old_power = self.heating_power
-                unbounded_new_power = old_power * (1 - alpha) + heating_rate * alpha
-
-                # Bound heating_power to realistic values for residential heating systems
-                clamped_power = max(
-                    MIN_HEATING_POWER, min(MAX_HEATING_POWER, unbounded_new_power)
-                )
-                if clamped_power != unbounded_new_power:
-                    bound_name = (
-                        "MIN_HEATING_POWER"
-                        if clamped_power <= MIN_HEATING_POWER
-                        else "MAX_HEATING_POWER"
-                    )
-                    _LOGGER.debug(
-                        "better_thermostat: heating_power clamped from %.4f to %.4f at %s "
-                        "(min=%.4f, max=%.4f)",
-                        unbounded_new_power,
-                        clamped_power,
-                        bound_name,
-                        MIN_HEATING_POWER,
-                        MAX_HEATING_POWER,
-                    )
-                new_power = clamped_power
-                self.heating_power = round(new_power, 4)
-                heating_power_changed = self.heating_power != old_power
-
-                # Compact short stats history
-                self.last_heating_power_stats.append(
-                    {
-                        "dT": round(temp_diff, 2),
-                        "min": round(duration_min, 1),
-                        "rate": heating_rate,
-                        "alpha": round(alpha, 3),
-                        "envf": round(env_factor, 3),
-                        "hp": self.heating_power,
-                        "norm": normalized_power,
-                    }
-                )
-
-                # Full cycle telemetry snapshot (bounded deque)
-                try:
-                    self.heating_cycles.append(
-                        {
-                            "start": (
-                                self.heating_start_timestamp.isoformat()
-                                if self.heating_start_timestamp
-                                else None
-                            ),
-                            "end": (
-                                self.heating_end_timestamp.isoformat()
-                                if self.heating_end_timestamp
-                                else None
-                            ),
-                            "temp_start": (
-                                round(self.heating_start_temp, 2)
-                                if self.heating_start_temp is not None
-                                else None
-                            ),
-                            "temp_peak": (
-                                round(self.heating_end_temp, 2)
-                                if self.heating_end_temp is not None
-                                else None
-                            ),
-                            "delta_t": round(temp_diff, 3),
-                            "minutes": round(duration_min, 2),
-                            "rate_c_min": heating_rate,
-                            "target": self.bt_target_temp,
-                            "outdoor": outdoor,
-                            "norm_power": normalized_power,
-                        }
-                    )
-                except Exception:
-                    _LOGGER.exception(
-                        "Error appending heating cycle telemetry snapshot"
-                    )
-
-                _LOGGER.debug(
-                    "better_thermostat %s: heating cycle evaluated: ΔT=%.3f°C, t=%.2fmin, rate=%.4f°C/min, "
-                    "hp(old/new)=%.4f/%.4f, alpha=%.3f, env_factor=%.3f, norm=%s",
-                    self.device_name,
-                    temp_diff,
-                    duration_min,
-                    heating_rate,
-                    old_power,
-                    self.heating_power,
-                    alpha,
-                    env_factor,
-                    normalized_power,
-                )
-
-            # Reset for next cycle (even if discarded)
-            self.heating_start_temp = None
-            self.heating_end_temp = None
-            self.heating_start_timestamp = None
-            self.heating_end_timestamp = None
-
-        # Adjust dynamic target range bounds based on used setpoints
-        if self.bt_target_temp is not None:
-            self.min_target_temp = min(self.min_target_temp, self.bt_target_temp)
-            self.max_target_temp = max(self.max_target_temp, self.bt_target_temp)
-
-        # Track action changes using freshly computed action (pure function)
-        if action_changed:
-            self.old_attr_hvac_action = current_action
-            self.attr_hvac_action = (
-                current_action  # maintain legacy attribute for compatibility
-            )
-
-        # Write state only if something relevant changed
-        if heating_power_changed or action_changed or finalize:
-            # Store normalized power if available
-            if normalized_power is not None:
-                self.heating_power_normalized = normalized_power
-            if heating_power_changed:
+        if result.cycle_result is not None or result.action_changed:
+            if result.cycle_result and result.cycle_result.power_changed:
                 self.schedule_save_state()
             self.async_write_ha_state()
 
     async def calculate_heat_loss(self):
         """Learn effective heat loss (°C/min) during idle cooling periods.
 
-        Measures temperature decay when HVAC action is IDLE and the window is closed.
-        Similar to heating_power, but for passive cooling (loss rate).
+        Delegates to :class:`HeatLossTracker` and handles HA side-effects.
         """
-
         if self.cur_temp is None:
             return
 
-        now = dt_util.utcnow()
         current_action = self._compute_hvac_action()
 
-        # Do not learn when window is open
-        if self.window_open:
-            self.loss_start_temp = None
-            self.loss_start_timestamp = None
-            self.loss_end_temp = None
-            self.loss_end_timestamp = None
-            self._loss_last_action = current_action
-            return
+        result = self._loss_tracker.update(
+            self.cur_temp,
+            current_action,
+            dt_util.utcnow(),
+            window_open=self.window_open,
+        )
 
-        # Start tracking when we enter idle (not heating)
-        if current_action != HVACAction.HEATING:
-            if self.loss_start_temp is None:
-                self.loss_start_temp = self.cur_temp
-                self.loss_start_timestamp = now
-                self.loss_end_temp = self.cur_temp
-                self.loss_end_timestamp = now
-            elif self.loss_end_temp is None or self.cur_temp < self.loss_end_temp:
-                self.loss_end_temp = self.cur_temp
-                self.loss_end_timestamp = now
+        if result.cycle_result is not None:
+            self.async_write_ha_state()
+            if result.cycle_result.loss_changed:
+                self.schedule_save_state()
 
-        # Finalize when heating starts again
-        if current_action == HVACAction.HEATING and self.loss_start_temp is not None:
-            if self.loss_end_temp is not None and self.loss_start_timestamp is not None:
-                temp_drop = self.loss_start_temp - self.loss_end_temp
-                duration_min = (
-                    (
-                        self.loss_end_timestamp - self.loss_start_timestamp
-                    ).total_seconds()
-                    / 60.0
-                    if self.loss_end_timestamp and self.loss_start_timestamp
-                    else 0
+    def _get_outdoor_temp(self) -> float | None:
+        """Resolve outdoor temperature from sensor entity, if configured."""
+        if self.outdoor_sensor is None:
+            return None
+        try:
+            outdoor_state = self.hass.states.get(self.outdoor_sensor)
+            if outdoor_state is not None:
+                return convert_to_float(
+                    str(outdoor_state.state),
+                    self.device_name,
+                    "calculate_heating_power.outdoor",
                 )
-
-                if duration_min >= 1.0 and temp_drop > 0:
-                    # Raw loss rate (°C/min)
-                    loss_rate = round(temp_drop / duration_min, 5)
-
-                    # Adaptive smoothing
-                    base_alpha = 0.10
-                    alpha = max(0.02, min(0.25, base_alpha))
-                    old_loss = self.heat_loss_rate
-                    unbounded = old_loss * (1 - alpha) + loss_rate * alpha
-
-                    clamped_loss = max(MIN_HEAT_LOSS, min(MAX_HEAT_LOSS, unbounded))
-                    if clamped_loss != unbounded:
-                        bound_name = (
-                            "MIN_HEAT_LOSS"
-                            if clamped_loss <= MIN_HEAT_LOSS
-                            else "MAX_HEAT_LOSS"
-                        )
-                        _LOGGER.debug(
-                            "better_thermostat: heat_loss clamped from %.4f to %.4f at %s "
-                            "(min=%.4f, max=%.4f)",
-                            unbounded,
-                            clamped_loss,
-                            bound_name,
-                            MIN_HEAT_LOSS,
-                            MAX_HEAT_LOSS,
-                        )
-
-                    self.heat_loss_rate = round(clamped_loss, 5)
-                    loss_changed = self.heat_loss_rate != old_loss
-
-                    self.last_heat_loss_stats.append(
-                        {
-                            "dT": round(temp_drop, 2),
-                            "min": round(duration_min, 1),
-                            "rate": loss_rate,
-                            "alpha": round(alpha, 3),
-                            "loss": self.heat_loss_rate,
-                        }
-                    )
-
-                    try:
-                        self.loss_cycles.append(
-                            {
-                                "start": (
-                                    self.loss_start_timestamp.isoformat()
-                                    if self.loss_start_timestamp
-                                    else None
-                                ),
-                                "end": (
-                                    self.loss_end_timestamp.isoformat()
-                                    if self.loss_end_timestamp
-                                    else None
-                                ),
-                                "temp_start": (
-                                    round(self.loss_start_temp, 2)
-                                    if self.loss_start_temp is not None
-                                    else None
-                                ),
-                                "temp_min": (
-                                    round(self.loss_end_temp, 2)
-                                    if self.loss_end_temp is not None
-                                    else None
-                                ),
-                                "rate": loss_rate,
-                            }
-                        )
-                    except Exception:
-                        _LOGGER.exception(
-                            "better_thermostat %s: Error while storing heat loss cycle",
-                            self.device_name,
-                        )
-
-                    self.async_write_ha_state()
-                    if loss_changed:
-                        self.schedule_save_state()
-
-            # Reset after finalize
-            self.loss_start_temp = None
-            self.loss_start_timestamp = None
-            self.loss_end_temp = None
-            self.loss_end_timestamp = None
-
-        self._loss_last_action = current_action
+        except Exception:
+            pass
+        return None
 
     @property
     def extra_state_attributes(self) -> dict[str, Any]:
@@ -2811,8 +2445,10 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
 
     @property
     def hvac_action(self):
-        """Return the current HVAC action (delegates to helper)."""
-        return self._compute_hvac_action()
+        """Return the current HVAC action."""
+        if self.attr_hvac_action is not None:
+            return self.attr_hvac_action
+        return self._compute_hvac_action_pure().action
 
     def _should_heat_with_tolerance(
         self, previous_action: HVACAction | None, tol: float
@@ -2820,180 +2456,75 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
         """Apply hysteresis so heating restarts only below target - tolerance."""
         if self.bt_target_temp is None or self.cur_temp is None:
             return False
-        tol = max(0.0, tol)
-        heat_off_threshold = self.bt_target_temp
-        heat_on_threshold = self.bt_target_temp - tol
-        if previous_action == HVACAction.HEATING:
-            return self.cur_temp < heat_off_threshold
-        return self.cur_temp < heat_on_threshold
-
-    def _compute_hvac_action(self):  # helper kept internal for clarity
-        """Pure HVAC action computation with tolerance based hysteresis.
-
-        Rules:
-        - OFF mode returns OFF regardless of temperatures
-        - Open window suppresses active heating/cooling (returns IDLE)
-        - Heating uses a hysteresis band [target - tolerance, target]
-        - Cooling if mode heat_cool and cur_temp > cool_target + tolerance
-        - Otherwise IDLE, unless TRVs explicitly report heating and tolerance does not block it
-        """
-        prev_action = self._tolerance_last_action
-        tol = self.tolerance if self.tolerance is not None else 0.0
-
-        if self.bt_target_temp is None or self.cur_temp is None:
-            self._tolerance_hold_active = False
-            self._tolerance_last_action = HVACAction.IDLE
-            return HVACAction.IDLE
-        if HVACMode.OFF in (self.hvac_mode, self.bt_hvac_mode):
-            self._tolerance_hold_active = False
-            self._tolerance_last_action = HVACAction.IDLE
-            return HVACAction.OFF
-        if self.window_open:
-            self._tolerance_hold_active = False
-            self._tolerance_last_action = HVACAction.IDLE
-            return HVACAction.IDLE
-
-        heating_allowed = self.hvac_mode in (HVACMode.HEAT, HVACMode.HEAT_COOL)
-        action = HVACAction.IDLE
-        tolerance_hold = False
-
-        if heating_allowed:
-            should_heat = self._should_heat_with_tolerance(prev_action, tol)
-            if should_heat:
-                action = HVACAction.HEATING
-            else:
-                tolerance_hold = True
-
-        # Remember the tolerance-based decision *before* TRV overrides so the
-        # hysteresis state machine is not corrupted by a TRV that is still
-        # physically heating after the control logic decided to stop.
-        tolerance_decision = action
-
-        # Cooling decision (if heat_cool mode and cooling setpoint exists)
-        if (
-            self.hvac_mode in (HVACMode.HEAT_COOL,)
-            and self.bt_target_cooltemp is not None
-            and self.cur_temp > (self.bt_target_cooltemp + tol)
-        ):
-            action = HVACAction.COOLING
-            tolerance_hold = False
-
-        # Base decision would be IDLE. If any real TRV indicates active heating, override to HEATING.
-        if action == HVACAction.IDLE:
-            try:
-                # Skip overrides while we intentionally ignore TRV states or when window is open
-                if self.ignore_states or self.window_open:
-                    self._tolerance_last_action = HVACAction.IDLE
-                    self._tolerance_hold_active = tolerance_hold
-                    return HVACAction.IDLE
-
-                def _to_pct(val):
-                    try:
-                        v = float(val)
-                        return v * 100.0 if 0.0 <= v < 1.0 else v
-                    except Exception:
-                        return None
-
-                THRESH = 0.0
-                for trv_id, info in (self.real_trvs or {}).items():
-                    if not isinstance(info, dict):
-                        _LOGGER.debug(
-                            "better_thermostat %s: _compute_hvac_action TRV %s ignored (config invalid)",
-                            self.device_name,
-                            trv_id,
-                        )
-                        continue
-                    if info.get("ignore_trv_states"):
-                        _LOGGER.debug(
-                            "better_thermostat %s: _compute_hvac_action TRV %s ignored (ignore_trv_states=True)",
-                            self.device_name,
-                            trv_id,
-                        )
-                        continue
-
-                    # 0) Use cached hvac_action first; fallback to hass state if missing
-                    try:
-                        action_val = info.get("hvac_action")
-                        action_str = (
-                            str(action_val).lower() if action_val is not None else ""
-                        )
-                        if not action_str:
-                            trv_state = self.hass.states.get(trv_id)
-                            action_raw = None
-                            if trv_state is not None:
-                                action_raw = trv_state.attributes.get("hvac_action")
-                                if action_raw is None:
-                                    action_raw = trv_state.attributes.get("action")
-                            action_str = (
-                                str(action_raw).lower()
-                                if action_raw is not None
-                                else ""
-                            )
-                            if action_str:
-                                try:
-                                    info["hvac_action"] = action_str
-                                except Exception:
-                                    pass
-                        if action_str == "heating" or action_val == HVACAction.HEATING:
-                            _LOGGER.debug(
-                                "better_thermostat %s: overriding hvac_action to HEATING (TRV %s reports heating)",
-                                self.device_name,
-                                trv_id,
-                            )
-                            action = HVACAction.HEATING
-                            break
-                    except Exception:
-                        pass
-
-                    # 2) TRV shows an actual/open valve position > 0
-                    vp = info.get("valve_position")
-                    try:
-                        vp_pct = _to_pct(vp)
-                        if vp_pct is not None and vp_pct > THRESH:
-                            _LOGGER.debug(
-                                "better_thermostat %s: overriding hvac_action to HEATING (valve_position %.1f%%, TRV %s)",
-                                self.device_name,
-                                vp_pct,
-                                trv_id,
-                            )
-                            action = HVACAction.HEATING
-                            break
-                    except Exception:
-                        pass
-
-                    # 3) We last commanded a valve percent > 0 (adapter/override)
-                    last_pct = info.get("last_valve_percent")
-                    try:
-                        last_pct_n = _to_pct(last_pct)
-                        if last_pct_n is not None and last_pct_n > THRESH:
-                            _LOGGER.debug(
-                                "better_thermostat %s: overriding hvac_action to HEATING (last_valve_percent %.1f%%, TRV %s)",
-                                self.device_name,
-                                last_pct_n,
-                                trv_id,
-                            )
-                            action = HVACAction.HEATING
-                            break
-                    except Exception:
-                        pass
-
-            except Exception:
-                # Defensive: if anything goes wrong in overrides, fall back to IDLE
-                pass
-
-        # Persist tolerance state machine for next decision.
-        # Use the tolerance-based decision (before TRV overrides) so that a
-        # TRV still physically heating does not keep the hysteresis in the
-        # lenient "was-heating" mode and cause heating up to target + tolerance.
-        self._tolerance_last_action = (
-            HVACAction.HEATING
-            if tolerance_decision == HVACAction.HEATING
-            else HVACAction.IDLE
+        return should_heat_with_tolerance(
+            self.cur_temp, self.bt_target_temp, tol, previous_action
         )
-        self._tolerance_hold_active = bool(
-            tolerance_hold and action != HVACAction.COOLING
+
+    def _build_trv_snapshots(self) -> list[TrvSnapshot]:
+        """Build TrvSnapshot list from real_trvs with hass state fallback."""
+        snapshots: list[TrvSnapshot] = []
+        for trv_id, info in (self.real_trvs or {}).items():
+            if not isinstance(info, dict):
+                continue
+
+            # Resolve hvac_action: cached first, hass state fallback
+            action_val = info.get("hvac_action")
+            action_str = str(action_val).lower() if action_val is not None else ""
+            if not action_str:
+                try:
+                    trv_state = self.hass.states.get(trv_id)
+                    action_raw = None
+                    if trv_state is not None:
+                        action_raw = trv_state.attributes.get("hvac_action")
+                        if action_raw is None:
+                            action_raw = trv_state.attributes.get("action")
+                    action_str = (
+                        str(action_raw).lower() if action_raw is not None else ""
+                    )
+                    if action_str:
+                        try:
+                            info["hvac_action"] = action_str
+                        except Exception:
+                            pass
+                except Exception:
+                    action_str = ""
+
+            # HVACAction enum also counts as "heating"
+            if action_val == HVACAction.HEATING and action_str != "heating":
+                action_str = "heating"
+
+            snapshots.append(
+                TrvSnapshot(
+                    trv_id=trv_id,
+                    ignore_trv_states=bool(info.get("ignore_trv_states")),
+                    hvac_action=action_str or None,
+                    valve_position=info.get("valve_position"),
+                    last_valve_percent=info.get("last_valve_percent"),
+                )
+            )
+        return snapshots
+
+    def _compute_hvac_action_pure(self):
+        """Compute current HVAC action."""
+        return compute_hvac_action(
+            hysteresis=self._hysteresis,
+            cur_temp=self.cur_temp,
+            target_temp=self.bt_target_temp,
+            cool_target=self.bt_target_cooltemp,
+            hvac_mode=self.hvac_mode,
+            bt_hvac_mode=self.bt_hvac_mode,
+            window_open=self.window_open,
+            tolerance=self.tolerance or 0.0,
+            ignore_states=self.ignore_states,
+            trv_snapshots=self._build_trv_snapshots(),
+            device_name=self.device_name,
         )
-        return action
+
+    def _commit_hvac_action(self, result) -> None:
+        """Apply computed hysteresis state."""
+        self._hysteresis.last_action = result.new_last_action
+        self._hysteresis.hold_active = result.new_hold_active
+
 
     @property
     def target_temperature(self) -> float | None:
@@ -3323,14 +2854,7 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
                     self.device_name,
                 )
                 return
-            # gather enabled TRVs
-            trvs_to_service = [
-                trv_id
-                for trv_id, info in self.real_trvs.items()
-                if bool(
-                    (info.get("advanced", {}) or {}).get(CONF_VALVE_MAINTENANCE, False)
-                )
-            ]
+            trvs_to_service = collect_maintenance_trvs(self.real_trvs)
             if not trvs_to_service:
                 _LOGGER.debug(
                     "better_thermostat %s: valve maintenance requested, but no TRV has it enabled",

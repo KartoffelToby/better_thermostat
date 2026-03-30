@@ -50,7 +50,7 @@ async def trigger_window_change(self, event) -> None:
             )
 
         # window was opened, disable heating power calculation for this period
-        self.heating_start_temp = None
+        self._heating_tracker.start_temp = None
         self.async_write_ha_state()
     elif new_state == "off":
         new_window_open = False
