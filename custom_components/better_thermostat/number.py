@@ -9,7 +9,9 @@ from homeassistant.const import EntityCategory, UnitOfTemperature
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.restore_state import RestoreEntity
+from homeassistant.util.unit_conversion import TemperatureConverter
 
+from .utils.helpers import get_celsius_temperature
 from .sensor import _ACTIVE_PID_NUMBERS, _ACTIVE_PRESET_NUMBERS
 from .utils.calibration.pid import (
     _PID_STATES,
@@ -141,10 +143,26 @@ class BetterThermostatPresetNumber(NumberEntity, RestoreEntity):
         self._attr_unique_id = f"{bt_climate.unique_id}_preset_{preset_mode}"
         self._attr_name = f"Preset {preset_mode.capitalize()}"
 
-        # Set min/max/step based on climate entity configuration
-        self._attr_native_min_value = bt_climate.min_temp
-        self._attr_native_max_value = bt_climate.max_temp
+        # Set min/max/step based on climate entity configuration.
+        # Note: bt_climate.min_temp/max_temp are in Celsius.
+        # But we don't need to convert them here because HA Number entities
+        # will handle the conversion of native_min/max if native_unit_of_measurement is set.
+        # Wait, self._attr_native_unit_of_measurement is hardcoded to CELSIUS.
+        # If we want the number entity to show values in Fahrenheit, we should
+        # set native_unit_of_measurement to the system unit.
+        system_unit = bt_climate.hass.config.units.temperature_unit
+        self._attr_native_unit_of_measurement = system_unit
+
+        from homeassistant.util.unit_conversion import TemperatureConverter
+        self._attr_native_min_value = TemperatureConverter.convert(
+            bt_climate.min_temp, UnitOfTemperature.CELSIUS, system_unit
+        )
+        self._attr_native_max_value = TemperatureConverter.convert(
+            bt_climate.max_temp, UnitOfTemperature.CELSIUS, system_unit
+        )
         self._attr_native_step = bt_climate.target_temperature_step or 0.1
+        if system_unit == UnitOfTemperature.FAHRENHEIT:
+            self._attr_native_step = (bt_climate.target_temperature_step or 0.5) * 1.8
 
     async def async_added_to_hass(self) -> None:
         """Run when entity about to be added."""
@@ -157,11 +175,16 @@ class BetterThermostatPresetNumber(NumberEntity, RestoreEntity):
         ):
             try:
                 val = float(last_state.state)
-                self._bt_climate._preset_temperatures[self._preset_mode] = val
+                # The state of a Number entity in HA is always in the system unit.
+                # We need to convert it back to Celsius for internal storage.
+                system_unit = self.hass.config.units.temperature_unit
+                celsius_val = get_celsius_temperature(val, system_unit)
+                self._bt_climate._preset_temperatures[self._preset_mode] = celsius_val
                 _LOGGER.debug(
-                    "Restored preset %s to %s from number entity state",
+                    "Restored preset %s to %s (Celsius: %s) from number entity state",
                     self._preset_mode,
                     val,
+                    celsius_val,
                 )
             except ValueError:
                 pass
@@ -174,16 +197,29 @@ class BetterThermostatPresetNumber(NumberEntity, RestoreEntity):
     @property
     def native_value(self) -> float | None:
         """Return the value of the number."""
-        return self._bt_climate._preset_temperatures.get(self._preset_mode)
+        # Convert Celsius internal storage to native unit for HA Number entity
+        val = self._bt_climate._preset_temperatures.get(self._preset_mode)
+        if val is None:
+            return None
+        system_unit = self.hass.config.units.temperature_unit
+        if system_unit == UnitOfTemperature.CELSIUS:
+            return val
+        return TemperatureConverter.convert(val, UnitOfTemperature.CELSIUS, system_unit)
 
     async def async_set_native_value(self, value: float) -> None:
         """Update the current value."""
+        # The input 'value' is in the system native unit.
+        # Convert it to Celsius for internal storage.
+        system_unit = self.hass.config.units.temperature_unit
+        celsius_val = get_celsius_temperature(value, system_unit)
+
         # Update the storage in the climate entity
-        self._bt_climate._preset_temperatures[self._preset_mode] = value
+        self._bt_climate._preset_temperatures[self._preset_mode] = celsius_val
 
         # If this preset is currently active, update the target temperature immediately
         if self._bt_climate.preset_mode == self._preset_mode:
-            await self._bt_climate.async_set_temperature(temperature=value)
+            # bt.async_set_temperature expects Celsius if its temperature_unit is Celsius.
+            await self._bt_climate.async_set_temperature(temperature=celsius_val)
 
         self.async_write_ha_state()
         # Force update of climate entity state to persist the new preset temperature in attributes

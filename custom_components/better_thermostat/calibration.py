@@ -39,6 +39,7 @@ from custom_components.better_thermostat.utils.const import (
 )
 from custom_components.better_thermostat.utils.helpers import (
     convert_to_float,
+    get_temperature_from_state,
     heating_power_valve_position,
     normalize_calibration_mode,
     round_by_step,
@@ -52,18 +53,18 @@ def _get_current_outdoor_temp(self) -> float | None:
     if self.outdoor_sensor is not None:
         state = self.hass.states.get(self.outdoor_sensor)
         if state:
-            return convert_to_float(
-                state.state, self.device_name, "_get_current_outdoor_temp()"
-            )
+            return get_temperature_from_state(state)
 
     if self.weather_entity is not None:
         state = self.hass.states.get(self.weather_entity)
         if state and state.attributes:
-            return convert_to_float(
-                state.attributes.get("temperature"),
-                self.device_name,
-                "_get_current_outdoor_temp()",
-            )
+            # Weather entity state attributes for temperature are also usually in system unit
+            from homeassistant.const import ATTR_UNIT_OF_MEASUREMENT
+            from .utils.helpers import get_celsius_temperature
+            val = state.attributes.get("temperature")
+            unit = state.attributes.get(ATTR_UNIT_OF_MEASUREMENT)
+            if val is not None:
+                return get_celsius_temperature(float(val), unit)
 
     return None
 

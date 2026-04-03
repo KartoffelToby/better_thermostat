@@ -8,8 +8,10 @@ convert thermostat states and prepare outbound payloads.
 import logging
 
 from homeassistant.components.climate.const import HVACMode
+from homeassistant.const import UnitOfTemperature
 from homeassistant.core import State, callback
 from homeassistant.util import dt as dt_util
+from homeassistant.util.unit_conversion import TemperatureConverter
 
 from custom_components.better_thermostat.adapters.delegate import get_current_offset
 from custom_components.better_thermostat.calibration import (
@@ -26,6 +28,7 @@ from custom_components.better_thermostat.utils.const import (
 )
 from custom_components.better_thermostat.utils.helpers import (
     convert_to_float,
+    get_celsius_temperature,
     get_device_model,
     mode_remap,
 )
@@ -116,10 +119,9 @@ async def trigger_trv_change(self, event):
             e,
         )
 
-    _new_current_temp = convert_to_float(
-        str(_org_trv_state.attributes.get("current_temperature", None)),
-        self.device_name,
-        "TRV_current_temp",
+    _new_current_temp = get_celsius_temperature(
+        float(_org_trv_state.attributes.get("current_temperature", 20)),
+        _org_trv_state.attributes.get("unit_of_measurement")
     )
 
     _time_diff = 5
@@ -238,15 +240,13 @@ async def trigger_trv_change(self, event):
     if "temperature" not in old_state.attributes:
         _main_key = "target_temp_low"
 
-    _old_heating_setpoint = convert_to_float(
-        str(old_state.attributes.get(_main_key, None)),
-        self.device_name,
-        "trigger_trv_change()",
+    _old_heating_setpoint = get_celsius_temperature(
+        float(old_state.attributes.get(_main_key, 20)),
+        old_state.attributes.get("unit_of_measurement")
     )
-    _new_heating_setpoint = convert_to_float(
-        str(new_state.attributes.get(_main_key, None)),
-        self.device_name,
-        "trigger_trv_change()",
+    _new_heating_setpoint = get_celsius_temperature(
+        float(new_state.attributes.get(_main_key, 20)),
+        new_state.attributes.get("unit_of_measurement")
     )
     _is_no_off_device = self.real_trvs[entity_id]["advanced"].get(
         "no_off_system_mode", False
@@ -452,14 +452,42 @@ def convert_outbound_states(self, entity_id, hvac_mode) -> dict | None:
             _new_heating_setpoint = _min_temp
             hvac_mode = None
 
+        # Convert Celsius temperatures back to system unit for TRV outbound payload.
+        try:
+            system_unit = self.hass.config.units.temperature_unit
+        except Exception:
+            system_unit = UnitOfTemperature.CELSIUS
+
+        _out_heating_setpoint = _new_heating_setpoint
+        _out_local_temp = self.real_trvs[entity_id]["current_temperature"]
+        _out_local_calibration = _new_local_calibration
+
+        if system_unit != UnitOfTemperature.CELSIUS and isinstance(system_unit, str):
+            if _out_heating_setpoint is not None:
+                _out_heating_setpoint = TemperatureConverter.convert(
+                    _out_heating_setpoint, UnitOfTemperature.CELSIUS, system_unit
+                )
+            if _out_local_temp is not None:
+                _out_local_temp = TemperatureConverter.convert(
+                    _out_local_temp, UnitOfTemperature.CELSIUS, system_unit
+                )
+            # Local calibration is a delta, not an absolute temperature.
+            # If the system unit is Fahrenheit, we scale the Celsius delta.
+            if _out_local_calibration is not None:
+                _out_local_calibration = TemperatureConverter.convert(
+                    _out_local_calibration, UnitOfTemperature.CELSIUS, system_unit
+                ) - TemperatureConverter.convert(
+                    0, UnitOfTemperature.CELSIUS, system_unit
+                )
+
         # Build payload; include calibration only if present
         _payload = {
-            "temperature": _new_heating_setpoint,
-            "local_temperature": self.real_trvs[entity_id]["current_temperature"],
+            "temperature": _out_heating_setpoint,
+            "local_temperature": _out_local_temp,
             "system_mode": hvac_mode,
         }
-        if _new_local_calibration is not None:
-            _payload["local_temperature_calibration"] = _new_local_calibration
+        if _out_local_calibration is not None:
+            _payload["local_temperature_calibration"] = _out_local_calibration
         if _new_valve_position is not None:
             _payload["valve_position"] = _new_valve_position
         return _payload

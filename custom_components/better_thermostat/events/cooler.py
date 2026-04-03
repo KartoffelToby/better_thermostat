@@ -9,7 +9,10 @@ import logging
 from homeassistant.components.climate.const import HVACMode
 from homeassistant.core import State, callback
 
-from custom_components.better_thermostat.utils.helpers import convert_to_float
+from custom_components.better_thermostat.utils.helpers import (
+    convert_to_float,
+    get_temperature_from_state,
+)
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -64,11 +67,17 @@ async def trigger_cooler_change(self, event):
         """Extract cooling setpoint from state, checking both attribute keys."""
         for key in ("temperature", "target_temp_high"):
             if key in state.attributes:
-                return convert_to_float(
-                    str(state.attributes[key]),
-                    self.device_name,
-                    "trigger_cooler_change()",
-                )
+                # Custom logic for cooler attributes as get_temperature_from_state
+                # only checks state.state
+                from homeassistant.const import ATTR_UNIT_OF_MEASUREMENT
+                from ..utils.helpers import get_celsius_temperature
+                val = state.attributes.get(key)
+                unit = state.attributes.get(ATTR_UNIT_OF_MEASUREMENT)
+                if val is not None:
+                    try:
+                        return get_celsius_temperature(float(val), unit)
+                    except (ValueError, TypeError):
+                        pass
         return None
 
     _old_cooling_setpoint = _get_cooling_setpoint(old_state)

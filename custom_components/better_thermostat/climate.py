@@ -36,10 +36,12 @@ from homeassistant.components.climate.const import (
 from homeassistant.components.group.util import reduce_attribute
 from homeassistant.const import (
     ATTR_TEMPERATURE,
+    ATTR_UNIT_OF_MEASUREMENT,
     CONF_NAME,
     EVENT_HOMEASSISTANT_START,
     STATE_UNAVAILABLE,
     STATE_UNKNOWN,
+    UnitOfTemperature,
 )
 from homeassistant.core import Context, CoreState, ServiceCall, State, callback
 from homeassistant.helpers import entity_platform
@@ -122,8 +124,10 @@ from .utils.controlling import control_queue, control_trv
 from .utils.helpers import (
     convert_to_float,
     find_battery_entity,
+    get_celsius_temperature,
     get_device_model,
     get_hvac_bt_mode,
+    get_temperature_from_state,
     normalize_hvac_mode,
 )
 from .utils.hvac_action import (
@@ -227,7 +231,7 @@ async def async_setup_entry(hass, entry, async_add_entities):
         entry.data.get(CONF_MODEL, None),
         entry.data.get(CONF_COOLER, None),
         entry.data.get(CONF_PRESETS, None),
-        hass.config.units.temperature_unit,
+        hass.config.units.temperature_unit,  # this is only for info
         entry.entry_id,
         device_class="better_thermostat",
         state_class="better_thermostat_state",
@@ -373,7 +377,8 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
                 parsed_off = float(off_temperature)
                 # Accept any float (including 0.0); reject extreme nonsense
                 if -100.0 < parsed_off < 150.0:
-                    self.off_temperature = parsed_off
+                    # Convert to Celsius if system is in Fahrenheit
+                    self.off_temperature = get_celsius_temperature(parsed_off, unit)
                 else:
                     _LOGGER.warning(
                         "better_thermostat %s: off_temperature %.2f outside plausible range, ignoring",
@@ -1013,8 +1018,19 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
 
     def _resolve_temperature_range(self, states: list[State]) -> None:
         """Derive min/max/step temperature from TRV states."""
-        self.bt_min_temp = reduce_attribute(states, ATTR_MIN_TEMP, reduce=max)
-        self.bt_max_temp = reduce_attribute(states, ATTR_MAX_TEMP, reduce=min)
+        min_temps = []
+        max_temps = []
+        for state in states:
+            unit = state.attributes.get(ATTR_UNIT_OF_MEASUREMENT)
+            t_min = state.attributes.get(ATTR_MIN_TEMP)
+            t_max = state.attributes.get(ATTR_MAX_TEMP)
+            if t_min is not None:
+                min_temps.append(get_celsius_temperature(float(t_min), unit))
+            if t_max is not None:
+                max_temps.append(get_celsius_temperature(float(t_max), unit))
+
+        self.bt_min_temp = max(min_temps) if min_temps else 5.0
+        self.bt_max_temp = min(max_temps) if max_temps else 30.0
 
         if (
             self.bt_min_temp is not None
@@ -1045,9 +1061,7 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
             STATE_UNKNOWN,
             None,
         ):
-            self.cur_temp = convert_to_float(
-                str(sensor_state.state), self.device_name, "startup()"
-            )
+            self.cur_temp = get_temperature_from_state(sensor_state)
         else:
             # Fallback to TRV internal temperature
             _LOGGER.warning(
@@ -1066,8 +1080,9 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
                 if trv_state is not None:
                     trv_temp = trv_state.attributes.get("current_temperature")
                     if trv_temp is not None:
-                        self.cur_temp = convert_to_float(
-                            str(trv_temp), self.device_name, "startup() TRV fallback"
+                        unit = trv_state.attributes.get(ATTR_UNIT_OF_MEASUREMENT)
+                        self.cur_temp = get_celsius_temperature(
+                            float(trv_temp), unit
                         )
                         _LOGGER.info(
                             "better_thermostat %s: Using TRV '%s' temperature: %.1f°C",
@@ -1126,10 +1141,10 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
                 STATE_UNKNOWN,
                 None,
             ):
-                self.bt_target_cooltemp = convert_to_float(
-                    str(_cooler_state.attributes.get("temperature")),
-                    self.device_name,
-                    "startup()",
+                unit = _cooler_state.attributes.get(ATTR_UNIT_OF_MEASUREMENT)
+                self.bt_target_cooltemp = get_celsius_temperature(
+                    float(_cooler_state.attributes.get("temperature", 20)),
+                    unit
                 )
             # else: already logged warning above
 
@@ -1209,15 +1224,22 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
             # If we have no initial temperature, restore
             # If we have a previously saved temperature
             if old_state.attributes.get(ATTR_TEMPERATURE) is None:
-                self.bt_target_temp = reduce_attribute(
-                    states, ATTR_TEMPERATURE, reduce=lambda *data: mean(data)
-                )
+                # Fallback: get average from TRVs
+                temps = []
+                for s in states:
+                    t = s.attributes.get(ATTR_TEMPERATURE)
+                    if t is not None:
+                        u = s.attributes.get(ATTR_UNIT_OF_MEASUREMENT)
+                        temps.append(get_celsius_temperature(float(t), u))
+                self.bt_target_temp = mean(temps) if temps else 20.0
+
                 _LOGGER.debug(
                     "better_thermostat %s: Undefined target temperature, falling back to %s",
                     self.device_name,
                     self.bt_target_temp,
                 )
             else:
+                # Better Thermostat attributes are already in Celsius now
                 _oldtarget_temperature = float(old_state.attributes[ATTR_TEMPERATURE])
                 # if the saved temperature is lower than the min_temp, set it to min_temp
                 if _oldtarget_temperature < self.bt_min_temp:
@@ -1292,11 +1314,7 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
                     old_state.attributes.get(ATTR_STATE_CALL_FOR_HEAT)
                 )
             if old_state.attributes.get(ATTR_STATE_SAVED_TEMPERATURE, None) is not None:
-                self._saved_temperature = convert_to_float(
-                    str(old_state.attributes.get(ATTR_STATE_SAVED_TEMPERATURE, None)),
-                    self.device_name,
-                    "startup()",
-                )
+                self._saved_temperature = float(old_state.attributes.get(ATTR_STATE_SAVED_TEMPERATURE))
             if old_state.attributes.get(ATTR_STATE_HUMIDIY, None) is not None:
                 self._current_humidity = float(old_state.attributes[ATTR_STATE_HUMIDIY])
             if old_state.attributes.get(ATTR_STATE_MAIN_MODE, None) is not None:
@@ -1344,11 +1362,7 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
                 old_state.attributes.get(ATTR_STATE_PRESET_TEMPERATURE, None)
                 is not None
             ):
-                self._preset_temperature = convert_to_float(
-                    str(old_state.attributes.get(ATTR_STATE_PRESET_TEMPERATURE, None)),
-                    self.device_name,
-                    "startup()",
-                )
+                self._preset_temperature = float(old_state.attributes.get(ATTR_STATE_PRESET_TEMPERATURE))
             # Restore preset mode
             if old_state.attributes.get("preset_mode", None) is not None:
                 restored_preset: str = str(old_state.attributes["preset_mode"])
@@ -1378,9 +1392,13 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
                     "better_thermostat %s: No previously saved temperature found on startup, get it from the TRV",
                     self.device_name,
                 )
-                self.bt_target_temp = reduce_attribute(
-                    states, ATTR_TEMPERATURE, reduce=lambda *data: mean(data)
-                )
+                temps = []
+                for s in states:
+                    t = s.attributes.get(ATTR_TEMPERATURE)
+                    if t is not None:
+                        u = s.attributes.get(ATTR_UNIT_OF_MEASUREMENT)
+                        temps.append(get_celsius_temperature(float(t), u))
+                self.bt_target_temp = mean(temps) if temps else 20.0
             _LOGGER.debug("better_thermostat %s: defaults restored", self.device_name)
 
     def _validate_hvac_mode(self, states: list[State]) -> None:
@@ -1554,11 +1572,12 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
             trv_data["valve_position"] = convert_to_float(
                 str(_attrs.get("valve_position", None)), self.device_name, "startup"
             )
-            trv_data["max_temp"] = convert_to_float(
-                str(_attrs.get("max_temp", 30)), self.device_name, "startup"
+            unit = _attrs.get(ATTR_UNIT_OF_MEASUREMENT)
+            trv_data["max_temp"] = get_celsius_temperature(
+                float(_attrs.get("max_temp", 30)), unit
             )
-            trv_data["min_temp"] = convert_to_float(
-                str(_attrs.get("min_temp", 5)), self.device_name, "startup"
+            trv_data["min_temp"] = get_celsius_temperature(
+                float(_attrs.get("min_temp", 5)), unit
             )
             # Prefer configured step over device-reported step
             cfg_step = (
@@ -1574,19 +1593,17 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
                     self.device_name,
                     "startup",
                 )
-            trv_data["temperature"] = convert_to_float(
-                str(_attrs.get("temperature", 5)), self.device_name, "startup"
+            trv_data["temperature"] = get_celsius_temperature(
+                float(_attrs.get("temperature", 5)), unit
             )
             trv_data["hvac_modes"] = _attrs.get("hvac_modes", None)
             trv_data["hvac_mode"] = _s.state if _s else None
             trv_data["last_hvac_mode"] = _s.state if _s else None
-            trv_data["last_temperature"] = convert_to_float(
-                str(_attrs.get("temperature")), self.device_name, "startup()"
+            trv_data["last_temperature"] = get_celsius_temperature(
+                float(_attrs.get("temperature", 5)), unit
             )
-            trv_data["current_temperature"] = convert_to_float(
-                str(_attrs.get("current_temperature") or 5),
-                self.device_name,
-                "startup()",
+            trv_data["current_temperature"] = get_celsius_temperature(
+                float(_attrs.get("current_temperature") or 5), unit
             )
             _LOGGER.debug(
                 "better_thermostat %s: controlling TRV %s...", self.device_name, trv
@@ -2377,7 +2394,7 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
     @property
     def temperature_unit(self) -> str:
         """Return the unit of measurement."""
-        return self._unit
+        return UnitOfTemperature.CELSIUS
 
     @property
     def current_temperature(self) -> float | None:
@@ -2601,26 +2618,17 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
                     hvac_mode_norm,
                 )
 
+        # If temperature_unit is set to CELSIUS, Home Assistant core automatically
+        # converts incoming temperature values from system unit to CELSIUS.
+
         if ATTR_TEMPERATURE in kwargs:
-            _new_setpoint = convert_to_float(
-                str(kwargs.get(ATTR_TEMPERATURE, None)),
-                self.device_name,
-                "controlling.settarget_temperature()",
-            )
+            _new_setpoint = float(kwargs.get(ATTR_TEMPERATURE))
 
         if ATTR_TARGET_TEMP_LOW in kwargs:
-            _new_setpointlow = convert_to_float(
-                str(kwargs.get(ATTR_TARGET_TEMP_LOW, None)),
-                self.device_name,
-                "controlling.settarget_temperature_low()",
-            )
+            _new_setpointlow = float(kwargs.get(ATTR_TARGET_TEMP_LOW))
 
         if ATTR_TARGET_TEMP_HIGH in kwargs:
-            _new_setpointhigh = convert_to_float(
-                str(kwargs.get(ATTR_TARGET_TEMP_HIGH, None)),
-                self.device_name,
-                "controlling.settarget_temperature_high()",
-            )
+            _new_setpointhigh = float(kwargs.get(ATTR_TARGET_TEMP_HIGH))
 
         if (
             _new_setpoint is None
@@ -2633,14 +2641,14 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
             )
             return
 
-        # Validate against min/max temps
+        # Validate against min/max temps (already in Celsius)
         if _new_setpoint is not None:
-            _new_setpoint = min(self.max_temp, max(self.min_temp, _new_setpoint))
+            _new_setpoint = min(self.bt_max_temp, max(self.bt_min_temp, _new_setpoint))
         if _new_setpointlow is not None:
-            _new_setpointlow = min(self.max_temp, max(self.min_temp, _new_setpointlow))
+            _new_setpointlow = min(self.bt_max_temp, max(self.bt_min_temp, _new_setpointlow))
         if _new_setpointhigh is not None:
             _new_setpointhigh = min(
-                self.max_temp, max(self.min_temp, _new_setpointhigh)
+                self.bt_max_temp, max(self.bt_min_temp, _new_setpointhigh)
             )
 
         # Preserve explicit 0.0 values (avoid Python truthiness bug)

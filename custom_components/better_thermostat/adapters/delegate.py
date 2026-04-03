@@ -2,7 +2,9 @@
 
 import logging
 
+from homeassistant.const import UnitOfTemperature
 from homeassistant.helpers.importlib import async_import_module
+from homeassistant.util.unit_conversion import TemperatureConverter
 
 from custom_components.better_thermostat.utils.helpers import round_by_step
 
@@ -143,7 +145,38 @@ async def set_temperature(self, entity_id, temperature):
             rounded,
             step,
         )
-    # Keep last_temperature in sync with the actually sent value
+
+    # Home Assistant climate services expect temperatures in the system unit.
+    # However, Better Thermostat now operates in Celsius.
+    # We always pass the Celsius value, and Home Assistant's service handler
+    # or the target entity will handle it. Wait, actually Climate entities
+    # in HA expect values in the unit they declare.
+    # Since we set Better Thermostat to CELSIUS, HA core converts to Celsius
+    # before calling set_temperature.
+    # But when we call other climate entities via adapter, we should check their unit.
+    # Most adapters just call climate.set_temperature.
+    # HA core will convert the value we pass to the unit of the target entity
+    # ONLY IF we provide a unit or if the service call is handled specifically.
+    # Actually, for climate.set_temperature, HA core DOES NOT automatically
+    # convert the 'temperature' argument based on the target entity's unit
+    # unless it's a known unit-aware service call.
+    # Standard practice in HA is that services expect system units.
+
+    system_unit = self.hass.config.units.temperature_unit
+    outbound_temp = rounded
+    if system_unit != UnitOfTemperature.CELSIUS:
+        outbound_temp = TemperatureConverter.convert(
+            rounded, UnitOfTemperature.CELSIUS, system_unit
+        )
+        _LOGGER.debug(
+            "better_thermostat %s: delegate.set_temperature converted Celsius %s to system unit %s: %s",
+            getattr(self, "device_name", "unknown"),
+            rounded,
+            system_unit,
+            outbound_temp,
+        )
+
+    # Keep last_temperature in sync with the internal Celsius value
     try:
         self.real_trvs[entity_id]["last_temperature"] = rounded
     except Exception as e:
@@ -155,7 +188,7 @@ async def set_temperature(self, entity_id, temperature):
         )
 
     return await self.real_trvs[entity_id]["adapter"].set_temperature(
-        self, entity_id, rounded
+        self, entity_id, outbound_temp
     )
 
 

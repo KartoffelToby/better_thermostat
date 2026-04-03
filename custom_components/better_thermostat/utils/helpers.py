@@ -8,9 +8,17 @@ import re
 from typing import Any
 
 from homeassistant.components.climate.const import HVACMode
+from homeassistant.const import (
+    ATTR_UNIT_OF_MEASUREMENT,
+    STATE_UNAVAILABLE,
+    STATE_UNKNOWN,
+    UnitOfTemperature,
+)
+from homeassistant.core import State
 from homeassistant.helpers import device_registry as dr, entity_registry as er
 from homeassistant.helpers.entity_registry import async_entries_for_config_entry
 from homeassistant.util import dt as dt_util
+from homeassistant.util.unit_conversion import TemperatureConverter
 
 from custom_components.better_thermostat.utils.const import (
     CONF_HEAT_AUTO_SWAPPED,
@@ -308,6 +316,28 @@ def convert_to_float(
             value,
             context,
         )
+        return None
+
+
+def get_celsius_temperature(value: float, unit: str | None) -> float:
+    """Convert a temperature value to Celsius."""
+    if value is None:
+        return None
+    if unit is None or unit == UnitOfTemperature.CELSIUS:
+        return value
+    return TemperatureConverter.convert(value, unit, UnitOfTemperature.CELSIUS)
+
+
+def get_temperature_from_state(state: State | None) -> float | None:
+    """Get temperature from a state and convert it to Celsius."""
+    if state is None or state.state in (STATE_UNKNOWN, STATE_UNAVAILABLE):
+        return None
+
+    unit = state.attributes.get(ATTR_UNIT_OF_MEASUREMENT)
+    try:
+        temp = float(state.state)
+        return get_celsius_temperature(temp, unit)
+    except (ValueError, TypeError):
         return None
 
 
