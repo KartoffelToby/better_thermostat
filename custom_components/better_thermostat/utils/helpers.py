@@ -8,9 +8,11 @@ import re
 from typing import Any
 
 from homeassistant.components.climate.const import HVACMode
+from homeassistant.const import UnitOfTemperature
 from homeassistant.helpers import device_registry as dr, entity_registry as er
 from homeassistant.helpers.entity_registry import async_entries_for_config_entry
 from homeassistant.util import dt as dt_util
+from homeassistant.util.unit_conversion import TemperatureConverter
 
 from custom_components.better_thermostat.utils.const import (
     CONF_HEAT_AUTO_SWAPPED,
@@ -309,6 +311,42 @@ def convert_to_float(
             context,
         )
         return None
+
+
+def convert_to_float_celsius(
+    value: str | int | float | None,
+    instance_name: str,
+    context: str,
+    unit_of_measurement: str | None = None,
+) -> float | None:
+    """Convert value to float and ensure it is in Celsius.
+
+    If *unit_of_measurement* indicates Fahrenheit the value is converted to
+    Celsius after the initial float conversion.
+
+    Parameters
+    ----------
+    value : str | int | float | None
+            the value to convert
+    instance_name : str
+            thermostat instance name (for logging)
+    context : str
+            calling function context (for logging)
+    unit_of_measurement : str | None
+            the unit of the incoming value (e.g. ``UnitOfTemperature.FAHRENHEIT``)
+
+    Returns
+    -------
+    float | None
+            the value in Celsius, or None if conversion failed
+    """
+    result = convert_to_float(value, instance_name, context)
+    if result is not None and unit_of_measurement == UnitOfTemperature.FAHRENHEIT:
+        result = TemperatureConverter.convert(
+            result, UnitOfTemperature.FAHRENHEIT, UnitOfTemperature.CELSIUS
+        )
+        result = round(result, 2)
+    return result
 
 
 class rounding:

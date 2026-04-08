@@ -17,7 +17,7 @@ from homeassistant.helpers.event import async_call_later
 from homeassistant.util import dt as dt_util
 
 from custom_components.better_thermostat.utils.const import CONF_HOMEMATICIP
-from custom_components.better_thermostat.utils.helpers import convert_to_float
+from custom_components.better_thermostat.utils.helpers import convert_to_float_celsius
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -181,8 +181,11 @@ async def trigger_temperature_change(self, event):
     if new_state is None or new_state.state in (STATE_UNAVAILABLE, STATE_UNKNOWN, None):
         return
 
-    _incoming_temperature = convert_to_float(
-        str(new_state.state), self.device_name, "external_temperature"
+    _incoming_temperature = convert_to_float_celsius(
+        str(new_state.state),
+        self.device_name,
+        "external_temperature",
+        unit_of_measurement=new_state.attributes.get("unit_of_measurement"),
     )
     # Quantisiere auf 2 Dezimalstellen, um FP-Artefakte zu vermeiden
     _incoming_temperature_q = (
@@ -282,8 +285,11 @@ async def trigger_temperature_change(self, event):
                         None,
                     ):
                         return
-                    _val = convert_to_float(
-                        str(state.state), self.device_name, "external_temperature"
+                    _val = convert_to_float_celsius(
+                        str(state.state),
+                        self.device_name,
+                        "external_temperature",
+                        unit_of_measurement=state.attributes.get("unit_of_measurement"),
                     )
                     _val_q = None if _val is None else round(_val, 2)
                     cand = self.flicker_candidate

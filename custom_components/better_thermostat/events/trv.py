@@ -26,6 +26,7 @@ from custom_components.better_thermostat.utils.const import (
 )
 from custom_components.better_thermostat.utils.helpers import (
     convert_to_float,
+    convert_to_float_celsius,
     get_device_model,
     mode_remap,
 )
@@ -116,10 +117,11 @@ async def trigger_trv_change(self, event):
             e,
         )
 
-    _new_current_temp = convert_to_float(
+    _new_current_temp = convert_to_float_celsius(
         str(_org_trv_state.attributes.get("current_temperature", None)),
         self.device_name,
         "TRV_current_temp",
+        unit_of_measurement=_org_trv_state.attributes.get("unit_of_measurement"),
     )
 
     _time_diff = 5
@@ -238,15 +240,17 @@ async def trigger_trv_change(self, event):
     if "temperature" not in old_state.attributes:
         _main_key = "target_temp_low"
 
-    _old_heating_setpoint = convert_to_float(
+    _old_heating_setpoint = convert_to_float_celsius(
         str(old_state.attributes.get(_main_key, None)),
         self.device_name,
         "trigger_trv_change()",
+        unit_of_measurement=old_state.attributes.get("unit_of_measurement"),
     )
-    _new_heating_setpoint = convert_to_float(
+    _new_heating_setpoint = convert_to_float_celsius(
         str(new_state.attributes.get(_main_key, None)),
         self.device_name,
         "trigger_trv_change()",
+        unit_of_measurement=new_state.attributes.get("unit_of_measurement"),
     )
     _is_no_off_device = self.real_trvs[entity_id]["advanced"].get(
         "no_off_system_mode", False

@@ -19,7 +19,7 @@ import homeassistant.util.dt as dt_util
 # from datetime import datetime, timedelta
 # import homeassistant.util.dt as dt_util
 # from homeassistant.components.recorder.history import state_changes_during_period
-from .helpers import convert_to_float
+from .helpers import convert_to_float_celsius
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -148,7 +148,7 @@ async def check_weather_prediction(self) -> bool | None:
         if isinstance(forecast, list) and len(forecast) > 0:
             # current outside temp from entity state (may be None)
             cur_state = self.hass.states.get(self.weather_entity)
-            cur_outside_temp = convert_to_float(
+            cur_outside_temp = convert_to_float_celsius(
                 (
                     str(cur_state.attributes.get("temperature"))
                     if cur_state and cur_state.attributes
@@ -156,12 +156,17 @@ async def check_weather_prediction(self) -> bool | None:
                 ),
                 self.device_name,
                 "check_weather_prediction()",
+                unit_of_measurement=(
+                    cur_state.attributes.get("temperature_unit")
+                    if cur_state and cur_state.attributes
+                    else None
+                ),
             )
             # compute simple average of first up-to-2 daily temps
             temps = []
             for i in range(min(2, len(forecast))):
                 temps.append(
-                    convert_to_float(
+                    convert_to_float_celsius(
                         (
                             str(forecast[i].get("temperature"))
                             if isinstance(forecast[i], dict)
@@ -169,6 +174,11 @@ async def check_weather_prediction(self) -> bool | None:
                         ),
                         self.device_name,
                         "check_weather_prediction()",
+                        unit_of_measurement=(
+                            forecast[i].get("temperature_unit")
+                            if isinstance(forecast[i], dict)
+                            else None
+                        ),
                     )
                 )
             valid_temps: list[float] = [t for t in temps if isinstance(t, (int, float))]
@@ -227,8 +237,11 @@ async def check_ambient_air_temperature(self):
             self.call_for_heat = True
         return None
 
-    self.last_avg_outdoor_temp = convert_to_float(
-        outdoor_state.state, self.device_name, "check_ambient_air_temperature()"
+    self.last_avg_outdoor_temp = convert_to_float_celsius(
+        outdoor_state.state,
+        self.device_name,
+        "check_ambient_air_temperature()",
+        unit_of_measurement=outdoor_state.attributes.get("unit_of_measurement"),
     )
     if "recorder" in self.hass.config.components:
         _temp_history = DailyHistory(2)
@@ -262,10 +275,15 @@ async def check_ambient_air_temperature(self):
             with suppress(ValueError):
                 if item.state not in ("unknown", "unavailable"):
                     _temp_history.add_measurement(
-                        convert_to_float(
+                        convert_to_float_celsius(
                             item.state,
                             self.device_name,
                             "check_ambient_air_temperature()",
+                            unit_of_measurement=getattr(item, "attributes", {}).get(
+                                "unit_of_measurement"
+                            )
+                            if hasattr(item, "attributes")
+                            else outdoor_state.attributes.get("unit_of_measurement"),
                         ),
                         datetime.fromtimestamp(item.last_updated.timestamp()),
                     )
