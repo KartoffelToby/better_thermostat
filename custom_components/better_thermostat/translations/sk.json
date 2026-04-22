@@ -123,27 +123,11 @@
     },
     "degraded_mode": {
       "title": "BT: {name} - chyba snímača: {sensors} beží v obmedzenom režime",
-      "description": "Better Thermostat beží v obmedzenom režime, pretože niektoré snímače nie sú dostupné: {sensors}\n\nTermostat bude naďalej fungovať s obmedzenou funkcionalitou. Napríklad:\n- Ak snímač izbovej teploty nie je dostupný, použije sa interný snímač TRV.\n- Ak snímače okien nie sú dostupné, okná sa považujú za zatvorené.\n- Ak vonkajšie/meteorologické snímače nie sú dostupné, kúrenie bude vždy zapnuté.\n\nSkontrolujte, či postihnuté zariadenia nemajú problémy s batériou alebo pripojením.",
-      "fix_flow": {
-        "step": {
-          "confirm": {
-            "title": "Snímače nedostupné: {sensors}",
-            "description": "Nasledujúce snímače sú momentálne nedostupné: {sensors}\n\nSkontrolujte:\n1. Sú batérie zariadenia nabité?\n2. Je zariadenie stále pripojené k vašej sieti?\n3. Funguje integrácia poskytujúca snímač ešte stále?\n\nKeď budú snímače opäť dostupné, tento problém sa vyrieši automaticky."
-          }
-        }
-      }
+      "description": "Better Thermostat beží v obmedzenom režime, pretože niektoré snímače nie sú dostupné: {sensors}\n\nTermostat bude naďalej fungovať s obmedzenou funkcionalitou. Napríklad:\n- Ak snímač izbovej teploty nie je dostupný, použije sa interný snímač TRV.\n- Ak snímače okien nie sú dostupné, okná sa považujú za zatvorené.\n- Ak vonkajšie/meteorologické snímače nie sú dostupné, kúrenie bude vždy zapnuté.\n\nSkontrolujte, či postihnuté zariadenia nemajú problémy s batériou alebo pripojením."
     },
     "invalid_window_state": {
       "title": "BT: {name} - neplatný stav snímača okna",
-      "description": "Snímač okna pre Better Thermostat {name} nahlásil nerozpoznaný stav: {state}.\n\nOčakávané stavy sú: 'on', 'off', 'true', 'false', 'open', 'closed'.\n\nSkontrolujte konfiguráciu snímača okna.",
-      "fix_flow": {
-        "step": {
-          "confirm": {
-            "title": "Neplatný stav snímača okna: {state}",
-            "description": "Snímač okna nahlásil stav '{state}', ktorý nie je rozpoznaný.\n\nOčakávané stavy sú: 'on', 'off', 'true', 'false', 'open', 'closed'.\n\nSkontrolujte konfiguráciu snímača okna a uistite sa, že hlási platný stav. Po oprave sa tento problém vyrieši automaticky."
-          }
-        }
-      }
+      "description": "Snímač okna pre Better Thermostat {name} nahlásil nerozpoznaný stav: {state}.\n\nOčakávané stavy sú: 'on', 'off', 'true', 'false', 'open', 'closed'.\n\nSkontrolujte konfiguráciu snímača okna."
     }
   },
   "services": {

@@ -148,27 +148,11 @@
     },
     "degraded_mode": {
       "title": "BT: {name} - sensör hatası: {sensors} düşük performans modunda çalışıyor",
-      "description": "Better Thermostat, bazı sensörler kullanılamadığı için düşük performans modunda çalışıyor: {sensors}\n\nTermostat azaltılmış işlevsellikle çalışmaya devam edecektir. Örneğin:\n- Oda sıcaklık sensörü kullanılamıyorsa, bunun yerine TRV'nin dahili sensörü kullanılacaktır.\n- Pencere sensörleri kullanılamıyorsa, pencereler kapalı kabul edilir.\n- Dış ortam/hava durumu sensörleri kullanılamıyorsa, ısıtma her zaman etkin olacaktır.\n\nEtkilenen cihazların pil veya bağlantı sorunları olup olmadığını kontrol edin.",
-      "fix_flow": {
-        "step": {
-          "confirm": {
-            "title": "Sensörler kullanılamıyor: {sensors}",
-            "description": "Aşağıdaki sensörler şu anda kullanılamıyor: {sensors}\n\nLütfen kontrol edin:\n1. Cihaz pilleri dolu mu?\n2. Cihaz hâlâ ağınıza bağlı mı?\n3. Sensörü sağlayan entegrasyon hâlâ çalışıyor mu?\n\nSensörler tekrar kullanılabilir olduğunda bu sorun otomatik olarak çözülecektir."
-          }
-        }
-      }
+      "description": "Better Thermostat, bazı sensörler kullanılamadığı için düşük performans modunda çalışıyor: {sensors}\n\nTermostat azaltılmış işlevsellikle çalışmaya devam edecektir. Örneğin:\n- Oda sıcaklık sensörü kullanılamıyorsa, bunun yerine TRV'nin dahili sensörü kullanılacaktır.\n- Pencere sensörleri kullanılamıyorsa, pencereler kapalı kabul edilir.\n- Dış ortam/hava durumu sensörleri kullanılamıyorsa, ısıtma her zaman etkin olacaktır.\n\nEtkilenen cihazların pil veya bağlantı sorunları olup olmadığını kontrol edin."
     },
     "invalid_window_state": {
       "title": "BT: {name} - geçersiz pencere sensörü durumu",
-      "description": "Better Thermostat {name} için pencere sensörü tanınmayan bir durum bildirdi: {state}.\n\nBeklenen durumlar: 'on', 'off', 'true', 'false', 'open', 'closed'.\n\nLütfen pencere sensörü yapılandırmanızı kontrol edin.",
-      "fix_flow": {
-        "step": {
-          "confirm": {
-            "title": "Geçersiz pencere sensörü durumu: {state}",
-            "description": "Pencere sensörü tanınmayan '{state}' durumunu bildirdi.\n\nBeklenen durumlar: 'on', 'off', 'true', 'false', 'open', 'closed'.\n\nLütfen pencere sensörü yapılandırmanızı kontrol edin ve geçerli bir durum bildirdiğinden emin olun. Düzeltildikten sonra bu sorun otomatik olarak çözülecektir."
-          }
-        }
-      }
+      "description": "Better Thermostat {name} için pencere sensörü tanınmayan bir durum bildirdi: {state}.\n\nBeklenen durumlar: 'on', 'off', 'true', 'false', 'open', 'closed'.\n\nLütfen pencere sensörü yapılandırmanızı kontrol edin."
     }
   },
   "services": {

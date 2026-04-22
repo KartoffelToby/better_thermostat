@@ -105,27 +105,11 @@
     },
     "degraded_mode": {
       "title": "BT: {name} - błąd czujnika: {sensors} działa w trybie ograniczonym",
-      "description": "Better Thermostat działa w trybie ograniczonym, ponieważ niektóre czujniki są niedostępne: {sensors}\n\nTermostat będzie nadal działać z ograniczoną funkcjonalnością. Na przykład:\n- Jeśli czujnik temperatury pokojowej jest niedostępny, zostanie użyty wewnętrzny czujnik TRV.\n- Jeśli czujniki okien są niedostępne, okna są uznawane za zamknięte.\n- Jeśli czujniki zewnętrzne/pogodowe są niedostępne, ogrzewanie będzie zawsze włączone.\n\nSprawdź, czy dotknięte urządzenia mają problemy z baterią lub łącznością.",
-      "fix_flow": {
-        "step": {
-          "confirm": {
-            "title": "Czujniki niedostępne: {sensors}",
-            "description": "Następujące czujniki są obecnie niedostępne: {sensors}\n\nSprawdź:\n1. Czy baterie urządzenia są naładowane?\n2. Czy urządzenie jest nadal podłączone do sieci?\n3. Czy integracja dostarczająca czujnik nadal działa?\n\nGdy czujniki będą ponownie dostępne, ten problem zostanie rozwiązany automatycznie."
-          }
-        }
-      }
+      "description": "Better Thermostat działa w trybie ograniczonym, ponieważ niektóre czujniki są niedostępne: {sensors}\n\nTermostat będzie nadal działać z ograniczoną funkcjonalnością. Na przykład:\n- Jeśli czujnik temperatury pokojowej jest niedostępny, zostanie użyty wewnętrzny czujnik TRV.\n- Jeśli czujniki okien są niedostępne, okna są uznawane za zamknięte.\n- Jeśli czujniki zewnętrzne/pogodowe są niedostępne, ogrzewanie będzie zawsze włączone.\n\nSprawdź, czy dotknięte urządzenia mają problemy z baterią lub łącznością."
     },
     "invalid_window_state": {
       "title": "BT: {name} - nieprawidłowy stan czujnika okna",
-      "description": "Czujnik okna dla Better Thermostat {name} zgłosił nierozpoznany stan: {state}.\n\nOczekiwane stany to: 'on', 'off', 'true', 'false', 'open', 'closed'.\n\nSprawdź konfigurację czujnika okna.",
-      "fix_flow": {
-        "step": {
-          "confirm": {
-            "title": "Nieprawidłowy stan czujnika okna: {state}",
-            "description": "Czujnik okna zgłosił stan '{state}', który nie jest rozpoznawany.\n\nOczekiwane stany to: 'on', 'off', 'true', 'false', 'open', 'closed'.\n\nSprawdź konfigurację czujnika okna i upewnij się, że zgłasza prawidłowy stan. Po naprawieniu ten problem zostanie rozwiązany automatycznie."
-          }
-        }
-      }
+      "description": "Czujnik okna dla Better Thermostat {name} zgłosił nierozpoznany stan: {state}.\n\nOczekiwane stany to: 'on', 'off', 'true', 'false', 'open', 'closed'.\n\nSprawdź konfigurację czujnika okna."
     }
   },
   "services": {},
