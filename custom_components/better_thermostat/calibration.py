@@ -64,7 +64,11 @@ def _compute_zero_open_offset(
         _calibrated_setpoint = _cur_trv_temp - offset
     """
     _overshoot = max(0.0, _cur_external_temp - _cur_target_temp)
-    _t_min = convert_to_float(str(self.real_trvs[entity_id]["min_temp"]), "", "")
+    _t_min = convert_to_float(
+        str(self.real_trvs[entity_id]["min_temp"]),
+        self.device_name,
+        "_compute_zero_open_offset()",
+    )
     _max_offset = max(1.0, _cur_trv_temp - float(_t_min)) if _t_min is not None else 8.0
     _offset = _max_offset * (1.0 - math.exp(-0.5 * _overshoot))
     _offset = max(_trv_temp_step, _offset)
@@ -951,8 +955,20 @@ def calculate_calibration_setpoint(self, entity_id) -> float | None:
                         _calibrated_setpoint = _cur_trv_temp - _offset
     elif _calibration_mode == CalibrationMode.TPI_CALIBRATION:
         _tpi_result, _tpi_use_valve = _compute_tpi_balance(self, entity_id)
-        if _tpi_use_valve:
-            _calibrated_setpoint = _cur_target_temp
+        if _tpi_use_valve and _tpi_result is not None:
+            _tpi_pct_v = getattr(_tpi_result, "duty_cycle_pct", None)
+            if isinstance(_tpi_pct_v, (int, float)) and float(_tpi_pct_v) == 0.0:
+                _offset = _compute_zero_open_offset(
+                    self,
+                    entity_id,
+                    _cur_trv_temp,
+                    _cur_external_temp,
+                    _cur_target_temp,
+                    _trv_temp_step,
+                )
+                _calibrated_setpoint = _cur_trv_temp - _offset
+            else:
+                _calibrated_setpoint = _cur_target_temp
         elif _tpi_result is not None:
             _tpi_percent = getattr(_tpi_result, "duty_cycle_pct", None)
             if isinstance(_tpi_percent, (int, float)):
@@ -974,8 +990,20 @@ def calculate_calibration_setpoint(self, entity_id) -> float | None:
                         _calibrated_setpoint = _cur_trv_temp - _offset
     elif _calibration_mode == CalibrationMode.PID_CALIBRATION:
         _pid_result, _pid_use_valve = _compute_pid_balance(self, entity_id)
-        if _pid_use_valve:
-            _calibrated_setpoint = _cur_target_temp
+        if _pid_use_valve and _pid_result is not None:
+            _pid_pct_v = _pid_result
+            if isinstance(_pid_pct_v, (int, float)) and float(_pid_pct_v) == 0.0:
+                _offset = _compute_zero_open_offset(
+                    self,
+                    entity_id,
+                    _cur_trv_temp,
+                    _cur_external_temp,
+                    _cur_target_temp,
+                    _trv_temp_step,
+                )
+                _calibrated_setpoint = _cur_trv_temp - _offset
+            else:
+                _calibrated_setpoint = _cur_target_temp
         elif _pid_result is not None:
             _pid_percent = _pid_result
             if isinstance(_pid_percent, (int, float)):

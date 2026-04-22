@@ -1275,7 +1275,8 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
                         )
                         if _c is not None:
                             _target_temps.append(_c)
-                self.bt_target_temp = mean(_target_temps) if _target_temps else None
+                if _target_temps:
+                    self.bt_target_temp = mean(_target_temps)
                 _LOGGER.debug(
                     "better_thermostat %s: Undefined target temperature, falling back to %s",
                     self.device_name,
@@ -1459,7 +1460,8 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
                         )
                         if _c is not None:
                             _target_temps.append(_c)
-                self.bt_target_temp = mean(_target_temps) if _target_temps else None
+                if _target_temps:
+                    self.bt_target_temp = mean(_target_temps)
             _LOGGER.debug("better_thermostat %s: defaults restored", self.device_name)
 
     def _validate_hvac_mode(self, states: list[State]) -> None:
