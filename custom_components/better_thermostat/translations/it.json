@@ -106,6 +106,29 @@
             "description": "La causa è che l’entità ({entity}) non è disponibile in Home Assistant.\n\nPuoi risolvere controllando che la batteria del dispositivo sia carica o riconnettendolo a HA. Assicurati che l’entità sia di nuovo presente in HA prima di continuare."
           }
         }
+      }    },
+    "degraded_mode": {
+      "title": "BT: {name} - errore sensore: {sensors} in modalità degradata",
+      "description": "Better Thermostat è in modalità degradata perché alcuni sensori non sono disponibili: {sensors}\n\nIl termostato continuerà a funzionare con funzionalità ridotte. Ad esempio:\n- Se il sensore di temperatura ambiente non è disponibile, verrà utilizzato il sensore interno del TRV.\n- Se i sensori delle finestre non sono disponibili, le finestre vengono considerate chiuse.\n- Se i sensori esterni/meteo non sono disponibili, il riscaldamento sarà sempre attivo.\n\nVerifica se i dispositivi interessati hanno problemi di batteria o di connettività.",
+      "fix_flow": {
+        "step": {
+          "confirm": {
+            "title": "Sensori non disponibili: {sensors}",
+            "description": "I seguenti sensori sono attualmente non disponibili: {sensors}\n\nControlla:\n1. Le batterie del dispositivo sono cariche?\n2. Il dispositivo è ancora connesso alla rete?\n3. L'integrazione che fornisce il sensore funziona ancora?\n\nUna volta che i sensori saranno di nuovo disponibili, questo problema verrà risolto automaticamente."
+          }
+        }
+      }
+    },
+    "invalid_window_state": {
+      "title": "BT: {name} - stato del sensore finestra non valido",
+      "description": "Il sensore finestra per Better Thermostat {name} ha riportato uno stato non riconosciuto: {state}.\n\nGli stati previsti sono: 'on', 'off', 'true', 'false', 'open', 'closed'.\n\nControlla la configurazione del sensore finestra.",
+      "fix_flow": {
+        "step": {
+          "confirm": {
+            "title": "Stato del sensore finestra non valido: {state}",
+            "description": "Il sensore finestra ha riportato lo stato '{state}', che non è riconosciuto.\n\nGli stati previsti sono: 'on', 'off', 'true', 'false', 'open', 'closed'.\n\nControlla la configurazione del sensore finestra e assicurati che riporti uno stato valido. Una volta corretto, questo problema verrà risolto automaticamente."
+          }
+        }
       }
     }
   },

@@ -107,6 +107,30 @@
           }
         }
       }
+    },
+    "degraded_mode": {
+      "title": "BT: {name} - erreur de capteur : {sensors} fonctionne en mode dégradé",
+      "description": "Better Thermostat fonctionne en mode dégradé car certains capteurs ne sont pas disponibles : {sensors}\n\nLe thermostat continuera à fonctionner avec des fonctionnalités réduites. Par exemple :\n- Si le capteur de température ambiante n'est pas disponible, le capteur interne du TRV sera utilisé à la place.\n- Si les capteurs de fenêtre ne sont pas disponibles, les fenêtres sont considérées comme fermées.\n- Si les capteurs extérieurs/météo ne sont pas disponibles, le chauffage sera toujours activé.\n\nVérifiez si les appareils concernés ont des problèmes de batterie ou de connectivité.",
+      "fix_flow": {
+        "step": {
+          "confirm": {
+            "title": "Capteurs indisponibles : {sensors}",
+            "description": "Les capteurs suivants sont actuellement indisponibles : {sensors}\n\nVeuillez vérifier :\n1. Les batteries de l'appareil sont-elles chargées ?\n2. L'appareil est-il toujours connecté à votre réseau ?\n3. L'intégration fournissant le capteur fonctionne-t-elle encore ?\n\nUne fois les capteurs à nouveau disponibles, ce problème sera résolu automatiquement."
+          }
+        }
+      }
+    },
+    "invalid_window_state": {
+      "title": "BT: {name} - état du capteur de fenêtre invalide",
+      "description": "Le capteur de fenêtre pour Better Thermostat {name} a signalé un état non reconnu : {state}.\n\nLes états attendus sont : 'on', 'off', 'true', 'false', 'open', 'closed'.\n\nVeuillez vérifier la configuration de votre capteur de fenêtre.",
+      "fix_flow": {
+        "step": {
+          "confirm": {
+            "title": "État du capteur de fenêtre invalide : {state}",
+            "description": "Le capteur de fenêtre a signalé l'état '{state}', qui n'est pas reconnu.\n\nLes états attendus sont : 'on', 'off', 'true', 'false', 'open', 'closed'.\n\nVeuillez vérifier la configuration de votre capteur de fenêtre et vous assurer qu'il signale un état valide. Une fois corrigé, ce problème sera résolu automatiquement."
+          }
+        }
+      }
     }
   },
   "services": {

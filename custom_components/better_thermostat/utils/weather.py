@@ -163,6 +163,11 @@ async def check_weather_prediction(self) -> bool | None:
                 ),
             )
             # compute simple average of first up-to-2 daily temps
+            _entity_temp_unit = (
+                cur_state.attributes.get("temperature_unit")
+                if cur_state and cur_state.attributes
+                else None
+            )
             temps = []
             for i in range(min(2, len(forecast))):
                 temps.append(
@@ -175,9 +180,9 @@ async def check_weather_prediction(self) -> bool | None:
                         self.device_name,
                         "check_weather_prediction()",
                         unit_of_measurement=(
-                            forecast[i].get("temperature_unit")
+                            forecast[i].get("temperature_unit", _entity_temp_unit)
                             if isinstance(forecast[i], dict)
-                            else None
+                            else _entity_temp_unit
                         ),
                     )
                 )

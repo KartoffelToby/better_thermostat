@@ -107,6 +107,30 @@
           }
         }
       }
+    },
+    "degraded_mode": {
+      "title": "BT: {name} - sensorfejl: {sensors} kører i nedsat tilstand",
+      "description": "Better Thermostat kører i nedsat tilstand, fordi nogle sensorer ikke er tilgængelige: {sensors}\n\nTermostaten vil fortsætte med at fungere med reduceret funktionalitet. For eksempel:\n- Hvis rumtemperatursensoren ikke er tilgængelig, bruges TRV'ens interne sensor i stedet.\n- Hvis vinduesensorer ikke er tilgængelige, antages vinduer at være lukkede.\n- Hvis udendørs-/vejrsensorer ikke er tilgængelige, vil opvarmning altid være aktiveret.\n\nKontroller, om de berørte enheder har batteriproblemer eller forbindelsesproblemer.",
+      "fix_flow": {
+        "step": {
+          "confirm": {
+            "title": "Sensorer utilgængelige: {sensors}",
+            "description": "Følgende sensorer er i øjeblikket utilgængelige: {sensors}\n\nKontroller venligst:\n1. Er enhedens batterier opladet?\n2. Er enheden stadig forbundet til dit netværk?\n3. Fungerer integrationen, der leverer sensoren, stadig?\n\nNår sensorerne er tilgængelige igen, vil dette problem blive løst automatisk."
+          }
+        }
+      }
+    },
+    "invalid_window_state": {
+      "title": "BT: {name} - ugyldig vinduesensortilstand",
+      "description": "Vinduesensoren for Better Thermostat {name} rapporterede en ukendt tilstand: {state}.\n\nForventede tilstande er: 'on', 'off', 'true', 'false', 'open', 'closed'.\n\nKontroller din vinduesensorkonfiguration.",
+      "fix_flow": {
+        "step": {
+          "confirm": {
+            "title": "Ugyldig vinduesensortilstand: {state}",
+            "description": "Vinduesensoren rapporterede tilstanden '{state}', som ikke genkendes.\n\nForventede tilstande er: 'on', 'off', 'true', 'false', 'open', 'closed'.\n\nKontroller din vinduesensorkonfiguration og sørg for, at den rapporterer en gyldig tilstand. Når det er rettet, vil dette problem blive løst automatisk."
+          }
+        }
+      }
     }
   },
   "services": {

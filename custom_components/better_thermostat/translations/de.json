@@ -120,6 +120,30 @@
           }
         }
       }
+    },
+    "degraded_mode": {
+      "title": "BT: {name} - Sensorfehler: {sensors} läuft im eingeschränkten Modus",
+      "description": "Better Thermostat läuft im eingeschränkten Modus, da einige Sensoren nicht verfügbar sind: {sensors}\n\nDer Thermostat arbeitet mit reduzierter Funktionalität weiter. Zum Beispiel:\n- Wenn der Raumtemperatursensor nicht verfügbar ist, wird stattdessen der interne Sensor des TRV verwendet.\n- Wenn Fenstersensoren nicht verfügbar sind, wird angenommen, dass die Fenster geschlossen sind.\n- Wenn Außen-/Wettersensoren nicht verfügbar sind, wird die Heizung immer aktiviert sein.\n\nÜberprüfen Sie, ob die betroffenen Geräte Batterieprobleme oder Verbindungsprobleme haben.",
+      "fix_flow": {
+        "step": {
+          "confirm": {
+            "title": "Sensoren nicht verfügbar: {sensors}",
+            "description": "Die folgenden Sensoren sind derzeit nicht verfügbar: {sensors}\n\nBitte überprüfen Sie:\n1. Sind die Gerätebatterien geladen?\n2. Ist das Gerät noch mit Ihrem Netzwerk verbunden?\n3. Funktioniert die Integration, die den Sensor bereitstellt, noch?\n\nSobald die Sensoren wieder verfügbar sind, wird dieses Problem automatisch behoben."
+          }
+        }
+      }
+    },
+    "invalid_window_state": {
+      "title": "BT: {name} - ungültiger Fenstersensor-Status",
+      "description": "Der Fenstersensor für Better Thermostat {name} hat einen unbekannten Status gemeldet: {state}.\n\nErwartete Status sind: 'on', 'off', 'true', 'false', 'open', 'closed'.\n\nBitte überprüfen Sie Ihre Fenstersensor-Konfiguration.",
+      "fix_flow": {
+        "step": {
+          "confirm": {
+            "title": "Ungültiger Fenstersensor-Status: {state}",
+            "description": "Der Fenstersensor hat den Status '{state}' gemeldet, der nicht erkannt wird.\n\nErwartete Status sind: 'on', 'off', 'true', 'false', 'open', 'closed'.\n\nBitte überprüfen Sie Ihre Fenstersensor-Konfiguration und stellen Sie sicher, dass ein gültiger Status gemeldet wird. Sobald das Problem behoben ist, wird es automatisch gelöst."
+          }
+        }
+      }
     }
   },
   "services": {

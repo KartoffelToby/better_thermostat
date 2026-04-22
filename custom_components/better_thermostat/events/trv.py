@@ -121,7 +121,9 @@ async def trigger_trv_change(self, event):
         str(_org_trv_state.attributes.get("current_temperature", None)),
         self.device_name,
         "TRV_current_temp",
-        unit_of_measurement=_org_trv_state.attributes.get("unit_of_measurement"),
+        unit_of_measurement=_org_trv_state.attributes.get(
+            "temperature_unit", _org_trv_state.attributes.get("unit_of_measurement")
+        ),
     )
 
     _time_diff = 5
@@ -244,13 +246,17 @@ async def trigger_trv_change(self, event):
         str(old_state.attributes.get(_main_key, None)),
         self.device_name,
         "trigger_trv_change()",
-        unit_of_measurement=old_state.attributes.get("unit_of_measurement"),
+        unit_of_measurement=old_state.attributes.get(
+            "temperature_unit", old_state.attributes.get("unit_of_measurement")
+        ),
     )
     _new_heating_setpoint = convert_to_float_celsius(
         str(new_state.attributes.get(_main_key, None)),
         self.device_name,
         "trigger_trv_change()",
-        unit_of_measurement=new_state.attributes.get("unit_of_measurement"),
+        unit_of_measurement=new_state.attributes.get(
+            "temperature_unit", new_state.attributes.get("unit_of_measurement")
+        ),
     )
     _is_no_off_device = self.real_trvs[entity_id]["advanced"].get(
         "no_off_system_mode", False
