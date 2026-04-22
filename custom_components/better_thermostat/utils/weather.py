@@ -284,11 +284,12 @@ async def check_ambient_air_temperature(self):
                             item.state,
                             self.device_name,
                             "check_ambient_air_temperature()",
-                            unit_of_measurement=getattr(item, "attributes", {}).get(
-                                "unit_of_measurement"
-                            )
-                            if hasattr(item, "attributes")
-                            else outdoor_state.attributes.get("unit_of_measurement"),
+                            unit_of_measurement=(
+                                getattr(item, "attributes", {}).get(
+                                    "unit_of_measurement"
+                                )
+                                or outdoor_state.attributes.get("unit_of_measurement")
+                            ),
                         ),
                         datetime.fromtimestamp(item.last_updated.timestamp()),
                     )

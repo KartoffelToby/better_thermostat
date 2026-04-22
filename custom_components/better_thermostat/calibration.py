@@ -626,7 +626,15 @@ def calculate_calibration_local(self, entity_id) -> float | None:
                         _valve_fraction == 0.0
                         and _desired_trv_setpoint >= _cur_trv_temp_f
                     ):
-                        _desired_trv_setpoint = _cur_trv_temp_f - 1.0
+                        _offset = _compute_zero_open_offset(
+                            self,
+                            entity_id,
+                            _cur_trv_temp_f,
+                            _cur_external_temp,
+                            _cur_target_temp,
+                            _calibration_step,
+                        )
+                        _desired_trv_setpoint = _cur_trv_temp_f - _offset
                     _new_trv_calibration = _current_trv_calibration - (
                         _desired_trv_setpoint - _cur_target_temp
                     )
@@ -647,7 +655,15 @@ def calculate_calibration_local(self, entity_id) -> float | None:
                         _valve_fraction == 0.0
                         and _desired_trv_setpoint >= _cur_trv_temp_f
                     ):
-                        _desired_trv_setpoint = _cur_trv_temp_f - 1.0
+                        _offset = _compute_zero_open_offset(
+                            self,
+                            entity_id,
+                            _cur_trv_temp_f,
+                            _cur_external_temp,
+                            _cur_target_temp,
+                            _calibration_step,
+                        )
+                        _desired_trv_setpoint = _cur_trv_temp_f - _offset
                     _new_trv_calibration = _current_trv_calibration - (
                         _desired_trv_setpoint - _cur_target_temp
                     )
@@ -668,7 +684,15 @@ def calculate_calibration_local(self, entity_id) -> float | None:
                         _valve_fraction == 0.0
                         and _desired_trv_setpoint >= _cur_trv_temp_f
                     ):
-                        _desired_trv_setpoint = _cur_trv_temp_f - 1.0
+                        _offset = _compute_zero_open_offset(
+                            self,
+                            entity_id,
+                            _cur_trv_temp_f,
+                            _cur_external_temp,
+                            _cur_target_temp,
+                            _calibration_step,
+                        )
+                        _desired_trv_setpoint = _cur_trv_temp_f - _offset
                     _new_trv_calibration = _current_trv_calibration - (
                         _desired_trv_setpoint - _cur_target_temp
                     )

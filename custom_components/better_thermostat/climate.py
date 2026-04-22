@@ -1283,24 +1283,26 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
                 )
             else:
                 _oldtarget_temperature = float(old_state.attributes[ATTR_TEMPERATURE])
+                _bt_min = self.bt_min_temp if self.bt_min_temp is not None else 5.0
+                _bt_max = self.bt_max_temp if self.bt_max_temp is not None else 30.0
                 # if the saved temperature is lower than the min_temp, set it to min_temp
-                if _oldtarget_temperature < self.bt_min_temp:
+                if _oldtarget_temperature < _bt_min:
                     _LOGGER.warning(
                         "better_thermostat %s: Saved target temperature %s is lower than min_temp %s, setting to min_temp",
                         self.device_name,
                         _oldtarget_temperature,
-                        self.bt_min_temp,
+                        _bt_min,
                     )
-                    _oldtarget_temperature = self.bt_min_temp
+                    _oldtarget_temperature = _bt_min
                 # if the saved temperature is higher than the max_temp, set it to max_temp
-                elif _oldtarget_temperature > self.bt_max_temp:
+                elif _oldtarget_temperature > _bt_max:
                     _LOGGER.warning(
                         "better_thermostat %s: Saved target temperature %s is higher than max_temp %s, setting to max_temp",
                         self.device_name,
                         _oldtarget_temperature,
-                        self.bt_min_temp,
+                        _bt_max,
                     )
-                    _oldtarget_temperature = self.bt_max_temp
+                    _oldtarget_temperature = _bt_max
                 self.bt_target_temp = _oldtarget_temperature
             _LOGGER.debug(
                 "better_thermostat %s: target temperature restored", self.device_name
