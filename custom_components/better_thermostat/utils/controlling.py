@@ -2,6 +2,7 @@
 
 import asyncio
 import logging
+from time import monotonic
 
 from homeassistant.components.climate.const import PRESET_BOOST, HVACMode
 from homeassistant.const import STATE_UNAVAILABLE, STATE_UNKNOWN
@@ -326,6 +327,24 @@ async def control_cooler(self):
     current_hvac_mode = cooler_state.state
     current_temp = cooler_state.attributes.get("temperature")
 
+    # Local anti-spam guardrails for cloud-backed coolers.
+    if not hasattr(self, "last_sent_cooler_temp"):
+        self.last_sent_cooler_temp = None
+    if not hasattr(self, "last_sent_cooler_hvac_mode"):
+        self.last_sent_cooler_hvac_mode = None
+    if not hasattr(self, "last_sent_cooler_temp_ts"):
+        self.last_sent_cooler_temp_ts = None
+    if not hasattr(self, "last_sent_cooler_hvac_mode_ts"):
+        self.last_sent_cooler_hvac_mode_ts = None
+
+    min_resend_interval_s = getattr(self, "min_cooler_resend_interval_s", 0) or 0
+    try:
+        min_resend_interval_s = max(0.0, float(min_resend_interval_s))
+    except (TypeError, ValueError):
+        min_resend_interval_s = 0.0
+
+    now_ts = monotonic()
+
     # Determine desired state based on current conditions
     desired_temp = self.bt_target_cooltemp
 
@@ -360,23 +379,48 @@ async def control_cooler(self):
     else:
         desired_mode = HVACMode.OFF
 
-    # Only send temperature command if it differs from current
-    if current_temp is None or current_temp != desired_temp:
+    # Only send temperature command if it differs from current.
+    # If current temperature is unknown, only send when desired temp changed
+    # since the last successful command.
+    temp_changed_since_last_send = self.last_sent_cooler_temp != desired_temp
+    should_send_temp = False
+    if desired_temp is not None:
         if current_temp is None:
+            should_send_temp = temp_changed_since_last_send
+            if not should_send_temp:
+                _LOGGER.debug(
+                    "better_thermostat %s: cooler %s current temperature unknown and "
+                    "desired temperature unchanged (%s), skipping set_temperature",
+                    self.device_name,
+                    self.cooler_entity_id,
+                    desired_temp,
+                )
+        elif current_temp != desired_temp:
+            should_send_temp = True
+
+    if should_send_temp and min_resend_interval_s > 0 and not temp_changed_since_last_send:
+        last_temp_ts = self.last_sent_cooler_temp_ts
+        if (
+            last_temp_ts is not None
+            and (now_ts - last_temp_ts) < min_resend_interval_s
+        ):
             _LOGGER.debug(
-                "better_thermostat %s: cooler %s current temperature is unknown, "
-                "sending set_temperature command anyway",
+                "better_thermostat %s: cooler %s skipping set_temperature due to "
+                "min_cooler_resend_interval_s=%ss",
                 self.device_name,
                 self.cooler_entity_id,
+                min_resend_interval_s,
             )
-        else:
-            _LOGGER.debug(
-                "better_thermostat %s: TO COOLER set_temperature: %s from: %s to: %s",
-                self.device_name,
-                self.cooler_entity_id,
-                current_temp,
-                desired_temp,
-            )
+            should_send_temp = False
+
+    if should_send_temp:
+        _LOGGER.debug(
+            "better_thermostat %s: TO COOLER set_temperature: %s from: %s to: %s",
+            self.device_name,
+            self.cooler_entity_id,
+            current_temp,
+            desired_temp,
+        )
         await self.hass.services.async_call(
             "climate",
             "set_temperature",
@@ -384,9 +428,29 @@ async def control_cooler(self):
             blocking=True,
             context=self.context,
         )
+        self.last_sent_cooler_temp = desired_temp
+        self.last_sent_cooler_temp_ts = now_ts
 
-    # Only send hvac_mode command if it differs from current
-    if current_hvac_mode != desired_mode:
+    # Only send hvac_mode command if it differs from current.
+    mode_changed_since_last_send = self.last_sent_cooler_hvac_mode != desired_mode
+    should_send_mode = current_hvac_mode != desired_mode
+
+    if should_send_mode and min_resend_interval_s > 0 and not mode_changed_since_last_send:
+        last_mode_ts = self.last_sent_cooler_hvac_mode_ts
+        if (
+            last_mode_ts is not None
+            and (now_ts - last_mode_ts) < min_resend_interval_s
+        ):
+            _LOGGER.debug(
+                "better_thermostat %s: cooler %s skipping set_hvac_mode due to "
+                "min_cooler_resend_interval_s=%ss",
+                self.device_name,
+                self.cooler_entity_id,
+                min_resend_interval_s,
+            )
+            should_send_mode = False
+
+    if should_send_mode:
         _LOGGER.debug(
             "better_thermostat %s: TO COOLER set_hvac_mode: %s from: %s to: %s",
             self.device_name,
@@ -401,6 +465,8 @@ async def control_cooler(self):
             blocking=True,
             context=self.context,
         )
+        self.last_sent_cooler_hvac_mode = desired_mode
+        self.last_sent_cooler_hvac_mode_ts = now_ts
 
 
 async def control_trv(self, heater_entity_id=None):
