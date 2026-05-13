@@ -668,10 +668,11 @@ class TestEdgeCasesAndRobustness:
 
         with patch(
             "custom_components.better_thermostat.events.temperature.ir.async_create_issue"
-        ):
+        ) as mock_create_issue:
             await trigger_temperature_change(mock_bt, event)
 
         assert mock_bt.cur_temp == 20.0
+        mock_create_issue.assert_called_once()
 
     @pytest.mark.asyncio
     async def test_avm_off_marker_rejected(self, mock_bt):
@@ -681,10 +682,11 @@ class TestEdgeCasesAndRobustness:
 
         with patch(
             "custom_components.better_thermostat.events.temperature.ir.async_create_issue"
-        ):
+        ) as mock_create_issue:
             await trigger_temperature_change(mock_bt, event)
 
         assert mock_bt.cur_temp == 20.0
+        mock_create_issue.assert_called_once()
 
     @pytest.mark.asyncio
     async def test_avm_on_marker_rejected(self, mock_bt):
@@ -694,10 +696,11 @@ class TestEdgeCasesAndRobustness:
 
         with patch(
             "custom_components.better_thermostat.events.temperature.ir.async_create_issue"
-        ):
+        ) as mock_create_issue:
             await trigger_temperature_change(mock_bt, event)
 
         assert mock_bt.cur_temp == 20.0
+        mock_create_issue.assert_called_once()
 
     @pytest.mark.asyncio
     async def test_60_exactly_accepted(self, mock_bt):
