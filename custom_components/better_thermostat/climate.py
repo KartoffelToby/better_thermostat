@@ -5,7 +5,7 @@ from __future__ import annotations
 from abc import ABC
 import asyncio
 from collections import deque
-from datetime import timedelta
+from datetime import datetime, timedelta
 from functools import cached_property
 import json
 import logging
@@ -152,6 +152,7 @@ from .utils.valve_maintenance import (
     run_valve_maintenance,
 )
 from .utils.watcher import (
+    STARTUP_DEGRADED_GRACE_PERIOD,
     await_optional_sensors,
     check_and_update_degraded_mode,
     check_critical_entities,
@@ -522,6 +523,10 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
         # Degraded mode: thermostat continues operating with some sensors unavailable
         self.degraded_mode = False
         self.unavailable_sensors = []
+        # Startup grace period suppresses the degraded-mode WARNING and the HA
+        # repair issue while slow integrations finish initializing.
+        self._degraded_grace_until: datetime | None = None
+        self._degraded_warning_emitted: bool = False
         self.control_queue_task: asyncio.Queue[BetterThermostat] = asyncio.Queue(
             maxsize=1
         )
@@ -1775,8 +1780,27 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
 
         # Wait for optional sensors with increasing retry delays before
         # entering degraded mode (see await_optional_sensors for details).
+        # During the startup grace window, a transition into degraded mode is
+        # logged at DEBUG and the HA repair issue is deferred — slow cloud
+        # integrations get time to come online before the user sees a warning.
+        self._degraded_grace_until = dt_util.now() + STARTUP_DEGRADED_GRACE_PERIOD
         await await_optional_sensors(self)
         await check_and_update_degraded_mode(self)
+
+        async def _post_grace_degraded_recheck() -> None:
+            remaining = (
+                self._degraded_grace_until - dt_util.now()
+            ).total_seconds() if self._degraded_grace_until else 0.0
+            if remaining > 0:
+                await asyncio.sleep(remaining)
+            if self.is_removed:
+                return
+            await check_and_update_degraded_mode(self)
+
+        self.hass.async_create_background_task(
+            _post_grace_degraded_recheck(),
+            name=f"bt_post_grace_degraded_{self.device_name}",
+        )
 
         if self.is_removed:
             return

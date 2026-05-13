@@ -9,13 +9,21 @@ outdoor, weather) can be unavailable without blocking thermostat operation.
 
 from __future__ import annotations
 
+from datetime import timedelta
 import logging
 
 from homeassistant.const import STATE_UNAVAILABLE, STATE_UNKNOWN
 from homeassistant.helpers import issue_registry as ir
+from homeassistant.util import dt as dt_util
 
 DOMAIN = "better_thermostat"
 _LOGGER = logging.getLogger(__name__)
+
+# Window after startup during which a transition into degraded mode is logged
+# at DEBUG and does not raise a Home Assistant repair. Slow integrations
+# (cloud weather, Ecowitt, etc.) often need several minutes to publish their
+# first state.
+STARTUP_DEGRADED_GRACE_PERIOD = timedelta(minutes=5)
 
 # States considered unavailable
 UNAVAILABLE_STATES = (
@@ -352,13 +360,16 @@ async def check_and_update_degraded_mode(self) -> bool:
     self.degraded_mode = len(unavailable) > 0
     self.unavailable_sensors = unavailable
 
-    if self.degraded_mode and not old_degraded:
+    grace_until = getattr(self, "_degraded_grace_until", None)
+    in_grace = grace_until is not None and dt_util.now() < grace_until
+    has_warned = getattr(self, "_degraded_warning_emitted", False)
+
+    if self.degraded_mode and not has_warned and not in_grace:
         _LOGGER.warning(
             "better_thermostat %s: Entering degraded mode. Unavailable sensors: %s",
             self.device_name,
             ", ".join(unavailable),
         )
-        # Create a single issue for degraded mode
         ir.async_create_issue(
             hass=self.hass,
             domain=DOMAIN,
@@ -373,12 +384,21 @@ async def check_and_update_degraded_mode(self) -> bool:
                 "sensors": ", ".join(unavailable),
             },
         )
-    elif not self.degraded_mode and old_degraded:
+        self._degraded_warning_emitted = True
+    elif self.degraded_mode and in_grace and not old_degraded:
+        _LOGGER.debug(
+            "better_thermostat %s: degraded mode during startup grace period "
+            "(unavailable: %s); waiting for sensors before warning",
+            self.device_name,
+            ", ".join(unavailable),
+        )
+    elif not self.degraded_mode and has_warned:
         _LOGGER.info(
             "better_thermostat %s: Exiting degraded mode. All sensors available.",
             self.device_name,
         )
         ir.async_delete_issue(self.hass, DOMAIN, f"degraded_mode_{self.device_name}")
+        self._degraded_warning_emitted = False
 
     self.async_write_ha_state()
     return self.degraded_mode

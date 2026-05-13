@@ -47,6 +47,8 @@ def mock_bt_instance(mock_hass):
     bt.devices_errors = []
     bt.degraded_mode = False
     bt.unavailable_sensors = []
+    bt._degraded_grace_until = None
+    bt._degraded_warning_emitted = False
     return bt
 
 
@@ -332,6 +334,167 @@ class TestCheckAndUpdateDegradedMode:
                 assert (
                     mock_bt_instance.hass.async_create_background_task.call_count == 5
                 )
+
+
+class TestDegradedModeGracePeriod:
+    """Tests for the startup grace period that suppresses degraded-mode noise."""
+
+    @staticmethod
+    def _mock_get_with_unavailable(unavailable_id):
+        def mock_get(entity_id):
+            state = MagicMock()
+            state.state = "unavailable" if entity_id == unavailable_id else "20.0"
+            return state
+
+        return mock_get
+
+    @pytest.mark.anyio
+    async def test_warning_and_issue_when_grace_inactive(self, mock_bt_instance, caplog):
+        """No grace set → first degraded transition logs WARNING and raises issue."""
+        from custom_components.better_thermostat.utils.watcher import (
+            check_and_update_degraded_mode,
+        )
+
+        mock_bt_instance.hass.states.get.side_effect = self._mock_get_with_unavailable(
+            "binary_sensor.window"
+        )
+        mock_bt_instance._degraded_grace_until = None
+
+        with patch("custom_components.better_thermostat.utils.watcher.ir") as mock_ir:
+            with caplog.at_level("WARNING"):
+                await check_and_update_degraded_mode(mock_bt_instance)
+
+        assert any("Entering degraded mode" in r.message for r in caplog.records)
+        assert mock_ir.async_create_issue.called
+        assert mock_bt_instance._degraded_warning_emitted is True
+
+    @pytest.mark.anyio
+    async def test_silent_during_grace_period(self, mock_bt_instance, caplog):
+        """Grace active → degraded transition logs DEBUG, no issue, no WARNING."""
+        from datetime import timedelta
+
+        from homeassistant.util import dt as dt_util
+
+        from custom_components.better_thermostat.utils.watcher import (
+            check_and_update_degraded_mode,
+        )
+
+        mock_bt_instance.hass.states.get.side_effect = self._mock_get_with_unavailable(
+            "binary_sensor.window"
+        )
+        mock_bt_instance._degraded_grace_until = dt_util.now() + timedelta(minutes=5)
+
+        with patch("custom_components.better_thermostat.utils.watcher.ir") as mock_ir:
+            with caplog.at_level("WARNING"):
+                await check_and_update_degraded_mode(mock_bt_instance)
+
+        assert mock_bt_instance.degraded_mode is True
+        assert not any(
+            "Entering degraded mode" in r.message for r in caplog.records
+        )
+        assert not mock_ir.async_create_issue.called
+        assert mock_bt_instance._degraded_warning_emitted is False
+
+    @pytest.mark.anyio
+    async def test_warns_after_grace_expires(self, mock_bt_instance, caplog):
+        """Grace passed → still-degraded re-check logs WARNING and raises issue."""
+        from datetime import timedelta
+
+        from homeassistant.util import dt as dt_util
+
+        from custom_components.better_thermostat.utils.watcher import (
+            check_and_update_degraded_mode,
+        )
+
+        mock_bt_instance.hass.states.get.side_effect = self._mock_get_with_unavailable(
+            "binary_sensor.window"
+        )
+        # Grace expired 1 minute ago
+        mock_bt_instance._degraded_grace_until = dt_util.now() - timedelta(minutes=1)
+        # Simulate that the silent-during-grace check already set degraded=True
+        mock_bt_instance.degraded_mode = True
+
+        with patch("custom_components.better_thermostat.utils.watcher.ir") as mock_ir:
+            with caplog.at_level("WARNING"):
+                await check_and_update_degraded_mode(mock_bt_instance)
+
+        assert any("Entering degraded mode" in r.message for r in caplog.records)
+        assert mock_ir.async_create_issue.called
+        assert mock_bt_instance._degraded_warning_emitted is True
+
+    @pytest.mark.anyio
+    async def test_silent_recovery_during_grace(self, mock_bt_instance, caplog):
+        """Recover during grace → no INFO log, no issue deleted (none was created)."""
+        from datetime import timedelta
+
+        from homeassistant.util import dt as dt_util
+
+        from custom_components.better_thermostat.utils.watcher import (
+            check_and_update_degraded_mode,
+        )
+
+        # All sensors are available now
+        mock_state = MagicMock()
+        mock_state.state = "20.0"
+        mock_bt_instance.hass.states.get.return_value = mock_state
+        # Mock was previously set to degraded silently during grace
+        mock_bt_instance._degraded_grace_until = dt_util.now() + timedelta(minutes=5)
+        mock_bt_instance.degraded_mode = True
+        mock_bt_instance._degraded_warning_emitted = False
+
+        with patch("custom_components.better_thermostat.utils.watcher.ir") as mock_ir:
+            with caplog.at_level("INFO"):
+                await check_and_update_degraded_mode(mock_bt_instance)
+
+        assert mock_bt_instance.degraded_mode is False
+        assert not any(
+            "Exiting degraded mode" in r.message for r in caplog.records
+        )
+        assert not mock_ir.async_delete_issue.called
+
+    @pytest.mark.anyio
+    async def test_info_on_recovery_after_warned(self, mock_bt_instance, caplog):
+        """Recover after we'd warned → INFO log + issue deleted."""
+        from custom_components.better_thermostat.utils.watcher import (
+            check_and_update_degraded_mode,
+        )
+
+        mock_state = MagicMock()
+        mock_state.state = "20.0"
+        mock_bt_instance.hass.states.get.return_value = mock_state
+        mock_bt_instance.degraded_mode = True
+        mock_bt_instance._degraded_warning_emitted = True
+
+        with patch("custom_components.better_thermostat.utils.watcher.ir") as mock_ir:
+            with caplog.at_level("INFO"):
+                await check_and_update_degraded_mode(mock_bt_instance)
+
+        assert mock_bt_instance.degraded_mode is False
+        assert any("Exiting degraded mode" in r.message for r in caplog.records)
+        assert mock_ir.async_delete_issue.called
+        assert mock_bt_instance._degraded_warning_emitted is False
+
+    @pytest.mark.anyio
+    async def test_no_double_warning(self, mock_bt_instance, caplog):
+        """Subsequent check while already-warned → no second WARNING."""
+        from custom_components.better_thermostat.utils.watcher import (
+            check_and_update_degraded_mode,
+        )
+
+        mock_bt_instance.hass.states.get.side_effect = self._mock_get_with_unavailable(
+            "binary_sensor.window"
+        )
+        mock_bt_instance.degraded_mode = True
+        mock_bt_instance._degraded_warning_emitted = True
+
+        with patch("custom_components.better_thermostat.utils.watcher.ir") as mock_ir:
+            with caplog.at_level("WARNING"):
+                await check_and_update_degraded_mode(mock_bt_instance)
+
+        assert not any(
+            "Entering degraded mode" in r.message for r in caplog.records
+        )
+        assert not mock_ir.async_create_issue.called
 
 
 class TestAwaitOptionalSensors:
