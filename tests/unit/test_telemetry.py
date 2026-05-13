@@ -234,6 +234,20 @@ class TestCollectPidDebugAttrs:
         out = collect_pid_debug_attrs(bt)
         assert out["pid_e_K"] == 2.0
 
+    def test_model_none_does_not_crash(self):
+        """A TRV with ``model=None`` must not raise AttributeError on .lower()."""
+        bt = _bt_with_pid(
+            ["climate.a"],
+            [
+                {
+                    "model": None,
+                    "calibration_balance": {"debug": {"mode": "pid", "e_K": 1.0}},
+                }
+            ],
+        )
+        out = collect_pid_debug_attrs(bt)
+        assert out["pid_e_K"] == 1.0
+
     def test_no_balance_no_emit(self):
         bt = _bt_with_pid(["climate.a"], [{"model": "generic"}])
         out = collect_pid_debug_attrs(bt)
