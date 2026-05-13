@@ -92,7 +92,6 @@ from .utils.const import (
     ATTR_STATE_CALL_FOR_HEAT,
     ATTR_STATE_ERRORS,
     ATTR_STATE_HEAT_LOSS,
-    ATTR_STATE_HEAT_LOSS_STATS,
     ATTR_STATE_HEATING_POWER,
     ATTR_STATE_HUMIDIY,
     ATTR_STATE_LAST_CHANGE,
@@ -143,6 +142,11 @@ from .utils.hvac_action import (
     should_heat_with_tolerance,
 )
 from .utils.state_manager import StateManager
+from .utils.telemetry import (
+    collect_balance_attrs,
+    collect_cycle_telemetry,
+    collect_pid_debug_attrs,
+)
 from .utils.thermal_learning import HeatingPowerTracker, HeatLossTracker
 from .utils.valve_maintenance import (
     build_trv_snapshots,
@@ -2328,114 +2332,9 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
         except Exception:
             pass
 
-        # Optional telemetry (memory friendly): only count & last cycle + normalized power
-        if hasattr(self, "heating_cycles") and len(self.heating_cycles) > 0:
-            last_cycle = self.heating_cycles[-1]
-            try:
-                dev_specific["heating_cycle_count"] = len(self.heating_cycles)
-                dev_specific["heating_cycle_last"] = json.dumps(last_cycle)
-            except Exception:
-                _LOGGER.exception("Error while serializing heating cycle telemetry")
-        if hasattr(self, "loss_cycles") and len(self.loss_cycles) > 0:
-            last_cycle = self.loss_cycles[-1]
-            try:
-                dev_specific["heat_loss_cycle_count"] = len(self.loss_cycles)
-                dev_specific["heat_loss_cycle_last"] = json.dumps(last_cycle)
-            except Exception:
-                _LOGGER.exception("Error while serializing heat loss telemetry")
-        if hasattr(self, "last_heat_loss_stats") and self.last_heat_loss_stats:
-            try:
-                dev_specific[ATTR_STATE_HEAT_LOSS_STATS] = json.dumps(
-                    list(self.last_heat_loss_stats)
-                )
-            except Exception:
-                _LOGGER.exception("Error while serializing heat loss stats")
-        if hasattr(self, "heating_power_normalized"):
-            dev_specific["heating_power_norm"] = getattr(
-                self, "heating_power_normalized", None
-            )
-
-        # Balance Telemetrie (kompakt)
-        if hasattr(self, "temp_slope") and self.temp_slope is not None:
-            dev_specific["temp_slope_K_min"] = round(self.temp_slope, 4)
-        try:
-            # Führe kompakt alle TRV-Balance Infos zusammen (nur valve_percent)
-            bal_compact = {}
-            for trv, info in self.real_trvs.items():
-                bal = info.get("calibration_balance")
-                if bal:
-                    bal_compact[trv] = {"valve%": bal.get("valve_percent")}
-            if bal_compact:
-                dev_specific["calibration_balance"] = json.dumps(bal_compact)
-        except Exception:
-            pass
-
-        # PID/Regler-Debug als flache Attribute für Graphen (nur von repräsentativem TRV)
-        try:
-            rep_trv = None
-            for t in self.real_trvs:
-                mdl = str(self.real_trvs.get(t, {}).get("model", ""))
-                if "sonoff" in mdl.lower() or "trvzb" in mdl.lower():
-                    rep_trv = t
-                    break
-            if rep_trv is None:
-                rep_trv = next(iter(self.real_trvs.keys()), None)
-            if rep_trv is not None:
-                bal = (self.real_trvs.get(rep_trv, {}) or {}).get(
-                    "calibration_balance"
-                ) or {}
-                dbg = bal.get("debug") or {}
-                pid = dbg.get("pid") or {}
-                # Nur wenn Modus pid ist, sonst vermeiden wir Rauschen
-                if str(pid.get("mode")).lower() == "pid":
-                    # Hilfsfunktion: sichere Float-Konvertierung
-                    def _to_float(val):
-                        try:
-                            return float(val)
-                        except Exception:
-                            return None
-
-                    # Fehler (ΔT), P/I/D/U und Gains direkt ausgeben
-                    v = _to_float(pid.get("e_K"))
-                    if v is not None:
-                        dev_specific["pid_e_K"] = round(v, 4)
-                    v = _to_float(pid.get("p"))
-                    if v is not None:
-                        dev_specific["pid_P"] = round(v, 4)
-                    v = _to_float(pid.get("i"))
-                    if v is not None:
-                        dev_specific["pid_I"] = round(v, 4)
-                    v = _to_float(pid.get("d"))
-                    if v is not None:
-                        dev_specific["pid_D"] = round(v, 4)
-                    v = _to_float(pid.get("u"))
-                    if v is not None:
-                        dev_specific["pid_u"] = round(v, 4)
-                    v = _to_float(pid.get("kp"))
-                    if v is not None:
-                        dev_specific["pid_kp"] = round(v, 6)
-                    v = _to_float(pid.get("ki"))
-                    if v is not None:
-                        dev_specific["pid_ki"] = round(v, 6)
-                    v = _to_float(pid.get("kd"))
-                    if v is not None:
-                        dev_specific["pid_kd"] = round(v, 6)
-                    v = _to_float(pid.get("meas_blend_C"))
-                    if v is not None:
-                        dev_specific["pid_meas_blend_C"] = round(v, 3)
-                    v = _to_float(pid.get("meas_smooth_C"))
-                    if v is not None:
-                        dev_specific["pid_meas_smooth_C"] = round(v, 3)
-                    # d_meas_per_s ist K/s; für Lesbarkeit auch auf K/min hochrechnen
-                    v = _to_float(pid.get("d_meas_per_s"))
-                    if v is not None:
-                        dev_specific["pid_d_meas_K_per_min"] = round(v * 60.0, 4)
-                    # dt_s
-                    v = _to_float(pid.get("dt_s"))
-                    if v is not None:
-                        dev_specific["pid_dt_s"] = round(v, 3)
-        except Exception:
-            pass
+        dev_specific.update(collect_cycle_telemetry(self))
+        dev_specific.update(collect_balance_attrs(self))
+        dev_specific.update(collect_pid_debug_attrs(self))
 
         return dev_specific
 
