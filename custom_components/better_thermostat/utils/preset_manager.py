@@ -76,9 +76,15 @@ class PresetManager:
             self.saved_temperature = None
             return temp
 
-        # Apply preset temp
-        if preset != PRESET_NONE and preset in self.temperatures:
-            return min(max_temp, max(min_temp, self.temperatures[preset]))
+        # Apply preset temp — fall back through (preset, PRESET_NONE, midpoint)
+        # so an enabled preset missing from ``temperatures`` still produces a
+        # sensible clamped target.
+        if preset != PRESET_NONE:
+            temp = self.temperatures.get(
+                preset,
+                self.temperatures.get(PRESET_NONE, (min_temp + max_temp) / 2),
+            )
+            return min(max_temp, max(min_temp, temp))
 
         return None
 

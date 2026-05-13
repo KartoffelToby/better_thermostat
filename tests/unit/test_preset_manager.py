@@ -52,6 +52,11 @@ class TestAvailableModes:
     def test_custom_presets(self, custom_mgr: PresetManager):
         assert custom_mgr.available_modes == [PRESET_NONE, PRESET_COMFORT, PRESET_ECO]
 
+    def test_empty_enabled_presets_yields_none_only(self):
+        """An explicit empty list disables all presets; only PRESET_NONE remains."""
+        mgr = PresetManager(enabled_presets=[])
+        assert mgr.available_modes == [PRESET_NONE]
+
 
 # ---------------------------------------------------------------------------
 # activate()
@@ -111,6 +116,30 @@ class TestActivate:
         mgr.activate(PRESET_COMFORT, current_temp=20.0, min_temp=5.0, max_temp=30.0)
         mgr.activate(PRESET_ECO, current_temp=21.0, min_temp=5.0, max_temp=30.0)
         assert mgr.saved_temperature == 20.0
+
+    def test_enabled_preset_missing_from_temperatures_falls_back(self):
+        """A preset that is enabled but absent from ``temperatures`` still yields
+        a clamped target (falls back via PRESET_NONE, then mid-range)."""
+        mgr = PresetManager(
+            enabled_presets=[PRESET_COMFORT],
+            temperatures={PRESET_NONE: 19.5},  # COMFORT intentionally missing
+        )
+        result = mgr.activate(
+            PRESET_COMFORT, current_temp=20.0, min_temp=5.0, max_temp=30.0
+        )
+        assert result == 19.5
+        assert mgr.mode == PRESET_COMFORT
+
+    def test_enabled_preset_missing_and_no_none_default_uses_midpoint(self):
+        """No preset value and no PRESET_NONE default → midpoint of min/max."""
+        mgr = PresetManager(
+            enabled_presets=[PRESET_COMFORT],
+            temperatures={},
+        )
+        result = mgr.activate(
+            PRESET_COMFORT, current_temp=20.0, min_temp=10.0, max_temp=30.0
+        )
+        assert result == 20.0  # (10 + 30) / 2
 
 
 # ---------------------------------------------------------------------------

@@ -452,7 +452,7 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
         self.bt_update_lock = False
         self.startup_running = True
         self._saved_temperature = None
-        if enabled_presets:
+        if enabled_presets is not None:
             self.preset_mgr = PresetManager(enabled_presets=enabled_presets)
         else:
             self.preset_mgr = PresetManager()
