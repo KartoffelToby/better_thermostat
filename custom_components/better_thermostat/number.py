@@ -157,7 +157,7 @@ class BetterThermostatPresetNumber(NumberEntity, RestoreEntity):
         ):
             try:
                 val = float(last_state.state)
-                self._bt_climate._preset_temperatures[self._preset_mode] = val
+                self._bt_climate.preset_mgr.update_temperature(self._preset_mode, val)
                 _LOGGER.debug(
                     "Restored preset %s to %s from number entity state",
                     self._preset_mode,
@@ -174,12 +174,12 @@ class BetterThermostatPresetNumber(NumberEntity, RestoreEntity):
     @property
     def native_value(self) -> float | None:
         """Return the value of the number."""
-        return self._bt_climate._preset_temperatures.get(self._preset_mode)
+        return self._bt_climate.preset_mgr.get_temperature(self._preset_mode)
 
     async def async_set_native_value(self, value: float) -> None:
         """Update the current value."""
         # Update the storage in the climate entity
-        self._bt_climate._preset_temperatures[self._preset_mode] = value
+        self._bt_climate.preset_mgr.update_temperature(self._preset_mode, value)
 
         # If this preset is currently active, update the target temperature immediately
         if self._bt_climate.preset_mode == self._preset_mode:

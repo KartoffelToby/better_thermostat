@@ -23,14 +23,7 @@ from homeassistant.components.climate.const import (
     ATTR_TARGET_TEMP_HIGH,
     ATTR_TARGET_TEMP_LOW,
     ATTR_TARGET_TEMP_STEP,
-    PRESET_ACTIVITY,
-    PRESET_AWAY,
-    PRESET_BOOST,
-    PRESET_COMFORT,
-    PRESET_ECO,
-    PRESET_HOME,
     PRESET_NONE,
-    PRESET_SLEEP,
     ClimateEntityFeature,
     HVACAction,
     HVACMode,
@@ -142,6 +135,7 @@ from .utils.hvac_action import (
     compute_hvac_action,
     should_heat_with_tolerance,
 )
+from .utils.preset_manager import PresetManager
 from .utils.state_manager import StateManager
 from .utils.thermal_learning import HeatingPowerTracker, HeatLossTracker
 from .utils.valve_maintenance import (
@@ -425,7 +419,6 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
         self._device_class = device_class
         self._state_class = state_class
         self._hvac_list = [HVACMode.HEAT, HVACMode.OFF]
-        self._preset_mode = PRESET_NONE
         self.map_on_hvac_mode = HVACMode.HEAT
         self.next_valve_maintenance = dt_util.now() + timedelta(
             hours=randint(1, 24 * 5)
@@ -459,34 +452,10 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
         self.bt_update_lock = False
         self.startup_running = True
         self._saved_temperature = None
-        # ECO mode removed; preserved eco preset via PRESET_ECO
-        self._preset_temperature = (
-            None  # Temperature saved before entering any preset mode
-        )
-        self._enabled_presets = enabled_presets
-        if not self._enabled_presets:
-            self._enabled_presets = [
-                PRESET_AWAY,
-                PRESET_BOOST,
-                PRESET_SLEEP,
-                PRESET_COMFORT,
-                PRESET_ECO,
-                PRESET_ACTIVITY,
-                PRESET_HOME,
-            ]
-
-        self._preset_temperatures = {
-            PRESET_NONE: 20.0,
-            PRESET_AWAY: 16.0,
-            PRESET_BOOST: 24.0,
-            PRESET_COMFORT: 21.0,
-            PRESET_ECO: 19.0,
-            PRESET_HOME: 20.0,
-            PRESET_SLEEP: 18.0,
-            PRESET_ACTIVITY: 22.0,
-        }
-        # Keep a copy of original configured preset temperatures to detect user customization
-        self._original_preset_temperatures = self._preset_temperatures.copy()
+        if enabled_presets:
+            self.preset_mgr = PresetManager(enabled_presets=enabled_presets)
+        else:
+            self.preset_mgr = PresetManager()
         # Config entry id (same as unique id passed in) used for durable persistence beyond RestoreEntity
         self._config_entry_id = self._unique_id
         self.last_avg_outdoor_temp = None
@@ -1327,12 +1296,13 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
             )
             # Restore preset mode if present
             _old_preset = old_state.attributes.get("preset_mode")
-            if isinstance(_old_preset, str) and _old_preset in (
-                [PRESET_NONE] + list(self._preset_temperatures)
+            if (
+                isinstance(_old_preset, str)
+                and _old_preset in self.preset_mgr.available_modes
             ):
-                self._preset_mode = _old_preset
+                self.preset_mgr.mode = _old_preset
             else:
-                self._preset_mode = PRESET_NONE
+                self.preset_mgr.mode = PRESET_NONE
 
             _LOGGER.debug(
                 "better_thermostat %s: applying restored preset temperature...",
@@ -1341,11 +1311,10 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
             # If we restored a preset (not NONE) and we have a stored temperature for it,
             # ensure target temp matches (unless the restored target was already equal).
             if (
-                self._preset_mode is not None
-                and self._preset_mode != PRESET_NONE
-                and self._preset_mode in self._preset_temperatures
+                self.preset_mgr.mode is not None
+                and self.preset_mgr.mode != PRESET_NONE
             ):
-                preset_temp = self._preset_temperatures[self._preset_mode]
+                preset_temp = self.preset_mgr.get_temperature(self.preset_mgr.mode)
                 # Only override if different to avoid masking manual restore logic
                 if (
                     isinstance(preset_temp, (int, float))
@@ -1355,7 +1324,7 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
                     _LOGGER.debug(
                         "better_thermostat %s: Applying restored preset %s temperature %s after startup",
                         self.device_name,
-                        self._preset_mode,
+                        self.preset_mgr.mode,
                         preset_temp,
                     )
                     self.bt_target_temp = preset_temp
@@ -1426,7 +1395,7 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
                 old_state.attributes.get(ATTR_STATE_PRESET_TEMPERATURE, None)
                 is not None
             ):
-                self._preset_temperature = convert_to_float(
+                self.preset_mgr.saved_temperature = convert_to_float(
                     str(old_state.attributes.get(ATTR_STATE_PRESET_TEMPERATURE, None)),
                     self.device_name,
                     "startup()",
@@ -1435,7 +1404,7 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
             if old_state.attributes.get("preset_mode", None) is not None:
                 restored_preset: str = str(old_state.attributes["preset_mode"])
                 if restored_preset in self.preset_modes:
-                    self._preset_mode = restored_preset
+                    self.preset_mgr.mode = restored_preset
                     _LOGGER.debug(
                         "better_thermostat %s: Restored preset mode: %s",
                         self.device_name,
@@ -2287,7 +2256,7 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
             ATTR_STATE_CALL_FOR_HEAT: self.call_for_heat,
             ATTR_STATE_LAST_CHANGE: self.last_change.isoformat(),
             ATTR_STATE_SAVED_TEMPERATURE: self._saved_temperature,
-            ATTR_STATE_PRESET_TEMPERATURE: self._preset_temperature,
+            ATTR_STATE_PRESET_TEMPERATURE: self.preset_mgr.saved_temperature,
             ATTR_STATE_HUMIDIY: self._current_humidity,
             ATTR_STATE_MAIN_MODE: self.last_main_hvac_mode,
             ATTR_STATE_OFF_TEMPERATURE: self.off_temperature,
@@ -2700,7 +2669,7 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
             "better_thermostat %s: async_set_temperature kwargs=%s, current preset=%s, hvac_mode=%s",
             self.device_name,
             kwargs,
-            self._preset_mode,
+            self.preset_mgr.mode,
             self.bt_hvac_mode,
         )
 
@@ -2798,19 +2767,19 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
         # For specific presets (Comfort, Eco, etc.), the value is now managed via
         # separate Number entities and should NOT be overwritten by manual setpoint changes.
         if (
-            self._preset_mode == PRESET_NONE
-            and self._preset_mode in self._preset_temperatures
+            self.preset_mgr.mode == PRESET_NONE
+            and self.preset_mgr.mode in self.preset_mgr.temperatures
             and (_new_setpoint is not None or _new_setpointlow is not None)
         ):
             if self.bt_target_temp is not None:
                 applied = float(self.bt_target_temp)
-                old_value = self._preset_temperatures.get(self._preset_mode)
+                old_value = self.preset_mgr.temperatures.get(self.preset_mgr.mode)
                 if old_value != applied:
-                    self._preset_temperatures[self._preset_mode] = applied
+                    self.preset_mgr.temperatures[self.preset_mgr.mode] = applied
                     _LOGGER.debug(
                         "better_thermostat %s: Updated stored preset temperature for %s from %s to %s due to manual change",
                         self.device_name,
-                        self._preset_mode,
+                        self.preset_mgr.mode,
                         old_value,
                         applied,
                     )
@@ -2818,7 +2787,7 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
                     _LOGGER.debug(
                         "better_thermostat %s: Manual change equals current stored preset %s value=%s; no update",
                         self.device_name,
-                        self._preset_mode,
+                        self.preset_mgr.mode,
                         applied,
                     )
 
@@ -2937,91 +2906,34 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
     @property
     def preset_mode(self):
         """Return the current preset mode."""
-        return self._preset_mode
+        return self.preset_mgr.mode
 
     async def async_set_preset_mode(self, preset_mode: str) -> None:
         """Set new preset mode (HA async API).
 
         NOTE:
             Home Assistant calls `async_set_preset_mode` directly when present.
-            Previously this integration implemented an async coroutine named
-            `set_preset_mode` (without the `async_` prefix). The core will
-            assume a method named `set_preset_mode` is synchronous and will try
-            to execute it inside an executor thread. Because it was actually
-            declared with `async def`, HA attempted to run a coroutine function
-            via `run_in_executor`, resulting in an error similar to:
-
-                "set_preset_mode cannot be used with run_in_executor".
-
-            Renaming the method to `async_set_preset_mode` fixes this by letting
-            HA await the coroutine directly.
+            A coroutine named `set_preset_mode` (without the `async_` prefix)
+            would be assumed synchronous and executed via `run_in_executor`,
+            raising "set_preset_mode cannot be used with run_in_executor".
         """
-        if preset_mode not in self.preset_modes:
-            _LOGGER.warning(
-                "better_thermostat %s: Unsupported preset mode %s",
-                self.device_name,
-                preset_mode,
-            )
-            return
-
         self.bt_update_lock = True
         try:
-            old_preset = self._preset_mode
-            self._preset_mode = preset_mode
-
-            _LOGGER.debug(
-                "better_thermostat %s: Setting preset mode from %s to %s",
-                self.device_name,
-                old_preset,
-                preset_mode,
+            old_preset = self.preset_mgr.mode
+            new_temp = self.preset_mgr.activate(
+                preset_mode, self.bt_target_temp, self.min_temp, self.max_temp
             )
 
-            # If switching from PRESET_NONE to another preset, save current temperature
-            if old_preset == PRESET_NONE and preset_mode != PRESET_NONE:
-                if self._preset_temperature is None:
-                    self._preset_temperature = self.bt_target_temp
-                    _LOGGER.debug(
-                        "better_thermostat %s: Saved temperature %s before entering preset mode",
-                        self.device_name,
-                        self._preset_temperature,
-                    )
-
-            # If switching back to PRESET_NONE, restore saved temperature
-            if preset_mode == PRESET_NONE and self._preset_temperature is not None:
-                self.bt_target_temp = self._preset_temperature
-                self._preset_temperature = None
-                _LOGGER.debug(
-                    "better_thermostat %s: Restored temperature %s from preset mode",
-                    self.device_name,
-                    self.bt_target_temp,
-                )
-
-            # Apply configured preset temperature
-            elif (
-                preset_mode != PRESET_NONE and preset_mode in self._preset_temperatures
-            ):
-                # Use the configured absolute temperature for this preset
-                configured_temp = self._preset_temperatures[preset_mode]
-
-                _LOGGER.debug(
-                    "better_thermostat %s: Preset %s configured: %.1f, Min: %.1f, Max: %.1f",
+            if new_temp is None and preset_mode not in self.preset_mgr.available_modes:
+                _LOGGER.warning(
+                    "better_thermostat %s: Unsupported preset mode %s",
                     self.device_name,
                     preset_mode,
-                    configured_temp,
-                    self.min_temp,
-                    self.max_temp,
                 )
+                return
 
-                # Ensure the temperature is within min/max bounds
-                new_temp = min(self.max_temp, max(self.min_temp, configured_temp))
-
+            if new_temp is not None:
                 self.bt_target_temp = new_temp
-                _LOGGER.debug(
-                    "better_thermostat %s: Applied preset %s with configured temperature: %s°C",
-                    self.device_name,
-                    preset_mode,
-                    new_temp,
-                )
 
             _LOGGER.debug(
                 "better_thermostat %s: After preset change %s -> %s, bt_target_temp=%s, bt_hvac_mode=%s",
@@ -3062,7 +2974,7 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
     @property
     def preset_modes(self):
         """Return the available preset modes."""
-        return [PRESET_NONE] + self._enabled_presets
+        return self.preset_mgr.available_modes
 
     async def reset_pid_learnings_service(
         self,

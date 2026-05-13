@@ -82,15 +82,16 @@ def mock_bt():
     type(bt).last_heat_loss_stats = property(lambda self: self._loss_tracker.stats)
     type(bt).loss_cycles = property(lambda self: self._loss_tracker.cycles)
     # Presets
-    bt._preset_mode = PRESET_NONE
-    bt._preset_temperature = None
-    bt._preset_temperatures = {
-        PRESET_NONE: 20.0,
-        PRESET_COMFORT: 21.0,
-        PRESET_ECO: 19.0,
-        PRESET_AWAY: 16.0,
-    }
-    bt._enabled_presets = [PRESET_COMFORT, PRESET_ECO, PRESET_AWAY]
+    from custom_components.better_thermostat.utils.preset_manager import PresetManager
+    bt.preset_mgr = PresetManager(
+        temperatures={
+            PRESET_NONE: 20.0,
+            PRESET_COMFORT: 21.0,
+            PRESET_ECO: 19.0,
+            PRESET_AWAY: 16.0,
+        },
+        enabled_presets=[PRESET_COMFORT, PRESET_ECO, PRESET_AWAY],
+    )
     bt.bt_update_lock = False
     # TRVs
     bt.real_trvs = {}
@@ -852,60 +853,60 @@ class TestAsyncSetPresetMode:
         """Invalid preset → warning, no state change."""
         # preset_modes returns [PRESET_NONE] + _enabled_presets
         mock_bt.preset_modes = [PRESET_NONE, PRESET_COMFORT, PRESET_ECO, PRESET_AWAY]
-        old_preset = mock_bt._preset_mode
+        old_preset = mock_bt.preset_mgr.mode
         old_temp = mock_bt.bt_target_temp
         await self._call(mock_bt, "nonexistent")
-        assert mock_bt._preset_mode == old_preset
+        assert mock_bt.preset_mgr.mode == old_preset
         assert mock_bt.bt_target_temp == old_temp
 
     @pytest.mark.asyncio
     async def test_none_to_comfort(self, mock_bt):
         """NONE → Comfort: saves current temp, applies configured comfort temp."""
         mock_bt.preset_modes = [PRESET_NONE, PRESET_COMFORT, PRESET_ECO, PRESET_AWAY]
-        mock_bt._preset_mode = PRESET_NONE
+        mock_bt.preset_mgr.mode = PRESET_NONE
         mock_bt.bt_target_temp = 20.0
-        mock_bt._preset_temperature = None
+        mock_bt.preset_mgr.saved_temperature = None
         mock_bt.min_temp = mock_bt.bt_min_temp
         mock_bt.max_temp = mock_bt.bt_max_temp
         await self._call(mock_bt, PRESET_COMFORT)
-        assert mock_bt._preset_mode == PRESET_COMFORT
-        assert mock_bt._preset_temperature == 20.0  # saved original
+        assert mock_bt.preset_mgr.mode == PRESET_COMFORT
+        assert mock_bt.preset_mgr.saved_temperature == 20.0  # saved original
         assert mock_bt.bt_target_temp == 21.0  # configured comfort temp
 
     @pytest.mark.asyncio
     async def test_comfort_to_none_restores(self, mock_bt):
         """Comfort → NONE: bt_target_temp restored, _preset_temperature cleared."""
         mock_bt.preset_modes = [PRESET_NONE, PRESET_COMFORT, PRESET_ECO, PRESET_AWAY]
-        mock_bt._preset_mode = PRESET_COMFORT
-        mock_bt._preset_temperature = 20.0
+        mock_bt.preset_mgr.mode = PRESET_COMFORT
+        mock_bt.preset_mgr.saved_temperature = 20.0
         mock_bt.bt_target_temp = 21.0
         mock_bt.min_temp = mock_bt.bt_min_temp
         mock_bt.max_temp = mock_bt.bt_max_temp
         await self._call(mock_bt, PRESET_NONE)
-        assert mock_bt._preset_mode == PRESET_NONE
+        assert mock_bt.preset_mgr.mode == PRESET_NONE
         assert mock_bt.bt_target_temp == 20.0  # restored
-        assert mock_bt._preset_temperature is None
+        assert mock_bt.preset_mgr.saved_temperature is None
 
     @pytest.mark.asyncio
     async def test_comfort_to_eco(self, mock_bt):
         """Comfort → Eco: bt_target_temp = eco config, _preset_temperature unchanged."""
         mock_bt.preset_modes = [PRESET_NONE, PRESET_COMFORT, PRESET_ECO, PRESET_AWAY]
-        mock_bt._preset_mode = PRESET_COMFORT
-        mock_bt._preset_temperature = 20.0  # saved from initial manual temp
+        mock_bt.preset_mgr.mode = PRESET_COMFORT
+        mock_bt.preset_mgr.saved_temperature = 20.0  # saved from initial manual temp
         mock_bt.bt_target_temp = 21.0
         mock_bt.min_temp = mock_bt.bt_min_temp
         mock_bt.max_temp = mock_bt.bt_max_temp
         await self._call(mock_bt, PRESET_ECO)
-        assert mock_bt._preset_mode == PRESET_ECO
+        assert mock_bt.preset_mgr.mode == PRESET_ECO
         assert mock_bt.bt_target_temp == 19.0  # eco configured
-        assert mock_bt._preset_temperature == 20.0  # still saved
+        assert mock_bt.preset_mgr.saved_temperature == 20.0  # still saved
 
     @pytest.mark.asyncio
     async def test_eco_to_none_restores_original(self, mock_bt):
         """Eco → NONE: bt_target_temp = saved original temp."""
         mock_bt.preset_modes = [PRESET_NONE, PRESET_COMFORT, PRESET_ECO, PRESET_AWAY]
-        mock_bt._preset_mode = PRESET_ECO
-        mock_bt._preset_temperature = 20.0
+        mock_bt.preset_mgr.mode = PRESET_ECO
+        mock_bt.preset_mgr.saved_temperature = 20.0
         mock_bt.bt_target_temp = 19.0
         mock_bt.min_temp = mock_bt.bt_min_temp
         mock_bt.max_temp = mock_bt.bt_max_temp
@@ -916,8 +917,8 @@ class TestAsyncSetPresetMode:
     async def test_preset_temp_clamped_to_max(self, mock_bt):
         """Preset temp above max → clamped to max_temp."""
         mock_bt.preset_modes = [PRESET_NONE, PRESET_COMFORT, PRESET_ECO, PRESET_AWAY]
-        mock_bt._preset_mode = PRESET_NONE
-        mock_bt._preset_temperatures[PRESET_COMFORT] = 35.0  # above max
+        mock_bt.preset_mgr.mode = PRESET_NONE
+        mock_bt.preset_mgr.temperatures[PRESET_COMFORT] = 35.0  # above max
         mock_bt.min_temp = mock_bt.bt_min_temp
         mock_bt.max_temp = mock_bt.bt_max_temp  # 30.0
         await self._call(mock_bt, PRESET_COMFORT)
@@ -947,7 +948,7 @@ class TestAsyncSetTemperature:
     @pytest.mark.asyncio
     async def test_simple_setpoint(self, mock_bt):
         """Simple temperature set: {ATTR_TEMPERATURE: 22.0}."""
-        mock_bt._preset_mode = PRESET_NONE
+        mock_bt.preset_mgr.mode = PRESET_NONE
         mock_bt.bt_hvac_mode = HVACMode.HEAT
         await self._call(mock_bt, **{ATTR_TEMPERATURE: 22.0})
         assert mock_bt.bt_target_temp == 22.0
@@ -955,7 +956,7 @@ class TestAsyncSetTemperature:
     @pytest.mark.asyncio
     async def test_hvac_mode_change_in_kwargs(self, mock_bt):
         """HVAC mode change passed in kwargs."""
-        mock_bt._preset_mode = PRESET_NONE
+        mock_bt.preset_mgr.mode = PRESET_NONE
         mock_bt.bt_hvac_mode = HVACMode.HEAT
         await self._call(
             mock_bt, **{ATTR_TEMPERATURE: 22.0, ATTR_HVAC_MODE: HVACMode.OFF}
@@ -967,7 +968,7 @@ class TestAsyncSetTemperature:
         """HEAT_COOL with low/high setpoints."""
         mock_bt.hvac_mode = HVACMode.HEAT_COOL
         mock_bt.bt_hvac_mode = HVACMode.HEAT_COOL
-        mock_bt._preset_mode = PRESET_NONE
+        mock_bt.preset_mgr.mode = PRESET_NONE
         mock_bt.min_temp = mock_bt.bt_min_temp
         mock_bt.max_temp = mock_bt.bt_max_temp
         await self._call(
@@ -981,7 +982,7 @@ class TestAsyncSetTemperature:
         """Cool target adjusted to be above heat target in HEAT_COOL mode."""
         mock_bt.hvac_mode = HVACMode.HEAT_COOL
         mock_bt.bt_hvac_mode = HVACMode.HEAT_COOL
-        mock_bt._preset_mode = PRESET_NONE
+        mock_bt.preset_mgr.mode = PRESET_NONE
         mock_bt.min_temp = mock_bt.bt_min_temp
         mock_bt.max_temp = mock_bt.bt_max_temp
         mock_bt.bt_target_temp = 22.0
@@ -992,7 +993,7 @@ class TestAsyncSetTemperature:
     @pytest.mark.asyncio
     async def test_min_max_clamping(self, mock_bt):
         """Temperature clamped to min/max bounds."""
-        mock_bt._preset_mode = PRESET_NONE
+        mock_bt.preset_mgr.mode = PRESET_NONE
         mock_bt.min_temp = mock_bt.bt_min_temp  # 5.0
         mock_bt.max_temp = mock_bt.bt_max_temp  # 30.0
         await self._call(mock_bt, **{ATTR_TEMPERATURE: 50.0})
@@ -1001,7 +1002,7 @@ class TestAsyncSetTemperature:
     @pytest.mark.asyncio
     async def test_min_clamping(self, mock_bt):
         """Temperature below min → clamped to min."""
-        mock_bt._preset_mode = PRESET_NONE
+        mock_bt.preset_mgr.mode = PRESET_NONE
         mock_bt.min_temp = mock_bt.bt_min_temp  # 5.0
         mock_bt.max_temp = mock_bt.bt_max_temp  # 30.0
         await self._call(mock_bt, **{ATTR_TEMPERATURE: 1.0})
@@ -1010,17 +1011,17 @@ class TestAsyncSetTemperature:
     @pytest.mark.asyncio
     async def test_preset_none_stored_temp_updated(self, mock_bt):
         """In PRESET_NONE, stored temp is updated on manual change."""
-        mock_bt._preset_mode = PRESET_NONE
+        mock_bt.preset_mgr.mode = PRESET_NONE
         mock_bt.bt_target_temp = 20.0
         mock_bt.min_temp = mock_bt.bt_min_temp
         mock_bt.max_temp = mock_bt.bt_max_temp
         await self._call(mock_bt, **{ATTR_TEMPERATURE: 23.0})
-        assert mock_bt._preset_temperatures[PRESET_NONE] == 23.0
+        assert mock_bt.preset_mgr.temperatures[PRESET_NONE] == 23.0
 
     @pytest.mark.asyncio
     async def test_off_mode_no_queue_put(self, mock_bt):
         """In OFF mode, queue.put is NOT called."""
-        mock_bt._preset_mode = PRESET_NONE
+        mock_bt.preset_mgr.mode = PRESET_NONE
         mock_bt.bt_hvac_mode = HVACMode.OFF
         mock_bt.min_temp = mock_bt.bt_min_temp
         mock_bt.max_temp = mock_bt.bt_max_temp
@@ -1030,7 +1031,7 @@ class TestAsyncSetTemperature:
     @pytest.mark.asyncio
     async def test_maintenance_no_queue_put(self, mock_bt):
         """During maintenance, _control_needed_after_maintenance set, no queue.put."""
-        mock_bt._preset_mode = PRESET_NONE
+        mock_bt.preset_mgr.mode = PRESET_NONE
         mock_bt.bt_hvac_mode = HVACMode.HEAT
         mock_bt.in_maintenance = True
         mock_bt.min_temp = mock_bt.bt_min_temp
@@ -1042,7 +1043,7 @@ class TestAsyncSetTemperature:
     @pytest.mark.asyncio
     async def test_queue_put_called_in_heat_mode(self, mock_bt):
         """In HEAT mode, queue.put IS called."""
-        mock_bt._preset_mode = PRESET_NONE
+        mock_bt.preset_mgr.mode = PRESET_NONE
         mock_bt.bt_hvac_mode = HVACMode.HEAT
         mock_bt.min_temp = mock_bt.bt_min_temp
         mock_bt.max_temp = mock_bt.bt_max_temp

@@ -69,9 +69,12 @@ def bt():
     mock._saved_temperature = None
     mock.heating_power = 0.01
     mock.heat_loss_rate = 0.01
-    mock._preset_temperature = None
-    mock._preset_mode = None
-    mock._preset_temperatures = {"comfort": 22.0, "eco": 18.0}
+    from custom_components.better_thermostat.utils.preset_manager import PresetManager
+    mock.preset_mgr = PresetManager(
+        mode="none",
+        temperatures={"none": 20.0, "comfort": 22.0, "eco": 18.0},
+        enabled_presets=["comfort", "eco"],
+    )
     mock.preset_modes = ["none", "comfort", "eco"]
     mock.version = "1.0.0"
     mock.startup_running = True
@@ -355,7 +358,7 @@ class TestRestoreState:
             ATTR_TEMPERATURE: 21.0,
         }
         bt.async_get_last_state = AsyncMock(return_value=old)
-        bt._preset_temperatures = {}
+        bt.preset_mgr.temperatures = {}
 
         states = [_make_trv_state()]
         await BetterThermostat._restore_state(bt, states)
@@ -373,7 +376,7 @@ class TestRestoreState:
         bt.async_get_last_state = AsyncMock(return_value=old)
         bt.bt_min_temp = 5.0
         bt.bt_max_temp = 30.0
-        bt._preset_temperatures = {}
+        bt.preset_mgr.temperatures = {}
 
         states = [_make_trv_state()]
         await BetterThermostat._restore_state(bt, states)
@@ -389,7 +392,7 @@ class TestRestoreState:
         bt.async_get_last_state = AsyncMock(return_value=old)
         bt.bt_min_temp = 5.0
         bt.bt_max_temp = 30.0
-        bt._preset_temperatures = {}
+        bt.preset_mgr.temperatures = {}
 
         states = [_make_trv_state()]
         await BetterThermostat._restore_state(bt, states)
@@ -403,12 +406,12 @@ class TestRestoreState:
         old.state = "heat"
         old.attributes = {ATTR_TEMPERATURE: 22.0, "preset_mode": "comfort"}
         bt.async_get_last_state = AsyncMock(return_value=old)
-        bt._preset_temperatures = {"comfort": 22.0, "eco": 18.0}
+        bt.preset_mgr.temperatures = {"comfort": 22.0, "eco": 18.0}
 
         states = [_make_trv_state()]
         await BetterThermostat._restore_state(bt, states)
 
-        assert bt._preset_mode == "comfort"
+        assert bt.preset_mgr.mode == "comfort"
 
     @pytest.mark.asyncio
     async def test_restores_heating_power_clamped(self, bt):
@@ -420,7 +423,7 @@ class TestRestoreState:
             ATTR_STATE_HEATING_POWER: "999.0",  # way above max
         }
         bt.async_get_last_state = AsyncMock(return_value=old)
-        bt._preset_temperatures = {}
+        bt.preset_mgr.temperatures = {}
 
         states = [_make_trv_state()]
         await BetterThermostat._restore_state(bt, states)
@@ -446,7 +449,7 @@ class TestRestoreState:
         old.state = "heat"
         old.attributes = {ATTR_TEMPERATURE: 21.0, ATTR_STATE_CALL_FOR_HEAT: True}
         bt.async_get_last_state = AsyncMock(return_value=old)
-        bt._preset_temperatures = {}
+        bt.preset_mgr.temperatures = {}
 
         states = [_make_trv_state()]
         await BetterThermostat._restore_state(bt, states)
