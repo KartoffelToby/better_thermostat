@@ -20,6 +20,7 @@ from custom_components.better_thermostat.utils.const import (
     CalibrationType,
 )
 from custom_components.better_thermostat.utils.controlling import (
+    _get_valve_control,
     check_system_mode,
     check_target_temperature,
     handle_window_open,
@@ -435,3 +436,93 @@ class TestCheckTargetTemperature:
 
         assert result is True
         # convert_to_float should handle string "21.0" and match float 21.0
+
+
+# ---------------------------------------------------------------------------
+# _get_valve_control — boost mode honors valve_max_opening
+# ---------------------------------------------------------------------------
+
+
+class TestGetValveControlBoostMaxOpening:
+    """Boost mode should clamp valve_percent to the user's valve_max_opening."""
+
+    def _mock_in_boost(self, max_opening):
+        mock_self = MagicMock()
+        # Trigger boost branch via _is_boost_heating_active(...)
+        mock_self.preset_mode = "boost"
+        mock_self.cur_temp = 19.0
+        mock_self.bt_target_temp = 22.0
+        mock_self.real_trvs = {
+            "climate.trv1": {"valve_max_opening": max_opening},
+        }
+        return mock_self
+
+    def test_no_setting_defaults_to_100(self):
+        """Without a configured limit, boost still applies 100%."""
+        mock_self = self._mock_in_boost(max_opening=None)
+        # Simulate "key missing" by removing it entirely
+        mock_self.real_trvs["climate.trv1"] = {}
+        bal, source = _get_valve_control(
+            mock_self,
+            "climate.trv1",
+            CalibrationMode.MPC_CALIBRATION,
+            CalibrationType.TARGET_TEMP_BASED,
+        )
+        assert source == "boost_mode"
+        assert bal == {"valve_percent": 100, "apply_valve": True}
+
+    def test_setting_100_returns_100(self):
+        """An explicit 100% setting yields 100%."""
+        mock_self = self._mock_in_boost(max_opening=100)
+        bal, _ = _get_valve_control(
+            mock_self,
+            "climate.trv1",
+            CalibrationMode.MPC_CALIBRATION,
+            CalibrationType.TARGET_TEMP_BASED,
+        )
+        assert bal == {"valve_percent": 100, "apply_valve": True}
+
+    def test_setting_60_clamps_to_60(self):
+        """Boost respects a configured 60% maximum."""
+        mock_self = self._mock_in_boost(max_opening=60)
+        bal, source = _get_valve_control(
+            mock_self,
+            "climate.trv1",
+            CalibrationMode.MPC_CALIBRATION,
+            CalibrationType.TARGET_TEMP_BASED,
+        )
+        assert source == "boost_mode"
+        assert bal == {"valve_percent": 60, "apply_valve": True}
+
+    def test_float_setting_rounded(self):
+        """Non-integer settings round to nearest int and clamp to [0, 100]."""
+        mock_self = self._mock_in_boost(max_opening=72.6)
+        bal, _ = _get_valve_control(
+            mock_self,
+            "climate.trv1",
+            CalibrationMode.MPC_CALIBRATION,
+            CalibrationType.TARGET_TEMP_BASED,
+        )
+        assert bal == {"valve_percent": 73, "apply_valve": True}
+
+    def test_out_of_range_setting_clamped_to_100(self):
+        """A nonsensical >100 value is clamped to 100."""
+        mock_self = self._mock_in_boost(max_opening=150)
+        bal, _ = _get_valve_control(
+            mock_self,
+            "climate.trv1",
+            CalibrationMode.MPC_CALIBRATION,
+            CalibrationType.TARGET_TEMP_BASED,
+        )
+        assert bal == {"valve_percent": 100, "apply_valve": True}
+
+    def test_non_numeric_setting_defaults_to_100(self):
+        """A garbage non-numeric setting is treated as 'no limit'."""
+        mock_self = self._mock_in_boost(max_opening="not a number")
+        bal, _ = _get_valve_control(
+            mock_self,
+            "climate.trv1",
+            CalibrationMode.MPC_CALIBRATION,
+            CalibrationType.TARGET_TEMP_BASED,
+        )
+        assert bal == {"valve_percent": 100, "apply_valve": True}

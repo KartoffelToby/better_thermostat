@@ -49,9 +49,17 @@ def _get_valve_control(
     valve_settings_dict contains 'valve_percent' and 'apply_valve' keys.
     Returns (None, None) if no valve control should be applied.
     """
-    # Boost mode takes priority - set valve to 100%
+    # Boost mode opens the valve up to the user-configured
+    # valve_max_opening (default 100%).
     if _is_boost_heating_active(self):
-        return {"valve_percent": 100, "apply_valve": True}, "boost_mode"
+        max_opening = (self.real_trvs.get(heater_entity_id) or {}).get(
+            "valve_max_opening", 100
+        )
+        if isinstance(max_opening, (int, float)):
+            target_pct = max(0, min(100, int(round(float(max_opening)))))
+        else:
+            target_pct = 100
+        return {"valve_percent": target_pct, "apply_valve": True}, "boost_mode"
 
     # Check calibration-based valve control
     if calibration_type != CalibrationType.DIRECT_VALVE_BASED:
