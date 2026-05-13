@@ -1034,6 +1034,43 @@ class TestTargetTempBasedSync:
 
         assert mock_bt.bt_target_temp == 21.5
 
+    @pytest.mark.asyncio
+    async def test_user_change_after_echo_not_suppressed(self, mock_bt):
+        """A user change following a device echo is still adopted.
+
+        Setup mimics the post-echo state: BT wrote 21.0, device echoed
+        21.3 (within step), so the TRV's currently-published state is 21.3.
+        The user then dials to 21.5. ``_old_heating_setpoint`` is 21.3 (the
+        echo), not a BT-written value — it must not feed into echo detection.
+        """
+        self._set_target_temp_based(mock_bt)
+        mock_bt.bt_target_temp = 21.0
+        mock_bt.bt_target_temp_step = 0.5
+        mock_bt.real_trvs[ENTITY_ID]["last_temperature"] = 21.0
+        mock_bt.real_trvs[ENTITY_ID]["target_temp_step"] = 0.5
+
+        old_state = _make_state(
+            attributes={"temperature": 21.3, "current_temperature": 18.0}
+        )
+        new_state = _make_state(
+            attributes={"temperature": 21.5, "current_temperature": 18.0}
+        )
+        trv_state = _make_state(
+            state_str="heat",
+            attributes={"current_temperature": 18.0, "temperature": 21.5},
+        )
+        mock_bt.hass.states.get.return_value = trv_state
+
+        event = _make_event(mock_bt, new_state=new_state, old_state=old_state)
+
+        with patch(
+            "custom_components.better_thermostat.events.trv.convert_inbound_states",
+            return_value=HVACMode.HEAT,
+        ):
+            await trigger_trv_change(mock_bt, event)
+
+        assert mock_bt.bt_target_temp == 21.5
+
 
 # ---------------------------------------------------------------------------
 # 6. Control queue trigger

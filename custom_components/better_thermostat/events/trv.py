@@ -292,12 +292,22 @@ async def trigger_trv_change(self, event):
         # step are treated as device-side rounding echoes of a BT-written
         # value, not as user input. User input on a TRV display moves the
         # setpoint by at least one step.
-        _step = self.real_trvs[entity_id].get(
-            "target_temp_step"
-        ) or self.bt_target_temp_step or 0.5
+        _step_raw = (
+            self.real_trvs[entity_id].get("target_temp_step")
+            or self.bt_target_temp_step
+            or 0.5
+        )
+        try:
+            _step = float(_step_raw)
+        except (TypeError, ValueError):
+            _step = 0.5
+        if _step <= 0:
+            _step = 0.5
+        # Compare only against values BT itself wrote. ``_old_heating_setpoint``
+        # is the TRV's previously published state and is not necessarily a
+        # BT-written value, so it does not belong in the echo-suppression set.
         _bt_known_values = (
             self.bt_target_temp,
-            _old_heating_setpoint,
             self.real_trvs[entity_id]["last_temperature"],
         )
         _is_echo = any(
