@@ -48,7 +48,7 @@ def async_retry(
             # Extract entity_id from args/kwargs if available for better logging
             entity_id = kwargs.get("entity_id")
             if (
-                entity_id is None and len(args) > 2
+                entity_id is None and len(args) > 1
             ):  # Assuming self and entity_id are first two args
                 entity_id = args[1]
 
