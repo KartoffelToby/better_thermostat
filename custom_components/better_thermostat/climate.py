@@ -134,6 +134,7 @@ from .utils.helpers import (
     find_battery_entity,
     get_device_model,
     get_hvac_bt_mode,
+    is_reasonable_temperature,
     normalize_hvac_mode,
 )
 from .utils.hvac_action import (
@@ -1091,51 +1092,79 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
         self.all_entities.append(self.sensor_entity_id)
 
         # Handle room temperature sensor with TRV fallback
+        room_candidate: float | None = None
         if sensor_state is not None and sensor_state.state not in (
             STATE_UNAVAILABLE,
             STATE_UNKNOWN,
             None,
         ):
-            self.cur_temp = convert_to_float_celsius(
+            room_candidate = convert_to_float_celsius(
                 str(sensor_state.state),
                 self.device_name,
                 "startup()",
                 unit_of_measurement=sensor_state.attributes.get("unit_of_measurement"),
             )
+            if not is_reasonable_temperature(room_candidate):
+                _LOGGER.warning(
+                    "better_thermostat %s: Room temperature sensor '%s' reports "
+                    "implausible value %s; falling back to TRV internal temperature.",
+                    self.device_name,
+                    self.sensor_entity_id,
+                    room_candidate,
+                )
+                room_candidate = None
+
+        if room_candidate is not None:
+            self.cur_temp = room_candidate
         else:
-            # Fallback to TRV internal temperature
-            _LOGGER.warning(
-                "better_thermostat %s: Room temperature sensor '%s' unavailable. "
-                "Falling back to TRV internal temperature.",
-                self.device_name,
-                self.sensor_entity_id,
-            )
+            if (
+                sensor_state is None
+                or sensor_state.state in (STATE_UNAVAILABLE, STATE_UNKNOWN, None)
+            ):
+                _LOGGER.warning(
+                    "better_thermostat %s: Room temperature sensor '%s' unavailable. "
+                    "Falling back to TRV internal temperature.",
+                    self.device_name,
+                    self.sensor_entity_id,
+                )
             if self.sensor_entity_id not in self.unavailable_sensors:
                 self.unavailable_sensors.append(self.sensor_entity_id)
                 self.degraded_mode = True
-            # Get temperature from first available TRV
+            # Get temperature from first TRV whose reading is plausible
             self.cur_temp = None
             for trv_id in self.real_trvs:
                 trv_state = self.hass.states.get(trv_id)
-                if trv_state is not None:
-                    trv_temp = trv_state.attributes.get("current_temperature")
-                    if trv_temp is not None:
-                        self.cur_temp = convert_to_float_celsius(
-                            str(trv_temp),
-                            self.device_name,
-                            "startup() TRV fallback",
-                            unit_of_measurement=trv_state.attributes.get(
-                                "temperature_unit",
-                                trv_state.attributes.get("unit_of_measurement"),
-                            ),
-                        )
-                        _LOGGER.info(
-                            "better_thermostat %s: Using TRV '%s' temperature: %.1f°C",
-                            self.device_name,
-                            trv_id,
-                            self.cur_temp if self.cur_temp else 0,
-                        )
-                        break
+                if trv_state is None:
+                    continue
+                trv_temp = trv_state.attributes.get("current_temperature")
+                if trv_temp is None:
+                    continue
+                candidate = convert_to_float_celsius(
+                    str(trv_temp),
+                    self.device_name,
+                    "startup() TRV fallback",
+                    unit_of_measurement=trv_state.attributes.get(
+                        "temperature_unit",
+                        trv_state.attributes.get("unit_of_measurement"),
+                    ),
+                )
+                if not is_reasonable_temperature(candidate):
+                    _LOGGER.warning(
+                        "better_thermostat %s: TRV '%s' reports implausible "
+                        "current_temperature %s; trying next TRV.",
+                        self.device_name,
+                        trv_id,
+                        candidate,
+                    )
+                    continue
+                self.cur_temp = candidate
+                _LOGGER.info(
+                    "better_thermostat %s: Using TRV '%s' temperature: %.1f°C",
+                    self.device_name,
+                    trv_id,
+                    candidate,
+                )
+                break
             if self.cur_temp is None:
                 self.cur_temp = DEFAULT_FALLBACK_TEMPERATURE
                 _LOGGER.warning(

@@ -127,6 +127,13 @@ class CalibrationMode(StrEnum):
     PID_CALIBRATION = "pid_calibration"
 
 
+# Plausibility bounds for incoming temperature readings (Celsius).
+# Values outside this window are treated as marker / garbage readings
+# (for example, AVM Fritz!DECT exposes 126.5 / 127 °C when the thermostat
+# is in OFF / ON mode) and rejected at the BT input boundary.
+MIN_REASONABLE_TEMPERATURE = -50.0
+MAX_REASONABLE_TEMPERATURE = 60.0
+
 # Heating power calibration constants
 # These bounds represent realistic heating rates for residential heating systems
 MIN_HEATING_POWER: Final = (

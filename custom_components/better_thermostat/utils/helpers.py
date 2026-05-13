@@ -17,7 +17,9 @@ from homeassistant.util.unit_conversion import TemperatureConverter
 from custom_components.better_thermostat.utils.const import (
     CONF_HEAT_AUTO_SWAPPED,
     MAX_HEATING_POWER,
+    MAX_REASONABLE_TEMPERATURE,
     MIN_HEATING_POWER,
+    MIN_REASONABLE_TEMPERATURE,
     VALVE_MIN_BASE,
     VALVE_MIN_OPENING_LARGE_DIFF,
     VALVE_MIN_PROPORTIONAL_SLOPE,
@@ -275,6 +277,20 @@ def heating_power_valve_position(self, entity_id):
     # | 0.3       | 0.9139     |
     # | 0.4       | 1.0000     |
     # | 0.5       | 1.0000     |
+
+
+def is_reasonable_temperature(value: float | None) -> bool:
+    """Return ``True`` iff ``value`` is a plausible indoor temperature in °C.
+
+    Rejects ``None`` and any value outside ``MIN_REASONABLE_TEMPERATURE`` ..
+    ``MAX_REASONABLE_TEMPERATURE``. Out-of-range values are typically
+    marker / garbage readings produced by upstream integrations (for
+    example, AVM Fritz!DECT exposes 126.5 / 127 °C when the thermostat is
+    in OFF / ON mode).
+    """
+    if value is None:
+        return False
+    return MIN_REASONABLE_TEMPERATURE <= value <= MAX_REASONABLE_TEMPERATURE
 
 
 def convert_to_float(

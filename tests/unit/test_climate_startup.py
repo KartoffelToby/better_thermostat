@@ -296,6 +296,31 @@ class TestInitializeSensors:
         BetterThermostat._initialize_sensors(bt, sensor)
         assert bt.cur_temp == DEFAULT_FALLBACK_TEMPERATURE
 
+    def test_implausible_sensor_value_falls_back_to_trv(self, bt):
+        """AVM 126.5 °C marker from the room sensor falls back to a TRV reading."""
+        sensor = _make_sensor_state("126.5")
+        trv_state = _make_trv_state(attrs={"current_temperature": 19.5})
+        bt.hass.states.get.return_value = trv_state
+        BetterThermostat._initialize_sensors(bt, sensor)
+        assert bt.cur_temp == 19.5
+        assert bt.degraded_mode is True
+
+    def test_implausible_trv_value_falls_back_to_default(self, bt):
+        """If both sensor and TRV are implausible, the default fallback is used."""
+        sensor = State(SENSOR_ID, STATE_UNAVAILABLE)
+        trv_state = _make_trv_state(attrs={"current_temperature": 126.5})
+        bt.hass.states.get.return_value = trv_state
+        BetterThermostat._initialize_sensors(bt, sensor)
+        assert bt.cur_temp == DEFAULT_FALLBACK_TEMPERATURE
+
+    def test_implausible_sensor_implausible_trv_uses_default(self, bt):
+        """Implausible sensor AND implausible TRV → default fallback."""
+        sensor = _make_sensor_state("127.0")
+        trv_state = _make_trv_state(attrs={"current_temperature": 126.5})
+        bt.hass.states.get.return_value = trv_state
+        BetterThermostat._initialize_sensors(bt, sensor)
+        assert bt.cur_temp == DEFAULT_FALLBACK_TEMPERATURE
+
     def test_window_open_detected(self, bt):
         """Test Window open detected."""
         bt.window_id = WINDOW_ID

@@ -28,6 +28,7 @@ from custom_components.better_thermostat.utils.helpers import (
     convert_to_float,
     convert_to_float_celsius,
     get_device_model,
+    is_reasonable_temperature,
     mode_remap,
 )
 
@@ -125,6 +126,17 @@ async def trigger_trv_change(self, event):
             "temperature_unit", _org_trv_state.attributes.get("unit_of_measurement")
         ),
     )
+    if _new_current_temp is not None and not is_reasonable_temperature(
+        _new_current_temp
+    ):
+        _LOGGER.warning(
+            "better_thermostat %s: TRV %s reports implausible current_temperature "
+            "%s; ignoring",
+            self.device_name,
+            entity_id,
+            _new_current_temp,
+        )
+        _new_current_temp = None
 
     _time_diff = 5
     try:

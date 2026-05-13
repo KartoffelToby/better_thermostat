@@ -17,7 +17,10 @@ from homeassistant.helpers.event import async_call_later
 from homeassistant.util import dt as dt_util
 
 from custom_components.better_thermostat.utils.const import CONF_HOMEMATICIP
-from custom_components.better_thermostat.utils.helpers import convert_to_float_celsius
+from custom_components.better_thermostat.utils.helpers import (
+    convert_to_float_celsius,
+    is_reasonable_temperature,
+)
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -212,11 +215,13 @@ async def trigger_temperature_change(self, event):
     except (KeyError, TypeError):
         pass
 
-    if _incoming_temperature_q is None or _incoming_temperature_q < -50:
-        # raise a ha repair notication
+    if not is_reasonable_temperature(_incoming_temperature_q):
+        # raise a ha repair notification
         _LOGGER.error(
-            "better_thermostat %s: external_temperature is not a valid number: %s",
+            "better_thermostat %s: external_temperature %s is outside the "
+            "plausible range; ignoring (raw state: %s)",
             self.device_name,
+            _incoming_temperature_q,
             new_state.state,
         )
         # Minimal kompatibler Aufruf (Parameter-Namen angepasst an aktuelle HA API)

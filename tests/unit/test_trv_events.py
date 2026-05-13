@@ -233,6 +233,24 @@ class TestInternalTemperatureChange:
         assert mock_bt.real_trvs[ENTITY_ID]["current_temperature"] == new_temp
 
     @pytest.mark.asyncio
+    async def test_implausible_trv_temp_ignored(self, mock_bt):
+        """AVM-style 126.5 °C marker must not overwrite cached TRV temperature."""
+        trv_state = _make_state(attributes={"current_temperature": 126.5})
+        mock_bt.hass.states.get.return_value = trv_state
+        mock_bt.real_trvs[ENTITY_ID]["current_temperature"] = 20.0
+        mock_bt.real_trvs[ENTITY_ID]["calibration_received"] = True
+
+        event = _make_event(mock_bt, new_state=trv_state, old_state=trv_state)
+
+        with patch(
+            "custom_components.better_thermostat.events.trv.convert_inbound_states",
+            return_value=HVACMode.HEAT,
+        ):
+            await trigger_trv_change(mock_bt, event)
+
+        assert mock_bt.real_trvs[ENTITY_ID]["current_temperature"] == 20.0
+
+    @pytest.mark.asyncio
     async def test_temp_change_respects_time_diff(self, mock_bt):
         """Changes within 5 s of the last internal sensor change are skipped."""
         mock_bt.last_internal_sensor_change = dt_util.now() - timedelta(seconds=2)

@@ -653,12 +653,60 @@ class TestEdgeCasesAndRobustness:
 
     @pytest.mark.asyncio
     async def test_minus_50_exactly_accepted(self, mock_bt):
-        """Temperature exactly -50.0 is accepted (guard is < -50, not <= -50)."""
+        """Temperature exactly -50.0 is on the inclusive lower bound."""
         mock_bt.cur_temp = None
         event = _make_event(State(SENSOR_ID, "-50.0"))
 
         await trigger_temperature_change(mock_bt, event)
         assert mock_bt.cur_temp == -50.0
+
+    @pytest.mark.asyncio
+    async def test_below_minus_50_rejected(self, mock_bt):
+        """Temperature below the lower plausibility bound is rejected."""
+        mock_bt.cur_temp = 20.0
+        event = _make_event(State(SENSOR_ID, "-100.0"))
+
+        with patch(
+            "custom_components.better_thermostat.events.temperature.ir.async_create_issue"
+        ):
+            await trigger_temperature_change(mock_bt, event)
+
+        assert mock_bt.cur_temp == 20.0
+
+    @pytest.mark.asyncio
+    async def test_avm_off_marker_rejected(self, mock_bt):
+        """AVM Fritz!DECT 126.5 °C (OFF marker) must not update cur_temp."""
+        mock_bt.cur_temp = 20.0
+        event = _make_event(State(SENSOR_ID, "126.5"))
+
+        with patch(
+            "custom_components.better_thermostat.events.temperature.ir.async_create_issue"
+        ):
+            await trigger_temperature_change(mock_bt, event)
+
+        assert mock_bt.cur_temp == 20.0
+
+    @pytest.mark.asyncio
+    async def test_avm_on_marker_rejected(self, mock_bt):
+        """AVM Fritz!DECT 127.0 °C (ON marker) must not update cur_temp."""
+        mock_bt.cur_temp = 20.0
+        event = _make_event(State(SENSOR_ID, "127.0"))
+
+        with patch(
+            "custom_components.better_thermostat.events.temperature.ir.async_create_issue"
+        ):
+            await trigger_temperature_change(mock_bt, event)
+
+        assert mock_bt.cur_temp == 20.0
+
+    @pytest.mark.asyncio
+    async def test_60_exactly_accepted(self, mock_bt):
+        """Temperature exactly 60.0 is on the inclusive upper bound."""
+        mock_bt.cur_temp = None
+        event = _make_event(State(SENSOR_ID, "60.0"))
+
+        await trigger_temperature_change(mock_bt, event)
+        assert mock_bt.cur_temp == 60.0
 
     @pytest.mark.asyncio
     async def test_control_queue_none_no_crash_in_apply(self, mock_bt):
