@@ -38,19 +38,11 @@ from homeassistant.components.climate.const import (
 from homeassistant.const import (
     ATTR_TEMPERATURE,
     CONF_NAME,
-    EVENT_HOMEASSISTANT_START,
     STATE_UNAVAILABLE,
     STATE_UNKNOWN,
     UnitOfTemperature,
 )
-from homeassistant.core import (
-    CALLBACK_TYPE,
-    Context,
-    CoreState,
-    ServiceCall,
-    State,
-    callback,
-)
+from homeassistant.core import CALLBACK_TYPE, Context, ServiceCall, State, callback
 from homeassistant.helpers import entity_platform
 from homeassistant.helpers.dispatcher import dispatcher_send
 from homeassistant.helpers.event import (
@@ -60,6 +52,7 @@ from homeassistant.helpers.event import (
     async_track_time_interval,
 )
 from homeassistant.helpers.restore_state import RestoreEntity
+from homeassistant.helpers.start import async_at_started
 
 # preferred for HA time handling (UTC aware)
 from homeassistant.util import dt as dt_util
@@ -748,10 +741,11 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
                 self.startup(), name=f"better_thermostat_startup_{self.device_name}"
             )
 
-        if self.hass.state == CoreState.running:
-            _async_startup()
-        else:
-            self.hass.bus.async_listen_once(EVENT_HOMEASSISTANT_START, _async_startup)
+        # Run after Home Assistant has finished starting (CoreState.running),
+        # so dependent integrations like ZHA / MQTT have published their
+        # entities and are ready to accept service calls. Runs immediately
+        # if BT is added after HA is already up.
+        self.async_on_remove(async_at_started(self.hass, _async_startup))
 
     async def _trigger_check_weather(self, event=None):
         _check = await check_critical_entities(self)
