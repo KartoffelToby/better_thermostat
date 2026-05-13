@@ -2896,21 +2896,6 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
         return super().max_temp
 
     @property
-    def _is_device_active(self):
-        """Get the current state of the device for HA.
-
-        Returns
-        -------
-        string
-                State of the device.
-        """
-        if self.bt_hvac_mode == HVACMode.OFF:
-            return False
-        if self.window_open:
-            return False
-        return True
-
-    @property
     def supported_features(self):
         """Return the list of supported features.
 
