@@ -254,16 +254,16 @@ class TestComputeHvacAction:
         assert self._call(mock_bt) == HVACAction.COOLING
 
     def test_trv_override_hvac_action_heating(self, mock_bt):
-        """TRV reports hvac_action='heating' → override to HEATING."""
-        mock_bt.cur_temp = 22.0  # at target → base decision is IDLE
+        """TRV reports hvac_action='heating' in band → override to HEATING."""
+        mock_bt.cur_temp = 21.7  # in band: target-tol(21.5) < cur < target(22.0)
         mock_bt.bt_target_temp = 22.0
         mock_bt._hysteresis.last_action = HVACAction.IDLE
         mock_bt.real_trvs = {"climate.trv1": {"hvac_action": "heating"}}
         assert self._call(mock_bt) == HVACAction.HEATING
 
     def test_trv_override_valve_position(self, mock_bt):
-        """TRV valve_position=50 → override to HEATING."""
-        mock_bt.cur_temp = 22.0
+        """TRV valve_position=50 in band → override to HEATING."""
+        mock_bt.cur_temp = 21.7
         mock_bt.bt_target_temp = 22.0
         mock_bt._hysteresis.last_action = HVACAction.IDLE
         mock_bt.real_trvs = {"climate.trv1": {"valve_position": 50}}
@@ -271,15 +271,23 @@ class TestComputeHvacAction:
 
     def test_trv_override_last_valve_percent_0_1_range(self, mock_bt):
         """TRV last_valve_percent=0.8 (0-1 range) → normalized to 80% → HEATING."""
-        mock_bt.cur_temp = 22.0
+        mock_bt.cur_temp = 21.7
         mock_bt.bt_target_temp = 22.0
         mock_bt._hysteresis.last_action = HVACAction.IDLE
         mock_bt.real_trvs = {"climate.trv1": {"last_valve_percent": 0.8}}
         assert self._call(mock_bt) == HVACAction.HEATING
 
+    def test_trv_override_suppressed_above_target(self, mock_bt):
+        """Issue #1850: TRV still reports heating during overshoot → action stays IDLE."""
+        mock_bt.cur_temp = 22.3  # above target → BT has decided IDLE
+        mock_bt.bt_target_temp = 22.0
+        mock_bt._hysteresis.last_action = HVACAction.HEATING
+        mock_bt.real_trvs = {"climate.trv1": {"hvac_action": "heating"}}
+        assert self._call(mock_bt) == HVACAction.IDLE
+
     def test_ignore_states_no_trv_override(self, mock_bt):
-        """ignore_states=True → TRV override skipped, returns IDLE."""
-        mock_bt.cur_temp = 22.0
+        """ignore_states=True in band → TRV override still skipped, returns IDLE."""
+        mock_bt.cur_temp = 21.7
         mock_bt.bt_target_temp = 22.0
         mock_bt._hysteresis.last_action = HVACAction.IDLE
         mock_bt.ignore_states = True
@@ -287,8 +295,8 @@ class TestComputeHvacAction:
         assert self._call(mock_bt) == HVACAction.IDLE
 
     def test_ignore_trv_states_per_trv(self, mock_bt):
-        """ignore_trv_states=True on specific TRV → that TRV is skipped."""
-        mock_bt.cur_temp = 22.0
+        """ignore_trv_states=True on specific TRV in band → that TRV is skipped."""
+        mock_bt.cur_temp = 21.7
         mock_bt.bt_target_temp = 22.0
         mock_bt._hysteresis.last_action = HVACAction.IDLE
         mock_bt.real_trvs = {
@@ -298,7 +306,7 @@ class TestComputeHvacAction:
 
     def test_tolerance_decision_saved_before_trv_override(self, mock_bt):
         """Hysteresis state uses tolerance decision, not TRV-overridden action."""
-        mock_bt.cur_temp = 22.0  # at target → tolerance says IDLE
+        mock_bt.cur_temp = 21.7  # in band → tolerance says IDLE
         mock_bt.bt_target_temp = 22.0
         mock_bt._hysteresis.last_action = HVACAction.IDLE
         mock_bt.real_trvs = {"climate.trv1": {"hvac_action": "heating"}}

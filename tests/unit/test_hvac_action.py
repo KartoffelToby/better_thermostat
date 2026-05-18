@@ -245,6 +245,57 @@ class TestComputeHvacAction:
         r = compute_hvac_action(**_default_kwargs(cur_temp=20.7, trv_snapshots=[snap]))
         assert r.action == HVACAction.IDLE
 
+    # --- TRV override suppressed above target (issue #1850) ----------------
+
+    def test_trv_hvac_action_no_override_above_target(self):
+        """TRV reports heating but cur > target → action stays IDLE.
+
+        Issue #1850: BT used to show HEATING above target because any TRV
+        valve still bleeding off (during overshoot) tripped the override.
+        Override must only fire when we're below the heat-off threshold.
+        """
+        snap = TrvSnapshot(trv_id="trv1", hvac_action="heating")
+        r = compute_hvac_action(
+            **_default_kwargs(cur_temp=21.3, target_temp=21.0, trv_snapshots=[snap])
+        )
+        assert r.action == HVACAction.IDLE
+
+    def test_trv_valve_position_no_override_above_target(self):
+        """Valve still partially open after overshoot must not lift action above IDLE."""
+        snap = TrvSnapshot(trv_id="trv1", valve_position=0.15)
+        r = compute_hvac_action(
+            **_default_kwargs(cur_temp=21.3, target_temp=21.0, trv_snapshots=[snap])
+        )
+        assert r.action == HVACAction.IDLE
+
+    def test_trv_last_valve_percent_no_override_above_target(self):
+        """Stale last_valve_percent above target must not lift action above IDLE."""
+        snap = TrvSnapshot(trv_id="trv1", last_valve_percent=30.0)
+        r = compute_hvac_action(
+            **_default_kwargs(cur_temp=21.3, target_temp=21.0, trv_snapshots=[snap])
+        )
+        assert r.action == HVACAction.IDLE
+
+    def test_trv_override_at_target_boundary(self):
+        """At cur == target, override is suppressed (heat-off threshold reached)."""
+        snap = TrvSnapshot(trv_id="trv1", hvac_action="heating")
+        r = compute_hvac_action(
+            **_default_kwargs(cur_temp=21.0, target_temp=21.0, trv_snapshots=[snap])
+        )
+        assert r.action == HVACAction.IDLE
+
+    def test_trv_override_still_fires_in_band(self):
+        """Inside the hysteresis band (below target), TRV override still fires.
+
+        Regression guard for the #1850 fix: the override semantic for the
+        in-band case is unchanged.
+        """
+        snap = TrvSnapshot(trv_id="trv1", hvac_action="heating")
+        r = compute_hvac_action(
+            **_default_kwargs(cur_temp=20.7, target_temp=21.0, trv_snapshots=[snap])
+        )
+        assert r.action == HVACAction.HEATING
+
     # --- idempotency -------------------------------------------------------
 
     def test_hysteresis_not_mutated(self):
@@ -270,16 +321,19 @@ class TestHysteresisTransitions:
     """Tests for hysteresis transitions."""
 
     def test_tolerance_decision_not_corrupted_by_trv(self):
-        """TRV override must not change tolerance_decision."""
-        hyst = ToleranceHysteresis(last_action=HVACAction.HEATING)
+        """TRV override must not change tolerance_decision.
+
+        Scenario: in-band (below target), previously IDLE → tolerance says IDLE
+        (no restart in band), TRV overrides displayed action to HEATING.
+        The FSM state and tolerance_decision must still reflect tolerance.
+        """
+        hyst = ToleranceHysteresis(last_action=HVACAction.IDLE)
         snap = TrvSnapshot(trv_id="trv1", hvac_action="heating")
         r = compute_hvac_action(
-            **_default_kwargs(hysteresis=hyst, cur_temp=21.0, trv_snapshots=[snap])
+            **_default_kwargs(hysteresis=hyst, cur_temp=20.7, trv_snapshots=[snap])
         )
-        # Tolerance says IDLE (at target), TRV overrides to HEATING
         assert r.tolerance_decision == HVACAction.IDLE
         assert r.action == HVACAction.HEATING
-        # Hysteresis state follows tolerance, not TRV
         assert r.new_last_action == HVACAction.IDLE
 
     def test_hold_active_set_in_band(self):
