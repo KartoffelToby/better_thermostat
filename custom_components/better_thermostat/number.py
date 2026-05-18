@@ -25,6 +25,7 @@ from .utils.const import (
     CalibrationMode,
     CalibrationType,
 )
+from .utils.helpers import convert_to_float_celsius
 
 _LOGGER = logging.getLogger(__name__)
 DOMAIN = "better_thermostat"
@@ -150,21 +151,27 @@ class BetterThermostatPresetNumber(NumberEntity, RestoreEntity):
         """Run when entity about to be added."""
         await super().async_added_to_hass()
         last_state = await self.async_get_last_state()
-        if last_state is not None and last_state.state not in (
-            None,
-            "unknown",
-            "unavailable",
-        ):
-            try:
-                val = float(last_state.state)
-                self._bt_climate.preset_mgr.update_temperature(self._preset_mode, val)
-                _LOGGER.debug(
-                    "Restored preset %s to %s from number entity state",
-                    self._preset_mode,
-                    val,
-                )
-            except ValueError:
-                pass
+        if last_state is None or last_state.state in (None, "unknown", "unavailable"):
+            return
+        # ``last_state.state`` is in the unit HA exposed at save time (system
+        # unit, not native Celsius). PresetManager stores Celsius, so normalise
+        # via the saved ``unit_of_measurement`` attribute.
+        saved_unit = last_state.attributes.get("unit_of_measurement")
+        val_celsius = convert_to_float_celsius(
+            last_state.state,
+            self._bt_climate.device_name,
+            "BetterThermostatPresetNumber.async_added_to_hass",
+            unit_of_measurement=saved_unit,
+        )
+        if val_celsius is None:
+            return
+        self._bt_climate.preset_mgr.update_temperature(self._preset_mode, val_celsius)
+        _LOGGER.debug(
+            "Restored preset %s to %s°C from number entity state (saved unit=%s)",
+            self._preset_mode,
+            val_celsius,
+            saved_unit,
+        )
 
     @property
     def device_info(self):
