@@ -28,6 +28,7 @@ from homeassistant.components.homeassistant.triggers import (
     numeric_state as numeric_state_trigger,
     state as state_trigger,
 )
+from homeassistant.components.homeassistant.triggers.state import CONF_FROM, CONF_TO
 from homeassistant.const import (
     CONF_ABOVE,
     CONF_ATTRIBUTE,
@@ -36,9 +37,7 @@ from homeassistant.const import (
     CONF_DOMAIN,
     CONF_ENTITY_ID,
     CONF_FOR,
-    CONF_FROM,
     CONF_PLATFORM,
-    CONF_TO,
     CONF_TYPE,
     PERCENTAGE,
 )

@@ -429,8 +429,8 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
             if target_temp_step and target_temp_step != "0.0"
             else None
         )
-        self.bt_min_temp: float = 0.0
-        self.bt_max_temp: float = 30.0
+        self.bt_min_temp: float | None = 0.0
+        self.bt_max_temp: float | None = 30.0
         self.bt_target_temp = 5.0
         self.bt_target_cooltemp = None
         self._support_flags = SUPPORT_FLAGS | ClimateEntityFeature.PRESET_MODE
@@ -2162,7 +2162,8 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
         so that the save always happens *delay_s* after the **last**
         trigger (true debounce).
         """
-        if self.state_mgr is None:
+        state_mgr = self.state_mgr
+        if state_mgr is None:
             return
 
         # Cancel any previously scheduled save (resets the timer).
@@ -2174,7 +2175,7 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
             self._save_cancel = None
             try:
                 self._sync_controllers_to_state()
-                await self.state_mgr.save_if_dirty()
+                await state_mgr.save_if_dirty()
             except Exception:
                 _LOGGER.exception(
                     "better_thermostat %s: failed to persist state", self.device_name
