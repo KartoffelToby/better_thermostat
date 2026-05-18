@@ -105,12 +105,11 @@ class TestAsyncRemoveEntryCleansRepairIssues:
     async def test_skips_unconfigured_optional_sensors(self, patched_delete_issue):
         """Sensors not configured on the entry do not trigger spurious deletes."""
         hass = AsyncMock()
-        entry = _make_entry()  # no humidity / window / outdoor
+        entry = _make_entry()
 
         await async_remove_entry(hass, entry)
 
         called_ids = {call.args[2] for call in patched_delete_issue.call_args_list}
-        # Only the temperature sensor is configured on the default entry.
         assert "missing_entity_sensor.kinderzimmer_temperature" in called_ids
         assert not any(
             cid.startswith("missing_entity_")
@@ -127,6 +126,6 @@ class TestAsyncRemoveEntryCleansRepairIssues:
 
         await async_remove_entry(hass, entry)
 
-        assert patched_delete_issue.call_args_list  # at least one call
+        assert patched_delete_issue.call_args_list
         for call in patched_delete_issue.call_args_list:
             assert call.args[1] == DOMAIN
