@@ -245,7 +245,7 @@ class TestComputeHvacAction:
         r = compute_hvac_action(**_default_kwargs(cur_temp=20.7, trv_snapshots=[snap]))
         assert r.action == HVACAction.IDLE
 
-    # --- TRV override suppressed above target (issue #1850) ----------------
+    # --- TRV override suppressed above target ------------------------------
 
     def test_trv_hvac_action_no_override_above_target(self):
         """Above target, a TRV reporting heating must not lift action above IDLE."""
