@@ -577,10 +577,15 @@ def _normalize_user_submission(
             CONF_OFF_TEMPERATURE, _USER_FIELD_DEFAULTS[CONF_OFF_TEMPERATURE]
         ),
     )
-    try:
-        normalized[CONF_OFF_TEMPERATURE] = int(off_temp)
-    except (TypeError, ValueError):
+    if off_temp is None:
         normalized[CONF_OFF_TEMPERATURE] = _USER_FIELD_DEFAULTS[CONF_OFF_TEMPERATURE]
+    else:
+        try:
+            normalized[CONF_OFF_TEMPERATURE] = int(off_temp)
+        except (TypeError, ValueError):
+            normalized[CONF_OFF_TEMPERATURE] = _USER_FIELD_DEFAULTS[
+                CONF_OFF_TEMPERATURE
+            ]
 
     if CONF_PRESETS in user_input:
         normalized[CONF_PRESETS] = user_input[CONF_PRESETS]
@@ -591,10 +596,13 @@ def _normalize_user_submission(
         CONF_TOLERANCE,
         normalized.get(CONF_TOLERANCE, _USER_FIELD_DEFAULTS[CONF_TOLERANCE]),
     )
-    try:
-        normalized[CONF_TOLERANCE] = float(tolerance)
-    except (TypeError, ValueError):
+    if tolerance is None:
         normalized[CONF_TOLERANCE] = _USER_FIELD_DEFAULTS[CONF_TOLERANCE]
+    else:
+        try:
+            normalized[CONF_TOLERANCE] = float(tolerance)
+        except (TypeError, ValueError):
+            normalized[CONF_TOLERANCE] = _USER_FIELD_DEFAULTS[CONF_TOLERANCE]
 
     target_step = user_input.get(
         CONF_TARGET_TEMP_STEP,

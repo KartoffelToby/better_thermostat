@@ -1327,7 +1327,9 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
             )
             # Restore preset mode if present
             _old_preset = old_state.attributes.get("preset_mode")
-            if _old_preset in ([PRESET_NONE] + list(self._preset_temperatures)):
+            if isinstance(_old_preset, str) and _old_preset in (
+                [PRESET_NONE] + list(self._preset_temperatures)
+            ):
                 self._preset_mode = _old_preset
             else:
                 self._preset_mode = PRESET_NONE

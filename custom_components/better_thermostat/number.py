@@ -129,7 +129,11 @@ class BetterThermostatPresetNumber(NumberEntity, RestoreEntity):
     """Representation of a Better Thermostat Preset Temperature Number."""
 
     _attr_has_entity_name = True
-    _attr_device_class = NumberDeviceClass.TEMPERATURE
+    # The two parent classes (NumberEntity, RestoreEntity) declare this
+    # attribute with mutually incompatible invariant types.
+    _attr_device_class = (
+        NumberDeviceClass.TEMPERATURE
+    )  # pyrefly: ignore[bad-override-mutable-attribute]
     _attr_native_unit_of_measurement = UnitOfTemperature.CELSIUS
     _attr_mode = NumberMode.BOX
     _attr_entity_category = EntityCategory.CONFIG
