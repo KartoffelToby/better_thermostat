@@ -278,7 +278,7 @@ class TestComputeHvacAction:
         assert self._call(mock_bt) == HVACAction.HEATING
 
     def test_trv_override_suppressed_above_target(self, mock_bt):
-        """Issue #1850: TRV still reports heating during overshoot → action stays IDLE."""
+        """Above target with TRV still reporting heating → action stays IDLE."""
         mock_bt.cur_temp = 22.3  # above target → BT has decided IDLE
         mock_bt.bt_target_temp = 22.0
         mock_bt._hysteresis.last_action = HVACAction.HEATING

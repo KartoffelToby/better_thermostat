@@ -248,12 +248,7 @@ class TestComputeHvacAction:
     # --- TRV override suppressed above target (issue #1850) ----------------
 
     def test_trv_hvac_action_no_override_above_target(self):
-        """TRV reports heating but cur > target → action stays IDLE.
-
-        Issue #1850: BT used to show HEATING above target because any TRV
-        valve still bleeding off (during overshoot) tripped the override.
-        Override must only fire when we're below the heat-off threshold.
-        """
+        """Above target, a TRV reporting heating must not lift action above IDLE."""
         snap = TrvSnapshot(trv_id="trv1", hvac_action="heating")
         r = compute_hvac_action(
             **_default_kwargs(cur_temp=21.3, target_temp=21.0, trv_snapshots=[snap])
@@ -285,11 +280,7 @@ class TestComputeHvacAction:
         assert r.action == HVACAction.IDLE
 
     def test_trv_override_still_fires_in_band(self):
-        """Inside the hysteresis band (below target), TRV override still fires.
-
-        Regression guard for the #1850 fix: the override semantic for the
-        in-band case is unchanged.
-        """
+        """Inside the hysteresis band (below target), TRV override still fires."""
         snap = TrvSnapshot(trv_id="trv1", hvac_action="heating")
         r = compute_hvac_action(
             **_default_kwargs(cur_temp=20.7, target_temp=21.0, trv_snapshots=[snap])

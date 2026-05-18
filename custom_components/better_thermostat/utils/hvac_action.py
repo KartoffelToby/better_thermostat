@@ -151,9 +151,8 @@ def compute_hvac_action(
         tolerance_hold = False
 
     # TRV override: if base decision is IDLE but any TRV is active, show HEATING.
-    # Suppressed at or above target: a TRV's valve still bleeding off during
-    # overshoot must not lift the displayed action above IDLE — the hysteresis
-    # has already decided to stop. See issue #1850.
+    # Suppressed at or above target so a still-closing valve cannot lift the
+    # displayed action above IDLE once the hysteresis decided to stop.
     if action == HVACAction.IDLE:
         if ignore_states or window_open or cur_temp >= target_temp:
             return HvacActionResult(
