@@ -479,8 +479,14 @@ async def control_trv(self, heater_entity_id=None):
             _new_hvac_mode = HVACMode.OFF
 
         # Safety override: if boost mode was active but we forced OFF (window/no-heat),
-        # ensure valve is reset to 0% to prevent overheating.
-        if _is_boost_heating_active(self) and _new_hvac_mode == HVACMode.OFF:
+        # ensure valve is reset to 0% to prevent overheating. Only direct-valve
+        # calibration types accept valve commands; LOCAL_BASED and
+        # TARGET_TEMP_BASED control via offset / setpoint instead.
+        if (
+            _is_boost_heating_active(self)
+            and _new_hvac_mode == HVACMode.OFF
+            and _calibration_type == CalibrationType.DIRECT_VALVE_BASED
+        ):
             _LOGGER.debug(
                 "better_thermostat %s: Boost safety override - resetting valve to 0%% because HVAC mode is OFF",
                 self.device_name,

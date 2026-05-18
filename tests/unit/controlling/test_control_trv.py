@@ -373,6 +373,7 @@ class TestControlTrvUnavailablePath:
         with (
             patch(_PATCHES["convert_outbound_states"]) as mock_convert,
             patch(_PATCHES["set_temperature"]) as mock_set_temp,
+            patch(_PATCHES["set_valve"]) as mock_set_valve,
             patch(_PATCHES["handle_window_open"]) as mock_window,
             patch(
                 _PATCHES["override_set_hvac_mode"], new=AsyncMock(return_value=False)
@@ -395,6 +396,7 @@ class TestControlTrvUnavailablePath:
             mock_set_temp.assert_called_once()
             args = mock_set_temp.call_args[0]
             assert args[2] == 22.0  # calibrated setpoint, not max_temp
+            mock_set_valve.assert_not_called()
 
     @pytest.mark.asyncio
     async def test_window_open_sets_mode_to_off(self):
