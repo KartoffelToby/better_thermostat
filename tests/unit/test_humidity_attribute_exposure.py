@@ -87,7 +87,7 @@ class TestExtraStateAttributesSmoke:
     """Sanity check that the property still returns a usable dict."""
 
     def test_returns_dict_with_expected_keys(self):
-        """A small smoke test for the property’s shape after the humidity fix."""
+        """The property returns a dict with the documented top-level keys."""
         bt = _make_mock_bt()
         attrs = BetterThermostat.extra_state_attributes.fget(bt)
         assert isinstance(attrs, dict)

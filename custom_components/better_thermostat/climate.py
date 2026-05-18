@@ -2309,8 +2309,8 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
             ATTR_STATE_SAVED_TEMPERATURE: self._saved_temperature,
             ATTR_STATE_PRESET_TEMPERATURE: self.preset_mgr.saved_temperature,
             # ``humidity`` is reserved by HA for the target-humidity attribute
-            # consumed by ``climate.set_humidity``; the current sensor reading
-            # is exposed via the ``current_humidity`` property instead.
+            # consumed by ``climate.set_humidity``; the current reading is
+            # published via the ``current_humidity`` property.
             ATTR_STATE_MAIN_MODE: self.last_main_hvac_mode,
             ATTR_STATE_OFF_TEMPERATURE: self.off_temperature,
             CONF_TOLERANCE: self.tolerance,
