@@ -99,6 +99,5 @@ class TestExtraStateAttributesSmoke:
             "degraded_mode",
         ):
             assert required in attrs
-        # devices_errors / devices_states are JSON-serialised
         assert json.loads(attrs["errors"]) == []
         assert json.loads(attrs["batteries"]) == {}
