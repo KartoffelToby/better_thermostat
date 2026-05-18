@@ -49,9 +49,15 @@ def _get_valve_control(
     valve_settings_dict contains 'valve_percent' and 'apply_valve' keys.
     Returns (None, None) if no valve control should be applied.
     """
-    # Boost mode opens the valve up to the user-configured
-    # valve_max_opening (default 100%).
-    if _is_boost_heating_active(self):
+    # Boost mode opens the valve only on TRVs that support direct valve control,
+    # up to the user-configured valve_max_opening (default 100%).
+    # Offset- and target-temp-based TRVs reach their setpoint through the
+    # normal setpoint/calibration chain — bypassing it with a forced override
+    # leaves the valve stuck open when boost ends.
+    if (
+        _is_boost_heating_active(self)
+        and calibration_type == CalibrationType.DIRECT_VALVE_BASED
+    ):
         max_opening = (self.real_trvs.get(heater_entity_id) or {}).get(
             "valve_max_opening", 100
         )
@@ -422,8 +428,6 @@ async def control_trv(self, heater_entity_id=None):
             return False
 
         _temperature = _remapped_states.get("temperature", None)
-        if _is_boost_heating_active(self):
-            _temperature = self.real_trvs[heater_entity_id]["max_temp"]
         _calibration = _remapped_states.get("local_temperature_calibration", None)
         _calibration_mode = self.real_trvs[heater_entity_id]["advanced"].get(
             "calibration_mode", CalibrationMode.MPC_CALIBRATION
@@ -431,6 +435,14 @@ async def control_trv(self, heater_entity_id=None):
         _calibration_type = self.real_trvs[heater_entity_id]["advanced"].get(
             "calibration", CalibrationType.TARGET_TEMP_BASED
         )
+        # Boost on direct-valve TRVs drives the setpoint to max so the device
+        # matches BT's forced 100 % valve command. Offset- and target-temp
+        # modes reach the boost temperature through normal calibration.
+        if (
+            _is_boost_heating_active(self)
+            and _calibration_type == CalibrationType.DIRECT_VALVE_BASED
+        ):
+            _temperature = self.real_trvs[heater_entity_id]["max_temp"]
 
         # Optional: set valve position if supported (e.g., MQTT/Z2M)
         try:

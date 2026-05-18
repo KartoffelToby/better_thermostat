@@ -439,6 +439,59 @@ class TestCheckTargetTemperature:
 
 
 # ---------------------------------------------------------------------------
+# _get_valve_control — boost mode is gated by calibration_type
+# ---------------------------------------------------------------------------
+
+
+class TestGetValveControlBoostCalibrationType:
+    """Boost mode controls the valve only on TRVs with direct valve control."""
+
+    def _mock_in_boost(self):
+        mock_self = MagicMock()
+        mock_self.preset_mode = "boost"
+        mock_self.cur_temp = 19.0
+        mock_self.bt_target_temp = 22.0
+        mock_self.real_trvs = {"climate.trv1": {}}
+        return mock_self
+
+    def test_boost_direct_valve_returns_valve_settings(self):
+        """DIRECT_VALVE_BASED + boost → valve_percent=100, source='boost_mode'."""
+        mock_self = self._mock_in_boost()
+        bal, source = _get_valve_control(
+            mock_self,
+            "climate.trv1",
+            CalibrationMode.MPC_CALIBRATION,
+            CalibrationType.DIRECT_VALVE_BASED,
+        )
+        assert source == "boost_mode"
+        assert bal == {"valve_percent": 100, "apply_valve": True}
+
+    def test_boost_local_based_returns_none(self):
+        """LOCAL_BASED (offset) + boost → no valve override (None, None)."""
+        mock_self = self._mock_in_boost()
+        bal, source = _get_valve_control(
+            mock_self,
+            "climate.trv1",
+            CalibrationMode.MPC_CALIBRATION,
+            CalibrationType.LOCAL_BASED,
+        )
+        assert bal is None
+        assert source is None
+
+    def test_boost_target_temp_based_returns_none(self):
+        """TARGET_TEMP_BASED + boost → no valve override (None, None)."""
+        mock_self = self._mock_in_boost()
+        bal, source = _get_valve_control(
+            mock_self,
+            "climate.trv1",
+            CalibrationMode.MPC_CALIBRATION,
+            CalibrationType.TARGET_TEMP_BASED,
+        )
+        assert bal is None
+        assert source is None
+
+
+# ---------------------------------------------------------------------------
 # _get_valve_control — boost mode honors valve_max_opening
 # ---------------------------------------------------------------------------
 
@@ -448,7 +501,6 @@ class TestGetValveControlBoostMaxOpening:
 
     def _mock_in_boost(self, max_opening):
         mock_self = MagicMock()
-        # Trigger boost branch via _is_boost_heating_active(...)
         mock_self.preset_mode = "boost"
         mock_self.cur_temp = 19.0
         mock_self.bt_target_temp = 22.0
@@ -458,13 +510,12 @@ class TestGetValveControlBoostMaxOpening:
     def test_no_setting_defaults_to_100(self):
         """Without a configured limit, boost still applies 100%."""
         mock_self = self._mock_in_boost(max_opening=None)
-        # Simulate "key missing" by removing it entirely
         mock_self.real_trvs["climate.trv1"] = {}
         bal, source = _get_valve_control(
             mock_self,
             "climate.trv1",
             CalibrationMode.MPC_CALIBRATION,
-            CalibrationType.TARGET_TEMP_BASED,
+            CalibrationType.DIRECT_VALVE_BASED,
         )
         assert source == "boost_mode"
         assert bal == {"valve_percent": 100, "apply_valve": True}
@@ -476,7 +527,7 @@ class TestGetValveControlBoostMaxOpening:
             mock_self,
             "climate.trv1",
             CalibrationMode.MPC_CALIBRATION,
-            CalibrationType.TARGET_TEMP_BASED,
+            CalibrationType.DIRECT_VALVE_BASED,
         )
         assert bal == {"valve_percent": 100, "apply_valve": True}
 
@@ -487,7 +538,7 @@ class TestGetValveControlBoostMaxOpening:
             mock_self,
             "climate.trv1",
             CalibrationMode.MPC_CALIBRATION,
-            CalibrationType.TARGET_TEMP_BASED,
+            CalibrationType.DIRECT_VALVE_BASED,
         )
         assert source == "boost_mode"
         assert bal == {"valve_percent": 60, "apply_valve": True}
@@ -499,7 +550,7 @@ class TestGetValveControlBoostMaxOpening:
             mock_self,
             "climate.trv1",
             CalibrationMode.MPC_CALIBRATION,
-            CalibrationType.TARGET_TEMP_BASED,
+            CalibrationType.DIRECT_VALVE_BASED,
         )
         assert bal == {"valve_percent": 73, "apply_valve": True}
 
@@ -510,7 +561,7 @@ class TestGetValveControlBoostMaxOpening:
             mock_self,
             "climate.trv1",
             CalibrationMode.MPC_CALIBRATION,
-            CalibrationType.TARGET_TEMP_BASED,
+            CalibrationType.DIRECT_VALVE_BASED,
         )
         assert bal == {"valve_percent": 100, "apply_valve": True}
 
@@ -521,6 +572,6 @@ class TestGetValveControlBoostMaxOpening:
             mock_self,
             "climate.trv1",
             CalibrationMode.MPC_CALIBRATION,
-            CalibrationType.TARGET_TEMP_BASED,
+            CalibrationType.DIRECT_VALVE_BASED,
         )
         assert bal == {"valve_percent": 100, "apply_valve": True}
