@@ -145,7 +145,7 @@ def _as_bool(value: bool | str | int | None, default: bool = False) -> bool:
 
 
 async def _load_adapter_info(
-    flow: config_entries.ConfigFlow,
+    flow: config_entries.ConfigFlow | config_entries.OptionsFlow,
     integration: str | None,
     trv_id: str | None,
     *,
@@ -183,7 +183,9 @@ def _default_calibration_from_info(info: dict[str, Any]) -> str:
     return "target_temp_based"
 
 
-def _trv_supports_auto(flow: config_entries.ConfigFlow, trv_id: str | None) -> bool:
+def _trv_supports_auto(
+    flow: config_entries.ConfigFlow | config_entries.OptionsFlow, trv_id: str | None
+) -> bool:
     if not trv_id:
         return False
     trv_state = flow.hass.states.get(trv_id)
@@ -359,7 +361,7 @@ def _seconds_to_duration_dict(value: int | float | str | None) -> dict[str, int]
 
 
 def _build_user_fields(
-    *, mode: str, current: dict[str, Any], user_input: dict[str, Any] | None = None
+    *, mode: str, current: Mapping[str, Any], user_input: dict[str, Any] | None = None
 ) -> OrderedDict:
     user_input = user_input or {}
     is_create = mode == "create"
@@ -516,7 +518,7 @@ def _build_user_fields(
 
 
 def _normalize_user_submission(
-    user_input: dict[str, Any], *, mode: str, base: dict[str, Any] | None = None
+    user_input: dict[str, Any], *, mode: str, base: Mapping[str, Any] | None = None
 ) -> dict[str, Any]:
     if base:
         if not isinstance(base, dict):
@@ -608,7 +610,8 @@ def _normalize_user_submission(
 
 
 async def _prepare_advanced_context(
-    flow: config_entries.ConfigFlow, trv_config: dict[str, Any] | None
+    flow: config_entries.ConfigFlow | config_entries.OptionsFlow,
+    trv_config: dict[str, Any] | None,
 ) -> dict[str, Any]:
     trv_config = trv_config or {}
     integration = trv_config.get("integration")
@@ -641,13 +644,13 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     def __init__(self):
         """Initialize the config flow."""
         self.device_name = ""
-        self.data = None
+        self.data: dict[str, Any] | None = None
         self.model = None
         self.heater_entity_id = None
-        self.trv_bundle = []
+        self.trv_bundle: list[dict[str, Any]] = []
         self.integration = None
         self.i = 0
-        self._active_trv_config = None
+        self._active_trv_config: dict[str, Any] | None = None
         super().__init__()
 
     @staticmethod
@@ -692,12 +695,13 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 return self.async_create_entry(title=self.data["name"], data=self.data)
         if confirm_type is not None:
             errors["base"] = confirm_type
-        _trv_list = self.data.get(CONF_HEATER) or []
+        data = self.data or {}
+        _trv_list = data.get(CONF_HEATER) or []
         _trvs = ",".join([x.get("trv", "?") for x in _trv_list])
         return self.async_show_form(
             step_id="confirm",
             errors=errors,
-            description_placeholders={"name": self.data[CONF_NAME], "trv": _trvs},
+            description_placeholders={"name": data.get(CONF_NAME, ""), "trv": _trvs},
         )
 
     async def async_step_advanced(self, user_input=None, _trv_config=None):
@@ -749,7 +753,7 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             for trv in self.trv_bundle:
                 entity_id = trv.get("trv")
                 state_obj = self.hass.states.get(entity_id) if entity_id else None
-                hvac_modes = []
+                hvac_modes: list[str] = []
                 if state_obj and hasattr(state_obj, "attributes"):
                     hvac_modes = state_obj.attributes.get("hvac_modes", []) or []
                 if HVACMode.OFF not in hvac_modes:
@@ -844,7 +848,7 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
         self.device_name = ""
         self._last_step = False
         self.updated_config: dict[str, Any] = {}
-        self._active_trv_config = None
+        self._active_trv_config: dict[str, Any] | None = None
         # Do not set `self.config_entry` directly; store in a private attribute
         # to avoid deprecated behavior. The framework will set `config_entry` on
         # the options flow object as needed.

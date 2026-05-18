@@ -1,5 +1,7 @@
 """Better Thermostat."""
 
+from __future__ import annotations
+
 from abc import ABC
 import asyncio
 from collections import deque
@@ -41,7 +43,14 @@ from homeassistant.const import (
     STATE_UNKNOWN,
     UnitOfTemperature,
 )
-from homeassistant.core import Context, CoreState, ServiceCall, State, callback
+from homeassistant.core import (
+    CALLBACK_TYPE,
+    Context,
+    CoreState,
+    ServiceCall,
+    State,
+    callback,
+)
 from homeassistant.helpers import entity_platform
 from homeassistant.helpers.dispatcher import dispatcher_send
 from homeassistant.helpers.event import (
@@ -422,7 +431,7 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
             hours=randint(1, 24 * 5)
         )
         self.cur_temp = None
-        self._current_humidity: float = 0.0
+        self._current_humidity: float | None = 0.0
         self.window_open = None
         self.bt_target_temp_step = (
             float(target_temp_step)
@@ -513,9 +522,13 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
         # Degraded mode: thermostat continues operating with some sensors unavailable
         self.degraded_mode = False
         self.unavailable_sensors = []
-        self.control_queue_task = asyncio.Queue(maxsize=1)
+        self.control_queue_task: asyncio.Queue[BetterThermostat] = asyncio.Queue(
+            maxsize=1
+        )
         if self.window_id is not None:
-            self.window_queue_task = asyncio.Queue(maxsize=1)
+            self.window_queue_task: asyncio.Queue[BetterThermostat] = asyncio.Queue(
+                maxsize=1
+            )
         self._control_task = None
         self._window_task = None
         self.is_removed = False
@@ -536,7 +549,7 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
         self.cur_temp_filtered = None
         # Unified state persistence (replaces per-controller stores)
         self.state_mgr: StateManager | None = None
-        self._save_cancel: callback | None = None
+        self._save_cancel: CALLBACK_TYPE | None = None
 
         self.last_known_external_temp = None
         self._slope_periodic_last_ts = None
@@ -2231,7 +2244,7 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
             self.cur_temp,
             current_action,
             dt_util.utcnow(),
-            window_open=self.window_open,
+            window_open=bool(self.window_open),
         )
 
         if result.cycle_result is not None:
