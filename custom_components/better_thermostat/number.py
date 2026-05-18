@@ -153,9 +153,8 @@ class BetterThermostatPresetNumber(NumberEntity, RestoreEntity):
         last_state = await self.async_get_last_state()
         if last_state is None or last_state.state in (None, "unknown", "unavailable"):
             return
-        # ``last_state.state`` is in the unit HA exposed at save time (system
-        # unit, not native Celsius). PresetManager stores Celsius, so normalise
-        # via the saved ``unit_of_measurement`` attribute.
+        # ``last_state.state`` is in HA's display unit, not the native
+        # Celsius; normalise via the saved ``unit_of_measurement``.
         saved_unit = last_state.attributes.get("unit_of_measurement")
         val_celsius = convert_to_float_celsius(
             last_state.state,
