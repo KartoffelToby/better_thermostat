@@ -4,15 +4,20 @@ from asyncio import Lock
 import logging
 
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.const import Platform
+from homeassistant.const import CONF_NAME, Platform
 from homeassistant.core import HomeAssistant
+from homeassistant.helpers import issue_registry as ir
 from homeassistant.helpers.typing import ConfigType
 import voluptuous as vol
 
 from .utils.const import (
     CONF_CALIBRATION_MODE,
     CONF_HEATER,
+    CONF_HUMIDITY,
     CONF_NO_SYSTEM_MODE_OFF,
+    CONF_OUTDOOR_SENSOR,
+    CONF_SENSOR,
+    CONF_SENSOR_WINDOW,
     CONF_WINDOW_TIMEOUT,
     CONF_WINDOW_TIMEOUT_AFTER,
     CalibrationMode,
@@ -67,6 +72,41 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     if unload_ok:
         hass.data[DOMAIN].pop(entry.entry_id)
     return unload_ok
+
+
+async def async_remove_entry(hass: HomeAssistant, entry: ConfigEntry) -> None:
+    """Remove repair-registry issues created by this Better Thermostat instance.
+
+    Issues are scoped by ``device_name`` or by individual ``entity_id`` and
+    persist in HA's issue registry until explicitly deleted, so they have to
+    be cleaned up here to avoid stale warnings after a config entry is gone.
+    """
+    device_name = entry.data.get(CONF_NAME, entry.title)
+
+    for issue_id in (
+        f"invalid_external_temperature_{device_name}",
+        f"invalid_window_state_{device_name}",
+        f"degraded_mode_{device_name}",
+    ):
+        ir.async_delete_issue(hass, DOMAIN, issue_id)
+
+    entity_ids: list[str] = []
+    for trv in entry.data.get(CONF_HEATER) or []:
+        trv_id = trv.get("trv")
+        if trv_id:
+            entity_ids.append(trv_id)
+    for conf_key in (
+        CONF_SENSOR,
+        CONF_HUMIDITY,
+        CONF_SENSOR_WINDOW,
+        CONF_OUTDOOR_SENSOR,
+    ):
+        eid = entry.data.get(conf_key)
+        if eid:
+            entity_ids.append(eid)
+
+    for eid in entity_ids:
+        ir.async_delete_issue(hass, DOMAIN, f"missing_entity_{eid}")
 
 
 async def async_reload_entry(hass: HomeAssistant, config_entry: ConfigEntry) -> None:
