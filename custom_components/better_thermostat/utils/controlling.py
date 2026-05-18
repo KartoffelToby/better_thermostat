@@ -49,11 +49,8 @@ def _get_valve_control(
     valve_settings_dict contains 'valve_percent' and 'apply_valve' keys.
     Returns (None, None) if no valve control should be applied.
     """
-    # Boost mode opens the valve only on TRVs that support direct valve control,
-    # up to the user-configured valve_max_opening (default 100%).
-    # Offset- and target-temp-based TRVs reach their setpoint through the
-    # normal setpoint/calibration chain — bypassing it with a forced override
-    # leaves the valve stuck open when boost ends.
+    # Forcing the valve on a non-direct-valve TRV bypasses the calibration chain
+    # and leaves the valve stuck open after boost ends.
     if (
         _is_boost_heating_active(self)
         and calibration_type == CalibrationType.DIRECT_VALVE_BASED
@@ -435,9 +432,8 @@ async def control_trv(self, heater_entity_id=None):
         _calibration_type = self.real_trvs[heater_entity_id]["advanced"].get(
             "calibration", CalibrationType.TARGET_TEMP_BASED
         )
-        # Boost on direct-valve TRVs drives the setpoint to max so the device
-        # matches BT's forced 100 % valve command. Offset- and target-temp
-        # modes reach the boost temperature through normal calibration.
+        # Pair the forced 100 % valve with a max-temp setpoint so the TRV
+        # firmware does not fight the valve command.
         if (
             _is_boost_heating_active(self)
             and _calibration_type == CalibrationType.DIRECT_VALVE_BASED
