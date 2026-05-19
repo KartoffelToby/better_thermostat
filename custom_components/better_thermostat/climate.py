@@ -1117,9 +1117,10 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
         if room_candidate is not None:
             self.cur_temp = room_candidate
         else:
-            if (
-                sensor_state is None
-                or sensor_state.state in (STATE_UNAVAILABLE, STATE_UNKNOWN, None)
+            if sensor_state is None or sensor_state.state in (
+                STATE_UNAVAILABLE,
+                STATE_UNKNOWN,
+                None,
             ):
                 _LOGGER.warning(
                     "better_thermostat %s: Room temperature sensor '%s' unavailable. "
