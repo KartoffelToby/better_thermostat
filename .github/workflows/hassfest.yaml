@@ -2,13 +2,19 @@ name: Validate with hassfest
 
 on:
   push:
+    branches: [develop, master]
   pull_request:
   schedule:
     - cron: "0 0 * * *"
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 jobs:
   validate:
     runs-on: "ubuntu-latest"
+    timeout-minutes: 10
     steps:
       - uses: "actions/checkout@v6"
       # Pre-pull the hassfest image with retry. GHCR head-of-line latency
