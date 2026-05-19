@@ -1789,8 +1789,10 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
 
         async def _post_grace_degraded_recheck() -> None:
             remaining = (
-                self._degraded_grace_until - dt_util.now()
-            ).total_seconds() if self._degraded_grace_until else 0.0
+                (self._degraded_grace_until - dt_util.now()).total_seconds()
+                if self._degraded_grace_until
+                else 0.0
+            )
             if remaining > 0:
                 await asyncio.sleep(remaining)
             if self.is_removed:

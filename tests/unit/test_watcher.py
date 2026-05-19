@@ -349,7 +349,9 @@ class TestDegradedModeGracePeriod:
         return mock_get
 
     @pytest.mark.anyio
-    async def test_warning_and_issue_when_grace_inactive(self, mock_bt_instance, caplog):
+    async def test_warning_and_issue_when_grace_inactive(
+        self, mock_bt_instance, caplog
+    ):
         """No grace set → first degraded transition logs WARNING and raises issue."""
         from custom_components.better_thermostat.utils.watcher import (
             check_and_update_degraded_mode,
@@ -389,9 +391,7 @@ class TestDegradedModeGracePeriod:
                 await check_and_update_degraded_mode(mock_bt_instance)
 
         assert mock_bt_instance.degraded_mode is True
-        assert not any(
-            "Entering degraded mode" in r.message for r in caplog.records
-        )
+        assert not any("Entering degraded mode" in r.message for r in caplog.records)
         assert not mock_ir.async_create_issue.called
         assert mock_bt_instance._degraded_warning_emitted is False
 
@@ -447,9 +447,7 @@ class TestDegradedModeGracePeriod:
                 await check_and_update_degraded_mode(mock_bt_instance)
 
         assert mock_bt_instance.degraded_mode is False
-        assert not any(
-            "Exiting degraded mode" in r.message for r in caplog.records
-        )
+        assert not any("Exiting degraded mode" in r.message for r in caplog.records)
         assert not mock_ir.async_delete_issue.called
 
     @pytest.mark.anyio
@@ -491,9 +489,7 @@ class TestDegradedModeGracePeriod:
             with caplog.at_level("WARNING"):
                 await check_and_update_degraded_mode(mock_bt_instance)
 
-        assert not any(
-            "Entering degraded mode" in r.message for r in caplog.records
-        )
+        assert not any("Entering degraded mode" in r.message for r in caplog.records)
         assert not mock_ir.async_create_issue.called
 
 
