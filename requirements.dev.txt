@@ -1,5 +1,5 @@
 
-homeassistant==2026.2.3
+homeassistant
 pre-commit==3.8.0
 codespell==2.3.0
 ruff==0.15.13
