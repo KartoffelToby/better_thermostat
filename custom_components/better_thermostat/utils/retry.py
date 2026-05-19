@@ -24,9 +24,7 @@ def async_retry(
     exceptions: tuple[type[Exception], ...] = (Exception,),
     log_level: int = logging.ERROR,
     identifier: str = "",
-) -> Callable[
-    [Callable[P, Awaitable[R]]], Callable[P, Awaitable[R]]
-]:
+) -> Callable[[Callable[P, Awaitable[R]]], Callable[P, Awaitable[R]]]:
     """Retry async functions when exceptions occur.
 
     Args:
@@ -40,9 +38,7 @@ def async_retry(
         identifier: Optional identifier string to include in log messages
     """
 
-    def decorator(
-        func: Callable[P, Awaitable[R]],
-    ) -> Callable[P, Awaitable[R]]:
+    def decorator(func: Callable[P, Awaitable[R]]) -> Callable[P, Awaitable[R]]:
         @functools.wraps(func)
         async def wrapper(*args: P.args, **kwargs: P.kwargs) -> R:
             # Extract entity_id from args/kwargs if available for better logging

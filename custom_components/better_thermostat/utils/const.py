@@ -31,9 +31,7 @@ try:
         manifest: _Manifest = json.load(manifest_file)
         VERSION = manifest["version"]
 except (FileNotFoundError, KeyError, json.JSONDecodeError) as e:
-    _LOGGER.error(
-        "better_thermostat %s: could not read version from manifest file.", e
-    )
+    _LOGGER.error("better_thermostat %s: could not read version from manifest file.", e)
 
 
 CONF_HEATER: Final = "thermostat"
@@ -131,8 +129,12 @@ class CalibrationMode(StrEnum):
 
 # Heating power calibration constants
 # These bounds represent realistic heating rates for residential heating systems
-MIN_HEATING_POWER: Final = 0.005  # °C/min - Very slow heating (poor insulation, cold climate)
-MAX_HEATING_POWER: Final = 0.2  # °C/min - Very fast heating (oversized system, small room)
+MIN_HEATING_POWER: Final = (
+    0.005  # °C/min - Very slow heating (poor insulation, cold climate)
+)
+MAX_HEATING_POWER: Final = (
+    0.2  # °C/min - Very fast heating (oversized system, small room)
+)
 
 # Heat loss estimation bounds (cooling rate) for residential buildings
 MIN_HEAT_LOSS: Final = 0.001  # °C/min - very slow cooling
@@ -142,7 +144,9 @@ MAX_HEAT_LOSS: Final = 0.05  # °C/min - very fast cooling / high loss
 VALVE_MIN_THRESHOLD_TEMP_DIFF: Final = (
     0.3  # °C - Above this diff, enforce minimum valve opening
 )
-VALVE_MIN_OPENING_LARGE_DIFF: Final = 0.15  # Minimum 15% valve opening when diff > 0.3°C
+VALVE_MIN_OPENING_LARGE_DIFF: Final = (
+    0.15  # Minimum 15% valve opening when diff > 0.3°C
+)
 VALVE_MIN_BASE: Final = 0.05  # Base minimum valve opening
 VALVE_MIN_SMALL_DIFF_THRESHOLD: Final = 0.1  # °C - Threshold for proportional minimum
 VALVE_MIN_PROPORTIONAL_SLOPE: Final = 0.5  # Slope for proportional minimum calculation
