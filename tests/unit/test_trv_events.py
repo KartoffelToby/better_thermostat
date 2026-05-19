@@ -933,9 +933,10 @@ class TestTargetTempAdoption:
 
 
 class TestTargetTempBasedSync:
-    """User-initiated TRV setpoint changes must propagate to BT even when
-    calibration is TARGET_TEMP_BASED. Device-side echoes within step distance
-    of BT's known values are still suppressed.
+    """User-initiated TRV setpoint changes must propagate to BT.
+
+    Even when calibration is TARGET_TEMP_BASED. Device-side echoes within step
+    distance of BT's known values are still suppressed.
     """
 
     def _set_target_temp_based(self, mock_bt):
