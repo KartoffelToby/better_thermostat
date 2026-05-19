@@ -10,5 +10,16 @@ jobs:
   validate:
     runs-on: "ubuntu-latest"
     steps:
-      - uses: "actions/checkout@v4"
-      - uses: home-assistant/actions/hassfest@master
+      - uses: "actions/checkout@v6"
+      # Pre-pull the hassfest image with retry. GHCR head-of-line latency
+      # has been observed to time out the action's first-attempt pull, so
+      # retry the pull explicitly before invoking the action.
+      - name: Pre-pull hassfest image
+        uses: nick-fields/retry@v4
+        with:
+          timeout_minutes: 3
+          max_attempts: 3
+          retry_wait_seconds: 15
+          command: docker pull ghcr.io/home-assistant/hassfest:latest
+      # Pinned to commit SHA (2026-04-07). Bump when the upstream action changes.
+      - uses: home-assistant/actions/hassfest@f6f29a7ee3fa0eccadf3620a7b9ee00ab54ec03b
