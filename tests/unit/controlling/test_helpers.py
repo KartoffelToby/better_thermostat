@@ -452,9 +452,7 @@ class TestGetValveControlBoostMaxOpening:
         mock_self.preset_mode = "boost"
         mock_self.cur_temp = 19.0
         mock_self.bt_target_temp = 22.0
-        mock_self.real_trvs = {
-            "climate.trv1": {"valve_max_opening": max_opening},
-        }
+        mock_self.real_trvs = {"climate.trv1": {"valve_max_opening": max_opening}}
         return mock_self
 
     def test_no_setting_defaults_to_100(self):
