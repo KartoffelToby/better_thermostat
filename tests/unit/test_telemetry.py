@@ -9,7 +9,6 @@ from custom_components.better_thermostat.utils.telemetry import (
     collect_pid_debug_attrs,
 )
 
-
 # ---------------------------------------------------------------------------
 # collect_cycle_telemetry
 # ---------------------------------------------------------------------------
@@ -34,25 +33,27 @@ class TestCollectCycleTelemetry:
         assert out == {"heating_power_norm": None}
 
     def test_heating_cycle_count_and_last(self):
+        """Heating cycles surface count and serialised last entry."""
         cycles = [{"a": 1}, {"b": 2}, {"c": 3}]
         out = collect_cycle_telemetry(self._bt(heating_cycles=cycles))
         assert out["heating_cycle_count"] == 3
         assert out["heating_cycle_last"] == json.dumps({"c": 3})
 
     def test_loss_cycle_count_and_last(self):
-        out = collect_cycle_telemetry(
-            self._bt(loss_cycles=[{"x": 1}, {"y": 2}])
-        )
+        """Loss cycles surface count and serialised last entry."""
+        out = collect_cycle_telemetry(self._bt(loss_cycles=[{"x": 1}, {"y": 2}]))
         assert out["heat_loss_cycle_count"] == 2
         assert out["heat_loss_cycle_last"] == json.dumps({"y": 2})
 
     def test_heat_loss_stats_serialized(self):
+        """The full heat-loss stats list is emitted as JSON."""
         out = collect_cycle_telemetry(
             self._bt(last_heat_loss_stats=[{"loss": 0.1}, {"loss": 0.2}])
         )
         assert out["heat_loss_stats"] == json.dumps([{"loss": 0.1}, {"loss": 0.2}])
 
     def test_normalized_power_passthrough(self):
+        """A numeric heating_power_normalized value is forwarded verbatim."""
         out = collect_cycle_telemetry(self._bt(heating_power_normalized=0.42))
         assert out["heating_power_norm"] == 0.42
 
@@ -72,6 +73,7 @@ class TestCollectBalanceAttrs:
     """Slope + per-TRV calibration balance summary."""
 
     def test_empty_when_no_slope_no_balance(self):
+        """Nothing is emitted when both slope and per-TRV balance are absent."""
         bt = MagicMock()
         bt.temp_slope = None
         bt.real_trvs = {}
@@ -79,6 +81,7 @@ class TestCollectBalanceAttrs:
         assert out == {}
 
     def test_slope_rounded_to_4_decimals(self):
+        """temp_slope is rounded to 4 decimal places for readability."""
         bt = MagicMock()
         bt.temp_slope = 0.001234567
         bt.real_trvs = {}
@@ -86,6 +89,7 @@ class TestCollectBalanceAttrs:
         assert out["temp_slope_K_min"] == 0.0012
 
     def test_balance_aggregated_across_trvs(self):
+        """Per-TRV calibration balance is collected into one JSON map."""
         bt = MagicMock()
         bt.temp_slope = None
         bt.real_trvs = {
@@ -97,6 +101,7 @@ class TestCollectBalanceAttrs:
         assert parsed == {"climate.a": {"valve%": 70}, "climate.b": {"valve%": 30}}
 
     def test_trv_without_balance_skipped(self):
+        """TRVs with missing or None balance are skipped, not serialised."""
         bt = MagicMock()
         bt.temp_slope = None
         bt.real_trvs = {
@@ -125,25 +130,23 @@ class TestCollectPidDebugAttrs:
     """PID controller debug flattening — only emits when mode == 'pid'."""
 
     def test_empty_when_no_trvs(self):
+        """Nothing is emitted when real_trvs is empty."""
         bt = MagicMock()
         bt.real_trvs = {}
         out = collect_pid_debug_attrs(bt)
         assert out == {}
 
     def test_empty_when_mode_not_pid(self):
+        """Non-PID controller modes (e.g. mpc) suppress PID debug output."""
         bt = _bt_with_pid(
             ["climate.a"],
-            [
-                {
-                    "model": "generic",
-                    "calibration_balance": {"debug": {"mode": "mpc"}},
-                }
-            ],
+            [{"model": "generic", "calibration_balance": {"debug": {"mode": "mpc"}}}],
         )
         out = collect_pid_debug_attrs(bt)
         assert out == {}
 
     def test_emits_pid_fields_for_pid_mode(self):
+        """PID mode flattens all scalar debug fields with proper rounding."""
         bt = _bt_with_pid(
             ["climate.a"],
             [
@@ -182,14 +185,13 @@ class TestCollectPidDebugAttrs:
         assert out["pid_dt_s"] == 30.123
 
     def test_missing_fields_omitted(self):
+        """Fields absent from the debug dict are not emitted as keys."""
         bt = _bt_with_pid(
             ["climate.a"],
             [
                 {
                     "model": "generic",
-                    "calibration_balance": {
-                        "debug": {"mode": "pid", "e_K": 0.1}
-                    },
+                    "calibration_balance": {"debug": {"mode": "pid", "e_K": 0.1}},
                 }
             ],
         )
@@ -197,6 +199,7 @@ class TestCollectPidDebugAttrs:
         assert out == {"pid_e_K": 0.1}
 
     def test_non_numeric_field_silently_skipped(self):
+        """Non-numeric scalar values are dropped, valid neighbours kept."""
         bt = _bt_with_pid(
             ["climate.a"],
             [
@@ -219,15 +222,11 @@ class TestCollectPidDebugAttrs:
             [
                 {
                     "model": "generic",
-                    "calibration_balance": {
-                        "debug": {"mode": "pid", "e_K": 1.0}
-                    },
+                    "calibration_balance": {"debug": {"mode": "pid", "e_K": 1.0}},
                 },
                 {
                     "model": "SONOFF TRVZB",
-                    "calibration_balance": {
-                        "debug": {"mode": "pid", "e_K": 2.0}
-                    },
+                    "calibration_balance": {"debug": {"mode": "pid", "e_K": 2.0}},
                 },
             ],
         )
@@ -249,6 +248,7 @@ class TestCollectPidDebugAttrs:
         assert out["pid_e_K"] == 1.0
 
     def test_no_balance_no_emit(self):
+        """A TRV without calibration_balance produces no PID output."""
         bt = _bt_with_pid(["climate.a"], [{"model": "generic"}])
         out = collect_pid_debug_attrs(bt)
         assert out == {}

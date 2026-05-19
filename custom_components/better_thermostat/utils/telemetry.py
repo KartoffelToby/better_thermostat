@@ -2,10 +2,10 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping, Sequence
 import json
 import logging
-from collections.abc import Mapping, Sequence
-from typing import Any, Literal, Protocol, TypeAlias, TypedDict, cast
+from typing import Any, Literal, Protocol, TypedDict, cast
 
 from custom_components.better_thermostat.utils.calibration.pid import PIDDebugInfo
 from custom_components.better_thermostat.utils.const import ATTR_STATE_HEAT_LOSS_STATS
@@ -126,7 +126,7 @@ def collect_balance_attrs(bt: TelemetrySource) -> dict[str, Any]:
     return out
 
 
-PIDScalarKey: TypeAlias = Literal[
+type PIDScalarKey = Literal[
     "e_K", "p", "i", "d", "u", "kp", "ki", "kd", "meas_smooth_C", "dt_s"
 ]
 
