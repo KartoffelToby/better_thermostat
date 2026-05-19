@@ -240,18 +240,23 @@ class TestIsReasonableTemperature:
     """Plausibility bounds for incoming temperature values."""
 
     def test_typical_indoor_value_is_reasonable(self):
+        """A normal room reading falls within the plausibility window."""
         assert is_reasonable_temperature(21.5) is True
 
     def test_lower_bound_inclusive(self):
+        """The -50 °C lower bound is accepted (inclusive)."""
         assert is_reasonable_temperature(-50.0) is True
 
     def test_upper_bound_inclusive(self):
+        """The 60 °C upper bound is accepted (inclusive)."""
         assert is_reasonable_temperature(60.0) is True
 
     def test_below_lower_bound_rejected(self):
+        """Values just below -50 °C are rejected as implausible."""
         assert is_reasonable_temperature(-50.01) is False
 
     def test_above_upper_bound_rejected(self):
+        """Values just above 60 °C are rejected as implausible."""
         assert is_reasonable_temperature(60.01) is False
 
     def test_avm_off_marker_rejected(self):
@@ -263,10 +268,13 @@ class TestIsReasonableTemperature:
         assert is_reasonable_temperature(127.0) is False
 
     def test_none_rejected(self):
+        """A None reading is treated as missing, not as 0 °C."""
         assert is_reasonable_temperature(None) is False
 
     def test_zero_is_reasonable(self):
+        """0 °C is a valid reading (e.g. outdoor freezing point)."""
         assert is_reasonable_temperature(0.0) is True
 
     def test_negative_realistic_value_reasonable(self):
+        """Sub-zero values within the plausibility window are accepted."""
         assert is_reasonable_temperature(-20.0) is True
