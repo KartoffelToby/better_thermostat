@@ -42,8 +42,8 @@ class PresetManager:
     """Manages preset modes and their associated temperatures."""
 
     mode: str = PRESET_NONE
-    temperatures: dict[str, float] = field(default_factory=lambda: _DEFAULT_TEMPERATURES.copy())
-    enabled_presets: list[str] = field(default_factory=lambda: list(_DEFAULT_ENABLED_PRESETS))
+    temperatures: dict[str, float] = field(default_factory=_DEFAULT_TEMPERATURES.copy)
+    enabled_presets: list[str] = field(default_factory=_DEFAULT_ENABLED_PRESETS.copy)
     saved_temperature: float | None = None
 
     @property
@@ -52,11 +52,7 @@ class PresetManager:
         return [PRESET_NONE] + self.enabled_presets
 
     def activate(
-        self,
-        preset: str,
-        current_temp: float,
-        min_temp: float,
-        max_temp: float,
+        self, preset: str, current_temp: float, min_temp: float, max_temp: float
     ) -> float | None:
         """Switch to *preset*. Returns new target temperature, or ``None``."""
         if preset not in self.available_modes:
@@ -81,8 +77,7 @@ class PresetManager:
         # sensible clamped target.
         if preset != PRESET_NONE:
             temp = self.temperatures.get(
-                preset,
-                self.temperatures.get(PRESET_NONE, (min_temp + max_temp) / 2),
+                preset, self.temperatures.get(PRESET_NONE, (min_temp + max_temp) / 2)
             )
             return min(max_temp, max(min_temp, temp))
 

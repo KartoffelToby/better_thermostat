@@ -83,6 +83,7 @@ def mock_bt():
     type(bt).loss_cycles = property(lambda self: self._loss_tracker.cycles)
     # Presets
     from custom_components.better_thermostat.utils.preset_manager import PresetManager
+
     bt.preset_mgr = PresetManager(
         temperatures={
             PRESET_NONE: 20.0,

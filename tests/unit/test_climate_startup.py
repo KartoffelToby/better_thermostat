@@ -70,6 +70,7 @@ def bt():
     mock.heating_power = 0.01
     mock.heat_loss_rate = 0.01
     from custom_components.better_thermostat.utils.preset_manager import PresetManager
+
     mock.preset_mgr = PresetManager(
         mode="none",
         temperatures={"none": 20.0, "comfort": 22.0, "eco": 18.0},

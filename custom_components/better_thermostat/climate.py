@@ -1310,10 +1310,7 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
             )
             # If we restored a preset (not NONE) and we have a stored temperature for it,
             # ensure target temp matches (unless the restored target was already equal).
-            if (
-                self.preset_mgr.mode is not None
-                and self.preset_mgr.mode != PRESET_NONE
-            ):
+            if self.preset_mgr.mode is not None and self.preset_mgr.mode != PRESET_NONE:
                 preset_temp = self.preset_mgr.get_temperature(self.preset_mgr.mode)
                 # Only override if different to avoid masking manual restore logic
                 if (
