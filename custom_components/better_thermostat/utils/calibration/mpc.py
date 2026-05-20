@@ -386,18 +386,17 @@ def _seed_state_from_siblings(
     """Seed a fresh per-bucket MPC state from its nearest sibling.
 
     ``build_mpc_key`` partitions MPC state by ``round(target * 2.0) / 2.0``,
-    so any setpoint change crossing a half-degree boundary allocates a
-    fresh ``_MpcState`` with all defaults. Without seeding, the controller
-    has to relearn every per-room and per-TRV characteristic on each
-    setpoint move — the relearning pain that users report in
-    discussion #1761.
+    so a setpoint change crossing a half-degree boundary allocates a
+    fresh ``_MpcState`` with all defaults. Without seeding, every
+    per-room and per-TRV characteristic would be relearned from scratch
+    on each setpoint move.
 
     This function copies *target-independent* learned values from the
     nearest existing sibling (same ``uid`` and ``entity``, different
     target bucket). Fields that are part of the live controller state
-    (virtual_temp, recent_errors, Kalman covariance) or that may
-    legitimately differ across operating points (gain_est, loss_est,
-    ka_est) are intentionally left untouched.
+    (``virtual_temp``, ``recent_errors``, Kalman covariance) or that may
+    legitimately differ across operating points (``gain_est``,
+    ``loss_est``, ``ka_est``) are not touched.
 
     Existing values in *state* are never overwritten — seeding only
     fills in defaults.
@@ -427,7 +426,7 @@ def _seed_state_from_siblings(
 
     siblings.sort(key=lambda item: item[0])
 
-    # --- min_effective_percent (existing semantics, behind feature flag) ---
+    # --- min_effective_percent (gated by feature flag) ---
     if state.min_effective_percent is None and bool(
         getattr(params, "enable_min_effective_percent", True)
     ):

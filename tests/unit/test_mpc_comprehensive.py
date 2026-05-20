@@ -1287,13 +1287,10 @@ class TestSeedFromSiblings:
 
     # ------------------------------------------------------------------
     # Cross-bucket carryover of target-independent learned values.
-    #
-    # build_mpc_key buckets state by ``round(target * 2.0) / 2.0`` — so
-    # any 0.5 °C setpoint move past a bucket boundary spawns a fresh
-    # _MpcState. Without seeding, the controller relearns every
-    # target-independent characteristic (perf curve, TRV profile, solar
-    # gain) from scratch on each setpoint move, which is what users
-    # report in discussion #1761.
+    # build_mpc_key buckets state by ``round(target * 2.0) / 2.0``, so a
+    # 0.5 °C setpoint move past a bucket boundary spawns a fresh
+    # _MpcState. Without seeding, perf_curve / trv_profile /
+    # solar_gain_est are relearned from scratch on every setpoint move.
     # ------------------------------------------------------------------
 
     def test_perf_curve_seeded_from_sibling(self):
