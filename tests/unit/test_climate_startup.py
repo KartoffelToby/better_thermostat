@@ -289,7 +289,6 @@ class TestInitializeSensors:
         bt.hass.states.get.return_value = trv_state
         BetterThermostat._initialize_sensors(bt, sensor)
         assert bt.cur_temp is not None
-        assert bt.degraded_mode is True
 
     def test_no_sensor_no_trv_uses_default(self, bt):
         """Test No sensor no trv uses default."""
@@ -307,7 +306,6 @@ class TestInitializeSensors:
         bt.hass.states.get.return_value = trv_state
         BetterThermostat._initialize_sensors(bt, sensor)
         assert bt.cur_temp == 19.5
-        assert bt.degraded_mode is True
 
     def test_implausible_trv_value_falls_back_to_default(self, bt):
         """If both sensor and TRV are implausible, the default fallback is used."""

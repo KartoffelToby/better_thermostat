@@ -939,6 +939,7 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
             states = self._collect_trv_states()
             self._resolve_temperature_range(states)
             self._initialize_sensors(sensor_state)
+            await check_and_update_degraded_mode(self)
             await self._restore_state(states)
             self._validate_hvac_mode(states)
             await self._initialize_trvs()
@@ -1100,10 +1101,6 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
                     self.device_name,
                     self.sensor_entity_id,
                 )
-            if self.sensor_entity_id not in self.unavailable_sensors:
-                self.unavailable_sensors.append(self.sensor_entity_id)
-                self.degraded_mode = True
-            # Get temperature from first TRV whose reading is plausible
             self.cur_temp = None
             for trv_id in self.real_trvs:
                 trv_state = self.hass.states.get(trv_id)
