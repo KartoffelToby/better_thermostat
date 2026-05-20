@@ -30,6 +30,7 @@ from .utils.const import (
     CONF_CALIBRATION_MODE,
     CONF_CHILD_LOCK,
     CONF_COOLER,
+    CONF_MIN_COOLER_RESEND_INTERVAL,
     CONF_HEAT_AUTO_SWAPPED,
     CONF_HEATER,
     CONF_HOMEMATICIP,
@@ -127,6 +128,7 @@ _USER_FIELD_DEFAULTS: dict[str, Any] = {
     CONF_OFF_TEMPERATURE: 20,
     CONF_TOLERANCE: 0.0,
     CONF_TARGET_TEMP_STEP: "0.0",
+    CONF_MIN_COOLER_RESEND_INTERVAL: 0,
 }
 
 
@@ -449,6 +451,20 @@ def _build_user_fields(
     add_entity_selector(CONF_HEATER, domain="climate", multiple=True, required=True)
     add_entity_selector(CONF_COOLER, domain="climate", multiple=False)
 
+    resend_default = resolve(
+        CONF_MIN_COOLER_RESEND_INTERVAL,
+        _USER_FIELD_DEFAULTS[CONF_MIN_COOLER_RESEND_INTERVAL],
+    )
+    try:
+        resend_default = int(resend_default)
+    except (TypeError, ValueError):
+        resend_default = _USER_FIELD_DEFAULTS[CONF_MIN_COOLER_RESEND_INTERVAL]
+    add_field(
+        CONF_MIN_COOLER_RESEND_INTERVAL,
+        vol.All(vol.Coerce(int), vol.Range(min=0)),
+        default=resend_default,
+    )
+
     add_entity_selector(
         CONF_SENSOR,
         domain=["sensor", "number", "input_number"],
@@ -547,6 +563,20 @@ def _normalize_user_submission(
         ]
     normalized[CONF_HEATER] = list(heaters_list)
     normalized[CONF_COOLER] = user_input.get(CONF_COOLER, normalized.get(CONF_COOLER))
+
+    resend_interval = user_input.get(
+        CONF_MIN_COOLER_RESEND_INTERVAL,
+        normalized.get(
+            CONF_MIN_COOLER_RESEND_INTERVAL,
+            _USER_FIELD_DEFAULTS[CONF_MIN_COOLER_RESEND_INTERVAL],
+        ),
+    )
+    try:
+        normalized[CONF_MIN_COOLER_RESEND_INTERVAL] = max(0, int(resend_interval))
+    except (TypeError, ValueError):
+        normalized[CONF_MIN_COOLER_RESEND_INTERVAL] = _USER_FIELD_DEFAULTS[
+            CONF_MIN_COOLER_RESEND_INTERVAL
+        ]
 
     optional_keys = (
         CONF_SENSOR,

@@ -268,12 +268,7 @@ async def control_cooler(self):
     current_hvac_mode = cooler_state.state
     current_temp = cooler_state.attributes.get("temperature")
 
-    min_resend_interval_s = getattr(self, "min_cooler_resend_interval_s", 0) or 0
-    try:
-        min_resend_interval_s = max(0.0, float(min_resend_interval_s))
-    except (TypeError, ValueError):
-        min_resend_interval_s = 0.0
-
+    min_resend_interval_s = self.min_cooler_resend_interval_s
     now_ts = monotonic()
 
     # Determine desired state based on current conditions

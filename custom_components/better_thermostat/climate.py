@@ -88,6 +88,7 @@ from .utils.const import (
     ATTR_STATE_WINDOW_OPEN,
     BETTERTHERMOSTAT_RESET_PID_SCHEMA,
     CONF_COOLER,
+    CONF_MIN_COOLER_RESEND_INTERVAL,
     CONF_HEATER,
     CONF_HUMIDITY,
     CONF_MODEL,
@@ -229,6 +230,7 @@ async def async_setup_entry(hass, entry, async_add_entities):
         entry.data.get(CONF_TARGET_TEMP_STEP, "0.0"),
         entry.data.get(CONF_MODEL, None),
         entry.data.get(CONF_COOLER, None),
+        entry.data.get(CONF_MIN_COOLER_RESEND_INTERVAL, 0),
         entry.data.get(CONF_PRESETS, None),
         hass.config.units.temperature_unit,
         entry.entry_id,
@@ -344,6 +346,7 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
         target_temp_step,
         model,
         cooler_entity_id,
+        min_cooler_resend_interval,
         enabled_presets,
         unit,
         unique_id,
@@ -364,6 +367,10 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
         self.sensor_entity_id = sensor_entity_id
         self.humidity_sensor_entity_id = humidity_sensor_entity_id
         self.cooler_entity_id = cooler_entity_id
+        try:
+            self.min_cooler_resend_interval_s: float = max(0.0, float(min_cooler_resend_interval or 0))
+        except (TypeError, ValueError):
+            self.min_cooler_resend_interval_s = 0.0
         self.window_id = window_id or None
         self.window_delay = window_delay or 0
         self.window_delay_after = window_delay_after or 0
