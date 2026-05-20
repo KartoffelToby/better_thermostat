@@ -1,11 +1,51 @@
 """Tests for control_cooler function in utils/controlling.py."""
 
+from time import monotonic
 from unittest.mock import AsyncMock, Mock
 
 from homeassistant.components.climate.const import HVACMode
 import pytest
 
 from custom_components.better_thermostat.utils.controlling import control_cooler
+
+
+def _make_mock_self(
+    hass,
+    *,
+    bt_hvac_mode=HVACMode.COOL,
+    cur_temp=25.0,
+    bt_target_cooltemp=24.0,
+    bt_target_temp=20.0,
+    tolerance=0.5,
+    last_sent_cooler_temp=None,
+    last_sent_cooler_hvac_mode=None,
+    last_sent_cooler_temp_ts=None,
+    last_sent_cooler_hvac_mode_ts=None,
+    min_cooler_resend_interval_s=0,
+):
+    """Build a minimal mock BetterThermostat instance for control_cooler tests."""
+    mock_self = Mock()
+    mock_self.hass = hass
+    mock_self.bt_hvac_mode = bt_hvac_mode
+    mock_self.cooler_entity_id = "climate.cooler"
+    mock_self.context = None
+    mock_self.cur_temp = cur_temp
+    mock_self.bt_target_cooltemp = bt_target_cooltemp
+    mock_self.bt_target_temp = bt_target_temp
+    mock_self.tolerance = tolerance
+    mock_self.last_sent_cooler_temp = last_sent_cooler_temp
+    mock_self.last_sent_cooler_hvac_mode = last_sent_cooler_hvac_mode
+    mock_self.last_sent_cooler_temp_ts = last_sent_cooler_temp_ts
+    mock_self.last_sent_cooler_hvac_mode_ts = last_sent_cooler_hvac_mode_ts
+    mock_self.min_cooler_resend_interval_s = min_cooler_resend_interval_s
+    return mock_self
+
+
+def _make_cooler_state(state=HVACMode.COOL, temperature=None):
+    s = Mock()
+    s.state = state
+    s.attributes = {"temperature": temperature}
+    return s
 
 
 class TestControlCooler:
@@ -239,3 +279,83 @@ class TestControlCooler:
         calls = mock_hass.services.async_call.call_args_list
         # cur_temp (23.5) >= 23.5 AND cur_temp (23.5) > 20.0 -> COOL
         assert calls[-1].args[2]["hvac_mode"] == HVACMode.COOL
+
+
+class TestControlCoolerSendCache:
+    """Tests for the send-cache and nil-guard added in fix/cooler-equality-checks."""
+
+    @pytest.mark.asyncio
+    async def test_nil_guard_skips_set_temperature_when_current_unknown_and_unchanged(self):
+        """Nil-guard: do not call set_temperature when current temp is unknown
+        but the desired temp matches the last sent value."""
+        mock_hass = Mock()
+        mock_hass.services = Mock()
+        mock_hass.services.async_call = AsyncMock()
+        mock_hass.states.get.return_value = _make_cooler_state(
+            state=HVACMode.COOL, temperature=None
+        )
+
+        mock_self = _make_mock_self(
+            mock_hass,
+            bt_hvac_mode=HVACMode.COOL,
+            cur_temp=25.0,
+            bt_target_cooltemp=24.0,
+            last_sent_cooler_temp=24.0,   # already sent this value
+        )
+
+        await control_cooler(mock_self)
+
+        service_names = [c.args[1] for c in mock_hass.services.async_call.call_args_list]
+        assert "set_temperature" not in service_names
+
+    @pytest.mark.asyncio
+    async def test_nil_guard_sends_set_temperature_when_current_unknown_but_temp_changed(self):
+        """Nil-guard: call set_temperature when current temp is unknown
+        and the desired temp differs from the last sent value."""
+        mock_hass = Mock()
+        mock_hass.services = Mock()
+        mock_hass.services.async_call = AsyncMock()
+        mock_hass.states.get.return_value = _make_cooler_state(
+            state=HVACMode.COOL, temperature=None
+        )
+
+        mock_self = _make_mock_self(
+            mock_hass,
+            bt_hvac_mode=HVACMode.COOL,
+            cur_temp=25.0,
+            bt_target_cooltemp=24.0,
+            last_sent_cooler_temp=23.0,   # previously sent a different value
+        )
+
+        await control_cooler(mock_self)
+
+        service_names = [c.args[1] for c in mock_hass.services.async_call.call_args_list]
+        assert "set_temperature" in service_names
+        temp_call = next(c for c in mock_hass.services.async_call.call_args_list if c.args[1] == "set_temperature")
+        assert temp_call.args[2]["temperature"] == 24.0
+
+    @pytest.mark.asyncio
+    async def test_resend_interval_suppresses_identical_command_within_window(self):
+        """Resend interval: skip set_temperature when the same value was already
+        sent recently (cloud lag — current state hasn't caught up yet)."""
+        mock_hass = Mock()
+        mock_hass.services = Mock()
+        mock_hass.services.async_call = AsyncMock()
+        mock_hass.states.get.return_value = _make_cooler_state(
+            state=HVACMode.COOL, temperature=23.5  # lagging behind desired 24.0
+        )
+
+        mock_self = _make_mock_self(
+            mock_hass,
+            bt_hvac_mode=HVACMode.COOL,
+            cur_temp=25.0,
+            bt_target_cooltemp=24.0,
+            last_sent_cooler_temp=24.0,           # same as desired — already sent
+            last_sent_cooler_temp_ts=monotonic() - 5,  # sent 5 s ago
+            min_cooler_resend_interval_s=60,       # suppress for 60 s
+        )
+
+        await control_cooler(mock_self)
+
+        service_names = [c.args[1] for c in mock_hass.services.async_call.call_args_list]
+        assert "set_temperature" not in service_names

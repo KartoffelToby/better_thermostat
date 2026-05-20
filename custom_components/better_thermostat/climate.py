@@ -536,6 +536,11 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
         self.accum_dir = 0
         self.pending_temp = None
         self.pending_since = None
+        # Cooler send-cache (anti-spam for cloud-backed coolers)
+        self.last_sent_cooler_temp: float | None = None
+        self.last_sent_cooler_hvac_mode: str | None = None
+        self.last_sent_cooler_temp_ts: float | None = None
+        self.last_sent_cooler_hvac_mode_ts: float | None = None
 
     async def async_added_to_hass(self):
         """Run when entity about to be added.

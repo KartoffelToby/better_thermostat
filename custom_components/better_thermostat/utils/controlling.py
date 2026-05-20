@@ -268,16 +268,6 @@ async def control_cooler(self):
     current_hvac_mode = cooler_state.state
     current_temp = cooler_state.attributes.get("temperature")
 
-    # Local anti-spam guardrails for cloud-backed coolers.
-    if not hasattr(self, "last_sent_cooler_temp"):
-        self.last_sent_cooler_temp = None
-    if not hasattr(self, "last_sent_cooler_hvac_mode"):
-        self.last_sent_cooler_hvac_mode = None
-    if not hasattr(self, "last_sent_cooler_temp_ts"):
-        self.last_sent_cooler_temp_ts = None
-    if not hasattr(self, "last_sent_cooler_hvac_mode_ts"):
-        self.last_sent_cooler_hvac_mode_ts = None
-
     min_resend_interval_s = getattr(self, "min_cooler_resend_interval_s", 0) or 0
     try:
         min_resend_interval_s = max(0.0, float(min_resend_interval_s))
