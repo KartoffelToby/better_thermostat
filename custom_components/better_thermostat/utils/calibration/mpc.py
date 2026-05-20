@@ -367,28 +367,97 @@ def _split_mpc_key(key: str) -> tuple[str | None, str | None, str | None]:
         return None, None, None
 
 
+def _parse_bucket(bucket: str | None) -> float | None:
+    """Parse a target-temp bucket label (``t21.0``) back into a float."""
+    if not bucket or not bucket.startswith("t"):
+        return None
+    try:
+        return float(bucket[1:])
+    except ValueError:
+        return None
+
+
 def _seed_state_from_siblings(
     key: str,
     state: _MpcState,
     params: MpcParams,
     all_states: dict[str, _MpcState] | None = None,
 ) -> None:
-    if not bool(getattr(params, "enable_min_effective_percent", True)):
-        return
-    if state.min_effective_percent is not None:
-        return
-    uid, entity, _ = _split_mpc_key(key)
+    """Seed a fresh per-bucket MPC state from its nearest sibling.
+
+    ``build_mpc_key`` partitions MPC state by ``round(target * 2.0) / 2.0``,
+    so any setpoint change crossing a half-degree boundary allocates a
+    fresh ``_MpcState`` with all defaults. Without seeding, the controller
+    has to relearn every per-room and per-TRV characteristic on each
+    setpoint move — the relearning pain that users report in
+    discussion #1761.
+
+    This function copies *target-independent* learned values from the
+    nearest existing sibling (same ``uid`` and ``entity``, different
+    target bucket). Fields that are part of the live controller state
+    (virtual_temp, recent_errors, Kalman covariance) or that may
+    legitimately differ across operating points (gain_est, loss_est,
+    ka_est) are intentionally left untouched.
+
+    Existing values in *state* are never overwritten — seeding only
+    fills in defaults.
+    """
+    uid, entity, bucket = _split_mpc_key(key)
     if not uid or not entity:
         return
     states = all_states if all_states is not None else _MPC_STATES
+
+    own_target = _parse_bucket(bucket)
+    siblings: list[tuple[float, _MpcState]] = []
     for other_key, other_state in states.items():
         if other_key == key:
             continue
-        ouid, oentity, _ = _split_mpc_key(other_key)
-        if ouid == uid and oentity == entity:
-            if other_state.min_effective_percent is not None:
-                state.min_effective_percent = other_state.min_effective_percent
-                return
+        ouid, oentity, obucket = _split_mpc_key(other_key)
+        if ouid != uid or oentity != entity:
+            continue
+        other_target = _parse_bucket(obucket)
+        if own_target is not None and other_target is not None:
+            distance = abs(other_target - own_target)
+        else:
+            distance = math.inf
+        siblings.append((distance, other_state))
+
+    if not siblings:
+        return
+
+    siblings.sort(key=lambda item: item[0])
+
+    # --- min_effective_percent (existing semantics, behind feature flag) ---
+    if state.min_effective_percent is None and bool(
+        getattr(params, "enable_min_effective_percent", True)
+    ):
+        for _, sib in siblings:
+            if sib.min_effective_percent is not None:
+                state.min_effective_percent = sib.min_effective_percent
+                break
+
+    # --- Target-independent learned characteristics ---
+    if not state.perf_curve:
+        for _, sib in siblings:
+            if sib.perf_curve:
+                state.perf_curve = {
+                    label: dict(stats) for label, stats in sib.perf_curve.items()
+                }
+                break
+
+    if state.trv_profile == "unknown" and state.profile_samples == 0:
+        for _, sib in siblings:
+            if sib.trv_profile != "unknown" and sib.profile_samples > 0:
+                state.trv_profile = sib.trv_profile
+                state.profile_confidence = sib.profile_confidence
+                state.profile_samples = sib.profile_samples
+                break
+
+    if state.solar_gain_est is None:
+        for _, sib in siblings:
+            if sib.solar_gain_est is not None:
+                state.solar_gain_est = sib.solar_gain_est
+                break
 
 
 def build_mpc_key(bt, entity_id: str) -> str:
