@@ -4,6 +4,7 @@ import asyncio
 import logging
 from time import monotonic
 
+from homeassistant.components.climate import ClimateEntityFeature
 from homeassistant.components.climate.const import PRESET_BOOST, HVACMode
 from homeassistant.const import STATE_UNAVAILABLE, STATE_UNKNOWN
 
@@ -340,22 +341,43 @@ async def control_cooler(self):
             should_send_temp = False
 
     if should_send_temp:
-        _LOGGER.debug(
-            "better_thermostat %s: TO COOLER set_temperature: %s from: %s to: %s",
-            self.device_name,
-            self.cooler_entity_id,
-            current_temp,
-            desired_temp,
-        )
-        await self.hass.services.async_call(
-            "climate",
-            "set_temperature",
-            {"entity_id": self.cooler_entity_id, "temperature": desired_temp},
-            blocking=True,
-            context=self.context,
-        )
-        self.last_sent_cooler_temp = desired_temp
-        self.last_sent_cooler_temp_ts = now_ts
+        sf = int(cooler_state.attributes.get("supported_features") or 0)
+        if not (sf & ClimateEntityFeature.TARGET_TEMPERATURE):
+            _LOGGER.debug(
+                "better_thermostat %s: cooler %s does not support set_temperature "
+                "in state '%s' (supported_features=%s); skipping until entity is on",
+                self.device_name,
+                self.cooler_entity_id,
+                cooler_state.state,
+                sf,
+            )
+        else:
+            _LOGGER.debug(
+                "better_thermostat %s: TO COOLER set_temperature: %s from: %s to: %s",
+                self.device_name,
+                self.cooler_entity_id,
+                current_temp,
+                desired_temp,
+            )
+            try:
+                await self.hass.services.async_call(
+                    "climate",
+                    "set_temperature",
+                    {"entity_id": self.cooler_entity_id, "temperature": desired_temp},
+                    blocking=True,
+                    context=self.context,
+                )
+            except Exception:
+                _LOGGER.debug(
+                    "better_thermostat %s: set_temperature for cooler %s raised unexpectedly; "
+                    "updating send-cache to rate-limit retries",
+                    self.device_name,
+                    self.cooler_entity_id,
+                    exc_info=True,
+                )
+            finally:
+                self.last_sent_cooler_temp = desired_temp
+                self.last_sent_cooler_temp_ts = now_ts
 
     # Only send hvac_mode command if it differs from current.
     mode_changed_since_last_send = self.last_sent_cooler_hvac_mode != desired_mode
