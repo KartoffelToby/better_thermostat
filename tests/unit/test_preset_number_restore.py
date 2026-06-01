@@ -96,6 +96,16 @@ class TestPresetNumberRestoreUnitConversion:
 
         assert PRESET_HOME not in bt_climate.preset_mgr.temperatures
 
+    @pytest.mark.asyncio
+    async def test_restore_no_last_state_keeps_dict_empty(self):
+        """No prior state at all (fresh install) does not write anything."""
+        entity, bt_climate = _make_entity()
+        entity.async_get_last_state = AsyncMock(return_value=None)
+
+        await entity.async_added_to_hass()
+
+        assert PRESET_HOME not in bt_climate.preset_mgr.temperatures
+
 
 class TestPresetCoolNumber:
     """Tests for cooling preset number behavior."""
@@ -128,10 +138,19 @@ class TestPresetCoolNumber:
 
     @pytest.mark.asyncio
     async def test_restore_no_last_state_keeps_dict_empty(self):
-        """No prior state at all (fresh install) does not write anything."""
-        entity, bt_climate = _make_entity()
+        """No prior state leaves the cooling preset map unchanged."""
+        bt_climate = MagicMock()
+        bt_climate.unique_id = "test_bt"
+        bt_climate.device_name = "Test BT"
+        bt_climate.min_temp = 5.0
+        bt_climate.max_temp = 30.0
+        bt_climate.target_temperature_step = 0.5
+        bt_climate.cooler_entity_id = "climate.cooler"
+        bt_climate._preset_cool_temperatures = {}
+
+        entity = BetterThermostatPresetCoolNumber(bt_climate, PRESET_HOME)
         entity.async_get_last_state = AsyncMock(return_value=None)
 
         await entity.async_added_to_hass()
 
-        assert PRESET_HOME not in bt_climate.preset_mgr.temperatures
+        assert PRESET_HOME not in bt_climate._preset_cool_temperatures
