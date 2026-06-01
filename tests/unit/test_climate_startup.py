@@ -4,6 +4,7 @@ Covers: _check_entities_ready, _collect_trv_states, _resolve_temperature_range,
 _initialize_sensors, _restore_state, _validate_hvac_mode.
 """
 
+import json
 from unittest.mock import AsyncMock, MagicMock, patch
 
 from homeassistant.components.climate.const import HVACMode
@@ -19,6 +20,7 @@ from custom_components.better_thermostat.utils.const import (
     ATTR_STATE_CALL_FOR_HEAT,
     ATTR_STATE_HEAT_LOSS,
     ATTR_STATE_HEATING_POWER,
+    ATTR_STATE_PRESET_COOL_TEMPERATURES,
     MAX_HEAT_LOSS,
     MAX_HEATING_POWER,
 )
@@ -438,6 +440,25 @@ class TestRestoreState:
         await BetterThermostat._restore_state(bt, states)
 
         assert bt.preset_mgr.mode == "comfort"
+
+    @pytest.mark.asyncio
+    async def test_restores_preset_cool_temperature_mapping(self, bt):
+        """Restore user-customized cooling preset temperatures from state."""
+        old = MagicMock()
+        old.state = "heat"
+        old.attributes = {
+            ATTR_TEMPERATURE: 22.0,
+            ATTR_STATE_PRESET_COOL_TEMPERATURES: json.dumps(
+                {"comfort": 25.5, "eco": "26.0", "unknown": 10.0}
+            ),
+        }
+        bt.async_get_last_state = AsyncMock(return_value=old)
+        bt.preset_mgr.temperatures = {"comfort": 22.0, "eco": 18.0}
+        bt._preset_cool_temperatures = {"comfort": 24.0, "eco": 27.0}
+
+        await BetterThermostat._restore_state(bt, [_make_trv_state()])
+
+        assert bt._preset_cool_temperatures == {"comfort": 25.5, "eco": 26.0}
 
     @pytest.mark.asyncio
     async def test_restores_heating_power_clamped(self, bt):

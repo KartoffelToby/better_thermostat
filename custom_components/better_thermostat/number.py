@@ -214,16 +214,38 @@ class BetterThermostatPresetNumber(NumberEntity, RestoreEntity):
 
 
 class BetterThermostatPresetCoolNumber(BetterThermostatPresetNumber):
-    """Representation of a Better Thermostat Cooling Preset Temperature Number."""
+    """Representation of a cooling preset temperature number.
+
+    This entity exposes the high target temperature for a single preset when a
+    cooler is configured. Stored values are kept in the owning climate entity
+    and are applied immediately when the represented preset is active.
+    """
 
     def __init__(self, bt_climate, preset_mode):
-        """Initialize the number."""
+        """Initialize the cooling preset number.
+
+        Parameters
+        ----------
+        bt_climate
+            Better Thermostat climate entity that owns the preset settings.
+        preset_mode
+            Preset mode represented by this number entity.
+        """
         super().__init__(bt_climate, preset_mode)
         self._attr_unique_id = f"{bt_climate.unique_id}_preset_{preset_mode}_cool"
         self._attr_name = f"{preset_mode.capitalize()} Max"
 
     async def async_added_to_hass(self) -> None:
-        """Run when entity about to be added."""
+        """Restore the last persisted cooling preset value.
+
+        The restored Home Assistant state is converted to Celsius before it is
+        stored in the climate entity's cooling preset map.
+
+        Returns
+        -------
+        None
+            This method only updates internal state.
+        """
         await super(BetterThermostatPresetNumber, self).async_added_to_hass()
         last_state = await self.async_get_last_state()
         if last_state is None or last_state.state in (None, "unknown", "unavailable"):
@@ -247,23 +269,42 @@ class BetterThermostatPresetCoolNumber(BetterThermostatPresetNumber):
 
     @property
     def native_value(self) -> float | None:
-        """Return the value of the number."""
+        """Return the configured cooling temperature for this preset.
+
+        Returns
+        -------
+        float | None
+            Cooling temperature in Celsius, or ``None`` if no value is stored.
+        """
         return self._bt_climate._preset_cool_temperatures.get(self._preset_mode)
 
     async def async_set_native_value(self, value: float) -> None:
-        """Update the current value."""
-        self._bt_climate._preset_cool_temperatures[self._preset_mode] = value
+        """Set the cooling temperature for this preset.
+
+        Parameters
+        ----------
+        value
+            Requested cooling preset temperature in Celsius.
+
+        Returns
+        -------
+        None
+            This method stores the preset value and updates the active cooling
+            target when this preset is currently selected.
+        """
+        cool_value = value
+        if (
+            self._bt_climate.preset_mode == self._preset_mode
+            and self._bt_climate.bt_target_temp is not None
+            and value <= self._bt_climate.bt_target_temp
+        ):
+            step = self._bt_climate.bt_target_temp_step or 0.5
+            cool_value = self._bt_climate.bt_target_temp + step
+
+        self._bt_climate._preset_cool_temperatures[self._preset_mode] = cool_value
 
         if self._bt_climate.preset_mode == self._preset_mode:
-            self._bt_climate.bt_target_cooltemp = value
-            if (
-                self._bt_climate.bt_target_temp is not None
-                and value <= self._bt_climate.bt_target_temp
-            ):
-                step = self._bt_climate.bt_target_temp_step or 0.5
-                self._bt_climate.bt_target_cooltemp = (
-                    self._bt_climate.bt_target_temp + step
-                )
+            self._bt_climate.bt_target_cooltemp = cool_value
             if self._bt_climate.bt_hvac_mode != HVACMode.OFF:
                 await self._bt_climate.control_queue_task.put(self._bt_climate)
 

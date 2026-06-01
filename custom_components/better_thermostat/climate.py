@@ -1418,6 +1418,33 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
                     self.device_name,
                     "startup()",
                 )
+            if (
+                old_state.attributes.get(ATTR_STATE_PRESET_COOL_TEMPERATURES, None)
+                is not None
+            ):
+                try:
+                    restored_cool_temperatures = json.loads(
+                        str(
+                            old_state.attributes.get(
+                                ATTR_STATE_PRESET_COOL_TEMPERATURES, "{}"
+                            )
+                        )
+                    )
+                except (TypeError, json.JSONDecodeError):
+                    _LOGGER.debug(
+                        "better_thermostat %s: could not restore preset cool temperatures",
+                        self.device_name,
+                    )
+                else:
+                    if isinstance(restored_cool_temperatures, dict):
+                        for preset, temp in restored_cool_temperatures.items():
+                            if preset not in self._preset_cool_temperatures:
+                                continue
+                            cool_temp = convert_to_float(
+                                str(temp), self.device_name, "startup()"
+                            )
+                            if cool_temp is not None:
+                                self._preset_cool_temperatures[preset] = cool_temp
             # Restore preset mode
             if old_state.attributes.get("preset_mode", None) is not None:
                 restored_preset: str = str(old_state.attributes["preset_mode"])
