@@ -105,9 +105,11 @@ async def check_weather_prediction(self) -> bool | None:
         )
         return False
 
-    if self.off_temperature is None or not isinstance(self.off_temperature, float):
+    if self.off_temperature is None or not isinstance(
+        self.off_temperature, (int, float)
+    ):
         _LOGGER.warning(
-            "better_thermostat %s: off_temperature not set or not a float.",
+            "better_thermostat %s: off_temperature not set or not a number.",
             self.device_name,
         )
         return False
@@ -222,9 +224,11 @@ async def check_ambient_air_temperature(self):
     if self.outdoor_sensor is None:
         return None
 
-    if self.off_temperature is None or not isinstance(self.off_temperature, float):
+    if self.off_temperature is None or not isinstance(
+        self.off_temperature, (int, float)
+    ):
         _LOGGER.warning(
-            "better_thermostat %s: off_temperature not set or not a float.",
+            "better_thermostat %s: off_temperature not set or not a number.",
             self.device_name,
         )
         return None

@@ -215,6 +215,16 @@ class TestCheckWeatherPrediction:
         bt = make_bt(make_hass(), weather_entity=WEATHER_ID, off_temperature=None)
         assert await check_weather_prediction(bt) is False
 
+    async def test_integer_off_temperature_is_honoured(self):
+        """An integer off_temperature is accepted by the type guard."""
+        states = {WEATHER_ID: weather_state(temperature=2.0)}
+        hass = make_hass(states=states)
+        hass.services.async_call = AsyncMock(
+            return_value=forecast_resp(WEATHER_ID, [1.0, 1.0])
+        )
+        bt = make_bt(hass, weather_entity=WEATHER_ID, off_temperature=10)  # int!
+        assert await check_weather_prediction(bt) is True
+
     async def test_no_forecast_support_returns_none(self):
         """An entity without any forecast feature yields None (no opinion)."""
         states = {WEATHER_ID: weather_state(features=0)}
@@ -384,6 +394,20 @@ class TestCheckAmbientAirTemperature:
         """A missing off_temperature short-circuits to None."""
         bt = make_bt(make_hass(), outdoor_sensor=OUTDOOR_ID, off_temperature=None)
         assert await check_ambient_air_temperature(bt) is None
+
+    async def test_integer_off_temperature_is_honoured(self):
+        """An integer off_temperature is accepted by the ambient check too."""
+        states = {
+            OUTDOOR_ID: make_state(state="2.0", attrs={"unit_of_measurement": "°C"})
+        }
+        bt = make_bt(
+            make_hass(states=states, components=set()),
+            outdoor_sensor=OUTDOOR_ID,
+            off_temperature=10,  # int!
+        )
+        await check_ambient_air_temperature(bt)
+        assert bt.last_avg_outdoor_temp == 2.0
+        assert bt.call_for_heat is True
 
     async def test_unavailable_sensor_without_cache_forces_heat(self):
         """An unavailable sensor with no cached value forces heating on."""
@@ -704,18 +728,3 @@ class TestSuspectedBugs:
         bt.call_for_heat = True
         await check_weather(bt)
         assert bt.call_for_heat is True
-
-    @pytest.mark.xfail(
-        strict=True,
-        reason="check_weather_prediction rejects an integer off_temperature "
-        "via the isinstance(..., float) guard.",
-    )
-    async def test_integer_off_temperature_should_be_honoured(self):
-        """An integer off_temperature is honoured like a float."""
-        states = {WEATHER_ID: weather_state(temperature=2.0)}
-        hass = make_hass(states=states)
-        hass.services.async_call = AsyncMock(
-            return_value=forecast_resp(WEATHER_ID, [1.0, 1.0])
-        )
-        bt = make_bt(hass, weather_entity=WEATHER_ID, off_temperature=10)  # int!
-        assert await check_weather_prediction(bt) is True
