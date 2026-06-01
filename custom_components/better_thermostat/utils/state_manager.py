@@ -44,6 +44,7 @@ from .calibration.mpc import MpcState, export_mpc_state_map, import_mpc_state_ma
 from .calibration.pid import PIDState, export_pid_states, import_pid_states
 from .calibration.tpi import TpiState, export_tpi_state_map, import_tpi_state_map
 from .const import MAX_HEAT_LOSS, MAX_HEATING_POWER, MIN_HEAT_LOSS, MIN_HEATING_POWER
+from .thermal_learning import clamp
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -422,9 +423,8 @@ class StateManager:
         heating_power: float | None = None
         if thermal.heating_power is not None:
             try:
-                heating_power = max(
-                    MIN_HEATING_POWER,
-                    min(MAX_HEATING_POWER, float(thermal.heating_power)),
+                heating_power = clamp(
+                    float(thermal.heating_power), MIN_HEATING_POWER, MAX_HEATING_POWER
                 )
             except (TypeError, ValueError):
                 heating_power = None
@@ -432,8 +432,8 @@ class StateManager:
         heat_loss_rate: float | None = None
         if thermal.heat_loss_rate is not None:
             try:
-                heat_loss_rate = max(
-                    MIN_HEAT_LOSS, min(MAX_HEAT_LOSS, float(thermal.heat_loss_rate))
+                heat_loss_rate = clamp(
+                    float(thermal.heat_loss_rate), MIN_HEAT_LOSS, MAX_HEAT_LOSS
                 )
             except (TypeError, ValueError):
                 heat_loss_rate = None

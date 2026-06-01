@@ -17,6 +17,7 @@ from homeassistant.core import State
 
 from .const import MAX_HEAT_LOSS, MAX_HEATING_POWER, MIN_HEAT_LOSS, MIN_HEATING_POWER
 from .helpers import convert_to_float_celsius
+from .thermal_learning import clamp
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -104,7 +105,7 @@ def clamp_heating_power(raw: str | int | float | None, device_name: str) -> floa
         value = 0.01 if raw is None else float(raw)
     except (TypeError, ValueError):
         value = 0.01
-    bounded = max(MIN_HEATING_POWER, min(MAX_HEATING_POWER, value))
+    bounded = clamp(value, MIN_HEATING_POWER, MAX_HEATING_POWER)
     if bounded != value:
         _LOGGER.info(
             "better_thermostat %s: Restored heating_power %.3f is outside allowed "
@@ -126,4 +127,4 @@ def clamp_heat_loss(raw: str | int | float | None) -> float | None:
         value = float(raw)
     except (TypeError, ValueError):
         return None
-    return max(MIN_HEAT_LOSS, min(MAX_HEAT_LOSS, value))
+    return clamp(value, MIN_HEAT_LOSS, MAX_HEAT_LOSS)

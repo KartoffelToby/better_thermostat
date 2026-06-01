@@ -130,6 +130,10 @@ class BetterThermostatPresetNumber(NumberEntity, RestoreEntity):
     """Representation of a Better Thermostat Preset Temperature Number."""
 
     _attr_has_entity_name = True
+    # NumberEntity and the Entity/RestoreEntity bases type _attr_device_class
+    # incompatibly; the value itself is correct. Pyright reports this on the
+    # class line (like the other entity classes), so a per-line ignore here has
+    # no effect; left unsuppressed for consistency with the rest of the codebase.
     _attr_device_class = NumberDeviceClass.TEMPERATURE
     _attr_native_unit_of_measurement = UnitOfTemperature.CELSIUS
     _attr_mode = NumberMode.BOX
