@@ -90,6 +90,8 @@ from .utils.const import (
     ATTR_STATE_LAST_CHANGE,
     ATTR_STATE_MAIN_MODE,
     ATTR_STATE_OFF_TEMPERATURE,
+    ATTR_STATE_PRESET_COOL_TEMPERATURE,
+    ATTR_STATE_PRESET_COOL_TEMPERATURES,
     ATTR_STATE_PRESET_TEMPERATURE,
     ATTR_STATE_SAVED_TEMPERATURE,
     ATTR_STATE_WINDOW_OPEN,
@@ -1281,12 +1283,14 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
                         "startup()",
                     )
                 if (
-                    old_state.attributes.get("bt_preset_cool_temperature", None)
+                    old_state.attributes.get(ATTR_STATE_PRESET_COOL_TEMPERATURE, None)
                     is not None
                 ):
                     self._preset_cool_temperature = convert_to_float(
                         str(
-                            old_state.attributes.get("bt_preset_cool_temperature", None)
+                            old_state.attributes.get(
+                                ATTR_STATE_PRESET_COOL_TEMPERATURE, None
+                            )
                         ),
                         self.device_name,
                         "startup()",
@@ -2684,7 +2688,7 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
             ATTR_STATE_LAST_CHANGE: self.last_change.isoformat(),
             ATTR_STATE_SAVED_TEMPERATURE: self._saved_temperature,
             ATTR_STATE_PRESET_TEMPERATURE: self._preset_temperature,
-            "bt_preset_cool_temperature": self._preset_cool_temperature,
+            ATTR_STATE_PRESET_COOL_TEMPERATURE: self._preset_cool_temperature,
             ATTR_STATE_HUMIDIY: self._current_humidity,
             ATTR_STATE_MAIN_MODE: self.last_main_hvac_mode,
             ATTR_STATE_OFF_TEMPERATURE: self.off_temperature,
@@ -2699,7 +2703,9 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
             "degraded_mode": self.degraded_mode,
             "unavailable_sensors": self.unavailable_sensors,
             # ECO mode attribute removed: eco preset supported via PRESET_ECO
-            "bt_preset_cool_temperatures": json.dumps(self._preset_cool_temperatures),
+            ATTR_STATE_PRESET_COOL_TEMPERATURES: json.dumps(
+                self._preset_cool_temperatures
+            ),
         }
 
         # Optional: next scheduled valve maintenance (ISO8601)
