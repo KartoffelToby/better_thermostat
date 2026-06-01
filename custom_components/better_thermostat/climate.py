@@ -443,7 +443,7 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
         self.bt_target_temp = 5.0
         self.bt_target_cooltemp = None
         self._support_flags = SUPPORT_FLAGS | ClimateEntityFeature.PRESET_MODE
-        self.bt_hvac_mode = None
+        self.bt_hvac_mode: HVACMode | None = None
         # Track min/max encountered target temps (initialize to default span)
         self.min_target_temp = 18.0
         self.max_target_temp = 21.0
@@ -1334,7 +1334,15 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
                 "better_thermostat %s: restoring other attributes...", self.device_name
             )
             if old_state.state not in (STATE_UNAVAILABLE, STATE_UNKNOWN, None):
-                self.bt_hvac_mode = old_state.state
+                try:
+                    self.bt_hvac_mode = HVACMode(old_state.state)
+                except ValueError:
+                    _LOGGER.warning(
+                        "better_thermostat %s: restored an unrecognised hvac mode %s; "
+                        "leaving it for validation",
+                        self.device_name,
+                        old_state.state,
+                    )
             if old_state.attributes.get(ATTR_STATE_CALL_FOR_HEAT, None) is not None:
                 self.call_for_heat = bool(
                     old_state.attributes.get(ATTR_STATE_CALL_FOR_HEAT)
@@ -2442,7 +2450,7 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
 
         hvac_mode_norm = normalize_hvac_mode(hvac_mode)
         if hvac_mode_norm in (HVACMode.HEAT, HVACMode.HEAT_COOL, HVACMode.OFF):
-            self.bt_hvac_mode = get_hvac_bt_mode(self, hvac_mode_norm)
+            self.bt_hvac_mode = HVACMode(get_hvac_bt_mode(self, hvac_mode_norm))
         else:
             _LOGGER.error(
                 "better_thermostat %s: Unsupported hvac_mode %s",

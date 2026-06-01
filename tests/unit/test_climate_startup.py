@@ -513,6 +513,34 @@ class TestRestoreState:
 
         assert bt.bt_target_temp == 22.0
 
+    @pytest.mark.asyncio
+    async def test_restored_mode_is_parsed_to_enum(self, bt):
+        """A valid restored state string becomes an HVACMode enum."""
+        old = MagicMock()
+        old.state = "heat"
+        old.attributes = {ATTR_TEMPERATURE: 21.0}
+        bt.async_get_last_state = AsyncMock(return_value=old)
+        bt.bt_hvac_mode = None
+        bt.preset_mgr.temperatures = {}
+
+        await BetterThermostat._restore_state(bt, [_make_trv_state()])
+
+        assert bt.bt_hvac_mode is HVACMode.HEAT
+
+    @pytest.mark.asyncio
+    async def test_unrecognised_mode_left_unset(self, bt):
+        """An unrecognised restored state is not stored (stays None for validation)."""
+        old = MagicMock()
+        old.state = "not_a_mode"
+        old.attributes = {ATTR_TEMPERATURE: 21.0}
+        bt.async_get_last_state = AsyncMock(return_value=old)
+        bt.bt_hvac_mode = None
+        bt.preset_mgr.temperatures = {}
+
+        await BetterThermostat._restore_state(bt, [_make_trv_state()])
+
+        assert bt.bt_hvac_mode is None
+
 
 # ---------------------------------------------------------------------------
 # 6. _validate_hvac_mode
