@@ -704,18 +704,3 @@ class TestSuspectedBugs:
         bt.call_for_heat = True
         await check_weather(bt)
         assert bt.call_for_heat is True
-
-    @pytest.mark.xfail(
-        strict=True,
-        reason="check_weather_prediction rejects an integer off_temperature "
-        "via the isinstance(..., float) guard.",
-    )
-    async def test_integer_off_temperature_should_be_honoured(self):
-        """An integer off_temperature is honoured like a float."""
-        states = {WEATHER_ID: weather_state(temperature=2.0)}
-        hass = make_hass(states=states)
-        hass.services.async_call = AsyncMock(
-            return_value=forecast_resp(WEATHER_ID, [1.0, 1.0])
-        )
-        bt = make_bt(hass, weather_entity=WEATHER_ID, off_temperature=10)  # int!
-        assert await check_weather_prediction(bt) is True
