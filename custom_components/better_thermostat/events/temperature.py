@@ -6,7 +6,6 @@ to make robust decisions about whether the external temperature should be
 propagated to the target devices.
 """
 
-from datetime import datetime
 import logging
 import math
 from time import monotonic
@@ -15,9 +14,13 @@ from homeassistant.const import STATE_UNAVAILABLE, STATE_UNKNOWN
 from homeassistant.core import callback
 from homeassistant.helpers import issue_registry as ir
 from homeassistant.helpers.event import async_call_later
+from homeassistant.util import dt as dt_util
 
 from custom_components.better_thermostat.utils.const import CONF_HOMEMATICIP
-from custom_components.better_thermostat.utils.helpers import convert_to_float
+from custom_components.better_thermostat.utils.helpers import (
+    convert_to_float_celsius,
+    is_reasonable_temperature,
+)
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -101,7 +104,7 @@ async def _apply_temperature_update(self, new_temp):
             exc,
         )
     _ema = self.external_temp_ema
-    self.last_external_sensor_change = datetime.now()
+    self.last_external_sensor_change = dt_util.now()
     # Reset accumulation & pending after accept
     self.accum_delta = 0.0
     self.accum_dir = 0
@@ -125,8 +128,6 @@ async def _apply_temperature_update(self, new_temp):
         trv_ids = list(self.real_trvs.keys())
         if not trv_ids and hasattr(self, "entity_ids"):
             trv_ids = list(self.entity_ids or [])
-        if not trv_ids and hasattr(self, "heater_entity_id"):
-            trv_ids = [self.heater_entity_id]
         for trv_id in trv_ids:
             quirks = (
                 self.real_trvs.get(trv_id, {}).get("model_quirks")
@@ -181,8 +182,11 @@ async def trigger_temperature_change(self, event):
     if new_state is None or new_state.state in (STATE_UNAVAILABLE, STATE_UNKNOWN, None):
         return
 
-    _incoming_temperature = convert_to_float(
-        str(new_state.state), self.device_name, "external_temperature"
+    _incoming_temperature = convert_to_float_celsius(
+        str(new_state.state),
+        self.device_name,
+        "external_temperature",
+        unit_of_measurement=new_state.attributes.get("unit_of_measurement"),
     )
     # Quantisiere auf 2 Dezimalstellen, um FP-Artefakte zu vermeiden
     _incoming_temperature_q = (
@@ -192,7 +196,7 @@ async def trigger_temperature_change(self, event):
     # Ensure timestamp exists (first run guard)
     if self.last_external_sensor_change is None:
         # Setze einen alten Zeitpunkt, damit erste Änderung akzeptiert wird
-        self.last_external_sensor_change = datetime.now()
+        self.last_external_sensor_change = dt_util.now()
 
     # Basis-Debounce (Sekunden) für normale Geräte; durch Anti-Flicker können wir hier auf 5s runter
     # gesetzt werden. HomematicIP erhält unten weiterhin ein höheres Intervall (600s).
@@ -209,11 +213,13 @@ async def trigger_temperature_change(self, event):
     except (KeyError, TypeError):
         pass
 
-    if _incoming_temperature_q is None or _incoming_temperature_q < -50:
-        # raise a ha repair notication
+    if not is_reasonable_temperature(_incoming_temperature_q):
+        # raise a ha repair notification
         _LOGGER.error(
-            "better_thermostat %s: external_temperature is not a valid number: %s",
+            "better_thermostat %s: external_temperature %s is outside the "
+            "plausible range; ignoring (raw state: %s)",
             self.device_name,
+            _incoming_temperature_q,
             new_state.state,
         )
         # Minimal kompatibler Aufruf (Parameter-Namen angepasst an aktuelle HA API)
@@ -231,7 +237,7 @@ async def trigger_temperature_change(self, event):
         )
         return
 
-    _now = datetime.now()
+    _now = dt_util.now()
     try:
         _age = (_now - self.last_external_sensor_change).total_seconds()
     except (TypeError, AttributeError):  # defensiv, sollte nicht auftreten
@@ -282,8 +288,11 @@ async def trigger_temperature_change(self, event):
                         None,
                     ):
                         return
-                    _val = convert_to_float(
-                        str(state.state), self.device_name, "external_temperature"
+                    _val = convert_to_float_celsius(
+                        str(state.state),
+                        self.device_name,
+                        "external_temperature",
+                        unit_of_measurement=state.attributes.get("unit_of_measurement"),
                     )
                     _val_q = None if _val is None else round(_val, 2)
                     cand = self.flicker_candidate
@@ -312,11 +321,11 @@ async def trigger_temperature_change(self, event):
                                     "better_thermostat %s: external_temperature EMA update failed (non critical)",
                                     self.device_name,
                                 )
-                            self.last_external_sensor_change = datetime.now()
+                            self.last_external_sensor_change = dt_util.now()
                             # Reset Anti-Flicker-Akkumulatoren
                             self.accum_delta = 0.0
                             self.accum_dir = 0
-                            self.accum_since = datetime.now()
+                            self.accum_since = dt_util.now()
                             self.pending_temp = None
                             self.pending_since = None
                             self.async_write_ha_state()
@@ -325,8 +334,6 @@ async def trigger_temperature_change(self, event):
                                 trv_ids = list(self.real_trvs.keys())
                                 if not trv_ids and hasattr(self, "entity_ids"):
                                     trv_ids = list(self.entity_ids or [])
-                                if not trv_ids and hasattr(self, "heater_entity_id"):
-                                    trv_ids = [self.heater_entity_id]
                                 for trv_id in trv_ids:
                                     quirks = (
                                         self.real_trvs.get(trv_id, {}).get(
@@ -443,7 +450,7 @@ async def trigger_temperature_change(self, event):
             # Plateau tracking
             if self.pending_temp != _incoming_temperature_q:
                 self.pending_temp = _incoming_temperature_q
-                self.pending_since = datetime.now()
+                self.pending_since = dt_util.now()
                 # Cancel existing timer if pending value changes
                 if getattr(self, "plateau_timer_cancel", None) is not None:
                     self.plateau_timer_cancel()
@@ -471,7 +478,7 @@ async def trigger_temperature_change(self, event):
         and self.pending_temp != _cur_q
         and self.pending_since is not None
     ):
-        _plateau_age = (datetime.now() - self.pending_since).total_seconds()
+        _plateau_age = (dt_util.now() - self.pending_since).total_seconds()
         _plateau_ok = _plateau_age >= PLATEAU_ACCEPT_WINDOW and _interval_ok
 
         # Schedule timer if not already scheduled
@@ -482,7 +489,7 @@ async def trigger_temperature_change(self, event):
                 self.plateau_timer_cancel = None
                 # Re-check debounce interval so HomematicIP 600s is respected
                 _cb_age = (
-                    (datetime.now() - self.last_external_sensor_change).total_seconds()
+                    (dt_util.now() - self.last_external_sensor_change).total_seconds()
                     if self.last_external_sensor_change is not None
                     else 999999
                 )
@@ -546,7 +553,7 @@ async def trigger_temperature_change(self, event):
                 else None
             ),
             (
-                f"{(datetime.now() - self.pending_since).total_seconds():.1f}"
+                f"{(dt_util.now() - self.pending_since).total_seconds():.1f}"
                 if self.pending_since is not None
                 else None
             ),

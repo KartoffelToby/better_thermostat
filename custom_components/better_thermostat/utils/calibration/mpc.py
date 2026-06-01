@@ -1793,7 +1793,11 @@ def _post_process_percent(
 
     if last_percent is not None and du_max is not None and du_max > 0:
         delta = smooth - last_percent
-        if abs(delta) > du_max:
+        # Bypass du_max when closing the valve and room is already above target.
+        # The rate limiter should not prevent the valve from closing during overshoot
+        # — it would keep heating a room that is already too warm.
+        _overshooting = delta_t is not None and delta_t < 0 and delta < 0
+        if abs(delta) > du_max and not _overshooting:
             limited = last_percent + du_max * (1 if delta > 0 else -1)
             _LOGGER.debug(
                 "better_thermostat %s: MPC du_max-limit (%s) raw=%s → limited=%s (max %s)",

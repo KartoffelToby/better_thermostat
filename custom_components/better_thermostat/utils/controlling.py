@@ -49,9 +49,20 @@ def _get_valve_control(
     valve_settings_dict contains 'valve_percent' and 'apply_valve' keys.
     Returns (None, None) if no valve control should be applied.
     """
-    # Boost mode takes priority - set valve to 100%
-    if _is_boost_heating_active(self):
-        return {"valve_percent": 100, "apply_valve": True}, "boost_mode"
+    # Forcing the valve on a non-direct-valve TRV bypasses the calibration chain
+    # and leaves the valve stuck open after boost ends.
+    if (
+        _is_boost_heating_active(self)
+        and calibration_type == CalibrationType.DIRECT_VALVE_BASED
+    ):
+        max_opening = (self.real_trvs.get(heater_entity_id) or {}).get(
+            "valve_max_opening", 100
+        )
+        if isinstance(max_opening, (int, float)):
+            target_pct = max(0, min(100, int(round(float(max_opening)))))
+        else:
+            target_pct = 100
+        return {"valve_percent": target_pct, "apply_valve": True}, "boost_mode"
 
     # Check calibration-based valve control
     if calibration_type != CalibrationType.DIRECT_VALVE_BASED:
@@ -86,100 +97,38 @@ def _get_valve_control(
     return None, None
 
 
-async def _apply_valve_control(
-    self, heater_entity_id: str, bal: dict | None, source: str | None
-) -> bool:
-    """Apply valve control settings to the TRV.
-
-    Returns True if valve was set, False otherwise.
-    """
-    if bal is None:
-        return False
-
-    target_pct = int(round(bal.get("valve_percent", 0)))
-    target_pct = _apply_valve_max_opening(self, heater_entity_id, target_pct)
-
-    _LOGGER.debug(
-        "better_thermostat %s: TO TRV set_valve: %s to: %s%% (source=%s)",
-        self.device_name,
-        heater_entity_id,
-        target_pct,
-        source,
-    )
-    ok = await set_valve(self, heater_entity_id, target_pct)
-    if not ok:
-        _LOGGER.debug(
-            "better_thermostat %s: delegate.set_valve returned False (target=%s%%, entity=%s, source=%s)",
-            self.device_name,
-            target_pct,
-            heater_entity_id,
-            source,
-        )
-    return ok
-
-
-async def _reset_valve_on_safety_override(
-    self, heater_entity_id: str, new_hvac_mode, source: str | None
-) -> None:
-    """Reset valve to 0% when safety overrides force HVAC OFF during boost mode.
-
-    When boost mode sets valve to 100% but safety checks (window open, no heat call)
-    force HVAC mode to OFF, we must reset the valve to avoid conflicting commands.
-    """
-    if new_hvac_mode == HVACMode.OFF and source == "boost_mode":
-        try:
-            _LOGGER.debug(
-                "better_thermostat %s: Safety override active, resetting valve to 0%% for %s",
-                self.device_name,
-                heater_entity_id,
-            )
-            await set_valve(self, heater_entity_id, 0)
-        except Exception:
-            _LOGGER.warning(
-                "better_thermostat %s: Failed to reset valve for %s during safety override",
-                self.device_name,
-                heater_entity_id,
-                exc_info=True,
-            )
-
-
-def _apply_valve_max_opening(self, entity_id: str, target_pct: int) -> int:
-    """Clamp target valve percent to user-defined max opening (if configured)."""
-
-    max_opening = (self.real_trvs.get(entity_id) or {}).get("valve_max_opening")
-    if isinstance(max_opening, (int, float)):
-        try:
-            max_opening = int(round(float(max_opening)))
-        except (TypeError, ValueError):
-            return target_pct
-        return min(target_pct, max(0, min(100, max_opening)))
-    return target_pct
-
-
 class TaskManager:
     """Manages background asyncio tasks with automatic cleanup.
 
     Tracks created tasks and automatically removes them from the set when they complete.
     """
 
-    def __init__(self):
+    def __init__(self, hass=None):
         """Initialize the task manager with an empty task set."""
         self.tasks = set()
+        self.hass = hass
 
-    def create_task(self, coro):
+    def create_task(self, coro, name=None):
         """Create and track an asyncio task with automatic cleanup on completion.
 
         Parameters
         ----------
         coro : Coroutine
             The coroutine to execute as a task
+        name : str, optional
+            A descriptive name for the background task
 
         Returns
         -------
         asyncio.Task
             The created task
         """
-        task = asyncio.create_task(coro)
+        if self.hass is not None:
+            task = self.hass.async_create_background_task(
+                coro, name=name or "bt_task_manager_task"
+            )
+        else:
+            task = asyncio.create_task(coro)
         self.tasks.add(task)
         task.add_done_callback(self.tasks.discard)
         return task
@@ -206,7 +155,7 @@ async def control_queue(self):
         This function runs indefinitely in an asyncio task
     """
     if not hasattr(self, "task_manager"):
-        self.task_manager = TaskManager()
+        self.task_manager = TaskManager(hass=self.hass)
 
     try:
         while True:
@@ -420,7 +369,7 @@ async def control_trv(self, heater_entity_id=None):
         return False
 
     if not hasattr(self, "task_manager"):
-        self.task_manager = TaskManager()
+        self.task_manager = TaskManager(hass=self.hass)
 
     async with self._temp_lock:
         self.real_trvs[heater_entity_id]["ignore_trv_states"] = True
@@ -429,8 +378,10 @@ async def control_trv(self, heater_entity_id=None):
             if hasattr(self, "attr_hvac_action"):
                 self.old_attr_hvac_action = getattr(self, "attr_hvac_action", None)
             # Recompute current hvac action (uses internal climate logic)
-            if hasattr(self, "_compute_hvac_action"):
-                self.attr_hvac_action = self._compute_hvac_action()
+            if hasattr(self, "_compute_hvac_action_pure"):
+                result = self._compute_hvac_action_pure()
+                self._commit_hvac_action(result)
+                self.attr_hvac_action = result.action
         except Exception:
             _LOGGER.debug(
                 "better_thermostat %s: hvac action recompute failed (non critical)",
@@ -474,8 +425,6 @@ async def control_trv(self, heater_entity_id=None):
             return False
 
         _temperature = _remapped_states.get("temperature", None)
-        if _is_boost_heating_active(self):
-            _temperature = self.real_trvs[heater_entity_id]["max_temp"]
         _calibration = _remapped_states.get("local_temperature_calibration", None)
         _calibration_mode = self.real_trvs[heater_entity_id]["advanced"].get(
             "calibration_mode", CalibrationMode.MPC_CALIBRATION
@@ -483,6 +432,13 @@ async def control_trv(self, heater_entity_id=None):
         _calibration_type = self.real_trvs[heater_entity_id]["advanced"].get(
             "calibration", CalibrationType.TARGET_TEMP_BASED
         )
+        # Pair the forced 100 % valve with a max-temp setpoint so the TRV
+        # firmware does not fight the valve command.
+        if (
+            _is_boost_heating_active(self)
+            and _calibration_type == CalibrationType.DIRECT_VALVE_BASED
+        ):
+            _temperature = self.real_trvs[heater_entity_id]["max_temp"]
 
         # Optional: set valve position if supported (e.g., MQTT/Z2M)
         try:
@@ -523,8 +479,14 @@ async def control_trv(self, heater_entity_id=None):
             _new_hvac_mode = HVACMode.OFF
 
         # Safety override: if boost mode was active but we forced OFF (window/no-heat),
-        # ensure valve is reset to 0% to prevent overheating.
-        if _is_boost_heating_active(self) and _new_hvac_mode == HVACMode.OFF:
+        # ensure valve is reset to 0% to prevent overheating. Only direct-valve
+        # calibration types accept valve commands; LOCAL_BASED and
+        # TARGET_TEMP_BASED control via offset / setpoint instead.
+        if (
+            _is_boost_heating_active(self)
+            and _new_hvac_mode == HVACMode.OFF
+            and _calibration_type == CalibrationType.DIRECT_VALVE_BASED
+        ):
             _LOGGER.debug(
                 "better_thermostat %s: Boost safety override - resetting valve to 0%% because HVAC mode is OFF",
                 self.device_name,
@@ -573,7 +535,10 @@ async def control_trv(self, heater_entity_id=None):
                 await set_hvac_mode(self, heater_entity_id, _new_hvac_mode)
             if self.real_trvs[heater_entity_id]["system_mode_received"] is True:
                 self.real_trvs[heater_entity_id]["system_mode_received"] = False
-                self.task_manager.create_task(check_system_mode(self, heater_entity_id))
+                self.task_manager.create_task(
+                    check_system_mode(self, heater_entity_id),
+                    name=f"bt_check_system_mode_{heater_entity_id}",
+                )
 
         # set new calibration offset
         if (
@@ -649,7 +614,8 @@ async def control_trv(self, heater_entity_id=None):
                 if self.real_trvs[heater_entity_id]["target_temp_received"] is True:
                     self.real_trvs[heater_entity_id]["target_temp_received"] = False
                     self.task_manager.create_task(
-                        check_target_temperature(self, heater_entity_id)
+                        check_target_temperature(self, heater_entity_id),
+                        name=f"bt_check_target_temp_{heater_entity_id}",
                     )
 
     # Let TRV state updates propagate before accepting new state events

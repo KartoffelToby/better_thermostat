@@ -4,10 +4,11 @@ Covers EMA calculation, temperature application, guard clauses, debounce
 acceptance logic, accumulation tracking, and plateau acceptance.
 """
 
-from datetime import datetime, timedelta
+from datetime import timedelta
 from unittest.mock import AsyncMock, MagicMock, patch
 
 from homeassistant.core import State
+from homeassistant.util import dt as dt_util
 import pytest
 
 from custom_components.better_thermostat.events.temperature import (
@@ -38,7 +39,7 @@ def mock_bt():
     bt.prev_stable_temp = 20.0
     bt.last_change_direction = 0
     bt.last_known_external_temp = 20.0
-    bt.last_external_sensor_change = datetime.now() - timedelta(seconds=60)
+    bt.last_external_sensor_change = dt_util.now() - timedelta(seconds=60)
 
     # EMA state
     bt.external_temp_ema_tau_s = 300.0
@@ -49,7 +50,7 @@ def mock_bt():
     # Accumulation state
     bt.accum_delta = 0.0
     bt.accum_dir = 0
-    bt.accum_since = datetime.now()
+    bt.accum_since = dt_util.now()
 
     # Pending / plateau state
     bt.pending_temp = None
@@ -214,7 +215,7 @@ class TestApplyTemperatureUpdate:
     async def test_resets_pending(self, mock_bt):
         """Reset pending_temp and pending_since to None after accepting."""
         mock_bt.pending_temp = 21.0
-        mock_bt.pending_since = datetime.now()
+        mock_bt.pending_since = dt_util.now()
 
         await _apply_temperature_update(mock_bt, 21.0)
 
@@ -383,7 +384,7 @@ class TestTemperatureAcceptance:
     async def test_significant_change_accepted_after_interval(self, mock_bt):
         """Accept a significant change (>= 0.11) when the interval has elapsed."""
         mock_bt.cur_temp = 20.0
-        mock_bt.last_external_sensor_change = datetime.now() - timedelta(seconds=60)
+        mock_bt.last_external_sensor_change = dt_util.now() - timedelta(seconds=60)
         event = _make_event(State(SENSOR_ID, "21.0"))
 
         await trigger_temperature_change(mock_bt, event)
@@ -399,7 +400,7 @@ class TestTemperatureAcceptance:
         and "accumulated" paths, so within-debounce changes are rejected.
         """
         mock_bt.cur_temp = 20.0
-        mock_bt.last_external_sensor_change = datetime.now() - timedelta(seconds=1)
+        mock_bt.last_external_sensor_change = dt_util.now() - timedelta(seconds=1)
         event = _make_event(State(SENSOR_ID, "20.5"))
 
         await trigger_temperature_change(mock_bt, event)
@@ -412,7 +413,7 @@ class TestTemperatureAcceptance:
         """Reject a HomematicIP change within the 600s debounce window."""
         mock_bt.all_trvs = [{"advanced": {CONF_HOMEMATICIP: True}}]
         mock_bt.cur_temp = 20.0
-        mock_bt.last_external_sensor_change = datetime.now() - timedelta(seconds=30)
+        mock_bt.last_external_sensor_change = dt_util.now() - timedelta(seconds=30)
         event = _make_event(State(SENSOR_ID, "20.5"))
 
         await trigger_temperature_change(mock_bt, event)
@@ -424,7 +425,7 @@ class TestTemperatureAcceptance:
     async def test_sub_threshold_change_not_accepted_immediately(self, mock_bt):
         """Reject a change below the 0.11 significance threshold."""
         mock_bt.cur_temp = 20.0
-        mock_bt.last_external_sensor_change = datetime.now() - timedelta(seconds=60)
+        mock_bt.last_external_sensor_change = dt_util.now() - timedelta(seconds=60)
         event = _make_event(State(SENSOR_ID, "20.05"))
 
         await trigger_temperature_change(mock_bt, event)
@@ -435,7 +436,7 @@ class TestTemperatureAcceptance:
     async def test_identical_temp_not_accepted(self, mock_bt):
         """Reject an identical temperature (diff=0.0 < threshold 0.11)."""
         mock_bt.cur_temp = 20.0
-        mock_bt.last_external_sensor_change = datetime.now() - timedelta(seconds=60)
+        mock_bt.last_external_sensor_change = dt_util.now() - timedelta(seconds=60)
         event = _make_event(State(SENSOR_ID, "20.0"))
 
         await trigger_temperature_change(mock_bt, event)
@@ -457,7 +458,7 @@ class TestTemperatureAcceptance:
         """Use a 600s debounce interval for HomematicIP TRVs."""
         mock_bt.all_trvs = [{"advanced": {CONF_HOMEMATICIP: True}}]
         mock_bt.cur_temp = 20.0
-        mock_bt.last_external_sensor_change = datetime.now() - timedelta(seconds=700)
+        mock_bt.last_external_sensor_change = dt_util.now() - timedelta(seconds=700)
         event = _make_event(State(SENSOR_ID, "21.0"))
 
         await trigger_temperature_change(mock_bt, event)
@@ -511,7 +512,7 @@ class TestAccumulationTracking:
         mock_bt.cur_temp = 20.0
         mock_bt.accum_delta = 0.08
         mock_bt.accum_dir = 1
-        mock_bt.last_external_sensor_change = datetime.now() - timedelta(seconds=1)
+        mock_bt.last_external_sensor_change = dt_util.now() - timedelta(seconds=1)
 
         event = _make_event(State(SENSOR_ID, "20.05"))
         await trigger_temperature_change(mock_bt, event)
@@ -548,7 +549,7 @@ class TestAccumulationTracking:
         """Clear pending_temp when the new value equals cur_temp."""
         mock_bt.cur_temp = 20.0
         mock_bt.pending_temp = 20.05
-        mock_bt.pending_since = datetime.now()
+        mock_bt.pending_since = dt_util.now()
 
         event = _make_event(State(SENSOR_ID, "20.0"))
         await trigger_temperature_change(mock_bt, event)
@@ -569,7 +570,7 @@ class TestPlateauLogic:
         """Accept a sub-threshold change that has been stable for 120s."""
         mock_bt.cur_temp = 20.0
         mock_bt.pending_temp = 20.05
-        mock_bt.pending_since = datetime.now() - timedelta(seconds=300)
+        mock_bt.pending_since = dt_util.now() - timedelta(seconds=300)
 
         event = _make_event(State(SENSOR_ID, "20.05"))
 
@@ -611,3 +612,172 @@ class TestPlateauLogic:
 
         # accum_delta = 0.10 + 0.05 = 0.15 >= 0.11 → accepted as "accumulated"
         mock_bt.control_queue_task.put.assert_awaited_once()
+
+
+# ---------------------------------------------------------------------------
+# 7. Edge cases and robustness
+# ---------------------------------------------------------------------------
+
+
+class TestEdgeCasesAndRobustness:
+    """Edge cases that probe error handling and invariant boundaries."""
+
+    @pytest.mark.asyncio
+    async def test_all_trvs_none_does_not_crash(self, mock_bt):
+        """all_trvs=None should not crash the HomematicIP detection loop.
+
+        The loop `for trv in self.all_trvs` raises TypeError when
+        all_trvs is None, which is NOT caught by `except KeyError`.
+        """
+        mock_bt.all_trvs = None
+        mock_bt.cur_temp = 20.0
+        mock_bt.last_external_sensor_change = dt_util.now() - timedelta(seconds=60)
+        event = _make_event(State(SENSOR_ID, "21.0"))
+
+        await trigger_temperature_change(mock_bt, event)
+        assert mock_bt.cur_temp == 21.0
+
+    @pytest.mark.asyncio
+    async def test_all_trvs_advanced_none_does_not_crash(self, mock_bt):
+        """TRV with advanced=None should not crash HomematicIP detection.
+
+        `None[CONF_HOMEMATICIP]` raises TypeError, not KeyError.
+        """
+        mock_bt.all_trvs = [{"advanced": None}]
+        mock_bt.cur_temp = 20.0
+        mock_bt.last_external_sensor_change = dt_util.now() - timedelta(seconds=60)
+        event = _make_event(State(SENSOR_ID, "21.0"))
+
+        await trigger_temperature_change(mock_bt, event)
+        assert mock_bt.cur_temp == 21.0
+
+    @pytest.mark.asyncio
+    async def test_minus_50_exactly_accepted(self, mock_bt):
+        """Temperature exactly -50.0 is on the inclusive lower bound."""
+        mock_bt.cur_temp = None
+        event = _make_event(State(SENSOR_ID, "-50.0"))
+
+        await trigger_temperature_change(mock_bt, event)
+        assert mock_bt.cur_temp == -50.0
+
+    @pytest.mark.asyncio
+    async def test_below_minus_50_rejected(self, mock_bt):
+        """Temperature below the lower plausibility bound is rejected."""
+        mock_bt.cur_temp = 20.0
+        event = _make_event(State(SENSOR_ID, "-100.0"))
+
+        with patch(
+            "custom_components.better_thermostat.events.temperature.ir.async_create_issue"
+        ) as mock_create_issue:
+            await trigger_temperature_change(mock_bt, event)
+
+        assert mock_bt.cur_temp == 20.0
+        mock_create_issue.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_avm_off_marker_rejected(self, mock_bt):
+        """AVM Fritz!DECT 126.5 °C (OFF marker) must not update cur_temp."""
+        mock_bt.cur_temp = 20.0
+        event = _make_event(State(SENSOR_ID, "126.5"))
+
+        with patch(
+            "custom_components.better_thermostat.events.temperature.ir.async_create_issue"
+        ) as mock_create_issue:
+            await trigger_temperature_change(mock_bt, event)
+
+        assert mock_bt.cur_temp == 20.0
+        mock_create_issue.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_avm_on_marker_rejected(self, mock_bt):
+        """AVM Fritz!DECT 127.0 °C (ON marker) must not update cur_temp."""
+        mock_bt.cur_temp = 20.0
+        event = _make_event(State(SENSOR_ID, "127.0"))
+
+        with patch(
+            "custom_components.better_thermostat.events.temperature.ir.async_create_issue"
+        ) as mock_create_issue:
+            await trigger_temperature_change(mock_bt, event)
+
+        assert mock_bt.cur_temp == 20.0
+        mock_create_issue.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_60_exactly_accepted(self, mock_bt):
+        """Temperature exactly 60.0 is on the inclusive upper bound."""
+        mock_bt.cur_temp = None
+        event = _make_event(State(SENSOR_ID, "60.0"))
+
+        await trigger_temperature_change(mock_bt, event)
+        assert mock_bt.cur_temp == 60.0
+
+    @pytest.mark.asyncio
+    async def test_control_queue_none_no_crash_in_apply(self, mock_bt):
+        """No crash when control_queue_task is None during _apply_temperature_update."""
+        mock_bt.control_queue_task = None
+        mock_bt.cur_temp = None
+        event = _make_event(State(SENSOR_ID, "21.0"))
+
+        await trigger_temperature_change(mock_bt, event)
+        assert mock_bt.cur_temp == 21.0
+
+    @pytest.mark.asyncio
+    async def test_ema_failure_does_not_block_update(self, mock_bt):
+        """EMA calculation failure should not prevent temperature update."""
+        mock_bt.cur_temp = None
+        # Force EMA to fail by making tau_s non-numeric
+        mock_bt.external_temp_ema_tau_s = "invalid"
+        event = _make_event(State(SENSOR_ID, "21.0"))
+
+        await trigger_temperature_change(mock_bt, event)
+        # Temperature should still be updated despite EMA failure
+        assert mock_bt.cur_temp == 21.0
+
+    @pytest.mark.asyncio
+    async def test_plateau_timer_cancelled_on_pending_value_change(self, mock_bt):
+        """Changing pending value should cancel the old plateau timer."""
+        mock_bt.cur_temp = 20.0
+        mock_bt.pending_temp = 20.03
+        mock_bt.pending_since = dt_util.now() - timedelta(seconds=10)
+        cancel_fn = MagicMock()
+        mock_bt.plateau_timer_cancel = cancel_fn
+        mock_bt.last_external_sensor_change = dt_util.now() - timedelta(seconds=2)
+
+        # New sub-threshold value different from pending
+        event = _make_event(State(SENSOR_ID, "20.07"))
+        with patch(
+            "custom_components.better_thermostat.events.temperature.async_call_later",
+            return_value=MagicMock(),
+        ):
+            await trigger_temperature_change(mock_bt, event)
+
+        # Old timer should be cancelled, new pending set
+        cancel_fn.assert_called_once()
+        assert mock_bt.pending_temp == 20.07
+
+    @pytest.mark.asyncio
+    async def test_last_external_sensor_change_typeerror_handled(self, mock_bt):
+        """TypeError in age calculation should fall back to large age."""
+        mock_bt.cur_temp = 20.0
+        mock_bt.last_external_sensor_change = "not_a_datetime"
+        event = _make_event(State(SENSOR_ID, "21.0"))
+
+        await trigger_temperature_change(mock_bt, event)
+        # With fallback _age=999999, _interval_ok=True → accepted
+        assert mock_bt.cur_temp == 21.0
+
+    @pytest.mark.asyncio
+    async def test_multiple_homematicip_trvs_any_sets_600s(self, mock_bt):
+        """If ANY TRV is HomematicIP, 600s debounce applies."""
+        mock_bt.all_trvs = [
+            {"advanced": {CONF_HOMEMATICIP: False}},
+            {"advanced": {CONF_HOMEMATICIP: True}},
+        ]
+        mock_bt.cur_temp = 20.0
+        mock_bt.last_external_sensor_change = dt_util.now() - timedelta(seconds=30)
+        event = _make_event(State(SENSOR_ID, "21.0"))
+
+        await trigger_temperature_change(mock_bt, event)
+
+        # 30s < 600s → rejected because one TRV is HomematicIP
+        assert mock_bt.cur_temp == 20.0

@@ -157,8 +157,9 @@ async def _register_dynamic_entity_callback(
             "Better Thermostat %s: Configuration change detected via signal, checking entity requirements",
             bt_climate.device_name,
         )
-        hass.async_create_task(
-            _handle_dynamic_entity_update(hass, entry, bt_climate, async_add_entities)
+        hass.async_create_background_task(
+            _handle_dynamic_entity_update(hass, entry, bt_climate, async_add_entities),
+            name=f"bt_dynamic_entity_update_{entry.entry_id}",
         )
 
     # Store callback für späteren Cleanup

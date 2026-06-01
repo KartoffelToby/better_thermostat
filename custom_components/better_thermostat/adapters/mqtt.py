@@ -76,7 +76,7 @@ async def init(self, entity_id):
             await self.hass.services.async_call(
                 "climate",
                 "set_preset_mode",
-                {"entity_id": entity_id, "preset_mode": "manual"},
+                {"entity_id": entity_id, "preset_mode": "none"},
                 blocking=True,
                 context=self.context,
             )

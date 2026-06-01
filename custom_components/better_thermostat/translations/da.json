@@ -107,6 +107,14 @@
           }
         }
       }
+    },
+    "degraded_mode": {
+      "title": "BT: {name} - sensorfejl: {sensors} kører i nedsat tilstand",
+      "description": "Better Thermostat kører i nedsat tilstand, fordi nogle sensorer ikke er tilgængelige: {sensors}\n\nTermostaten vil fortsætte med at fungere med reduceret funktionalitet. For eksempel:\n- Hvis rumtemperatursensoren ikke er tilgængelig, bruges TRV'ens interne sensor i stedet.\n- Hvis vinduesensorer ikke er tilgængelige, antages vinduer at være lukkede.\n- Hvis udendørs-/vejrsensorer ikke er tilgængelige, vil opvarmning altid være aktiveret.\n\nKontroller, om de berørte enheder har batteriproblemer eller forbindelsesproblemer."
+    },
+    "invalid_window_state": {
+      "title": "BT: {name} - ugyldig vinduesensortilstand",
+      "description": "Vinduesensoren for Better Thermostat {name} rapporterede en ukendt tilstand: {state}.\n\nForventede tilstande er: 'on', 'off', 'true', 'false', 'open', 'closed'.\n\nKontroller din vinduesensorkonfiguration."
     }
   },
   "services": {

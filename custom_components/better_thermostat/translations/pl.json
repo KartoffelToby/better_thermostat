@@ -102,6 +102,14 @@
           }
         }
       }
+    },
+    "degraded_mode": {
+      "title": "BT: {name} - błąd czujnika: {sensors} działa w trybie ograniczonym",
+      "description": "Better Thermostat działa w trybie ograniczonym, ponieważ niektóre czujniki są niedostępne: {sensors}\n\nTermostat będzie nadal działać z ograniczoną funkcjonalnością. Na przykład:\n- Jeśli czujnik temperatury pokojowej jest niedostępny, zostanie użyty wewnętrzny czujnik TRV.\n- Jeśli czujniki okien są niedostępne, okna są uznawane za zamknięte.\n- Jeśli czujniki zewnętrzne/pogodowe są niedostępne, ogrzewanie będzie zawsze włączone.\n\nSprawdź, czy dotknięte urządzenia mają problemy z baterią lub łącznością."
+    },
+    "invalid_window_state": {
+      "title": "BT: {name} - nieprawidłowy stan czujnika okna",
+      "description": "Czujnik okna dla Better Thermostat {name} zgłosił nierozpoznany stan: {state}.\n\nOczekiwane stany to: 'on', 'off', 'true', 'false', 'open', 'closed'.\n\nSprawdź konfigurację czujnika okna."
     }
   },
   "services": {},

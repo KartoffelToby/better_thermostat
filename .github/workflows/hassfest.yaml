@@ -2,13 +2,33 @@ name: Validate with hassfest
 
 on:
   push:
+    branches: [develop, master]
   pull_request:
   schedule:
     - cron: "0 0 * * *"
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 jobs:
   validate:
     runs-on: "ubuntu-latest"
+    # Worst-case pre-pull budget: 3 attempts * 2 min + 2 * 15 s wait = ~6.5 min,
+    # leaving ~8.5 min for hassfest itself.
+    timeout-minutes: 15
     steps:
-      - uses: "actions/checkout@v4"
+      - uses: "actions/checkout@v6"
+      # Pre-pull the hassfest image with retry. GHCR head-of-line latency
+      # has been observed to time out the action's first-attempt pull, so
+      # retry the pull explicitly before invoking the action.
+      - name: Pre-pull hassfest image
+        uses: nick-fields/retry@v4
+        with:
+          timeout_minutes: 2
+          max_attempts: 3
+          retry_wait_seconds: 15
+          command: docker pull ghcr.io/home-assistant/hassfest:latest
+      # Intentionally tracks @master: we develop against the current Home
+      # Assistant release, so hassfest should match.
       - uses: home-assistant/actions/hassfest@master

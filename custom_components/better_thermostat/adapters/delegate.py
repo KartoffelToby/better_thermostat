@@ -45,9 +45,13 @@ async def load_adapter(self, integration, entity_id, get_name=False):
     return self.adapter
 
 
-@async_retry(retries=5)
 async def init(self, entity_id):
-    """Init adapter."""
+    """Init adapter.
+
+    Transient unavailability is handled inside the adapter's
+    ``wait_for_calibration_entity_or_timeout`` (6 × 5 s polls). The call
+    is invoked under a 30 s outer budget in ``_initialize_trvs``.
+    """
     return await self.real_trvs[entity_id]["adapter"].init(self, entity_id)
 
 

@@ -41,7 +41,7 @@ _PATCHES = {
 }
 
 
-def _close_coro(coro):
+def _close_coro(coro, **kwargs):
     """Close coroutine to avoid RuntimeWarning."""
     if inspect.iscoroutine(coro):
         coro.close()
@@ -88,7 +88,7 @@ def _make_mock_self(trv_state=None, trv_attrs=None, real_trvs=None, **kwargs):
     mock_self.bt_target_temp = kwargs.pop("bt_target_temp", 22.0)
     mock_self.context = kwargs.pop("context", None)
     mock_self.ignore_states = kwargs.pop("ignore_states", False)
-    mock_self.task_manager = Mock(create_task=Mock())
+    mock_self.task_manager = Mock(create_task=Mock(side_effect=_close_coro))
 
     if real_trvs is None:
         real_trvs = {"climate.trv1": _default_trv_config()}
@@ -308,13 +308,21 @@ class TestControlTrvUnavailablePath:
 
     @pytest.mark.asyncio
     async def test_boost_mode_sets_max_temp(self):
-        """Test that boost mode sets temperature to max_temp."""
+        """Boost on a DIRECT_VALVE_BASED TRV sets temperature to max_temp."""
         mock_self = _make_mock_self(
             trv_state=STATE_UNAVAILABLE,
             preset_mode=PRESET_BOOST,
             cur_temp=18.0,
             bt_target_temp=22.0,
-            real_trvs={"climate.trv1": _default_trv_config()},
+            real_trvs={
+                "climate.trv1": _default_trv_config(
+                    advanced={
+                        "calibration_mode": CalibrationMode.MPC_CALIBRATION,
+                        "calibration": CalibrationType.DIRECT_VALVE_BASED,
+                        "no_off_system_mode": False,
+                    }
+                )
+            },
         )
 
         with (
@@ -325,6 +333,8 @@ class TestControlTrvUnavailablePath:
                 _PATCHES["override_set_hvac_mode"], new=AsyncMock(return_value=False)
             ),
             patch(_PATCHES["set_hvac_mode"], new=AsyncMock()),
+            patch(_PATCHES["get_current_offset"], new=AsyncMock(return_value=0.0)),
+            patch(_PATCHES["set_offset"], new=AsyncMock()),
             patch("asyncio.sleep", new=AsyncMock()),
         ):
             mock_convert.return_value = {
@@ -340,6 +350,53 @@ class TestControlTrvUnavailablePath:
             mock_set_temp.assert_called_once()
             args = mock_set_temp.call_args[0]
             assert args[2] == 30.0  # max_temp
+
+    @pytest.mark.asyncio
+    async def test_boost_mode_offset_does_not_override_temp(self):
+        """Boost on an offset-mode TRV keeps the calibrated setpoint, not max."""
+        mock_self = _make_mock_self(
+            trv_state=STATE_UNAVAILABLE,
+            preset_mode=PRESET_BOOST,
+            cur_temp=18.0,
+            bt_target_temp=22.0,
+            real_trvs={
+                "climate.trv1": _default_trv_config(
+                    advanced={
+                        "calibration_mode": CalibrationMode.MPC_CALIBRATION,
+                        "calibration": CalibrationType.LOCAL_BASED,
+                        "no_off_system_mode": False,
+                    }
+                )
+            },
+        )
+
+        with (
+            patch(_PATCHES["convert_outbound_states"]) as mock_convert,
+            patch(_PATCHES["set_temperature"]) as mock_set_temp,
+            patch(_PATCHES["set_valve"]) as mock_set_valve,
+            patch(_PATCHES["handle_window_open"]) as mock_window,
+            patch(
+                _PATCHES["override_set_hvac_mode"], new=AsyncMock(return_value=False)
+            ),
+            patch(_PATCHES["set_hvac_mode"], new=AsyncMock()),
+            patch(_PATCHES["get_current_offset"], new=AsyncMock(return_value=0.0)),
+            patch(_PATCHES["set_offset"], new=AsyncMock()),
+            patch("asyncio.sleep", new=AsyncMock()),
+        ):
+            mock_convert.return_value = {
+                "temperature": 22.0,
+                "local_temperature_calibration": -1.0,
+                "system_mode": HVACMode.HEAT,
+            }
+            mock_set_temp.return_value = None
+            mock_window.return_value = HVACMode.HEAT
+
+            await control_trv(mock_self, "climate.trv1")
+
+            mock_set_temp.assert_called_once()
+            args = mock_set_temp.call_args[0]
+            assert args[2] == 22.0  # calibrated setpoint, not max_temp
+            mock_set_valve.assert_not_called()
 
     @pytest.mark.asyncio
     async def test_window_open_sets_mode_to_off(self):

@@ -8,13 +8,18 @@ import re
 from typing import Any
 
 from homeassistant.components.climate.const import HVACMode
+from homeassistant.const import UnitOfTemperature
 from homeassistant.helpers import device_registry as dr, entity_registry as er
 from homeassistant.helpers.entity_registry import async_entries_for_config_entry
+from homeassistant.util import dt as dt_util
+from homeassistant.util.unit_conversion import TemperatureConverter
 
 from custom_components.better_thermostat.utils.const import (
     CONF_HEAT_AUTO_SWAPPED,
     MAX_HEATING_POWER,
+    MAX_REASONABLE_TEMPERATURE,
     MIN_HEATING_POWER,
+    MIN_REASONABLE_TEMPERATURE,
     VALVE_MIN_BASE,
     VALVE_MIN_OPENING_LARGE_DIFF,
     VALVE_MIN_PROPORTIONAL_SLOPE,
@@ -274,6 +279,20 @@ def heating_power_valve_position(self, entity_id):
     # | 0.5       | 1.0000     |
 
 
+def is_reasonable_temperature(value: float | None) -> bool:
+    """Return ``True`` iff ``value`` is a plausible indoor temperature in °C.
+
+    Rejects ``None`` and any value outside ``MIN_REASONABLE_TEMPERATURE`` ..
+    ``MAX_REASONABLE_TEMPERATURE``. Out-of-range values are typically
+    marker / garbage readings produced by upstream integrations (for
+    example, AVM Fritz!DECT exposes 126.5 / 127 °C when the thermostat is
+    in OFF / ON mode).
+    """
+    if value is None:
+        return False
+    return MIN_REASONABLE_TEMPERATURE <= value <= MAX_REASONABLE_TEMPERATURE
+
+
 def convert_to_float(
     value: str | int | float | None, instance_name: str, context: str
 ) -> float | None:
@@ -308,6 +327,42 @@ def convert_to_float(
             context,
         )
         return None
+
+
+def convert_to_float_celsius(
+    value: str | int | float | None,
+    instance_name: str,
+    context: str,
+    unit_of_measurement: str | None = None,
+) -> float | None:
+    """Convert value to float and ensure it is in Celsius.
+
+    If *unit_of_measurement* indicates Fahrenheit the value is converted to
+    Celsius after the initial float conversion.
+
+    Parameters
+    ----------
+    value : str | int | float | None
+            the value to convert
+    instance_name : str
+            thermostat instance name (for logging)
+    context : str
+            calling function context (for logging)
+    unit_of_measurement : str | None
+            the unit of the incoming value (e.g. ``UnitOfTemperature.FAHRENHEIT``)
+
+    Returns
+    -------
+    float | None
+            the value in Celsius, or None if conversion failed
+    """
+    result = convert_to_float(value, instance_name, context)
+    if result is not None and unit_of_measurement == UnitOfTemperature.FAHRENHEIT:
+        result = TemperatureConverter.convert(
+            result, UnitOfTemperature.FAHRENHEIT, UnitOfTemperature.CELSIUS
+        )
+        result = round(result, 2)
+    return result
 
 
 class rounding:
@@ -401,7 +456,7 @@ def convert_time(time_string):
             If the time string is not a valid time.
     """
     try:
-        _current_time = datetime.now()
+        _current_time = dt_util.now()
         _get_hours_minutes = datetime.strptime(time_string, "%H:%M")
         return _current_time.replace(
             hour=_get_hours_minutes.hour,

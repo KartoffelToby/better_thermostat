@@ -1,6 +1,6 @@
 
-homeassistant==2026.1.0
+homeassistant
 pre-commit==3.8.0
 codespell==2.3.0
-ruff==0.14.10
+ruff==0.15.13
 yamllint==1.35.1

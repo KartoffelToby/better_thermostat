@@ -5,11 +5,11 @@ helper functions used by the Better Thermostat integration to read and
 convert thermostat states and prepare outbound payloads.
 """
 
-from datetime import datetime
 import logging
 
 from homeassistant.components.climate.const import HVACMode
 from homeassistant.core import State, callback
+from homeassistant.util import dt as dt_util
 
 from custom_components.better_thermostat.adapters.delegate import get_current_offset
 from custom_components.better_thermostat.calibration import (
@@ -26,7 +26,9 @@ from custom_components.better_thermostat.utils.const import (
 )
 from custom_components.better_thermostat.utils.helpers import (
     convert_to_float,
+    convert_to_float_celsius,
     get_device_model,
+    is_reasonable_temperature,
     mode_remap,
 )
 
@@ -116,11 +118,25 @@ async def trigger_trv_change(self, event):
             e,
         )
 
-    _new_current_temp = convert_to_float(
+    _new_current_temp = convert_to_float_celsius(
         str(_org_trv_state.attributes.get("current_temperature", None)),
         self.device_name,
         "TRV_current_temp",
+        unit_of_measurement=_org_trv_state.attributes.get(
+            "temperature_unit", _org_trv_state.attributes.get("unit_of_measurement")
+        ),
     )
+    if _new_current_temp is not None and not is_reasonable_temperature(
+        _new_current_temp
+    ):
+        _LOGGER.warning(
+            "better_thermostat %s: TRV %s reports implausible current_temperature "
+            "%s; ignoring",
+            self.device_name,
+            entity_id,
+            _new_current_temp,
+        )
+        _new_current_temp = None
 
     _time_diff = 5
     try:
@@ -133,7 +149,7 @@ async def trigger_trv_change(self, event):
         _new_current_temp is not None
         and self.real_trvs[entity_id]["current_temperature"] != _new_current_temp
         and (
-            (datetime.now() - self.last_internal_sensor_change).total_seconds()
+            (dt_util.now() - self.last_internal_sensor_change).total_seconds()
             > _time_diff
             or (
                 self.real_trvs[entity_id]["calibration_received"] is False
@@ -150,7 +166,7 @@ async def trigger_trv_change(self, event):
             _old_temp,
             _new_current_temp,
         )
-        self.last_internal_sensor_change = datetime.now()
+        self.last_internal_sensor_change = dt_util.now()
         _main_change = True
 
         # async def in controlling? (left as note)
@@ -238,15 +254,21 @@ async def trigger_trv_change(self, event):
     if "temperature" not in old_state.attributes:
         _main_key = "target_temp_low"
 
-    _old_heating_setpoint = convert_to_float(
+    _old_heating_setpoint = convert_to_float_celsius(
         str(old_state.attributes.get(_main_key, None)),
         self.device_name,
         "trigger_trv_change()",
+        unit_of_measurement=old_state.attributes.get(
+            "temperature_unit", old_state.attributes.get("unit_of_measurement")
+        ),
     )
-    _new_heating_setpoint = convert_to_float(
+    _new_heating_setpoint = convert_to_float_celsius(
         str(new_state.attributes.get(_main_key, None)),
         self.device_name,
         "trigger_trv_change()",
+        unit_of_measurement=new_state.attributes.get(
+            "temperature_unit", new_state.attributes.get("unit_of_measurement")
+        ),
     )
     _is_no_off_device = self.real_trvs[entity_id]["advanced"].get(
         "no_off_system_mode", False
@@ -254,7 +276,7 @@ async def trigger_trv_change(self, event):
     if (
         _new_heating_setpoint is not None
         and _old_heating_setpoint is not None
-        and (self.bt_hvac_mode is not HVACMode.OFF or _is_no_off_device)
+        and (self.bt_hvac_mode != HVACMode.OFF or _is_no_off_device)
     ):
         _LOGGER.debug(
             "better_thermostat %s: trigger_trv_change / _old_heating_setpoint: %s - _new_heating_setpoint: %s - _last_temperature: %s",
@@ -278,44 +300,56 @@ async def trigger_trv_change(self, event):
             else:
                 _new_heating_setpoint = self.bt_max_temp
 
+        # Step-aware echo detection: changes strictly smaller than the device
+        # step are treated as device-side rounding echoes of a BT-written
+        # value, not as user input. User input on a TRV display moves the
+        # setpoint by at least one step.
+        _step_raw = (
+            self.real_trvs[entity_id].get("target_temp_step")
+            or self.bt_target_temp_step
+            or 0.5
+        )
+        try:
+            _step = float(_step_raw)
+        except (TypeError, ValueError):
+            _step = 0.5
+        if _step <= 0:
+            _step = 0.5
+        # Compare only against values BT itself wrote. ``_old_heating_setpoint``
+        # is the TRV's previously published state and is not necessarily a
+        # BT-written value, so it does not belong in the echo-suppression set.
+        _bt_known_values = (
+            self.bt_target_temp,
+            self.real_trvs[entity_id]["last_temperature"],
+        )
+        _is_echo = any(
+            v is not None and abs(_new_heating_setpoint - v) < _step
+            for v in _bt_known_values
+        )
         if (
-            _new_heating_setpoint
-            not in (
-                self.bt_target_temp,
-                _old_heating_setpoint,
-                self.real_trvs[entity_id]["last_temperature"],
-            )
+            not _is_echo
             and not child_lock
             and self.real_trvs[entity_id]["target_temp_received"] is True
             and self.real_trvs[entity_id]["system_mode_received"] is True
-            and self.real_trvs[entity_id]["hvac_mode"] is not HVACMode.OFF
+            and self.real_trvs[entity_id]["hvac_mode"] != HVACMode.OFF
             and self.window_open is False
             and not self.real_trvs[entity_id].get("ignore_trv_states", False)
         ):
-            _calibration_type = self.real_trvs[entity_id]["advanced"].get("calibration")
-            if _calibration_type == CalibrationType.TARGET_TEMP_BASED:
-                _LOGGER.debug(
-                    "better_thermostat %s: TRV %s target temp change ignored because of calibration type %s",
-                    self.device_name,
-                    entity_id,
-                    _calibration_type,
-                )
-            else:
-                _LOGGER.debug(
-                    "better_thermostat %s: TRV %s decoded TRV target temp changed from %s to %s",
-                    self.device_name,
-                    entity_id,
-                    self.bt_target_temp,
-                    _new_heating_setpoint,
-                )
-                self.bt_target_temp = _new_heating_setpoint
-                if self.cooler_entity_id is not None:
-                    if self.bt_target_temp >= self.bt_target_cooltemp:
-                        self.bt_target_cooltemp = (
-                            self.bt_target_temp + self.bt_target_temp_step
-                        )
+            _LOGGER.debug(
+                "better_thermostat %s: TRV %s decoded TRV target temp changed from %s to %s",
+                self.device_name,
+                entity_id,
+                self.bt_target_temp,
+                _new_heating_setpoint,
+            )
+            self.bt_target_temp = _new_heating_setpoint
+            if self.cooler_entity_id is not None:
+                if self.bt_target_temp >= self.bt_target_cooltemp:
+                    self.bt_target_cooltemp = self.bt_target_temp + (
+                        self.bt_target_temp_step or 0.5
+                    )
 
-                _main_change = True
+            _main_change = True
 
         if self.real_trvs[entity_id]["advanced"].get("no_off_system_mode", False):
             if _new_heating_setpoint == self.real_trvs[entity_id]["min_temp"]:

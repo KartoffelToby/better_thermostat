@@ -54,6 +54,7 @@ def _make_bt(
     bt.device_name = "Test BT"
     bt.tolerance = tolerance
     bt.attr_hvac_action = hvac_action
+    bt.hvac_action = hvac_action
     bt.cur_temp = cur_temp
     bt.bt_target_temp = bt_target_temp
     bt.outdoor_sensor = None

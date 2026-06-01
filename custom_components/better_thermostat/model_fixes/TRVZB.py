@@ -310,8 +310,10 @@ async def override_set_valve(self, entity_id, percent: int):
                         ex,
                     )
 
-            trv_state["_trvzb_valve_bump_task"] = self.hass.async_create_task(
-                _delayed_set()
+            trv_state["_trvzb_valve_bump_task"] = (
+                self.hass.async_create_background_task(
+                    _delayed_set(), name=f"bt_trvzb_valve_bump_{entity_id}"
+                )
             )
             return True
 

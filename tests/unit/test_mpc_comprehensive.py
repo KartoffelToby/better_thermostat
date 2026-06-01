@@ -1045,7 +1045,7 @@ class TestPostProcessing:
         assert r2.valve_percent != pct1 or r2.valve_percent == 0
 
     def test_du_max_limits_step_size(self):
-        """du_max should limit how fast the valve can change."""
+        """du_max should limit how fast the valve can change when ramping UP."""
         params = _default_params(mpc_du_max_pct=5.0)
 
         # First call: cold room -> high valve
@@ -1054,10 +1054,28 @@ class TestPostProcessing:
         state.last_percent = 50.0  # Force a known starting point
         state.last_update_ts = time()
 
-        # Second call: want to go to 0 (warm room)
-        r = _compute(_inp(key="dumax", current_temp_C=25.0, target_temp_C=22.0), params)
-        # Change should be limited to ±5%
-        assert r.valve_percent >= 45  # 50 - 5
+        # Second call: even colder room, want to go higher (ramp up)
+        r = _compute(_inp(key="dumax", current_temp_C=16.0, target_temp_C=22.0), params)
+        # Change should be limited to +5% (ramp up is rate-limited)
+        assert r.valve_percent <= 55  # 50 + 5
+
+    def test_du_max_bypassed_on_overshoot(self):
+        """du_max should NOT limit valve closing when room is above target (overshoot)."""
+        params = _default_params(mpc_du_max_pct=5.0)
+
+        _compute(_inp(key="dumax_over", current_temp_C=18.0), params)
+        state = mpc_mod._MPC_STATES["dumax_over"]
+        state.last_percent = 50.0
+        state.last_update_ts = time()
+
+        # Room at 25°C with target 22°C → overshooting by 3°C
+        # Valve should close immediately, NOT be rate-limited to 45%
+        r = _compute(
+            _inp(key="dumax_over", current_temp_C=25.0, target_temp_C=22.0), params
+        )
+        assert r.valve_percent == 0, (
+            f"Expected valve to close immediately on overshoot, got {r.valve_percent}%"
+        )
 
     def test_hold_time_blocks_rapid_updates(self):
         """min_percent_hold_time_s should block updates that come too fast."""

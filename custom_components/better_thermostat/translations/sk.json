@@ -38,7 +38,7 @@
         },
         "data_description": {
           "protect_overheating": "Niektoré termostatické ventily úplne neuzatvoria ventil po dosiahnutí požadovanej teploty. Alebo má radiátor veľa zvyškového tepla. To môže spôsobiť prehriatie. Táto možnosť tomu môže zabrániť.",
-          "calibration_mode": "Druh, akým sa má kalibrácia vypočítať\n***Normálny***: V tomto režime je vnútorný snímač teploty TRV fixovaný externým snímačom teploty.\n***Agresívny***: V tomto režime je vnútorný snímač teploty TRV fixovaný externým snímačom teploty, ale nastavený oveľa nižšie/vyššie, aby sa dosiahlo rýchlejšie zvýšenie teploty.\n***Časovo založený na AI***: V tomto režime je vnútorný snímač teploty TRV fixovaný externým snímačom teploty, ale vlastný algoritmus vypočíta hodnotu na zlepšenie vnútorného algoritmu TRV.\n***Prediktívny MPC***: Používa prediktívny regulátor MPC na odvodenie otvorenia ventilu a prevedie ho na posuny alebo požadované hodnoty, keď priame riadenie ventilu nie je k dispozícii.\n***PID regulátor***: Používa PID regulátor na dynamické nastavenie polohy ventilu na základe teplotnej chyby, proporcionálneho člena, integrálnej akumulácie a derivačnej predikcie.\n***TPI regulátor***: Používa časovo proporcionálny integračný regulátor pre stabilnú a presnú reguláciu teploty v priebehu času.",
+          "calibration_mode": "Druh, akým sa má kalibrácia vypočítať\n***Normálny***: V tomto režime je vnútorný snímač teploty TRV fixovaný externým snímačom teploty.\n***Agresívny***: V tomto režime je vnútorný snímač teploty TRV fixovaný externým snímačom teploty, ale nastavený oveľa nižšie/vyššie, aby sa dosiahlo rýchlejšie zvýšenie teploty.\n***Časovo založený na AI***: V tomto režime je vnútorný snímač teploty TRV fixovaný externým snímačom teploty, ale vlastný algoritmus vypočíta hodnotu na zlepšenie vnútorného algoritmu TRV.\n***Prediktívny MPC (Beta)***: Používa prediktívny regulátor MPC na odvodenie otvorenia ventilu a prevedie ho na posuny alebo požadované hodnoty, keď priame riadenie ventilu nie je k dispozícii.\n***PID regulátor***: Používa PID regulátor na dynamické nastavenie polohy ventilu na základe teplotnej chyby, proporcionálneho člena, integrálnej akumulácie a derivačnej predikcie.\n***TPI regulátor***: Používa časovo proporcionálny integračný regulátor pre stabilnú a presnú reguláciu teploty v priebehu času.",
           "calibration": "Ako sa má kalibrácia použiť na TRV (cieľová teplota alebo posun)\n***Na základe cieľovej teploty***: Použite kalibráciu na cieľovú teplotu.\n***Na základe ofsetu***: Použite kalibráciu na offset."
         }
       },
@@ -103,7 +103,7 @@
         },
         "data_description": {
           "protect_overheating": "Niektoré TRV nezatvárajú ventil úplne, keď sa dosiahne požadovaná teplota. Alebo je v radiátore veľa zvyškového tepla. To môže spôsobiť prehriatie. Táto možnosť tomu môže zabrániť.",
-          "calibration_mode": "Druh výpočtu kalibrácie\n***Normálny***: V tomto režime je vnútorný snímač teploty TRV fixovaný externým snímačom teploty.\n***Agresívny***: V tomto režime je vnútorný snímač teploty TRV fixovaný externým snímačom teploty, ale nastavený oveľa nižšie/vyššie, aby sa dosiahlo rýchlejšie zvýšenie teploty.\n***Časovo riadený AI***: V tomto režime je vnútorný snímač teploty TRV fixovaný externým snímačom teploty, ale vlastný algoritmus vypočíta hodnotu na zlepšenie vnútorného algoritmu TRV.\n***Prediktívny MPC***: Používa algoritmus hydraulického vyváženia MPC na odvodenie otvorenia ventilu a prevádza ho na posuny alebo požadované hodnoty, keď priame riadenie ventilu nie je k dispozícii.\n***PID regulátor***: Používa PID regulátor na dynamické nastavenie polohy ventilu na základe teplotnej chyby, proporcionálneho člena, integrálnej akumulácie a derivačnej predikcie.\n***TPI regulátor***: Používa časovo proporcionálny integračný regulátor pre stabilnú a presnú reguláciu teploty v priebehu času.",
+          "calibration_mode": "Druh výpočtu kalibrácie\n***Normálny***: V tomto režime je vnútorný snímač teploty TRV fixovaný externým snímačom teploty.\n***Agresívny***: V tomto režime je vnútorný snímač teploty TRV fixovaný externým snímačom teploty, ale nastavený oveľa nižšie/vyššie, aby sa dosiahlo rýchlejšie zvýšenie teploty.\n***Časovo riadený AI***: V tomto režime je vnútorný snímač teploty TRV fixovaný externým snímačom teploty, ale vlastný algoritmus vypočíta hodnotu na zlepšenie vnútorného algoritmu TRV.\n***Prediktívny MPC (Beta)***: Používa algoritmus hydraulického vyváženia MPC na odvodenie otvorenia ventilu a prevádza ho na posuny alebo požadované hodnoty, keď priame riadenie ventilu nie je k dispozícii.\n***PID regulátor***: Používa PID regulátor na dynamické nastavenie polohy ventilu na základe teplotnej chyby, proporcionálneho člena, integrálnej akumulácie a derivačnej predikcie.\n***TPI regulátor***: Používa časovo proporcionálny integračný regulátor pre stabilnú a presnú reguláciu teploty v priebehu času.",
           "calibration": "Ako sa má kalibrácia použiť na TRV (cieľová teplota alebo ofset)\n***Na základe cieľovej teploty***: Použite kalibráciu na cieľovú teplotu.\n***Na základe ofsetu***: Použite kalibráciu na offset."
         }
       }
@@ -120,6 +120,14 @@
           }
         }
       }
+    },
+    "degraded_mode": {
+      "title": "BT: {name} - chyba snímača: {sensors} beží v obmedzenom režime",
+      "description": "Better Thermostat beží v obmedzenom režime, pretože niektoré snímače nie sú dostupné: {sensors}\n\nTermostat bude naďalej fungovať s obmedzenou funkcionalitou. Napríklad:\n- Ak snímač izbovej teploty nie je dostupný, použije sa interný snímač TRV.\n- Ak snímače okien nie sú dostupné, okná sa považujú za zatvorené.\n- Ak vonkajšie/meteorologické snímače nie sú dostupné, kúrenie bude vždy zapnuté.\n\nSkontrolujte, či postihnuté zariadenia nemajú problémy s batériou alebo pripojením."
+    },
+    "invalid_window_state": {
+      "title": "BT: {name} - neplatný stav snímača okna",
+      "description": "Snímač okna pre Better Thermostat {name} nahlásil nerozpoznaný stav: {state}.\n\nOčakávané stavy sú: 'on', 'off', 'true', 'false', 'open', 'closed'.\n\nSkontrolujte konfiguráciu snímača okna."
     }
   },
   "services": {

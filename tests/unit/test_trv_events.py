@@ -5,11 +5,12 @@ mode synchronisation, target-temperature adoption, control-queue triggering,
 and the convert_inbound_states / convert_outbound_states helpers.
 """
 
-from datetime import datetime, timedelta
+from datetime import timedelta
 from unittest.mock import AsyncMock, MagicMock, patch
 
 from homeassistant.components.climate.const import HVACMode
 from homeassistant.core import State
+from homeassistant.util import dt as dt_util
 import pytest
 
 from custom_components.better_thermostat.events.trv import (
@@ -52,7 +53,7 @@ def mock_bt():
     bt.cooler_entity_id = None
     bt.ignore_states = False
     bt.context = MagicMock()  # unique context so != event.context
-    bt.last_internal_sensor_change = datetime.now() - timedelta(seconds=60)
+    bt.last_internal_sensor_change = dt_util.now() - timedelta(seconds=60)
     bt.async_write_ha_state = MagicMock()
 
     bt.all_trvs = [{"advanced": {CONF_HOMEMATICIP: False}}]
@@ -232,9 +233,28 @@ class TestInternalTemperatureChange:
         assert mock_bt.real_trvs[ENTITY_ID]["current_temperature"] == new_temp
 
     @pytest.mark.asyncio
+    @pytest.mark.parametrize("marker_temp", [126.5, 127.0])
+    async def test_implausible_trv_temp_ignored(self, mock_bt, marker_temp):
+        """AVM marker values (126.5 °C OFF, 127.0 °C ON) must not overwrite the cache."""
+        trv_state = _make_state(attributes={"current_temperature": marker_temp})
+        mock_bt.hass.states.get.return_value = trv_state
+        mock_bt.real_trvs[ENTITY_ID]["current_temperature"] = 20.0
+        mock_bt.real_trvs[ENTITY_ID]["calibration_received"] = True
+
+        event = _make_event(mock_bt, new_state=trv_state, old_state=trv_state)
+
+        with patch(
+            "custom_components.better_thermostat.events.trv.convert_inbound_states",
+            return_value=HVACMode.HEAT,
+        ):
+            await trigger_trv_change(mock_bt, event)
+
+        assert mock_bt.real_trvs[ENTITY_ID]["current_temperature"] == 20.0
+
+    @pytest.mark.asyncio
     async def test_temp_change_respects_time_diff(self, mock_bt):
         """Changes within 5 s of the last internal sensor change are skipped."""
-        mock_bt.last_internal_sensor_change = datetime.now() - timedelta(seconds=2)
+        mock_bt.last_internal_sensor_change = dt_util.now() - timedelta(seconds=2)
         trv_state = _make_state(attributes={"current_temperature": 20.0})
         mock_bt.hass.states.get.return_value = trv_state
         mock_bt.real_trvs[ENTITY_ID]["current_temperature"] = 18.0
@@ -256,7 +276,7 @@ class TestInternalTemperatureChange:
     async def test_temp_change_homematicip_600s(self, mock_bt):
         """HomematicIP uses a 600 s guard instead of 5 s."""
         mock_bt.all_trvs = [{"advanced": {CONF_HOMEMATICIP: True}}]
-        mock_bt.last_internal_sensor_change = datetime.now() - timedelta(seconds=30)
+        mock_bt.last_internal_sensor_change = dt_util.now() - timedelta(seconds=30)
         trv_state = _make_state(attributes={"current_temperature": 20.0})
         mock_bt.hass.states.get.return_value = trv_state
         mock_bt.real_trvs[ENTITY_ID]["current_temperature"] = 18.0
@@ -563,6 +583,32 @@ class TestHvacModeUpdate:
 
         assert mock_bt.real_trvs[ENTITY_ID]["hvac_mode"] == "heat"
 
+    @pytest.mark.asyncio
+    async def test_child_lock_none_blocks_mode_propagation(self, mock_bt):
+        """Mode cache updates but bt_hvac_mode does not propagate when child_lock is None."""
+        mock_bt.real_trvs[ENTITY_ID]["advanced"].pop("child_lock", None)
+        trv_state = _make_state(
+            state_str="off",
+            attributes={"current_temperature": 18.0, "temperature": 19.0},
+        )
+        mock_bt.hass.states.get.return_value = trv_state
+        mock_bt.real_trvs[ENTITY_ID]["hvac_mode"] = "heat"
+        mock_bt.real_trvs[ENTITY_ID]["system_mode_received"] = True
+        mock_bt.real_trvs[ENTITY_ID]["last_hvac_mode"] = "heat"
+
+        event = _make_event(
+            mock_bt, new_state=trv_state, old_state=_make_state(state_str="heat")
+        )
+
+        with patch(
+            "custom_components.better_thermostat.events.trv.convert_inbound_states",
+            return_value=HVACMode.OFF,
+        ):
+            await trigger_trv_change(mock_bt, event)
+
+        assert mock_bt.real_trvs[ENTITY_ID]["hvac_mode"] == "off"
+        assert mock_bt.bt_hvac_mode == HVACMode.HEAT
+
 
 # ---------------------------------------------------------------------------
 # 5. Target temperature adoption
@@ -716,35 +762,6 @@ class TestTargetTempAdoption:
             attributes={"current_temperature": 18.0, "temperature": 22.0},
         )
         mock_bt.hass.states.get.return_value = trv_state
-
-        event = _make_event(mock_bt, new_state=new_state, old_state=old_state)
-
-        with patch(
-            "custom_components.better_thermostat.events.trv.convert_inbound_states",
-            return_value=HVACMode.HEAT,
-        ):
-            await trigger_trv_change(mock_bt, event)
-
-        assert mock_bt.bt_target_temp == 19.0
-
-    @pytest.mark.asyncio
-    async def test_setpoint_blocked_target_temp_based_calibration(self, mock_bt):
-        """TARGET_TEMP_BASED calibration type blocks setpoint adoption."""
-        mock_bt.real_trvs[ENTITY_ID]["advanced"]["calibration"] = (
-            CalibrationType.TARGET_TEMP_BASED
-        )
-        old_state = _make_state(
-            attributes={"temperature": 19.0, "current_temperature": 18.0}
-        )
-        new_state = _make_state(
-            attributes={"temperature": 22.0, "current_temperature": 18.0}
-        )
-        trv_state = _make_state(
-            state_str="heat",
-            attributes={"current_temperature": 18.0, "temperature": 22.0},
-        )
-        mock_bt.hass.states.get.return_value = trv_state
-        mock_bt.real_trvs[ENTITY_ID]["last_temperature"] = 19.0
 
         event = _make_event(mock_bt, new_state=new_state, old_state=old_state)
 
@@ -932,6 +949,147 @@ class TestTargetTempAdoption:
             await trigger_trv_change(mock_bt, event)
 
         assert mock_bt.bt_hvac_mode == HVACMode.HEAT
+
+
+class TestTargetTempBasedSync:
+    """User-initiated TRV setpoint changes must propagate to BT.
+
+    Even when calibration is TARGET_TEMP_BASED. Device-side echoes within step
+    distance of BT's known values are still suppressed.
+    """
+
+    def _set_target_temp_based(self, mock_bt):
+        mock_bt.real_trvs[ENTITY_ID]["advanced"]["calibration"] = (
+            CalibrationType.TARGET_TEMP_BASED
+        )
+
+    @pytest.mark.asyncio
+    async def test_user_change_picked_up(self, mock_bt):
+        """User raises TRV from 19.0 to 22.0 — bt_target_temp follows."""
+        self._set_target_temp_based(mock_bt)
+        mock_bt.bt_target_temp = 19.0
+        mock_bt.real_trvs[ENTITY_ID]["last_temperature"] = 19.0
+
+        old_state = _make_state(
+            attributes={"temperature": 19.0, "current_temperature": 18.0}
+        )
+        new_state = _make_state(
+            attributes={"temperature": 22.0, "current_temperature": 18.0}
+        )
+        trv_state = _make_state(
+            state_str="heat",
+            attributes={"current_temperature": 18.0, "temperature": 22.0},
+        )
+        mock_bt.hass.states.get.return_value = trv_state
+
+        event = _make_event(mock_bt, new_state=new_state, old_state=old_state)
+
+        with patch(
+            "custom_components.better_thermostat.events.trv.convert_inbound_states",
+            return_value=HVACMode.HEAT,
+        ):
+            await trigger_trv_change(mock_bt, event)
+
+        assert mock_bt.bt_target_temp == 22.0
+
+    @pytest.mark.asyncio
+    async def test_echo_within_step_suppressed(self, mock_bt):
+        """Device echoes 21.3 after BT wrote 21.0 (step=0.5) — treated as echo."""
+        self._set_target_temp_based(mock_bt)
+        mock_bt.bt_target_temp = 21.0
+        mock_bt.bt_target_temp_step = 0.5
+        mock_bt.real_trvs[ENTITY_ID]["last_temperature"] = 21.0
+        mock_bt.real_trvs[ENTITY_ID]["target_temp_step"] = 0.5
+
+        old_state = _make_state(
+            attributes={"temperature": 21.0, "current_temperature": 18.0}
+        )
+        new_state = _make_state(
+            attributes={"temperature": 21.3, "current_temperature": 18.0}
+        )
+        trv_state = _make_state(
+            state_str="heat",
+            attributes={"current_temperature": 18.0, "temperature": 21.3},
+        )
+        mock_bt.hass.states.get.return_value = trv_state
+
+        event = _make_event(mock_bt, new_state=new_state, old_state=old_state)
+
+        with patch(
+            "custom_components.better_thermostat.events.trv.convert_inbound_states",
+            return_value=HVACMode.HEAT,
+        ):
+            await trigger_trv_change(mock_bt, event)
+
+        assert mock_bt.bt_target_temp == 21.0
+
+    @pytest.mark.asyncio
+    async def test_change_at_one_step_is_user(self, mock_bt):
+        """Change equal to one full step is a user change, not an echo."""
+        self._set_target_temp_based(mock_bt)
+        mock_bt.bt_target_temp = 21.0
+        mock_bt.bt_target_temp_step = 0.5
+        mock_bt.real_trvs[ENTITY_ID]["last_temperature"] = 21.0
+        mock_bt.real_trvs[ENTITY_ID]["target_temp_step"] = 0.5
+
+        old_state = _make_state(
+            attributes={"temperature": 21.0, "current_temperature": 18.0}
+        )
+        new_state = _make_state(
+            attributes={"temperature": 21.5, "current_temperature": 18.0}
+        )
+        trv_state = _make_state(
+            state_str="heat",
+            attributes={"current_temperature": 18.0, "temperature": 21.5},
+        )
+        mock_bt.hass.states.get.return_value = trv_state
+
+        event = _make_event(mock_bt, new_state=new_state, old_state=old_state)
+
+        with patch(
+            "custom_components.better_thermostat.events.trv.convert_inbound_states",
+            return_value=HVACMode.HEAT,
+        ):
+            await trigger_trv_change(mock_bt, event)
+
+        assert mock_bt.bt_target_temp == 21.5
+
+    @pytest.mark.asyncio
+    async def test_user_change_after_echo_not_suppressed(self, mock_bt):
+        """A user change following a device echo is still adopted.
+
+        Setup mimics the post-echo state: BT wrote 21.0, device echoed
+        21.3 (within step), so the TRV's currently-published state is 21.3.
+        The user then dials to 21.5. ``_old_heating_setpoint`` is 21.3 (the
+        echo), not a BT-written value — it must not feed into echo detection.
+        """
+        self._set_target_temp_based(mock_bt)
+        mock_bt.bt_target_temp = 21.0
+        mock_bt.bt_target_temp_step = 0.5
+        mock_bt.real_trvs[ENTITY_ID]["last_temperature"] = 21.0
+        mock_bt.real_trvs[ENTITY_ID]["target_temp_step"] = 0.5
+
+        old_state = _make_state(
+            attributes={"temperature": 21.3, "current_temperature": 18.0}
+        )
+        new_state = _make_state(
+            attributes={"temperature": 21.5, "current_temperature": 18.0}
+        )
+        trv_state = _make_state(
+            state_str="heat",
+            attributes={"current_temperature": 18.0, "temperature": 21.5},
+        )
+        mock_bt.hass.states.get.return_value = trv_state
+
+        event = _make_event(mock_bt, new_state=new_state, old_state=old_state)
+
+        with patch(
+            "custom_components.better_thermostat.events.trv.convert_inbound_states",
+            return_value=HVACMode.HEAT,
+        ):
+            await trigger_trv_change(mock_bt, event)
+
+        assert mock_bt.bt_target_temp == 21.5
 
 
 # ---------------------------------------------------------------------------

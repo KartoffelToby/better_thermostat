@@ -23,6 +23,7 @@ def bt_default_mode():
     bt.device_name = "Test BT"
     bt.tolerance = 0.5
     bt.attr_hvac_action = None
+    bt.hvac_action = None
     bt.cur_temp = 20.0
 
     quirks = MagicMock()

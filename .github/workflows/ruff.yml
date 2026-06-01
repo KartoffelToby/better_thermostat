@@ -1,15 +1,25 @@
 name: Lint
 
-on: [push, pull_request]
+on:
+  push:
+    branches: [develop, master]
+  pull_request:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   ruff:
     runs-on: ubuntu-latest
+    timeout-minutes: 5
     steps:
-      - uses: actions/checkout@v4
-      - uses: astral-sh/ruff-action@v3
+      - uses: actions/checkout@v6
+      - uses: astral-sh/ruff-action@v4.0.0
         with:
+          version-file: requirements.dev.txt
           args: "check"
-      - uses: astral-sh/ruff-action@v3
+      - uses: astral-sh/ruff-action@v4.0.0
         with:
+          version-file: requirements.dev.txt
           args: "format --check"
