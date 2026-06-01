@@ -16,7 +16,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 import logging
 from time import monotonic
-from typing import Any, TypedDict
+from typing import Any, Protocol, TypedDict
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -566,6 +566,32 @@ def seed_pid_gains(key: str, kp: float, ki: float, kd: float) -> bool:
 # --- Key Builder Helper -----------------------------------------------
 
 
+class _HasUniqueId(Protocol):
+    """Structural type for objects keyed by a Home Assistant ``unique_id``."""
+
+    @property
+    def unique_id(self) -> str | None: ...
+
+
+def resolve_unique_id(obj: _HasUniqueId) -> str:
+    """Return the id used to key per-entity persistent state.
+
+    Prefers the public ``unique_id`` property, falls back to ``_unique_id`` and
+    finally ``"bt"``, so every site keys state the same way.
+    """
+    return getattr(obj, "unique_id", None) or getattr(obj, "_unique_id", None) or "bt"
+
+
+def round_to_bucket(temp: float) -> float:
+    """Round a target temperature to its 0.5 °C bucket centre."""
+    return round(float(temp) * 2.0) / 2.0
+
+
+def format_bucket(bucket: float) -> str:
+    """Format a bucket centre as a ``t<temp>`` tag (e.g. ``t21.0``)."""
+    return f"t{bucket:.1f}"
+
+
 def build_pid_key(self, entity_id: str) -> str:
     """Build consistent PID state key across all modules.
 
@@ -583,16 +609,14 @@ def build_pid_key(self, entity_id: str) -> str:
     try:
         tcur = self.bt_target_temp
         bucket_tag = (
-            f"t{round(float(tcur) * 2.0) / 2.0:.1f}"
+            format_bucket(round_to_bucket(tcur))
             if isinstance(tcur, (int, float))
             else "tunknown"
         )
     except Exception:
         bucket_tag = "tunknown"
 
-    # Use public unique_id property if available, fallback to _unique_id or "bt"
-    uid = getattr(self, "unique_id", None) or getattr(self, "_unique_id", "bt")
-    return f"{uid}:{entity_id}:{bucket_tag}"
+    return f"{resolve_unique_id(self)}:{entity_id}:{bucket_tag}"
 
 
 # --- Persistence helpers --------------------------------------------
