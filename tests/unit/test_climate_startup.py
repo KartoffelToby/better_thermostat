@@ -17,7 +17,9 @@ from custom_components.better_thermostat.climate import (
 )
 from custom_components.better_thermostat.utils.const import (
     ATTR_STATE_CALL_FOR_HEAT,
+    ATTR_STATE_HEAT_LOSS,
     ATTR_STATE_HEATING_POWER,
+    MAX_HEAT_LOSS,
     MAX_HEATING_POWER,
 )
 
@@ -479,6 +481,37 @@ class TestRestoreState:
         await BetterThermostat._restore_state(bt, states)
 
         assert bt.call_for_heat is True
+
+    @pytest.mark.asyncio
+    async def test_restores_heat_loss_clamped(self, bt):
+        """An out-of-range restored heat-loss rate is clamped to the max."""
+        old = MagicMock()
+        old.state = "heat"
+        old.attributes = {ATTR_TEMPERATURE: 21.0, ATTR_STATE_HEAT_LOSS: "5.0"}
+        bt.async_get_last_state = AsyncMock(return_value=old)
+        bt.preset_mgr.temperatures = {}
+
+        states = [_make_trv_state()]
+        await BetterThermostat._restore_state(bt, states)
+
+        assert bt.heat_loss_rate == MAX_HEAT_LOSS
+
+    @pytest.mark.asyncio
+    async def test_old_state_without_target_falls_back_to_trv_mean(self, bt):
+        """An old state lacking a target temperature falls back to the TRV mean."""
+        old = MagicMock()
+        old.state = "heat"
+        old.attributes = {}  # no ATTR_TEMPERATURE
+        bt.async_get_last_state = AsyncMock(return_value=old)
+        bt.preset_mgr.temperatures = {}
+
+        states = [
+            _make_trv_state(attrs={ATTR_TEMPERATURE: 20.0}),
+            _make_trv_state(attrs={ATTR_TEMPERATURE: 24.0}),
+        ]
+        await BetterThermostat._restore_state(bt, states)
+
+        assert bt.bt_target_temp == 22.0
 
 
 # ---------------------------------------------------------------------------

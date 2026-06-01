@@ -12,7 +12,12 @@ from homeassistant.helpers.restore_state import RestoreEntity
 
 # Import tracking variables from sensor.py
 from .sensor import _ACTIVE_SWITCH_ENTITIES
-from .utils.calibration.pid import _PID_STATES, DEFAULT_PID_AUTO_TUNE, build_pid_key
+from .utils.calibration.pid import (
+    _PID_STATES,
+    DEFAULT_PID_AUTO_TUNE,
+    build_pid_key,
+    resolve_unique_id,
+)
 from .utils.const import CONF_CALIBRATION_MODE, CalibrationMode
 
 _LOGGER = logging.getLogger(__name__)
@@ -122,8 +127,7 @@ class BetterThermostatPIDAutoTuneSwitch(SwitchEntity, RestoreEntity):
     def _update_state(self, state: bool):
         """Update the state."""
         # Update persistent PID states (if any exist for this TRV)
-        # Use the same unique_id logic as build_pid_key to ensure matching
-        uid = self._bt_climate.unique_id or "bt"
+        uid = resolve_unique_id(self._bt_climate)
         prefix = f"{uid}:{self._trv_entity_id}:"
 
         for key, pid_state in _PID_STATES.items():
