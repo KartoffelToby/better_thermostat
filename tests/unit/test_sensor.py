@@ -1272,17 +1272,14 @@ class TestEdgeCasesAndPotentialBugs:
         # dt = max(0, now - future) = 0 → alpha = 0 → EMA stays at 20
         assert sensor._ema_value == 20.0
 
-    def test_cleanup_stale_empty_entry_removed(self):
+    @pytest.mark.asyncio
+    async def test_cleanup_stale_empty_entry_removed(self):
         """After all algorithms removed, the entry_id key should be deleted."""
         _ACTIVE_ALGORITHM_ENTITIES["entry_1"] = {}
         # empty dict → should be cleaned up
         hass = MagicMock()
         bt = _make_bt_climate()
-        import asyncio
-
-        asyncio.get_event_loop().run_until_complete(
-            _cleanup_stale_algorithm_entities(hass, "entry_1", bt, set())
-        )
+        await _cleanup_stale_algorithm_entities(hass, "entry_1", bt, set())
         # The function checks `if not _ACTIVE_ALGORITHM_ENTITIES[entry_id]`
         # and deletes it → entry should be gone
         assert "entry_1" not in _ACTIVE_ALGORITHM_ENTITIES

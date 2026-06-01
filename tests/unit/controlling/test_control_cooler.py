@@ -3,6 +3,7 @@
 from time import monotonic
 from unittest.mock import AsyncMock, Mock
 
+from homeassistant.components.climate import ClimateEntityFeature
 from homeassistant.components.climate.const import HVACMode
 import pytest
 
@@ -41,10 +42,11 @@ def _make_mock_self(
     return mock_self
 
 
-def _make_cooler_state(state=HVACMode.COOL, temperature=None):
+def _make_cooler_state(state=HVACMode.COOL, temperature=None, supported_features=None):
     s = Mock()
     s.state = state
-    s.attributes = {"temperature": temperature}
+    sf = ClimateEntityFeature.TARGET_TEMPERATURE if supported_features is None else supported_features
+    s.attributes = {"temperature": temperature, "supported_features": sf}
     return s
 
 
@@ -62,11 +64,7 @@ class TestControlCooler:
         mock_hass.services = Mock()
         mock_hass.services.async_call = AsyncMock()
 
-        # Provide a cooler state so the unavailable guard is not triggered
-        mock_cooler_state = Mock()
-        mock_cooler_state.state = HVACMode.COOL  # currently cooling
-        mock_cooler_state.attributes = {"temperature": None}
-        mock_hass.states.get.return_value = mock_cooler_state
+        mock_hass.states.get.return_value = _make_cooler_state(state=HVACMode.COOL, temperature=None)
 
         mock_self = Mock()
         mock_self.hass = mock_hass
@@ -74,6 +72,7 @@ class TestControlCooler:
         mock_self.cooler_entity_id = "climate.cooler"
         mock_self.bt_target_cooltemp = 24.0
         mock_self.context = None
+        mock_self.min_cooler_resend_interval_s = 0
 
         await control_cooler(mock_self)
 
@@ -91,6 +90,8 @@ class TestControlCooler:
         mock_hass.services = Mock()
         mock_hass.services.async_call = AsyncMock()
 
+        mock_hass.states.get.return_value = _make_cooler_state(state=HVACMode.OFF, temperature=20.0)
+
         mock_self = Mock()
         mock_self.hass = mock_hass
         mock_self.bt_hvac_mode = HVACMode.COOL
@@ -100,6 +101,7 @@ class TestControlCooler:
         mock_self.bt_target_cooltemp = 24.0
         mock_self.bt_target_temp = 20.0
         mock_self.tolerance = 0.5
+        mock_self.min_cooler_resend_interval_s = 0
 
         await control_cooler(mock_self)
 
@@ -129,6 +131,8 @@ class TestControlCooler:
         mock_hass.services = Mock()
         mock_hass.services.async_call = AsyncMock()
 
+        mock_hass.states.get.return_value = _make_cooler_state(state=HVACMode.COOL, temperature=20.0)
+
         mock_self = Mock()
         mock_self.hass = mock_hass
         mock_self.bt_hvac_mode = HVACMode.COOL
@@ -138,6 +142,7 @@ class TestControlCooler:
         mock_self.bt_target_cooltemp = 24.0
         mock_self.bt_target_temp = 20.0
         mock_self.tolerance = 0.5
+        mock_self.min_cooler_resend_interval_s = 0
 
         await control_cooler(mock_self)
 
@@ -154,6 +159,8 @@ class TestControlCooler:
         mock_hass.services = Mock()
         mock_hass.services.async_call = AsyncMock()
 
+        mock_hass.states.get.return_value = _make_cooler_state(state=HVACMode.COOL, temperature=20.0)
+
         mock_self = Mock()
         mock_self.hass = mock_hass
         mock_self.bt_hvac_mode = HVACMode.COOL
@@ -163,6 +170,7 @@ class TestControlCooler:
         mock_self.bt_target_cooltemp = 24.0
         mock_self.bt_target_temp = 20.0
         mock_self.tolerance = 0.5
+        mock_self.min_cooler_resend_interval_s = 0
 
         # cur_temp (23.0) <= bt_target_cooltemp (24.0) - tolerance (0.5) = 23.5
 
@@ -187,6 +195,8 @@ class TestControlCooler:
         mock_hass.services = Mock()
         mock_hass.services.async_call = AsyncMock()
 
+        mock_hass.states.get.return_value = _make_cooler_state(state=HVACMode.OFF, temperature=20.0)
+
         mock_self = Mock()
         mock_self.hass = mock_hass
         mock_self.bt_hvac_mode = HVACMode.COOL
@@ -195,6 +205,7 @@ class TestControlCooler:
         mock_self.bt_target_cooltemp = 24.0
         mock_self.bt_target_temp = 20.0
         mock_self.tolerance = 0.5
+        mock_self.min_cooler_resend_interval_s = 0
 
         # cur_temp (23.7) >= (24.0 - 0.5 = 23.5) AND cur_temp (23.7) > 20.0
         # -> first branch: COOL
@@ -215,11 +226,14 @@ class TestControlCooler:
         mock_context = Mock()
         mock_context.id = "test_context_id"
 
+        mock_hass.states.get.return_value = _make_cooler_state(state=HVACMode.COOL, temperature=20.0)
+
         mock_self = Mock()
         mock_self.hass = mock_hass
         mock_self.bt_hvac_mode = HVACMode.OFF
         mock_self.cooler_entity_id = "climate.cooler"
         mock_self.context = mock_context
+        mock_self.min_cooler_resend_interval_s = 0
 
         await control_cooler(mock_self)
 
@@ -234,6 +248,8 @@ class TestControlCooler:
         mock_hass.services = Mock()
         mock_hass.services.async_call = AsyncMock()
 
+        mock_hass.states.get.return_value = _make_cooler_state(state=HVACMode.OFF, temperature=20.0)
+
         mock_self = Mock()
         mock_self.hass = mock_hass
         mock_self.bt_hvac_mode = HVACMode.COOL
@@ -243,6 +259,7 @@ class TestControlCooler:
         mock_self.bt_target_cooltemp = 24.0
         mock_self.bt_target_temp = 20.0
         mock_self.tolerance = 0.5
+        mock_self.min_cooler_resend_interval_s = 0
 
         await control_cooler(mock_self)
 
@@ -262,6 +279,8 @@ class TestControlCooler:
         mock_hass.services = Mock()
         mock_hass.services.async_call = AsyncMock()
 
+        mock_hass.states.get.return_value = _make_cooler_state(state=HVACMode.OFF, temperature=20.0)
+
         mock_self = Mock()
         mock_self.hass = mock_hass
         mock_self.bt_hvac_mode = HVACMode.COOL
@@ -270,6 +289,7 @@ class TestControlCooler:
         mock_self.bt_target_cooltemp = 24.0
         mock_self.bt_target_temp = 20.0
         mock_self.tolerance = 0.5
+        mock_self.min_cooler_resend_interval_s = 0
 
         # Exactly at target_cooltemp - tolerance AND above bt_target_temp
         mock_self.cur_temp = 23.5
@@ -286,8 +306,11 @@ class TestControlCoolerSendCache:
 
     @pytest.mark.asyncio
     async def test_nil_guard_skips_set_temperature_when_current_unknown_and_unchanged(self):
-        """Nil-guard: do not call set_temperature when current temp is unknown
-        but the desired temp matches the last sent value."""
+        """Nil-guard: skip set_temperature when current temp is unknown and desired is unchanged.
+
+        Verifies that no temperature command is sent when the temperature reading is
+        unavailable but the desired setpoint matches what was last sent to the cooler.
+        """
         mock_hass = Mock()
         mock_hass.services = Mock()
         mock_hass.services.async_call = AsyncMock()
@@ -310,8 +333,11 @@ class TestControlCoolerSendCache:
 
     @pytest.mark.asyncio
     async def test_nil_guard_sends_set_temperature_when_current_unknown_but_temp_changed(self):
-        """Nil-guard: call set_temperature when current temp is unknown
-        and the desired temp differs from the last sent value."""
+        """Nil-guard: send set_temperature when current temp is unknown but desired changed.
+
+        Verifies that set_temperature is called when the temperature reading is
+        unavailable and the desired setpoint differs from what was last sent.
+        """
         mock_hass = Mock()
         mock_hass.services = Mock()
         mock_hass.services.async_call = AsyncMock()
@@ -336,8 +362,12 @@ class TestControlCoolerSendCache:
 
     @pytest.mark.asyncio
     async def test_resend_interval_suppresses_identical_command_within_window(self):
-        """Resend interval: skip set_temperature when the same value was already
-        sent recently (cloud lag — current state hasn't caught up yet)."""
+        """Resend interval: suppress identical set_temperature within the rate-limit window.
+
+        When the same setpoint was already sent recently and the cooler state has not
+        yet caught up (cloud lag), the command should be suppressed until the interval
+        expires.
+        """
         mock_hass = Mock()
         mock_hass.services = Mock()
         mock_hass.services.async_call = AsyncMock()
