@@ -125,6 +125,19 @@ class TestRestoreTargetTemperature:
         """No saved value and no TRV target → None."""
         assert restore_target_temperature(None, [], 5.0, 30.0, DEV) is None
 
+    def test_malformed_saved_falls_back_to_trv_mean(self):
+        """A non-numeric saved value falls back to the TRV mean instead of raising."""
+        assert (
+            restore_target_temperature(
+                "unknown", [_trv(20.0), _trv(22.0)], 5.0, 30.0, DEV
+            )
+            == 21.0
+        )
+
+    def test_malformed_saved_no_trv_returns_none(self):
+        """A non-numeric saved value with no TRV target → None, not a crash."""
+        assert restore_target_temperature("n/a", [], 5.0, 30.0, DEV) is None
+
 
 # ---------------------------------------------------------------------------
 # clamp_heating_power

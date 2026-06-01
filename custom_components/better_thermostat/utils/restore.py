@@ -53,14 +53,25 @@ def restore_target_temperature(
 ) -> float | None:
     """Resolve the restored heating target.
 
-    With a *saved* value, clamp it into ``[min_temp, max_temp]`` (defaults
-    5.0 / 30.0).  Without one, fall back to the mean of the TRV targets.
-    Returns ``None`` only when neither source yields a value.
+    With a usable numeric *saved* value, clamp it into ``[min_temp, max_temp]``
+    (defaults 5.0 / 30.0).  When *saved* is missing or non-numeric, fall back to
+    the mean of the TRV targets.  Returns ``None`` only when neither source
+    yields a value.
     """
     if saved is None:
         return mean_trv_target(states, device_name)
 
-    value = float(saved)
+    try:
+        value = float(saved)
+    except (TypeError, ValueError):
+        _LOGGER.warning(
+            "better_thermostat %s: Saved target temperature %r is not numeric, "
+            "falling back to the TRV mean",
+            device_name,
+            saved,
+        )
+        return mean_trv_target(states, device_name)
+
     low = min_temp if min_temp is not None else 5.0
     high = max_temp if max_temp is not None else 30.0
     if value < low:
