@@ -306,11 +306,22 @@ class TestCheckWeatherPrediction:
         bt = make_bt(hass, weather_entity=WEATHER_ID, off_temperature=10.0)
         assert await check_weather_prediction(bt) is True
 
-    async def test_only_first_two_forecast_entries_are_used(self):
-        """Only the first two forecast entries are sampled.
+    async def test_daily_forecast_samples_two_entries(self):
+        """A daily forecast averages the first two entries (~two days)."""
+        states = {WEATHER_ID: weather_state(temperature=15.0)}
+        hass = make_hass(states=states)
+        # First two warm, later days freezing -> beyond the two-day horizon.
+        hass.services.async_call = AsyncMock(
+            return_value=forecast_resp(WEATHER_ID, [15.0, 15.0, -30.0, -30.0])
+        )
+        bt = make_bt(hass, weather_entity=WEATHER_ID, off_temperature=10.0)
+        assert await check_weather_prediction(bt) is False
 
-        With an hourly entity whose first two entries are warm and later ones
-        freezing, the result reflects only those first two entries.
+    async def test_hourly_forecast_samples_beyond_two_entries(self):
+        """An hourly forecast samples well past the first two hours.
+
+        With the first two hours warm and the rest freezing, the wider horizon
+        averages below the threshold, so heating is requested.
         """
         states = {
             WEATHER_ID: weather_state(
@@ -322,7 +333,7 @@ class TestCheckWeatherPrediction:
             return_value=forecast_resp(WEATHER_ID, [15.0, 15.0, -30.0, -30.0, -30.0])
         )
         bt = make_bt(hass, weather_entity=WEATHER_ID, off_temperature=10.0)
-        assert await check_weather_prediction(bt) is False
+        assert await check_weather_prediction(bt) is True
 
     async def test_forecast_entry_missing_temperature_is_filtered(self):
         """A forecast entry without a temperature is filtered out."""

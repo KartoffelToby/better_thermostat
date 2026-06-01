@@ -90,12 +90,17 @@ async def check_weather(self) -> bool:
 
 
 async def check_weather_prediction(self) -> bool | None:
-    """Check configured weather entity for next two days of temperature predictions.
+    """Check configured weather entity over roughly the next two days.
+
+    The forecast horizon is normalised to about two days regardless of the
+    entity's forecast granularity (daily, twice-daily or hourly), and the
+    sampled temperatures are averaged.
 
     Returns
     -------
     bool
-            True if the maximum forcast temperature is lower than the off temperature
+            True if the average forecast temperature (or the current
+            temperature) is below the off temperature, i.e. heat is required
     None
             if not successful
     """
@@ -130,6 +135,9 @@ async def check_weather_prediction(self) -> bool | None:
             )
             return None
 
+        # Sample roughly the next two days regardless of forecast granularity.
+        _forecast_samples = {"daily": 2, "twice_daily": 4, "hourly": 48}[ftype]
+
         forecasts = await self.hass.services.async_call(
             WEATHER_DOMAIN,
             "get_forecasts",
@@ -162,14 +170,14 @@ async def check_weather_prediction(self) -> bool | None:
                     else None
                 ),
             )
-            # compute simple average of first up-to-2 daily temps
+            # average the sampled forecast temps over the two-day horizon
             _entity_temp_unit = (
                 cur_state.attributes.get("temperature_unit")
                 if cur_state and cur_state.attributes
                 else None
             )
             temps = []
-            for i in range(min(2, len(forecast))):
+            for i in range(min(_forecast_samples, len(forecast))):
                 temps.append(
                     convert_to_float_celsius(
                         (
@@ -187,17 +195,17 @@ async def check_weather_prediction(self) -> bool | None:
                     )
                 )
             valid_temps: list[float] = [t for t in temps if isinstance(t, (int, float))]
-            max_forecast_temp = None
+            avg_forecast_temp = None
             if valid_temps:
-                max_forecast_temp = sum(valid_temps) / float(len(valid_temps))
+                avg_forecast_temp = sum(valid_temps) / float(len(valid_temps))
 
             cond_cur = (
                 isinstance(cur_outside_temp, (int, float))
                 and cur_outside_temp < self.off_temperature
             )
             cond_fc = (
-                isinstance(max_forecast_temp, (int, float))
-                and max_forecast_temp < self.off_temperature
+                isinstance(avg_forecast_temp, (int, float))
+                and avg_forecast_temp < self.off_temperature
             )
             return bool(cond_cur or cond_fc)
         else:
