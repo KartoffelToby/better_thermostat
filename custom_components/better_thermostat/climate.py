@@ -1481,35 +1481,18 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
         # if hvac mode could not be restored, turn heat off
         _LOGGER.debug("better_thermostat %s: checking hvac mode...", self.device_name)
         if self.bt_hvac_mode in (STATE_UNAVAILABLE, STATE_UNKNOWN, None):
+            # OFF is filtered out, so a non-empty list means at least one child
+            # is running -> adopt HEAT; otherwise (all OFF or none) stay OFF.
             current_hvac_modes = [x.state for x in states if x.state != HVACMode.OFF]
-            # return the most common hvac mode (what the thermostat is set to do) except OFF
             if current_hvac_modes:
-                _temp_bt_hvac_mode = max(
-                    set(current_hvac_modes), key=current_hvac_modes.count
-                )
-                if _temp_bt_hvac_mode != HVACMode.OFF:
-                    self.bt_hvac_mode = HVACMode.HEAT
-                else:
-                    self.bt_hvac_mode = HVACMode.OFF
-                _LOGGER.debug(
-                    "better_thermostat %s: No previously hvac mode found on startup, turn bt to trv mode %s",
-                    self.device_name,
-                    self.bt_hvac_mode,
-                )
-            # return off if all are off
-            elif all(x.state == HVACMode.OFF for x in states):
-                self.bt_hvac_mode = HVACMode.OFF
-                _LOGGER.debug(
-                    "better_thermostat %s: No previously hvac mode found on startup, turn bt to trv mode %s",
-                    self.device_name,
-                    self.bt_hvac_mode,
-                )
+                self.bt_hvac_mode = HVACMode.HEAT
             else:
-                _LOGGER.warning(
-                    "better_thermostat %s: No previously hvac mode found on startup, turn heat off",
-                    self.device_name,
-                )
                 self.bt_hvac_mode = HVACMode.OFF
+            _LOGGER.debug(
+                "better_thermostat %s: No previously hvac mode found on startup, turn bt to trv mode %s",
+                self.device_name,
+                self.bt_hvac_mode,
+            )
 
         _LOGGER.debug(
             "better_thermostat %s: Startup config, BT hvac mode is %s, Target temp %s",
