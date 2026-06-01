@@ -37,6 +37,7 @@ from homeassistant.const import (
 )
 from homeassistant.core import CALLBACK_TYPE, Context, ServiceCall, State, callback
 from homeassistant.helpers import entity_platform
+from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.dispatcher import dispatcher_send
 from homeassistant.helpers.event import (
     async_call_later,
@@ -68,7 +69,10 @@ from .events.window import trigger_window_change, window_queue
 from .model_fixes.model_quirks import inital_tweak, load_model_quirks
 from .utils.calibration.pid import (
     export_pid_states as pid_export_states,
+    format_bucket,
     reset_pid_state as pid_reset_state,
+    resolve_unique_id,
+    round_to_bucket,
 )
 from .utils.const import (
     ATTR_STATE_BATTERIES,
@@ -321,15 +325,15 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
         return self._loss_tracker.cycles
 
     @cached_property
-    def device_info(self):
+    def device_info(self) -> DeviceInfo:
         """Return device info."""
-        return {
-            "identifiers": {(DOMAIN, self.unique_id)},
-            "name": self.device_name,
-            "manufacturer": "Better Thermostat",
-            "model": self.model,
-            "sw_version": VERSION,
-        }
+        return DeviceInfo(
+            identifiers={(DOMAIN, self.unique_id)},
+            name=self.device_name,
+            manufacturer="Better Thermostat",
+            model=self.model,
+            sw_version=VERSION,
+        )
 
     def __init__(
         self,
@@ -2431,10 +2435,6 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
                 except Exception:
                     action_str = ""
 
-            # HVACAction enum also counts as "heating"
-            if action_val == HVACAction.HEATING and action_str != "heating":
-                action_str = "heating"
-
             snapshots.append(
                 TrvSnapshot(
                     trv_id=trv_id,
@@ -2894,7 +2894,7 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
                     # Build current bucket tag based on current heat target
                     def _bucket(temp):
                         try:
-                            return f"t{round(float(temp) * 2.0) / 2.0:.1f}"
+                            return format_bucket(round_to_bucket(temp))
                         except Exception:
                             return None
 
@@ -2903,18 +2903,18 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
                     buckets: list[str] = []
                     try:
                         if isinstance(self.bt_target_temp, (int, float)):
-                            base = round(float(self.bt_target_temp) * 2.0) / 2.0
+                            base = round_to_bucket(self.bt_target_temp)
                             buckets = [
-                                f"t{base:.1f}",
-                                f"t{base + 0.5:.1f}",
-                                f"t{base - 0.5:.1f}",
+                                format_bucket(base),
+                                format_bucket(base + 0.5),
+                                format_bucket(base - 0.5),
                             ]
                         elif bucket_tag:
                             buckets = [bucket_tag]
                     except Exception:
                         if bucket_tag:
                             buckets = [bucket_tag]
-                    uid = self.unique_id or self._unique_id or "bt"
+                    uid = resolve_unique_id(self)
                     seeded = 0
                     for trv_id in self.real_trvs:
                         for b in buckets or []:

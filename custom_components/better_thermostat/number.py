@@ -130,7 +130,9 @@ class BetterThermostatPresetNumber(NumberEntity, RestoreEntity):
     """Representation of a Better Thermostat Preset Temperature Number."""
 
     _attr_has_entity_name = True
-    _attr_device_class = NumberDeviceClass.TEMPERATURE
+    # NumberEntity and the Entity/RestoreEntity bases type _attr_device_class
+    # incompatibly; the value itself is correct.
+    _attr_device_class = NumberDeviceClass.TEMPERATURE  # type: ignore[bad-override-mutable-attribute]
     _attr_native_unit_of_measurement = UnitOfTemperature.CELSIUS
     _attr_mode = NumberMode.BOX
     _attr_entity_category = EntityCategory.CONFIG
