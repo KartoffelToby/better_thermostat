@@ -19,6 +19,12 @@ from unittest.mock import AsyncMock, patch
 
 import pytest
 
+from custom_components.better_thermostat.utils.const import (
+    MAX_HEAT_LOSS,
+    MAX_HEATING_POWER,
+    MIN_HEAT_LOSS,
+    MIN_HEATING_POWER,
+)
 from custom_components.better_thermostat.utils.state_manager import (
     CURRENT_VERSION,
     MpcState,
@@ -34,6 +40,8 @@ from custom_components.better_thermostat.utils.state_manager import (
     deserialize_pid,
     deserialize_tpi,
 )
+
+_SM = "custom_components.better_thermostat.utils.state_manager"
 
 # ---------------------------------------------------------------------------
 # Dataclass defaults
@@ -633,3 +641,168 @@ class TestStateManagerStateAccess:
 
         assert mgr.get_mpc("trv1__20").gain_est == 0.5
         assert mgr.get_mpc("trv1__22").gain_est == 0.8
+
+
+# ---------------------------------------------------------------------------
+# Controller bridging: clamped_thermal
+# ---------------------------------------------------------------------------
+
+
+def _make_manager() -> StateManager:
+    """Create a StateManager with a mocked Store."""
+    mock_hass = AsyncMock()
+    with patch(f"{_SM}.Store"):
+        return StateManager(mock_hass, "test_entry")
+
+
+class TestClampedThermal:
+    """clamped_thermal() returns persisted thermal stats clamped to valid bounds."""
+
+    def test_both_none_returns_none(self):
+        """Absent thermal stats yield (None, None)."""
+        mgr = _make_manager()
+        assert mgr.clamped_thermal() == (None, None)
+
+    def test_valid_values_passed_through(self):
+        """In-range values are returned unchanged."""
+        mgr = _make_manager()
+        hp = (MIN_HEATING_POWER + MAX_HEATING_POWER) / 2
+        hl = (MIN_HEAT_LOSS + MAX_HEAT_LOSS) / 2
+        mgr.thermal = ThermalStats(heating_power=hp, heat_loss_rate=hl)
+        assert mgr.clamped_thermal() == (hp, hl)
+
+    def test_heating_power_clamped_to_max(self):
+        """A heating_power above the max is clamped down."""
+        mgr = _make_manager()
+        mgr.thermal = ThermalStats(heating_power=MAX_HEATING_POWER * 10)
+        hp, _ = mgr.clamped_thermal()
+        assert hp == MAX_HEATING_POWER
+
+    def test_heating_power_clamped_to_min(self):
+        """A heating_power below the min is clamped up."""
+        mgr = _make_manager()
+        mgr.thermal = ThermalStats(heating_power=-5.0)
+        hp, _ = mgr.clamped_thermal()
+        assert hp == MIN_HEATING_POWER
+
+    def test_heat_loss_clamped_to_bounds(self):
+        """heat_loss_rate is clamped to its min/max."""
+        mgr = _make_manager()
+        mgr.thermal = ThermalStats(heat_loss_rate=MAX_HEAT_LOSS * 10)
+        assert mgr.clamped_thermal()[1] == MAX_HEAT_LOSS
+        mgr.thermal = ThermalStats(heat_loss_rate=-1.0)
+        assert mgr.clamped_thermal()[1] == MIN_HEAT_LOSS
+
+    def test_unparseable_value_yields_none(self):
+        """A non-numeric persisted value degrades to None instead of raising."""
+        mgr = _make_manager()
+        mgr.thermal = ThermalStats(heating_power="oops")  # type: ignore[arg-type]
+        assert mgr.clamped_thermal()[0] is None
+
+
+# ---------------------------------------------------------------------------
+# Controller bridging: hydrate_controllers
+# ---------------------------------------------------------------------------
+
+
+class TestHydrateControllers:
+    """hydrate_controllers() seeds module caches with the prefix-filtered state."""
+
+    def test_imports_only_prefixed_keys(self):
+        """Only keys starting with the prefix are pushed into the caches."""
+        mgr = _make_manager()
+        mgr.set_mpc("p:trv1", MpcState(gain_est=0.5))
+        mgr.set_mpc("other:trvX", MpcState(gain_est=9.9))
+        mgr.set_pid("p:trv1", PIDState())
+        mgr.set_tpi("p:trv1", TpiState())
+
+        with (
+            patch(f"{_SM}.import_mpc_state_map") as imp_mpc,
+            patch(f"{_SM}.import_pid_states") as imp_pid,
+            patch(f"{_SM}.import_tpi_state_map") as imp_tpi,
+        ):
+            mgr.hydrate_controllers("p:")
+
+        imp_mpc.assert_called_once()
+        assert set(imp_mpc.call_args[0][0]) == {"p:trv1"}
+        imp_pid.assert_called_once()
+        assert imp_pid.call_args.kwargs["prefix_filter"] == "p:"
+        assert set(imp_pid.call_args[0][0]) == {"p:trv1"}
+        imp_tpi.assert_called_once()
+        assert set(imp_tpi.call_args[0][0]) == {"p:trv1"}
+
+    def test_no_matching_keys_skips_import(self):
+        """When nothing matches the prefix, the import functions are not called."""
+        mgr = _make_manager()
+        mgr.set_mpc("other:trvX", MpcState())
+
+        with (
+            patch(f"{_SM}.import_mpc_state_map") as imp_mpc,
+            patch(f"{_SM}.import_pid_states") as imp_pid,
+            patch(f"{_SM}.import_tpi_state_map") as imp_tpi,
+        ):
+            mgr.hydrate_controllers("p:")
+
+        imp_mpc.assert_not_called()
+        imp_pid.assert_not_called()
+        imp_tpi.assert_not_called()
+
+    def test_hydrate_does_not_mark_dirty(self):
+        """Seeding caches from persisted state must not dirty the store."""
+        mgr = _make_manager()
+        mgr.set_mpc("p:trv1", MpcState())
+        mgr._dirty = False
+        with (
+            patch(f"{_SM}.import_mpc_state_map"),
+            patch(f"{_SM}.import_pid_states"),
+            patch(f"{_SM}.import_tpi_state_map"),
+        ):
+            mgr.hydrate_controllers("p:")
+        assert mgr.dirty is False
+
+
+# ---------------------------------------------------------------------------
+# Controller bridging: sync_controllers
+# ---------------------------------------------------------------------------
+
+
+class TestSyncControllers:
+    """sync_controllers() exports module caches and records thermal stats."""
+
+    def test_records_thermal_and_dirties(self):
+        """Supplied thermal stats are stored and the store is marked dirty."""
+        mgr = _make_manager()
+        with (
+            patch(f"{_SM}.export_mpc_state_map", return_value={}),
+            patch(f"{_SM}.export_pid_states", return_value={}),
+            patch(f"{_SM}.export_tpi_state_map", return_value={}),
+        ):
+            mgr.sync_controllers("p:", 0.07, 0.02)
+        assert mgr.thermal.heating_power == 0.07
+        assert mgr.thermal.heat_loss_rate == 0.02
+        assert mgr.dirty is True
+
+    def test_exports_controller_caches_into_store(self):
+        """Exported controller dicts are deserialized back into the store."""
+        mgr = _make_manager()
+        with (
+            patch(
+                f"{_SM}.export_mpc_state_map",
+                return_value={"p:trv1": asdict(MpcState(gain_est=1.23))},
+            ),
+            patch(f"{_SM}.export_pid_states", return_value={}),
+            patch(f"{_SM}.export_tpi_state_map", return_value={}),
+        ):
+            mgr.sync_controllers("p:", None, None)
+        assert mgr.state.mpc["p:trv1"].gain_est == 1.23
+
+    def test_non_dict_export_entry_is_skipped(self):
+        """A malformed (non-dict) export entry is ignored, not stored."""
+        mgr = _make_manager()
+        with (
+            patch(f"{_SM}.export_mpc_state_map", return_value={"p:bad": "notadict"}),
+            patch(f"{_SM}.export_pid_states", return_value={}),
+            patch(f"{_SM}.export_tpi_state_map", return_value={}),
+        ):
+            mgr.sync_controllers("p:", None, None)
+        assert "p:bad" not in mgr.state.mpc

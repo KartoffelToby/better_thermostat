@@ -118,6 +118,7 @@ def mock_bt():
         bt, result
     )
     bt._get_outdoor_temp = lambda: BetterThermostat._get_outdoor_temp(bt)
+    bt._enforce_cool_above_heat = lambda: BetterThermostat._enforce_cool_above_heat(bt)
     return bt
 
 
@@ -1058,3 +1059,66 @@ class TestAsyncSetTemperature:
         mock_bt.max_temp = mock_bt.bt_max_temp
         await self._call(mock_bt, **{ATTR_TEMPERATURE: 22.0})
         mock_bt.control_queue_task.put.assert_awaited_once_with(mock_bt)
+
+
+# ===========================================================================
+# 7. TestEnforceCoolAboveHeat
+# ===========================================================================
+
+
+class TestEnforceCoolAboveHeat:
+    """_enforce_cool_above_heat keeps the cool target strictly above the heat target."""
+
+    def _call(self, bt):
+        return BetterThermostat._enforce_cool_above_heat(bt)
+
+    def test_not_heat_cool_mode_is_noop(self, mock_bt):
+        """Outside HEAT_COOL the cool target is left untouched even if below heat."""
+        mock_bt.hvac_mode = HVACMode.HEAT
+        mock_bt.bt_target_temp = 22.0
+        mock_bt.bt_target_cooltemp = 20.0
+        self._call(mock_bt)
+        assert mock_bt.bt_target_cooltemp == 20.0
+
+    def test_cool_above_heat_is_noop(self, mock_bt):
+        """A cool target already above the heat target is unchanged."""
+        mock_bt.hvac_mode = HVACMode.HEAT_COOL
+        mock_bt.bt_target_temp = 22.0
+        mock_bt.bt_target_cooltemp = 26.0
+        self._call(mock_bt)
+        assert mock_bt.bt_target_cooltemp == 26.0
+
+    def test_cool_below_heat_is_bumped_by_step(self, mock_bt):
+        """A cool target below the heat target is bumped up by one step."""
+        mock_bt.hvac_mode = HVACMode.HEAT_COOL
+        mock_bt.bt_target_temp = 22.0
+        mock_bt.bt_target_temp_step = 0.5
+        mock_bt.bt_target_cooltemp = 20.0
+        self._call(mock_bt)
+        assert mock_bt.bt_target_cooltemp == 22.5
+
+    def test_cool_equal_heat_is_bumped(self, mock_bt):
+        """A cool target equal to the heat target is bumped above it."""
+        mock_bt.hvac_mode = HVACMode.HEAT_COOL
+        mock_bt.bt_target_temp = 22.0
+        mock_bt.bt_target_temp_step = 0.5
+        mock_bt.bt_target_cooltemp = 22.0
+        self._call(mock_bt)
+        assert mock_bt.bt_target_cooltemp == 22.5
+
+    def test_step_falls_back_to_half_degree(self, mock_bt):
+        """A missing/zero step falls back to 0.5."""
+        mock_bt.hvac_mode = HVACMode.HEAT_COOL
+        mock_bt.bt_target_temp = 22.0
+        mock_bt.bt_target_temp_step = 0
+        mock_bt.bt_target_cooltemp = 21.0
+        self._call(mock_bt)
+        assert mock_bt.bt_target_cooltemp == 22.5
+
+    def test_none_cool_target_is_noop(self, mock_bt):
+        """A None cool target does not raise and stays None."""
+        mock_bt.hvac_mode = HVACMode.HEAT_COOL
+        mock_bt.bt_target_temp = 22.0
+        mock_bt.bt_target_cooltemp = None
+        self._call(mock_bt)
+        assert mock_bt.bt_target_cooltemp is None

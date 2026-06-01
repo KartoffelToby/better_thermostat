@@ -40,9 +40,10 @@ from typing import Any
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.storage import Store
 
-from .calibration.mpc import MpcState
-from .calibration.pid import PIDState
-from .calibration.tpi import TpiState
+from .calibration.mpc import MpcState, export_mpc_state_map, import_mpc_state_map
+from .calibration.pid import PIDState, export_pid_states, import_pid_states
+from .calibration.tpi import TpiState, export_tpi_state_map, import_tpi_state_map
+from .const import MAX_HEAT_LOSS, MAX_HEATING_POWER, MIN_HEAT_LOSS, MIN_HEATING_POWER
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -376,6 +377,93 @@ class StateManager:
     def mark_dirty(self) -> None:
         """Manually mark state as needing persistence."""
         self._dirty = True
+
+    # -- Controller bridging -------------------------------------------------
+
+    def hydrate_controllers(self, prefix: str) -> None:
+        """Seed the module-level controller caches from persisted state.
+
+        The MPC/PID/TPI controllers keep their own global ``_*_STATES`` dicts.
+        This copies the persisted entries whose key starts with *prefix* into
+        those caches so ``compute_*()`` works immediately after startup.
+        """
+        mpc_data = {
+            key: asdict(mpc)
+            for key, mpc in self._state.mpc.items()
+            if key.startswith(prefix)
+        }
+        if mpc_data:
+            import_mpc_state_map(mpc_data)
+
+        pid_data = {
+            key: asdict(pid)
+            for key, pid in self._state.pid.items()
+            if key.startswith(prefix)
+        }
+        if pid_data:
+            import_pid_states(pid_data, prefix_filter=prefix)
+
+        tpi_data = {
+            key: asdict(tpi)
+            for key, tpi in self._state.tpi.items()
+            if key.startswith(prefix)
+        }
+        if tpi_data:
+            import_tpi_state_map(tpi_data)
+
+    def clamped_thermal(self) -> tuple[float | None, float | None]:
+        """Return persisted thermal stats clamped to their valid bounds.
+
+        Returns ``(heating_power, heat_loss_rate)``; an element is ``None`` when
+        the persisted value is absent or cannot be parsed as a float.
+        """
+        thermal = self._state.thermal
+
+        heating_power: float | None = None
+        if thermal.heating_power is not None:
+            try:
+                heating_power = max(
+                    MIN_HEATING_POWER,
+                    min(MAX_HEATING_POWER, float(thermal.heating_power)),
+                )
+            except (TypeError, ValueError):
+                heating_power = None
+
+        heat_loss_rate: float | None = None
+        if thermal.heat_loss_rate is not None:
+            try:
+                heat_loss_rate = max(
+                    MIN_HEAT_LOSS, min(MAX_HEAT_LOSS, float(thermal.heat_loss_rate))
+                )
+            except (TypeError, ValueError):
+                heat_loss_rate = None
+
+        return heating_power, heat_loss_rate
+
+    def sync_controllers(
+        self, prefix: str, heating_power: float | None, heat_loss_rate: float | None
+    ) -> None:
+        """Export the module-level controller caches back into the store.
+
+        Pulls the latest MPC/PID/TPI runtime state for *prefix* from the global
+        controller caches and records the supplied thermal stats, so a following
+        save reflects current runtime values.
+        """
+        for key, state_dict in export_mpc_state_map(prefix).items():
+            if isinstance(state_dict, dict):
+                self.set_mpc(key, deserialize_mpc(state_dict))
+
+        for key, state_dict in export_pid_states(prefix=prefix).items():
+            if isinstance(state_dict, dict):
+                self.set_pid(key, deserialize_pid(state_dict))
+
+        for key, state_dict in export_tpi_state_map(prefix).items():
+            if isinstance(state_dict, dict):
+                self.set_tpi(key, deserialize_tpi(state_dict))
+
+        self.thermal = ThermalStats(
+            heating_power=heating_power, heat_loss_rate=heat_loss_rate
+        )
 
     # -- Load / Save ---------------------------------------------------------
 
