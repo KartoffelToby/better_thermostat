@@ -96,6 +96,23 @@ class PresetManager:
         """Set the stored temperature for *preset*."""
         self.temperatures[preset] = value
 
+    def record_manual_change(self, applied: float) -> float | None:
+        """Record a manual setpoint as the active preset's stored temperature.
+
+        Only applies in PRESET_NONE (Manual): specific presets (Comfort, Eco, …)
+        are managed via their own Number entities and must not be overwritten by
+        manual setpoint changes. Returns the previous stored value when it was
+        updated, or ``None`` when nothing changed (not in PRESET_NONE, or the
+        value already matches).
+        """
+        if self.mode != PRESET_NONE or self.mode not in self.temperatures:
+            return None
+        old_value = self.temperatures[self.mode]
+        if old_value == applied:
+            return None
+        self.temperatures[self.mode] = applied
+        return old_value
+
     def get_temperature(self, preset: str) -> float | None:
         """Return the stored temperature for *preset*, or ``None``."""
         return self.temperatures.get(preset)

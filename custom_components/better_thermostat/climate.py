@@ -2605,6 +2605,30 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
 
         await self.control_queue_task.put(self)
 
+    def _enforce_cool_above_heat(self) -> None:
+        """Keep the cooling target strictly above the heating target.
+
+        In HEAT_COOL mode the two setpoints must not cross. If the cool target is
+        at or below the heat target, bump it up by one temperature step.
+        """
+        if (
+            self.hvac_mode != HVACMode.HEAT_COOL
+            or self.bt_target_cooltemp is None
+            or self.bt_target_temp is None
+            or self.bt_target_cooltemp > self.bt_target_temp
+        ):
+            return
+        step = self.bt_target_temp_step or 0.5
+        adjusted = self.bt_target_temp + step
+        _LOGGER.warning(
+            "better_thermostat %s: cooling target %.2f adjusted to %.2f to stay above heating target %.2f",
+            self.device_name,
+            self.bt_target_cooltemp,
+            adjusted,
+            self.bt_target_temp,
+        )
+        self.bt_target_cooltemp = adjusted
+
     async def async_set_temperature(self, **kwargs) -> None:
         """Set new target temperature."""
         _LOGGER.debug(
@@ -2686,52 +2710,26 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
         if _new_setpointhigh is not None:
             self.bt_target_cooltemp = _new_setpointhigh
 
-        # Enforce ordering: cool target should be above heat target (if both in heat_cool mode)
-        if (
-            self.hvac_mode in (HVACMode.HEAT_COOL,)
-            and self.bt_target_cooltemp is not None
-            and self.bt_target_temp is not None
-            and self.bt_target_cooltemp <= self.bt_target_temp
-        ):
-            step = self.bt_target_temp_step or 0.5
-            adjusted = self.bt_target_temp + step
-            _LOGGER.warning(
-                "better_thermostat %s: cooling target %.2f adjusted to %.2f to stay above heating target %.2f",
-                self.device_name,
-                self.bt_target_cooltemp,
-                adjusted,
-                self.bt_target_temp,
-            )
-            self.bt_target_cooltemp = adjusted
+        # Enforce ordering: cool target should be above heat target in HEAT_COOL.
+        self._enforce_cool_above_heat()
 
-        # If user manually changes the temperature while a preset is active,
-        # we ONLY update the stored preset temperature if we are in PRESET_NONE (Manual).
-        # For specific presets (Comfort, Eco, etc.), the value is now managed via
-        # separate Number entities and should NOT be overwritten by manual setpoint changes.
+        # If the user manually changes the temperature while in PRESET_NONE (Manual),
+        # record it as the stored manual temperature. Specific presets (Comfort, Eco,
+        # etc.) are managed via separate Number entities and must NOT be overwritten
+        # by manual setpoint changes.
         if (
-            self.preset_mgr.mode == PRESET_NONE
-            and self.preset_mgr.mode in self.preset_mgr.temperatures
-            and (_new_setpoint is not None or _new_setpointlow is not None)
-        ):
-            if self.bt_target_temp is not None:
-                applied = float(self.bt_target_temp)
-                old_value = self.preset_mgr.temperatures.get(self.preset_mgr.mode)
-                if old_value != applied:
-                    self.preset_mgr.temperatures[self.preset_mgr.mode] = applied
-                    _LOGGER.debug(
-                        "better_thermostat %s: Updated stored preset temperature for %s from %s to %s due to manual change",
-                        self.device_name,
-                        self.preset_mgr.mode,
-                        old_value,
-                        applied,
-                    )
-                else:
-                    _LOGGER.debug(
-                        "better_thermostat %s: Manual change equals current stored preset %s value=%s; no update",
-                        self.device_name,
-                        self.preset_mgr.mode,
-                        applied,
-                    )
+            _new_setpoint is not None or _new_setpointlow is not None
+        ) and self.bt_target_temp is not None:
+            applied = float(self.bt_target_temp)
+            old_value = self.preset_mgr.record_manual_change(applied)
+            if old_value is not None:
+                _LOGGER.debug(
+                    "better_thermostat %s: Updated stored preset temperature for %s from %s to %s due to manual change",
+                    self.device_name,
+                    self.preset_mgr.mode,
+                    old_value,
+                    applied,
+                )
 
         _LOGGER.debug(
             "better_thermostat %s: HA set target temperature to %s & %s",

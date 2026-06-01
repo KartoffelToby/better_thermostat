@@ -250,6 +250,38 @@ class TestSavedTemperatureLifecycle:
 # ---------------------------------------------------------------------------
 
 
+class TestRecordManualChange:
+    """record_manual_change() stores manual setpoints only while in PRESET_NONE."""
+
+    def test_updates_stored_temp_in_none_and_returns_old(self, mgr: PresetManager):
+        """In PRESET_NONE a changed value is stored and the old value returned."""
+        mgr.mode = PRESET_NONE
+        old = mgr.record_manual_change(23.0)
+        assert old == _DEFAULT_TEMPERATURES[PRESET_NONE]
+        assert mgr.temperatures[PRESET_NONE] == 23.0
+
+    def test_unchanged_value_is_noop_and_returns_none(self, mgr: PresetManager):
+        """A value equal to the stored one is not written and returns None."""
+        mgr.mode = PRESET_NONE
+        mgr.temperatures[PRESET_NONE] = 21.0
+        assert mgr.record_manual_change(21.0) is None
+        assert mgr.temperatures[PRESET_NONE] == 21.0
+
+    def test_specific_preset_is_not_overwritten(self, mgr: PresetManager):
+        """Outside PRESET_NONE the stored preset temp must not be touched."""
+        mgr.mode = PRESET_COMFORT
+        before = mgr.temperatures[PRESET_COMFORT]
+        assert mgr.record_manual_change(99.0) is None
+        assert mgr.temperatures[PRESET_COMFORT] == before
+
+    def test_none_missing_from_temperatures_is_noop(self):
+        """If PRESET_NONE has no stored temp, nothing is recorded."""
+        mgr = PresetManager(temperatures={PRESET_COMFORT: 21.0})
+        mgr.mode = PRESET_NONE
+        assert mgr.record_manual_change(23.0) is None
+        assert PRESET_NONE not in mgr.temperatures
+
+
 class TestDefaults:
     """Dataclass defaults isolate state between instances and start in the NONE preset."""
 
