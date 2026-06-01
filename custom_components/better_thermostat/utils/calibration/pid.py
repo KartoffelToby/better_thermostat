@@ -16,7 +16,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 import logging
 from time import monotonic
-from typing import Any, TypedDict
+from typing import Any, Protocol, TypedDict
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -566,7 +566,14 @@ def seed_pid_gains(key: str, kp: float, ki: float, kd: float) -> bool:
 # --- Key Builder Helper -----------------------------------------------
 
 
-def resolve_unique_id(obj: Any) -> str:
+class _HasUniqueId(Protocol):
+    """Structural type for objects keyed by a Home Assistant ``unique_id``."""
+
+    @property
+    def unique_id(self) -> str | None: ...
+
+
+def resolve_unique_id(obj: _HasUniqueId) -> str:
     """Return the id used to key per-entity persistent state.
 
     Prefers the public ``unique_id`` property, falls back to ``_unique_id`` and
