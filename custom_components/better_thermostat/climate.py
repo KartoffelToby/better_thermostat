@@ -10,7 +10,6 @@ from functools import cached_property
 import json
 import logging
 from random import randint
-from statistics import mean
 from time import monotonic
 from typing import Any
 
@@ -98,10 +97,6 @@ from .utils.const import (
     CONF_WEATHER,
     CONF_WINDOW_TIMEOUT,
     CONF_WINDOW_TIMEOUT_AFTER,
-    MAX_HEAT_LOSS,
-    MAX_HEATING_POWER,
-    MIN_HEAT_LOSS,
-    MIN_HEATING_POWER,
     SERVICE_RESET_HEATING_POWER,
     SERVICE_RESET_PID_LEARNINGS,
     SUPPORT_FLAGS,
@@ -126,6 +121,12 @@ from .utils.hvac_action import (
     should_heat_with_tolerance,
 )
 from .utils.preset_manager import PresetManager
+from .utils.restore import (
+    clamp_heat_loss,
+    clamp_heating_power,
+    mean_trv_target,
+    restore_target_temperature,
+)
 from .utils.state_manager import StateManager
 from .utils.telemetry import (
     collect_balance_attrs,
@@ -1272,54 +1273,16 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
                 "better_thermostat %s: restoring target temperature...",
                 self.device_name,
             )
-            # If we have no initial temperature, restore
-            # If we have a previously saved temperature
-            if old_state.attributes.get(ATTR_TEMPERATURE) is None:
-                _target_temps = []
-                for _s in states:
-                    _raw = _s.attributes.get(ATTR_TEMPERATURE)
-                    if _raw is not None:
-                        _unit = _s.attributes.get(
-                            "temperature_unit", _s.attributes.get("unit_of_measurement")
-                        )
-                        _c = convert_to_float_celsius(
-                            str(_raw),
-                            self.device_name,
-                            "_restore_state(target)",
-                            unit_of_measurement=_unit,
-                        )
-                        if _c is not None:
-                            _target_temps.append(_c)
-                if _target_temps:
-                    self.bt_target_temp = mean(_target_temps)
-                _LOGGER.debug(
-                    "better_thermostat %s: Undefined target temperature, falling back to %s",
-                    self.device_name,
-                    self.bt_target_temp,
-                )
-            else:
-                _oldtarget_temperature = float(old_state.attributes[ATTR_TEMPERATURE])
-                _bt_min = self.bt_min_temp if self.bt_min_temp is not None else 5.0
-                _bt_max = self.bt_max_temp if self.bt_max_temp is not None else 30.0
-                # if the saved temperature is lower than the min_temp, set it to min_temp
-                if _oldtarget_temperature < _bt_min:
-                    _LOGGER.warning(
-                        "better_thermostat %s: Saved target temperature %s is lower than min_temp %s, setting to min_temp",
-                        self.device_name,
-                        _oldtarget_temperature,
-                        _bt_min,
-                    )
-                    _oldtarget_temperature = _bt_min
-                # if the saved temperature is higher than the max_temp, set it to max_temp
-                elif _oldtarget_temperature > _bt_max:
-                    _LOGGER.warning(
-                        "better_thermostat %s: Saved target temperature %s is higher than max_temp %s, setting to max_temp",
-                        self.device_name,
-                        _oldtarget_temperature,
-                        _bt_max,
-                    )
-                    _oldtarget_temperature = _bt_max
-                self.bt_target_temp = _oldtarget_temperature
+            # Clamp the saved target, or fall back to the TRV mean.
+            _restored_target = restore_target_temperature(
+                old_state.attributes.get(ATTR_TEMPERATURE),
+                states,
+                self.bt_min_temp,
+                self.bt_max_temp,
+                self.device_name,
+            )
+            if _restored_target is not None:
+                self.bt_target_temp = _restored_target
             _LOGGER.debug(
                 "better_thermostat %s: target temperature restored", self.device_name
             )
@@ -1385,42 +1348,17 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
                     old_state.attributes[ATTR_STATE_MAIN_MODE]
                 )
             if old_state.attributes.get(ATTR_STATE_HEATING_POWER, None) is not None:
-                try:
-                    _power_value = old_state.attributes.get(ATTR_STATE_HEATING_POWER)
-                    if _power_value is not None:
-                        loaded_power = float(_power_value)
-                    else:
-                        loaded_power = 0.01
-                except (TypeError, ValueError):
-                    loaded_power = 0.01
-                # Bound to realistic values to prevent issues from incorrectly learned values
-                bounded_power = max(
-                    MIN_HEATING_POWER, min(MAX_HEATING_POWER, loaded_power)
+                self.heating_power = clamp_heating_power(
+                    old_state.attributes.get(ATTR_STATE_HEATING_POWER), self.device_name
                 )
-                if bounded_power != loaded_power:
-                    _LOGGER.info(
-                        "better_thermostat %s: Restored heating_power %.3f "
-                        "is outside allowed range [%s, %s]; clamped to %.3f",
-                        self.device_name,
-                        loaded_power,
-                        MIN_HEATING_POWER,
-                        MAX_HEATING_POWER,
-                        bounded_power,
-                    )
-                self.heating_power = bounded_power
 
             # Restore heat loss if available
             if old_state.attributes.get(ATTR_STATE_HEAT_LOSS, None) is not None:
-                try:
-                    _loss_value = old_state.attributes.get(ATTR_STATE_HEAT_LOSS)
-                    if _loss_value is not None:
-                        loaded_loss = float(_loss_value)
-                    else:
-                        loaded_loss = 0.01
-                    bounded_loss = max(MIN_HEAT_LOSS, min(MAX_HEAT_LOSS, loaded_loss))
-                    self.heat_loss_rate = bounded_loss
-                except (TypeError, ValueError):
-                    pass
+                _restored_loss = clamp_heat_loss(
+                    old_state.attributes.get(ATTR_STATE_HEAT_LOSS)
+                )
+                if _restored_loss is not None:
+                    self.heat_loss_rate = _restored_loss
             if (
                 old_state.attributes.get(ATTR_STATE_PRESET_TEMPERATURE, None)
                 is not None
@@ -1459,23 +1397,9 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
                     "better_thermostat %s: No previously saved temperature found on startup, get it from the TRV",
                     self.device_name,
                 )
-                _target_temps = []
-                for _s in states:
-                    _raw = _s.attributes.get(ATTR_TEMPERATURE)
-                    if _raw is not None:
-                        _unit = _s.attributes.get(
-                            "temperature_unit", _s.attributes.get("unit_of_measurement")
-                        )
-                        _c = convert_to_float_celsius(
-                            str(_raw),
-                            self.device_name,
-                            "_restore_defaults(target)",
-                            unit_of_measurement=_unit,
-                        )
-                        if _c is not None:
-                            _target_temps.append(_c)
-                if _target_temps:
-                    self.bt_target_temp = mean(_target_temps)
+                _restored_target = mean_trv_target(states, self.device_name)
+                if _restored_target is not None:
+                    self.bt_target_temp = _restored_target
             _LOGGER.debug("better_thermostat %s: defaults restored", self.device_name)
 
     def _validate_hvac_mode(self, states: list[State]) -> None:
