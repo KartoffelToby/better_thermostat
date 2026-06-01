@@ -66,13 +66,10 @@ from .events.temperature import trigger_temperature_change
 from .events.trv import trigger_trv_change
 from .events.window import trigger_window_change, window_queue
 from .model_fixes.model_quirks import inital_tweak, load_model_quirks
-from .utils.calibration.mpc import export_mpc_state_map, import_mpc_state_map
 from .utils.calibration.pid import (
     export_pid_states as pid_export_states,
-    import_pid_states as pid_import_states,
     reset_pid_state as pid_reset_state,
 )
-from .utils.calibration.tpi import export_tpi_state_map, import_tpi_state_map
 from .utils.const import (
     ATTR_STATE_BATTERIES,
     ATTR_STATE_CALL_FOR_HEAT,
@@ -2086,103 +2083,29 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
     # -- Unified state persistence helpers ------------------------------------
 
     def _hydrate_controllers_from_state(self) -> None:
-        """Push loaded state into the module-level controller caches.
-
-        During the transition period the controllers still maintain their
-        own global ``_*_STATES`` dicts.  This method seeds them from the
-        StateManager so that ``compute_*()`` calls work immediately after
-        startup.
-        """
+        """Seed the module-level controller caches from persisted state."""
         if self.state_mgr is None:
             return
-        from dataclasses import asdict as _asdict
-
-        prefix = f"{self._unique_id}:"
-
-        # MPC
-        mpc_data: dict[str, dict[str, Any]] = {}
-        for key, mpc in self.state_mgr.state.mpc.items():
-            if key.startswith(prefix):
-                mpc_data[key] = _asdict(mpc)
-        if mpc_data:
-            import_mpc_state_map(mpc_data)
-
-        # PID
-        pid_data: dict[str, dict[str, Any]] = {}
-        for key, pid in self.state_mgr.state.pid.items():
-            if key.startswith(prefix):
-                pid_data[key] = _asdict(pid)
-        if pid_data:
-            pid_import_states(pid_data, prefix_filter=prefix)
-
-        # TPI
-        tpi_data: dict[str, dict[str, Any]] = {}
-        for key, tpi in self.state_mgr.state.tpi.items():
-            if key.startswith(prefix):
-                tpi_data[key] = _asdict(tpi)
-        if tpi_data:
-            import_tpi_state_map(tpi_data)
+        self.state_mgr.hydrate_controllers(f"{self._unique_id}:")
 
     def _hydrate_thermal_from_state(self) -> None:
-        """Apply thermal stats from StateManager to entity attributes."""
+        """Apply persisted, clamped thermal stats to entity attributes."""
         if self.state_mgr is None:
             return
-        thermal = self.state_mgr.thermal
-        if thermal.heating_power is not None:
-            try:
-                self.heating_power = max(
-                    MIN_HEATING_POWER,
-                    min(MAX_HEATING_POWER, float(thermal.heating_power)),
-                )
-            except (TypeError, ValueError):
-                pass
-        if thermal.heat_loss_rate is not None:
-            try:
-                self.heat_loss_rate = max(
-                    MIN_HEAT_LOSS, min(MAX_HEAT_LOSS, float(thermal.heat_loss_rate))
-                )
-            except (TypeError, ValueError):
-                pass
+        heating_power, heat_loss_rate = self.state_mgr.clamped_thermal()
+        if heating_power is not None:
+            self.heating_power = heating_power
+        if heat_loss_rate is not None:
+            self.heat_loss_rate = heat_loss_rate
 
     def _sync_controllers_to_state(self) -> None:
-        """Export current module-level controller state back to StateManager.
-
-        Called before save to ensure the unified store reflects the latest
-        runtime state from the global controller caches.
-        """
+        """Push current controller caches and thermal stats into the StateManager."""
         if self.state_mgr is None:
             return
-        from .utils.state_manager import (
-            ThermalStats,
-            deserialize_mpc,
-            deserialize_pid,
-            deserialize_tpi,
-        )
-
-        prefix = f"{self._unique_id}:"
-
-        # MPC: export from module cache → StateManager
-        mpc_exported = export_mpc_state_map(prefix)
-        for key, state_dict in mpc_exported.items():
-            if isinstance(state_dict, dict):
-                self.state_mgr.set_mpc(key, deserialize_mpc(state_dict))
-
-        # PID: export from module cache → StateManager
-        pid_exported = pid_export_states(prefix=prefix)
-        for key, state_dict in pid_exported.items():
-            if isinstance(state_dict, dict):
-                self.state_mgr.set_pid(key, deserialize_pid(state_dict))
-
-        # TPI: export from module cache → StateManager
-        tpi_exported = export_tpi_state_map(prefix)
-        for key, state_dict in tpi_exported.items():
-            if isinstance(state_dict, dict):
-                self.state_mgr.set_tpi(key, deserialize_tpi(state_dict))
-
-        # Thermal: sync from entity attributes → StateManager
-        self.state_mgr.thermal = ThermalStats(
-            heating_power=getattr(self, "heating_power", None),
-            heat_loss_rate=getattr(self, "heat_loss_rate", None),
+        self.state_mgr.sync_controllers(
+            f"{self._unique_id}:",
+            getattr(self, "heating_power", None),
+            getattr(self, "heat_loss_rate", None),
         )
 
     @callback
