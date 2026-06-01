@@ -118,8 +118,8 @@ class TestPresetCoolNumber:
         bt_climate.device_name = "Test BT"
         bt_climate.min_temp = 5.0
         bt_climate.max_temp = 30.0
-        bt_climate.target_temperature_step = 0.5
-        bt_climate.bt_target_temp_step = 0.5
+        bt_climate.target_temperature_step = 0.25
+        bt_climate.bt_target_temp_step = 0.75
         bt_climate.preset_mode = PRESET_HOME
         bt_climate.bt_target_temp = 22.0
         bt_climate.bt_target_cooltemp = 24.0
@@ -132,8 +132,34 @@ class TestPresetCoolNumber:
 
         await entity.async_set_native_value(20.0)
 
-        assert bt_climate._preset_cool_temperatures[PRESET_HOME] == 22.5
-        assert bt_climate.bt_target_cooltemp == 22.5
+        assert bt_climate._preset_cool_temperatures[PRESET_HOME] == 22.75
+        assert bt_climate.bt_target_cooltemp == 22.75
+        bt_climate.control_queue_task.put.assert_awaited_once_with(bt_climate)
+
+    @pytest.mark.asyncio
+    async def test_active_preset_stores_unclamped_cooling_value(self):
+        """Cooling values above the heat target are stored and applied verbatim."""
+        bt_climate = MagicMock()
+        bt_climate.unique_id = "test_bt"
+        bt_climate.device_name = "Test BT"
+        bt_climate.min_temp = 5.0
+        bt_climate.max_temp = 30.0
+        bt_climate.target_temperature_step = 0.25
+        bt_climate.bt_target_temp_step = 0.75
+        bt_climate.preset_mode = PRESET_HOME
+        bt_climate.bt_target_temp = 22.0
+        bt_climate.bt_target_cooltemp = 24.0
+        bt_climate.bt_hvac_mode = HVACMode.HEAT_COOL
+        bt_climate._preset_cool_temperatures = {PRESET_HOME: 24.0}
+        bt_climate.control_queue_task.put = AsyncMock()
+
+        entity = BetterThermostatPresetCoolNumber(bt_climate, PRESET_HOME)
+        entity.async_write_ha_state = MagicMock()
+
+        await entity.async_set_native_value(25.0)
+
+        assert bt_climate._preset_cool_temperatures[PRESET_HOME] == 25.0
+        assert bt_climate.bt_target_cooltemp == 25.0
         bt_climate.control_queue_task.put.assert_awaited_once_with(bt_climate)
 
     @pytest.mark.asyncio
