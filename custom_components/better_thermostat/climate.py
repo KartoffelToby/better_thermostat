@@ -135,7 +135,13 @@ from .utils.telemetry import (
     collect_cycle_telemetry,
     collect_pid_debug_attrs,
 )
-from .utils.thermal_learning import HeatingPowerTracker, HeatLossTracker
+from .utils.thermal_learning import (
+    HeatingCycle,
+    HeatingPowerTracker,
+    HeatLossTracker,
+    LossCycle,
+    LossStats,
+)
 from .utils.valve_maintenance import (
     build_trv_snapshots,
     collect_maintenance_trvs,
@@ -294,7 +300,7 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
         return self._heating_tracker.stats
 
     @property
-    def heating_cycles(self) -> deque:
+    def heating_cycles(self) -> deque[HeatingCycle]:
         """Return recorded heating cycles."""
         return self._heating_tracker.cycles
 
@@ -308,12 +314,12 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
         self._loss_tracker.heat_loss_rate = value
 
     @property
-    def last_heat_loss_stats(self) -> deque:
+    def last_heat_loss_stats(self) -> deque[LossStats]:
         """Return recent heat loss statistics."""
         return self._loss_tracker.stats
 
     @property
-    def loss_cycles(self) -> deque:
+    def loss_cycles(self) -> deque[LossCycle]:
         """Return recorded heat loss cycles."""
         return self._loss_tracker.cycles
 

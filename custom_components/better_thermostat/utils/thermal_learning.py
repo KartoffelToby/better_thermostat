@@ -11,7 +11,7 @@ from collections import deque
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 import logging
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, TypedDict
 
 if TYPE_CHECKING:
     from homeassistant.components.climate.const import HVACAction
@@ -32,6 +32,58 @@ _ALPHA_MAX: float = 0.25
 # Telemetry deque sizes
 _STATS_MAXLEN: int = 10
 _CYCLES_MAXLEN: int = 50
+
+
+# ---------------------------------------------------------------------------
+# Telemetry record types (one entry per finalized cycle / stats sample)
+# ---------------------------------------------------------------------------
+
+
+class HeatingCycle(TypedDict):
+    """One finalized heating cycle (start → peak)."""
+
+    start: str | None
+    end: str | None
+    temp_start: float | None
+    temp_peak: float | None
+    delta_t: float
+    minutes: float
+    rate_c_min: float
+    target: float | None
+    outdoor: float | None
+    norm_power: float | None
+
+
+class HeatingStats(TypedDict):
+    """Compact heating-power learning sample."""
+
+    dT: float
+    min: float
+    rate: float
+    alpha: float
+    envf: float
+    hp: float
+    norm: float | None
+
+
+class LossCycle(TypedDict):
+    """One finalized idle cooling cycle (start → minimum)."""
+
+    start: str | None
+    end: str | None
+    temp_start: float | None
+    temp_min: float | None
+    rate: float
+
+
+class LossStats(TypedDict):
+    """Compact heat-loss learning sample."""
+
+    dT: float
+    min: float
+    rate: float
+    alpha: float
+    loss: float
 
 
 # ---------------------------------------------------------------------------
@@ -97,7 +149,7 @@ class HeatingPowerUpdate:
     """Return value of :meth:`HeatingPowerTracker.update`."""
 
     action_changed: bool = False
-    current_action: object = None  # HVACAction at runtime
+    current_action: HVACAction | None = None
     cycle_result: CycleResult | None = None
 
 
@@ -127,13 +179,13 @@ class HeatingPowerTracker:
     start_ts: datetime | None = None
     end_temp: float | None = None  # peak temperature after heating stops
     end_ts: datetime | None = None
-    _prev_action: object = None  # HVACAction – kept as object to avoid runtime import
+    _prev_action: HVACAction | None = None
     min_target: float = 18.0
     max_target: float = 21.0
-    stats: deque[dict[str, object]] = field(
+    stats: deque[HeatingStats] = field(
         default_factory=lambda: deque(maxlen=_STATS_MAXLEN)
     )
-    cycles: deque[dict[str, object]] = field(
+    cycles: deque[HeatingCycle] = field(
         default_factory=lambda: deque(maxlen=_CYCLES_MAXLEN)
     )
 
@@ -361,11 +413,9 @@ class HeatLossTracker:
     start_ts: datetime | None = None
     end_temp: float | None = None  # lowest observed temperature
     end_ts: datetime | None = None
-    _prev_action: object = None  # HVACAction
-    stats: deque[dict[str, object]] = field(
-        default_factory=lambda: deque(maxlen=_STATS_MAXLEN)
-    )
-    cycles: deque[dict[str, object]] = field(
+    _prev_action: HVACAction | None = None
+    stats: deque[LossStats] = field(default_factory=lambda: deque(maxlen=_STATS_MAXLEN))
+    cycles: deque[LossCycle] = field(
         default_factory=lambda: deque(maxlen=_CYCLES_MAXLEN)
     )
 

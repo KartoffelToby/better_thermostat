@@ -9,6 +9,11 @@ from typing import Any, Literal, Protocol, TypedDict, cast
 
 from custom_components.better_thermostat.utils.calibration.pid import PIDDebugInfo
 from custom_components.better_thermostat.utils.const import ATTR_STATE_HEAT_LOSS_STATS
+from custom_components.better_thermostat.utils.thermal_learning import (
+    HeatingCycle,
+    LossCycle,
+    LossStats,
+)
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -33,14 +38,42 @@ class TrvInfo(TypedDict, total=False):
 
 
 class TelemetrySource(Protocol):
-    """Structural contract for objects telemetry helpers consume."""
+    """Structural read-only contract for objects telemetry helpers consume.
 
-    real_trvs: Mapping[str, TrvInfo]
-    heating_cycles: Sequence[Mapping[str, object]] | None
-    loss_cycles: Sequence[Mapping[str, object]] | None
-    last_heat_loss_stats: Sequence[object] | None
-    heating_power_normalized: float | None
-    temp_slope: float | None
+    Members are declared as read-only properties: the helpers only read these,
+    and read-only members match covariantly, so a source whose ``real_trvs`` is
+    a plain ``dict`` still satisfies the contract.
+    """
+
+    @property
+    def real_trvs(self) -> Mapping[str, TrvInfo]:
+        """Per-TRV info dicts, keyed by entity id."""
+        ...
+
+    @property
+    def heating_cycles(self) -> Sequence[HeatingCycle] | None:
+        """Finalized heating cycles (most recent last)."""
+        ...
+
+    @property
+    def loss_cycles(self) -> Sequence[LossCycle] | None:
+        """Finalized idle-cooling cycles (most recent last)."""
+        ...
+
+    @property
+    def last_heat_loss_stats(self) -> Sequence[LossStats] | None:
+        """Recent heat-loss learning samples."""
+        ...
+
+    @property
+    def heating_power_normalized(self) -> float | None:
+        """Outdoor-normalized heating power, if known."""
+        ...
+
+    @property
+    def temp_slope(self) -> float | None:
+        """Current temperature slope in °C/min, if known."""
+        ...
 
 
 def _to_float(val: object) -> float | None:
