@@ -2867,7 +2867,11 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
                     pid_reset_state(key)
                     count += 1
                 except Exception:
-                    pass
+                    _LOGGER.debug(
+                        "better_thermostat %s: could not reset PID state %s",
+                        self.device_name,
+                        key,
+                    )
             _LOGGER.info(
                 "better_thermostat %s: reset %d PID learning state entries (prefix=%s)",
                 self.device_name,
@@ -2878,7 +2882,10 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
             try:
                 self.schedule_save_state()
             except Exception:
-                pass
+                _LOGGER.debug(
+                    "better_thermostat %s: could not schedule state save after PID reset",
+                    self.device_name,
+                )
 
             # Optionally seed PID defaults for the CURRENT target bucket(s)
             if apply_pid_defaults:
@@ -2895,7 +2902,7 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
                     def _bucket(temp):
                         try:
                             return format_bucket(round_to_bucket(temp))
-                        except Exception:
+                        except (TypeError, ValueError):
                             return None
 
                     # Build list of candidate buckets: current and ±0.5°C neighbors
@@ -2911,7 +2918,7 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
                             ]
                         elif bucket_tag:
                             buckets = [bucket_tag]
-                    except Exception:
+                    except (TypeError, ValueError):
                         if bucket_tag:
                             buckets = [bucket_tag]
                     uid = resolve_unique_id(self)
@@ -2923,7 +2930,11 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
                                 if seed_pid_gains(key, kp=kp, ki=ki, kd=kd):
                                     seeded += 1
                             except Exception:
-                                pass
+                                _LOGGER.debug(
+                                    "better_thermostat %s: could not seed PID gains for %s",
+                                    self.device_name,
+                                    key,
+                                )
                     if seeded > 0:
                         _LOGGER.info(
                             "better_thermostat %s: applied PID defaults (kp=%.3f ki=%.3f kd=%.3f) to %d bucket state(s) across %d TRV(s)",
@@ -2937,12 +2948,20 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
                         try:
                             self.schedule_save_state()
                         except Exception:
-                            pass
+                            _LOGGER.debug(
+                                "better_thermostat %s: could not schedule state save "
+                                "after seeding PID defaults",
+                                self.device_name,
+                            )
                         # Kick the control loop so the new gains are used promptly
                         try:
                             await self.control_queue_task.put(self)
                         except Exception:
-                            pass
+                            _LOGGER.debug(
+                                "better_thermostat %s: could not queue control cycle "
+                                "after seeding PID defaults",
+                                self.device_name,
+                            )
                     else:
                         _LOGGER.debug(
                             "better_thermostat %s: apply_pid_defaults did not seed any bucket (bt_target_temp=%s, buckets=%s)",
