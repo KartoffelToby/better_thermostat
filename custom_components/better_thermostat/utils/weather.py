@@ -206,7 +206,9 @@ async def check_weather_prediction(self) -> bool | None:
         _LOGGER.warning(
             "better_thermostat %s: no weather entity data found.", self.device_name
         )
-        return False
+        # Return None (no opinion) on a transient failure so check_weather keeps
+        # the current call_for_heat decision while weather data is unavailable.
+        return None
 
 
 async def check_ambient_air_temperature(self):
