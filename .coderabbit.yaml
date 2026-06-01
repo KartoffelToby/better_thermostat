@@ -65,5 +65,16 @@ reviews:
     pylint:
       enabled: false
 
+knowledge_base:
+  code_guidelines:
+    enabled: true
+    # CodeRabbit reads these to learn the project's standards and apply them
+    # during reviews. CONTRIBUTING.md is in the repo today; AGENTS.md / CLAUDE.md
+    # are only honored if/once they are committed.
+    filePatterns:
+      - "CONTRIBUTING.md"
+      - "AGENTS.md"
+      - "CLAUDE.md"
+
 chat:
   auto_reply: true
