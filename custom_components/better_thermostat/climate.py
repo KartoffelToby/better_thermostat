@@ -793,8 +793,6 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
             # Fallback (sollte i.d.R. nicht benötigt werden)
             if not trv_ids and hasattr(self, "entity_ids"):
                 trv_ids = list(self.entity_ids or [])
-            if not trv_ids and hasattr(self, "heater_entity_id"):
-                trv_ids = [self.heater_entity_id]
             if not trv_ids:
                 _LOGGER.debug(
                     "better_thermostat %s: external_temperature keepalive: no TRVs found",
@@ -1963,7 +1961,7 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
 
         # Skip when device is OFF or window open
         if self.window_open:
-            # postpone by 6 hours to avoid hammering
+            # postpone by an hour to avoid hammering
             self.next_valve_maintenance = now + timedelta(hours=1)
             _LOGGER.debug(
                 "better_thermostat %s: valve maintenance postponed (window open)",
