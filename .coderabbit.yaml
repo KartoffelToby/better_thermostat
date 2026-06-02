@@ -1,0 +1,78 @@
+# CodeRabbit configuration.
+# Schema + docs: https://docs.coderabbit.ai/getting-started/configure-coderabbit
+# yaml-language-server: $schema=https://coderabbit.ai/integrations/schema.v2.json
+
+language: en-US
+
+reviews:
+  # "assertive" surfaces nitpicks and refactor hints in addition to the
+  # high-confidence findings. Switch to "chill" if the team finds it noisy.
+  profile: assertive
+
+  # Post findings as review comments instead of GitHub "Request changes", so a
+  # review never blocks merging on its own.
+  request_changes_workflow: false
+
+  high_level_summary: true
+  poem: false
+  review_status: true
+
+  auto_review:
+    enabled: true
+
+    # The repo's default branch is `master`, but development PRs target
+    # `develop`. Without this, CodeRabbit skips every develop PR
+    # ("auto reviews disabled on non-default branch").
+    base_branches:
+      - "develop"
+
+    # PRs are opened as draft by default and marked ready later, so review them
+    # while still draft — except genuine work-in-progress (see keywords below).
+    drafts: true
+
+    ignore_title_keywords:
+      - "WIP"
+      - "work in progress"
+      - "DO NOT MERGE"
+
+  # Don't spend review effort on generated, vendored or lock files.
+  path_filters:
+    - "!custom_components/better_thermostat/translations/**"
+    - "!node_modules/**"
+    - "!website/**"
+    - "!**/*.lock"
+
+  # Project-specific review guidance.
+  path_instructions:
+    - path: "tests/**"
+      instructions: >-
+        Tests run with `uv run pytest -p no:homeassistant`. Every test function
+        and class needs a docstring (ruff pydocstyle "D" rules are enforced).
+        Follow the existing patterns: MagicMock + real dicts for `real_trvs`,
+        `State()` for HA states, `@pytest.mark.asyncio` / `AsyncMock` for async.
+    - path: "custom_components/better_thermostat/**"
+      instructions: >-
+        Home Assistant custom integration. Comments must describe the current
+        (IS) state only — no change history or PR references. Public functions,
+        classes and methods need docstrings.
+
+  tools:
+    # ruff is the linter and formatter of record for this repo.
+    ruff:
+      enabled: true
+    # Disabled: pylint crashed in CodeRabbit's sandbox on a prior review and
+    # would only duplicate ruff.
+    pylint:
+      enabled: false
+
+knowledge_base:
+  code_guidelines:
+    enabled: true
+    # CONTRIBUTING.md is the only guideline doc currently in the repo.
+    # (CodeRabbit's built-in defaults already pick up CLAUDE.md, .cursorrules,
+    # .github/copilot-instructions.md, etc. should any of those be added later.)
+    filePatterns:
+      - "CONTRIBUTING.md"
+
+chat:
+  auto_reply: true

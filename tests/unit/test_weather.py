@@ -264,33 +264,33 @@ class TestCheckWeatherPrediction:
         bt = make_bt(hass, weather_entity=WEATHER_ID, off_temperature=10.0)
         assert await check_weather_prediction(bt) is True
 
-    async def test_empty_forecast_returns_false(self):
-        """An empty forecast list resolves to False."""
+    async def test_empty_forecast_returns_none(self):
+        """An empty forecast list resolves to None (no opinion)."""
         states = {WEATHER_ID: weather_state()}
         hass = make_hass(states=states)
         hass.services.async_call = AsyncMock(
             return_value={WEATHER_ID: {"forecast": []}}
         )
         bt = make_bt(hass, weather_entity=WEATHER_ID)
-        assert await check_weather_prediction(bt) is False
+        assert await check_weather_prediction(bt) is None
 
-    async def test_service_error_returns_false(self):
-        """A HomeAssistantError from the service resolves to False."""
+    async def test_service_error_returns_none(self):
+        """A HomeAssistantError from the service resolves to None."""
         states = {WEATHER_ID: weather_state()}
         hass = make_hass(states=states)
         hass.services.async_call = AsyncMock(side_effect=HomeAssistantError("boom"))
         bt = make_bt(hass, weather_entity=WEATHER_ID)
-        assert await check_weather_prediction(bt) is False
+        assert await check_weather_prediction(bt) is None
 
-    async def test_service_not_supported_returns_false(self):
-        """A ServiceNotSupported error resolves to False."""
+    async def test_service_not_supported_returns_none(self):
+        """A ServiceNotSupported error resolves to None."""
         states = {WEATHER_ID: weather_state()}
         hass = make_hass(states=states)
         hass.services.async_call = AsyncMock(
             side_effect=ServiceNotSupported("weather", "get_forecasts", WEATHER_ID)
         )
         bt = make_bt(hass, weather_entity=WEATHER_ID)
-        assert await check_weather_prediction(bt) is False
+        assert await check_weather_prediction(bt) is None
 
     async def test_forecast_temps_are_averaged(self):
         """Up to two forecast temps are averaged before the comparison.
@@ -306,11 +306,22 @@ class TestCheckWeatherPrediction:
         bt = make_bt(hass, weather_entity=WEATHER_ID, off_temperature=10.0)
         assert await check_weather_prediction(bt) is True
 
-    async def test_only_first_two_forecast_entries_are_used(self):
-        """Only the first two forecast entries are sampled.
+    async def test_daily_forecast_samples_two_entries(self):
+        """A daily forecast averages the first two entries (~two days)."""
+        states = {WEATHER_ID: weather_state(temperature=15.0)}
+        hass = make_hass(states=states)
+        # First two warm, later days freezing -> beyond the two-day horizon.
+        hass.services.async_call = AsyncMock(
+            return_value=forecast_resp(WEATHER_ID, [15.0, 15.0, -30.0, -30.0])
+        )
+        bt = make_bt(hass, weather_entity=WEATHER_ID, off_temperature=10.0)
+        assert await check_weather_prediction(bt) is False
 
-        With an hourly entity whose first two entries are warm and later ones
-        freezing, the result reflects only those first two entries.
+    async def test_hourly_forecast_samples_beyond_two_entries(self):
+        """An hourly forecast samples well past the first two hours.
+
+        With the first two hours warm and the rest freezing, the wider horizon
+        averages below the threshold, so heating is requested.
         """
         states = {
             WEATHER_ID: weather_state(
@@ -322,7 +333,7 @@ class TestCheckWeatherPrediction:
             return_value=forecast_resp(WEATHER_ID, [15.0, 15.0, -30.0, -30.0, -30.0])
         )
         bt = make_bt(hass, weather_entity=WEATHER_ID, off_temperature=10.0)
-        assert await check_weather_prediction(bt) is False
+        assert await check_weather_prediction(bt) is True
 
     async def test_forecast_entry_missing_temperature_is_filtered(self):
         """A forecast entry without a temperature is filtered out."""
@@ -677,26 +688,12 @@ class TestCheckWeather:
         # The outdoor sensor's verdict replaces the weather prediction.
         assert bt.call_for_heat is False
 
+    async def test_transient_weather_failure_keeps_heating(self):
+        """A transient weather-service failure leaves heating enabled.
 
-# ===========================================================================
-# Behaviour the current implementation does not yet provide (xfail).
-# ===========================================================================
-
-
-class TestSuspectedBugs:
-    """Assertions of intended behaviour the implementation does not yet meet.
-
-    These are marked strict xfail; a strict XPASS signals the behaviour now
-    holds and the test should become a plain assertion.
-    """
-
-    @pytest.mark.xfail(
-        strict=True,
-        reason="check_weather_prediction returns False on a transient service "
-        "failure, so check_weather sets call_for_heat to False.",
-    )
-    async def test_transient_weather_failure_should_not_stop_heat(self):
-        """A transient weather-service failure leaves heating enabled."""
+        A HomeAssistantError from the forecast service yields no opinion, so
+        check_weather keeps call_for_heat at its current value.
+        """
         states = {WEATHER_ID: weather_state()}
         hass = make_hass(states=states)
         hass.services.async_call = AsyncMock(side_effect=HomeAssistantError("boom"))

@@ -1,6 +1,6 @@
 [tool.ruff]
 # Keep in sync with requirements.dev.txt and the version-file in .github/workflows/ruff.yml.
-required-version = "==0.15.13"
+required-version = "==0.15.15"
 target-version = "py312"
 line-length = 88
 exclude = [
