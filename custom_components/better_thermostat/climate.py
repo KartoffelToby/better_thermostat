@@ -49,6 +49,7 @@ from homeassistant.helpers.start import async_at_started
 
 # preferred for HA time handling (UTC aware)
 from homeassistant.util import dt as dt_util
+from homeassistant.util.unit_conversion import TemperatureConverter
 
 # Local imports
 from .adapters.delegate import (
@@ -384,6 +385,12 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
                 parsed_off = float(off_temperature)
                 # Accept any float (including 0.0); reject extreme nonsense
                 if -100.0 < parsed_off < 150.0:
+                    if unit == UnitOfTemperature.FAHRENHEIT:
+                        parsed_off = TemperatureConverter.convert(
+                            parsed_off,
+                            UnitOfTemperature.FAHRENHEIT,
+                            UnitOfTemperature.CELSIUS,
+                        )
                     self.off_temperature = parsed_off
                 else:
                     _LOGGER.warning(
@@ -401,6 +408,8 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
         # Robust tolerance parsing & sanitizing
         try:
             self.tolerance = float(tolerance) if tolerance is not None else 0.0
+            if unit == UnitOfTemperature.FAHRENHEIT:
+                self.tolerance = self.tolerance * 5.0 / 9.0
         except (TypeError, ValueError):
             _LOGGER.warning(
                 "better_thermostat %s: invalid tolerance '%s', falling back to 0.0",
@@ -438,6 +447,11 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
             if target_temp_step and target_temp_step != "0.0"
             else None
         )
+        if (
+            self.bt_target_temp_step is not None
+            and unit == UnitOfTemperature.FAHRENHEIT
+        ):
+            self.bt_target_temp_step = round(self.bt_target_temp_step * 5.0 / 9.0, 4)
         self.bt_min_temp: float | None = 0.0
         self.bt_max_temp: float | None = 30.0
         self.bt_target_temp = 5.0
@@ -1282,6 +1296,7 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
                 self.bt_min_temp,
                 self.bt_max_temp,
                 self.device_name,
+                self.hass.config.units.temperature_unit,
             )
             if _restored_target is not None:
                 self.bt_target_temp = _restored_target

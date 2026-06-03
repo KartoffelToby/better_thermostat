@@ -4,7 +4,8 @@ import asyncio
 import logging
 
 from homeassistant.components.climate.const import PRESET_BOOST, HVACMode
-from homeassistant.const import STATE_UNAVAILABLE, STATE_UNKNOWN
+from homeassistant.const import STATE_UNAVAILABLE, STATE_UNKNOWN, UnitOfTemperature
+from homeassistant.util.unit_conversion import TemperatureConverter
 
 from custom_components.better_thermostat.adapters.delegate import (
     get_current_offset,
@@ -318,10 +319,16 @@ async def control_cooler(self):
                 current_temp,
                 desired_temp,
             )
+        _temp_to_set = desired_temp
+        if self.hass.config.units.temperature_unit == UnitOfTemperature.FAHRENHEIT:
+            _temp_to_set = TemperatureConverter.convert(
+                desired_temp, UnitOfTemperature.CELSIUS, UnitOfTemperature.FAHRENHEIT
+            )
+            _temp_to_set = round(_temp_to_set, 1)
         await self.hass.services.async_call(
             "climate",
             "set_temperature",
-            {"entity_id": self.cooler_entity_id, "temperature": desired_temp},
+            {"entity_id": self.cooler_entity_id, "temperature": _temp_to_set},
             blocking=True,
             context=self.context,
         )

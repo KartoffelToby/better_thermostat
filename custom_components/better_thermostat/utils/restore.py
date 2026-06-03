@@ -51,6 +51,7 @@ def restore_target_temperature(
     min_temp: float | None,
     max_temp: float | None,
     device_name: str,
+    system_unit: str | None = None,
 ) -> float | None:
     """Resolve the restored heating target.
 
@@ -62,9 +63,10 @@ def restore_target_temperature(
     if saved is None:
         return mean_trv_target(states, device_name)
 
-    try:
-        value = float(saved)
-    except (TypeError, ValueError):
+    value = convert_to_float_celsius(
+        saved, device_name, "restore_target_temperature", system_unit
+    )
+    if value is None:
         _LOGGER.warning(
             "better_thermostat %s: Saved target temperature %r is not numeric, "
             "falling back to the TRV mean",

@@ -138,6 +138,18 @@ class TestRestoreTargetTemperature:
         """A non-numeric saved value with no TRV target → None, not a crash."""
         assert restore_target_temperature("n/a", [], 5.0, 30.0, DEV) is None
 
+    def test_saved_fahrenheit_converted_to_celsius(self):
+        """A saved value in Fahrenheit is converted to Celsius on restoration."""
+        assert restore_target_temperature(
+            68.0, [], 5.0, 30.0, DEV, UnitOfTemperature.FAHRENHEIT
+        ) == pytest.approx(20.0)
+
+    def test_saved_fahrenheit_string_converted_to_celsius(self):
+        """A saved string value in Fahrenheit is converted to Celsius on restoration."""
+        assert restore_target_temperature(
+            "68.0", [], 5.0, 30.0, DEV, UnitOfTemperature.FAHRENHEIT
+        ) == pytest.approx(20.0)
+
 
 # ---------------------------------------------------------------------------
 # clamp_heating_power
