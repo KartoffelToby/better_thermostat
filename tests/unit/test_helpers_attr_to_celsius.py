@@ -22,9 +22,7 @@ def _bt(system_unit):
     return SimpleNamespace(
         device_name="Test BT",
         hass=SimpleNamespace(
-            config=SimpleNamespace(
-                units=SimpleNamespace(temperature_unit=system_unit)
-            )
+            config=SimpleNamespace(units=SimpleNamespace(temperature_unit=system_unit))
         ),
     )
 

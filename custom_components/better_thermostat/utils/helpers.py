@@ -379,8 +379,7 @@ def state_temperature_unit(
     if not attributes:
         return system_unit
     return attributes.get(
-        "temperature_unit",
-        attributes.get("unit_of_measurement", system_unit),
+        "temperature_unit", attributes.get("unit_of_measurement", system_unit)
     )
 
 

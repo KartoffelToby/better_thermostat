@@ -718,7 +718,11 @@ async def check_target_temperature(self, heater_entity_id=None):
             )
             break
         _current_set_temperature = attr_to_celsius(
-            self, _trv_state.attributes, "temperature", None, "check_target_temperature()"
+            self,
+            _trv_state.attributes,
+            "temperature",
+            None,
+            "check_target_temperature()",
         )
         if _timeout == 0:
             _LOGGER.debug(
