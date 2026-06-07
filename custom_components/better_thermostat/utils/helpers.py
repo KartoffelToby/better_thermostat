@@ -376,6 +376,19 @@ def state_temperature_unit(
     attribute. ``system_unit`` (``hass.config.units.temperature_unit``) is used
     as the fallback so the values are interpreted in the right unit. Sensors
     that carry an explicit ``unit_of_measurement`` keep it.
+
+    Parameters
+    ----------
+    attributes : Mapping[str, object] | None
+            the state attributes to inspect, or None when the state is missing
+    system_unit : str | None
+            the configured system temperature unit, used as fallback
+
+    Returns
+    -------
+    str | None
+            the resolved temperature unit, or ``system_unit`` when no explicit
+            unit attribute is present
     """
     if not attributes:
         return system_unit
@@ -398,8 +411,30 @@ def attr_to_celsius(
     The single inbound boundary for foreign temperatures: it resolves the source
     unit via :func:`state_temperature_unit` (system-unit fallback, since
     ``climate`` entities expose no unit attribute) and converts to the Celsius
-    Better Thermostat works in internally. ``self`` supplies ``hass`` and
-    ``device_name``.
+    Better Thermostat works in internally.
+
+    Parameters
+    ----------
+    self :
+            the Better Thermostat instance, supplying ``hass`` and ``device_name``
+    state : State | None
+            the source state to read from, or None when it is unavailable
+    key : str
+            the attribute name holding the temperature (e.g. ``"temperature"``)
+    default : str | int | float | None
+            value used when the attribute is missing
+    context : str
+            calling context, forwarded for logging
+
+    Returns
+    -------
+    float | None
+            the temperature in Celsius, or None if conversion failed
+
+    See Also
+    --------
+    convert_to_float_celsius : performs the unit conversion
+    state_temperature_unit : resolves the source unit
     """
     attributes = state.attributes if state is not None else {}
     return convert_to_float_celsius(
