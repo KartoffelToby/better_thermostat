@@ -532,7 +532,8 @@ class TestCheckAmbientAirTemperature:
         assert bt.call_for_heat is True
 
     async def test_recorder_malformed_history_is_tolerated(self):
-        """A non-dict history payload must not raise; it yields no data."""
+        """A non-dict history payload must not raise; it falls back to the
+        current reading instead of disabling the threshold (issue #2038)."""
         states = {
             OUTDOOR_ID: make_state(state="5.0", attrs={"unit_of_measurement": "°C"})
         }
@@ -543,11 +544,12 @@ class TestCheckAmbientAirTemperature:
                 return_value=["not", "a", "dict"]
             )
             await check_ambient_air_temperature(bt)
-        assert bt.last_avg_outdoor_temp is None
+        assert bt.last_avg_outdoor_temp == pytest.approx(5.0)
         assert bt.call_for_heat is True
 
-    async def test_recorder_empty_history_yields_none_and_forces_heat(self):
-        """An empty recorder history leaves no average and forces heat."""
+    async def test_recorder_empty_history_falls_back_to_current_reading(self):
+        """An empty recorder history must fall back to the current reading
+        rather than wiping it and forcing heat (issue #2038)."""
         states = {
             OUTDOOR_ID: make_state(state="5.0", attrs={"unit_of_measurement": "°C"})
         }
@@ -558,8 +560,24 @@ class TestCheckAmbientAirTemperature:
                 return_value={OUTDOOR_ID: []}
             )
             await check_ambient_air_temperature(bt)
-        assert bt.last_avg_outdoor_temp is None
+        assert bt.last_avg_outdoor_temp == pytest.approx(5.0)
         assert bt.call_for_heat is True
+
+    async def test_recorder_empty_history_above_threshold_disables_heat(self):
+        """The #2038 symptom: outdoor above the threshold with no usable
+        history must still disable heating, not default to heat."""
+        states = {
+            OUTDOOR_ID: make_state(state="21.0", attrs={"unit_of_measurement": "°C"})
+        }
+        hass = make_hass(states=states, components={"recorder"})
+        bt = make_bt(hass, outdoor_sensor=OUTDOOR_ID, off_temperature=14.0)
+        with patch(f"{WEATHER_MOD}.get_instance") as gi:
+            gi.return_value.async_add_executor_job = AsyncMock(
+                return_value={OUTDOOR_ID: []}
+            )
+            await check_ambient_air_temperature(bt)
+        assert bt.last_avg_outdoor_temp == pytest.approx(21.0)
+        assert bt.call_for_heat is False
 
 
 # ===========================================================================
