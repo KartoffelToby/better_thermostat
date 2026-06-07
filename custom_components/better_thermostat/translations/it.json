@@ -3,7 +3,7 @@
   "config": {
     "step": {
       "user": {
-        "description": "Configura il tuo Better Thermostat per integrarlo con Home Assistant\n**Per maggiori informazioni: https://better-thermostat.org/configuration#first-step**",
+        "description": "Configura il tuo Better Thermostat per integrarlo con Home Assistant",
         "data": {
           "name": "Nome",
           "thermostat": "Il termostato reale",
@@ -20,7 +20,7 @@
         }
       },
       "advanced": {
-        "description": "Configurazione avanzata {trv}\n***Informazioni sui tipi di calibrazione: https://better-thermostat.org/configuration#second-step***",
+        "description": "Configurazione avanzata {trv}",
         "data": {
           "protect_overheating": "Protezione dal surriscaldamento?",
           "heat_auto_swapped": "Se 'auto' indica riscaldamento per il tuo TRV e vuoi invertirlo",
@@ -69,7 +69,7 @@
           "window_off_delay_after": "Ritardo prima che il termostato si riaccenda quando la finestra viene chiusa",
           "outdoor_sensor": "Se hai un sensore esterno, puoi usarlo per ottenere la temperatura esterna",
           "valve_maintenance": "Se il tuo termostato non ha una modalità di manutenzione propria, puoi usare questa",
-          "calibration": "Tipo di calibrazione https://better-thermostat.org/configuration#second-step",
+          "calibration": "Tipo di calibrazione",
           "weather": "La tua entità meteo per ottenere la temperatura esterna",
           "heat_auto_swapped": "Se 'auto' indica riscaldamento per il tuo TRV e vuoi invertirlo",
           "child_lock": "Ignora tutti gli input sul TRV come un blocco bambini",
@@ -77,7 +77,7 @@
         }
       },
       "advanced": {
-        "description": "Configurazione avanzata {trv}\n***Informazioni sui tipi di calibrazione: https://better-thermostat.org/configuration#second-step***",
+        "description": "Configurazione avanzata {trv}",
         "data": {
           "protect_overheating": "Protezione dal surriscaldamento?",
           "heat_auto_swapped": "Se 'auto' indica riscaldamento per il tuo TRV e vuoi invertirlo",

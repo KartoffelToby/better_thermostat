@@ -3,7 +3,7 @@
   "config": {
     "step": {
       "user": {
-        "description": "Nastavenie lepšieho termostatu na integráciu s aplikáciou Home Assistant\n**Ak potrebujete viac informácií: https://better-thermostat.org/configuration#first-step**",
+        "description": "Nastavenie lepšieho termostatu na integráciu s aplikáciou Home Assistant",
         "data": {
           "name": "Názov",
           "thermostat": "Skutočný termostat",
@@ -25,7 +25,7 @@
         }
       },
       "advanced": {
-        "description": "Rozšírená konfigurácia {trv}\n***Informácie o druhoch kalibrácie: https://better-thermostat.org/configuration#second-step***",
+        "description": "Rozšírená konfigurácia {trv}",
         "data": {
           "protect_overheating": "Ochrana proti prehriatiu?",
           "heat_auto_swapped": "Ak auto znamená teplo pre váš TRV a chcete ho vymeniť",
@@ -74,7 +74,7 @@
           "window_off_delay_after": "Oneskorenie pred zapnutím termostatu pri zatvorenom okne",
           "outdoor_sensor": "Ak máte vonkajší snímač, môžete pomocou neho zistiť vonkajšiu teplotu",
           "valve_maintenance": "Ak váš termostat nemá vlastný režim údržby, môžete použiť tento režim",
-          "calibration": "Druh kalibrácie https://better-thermostat.org/configuration#second-step",
+          "calibration": "Druh kalibrácie",
           "weather": "Váš meteorologický subjekt na zistenie vonkajšej teploty",
           "presets": "Enabled Predvoľby",
           "target_temp_step": "Krok cieľovej teploty",
@@ -87,7 +87,7 @@
         }
       },
       "advanced": {
-        "description": "Rozšírená konfigurácia {trv}\n***Informácie o druhoch kalibrácie: https://better-thermostat.org/configuration#second-step***",
+        "description": "Rozšírená konfigurácia {trv}",
         "data": {
           "trend_mix_trv": "Dočasná zmes (externá hmotnosť, 0–1)",
           "percent_hysteresis_pts": "Hysterézia (percentuálne body)",

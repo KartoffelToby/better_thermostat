@@ -3,7 +3,7 @@
   "config": {
     "step": {
       "user": {
-        "description": "Better Thermostat'ınızı Home Assistant ile entegre etmek için yapılandırın\n**Daha fazla bilgi için: https://better-thermostat.org/configuration#first-step**",
+        "description": "Better Thermostat'ınızı Home Assistant ile entegre etmek için yapılandırın",
         "data": {
           "name": "Ad",
           "thermostat": "Gerçek termostat",
@@ -21,7 +21,7 @@
         }
       },
       "advanced": {
-        "description": "Gelişmiş yapılandırma {trv}\n***Kalibrasyon türleri hakkında bilgi: https://better-thermostat.org/configuration#second-step***",
+        "description": "Gelişmiş yapılandırma {trv}",
         "data": {
           "balance_mode": "Hidrolik denge modu (Deneysel)",
           "mpc_thermal_gain": "MPC termal kazanç",
@@ -88,7 +88,7 @@
           "window_off_delay_after": "Pencere kapandığında termostatın açılması için gecikme süresi",
           "outdoor_sensor": "Dış ortam sensörünüz varsa, dış ortam sıcaklığını almak için kullanabilirsiniz",
           "valve_maintenance": "Termostatınızın kendi bakım modu yoksa, bunu kullanabilirsiniz",
-          "calibration": "Kalibrasyon türü https://better-thermostat.org/configuration#second-step",
+          "calibration": "Kalibrasyon türü",
           "weather": "Dış ortam sıcaklığını almak için hava durumu varlığı",
           "target_temp_step": "Hedef sıcaklık adımı",
           "heat_auto_swapped": "TRV'nizde otomatik mod ısıtma anlamına geliyorsa ve değiştirmek istiyorsanız",
@@ -97,7 +97,7 @@
         }
       },
       "advanced": {
-        "description": "Gelişmiş yapılandırma {trv}\n***Kalibrasyon türleri hakkında bilgi: https://better-thermostat.org/configuration#second-step***",
+        "description": "Gelişmiş yapılandırma {trv}",
         "data": {
           "balance_mode": "Hidrolik denge modu (Deneysel)",
           "mpc_thermal_gain": "MPC termal kazanç",

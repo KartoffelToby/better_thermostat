@@ -3,7 +3,7 @@
   "config": {
     "step": {
       "user": {
-        "description": "Configurez Better Thermostat pour l'intégrer à Home Assistant\n**Si vous avez besoin de plus d'informations : https://better-thermostat.org/configuration#first-step**",
+        "description": "Configurez Better Thermostat pour l'intégrer à Home Assistant",
         "data": {
           "name": "Nom",
           "thermostat": "Le vrai thermostat",
@@ -20,7 +20,7 @@
         }
       },
       "advanced": {
-        "description": "Configuration avancée {trv}\n***Informations sur les types de calibrage : https://better-thermostat.org/configuration#second-step***",
+        "description": "Configuration avancée {trv}",
         "data": {
           "protect_overheating": "Protection contre la surchauffe ?",
           "heat_auto_swapped": "Si le mode automatique signifie chauffage pour votre TRV et que vous voulez le permuter",
@@ -69,7 +69,7 @@
           "window_off_delay_after": "Délai avant que le thermostat ne s'allume lorsque la fenêtre est fermée",
           "outdoor_sensor": "Si vous avez un capteur extérieur, vous pouvez l'utiliser pour obtenir la température extérieure",
           "valve_maintenance": "Si votre thermostat n'a pas de mode maintenance propre, vous pouvez utiliser celui-ci",
-          "calibration": "Le type de calibrage https://better-thermostat.org/configuration#second-step",
+          "calibration": "Le type de calibrage",
           "weather": "Votre entité météo pour obtenir la température extérieure",
           "heat_auto_swapped": "Si le mode automatique signifie chauffage pour votre TRV et que vous voulez le permuter",
           "child_lock": "Ignorer toutes les entrées sur le TRV comme une sécurité enfant",
@@ -77,7 +77,7 @@
         }
       },
       "advanced": {
-        "description": "Configuration avancée {trv}\n***Informations sur les types de calibrage : https://better-thermostat.org/configuration#second-step***",
+        "description": "Configuration avancée {trv}",
         "data": {
           "protect_overheating": "Protection contre la surchauffe ?",
           "heat_auto_swapped": "Si le mode automatique signifie chauffage pour votre TRV et que vous voulez le permuter",

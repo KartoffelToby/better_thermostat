@@ -3,7 +3,7 @@
   "config": {
     "step": {
       "user": {
-        "description": "Einrichtung von Better Thermostat mit Home Assistant\n**Für mehr Informationen: https://better-thermostat.org/configuration#first-step**",
+        "description": "Einrichtung von Better Thermostat mit Home Assistant",
         "data": {
           "name": "Name",
           "thermostat": "Das reale Thermostat",
@@ -25,7 +25,7 @@
         }
       },
       "advanced": {
-        "description": "Einstellungen für {trv}\n\n***Infos über die Kalibrierungstypen: https://better-thermostat.org/configuration#second-step*** ",
+        "description": "Einstellungen für {trv}",
         "data": {
           "protect_overheating": "Überhitzung verhindern?",
           "heat_auto_swapped": "Tauscht die Modi auto und heat, falls diese bei dem realen Thermostat vertauscht sind.",
@@ -80,14 +80,14 @@
           "child_lock": "Ignorieren Sie alle Eingaben am TRV wie eine Kindersicherung.",
           "homematicip": "Wenn Sie HomematicIP verwenden, sollten Sie dies aktivieren, um die Anfragen zu verlangsamen und den Duty Cycle zu verhindern.",
           "heat_auto_swapped": "Wenn das Auto Wärme für Ihr TRV bedeutet und Sie es austauschen möchten.",
-          "calibration": "Die Art der Kalibrierung https://better-thermostat.org/configuration#second-step"
+          "calibration": "Die Art der Kalibrierung"
         },
         "data_description": {
           "presets": "Wähle die Presets aus, die für dieses Thermostat verfügbar sein sollen."
         }
       },
       "advanced": {
-        "description": "Aktualisiere die Einstellungen für {trv}\n\n***Infos über die Kalibrierungstypen: https://better-thermostat.org/configuration#second-step*** ",
+        "description": "Aktualisiere die Einstellungen für {trv}",
         "data": {
           "trend_mix_trv": "Glättung (EMA‑Mix, 0–1)",
           "percent_hysteresis_pts": "Hysterese (Prozentpunkte)",
