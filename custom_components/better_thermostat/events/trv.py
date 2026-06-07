@@ -30,6 +30,7 @@ from custom_components.better_thermostat.utils.helpers import (
     get_device_model,
     is_reasonable_temperature,
     mode_remap,
+    state_temperature_unit,
 )
 
 _LOGGER = logging.getLogger(__name__)
@@ -122,8 +123,8 @@ async def trigger_trv_change(self, event):
         str(_org_trv_state.attributes.get("current_temperature", None)),
         self.device_name,
         "TRV_current_temp",
-        unit_of_measurement=_org_trv_state.attributes.get(
-            "temperature_unit", _org_trv_state.attributes.get("unit_of_measurement")
+        unit_of_measurement=state_temperature_unit(
+            _org_trv_state.attributes, self.hass.config.units.temperature_unit
         ),
     )
     if _new_current_temp is not None and not is_reasonable_temperature(
@@ -258,16 +259,16 @@ async def trigger_trv_change(self, event):
         str(old_state.attributes.get(_main_key, None)),
         self.device_name,
         "trigger_trv_change()",
-        unit_of_measurement=old_state.attributes.get(
-            "temperature_unit", old_state.attributes.get("unit_of_measurement")
+        unit_of_measurement=state_temperature_unit(
+            old_state.attributes, self.hass.config.units.temperature_unit
         ),
     )
     _new_heating_setpoint = convert_to_float_celsius(
         str(new_state.attributes.get(_main_key, None)),
         self.device_name,
         "trigger_trv_change()",
-        unit_of_measurement=new_state.attributes.get(
-            "temperature_unit", new_state.attributes.get("unit_of_measurement")
+        unit_of_measurement=state_temperature_unit(
+            new_state.attributes, self.hass.config.units.temperature_unit
         ),
     )
     _is_no_off_device = self.real_trvs[entity_id]["advanced"].get(

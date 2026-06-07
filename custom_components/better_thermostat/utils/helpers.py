@@ -365,6 +365,25 @@ def convert_to_float_celsius(
     return result
 
 
+def state_temperature_unit(
+    attributes: dict[str, Any] | None, system_unit: str | None
+) -> str | None:
+    """Resolve the temperature unit of a state's attributes.
+
+    ``climate`` entities report their temperatures in the Home Assistant system
+    unit and do not expose a ``temperature_unit`` / ``unit_of_measurement``
+    attribute. ``system_unit`` (``hass.config.units.temperature_unit``) is used
+    as the fallback so the values are interpreted in the right unit. Sensors
+    that carry an explicit ``unit_of_measurement`` keep it.
+    """
+    if not attributes:
+        return system_unit
+    return attributes.get(
+        "temperature_unit",
+        attributes.get("unit_of_measurement", system_unit),
+    )
+
+
 class rounding:
     """Rounding helpers for stable step-based rounding.
 

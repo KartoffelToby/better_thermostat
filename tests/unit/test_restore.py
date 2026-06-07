@@ -79,6 +79,20 @@ class TestMeanTrvTarget:
         )
         assert mean_trv_target([s], DEV) == pytest.approx(20.0)
 
+    def test_no_unit_attr_uses_system_unit(self):
+        """Without a unit attribute the passed system unit decides the reading."""
+        result = mean_trv_target(
+            [_trv(68.0)], DEV, system_unit=UnitOfTemperature.FAHRENHEIT
+        )
+        assert result == pytest.approx(20.0)
+
+    def test_no_unit_attr_celsius_system_unchanged(self):
+        """A Celsius system leaves a unit-less reading as-is."""
+        result = mean_trv_target(
+            [_trv(20.0)], DEV, system_unit=UnitOfTemperature.CELSIUS
+        )
+        assert result == pytest.approx(20.0)
+
 
 # ---------------------------------------------------------------------------
 # restore_target_temperature
