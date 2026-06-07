@@ -532,8 +532,11 @@ class TestCheckAmbientAirTemperature:
         assert bt.call_for_heat is True
 
     async def test_recorder_malformed_history_is_tolerated(self):
-        """A non-dict history payload must not raise; it falls back to the
-        current reading instead of disabling the threshold (issue #2038)."""
+        """A non-dict history payload must not raise.
+
+        It falls back to the current reading instead of disabling the threshold
+        (issue #2038).
+        """
         states = {
             OUTDOOR_ID: make_state(state="5.0", attrs={"unit_of_measurement": "°C"})
         }
@@ -548,8 +551,10 @@ class TestCheckAmbientAirTemperature:
         assert bt.call_for_heat is True
 
     async def test_recorder_empty_history_falls_back_to_current_reading(self):
-        """An empty recorder history must fall back to the current reading
-        rather than wiping it and forcing heat (issue #2038)."""
+        """An empty recorder history must fall back to the current reading.
+
+        It must not wipe the reading and force heat (issue #2038).
+        """
         states = {
             OUTDOOR_ID: make_state(state="5.0", attrs={"unit_of_measurement": "°C"})
         }
@@ -564,8 +569,10 @@ class TestCheckAmbientAirTemperature:
         assert bt.call_for_heat is True
 
     async def test_recorder_empty_history_above_threshold_disables_heat(self):
-        """The #2038 symptom: outdoor above the threshold with no usable
-        history must still disable heating, not default to heat."""
+        """Outdoor above the threshold with no usable history disables heating.
+
+        The #2038 symptom: it must still disable heating, not default to heat.
+        """
         states = {
             OUTDOOR_ID: make_state(state="21.0", attrs={"unit_of_measurement": "°C"})
         }
