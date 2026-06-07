@@ -780,6 +780,28 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
         if event is not None:
             await self.control_queue_task.put(self)
 
+    async def _trigger_outdoor_change(self, event=None):
+        """Re-evaluate the outdoor-temperature threshold on sensor changes.
+
+        The threshold is otherwise only refreshed at startup and the daily
+        tick. Re-running the ambient check when the outdoor sensor changes
+        lets heating react promptly. Control is only re-queued when
+        ``call_for_heat`` actually flips, so frequent outdoor readings that
+        stay on the same side of the threshold do not spam the queue.
+        """
+        _check = await check_critical_entities(self)
+        if _check is False:
+            return
+        await check_and_update_degraded_mode(self)
+        if getattr(self, "in_maintenance", False):
+            return
+        await check_ambient_air_temperature(self)
+        if self._last_call_for_heat != self.call_for_heat:
+            self._last_call_for_heat = self.call_for_heat
+            self.async_write_ha_state()
+            if event is not None:
+                await self.control_queue_task.put(self)
+
     async def _trigger_temperature_change(self, event):
         _check = await check_critical_entities(self)
         if _check is False:
@@ -1844,6 +1866,12 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
             self.async_on_remove(
                 async_track_state_change_event(
                     self.hass, [self.cooler_entity_id], self._trigger_cooler_change
+                )
+            )
+        if self.outdoor_sensor is not None:
+            self.async_on_remove(
+                async_track_state_change_event(
+                    self.hass, [self.outdoor_sensor], self._trigger_outdoor_change
                 )
             )
         # Sende initial sofort einen Keepalive, damit TRVs nicht bis zum ersten 30min-Tick warten müssen
