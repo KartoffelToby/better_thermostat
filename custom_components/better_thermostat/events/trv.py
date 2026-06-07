@@ -25,12 +25,11 @@ from custom_components.better_thermostat.utils.const import (
     CalibrationType,
 )
 from custom_components.better_thermostat.utils.helpers import (
+    attr_to_celsius,
     convert_to_float,
-    convert_to_float_celsius,
     get_device_model,
     is_reasonable_temperature,
     mode_remap,
-    state_temperature_unit,
 )
 
 _LOGGER = logging.getLogger(__name__)
@@ -119,13 +118,8 @@ async def trigger_trv_change(self, event):
             e,
         )
 
-    _new_current_temp = convert_to_float_celsius(
-        str(_org_trv_state.attributes.get("current_temperature", None)),
-        self.device_name,
-        "TRV_current_temp",
-        unit_of_measurement=state_temperature_unit(
-            _org_trv_state.attributes, self.hass.config.units.temperature_unit
-        ),
+    _new_current_temp = attr_to_celsius(
+        self, _org_trv_state.attributes, "current_temperature", None, "TRV_current_temp"
     )
     if _new_current_temp is not None and not is_reasonable_temperature(
         _new_current_temp
@@ -255,21 +249,11 @@ async def trigger_trv_change(self, event):
     if "temperature" not in old_state.attributes:
         _main_key = "target_temp_low"
 
-    _old_heating_setpoint = convert_to_float_celsius(
-        str(old_state.attributes.get(_main_key, None)),
-        self.device_name,
-        "trigger_trv_change()",
-        unit_of_measurement=state_temperature_unit(
-            old_state.attributes, self.hass.config.units.temperature_unit
-        ),
+    _old_heating_setpoint = attr_to_celsius(
+        self, old_state.attributes, _main_key, None, "trigger_trv_change()"
     )
-    _new_heating_setpoint = convert_to_float_celsius(
-        str(new_state.attributes.get(_main_key, None)),
-        self.device_name,
-        "trigger_trv_change()",
-        unit_of_measurement=state_temperature_unit(
-            new_state.attributes, self.hass.config.units.temperature_unit
-        ),
+    _new_heating_setpoint = attr_to_celsius(
+        self, new_state.attributes, _main_key, None, "trigger_trv_change()"
     )
     _is_no_off_device = self.real_trvs[entity_id]["advanced"].get(
         "no_off_system_mode", False

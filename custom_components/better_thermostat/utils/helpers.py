@@ -384,6 +384,32 @@ def state_temperature_unit(
     )
 
 
+def attr_to_celsius(
+    self,
+    attributes: dict[str, Any] | None,
+    key: str,
+    default: str | int | float | None = None,
+    context: str = "",
+) -> float | None:
+    """Read a temperature attribute from a foreign state and return it in °C.
+
+    The single inbound boundary for foreign temperatures: it resolves the source
+    unit via :func:`state_temperature_unit` (system-unit fallback, since
+    ``climate`` entities expose no unit attribute) and converts to the Celsius
+    Better Thermostat works in internally. ``self`` supplies ``hass`` and
+    ``device_name``.
+    """
+    attributes = attributes or {}
+    return convert_to_float_celsius(
+        str(attributes.get(key, default)),
+        self.device_name,
+        context,
+        unit_of_measurement=state_temperature_unit(
+            attributes, self.hass.config.units.temperature_unit
+        ),
+    )
+
+
 class rounding:
     """Rounding helpers for stable step-based rounding.
 
