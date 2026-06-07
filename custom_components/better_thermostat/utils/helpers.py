@@ -1,6 +1,6 @@
 """Helper functions for the Better Thermostat component."""
 
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from datetime import datetime
 import logging
 import math
@@ -366,7 +366,7 @@ def convert_to_float_celsius(
 
 
 def state_temperature_unit(
-    attributes: dict[str, Any] | None, system_unit: str | None
+    attributes: Mapping[str, Any] | None, system_unit: str | None
 ) -> str | None:
     """Resolve the temperature unit of a state's attributes.
 
@@ -385,7 +385,7 @@ def state_temperature_unit(
 
 def attr_to_celsius(
     self,
-    attributes: dict[str, Any] | None,
+    attributes: Mapping[str, Any] | None,
     key: str,
     default: str | int | float | None = None,
     context: str = "",
