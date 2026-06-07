@@ -9,6 +9,7 @@ from typing import Any
 
 from homeassistant.components.climate.const import HVACMode
 from homeassistant.const import UnitOfTemperature
+from homeassistant.core import State
 from homeassistant.helpers import device_registry as dr, entity_registry as er
 from homeassistant.helpers.entity_registry import async_entries_for_config_entry
 from homeassistant.util import dt as dt_util
@@ -366,7 +367,7 @@ def convert_to_float_celsius(
 
 
 def state_temperature_unit(
-    attributes: Mapping[str, Any] | None, system_unit: str | None
+    attributes: Mapping[str, object] | None, system_unit: str | None
 ) -> str | None:
     """Resolve the temperature unit of a state's attributes.
 
@@ -378,14 +379,16 @@ def state_temperature_unit(
     """
     if not attributes:
         return system_unit
-    return attributes.get(
-        "temperature_unit", attributes.get("unit_of_measurement", system_unit)
-    )
+    for attr in ("temperature_unit", "unit_of_measurement"):
+        unit = attributes.get(attr)
+        if isinstance(unit, str):
+            return unit
+    return system_unit
 
 
 def attr_to_celsius(
     self,
-    attributes: Mapping[str, Any] | None,
+    state: State | None,
     key: str,
     default: str | int | float | None = None,
     context: str = "",
@@ -398,7 +401,7 @@ def attr_to_celsius(
     Better Thermostat works in internally. ``self`` supplies ``hass`` and
     ``device_name``.
     """
-    attributes = attributes or {}
+    attributes = state.attributes if state is not None else {}
     return convert_to_float_celsius(
         str(attributes.get(key, default)),
         self.device_name,

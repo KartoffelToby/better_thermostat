@@ -1133,7 +1133,7 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
                     continue
                 candidate = attr_to_celsius(
                     self,
-                    trv_state.attributes,
+                    trv_state,
                     "current_temperature",
                     None,
                     "startup() TRV fallback",
@@ -1206,7 +1206,7 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
                 None,
             ):
                 self.bt_target_cooltemp = attr_to_celsius(
-                    self, _cooler_state.attributes, "temperature", None, "startup()"
+                    self, _cooler_state, "temperature", None, "startup()"
                 )
             # else: already logged warning above
 
@@ -1579,12 +1579,8 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
             trv_data["valve_position"] = convert_to_float(
                 str(_attrs.get("valve_position", None)), self.device_name, "startup"
             )
-            trv_data["max_temp"] = attr_to_celsius(
-                self, _attrs, "max_temp", 30, "startup"
-            )
-            trv_data["min_temp"] = attr_to_celsius(
-                self, _attrs, "min_temp", 5, "startup"
-            )
+            trv_data["max_temp"] = attr_to_celsius(self, _s, "max_temp", 30, "startup")
+            trv_data["min_temp"] = attr_to_celsius(self, _s, "min_temp", 5, "startup")
             # Prefer configured step over device-reported step
             cfg_step = (
                 self.bt_target_temp_step
@@ -1600,13 +1596,13 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
                     "startup",
                 )
             trv_data["temperature"] = attr_to_celsius(
-                self, _attrs, "temperature", 5, "startup"
+                self, _s, "temperature", 5, "startup"
             )
             trv_data["hvac_modes"] = _attrs.get("hvac_modes", None)
             trv_data["hvac_mode"] = _s.state if _s else None
             trv_data["last_hvac_mode"] = _s.state if _s else None
             trv_data["last_temperature"] = attr_to_celsius(
-                self, _attrs, "temperature", None, "startup()"
+                self, _s, "temperature", None, "startup()"
             )
             trv_data["current_temperature"] = convert_to_float_celsius(
                 str(_attrs.get("current_temperature") or 5),

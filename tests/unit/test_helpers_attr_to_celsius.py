@@ -9,6 +9,7 @@ Celsius conversion into the single inbound boundary used across the codebase.
 from types import SimpleNamespace
 
 from homeassistant.const import UnitOfTemperature
+from homeassistant.core import State
 import pytest
 
 from custom_components.better_thermostat.utils.helpers import (
@@ -25,6 +26,11 @@ def _bt(system_unit):
             config=SimpleNamespace(units=SimpleNamespace(temperature_unit=system_unit))
         ),
     )
+
+
+def _state(attributes):
+    """Build a minimal climate State carrying the given attributes."""
+    return State("climate.trv", "heat", attributes=attributes)
 
 
 class TestStateTemperatureUnit:
@@ -67,26 +73,33 @@ class TestAttrToCelsius:
     def test_fahrenheit_system_without_unit_attr(self):
         """A unit-less climate attribute is read via the Fahrenheit system unit."""
         bt = _bt(UnitOfTemperature.FAHRENHEIT)
-        result = attr_to_celsius(bt, {"temperature": 64.0}, "temperature")
+        result = attr_to_celsius(bt, _state({"temperature": 64.0}), "temperature")
         assert result == pytest.approx(17.78, abs=0.05)
 
     def test_celsius_system_without_unit_attr(self):
         """A Celsius system leaves the value unchanged."""
         bt = _bt(UnitOfTemperature.CELSIUS)
-        assert attr_to_celsius(bt, {"temperature": 20.0}, "temperature") == 20.0
+        assert attr_to_celsius(bt, _state({"temperature": 20.0}), "temperature") == 20.0
 
     def test_explicit_unit_attribute_overrides_system(self):
         """An explicit Fahrenheit unit converts even on a Celsius system."""
         bt = _bt(UnitOfTemperature.CELSIUS)
-        attrs = {"temperature": 68.0, "temperature_unit": UnitOfTemperature.FAHRENHEIT}
-        assert attr_to_celsius(bt, attrs, "temperature") == pytest.approx(20.0)
+        state = _state(
+            {"temperature": 68.0, "temperature_unit": UnitOfTemperature.FAHRENHEIT}
+        )
+        assert attr_to_celsius(bt, state, "temperature") == pytest.approx(20.0)
 
     def test_missing_key_returns_default_converted(self):
         """A missing key uses the default, still unit-resolved."""
         bt = _bt(UnitOfTemperature.FAHRENHEIT)
-        assert attr_to_celsius(bt, {}, "temperature", 50) == pytest.approx(10.0)
+        assert attr_to_celsius(bt, _state({}), "temperature", 50) == pytest.approx(10.0)
 
     def test_missing_key_no_default_returns_none(self):
         """A missing key with no default yields None."""
         bt = _bt(UnitOfTemperature.CELSIUS)
-        assert attr_to_celsius(bt, {}, "temperature") is None
+        assert attr_to_celsius(bt, _state({}), "temperature") is None
+
+    def test_none_state_returns_default_converted(self):
+        """A missing state falls back to the default, resolved via system unit."""
+        bt = _bt(UnitOfTemperature.FAHRENHEIT)
+        assert attr_to_celsius(bt, None, "temperature", 50) == pytest.approx(10.0)

@@ -119,7 +119,7 @@ async def trigger_trv_change(self, event):
         )
 
     _new_current_temp = attr_to_celsius(
-        self, _org_trv_state.attributes, "current_temperature", None, "TRV_current_temp"
+        self, _org_trv_state, "current_temperature", None, "TRV_current_temp"
     )
     if _new_current_temp is not None and not is_reasonable_temperature(
         _new_current_temp
@@ -250,10 +250,10 @@ async def trigger_trv_change(self, event):
         _main_key = "target_temp_low"
 
     _old_heating_setpoint = attr_to_celsius(
-        self, old_state.attributes, _main_key, None, "trigger_trv_change()"
+        self, old_state, _main_key, None, "trigger_trv_change()"
     )
     _new_heating_setpoint = attr_to_celsius(
-        self, new_state.attributes, _main_key, None, "trigger_trv_change()"
+        self, new_state, _main_key, None, "trigger_trv_change()"
     )
     _is_no_off_device = self.real_trvs[entity_id]["advanced"].get(
         "no_off_system_mode", False
