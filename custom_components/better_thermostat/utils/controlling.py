@@ -673,10 +673,13 @@ async def check_system_mode(self, heater_entity_id=None):
     _real_trv = self.real_trvs[heater_entity_id]
     while _real_trv["hvac_mode"] != _real_trv["last_hvac_mode"]:
         if _timeout > 360:
-            _LOGGER.debug(
-                "better_thermostat %s: %s the real TRV did not respond to the system mode change",
+            _LOGGER.warning(
+                "better_thermostat %s: TRV %s did not confirm the system mode change "
+                "after 360s (wrote=%s, last reported=%s); giving up and assuming applied",
                 self.device_name,
                 heater_entity_id,
+                _real_trv["last_hvac_mode"],
+                _real_trv["hvac_mode"],
             )
             _timeout = 0
             break
@@ -736,10 +739,13 @@ async def check_target_temperature(self, heater_entity_id=None):
             _timeout = 0
             break
         if _timeout > 360:
-            _LOGGER.debug(
-                "better_thermostat %s: %s the real TRV did not respond to the target temperature change",
+            _LOGGER.warning(
+                "better_thermostat %s: TRV %s did not confirm the target temperature "
+                "after 360s (wrote=%s, last reported=%s); giving up and assuming applied",
                 self.device_name,
                 heater_entity_id,
+                _real_trv["last_temperature"],
+                _current_set_temperature,
             )
             _timeout = 0
             break
