@@ -1,24 +1,21 @@
 """Validation tests for the bundled automation blueprints.
 
-These guard against the class of bug from issue #2039: an optional input that
-defaults to an empty string and is then used where Home Assistant requires a
-valid value at *save* time — a service name (``<domain>.<name>``) or an
-``entity_id``. Runtime ``if`` / condition guards do not prevent that
-validation error, so an empty default makes the whole blueprint unsavable via
-the UI.
+An optional input that defaults to an empty string and is then used where Home
+Assistant requires a valid value at *save* time — a service name
+(``<domain>.<name>``) or an ``entity_id`` — makes the whole blueprint unsavable
+via the UI. Runtime ``if`` / condition guards do not prevent that validation
+error.
 
 For each blueprint every input is substituted with its declared default — the
-exact scenario of a user saving the form untouched — and we assert that:
+scenario of a user saving the form untouched — and these checks assert that:
 
 * every ``service`` / ``action`` value is a valid service or a template, and
 * every ``entity_id`` (in triggers and service targets) is a valid entity id.
 
-We validate these two fields directly instead of running the full
-``cv.SCRIPT_SCHEMA``: full schema validation pulls in Home Assistant's
-event-loop / frame guards that are unavailable outside a running instance.
-The two checks below are exactly the validators that produced the #2039
-errors (``Service does not match format <domain>.<name>`` and ``Entity is
-neither a valid entity ID nor a valid UUID``).
+The two fields are validated directly via ``cv.service`` / ``cv.entity_ids``
+rather than the full ``cv.SCRIPT_SCHEMA``: full schema validation pulls in Home
+Assistant's event-loop / frame guards that are unavailable outside a running
+instance.
 """
 
 from pathlib import Path
@@ -49,11 +46,12 @@ _BlueprintLoader.add_constructor(
 
 
 def _load(path: Path) -> dict:
+    """Parse a blueprint YAML file, keeping ``!input`` tags as ``_Input``."""
     return yaml.load(path.read_text(encoding="utf-8"), Loader=_BlueprintLoader)
 
 
 def _placeholder_for(spec) -> object:
-    """A valid stand-in value for a required input (one without a default)."""
+    """Return a valid stand-in value for a required input (one without a default)."""
     selector = (spec.get("selector") or {}) if isinstance(spec, dict) else {}
     if "target" in selector:
         return {"entity_id": "climate.bt_test"}
@@ -93,6 +91,7 @@ def _substitute(value, inputs):
 
 
 def _is_template(value) -> bool:
+    """Return True if *value* is a string carrying a Jinja template marker."""
     return isinstance(value, str) and ("{{" in value or "{%" in value)
 
 
@@ -152,10 +151,7 @@ def test_blueprints_present():
 
 @pytest.mark.parametrize("path", BLUEPRINT_FILES, ids=lambda p: p.name)
 def test_blueprint_saves_with_default_inputs(path):
-    """Every blueprint must validate with all inputs at their defaults.
-
-    Mirrors the UI 'save the form untouched' path that triggered #2039.
-    """
+    """Every blueprint must validate with all inputs left at their defaults."""
     blueprint = _load(path)
     inputs = _resolve_inputs(blueprint)
 
