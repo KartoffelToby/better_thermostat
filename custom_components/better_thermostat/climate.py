@@ -127,7 +127,7 @@ from .utils.const import (
     CalibrationMode,
     CalibrationType,
 )
-from .utils.controlling import control_queue, control_trv
+from .utils.controlling import control_queue, control_trv, reconcile_tick
 from .utils.helpers import (
     attr_to_celsius,
     convert_to_float,
@@ -1874,9 +1874,20 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
                 self.hass, self._async_update_ema_periodic, timedelta(minutes=1)
             )
         )
+        # Periodic reconciliation: heal lost writes by re-converging the
+        # devices onto the kernel's intent.
+        self.async_on_remove(
+            async_track_time_interval(
+                self.hass, self._reconcile_tick, timedelta(minutes=5)
+            )
+        )
         _LOGGER.info("better_thermostat %s: startup completed.", self.device_name)
         self.async_write_ha_state()
         await self.async_update_ha_state(force_refresh=True)
+
+    async def _reconcile_tick(self, now=None):
+        """Periodic reconciliation tick (see controlling.reconcile_tick)."""
+        await reconcile_tick(self, now)
 
     async def _maintenance_tick(self, event=None):
         """Periodic maintenance tick: runs valve exercise when due and enabled."""

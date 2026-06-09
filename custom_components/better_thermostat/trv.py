@@ -61,6 +61,7 @@ class Trv:
     last_calibration: float | None = None
     last_valve_percent: float | None = None
     last_valve_method: str | None = None
+    last_write_monotonic: float | None = None
 
     # -- Calibration results -----------------------------------------------
     calibration_balance: dict[str, Any] | None = None

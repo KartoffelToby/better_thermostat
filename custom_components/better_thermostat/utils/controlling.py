@@ -33,6 +33,13 @@ from custom_components.better_thermostat.utils.snapshot import build_snapshot
 
 _LOGGER = logging.getLogger(__name__)
 
+# Write budget: minimum spacing between non-safety writes to one TRV.
+# TRVs are battery- and radio-constrained; bursts of writes are a real
+# failure cause. Safety-relevant writes (frost floor, OFF) bypass this.
+MIN_WRITE_INTERVAL_S = 30.0
+# Device tolerance when comparing commanded vs reported setpoints.
+RECONCILE_TOLERANCE_K = 0.05
+
 
 def _is_boost_heating_active(self) -> bool:
     """Check if boost mode is active and heating is needed.
@@ -102,6 +109,73 @@ def _get_valve_control(
         return raw_balance, "balance"
 
     return None, None
+
+
+def desired_diverges(self, snapshot, desired) -> bool:
+    """Whether any TRV's reported state diverges from the clamped intent.
+
+    Compares the commanded setpoint with the device-reported target and
+    the intended mode with the device-reported mode; a lost write shows
+    up here and the next control cycle re-sends it.
+    """
+    for entity_id, intent in desired.trvs.items():
+        trv = self.real_trvs.get(entity_id)
+        if trv is None:
+            continue
+        state = self.hass.states.get(entity_id)
+        if state is None or state.state in (STATE_UNAVAILABLE, STATE_UNKNOWN):
+            continue
+
+        if intent.hvac_mode is not None:
+            if intent.hvac_mode == HVACMode.OFF:
+                if state.state not in (HVACMode.OFF, STATE_UNAVAILABLE, STATE_UNKNOWN):
+                    return True
+            elif state.state == HVACMode.OFF:
+                return True
+
+        reported_target = attr_to_celsius(
+            self, state, "temperature", None, "reconcile()"
+        )
+        commanded = trv.last_temperature
+        if (
+            commanded is not None
+            and reported_target is not None
+            and abs(float(commanded) - float(reported_target)) > RECONCILE_TOLERANCE_K
+        ):
+            return True
+    return False
+
+
+async def reconcile_tick(self, now=None):
+    """Periodic reconciliation: re-converge devices onto the intent.
+
+    Builds a snapshot, asks the kernel for the desired state, and
+    enqueues one control cycle when any device diverges — the general
+    mechanism that heals lost writes without per-case keepalives.
+    """
+    if self.startup_running or self.ignore_states:
+        return
+    if self.kernel_state.maintenance.is_blocking(self.clock.monotonic()):
+        return
+    try:
+        snapshot = build_snapshot(self)
+        desired, self.kernel_state = decide(snapshot, self.kernel_state)
+        desired = safety_clamp(desired, snapshot)
+        if not desired_diverges(self, snapshot, desired):
+            return
+        _LOGGER.debug(
+            "better_thermostat %s: reconcile: device state diverged, "
+            "queueing a control cycle",
+            self.device_name,
+        )
+        try:
+            self.control_queue_task.put_nowait(self)
+        except asyncio.QueueFull:
+            pass
+    except Exception:
+        _LOGGER.exception(
+            "better_thermostat %s: reconcile tick failed", self.device_name
+        )
 
 
 def _through_safety_hull(
@@ -635,15 +709,42 @@ async def control_trv(self, heater_entity_id=None):
                 self.real_trvs[heater_entity_id].calibration_received = False
 
         # set new target temperature
+        _safety_overrode_setpoint = False
         if _temperature is not None:
+            _raw_temperature = float(_temperature)
             _temperature = _through_safety_hull(
-                snapshot, heater_entity_id, setpoint=float(_temperature)
+                snapshot, heater_entity_id, setpoint=_raw_temperature
             ).setpoint
+            _safety_overrode_setpoint = _temperature != _raw_temperature
         if _temperature is not None and (
             _new_hvac_mode != HVACMode.OFF or _no_off_system_mode
         ):
             if _temperature != _current_set_temperature:
-                old = self.real_trvs[heater_entity_id].last_temperature
+                trv_entry = self.real_trvs[heater_entity_id]
+                now_mono = self.clock.monotonic()
+                budget_open = (
+                    trv_entry.last_write_monotonic is None
+                    or now_mono - trv_entry.last_write_monotonic >= MIN_WRITE_INTERVAL_S
+                )
+                # Safety-relevant writes (frost floor / OFF) bypass the
+                # write budget; everything else waits for the next slot
+                # and converges via the reconciler.
+                if not (
+                    budget_open
+                    or _safety_overrode_setpoint
+                    or _new_hvac_mode == HVACMode.OFF
+                ):
+                    _LOGGER.debug(
+                        "better_thermostat %s: write budget defers setpoint "
+                        "write to %s (%.0fs since last write)",
+                        self.device_name,
+                        heater_entity_id,
+                        now_mono - trv_entry.last_write_monotonic,
+                    )
+                    await asyncio.sleep(3)
+                    self.real_trvs[heater_entity_id].ignore_trv_states = False
+                    return True
+                old = trv_entry.last_temperature
                 _LOGGER.debug(
                     "better_thermostat %s: TO TRV set_temperature: %s from: %s to: %s",
                     self.device_name,
@@ -651,7 +752,8 @@ async def control_trv(self, heater_entity_id=None):
                     old,
                     _temperature,
                 )
-                self.real_trvs[heater_entity_id].last_temperature = _temperature
+                trv_entry.last_temperature = _temperature
+                trv_entry.last_write_monotonic = now_mono
                 await set_temperature(self, heater_entity_id, _temperature)
                 if self.real_trvs[heater_entity_id].target_temp_received is True:
                     self.real_trvs[heater_entity_id].target_temp_received = False
