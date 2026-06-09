@@ -18,6 +18,7 @@ from custom_components.better_thermostat.events.trv import (
     convert_outbound_states,
     trigger_trv_change,
 )
+from custom_components.better_thermostat.trv import Trv
 from custom_components.better_thermostat.utils.const import (
     CONF_HOMEMATICIP,
     CalibrationMode,
@@ -59,33 +60,36 @@ def mock_bt():
     bt.all_trvs = [{"advanced": {CONF_HOMEMATICIP: False}}]
 
     bt.real_trvs = {
-        ENTITY_ID: {
-            "hvac_mode": HVACMode.HEAT,
-            "hvac_modes": [HVACMode.OFF, HVACMode.HEAT],
-            "min_temp": 5.0,
-            "max_temp": 30.0,
-            "current_temperature": 18.0,
-            "temperature": 19.0,
-            "last_temperature": 19.0,
-            "last_hvac_mode": "heat",
-            "target_temp_received": True,
-            "system_mode_received": True,
-            "calibration_received": True,
-            "calibration": 1,
-            "last_calibration": 0.0,
-            "ignore_trv_states": False,
-            "model": "SomeModel",
-            "model_quirks": None,
-            "hvac_action": "heating",
-            "valve_position": 50,
-            "advanced": {
-                "calibration": CalibrationType.LOCAL_BASED,
-                "calibration_mode": CalibrationMode.DEFAULT,
-                "no_off_system_mode": False,
-                "heat_auto_swapped": False,
-                "child_lock": False,
+        ENTITY_ID: Trv.from_legacy_dict(
+            ENTITY_ID,
+            {
+                "hvac_mode": HVACMode.HEAT,
+                "hvac_modes": [HVACMode.OFF, HVACMode.HEAT],
+                "min_temp": 5.0,
+                "max_temp": 30.0,
+                "current_temperature": 18.0,
+                "temperature": 19.0,
+                "last_temperature": 19.0,
+                "last_hvac_mode": "heat",
+                "target_temp_received": True,
+                "system_mode_received": True,
+                "calibration_received": True,
+                "calibration": 1,
+                "last_calibration": 0.0,
+                "ignore_trv_states": False,
+                "model": "SomeModel",
+                "model_quirks": None,
+                "hvac_action": "heating",
+                "valve_position": 50,
+                "advanced": {
+                    "calibration": CalibrationType.LOCAL_BASED,
+                    "calibration_mode": CalibrationMode.DEFAULT,
+                    "no_off_system_mode": False,
+                    "heat_auto_swapped": False,
+                    "child_lock": False,
+                },
             },
-        }
+        )
     }
     return bt
 
