@@ -74,6 +74,10 @@ from .core.fsm.maintenance import (
     finish_run as maintenance_finish_run,
     start_run as maintenance_start_run,
 )
+from .core.fsm.mode import (
+    set_hvac_mode as mode_set_hvac_mode,
+    set_preset as mode_set_preset,
+)
 from .core.fsm.window import WindowPhase, WindowState
 from .events.cooler import trigger_cooler_change
 from .events.temperature import trigger_temperature_change
@@ -476,7 +480,7 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
         self.bt_target_temp = 5.0
         self.bt_target_cooltemp = None
         self._support_flags = SUPPORT_FLAGS | ClimateEntityFeature.PRESET_MODE
-        self.bt_hvac_mode: HVACMode | None = None
+        self._bt_hvac_mode: HVACMode | None = None
         # Track min/max encountered target temps (initialize to default span)
         self.min_target_temp = 18.0
         self.max_target_temp = 21.0
@@ -2303,6 +2307,17 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
         return self._current_humidity if hasattr(self, "_current_humidity") else None
 
     @property
+    def bt_hvac_mode(self) -> HVACMode | None:
+        """Return the BT-internal HVAC mode."""
+        return self._bt_hvac_mode
+
+    @bt_hvac_mode.setter
+    def bt_hvac_mode(self, value: HVACMode | None) -> None:
+        """Set the BT-internal HVAC mode and advance the mode region."""
+        self._bt_hvac_mode = value
+        self.kernel_state.mode = mode_set_hvac_mode(self.kernel_state.mode, value)
+
+    @property
     def hvac_mode(self) -> HVACMode | None:
         """Return current operation."""
         # Fallback if None
@@ -2738,6 +2753,9 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
             old_preset = self.preset_mgr.mode
             new_temp = self.preset_mgr.activate(
                 preset_mode, self.bt_target_temp, self.min_temp, self.max_temp
+            )
+            self.kernel_state.mode = mode_set_preset(
+                self.kernel_state.mode, self.preset_mgr.mode
             )
 
             if new_temp is None and preset_mode not in self.preset_mgr.available_modes:
