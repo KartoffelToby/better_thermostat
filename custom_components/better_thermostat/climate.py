@@ -62,6 +62,7 @@ from .adapters.delegate import (
 )
 from .core.clock import Clock
 from .core.decide import KernelState
+from .core.fsm.window import WindowPhase, WindowState
 from .events.cooler import trigger_cooler_change
 from .events.temperature import trigger_temperature_change
 from .events.trv import trigger_trv_change
@@ -1227,6 +1228,9 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
                     self.window_open = True
                 else:
                     self.window_open = False
+                self.kernel_state.window = WindowState(
+                    phase=WindowPhase.OPEN if self.window_open else WindowPhase.CLOSED
+                )
                 _LOGGER.debug(
                     "better_thermostat %s: detected window state at startup: %s",
                     self.device_name,
@@ -1235,12 +1239,14 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
             else:
                 # Window sensor unavailable - assume closed (safer default)
                 self.window_open = False
+                self.kernel_state.window = WindowState()
                 _LOGGER.debug(
                     "better_thermostat %s: window sensor unavailable, assuming closed",
                     self.device_name,
                 )
         else:
             self.window_open = False
+            self.kernel_state.window = WindowState()
 
     async def _restore_state(self, states: list[State]) -> None:
         """Restore previous state from HA state machine or fall back to defaults."""

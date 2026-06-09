@@ -12,6 +12,10 @@ from homeassistant.core import callback
 from homeassistant.helpers import issue_registry as ir
 
 from custom_components.better_thermostat import DOMAIN
+from custom_components.better_thermostat.core.fsm.window import (
+    WindowParams,
+    step as window_step,
+)
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -83,7 +87,24 @@ async def trigger_window_change(self, event) -> None:
             self.device_name,
         )
         return
+
+    # Start the pending transition in the window region; the queued task
+    # re-steps after the configured delay to commit (or cancel) it.
+    self.kernel_state.window = window_step(
+        self.kernel_state.window,
+        sensor_open=new_window_open,
+        now=self.clock.monotonic(),
+        params=_window_params(self),
+    )
     await self.window_queue_task.put(new_window_open)
+
+
+def _window_params(self) -> WindowParams:
+    """Debounce delays from the entity configuration."""
+    return WindowParams(
+        open_delay_s=float(self.window_delay or 0),
+        close_delay_s=float(self.window_delay_after or 0),
+    )
 
 
 async def window_queue(self):
@@ -118,9 +139,20 @@ async def window_queue(self):
                     current_window_state = True
                     if self.hass.states.get(self.window_id).state == STATE_OFF:
                         current_window_state = False
-                    # make sure the current state is the suggested change state to prevent a false positive:
-                    if current_window_state == window_event_to_process:
-                        self.window_open = window_event_to_process
+                    # Re-step the region with the current reading: a pending
+                    # transition commits when the sensor still matches and
+                    # cancels otherwise (false positive).
+                    self.kernel_state.window = window_step(
+                        self.kernel_state.window,
+                        sensor_open=current_window_state,
+                        now=self.clock.monotonic(),
+                        params=_window_params(self),
+                    )
+                    if (
+                        current_window_state == window_event_to_process
+                        and self.window_open != self.kernel_state.window.effective_open
+                    ):
+                        self.window_open = self.kernel_state.window.effective_open
                         self.async_write_ha_state()
                         if getattr(self, "in_maintenance", False):
                             # Keep state up to date during maintenance, but defer control

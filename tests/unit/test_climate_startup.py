@@ -15,6 +15,7 @@ from custom_components.better_thermostat.climate import (
     DEFAULT_FALLBACK_TEMPERATURE,
     BetterThermostat,
 )
+from custom_components.better_thermostat.core.decide import KernelState
 from custom_components.better_thermostat.utils.const import (
     ATTR_STATE_CALL_FOR_HEAT,
     ATTR_STATE_HEAT_LOSS,
@@ -41,6 +42,7 @@ def bt():
     """Create a mock BetterThermostat with sensible defaults."""
     mock = MagicMock(spec=BetterThermostat)
     mock.clock = MagicMock()
+    mock.kernel_state = KernelState()
     mock.hass = MagicMock()
     mock.device_name = "Test BT"
     mock.sensor_entity_id = SENSOR_ID

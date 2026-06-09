@@ -27,9 +27,10 @@ fail-soft ladder's job (M8) and a product decision, not a refactoring.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 from .desired import DesiredState, TrvDesired
+from .fsm.window import WindowState
 from .snapshot import HvacMode, WorldSnapshot
 
 # Preset name kept in the core vocabulary; value matches HA's PRESET_BOOST.
@@ -43,6 +44,8 @@ class KernelState:
     Grows region by region as the orthogonal FSMs (window, maintenance,
     lifecycle, mode, control mode, reachability) move into the core.
     """
+
+    window: WindowState = field(default_factory=WindowState)
 
 
 def is_boost_heating(snapshot: WorldSnapshot) -> bool:
