@@ -267,8 +267,10 @@ def _compute_mpc_balance(self, entity_id: str):
     else:
         mpc_key = build_mpc_key(self, entity_id)
 
+    mpc_state = self.state_mgr.get_mpc(mpc_key)
+
     try:
-        mpc_output, _mpc_state = compute_mpc(
+        mpc_output, mpc_state = compute_mpc(
             MpcInput(
                 key=mpc_key,
                 target_temp_C=self.bt_target_temp,
@@ -287,7 +289,10 @@ def _compute_mpc_balance(self, entity_id: str):
                 max_opening_pct=max_opening_pct,
             ),
             params,
+            state=mpc_state,
+            all_states=self.state_mgr.state.mpc,
         )
+        self.state_mgr.set_mpc(mpc_key, mpc_state)
     except (ValueError, TypeError, ZeroDivisionError) as err:
         _LOGGER.debug(
             "better_thermostat %s: MPC calibration compute failed for %s: %s",

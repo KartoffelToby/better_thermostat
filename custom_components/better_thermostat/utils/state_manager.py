@@ -40,7 +40,7 @@ from typing import Any
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.storage import Store
 
-from .calibration.mpc import MpcState, export_mpc_state_map, import_mpc_state_map
+from .calibration.mpc import MpcState
 from .calibration.pid import PIDState
 from .calibration.tpi import TpiState
 from .const import MAX_HEAT_LOSS, MAX_HEATING_POWER, MIN_HEAT_LOSS, MIN_HEATING_POWER
@@ -395,21 +395,11 @@ class StateManager:
     # -- Controller bridging -------------------------------------------------
 
     def hydrate_controllers(self, prefix: str) -> None:
-        """Seed the module-level controller caches from persisted state.
+        """No-op kept for the startup call path.
 
-        The MPC controller keeps its own global ``_MPC_STATES`` dict.  This
-        copies the persisted entries whose key starts with *prefix* into that
-        cache so ``compute_mpc()`` works immediately after startup.  PID and
-        TPI state is read from and written to the StateManager directly and
-        needs no bridging.
+        MPC/PID/TPI state is read from and written to the StateManager
+        directly; there are no module-level controller caches left to seed.
         """
-        mpc_data = {
-            key: asdict(mpc)
-            for key, mpc in self._state.mpc.items()
-            if key.startswith(prefix)
-        }
-        if mpc_data:
-            import_mpc_state_map(mpc_data)
 
     def clamped_thermal(self) -> tuple[float | None, float | None]:
         """Return persisted thermal stats clamped to their valid bounds.
@@ -442,17 +432,11 @@ class StateManager:
     def sync_controllers(
         self, prefix: str, heating_power: float | None, heat_loss_rate: float | None
     ) -> None:
-        """Export the module-level controller caches back into the store.
+        """Record the supplied thermal stats before a save.
 
-        Pulls the latest MPC runtime state for *prefix* from the global
-        controller cache and records the supplied thermal stats, so a following
-        save reflects current runtime values.  PID and TPI state already live
-        in the StateManager and need no export step.
+        MPC/PID/TPI state already lives in the StateManager and needs no
+        export step; only the entity-held thermal stats are pulled in here.
         """
-        for key, state_dict in export_mpc_state_map(prefix).items():
-            if isinstance(state_dict, dict):
-                self.set_mpc(key, deserialize_mpc(state_dict))
-
         self.thermal = ThermalStats(
             heating_power=heating_power, heat_loss_rate=heat_loss_rate
         )
