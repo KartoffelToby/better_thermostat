@@ -14,7 +14,11 @@ The cascade (top wins):
 4. Reachability — unreachable TRVs receive no intent, except while boost
    heating is active (boost keeps commanding so the TRV catches up the
    moment it returns).
-5. Lower tiers (calibrate/passthrough) move in here ticket by ticket.
+5. Call for heat — without heat demand every TRV is turned off.
+6. Heating — every addressed TRV is asked to heat towards the room
+   target. The calibrated numbers (setpoint corrections, offsets, valve
+   percentages) stay in the shell until the calibrator strategies move
+   into the core (M7).
 
 The ``degraded`` flag deliberately does not branch anywhere: today it is
 pure annunciation. Giving it an effect on the control law is the
@@ -97,6 +101,18 @@ def decide(
             state,
         )
 
-    # Lower tiers (calibrate/passthrough) are pulled in by subsequent
-    # tickets; until then no intent is produced for the heating branch.
-    return DesiredState(call_for_heat=snapshot.call_for_heat), state
+    if not snapshot.call_for_heat:
+        return (
+            DesiredState(call_for_heat=False, trvs=_with_mode(addressed, HvacMode.OFF)),
+            state,
+        )
+
+    heating = {
+        entity_id: TrvDesired(
+            entity_id=entity_id,
+            hvac_mode=snapshot.hvac_mode,
+            setpoint=snapshot.target_temp,
+        )
+        for entity_id in addressed
+    }
+    return DesiredState(call_for_heat=True, trvs=heating), state

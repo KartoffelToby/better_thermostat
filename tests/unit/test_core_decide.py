@@ -3,7 +3,6 @@
 from datetime import UTC, datetime
 
 from custom_components.better_thermostat.core.decide import KernelState, decide
-from custom_components.better_thermostat.core.desired import DesiredState
 from custom_components.better_thermostat.core.snapshot import (
     HvacMode,
     TrvReported,
@@ -110,10 +109,11 @@ class TestPurity:
         _, same_state = decide(make_snapshot(), state)
         assert same_state is state
 
-    def test_default_result_is_neutral(self):
-        """With no upper tier firing, the kernel produces no intent yet."""
+    def test_default_result_is_the_heating_branch(self):
+        """With no upper tier firing, the kernel asks the TRVs to heat."""
         desired, _ = decide(make_snapshot(), KernelState())
-        assert desired == DesiredState(call_for_heat=True)
+        assert desired.call_for_heat is True
+        assert all(t.hvac_mode == HvacMode.HEAT for t in desired.trvs.values())
 
 
 class TestMaintenancePreempt:
@@ -191,3 +191,55 @@ class TestDegradedIsAnnunciationOnly:
         a, _ = decide(make_snapshot(), KernelState())
         b, _ = decide(make_snapshot(degraded=True), KernelState())
         assert a == b
+
+
+class TestCallForHeat:
+    """Without heat demand every addressed TRV is turned off."""
+
+    def test_no_call_for_heat_turns_trvs_off(self):
+        """call_for_heat False yields OFF intents."""
+        desired, _ = decide(make_snapshot(call_for_heat=False), KernelState())
+        assert desired.call_for_heat is False
+        assert all(t.hvac_mode == HvacMode.OFF for t in desired.trvs.values())
+
+    def test_window_tier_wins_over_call_for_heat(self):
+        """An open window decides before the call-for-heat tier."""
+        desired, _ = decide(
+            make_snapshot(window_open=True, call_for_heat=False), KernelState()
+        )
+        # Window tier reports the room's heat demand unchanged.
+        assert desired.call_for_heat is False
+        assert all(t.hvac_mode == HvacMode.OFF for t in desired.trvs.values())
+
+
+class TestHeatingBranch:
+    """With heat demand the addressed TRVs are asked to heat to the target."""
+
+    def test_heating_intent_carries_mode_and_target(self):
+        """Each reachable TRV heats towards the room target."""
+        desired, _ = decide(make_snapshot(), KernelState())
+        assert desired.call_for_heat is True
+        assert set(desired.trvs) == {"climate.trv1", "climate.trv2"}
+        for trv in desired.trvs.values():
+            assert trv.hvac_mode == HvacMode.HEAT
+            assert trv.setpoint == 21.0
+
+    def test_heating_skips_unreachable_trvs(self):
+        """Unreachable TRVs get no heating intent."""
+        desired, _ = decide(
+            make_snapshot(
+                trvs={
+                    "climate.up": TrvReported(entity_id="climate.up", available=True),
+                    "climate.down": TrvReported(
+                        entity_id="climate.down", available=False
+                    ),
+                }
+            ),
+            KernelState(),
+        )
+        assert set(desired.trvs) == {"climate.up"}
+
+    def test_heat_cool_mode_is_passed_through(self):
+        """HEAT_COOL intent reaches the TRVs unchanged."""
+        desired, _ = decide(make_snapshot(hvac_mode=HvacMode.HEAT_COOL), KernelState())
+        assert all(t.hvac_mode == HvacMode.HEAT_COOL for t in desired.trvs.values())
