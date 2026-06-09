@@ -3,6 +3,7 @@
 from unittest.mock import MagicMock
 
 from custom_components.better_thermostat.calibration import _compute_tpi_balance
+from custom_components.better_thermostat.trv import Trv
 from custom_components.better_thermostat.utils.calibration.tpi import (
     TpiState,
     build_tpi_key,
@@ -36,12 +37,15 @@ def _make_bt(state_mgr: _TpiStateStub) -> MagicMock:
     bt.outdoor_sensor = None
     bt.weather_entity = None
     bt.real_trvs = {
-        "climate.trv": {
-            "advanced": {},
-            "current_temperature": 21.0,
-            "min_temp": 5.0,
-            "max_temp": 30.0,
-        }
+        "climate.trv": Trv.from_legacy_dict(
+            "climate.trv",
+            {
+                "advanced": {},
+                "current_temperature": 21.0,
+                "min_temp": 5.0,
+                "max_temp": 30.0,
+            },
+        )
     }
     bt.state_mgr = state_mgr
     return bt

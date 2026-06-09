@@ -3,6 +3,7 @@
 from unittest.mock import MagicMock
 
 from custom_components.better_thermostat.calibration import _compute_pid_balance
+from custom_components.better_thermostat.trv import Trv
 from custom_components.better_thermostat.utils.calibration.pid import (
     PIDState,
     build_pid_key,
@@ -36,12 +37,15 @@ def _make_bt(state_mgr: _PidStateStub) -> MagicMock:
     bt.window_open = False
     bt.bt_hvac_mode = "heat"
     bt.real_trvs = {
-        "climate.trv": {
-            "advanced": {},
-            "current_temperature": 21.0,
-            "min_temp": 5.0,
-            "max_temp": 30.0,
-        }
+        "climate.trv": Trv.from_legacy_dict(
+            "climate.trv",
+            {
+                "advanced": {},
+                "current_temperature": 21.0,
+                "min_temp": 5.0,
+                "max_temp": 30.0,
+            },
+        )
     }
     bt.state_mgr = state_mgr
     return bt
