@@ -1,19 +1,11 @@
 """Tests for the controller state-threading contract.
 
-``compute_pid``/``compute_tpi``/``compute_mpc`` accept an explicit ``state``
-argument, mutate it in place and return it as the updated state.
-``compute_pid``/``compute_tpi`` require the explicit state (the StateManager
-owns it); ``compute_mpc`` still falls back to a module-level dict
-(``_MPC_STATES``) when no state is passed, and passing an explicit state
-additionally stores it in that dict. These tests pin the explicit-state path
-everywhere and the module-global path where it remains.
+``compute_pid``/``compute_tpi``/``compute_mpc`` require an explicit ``state``
+argument, mutate it in place and return it as the updated state; the
+StateManager owns all controller state and there are no module-level state
+dicts left. These tests pin the explicit-state contract.
 """
 
-from collections.abc import Iterator
-
-import pytest
-
-import custom_components.better_thermostat.utils.calibration.mpc as mpc_module
 from custom_components.better_thermostat.utils.calibration.mpc import (
     MpcInput,
     MpcParams,
@@ -31,14 +23,6 @@ from custom_components.better_thermostat.utils.calibration.tpi import (
     TpiState,
     compute_tpi,
 )
-
-
-@pytest.fixture(autouse=True)
-def _reset_globals() -> Iterator[None]:
-    """Clear the remaining controller globals before and after each test."""
-    mpc_module._MPC_STATES.clear()
-    yield
-    mpc_module._MPC_STATES.clear()
 
 
 def _pid_call(state: PIDState, key: str = "k") -> PIDState:
@@ -91,7 +75,7 @@ class TestTpiStateContract:
 
 
 class TestMpcStateContract:
-    """State-threading contract of ``compute_mpc``."""
+    """State-threading contract of ``compute_mpc`` (explicit state only)."""
 
     @staticmethod
     def _inp(key: str) -> MpcInput:
@@ -101,7 +85,7 @@ class TestMpcStateContract:
         )
 
     def test_explicit_state_is_returned_and_accumulates(self) -> None:
-        """An explicit state is returned as the same object and keeps accumulating."""
+        """The explicit state is returned as the same object and keeps accumulating."""
         params = MpcParams(mpc_adapt=True)
         state = MpcState()
         _, st1 = compute_mpc(
@@ -110,25 +94,23 @@ class TestMpcStateContract:
         assert st1 is state
         assert state.last_integration_ts > 0.0
 
-        mpc_module._MPC_STATES.clear()
         _, st2 = compute_mpc(self._inp("k"), params, state=st1, all_states={"k": st1})
         assert st2 is state
 
-    def test_missing_state_uses_module_global(self) -> None:
-        """Without an explicit state the call uses ``_MPC_STATES``."""
-        _, st = compute_mpc(self._inp("kg"), MpcParams())
-        assert mpc_module._MPC_STATES["kg"] is st
-
-    def test_explicit_state_is_also_stored_in_global(self) -> None:
-        """An explicit state is also written to ``_MPC_STATES``."""
+    def test_sibling_seeding_reads_from_all_states(self) -> None:
+        """Sibling seeding copies min_effective_percent from the all_states map."""
+        sibling = MpcState(min_effective_percent=18.0)
+        all_states = {"uid:climate.trv:t21.0": sibling}
         state = MpcState()
-        compute_mpc(self._inp("kl"), MpcParams(), state=state)
-        assert mpc_module._MPC_STATES["kl"] is state
-
-    def test_sibling_seeding_uses_global_when_all_states_missing(self) -> None:
-        """With ``all_states=None`` sibling seeding reads from ``_MPC_STATES``."""
-        _, st_a = compute_mpc(self._inp("bucket_a"), MpcParams())
-        assert mpc_module._MPC_STATES["bucket_a"] is st_a
-        _, st_b = compute_mpc(self._inp("bucket_b"), MpcParams())
-        assert mpc_module._MPC_STATES["bucket_b"] is st_b
-        assert set(mpc_module._MPC_STATES) >= {"bucket_a", "bucket_b"}
+        compute_mpc(
+            MpcInput(
+                key="uid:climate.trv:t22.0",
+                target_temp_C=22.0,
+                current_temp_C=21.5,
+                temp_slope_K_per_min=0.0,
+            ),
+            MpcParams(enable_min_effective_percent=True),
+            state=state,
+            all_states=all_states,
+        )
+        assert state.min_effective_percent == 18.0
