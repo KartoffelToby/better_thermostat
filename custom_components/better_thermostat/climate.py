@@ -67,6 +67,7 @@ from .events.temperature import trigger_temperature_change
 from .events.trv import trigger_trv_change
 from .events.window import trigger_window_change, window_queue
 from .model_fixes.model_quirks import inital_tweak, load_model_quirks
+from .trv import Trv
 from .utils.calibration.pid import (
     PIDParams,
     format_bucket,
@@ -654,38 +655,15 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
                     trv.get("trv"),
                     e,
                 )
-            self.real_trvs[trv["trv"]] = {
-                "calibration": _calibration,
-                "integration": trv["integration"],
-                "adapter": _adapter,
-                "model_quirks": _model_quirks,
-                "model": resolved_model,
-                "advanced": _advanced,
-                "ignore_trv_states": False,
-                "valve_position": None,
-                "valve_position_entity": None,
-                "valve_position_writable": None,
-                "valve_max_opening": 100.0,
-                "max_temp": None,
-                "min_temp": None,
-                "target_temp_step": None,
-                "temperature": None,
-                "current_temperature": None,
-                "hvac_modes": None,
-                "hvac_mode": None,
-                "local_temperature_calibration_entity": None,
-                "local_calibration_min": -7,
-                "local_calibration_max": 7,
-                "local_calibration_step": 0.5,
-                "calibration_received": True,
-                "target_temp_received": True,
-                "system_mode_received": True,
-                "last_temperature": None,
-                "last_valve_position": None,
-                "last_hvac_mode": None,
-                "last_current_temperature": None,
-                "last_calibration": None,
-            }
+            self.real_trvs[trv["trv"]] = Trv(
+                entity_id=trv["trv"],
+                calibration=_calibration,
+                integration=trv["integration"],
+                adapter=_adapter,
+                model_quirks=_model_quirks,
+                model=resolved_model,
+                advanced=_advanced,
+            )
 
         def on_remove():
             self.is_removed = True
