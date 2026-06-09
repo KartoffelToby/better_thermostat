@@ -153,6 +153,7 @@ class _MpcState:
 # for backwards compatibility within this module.
 MpcState = _MpcState
 
+
 def _curve_bin_label(percent: float, bin_pct: float) -> str:
     bin_pct = max(1.0, float(bin_pct))
     p = max(0.0, min(100.0, float(percent)))
@@ -256,10 +257,7 @@ def _split_mpc_key(key: str) -> tuple[str | None, str | None, str | None]:
 
 
 def _seed_state_from_siblings(
-    key: str,
-    state: _MpcState,
-    params: MpcParams,
-    all_states: Mapping[str, _MpcState],
+    key: str, state: _MpcState, params: MpcParams, all_states: Mapping[str, _MpcState]
 ) -> None:
     if not bool(getattr(params, "enable_min_effective_percent", True)):
         return

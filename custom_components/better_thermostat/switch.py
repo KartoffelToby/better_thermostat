@@ -35,7 +35,7 @@ async def async_setup_entry(
     switch_unique_ids = {}
     has_multiple_trvs = len(bt_climate.real_trvs) > 1
     for trv_entity_id, trv_data in bt_climate.real_trvs.items():
-        advanced = trv_data.get("advanced", {})
+        advanced = trv_data.advanced or {}
         calibration_mode = advanced.get(CONF_CALIBRATION_MODE)
 
         # Normalize string values to CalibrationMode enum
@@ -179,10 +179,8 @@ class BetterThermostatChildLockSwitch(SwitchEntity, RestoreEntity):
     @property
     def is_on(self) -> bool | None:
         """Return true if switch is on."""
-        return (
-            self._bt_climate.real_trvs[self._trv_entity_id]
-            .get("advanced", {})
-            .get("child_lock", False)
+        return (self._bt_climate.real_trvs[self._trv_entity_id].advanced or {}).get(
+            "child_lock", False
         )
 
     async def async_turn_on(self, **kwargs) -> None:
@@ -198,10 +196,8 @@ class BetterThermostatChildLockSwitch(SwitchEntity, RestoreEntity):
     def _update_state(self, state: bool):
         """Update the state."""
         if "advanced" not in self._bt_climate.real_trvs[self._trv_entity_id]:
-            self._bt_climate.real_trvs[self._trv_entity_id]["advanced"] = {}
-        self._bt_climate.real_trvs[self._trv_entity_id]["advanced"]["child_lock"] = (
-            state
-        )
+            self._bt_climate.real_trvs[self._trv_entity_id].advanced = {}
+        self._bt_climate.real_trvs[self._trv_entity_id].advanced["child_lock"] = state
         self.async_write_ha_state()
 
     async def _set_child_lock(self, state: bool):

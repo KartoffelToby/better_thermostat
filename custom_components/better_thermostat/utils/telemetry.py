@@ -149,7 +149,7 @@ def collect_balance_attrs(bt: TelemetrySource) -> dict[str, Any]:
 
     bal_compact: dict[str, dict[str, float | None]] = {}
     for trv, info in bt.real_trvs.items():
-        bal = info.get("calibration_balance")
+        bal = info.calibration_balance
         if bal is None:
             continue
         bal_compact[trv] = {"valve%": bal.get("valve_percent")}
@@ -191,7 +191,7 @@ def _extract_pid_debug(info: TrvInfo | None) -> PIDDebugInfo | None:
     """Return PID debug payload when the TRV's calibration is in PID mode."""
     if info is None:
         return None
-    bal = info.get("calibration_balance")
+    bal = info.calibration_balance
     if bal is None:
         return None
     debug = bal.get("debug")
