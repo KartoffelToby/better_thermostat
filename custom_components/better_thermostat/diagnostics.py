@@ -48,4 +48,14 @@ async def async_get_config_entry_diagnostics(
         "window_sensor": window,
     }
 
+    # Flight recorder: the last decision tuples for offline replay.
+    bt = (
+        hass.data.get("better_thermostat", {})
+        .get(config_entry.entry_id, {})
+        .get("climate")
+    )
+    recorder = getattr(bt, "flight_recorder", None)
+    if recorder is not None:
+        diagnostics_data["flight_recorder"] = recorder.export()
+
     return diagnostics_data

@@ -79,6 +79,7 @@ from .core.fsm.mode import (
     set_preset as mode_set_preset,
 )
 from .core.fsm.window import WindowPhase, WindowState
+from .core.recorder import FlightRecorder
 from .events.cooler import trigger_cooler_change
 from .events.temperature import trigger_temperature_change
 from .events.trv import trigger_trv_change
@@ -459,6 +460,7 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
         self.map_on_hvac_mode = HVACMode.HEAT
         self.clock: Clock = SystemClock()
         self.kernel_state = KernelState()
+        self.flight_recorder = FlightRecorder()
         self.next_valve_maintenance = self.clock.now() + timedelta(
             hours=randint(1, 24 * 5)
         )

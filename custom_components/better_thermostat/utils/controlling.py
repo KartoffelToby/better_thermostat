@@ -1,6 +1,7 @@
 """Controlling module for Better Thermostat."""
 
 import asyncio
+from copy import deepcopy
 import logging
 
 from homeassistant.components.climate.const import PRESET_BOOST, HVACMode
@@ -511,8 +512,10 @@ async def control_trv(self, heater_entity_id=None):
         _trv = self.hass.states.get(heater_entity_id)
 
         # One consistent observation and decision for this TRV's cycle.
+        _pre_decide_state = deepcopy(self.kernel_state)
         snapshot = build_snapshot(self)
         desired, self.kernel_state = decide(snapshot, self.kernel_state)
+        self.flight_recorder.record(snapshot, _pre_decide_state, desired)
         trv_desired = desired.trvs.get(heater_entity_id)
 
         # The kernel addresses only reachable TRVs (boost overrides the skip).
