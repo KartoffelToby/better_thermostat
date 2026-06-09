@@ -16,7 +16,12 @@ from custom_components.better_thermostat.adapters.delegate import (
 )
 from custom_components.better_thermostat.core.decide import decide
 from custom_components.better_thermostat.core.desired import DesiredState, TrvDesired
+from custom_components.better_thermostat.core.fsm.control_mode import ControlMode
 from custom_components.better_thermostat.core.safety import clamp as safety_clamp
+from custom_components.better_thermostat.core.watchdog import (
+    WATCHDOG_MAX_AGE_S,
+    control_loop_stalled,
+)
 from custom_components.better_thermostat.events.trv import convert_outbound_states
 from custom_components.better_thermostat.model_fixes.model_quirks import (
     override_set_hvac_mode,
@@ -158,6 +163,20 @@ async def reconcile_tick(self, now=None):
     if self.kernel_state.maintenance.is_blocking(self.clock.monotonic()):
         return
     try:
+        if control_loop_stalled(
+            self.kernel_state.last_control_monotonic, self.clock.monotonic()
+        ):
+            _LOGGER.error(
+                "better_thermostat %s: control watchdog: no control cycle for "
+                "more than %.0f minutes, forcing one",
+                self.device_name,
+                WATCHDOG_MAX_AGE_S / 60.0,
+            )
+            try:
+                self.control_queue_task.put_nowait(self)
+            except asyncio.QueueFull:
+                pass
+            return
         snapshot = build_snapshot(self)
         desired, self.kernel_state = decide(snapshot, self.kernel_state)
         desired = safety_clamp(desired, snapshot)
@@ -528,6 +547,19 @@ async def control_trv(self, heater_entity_id=None):
 
         _temperature = _remapped_states.get("temperature", None)
         _calibration = _remapped_states.get("local_temperature_calibration", None)
+
+        # HOLD rung of the fail-soft ladder: no usable temperature exists,
+        # so the controller stops adjusting and keeps the last commanded
+        # state. Mode suppression (OFF / window) below stays active.
+        if self.kernel_state.control_mode.mode == ControlMode.HOLD:
+            _LOGGER.debug(
+                "better_thermostat %s: control mode HOLD - keeping last "
+                "commanded state for %s",
+                self.device_name,
+                heater_entity_id,
+            )
+            _temperature = None
+            _calibration = None
         _calibration_mode = self.real_trvs[heater_entity_id].advanced.get(
             "calibration_mode", CalibrationMode.MPC_CALIBRATION
         )
@@ -544,9 +576,12 @@ async def control_trv(self, heater_entity_id=None):
 
         # Optional: set valve position if supported (e.g., MQTT/Z2M)
         try:
-            valve_settings, _source = _get_valve_control(
-                self, heater_entity_id, _calibration_mode, _calibration_type
-            )
+            if self.kernel_state.control_mode.mode == ControlMode.HOLD:
+                valve_settings, _source = None, None
+            else:
+                valve_settings, _source = _get_valve_control(
+                    self, heater_entity_id, _calibration_mode, _calibration_type
+                )
             if valve_settings is not None:
                 target_pct = int(round(valve_settings.get("valve_percent", 0)))
                 target_pct = int(
@@ -761,6 +796,9 @@ async def control_trv(self, heater_entity_id=None):
                         check_target_temperature(self, heater_entity_id),
                         name=f"bt_check_target_temp_{heater_entity_id}",
                     )
+
+    # Watchdog heartbeat: the control loop demonstrably ran.
+    self.kernel_state.last_control_monotonic = self.clock.monotonic()
 
     # Let TRV state updates propagate before accepting new state events
     await asyncio.sleep(3)

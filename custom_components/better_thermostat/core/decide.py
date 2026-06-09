@@ -56,6 +56,8 @@ class KernelState:
     mode: ModeState = field(default_factory=ModeState)
     control_mode: ControlModeState = field(default_factory=ControlModeState)
     reachability: dict[str, ReachabilityState] = field(default_factory=dict)
+    # Watchdog heartbeat: monotonic time of the last completed control pass.
+    last_control_monotonic: float | None = None
 
 
 def is_boost_heating(snapshot: WorldSnapshot) -> bool:

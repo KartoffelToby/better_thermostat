@@ -17,7 +17,9 @@ from homeassistant.helpers import issue_registry as ir
 from homeassistant.util import dt as dt_util
 
 from custom_components.better_thermostat.core.fsm.control_mode import (
+    LadderParams,
     step as control_mode_step,
+    step_ladder as control_mode_step_ladder,
 )
 
 DOMAIN = "better_thermostat"
@@ -364,6 +366,16 @@ async def check_and_update_degraded_mode(self) -> bool:
     old_degraded = getattr(self, "degraded_mode", False)
     self.kernel_state.control_mode = control_mode_step(
         self.kernel_state.control_mode, unavailable, self.clock.monotonic()
+    )
+    trv_temp_ok = any(
+        trv.current_temperature is not None for trv in self.real_trvs.values()
+    )
+    self.kernel_state.control_mode = control_mode_step_ladder(
+        self.kernel_state.control_mode,
+        room_sensor_ok=bool(sensor_available),
+        trv_temp_ok=trv_temp_ok,
+        now=self.clock.monotonic(),
+        params=LadderParams(),
     )
     self.degraded_mode = self.kernel_state.control_mode.degraded
     self.unavailable_sensors = unavailable

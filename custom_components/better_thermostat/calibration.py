@@ -6,6 +6,7 @@ import math
 from homeassistant.components.climate.const import HVACAction, HVACMode
 
 from custom_components.better_thermostat.core.calibrator import CalibratorHealth
+from custom_components.better_thermostat.core.fsm.control_mode import ControlMode
 from custom_components.better_thermostat.model_fixes.model_quirks import (
     fix_local_calibration,
     fix_target_temperature_calibration,
@@ -77,6 +78,26 @@ def _compute_zero_open_offset(
     _offset = _max_offset * (1.0 - math.exp(-0.5 * _overshoot))
     _offset = max(_trv_temp_step, _offset)
     return _offset
+
+
+def effective_room_temp(self) -> float | None:
+    """Room temperature for the control law, honoring the fail-soft ladder.
+
+    Under SENSOR_FALLBACK the mean of the available TRV-internal
+    temperatures substitutes the (dead) room sensor — completing the
+    fallback that the watcher has always announced. On every other rung
+    this is simply the current room temperature.
+    """
+    mode = self.kernel_state.control_mode.mode
+    if mode == ControlMode.SENSOR_FALLBACK:
+        temps = []
+        for trv in self.real_trvs.values():
+            value = trv.current_temperature
+            if isinstance(value, (int, float)):
+                temps.append(float(value))
+        if temps:
+            return sum(temps) / len(temps)
+    return self.cur_temp
 
 
 def _get_current_outdoor_temp(self) -> float | None:
@@ -255,8 +276,10 @@ def _compute_mpc_balance(self, entity_id: str):
 
     # Optional: use filtered external temperature for MPC cost evaluation to reduce jitter.
     # `cur_temp_filtered` is maintained by events/temperature.py (EMA) and passed separately.
-    mpc_current_temp = self.cur_temp
-    mpc_filtered_temp = self.cur_temp_filtered
+    mpc_current_temp = effective_room_temp(self)
+    mpc_filtered_temp = (
+        self.cur_temp_filtered if mpc_current_temp is self.cur_temp else None
+    )
 
     _is_day = True
     if self.hass:
@@ -388,7 +411,7 @@ def _compute_tpi_balance(self, entity_id: str):
         tpi_output, tpi_state = compute_tpi(
             TpiInput(
                 key=key,
-                current_temp_C=self.cur_temp,
+                current_temp_C=effective_room_temp(self),
                 target_temp_C=self.bt_target_temp,
                 outdoor_temp_C=_get_current_outdoor_temp(self),
                 window_open=self.window_open or False,
@@ -486,6 +509,8 @@ def _compute_pid_balance(self, entity_id: str):
         ),
     )
 
+    _pid_room_temp = effective_room_temp(self)
+
     _LOGGER.debug(
         "better_thermostat %s: Running PID calibration for %s",
         self.device_name,
@@ -496,11 +521,13 @@ def _compute_pid_balance(self, entity_id: str):
         percent, debug, pid_state = compute_pid(
             params,
             self.bt_target_temp,
-            self.cur_temp,
+            _pid_room_temp,
             trv_state.current_temperature,
             self.temp_slope,
             key,
-            inp_current_temp_ema_C=self.cur_temp_filtered,
+            inp_current_temp_ema_C=(
+                self.cur_temp_filtered if _pid_room_temp is self.cur_temp else None
+            ),
             max_opening_pct=_get_trv_max_opening(self, entity_id),
             state=pid_state,
         )
@@ -580,7 +607,7 @@ def calculate_calibration_local(self, entity_id) -> float | None:
     elif self.cur_temp is None or self.bt_target_temp is None:
         return None
 
-    _cur_external_temp = self.cur_temp
+    _cur_external_temp = effective_room_temp(self)
     _cur_target_temp = self.bt_target_temp
 
     if _calibration_mode != CalibrationMode.DEFAULT:
@@ -855,7 +882,7 @@ def calculate_calibration_setpoint(self, entity_id) -> float | None:
         return None
 
     # Add tolerance check
-    _cur_external_temp = float(self.cur_temp)
+    _cur_external_temp = float(effective_room_temp(self) or self.cur_temp)
     _cur_target_temp = float(self.bt_target_temp)
 
     _cur_trv_temp_s = self.real_trvs[entity_id].current_temperature

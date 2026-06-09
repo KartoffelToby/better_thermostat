@@ -2211,6 +2211,16 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
             # Degraded mode: thermostat running with some sensors unavailable
             "degraded_mode": self.degraded_mode,
             "unavailable_sensors": self.unavailable_sensors,
+            # Mode annunciation: which fail-soft rung rules, since when
+            "control_mode": str(self.kernel_state.control_mode.mode),
+            "degraded_for_s": (
+                round(
+                    self.clock.monotonic()
+                    - self.kernel_state.control_mode.degraded_since
+                )
+                if self.kernel_state.control_mode.degraded_since is not None
+                else None
+            ),
             # ECO mode attribute removed: eco preset supported via PRESET_ECO
         }
 

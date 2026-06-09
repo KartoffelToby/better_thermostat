@@ -9,11 +9,13 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
+from custom_components.better_thermostat.core.clock import FakeClock
 from custom_components.better_thermostat.core.decide import KernelState
 from custom_components.better_thermostat.core.fsm.lifecycle import (
     LifecyclePhase,
     LifecycleState,
 )
+from custom_components.better_thermostat.trv import Trv
 
 
 def _close_coro(coro, *args, **kwargs):
@@ -49,13 +51,17 @@ def mock_bt_instance(mock_hass):
     bt.humidity_sensor_entity_id = "sensor.humidity"
     bt.outdoor_sensor = "sensor.outdoor_temp"
     bt.weather_entity = "weather.home"
-    bt.real_trvs = {"climate.trv_1": {}, "climate.trv_2": {}}
+    bt.real_trvs = {
+        "climate.trv_1": Trv(entity_id="climate.trv_1"),
+        "climate.trv_2": Trv(entity_id="climate.trv_2"),
+    }
     bt.devices_errors = []
     bt.degraded_mode = False
     bt.unavailable_sensors = []
     bt._degraded_grace_until = None
     bt._degraded_warning_emitted = False
     bt.kernel_state = KernelState()
+    bt.clock = FakeClock()
     return bt
 
 

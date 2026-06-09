@@ -16,9 +16,12 @@ def test_initial_state_is_optimal():
 
 
 def test_unavailable_sensor_degrades():
-    """Any unavailable optional sensor moves the region to SENSOR_FALLBACK."""
+    """Any unavailable optional sensor marks the region as degraded.
+
+    The ladder rung itself only moves via step_ladder (debounced).
+    """
     state = step(ControlModeState(), ["sensor.outdoor"], now=100.0)
-    assert state.mode == ControlMode.SENSOR_FALLBACK
+    assert state.mode == ControlMode.OPTIMAL
     assert state.degraded is True
     assert state.unavailable_sensors == ("sensor.outdoor",)
     assert state.degraded_since == 100.0
