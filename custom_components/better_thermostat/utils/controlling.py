@@ -26,6 +26,7 @@ from custom_components.better_thermostat.utils.helpers import (
     attr_to_celsius,
     convert_to_float,
 )
+from custom_components.better_thermostat.utils.snapshot import build_snapshot
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -271,16 +272,17 @@ async def control_cooler(self):
     current_hvac_mode = cooler_state.state
     current_temp = cooler_state.attributes.get("temperature")
 
-    # Determine desired state based on current conditions
-    desired_temp = self.bt_target_cooltemp
+    # Determine desired state based on the world snapshot of this cycle
+    snapshot = build_snapshot(self)
+    desired_temp = snapshot.target_cooltemp
 
     if any(
         v is None
         for v in (
-            self.cur_temp,
-            self.bt_target_cooltemp,
+            snapshot.room_temp,
+            snapshot.target_cooltemp,
             self.tolerance,
-            self.bt_target_temp,
+            snapshot.target_temp,
         )
     ):
         _LOGGER.debug(
@@ -289,17 +291,17 @@ async def control_cooler(self):
             "defaulting to OFF",
             self.device_name,
             self.cooler_entity_id,
-            self.cur_temp,
-            self.bt_target_cooltemp,
+            snapshot.room_temp,
+            snapshot.target_cooltemp,
             self.tolerance,
-            self.bt_target_temp,
+            snapshot.target_temp,
         )
         desired_mode = HVACMode.OFF
-    elif self.bt_hvac_mode == HVACMode.OFF:
+    elif snapshot.hvac_mode == HVACMode.OFF:
         desired_mode = HVACMode.OFF
     elif (
-        self.cur_temp >= self.bt_target_cooltemp - self.tolerance
-        and self.cur_temp > self.bt_target_temp
+        snapshot.room_temp >= snapshot.target_cooltemp - snapshot.tolerance
+        and snapshot.room_temp > snapshot.target_temp
     ):
         desired_mode = HVACMode.COOL
     else:
