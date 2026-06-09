@@ -62,6 +62,13 @@ from .adapters.delegate import (
 )
 from .core.clock import Clock
 from .core.decide import KernelState
+from .core.fsm.maintenance import (
+    MaintenancePhase,
+    MaintenanceState,
+    evaluate_tick as maintenance_evaluate_tick,
+    finish_run as maintenance_finish_run,
+    start_run as maintenance_start_run,
+)
 from .core.fsm.window import WindowPhase, WindowState
 from .events.cooler import trigger_cooler_change
 from .events.temperature import trigger_temperature_change
@@ -1871,33 +1878,8 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
             )
             return
 
-        # Skip if already running or not due
         now = self.clock.now()
-        if self.in_maintenance:
-            return
-        try:
-            if self.next_valve_maintenance and now < self.next_valve_maintenance:
-                return
-        except TypeError:
-            # next_valve_maintenance is not comparable to now; fall through and
-            # let this tick re-evaluate the schedule.
-            pass
-
-        # Skip when device is OFF or window open
-        if self.window_open:
-            # postpone by an hour to avoid hammering
-            self.next_valve_maintenance = now + timedelta(hours=1)
-            _LOGGER.debug(
-                "better_thermostat %s: valve maintenance postponed (window open)",
-                self.device_name,
-            )
-            return
-        if HVACMode.OFF in (self.hvac_mode, self.bt_hvac_mode):
-            self.next_valve_maintenance = now + timedelta(hours=1)
-            _LOGGER.debug(
-                "better_thermostat %s: valve maintenance postponed (HVAC OFF)",
-                self.device_name,
-            )
+        if self.kernel_state.maintenance.is_blocking(self.clock.monotonic()):
             return
 
         # Check if any TRV actually has maintenance enabled
@@ -1910,9 +1892,25 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
             )
             trvs_to_service = []
 
-        if not trvs_to_service:
-            # no enabled TRVs => schedule far in the future to avoid frequent wakeups
-            self.next_valve_maintenance = now + timedelta(days=7)
+        # Sync the schedule with legacy writers, then advance the region.
+        region = self.kernel_state.maintenance
+        schedule = self.next_valve_maintenance
+        if not isinstance(schedule, datetime):
+            schedule = None
+        if region.next_due != schedule:
+            region = MaintenanceState(phase=region.phase, next_due=schedule)
+        region = maintenance_evaluate_tick(
+            region,
+            now,
+            window_open=bool(self.window_open),
+            hvac_off=HVACMode.OFF in (self.hvac_mode, self.bt_hvac_mode),
+            has_enabled_trvs=bool(trvs_to_service),
+        )
+        self.kernel_state.maintenance = region
+        if region.next_due is not None:
+            self.next_valve_maintenance = region.next_due
+
+        if region.phase != MaintenancePhase.DUE:
             return
 
         # Run maintenance asynchronously (don't block the tick)
@@ -1928,8 +1926,17 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
         ignore_trv_states, control_queue) around the pure maintenance
         logic in ``utils.valve_maintenance``.
         """
-        if self.in_maintenance:
+        region = self.kernel_state.maintenance
+        if region.is_blocking(self.clock.monotonic()):
             return
+        if region.phase != MaintenancePhase.DUE:
+            # Direct invocation (service call / tests): arm before starting.
+            region = MaintenanceState(
+                phase=MaintenancePhase.DUE, next_due=region.next_due
+            )
+        self.kernel_state.maintenance = maintenance_start_run(
+            region, self.clock.monotonic()
+        )
         self.in_maintenance = True
         # Suppress control loop briefly to prevent interference during maintenance
         self.ignore_states = True
@@ -2002,6 +2009,14 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
             )
         finally:
             self._control_needed_after_maintenance = False
+            next_due = (
+                self.next_valve_maintenance
+                if isinstance(self.next_valve_maintenance, datetime)
+                else None
+            )
+            self.kernel_state.maintenance = maintenance_finish_run(
+                self.kernel_state.maintenance, next_due
+            )
             # Always release ignore_states after maintenance.
             # If we restore a previous True here, the control_queue loop can get
             # stuck sleeping forever and never consume queued control actions.

@@ -12,6 +12,7 @@ from homeassistant.components.climate.const import HVACMode
 import pytest
 
 from custom_components.better_thermostat.climate import BetterThermostat
+from custom_components.better_thermostat.core.decide import KernelState
 
 _CLIMATE = "custom_components.better_thermostat.climate"
 _NOW = datetime(2026, 1, 1, 12, 0, tzinfo=UTC)
@@ -32,6 +33,8 @@ def bt():
     mock.hass.async_create_background_task = MagicMock()
     mock.clock = MagicMock()
     mock.clock.now.return_value = _NOW
+    mock.clock.monotonic.return_value = 1000.0
+    mock.kernel_state = KernelState()
     return mock
 
 
