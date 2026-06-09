@@ -62,6 +62,11 @@ from .adapters.delegate import (
 )
 from .core.clock import Clock
 from .core.decide import KernelState
+from .core.fsm.lifecycle import (
+    extend_grace as lifecycle_extend_grace,
+    startup_finished as lifecycle_startup_finished,
+    stop as lifecycle_stop,
+)
 from .core.fsm.maintenance import (
     MaintenancePhase,
     MaintenanceState,
@@ -675,6 +680,7 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
 
         def on_remove():
             self.is_removed = True
+            self.kernel_state.lifecycle = lifecycle_stop(self.kernel_state.lifecycle)
             # Cancel any pending debounced save so it doesn't fire after
             # the entity is gone.  flush() below will save immediately.
             if self._save_cancel is not None:
@@ -1654,6 +1660,9 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
         await self._trigger_check_weather(None)
         _LOGGER.debug("better_thermostat %s: startup finishing...", self.device_name)
         self.startup_running = False
+        self.kernel_state.lifecycle = lifecycle_startup_finished(
+            self.kernel_state.lifecycle
+        )
         self._available = True
         self.async_write_ha_state()
 
@@ -1694,6 +1703,9 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
         # logged at DEBUG and the HA repair issue is deferred — slow cloud
         # integrations get time to come online before the user sees a warning.
         self._degraded_grace_until = self.clock.now() + STARTUP_DEGRADED_GRACE_PERIOD
+        self.kernel_state.lifecycle = lifecycle_extend_grace(
+            self.kernel_state.lifecycle, self._degraded_grace_until
+        )
         await await_optional_sensors(self)
         await check_and_update_degraded_mode(self)
 

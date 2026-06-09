@@ -360,8 +360,7 @@ async def check_and_update_degraded_mode(self) -> bool:
     self.degraded_mode = len(unavailable) > 0
     self.unavailable_sensors = unavailable
 
-    grace_until = getattr(self, "_degraded_grace_until", None)
-    in_grace = grace_until is not None and dt_util.now() < grace_until
+    in_grace = self.kernel_state.lifecycle.in_grace(dt_util.now())
     has_warned = getattr(self, "_degraded_warning_emitted", False)
 
     if self.degraded_mode and not has_warned and not in_grace:

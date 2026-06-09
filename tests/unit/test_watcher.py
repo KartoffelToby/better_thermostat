@@ -9,6 +9,12 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
+from custom_components.better_thermostat.core.decide import KernelState
+from custom_components.better_thermostat.core.fsm.lifecycle import (
+    LifecyclePhase,
+    LifecycleState,
+)
+
 
 def _close_coro(coro, *args, **kwargs):
     """Close a coroutine to avoid 'never awaited' RuntimeWarning."""
@@ -49,6 +55,7 @@ def mock_bt_instance(mock_hass):
     bt.unavailable_sensors = []
     bt._degraded_grace_until = None
     bt._degraded_warning_emitted = False
+    bt.kernel_state = KernelState()
     return bt
 
 
@@ -360,7 +367,9 @@ class TestDegradedModeGracePeriod:
         mock_bt_instance.hass.states.get.side_effect = self._mock_get_with_unavailable(
             "binary_sensor.window"
         )
-        mock_bt_instance._degraded_grace_until = None
+        mock_bt_instance.kernel_state.lifecycle = LifecycleState(
+            phase=LifecyclePhase.STARTING, grace_until=None
+        )
 
         with patch("custom_components.better_thermostat.utils.watcher.ir") as mock_ir:
             with caplog.at_level("WARNING"):
@@ -384,7 +393,10 @@ class TestDegradedModeGracePeriod:
         mock_bt_instance.hass.states.get.side_effect = self._mock_get_with_unavailable(
             "binary_sensor.window"
         )
-        mock_bt_instance._degraded_grace_until = dt_util.now() + timedelta(minutes=5)
+        mock_bt_instance.kernel_state.lifecycle = LifecycleState(
+            phase=LifecyclePhase.STARTING,
+            grace_until=dt_util.now() + timedelta(minutes=5),
+        )
 
         with patch("custom_components.better_thermostat.utils.watcher.ir") as mock_ir:
             with caplog.at_level("WARNING"):
@@ -410,7 +422,10 @@ class TestDegradedModeGracePeriod:
             "binary_sensor.window"
         )
         # Grace expired 1 minute ago
-        mock_bt_instance._degraded_grace_until = dt_util.now() - timedelta(minutes=1)
+        mock_bt_instance.kernel_state.lifecycle = LifecycleState(
+            phase=LifecyclePhase.STARTING,
+            grace_until=dt_util.now() - timedelta(minutes=1),
+        )
         # Simulate that the silent-during-grace check already set degraded=True
         mock_bt_instance.degraded_mode = True
 
@@ -438,7 +453,10 @@ class TestDegradedModeGracePeriod:
         mock_state.state = "20.0"
         mock_bt_instance.hass.states.get.return_value = mock_state
         # Mock was previously set to degraded silently during grace
-        mock_bt_instance._degraded_grace_until = dt_util.now() + timedelta(minutes=5)
+        mock_bt_instance.kernel_state.lifecycle = LifecycleState(
+            phase=LifecyclePhase.STARTING,
+            grace_until=dt_util.now() + timedelta(minutes=5),
+        )
         mock_bt_instance.degraded_mode = True
         mock_bt_instance._degraded_warning_emitted = False
 
