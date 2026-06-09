@@ -30,6 +30,8 @@ def bt():
     mock.real_trvs = {"climate.trv": {}}
     mock.hass = MagicMock()
     mock.hass.async_create_background_task = MagicMock()
+    mock.clock = MagicMock()
+    mock.clock.now.return_value = _NOW
     return mock
 
 
@@ -63,9 +65,7 @@ async def test_already_in_maintenance_returns(bt):
     with (
         patch(f"{_CLIMATE}.check_critical_entities", AsyncMock(return_value=True)),
         patch(f"{_CLIMATE}.check_and_update_degraded_mode", AsyncMock()),
-        patch(f"{_CLIMATE}.dt_util") as dt,
     ):
-        dt.now.return_value = _NOW
         await BetterThermostat._maintenance_tick(bt)
     bt.hass.async_create_background_task.assert_not_called()
 
@@ -77,9 +77,7 @@ async def test_not_due_yet_returns(bt):
     with (
         patch(f"{_CLIMATE}.check_critical_entities", AsyncMock(return_value=True)),
         patch(f"{_CLIMATE}.check_and_update_degraded_mode", AsyncMock()),
-        patch(f"{_CLIMATE}.dt_util") as dt,
     ):
-        dt.now.return_value = _NOW
         await BetterThermostat._maintenance_tick(bt)
     bt.hass.async_create_background_task.assert_not_called()
 
@@ -91,9 +89,7 @@ async def test_window_open_postpones_one_hour(bt):
     with (
         patch(f"{_CLIMATE}.check_critical_entities", AsyncMock(return_value=True)),
         patch(f"{_CLIMATE}.check_and_update_degraded_mode", AsyncMock()),
-        patch(f"{_CLIMATE}.dt_util") as dt,
     ):
-        dt.now.return_value = _NOW
         await BetterThermostat._maintenance_tick(bt)
     assert bt.next_valve_maintenance == _NOW + timedelta(hours=1)
     bt.hass.async_create_background_task.assert_not_called()
@@ -106,9 +102,7 @@ async def test_hvac_off_postpones_one_hour(bt):
     with (
         patch(f"{_CLIMATE}.check_critical_entities", AsyncMock(return_value=True)),
         patch(f"{_CLIMATE}.check_and_update_degraded_mode", AsyncMock()),
-        patch(f"{_CLIMATE}.dt_util") as dt,
     ):
-        dt.now.return_value = _NOW
         await BetterThermostat._maintenance_tick(bt)
     assert bt.next_valve_maintenance == _NOW + timedelta(hours=1)
     bt.hass.async_create_background_task.assert_not_called()
@@ -121,9 +115,7 @@ async def test_no_enabled_trvs_schedules_far_future(bt):
         patch(f"{_CLIMATE}.check_critical_entities", AsyncMock(return_value=True)),
         patch(f"{_CLIMATE}.check_and_update_degraded_mode", AsyncMock()),
         patch(f"{_CLIMATE}.collect_maintenance_trvs", MagicMock(return_value=[])),
-        patch(f"{_CLIMATE}.dt_util") as dt,
     ):
-        dt.now.return_value = _NOW
         await BetterThermostat._maintenance_tick(bt)
     assert bt.next_valve_maintenance == _NOW + timedelta(days=7)
     bt.hass.async_create_background_task.assert_not_called()
@@ -139,8 +131,6 @@ async def test_due_and_enabled_dispatches_maintenance(bt):
             f"{_CLIMATE}.collect_maintenance_trvs",
             MagicMock(return_value=["climate.trv"]),
         ),
-        patch(f"{_CLIMATE}.dt_util") as dt,
     ):
-        dt.now.return_value = _NOW
         await BetterThermostat._maintenance_tick(bt)
     bt.hass.async_create_background_task.assert_called_once()

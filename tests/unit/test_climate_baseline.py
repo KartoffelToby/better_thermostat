@@ -5,7 +5,7 @@ mock_bt fixture (MagicMock with explicit attributes).
 """
 
 from datetime import UTC, datetime, timedelta
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock
 
 from homeassistant.components.climate.const import (
     ATTR_HVAC_MODE,
@@ -388,10 +388,9 @@ class TestCalculateHeatingPower:
             BetterThermostat._should_heat_with_tolerance(mock_bt, prev, tol)
         )
 
-        with patch("custom_components.better_thermostat.climate.dt_util") as mock_dt:
-            now = datetime(2025, 1, 1, 12, 0, 0, tzinfo=UTC)
-            mock_dt.utcnow.return_value = now
-            await self._call(mock_bt)
+        now = datetime(2025, 1, 1, 12, 0, 0, tzinfo=UTC)
+        mock_bt.clock.utcnow.return_value = now
+        await self._call(mock_bt)
 
         assert mock_bt._heating_tracker.start_temp == 20.0
         assert mock_bt._heating_tracker.start_ts == now
@@ -413,9 +412,8 @@ class TestCalculateHeatingPower:
             BetterThermostat._should_heat_with_tolerance(mock_bt, prev, tol)
         )
 
-        with patch("custom_components.better_thermostat.climate.dt_util") as mock_dt:
-            mock_dt.utcnow.return_value = now
-            await self._call(mock_bt)
+        mock_bt.clock.utcnow.return_value = now
+        await self._call(mock_bt)
 
         assert mock_bt._heating_tracker.end_temp == 22.0
         assert mock_bt._heating_tracker.end_ts == now
@@ -438,9 +436,8 @@ class TestCalculateHeatingPower:
             BetterThermostat._should_heat_with_tolerance(mock_bt, prev, tol)
         )
 
-        with patch("custom_components.better_thermostat.climate.dt_util") as mock_dt:
-            mock_dt.utcnow.return_value = base
-            await self._call(mock_bt)
+        mock_bt.clock.utcnow.return_value = base
+        await self._call(mock_bt)
 
         assert mock_bt._heating_tracker.end_temp == 22.5
 
@@ -463,9 +460,8 @@ class TestCalculateHeatingPower:
             BetterThermostat._should_heat_with_tolerance(mock_bt, prev, tol)
         )
 
-        with patch("custom_components.better_thermostat.climate.dt_util") as mock_dt:
-            mock_dt.utcnow.return_value = base
-            await self._call(mock_bt)
+        mock_bt.clock.utcnow.return_value = base
+        await self._call(mock_bt)
 
         # Cycle reset after finalization
         assert mock_bt._heating_tracker.start_temp is None
@@ -493,9 +489,8 @@ class TestCalculateHeatingPower:
             BetterThermostat._should_heat_with_tolerance(mock_bt, prev, tol)
         )
 
-        with patch("custom_components.better_thermostat.climate.dt_util") as mock_dt:
-            mock_dt.utcnow.return_value = base
-            await self._call(mock_bt)
+        mock_bt.clock.utcnow.return_value = base
+        await self._call(mock_bt)
 
         assert mock_bt._heating_tracker.start_temp is None
         assert len(mock_bt.last_heating_power_stats) == 1
@@ -519,9 +514,8 @@ class TestCalculateHeatingPower:
             BetterThermostat._should_heat_with_tolerance(mock_bt, prev, tol)
         )
 
-        with patch("custom_components.better_thermostat.climate.dt_util") as mock_dt:
-            mock_dt.utcnow.return_value = base
-            await self._call(mock_bt)
+        mock_bt.clock.utcnow.return_value = base
+        await self._call(mock_bt)
 
         assert mock_bt.heating_power == old_power
         assert len(mock_bt.last_heating_power_stats) == 0
@@ -545,9 +539,8 @@ class TestCalculateHeatingPower:
             BetterThermostat._should_heat_with_tolerance(mock_bt, prev, tol)
         )
 
-        with patch("custom_components.better_thermostat.climate.dt_util") as mock_dt:
-            mock_dt.utcnow.return_value = base
-            await self._call(mock_bt)
+        mock_bt.clock.utcnow.return_value = base
+        await self._call(mock_bt)
 
         assert mock_bt.heating_power == old_power
         assert len(mock_bt.last_heating_power_stats) == 0
@@ -573,9 +566,8 @@ class TestCalculateHeatingPower:
             BetterThermostat._should_heat_with_tolerance(mock_bt, prev, tol)
         )
 
-        with patch("custom_components.better_thermostat.climate.dt_util") as mock_dt:
-            mock_dt.utcnow.return_value = base
-            await self._call(mock_bt)
+        mock_bt.clock.utcnow.return_value = base
+        await self._call(mock_bt)
 
         # Power should have moved towards the observed rate via EMA
         # rate = 2.0/10.0 = 0.2 °C/min, old = 0.05, alpha ~0.10
@@ -605,9 +597,8 @@ class TestCalculateHeatingPower:
             BetterThermostat._should_heat_with_tolerance(mock_bt, prev, tol)
         )
 
-        with patch("custom_components.better_thermostat.climate.dt_util") as mock_dt:
-            mock_dt.utcnow.return_value = base
-            await self._call(mock_bt)
+        mock_bt.clock.utcnow.return_value = base
+        await self._call(mock_bt)
 
         assert mock_bt.heating_power_normalized is not None
         stats = mock_bt.last_heating_power_stats[-1]
@@ -632,9 +623,8 @@ class TestCalculateHeatingPower:
             BetterThermostat._should_heat_with_tolerance(mock_bt, prev, tol)
         )
 
-        with patch("custom_components.better_thermostat.climate.dt_util") as mock_dt:
-            mock_dt.utcnow.return_value = base
-            await self._call(mock_bt)
+        mock_bt.clock.utcnow.return_value = base
+        await self._call(mock_bt)
 
         # MIN_HEATING_POWER = 0.005, MAX_HEATING_POWER = 0.2
         assert mock_bt.heating_power >= 0.005
@@ -658,9 +648,8 @@ class TestCalculateHeatingPower:
             BetterThermostat._should_heat_with_tolerance(mock_bt, prev, tol)
         )
 
-        with patch("custom_components.better_thermostat.climate.dt_util") as mock_dt:
-            mock_dt.utcnow.return_value = base
-            await self._call(mock_bt)
+        mock_bt.clock.utcnow.return_value = base
+        await self._call(mock_bt)
 
         assert len(mock_bt.heating_cycles) == 1
         cycle = mock_bt.heating_cycles[0]
@@ -698,9 +687,8 @@ class TestCalculateHeatLoss:
             BetterThermostat._should_heat_with_tolerance(mock_bt, prev, tol)
         )
 
-        with patch("custom_components.better_thermostat.climate.dt_util") as mock_dt:
-            mock_dt.utcnow.return_value = datetime(2025, 1, 1, 12, 0, tzinfo=UTC)
-            await self._call(mock_bt)
+        mock_bt.clock.utcnow.return_value = datetime(2025, 1, 1, 12, 0, tzinfo=UTC)
+        await self._call(mock_bt)
 
         assert mock_bt._loss_tracker.start_temp is None
         assert mock_bt._loss_tracker.end_temp is None
@@ -717,10 +705,9 @@ class TestCalculateHeatLoss:
             BetterThermostat._should_heat_with_tolerance(mock_bt, prev, tol)
         )
 
-        with patch("custom_components.better_thermostat.climate.dt_util") as mock_dt:
-            now = datetime(2025, 1, 1, 12, 0, 0, tzinfo=UTC)
-            mock_dt.utcnow.return_value = now
-            await self._call(mock_bt)
+        now = datetime(2025, 1, 1, 12, 0, 0, tzinfo=UTC)
+        mock_bt.clock.utcnow.return_value = now
+        await self._call(mock_bt)
 
         assert mock_bt._loss_tracker.start_temp == 22.0
         assert mock_bt._loss_tracker.start_ts == now
@@ -739,9 +726,8 @@ class TestCalculateHeatLoss:
         mock_bt._loss_tracker.end_temp = 21.8  # current (21.6) is lower
         mock_bt._loss_tracker.end_ts = now - timedelta(minutes=5)
 
-        with patch("custom_components.better_thermostat.climate.dt_util") as mock_dt:
-            mock_dt.utcnow.return_value = now
-            await self._call(mock_bt)
+        mock_bt.clock.utcnow.return_value = now
+        await self._call(mock_bt)
 
         assert mock_bt._loss_tracker.end_temp == 21.6
 
@@ -763,9 +749,8 @@ class TestCalculateHeatLoss:
             BetterThermostat._should_heat_with_tolerance(mock_bt, prev, tol)
         )
 
-        with patch("custom_components.better_thermostat.climate.dt_util") as mock_dt:
-            mock_dt.utcnow.return_value = base
-            await self._call(mock_bt)
+        mock_bt.clock.utcnow.return_value = base
+        await self._call(mock_bt)
 
         # Cycle finalized (reset)
         assert mock_bt._loss_tracker.start_temp is None
@@ -789,9 +774,8 @@ class TestCalculateHeatLoss:
             BetterThermostat._should_heat_with_tolerance(mock_bt, prev, tol)
         )
 
-        with patch("custom_components.better_thermostat.climate.dt_util") as mock_dt:
-            mock_dt.utcnow.return_value = base
-            await self._call(mock_bt)
+        mock_bt.clock.utcnow.return_value = base
+        await self._call(mock_bt)
 
         assert mock_bt.heat_loss_rate == old_rate
         assert len(mock_bt.last_heat_loss_stats) == 0
@@ -813,9 +797,8 @@ class TestCalculateHeatLoss:
             BetterThermostat._should_heat_with_tolerance(mock_bt, prev, tol)
         )
 
-        with patch("custom_components.better_thermostat.climate.dt_util") as mock_dt:
-            mock_dt.utcnow.return_value = base
-            await self._call(mock_bt)
+        mock_bt.clock.utcnow.return_value = base
+        await self._call(mock_bt)
 
         # rate = 2.0/10.0 = 0.2, old = 0.01, alpha = 0.10
         # new ≈ 0.01 * 0.9 + 0.2 * 0.1 = 0.009 + 0.02 = 0.029
@@ -838,9 +821,8 @@ class TestCalculateHeatLoss:
             BetterThermostat._should_heat_with_tolerance(mock_bt, prev, tol)
         )
 
-        with patch("custom_components.better_thermostat.climate.dt_util") as mock_dt:
-            mock_dt.utcnow.return_value = base
-            await self._call(mock_bt)
+        mock_bt.clock.utcnow.return_value = base
+        await self._call(mock_bt)
 
         # MIN_HEAT_LOSS = 0.001, MAX_HEAT_LOSS = 0.05
         assert mock_bt.heat_loss_rate >= 0.001
@@ -862,9 +844,8 @@ class TestCalculateHeatLoss:
             BetterThermostat._should_heat_with_tolerance(mock_bt, prev, tol)
         )
 
-        with patch("custom_components.better_thermostat.climate.dt_util") as mock_dt:
-            mock_dt.utcnow.return_value = base
-            await self._call(mock_bt)
+        mock_bt.clock.utcnow.return_value = base
+        await self._call(mock_bt)
 
         assert len(mock_bt.loss_cycles) == 1
         cycle = mock_bt.loss_cycles[0]

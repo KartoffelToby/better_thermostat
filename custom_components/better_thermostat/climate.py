@@ -11,7 +11,6 @@ from functools import cached_property
 import json
 import logging
 from random import randint
-from time import monotonic
 from typing import Any
 
 # Home Assistant imports
@@ -50,7 +49,6 @@ from homeassistant.helpers.restore_state import RestoreEntity
 from homeassistant.helpers.start import async_at_started
 
 # preferred for HA time handling (UTC aware)
-from homeassistant.util import dt as dt_util
 from homeassistant.util.unit_conversion import TemperatureConverter
 
 # Local imports
@@ -64,6 +62,7 @@ from .adapters.delegate import (
     set_hvac_mode as adapter_set_hvac_mode,
     set_temperature as adapter_set_temperature,
 )
+from .core.clock import Clock
 from .device_binding import async_bind_trv_device
 from .events.cooler import trigger_cooler_change
 from .events.temperature import trigger_temperature_change
@@ -77,6 +76,7 @@ from .utils.calibration.pid import (
     resolve_unique_id,
     round_to_bucket,
 )
+from .utils.clock import SystemClock
 from .utils.const import (
     ATTR_STATE_BATTERIES,
     ATTR_STATE_CALL_FOR_HEAT,
@@ -481,7 +481,8 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
         self._state_class = state_class
         self._hvac_list = [HVACMode.HEAT, HVACMode.OFF]
         self.map_on_hvac_mode = HVACMode.HEAT
-        self.next_valve_maintenance = dt_util.now() + timedelta(
+        self.clock: Clock = SystemClock()
+        self.next_valve_maintenance = self.clock.now() + timedelta(
             hours=randint(1, 24 * 5)
         )
         self.cur_temp = None
@@ -511,9 +512,9 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
         self.ignore_states = False
         self.last_dampening_timestamp = None
         self.version = VERSION
-        self.last_change = dt_util.now() - timedelta(hours=2)
-        self.last_external_sensor_change = dt_util.now() - timedelta(hours=2)
-        self.last_internal_sensor_change = dt_util.now() - timedelta(hours=2)
+        self.last_change = self.clock.now() - timedelta(hours=2)
+        self.last_external_sensor_change = self.clock.now() - timedelta(hours=2)
+        self.last_internal_sensor_change = self.clock.now() - timedelta(hours=2)
         self._temp_lock = asyncio.Lock()
         self.bt_update_lock = False
         self.startup_running = True
@@ -993,7 +994,7 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
         # after) does not raise a premature ``missing_entity`` repair for a
         # slow-to-load underlying integration. The window is re-anchored in
         # ``_finalize_startup`` to cover post-startup reconnection blips.
-        self._critical_grace_until = dt_util.now() + STARTUP_CRITICAL_GRACE_PERIOD
+        self._critical_grace_until = self.clock.now() + STARTUP_CRITICAL_GRACE_PERIOD
         while self.startup_running:
             if self.is_removed:
                 return
@@ -1316,7 +1317,7 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
                     self.external_temp_ema = _restored_ema
                     self.cur_temp_filtered = round(_restored_ema, 2)
                     # Reset timestamp to now so the next delta is calculated from restart time
-                    self._external_temp_ema_ts = monotonic()
+                    self._external_temp_ema_ts = self.clock.monotonic()
                     _LOGGER.debug(
                         "better_thermostat %s: restored external_temp_ema from state: %.2f",
                         self.device_name,
@@ -1732,7 +1733,7 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
             thermostat instance.
         """
         remaining = (
-            (grace_until - dt_util.now()).total_seconds() if grace_until else 0.0
+            (grace_until - self.clock.now()).total_seconds() if grace_until else 0.0
         )
         if remaining > 0:
             await asyncio.sleep(remaining)
@@ -1752,7 +1753,7 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
         # Likewise give critical (TRV) entities a short grace before raising
         # ``missing_entity`` repairs; cloud-backed valves (Tado, etc.) can lag
         # behind HA startup and would otherwise produce dismissable noise.
-        self._critical_grace_until = dt_util.now() + STARTUP_CRITICAL_GRACE_PERIOD
+        self._critical_grace_until = self.clock.now() + STARTUP_CRITICAL_GRACE_PERIOD
         # Wait for critical entities (TRVs) with increasing retry delays before
         # any startup path can raise a missing_entity repair issue.  Both
         # _trigger_time and _trigger_check_weather below call
@@ -1830,7 +1831,7 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
         # During the startup grace window, a transition into degraded mode is
         # logged at DEBUG and the HA repair issue is deferred — slow cloud
         # integrations get time to come online before the user sees a warning.
-        self._degraded_grace_until = dt_util.now() + STARTUP_DEGRADED_GRACE_PERIOD
+        self._degraded_grace_until = self.clock.now() + STARTUP_DEGRADED_GRACE_PERIOD
         await await_optional_sensors(self)
         await check_and_update_degraded_mode(self)
 
@@ -2006,7 +2007,7 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
             return
 
         # Skip if already running or not due
-        now = dt_util.now()
+        now = self.clock.now()
         if self.in_maintenance:
             return
         try:
@@ -2221,7 +2222,7 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
         result = self._heating_tracker.update(
             self.cur_temp,
             current_action,
-            dt_util.utcnow(),
+            self.clock.utcnow(),
             target_temp=self.bt_target_temp,
             outdoor_temp=outdoor_temp,
         )
@@ -2248,7 +2249,7 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
         result = self._loss_tracker.update(
             self.cur_temp,
             current_action,
-            dt_util.utcnow(),
+            self.clock.utcnow(),
             window_open=bool(self.window_open),
         )
 
@@ -2793,7 +2794,7 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
                 )
                 return
             # force immediate run
-            self.next_valve_maintenance = dt_util.now()
+            self.next_valve_maintenance = self.clock.now()
             await self._run_valve_maintenance(trvs_to_service)
         except Exception:
             _LOGGER.debug(
@@ -3086,7 +3087,7 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
                 # Calculate slope from EMA change
                 old_ema = self.external_temp_ema
                 old_ts = self._slope_periodic_last_ts
-                now_ts = monotonic()
+                now_ts = self.clock.monotonic()
 
                 new_ema = _update_external_temp_ema(self, float(last_raw))
 
