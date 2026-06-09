@@ -15,6 +15,8 @@ from custom_components.better_thermostat.adapters.delegate import (
     set_valve,
 )
 from custom_components.better_thermostat.core.decide import decide
+from custom_components.better_thermostat.core.desired import DesiredState, TrvDesired
+from custom_components.better_thermostat.core.safety import clamp as safety_clamp
 from custom_components.better_thermostat.events.trv import convert_outbound_states
 from custom_components.better_thermostat.model_fixes.model_quirks import (
     override_set_hvac_mode,
@@ -100,6 +102,20 @@ def _get_valve_control(
         return raw_balance, "balance"
 
     return None, None
+
+
+def _through_safety_hull(
+    snapshot, entity_id: str, *, setpoint: float | None = None, valve_percent=None
+) -> TrvDesired:
+    """Run one intent through the safety hull at the command boundary."""
+    desired = DesiredState(
+        trvs={
+            entity_id: TrvDesired(
+                entity_id=entity_id, setpoint=setpoint, valve_percent=valve_percent
+            )
+        }
+    )
+    return safety_clamp(desired, snapshot).trvs[entity_id]
 
 
 class TaskManager:
@@ -459,6 +475,14 @@ async def control_trv(self, heater_entity_id=None):
             )
             if valve_settings is not None:
                 target_pct = int(round(valve_settings.get("valve_percent", 0)))
+                target_pct = int(
+                    round(
+                        _through_safety_hull(
+                            snapshot, heater_entity_id, valve_percent=float(target_pct)
+                        ).valve_percent
+                        or 0.0
+                    )
+                )
                 _LOGGER.debug(
                     "better_thermostat %s: TO TRV set_valve: %s to: %s%% (source=%s)",
                     self.device_name,
@@ -611,6 +635,10 @@ async def control_trv(self, heater_entity_id=None):
                 self.real_trvs[heater_entity_id].calibration_received = False
 
         # set new target temperature
+        if _temperature is not None:
+            _temperature = _through_safety_hull(
+                snapshot, heater_entity_id, setpoint=float(_temperature)
+            ).setpoint
         if _temperature is not None and (
             _new_hvac_mode != HVACMode.OFF or _no_off_system_mode
         ):
