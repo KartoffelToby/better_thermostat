@@ -701,59 +701,29 @@ class TestClampedThermal:
 
 
 # ---------------------------------------------------------------------------
-# Controller bridging: hydrate_controllers
+# Thermal stats recording
 # ---------------------------------------------------------------------------
 
 
-class TestHydrateControllers:
-    """hydrate_controllers() is a no-op: state lives in the manager itself."""
-
-    def test_hydrate_leaves_state_untouched(self):
-        """Controller state in the store is not modified by hydrate."""
-        mgr = _make_manager()
-        mgr.set_mpc("p:trv1", MpcState(gain_est=0.5))
-        mgr.set_pid("p:trv1", PIDState(pid_kp=42.0))
-        mgr.set_tpi("p:trv1", TpiState(last_percent=33.0))
-
-        mgr.hydrate_controllers("p:")
-
-        assert mgr.state.mpc["p:trv1"].gain_est == 0.5
-        assert mgr.state.pid["p:trv1"].pid_kp == 42.0
-        assert mgr.state.tpi["p:trv1"].last_percent == 33.0
-
-    def test_hydrate_does_not_mark_dirty(self):
-        """Hydrating must not dirty the store."""
-        mgr = _make_manager()
-        mgr.set_mpc("p:trv1", MpcState())
-        mgr._dirty = False
-        mgr.hydrate_controllers("p:")
-        assert mgr.dirty is False
-
-
-# ---------------------------------------------------------------------------
-# Controller bridging: sync_controllers
-# ---------------------------------------------------------------------------
-
-
-class TestSyncControllers:
-    """sync_controllers() records thermal stats; controller state stays put."""
+class TestRecordThermal:
+    """record_thermal() stores the supplied stats; controller state stays put."""
 
     def test_records_thermal_and_dirties(self):
         """Supplied thermal stats are stored and the store is marked dirty."""
         mgr = _make_manager()
-        mgr.sync_controllers("p:", 0.07, 0.02)
+        mgr.record_thermal(0.07, 0.02)
         assert mgr.thermal.heating_power == 0.07
         assert mgr.thermal.heat_loss_rate == 0.02
         assert mgr.dirty is True
 
-    def test_sync_does_not_touch_controller_state(self):
-        """MPC/PID/TPI state in the store stays untouched by sync_controllers."""
+    def test_does_not_touch_controller_state(self):
+        """MPC/PID/TPI state in the store stays untouched by record_thermal."""
         mgr = _make_manager()
         mgr.set_mpc("p:trv1", MpcState(gain_est=1.23))
         mgr.set_pid("p:trv1", PIDState(pid_kp=42.0))
         mgr.set_tpi("p:trv1", TpiState(last_percent=33.0))
 
-        mgr.sync_controllers("p:", None, None)
+        mgr.record_thermal(None, None)
 
         assert mgr.state.mpc["p:trv1"].gain_est == 1.23
         assert mgr.state.pid["p:trv1"].pid_kp == 42.0

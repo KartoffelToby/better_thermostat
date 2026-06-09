@@ -114,3 +114,15 @@ class TestMpcStateContract:
             all_states=all_states,
         )
         assert state.min_effective_percent == 18.0
+
+
+class TestNoModuleStateGlobals:
+    """The controller modules must not hold any module-level state dicts."""
+
+    def test_no_state_globals_left(self) -> None:
+        """No ``*_STATES`` module global exists in pid/tpi/mpc."""
+        from custom_components.better_thermostat.utils.calibration import mpc, pid, tpi
+
+        for module in (pid, tpi, mpc):
+            offenders = [name for name in vars(module) if name.endswith("_STATES")]
+            assert offenders == [], f"{module.__name__} still has {offenders}"

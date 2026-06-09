@@ -392,14 +392,7 @@ class StateManager:
         """Manually mark state as needing persistence."""
         self._dirty = True
 
-    # -- Controller bridging -------------------------------------------------
-
-    def hydrate_controllers(self, prefix: str) -> None:
-        """No-op kept for the startup call path.
-
-        MPC/PID/TPI state is read from and written to the StateManager
-        directly; there are no module-level controller caches left to seed.
-        """
+    # -- Thermal stats ---------------------------------------------------------
 
     def clamped_thermal(self) -> tuple[float | None, float | None]:
         """Return persisted thermal stats clamped to their valid bounds.
@@ -429,14 +422,10 @@ class StateManager:
 
         return heating_power, heat_loss_rate
 
-    def sync_controllers(
-        self, prefix: str, heating_power: float | None, heat_loss_rate: float | None
+    def record_thermal(
+        self, heating_power: float | None, heat_loss_rate: float | None
     ) -> None:
-        """Record the supplied thermal stats before a save.
-
-        MPC/PID/TPI state already lives in the StateManager and needs no
-        export step; only the entity-held thermal stats are pulled in here.
-        """
+        """Record the entity-held thermal stats before a save."""
         self.thermal = ThermalStats(
             heating_power=heating_power, heat_loss_rate=heat_loss_rate
         )
