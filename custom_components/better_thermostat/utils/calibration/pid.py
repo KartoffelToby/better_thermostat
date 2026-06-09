@@ -16,8 +16,11 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 import logging
+import math
 from time import monotonic
 from typing import Protocol, TypedDict
+
+from ...core.calibrator import CalibratorHealth
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -517,6 +520,61 @@ def _auto_tune_pid(
     except (ValueError, TypeError):
         # Best-effort: numerische Probleme ignorieren
         return
+
+
+def sanitize_pid_state(
+    state: PIDState, params: PIDParams
+) -> tuple[PIDState, CalibratorHealth]:
+    """Self-heal a (possibly poisoned) PID state before computing.
+
+    Non-finite values are dropped back to defaults, runaway gains return
+    to the configured defaults, and a wound-up integrator is reset. The
+    returned health grade reports the worst pathology found.
+    """
+    health = CalibratorHealth.HEALTHY
+
+    def _finite(value: float | None) -> bool:
+        return value is None or math.isfinite(value)
+
+    if not _finite(state.pid_integral):
+        state.pid_integral = 0.0
+        health = CalibratorHealth.NON_FINITE
+    if not _finite(state.pid_last_meas):
+        state.pid_last_meas = None
+        health = CalibratorHealth.NON_FINITE
+    for gain_attr in ("pid_kp", "pid_ki", "pid_kd"):
+        if not _finite(getattr(state, gain_attr)):
+            setattr(state, gain_attr, None)
+            health = CalibratorHealth.NON_FINITE
+
+    if health == CalibratorHealth.HEALTHY:
+        runaway = (
+            (
+                state.pid_kp is not None
+                and not params.kp_min <= state.pid_kp <= params.kp_max
+            )
+            or (
+                state.pid_ki is not None
+                and not params.ki_min <= state.pid_ki <= params.ki_max
+            )
+            or (
+                state.pid_kd is not None
+                and not params.kd_min <= state.pid_kd <= params.kd_max
+            )
+        )
+        if runaway:
+            state.pid_kp = None
+            state.pid_ki = None
+            state.pid_kd = None
+            health = CalibratorHealth.RUNAWAY_GAINS
+
+    if health == CalibratorHealth.HEALTHY and not (
+        params.i_min <= state.pid_integral <= params.i_max
+    ):
+        state.pid_integral = 0.0
+        health = CalibratorHealth.WINDUP_SUSPECT
+
+    return state, health
 
 
 # --- Key Builder Helper -----------------------------------------------
