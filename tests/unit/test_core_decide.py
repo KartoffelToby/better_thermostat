@@ -114,3 +114,80 @@ class TestPurity:
         """With no upper tier firing, the kernel produces no intent yet."""
         desired, _ = decide(make_snapshot(), KernelState())
         assert desired == DesiredState(call_for_heat=True)
+
+
+class TestMaintenancePreempt:
+    """Valve maintenance pre-empts control entirely."""
+
+    def test_maintenance_produces_no_intent(self):
+        """During maintenance no TRV is addressed."""
+        desired, _ = decide(make_snapshot(in_maintenance=True), KernelState())
+        assert dict(desired.trvs) == {}
+
+    def test_maintenance_beats_off_mode(self):
+        """Even OFF mode is not commanded while maintenance owns the valves."""
+        desired, _ = decide(
+            make_snapshot(in_maintenance=True, hvac_mode=HvacMode.OFF), KernelState()
+        )
+        assert dict(desired.trvs) == {}
+
+
+class TestReachability:
+    """Unreachable TRVs receive no intent."""
+
+    def _snapshot(self, **overrides):
+        return make_snapshot(
+            trvs={
+                "climate.up": TrvReported(entity_id="climate.up", available=True),
+                "climate.down": TrvReported(entity_id="climate.down", available=False),
+            },
+            **overrides,
+        )
+
+    def test_offline_trv_is_skipped_in_off_mode(self):
+        """Only the reachable TRV is addressed when the mode is OFF."""
+        desired, _ = decide(self._snapshot(hvac_mode=HvacMode.OFF), KernelState())
+        assert set(desired.trvs) == {"climate.up"}
+
+    def test_offline_trv_is_skipped_on_open_window(self):
+        """Only the reachable TRV is addressed while the window is open."""
+        desired, _ = decide(self._snapshot(window_open=True), KernelState())
+        assert set(desired.trvs) == {"climate.up"}
+
+    def test_boost_keeps_commanding_offline_trvs(self):
+        """Active boost heating overrides the reachability skip."""
+        desired, _ = decide(
+            self._snapshot(
+                window_open=True, preset_mode="boost", room_temp=18.0, target_temp=22.0
+            ),
+            KernelState(),
+        )
+        assert set(desired.trvs) == {"climate.up", "climate.down"}
+
+    def test_boost_without_heat_demand_does_not_override(self):
+        """Boost at/above target does not force-command offline TRVs."""
+        desired, _ = decide(
+            self._snapshot(
+                window_open=True, preset_mode="boost", room_temp=22.5, target_temp=22.0
+            ),
+            KernelState(),
+        )
+        assert set(desired.trvs) == {"climate.up"}
+
+
+class TestDegradedIsAnnunciationOnly:
+    """Characterization: degraded mode does not alter the control law (pre-M8)."""
+
+    def test_degraded_changes_nothing_in_off_mode(self):
+        """The OFF decision is identical with and without degraded."""
+        a, _ = decide(make_snapshot(hvac_mode=HvacMode.OFF), KernelState())
+        b, _ = decide(
+            make_snapshot(hvac_mode=HvacMode.OFF, degraded=True), KernelState()
+        )
+        assert a == b
+
+    def test_degraded_changes_nothing_in_heating_branch(self):
+        """The default decision is identical with and without degraded."""
+        a, _ = decide(make_snapshot(), KernelState())
+        b, _ = decide(make_snapshot(degraded=True), KernelState())
+        assert a == b
