@@ -30,6 +30,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 
 from .desired import DesiredState, TrvDesired
+from .fsm.control_mode import ControlModeState
 from .fsm.lifecycle import LifecycleState
 from .fsm.maintenance import MaintenanceState
 from .fsm.mode import ModeState
@@ -52,6 +53,7 @@ class KernelState:
     maintenance: MaintenanceState = field(default_factory=MaintenanceState)
     lifecycle: LifecycleState = field(default_factory=LifecycleState)
     mode: ModeState = field(default_factory=ModeState)
+    control_mode: ControlModeState = field(default_factory=ControlModeState)
 
 
 def is_boost_heating(snapshot: WorldSnapshot) -> bool:

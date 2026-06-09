@@ -16,6 +16,10 @@ from homeassistant.const import STATE_UNAVAILABLE, STATE_UNKNOWN
 from homeassistant.helpers import issue_registry as ir
 from homeassistant.util import dt as dt_util
 
+from custom_components.better_thermostat.core.fsm.control_mode import (
+    step as control_mode_step,
+)
+
 DOMAIN = "better_thermostat"
 _LOGGER = logging.getLogger(__name__)
 
@@ -355,9 +359,13 @@ async def check_and_update_degraded_mode(self) -> bool:
             name=f"bt_battery_status_{self.sensor_entity_id}",
         )
 
-    # Update instance state
+    # Update instance state; the control-mode region is the typed record,
+    # degraded_mode stays as its boolean mirror.
     old_degraded = getattr(self, "degraded_mode", False)
-    self.degraded_mode = len(unavailable) > 0
+    self.kernel_state.control_mode = control_mode_step(
+        self.kernel_state.control_mode, unavailable, self.clock.monotonic()
+    )
+    self.degraded_mode = self.kernel_state.control_mode.degraded
     self.unavailable_sensors = unavailable
 
     in_grace = self.kernel_state.lifecycle.in_grace(dt_util.now())
