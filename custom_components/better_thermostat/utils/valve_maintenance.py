@@ -135,9 +135,8 @@ def build_trv_snapshots(
             continue
 
         trv_data = real_trvs.get(trv_id)
-        valve_entity = trv_data.valve_position_entity
         quirks = trv_data.model_quirks
-        support_valve = bool(valve_entity) or bool(
+        support_valve = bool(trv_data.valve_position_entity) or bool(
             getattr(quirks, "override_set_valve", None)
         )
         adv = _get_advanced(trv_data)

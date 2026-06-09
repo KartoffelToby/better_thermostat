@@ -70,3 +70,45 @@ class TestExtraScratchpad:
     def test_truthiness(self):
         """A Trv instance is truthy (callers use ``entry or default``)."""
         assert bool(_make()) is True
+
+
+class TestTrvCapabilities:
+    """Capabilities derive from the discovered device surface."""
+
+    def test_bare_trv_has_no_write_capabilities(self):
+        """Without entities or quirks nothing is writable."""
+        caps = _make().capabilities()
+        assert caps.supports_offset_write is False
+        assert caps.supports_valve_write is False
+
+    def test_offset_capability_follows_the_calibration_entity(self):
+        """A local calibration entity enables offset writes."""
+        trv = _make()
+        trv.local_temperature_calibration_entity = "number.cal"
+        assert trv.capabilities().supports_offset_write is True
+
+    def test_valve_capability_from_writable_entity(self):
+        """A writable valve position entity enables valve writes."""
+        trv = _make()
+        trv.valve_position_entity = "number.valve"
+        trv.valve_position_writable = True
+        assert trv.capabilities().supports_valve_write is True
+
+    def test_readonly_valve_entity_is_not_enough(self):
+        """A read-only valve entity does not enable valve writes."""
+        trv = _make()
+        trv.valve_position_entity = "number.valve"
+        trv.valve_position_writable = False
+        assert trv.capabilities().supports_valve_write is False
+
+    def test_valve_capability_from_quirk_override(self):
+        """A quirk-provided override_set_valve enables valve writes."""
+
+        class _Quirk:
+            @staticmethod
+            async def override_set_valve(bt, entity_id, pct):
+                return True
+
+        trv = _make()
+        trv.model_quirks = _Quirk()
+        assert trv.capabilities().supports_valve_write is True

@@ -199,17 +199,7 @@ def _supports_direct_valve_control(self, entity_id: str) -> bool:
     trv_data = self.real_trvs.get(entity_id)
     if trv_data is None:
         return False
-    valve_entity = trv_data.valve_position_entity
-    writable_flag = trv_data.valve_position_writable
-    if valve_entity and writable_flag is True:
-        return True
-
-    quirks = trv_data.model_quirks
-    _override_set_valve = getattr(quirks, "override_set_valve", None)
-    if callable(_override_set_valve):
-        return True
-
-    return False
+    return trv_data.capabilities().supports_valve_write
 
 
 def _get_trv_max_opening(self, entity_id: str) -> float | None:

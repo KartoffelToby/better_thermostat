@@ -17,6 +17,19 @@ from types import ModuleType
 from typing import Any
 
 
+@dataclass(frozen=True)
+class TrvCapabilities:
+    """What this TRV can do, derived from its discovered surface.
+
+    The kernel expresses intent; whoever writes consults the
+    capabilities instead of re-deriving them from scattered quirk and
+    entity checks.
+    """
+
+    supports_offset_write: bool = False
+    supports_valve_write: bool = False
+
+
 @dataclass
 class Trv:
     """State, adapter, and quirks of a single TRV."""
@@ -71,6 +84,19 @@ class Trv:
     # Model quirks may stash private bookkeeping here (e.g. TRVZB valve
     # bump sequencing) without widening the typed surface.
     extra: dict[str, Any] = field(default_factory=dict)
+
+    def capabilities(self) -> TrvCapabilities:
+        """Derive the capability descriptor from the discovered surface."""
+        quirk_valve = callable(getattr(self.model_quirks, "override_set_valve", None))
+        return TrvCapabilities(
+            supports_offset_write=(
+                self.local_temperature_calibration_entity is not None
+            ),
+            supports_valve_write=(
+                bool(self.valve_position_entity and self.valve_position_writable)
+                or quirk_valve
+            ),
+        )
 
     @classmethod
     def from_legacy_dict(cls, entity_id: str, data: dict[str, Any]) -> Trv:
