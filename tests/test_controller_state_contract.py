@@ -1,10 +1,12 @@
 """Tests for the controller state-threading contract.
 
 ``compute_pid``/``compute_tpi``/``compute_mpc`` accept an explicit ``state``
-argument, mutate it in place and return it as the updated state. When no state
-is passed they fall back to a module-level dict (``_PID_STATES``/``_TPI_STATES``/
-``_MPC_STATES``); passing an explicit state additionally stores it in that dict.
-These tests pin both the explicit-state path and the module-global path.
+argument, mutate it in place and return it as the updated state.
+``compute_pid`` requires the explicit state (the StateManager owns it);
+``compute_tpi``/``compute_mpc`` still fall back to a module-level dict
+(``_TPI_STATES``/``_MPC_STATES``) when no state is passed, and passing an
+explicit state additionally stores it in that dict. These tests pin the
+explicit-state path everywhere and the module-global path where it remains.
 """
 
 from collections.abc import Iterator
@@ -18,7 +20,6 @@ from custom_components.better_thermostat.utils.calibration.mpc import (
     MpcState,
     compute_mpc,
 )
-import custom_components.better_thermostat.utils.calibration.pid as pid_module
 from custom_components.better_thermostat.utils.calibration.pid import (
     PIDParams,
     PIDState,
@@ -35,17 +36,15 @@ from custom_components.better_thermostat.utils.calibration.tpi import (
 
 @pytest.fixture(autouse=True)
 def _reset_globals() -> Iterator[None]:
-    """Clear the controller globals before and after each test."""
-    pid_module._PID_STATES.clear()
+    """Clear the remaining controller globals before and after each test."""
     tpi_module._TPI_STATES.clear()
     mpc_module._MPC_STATES.clear()
     yield
-    pid_module._PID_STATES.clear()
     tpi_module._TPI_STATES.clear()
     mpc_module._MPC_STATES.clear()
 
 
-def _pid_call(state: PIDState | None, key: str = "k") -> PIDState:
+def _pid_call(state: PIDState, key: str = "k") -> PIDState:
     """Call ``compute_pid`` with fixed inputs (error = 2.0 K)."""
     params = PIDParams(auto_tune=False, min_hold_time_s=0.0)
     _, _, out = compute_pid(
@@ -61,32 +60,18 @@ def _pid_call(state: PIDState | None, key: str = "k") -> PIDState:
 
 
 class TestPidStateContract:
-    """State-threading contract of ``compute_pid``."""
+    """State-threading contract of ``compute_pid`` (explicit state only)."""
 
     def test_explicit_state_is_returned_and_accumulates(self) -> None:
-        """An explicit state is returned as the same object and keeps accumulating."""
+        """The explicit state is returned as the same object and keeps accumulating."""
         state = PIDState()
         out1 = _pid_call(state)
         assert out1 is state
         assert state.last_abs_error == 2.0
 
-        # The explicit path does not depend on the module global.
-        pid_module._PID_STATES.clear()
         out2 = _pid_call(out1)
         assert out2 is state
         assert state.previous_abs_error == 2.0
-
-    def test_missing_state_uses_module_global(self) -> None:
-        """Without an explicit state the call uses ``_PID_STATES``."""
-        out = _pid_call(None, key="kg")
-        assert "kg" in pid_module._PID_STATES
-        assert pid_module._PID_STATES["kg"] is out
-
-    def test_explicit_state_is_also_stored_in_global(self) -> None:
-        """An explicit state is also written to ``_PID_STATES``."""
-        state = PIDState()
-        _pid_call(state, key="kl")
-        assert pid_module._PID_STATES["kl"] is state
 
 
 class TestTpiStateContract:

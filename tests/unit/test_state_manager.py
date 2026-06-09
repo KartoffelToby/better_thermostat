@@ -713,21 +713,16 @@ class TestHydrateControllers:
         mgr = _make_manager()
         mgr.set_mpc("p:trv1", MpcState(gain_est=0.5))
         mgr.set_mpc("other:trvX", MpcState(gain_est=9.9))
-        mgr.set_pid("p:trv1", PIDState())
         mgr.set_tpi("p:trv1", TpiState())
 
         with (
             patch(f"{_SM}.import_mpc_state_map") as imp_mpc,
-            patch(f"{_SM}.import_pid_states") as imp_pid,
             patch(f"{_SM}.import_tpi_state_map") as imp_tpi,
         ):
             mgr.hydrate_controllers("p:")
 
         imp_mpc.assert_called_once()
         assert set(imp_mpc.call_args[0][0]) == {"p:trv1"}
-        imp_pid.assert_called_once()
-        assert imp_pid.call_args.kwargs["prefix_filter"] == "p:"
-        assert set(imp_pid.call_args[0][0]) == {"p:trv1"}
         imp_tpi.assert_called_once()
         assert set(imp_tpi.call_args[0][0]) == {"p:trv1"}
 
@@ -738,13 +733,11 @@ class TestHydrateControllers:
 
         with (
             patch(f"{_SM}.import_mpc_state_map") as imp_mpc,
-            patch(f"{_SM}.import_pid_states") as imp_pid,
             patch(f"{_SM}.import_tpi_state_map") as imp_tpi,
         ):
             mgr.hydrate_controllers("p:")
 
         imp_mpc.assert_not_called()
-        imp_pid.assert_not_called()
         imp_tpi.assert_not_called()
 
     def test_hydrate_does_not_mark_dirty(self):
@@ -752,13 +745,17 @@ class TestHydrateControllers:
         mgr = _make_manager()
         mgr.set_mpc("p:trv1", MpcState())
         mgr._dirty = False
-        with (
-            patch(f"{_SM}.import_mpc_state_map"),
-            patch(f"{_SM}.import_pid_states"),
-            patch(f"{_SM}.import_tpi_state_map"),
-        ):
+        with patch(f"{_SM}.import_mpc_state_map"), patch(f"{_SM}.import_tpi_state_map"):
             mgr.hydrate_controllers("p:")
         assert mgr.dirty is False
+
+    def test_hydrate_leaves_pid_untouched(self):
+        """PID state needs no bridging; hydrate ignores it entirely."""
+        mgr = _make_manager()
+        mgr.set_pid("p:trv1", PIDState(pid_kp=42.0))
+        with patch(f"{_SM}.import_mpc_state_map"), patch(f"{_SM}.import_tpi_state_map"):
+            mgr.hydrate_controllers("p:")
+        assert mgr.state.pid["p:trv1"].pid_kp == 42.0
 
 
 # ---------------------------------------------------------------------------
@@ -774,7 +771,6 @@ class TestSyncControllers:
         mgr = _make_manager()
         with (
             patch(f"{_SM}.export_mpc_state_map", return_value={}),
-            patch(f"{_SM}.export_pid_states", return_value={}),
             patch(f"{_SM}.export_tpi_state_map", return_value={}),
         ):
             mgr.sync_controllers("p:", 0.07, 0.02)
@@ -790,7 +786,6 @@ class TestSyncControllers:
                 f"{_SM}.export_mpc_state_map",
                 return_value={"p:trv1": asdict(MpcState(gain_est=1.23))},
             ),
-            patch(f"{_SM}.export_pid_states", return_value={}),
             patch(f"{_SM}.export_tpi_state_map", return_value={}),
         ):
             mgr.sync_controllers("p:", None, None)
@@ -801,8 +796,60 @@ class TestSyncControllers:
         mgr = _make_manager()
         with (
             patch(f"{_SM}.export_mpc_state_map", return_value={"p:bad": "notadict"}),
-            patch(f"{_SM}.export_pid_states", return_value={}),
             patch(f"{_SM}.export_tpi_state_map", return_value={}),
         ):
             mgr.sync_controllers("p:", None, None)
         assert "p:bad" not in mgr.state.mpc
+
+    def test_sync_does_not_overwrite_pid_state(self):
+        """PID state in the store stays untouched by sync_controllers."""
+        mgr = _make_manager()
+        mgr.set_pid("p:trv1", PIDState(pid_kp=42.0))
+        with (
+            patch(f"{_SM}.export_mpc_state_map", return_value={}),
+            patch(f"{_SM}.export_tpi_state_map", return_value={}),
+        ):
+            mgr.sync_controllers("p:", None, None)
+        assert mgr.state.pid["p:trv1"].pid_kp == 42.0
+
+
+# ---------------------------------------------------------------------------
+# PID state reset
+# ---------------------------------------------------------------------------
+
+
+class TestResetPidStates:
+    """reset_pid_states() drops prefixed keys and reports the count."""
+
+    def test_removes_only_prefixed_keys(self):
+        """Keys with the prefix are removed; others stay."""
+        mgr = _make_manager()
+        mgr.set_pid("p:trv1:t21.0", PIDState())
+        mgr.set_pid("p:trv1:t21.5", PIDState())
+        mgr.set_pid("other:trvX:t20.0", PIDState())
+
+        removed = mgr.reset_pid_states("p:")
+
+        assert removed == 2
+        assert set(mgr.state.pid) == {"other:trvX:t20.0"}
+
+    def test_removal_marks_dirty(self):
+        """Removing entries marks the store dirty."""
+        mgr = _make_manager()
+        mgr.set_pid("p:trv1:t21.0", PIDState())
+        mgr._dirty = False
+
+        mgr.reset_pid_states("p:")
+
+        assert mgr.dirty is True
+
+    def test_no_match_returns_zero_and_stays_clean(self):
+        """Without matching keys nothing is removed and dirty stays False."""
+        mgr = _make_manager()
+        mgr.set_pid("other:trvX:t20.0", PIDState())
+        mgr._dirty = False
+
+        removed = mgr.reset_pid_states("p:")
+
+        assert removed == 0
+        assert mgr.dirty is False

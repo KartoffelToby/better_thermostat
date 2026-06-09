@@ -41,7 +41,7 @@ from homeassistant.core import HomeAssistant
 from homeassistant.helpers.storage import Store
 
 from .calibration.mpc import MpcState, export_mpc_state_map, import_mpc_state_map
-from .calibration.pid import PIDState, export_pid_states, import_pid_states
+from .calibration.pid import PIDState
 from .calibration.tpi import TpiState, export_tpi_state_map, import_tpi_state_map
 from .const import MAX_HEAT_LOSS, MAX_HEATING_POWER, MIN_HEAT_LOSS, MIN_HEATING_POWER
 from .thermal_learning import clamp
@@ -341,6 +341,19 @@ class StateManager:
         self._state.pid[key] = pid
         self._dirty = True
 
+    def reset_pid_states(self, prefix: str) -> int:
+        """Drop all PID states whose key starts with *prefix*.
+
+        Returns the number of removed entries; marks the store dirty when
+        anything was removed.
+        """
+        keys = [key for key in self._state.pid if key.startswith(prefix)]
+        for key in keys:
+            del self._state.pid[key]
+        if keys:
+            self._dirty = True
+        return len(keys)
+
     def get_tpi(self, key: str) -> TpiState:
         """Get or create TPI state for a key."""
         if key not in self._state.tpi:
@@ -384,9 +397,11 @@ class StateManager:
     def hydrate_controllers(self, prefix: str) -> None:
         """Seed the module-level controller caches from persisted state.
 
-        The MPC/PID/TPI controllers keep their own global ``_*_STATES`` dicts.
+        The MPC/TPI controllers keep their own global ``_*_STATES`` dicts.
         This copies the persisted entries whose key starts with *prefix* into
         those caches so ``compute_*()`` works immediately after startup.
+        PID state is read from and written to the StateManager directly and
+        needs no bridging.
         """
         mpc_data = {
             key: asdict(mpc)
@@ -395,14 +410,6 @@ class StateManager:
         }
         if mpc_data:
             import_mpc_state_map(mpc_data)
-
-        pid_data = {
-            key: asdict(pid)
-            for key, pid in self._state.pid.items()
-            if key.startswith(prefix)
-        }
-        if pid_data:
-            import_pid_states(pid_data, prefix_filter=prefix)
 
         tpi_data = {
             key: asdict(tpi)
@@ -445,17 +452,14 @@ class StateManager:
     ) -> None:
         """Export the module-level controller caches back into the store.
 
-        Pulls the latest MPC/PID/TPI runtime state for *prefix* from the global
+        Pulls the latest MPC/TPI runtime state for *prefix* from the global
         controller caches and records the supplied thermal stats, so a following
-        save reflects current runtime values.
+        save reflects current runtime values.  PID state already lives in the
+        StateManager and needs no export step.
         """
         for key, state_dict in export_mpc_state_map(prefix).items():
             if isinstance(state_dict, dict):
                 self.set_mpc(key, deserialize_mpc(state_dict))
-
-        for key, state_dict in export_pid_states(prefix=prefix).items():
-            if isinstance(state_dict, dict):
-                self.set_pid(key, deserialize_pid(state_dict))
 
         for key, state_dict in export_tpi_state_map(prefix).items():
             if isinstance(state_dict, dict):
