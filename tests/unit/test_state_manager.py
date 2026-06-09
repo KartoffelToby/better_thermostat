@@ -709,53 +709,45 @@ class TestHydrateControllers:
     """hydrate_controllers() seeds module caches with the prefix-filtered state."""
 
     def test_imports_only_prefixed_keys(self):
-        """Only keys starting with the prefix are pushed into the caches."""
+        """Only keys starting with the prefix are pushed into the cache."""
         mgr = _make_manager()
         mgr.set_mpc("p:trv1", MpcState(gain_est=0.5))
         mgr.set_mpc("other:trvX", MpcState(gain_est=9.9))
-        mgr.set_tpi("p:trv1", TpiState())
 
-        with (
-            patch(f"{_SM}.import_mpc_state_map") as imp_mpc,
-            patch(f"{_SM}.import_tpi_state_map") as imp_tpi,
-        ):
+        with patch(f"{_SM}.import_mpc_state_map") as imp_mpc:
             mgr.hydrate_controllers("p:")
 
         imp_mpc.assert_called_once()
         assert set(imp_mpc.call_args[0][0]) == {"p:trv1"}
-        imp_tpi.assert_called_once()
-        assert set(imp_tpi.call_args[0][0]) == {"p:trv1"}
 
     def test_no_matching_keys_skips_import(self):
-        """When nothing matches the prefix, the import functions are not called."""
+        """When nothing matches the prefix, the import function is not called."""
         mgr = _make_manager()
         mgr.set_mpc("other:trvX", MpcState())
 
-        with (
-            patch(f"{_SM}.import_mpc_state_map") as imp_mpc,
-            patch(f"{_SM}.import_tpi_state_map") as imp_tpi,
-        ):
+        with patch(f"{_SM}.import_mpc_state_map") as imp_mpc:
             mgr.hydrate_controllers("p:")
 
         imp_mpc.assert_not_called()
-        imp_tpi.assert_not_called()
 
     def test_hydrate_does_not_mark_dirty(self):
         """Seeding caches from persisted state must not dirty the store."""
         mgr = _make_manager()
         mgr.set_mpc("p:trv1", MpcState())
         mgr._dirty = False
-        with patch(f"{_SM}.import_mpc_state_map"), patch(f"{_SM}.import_tpi_state_map"):
+        with patch(f"{_SM}.import_mpc_state_map"):
             mgr.hydrate_controllers("p:")
         assert mgr.dirty is False
 
-    def test_hydrate_leaves_pid_untouched(self):
-        """PID state needs no bridging; hydrate ignores it entirely."""
+    def test_hydrate_leaves_pid_and_tpi_untouched(self):
+        """PID/TPI state needs no bridging; hydrate ignores it entirely."""
         mgr = _make_manager()
         mgr.set_pid("p:trv1", PIDState(pid_kp=42.0))
-        with patch(f"{_SM}.import_mpc_state_map"), patch(f"{_SM}.import_tpi_state_map"):
+        mgr.set_tpi("p:trv1", TpiState(last_percent=33.0))
+        with patch(f"{_SM}.import_mpc_state_map"):
             mgr.hydrate_controllers("p:")
         assert mgr.state.pid["p:trv1"].pid_kp == 42.0
+        assert mgr.state.tpi["p:trv1"].last_percent == 33.0
 
 
 # ---------------------------------------------------------------------------
@@ -769,10 +761,7 @@ class TestSyncControllers:
     def test_records_thermal_and_dirties(self):
         """Supplied thermal stats are stored and the store is marked dirty."""
         mgr = _make_manager()
-        with (
-            patch(f"{_SM}.export_mpc_state_map", return_value={}),
-            patch(f"{_SM}.export_tpi_state_map", return_value={}),
-        ):
+        with patch(f"{_SM}.export_mpc_state_map", return_value={}):
             mgr.sync_controllers("p:", 0.07, 0.02)
         assert mgr.thermal.heating_power == 0.07
         assert mgr.thermal.heat_loss_rate == 0.02
@@ -781,12 +770,9 @@ class TestSyncControllers:
     def test_exports_controller_caches_into_store(self):
         """Exported controller dicts are deserialized back into the store."""
         mgr = _make_manager()
-        with (
-            patch(
-                f"{_SM}.export_mpc_state_map",
-                return_value={"p:trv1": asdict(MpcState(gain_est=1.23))},
-            ),
-            patch(f"{_SM}.export_tpi_state_map", return_value={}),
+        with patch(
+            f"{_SM}.export_mpc_state_map",
+            return_value={"p:trv1": asdict(MpcState(gain_est=1.23))},
         ):
             mgr.sync_controllers("p:", None, None)
         assert mgr.state.mpc["p:trv1"].gain_est == 1.23
@@ -794,23 +780,19 @@ class TestSyncControllers:
     def test_non_dict_export_entry_is_skipped(self):
         """A malformed (non-dict) export entry is ignored, not stored."""
         mgr = _make_manager()
-        with (
-            patch(f"{_SM}.export_mpc_state_map", return_value={"p:bad": "notadict"}),
-            patch(f"{_SM}.export_tpi_state_map", return_value={}),
-        ):
+        with patch(f"{_SM}.export_mpc_state_map", return_value={"p:bad": "notadict"}):
             mgr.sync_controllers("p:", None, None)
         assert "p:bad" not in mgr.state.mpc
 
-    def test_sync_does_not_overwrite_pid_state(self):
-        """PID state in the store stays untouched by sync_controllers."""
+    def test_sync_does_not_overwrite_pid_or_tpi_state(self):
+        """PID/TPI state in the store stays untouched by sync_controllers."""
         mgr = _make_manager()
         mgr.set_pid("p:trv1", PIDState(pid_kp=42.0))
-        with (
-            patch(f"{_SM}.export_mpc_state_map", return_value={}),
-            patch(f"{_SM}.export_tpi_state_map", return_value={}),
-        ):
+        mgr.set_tpi("p:trv1", TpiState(last_percent=33.0))
+        with patch(f"{_SM}.export_mpc_state_map", return_value={}):
             mgr.sync_controllers("p:", None, None)
         assert mgr.state.pid["p:trv1"].pid_kp == 42.0
+        assert mgr.state.tpi["p:trv1"].last_percent == 33.0
 
 
 # ---------------------------------------------------------------------------

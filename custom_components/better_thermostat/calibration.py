@@ -369,10 +369,13 @@ def _compute_tpi_balance(self, entity_id: str):
     # Use default TPI params
     params = TpiParams()
 
+    key = build_tpi_key(self, entity_id)
+    tpi_state = self.state_mgr.get_tpi(key)
+
     try:
-        tpi_output, _tpi_state = compute_tpi(
+        tpi_output, tpi_state = compute_tpi(
             TpiInput(
-                key=build_tpi_key(self, entity_id),
+                key=key,
                 current_temp_C=self.cur_temp,
                 target_temp_C=self.bt_target_temp,
                 outdoor_temp_C=_get_current_outdoor_temp(self),
@@ -382,7 +385,9 @@ def _compute_tpi_balance(self, entity_id: str):
                 entity_id=entity_id,
             ),
             params,
+            state=tpi_state,
         )
+        self.state_mgr.set_tpi(key, tpi_state)
     except (ValueError, TypeError, ZeroDivisionError) as err:
         _LOGGER.debug(
             "better_thermostat %s: TPI calibration compute failed for %s: %s",

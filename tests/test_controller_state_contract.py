@@ -2,11 +2,11 @@
 
 ``compute_pid``/``compute_tpi``/``compute_mpc`` accept an explicit ``state``
 argument, mutate it in place and return it as the updated state.
-``compute_pid`` requires the explicit state (the StateManager owns it);
-``compute_tpi``/``compute_mpc`` still fall back to a module-level dict
-(``_TPI_STATES``/``_MPC_STATES``) when no state is passed, and passing an
-explicit state additionally stores it in that dict. These tests pin the
-explicit-state path everywhere and the module-global path where it remains.
+``compute_pid``/``compute_tpi`` require the explicit state (the StateManager
+owns it); ``compute_mpc`` still falls back to a module-level dict
+(``_MPC_STATES``) when no state is passed, and passing an explicit state
+additionally stores it in that dict. These tests pin the explicit-state path
+everywhere and the module-global path where it remains.
 """
 
 from collections.abc import Iterator
@@ -25,7 +25,6 @@ from custom_components.better_thermostat.utils.calibration.pid import (
     PIDState,
     compute_pid,
 )
-import custom_components.better_thermostat.utils.calibration.tpi as tpi_module
 from custom_components.better_thermostat.utils.calibration.tpi import (
     TpiInput,
     TpiParams,
@@ -37,10 +36,8 @@ from custom_components.better_thermostat.utils.calibration.tpi import (
 @pytest.fixture(autouse=True)
 def _reset_globals() -> Iterator[None]:
     """Clear the remaining controller globals before and after each test."""
-    tpi_module._TPI_STATES.clear()
     mpc_module._MPC_STATES.clear()
     yield
-    tpi_module._TPI_STATES.clear()
     mpc_module._MPC_STATES.clear()
 
 
@@ -75,7 +72,7 @@ class TestPidStateContract:
 
 
 class TestTpiStateContract:
-    """State-threading contract of ``compute_tpi``."""
+    """State-threading contract of ``compute_tpi`` (explicit state only)."""
 
     @staticmethod
     def _inp(key: str) -> TpiInput:
@@ -83,26 +80,14 @@ class TestTpiStateContract:
         return TpiInput(key=key, current_temp_C=20.0, target_temp_C=22.0)
 
     def test_explicit_state_is_returned_and_accumulates(self) -> None:
-        """An explicit state is returned as the same object and keeps accumulating."""
+        """The explicit state is returned as the same object and keeps accumulating."""
         state = TpiState()
         _, st1 = compute_tpi(self._inp("k"), TpiParams(), state=state)
         assert st1 is state
         assert state.last_percent is not None
 
-        tpi_module._TPI_STATES.clear()
         _, st2 = compute_tpi(self._inp("k"), TpiParams(), state=st1)
         assert st2 is state
-
-    def test_missing_state_uses_module_global(self) -> None:
-        """Without an explicit state the call uses ``_TPI_STATES``."""
-        _, st = compute_tpi(self._inp("kg"), TpiParams())
-        assert tpi_module._TPI_STATES["kg"] is st
-
-    def test_explicit_state_is_also_stored_in_global(self) -> None:
-        """An explicit state is also written to ``_TPI_STATES``."""
-        state = TpiState()
-        compute_tpi(self._inp("kl"), TpiParams(), state=state)
-        assert tpi_module._TPI_STATES["kl"] is state
 
 
 class TestMpcStateContract:
