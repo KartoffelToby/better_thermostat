@@ -14,6 +14,7 @@ from custom_components.better_thermostat.adapters.delegate import (
     set_temperature,
     set_valve,
 )
+from custom_components.better_thermostat.core.decide import decide
 from custom_components.better_thermostat.events.trv import convert_outbound_states
 from custom_components.better_thermostat.model_fixes.model_quirks import (
     override_set_hvac_mode,
@@ -401,11 +402,13 @@ async def control_trv(self, heater_entity_id=None):
             )
         _trv = self.hass.states.get(heater_entity_id)
 
-        # Check if TRV is available before attempting to control it
-        if _trv is None or (
-            _trv.state in (STATE_UNAVAILABLE, STATE_UNKNOWN)
-            and not _is_boost_heating_active(self)
-        ):
+        # One consistent observation and decision for this TRV's cycle.
+        snapshot = build_snapshot(self)
+        desired, self.kernel_state = decide(snapshot, self.kernel_state)
+        trv_desired = desired.trvs.get(heater_entity_id)
+
+        # The kernel addresses only reachable TRVs (boost overrides the skip).
+        if _trv is None or trv_desired is None:
             _LOGGER.debug(
                 "better_thermostat %s: TRV %s is unavailable, skipping control. "
                 "Control will resume when TRV becomes available.",
@@ -482,11 +485,15 @@ async def control_trv(self, heater_entity_id=None):
                 heater_entity_id,
             )
 
-        _new_hvac_mode = handle_window_open(self, _remapped_states)
-
-        # if we don't need to heat, we force HVACMode to be off
-        if self.call_for_heat is False:
+        # Apply the kernel's intent: a suppression override (open window or
+        # no heat demand) forces a literal OFF; otherwise the mode follows
+        # the device-specific remap of the BT mode.
+        if trv_desired.hvac_mode == HVACMode.OFF and (
+            snapshot.window_open or snapshot.hvac_mode != HVACMode.OFF
+        ):
             _new_hvac_mode = HVACMode.OFF
+        else:
+            _new_hvac_mode = _remapped_states.get("system_mode", None)
 
         # Safety override: if boost mode was active but we forced OFF (window/no-heat),
         # ensure valve is reset to 0% to prevent overheating. Only direct-valve
@@ -632,26 +639,6 @@ async def control_trv(self, heater_entity_id=None):
     await asyncio.sleep(3)
     self.real_trvs[heater_entity_id]["ignore_trv_states"] = False
     return True
-
-
-def handle_window_open(self, _remapped_states):
-    """Override HVAC mode to OFF when window is open.
-
-    Parameters
-    ----------
-    self : BetterThermostat
-        The Better Thermostat climate entity instance
-    _remapped_states : dict
-        Dictionary containing remapped TRV states including system_mode
-
-    Returns
-    -------
-    HVACMode
-        HVACMode.OFF if window is open, otherwise the remapped system_mode
-    """
-    if self.window_open:
-        return HVACMode.OFF
-    return _remapped_states.get("system_mode", None)
 
 
 async def check_system_mode(self, heater_entity_id=None):
