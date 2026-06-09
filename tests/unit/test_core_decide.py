@@ -243,3 +243,74 @@ class TestHeatingBranch:
         """HEAT_COOL intent reaches the TRVs unchanged."""
         desired, _ = decide(make_snapshot(hvac_mode=HvacMode.HEAT_COOL), KernelState())
         assert all(t.hvac_mode == HvacMode.HEAT_COOL for t in desired.trvs.values())
+
+
+class TestRegionIntegration:
+    """decide() consumes the FSM regions threaded through KernelState."""
+
+    def test_reachability_regions_are_advanced(self):
+        """Each TRV's reachability region is stepped from the snapshot."""
+        state = KernelState()
+        snapshot = make_snapshot(
+            trvs={
+                "climate.up": TrvReported(entity_id="climate.up", available=True),
+                "climate.down": TrvReported(entity_id="climate.down", available=False),
+            }
+        )
+        _, state = decide(snapshot, state)
+        assert state.reachability["climate.up"].online is True
+        assert state.reachability["climate.down"].online is False
+        assert state.reachability["climate.down"].offline_since == 1000.0
+
+    def test_recovered_trv_resets_its_region(self):
+        """A TRV reporting available again resets its reachability region."""
+        state = KernelState()
+        offline = make_snapshot(
+            trvs={"climate.t": TrvReported(entity_id="climate.t", available=False)}
+        )
+        _, state = decide(offline, state)
+        assert state.reachability["climate.t"].online is False
+
+        online = make_snapshot(
+            trvs={"climate.t": TrvReported(entity_id="climate.t", available=True)}
+        )
+        _, state = decide(online, state)
+        assert state.reachability["climate.t"].online is True
+
+    def test_window_region_suppresses_heating(self):
+        """An OPEN window region turns TRVs off even without the snapshot flag."""
+        from custom_components.better_thermostat.core.fsm.window import (
+            WindowPhase,
+            WindowState,
+        )
+
+        state = KernelState(window=WindowState(phase=WindowPhase.OPEN))
+        desired, _ = decide(make_snapshot(window_open=False), state)
+        assert all(t.hvac_mode == HvacMode.OFF for t in desired.trvs.values())
+
+    def test_stale_maintenance_run_stops_blocking(self):
+        """The maintenance liveness invariant reaches the kernel gate."""
+        from custom_components.better_thermostat.core.fsm.maintenance import (
+            MaintenancePhase,
+            MaintenanceState,
+        )
+
+        running = MaintenanceState(
+            phase=MaintenancePhase.RUNNING, running_since=-10_000.0
+        )
+        state = KernelState(maintenance=running)
+        desired, _ = decide(make_snapshot(), state)
+        # running_since is 11000 s before now_monotonic=1000 -> stale -> not blocking
+        assert desired.trvs != {}
+
+    def test_fresh_maintenance_run_blocks(self):
+        """A live RUNNING maintenance region pre-empts control."""
+        from custom_components.better_thermostat.core.fsm.maintenance import (
+            MaintenancePhase,
+            MaintenanceState,
+        )
+
+        running = MaintenanceState(phase=MaintenancePhase.RUNNING, running_since=900.0)
+        state = KernelState(maintenance=running)
+        desired, _ = decide(make_snapshot(), state)
+        assert dict(desired.trvs) == {}

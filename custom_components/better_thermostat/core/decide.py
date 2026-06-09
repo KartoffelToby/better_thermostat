@@ -34,6 +34,7 @@ from .fsm.control_mode import ControlModeState
 from .fsm.lifecycle import LifecycleState
 from .fsm.maintenance import MaintenanceState
 from .fsm.mode import ModeState
+from .fsm.reachability import ReachabilityState, step as reachability_step
 from .fsm.window import WindowState
 from .snapshot import HvacMode, WorldSnapshot
 
@@ -54,6 +55,7 @@ class KernelState:
     lifecycle: LifecycleState = field(default_factory=LifecycleState)
     mode: ModeState = field(default_factory=ModeState)
     control_mode: ControlModeState = field(default_factory=ControlModeState)
+    reachability: dict[str, ReachabilityState] = field(default_factory=dict)
 
 
 def is_boost_heating(snapshot: WorldSnapshot) -> bool:
@@ -90,9 +92,25 @@ def decide(
     snapshot: WorldSnapshot, state: KernelState
 ) -> tuple[DesiredState, KernelState]:
     """Map one world snapshot onto the desired state of every TRV."""
-    if snapshot.startup_running or snapshot.in_maintenance:
+    # Advance the per-TRV reachability regions from this observation.
+    state.reachability = {
+        entity_id: reachability_step(
+            state.reachability.get(entity_id, ReachabilityState()),
+            trv.available,
+            snapshot.now_monotonic,
+        )
+        for entity_id, trv in snapshot.trvs.items()
+    }
+
+    if (
+        snapshot.startup_running
+        or snapshot.in_maintenance
+        or state.maintenance.is_blocking(snapshot.now_monotonic)
+    ):
         # Lifecycle gate: no intent while starting up, and maintenance
-        # pre-empts control entirely (it owns the valves).
+        # pre-empts control entirely (it owns the valves). A maintenance
+        # run that exceeded its maximum runtime stops blocking — the
+        # region's liveness invariant.
         return DesiredState(call_for_heat=snapshot.call_for_heat), state
 
     addressed = _addressed(snapshot)
@@ -103,7 +121,7 @@ def decide(
             state,
         )
 
-    if snapshot.window_open:
+    if snapshot.window_open or state.window.effective_open:
         return (
             DesiredState(
                 call_for_heat=snapshot.call_for_heat,
