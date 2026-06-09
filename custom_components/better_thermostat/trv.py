@@ -75,6 +75,23 @@ class Trv:
     # bump sequencing) without widening the typed surface.
     extra: dict[str, Any] = field(default_factory=dict)
 
+    @classmethod
+    def from_legacy_dict(cls, entity_id: str, data: dict[str, Any]) -> Trv:
+        """Build a Trv from a legacy per-entity dict.
+
+        Known keys become typed fields; unknown keys land in ``extra``.
+        """
+        fields_in = {}
+        extra: dict[str, Any] = {}
+        for key, value in data.items():
+            if key != "extra" and key in cls.__dataclass_fields__:
+                fields_in[key] = value
+            else:
+                extra[key] = value
+        trv = cls(entity_id=entity_id, **fields_in)
+        trv.extra.update(extra)
+        return trv
+
     # -- Transitional dict protocol ----------------------------------------
 
     def _is_field(self, key: str) -> bool:
