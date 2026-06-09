@@ -25,7 +25,6 @@ from custom_components.better_thermostat.utils.calibration.pid import (
     PIDParams,
     build_pid_key,
     compute_pid,
-    get_pid_state,
 )
 from custom_components.better_thermostat.utils.calibration.tpi import (
     TpiInput,
@@ -433,7 +432,7 @@ def _compute_pid_balance(self, entity_id: str):
 
     # Build PID params from config and learned values
     key = build_pid_key(self, entity_id)
-    pid_state = get_pid_state(key)
+    pid_state = self.state_mgr.get_pid(key)
 
     # Use learned gains if available, otherwise from config, otherwise defaults
     params = PIDParams(
@@ -466,7 +465,7 @@ def _compute_pid_balance(self, entity_id: str):
     )
 
     try:
-        percent, debug, _pid_state = compute_pid(
+        percent, debug, pid_state = compute_pid(
             params,
             self.bt_target_temp,
             self.cur_temp,
@@ -475,7 +474,9 @@ def _compute_pid_balance(self, entity_id: str):
             key,
             inp_current_temp_ema_C=self.cur_temp_filtered,
             max_opening_pct=_get_trv_max_opening(self, entity_id),
+            state=pid_state,
         )
+        self.state_mgr.set_pid(key, pid_state)
     except (ValueError, TypeError, ZeroDivisionError) as err:
         _LOGGER.debug(
             "better_thermostat %s: PID calibration compute failed for %s: %s",
