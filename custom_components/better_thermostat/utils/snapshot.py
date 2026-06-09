@@ -25,8 +25,8 @@ def _as_float(value: object) -> float | None:
     return None
 
 
-def _build_trv_reported(self, entity_id: str, data: dict) -> TrvReported:
-    """Condense one ``real_trvs`` entry into a TrvReported."""
+def _build_trv_reported(self, entity_id: str, trv) -> TrvReported:
+    """Condense one ``real_trvs`` entry (a Trv) into a TrvReported."""
     available = False
     if self.hass is not None:
         state = self.hass.states.get(entity_id)
@@ -37,12 +37,12 @@ def _build_trv_reported(self, entity_id: str, data: dict) -> TrvReported:
     return TrvReported(
         entity_id=entity_id,
         available=available,
-        hvac_mode=parse_hvac_mode(data.get("hvac_mode")),
-        current_temp=_as_float(data.get("current_temperature")),
-        setpoint=_as_float(data.get("last_temperature")),
-        min_temp=_as_float(data.get("min_temp")),
-        max_temp=_as_float(data.get("max_temp")),
-        valve_max_opening=_as_float(data.get("valve_max_opening")),
+        hvac_mode=parse_hvac_mode(trv.hvac_mode),
+        current_temp=_as_float(trv.current_temperature),
+        setpoint=_as_float(trv.last_temperature),
+        min_temp=_as_float(trv.min_temp),
+        max_temp=_as_float(trv.max_temp),
+        valve_max_opening=_as_float(trv.valve_max_opening),
     )
 
 
@@ -53,8 +53,8 @@ def build_snapshot(self) -> WorldSnapshot:
     place that flattens its attributes into the core snapshot type.
     """
     trvs = {
-        entity_id: _build_trv_reported(self, entity_id, data or {})
-        for entity_id, data in self.real_trvs.items()
+        entity_id: _build_trv_reported(self, entity_id, trv)
+        for entity_id, trv in self.real_trvs.items()
     }
 
     is_day = True

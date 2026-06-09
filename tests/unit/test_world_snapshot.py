@@ -18,6 +18,7 @@ from custom_components.better_thermostat.core.snapshot import (
     WorldSnapshot,
     parse_hvac_mode,
 )
+from custom_components.better_thermostat.trv import Trv
 from custom_components.better_thermostat.utils.snapshot import build_snapshot
 
 
@@ -46,14 +47,17 @@ def _make_bt() -> MagicMock:
     bt.bt_min_temp = 5.0
     bt.bt_max_temp = 30.0
     bt.real_trvs = {
-        "climate.trv": {
-            "hvac_mode": "heat",
-            "current_temperature": 21.0,
-            "last_temperature": 22.0,
-            "min_temp": 5.0,
-            "max_temp": 30.0,
-            "valve_max_opening": 80.0,
-        }
+        "climate.trv": Trv.from_legacy_dict(
+            "climate.trv",
+            {
+                "hvac_mode": "heat",
+                "current_temperature": 21.0,
+                "last_temperature": 22.0,
+                "min_temp": 5.0,
+                "max_temp": 30.0,
+                "valve_max_opening": 80.0,
+            },
+        )
     }
     trv_state = MagicMock()
     trv_state.state = "heat"
@@ -154,8 +158,8 @@ class TestTrvReportedBuilding:
     def test_unparseable_values_become_none(self):
         """Garbage in the real_trvs entry degrades to None, not a crash."""
         bt = _make_bt()
-        bt.real_trvs["climate.trv"]["current_temperature"] = "oops"
-        bt.real_trvs["climate.trv"]["hvac_mode"] = "bogus"
+        bt.real_trvs["climate.trv"].current_temperature = "oops"
+        bt.real_trvs["climate.trv"].hvac_mode = "bogus"
         snapshot = build_snapshot(bt)
         trv = snapshot.trvs["climate.trv"]
         assert trv.current_temp is None

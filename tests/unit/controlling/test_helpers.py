@@ -50,7 +50,7 @@ class TestCheckSystemMode:
         result = await check_system_mode(mock_self, "climate.trv1")
 
         assert result is True
-        assert mock_self.real_trvs["climate.trv1"]["system_mode_received"] is True
+        assert mock_self.real_trvs["climate.trv1"].system_mode_received is True
 
     @pytest.mark.asyncio
     async def test_mode_matches_after_delay(self):
@@ -71,7 +71,7 @@ class TestCheckSystemMode:
         # Simulate mode change after 0.5 seconds
         async def update_mode():
             await asyncio.sleep(0.1)
-            mock_self.real_trvs["climate.trv1"]["hvac_mode"] = HVACMode.HEAT
+            mock_self.real_trvs["climate.trv1"].hvac_mode = HVACMode.HEAT
 
         update_task = asyncio.create_task(update_mode())
 
@@ -79,7 +79,7 @@ class TestCheckSystemMode:
 
         await update_task
         assert result is True
-        assert mock_self.real_trvs["climate.trv1"]["system_mode_received"] is True
+        assert mock_self.real_trvs["climate.trv1"].system_mode_received is True
 
     @pytest.mark.asyncio
     async def test_timeout_after_360_seconds(self):
@@ -124,9 +124,9 @@ class TestCheckSystemMode:
 
             assert result is True
             # Flag should still be set to True after timeout
-            assert mock_self.real_trvs["climate.trv1"]["system_mode_received"] is True
+            assert mock_self.real_trvs["climate.trv1"].system_mode_received is True
             # Mode should not have changed
-            assert mock_self.real_trvs["climate.trv1"]["hvac_mode"] == HVACMode.OFF
+            assert mock_self.real_trvs["climate.trv1"].hvac_mode == HVACMode.OFF
         finally:
             controlling_module.asyncio.sleep = original_sleep_func
 
@@ -148,7 +148,7 @@ class TestCheckSystemMode:
 
         await check_system_mode(mock_self, "climate.trv1")
 
-        assert mock_self.real_trvs["climate.trv1"]["system_mode_received"] is True
+        assert mock_self.real_trvs["climate.trv1"].system_mode_received is True
 
 
 # ---------------------------------------------------------------------------
@@ -181,7 +181,7 @@ class TestCheckTargetTemperature:
         result = await check_target_temperature(mock_self, "climate.trv1")
 
         assert result is True
-        assert mock_self.real_trvs["climate.trv1"]["target_temp_received"] is True
+        assert mock_self.real_trvs["climate.trv1"].target_temp_received is True
 
     @pytest.mark.asyncio
     async def test_temperature_is_none(self):
@@ -205,7 +205,7 @@ class TestCheckTargetTemperature:
         result = await check_target_temperature(mock_self, "climate.trv1")
 
         assert result is True
-        assert mock_self.real_trvs["climate.trv1"]["target_temp_received"] is True
+        assert mock_self.real_trvs["climate.trv1"].target_temp_received is True
 
     @pytest.mark.asyncio
     async def test_temperature_matches_after_delay(self):
@@ -237,7 +237,7 @@ class TestCheckTargetTemperature:
 
         await update_task
         assert result is True
-        assert mock_self.real_trvs["climate.trv1"]["target_temp_received"] is True
+        assert mock_self.real_trvs["climate.trv1"].target_temp_received is True
 
     @pytest.mark.asyncio
     async def test_timeout_after_360_seconds(self):
@@ -279,7 +279,7 @@ class TestCheckTargetTemperature:
             result = await check_target_temperature(mock_self, "climate.trv1")
 
             assert result is True
-            assert mock_self.real_trvs["climate.trv1"]["target_temp_received"] is True
+            assert mock_self.real_trvs["climate.trv1"].target_temp_received is True
         finally:
             controlling_module.asyncio.sleep = original_sleep_func
 
@@ -384,7 +384,7 @@ class TestGetValveControlBoostMaxOpening:
     def test_no_setting_defaults_to_100(self):
         """Without a configured limit, boost still applies 100%."""
         mock_self = self._mock_in_boost(max_opening=None)
-        mock_self.real_trvs["climate.trv1"] = {}
+        mock_self.real_trvs["climate.trv1"] = Trv(entity_id="climate.trv1")
         bal, source = _get_valve_control(
             mock_self,
             "climate.trv1",

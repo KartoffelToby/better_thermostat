@@ -33,66 +33,40 @@ class TestTypedAccess:
         assert trv.ignore_trv_states is True
 
 
-class TestDictBridge:
-    """The transitional dict protocol mirrors attribute access."""
+class TestExtraScratchpad:
+    """Quirk-private bookkeeping lives in the ``extra`` dict."""
 
-    def test_getitem_reads_fields(self):
-        """trv["key"] reads the typed field."""
-        trv = _make()
-        trv.current_temperature = 20.0
-        assert trv["current_temperature"] == 20.0
-        assert trv["valve_max_opening"] == 100.0
+    def test_extra_starts_empty(self):
+        """A fresh Trv has no scratchpad entries."""
+        assert _make().extra == {}
 
-    def test_setitem_writes_fields(self):
-        """trv["key"] = value writes the typed field."""
+    def test_extra_holds_quirk_keys(self):
+        """Quirk keys are plain dict entries on ``extra``."""
         trv = _make()
-        trv["last_hvac_mode"] = "heat"
-        assert trv.last_hvac_mode == "heat"
+        trv.extra["_trvzb_valve_bump_seq"] = 7
+        assert trv.extra.get("_trvzb_valve_bump_seq") == 7
 
-    def test_get_with_default(self):
-        """get() returns the stored field value, not the default."""
-        trv = _make()
-        assert trv.get("min_temp") is None
-        assert trv.get("valve_max_opening", 55.0) == 100.0
+    def test_from_legacy_dict_splits_fields_and_extras(self):
+        """Known keys become fields; unknown keys land in ``extra``."""
+        trv = Trv.from_legacy_dict(
+            "climate.trv",
+            {
+                "current_temperature": 21.0,
+                "_quirk_scratch": 3,
+                "advanced": {"child_lock": True},
+            },
+        )
+        assert trv.current_temperature == 21.0
+        assert trv.advanced == {"child_lock": True}
+        assert trv.extra == {"_quirk_scratch": 3}
 
-    def test_contains(self):
-        """Membership covers fields and extras."""
+    def test_no_dict_protocol(self):
+        """The transitional dict protocol is gone: attribute access only."""
         trv = _make()
-        assert "current_temperature" in trv
-        assert "nonexistent" not in trv
-        trv["_quirk_seq"] = 3
-        assert "_quirk_seq" in trv
-
-    def test_unknown_keys_land_in_extra(self):
-        """Quirk scratchpad keys are bridged through ``extra``."""
-        trv = _make()
-        trv["_trvzb_valve_bump_seq"] = 7
-        assert trv.extra == {"_trvzb_valve_bump_seq": 7}
-        assert trv["_trvzb_valve_bump_seq"] == 7
-        assert trv.get("_trvzb_valve_bump_seq") == 7
-
-    def test_missing_extra_key_raises(self):
-        """Reading an unknown key without default raises KeyError like a dict."""
-        trv = _make()
-        with pytest.raises(KeyError):
-            trv["does_not_exist"]
-
-    def test_pop_resets_field_to_none(self):
-        """pop() on a field returns the value and clears it."""
-        trv = _make()
-        trv.calibration_balance = {"valve_percent": 40}
-        assert trv.pop("calibration_balance", None) == {"valve_percent": 40}
-        assert trv.calibration_balance is None
-
-    def test_pop_removes_extra_key(self):
-        """pop() on an extra key behaves like dict.pop."""
-        trv = _make()
-        trv["_scratch"] = 1
-        assert trv.pop("_scratch") == 1
-        assert trv.pop("_scratch", "gone") == "gone"
-        with pytest.raises(KeyError):
-            trv.pop("_scratch")
+        with pytest.raises(TypeError):
+            trv["current_temperature"]
+        assert not hasattr(trv, "get")
 
     def test_truthiness(self):
-        """A Trv instance is truthy (callers use ``entry or {}``)."""
+        """A Trv instance is truthy (callers use ``entry or default``)."""
         assert bool(_make()) is True
