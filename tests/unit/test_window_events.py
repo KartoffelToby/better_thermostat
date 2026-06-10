@@ -14,7 +14,6 @@ from custom_components.better_thermostat.core.clock import FakeClock
 from custom_components.better_thermostat.core.decide import running_kernel_state
 from custom_components.better_thermostat.core.fsm.window import WindowPhase, WindowState
 from custom_components.better_thermostat.events.window import (
-    empty_queue,
     trigger_window_change,
     window_queue,
 )
@@ -175,15 +174,6 @@ class TestWindowQueue:
         await _run_queue_once(bt)
         assert bt.control_queue_task.qsize() == 1
         assert bt.control_queue_task.get_nowait() is bt
-
-
-def test_empty_queue_drains_all_items():
-    """empty_queue consumes every pending item and marks it done."""
-    queue = asyncio.Queue()
-    queue.put_nowait(1)
-    queue.put_nowait(2)
-    empty_queue(queue)
-    assert queue.empty()
 
 
 @pytest.mark.asyncio

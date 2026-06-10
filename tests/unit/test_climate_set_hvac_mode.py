@@ -40,7 +40,7 @@ async def test_supported_mode_is_applied_and_queued(bt, mode):
         await BetterThermostat.async_set_hvac_mode(bt, mode)
     assert bt.bt_hvac_mode == mode
     bt.async_write_ha_state.assert_called_once()
-    bt.control_queue_task.put.assert_awaited_once_with(bt)
+    bt.control_queue_task.put_nowait.assert_called_once_with(bt)
 
 
 @pytest.mark.asyncio
@@ -50,7 +50,7 @@ async def test_unsupported_mode_is_rejected(bt):
         await BetterThermostat.async_set_hvac_mode(bt, HVACMode.COOL)
     assert bt.bt_hvac_mode == HVACMode.HEAT  # unchanged
     mapper.assert_not_called()
-    bt.control_queue_task.put.assert_awaited_once_with(bt)
+    bt.control_queue_task.put_nowait.assert_called_once_with(bt)
 
 
 @pytest.mark.asyncio
@@ -60,4 +60,4 @@ async def test_maintenance_defers_control(bt):
     with patch(f"{_CLIMATE}.get_hvac_bt_mode", _identity_mode()):
         await BetterThermostat.async_set_hvac_mode(bt, HVACMode.HEAT)
     assert bt._control_needed_after_maintenance is True
-    bt.control_queue_task.put.assert_not_awaited()
+    bt.control_queue_task.put_nowait.assert_not_called()

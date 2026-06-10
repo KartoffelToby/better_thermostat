@@ -33,6 +33,6 @@ def set_hvac_mode(state: ModeState, mode: str | None) -> ModeState:
 
 def set_preset(state: ModeState, preset: str | None) -> ModeState:
     """Set the preset; PRESET_NONE and empty values clear it."""
-    if preset is None or preset == PRESET_NONE or preset == "":
+    if preset is None or preset in (PRESET_NONE, ""):
         return ModeState(hvac_mode=state.hvac_mode, preset=None)
     return ModeState(hvac_mode=state.hvac_mode, preset=preset)

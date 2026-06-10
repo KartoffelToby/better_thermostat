@@ -31,6 +31,7 @@ from custom_components.better_thermostat.utils.helpers import (
     is_reasonable_temperature,
     mode_remap,
 )
+from custom_components.better_thermostat.utils.scheduler import request_control_cycle
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -383,7 +384,7 @@ async def trigger_trv_change(self, event):
 
     if _main_change is True:
         self.async_write_ha_state()
-        return await self.control_queue_task.put(self)
+        return request_control_cycle(self)
 
     self.async_write_ha_state()
     return

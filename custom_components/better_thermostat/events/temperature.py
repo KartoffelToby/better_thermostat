@@ -21,6 +21,7 @@ from custom_components.better_thermostat.utils.helpers import (
     convert_to_float_celsius,
     is_reasonable_temperature,
 )
+from custom_components.better_thermostat.utils.scheduler import request_control_cycle
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -151,7 +152,7 @@ async def _apply_temperature_update(self, new_temp):
         if getattr(self, "in_maintenance", False):
             self._control_needed_after_maintenance = True
         else:
-            await self.control_queue_task.put(self)
+            request_control_cycle(self)
     _LOGGER.debug(
         "better_thermostat %s: _apply_temperature_update finished", self.device_name
     )
@@ -358,7 +359,7 @@ async def trigger_temperature_change(self, event):
                                     self.device_name,
                                 )
                             if self.control_queue_task is not None:
-                                await self.control_queue_task.put(self)
+                                request_control_cycle(self)
                 finally:
                     # Aufräumen
                     self.flicker_unignore_cancel = None

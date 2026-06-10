@@ -108,7 +108,7 @@ async def test_seeds_current_and_neighbour_buckets(bt):
         "uid:climate.trv:t20.5",
     }
     # Seeding happened -> control loop is kicked
-    bt.control_queue_task.put.assert_awaited_once()
+    bt.control_queue_task.put_nowait.assert_called_once()
 
 
 @pytest.mark.asyncio
@@ -152,7 +152,7 @@ async def test_no_trvs_seeds_nothing(bt):
     bt.real_trvs = {}
     await BetterThermostat.reset_pid_learnings_service(bt, apply_pid_defaults=True)
     assert bt.state_mgr.pid == {}
-    bt.control_queue_task.put.assert_not_awaited()
+    bt.control_queue_task.put_nowait.assert_not_called()
 
 
 @pytest.mark.asyncio
@@ -161,4 +161,4 @@ async def test_non_numeric_target_seeds_nothing(bt):
     bt.bt_target_temp = None
     await BetterThermostat.reset_pid_learnings_service(bt, apply_pid_defaults=True)
     assert bt.state_mgr.pid == {}
-    bt.control_queue_task.put.assert_not_awaited()
+    bt.control_queue_task.put_nowait.assert_not_called()

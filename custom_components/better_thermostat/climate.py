@@ -154,6 +154,7 @@ from .utils.restore import (
     mean_trv_target,
     restore_target_temperature,
 )
+from .utils.scheduler import request_control_cycle
 from .utils.state_manager import StateManager
 from .utils.telemetry import (
     collect_balance_attrs,
@@ -934,7 +935,7 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
             await self.async_update_ha_state(force_refresh=True)
             self.async_write_ha_state()
             if event is not None:
-                await self.control_queue_task.put(self)
+                request_control_cycle(self)
 
     async def _trigger_time(self, event=None):
         _check = await check_critical_entities(self)
@@ -953,7 +954,7 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
         await check_ambient_air_temperature(self)
         self.async_write_ha_state()
         if event is not None:
-            await self.control_queue_task.put(self)
+            request_control_cycle(self)
 
     async def _trigger_outdoor_change(self, event=None):
         """Re-evaluate the outdoor-temperature threshold on sensor changes.
@@ -975,7 +976,7 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
             self._last_call_for_heat = self.call_for_heat
             self.async_write_ha_state()
             if event is not None:
-                await self.control_queue_task.put(self)
+                request_control_cycle(self)
 
     async def _trigger_temperature_change(self, event):
         _check = await check_critical_entities(self)
@@ -2227,9 +2228,9 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
             # resumes with the latest window/temp/target states.
             if self.bt_hvac_mode != HVACMode.OFF:
                 try:
-                    self.control_queue_task.put_nowait(self)
+                    request_control_cycle(self)
                 except Exception:
-                    # Queue full or not ready; periodic tick will eventually catch up.
+                    # Queue not ready; the periodic tick will catch up.
                     pass
 
     # -- Unified state persistence helpers ------------------------------------
@@ -2704,7 +2705,7 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
             self._control_needed_after_maintenance = True
             return
 
-        await self.control_queue_task.put(self)
+        request_control_cycle(self)
 
     def _enforce_cool_above_heat(self) -> None:
         """Keep the cooling target strictly above the heating target.
@@ -2848,7 +2849,7 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
             if getattr(self, "in_maintenance", False):
                 self._control_needed_after_maintenance = True
                 return
-            await self.control_queue_task.put(self)
+            request_control_cycle(self)
 
     async def async_turn_off(self) -> None:
         """Turn the entity off."""
@@ -2993,7 +2994,7 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
                 hasattr(self, "control_queue_task")
                 and self.control_queue_task is not None
             ):
-                await self.control_queue_task.put(self)
+                request_control_cycle(self)
         finally:
             self.bt_update_lock = False
 
@@ -3127,7 +3128,7 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
                             )
                         # Kick the control loop so the new gains are used promptly
                         try:
-                            await self.control_queue_task.put(self)
+                            request_control_cycle(self)
                         except Exception:
                             _LOGGER.debug(
                                 "better_thermostat %s: could not queue control cycle "

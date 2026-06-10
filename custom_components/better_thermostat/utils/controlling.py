@@ -35,6 +35,7 @@ from custom_components.better_thermostat.utils.helpers import (
     attr_to_celsius,
     convert_to_float,
 )
+from custom_components.better_thermostat.utils.scheduler import request_control_cycle
 from custom_components.better_thermostat.utils.snapshot import build_snapshot
 
 _LOGGER = logging.getLogger(__name__)
@@ -186,10 +187,7 @@ async def reconcile_tick(self, now=None):
                 self.device_name,
                 WATCHDOG_MAX_AGE_S / 60.0,
             )
-            try:
-                self.control_queue_task.put_nowait(self)
-            except asyncio.QueueFull:
-                pass
+            request_control_cycle(self)
             return
         snapshot = build_snapshot(self)
         desired, self.kernel_state = decide(snapshot, self.kernel_state)
@@ -201,10 +199,7 @@ async def reconcile_tick(self, now=None):
             "queueing a control cycle",
             self.device_name,
         )
-        try:
-            self.control_queue_task.put_nowait(self)
-        except asyncio.QueueFull:
-            pass
+        request_control_cycle(self)
     except Exception:
         _LOGGER.exception(
             "better_thermostat %s: reconcile tick failed", self.device_name
@@ -368,16 +363,10 @@ async def control_queue(self):
                         elif res is False:
                             result = False
 
-                    # Retry task if some TRVs failed. Discard the task if the queue is full
-                    # to avoid blocking and therefore deadlocking this function.
+                    # Retry task if some TRVs failed; coalesces with any
+                    # already-pending request.
                     if result is False:
-                        try:
-                            self.control_queue_task.put_nowait(self)
-                        except asyncio.QueueFull:
-                            _LOGGER.debug(
-                                "better_thermostat %s: control queue is full, discarding task",
-                                self.device_name,
-                            )
+                        request_control_cycle(self)
 
                     self.control_queue_task.task_done()
                     if not getattr(self, "in_maintenance", False):

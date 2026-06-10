@@ -87,7 +87,7 @@ class TestBulkhead:
 
 
 class TestWatchdog:
-    """The watchdog answers: did a control cycle complete recently?"""
+    """The watchdog answers whether a control cycle completed recently."""
 
     def test_never_ran_is_not_a_stall(self):
         """Before the first cycle the watchdog stays quiet (startup gate)."""

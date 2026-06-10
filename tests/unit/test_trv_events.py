@@ -181,7 +181,7 @@ class TestTriggerTrvChangeGuards:
         event = _make_event(mock_bt)
         event.data["new_state"] = None
         await trigger_trv_change(mock_bt, event)
-        mock_bt.control_queue_task.put.assert_not_called()
+        mock_bt.control_queue_task.put_nowait.assert_not_called()
 
     @pytest.mark.asyncio
     async def test_returns_early_old_state_none(self, mock_bt):
@@ -189,7 +189,7 @@ class TestTriggerTrvChangeGuards:
         event = _make_event(mock_bt)
         event.data["old_state"] = None
         await trigger_trv_change(mock_bt, event)
-        mock_bt.control_queue_task.put.assert_not_called()
+        mock_bt.control_queue_task.put_nowait.assert_not_called()
 
     @pytest.mark.asyncio
     async def test_skips_own_context(self, mock_bt):
@@ -197,7 +197,7 @@ class TestTriggerTrvChangeGuards:
         event = _make_event(mock_bt)
         event.context = mock_bt.context
         await trigger_trv_change(mock_bt, event)
-        mock_bt.control_queue_task.put.assert_not_called()
+        mock_bt.control_queue_task.put_nowait.assert_not_called()
 
     @pytest.mark.asyncio
     async def test_org_trv_state_none_returns_early(self, mock_bt):
@@ -206,7 +206,7 @@ class TestTriggerTrvChangeGuards:
         event = _make_event(mock_bt)
 
         await trigger_trv_change(mock_bt, event)
-        mock_bt.control_queue_task.put.assert_not_called()
+        mock_bt.control_queue_task.put_nowait.assert_not_called()
 
 
 # ---------------------------------------------------------------------------
@@ -365,7 +365,7 @@ class TestInternalTemperatureChange:
         ):
             await trigger_trv_change(mock_bt, event)
 
-        mock_bt.control_queue_task.put.assert_not_called()
+        mock_bt.control_queue_task.put_nowait.assert_not_called()
 
     @pytest.mark.asyncio
     async def test_calibration_zero_fetches_offset(self, mock_bt):
@@ -470,7 +470,7 @@ class TestHvacActionAndValvePosition:
         ):
             await trigger_trv_change(mock_bt, event)
 
-        mock_bt.control_queue_task.put.assert_awaited_once()
+        mock_bt.control_queue_task.put_nowait.assert_called_once()
 
     @pytest.mark.asyncio
     async def test_valve_position_updated(self, mock_bt):
@@ -1137,7 +1137,7 @@ class TestControlQueueTrigger:
 
     @pytest.mark.asyncio
     async def test_main_change_triggers_queue(self, mock_bt):
-        """_main_change=True should call control_queue_task.put()."""
+        """_main_change=True should request a control cycle."""
         trv_state = _make_state(
             attributes={
                 "current_temperature": 18.0,
@@ -1156,7 +1156,7 @@ class TestControlQueueTrigger:
         ):
             await trigger_trv_change(mock_bt, event)
 
-        mock_bt.control_queue_task.put.assert_awaited_once()
+        mock_bt.control_queue_task.put_nowait.assert_called_once()
         mock_bt.async_write_ha_state.assert_called_once()
 
     @pytest.mark.asyncio
@@ -1176,7 +1176,7 @@ class TestControlQueueTrigger:
             await trigger_trv_change(mock_bt, event)
 
         mock_bt.async_write_ha_state.assert_called_once()
-        mock_bt.control_queue_task.put.assert_not_awaited()
+        mock_bt.control_queue_task.put_nowait.assert_not_called()
 
 
 # ---------------------------------------------------------------------------

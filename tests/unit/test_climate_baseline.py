@@ -947,7 +947,7 @@ class TestAsyncSetPresetMode:
         mock_bt.min_temp = mock_bt.bt_min_temp
         mock_bt.max_temp = mock_bt.bt_max_temp
         await self._call(mock_bt, PRESET_COMFORT)
-        mock_bt.control_queue_task.put.assert_awaited_once_with(mock_bt)
+        mock_bt.control_queue_task.put_nowait.assert_called_once_with(mock_bt)
 
 
 # ===========================================================================
@@ -1042,7 +1042,7 @@ class TestAsyncSetTemperature:
         mock_bt.min_temp = mock_bt.bt_min_temp
         mock_bt.max_temp = mock_bt.bt_max_temp
         await self._call(mock_bt, **{ATTR_TEMPERATURE: 22.0})
-        mock_bt.control_queue_task.put.assert_not_awaited()
+        mock_bt.control_queue_task.put_nowait.assert_not_called()
 
     @pytest.mark.asyncio
     async def test_maintenance_no_queue_put(self, mock_bt):
@@ -1054,7 +1054,7 @@ class TestAsyncSetTemperature:
         mock_bt.max_temp = mock_bt.bt_max_temp
         await self._call(mock_bt, **{ATTR_TEMPERATURE: 22.0})
         assert mock_bt._control_needed_after_maintenance is True
-        mock_bt.control_queue_task.put.assert_not_awaited()
+        mock_bt.control_queue_task.put_nowait.assert_not_called()
 
     @pytest.mark.asyncio
     async def test_queue_put_called_in_heat_mode(self, mock_bt):
@@ -1064,7 +1064,7 @@ class TestAsyncSetTemperature:
         mock_bt.min_temp = mock_bt.bt_min_temp
         mock_bt.max_temp = mock_bt.bt_max_temp
         await self._call(mock_bt, **{ATTR_TEMPERATURE: 22.0})
-        mock_bt.control_queue_task.put.assert_awaited_once_with(mock_bt)
+        mock_bt.control_queue_task.put_nowait.assert_called_once_with(mock_bt)
 
 
 # ===========================================================================

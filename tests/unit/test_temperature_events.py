@@ -243,10 +243,10 @@ class TestApplyTemperatureUpdate:
 
     @pytest.mark.asyncio
     async def test_enqueues_control_action(self, mock_bt):
-        """Enqueue a control action via control_queue_task.put()."""
+        """Enqueue a control action via request_control_cycle()."""
         await _apply_temperature_update(mock_bt, 21.0)
 
-        mock_bt.control_queue_task.put.assert_awaited_once_with(mock_bt)
+        mock_bt.control_queue_task.put_nowait.assert_called_once_with(mock_bt)
 
     @pytest.mark.asyncio
     async def test_skips_control_during_maintenance(self, mock_bt):
@@ -255,7 +255,7 @@ class TestApplyTemperatureUpdate:
 
         await _apply_temperature_update(mock_bt, 21.0)
 
-        mock_bt.control_queue_task.put.assert_not_awaited()
+        mock_bt.control_queue_task.put_nowait.assert_not_called()
         assert mock_bt._control_needed_after_maintenance is True
 
     @pytest.mark.asyncio
@@ -291,7 +291,7 @@ class TestTriggerTemperatureChangeGuards:
 
         await trigger_temperature_change(mock_bt, event)
 
-        mock_bt.control_queue_task.put.assert_not_awaited()
+        mock_bt.control_queue_task.put_nowait.assert_not_called()
 
     @pytest.mark.asyncio
     async def test_returns_early_new_state_none(self, mock_bt):
@@ -300,7 +300,7 @@ class TestTriggerTemperatureChangeGuards:
 
         await trigger_temperature_change(mock_bt, event)
 
-        mock_bt.control_queue_task.put.assert_not_awaited()
+        mock_bt.control_queue_task.put_nowait.assert_not_called()
 
     @pytest.mark.asyncio
     async def test_returns_early_state_unavailable(self, mock_bt):
@@ -309,7 +309,7 @@ class TestTriggerTemperatureChangeGuards:
 
         await trigger_temperature_change(mock_bt, event)
 
-        mock_bt.control_queue_task.put.assert_not_awaited()
+        mock_bt.control_queue_task.put_nowait.assert_not_called()
 
     @pytest.mark.asyncio
     async def test_returns_early_state_unknown(self, mock_bt):
@@ -318,7 +318,7 @@ class TestTriggerTemperatureChangeGuards:
 
         await trigger_temperature_change(mock_bt, event)
 
-        mock_bt.control_queue_task.put.assert_not_awaited()
+        mock_bt.control_queue_task.put_nowait.assert_not_called()
 
     @pytest.mark.asyncio
     async def test_returns_early_non_numeric(self, mock_bt):
@@ -332,7 +332,7 @@ class TestTriggerTemperatureChangeGuards:
             await trigger_temperature_change(mock_bt, event)
 
         mock_ir.async_create_issue.assert_called_once()
-        mock_bt.control_queue_task.put.assert_not_awaited()
+        mock_bt.control_queue_task.put_nowait.assert_not_called()
 
     @pytest.mark.asyncio
     async def test_returns_early_temp_below_minus_50(self, mock_bt):
@@ -346,7 +346,7 @@ class TestTriggerTemperatureChangeGuards:
             await trigger_temperature_change(mock_bt, event)
 
         mock_ir.async_create_issue.assert_called_once()
-        mock_bt.control_queue_task.put.assert_not_awaited()
+        mock_bt.control_queue_task.put_nowait.assert_not_called()
 
     @pytest.mark.asyncio
     async def test_first_run_accepts_via_first_reading_path(self, mock_bt):
@@ -357,7 +357,7 @@ class TestTriggerTemperatureChangeGuards:
 
         await trigger_temperature_change(mock_bt, event)
 
-        mock_bt.control_queue_task.put.assert_awaited_once()
+        mock_bt.control_queue_task.put_nowait.assert_called_once()
         assert mock_bt.cur_temp == 21.0
 
 
@@ -382,7 +382,7 @@ class TestTemperatureAcceptance:
 
         await trigger_temperature_change(mock_bt, event)
 
-        mock_bt.control_queue_task.put.assert_awaited_once()
+        mock_bt.control_queue_task.put_nowait.assert_called_once()
         assert mock_bt.cur_temp == 21.0
 
     @pytest.mark.asyncio
@@ -395,7 +395,7 @@ class TestTemperatureAcceptance:
         await trigger_temperature_change(mock_bt, event)
 
         assert mock_bt.cur_temp == 21.0
-        mock_bt.control_queue_task.put.assert_awaited_once()
+        mock_bt.control_queue_task.put_nowait.assert_called_once()
 
     @pytest.mark.asyncio
     async def test_significant_change_within_debounce_rejected(self, mock_bt):
@@ -411,7 +411,7 @@ class TestTemperatureAcceptance:
         await trigger_temperature_change(mock_bt, event)
 
         assert mock_bt.cur_temp == 20.0
-        mock_bt.control_queue_task.put.assert_not_awaited()
+        mock_bt.control_queue_task.put_nowait.assert_not_called()
 
     @pytest.mark.asyncio
     async def test_homematicip_within_600s_rejected(self, mock_bt):
@@ -424,7 +424,7 @@ class TestTemperatureAcceptance:
         await trigger_temperature_change(mock_bt, event)
 
         assert mock_bt.cur_temp == 20.0
-        mock_bt.control_queue_task.put.assert_not_awaited()
+        mock_bt.control_queue_task.put_nowait.assert_not_called()
 
     @pytest.mark.asyncio
     async def test_sub_threshold_change_not_accepted_immediately(self, mock_bt):
@@ -435,7 +435,7 @@ class TestTemperatureAcceptance:
 
         await trigger_temperature_change(mock_bt, event)
 
-        mock_bt.control_queue_task.put.assert_not_awaited()
+        mock_bt.control_queue_task.put_nowait.assert_not_called()
 
     @pytest.mark.asyncio
     async def test_identical_temp_not_accepted(self, mock_bt):
@@ -446,7 +446,7 @@ class TestTemperatureAcceptance:
 
         await trigger_temperature_change(mock_bt, event)
 
-        mock_bt.control_queue_task.put.assert_not_awaited()
+        mock_bt.control_queue_task.put_nowait.assert_not_called()
 
     @pytest.mark.asyncio
     async def test_accepted_temp_written_to_cur_temp(self, mock_bt):
@@ -491,7 +491,7 @@ class TestAccumulationTracking:
 
         assert mock_bt.accum_delta == 0.05
         assert mock_bt.accum_dir == 1
-        mock_bt.control_queue_task.put.assert_not_awaited()
+        mock_bt.control_queue_task.put_nowait.assert_not_called()
 
     @pytest.mark.asyncio
     async def test_accumulated_change_accepted_above_threshold(self, mock_bt):
@@ -504,7 +504,7 @@ class TestAccumulationTracking:
         await trigger_temperature_change(mock_bt, event)
 
         # accum_delta = 0.08 + 0.05 = 0.13 >= 0.11 threshold
-        mock_bt.control_queue_task.put.assert_awaited_once()
+        mock_bt.control_queue_task.put_nowait.assert_called_once()
         assert mock_bt.accum_delta == 0.0  # reset after accept
 
     @pytest.mark.asyncio
@@ -523,7 +523,7 @@ class TestAccumulationTracking:
         await trigger_temperature_change(mock_bt, event)
 
         # interval_ok=False → neither "significant" nor "accumulated" → rejected
-        mock_bt.control_queue_task.put.assert_not_awaited()
+        mock_bt.control_queue_task.put_nowait.assert_not_called()
 
     @pytest.mark.asyncio
     async def test_accum_resets_on_direction_flip(self, mock_bt):
@@ -586,7 +586,7 @@ class TestPlateauLogic:
 
         # Plateau age 300s >= 120s window → accepted directly, no timer needed
         mock_timer.assert_not_called()
-        mock_bt.control_queue_task.put.assert_awaited_once()
+        mock_bt.control_queue_task.put_nowait.assert_called_once()
 
     @pytest.mark.asyncio
     async def test_plateau_timer_scheduled_for_new_pending(self, mock_bt):
@@ -602,7 +602,7 @@ class TestPlateauLogic:
 
         # Sub-threshold, just set pending → timer scheduled for PLATEAU_ACCEPT_WINDOW
         mock_timer.assert_called_once()
-        mock_bt.control_queue_task.put.assert_not_awaited()
+        mock_bt.control_queue_task.put_nowait.assert_not_called()
 
     @pytest.mark.asyncio
     async def test_sub_threshold_accumulated_to_significant(self, mock_bt):
@@ -616,7 +616,7 @@ class TestPlateauLogic:
         await trigger_temperature_change(mock_bt, event)
 
         # accum_delta = 0.10 + 0.05 = 0.15 >= 0.11 → accepted as "accumulated"
-        mock_bt.control_queue_task.put.assert_awaited_once()
+        mock_bt.control_queue_task.put_nowait.assert_called_once()
 
 
 # ---------------------------------------------------------------------------

@@ -63,7 +63,7 @@ async def test_outdoor_change_flips_call_for_heat_enqueues_control():
     assert bt.call_for_heat is False
     assert bt._last_call_for_heat is False
     bt.async_write_ha_state.assert_called_once()
-    bt.control_queue_task.put.assert_awaited_once_with(bt)
+    bt.control_queue_task.put_nowait.assert_called_once_with(bt)
 
 
 @pytest.mark.asyncio
@@ -75,7 +75,7 @@ async def test_outdoor_change_no_flip_does_not_enqueue():
         await BetterThermostat._trigger_outdoor_change(bt, event=MagicMock())
 
     bt.async_write_ha_state.assert_not_called()
-    bt.control_queue_task.put.assert_not_awaited()
+    bt.control_queue_task.put_nowait.assert_not_called()
 
 
 @pytest.mark.asyncio
@@ -87,7 +87,7 @@ async def test_outdoor_change_skips_when_critical_unavailable():
         await BetterThermostat._trigger_outdoor_change(bt, event=MagicMock())
 
     bt._ambient_mock.assert_not_awaited()
-    bt.control_queue_task.put.assert_not_awaited()
+    bt.control_queue_task.put_nowait.assert_not_called()
 
 
 @pytest.mark.asyncio
@@ -101,4 +101,4 @@ async def test_outdoor_change_skips_during_maintenance():
         await BetterThermostat._trigger_outdoor_change(bt, event=MagicMock())
 
     bt._ambient_mock.assert_not_awaited()
-    bt.control_queue_task.put.assert_not_awaited()
+    bt.control_queue_task.put_nowait.assert_not_called()

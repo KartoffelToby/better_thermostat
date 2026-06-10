@@ -16,6 +16,7 @@ from custom_components.better_thermostat.core.fsm.window import (
     WindowParams,
     step as window_step,
 )
+from custom_components.better_thermostat.utils.scheduler import request_control_cycle
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -162,9 +163,7 @@ async def window_queue(self):
                             # until maintenance ends.
                             self._control_needed_after_maintenance = True
                         else:
-                            if not self.control_queue_task.empty():
-                                empty_queue(self.control_queue_task)
-                            await self.control_queue_task.put(self)
+                            request_control_cycle(self, replace_pending=True)
             except asyncio.CancelledError:
                 _LOGGER.debug(
                     "better_thermostat %s: Window queue processing cancelled",
@@ -178,13 +177,3 @@ async def window_queue(self):
             "better_thermostat %s: Window queue task cancelled", self.device_name
         )
         raise
-
-
-def empty_queue(q: asyncio.Queue):
-    """Empty out a Queue of pending items.
-
-    Consumes all pending items from the queue and marks them as done.
-    """
-    for _ in range(q.qsize()):
-        q.get_nowait()
-        q.task_done()

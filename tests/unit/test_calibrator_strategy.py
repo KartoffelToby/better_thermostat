@@ -63,11 +63,11 @@ class _StubCalibrator:
         return 42.0 if self._ready else None
 
     def capability(self):
-        """Configured always; healthy/ready follow observations."""
+        """Report configured always; healthy/ready follow observations."""
         return Capability(configured=True, healthy=self._ready, ready=self._ready)
 
     def health(self):
-        """Always healthy in the stub."""
+        """Report healthy unconditionally in the stub."""
         return CalibratorHealth.HEALTHY
 
 
