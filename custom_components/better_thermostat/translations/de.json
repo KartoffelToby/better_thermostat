@@ -123,7 +123,7 @@
     },
     "degraded_mode": {
       "title": "BT: {name} - Sensorfehler: {sensors} läuft im eingeschränkten Modus",
-      "description": "Better Thermostat läuft im eingeschränkten Modus, da einige Sensoren nicht verfügbar sind: {sensors}\n\nDer Thermostat arbeitet mit reduzierter Funktionalität weiter. Zum Beispiel:\n- Wenn der Raumtemperatursensor nicht verfügbar ist, wird stattdessen der interne Sensor des TRV verwendet.\n- Wenn Fenstersensoren nicht verfügbar sind, wird angenommen, dass die Fenster geschlossen sind.\n- Wenn Außen-/Wettersensoren nicht verfügbar sind, wird die Heizung immer aktiviert sein.\n\nÜberprüfen Sie, ob die betroffenen Geräte Batterieprobleme oder Verbindungsprobleme haben."
+      "description": "Better Thermostat läuft im eingeschränkten Modus, da einige Sensoren nicht verfügbar sind: {sensors}\n\nDer Thermostat regelt weiter und stuft sich kontrolliert herab:\n- Ist der Raumtemperatursensor nicht verfügbar, ersetzt der Mittelwert der TRV-internen Temperaturen den Messwert.\n- Sind weder Raumsensor noch eine TRV-Temperatur nutzbar, stoppt der Thermostat die Anpassungen und behält den zuletzt gesendeten Zustand bei; der Frostschutz bleibt aktiv.\n- Ist der Fenstersensor nicht verfügbar, gilt das Fenster als offen und die Heizung pausiert — nicht zum unbekannten Fenster hinauszuheizen ist die sichere Richtung.\n- Sind Außen-/Wettersensoren nicht verfügbar, bleibt das Heizen aktiviert.\n\nPrüfen Sie, ob die betroffenen Geräte Batterie- oder Verbindungsprobleme haben. Diese Meldung verschwindet von selbst, sobald alle Sensoren wieder verfügbar sind."
     },
     "invalid_window_state": {
       "title": "BT: {name} - ungültiger Fenstersensor-Status",
