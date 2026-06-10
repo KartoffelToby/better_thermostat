@@ -293,7 +293,7 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
     # Thermal tracker properties
     # Used by: extra_state_attributes, helpers.py, sensor.py,
     #          _restore_state, _hydrate_thermal_from_state,
-    #          _record_thermal_to_state
+    #          _record_runtime_to_state
     # TODO: Eliminate most of these by accessing trackers directly.
     #   - heating_power_normalized, last_heating_power_stats, heating_cycles,
     #     last_heat_loss_stats, loss_cycles: only read by extra_state_attributes
@@ -868,7 +868,7 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
                 self._save_cancel = None
             if self.state_mgr is not None:
                 try:
-                    self._record_thermal_to_state()
+                    self._record_runtime_to_state()
                     self.hass.async_create_background_task(
                         self.state_mgr.flush(),
                         name=f"bt_state_flush_{self.device_name}",
@@ -2277,12 +2277,16 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
         if filters.temp_slope is not None:
             self.temp_slope = filters.temp_slope
 
-    def _record_thermal_to_state(self) -> None:
-        """Push the entity-held thermal stats into the StateManager."""
+    def _record_runtime_to_state(self) -> None:
+        """Push the entity-held thermal stats and filters into the StateManager."""
         if self.state_mgr is None:
             return
         self.state_mgr.record_thermal(
             getattr(self, "heating_power", None), getattr(self, "heat_loss_rate", None)
+        )
+        self.state_mgr.record_filters(
+            getattr(self, "external_temp_ema", None),
+            getattr(self, "temp_slope", None),
         )
 
     @callback
@@ -2306,7 +2310,7 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
         async def _do_save(_now: object) -> None:
             self._save_cancel = None
             try:
-                self._record_thermal_to_state()
+                self._record_runtime_to_state()
                 await state_mgr.save_if_dirty()
             except Exception:
                 _LOGGER.exception(
