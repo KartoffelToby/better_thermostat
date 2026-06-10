@@ -53,6 +53,16 @@ def _budget_open(last_write: float | None, now_monotonic: float) -> bool:
     return last_write is None or now_monotonic - last_write >= MIN_WRITE_INTERVAL_S
 
 
+def _stamp_heartbeat(self) -> None:
+    """Record that a control cycle ran to a deliberate decision.
+
+    Skipping an unavailable TRV or deferring a write to the budget is
+    such a decision; error paths that bail out without one deliberately
+    leave the stamp alone so the watchdog can detect a silent hang.
+    """
+    self.kernel_state.last_control_monotonic = self.clock.monotonic()
+
+
 def _is_boost_heating_active(self) -> bool:
     """Check if boost mode is active and heating is needed.
 
@@ -552,6 +562,7 @@ async def control_trv(self, heater_entity_id=None, cycle=None):
                 self.device_name,
                 heater_entity_id,
             )
+            _stamp_heartbeat(self)
             self.real_trvs[heater_entity_id].ignore_trv_states = False
             return True
 
@@ -748,6 +759,7 @@ async def control_trv(self, heater_entity_id=None, cycle=None):
                     self.device_name,
                     heater_entity_id,
                 )
+                _stamp_heartbeat(self)
                 self.real_trvs[heater_entity_id].ignore_trv_states = False
                 return True
 
@@ -838,6 +850,7 @@ async def control_trv(self, heater_entity_id=None, cycle=None):
                         heater_entity_id,
                         now_mono - trv_entry.last_write_monotonic,
                     )
+                    _stamp_heartbeat(self)
                     await asyncio.sleep(3)
                     self.real_trvs[heater_entity_id].ignore_trv_states = False
                     return True
@@ -860,7 +873,7 @@ async def control_trv(self, heater_entity_id=None, cycle=None):
                     )
 
     # Watchdog heartbeat: the control loop demonstrably ran.
-    self.kernel_state.last_control_monotonic = self.clock.monotonic()
+    _stamp_heartbeat(self)
 
     # Let TRV state updates propagate before accepting new state events
     await asyncio.sleep(3)

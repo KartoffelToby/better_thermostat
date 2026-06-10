@@ -123,6 +123,76 @@ def _control_bt():
     return bt
 
 
+class TestWatchdogHeartbeat:
+    """Every deliberate control_trv outcome refreshes the watchdog.
+
+    The watchdog detects the silent hang. Skipping an unavailable TRV,
+    deferring a write to the budget, or skipping calibration on a failed
+    offset read are deliberate decisions of a live loop — without a
+    heartbeat they read as a stall and produce a forced cycle (and an
+    ERROR log) every reconcile tick.
+    """
+
+    @pytest.mark.asyncio
+    async def test_unavailable_trv_stamps_heartbeat(self):
+        """The unavailable-TRV skip still counts as a completed cycle."""
+        bt = _control_bt()
+        bt.hass.states.get.return_value = None
+        bt.clock.advance(50.0)
+        with patch("asyncio.sleep", new=AsyncMock()):
+            result = await control_trv(bt, "climate.trv")
+        assert result is True
+        assert bt.kernel_state.last_control_monotonic == 50.0
+
+    async def _run_setpoint(self, bt, target):
+        with (
+            patch(f"{_CTRL}.convert_outbound_states") as conv,
+            patch(f"{_CTRL}.set_temperature", new=AsyncMock()) as set_temp,
+            patch(f"{_CTRL}.set_hvac_mode", new=AsyncMock()),
+            patch(f"{_CTRL}.override_set_hvac_mode", new=AsyncMock(return_value=False)),
+            patch("asyncio.sleep", new=AsyncMock()),
+        ):
+            conv.return_value = {"temperature": target, "system_mode": HVACMode.HEAT}
+            await control_trv(bt, "climate.trv")
+        return set_temp
+
+    @pytest.mark.asyncio
+    async def test_budget_deferred_write_stamps_heartbeat(self):
+        """A budget-deferred setpoint write still counts as a cycle."""
+        bt = _control_bt()
+        await self._run_setpoint(bt, target=22.0)
+        bt.clock.advance(10.0)
+        set_temp = await self._run_setpoint(bt, target=23.0)
+        set_temp.assert_not_called()
+        assert bt.kernel_state.last_control_monotonic == 10.0
+
+    @pytest.mark.asyncio
+    async def test_failed_offset_read_stamps_heartbeat(self):
+        """A calibration skipped on a failed offset read still counts."""
+        bt = _control_bt()
+        bt.real_trvs["climate.trv"].advanced = {
+            "calibration_mode": CalibrationMode.DEFAULT,
+            "calibration": CalibrationType.LOCAL_BASED,
+            "no_off_system_mode": False,
+        }
+        bt.clock.advance(70.0)
+        with (
+            patch(f"{_CTRL}.convert_outbound_states") as conv,
+            patch(f"{_CTRL}._get_valve_control", return_value=(None, None)),
+            patch(f"{_CTRL}.get_current_offset", new=AsyncMock(return_value=None)),
+            patch(f"{_CTRL}.set_hvac_mode", new=AsyncMock()),
+            patch(f"{_CTRL}.override_set_hvac_mode", new=AsyncMock(return_value=False)),
+            patch("asyncio.sleep", new=AsyncMock()),
+        ):
+            conv.return_value = {
+                "local_temperature_calibration": 1.0,
+                "system_mode": HVACMode.HEAT,
+            }
+            result = await control_trv(bt, "climate.trv")
+        assert result is True
+        assert bt.kernel_state.last_control_monotonic == 70.0
+
+
 class TestWriteBudget:
     """Non-safety setpoint writes keep a minimum spacing per TRV."""
 
