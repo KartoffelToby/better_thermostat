@@ -34,6 +34,7 @@ from custom_components.better_thermostat.utils.const import (
 from custom_components.better_thermostat.utils.helpers import (
     attr_to_celsius,
     convert_to_float,
+    state_temperature_unit,
 )
 from custom_components.better_thermostat.utils.scheduler import request_control_cycle
 from custom_components.better_thermostat.utils.snapshot import build_snapshot
@@ -157,6 +158,31 @@ def compute_control_cycle(self):
     return snapshot, desired
 
 
+def _reconcile_tolerance(self, state) -> float:
+    """Per-device tolerance for the commanded-vs-reported comparison.
+
+    Devices snap a written setpoint onto their own reported grid; a
+    snapped value sits at most half a step away from the commanded one.
+    The base tolerance covers devices that report no usable step.
+    """
+    step = convert_to_float(
+        str(state.attributes.get("target_temp_step")),
+        self.device_name,
+        "reconcile()",
+    )
+    if step is None or step <= 0:
+        return RECONCILE_TOLERANCE_K
+    unit = state_temperature_unit(
+        state.attributes, self.hass.config.units.temperature_unit
+    )
+    if unit is not None and unit != UnitOfTemperature.CELSIUS:
+        step = TemperatureConverter.convert_interval(
+            step, unit, UnitOfTemperature.CELSIUS
+        )
+    # Slack against float noise when the difference is exactly half a step.
+    return max(RECONCILE_TOLERANCE_K, step / 2.0 + 1e-6)
+
+
 def desired_diverges(self, snapshot, desired) -> bool:
     """Whether any TRV's reported state diverges from the clamped intent.
 
@@ -192,7 +218,8 @@ def desired_diverges(self, snapshot, desired) -> bool:
         if (
             commanded is not None
             and reported_target is not None
-            and abs(float(commanded) - float(reported_target)) > RECONCILE_TOLERANCE_K
+            and abs(float(commanded) - float(reported_target))
+            > _reconcile_tolerance(self, state)
         ):
             return True
     return False

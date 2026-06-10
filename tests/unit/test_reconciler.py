@@ -129,6 +129,34 @@ class TestReconcileTick:
         bt.control_queue_task.put_nowait.assert_called_once()
 
     @pytest.mark.asyncio
+    async def test_device_grid_snap_within_half_step_is_converged(self):
+        """A device snapping a written setpoint onto its own coarser grid
+        moves it by at most half a reported step — that is convergence."""
+        bt = _make_bt(reported_target=21.5, commanded=21.3)
+        bt.hass.states.get.return_value.attributes["target_temp_step"] = 0.5
+        await reconcile_tick(bt)
+        bt.control_queue_task.put_nowait.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_divergence_beyond_half_step_still_detected(self):
+        """More than half a step apart is a genuinely lost write."""
+        bt = _make_bt(reported_target=22.0, commanded=21.3)
+        bt.hass.states.get.return_value.attributes["target_temp_step"] = 0.5
+        await reconcile_tick(bt)
+        bt.control_queue_task.put_nowait.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_fahrenheit_step_is_compared_as_a_delta(self):
+        """A °F device's step converts as an interval, not a temperature."""
+        bt = _make_bt(reported_target=70.0, commanded=21.3)
+        bt.hass.config.units.temperature_unit = "°F"
+        # 70 °F reports as ~21.1 °C; |21.3 - 21.1| = 0.2 K is within half
+        # of a 1 °F (~0.56 K) step.
+        bt.hass.states.get.return_value.attributes["target_temp_step"] = 1.0
+        await reconcile_tick(bt)
+        bt.control_queue_task.put_nowait.assert_not_called()
+
+    @pytest.mark.asyncio
     async def test_paused_during_startup_and_maintenance(self):
         """The tick is inert while startup or ignore_states is active."""
         bt = _make_bt(reported_target=18.0)
