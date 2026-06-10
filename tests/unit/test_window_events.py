@@ -62,7 +62,7 @@ class TestTriggerWindowChange:
         bt = _make_bt(sensor_state="on", open_delay=10)
         await trigger_window_change(bt, _event("on"))
         assert bt.kernel_state.window.phase == WindowPhase.OPENING
-        assert bt.window_queue_task.get_nowait() == (True, False)
+        assert bt.window_queue_task.get_nowait() is False
         # Heating power learning is disabled for the open period.
         assert bt._heating_tracker.start_temp is None
 
@@ -72,7 +72,7 @@ class TestTriggerWindowChange:
         bt = _make_bt(sensor_state="off", window_open=True, close_delay=10)
         await trigger_window_change(bt, _event("off"))
         assert bt.kernel_state.window.phase == WindowPhase.CLOSING
-        assert bt.window_queue_task.get_nowait() == (False, True)
+        assert bt.window_queue_task.get_nowait() is True
 
     @pytest.mark.asyncio
     async def test_unknown_sensor_state_is_treated_as_open(self):
@@ -80,7 +80,7 @@ class TestTriggerWindowChange:
         bt = _make_bt(sensor_state="unknown", open_delay=10)
         await trigger_window_change(bt, _event("unknown"))
         assert bt.kernel_state.window.phase == WindowPhase.OPENING
-        assert bt.window_queue_task.get_nowait() == (True, False)
+        assert bt.window_queue_task.get_nowait() is False
 
     @pytest.mark.asyncio
     async def test_unchanged_state_is_skipped(self):
@@ -144,12 +144,23 @@ class TestWindowQueue:
 
     @pytest.mark.asyncio
     async def test_false_positive_does_not_commit(self):
-        """A sensor that reverted before the re-check changes nothing."""
-        bt = _make_bt(sensor_state="on", open_delay=0)
+        """A sensor that reverted within the debounce window changes nothing.
+
+        With a zero delay there is no debounce window — the transition
+        commits at the event itself — so the false positive only exists
+        for a configured delay.
+        """
+        bt = _make_bt(sensor_state="on", open_delay=5)
         await trigger_window_change(bt, _event("on"))
-        # The sensor reads 'off' again by the time the queue re-checks.
+        # The sensor reads 'off' again by the time the wait elapses.
         bt.hass.states.get.return_value.state = "off"
-        await _run_queue_once(bt)
+
+        async def fake_sleep(seconds):
+            bt.clock.advance(seconds)
+
+        with patch(f"{_WINDOW}.asyncio.sleep", side_effect=fake_sleep):
+            await _run_queue_once(bt)
+
         assert bt.kernel_state.window.phase == WindowPhase.CLOSED
         assert bt.kernel_state.window.effective_open is False
         assert bt.control_queue_task.empty()
@@ -164,6 +175,46 @@ class TestWindowQueue:
         assert bt.kernel_state.window.effective_open is True
         assert bt.control_queue_task.empty()
         assert bt._control_needed_after_maintenance is True
+
+    @pytest.mark.asyncio
+    async def test_delay_raised_mid_flight_still_commits(self):
+        """A delay reconfigured during the debounce extends the wait instead
+        of stranding the region in OPENING."""
+        bt = _make_bt(sensor_state="on", open_delay=5)
+        await trigger_window_change(bt, _event("on"))
+
+        slept = []
+
+        async def fake_sleep(seconds):
+            slept.append(seconds)
+            bt.clock.advance(seconds)
+            # The user raises the delay while the first wait runs.
+            bt.window_delay = 30
+
+        with patch(f"{_WINDOW}.asyncio.sleep", side_effect=fake_sleep):
+            await _run_queue_once(bt)
+
+        assert slept == [5, 25]
+        assert bt.kernel_state.window.phase == WindowPhase.OPEN
+        assert bt.control_queue_task.qsize() == 1
+
+    @pytest.mark.asyncio
+    async def test_reopen_during_close_debounce_cancels_without_kick(self):
+        """A window reopened during the close debounce stays open and does
+        not kick the control queue."""
+        bt = _make_bt(sensor_state="off", window_open=True, close_delay=5)
+        await trigger_window_change(bt, _event("off"))
+        # The sensor reads 'on' again by the time the wait elapses.
+        bt.hass.states.get.return_value.state = "on"
+
+        async def fake_sleep(seconds):
+            bt.clock.advance(seconds)
+
+        with patch(f"{_WINDOW}.asyncio.sleep", side_effect=fake_sleep):
+            await _run_queue_once(bt)
+
+        assert bt.kernel_state.window.phase == WindowPhase.OPEN
+        assert bt.control_queue_task.empty()
 
     @pytest.mark.asyncio
     async def test_pending_control_items_are_replaced(self):
