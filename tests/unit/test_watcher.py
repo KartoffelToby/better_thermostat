@@ -283,6 +283,37 @@ class TestCheckAndUpdateDegradedMode:
         assert "binary_sensor.window" in mock_bt_instance.unavailable_sensors
 
     @pytest.mark.anyio
+    async def test_ladder_reaches_hold_when_all_trvs_unavailable(
+        self, mock_bt_instance
+    ):
+        """Stored TRV temperatures from before an outage must not keep the
+        ladder off the HOLD rung once every TRV is unavailable."""
+        from custom_components.better_thermostat.core.fsm.control_mode import (
+            ControlMode,
+        )
+        from custom_components.better_thermostat.utils.watcher import (
+            check_and_update_degraded_mode,
+        )
+
+        for trv in mock_bt_instance.real_trvs.values():
+            trv.current_temperature = 21.0
+
+        def mock_get(entity_id):
+            state = MagicMock()
+            state.state = "unavailable"
+            return state
+
+        mock_bt_instance.hass.states.get.side_effect = mock_get
+
+        with patch("custom_components.better_thermostat.utils.watcher.ir"):
+            await check_and_update_degraded_mode(mock_bt_instance)
+            # Downgrades commit after the down-debounce window.
+            mock_bt_instance.clock.advance(121.0)
+            await check_and_update_degraded_mode(mock_bt_instance)
+
+        assert mock_bt_instance.kernel_state.control_mode.mode == ControlMode.HOLD
+
+    @pytest.mark.anyio
     async def test_no_degraded_mode_when_all_sensors_available(self, mock_bt_instance):
         """Test that degraded_mode is False when all sensors are available."""
         from custom_components.better_thermostat.utils.watcher import (

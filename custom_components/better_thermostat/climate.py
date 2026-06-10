@@ -1801,13 +1801,21 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
             trv_data.last_temperature = attr_to_celsius(
                 self, _s, "temperature", None, "startup()"
             )
-            trv_data.current_temperature = convert_to_float_celsius(
-                str(_attrs.get("current_temperature") or 5),
-                self.device_name,
-                "startup()",
-                unit_of_measurement=state_temperature_unit(
-                    _attrs, self.hass.config.units.temperature_unit
-                ),
+            # No reading is no reading: a fabricated value would feed
+            # SENSOR_FALLBACK as if it were live and keep the ladder's
+            # HOLD rung unreachable.
+            _raw_current_temp = _attrs.get("current_temperature")
+            trv_data.current_temperature = (
+                convert_to_float_celsius(
+                    str(_raw_current_temp),
+                    self.device_name,
+                    "startup()",
+                    unit_of_measurement=state_temperature_unit(
+                        _attrs, self.hass.config.units.temperature_unit
+                    ),
+                )
+                if _raw_current_temp is not None
+                else None
             )
     async def _startup_control_trvs(self) -> None:
         """Write the initial mode/setpoint/calibration to every TRV.

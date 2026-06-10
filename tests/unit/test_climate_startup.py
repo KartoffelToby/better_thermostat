@@ -547,7 +547,64 @@ class TestRestoreState:
 
 
 # ---------------------------------------------------------------------------
-# 6. Initial TRV sync (_finalize_startup / _startup_control_trvs)
+# 6. TRV attribute initialization (_initialize_trvs)
+# ---------------------------------------------------------------------------
+
+
+class TestInitializeTrvCurrentTemperature:
+    """Startup must not fabricate a TRV-internal temperature.
+
+    A seeded value would feed SENSOR_FALLBACK as if it were live and
+    keep the fail-soft ladder's HOLD rung unreachable forever.
+    """
+
+    def _trv_only_bt(self, bt, attrs):
+        from custom_components.better_thermostat.trv import Trv
+
+        bt.real_trvs = {
+            TRV_ID: Trv.from_legacy_dict(TRV_ID, {"calibration": 1, "advanced": {}})
+        }
+        bt.hass.config.units.temperature_unit = "°C"
+        bt.hass.states.get.return_value = _make_trv_state(attrs=attrs)
+        return bt
+
+    @pytest.mark.asyncio
+    async def test_missing_current_temperature_stays_none(self, bt):
+        """No reading at startup leaves the field unset."""
+        bt = self._trv_only_bt(bt, {"current_temperature": None})
+        with (
+            patch(
+                "custom_components.better_thermostat.climate.init",
+                AsyncMock(),
+            ),
+            patch(
+                "custom_components.better_thermostat.climate.inital_tweak",
+                AsyncMock(),
+            ),
+        ):
+            await BetterThermostat._initialize_trvs(bt)
+        assert bt.real_trvs[TRV_ID].current_temperature is None
+
+    @pytest.mark.asyncio
+    async def test_zero_current_temperature_is_kept(self, bt):
+        """A legitimate 0.0° reading is a reading, not a missing value."""
+        bt = self._trv_only_bt(bt, {"current_temperature": 0.0})
+        with (
+            patch(
+                "custom_components.better_thermostat.climate.init",
+                AsyncMock(),
+            ),
+            patch(
+                "custom_components.better_thermostat.climate.inital_tweak",
+                AsyncMock(),
+            ),
+        ):
+            await BetterThermostat._initialize_trvs(bt)
+        assert bt.real_trvs[TRV_ID].current_temperature == 0.0
+
+
+# ---------------------------------------------------------------------------
+# 7. Initial TRV sync (_finalize_startup / _startup_control_trvs)
 # ---------------------------------------------------------------------------
 
 
