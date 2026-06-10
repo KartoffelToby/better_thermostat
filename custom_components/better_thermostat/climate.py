@@ -129,7 +129,12 @@ from .utils.const import (
     CalibrationMode,
     CalibrationType,
 )
-from .utils.controlling import control_queue, control_trv, reconcile_tick
+from .utils.controlling import (
+    compute_control_cycle,
+    control_queue,
+    control_trv,
+    reconcile_tick,
+)
 from .utils.helpers import (
     attr_to_celsius,
     convert_to_float,
@@ -1823,14 +1828,23 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
 
         Must run after the lifecycle gate has opened: while startup is
         running, decide() addresses no TRVs and a control cycle writes
-        nothing.
+        nothing. One observation and decision covers every TRV; without
+        it each call would build its own snapshot and recorder entry.
         """
+        try:
+            cycle = compute_control_cycle(self)
+        except Exception:
+            _LOGGER.exception(
+                "better_thermostat %s: ERROR computing the startup control cycle",
+                self.device_name,
+            )
+            cycle = None
         for trv in self.real_trvs:
             _LOGGER.debug(
                 "better_thermostat %s: controlling TRV %s...", self.device_name, trv
             )
             try:
-                await asyncio.wait_for(control_trv(self, trv), timeout=10)
+                await asyncio.wait_for(control_trv(self, trv, cycle=cycle), timeout=10)
                 _LOGGER.debug(
                     "better_thermostat %s: TRV %s controlled", self.device_name, trv
                 )

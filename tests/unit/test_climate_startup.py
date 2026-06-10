@@ -635,6 +635,25 @@ class TestStartupControlSync:
         assert [call.args[1] for call in ctl.call_args_list] == [TRV_ID, TRV_ID_2]
 
     @pytest.mark.asyncio
+    async def test_startup_control_trvs_computes_one_cycle_for_all(self, bt):
+        """All TRVs are synced from one observation and decision."""
+        bt.real_trvs = {TRV_ID: {}, TRV_ID_2: {}}
+        cycle = object()
+        with (
+            patch(
+                f"{_CLIMATE}.compute_control_cycle", return_value=cycle
+            ) as compute,
+            patch(f"{_CLIMATE}.control_trv", AsyncMock(return_value=True)) as ctl,
+        ):
+            await BetterThermostat._startup_control_trvs(bt)
+
+        compute.assert_called_once()
+        assert [call.kwargs.get("cycle") for call in ctl.call_args_list] == [
+            cycle,
+            cycle,
+        ]
+
+    @pytest.mark.asyncio
     async def test_startup_control_trvs_survives_a_failing_trv(self, bt):
         """An error on one TRV must not stop the sync of the others."""
         bt.real_trvs = {TRV_ID: {}, TRV_ID_2: {}}
