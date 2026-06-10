@@ -1,49 +1,11 @@
 """Pure tests for the decision kernel — snapshot in, desired out, no HA."""
 
-from datetime import UTC, datetime
-
-from custom_components.better_thermostat.core.decide import (
-    KernelState,
-    decide,
-    running_kernel_state,
-)
+from custom_components.better_thermostat.core.decide import KernelState, decide
 from custom_components.better_thermostat.core.fsm.lifecycle import LifecycleState
 from custom_components.better_thermostat.core.fsm.mode import ModeState
 from custom_components.better_thermostat.core.fsm.window import WindowPhase, WindowState
-from custom_components.better_thermostat.core.snapshot import (
-    HvacMode,
-    TrvReported,
-    WorldSnapshot,
-)
-
-
-def make_state(**overrides) -> KernelState:
-    """Return a post-startup KernelState; overridable per test."""
-    state = running_kernel_state()
-    for key, value in overrides.items():
-        setattr(state, key, value)
-    return state
-
-
-def make_snapshot(**overrides) -> WorldSnapshot:
-    """Return a heating-mode snapshot with two TRVs; overridable per test."""
-    defaults = {
-        "now": datetime(2026, 1, 2, 8, 30, tzinfo=UTC),
-        "now_monotonic": 1000.0,
-        "target_temp": 21.0,
-        "hvac_mode": HvacMode.HEAT,
-        "room_temp": 19.5,
-        "window_open": False,
-        "call_for_heat": True,
-        "tolerance": 0.3,
-        "startup_running": False,
-        "trvs": {
-            "climate.trv1": TrvReported(entity_id="climate.trv1"),
-            "climate.trv2": TrvReported(entity_id="climate.trv2"),
-        },
-    }
-    defaults.update(overrides)
-    return WorldSnapshot(**defaults)
+from custom_components.better_thermostat.core.snapshot import HvacMode, TrvReported
+from tests.factories import make_snapshot, make_state
 
 
 class TestLifecycleGate:
