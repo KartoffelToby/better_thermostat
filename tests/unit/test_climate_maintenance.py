@@ -13,6 +13,11 @@ import pytest
 
 from custom_components.better_thermostat.climate import BetterThermostat
 from custom_components.better_thermostat.core.decide import KernelState
+from custom_components.better_thermostat.core.fsm.maintenance import (
+    MAX_RUN_S,
+    MaintenancePhase,
+    MaintenanceState,
+)
 
 _CLIMATE = "custom_components.better_thermostat.climate"
 _NOW = datetime(2026, 1, 1, 12, 0, tzinfo=UTC)
@@ -122,6 +127,37 @@ async def test_no_enabled_trvs_schedules_far_future(bt):
         await BetterThermostat._maintenance_tick(bt)
     assert bt.next_valve_maintenance == _NOW + timedelta(days=7)
     bt.hass.async_create_background_task.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_schedule_resync_keeps_running_since(bt):
+    """Re-syncing the schedule must not turn a stale run into a permanent block.
+
+    A RUNNING region older than MAX_RUN_S no longer blocks. When the
+    legacy schedule attribute diverges from the region's next_due, the
+    resync has to carry running_since along — dropping it would recreate
+    a RUNNING region without a timestamp, which blocks unconditionally.
+    """
+    stale_now = MAX_RUN_S + 1.0
+    bt.clock.monotonic.return_value = stale_now
+    bt.kernel_state.maintenance = MaintenanceState(
+        phase=MaintenancePhase.RUNNING,
+        next_due=_NOW - timedelta(hours=2),
+        running_since=0.0,
+    )
+    bt.next_valve_maintenance = _NOW
+    with (
+        patch(f"{_CLIMATE}.check_critical_entities", AsyncMock(return_value=True)),
+        patch(f"{_CLIMATE}.check_and_update_degraded_mode", AsyncMock()),
+        patch(
+            f"{_CLIMATE}.collect_maintenance_trvs",
+            MagicMock(return_value=["climate.trv"]),
+        ),
+    ):
+        await BetterThermostat._maintenance_tick(bt)
+    region = bt.kernel_state.maintenance
+    assert region.running_since == 0.0
+    assert region.is_blocking(stale_now) is False
 
 
 @pytest.mark.asyncio

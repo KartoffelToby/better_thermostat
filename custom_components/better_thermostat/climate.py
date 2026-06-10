@@ -2101,7 +2101,11 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
         if not isinstance(schedule, datetime):
             schedule = None
         if region.next_due != schedule:
-            region = MaintenanceState(phase=region.phase, next_due=schedule)
+            region = MaintenanceState(
+                phase=region.phase,
+                next_due=schedule,
+                running_since=region.running_since,
+            )
         region = maintenance_evaluate_tick(
             region,
             now,
