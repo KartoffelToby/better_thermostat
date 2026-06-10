@@ -243,7 +243,10 @@ class TestControlQueue:
                 pass
 
             # Should have called control_cooler
-            mock_control_cooler.assert_called_once_with(mock_self)
+            # The cooler runs on the cycle's snapshot (None here: the
+            # mocked compute_control_cycle yielded no cycle).
+            mock_control_cooler.assert_called_once()
+            assert mock_control_cooler.call_args.args[0] is mock_self
 
     @pytest.mark.asyncio
     async def test_handles_control_cooler_exception(self):

@@ -1,12 +1,14 @@
 """Tests for control_cooler function in utils/controlling.py."""
 
-from unittest.mock import AsyncMock, Mock
+from unittest.mock import AsyncMock, Mock, patch
 
 from homeassistant.components.climate.const import HVACMode
 import pytest
 
 from custom_components.better_thermostat.core.clock import FakeClock
+from custom_components.better_thermostat.core.snapshot import HvacMode as CoreHvacMode
 from custom_components.better_thermostat.utils.controlling import control_cooler
+from tests.factories import make_snapshot
 
 
 class TestControlCooler:
@@ -48,6 +50,37 @@ class TestControlCooler:
         assert calls[0].args[1] == "set_temperature"
         assert calls[1].args[1] == "set_hvac_mode"
         assert calls[1].args[2]["hvac_mode"] == HVACMode.OFF
+
+    @pytest.mark.asyncio
+    async def test_given_snapshot_is_used_without_a_rebuild(self):
+        """The control queue passes its cycle snapshot in; control_cooler
+        must not scan the world a second time."""
+        mock_hass = Mock()
+        mock_hass.services = Mock()
+        mock_hass.services.async_call = AsyncMock()
+        mock_cooler_state = Mock()
+        mock_cooler_state.state = HVACMode.COOL
+        mock_cooler_state.attributes = {"temperature": 24.0}
+        mock_hass.states.get.return_value = mock_cooler_state
+
+        mock_self = Mock()
+        mock_self.hass = mock_hass
+        mock_self.cooler_entity_id = "climate.cooler"
+        mock_self.tolerance = 0.5
+        mock_self.context = None
+
+        snapshot = make_snapshot(
+            hvac_mode=CoreHvacMode.OFF, target_cooltemp=24.0, tolerance=0.5
+        )
+        with patch(
+            "custom_components.better_thermostat.utils.controlling.build_snapshot"
+        ) as build:
+            await control_cooler(mock_self, snapshot)
+
+        build.assert_not_called()
+        calls = mock_hass.services.async_call.call_args_list
+        assert calls[-1].args[1] == "set_hvac_mode"
+        assert calls[-1].args[2]["hvac_mode"] == HVACMode.OFF
 
     @pytest.mark.asyncio
     async def test_cooling_needed_above_target(self):

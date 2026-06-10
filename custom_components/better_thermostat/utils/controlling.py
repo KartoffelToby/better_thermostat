@@ -389,16 +389,6 @@ async def control_queue(self):
                             self.device_name,
                         )
 
-                    # Handle cooler logic once per cycle
-                    if self.cooler_entity_id is not None:
-                        try:
-                            await control_cooler(self)
-                        except Exception:
-                            _LOGGER.exception(
-                                "better_thermostat %s: ERROR controlling cooler",
-                                self.device_name,
-                            )
-
                     # One observation and decision for the whole cycle;
                     # on failure each TRV falls back to its own cycle.
                     cycle = None
@@ -409,6 +399,19 @@ async def control_queue(self):
                             "better_thermostat %s: ERROR computing control cycle",
                             self.device_name,
                         )
+
+                    # Handle cooler logic once per cycle, on the same
+                    # observation the TRVs are controlled with.
+                    if self.cooler_entity_id is not None:
+                        try:
+                            await control_cooler(
+                                self, cycle[0] if cycle is not None else None
+                            )
+                        except Exception:
+                            _LOGGER.exception(
+                                "better_thermostat %s: ERROR controlling cooler",
+                                self.device_name,
+                            )
 
                     # Create tasks for all TRVs to run in parallel
                     tasks = []
@@ -452,12 +455,15 @@ async def control_queue(self):
             self.ignore_states = False
 
 
-async def control_cooler(self):
+async def control_cooler(self, snapshot=None):
     """Control the cooler entity based on current temperature and cooling setpoint.
 
     Activates cooling when current temperature exceeds target cooling temperature
     minus tolerance and is above heating target. Deactivates cooling when
     temperature drops below cooling target minus tolerance or when BT HVAC mode is OFF.
+
+    The control queue passes the cycle's snapshot in; a standalone
+    invocation observes the world itself.
     """
     # Get current cooler state to avoid sending redundant commands
     cooler_state = self.hass.states.get(self.cooler_entity_id)
@@ -473,7 +479,8 @@ async def control_cooler(self):
     current_temp = cooler_state.attributes.get("temperature")
 
     # Determine desired state based on the world snapshot of this cycle
-    snapshot = build_snapshot(self)
+    if snapshot is None:
+        snapshot = build_snapshot(self)
     desired_temp = snapshot.target_cooltemp
 
     if any(
