@@ -23,7 +23,7 @@ def bt():
     mock.in_maintenance = False
     mock._control_needed_after_maintenance = False
     mock.async_write_ha_state = MagicMock()
-    mock.control_queue_task = AsyncMock()
+    mock.control_queue_task = MagicMock()
     return mock
 
 

@@ -98,7 +98,7 @@ def mock_bt():
     # TRVs
     bt.real_trvs = {}
     # HA callbacks
-    bt.control_queue_task = AsyncMock()
+    bt.control_queue_task = MagicMock()
     bt.async_write_ha_state = MagicMock()
     bt.schedule_save_state = MagicMock()
     bt.in_maintenance = False

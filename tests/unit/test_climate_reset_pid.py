@@ -57,7 +57,7 @@ def bt():
     mock.bt_target_temp = 21.0
     mock.real_trvs = {"climate.trv": {}}
     mock.schedule_save_state = MagicMock()
-    mock.control_queue_task = AsyncMock()
+    mock.control_queue_task = MagicMock()
     mock.state_mgr = _StateMgrStub()
     return mock
 

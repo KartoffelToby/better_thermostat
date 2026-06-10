@@ -33,7 +33,7 @@ def mock_bt():
     bt.bt_min_temp = 5.0
     bt.bt_max_temp = 30.0
     bt.startup_running = False
-    bt.control_queue_task = AsyncMock()
+    bt.control_queue_task = MagicMock()
     bt.context = MagicMock()  # unique context so != event.context
     bt.async_write_ha_state = MagicMock()
     return bt

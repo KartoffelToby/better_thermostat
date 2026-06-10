@@ -70,7 +70,7 @@ def mock_bt():
     bt.startup_running = False
 
     # Control queue
-    bt.control_queue_task = AsyncMock()
+    bt.control_queue_task = MagicMock()
 
     # HA state writing
     bt.async_write_ha_state = MagicMock()

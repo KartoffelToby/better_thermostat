@@ -49,7 +49,7 @@ def mock_bt():
     bt.window_open = False
     bt.tolerance = 0.3
     bt.startup_running = False
-    bt.control_queue_task = AsyncMock()
+    bt.control_queue_task = MagicMock()
     bt.bt_update_lock = False
     bt.cooler_entity_id = None
     bt.ignore_states = False
