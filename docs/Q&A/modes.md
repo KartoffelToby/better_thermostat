@@ -1,10 +1,7 @@
 ---
-layout: default
 title: What is the difference between "local calibration" and "temperature-based calibration"?
-nav_order: 3
-description: "BT."
-permalink: qanda/modes
-parent: Q&A
+description: Local (offset-based) versus target-temperature-based calibration.
+slug: qanda/modes
 ---
 
 # What is the difference between "local calibration" and "temperature-based calibration"?
