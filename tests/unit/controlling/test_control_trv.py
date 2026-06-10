@@ -909,8 +909,11 @@ class TestBoostModeSafetyOverride:
 
     @pytest.mark.asyncio
     async def test_boost_does_not_override_hold(self):
-        """The HOLD rung outranks boost: no setpoint or valve write during
-        a total sensor outage."""
+        """The HOLD rung outranks boost.
+
+        During a total sensor outage no setpoint or valve write happens,
+        boost preset or not.
+        """
         mock_self = _make_mock_self(
             trv_state=HVACMode.HEAT,
             trv_attrs={"temperature": 20.0},
@@ -951,8 +954,11 @@ class TestBoostModeSafetyOverride:
 
     @pytest.mark.asyncio
     async def test_boost_safety_reset_stamps_the_valve_budget(self):
-        """The 0% safety reset is a real write: it bypasses the budget gate
-        but occupies the budget slot like every other valve write."""
+        """The 0% safety reset occupies the valve budget slot.
+
+        It bypasses the budget gate (closing is the safe direction) but
+        stamps the slot like every other valve write.
+        """
         mock_self = _make_mock_self(
             trv_state=HVACMode.HEAT,
             trv_attrs={"temperature": 20.0},
@@ -998,9 +1004,7 @@ class TestBoostModeSafetyOverride:
 
         assert result is True
         assert [call[2] for call in set_valve_calls] == [0]
-        assert (
-            mock_self.real_trvs["climate.trv1"].last_valve_write_monotonic == 10.0
-        )
+        assert mock_self.real_trvs["climate.trv1"].last_valve_write_monotonic == 10.0
 
     @pytest.mark.asyncio
     async def test_no_heat_call_resets_valve_during_boost(self):

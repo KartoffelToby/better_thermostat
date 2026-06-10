@@ -130,8 +130,11 @@ class TestReconcileTick:
 
     @pytest.mark.asyncio
     async def test_device_grid_snap_within_half_step_is_converged(self):
-        """A device snapping a written setpoint onto its own coarser grid
-        moves it by at most half a reported step — that is convergence."""
+        """Snapping onto the device's coarser grid is convergence.
+
+        A device snapping a written setpoint onto its own grid moves it
+        by at most half a reported step.
+        """
         bt = _make_bt(reported_target=21.5, commanded=21.3)
         bt.hass.states.get.return_value.attributes["target_temp_step"] = 0.5
         await reconcile_tick(bt)
@@ -158,8 +161,11 @@ class TestReconcileTick:
 
     @pytest.mark.asyncio
     async def test_reconcile_probe_is_not_recorded(self):
-        """The periodic probe shares the observe-decide step with the
-        control cycle but must not fill the flight-recorder ring."""
+        """The periodic probe leaves no flight-recorder entry.
+
+        It shares the observe-decide step with the control cycle but
+        must not fill the recorder ring.
+        """
         bt = _make_bt()
         await reconcile_tick(bt)
         bt.flight_recorder.record.assert_not_called()

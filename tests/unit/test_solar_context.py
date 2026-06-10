@@ -19,6 +19,7 @@ def _bt(sun_state):
 
 
 def test_daytime_reports_the_measured_intensity():
+    """Above the horizon the measured intensity passes through."""
     bt = _bt("above_horizon")
     with patch(
         "custom_components.better_thermostat.calibration._get_current_solar_intensity",
@@ -28,6 +29,7 @@ def test_daytime_reports_the_measured_intensity():
 
 
 def test_night_gates_the_intensity_to_zero():
+    """Below the horizon the intensity is gated to zero."""
     bt = _bt("below_horizon")
     with patch(
         "custom_components.better_thermostat.calibration._get_current_solar_intensity",

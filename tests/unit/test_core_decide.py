@@ -312,9 +312,7 @@ class TestHoldRung:
         """SENSOR_FALLBACK still adjusts — only HOLD pauses the numbers."""
         desired, _ = decide(
             make_snapshot(),
-            make_state(
-                control_mode=ControlModeState(mode=ControlMode.SENSOR_FALLBACK)
-            ),
+            make_state(control_mode=ControlModeState(mode=ControlMode.SENSOR_FALLBACK)),
         )
         assert all(t.setpoint == 21.0 for t in desired.trvs.values())
 

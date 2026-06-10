@@ -53,8 +53,11 @@ class TestControlCooler:
 
     @pytest.mark.asyncio
     async def test_given_snapshot_is_used_without_a_rebuild(self):
-        """The control queue passes its cycle snapshot in; control_cooler
-        must not scan the world a second time."""
+        """A provided snapshot is consumed without a second world scan.
+
+        The control queue passes its cycle snapshot in; control_cooler
+        must not rebuild it.
+        """
         mock_hass = Mock()
         mock_hass.services = Mock()
         mock_hass.services.async_call = AsyncMock()

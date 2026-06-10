@@ -178,8 +178,10 @@ class TestWindowQueue:
 
     @pytest.mark.asyncio
     async def test_delay_raised_mid_flight_still_commits(self):
-        """A delay reconfigured during the debounce extends the wait instead
-        of stranding the region in OPENING."""
+        """A delay raised mid-debounce extends the wait.
+
+        It must not strand the region in OPENING.
+        """
         bt = _make_bt(sensor_state="on", open_delay=5)
         await trigger_window_change(bt, _event("on"))
 
@@ -200,8 +202,10 @@ class TestWindowQueue:
 
     @pytest.mark.asyncio
     async def test_reopen_during_close_debounce_cancels_without_kick(self):
-        """A window reopened during the close debounce stays open and does
-        not kick the control queue."""
+        """A window reopened during the close debounce stays open.
+
+        The cancelled transition must not kick the control queue.
+        """
         bt = _make_bt(sensor_state="off", window_open=True, close_delay=5)
         await trigger_window_change(bt, _event("off"))
         # The sensor reads 'on' again by the time the wait elapses.

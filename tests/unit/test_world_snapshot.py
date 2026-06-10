@@ -113,9 +113,11 @@ class TestSnapshotCompleteness:
         assert all_fields == mapped | produced_elsewhere
 
     def test_observations_use_the_shared_float_normalization(self):
-        """Raw readings are normalized by the shared converter (0.01 step),
-        so the snapshot carries the same numbers the rest of BT computes
-        with instead of a second, unrounded parse."""
+        """Raw readings pass the shared converter (0.01 step).
+
+        The snapshot carries the same numbers the rest of BT computes
+        with instead of a second, unrounded parse.
+        """
         bt = _make_bt()
         bt.cur_temp = 19.974999
         snapshot = build_snapshot(bt)

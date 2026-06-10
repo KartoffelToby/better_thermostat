@@ -62,7 +62,9 @@ _BUDGET_STAMPS = {
 }
 
 
-def _consume_budget(self, entity_id: str, channel: str, *, bypass: bool = False) -> bool:
+def _consume_budget(
+    self, entity_id: str, channel: str, *, bypass: bool = False
+) -> bool:
     """Occupy one channel's write-budget slot, or defer the write.
 
     Returns True when the write may proceed; the slot is stamped — also
@@ -213,9 +215,7 @@ def _reconcile_tolerance(self, state) -> float:
     The base tolerance covers devices that report no usable step.
     """
     step = convert_to_float(
-        str(state.attributes.get("target_temp_step")),
-        self.device_name,
-        "reconcile()",
+        str(state.attributes.get("target_temp_step")), self.device_name, "reconcile()"
     )
     if step is None or step <= 0:
         return RECONCILE_TOLERANCE_K
@@ -719,7 +719,11 @@ async def control_trv(self, heater_entity_id=None, cycle=None):
                 valve_settings, _source = None, None
             else:
                 valve_settings, _source = _get_valve_control(
-                    self, snapshot, heater_entity_id, _calibration_mode, _calibration_type
+                    self,
+                    snapshot,
+                    heater_entity_id,
+                    _calibration_mode,
+                    _calibration_type,
                 )
             if valve_settings is not None:
                 target_pct = int(round(valve_settings.get("valve_percent", 0)))

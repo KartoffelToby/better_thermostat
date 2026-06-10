@@ -286,8 +286,11 @@ class TestCheckAndUpdateDegradedMode:
     async def test_ladder_reaches_hold_when_all_trvs_unavailable(
         self, mock_bt_instance
     ):
-        """Stored TRV temperatures from before an outage must not keep the
-        ladder off the HOLD rung once every TRV is unavailable."""
+        """A full TRV outage steps the ladder down to HOLD.
+
+        Stored temperatures from before the outage must not keep the
+        ladder off the HOLD rung.
+        """
         from custom_components.better_thermostat.core.fsm.control_mode import (
             ControlMode,
         )

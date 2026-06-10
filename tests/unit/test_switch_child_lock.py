@@ -4,9 +4,7 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from custom_components.better_thermostat.switch import (
-    BetterThermostatChildLockSwitch,
-)
+from custom_components.better_thermostat.switch import BetterThermostatChildLockSwitch
 from custom_components.better_thermostat.trv import Trv
 
 TRV_ID = "climate.trv_kitchen"
@@ -22,6 +20,7 @@ def _make_switch(trv: Trv) -> BetterThermostatChildLockSwitch:
 
 
 def test_update_state_writes_child_lock_flag():
+    """Toggling stores the flag in the Trv's advanced mapping."""
     trv = Trv(entity_id=TRV_ID)
     switch = _make_switch(trv)
 
@@ -32,6 +31,7 @@ def test_update_state_writes_child_lock_flag():
 
 
 def test_update_state_handles_missing_advanced_dict():
+    """An unset advanced mapping is created instead of crashing."""
     trv = Trv(entity_id=TRV_ID)
     trv.advanced = None
     switch = _make_switch(trv)
@@ -43,6 +43,7 @@ def test_update_state_handles_missing_advanced_dict():
 
 @pytest.mark.parametrize("state", [True, False])
 def test_is_on_reflects_advanced_flag(state):
+    """The switch state mirrors the stored child_lock flag."""
     trv = Trv(entity_id=TRV_ID, advanced={"child_lock": state})
     switch = _make_switch(trv)
 

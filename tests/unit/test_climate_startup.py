@@ -573,13 +573,9 @@ class TestInitializeTrvCurrentTemperature:
         """No reading at startup leaves the field unset."""
         bt = self._trv_only_bt(bt, {"current_temperature": None})
         with (
+            patch("custom_components.better_thermostat.climate.init", AsyncMock()),
             patch(
-                "custom_components.better_thermostat.climate.init",
-                AsyncMock(),
-            ),
-            patch(
-                "custom_components.better_thermostat.climate.inital_tweak",
-                AsyncMock(),
+                "custom_components.better_thermostat.climate.inital_tweak", AsyncMock()
             ),
         ):
             await BetterThermostat._initialize_trvs(bt)
@@ -590,13 +586,9 @@ class TestInitializeTrvCurrentTemperature:
         """A legitimate 0.0° reading is a reading, not a missing value."""
         bt = self._trv_only_bt(bt, {"current_temperature": 0.0})
         with (
+            patch("custom_components.better_thermostat.climate.init", AsyncMock()),
             patch(
-                "custom_components.better_thermostat.climate.init",
-                AsyncMock(),
-            ),
-            patch(
-                "custom_components.better_thermostat.climate.inital_tweak",
-                AsyncMock(),
+                "custom_components.better_thermostat.climate.inital_tweak", AsyncMock()
             ),
         ):
             await BetterThermostat._initialize_trvs(bt)
@@ -616,8 +608,11 @@ class TestStartupControlSync:
 
     @pytest.mark.asyncio
     async def test_finalize_startup_flips_lifecycle_before_initial_sync(self, bt):
-        """While startup_running is True, decide() addresses no TRVs — the
-        initial sync only writes anything if it runs after the flip."""
+        """The initial sync runs only after the lifecycle flip.
+
+        While startup_running is True, decide() addresses no TRVs — a
+        sync before the flip would silently write nothing.
+        """
         bt.is_removed = True
         gate_states = []
 

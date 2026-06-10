@@ -236,6 +236,7 @@ class TestRoundtripCompleteness:
     """
 
     def test_every_field_roundtrips(self):
+        """Fully populated decision tuples reconstruct exactly."""
         from dataclasses import fields
 
         from custom_components.better_thermostat.core.decide import KernelState
@@ -259,9 +260,7 @@ class TestRoundtripCompleteness:
         from custom_components.better_thermostat.core.fsm.reachability import (
             ReachabilityState,
         )
-        from custom_components.better_thermostat.core.recorder import (
-            desired_from_dict,
-        )
+        from custom_components.better_thermostat.core.recorder import desired_from_dict
 
         trv_reported_kwargs = {
             "entity_id": "climate.trv",
@@ -342,8 +341,7 @@ class TestRoundtripCompleteness:
         }
         assert set(trv_desired_kwargs) == {f.name for f in fields(TrvDesired)}
         desired = DesiredState(
-            call_for_heat=True,
-            trvs={"climate.trv": TrvDesired(**trv_desired_kwargs)},
+            call_for_heat=True, trvs={"climate.trv": TrvDesired(**trv_desired_kwargs)}
         )
 
         recorder = FlightRecorder()

@@ -12,6 +12,7 @@ from custom_components.better_thermostat.climate import BetterThermostat
 
 
 def test_record_runtime_pushes_thermal_and_filters():
+    """Both thermal stats and filters land in the StateManager."""
     bt = MagicMock()
     bt.state_mgr = MagicMock()
     bt.heating_power = 0.02
@@ -26,6 +27,7 @@ def test_record_runtime_pushes_thermal_and_filters():
 
 
 def test_record_runtime_without_store_is_a_noop():
+    """Without a StateManager the record step does nothing."""
     bt = MagicMock()
     bt.state_mgr = None
     BetterThermostat._record_runtime_to_state(bt)

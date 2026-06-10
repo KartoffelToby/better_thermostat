@@ -1817,6 +1817,7 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
                 if _raw_current_temp is not None
                 else None
             )
+
     async def _startup_control_trvs(self) -> None:
         """Write the initial mode/setpoint/calibration to every TRV.
 
@@ -2285,8 +2286,7 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
             getattr(self, "heating_power", None), getattr(self, "heat_loss_rate", None)
         )
         self.state_mgr.record_filters(
-            getattr(self, "external_temp_ema", None),
-            getattr(self, "temp_slope", None),
+            getattr(self, "external_temp_ema", None), getattr(self, "temp_slope", None)
         )
 
     @callback

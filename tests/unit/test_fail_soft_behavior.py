@@ -17,7 +17,6 @@ from custom_components.better_thermostat.calibration import (
     calculate_calibration_setpoint,
     effective_room_temp,
 )
-from custom_components.better_thermostat.utils.const import CalibrationMode
 from custom_components.better_thermostat.core.decide import (
     KernelState,
     decide,
@@ -34,6 +33,7 @@ from custom_components.better_thermostat.core.snapshot import (
 )
 from custom_components.better_thermostat.core.watchdog import control_loop_stalled
 from custom_components.better_thermostat.trv import Trv
+from custom_components.better_thermostat.utils.const import CalibrationMode
 
 
 def _bt(mode: ControlMode) -> MagicMock:
@@ -74,8 +74,10 @@ class TestFallbackSetpointChannel:
     """The setpoint channel uses the fallback temperature verbatim."""
 
     def test_zero_degree_fallback_reading_is_used(self):
-        """A TRV mean of exactly 0.0 °C is a reading, not a missing value —
-        the stale room-sensor value must not silently substitute for it."""
+        """A TRV mean of exactly 0.0 °C is a reading, not a missing value.
+
+        The stale room-sensor value must not silently substitute for it.
+        """
         quirks = MagicMock()
         quirks.fix_target_temperature_calibration.side_effect = (
             lambda _self, _eid, temperature: float(temperature)
