@@ -31,7 +31,7 @@ from dataclasses import dataclass, field
 
 from .desired import DesiredState, TrvDesired
 from .fsm.control_mode import ControlModeState
-from .fsm.lifecycle import LifecycleState
+from .fsm.lifecycle import LifecyclePhase, LifecycleState
 from .fsm.maintenance import MaintenanceState
 from .fsm.mode import ModeState
 from .fsm.reachability import ReachabilityState, step as reachability_step
@@ -46,8 +46,9 @@ PRESET_BOOST = "boost"
 class KernelState:
     """Aggregate controller-side state threaded through ``decide()``.
 
-    Grows region by region as the orthogonal FSMs (window, maintenance,
-    lifecycle, mode, control mode, reachability) move into the core.
+    The regions are authoritative: ``decide()`` branches on them, not on
+    the mirrored snapshot flags (those remain pure observations for the
+    flight recorder and annunciation).
     """
 
     window: WindowState = field(default_factory=WindowState)
@@ -58,6 +59,18 @@ class KernelState:
     reachability: dict[str, ReachabilityState] = field(default_factory=dict)
     # Watchdog heartbeat: monotonic time of the last completed control pass.
     last_control_monotonic: float | None = None
+
+
+def running_kernel_state() -> KernelState:
+    """Return a KernelState for an entity that has finished starting up.
+
+    Convenience for tests and tooling; the live entity reaches this
+    state through the lifecycle region's startup transitions.
+    """
+    return KernelState(
+        lifecycle=LifecycleState(phase=LifecyclePhase.RUNNING),
+        mode=ModeState(hvac_mode=HvacMode.HEAT),
+    )
 
 
 def is_boost_heating(snapshot: WorldSnapshot) -> bool:
@@ -104,10 +117,8 @@ def decide(
         for entity_id, trv in snapshot.trvs.items()
     }
 
-    if (
-        snapshot.startup_running
-        or snapshot.in_maintenance
-        or state.maintenance.is_blocking(snapshot.now_monotonic)
+    if state.lifecycle.startup_running or state.maintenance.is_blocking(
+        snapshot.now_monotonic
     ):
         # Lifecycle gate: no intent while starting up, and maintenance
         # pre-empts control entirely (it owns the valves). A maintenance
@@ -117,13 +128,13 @@ def decide(
 
     addressed = _addressed(snapshot)
 
-    if snapshot.hvac_mode == HvacMode.OFF:
+    if state.mode.hvac_mode == HvacMode.OFF:
         return (
             DesiredState(call_for_heat=False, trvs=_with_mode(addressed, HvacMode.OFF)),
             state,
         )
 
-    if snapshot.window_open or state.window.effective_open:
+    if state.window.effective_open:
         return (
             DesiredState(
                 call_for_heat=snapshot.call_for_heat,
@@ -141,7 +152,7 @@ def decide(
     heating = {
         entity_id: TrvDesired(
             entity_id=entity_id,
-            hvac_mode=snapshot.hvac_mode,
+            hvac_mode=state.mode.hvac_mode,
             setpoint=snapshot.target_temp,
         )
         for entity_id in addressed

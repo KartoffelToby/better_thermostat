@@ -21,7 +21,12 @@ from homeassistant.const import STATE_UNAVAILABLE, STATE_UNKNOWN
 import pytest
 
 from custom_components.better_thermostat.core.clock import FakeClock
-from custom_components.better_thermostat.core.decide import KernelState
+from custom_components.better_thermostat.core.decide import running_kernel_state
+from custom_components.better_thermostat.core.fsm.mode import ModeState
+from custom_components.better_thermostat.core.fsm.window import WindowPhase, WindowState
+from custom_components.better_thermostat.core.snapshot import (
+    parse_hvac_mode as _parse_mode,
+)
 from custom_components.better_thermostat.trv import Trv
 from custom_components.better_thermostat.utils.const import (
     CalibrationMode,
@@ -48,6 +53,17 @@ def _close_coro(coro, **kwargs):
     if inspect.iscoroutine(coro):
         coro.close()
     return Mock()
+
+
+def _kernel_state_for(mock_self):
+    """Kernel regions mirroring the mock's flag attributes (like production)."""
+    state = running_kernel_state()
+    parsed = _parse_mode(str(mock_self.bt_hvac_mode))
+    if parsed is not None:
+        state.mode = ModeState(hvac_mode=parsed)
+    if mock_self.window_open:
+        state.window = WindowState(phase=WindowPhase.OPEN)
+    return state
 
 
 def _make_mock_self(trv_state=None, trv_attrs=None, real_trvs=None, **kwargs):
@@ -92,7 +108,6 @@ def _make_mock_self(trv_state=None, trv_attrs=None, real_trvs=None, **kwargs):
     mock_self.ignore_states = kwargs.pop("ignore_states", False)
     mock_self.task_manager = Mock(create_task=Mock(side_effect=_close_coro))
     mock_self.clock = FakeClock()
-    mock_self.kernel_state = KernelState()
     mock_self.startup_running = False
     mock_self.in_maintenance = False
     mock_self.degraded_mode = False
@@ -112,6 +127,8 @@ def _make_mock_self(trv_state=None, trv_attrs=None, real_trvs=None, **kwargs):
     # Set any additional attributes
     for key, value in kwargs.items():
         setattr(mock_self, key, value)
+
+    mock_self.kernel_state = _kernel_state_for(mock_self)
 
     return mock_self
 
@@ -821,7 +838,6 @@ class TestBoostModeSafetyOverride:
         mock_self.task_manager = Mock()
         mock_self.task_manager.create_task = Mock(side_effect=_close_coro)
         mock_self.clock = FakeClock()
-        mock_self.kernel_state = KernelState()
         mock_self.startup_running = False
         mock_self.in_maintenance = False
         mock_self.degraded_mode = False
@@ -858,6 +874,8 @@ class TestBoostModeSafetyOverride:
                 },
             )
         }
+
+        mock_self.kernel_state = _kernel_state_for(mock_self)
 
         set_valve_calls = []
 
@@ -916,7 +934,6 @@ class TestBoostModeSafetyOverride:
         mock_self.task_manager = Mock()
         mock_self.task_manager.create_task = Mock(side_effect=_close_coro)
         mock_self.clock = FakeClock()
-        mock_self.kernel_state = KernelState()
         mock_self.startup_running = False
         mock_self.in_maintenance = False
         mock_self.degraded_mode = False
@@ -953,6 +970,8 @@ class TestBoostModeSafetyOverride:
                 },
             )
         }
+
+        mock_self.kernel_state = _kernel_state_for(mock_self)
 
         set_valve_calls = []
 
@@ -1030,7 +1049,6 @@ class TestRaceConditionLockCoverage:
         mock_self.calculate_heating_power = AsyncMock()
         mock_self.task_manager = Mock(create_task=Mock(side_effect=_close_coro))
         mock_self.clock = FakeClock()
-        mock_self.kernel_state = KernelState()
         mock_self.startup_running = False
         mock_self.in_maintenance = False
         mock_self.degraded_mode = False
@@ -1097,6 +1115,8 @@ class TestRaceConditionLockCoverage:
                 },
             ),
         }
+
+        mock_self.kernel_state = _kernel_state_for(mock_self)
 
         execution_log = []
         lock_acquired_count = 0
@@ -1220,7 +1240,6 @@ class TestRaceConditionLockCoverage:
         mock_self.calculate_heating_power = AsyncMock()
         mock_self.task_manager = Mock(create_task=Mock(side_effect=_close_coro))
         mock_self.clock = FakeClock()
-        mock_self.kernel_state = KernelState()
         mock_self.startup_running = False
         mock_self.in_maintenance = False
         mock_self.degraded_mode = False
@@ -1332,7 +1351,6 @@ class TestRaceConditionLockCoverage:
         mock_self.calculate_heating_power = AsyncMock()
         mock_self.task_manager = Mock(create_task=Mock(side_effect=_close_coro))
         mock_self.clock = FakeClock()
-        mock_self.kernel_state = KernelState()
         mock_self.startup_running = False
         mock_self.in_maintenance = False
         mock_self.degraded_mode = False
@@ -1442,7 +1460,6 @@ def mock_bt_grouped():
     bt = MagicMock()
     bt.hass = MagicMock()
     bt.clock = FakeClock()
-    bt.kernel_state = KernelState()
     bt.startup_running = False
     bt.in_maintenance = False
     bt.degraded_mode = False
@@ -1465,6 +1482,7 @@ def mock_bt_grouped():
     bt._temp_lock = asyncio.Lock()
     bt.calculate_heating_power = AsyncMock()
 
+    bt.kernel_state = _kernel_state_for(bt)
     bt.real_trvs = {
         "climate.trv_1": Trv.from_legacy_dict(
             "climate.trv_1",

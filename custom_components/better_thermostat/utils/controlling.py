@@ -632,7 +632,8 @@ async def control_trv(self, heater_entity_id=None):
         # no heat demand) forces a literal OFF; otherwise the mode follows
         # the device-specific remap of the BT mode.
         if trv_desired.hvac_mode == HVACMode.OFF and (
-            snapshot.window_open or snapshot.hvac_mode != HVACMode.OFF
+            self.kernel_state.window.effective_open
+            or self.kernel_state.mode.hvac_mode != HVACMode.OFF
         ):
             _new_hvac_mode = HVACMode.OFF
         else:

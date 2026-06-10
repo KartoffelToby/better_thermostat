@@ -3,7 +3,7 @@
 from datetime import UTC, datetime
 import json
 
-from custom_components.better_thermostat.core.decide import KernelState, decide
+from custom_components.better_thermostat.core.decide import decide, running_kernel_state
 from custom_components.better_thermostat.core.fsm.window import WindowPhase, WindowState
 from custom_components.better_thermostat.core.recorder import (
     FlightRecorder,
@@ -44,9 +44,10 @@ def _snapshot(target=21.0, window_open=False) -> WorldSnapshot:
 
 
 def _record_one(recorder: FlightRecorder, snapshot: WorldSnapshot) -> None:
-    state = KernelState(window=WindowState(phase=WindowPhase.CLOSED))
+    state = running_kernel_state()
+    state.window = WindowState(phase=WindowPhase.CLOSED)
     desired, _ = decide(snapshot, state)
-    recorder.record(snapshot, KernelState(), desired)
+    recorder.record(snapshot, running_kernel_state(), desired)
 
 
 class TestRingBuffer:
@@ -64,7 +65,7 @@ class TestRingBuffer:
     def test_pre_decide_state_is_copied(self):
         """Mutating the live kernel state later does not alter the record."""
         recorder = FlightRecorder()
-        state = KernelState()
+        state = running_kernel_state()
         snapshot = _snapshot()
         desired, state = decide(snapshot, state)
         recorder.record(snapshot, state, desired)
@@ -92,9 +93,9 @@ class TestReplay:
     def test_replay_matches_the_recorded_decision(self):
         """The kernel recomputes exactly what was recorded."""
         recorder = FlightRecorder()
-        state = KernelState()
+        state = running_kernel_state()
         snapshot = _snapshot()
-        desired, _ = decide(snapshot, KernelState())
+        desired, _ = decide(snapshot, running_kernel_state())
         recorder.record(snapshot, state, desired)
 
         entry = json.loads(json.dumps(recorder.export()))[0]
@@ -105,8 +106,8 @@ class TestReplay:
     def test_replay_detects_a_diverging_record(self):
         """A tampered desired no longer matches the recomputation."""
         recorder = FlightRecorder()
-        desired, _ = decide(_snapshot(), KernelState())
-        recorder.record(_snapshot(), KernelState(), desired)
+        desired, _ = decide(_snapshot(), running_kernel_state())
+        recorder.record(_snapshot(), running_kernel_state(), desired)
         entry = json.loads(json.dumps(recorder.export()))[0]
         entry["desired"]["call_for_heat"] = False
         matches, _ = replay(entry)
@@ -116,10 +117,10 @@ class TestReplay:
         """Snapshot and state reconstruct into equal kernel inputs."""
         recorder = FlightRecorder()
         snapshot = _snapshot(window_open=True)
-        desired, _ = decide(snapshot, KernelState())
-        recorder.record(snapshot, KernelState(), desired)
+        desired, _ = decide(snapshot, running_kernel_state())
+        recorder.record(snapshot, running_kernel_state(), desired)
         entry = json.loads(json.dumps(recorder.export()))[0]
 
         assert snapshot_from_dict(entry["snapshot"]) == snapshot
         rebuilt = state_from_dict(entry["state"])
-        assert rebuilt == KernelState()
+        assert rebuilt == running_kernel_state()

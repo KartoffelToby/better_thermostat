@@ -11,7 +11,11 @@ from datetime import UTC, datetime
 from unittest.mock import MagicMock
 
 from custom_components.better_thermostat.calibration import effective_room_temp
-from custom_components.better_thermostat.core.decide import KernelState, decide
+from custom_components.better_thermostat.core.decide import (
+    KernelState,
+    decide,
+    running_kernel_state,
+)
 from custom_components.better_thermostat.core.fsm.control_mode import (
     ControlMode,
     ControlModeState,
@@ -76,7 +80,7 @@ class TestBulkhead:
                 "climate.dead": TrvReported(entity_id="climate.dead", available=False),
             },
         )
-        desired, state = decide(snapshot, KernelState())
+        desired, state = decide(snapshot, running_kernel_state())
         assert set(desired.trvs) == {"climate.ok"}
         assert desired.trvs["climate.ok"].hvac_mode == HvacMode.HEAT
         assert state.reachability["climate.dead"].online is False

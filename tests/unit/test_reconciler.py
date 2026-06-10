@@ -12,7 +12,9 @@ from homeassistant.components.climate.const import HVACMode
 import pytest
 
 from custom_components.better_thermostat.core.clock import FakeClock
-from custom_components.better_thermostat.core.decide import KernelState
+from custom_components.better_thermostat.core.decide import running_kernel_state
+from custom_components.better_thermostat.core.fsm.mode import ModeState
+from custom_components.better_thermostat.core.snapshot import HvacMode as CoreHvacMode
 from custom_components.better_thermostat.trv import Trv
 from custom_components.better_thermostat.utils.const import (
     CalibrationMode,
@@ -30,7 +32,7 @@ def _make_bt(*, reported_target=21.0, commanded=21.0, trv_mode=HVACMode.HEAT):
     bt = MagicMock()
     bt.device_name = "Test BT"
     bt.clock = FakeClock()
-    bt.kernel_state = KernelState()
+    bt.kernel_state = running_kernel_state()
     bt.startup_running = False
     bt.in_maintenance = False
     bt.ignore_states = False
@@ -87,6 +89,7 @@ class TestReconcileTick:
         """An intent of OFF against a heating device triggers reconciliation."""
         bt = _make_bt()
         bt.bt_hvac_mode = HVACMode.OFF
+        bt.kernel_state.mode = ModeState(hvac_mode=CoreHvacMode.OFF)
         await reconcile_tick(bt)
         bt.control_queue_task.put_nowait.assert_called_once()
 
