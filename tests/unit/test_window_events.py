@@ -63,7 +63,7 @@ class TestTriggerWindowChange:
         bt = _make_bt(sensor_state="on", open_delay=10)
         await trigger_window_change(bt, _event("on"))
         assert bt.kernel_state.window.phase == WindowPhase.OPENING
-        assert bt.window_queue_task.get_nowait() is True
+        assert bt.window_queue_task.get_nowait() == (True, False)
         # Heating power learning is disabled for the open period.
         assert bt._heating_tracker.start_temp is None
 
@@ -73,7 +73,7 @@ class TestTriggerWindowChange:
         bt = _make_bt(sensor_state="off", window_open=True, close_delay=10)
         await trigger_window_change(bt, _event("off"))
         assert bt.kernel_state.window.phase == WindowPhase.CLOSING
-        assert bt.window_queue_task.get_nowait() is False
+        assert bt.window_queue_task.get_nowait() == (False, True)
 
     @pytest.mark.asyncio
     async def test_unknown_sensor_state_is_treated_as_open(self):
@@ -81,7 +81,7 @@ class TestTriggerWindowChange:
         bt = _make_bt(sensor_state="unknown", open_delay=10)
         await trigger_window_change(bt, _event("unknown"))
         assert bt.kernel_state.window.phase == WindowPhase.OPENING
-        assert bt.window_queue_task.get_nowait() is True
+        assert bt.window_queue_task.get_nowait() == (True, False)
 
     @pytest.mark.asyncio
     async def test_unchanged_state_is_skipped(self):
@@ -130,7 +130,7 @@ class TestWindowQueue:
         await trigger_window_change(bt, _event("on"))
         await _run_queue_once(bt)
         assert bt.kernel_state.window.phase == WindowPhase.OPEN
-        assert bt.window_open is True
+        assert bt.kernel_state.window.effective_open is True
         assert bt.control_queue_task.qsize() == 1
 
     @pytest.mark.asyncio
@@ -140,7 +140,7 @@ class TestWindowQueue:
         await trigger_window_change(bt, _event("off"))
         await _run_queue_once(bt)
         assert bt.kernel_state.window.phase == WindowPhase.CLOSED
-        assert bt.window_open is False
+        assert bt.kernel_state.window.effective_open is False
         assert bt.control_queue_task.qsize() == 1
 
     @pytest.mark.asyncio
@@ -152,7 +152,7 @@ class TestWindowQueue:
         bt.hass.states.get.return_value.state = "off"
         await _run_queue_once(bt)
         assert bt.kernel_state.window.phase == WindowPhase.CLOSED
-        assert bt.window_open is False
+        assert bt.kernel_state.window.effective_open is False
         assert bt.control_queue_task.empty()
 
     @pytest.mark.asyncio
@@ -162,7 +162,7 @@ class TestWindowQueue:
         bt.in_maintenance = True
         await trigger_window_change(bt, _event("on"))
         await _run_queue_once(bt)
-        assert bt.window_open is True
+        assert bt.kernel_state.window.effective_open is True
         assert bt.control_queue_task.empty()
         assert bt._control_needed_after_maintenance is True
 

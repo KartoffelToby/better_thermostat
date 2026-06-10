@@ -89,14 +89,17 @@ async def trigger_window_change(self, event) -> None:
         return
 
     # Start the pending transition in the window region; the queued task
-    # re-steps after the configured delay to commit (or cancel) it.
+    # re-steps after the configured delay to commit (or cancel) it. The
+    # pre-step committed state travels along so the handler can detect
+    # a commit even when a zero delay commits immediately.
+    was_open = self.kernel_state.window.effective_open
     self.kernel_state.window = window_step(
         self.kernel_state.window,
         sensor_open=new_window_open,
         now=self.clock.monotonic(),
         params=_window_params(self),
     )
-    await self.window_queue_task.put(new_window_open)
+    await self.window_queue_task.put((new_window_open, was_open))
 
 
 def _window_params(self) -> WindowParams:
@@ -116,9 +119,10 @@ async def window_queue(self):
     """
     try:
         while True:
-            window_event_to_process = await self.window_queue_task.get()
+            queued = await self.window_queue_task.get()
             try:
-                if window_event_to_process is not None:
+                if queued is not None:
+                    window_event_to_process, was_open = queued
                     if window_event_to_process:
                         _LOGGER.debug(
                             "better_thermostat %s: Window opened, "
@@ -150,9 +154,8 @@ async def window_queue(self):
                     )
                     if (
                         current_window_state == window_event_to_process
-                        and self.window_open != self.kernel_state.window.effective_open
+                        and was_open != self.kernel_state.window.effective_open
                     ):
-                        self.window_open = self.kernel_state.window.effective_open
                         self.async_write_ha_state()
                         if getattr(self, "in_maintenance", False):
                             # Keep state up to date during maintenance, but defer control

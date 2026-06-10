@@ -69,8 +69,23 @@ class TestRuntimeAndLearnedBridges:
         """Writing the historical attribute lands in the runtime container."""
         bare = _bare_entity()
         bare.cur_temp = 21.5
-        bare.window_open = True
         assert bare.runtime.cur_temp == 21.5
-        assert bare.runtime.window_open is True
         bare.runtime.call_for_heat = False
         assert bare.call_for_heat is False
+
+    def test_mode_flags_derive_from_the_regions(self):
+        """The discrete mode flags are read-only views onto the kernel."""
+        from custom_components.better_thermostat.core.decide import running_kernel_state
+        from custom_components.better_thermostat.core.fsm.window import (
+            WindowPhase,
+            WindowState,
+        )
+
+        bare = _bare_entity()
+        bare.kernel_state = running_kernel_state()
+        assert bare.startup_running is False
+        assert bare.window_open is False
+        bare.kernel_state.window = WindowState(phase=WindowPhase.OPEN)
+        assert bare.window_open is True
+        with pytest.raises(AttributeError):
+            bare.window_open = False

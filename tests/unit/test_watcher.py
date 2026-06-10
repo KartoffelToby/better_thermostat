@@ -279,7 +279,7 @@ class TestCheckAndUpdateDegradedMode:
             result = await check_and_update_degraded_mode(mock_bt_instance)
 
         assert result is True
-        assert mock_bt_instance.degraded_mode is True
+        assert mock_bt_instance.kernel_state.control_mode.degraded is True
         assert "binary_sensor.window" in mock_bt_instance.unavailable_sensors
 
     @pytest.mark.anyio
@@ -297,7 +297,7 @@ class TestCheckAndUpdateDegradedMode:
             result = await check_and_update_degraded_mode(mock_bt_instance)
 
         assert result is False
-        assert mock_bt_instance.degraded_mode is False
+        assert mock_bt_instance.kernel_state.control_mode.degraded is False
         assert mock_bt_instance.unavailable_sensors == []
 
     @pytest.mark.anyio
@@ -408,7 +408,7 @@ class TestDegradedModeGracePeriod:
             with caplog.at_level("WARNING"):
                 await check_and_update_degraded_mode(mock_bt_instance)
 
-        assert mock_bt_instance.degraded_mode is True
+        assert mock_bt_instance.kernel_state.control_mode.degraded is True
         assert not any("Entering degraded mode" in r.message for r in caplog.records)
         assert not mock_ir.async_create_issue.called
         assert mock_bt_instance._degraded_warning_emitted is False
@@ -470,7 +470,7 @@ class TestDegradedModeGracePeriod:
             with caplog.at_level("INFO"):
                 await check_and_update_degraded_mode(mock_bt_instance)
 
-        assert mock_bt_instance.degraded_mode is False
+        assert mock_bt_instance.kernel_state.control_mode.degraded is False
         assert not any("Exiting degraded mode" in r.message for r in caplog.records)
         assert not mock_ir.async_delete_issue.called
 
@@ -491,7 +491,7 @@ class TestDegradedModeGracePeriod:
             with caplog.at_level("INFO"):
                 await check_and_update_degraded_mode(mock_bt_instance)
 
-        assert mock_bt_instance.degraded_mode is False
+        assert mock_bt_instance.kernel_state.control_mode.degraded is False
         assert any("Exiting degraded mode" in r.message for r in caplog.records)
         assert mock_ir.async_delete_issue.called
         assert mock_bt_instance._degraded_warning_emitted is False

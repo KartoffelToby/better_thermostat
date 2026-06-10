@@ -40,18 +40,20 @@ class BtConfig:
 
 @dataclass
 class BtRuntime:
-    """Live operating values: rebuilt from observations after a restart."""
+    """Live operating values: rebuilt from observations after a restart.
+
+    The discrete mode flags (window open, startup, maintenance,
+    degraded) live in the kernel's FSM regions and are exposed as
+    derived read-only properties on the entity — they have no second
+    home here.
+    """
 
     cur_temp: float | None = None
     cur_temp_filtered: float | None = None
     external_temp_ema: float | None = None
     temp_slope: float | None = None
-    window_open: bool | None = None
     call_for_heat: bool = True
     ignore_states: bool = False
-    in_maintenance: bool = False
-    startup_running: bool = True
-    degraded_mode: bool = False
     bt_target_temp: float | None = None
     bt_target_cooltemp: float | None = None
 

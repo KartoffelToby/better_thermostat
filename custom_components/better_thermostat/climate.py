@@ -407,14 +407,9 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
         self.runtime.temp_slope = value
 
     @property
-    def window_open(self) -> bool | None:
-        """Return the committed window-open state."""
-        return self.runtime.window_open
-
-    @window_open.setter
-    def window_open(self, value: bool | None) -> None:
-        """Set the committed window-open state."""
-        self.runtime.window_open = value
+    def window_open(self) -> bool:
+        """Return the committed window-open state (window region)."""
+        return self.kernel_state.window.effective_open
 
     @property
     def call_for_heat(self) -> bool:
@@ -438,33 +433,22 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
 
     @property
     def in_maintenance(self) -> bool:
-        """Return whether valve maintenance is running."""
-        return self.runtime.in_maintenance
+        """Return whether valve maintenance pre-empts control.
 
-    @in_maintenance.setter
-    def in_maintenance(self, value: bool) -> None:
-        """Set whether valve maintenance is running."""
-        self.runtime.in_maintenance = value
+        Derived from the maintenance region; a stale RUNNING phase stops
+        blocking (liveness invariant).
+        """
+        return self.kernel_state.maintenance.is_blocking(self.clock.monotonic())
 
     @property
     def startup_running(self) -> bool:
-        """Return whether the startup sequence is running."""
-        return self.runtime.startup_running
-
-    @startup_running.setter
-    def startup_running(self, value: bool) -> None:
-        """Set whether the startup sequence is running."""
-        self.runtime.startup_running = value
+        """Return whether the startup sequence is running (lifecycle region)."""
+        return self.kernel_state.lifecycle.startup_running
 
     @property
     def degraded_mode(self) -> bool:
-        """Return the degraded-mode annunciation flag."""
-        return self.runtime.degraded_mode
-
-    @degraded_mode.setter
-    def degraded_mode(self, value: bool) -> None:
-        """Set the degraded-mode annunciation flag."""
-        self.runtime.degraded_mode = value
+        """Return the degraded-mode annunciation (control-mode region)."""
+        return self.kernel_state.control_mode.degraded
 
     @property
     def bt_target_temp(self) -> float | None:
@@ -660,7 +644,6 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
         )
         self.cur_temp = None
         self._current_humidity: float | None = 0.0
-        self.window_open = None
         self.bt_target_temp_step = (
             float(target_temp_step)
             if target_temp_step and target_temp_step != "0.0"
@@ -690,7 +673,6 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
         self.last_internal_sensor_change = self.clock.now() - timedelta(hours=2)
         self._temp_lock = asyncio.Lock()
         self.bt_update_lock = False
-        self.startup_running = True
         self._saved_temperature = None
         if enabled_presets is not None:
             self.preset_mgr = PresetManager(enabled_presets=enabled_presets)
@@ -729,7 +711,6 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
         self.devices_states = {}
         self.devices_errors = []
         # Degraded mode: thermostat continues operating with some sensors unavailable
-        self.degraded_mode = False
         self.unavailable_sensors = []
         # Startup grace period suppresses the degraded-mode WARNING and the HA
         # repair issue while slow integrations finish initializing.
@@ -746,7 +727,6 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
         self._window_task = None
         self.is_removed = False
         # Valve maintenance control
-        self.in_maintenance = False
         # If control actions are requested during valve maintenance, defer them and
         # trigger one control cycle once maintenance finishes.
         self._control_needed_after_maintenance = False
@@ -1437,12 +1417,10 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
                 None,
             ):
                 check = window.state
-                if check in ("on", "open", "true"):
-                    self.window_open = True
-                else:
-                    self.window_open = False
                 self.kernel_state.window = WindowState(
-                    phase=WindowPhase.OPEN if self.window_open else WindowPhase.CLOSED
+                    phase=WindowPhase.OPEN
+                    if check in ("on", "open", "true")
+                    else WindowPhase.CLOSED
                 )
                 _LOGGER.debug(
                     "better_thermostat %s: detected window state at startup: %s",
@@ -1451,14 +1429,12 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
                 )
             else:
                 # Window sensor unavailable - assume closed (safer default)
-                self.window_open = False
                 self.kernel_state.window = WindowState()
                 _LOGGER.debug(
                     "better_thermostat %s: window sensor unavailable, assuming closed",
                     self.device_name,
                 )
         else:
-            self.window_open = False
             self.kernel_state.window = WindowState()
 
     async def _restore_state(self, states: list[State]) -> None:
@@ -1864,7 +1840,6 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
         )
         await self._trigger_check_weather(None)
         _LOGGER.debug("better_thermostat %s: startup finishing...", self.device_name)
-        self.startup_running = False
         self.kernel_state.lifecycle = lifecycle_startup_finished(
             self.kernel_state.lifecycle
         )
@@ -2165,7 +2140,6 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
         self.kernel_state.maintenance = maintenance_start_run(
             region, self.clock.monotonic()
         )
-        self.in_maintenance = True
         # Suppress control loop briefly to prevent interference during maintenance
         self.ignore_states = True
 
@@ -2249,7 +2223,6 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
             # If we restore a previous True here, the control_queue loop can get
             # stuck sleeping forever and never consume queued control actions.
             self.ignore_states = False
-            self.in_maintenance = False
 
             # Trigger one control cycle after maintenance so BT immediately
             # resumes with the latest window/temp/target states.

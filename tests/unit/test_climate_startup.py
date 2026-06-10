@@ -341,7 +341,7 @@ class TestInitializeSensors:
 
         bt.hass.states.get.side_effect = side_effect
         BetterThermostat._initialize_sensors(bt, sensor)
-        assert bt.window_open is True
+        assert bt.kernel_state.window.effective_open is True
         assert WINDOW_ID in bt.all_entities
 
     def test_window_none_defaults_closed(self, bt):
@@ -349,7 +349,7 @@ class TestInitializeSensors:
         bt.window_id = None
         sensor = _make_sensor_state("20.0")
         BetterThermostat._initialize_sensors(bt, sensor)
-        assert bt.window_open is False
+        assert bt.kernel_state.window.effective_open is False
 
     def test_humidity_sensor_initialized(self, bt):
         """Test Humidity sensor initialized."""

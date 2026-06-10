@@ -319,8 +319,9 @@ async def await_optional_sensors(
 async def check_and_update_degraded_mode(self) -> bool:
     """Check optional sensors and update degraded mode status.
 
-    Sets self.degraded_mode to True if any optional sensor is unavailable.
-    Updates self.unavailable_sensors with list of unavailable optional sensors.
+    Advances the control-mode region (whose ``degraded`` the entity
+    exposes as the ``degraded_mode`` property) and updates
+    self.unavailable_sensors with the unavailable optional sensors.
 
     Returns
     -------
@@ -361,9 +362,9 @@ async def check_and_update_degraded_mode(self) -> bool:
             name=f"bt_battery_status_{self.sensor_entity_id}",
         )
 
-    # Update instance state; the control-mode region is the typed record,
-    # degraded_mode stays as its boolean mirror.
-    old_degraded = getattr(self, "degraded_mode", False)
+    # The control-mode region is the typed record; the entity's
+    # degraded_mode property derives from it.
+    old_degraded = self.kernel_state.control_mode.degraded
     self.kernel_state.control_mode = control_mode_step(
         self.kernel_state.control_mode, unavailable, self.clock.monotonic()
     )
@@ -377,13 +378,13 @@ async def check_and_update_degraded_mode(self) -> bool:
         now=self.clock.monotonic(),
         params=LadderParams(),
     )
-    self.degraded_mode = self.kernel_state.control_mode.degraded
     self.unavailable_sensors = unavailable
+    degraded = self.kernel_state.control_mode.degraded
 
     in_grace = self.kernel_state.lifecycle.in_grace(dt_util.now())
     has_warned = getattr(self, "_degraded_warning_emitted", False)
 
-    if self.degraded_mode and not has_warned and not in_grace:
+    if degraded and not has_warned and not in_grace:
         _LOGGER.warning(
             "better_thermostat %s: Entering degraded mode. Unavailable sensors: %s",
             self.device_name,
@@ -404,14 +405,14 @@ async def check_and_update_degraded_mode(self) -> bool:
             },
         )
         self._degraded_warning_emitted = True
-    elif self.degraded_mode and in_grace and not old_degraded:
+    elif degraded and in_grace and not old_degraded:
         _LOGGER.debug(
             "better_thermostat %s: degraded mode during startup grace period "
             "(unavailable: %s); waiting for sensors before warning",
             self.device_name,
             ", ".join(unavailable),
         )
-    elif not self.degraded_mode and has_warned:
+    elif not degraded and has_warned:
         _LOGGER.info(
             "better_thermostat %s: Exiting degraded mode. All sensors available.",
             self.device_name,
@@ -420,4 +421,4 @@ async def check_and_update_degraded_mode(self) -> bool:
         self._degraded_warning_emitted = False
 
     self.async_write_ha_state()
-    return self.degraded_mode
+    return degraded
