@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from homeassistant.const import STATE_UNAVAILABLE, STATE_UNKNOWN
 
-from ..calibration import _get_current_outdoor_temp, _get_current_solar_intensity
+from ..calibration import _get_current_outdoor_temp, _get_solar_context
 from ..core.snapshot import TrvReported, WorldSnapshot, parse_hvac_mode
 from .helpers import convert_to_float
 
@@ -57,12 +57,7 @@ def build_snapshot(self) -> WorldSnapshot:
         for entity_id, trv in self.real_trvs.items()
     }
 
-    is_day = True
-    if self.hass is not None:
-        sun = self.hass.states.get("sun.sun")
-        if sun is not None and sun.state == "below_horizon":
-            is_day = False
-    solar_intensity = _get_current_solar_intensity(self) if is_day else 0.0
+    is_day, solar_intensity = _get_solar_context(self)
 
     return WorldSnapshot(
         now=self.clock.now(),

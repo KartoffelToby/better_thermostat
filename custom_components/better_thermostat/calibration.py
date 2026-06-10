@@ -125,6 +125,16 @@ def _get_current_outdoor_temp(self) -> float | None:
     return None
 
 
+def _get_solar_context(self) -> tuple[bool, float]:
+    """Daylight flag plus current solar intensity (0.0 below the horizon)."""
+    is_day = True
+    if self.hass is not None:
+        sun = self.hass.states.get("sun.sun")
+        if sun is not None and sun.state == "below_horizon":
+            is_day = False
+    return is_day, (_get_current_solar_intensity(self) if is_day else 0.0)
+
+
 def _get_current_solar_intensity(self) -> float:
     """Estimate solar intensity (0.0 to 1.0) based on weather entity data."""
     if self.weather_entity is None:
@@ -318,15 +328,7 @@ def _compute_mpc_balance(self, entity_id: str):
         self.cur_temp_filtered if mpc_current_temp is self.cur_temp else None
     )
 
-    _is_day = True
-    if self.hass:
-        _sun = self.hass.states.get("sun.sun")
-        if _sun and _sun.state == "below_horizon":
-            _is_day = False
-
-    _solar_intensity = 0.0
-    if _is_day:
-        _solar_intensity = _get_current_solar_intensity(self)
+    _is_day, _solar_intensity = _get_solar_context(self)
 
     # Use a group key for multi-TRV setups so all TRVs share one MPC model.
     if is_multi_trv:
