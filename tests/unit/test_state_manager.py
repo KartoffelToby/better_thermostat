@@ -770,3 +770,36 @@ class TestResetPidStates:
 
         assert removed == 0
         assert mgr.dirty is False
+
+
+# ---------------------------------------------------------------------------
+# Filter state persistence
+# ---------------------------------------------------------------------------
+
+
+class TestFilterState:
+    """The runtime filter state persists through the unified store."""
+
+    def test_record_and_read_back(self):
+        """record_filters stores the values and marks dirty."""
+        mgr = _make_manager()
+        mgr.record_filters(20.5, 0.0012)
+        assert mgr.filters.external_temp_ema == 20.5
+        assert mgr.filters.temp_slope == 0.0012
+        assert mgr.dirty is True
+
+    def test_roundtrip_through_serialization(self):
+        """Filter values survive a serialize/deserialize cycle."""
+        mgr = _make_manager()
+        mgr.record_filters(20.5, 0.0012)
+        restored = _deserialize(_serialize(mgr.state))
+        assert restored.filters.external_temp_ema == 20.5
+        assert restored.filters.temp_slope == 0.0012
+
+    def test_non_finite_values_are_dropped_on_load(self):
+        """Poisoned filter values degrade to defaults instead of loading."""
+        raw = _serialize(RuntimeState())
+        raw["filters"] = {"external_temp_ema": float("nan"), "temp_slope": "oops"}
+        restored = _deserialize(raw)
+        assert restored.filters.external_temp_ema is None
+        assert restored.filters.temp_slope is None

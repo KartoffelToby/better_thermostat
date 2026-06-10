@@ -1278,8 +1278,12 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
         )
         if old_state is not None:
             _LOGGER.debug("better_thermostat %s: restoring state...", self.device_name)
-            # Restore external_temp_ema if available (overwrites startup init)
-            if "external_temp_ema" in old_state.attributes:
+            # Migration fallback: read the filter state from the last
+            # entity attributes only when the unified store has none.
+            _store_filters = self.state_mgr.filters if self.state_mgr else None
+            if (
+                _store_filters is None or _store_filters.external_temp_ema is None
+            ) and "external_temp_ema" in old_state.attributes:
                 try:
                     _restored_ema = float(old_state.attributes["external_temp_ema"])
                     self.external_temp_ema = _restored_ema
@@ -1294,8 +1298,9 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
                 except (ValueError, TypeError):
                     pass
 
-            # Restore temp_slope if available
-            if "temp_slope_K_min" in old_state.attributes:
+            if (
+                _store_filters is None or _store_filters.temp_slope is None
+            ) and "temp_slope_K_min" in old_state.attributes:
                 try:
                     _restored_slope = float(old_state.attributes["temp_slope_K_min"])
                     self.temp_slope = _restored_slope
@@ -2064,7 +2069,11 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
     # -- Unified state persistence helpers ------------------------------------
 
     def _hydrate_thermal_from_state(self) -> None:
-        """Apply persisted, clamped thermal stats to entity attributes."""
+        """Apply persisted thermal stats and filter state to the entity.
+
+        The StateManager is the persistence authority; the RestoreEntity
+        attributes only serve as a one-time migration fallback.
+        """
         if self.state_mgr is None:
             return
         heating_power, heat_loss_rate = self.state_mgr.clamped_thermal()
@@ -2072,6 +2081,13 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
             self.heating_power = heating_power
         if heat_loss_rate is not None:
             self.heat_loss_rate = heat_loss_rate
+        filters = self.state_mgr.filters
+        if filters.external_temp_ema is not None:
+            self.external_temp_ema = filters.external_temp_ema
+            self.cur_temp_filtered = round(filters.external_temp_ema, 2)
+            self._external_temp_ema_ts = self.clock.monotonic()
+        if filters.temp_slope is not None:
+            self.temp_slope = filters.temp_slope
 
     def _record_thermal_to_state(self) -> None:
         """Push the entity-held thermal stats into the StateManager."""

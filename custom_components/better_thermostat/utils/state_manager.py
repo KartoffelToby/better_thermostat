@@ -66,6 +66,14 @@ class ThermalStats:
 
 
 @dataclass
+class FilterState:
+    """Runtime filter state that should survive a restart."""
+
+    external_temp_ema: float | None = None
+    temp_slope: float | None = None
+
+
+@dataclass
 class RuntimeState:
     """Complete runtime state for one BetterThermostat config entry.
 
@@ -78,6 +86,7 @@ class RuntimeState:
     pid: dict[str, PIDState] = field(default_factory=dict)
     tpi: dict[str, TpiState] = field(default_factory=dict)
     thermal: ThermalStats = field(default_factory=ThermalStats)
+    filters: FilterState = field(default_factory=FilterState)
     presets: dict[str, float] = field(default_factory=dict)
 
 
@@ -257,6 +266,19 @@ def _deserialize(raw: dict[str, Any]) -> RuntimeState:
             heating_power=heating_power, heat_loss_rate=heat_loss_rate
         )
 
+    filters_raw = raw.get("filters", {})
+    if isinstance(filters_raw, dict):
+        for attr in ("external_temp_ema", "temp_slope"):
+            value = filters_raw.get(attr)
+            if value is None:
+                continue
+            try:
+                number = float(value)
+            except (TypeError, ValueError):
+                continue
+            if math.isfinite(number):
+                setattr(state.filters, attr, number)
+
     presets_raw = raw.get("presets", {})
     if isinstance(presets_raw, dict):
         for name, temp in presets_raw.items():
@@ -285,6 +307,7 @@ def _migrate_v0_to_v1(raw: dict[str, Any]) -> dict[str, Any]:
     raw.setdefault("pid", {})
     raw.setdefault("tpi", {})
     raw.setdefault("thermal", {})
+    raw.setdefault("filters", {})
     raw.setdefault("presets", {})
     return raw
 
@@ -439,6 +462,20 @@ class StateManager:
         self.thermal = ThermalStats(
             heating_power=heating_power, heat_loss_rate=heat_loss_rate
         )
+
+    @property
+    def filters(self) -> FilterState:
+        """Return the persisted runtime filter state."""
+        return self._state.filters
+
+    def record_filters(
+        self, external_temp_ema: float | None, temp_slope: float | None
+    ) -> None:
+        """Record the entity-held filter state before a save."""
+        self._state.filters = FilterState(
+            external_temp_ema=external_temp_ema, temp_slope=temp_slope
+        )
+        self._dirty = True
 
     # -- Load / Save ---------------------------------------------------------
 
