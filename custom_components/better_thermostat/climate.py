@@ -2597,10 +2597,15 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
 
     @property
     def hvac_action(self):
-        """Return the current HVAC action."""
-        if self.attr_hvac_action is not None:
-            return self.attr_hvac_action
-        return self._compute_hvac_action_pure().action
+        """Return the current HVAC action.
+
+        Every control cycle commits a fresh action; the one computation
+        here bridges the gap until the first commit and is cached so
+        repeated state reads do not rebuild it.
+        """
+        if self.attr_hvac_action is None:
+            self.attr_hvac_action = self._compute_hvac_action_pure().action
+        return self.attr_hvac_action
 
     def _should_heat_with_tolerance(
         self, previous_action: HVACAction | None, tol: float
