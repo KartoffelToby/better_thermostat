@@ -16,7 +16,10 @@ The cascade (top wins):
    moment it returns).
 5. Call for heat — without heat demand every TRV is turned off.
 6. Heating — every addressed TRV is asked to heat towards the room
-   target. The calibrated numbers (setpoint corrections, offsets, valve
+   target. Under the ladder's HOLD rung the intent keeps the mode but
+   carries no setpoint: with no usable temperature the controller stops
+   adjusting and the device keeps its last commanded state. The
+   calibrated numbers (setpoint corrections, offsets, valve
    percentages) stay in the shell until the calibrator strategies move
    into the core (M7).
 
@@ -30,7 +33,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 
 from .desired import DesiredState, TrvDesired
-from .fsm.control_mode import ControlModeState
+from .fsm.control_mode import ControlMode, ControlModeState
 from .fsm.lifecycle import LifecyclePhase, LifecycleState
 from .fsm.maintenance import MaintenanceState
 from .fsm.mode import ModeState
@@ -156,11 +159,14 @@ def decide(
             state,
         )
 
+    # HOLD rung of the fail-soft ladder: no usable temperature exists,
+    # so the intent keeps the mode and adjusts nothing.
+    hold = state.control_mode.mode == ControlMode.HOLD
     heating = {
         entity_id: TrvDesired(
             entity_id=entity_id,
             hvac_mode=state.mode.hvac_mode,
-            setpoint=snapshot.target_temp,
+            setpoint=None if hold else snapshot.target_temp,
         )
         for entity_id in addressed
     }

@@ -26,6 +26,12 @@ from custom_components.better_thermostat.utils.controlling import (
     check_system_mode,
     check_target_temperature,
 )
+from tests.factories import make_snapshot
+
+
+def _boost_snapshot():
+    """Snapshot of an active boost: preset set, room below target."""
+    return make_snapshot(preset_mode="boost", room_temp=19.0, target_temp=22.0)
 
 
 class TestCheckSystemMode:
@@ -329,6 +335,7 @@ class TestGetValveControlBoostCalibrationType:
         mock_self = self._mock_in_boost()
         bal, source = _get_valve_control(
             mock_self,
+            _boost_snapshot(),
             "climate.trv1",
             CalibrationMode.MPC_CALIBRATION,
             CalibrationType.DIRECT_VALVE_BASED,
@@ -341,6 +348,7 @@ class TestGetValveControlBoostCalibrationType:
         mock_self = self._mock_in_boost()
         bal, source = _get_valve_control(
             mock_self,
+            _boost_snapshot(),
             "climate.trv1",
             CalibrationMode.MPC_CALIBRATION,
             CalibrationType.LOCAL_BASED,
@@ -353,6 +361,7 @@ class TestGetValveControlBoostCalibrationType:
         mock_self = self._mock_in_boost()
         bal, source = _get_valve_control(
             mock_self,
+            _boost_snapshot(),
             "climate.trv1",
             CalibrationMode.MPC_CALIBRATION,
             CalibrationType.TARGET_TEMP_BASED,
@@ -387,6 +396,7 @@ class TestGetValveControlBoostMaxOpening:
         mock_self.real_trvs["climate.trv1"] = Trv(entity_id="climate.trv1")
         bal, source = _get_valve_control(
             mock_self,
+            _boost_snapshot(),
             "climate.trv1",
             CalibrationMode.MPC_CALIBRATION,
             CalibrationType.DIRECT_VALVE_BASED,
@@ -399,6 +409,7 @@ class TestGetValveControlBoostMaxOpening:
         mock_self = self._mock_in_boost(max_opening=100)
         bal, _ = _get_valve_control(
             mock_self,
+            _boost_snapshot(),
             "climate.trv1",
             CalibrationMode.MPC_CALIBRATION,
             CalibrationType.DIRECT_VALVE_BASED,
@@ -410,6 +421,7 @@ class TestGetValveControlBoostMaxOpening:
         mock_self = self._mock_in_boost(max_opening=60)
         bal, source = _get_valve_control(
             mock_self,
+            _boost_snapshot(),
             "climate.trv1",
             CalibrationMode.MPC_CALIBRATION,
             CalibrationType.DIRECT_VALVE_BASED,
@@ -422,6 +434,7 @@ class TestGetValveControlBoostMaxOpening:
         mock_self = self._mock_in_boost(max_opening=72.6)
         bal, _ = _get_valve_control(
             mock_self,
+            _boost_snapshot(),
             "climate.trv1",
             CalibrationMode.MPC_CALIBRATION,
             CalibrationType.DIRECT_VALVE_BASED,
@@ -433,6 +446,7 @@ class TestGetValveControlBoostMaxOpening:
         mock_self = self._mock_in_boost(max_opening=150)
         bal, _ = _get_valve_control(
             mock_self,
+            _boost_snapshot(),
             "climate.trv1",
             CalibrationMode.MPC_CALIBRATION,
             CalibrationType.DIRECT_VALVE_BASED,
@@ -444,6 +458,7 @@ class TestGetValveControlBoostMaxOpening:
         mock_self = self._mock_in_boost(max_opening="not a number")
         bal, _ = _get_valve_control(
             mock_self,
+            _boost_snapshot(),
             "climate.trv1",
             CalibrationMode.MPC_CALIBRATION,
             CalibrationType.DIRECT_VALVE_BASED,

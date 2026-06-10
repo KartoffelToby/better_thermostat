@@ -4,7 +4,7 @@ import asyncio
 from copy import deepcopy
 import logging
 
-from homeassistant.components.climate.const import PRESET_BOOST, HVACMode
+from homeassistant.components.climate.const import HVACMode
 from homeassistant.const import STATE_UNAVAILABLE, STATE_UNKNOWN, UnitOfTemperature
 from homeassistant.util.unit_conversion import TemperatureConverter
 
@@ -15,7 +15,7 @@ from custom_components.better_thermostat.adapters.delegate import (
     set_temperature,
     set_valve,
 )
-from custom_components.better_thermostat.core.decide import decide
+from custom_components.better_thermostat.core.decide import decide, is_boost_heating
 from custom_components.better_thermostat.core.desired import DesiredState, TrvDesired
 from custom_components.better_thermostat.core.fsm.control_mode import ControlMode
 from custom_components.better_thermostat.core.safety import clamp as safety_clamp
@@ -98,22 +98,8 @@ def _stamp_heartbeat(self) -> None:
     self.kernel_state.last_control_monotonic = self.clock.monotonic()
 
 
-def _is_boost_heating_active(self) -> bool:
-    """Check if boost mode is active and heating is needed.
-
-    Returns True when boost preset is active and current temperature
-    is below target temperature.
-    """
-    return (
-        self.preset_mode == PRESET_BOOST
-        and self.cur_temp is not None
-        and self.bt_target_temp is not None
-        and self.cur_temp < self.bt_target_temp
-    )
-
-
 def _get_valve_control(
-    self, heater_entity_id: str, calibration_mode, calibration_type
+    self, snapshot, heater_entity_id: str, calibration_mode, calibration_type
 ) -> tuple[dict | None, str | None]:
     """Determine valve control settings based on boost mode or calibration.
 
@@ -124,7 +110,7 @@ def _get_valve_control(
     # Forcing the valve on a non-direct-valve TRV bypasses the calibration chain
     # and leaves the valve stuck open after boost ends.
     if (
-        _is_boost_heating_active(self)
+        is_boost_heating(snapshot)
         and calibration_type == CalibrationType.DIRECT_VALVE_BASED
     ):
         _trv = self.real_trvs.get(heater_entity_id)
@@ -655,18 +641,6 @@ async def control_trv(self, heater_entity_id=None, cycle=None):
         _temperature = _remapped_states.get("temperature", None)
         _calibration = _remapped_states.get("local_temperature_calibration", None)
 
-        # HOLD rung of the fail-soft ladder: no usable temperature exists,
-        # so the controller stops adjusting and keeps the last commanded
-        # state. Mode suppression (OFF / window) below stays active.
-        if self.kernel_state.control_mode.mode == ControlMode.HOLD:
-            _LOGGER.debug(
-                "better_thermostat %s: control mode HOLD - keeping last "
-                "commanded state for %s",
-                self.device_name,
-                heater_entity_id,
-            )
-            _temperature = None
-            _calibration = None
         _calibration_mode = self.real_trvs[heater_entity_id].advanced.get(
             "calibration_mode", CalibrationMode.MPC_CALIBRATION
         )
@@ -676,10 +650,24 @@ async def control_trv(self, heater_entity_id=None, cycle=None):
         # Pair the forced 100 % valve with a max-temp setpoint so the TRV
         # firmware does not fight the valve command.
         if (
-            _is_boost_heating_active(self)
+            is_boost_heating(snapshot)
             and _calibration_type == CalibrationType.DIRECT_VALVE_BASED
         ):
             _temperature = self.real_trvs[heater_entity_id].max_temp
+
+        # HOLD rung of the fail-soft ladder: no usable temperature exists,
+        # so the controller stops adjusting and keeps the last commanded
+        # state. Mode suppression (OFF / window) below stays active, and
+        # nothing after this gate may re-introduce an adjustment.
+        if self.kernel_state.control_mode.mode == ControlMode.HOLD:
+            _LOGGER.debug(
+                "better_thermostat %s: control mode HOLD - keeping last "
+                "commanded state for %s",
+                self.device_name,
+                heater_entity_id,
+            )
+            _temperature = None
+            _calibration = None
 
         # Optional: set valve position if supported (e.g., MQTT/Z2M)
         try:
@@ -687,7 +675,7 @@ async def control_trv(self, heater_entity_id=None, cycle=None):
                 valve_settings, _source = None, None
             else:
                 valve_settings, _source = _get_valve_control(
-                    self, heater_entity_id, _calibration_mode, _calibration_type
+                    self, snapshot, heater_entity_id, _calibration_mode, _calibration_type
                 )
             if valve_settings is not None:
                 target_pct = int(round(valve_settings.get("valve_percent", 0)))
@@ -757,7 +745,7 @@ async def control_trv(self, heater_entity_id=None, cycle=None):
         # calibration types accept valve commands; LOCAL_BASED and
         # TARGET_TEMP_BASED control via offset / setpoint instead.
         if (
-            _is_boost_heating_active(self)
+            is_boost_heating(snapshot)
             and _new_hvac_mode == HVACMode.OFF
             and _calibration_type == CalibrationType.DIRECT_VALVE_BASED
         ):
@@ -765,7 +753,21 @@ async def control_trv(self, heater_entity_id=None, cycle=None):
                 "better_thermostat %s: Boost safety override - resetting valve to 0%% because HVAC mode is OFF",
                 self.device_name,
             )
-            await set_valve(self, heater_entity_id, 0)
+            # Closing the valve is the overheat-safe direction and skips
+            # the budget gate, but it is a real write: it passes the
+            # safety hull and occupies the budget slot like any other.
+            _reset_pct = int(
+                round(
+                    _through_safety_hull(
+                        snapshot, heater_entity_id, valve_percent=0.0
+                    ).valve_percent
+                    or 0.0
+                )
+            )
+            self.real_trvs[heater_entity_id].last_valve_write_monotonic = (
+                self.clock.monotonic()
+            )
+            await set_valve(self, heater_entity_id, _reset_pct)
 
         # Manage TRVs with no HVACMode.OFF
         _trv_has_no_off = _no_off_system_mode(self.real_trvs[heater_entity_id])

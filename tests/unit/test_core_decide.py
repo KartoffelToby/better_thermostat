@@ -1,6 +1,10 @@
 """Pure tests for the decision kernel — snapshot in, desired out, no HA."""
 
 from custom_components.better_thermostat.core.decide import KernelState, decide
+from custom_components.better_thermostat.core.fsm.control_mode import (
+    ControlMode,
+    ControlModeState,
+)
 from custom_components.better_thermostat.core.fsm.lifecycle import LifecycleState
 from custom_components.better_thermostat.core.fsm.mode import ModeState
 from custom_components.better_thermostat.core.fsm.window import WindowPhase, WindowState
@@ -263,6 +267,42 @@ class TestHeatingBranch:
             make_snapshot(), make_state(mode=ModeState(hvac_mode=HvacMode.HEAT_COOL))
         )
         assert all(t.hvac_mode == HvacMode.HEAT_COOL for t in desired.trvs.values())
+
+
+class TestHoldRung:
+    """Under HOLD the kernel keeps the mode but adjusts nothing."""
+
+    def test_hold_emits_intent_without_numbers(self):
+        """The heating tier carries the mode and no setpoint."""
+        desired, _ = decide(
+            make_snapshot(),
+            make_state(control_mode=ControlModeState(mode=ControlMode.HOLD)),
+        )
+        assert set(desired.trvs) == {"climate.trv1", "climate.trv2"}
+        for trv in desired.trvs.values():
+            assert trv.hvac_mode == HvacMode.HEAT
+            assert trv.setpoint is None
+
+    def test_hold_keeps_mode_suppression(self):
+        """The OFF/window tiers stay above the rung."""
+        desired, _ = decide(
+            make_snapshot(),
+            make_state(
+                window=WindowState(phase=WindowPhase.OPEN),
+                control_mode=ControlModeState(mode=ControlMode.HOLD),
+            ),
+        )
+        assert all(t.hvac_mode == HvacMode.OFF for t in desired.trvs.values())
+
+    def test_sensor_fallback_keeps_the_setpoint(self):
+        """SENSOR_FALLBACK still adjusts — only HOLD pauses the numbers."""
+        desired, _ = decide(
+            make_snapshot(),
+            make_state(
+                control_mode=ControlModeState(mode=ControlMode.SENSOR_FALLBACK)
+            ),
+        )
+        assert all(t.setpoint == 21.0 for t in desired.trvs.values())
 
 
 class TestRegionIntegration:

@@ -6,14 +6,14 @@
         "entity_id": "climate.trv1",
         "hvac_mode": "heat",
         "offset": null,
-        "setpoint": 21.0,
+        "setpoint": null,
         "valve_percent": null
       },
       "climate.trv2": {
         "entity_id": "climate.trv2",
         "hvac_mode": "heat",
         "offset": null,
-        "setpoint": 21.0,
+        "setpoint": null,
         "valve_percent": null
       }
     }
