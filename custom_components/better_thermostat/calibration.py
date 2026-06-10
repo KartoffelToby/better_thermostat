@@ -875,8 +875,9 @@ def calculate_calibration_setpoint(self, entity_id) -> float | None:
     if self.cur_temp is None or self.bt_target_temp is None:
         return None
 
-    # Add tolerance check
-    _cur_external_temp = float(effective_room_temp(self) or self.cur_temp)
+    # cur_temp is not None here, so effective_room_temp() never is —
+    # and a fallback reading of exactly 0.0 is a reading, not a gap.
+    _cur_external_temp = float(effective_room_temp(self))
     _cur_target_temp = float(self.bt_target_temp)
 
     _cur_trv_temp_s = self.real_trvs[entity_id].current_temperature

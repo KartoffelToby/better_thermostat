@@ -10,7 +10,14 @@ watchdog flags a silently stalled control loop.
 from datetime import UTC, datetime
 from unittest.mock import MagicMock
 
-from custom_components.better_thermostat.calibration import effective_room_temp
+from homeassistant.components.climate.const import HVACAction
+import pytest
+
+from custom_components.better_thermostat.calibration import (
+    calculate_calibration_setpoint,
+    effective_room_temp,
+)
+from custom_components.better_thermostat.utils.const import CalibrationMode
 from custom_components.better_thermostat.core.decide import (
     KernelState,
     decide,
@@ -61,6 +68,49 @@ class TestSensorFallbackSubstitution:
     def test_hold_does_not_substitute(self):
         """HOLD does not fabricate temperatures; the controller pauses."""
         assert effective_room_temp(_bt(ControlMode.HOLD)) == 20.0
+
+
+class TestFallbackSetpointChannel:
+    """The setpoint channel uses the fallback temperature verbatim."""
+
+    def test_zero_degree_fallback_reading_is_used(self):
+        """A TRV mean of exactly 0.0 °C is a reading, not a missing value —
+        the stale room-sensor value must not silently substitute for it."""
+        quirks = MagicMock()
+        quirks.fix_target_temperature_calibration.side_effect = (
+            lambda _self, _eid, temperature: float(temperature)
+        )
+        bt = MagicMock()
+        bt.name = "better_thermostat"
+        bt.device_name = "Test BT"
+        bt.tolerance = 0.0
+        bt.hvac_action = HVACAction.HEATING
+        bt.cur_temp = 18.0  # stale reading from the dead room sensor
+        bt.bt_target_temp = 5.0
+        bt.kernel_state = KernelState(
+            control_mode=ControlModeState(mode=ControlMode.SENSOR_FALLBACK)
+        )
+        bt.real_trvs = {
+            "climate.a": Trv.from_legacy_dict(
+                "climate.a",
+                {
+                    "advanced": {"calibration_mode": CalibrationMode.DEFAULT},
+                    "current_temperature": 4.0,
+                    "target_temp_step": 0.5,
+                    "min_temp": 5.0,
+                    "max_temp": 30.0,
+                    "model_quirks": quirks,
+                },
+            ),
+            "climate.b": Trv.from_legacy_dict(
+                "climate.b", {"current_temperature": -4.0}
+            ),
+        }
+
+        result = calculate_calibration_setpoint(bt, "climate.a")
+
+        # (target 5.0 - fallback mean 0.0) + TRV temp 4.0 = 9.0
+        assert result == pytest.approx(9.0)
 
 
 class TestBulkhead:
