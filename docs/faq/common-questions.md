@@ -28,6 +28,21 @@ Start with **AI Time Based**. It is the best default for most homes.
 
 If you want tighter overshoot control and have stable sensors, try **MPC Predictive**.
 
+## Why does my TRV pick up a change with a delay?
+
+Better Thermostat spaces writes to each TRV at least 30 seconds apart,
+separately for setpoint, offset, and valve commands. TRVs are battery-
+and radio-constrained devices; bursts of writes drain batteries and
+congest the radio network.
+
+A change that arrives inside that window is sent automatically as soon
+as the slot is free — at most 30 seconds later. Safety-relevant writes
+(frost protection, turning off, closing the valve) are sent immediately.
+
+If a write gets lost on the radio anyway, the periodic reconciliation
+detects the mismatch between the intended and the reported state and
+re-sends it within a few minutes.
+
 ## Where do I find advanced tuning info?
 
 See:
