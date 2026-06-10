@@ -187,18 +187,21 @@ def _get_valve_control(
     return None, None
 
 
-def compute_control_cycle(self):
+def compute_control_cycle(self, *, record: bool = True):
     """Build one consistent observation and decision for a control cycle.
 
     Records the (snapshot, pre-decide state, desired) tuple in the
     flight recorder — exactly once per cycle. decide() never mutates
     its input, so the pre-decide state needs no defensive copy here;
-    the recorder makes the one copy it stores.
+    the recorder makes the one copy it stores. Probes (the reconciler)
+    pass ``record=False`` to run the same observe-decide step without
+    filling the recorder ring.
     """
     snapshot = build_snapshot(self)
     pre_state = self.kernel_state
     desired, self.kernel_state = decide(snapshot, pre_state)
-    self.flight_recorder.record(snapshot, pre_state, desired)
+    if record:
+        self.flight_recorder.record(snapshot, pre_state, desired)
     return snapshot, desired
 
 
@@ -292,8 +295,7 @@ async def reconcile_tick(self, now=None):
             )
             request_control_cycle(self)
             return
-        snapshot = build_snapshot(self)
-        desired, self.kernel_state = decide(snapshot, self.kernel_state)
+        snapshot, desired = compute_control_cycle(self, record=False)
         desired = safety_clamp(desired, snapshot)
         if not desired_diverges(self, snapshot, desired):
             return

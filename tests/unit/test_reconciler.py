@@ -157,6 +157,14 @@ class TestReconcileTick:
         bt.control_queue_task.put_nowait.assert_not_called()
 
     @pytest.mark.asyncio
+    async def test_reconcile_probe_is_not_recorded(self):
+        """The periodic probe shares the observe-decide step with the
+        control cycle but must not fill the flight-recorder ring."""
+        bt = _make_bt()
+        await reconcile_tick(bt)
+        bt.flight_recorder.record.assert_not_called()
+
+    @pytest.mark.asyncio
     async def test_paused_during_startup_and_maintenance(self):
         """The tick is inert while startup or ignore_states is active."""
         bt = _make_bt(reported_target=18.0)
