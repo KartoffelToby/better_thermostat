@@ -69,17 +69,12 @@ class WorldSnapshot:
     room_temp: float | None = None
     room_temp_filtered: float | None = None
     temp_slope: float | None = None
-    window_open: bool | None = None
     call_for_heat: bool = True
     preset_mode: str | None = None
     tolerance: float = 0.0
     outdoor_temp: float | None = None
     is_day: bool = True
     solar_intensity: float = 0.0
-    startup_running: bool = False
-    in_maintenance: bool = False
-    ignore_states: bool = False
-    degraded: bool = False
     min_temp: float | None = None
     max_temp: float | None = None
     trvs: Mapping[str, TrvReported] = field(default_factory=dict)

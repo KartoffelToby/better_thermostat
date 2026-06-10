@@ -20,14 +20,13 @@ from custom_components.better_thermostat.core.snapshot import (
 )
 
 
-def _snapshot(target=21.0, window_open=False) -> WorldSnapshot:
+def _snapshot(target=21.0) -> WorldSnapshot:
     return WorldSnapshot(
         now=datetime(2026, 1, 10, 7, 0, tzinfo=UTC),
         now_monotonic=1000.0,
         target_temp=target,
         hvac_mode=HvacMode.HEAT,
         room_temp=19.0,
-        window_open=window_open,
         call_for_heat=True,
         tolerance=0.3,
         trvs={
@@ -118,7 +117,7 @@ class TestReplay:
     def test_reconstruction_is_lossless_for_the_kernel(self):
         """Snapshot and state reconstruct into equal kernel inputs."""
         recorder = FlightRecorder()
-        snapshot = _snapshot(window_open=True)
+        snapshot = _snapshot()
         desired, _ = decide(snapshot, running_kernel_state())
         recorder.record(snapshot, running_kernel_state(), desired)
         entry = json.loads(json.dumps(recorder.export()))[0]
@@ -196,7 +195,7 @@ class TestReplayValidation:
 
 
 def test_replay_roundtrips_reachability_and_null_window_state():
-    """Reachability entries and a None window_open survive the roundtrip."""
+    """Reachability entries survive the roundtrip."""
     from custom_components.better_thermostat.core.snapshot import (
         TrvReported as _TrvReported,
     )
@@ -208,7 +207,6 @@ def test_replay_roundtrips_reachability_and_null_window_state():
         target_temp=21.0,
         hvac_mode=HvacMode.HEAT,
         room_temp=19.0,
-        window_open=None,
         call_for_heat=True,
         trvs={"climate.t": _TrvReported(entity_id="climate.t", available=False)},
     )
@@ -286,17 +284,12 @@ class TestRoundtripCompleteness:
             "room_temp": 19.0,
             "room_temp_filtered": 19.1,
             "temp_slope": 0.02,
-            "window_open": True,
             "call_for_heat": True,
             "preset_mode": "eco",
             "tolerance": 0.3,
             "outdoor_temp": 5.5,
             "is_day": False,
             "solar_intensity": 0.4,
-            "startup_running": True,
-            "in_maintenance": True,
-            "ignore_states": True,
-            "degraded": True,
             "min_temp": 5.0,
             "max_temp": 30.0,
             "trvs": {"climate.trv": TrvReported(**trv_reported_kwargs)},

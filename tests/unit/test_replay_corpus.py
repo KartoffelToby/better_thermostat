@@ -48,11 +48,11 @@ def _scenarios() -> dict[str, tuple]:
             make_state(mode=ModeState(hvac_mode=HvacMode.OFF)),
         ),
         "window_open": (
-            make_snapshot(window_open=True),
+            make_snapshot(),
             make_state(window=WindowState(phase=WindowPhase.OPEN)),
         ),
         "startup_running": (
-            make_snapshot(startup_running=True),
+            make_snapshot(),
             make_state(lifecycle=LifecycleState()),
         ),
         "maintenance_running": (

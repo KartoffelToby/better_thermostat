@@ -80,7 +80,7 @@ class TestWindowOpen:
     def test_mode_off_wins_over_window(self):
         """OFF mode (call_for_heat False) has precedence over the window tier."""
         desired, _ = decide(
-            make_snapshot(window_open=True),
+            make_snapshot(),
             make_state(
                 mode=ModeState(hvac_mode=HvacMode.OFF),
                 window=WindowState(phase=WindowPhase.OPEN),
@@ -190,26 +190,29 @@ class TestReachability:
     def test_boost_keeps_commanding_offline_trvs(self):
         """Active boost heating overrides the reachability skip."""
         desired, _ = decide(
-            self._snapshot(
-                window_open=True, preset_mode="boost", room_temp=18.0, target_temp=22.0
-            ),
-            make_state(),
+            self._snapshot(preset_mode="boost", room_temp=18.0, target_temp=22.0),
+            make_state(window=WindowState(phase=WindowPhase.OPEN)),
         )
         assert set(desired.trvs) == {"climate.up", "climate.down"}
 
     def test_boost_without_heat_demand_does_not_override(self):
         """Boost at/above target does not force-command offline TRVs."""
         desired, _ = decide(
-            self._snapshot(
-                window_open=True, preset_mode="boost", room_temp=22.5, target_temp=22.0
-            ),
-            make_state(),
+            self._snapshot(preset_mode="boost", room_temp=22.5, target_temp=22.0),
+            make_state(window=WindowState(phase=WindowPhase.OPEN)),
         )
         assert set(desired.trvs) == {"climate.up"}
 
 
 class TestDegradedIsAnnunciationOnly:
-    """Characterization: degraded mode does not alter the control law (pre-M8)."""
+    """Characterization: degraded annunciation does not alter the control law.
+
+    Unavailable optional sensors are annunciated through the
+    control-mode region; only the ladder rung (HOLD) has an effect.
+    """
+
+    def _degraded_region(self):
+        return ControlModeState(unavailable_sensors=("sensor.outdoor",))
 
     def test_degraded_changes_nothing_in_off_mode(self):
         """The OFF decision is identical with and without degraded."""
@@ -217,15 +220,18 @@ class TestDegradedIsAnnunciationOnly:
             make_snapshot(), make_state(mode=ModeState(hvac_mode=HvacMode.OFF))
         )
         b, _ = decide(
-            make_snapshot(degraded=True),
-            make_state(mode=ModeState(hvac_mode=HvacMode.OFF)),
+            make_snapshot(),
+            make_state(
+                mode=ModeState(hvac_mode=HvacMode.OFF),
+                control_mode=self._degraded_region(),
+            ),
         )
         assert a == b
 
     def test_degraded_changes_nothing_in_heating_branch(self):
         """The default decision is identical with and without degraded."""
         a, _ = decide(make_snapshot(), make_state())
-        b, _ = decide(make_snapshot(degraded=True), make_state())
+        b, _ = decide(make_snapshot(), make_state(control_mode=self._degraded_region()))
         assert a == b
 
 
@@ -389,14 +395,9 @@ class TestRegionIntegration:
         assert state.reachability["climate.t"].online is True
 
     def test_window_region_suppresses_heating(self):
-        """An OPEN window region turns TRVs off even without the snapshot flag."""
-        from custom_components.better_thermostat.core.fsm.window import (
-            WindowPhase,
-            WindowState,
-        )
-
+        """An OPEN window region turns the TRVs off."""
         state = make_state(window=WindowState(phase=WindowPhase.OPEN))
-        desired, _ = decide(make_snapshot(window_open=False), state)
+        desired, _ = decide(make_snapshot(), state)
         assert all(t.hvac_mode == HvacMode.OFF for t in desired.trvs.values())
 
     def test_stale_maintenance_run_stops_blocking(self):

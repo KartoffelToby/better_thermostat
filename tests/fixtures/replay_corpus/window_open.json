@@ -22,10 +22,7 @@
   },
   "snapshot": {
     "call_for_heat": true,
-    "degraded": false,
     "hvac_mode": "heat",
-    "ignore_states": false,
-    "in_maintenance": false,
     "is_day": true,
     "max_temp": null,
     "min_temp": null,
@@ -36,7 +33,6 @@
     "room_temp": 19.5,
     "room_temp_filtered": null,
     "solar_intensity": 0.0,
-    "startup_running": false,
     "target_cooltemp": null,
     "target_temp": 21.0,
     "temp_slope": null,
@@ -66,8 +62,7 @@
         "setpoint": null,
         "valve_max_opening": null
       }
-    },
-    "window_open": true
+    }
   },
   "state": {
     "control_mode": {

@@ -45,10 +45,8 @@ def make_snapshot(**overrides) -> WorldSnapshot:
         "target_temp": 21.0,
         "hvac_mode": CoreHvacMode.HEAT,
         "room_temp": 19.5,
-        "window_open": False,
         "call_for_heat": True,
         "tolerance": 0.3,
-        "startup_running": False,
         "trvs": {
             "climate.trv1": TrvReported(entity_id="climate.trv1"),
             "climate.trv2": TrvReported(entity_id="climate.trv2"),
