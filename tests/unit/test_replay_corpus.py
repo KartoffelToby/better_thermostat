@@ -51,10 +51,7 @@ def _scenarios() -> dict[str, tuple]:
             make_snapshot(),
             make_state(window=WindowState(phase=WindowPhase.OPEN)),
         ),
-        "startup_running": (
-            make_snapshot(),
-            make_state(lifecycle=LifecycleState()),
-        ),
+        "startup_running": (make_snapshot(), make_state(lifecycle=LifecycleState())),
         "maintenance_running": (
             make_snapshot(),
             make_state(
