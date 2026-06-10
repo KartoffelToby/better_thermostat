@@ -44,6 +44,7 @@ from custom_components.better_thermostat.utils.const import (
     CalibrationType,
 )
 from custom_components.better_thermostat.utils.helpers import (
+    clamp_valve_percent,
     convert_to_float,
     convert_to_float_celsius,
     heating_power_valve_position,
@@ -253,7 +254,7 @@ def _heating_power_adjustment(
         _valve_position, (int, float)
     ):
         try:
-            _pct = int(max(0, min(100, round(float(_valve_position) * 100.0))))
+            _pct = clamp_valve_percent(float(_valve_position) * 100.0)
         except (TypeError, ValueError):
             _pct = None
         if _pct is not None:
@@ -401,7 +402,7 @@ def _compute_mpc_balance(self, entity_id: str):
 
     supports_valve = _supports_direct_valve_control(self, entity_id)
     trv_state.calibration_balance = {
-        "valve_percent": int(round(max(0.0, min(100.0, this_trv_pct)))),
+        "valve_percent": clamp_valve_percent(this_trv_pct),
         "apply_valve": supports_valve,
         "debug": {
             **(getattr(mpc_output, "debug", None) or {}),
@@ -418,7 +419,7 @@ def _compute_mpc_balance(self, entity_id: str):
     from dataclasses import replace as _dc_replace
 
     trv_output = _dc_replace(
-        mpc_output, valve_percent=int(round(max(0.0, min(100.0, this_trv_pct))))
+        mpc_output, valve_percent=clamp_valve_percent(this_trv_pct)
     )
 
     return trv_output, supports_valve

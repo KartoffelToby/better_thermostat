@@ -281,6 +281,15 @@ def heating_power_valve_position(self, entity_id):
     # | 0.5       | 1.0000     |
 
 
+def clamp_valve_percent(value: float) -> int:
+    """Normalize a valve intent to an integer percentage in 0..100.
+
+    Intents stay in device percent; the user's valve_max_opening cap is
+    enforced by the safety hull at the command boundary.
+    """
+    return int(round(max(0.0, min(100.0, float(value)))))
+
+
 def is_reasonable_temperature(value: float | None) -> bool:
     """Return ``True`` iff ``value`` is a plausible indoor temperature in °C.
 

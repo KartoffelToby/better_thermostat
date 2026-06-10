@@ -32,6 +32,7 @@ from custom_components.better_thermostat.utils.const import (
 )
 from custom_components.better_thermostat.utils.helpers import (
     attr_to_celsius,
+    clamp_valve_percent,
     convert_to_float,
     state_temperature_unit,
 )
@@ -148,7 +149,7 @@ def _get_valve_control(
         _trv = self.real_trvs.get(heater_entity_id)
         max_opening = _trv.valve_max_opening if _trv is not None else 100
         if isinstance(max_opening, (int, float)):
-            target_pct = max(0, min(100, int(round(float(max_opening)))))
+            target_pct = clamp_valve_percent(max_opening)
         else:
             target_pct = 100
         return {"valve_percent": target_pct, "apply_valve": True}, "boost_mode"
