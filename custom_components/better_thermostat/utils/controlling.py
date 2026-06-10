@@ -117,6 +117,19 @@ def _get_valve_control(
     return None, None
 
 
+def compute_control_cycle(self):
+    """Build one consistent observation and decision for a control cycle.
+
+    Records the (snapshot, pre-decide state, desired) tuple in the
+    flight recorder — exactly once per cycle.
+    """
+    pre_state = deepcopy(self.kernel_state)
+    snapshot = build_snapshot(self)
+    desired, self.kernel_state = decide(snapshot, self.kernel_state)
+    self.flight_recorder.record(snapshot, pre_state, desired)
+    return snapshot, desired
+
+
 def desired_diverges(self, snapshot, desired) -> bool:
     """Whether any TRV's reported state diverges from the clamped intent.
 
@@ -322,10 +335,21 @@ async def control_queue(self):
                                 self.device_name,
                             )
 
+                    # One observation and decision for the whole cycle;
+                    # on failure each TRV falls back to its own cycle.
+                    cycle = None
+                    try:
+                        cycle = compute_control_cycle(self)
+                    except Exception:
+                        _LOGGER.exception(
+                            "better_thermostat %s: ERROR computing control cycle",
+                            self.device_name,
+                        )
+
                     # Create tasks for all TRVs to run in parallel
                     tasks = []
                     for trv in self.real_trvs.keys():
-                        tasks.append(control_trv(self, trv))
+                        tasks.append(control_trv(self, trv, cycle=cycle))
 
                     # Run all TRV controls in parallel
                     results = await asyncio.gather(*tasks, return_exceptions=True)
@@ -474,7 +498,7 @@ async def control_cooler(self):
         )
 
 
-async def control_trv(self, heater_entity_id=None):
+async def control_trv(self, heater_entity_id=None, cycle=None):
     """Control a single TRV by setting temperature, HVAC mode, calibration, and valve position.
 
     All operations are executed within self._temp_lock to ensure atomic execution when
@@ -519,11 +543,11 @@ async def control_trv(self, heater_entity_id=None):
             )
         _trv = self.hass.states.get(heater_entity_id)
 
-        # One consistent observation and decision for this TRV's cycle.
-        _pre_decide_state = deepcopy(self.kernel_state)
-        snapshot = build_snapshot(self)
-        desired, self.kernel_state = decide(snapshot, self.kernel_state)
-        self.flight_recorder.record(snapshot, _pre_decide_state, desired)
+        # The cycle decision normally arrives from control_queue; a
+        # standalone invocation is its own cycle.
+        if cycle is None:
+            cycle = compute_control_cycle(self)
+        snapshot, desired = cycle
         trv_desired = desired.trvs.get(heater_entity_id)
 
         # The kernel addresses only reachable TRVs (boost overrides the skip).

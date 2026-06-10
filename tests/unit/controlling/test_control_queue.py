@@ -335,7 +335,7 @@ class TestControlQueue:
 
         call_count = 0
 
-        async def _side_effect(self_arg, entity_id):
+        async def _side_effect(self_arg, entity_id, cycle=None):
             """First TRV raises, second succeeds.  All retries succeed."""
             nonlocal call_count
             call_count += 1
@@ -383,7 +383,7 @@ class TestControlQueue:
 
         trv_call_count = 0
 
-        async def _trv_side_effect(self_arg, entity_id):
+        async def _trv_side_effect(self_arg, entity_id, cycle=None):
             nonlocal trv_call_count
             trv_call_count += 1
             return False
