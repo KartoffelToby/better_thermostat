@@ -195,9 +195,10 @@ class BetterThermostatChildLockSwitch(SwitchEntity, RestoreEntity):
 
     def _update_state(self, state: bool):
         """Update the state."""
-        if "advanced" not in self._bt_climate.real_trvs[self._trv_entity_id]:
-            self._bt_climate.real_trvs[self._trv_entity_id].advanced = {}
-        self._bt_climate.real_trvs[self._trv_entity_id].advanced["child_lock"] = state
+        trv = self._bt_climate.real_trvs[self._trv_entity_id]
+        if trv.advanced is None:
+            trv.advanced = {}
+        trv.advanced["child_lock"] = state
         self.async_write_ha_state()
 
     async def _set_child_lock(self, state: bool):
