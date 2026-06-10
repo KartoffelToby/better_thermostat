@@ -1,7 +1,6 @@
 """Controlling module for Better Thermostat."""
 
 import asyncio
-from copy import deepcopy
 import logging
 
 from homeassistant.components.climate.const import HVACMode
@@ -158,11 +157,13 @@ def compute_control_cycle(self):
     """Build one consistent observation and decision for a control cycle.
 
     Records the (snapshot, pre-decide state, desired) tuple in the
-    flight recorder — exactly once per cycle.
+    flight recorder — exactly once per cycle. decide() never mutates
+    its input, so the pre-decide state needs no defensive copy here;
+    the recorder makes the one copy it stores.
     """
-    pre_state = deepcopy(self.kernel_state)
     snapshot = build_snapshot(self)
-    desired, self.kernel_state = decide(snapshot, self.kernel_state)
+    pre_state = self.kernel_state
+    desired, self.kernel_state = decide(snapshot, pre_state)
     self.flight_recorder.record(snapshot, pre_state, desired)
     return snapshot, desired
 

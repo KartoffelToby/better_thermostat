@@ -1404,6 +1404,8 @@ class TestRaceConditionLockCoverage:
             ),
         }
 
+        mock_self.kernel_state = _kernel_state_for(mock_self)
+
         with (
             patch(_PATCHES["convert_outbound_states"]) as mock_convert,
             patch(_PATCHES["set_temperature"]),
@@ -1492,6 +1494,8 @@ class TestRaceConditionLockCoverage:
                 },
             )
         }
+
+        mock_self.kernel_state = _kernel_state_for(mock_self)
 
         lock_state_during_operations = []
 

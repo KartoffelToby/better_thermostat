@@ -30,7 +30,7 @@ fail-soft ladder's job (M8) and a product decision, not a refactoring.
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 
 from .desired import DesiredState, TrvDesired
 from .fsm.control_mode import ControlMode, ControlModeState
@@ -116,16 +116,24 @@ def _with_mode(entity_ids: list[str], hvac_mode: HvacMode) -> dict[str, TrvDesir
 def decide(
     snapshot: WorldSnapshot, state: KernelState
 ) -> tuple[DesiredState, KernelState]:
-    """Map one world snapshot onto the desired state of every TRV."""
+    """Map one world snapshot onto the desired state of every TRV.
+
+    The input state is never mutated; a fresh successor state is
+    returned. The flight recorder relies on this to record the
+    pre-decide state without a defensive copy in the control cycle.
+    """
     # Advance the per-TRV reachability regions from this observation.
-    state.reachability = {
-        entity_id: reachability_step(
-            state.reachability.get(entity_id, ReachabilityState()),
-            trv.available,
-            snapshot.now_monotonic,
-        )
-        for entity_id, trv in snapshot.trvs.items()
-    }
+    state = replace(
+        state,
+        reachability={
+            entity_id: reachability_step(
+                state.reachability.get(entity_id, ReachabilityState()),
+                trv.available,
+                snapshot.now_monotonic,
+            )
+            for entity_id, trv in snapshot.trvs.items()
+        },
+    )
 
     if state.lifecycle.startup_running or state.maintenance.is_blocking(
         snapshot.now_monotonic

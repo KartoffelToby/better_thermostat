@@ -91,6 +91,19 @@ class TestWindowOpen:
 class TestPurity:
     """decide() is a pure function of its inputs."""
 
+    def test_decide_does_not_mutate_the_input_state(self):
+        """The pre-decide state stays pristine; the result is a new object.
+
+        The flight recorder relies on this: it records the input state
+        after the decision and must see the state before it.
+        """
+        state = make_state()
+        snapshot = make_snapshot()
+        _, new_state = decide(snapshot, state)
+        assert state.reachability == {}
+        assert new_state is not state
+        assert set(new_state.reachability) == {"climate.trv1", "climate.trv2"}
+
     def test_same_inputs_same_output(self):
         """Two identical calls produce equal DesiredStates."""
         a, _ = decide(
@@ -102,12 +115,13 @@ class TestPurity:
         assert a == b
 
     def test_state_is_returned(self):
-        """The threaded state is handed back to the caller."""
+        """A successor state carrying the input regions is handed back."""
         state = make_state()
-        _, state_out = decide(make_snapshot(), make_state())
+        _, state_out = decide(make_snapshot(), state)
         assert isinstance(state_out, KernelState)
-        _, same_state = decide(make_snapshot(), state)
-        assert same_state is state
+        assert state_out is not state
+        assert state_out.mode is state.mode
+        assert state_out.window is state.window
 
     def test_default_result_is_the_heating_branch(self):
         """With no upper tier firing, the kernel asks the TRVs to heat."""
