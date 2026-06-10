@@ -53,6 +53,39 @@ def _budget_open(last_write: float | None, now_monotonic: float) -> bool:
     return last_write is None or now_monotonic - last_write >= MIN_WRITE_INTERVAL_S
 
 
+# Per-channel write-budget stamp fields on the Trv.
+_BUDGET_STAMPS = {
+    "setpoint": "last_write_monotonic",
+    "offset": "last_offset_write_monotonic",
+    "valve": "last_valve_write_monotonic",
+}
+
+
+def _consume_budget(self, entity_id: str, channel: str, *, bypass: bool = False) -> bool:
+    """Occupy one channel's write-budget slot, or defer the write.
+
+    Returns True when the write may proceed; the slot is stamped — also
+    for bypassing (safety-relevant) writes, so the spacing stays
+    accurate. Returns False when the budget defers, after logging it.
+    """
+    trv = self.real_trvs[entity_id]
+    stamp_attr = _BUDGET_STAMPS[channel]
+    now = self.clock.monotonic()
+    last = getattr(trv, stamp_attr)
+    if not bypass and not _budget_open(last, now):
+        _LOGGER.debug(
+            "better_thermostat %s: write budget defers %s write to %s "
+            "(%.0fs since last write)",
+            self.device_name,
+            channel,
+            entity_id,
+            now - last,
+        )
+        return False
+    setattr(trv, stamp_attr, now)
+    return True
+
+
 def _no_off_system_mode(trv) -> bool:
     """Whether this TRV cannot be switched off.
 
@@ -695,22 +728,12 @@ async def control_trv(self, heater_entity_id=None, cycle=None):
                         or 0.0
                     )
                 )
-                trv_entry = self.real_trvs[heater_entity_id]
-                now_mono = self.clock.monotonic()
                 # Closing the valve (0 %) is the overheat-safe direction
                 # and bypasses the write budget; everything else waits
                 # for the next slot and converges via the next cycle.
-                if target_pct != 0 and not _budget_open(
-                    trv_entry.last_valve_write_monotonic, now_mono
+                if _consume_budget(
+                    self, heater_entity_id, "valve", bypass=target_pct == 0
                 ):
-                    _LOGGER.debug(
-                        "better_thermostat %s: write budget defers valve "
-                        "write to %s (%.0fs since last write)",
-                        self.device_name,
-                        heater_entity_id,
-                        now_mono - trv_entry.last_valve_write_monotonic,
-                    )
-                else:
                     _LOGGER.debug(
                         "better_thermostat %s: TO TRV set_valve: %s to: %s%% (source=%s)",
                         self.device_name,
@@ -718,7 +741,6 @@ async def control_trv(self, heater_entity_id=None, cycle=None):
                         target_pct,
                         _source,
                     )
-                    trv_entry.last_valve_write_monotonic = now_mono
                     ok = await set_valve(self, heater_entity_id, target_pct)
                     if not ok:
                         _LOGGER.debug(
@@ -772,9 +794,7 @@ async def control_trv(self, heater_entity_id=None, cycle=None):
                     or 0.0
                 )
             )
-            self.real_trvs[heater_entity_id].last_valve_write_monotonic = (
-                self.clock.monotonic()
-            )
+            _consume_budget(self, heater_entity_id, "valve", bypass=True)
             await set_valve(self, heater_entity_id, _reset_pct)
 
         # Manage TRVs with no HVACMode.OFF
@@ -868,19 +888,9 @@ async def control_trv(self, heater_entity_id=None, cycle=None):
             if self.real_trvs[heater_entity_id].calibration_received is True and float(
                 _old_calibration
             ) != float(_calibration):
-                trv_entry = self.real_trvs[heater_entity_id]
-                now_mono = self.clock.monotonic()
-                if not _budget_open(trv_entry.last_offset_write_monotonic, now_mono):
-                    # The next control cycle re-derives and re-sends the
-                    # offset once the slot is free again.
-                    _LOGGER.debug(
-                        "better_thermostat %s: write budget defers offset "
-                        "write to %s (%.0fs since last write)",
-                        self.device_name,
-                        heater_entity_id,
-                        now_mono - trv_entry.last_offset_write_monotonic,
-                    )
-                else:
+                # A deferred offset re-derives on the next control cycle
+                # once the slot is free again.
+                if _consume_budget(self, heater_entity_id, "offset"):
                     _LOGGER.debug(
                         "better_thermostat %s: TO TRV set_local_temperature_calibration: %s from: %s to: %s",
                         self.device_name,
@@ -888,9 +898,8 @@ async def control_trv(self, heater_entity_id=None, cycle=None):
                         _old_calibration,
                         _calibration,
                     )
-                    trv_entry.last_offset_write_monotonic = now_mono
                     await set_offset(self, heater_entity_id, _calibration)
-                    trv_entry.calibration_received = False
+                    self.real_trvs[heater_entity_id].calibration_received = False
 
         # set new target temperature
         _safety_overrode_setpoint = False
@@ -905,28 +914,23 @@ async def control_trv(self, heater_entity_id=None, cycle=None):
         ):
             if _temperature != _current_set_temperature:
                 trv_entry = self.real_trvs[heater_entity_id]
-                now_mono = self.clock.monotonic()
-                budget_open = _budget_open(trv_entry.last_write_monotonic, now_mono)
                 # Safety-relevant writes (frost floor / OFF) bypass the
                 # write budget; everything else waits for the next slot
-                # and converges via the reconciler.
-                if not (
-                    budget_open
-                    or _safety_overrode_setpoint
-                    or _new_hvac_mode == HVACMode.OFF
+                # and converges via the scheduled retry.
+                if not _consume_budget(
+                    self,
+                    heater_entity_id,
+                    "setpoint",
+                    bypass=_safety_overrode_setpoint or _new_hvac_mode == HVACMode.OFF,
                 ):
-                    _LOGGER.debug(
-                        "better_thermostat %s: write budget defers setpoint "
-                        "write to %s (%.0fs since last write)",
-                        self.device_name,
-                        heater_entity_id,
-                        now_mono - trv_entry.last_write_monotonic,
-                    )
                     _schedule_budget_retry(
                         self,
                         heater_entity_id,
                         MIN_WRITE_INTERVAL_S
-                        - (now_mono - trv_entry.last_write_monotonic),
+                        - (
+                            self.clock.monotonic()
+                            - (trv_entry.last_write_monotonic or 0.0)
+                        ),
                     )
                     _stamp_heartbeat(self)
                     await asyncio.sleep(3)
@@ -941,7 +945,6 @@ async def control_trv(self, heater_entity_id=None, cycle=None):
                     _temperature,
                 )
                 trv_entry.last_temperature = _temperature
-                trv_entry.last_write_monotonic = now_mono
                 await set_temperature(self, heater_entity_id, _temperature)
                 if self.real_trvs[heater_entity_id].target_temp_received is True:
                     self.real_trvs[heater_entity_id].target_temp_received = False
