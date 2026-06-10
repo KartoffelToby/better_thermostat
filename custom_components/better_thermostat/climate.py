@@ -61,6 +61,7 @@ from .adapters.delegate import (
     set_temperature as adapter_set_temperature,
 )
 from .core.clock import Clock
+from .core.containers import BtConfig, BtRuntime
 from .core.decide import KernelState
 from .core.fsm.lifecycle import (
     extend_grace as lifecycle_extend_grace,
@@ -301,6 +302,190 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
     #     attribute mapping (_climate_attr) is refactored
     # ------------------------------------------------------------------
 
+    # -- Container bridges -----------------------------------------------
+    # Historical attribute names delegating into the typed containers
+    # (BtConfig is frozen: config bridges are read-only by design).
+
+    @property
+    def device_name(self) -> str:
+        """Return the configured device name."""
+        return self.config.device_name
+
+    @property
+    def model(self) -> str | None:
+        """Return the configured model string."""
+        return self.config.model
+
+    @property
+    def sensor_entity_id(self) -> str | None:
+        """Return the room temperature sensor entity id."""
+        return self.config.sensor_entity_id
+
+    @property
+    def humidity_sensor_entity_id(self) -> str | None:
+        """Return the humidity sensor entity id."""
+        return self.config.humidity_sensor_entity_id
+
+    @property
+    def cooler_entity_id(self) -> str | None:
+        """Return the cooler entity id."""
+        return self.config.cooler_entity_id
+
+    @property
+    def window_id(self) -> str | None:
+        """Return the window sensor entity id."""
+        return self.config.window_id
+
+    @property
+    def window_delay(self) -> float:
+        """Return the window-open debounce delay in seconds."""
+        return self.config.window_delay
+
+    @property
+    def window_delay_after(self) -> float:
+        """Return the window-close debounce delay in seconds."""
+        return self.config.window_delay_after
+
+    @property
+    def weather_entity(self) -> str | None:
+        """Return the weather entity id."""
+        return self.config.weather_entity
+
+    @property
+    def outdoor_sensor(self) -> str | None:
+        """Return the outdoor sensor entity id."""
+        return self.config.outdoor_sensor
+
+    @property
+    def off_temperature(self) -> float | None:
+        """Return the outdoor threshold temperature."""
+        return self.config.off_temperature
+
+    @property
+    def tolerance(self) -> float:
+        """Return the configured tolerance in Kelvin."""
+        return self.config.tolerance
+
+    @property
+    def cur_temp(self) -> float | None:
+        """Return the current room temperature."""
+        return self.runtime.cur_temp
+
+    @cur_temp.setter
+    def cur_temp(self, value: float | None) -> None:
+        """Set the current room temperature."""
+        self.runtime.cur_temp = value
+
+    @property
+    def cur_temp_filtered(self) -> float | None:
+        """Return the EMA-filtered room temperature."""
+        return self.runtime.cur_temp_filtered
+
+    @cur_temp_filtered.setter
+    def cur_temp_filtered(self, value: float | None) -> None:
+        """Set the EMA-filtered room temperature."""
+        self.runtime.cur_temp_filtered = value
+
+    @property
+    def external_temp_ema(self) -> float | None:
+        """Return the raw external temperature EMA."""
+        return self.runtime.external_temp_ema
+
+    @external_temp_ema.setter
+    def external_temp_ema(self, value: float | None) -> None:
+        """Set the raw external temperature EMA."""
+        self.runtime.external_temp_ema = value
+
+    @property
+    def temp_slope(self) -> float | None:
+        """Return the temperature slope in K/min."""
+        return self.runtime.temp_slope
+
+    @temp_slope.setter
+    def temp_slope(self, value: float | None) -> None:
+        """Set the temperature slope in K/min."""
+        self.runtime.temp_slope = value
+
+    @property
+    def window_open(self) -> bool | None:
+        """Return the committed window-open state."""
+        return self.runtime.window_open
+
+    @window_open.setter
+    def window_open(self, value: bool | None) -> None:
+        """Set the committed window-open state."""
+        self.runtime.window_open = value
+
+    @property
+    def call_for_heat(self) -> bool:
+        """Return whether the room currently demands heat."""
+        return self.runtime.call_for_heat
+
+    @call_for_heat.setter
+    def call_for_heat(self, value: bool) -> None:
+        """Set whether the room currently demands heat."""
+        self.runtime.call_for_heat = value
+
+    @property
+    def ignore_states(self) -> bool:
+        """Return the control queue's reentrancy guard."""
+        return self.runtime.ignore_states
+
+    @ignore_states.setter
+    def ignore_states(self, value: bool) -> None:
+        """Set the control queue's reentrancy guard."""
+        self.runtime.ignore_states = value
+
+    @property
+    def in_maintenance(self) -> bool:
+        """Return whether valve maintenance is running."""
+        return self.runtime.in_maintenance
+
+    @in_maintenance.setter
+    def in_maintenance(self, value: bool) -> None:
+        """Set whether valve maintenance is running."""
+        self.runtime.in_maintenance = value
+
+    @property
+    def startup_running(self) -> bool:
+        """Return whether the startup sequence is running."""
+        return self.runtime.startup_running
+
+    @startup_running.setter
+    def startup_running(self, value: bool) -> None:
+        """Set whether the startup sequence is running."""
+        self.runtime.startup_running = value
+
+    @property
+    def degraded_mode(self) -> bool:
+        """Return the degraded-mode annunciation flag."""
+        return self.runtime.degraded_mode
+
+    @degraded_mode.setter
+    def degraded_mode(self, value: bool) -> None:
+        """Set the degraded-mode annunciation flag."""
+        self.runtime.degraded_mode = value
+
+    @property
+    def bt_target_temp(self) -> float | None:
+        """Return the BT-internal target temperature."""
+        return self.runtime.bt_target_temp
+
+    @bt_target_temp.setter
+    def bt_target_temp(self, value: float | None) -> None:
+        """Set the BT-internal target temperature."""
+        self.runtime.bt_target_temp = value
+
+    @property
+    def bt_target_cooltemp(self) -> float | None:
+        """Return the BT-internal cooling target temperature."""
+        return self.runtime.bt_target_cooltemp
+
+    @bt_target_cooltemp.setter
+    def bt_target_cooltemp(self, value: float | None) -> None:
+        """Set the BT-internal cooling target temperature."""
+        self.runtime.bt_target_cooltemp = value
+
     @property
     def heating_power(self) -> float:
         """Return the current heating power in °C/min."""
@@ -387,21 +572,12 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
         ----------
         TODO
         """
-        self.device_name = name
-        self.model = model
         self.real_trvs: dict[str, Trv] = {}
         self.entity_ids = []
         self.all_trvs = heater_entity_id
-        self.sensor_entity_id = sensor_entity_id
-        self.humidity_sensor_entity_id = humidity_sensor_entity_id
-        self.cooler_entity_id = cooler_entity_id
-        self.window_id = window_id or None
-        self.window_delay = window_delay or 0
-        self.window_delay_after = window_delay_after or 0
-        self.weather_entity = weather_entity or None
-        self.outdoor_sensor = outdoor_sensor or None
+
         # Robust off temperature parsing: preserve 0.0 and ignore invalid strings
-        self.off_temperature = None
+        _off_temperature = None
         if off_temperature not in (None, "", "None"):  # allow numeric 0
             try:
                 parsed_off = float(off_temperature)
@@ -413,45 +589,63 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
                             UnitOfTemperature.FAHRENHEIT,
                             UnitOfTemperature.CELSIUS,
                         )
-                    self.off_temperature = parsed_off
+                    _off_temperature = parsed_off
                 else:
                     _LOGGER.warning(
                         "better_thermostat %s: off_temperature %.2f outside plausible range, ignoring",
-                        self.device_name,
+                        name,
                         parsed_off,
                     )
             except (TypeError, ValueError):
                 _LOGGER.warning(
                     "better_thermostat %s: invalid off_temperature '%s', ignoring",
-                    self.device_name,
+                    name,
                     off_temperature,
                 )
 
         # Robust tolerance parsing & sanitizing
         try:
-            self.tolerance = float(tolerance) if tolerance is not None else 0.0
+            _tolerance = float(tolerance) if tolerance is not None else 0.0
             if unit == UnitOfTemperature.FAHRENHEIT:
-                self.tolerance = self.tolerance * 5.0 / 9.0
+                _tolerance = _tolerance * 5.0 / 9.0
         except (TypeError, ValueError):
             _LOGGER.warning(
                 "better_thermostat %s: invalid tolerance '%s', falling back to 0.0",
-                self.device_name,
+                name,
                 tolerance,
             )
-            self.tolerance = 0.0
-        if self.tolerance < 0:
+            _tolerance = 0.0
+        if _tolerance < 0:
             _LOGGER.warning(
                 "better_thermostat %s: negative tolerance '%s' adjusted to 0.0",
-                self.device_name,
-                self.tolerance,
+                name,
+                _tolerance,
             )
-            self.tolerance = 0.0
-        if self.tolerance > 10:
+            _tolerance = 0.0
+        if _tolerance > 10:
             _LOGGER.warning(
                 "better_thermostat %s: unusually high tolerance '%s' (>10) may cause sluggish response",
-                self.device_name,
-                self.tolerance,
+                name,
+                _tolerance,
             )
+
+        # The three attribute lifecycles, each in its own container; the
+        # historical attribute names delegate via properties.
+        self.config = BtConfig(
+            device_name=name,
+            model=model,
+            sensor_entity_id=sensor_entity_id,
+            humidity_sensor_entity_id=humidity_sensor_entity_id,
+            cooler_entity_id=cooler_entity_id,
+            window_id=window_id or None,
+            window_delay=window_delay or 0,
+            window_delay_after=window_delay_after or 0,
+            weather_entity=weather_entity or None,
+            outdoor_sensor=outdoor_sensor or None,
+            off_temperature=_off_temperature,
+            tolerance=_tolerance,
+        )
+        self.runtime = BtRuntime()
         self._unique_id = unique_id
         self._unit = unit
         self._device_class = device_class
