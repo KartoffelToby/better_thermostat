@@ -16,6 +16,7 @@ from custom_components.better_thermostat.utils.calibration.pid import (
     sanitize_pid_state,
 )
 from custom_components.better_thermostat.utils.calibration.strategies import (
+    BalanceCalibrator,
     build_strategy_registry,
 )
 from custom_components.better_thermostat.utils.const import CalibrationMode
@@ -157,6 +158,59 @@ class TestStrategyRegistry:
         bt.cur_temp = None
         cap = strategy.capability(bt, "climate.trv")
         assert cap.configured and not cap.healthy and not cap.ready
+
+
+class TestBalanceCalibrator:
+    """The production adapter lifts a BalanceStrategy onto the protocol."""
+
+    def _adapter(self, *, percent=55.0, use_valve=False, balance=None):
+        registry = build_strategy_registry(
+            lambda bt, e: (MagicMock(valve_percent=percent), use_valve),
+            lambda bt, e: (MagicMock(duty_cycle_pct=percent), use_valve),
+            lambda bt, e: (percent, use_valve),
+        )
+        bt = MagicMock()
+        bt.cur_temp = 20.0
+        bt.bt_target_temp = 21.0
+        bt.real_trvs = {
+            "climate.trv": Trv(entity_id="climate.trv", calibration_balance=balance)
+        }
+        strategy = registry[CalibrationMode.MPC_CALIBRATION]
+        return BalanceCalibrator(bt, "climate.trv", strategy), bt
+
+    def test_satisfies_the_protocol(self):
+        """The adapter is a structural Calibrator."""
+        adapter, _ = self._adapter()
+        assert isinstance(adapter, Calibrator)
+
+    def test_actuate_returns_the_observed_percent(self):
+        """observe() runs the balance computation; actuate() emits it."""
+        adapter, _ = self._adapter(percent=40.0)
+        assert adapter.actuate(None) is None
+        adapter.observe(None, 0.0)
+        assert adapter.actuate(None) == 40.0
+
+    def test_use_valve_results_are_not_emitted_as_percent(self):
+        """A use_valve result carries no setpoint-channel percentage."""
+        adapter, _ = self._adapter(percent=None, use_valve=True)
+        adapter.observe(None, 0.0)
+        assert adapter.actuate(None) is None
+
+    def test_capability_and_readiness_delegate_to_the_strategy(self):
+        """Capability comes from the strategy's report on the live entity."""
+        adapter, bt = self._adapter(balance={"valve_percent": 40})
+        assert adapter.is_ready() is True
+        cap = adapter.capability()
+        assert cap.configured and cap.healthy and cap.ready
+        bt.cur_temp = None
+        assert adapter.is_ready() is False
+
+    def test_health_flags_non_finite_results(self):
+        """A non-finite observed percentage degrades the health grade."""
+        adapter, _ = self._adapter(percent=float("nan"))
+        assert adapter.health() == CalibratorHealth.HEALTHY
+        adapter.observe(None, 0.0)
+        assert adapter.health() == CalibratorHealth.NON_FINITE
 
 
 class TestPidSelfHealing:

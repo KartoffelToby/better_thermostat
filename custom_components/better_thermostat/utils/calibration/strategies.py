@@ -15,8 +15,9 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from dataclasses import dataclass
+import math
 
-from ...core.calibrator import Capability
+from ...core.calibrator import CalibratorHealth, Capability
 from ..const import CalibrationMode
 
 
@@ -56,6 +57,53 @@ class BalanceStrategy:
         )
         ready = bool(healthy and trv is not None and trv.calibration_balance)
         return Capability(configured=True, healthy=bool(healthy), ready=ready)
+
+
+class BalanceCalibrator:
+    """Production adapter from a :class:`BalanceStrategy` to the core protocol.
+
+    ``observe`` runs the strategy's balance computation (which both
+    learns and emits — the standby split lives in the fail-soft ladder)
+    and caches the result; ``actuate`` hands out the cached percentage.
+    One instance belongs to one TRV of one entity.
+    """
+
+    def __init__(self, bt, entity_id: str, strategy: BalanceStrategy) -> None:
+        self._bt = bt
+        self._entity_id = entity_id
+        self._strategy = strategy
+        self._last_percent: float | None = None
+        self._last_use_valve = False
+
+    def observe(self, snapshot, now: float) -> None:
+        """Run the balance computation and cache its result."""
+        self._last_percent, self._last_use_valve = self._strategy.run(
+            self._bt, self._entity_id
+        )
+
+    def is_ready(self) -> bool:
+        """Whether the strategy reports a usable balance result."""
+        return self.capability().ready
+
+    def actuate(self, snapshot) -> float | None:
+        """Return the cached setpoint-channel percentage, if any.
+
+        A ``use_valve`` result is executed through the valve intent the
+        computation already published, not through this channel.
+        """
+        if self._last_use_valve:
+            return None
+        return self._last_percent
+
+    def capability(self) -> Capability:
+        """Report the strategy's capability on the live entity."""
+        return self._strategy.capability(self._bt, self._entity_id)
+
+    def health(self) -> CalibratorHealth:
+        """Report NON_FINITE when the cached result is not a finite number."""
+        if self._last_percent is not None and not math.isfinite(self._last_percent):
+            return CalibratorHealth.NON_FINITE
+        return CalibratorHealth.HEALTHY
 
 
 def _percent_of_mpc(result) -> float | None:
