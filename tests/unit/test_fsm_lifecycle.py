@@ -53,3 +53,24 @@ def test_stop_is_terminal():
     assert stop(LifecycleState()).phase == LifecyclePhase.STOPPING
     running = LifecycleState(phase=LifecyclePhase.RUNNING)
     assert stop(running).phase == LifecyclePhase.STOPPING
+
+
+def test_extend_grace_updates_the_deadline_while_starting():
+    """extend_grace sets the annunciation deadline in STARTING."""
+    from custom_components.better_thermostat.core.fsm.lifecycle import extend_grace
+
+    state = startup_finished(LifecycleState())
+    assert state.grace_until is None
+    state = extend_grace(state, GRACE_END)
+    assert state.phase == LifecyclePhase.STARTING
+    assert state.grace_until == GRACE_END
+
+
+def test_extend_grace_is_a_noop_outside_starting():
+    """extend_grace leaves other phases untouched."""
+    from custom_components.better_thermostat.core.fsm.lifecycle import extend_grace
+
+    running = LifecycleState(phase=LifecyclePhase.RUNNING)
+    assert extend_grace(running, GRACE_END) == running
+    stopped = stop(LifecycleState())
+    assert extend_grace(stopped, GRACE_END) == stopped

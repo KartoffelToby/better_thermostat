@@ -3,6 +3,8 @@
 from datetime import UTC, datetime
 import json
 
+import pytest
+
 from custom_components.better_thermostat.core.decide import decide, running_kernel_state
 from custom_components.better_thermostat.core.fsm.window import WindowPhase, WindowState
 from custom_components.better_thermostat.core.recorder import (
@@ -124,3 +126,101 @@ class TestReplay:
         assert snapshot_from_dict(entry["snapshot"]) == snapshot
         rebuilt = state_from_dict(entry["state"])
         assert rebuilt == running_kernel_state()
+
+
+class TestReplayValidation:
+    """Malformed exports fail loudly instead of replaying garbage."""
+
+    def _entry(self):
+        recorder = FlightRecorder()
+        desired, _ = decide(_snapshot(), running_kernel_state())
+        recorder.record(_snapshot(), running_kernel_state(), desired)
+        return json.loads(json.dumps(recorder.export()))[0]
+
+    def test_missing_now_is_rejected(self):
+        """A snapshot without a parseable 'now' raises."""
+        entry = self._entry()
+        entry["snapshot"]["now"] = None
+        with pytest.raises(ValueError, match="now"):
+            replay(entry)
+
+    def test_wrong_container_types_are_rejected(self):
+        """Non-mapping sections raise instead of replaying."""
+        entry = self._entry()
+        entry["state"]["window"] = "not-a-dict"
+        with pytest.raises(ValueError, match="mapping"):
+            replay(entry)
+
+    def test_wrong_scalar_types_are_rejected(self):
+        """Strings where numbers or bools belong raise."""
+        entry = self._entry()
+        entry["snapshot"]["call_for_heat"] = "yes"
+        with pytest.raises(ValueError, match="bool"):
+            replay(entry)
+
+        entry = self._entry()
+        entry["snapshot"]["tolerance"] = "warm"
+        with pytest.raises(ValueError, match="number"):
+            replay(entry)
+
+        entry = self._entry()
+        entry["snapshot"]["tolerance"] = None
+        with pytest.raises(ValueError, match="number"):
+            replay(entry)
+
+        entry = self._entry()
+        entry["state"]["window"]["phase"] = 7
+        with pytest.raises(ValueError, match="string"):
+            replay(entry)
+
+    def test_wrong_reachability_types_are_rejected(self):
+        """A non-integer retry count raises."""
+        entry = self._entry()
+        entry["state"]["reachability"] = {
+            "climate.trv": {
+                "online": True,
+                "offline_since": None,
+                "retry_count": "three",
+                "retry_at": None,
+            }
+        }
+        with pytest.raises(ValueError, match="integer"):
+            replay(entry)
+
+    def test_unavailable_sensors_must_be_a_list(self):
+        """A scalar where the sensor list belongs raises."""
+        entry = self._entry()
+        entry["state"]["control_mode"]["unavailable_sensors"] = "sensor.x"
+        with pytest.raises(ValueError, match="list"):
+            replay(entry)
+
+
+def test_replay_roundtrips_reachability_and_null_window_state():
+    """Reachability entries and a None window_open survive the roundtrip."""
+    from custom_components.better_thermostat.core.snapshot import (
+        TrvReported as _TrvReported,
+    )
+
+    recorder = FlightRecorder()
+    snapshot = WorldSnapshot(
+        now=datetime(2026, 1, 10, 7, 0, tzinfo=UTC),
+        now_monotonic=1000.0,
+        target_temp=21.0,
+        hvac_mode=HvacMode.HEAT,
+        room_temp=19.0,
+        window_open=None,
+        call_for_heat=True,
+        trvs={"climate.t": _TrvReported(entity_id="climate.t", available=False)},
+    )
+    state = running_kernel_state()
+    desired, state = decide(snapshot, state)
+    recorder.record(snapshot, running_kernel_state(), desired)
+    # Record a second tuple whose pre-decide state carries reachability.
+    desired2, _ = decide(snapshot, state)
+    recorder.record(snapshot, state, desired2)
+
+    entry = json.loads(json.dumps(recorder.export()))[1]
+    matches, _ = replay(entry)
+    assert matches is True
+    rebuilt = state_from_dict(entry["state"])
+    assert rebuilt.reachability["climate.t"].online is False

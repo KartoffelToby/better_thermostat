@@ -102,3 +102,24 @@ def test_running_cannot_block_forever():
     running = start_run(MaintenanceState(phase=MaintenancePhase.DUE), 100.0)
     assert running.is_blocking(now_monotonic=100.0 + 3599.0) is True
     assert running.is_blocking(now_monotonic=100.0 + 3600.0) is False
+
+
+def test_running_without_timestamp_blocks():
+    """A RUNNING phase without a start timestamp is treated as blocking."""
+    state = MaintenanceState(phase=MaintenancePhase.RUNNING, running_since=None)
+    assert state.is_blocking(now_monotonic=99_999.0) is True
+
+
+def test_tick_leaves_non_idle_phases_alone():
+    """evaluate_tick never advances a DUE or RUNNING region."""
+    due = MaintenanceState(phase=MaintenancePhase.DUE)
+    out = evaluate_tick(
+        due, NOW, window_open=True, hvac_off=True, has_enabled_trvs=False
+    )
+    assert out == due
+
+    running = start_run(MaintenanceState(phase=MaintenancePhase.DUE), 100.0)
+    out = evaluate_tick(
+        running, NOW, window_open=False, hvac_off=False, has_enabled_trvs=True
+    )
+    assert out == running
