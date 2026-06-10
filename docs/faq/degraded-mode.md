@@ -34,6 +34,13 @@ A rung steps down after the loss has persisted for about two minutes, and
 climbs back up after the sensors have been stable again for about five
 minutes — short sensor flaps do not flip the behavior back and forth.
 
+## How to see the current rung
+
+The Better Thermostat climate entity exposes the rung as the
+`control_mode` attribute (`optimal`, `sensor_fallback`, or `hold`),
+along with `degraded_for_s` (how long the degradation has lasted) and
+`unavailable_sensors`. Check them under **Developer tools → States**.
+
 ## What you should do
 
 - Check the listed sensors: battery, power, and whether the entity shows
