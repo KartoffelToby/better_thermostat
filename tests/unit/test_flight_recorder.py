@@ -224,3 +224,132 @@ def test_replay_roundtrips_reachability_and_null_window_state():
     assert matches is True
     rebuilt = state_from_dict(entry["state"])
     assert rebuilt.reachability["climate.t"].online is False
+
+
+class TestRoundtripCompleteness:
+    """Every field of every recorded type survives export and reconstruct.
+
+    The kwargs below deliberately set every field to a non-default value
+    and the field-set assertions force this test to grow with the
+    dataclasses — a field missing from the reconstructors cannot drift
+    silently again (offset and the local calibration bounds already did).
+    """
+
+    def test_every_field_roundtrips(self):
+        from dataclasses import fields
+
+        from custom_components.better_thermostat.core.decide import KernelState
+        from custom_components.better_thermostat.core.desired import (
+            DesiredState,
+            TrvDesired,
+        )
+        from custom_components.better_thermostat.core.fsm.control_mode import (
+            ControlMode,
+            ControlModeState,
+        )
+        from custom_components.better_thermostat.core.fsm.lifecycle import (
+            LifecyclePhase,
+            LifecycleState,
+        )
+        from custom_components.better_thermostat.core.fsm.maintenance import (
+            MaintenancePhase,
+            MaintenanceState,
+        )
+        from custom_components.better_thermostat.core.fsm.mode import ModeState
+        from custom_components.better_thermostat.core.fsm.reachability import (
+            ReachabilityState,
+        )
+        from custom_components.better_thermostat.core.recorder import (
+            desired_from_dict,
+        )
+
+        trv_reported_kwargs = {
+            "entity_id": "climate.trv",
+            "available": False,
+            "hvac_mode": HvacMode.HEAT,
+            "current_temp": 20.5,
+            "setpoint": 21.5,
+            "min_temp": 6.0,
+            "max_temp": 29.0,
+            "valve_max_opening": 80.0,
+            "local_calibration_min": -4.0,
+            "local_calibration_max": 4.0,
+        }
+        assert set(trv_reported_kwargs) == {f.name for f in fields(TrvReported)}
+
+        snapshot_kwargs = {
+            "now": datetime(2026, 1, 10, 7, 0, tzinfo=UTC),
+            "now_monotonic": 1000.0,
+            "target_temp": 21.0,
+            "target_cooltemp": 24.0,
+            "hvac_mode": HvacMode.HEAT,
+            "room_temp": 19.0,
+            "room_temp_filtered": 19.1,
+            "temp_slope": 0.02,
+            "window_open": True,
+            "call_for_heat": True,
+            "preset_mode": "eco",
+            "tolerance": 0.3,
+            "outdoor_temp": 5.5,
+            "is_day": False,
+            "solar_intensity": 0.4,
+            "startup_running": True,
+            "in_maintenance": True,
+            "ignore_states": True,
+            "degraded": True,
+            "min_temp": 5.0,
+            "max_temp": 30.0,
+            "trvs": {"climate.trv": TrvReported(**trv_reported_kwargs)},
+        }
+        assert set(snapshot_kwargs) == {f.name for f in fields(WorldSnapshot)}
+        snapshot = WorldSnapshot(**snapshot_kwargs)
+
+        state_kwargs = {
+            "window": WindowState(phase=WindowPhase.OPENING, pending_since=900.0),
+            "maintenance": MaintenanceState(
+                phase=MaintenancePhase.RUNNING,
+                next_due=datetime(2026, 2, 1, tzinfo=UTC),
+                running_since=950.0,
+            ),
+            "lifecycle": LifecycleState(
+                phase=LifecyclePhase.RUNNING,
+                grace_until=datetime(2026, 1, 10, 8, 0, tzinfo=UTC),
+            ),
+            "mode": ModeState(hvac_mode=HvacMode.HEAT, preset="eco"),
+            "control_mode": ControlModeState(
+                mode=ControlMode.SENSOR_FALLBACK,
+                unavailable_sensors=("sensor.room",),
+                degraded_since=800.0,
+                down_pending_since=810.0,
+                up_pending_since=820.0,
+            ),
+            "reachability": {
+                "climate.trv": ReachabilityState(
+                    online=False, offline_since=700.0, retry_count=2, retry_at=1100.0
+                )
+            },
+            "last_control_monotonic": 990.0,
+        }
+        assert set(state_kwargs) == {f.name for f in fields(KernelState)}
+        state = KernelState(**state_kwargs)
+
+        trv_desired_kwargs = {
+            "entity_id": "climate.trv",
+            "hvac_mode": HvacMode.HEAT,
+            "setpoint": 21.5,
+            "valve_percent": 60.0,
+            "offset": -1.5,
+        }
+        assert set(trv_desired_kwargs) == {f.name for f in fields(TrvDesired)}
+        desired = DesiredState(
+            call_for_heat=True,
+            trvs={"climate.trv": TrvDesired(**trv_desired_kwargs)},
+        )
+
+        recorder = FlightRecorder()
+        recorder.record(snapshot, state, desired)
+        entry = json.loads(json.dumps(recorder.export()))[0]
+
+        assert snapshot_from_dict(entry["snapshot"]) == snapshot
+        assert state_from_dict(entry["state"]) == state
+        assert desired_from_dict(entry["desired"]) == desired

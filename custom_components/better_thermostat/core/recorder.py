@@ -149,6 +149,8 @@ def snapshot_from_dict(data: dict[str, Json]) -> WorldSnapshot:
             min_temp=_float_or_none(raw["min_temp"]),
             max_temp=_float_or_none(raw["max_temp"]),
             valve_max_opening=_float_or_none(raw["valve_max_opening"]),
+            local_calibration_min=_float_or_none(raw["local_calibration_min"]),
+            local_calibration_max=_float_or_none(raw["local_calibration_max"]),
         )
     now = _datetime_or_none(data["now"])
     if now is None:
@@ -239,6 +241,7 @@ def desired_from_dict(data: dict[str, Json]) -> DesiredState:
             hvac_mode=parse_hvac_mode(_str_or_none(raw["hvac_mode"])),
             setpoint=_float_or_none(raw["setpoint"]),
             valve_percent=_float_or_none(raw["valve_percent"]),
+            offset=_float_or_none(raw["offset"]),
         )
     return DesiredState(call_for_heat=_bool_of(data["call_for_heat"]), trvs=trvs)
 
