@@ -94,6 +94,41 @@ class TestReconcileTick:
         bt.control_queue_task.put_nowait.assert_called_once()
 
     @pytest.mark.asyncio
+    async def test_no_off_flag_trv_is_not_diverged_by_off_intent(self):
+        """A no_off_system_mode TRV legitimately stays in 'heat' under OFF.
+
+        BT never switches such devices off — it writes min_temp instead —
+        so an OFF intent against a 'heat' device state is convergence,
+        not divergence, and must not queue a cycle every tick.
+        """
+        bt = _make_bt(reported_target=5.0, commanded=5.0)
+        bt.bt_hvac_mode = HVACMode.OFF
+        bt.kernel_state.mode = ModeState(hvac_mode=CoreHvacMode.OFF)
+        bt.real_trvs["climate.trv"].advanced = {"no_off_system_mode": True}
+        await reconcile_tick(bt)
+        bt.control_queue_task.put_nowait.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_trv_without_off_mode_is_not_diverged_by_off_intent(self):
+        """A TRV whose hvac_modes lack OFF can never report 'off'."""
+        bt = _make_bt(reported_target=5.0, commanded=5.0)
+        bt.bt_hvac_mode = HVACMode.OFF
+        bt.kernel_state.mode = ModeState(hvac_mode=CoreHvacMode.OFF)
+        bt.real_trvs["climate.trv"].hvac_modes = [HVACMode.HEAT]
+        await reconcile_tick(bt)
+        bt.control_queue_task.put_nowait.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_no_off_trv_setpoint_divergence_still_detected(self):
+        """The setpoint comparison keeps covering no-off devices."""
+        bt = _make_bt(reported_target=21.0, commanded=5.0)
+        bt.bt_hvac_mode = HVACMode.OFF
+        bt.kernel_state.mode = ModeState(hvac_mode=CoreHvacMode.OFF)
+        bt.real_trvs["climate.trv"].advanced = {"no_off_system_mode": True}
+        await reconcile_tick(bt)
+        bt.control_queue_task.put_nowait.assert_called_once()
+
+    @pytest.mark.asyncio
     async def test_paused_during_startup_and_maintenance(self):
         """The tick is inert while startup or ignore_states is active."""
         bt = _make_bt(reported_target=18.0)

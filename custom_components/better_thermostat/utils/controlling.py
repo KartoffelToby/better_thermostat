@@ -53,6 +53,17 @@ def _budget_open(last_write: float | None, now_monotonic: float) -> bool:
     return last_write is None or now_monotonic - last_write >= MIN_WRITE_INTERVAL_S
 
 
+def _no_off_system_mode(trv) -> bool:
+    """Whether this TRV cannot be switched off.
+
+    Such devices receive their min temp in place of OFF and keep
+    reporting a heating mode, by design.
+    """
+    if trv.hvac_modes is not None and HVACMode.OFF not in trv.hvac_modes:
+        return True
+    return (trv.advanced or {}).get("no_off_system_mode", False) is True
+
+
 def _stamp_heartbeat(self) -> None:
     """Record that a control cycle ran to a deliberate decision.
 
@@ -163,7 +174,13 @@ def desired_diverges(self, snapshot, desired) -> bool:
 
         if intent.hvac_mode is not None:
             if intent.hvac_mode == HVACMode.OFF:
-                if state.state not in (HVACMode.OFF, STATE_UNAVAILABLE, STATE_UNKNOWN):
+                # A device that cannot switch off converges on its min
+                # temp instead; the setpoint comparison below covers it.
+                if not _no_off_system_mode(trv) and state.state not in (
+                    HVACMode.OFF,
+                    STATE_UNAVAILABLE,
+                    STATE_UNKNOWN,
+                ):
                     return True
             elif state.state == HVACMode.OFF:
                 return True
@@ -701,13 +718,8 @@ async def control_trv(self, heater_entity_id=None, cycle=None):
             await set_valve(self, heater_entity_id, 0)
 
         # Manage TRVs with no HVACMode.OFF
-        _no_off_system_mode = (
-            HVACMode.OFF not in self.real_trvs[heater_entity_id].hvac_modes
-        ) or (
-            self.real_trvs[heater_entity_id].advanced.get("no_off_system_mode", False)
-            is True
-        )
-        if _no_off_system_mode is True and _new_hvac_mode == HVACMode.OFF:
+        _trv_has_no_off = _no_off_system_mode(self.real_trvs[heater_entity_id])
+        if _trv_has_no_off is True and _new_hvac_mode == HVACMode.OFF:
             _min_temp = self.real_trvs[heater_entity_id].min_temp
             _LOGGER.debug(
                 "better_thermostat %s: sending %s°C to the TRV because this device has no system mode off and heater should be off",
@@ -721,8 +733,8 @@ async def control_trv(self, heater_entity_id=None, cycle=None):
             _new_hvac_mode is not None
             and _new_hvac_mode != _trv.state
             and (
-                (_no_off_system_mode is True and _new_hvac_mode != HVACMode.OFF)
-                or (_no_off_system_mode is False)
+                (_trv_has_no_off is True and _new_hvac_mode != HVACMode.OFF)
+                or (_trv_has_no_off is False)
             )
         ):
             _LOGGER.debug(
@@ -829,7 +841,7 @@ async def control_trv(self, heater_entity_id=None, cycle=None):
             ).setpoint
             _safety_overrode_setpoint = _temperature != _raw_temperature
         if _temperature is not None and (
-            _new_hvac_mode != HVACMode.OFF or _no_off_system_mode
+            _new_hvac_mode != HVACMode.OFF or _trv_has_no_off
         ):
             if _temperature != _current_set_temperature:
                 trv_entry = self.real_trvs[heater_entity_id]
