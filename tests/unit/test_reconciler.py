@@ -177,3 +177,134 @@ class TestWriteBudget:
         _, set_temp = await self._run(bt, target=1.0)
         set_temp.assert_called_once()
         assert set_temp.call_args[0][2] == 5.0
+
+
+class TestOffsetWriteBudget:
+    """Calibration-offset writes keep the same per-TRV spacing."""
+
+    def _offset_bt(self):
+        bt = _control_bt()
+        bt.real_trvs["climate.trv"].advanced = {
+            "calibration_mode": CalibrationMode.DEFAULT,
+            "calibration": CalibrationType.LOCAL_BASED,
+            "no_off_system_mode": False,
+        }
+        bt.real_trvs["climate.trv"].calibration_received = True
+        bt.real_trvs["climate.trv"].last_calibration = 0.0
+        bt.real_trvs["climate.trv"].local_calibration_min = -5.0
+        bt.real_trvs["climate.trv"].local_calibration_max = 5.0
+        return bt
+
+    async def _run(self, bt, offset):
+        with (
+            patch(f"{_CTRL}.convert_outbound_states") as conv,
+            patch(f"{_CTRL}._get_valve_control", return_value=(None, None)),
+            patch(f"{_CTRL}.get_current_offset", new=AsyncMock(return_value=0.0)),
+            patch(f"{_CTRL}.set_offset", new=AsyncMock()) as set_off,
+            patch(f"{_CTRL}.set_hvac_mode", new=AsyncMock()),
+            patch(f"{_CTRL}.override_set_hvac_mode", new=AsyncMock(return_value=False)),
+            patch("asyncio.sleep", new=AsyncMock()),
+        ):
+            conv.return_value = {
+                "local_temperature_calibration": offset,
+                "system_mode": HVACMode.HEAT,
+            }
+            result = await control_trv(bt, "climate.trv")
+        return result, set_off
+
+    @pytest.mark.asyncio
+    async def test_first_offset_write_passes_and_stamps_budget(self):
+        """The first offset write goes through and records its time."""
+        bt = self._offset_bt()
+        bt.clock.advance(100.0)
+        result, set_off = await self._run(bt, offset=2.0)
+        assert result is True
+        set_off.assert_called_once()
+        trv = bt.real_trvs["climate.trv"]
+        assert trv.last_offset_write_monotonic == 100.0
+
+    @pytest.mark.asyncio
+    async def test_offset_write_within_budget_window_is_skipped(self):
+        """A second offset write within 30 s is skipped, not blocking."""
+        bt = self._offset_bt()
+        await self._run(bt, offset=2.0)
+        bt.real_trvs["climate.trv"].calibration_received = True
+        bt.clock.advance(10.0)
+        result, set_off = await self._run(bt, offset=3.0)
+        assert result is True
+        set_off.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_offset_write_after_budget_window_passes(self):
+        """Once the window has passed, the next offset write goes through."""
+        bt = self._offset_bt()
+        await self._run(bt, offset=2.0)
+        bt.real_trvs["climate.trv"].calibration_received = True
+        bt.clock.advance(30.0)
+        _, set_off = await self._run(bt, offset=3.0)
+        set_off.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_offset_budget_is_independent_of_the_setpoint_budget(self):
+        """An offset write does not consume the setpoint channel's slot."""
+        bt = self._offset_bt()
+        await self._run(bt, offset=2.0)
+        assert bt.real_trvs["climate.trv"].last_write_monotonic is None
+
+
+class TestValveWriteBudget:
+    """Direct valve writes keep the same per-TRV spacing; 0 % bypasses."""
+
+    async def _run(self, bt, percent):
+        with (
+            patch(f"{_CTRL}.convert_outbound_states") as conv,
+            patch(
+                f"{_CTRL}._get_valve_control",
+                return_value=({"valve_percent": percent}, "test"),
+            ),
+            patch(f"{_CTRL}.set_valve", new=AsyncMock(return_value=True)) as set_valve,
+            patch(f"{_CTRL}.set_hvac_mode", new=AsyncMock()),
+            patch(f"{_CTRL}.override_set_hvac_mode", new=AsyncMock(return_value=False)),
+            patch("asyncio.sleep", new=AsyncMock()),
+        ):
+            conv.return_value = {"system_mode": HVACMode.HEAT}
+            result = await control_trv(bt, "climate.trv")
+        return result, set_valve
+
+    @pytest.mark.asyncio
+    async def test_first_valve_write_passes_and_stamps_budget(self):
+        """The first valve write goes through and records its time."""
+        bt = _control_bt()
+        bt.clock.advance(100.0)
+        result, set_valve = await self._run(bt, percent=50)
+        assert result is True
+        set_valve.assert_called_once()
+        assert bt.real_trvs["climate.trv"].last_valve_write_monotonic == 100.0
+
+    @pytest.mark.asyncio
+    async def test_valve_write_within_budget_window_is_skipped(self):
+        """A second valve write within 30 s is skipped."""
+        bt = _control_bt()
+        await self._run(bt, percent=50)
+        bt.clock.advance(10.0)
+        _, set_valve = await self._run(bt, percent=60)
+        set_valve.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_closing_the_valve_bypasses_the_budget(self):
+        """A 0 % command (overheat-safe direction) ignores the budget."""
+        bt = _control_bt()
+        await self._run(bt, percent=50)
+        bt.clock.advance(1.0)
+        _, set_valve = await self._run(bt, percent=0)
+        set_valve.assert_called_once()
+        assert set_valve.call_args[0][2] == 0
+
+    @pytest.mark.asyncio
+    async def test_valve_write_after_budget_window_passes(self):
+        """Once the window has passed, the next valve write goes through."""
+        bt = _control_bt()
+        await self._run(bt, percent=50)
+        bt.clock.advance(30.0)
+        _, set_valve = await self._run(bt, percent=60)
+        set_valve.assert_called_once()

@@ -5,7 +5,7 @@ mock_bt fixture (MagicMock with explicit attributes).
 """
 
 from datetime import UTC, datetime, timedelta
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import MagicMock
 
 from homeassistant.components.climate.const import (
     ATTR_HVAC_MODE,

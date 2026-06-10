@@ -4,7 +4,7 @@ Covers guard clauses, setpoint adoption, clamping, heat-target sync,
 and control-queue triggering.
 """
 
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import MagicMock
 
 from homeassistant.components.climate.const import HVACMode
 from homeassistant.core import State

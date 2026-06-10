@@ -12,9 +12,26 @@ transitional dict protocol used during the migration) are gone.
 
 from __future__ import annotations
 
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
 from types import ModuleType
-from typing import Any
+from typing import Any, Protocol, runtime_checkable
+
+
+@runtime_checkable
+class ModelQuirks(Protocol):
+    """Structural surface of a model-quirk module.
+
+    Quirk modules are plain modules under ``model_fixes/``; this is the
+    contract every one of them provides. ``override_set_valve`` is the
+    one optional extension — callers probe it with ``getattr``, and
+    :meth:`Trv.capabilities` turns its presence into a capability.
+    """
+
+    fix_local_calibration: Callable[..., float]
+    fix_target_temperature_calibration: Callable[..., float]
+    override_set_hvac_mode: Callable[..., Awaitable[bool]]
+    override_set_temperature: Callable[..., Awaitable[bool]]
 
 
 @dataclass(frozen=True)
@@ -41,7 +58,7 @@ class Trv:
     model: str | None = None
     calibration: Any = None
     adapter: ModuleType | None = None
-    model_quirks: ModuleType | None = None
+    model_quirks: ModelQuirks | None = None
     advanced: dict[str, Any] = field(default_factory=dict)
 
     # -- Reported device state -------------------------------------------
@@ -74,7 +91,11 @@ class Trv:
     last_calibration: float | None = None
     last_valve_percent: float | None = None
     last_valve_method: str | None = None
+    # Per-channel write-budget stamps (setpoint, offset, valve) so one
+    # channel's write cannot starve another channel's slot.
     last_write_monotonic: float | None = None
+    last_offset_write_monotonic: float | None = None
+    last_valve_write_monotonic: float | None = None
 
     # -- Calibration results -----------------------------------------------
     calibration_balance: dict[str, Any] | None = None

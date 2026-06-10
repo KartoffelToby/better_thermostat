@@ -4,7 +4,7 @@ Pins the supported-mode handling, the rejection of unsupported modes, and the
 maintenance defer that must not enqueue a control action mid-exercise.
 """
 
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import MagicMock, patch
 
 from homeassistant.components.climate.const import HVACMode
 import pytest

@@ -16,6 +16,11 @@ Behavior specification (M8, conservative first version):
 Transitions degrade quickly (small debounce) and recover slowly: the
 ladder only climbs back up after the capability has been continuously
 restored for ``up_stability_s`` (hysteresis against flapping sensors).
+
+The region is not persisted across restarts: the ladder starts at
+OPTIMAL and re-derives its rung from live observations within one
+debounce window. A persisted rung could only pin stale degradation —
+the observations it was derived from are gone after a restart.
 """
 
 from __future__ import annotations

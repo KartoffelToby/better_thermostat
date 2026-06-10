@@ -6,7 +6,7 @@ neighbours.  These tests pin the reset scope, the bucket key construction,
 and the seed conditions.
 """
 
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import MagicMock
 
 import pytest
 

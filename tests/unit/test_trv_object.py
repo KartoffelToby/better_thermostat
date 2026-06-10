@@ -112,3 +112,28 @@ class TestTrvCapabilities:
         trv = _make()
         trv.model_quirks = _Quirk()
         assert trv.capabilities().supports_valve_write is True
+
+
+class TestModelQuirksProtocol:
+    """Every quirk module satisfies the structural quirk contract."""
+
+    def test_all_quirk_modules_satisfy_the_protocol(self):
+        """Each model_fixes module provides the full required surface."""
+        import importlib
+        import pkgutil
+
+        from custom_components.better_thermostat import model_fixes
+        from custom_components.better_thermostat.trv import ModelQuirks
+
+        checked = []
+        for info in pkgutil.iter_modules(model_fixes.__path__):
+            if info.name == "model_quirks":
+                continue
+            module = importlib.import_module(
+                f"custom_components.better_thermostat.model_fixes.{info.name}"
+            )
+            assert isinstance(module, ModelQuirks), (
+                f"{info.name} is missing part of the quirk surface"
+            )
+            checked.append(info.name)
+        assert "default" in checked

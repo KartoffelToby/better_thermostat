@@ -49,6 +49,13 @@ class KernelState:
     The regions are authoritative: ``decide()`` branches on them, not on
     the mirrored snapshot flags (those remain pure observations for the
     flight recorder and annunciation).
+
+    None of the regions is persisted across restarts. They are
+    re-derived from live observations: lifecycle through the startup
+    sequence, window/maintenance/mode from the first events, and the
+    ladder and reachability within one debounce window. Only controller
+    state with learning value (PID/TPI/MPC, thermal stats, filters)
+    persists — via the StateManager, never through entity attributes.
     """
 
     window: WindowState = field(default_factory=WindowState)
