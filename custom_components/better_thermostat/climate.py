@@ -1809,6 +1809,14 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
                     _attrs, self.hass.config.units.temperature_unit
                 ),
             )
+    async def _startup_control_trvs(self) -> None:
+        """Write the initial mode/setpoint/calibration to every TRV.
+
+        Must run after the lifecycle gate has opened: while startup is
+        running, decide() addresses no TRVs and a control cycle writes
+        nothing.
+        """
+        for trv in self.real_trvs:
             _LOGGER.debug(
                 "better_thermostat %s: controlling TRV %s...", self.device_name, trv
             )
@@ -1843,6 +1851,7 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
         self.kernel_state.lifecycle = lifecycle_startup_finished(
             self.kernel_state.lifecycle
         )
+        await self._startup_control_trvs()
         self._available = True
         self.async_write_ha_state()
 

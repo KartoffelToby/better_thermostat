@@ -547,7 +547,54 @@ class TestRestoreState:
 
 
 # ---------------------------------------------------------------------------
-# 6. _validate_hvac_mode
+# 6. Initial TRV sync (_finalize_startup / _startup_control_trvs)
+# ---------------------------------------------------------------------------
+
+
+_CLIMATE = "custom_components.better_thermostat.climate"
+
+
+class TestStartupControlSync:
+    """The initial device sync must run after the lifecycle gate opens."""
+
+    @pytest.mark.asyncio
+    async def test_finalize_startup_flips_lifecycle_before_initial_sync(self, bt):
+        """While startup_running is True, decide() addresses no TRVs — the
+        initial sync only writes anything if it runs after the flip."""
+        bt.is_removed = True
+        gate_states = []
+
+        async def record_sync():
+            gate_states.append(bt.kernel_state.lifecycle.startup_running)
+
+        bt._startup_control_trvs = record_sync
+        with patch(f"{_CLIMATE}.asyncio.sleep", AsyncMock()):
+            await BetterThermostat._finalize_startup(bt)
+
+        assert gate_states == [False]
+
+    @pytest.mark.asyncio
+    async def test_startup_control_trvs_controls_each_trv(self, bt):
+        """Every configured TRV receives one initial control call."""
+        bt.real_trvs = {TRV_ID: {}, TRV_ID_2: {}}
+        with patch(f"{_CLIMATE}.control_trv", AsyncMock(return_value=True)) as ctl:
+            await BetterThermostat._startup_control_trvs(bt)
+
+        assert [call.args[1] for call in ctl.call_args_list] == [TRV_ID, TRV_ID_2]
+
+    @pytest.mark.asyncio
+    async def test_startup_control_trvs_survives_a_failing_trv(self, bt):
+        """An error on one TRV must not stop the sync of the others."""
+        bt.real_trvs = {TRV_ID: {}, TRV_ID_2: {}}
+        ctl = AsyncMock(side_effect=[RuntimeError("boom"), True])
+        with patch(f"{_CLIMATE}.control_trv", ctl):
+            await BetterThermostat._startup_control_trvs(bt)
+
+        assert ctl.call_count == 2
+
+
+# ---------------------------------------------------------------------------
+# 7. _validate_hvac_mode
 # ---------------------------------------------------------------------------
 
 
