@@ -193,11 +193,10 @@ def compute_control_cycle(self, *, record: bool = True):
     """Build one consistent observation and decision for a control cycle.
 
     Records the (snapshot, pre-decide state, desired) tuple in the
-    flight recorder — exactly once per cycle. decide() never mutates
-    its input, so the pre-decide state needs no defensive copy here;
-    the recorder makes the one copy it stores. Probes (the reconciler)
-    pass ``record=False`` to run the same observe-decide step without
-    filling the recorder ring.
+    flight recorder — exactly once per cycle. decide() treats its input
+    state as immutable; the recorder copies what it stores. Probes (the
+    reconciler) pass ``record=False`` to run the same observe-decide
+    step without filling the recorder ring.
     """
     snapshot = build_snapshot(self)
     pre_state = self.kernel_state

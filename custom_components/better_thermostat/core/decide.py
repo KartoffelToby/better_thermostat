@@ -119,8 +119,8 @@ def decide(
     """Map one world snapshot onto the desired state of every TRV.
 
     The input state is never mutated; a fresh successor state is
-    returned. The flight recorder relies on this to record the
-    pre-decide state without a defensive copy in the control cycle.
+    returned. The flight recorder records the input as the pre-decide
+    state of the cycle.
     """
     # Advance the per-TRV reachability regions from this observation.
     state = replace(

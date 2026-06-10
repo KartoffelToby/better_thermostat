@@ -232,7 +232,7 @@ class TestRoundtripCompleteness:
     The kwargs below deliberately set every field to a non-default value
     and the field-set assertions force this test to grow with the
     dataclasses — a field missing from the reconstructors cannot drift
-    silently again (offset and the local calibration bounds already did).
+    past it silently.
     """
 
     def test_every_field_roundtrips(self):

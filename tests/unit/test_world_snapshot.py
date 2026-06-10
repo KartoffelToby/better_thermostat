@@ -116,7 +116,7 @@ class TestSnapshotCompleteness:
         """Raw readings pass the shared converter (0.01 step).
 
         The snapshot carries the same numbers the rest of BT computes
-        with instead of a second, unrounded parse.
+        with.
         """
         bt = _make_bt()
         bt.cur_temp = 19.974999

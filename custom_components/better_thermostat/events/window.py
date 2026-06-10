@@ -117,9 +117,8 @@ async def _settle_window_region(self, was_open: bool) -> None:
 
     The region owns the debounce timing: this helper sleeps exactly the
     remaining delay the region asks for, re-reads the sensor, and
-    re-steps. A delay reconfigured mid-flight changes the next sleep
-    instead of stranding the region in a pending phase, and a sensor
-    that reverted cancels the transition (false positive).
+    re-steps. A delay reconfigured mid-flight changes the next sleep,
+    and a sensor that reverted cancels the transition (false positive).
     """
     while True:
         region = self.kernel_state.window

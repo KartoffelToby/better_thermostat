@@ -2,8 +2,7 @@
 
 The sensor's raw reading is debounced in both directions: a change only
 commits after it has persisted for the configured delay. While a change
-is pending, the *committed* phase keeps ruling the control law, which is
-exactly the behavior of the old queue-plus-sleep implementation.
+is pending, the *committed* phase keeps ruling the control law.
 """
 
 from __future__ import annotations
