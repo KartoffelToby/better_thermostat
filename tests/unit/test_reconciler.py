@@ -159,6 +159,84 @@ class TestReconcileTick:
         await reconcile_tick(bt)
         bt.control_queue_task.put_nowait.assert_not_called()
 
+    def _with_states(self, bt, extra):
+        """Serve the TRV state plus per-entity extra states."""
+        trv_state = bt.hass.states.get.return_value
+
+        def lookup(entity_id):
+            if entity_id in extra:
+                return extra[entity_id]
+            return trv_state
+
+        bt.hass.states.get.side_effect = lookup
+
+    def _state(self, value):
+        state = Mock()
+        state.state = value
+        state.attributes = {}
+        return state
+
+    @pytest.mark.asyncio
+    async def test_lost_offset_write_queues_a_cycle(self):
+        """A confirmed offset that left the commanded value reconciles."""
+        bt = _make_bt()
+        trv = bt.real_trvs["climate.trv"]
+        trv.local_temperature_calibration_entity = "number.offset"
+        trv.last_calibration = 2.0
+        trv.calibration_received = True
+        self._with_states(bt, {"number.offset": self._state("0.0")})
+        await reconcile_tick(bt)
+        bt.control_queue_task.put_nowait.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_offset_within_half_step_is_converged(self):
+        """Half a calibration step of quantization is convergence."""
+        bt = _make_bt()
+        trv = bt.real_trvs["climate.trv"]
+        trv.local_temperature_calibration_entity = "number.offset"
+        trv.last_calibration = 2.0
+        trv.local_calibration_step = 0.5
+        trv.calibration_received = True
+        self._with_states(bt, {"number.offset": self._state("1.8")})
+        await reconcile_tick(bt)
+        bt.control_queue_task.put_nowait.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_unconfirmed_offset_write_is_left_to_the_write_path(self):
+        """An in-flight offset write is not the reconciler's business."""
+        bt = _make_bt()
+        trv = bt.real_trvs["climate.trv"]
+        trv.local_temperature_calibration_entity = "number.offset"
+        trv.last_calibration = 2.0
+        trv.calibration_received = False
+        self._with_states(bt, {"number.offset": self._state("0.0")})
+        await reconcile_tick(bt)
+        bt.control_queue_task.put_nowait.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_lost_valve_write_queues_a_cycle(self):
+        """A valve-position entity far off the commanded percent reconciles."""
+        bt = _make_bt()
+        trv = bt.real_trvs["climate.trv"]
+        trv.valve_position_entity = "number.valve"
+        trv.valve_position_writable = True
+        trv.last_valve_percent = 80
+        self._with_states(bt, {"number.valve": self._state("0")})
+        await reconcile_tick(bt)
+        bt.control_queue_task.put_nowait.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_valve_within_tolerance_is_converged(self):
+        """Small valve deviations are the device's own business."""
+        bt = _make_bt()
+        trv = bt.real_trvs["climate.trv"]
+        trv.valve_position_entity = "number.valve"
+        trv.valve_position_writable = True
+        trv.last_valve_percent = 80
+        self._with_states(bt, {"number.valve": self._state("77")})
+        await reconcile_tick(bt)
+        bt.control_queue_task.put_nowait.assert_not_called()
+
     @pytest.mark.asyncio
     async def test_reconcile_probe_is_not_recorded(self):
         """The periodic probe leaves no flight-recorder entry.

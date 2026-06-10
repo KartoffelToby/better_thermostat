@@ -47,6 +47,8 @@ _LOGGER = logging.getLogger(__name__)
 MIN_WRITE_INTERVAL_S = 30.0
 # Device tolerance when comparing commanded vs reported setpoints.
 RECONCILE_TOLERANCE_K = 0.05
+# Valve deviations below this are the device's own business.
+RECONCILE_VALVE_TOLERANCE_PCT = 5.0
 
 
 def _budget_open(last_write: float | None, now_monotonic: float) -> bool:
@@ -229,6 +231,50 @@ def _reconcile_tolerance(self, state) -> float:
     return max(RECONCILE_TOLERANCE_K, step / 2.0 + 1e-6)
 
 
+def _offset_diverges(self, trv) -> bool:
+    """Whether the device's calibration offset left the commanded value.
+
+    Compared only once the device has confirmed the last write — an
+    in-flight write is the write path's business, not the reconciler's.
+    """
+    if trv.local_temperature_calibration_entity is None:
+        return False
+    if trv.last_calibration is None or trv.calibration_received is not True:
+        return False
+    state = self.hass.states.get(trv.local_temperature_calibration_entity)
+    if state is None or state.state in (STATE_UNAVAILABLE, STATE_UNKNOWN):
+        return False
+    reported = convert_to_float(state.state, self.device_name, "reconcile()")
+    if reported is None:
+        return False
+    step = trv.local_calibration_step
+    tolerance = RECONCILE_TOLERANCE_K
+    if step is not None and step > 0:
+        tolerance = max(tolerance, step / 2.0 + 1e-6)
+    return abs(float(trv.last_calibration) - reported) > tolerance
+
+
+def _valve_diverges(self, trv) -> bool:
+    """Whether the valve-position entity left the commanded percentage.
+
+    Only the adapter-written number entity is verifiable; quirk-driven
+    valve writes have no readable target.
+    """
+    if not (trv.valve_position_entity and trv.valve_position_writable is True):
+        return False
+    if trv.last_valve_percent is None:
+        return False
+    state = self.hass.states.get(trv.valve_position_entity)
+    if state is None or state.state in (STATE_UNAVAILABLE, STATE_UNKNOWN):
+        return False
+    reported = convert_to_float(state.state, self.device_name, "reconcile()")
+    if reported is None:
+        return False
+    return (
+        abs(float(trv.last_valve_percent) - reported) > RECONCILE_VALVE_TOLERANCE_PCT
+    )
+
+
 def desired_diverges(self, snapshot, desired) -> bool:
     """Whether any TRV's reported state diverges from the clamped intent.
 
@@ -267,6 +313,9 @@ def desired_diverges(self, snapshot, desired) -> bool:
             and abs(float(commanded) - float(reported_target))
             > _reconcile_tolerance(self, state)
         ):
+            return True
+
+        if _offset_diverges(self, trv) or _valve_diverges(self, trv):
             return True
     return False
 
