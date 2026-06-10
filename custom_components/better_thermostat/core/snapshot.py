@@ -53,6 +53,8 @@ class TrvReported:
     min_temp: float | None = None
     max_temp: float | None = None
     valve_max_opening: float | None = None
+    local_calibration_min: float | None = None
+    local_calibration_max: float | None = None
 
 
 @dataclass(frozen=True)

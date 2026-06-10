@@ -6,6 +6,7 @@ matter what the controller upstream computed:
 
 * setpoints stay inside the TRV's reported min/max temperature range
   (the min bound doubles as the frost-protection floor),
+* calibration offsets stay inside the device's local calibration range,
 * valve percentages stay inside 0..valve_max_opening,
 * optionally, valve changes are rate-limited against the previous
   intent (``max_valve_jump``); this mechanism ships disabled so today's
@@ -38,6 +39,12 @@ def _clamp_trv(
     if setpoint is not None and reported is not None:
         setpoint = _clamp_value(setpoint, reported.min_temp, reported.max_temp)
 
+    offset = intent.offset
+    if offset is not None and reported is not None:
+        offset = _clamp_value(
+            offset, reported.local_calibration_min, reported.local_calibration_max
+        )
+
     valve = intent.valve_percent
     if valve is not None:
         upper = reported.valve_max_opening if reported is not None else 100.0
@@ -53,9 +60,13 @@ def _clamp_trv(
                     max_valve_jump if delta > 0 else -max_valve_jump
                 )
 
-    if setpoint == intent.setpoint and valve == intent.valve_percent:
+    if (
+        setpoint == intent.setpoint
+        and valve == intent.valve_percent
+        and offset == intent.offset
+    ):
         return intent
-    return replace(intent, setpoint=setpoint, valve_percent=valve)
+    return replace(intent, setpoint=setpoint, valve_percent=valve, offset=offset)
 
 
 def clamp(

@@ -799,15 +799,8 @@ def calculate_calibration_local(self, entity_id) -> float | None:
         return None
     _new_trv_calibration = _rounded_calibration
 
-    # limit new setpoint within min/max of the TRV's range
-    t_min = _convert_to_float(self.real_trvs[entity_id].local_calibration_min)
-    t_max = _convert_to_float(self.real_trvs[entity_id].local_calibration_max)
-    if t_min is None or t_max is None:
-        return _new_trv_calibration
-    t_min = float(t_min)
-    t_max = float(t_max)
-    _new_trv_calibration = max(t_min, min(_new_trv_calibration, t_max))
-
+    # The device's calibration range is enforced by the safety hull at
+    # the command boundary (core/safety.py).
     _new_trv_calibration = _convert_to_float(_new_trv_calibration)
     if _new_trv_calibration is None:
         return None
@@ -1043,13 +1036,8 @@ def calculate_calibration_setpoint(self, entity_id) -> float | None:
         return None
     _calibrated_setpoint = _rounded_setpoint
 
-    # limit new setpoint within min/max of the TRV's range
-    t_min = _convert_to_float(self.real_trvs[entity_id].min_temp)
-    t_max = _convert_to_float(self.real_trvs[entity_id].max_temp)
-    if t_min is not None:
-        _calibrated_setpoint = max(float(t_min), _calibrated_setpoint)
-    if t_max is not None:
-        _calibrated_setpoint = min(_calibrated_setpoint, float(t_max))
+    # The TRV's min/max range is enforced by the safety hull at the
+    # command boundary (core/safety.py).
 
     _logmsg = (
         "better_thermostat %s: %s - new setpoint calibration: %s | external_temp: %s, "

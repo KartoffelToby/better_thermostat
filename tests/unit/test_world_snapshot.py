@@ -137,6 +137,8 @@ class TestTrvReportedBuilding:
             min_temp=5.0,
             max_temp=30.0,
             valve_max_opening=80.0,
+            local_calibration_min=-7,
+            local_calibration_max=7,
         )
 
     def test_unavailable_state_marks_trv_unavailable(self):

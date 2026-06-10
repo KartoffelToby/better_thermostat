@@ -43,6 +43,8 @@ def _build_trv_reported(self, entity_id: str, trv) -> TrvReported:
         min_temp=_as_float(trv.min_temp),
         max_temp=_as_float(trv.max_temp),
         valve_max_opening=_as_float(trv.valve_max_opening),
+        local_calibration_min=_as_float(trv.local_calibration_min),
+        local_calibration_max=_as_float(trv.local_calibration_max),
     )
 
 

@@ -101,3 +101,31 @@ def test_none_values_stay_none():
     out = clamp(_desired(), _snapshot())
     assert out.trvs["climate.trv"].setpoint is None
     assert out.trvs["climate.trv"].valve_percent is None
+
+
+def test_offset_is_clamped_to_the_calibration_range():
+    """Calibration offsets stay inside the device's local range."""
+    snapshot = _snapshot(local_calibration_min=-7.0, local_calibration_max=7.0)
+    desired = DesiredState(
+        call_for_heat=True,
+        trvs={"climate.trv": TrvDesired(entity_id="climate.trv", offset=-9.5)},
+    )
+    out = clamp(desired, snapshot)
+    assert out.trvs["climate.trv"].offset == -7.0
+
+    desired = DesiredState(
+        call_for_heat=True,
+        trvs={"climate.trv": TrvDesired(entity_id="climate.trv", offset=9.5)},
+    )
+    out = clamp(desired, snapshot)
+    assert out.trvs["climate.trv"].offset == 7.0
+
+
+def test_offset_inside_the_range_is_untouched():
+    """Offsets inside the device range pass through identically."""
+    snapshot = _snapshot(local_calibration_min=-7.0, local_calibration_max=7.0)
+    desired = DesiredState(
+        call_for_heat=True,
+        trvs={"climate.trv": TrvDesired(entity_id="climate.trv", offset=-2.5)},
+    )
+    assert clamp(desired, snapshot) == desired

@@ -21,6 +21,7 @@ class TrvDesired:
     hvac_mode: HvacMode | None = None
     setpoint: float | None = None
     valve_percent: float | None = None
+    offset: float | None = None
 
 
 @dataclass(frozen=True)

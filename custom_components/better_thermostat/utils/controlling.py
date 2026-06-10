@@ -199,13 +199,21 @@ async def reconcile_tick(self, now=None):
 
 
 def _through_safety_hull(
-    snapshot, entity_id: str, *, setpoint: float | None = None, valve_percent=None
+    snapshot,
+    entity_id: str,
+    *,
+    setpoint: float | None = None,
+    valve_percent=None,
+    offset: float | None = None,
 ) -> TrvDesired:
     """Run one intent through the safety hull at the command boundary."""
     desired = DesiredState(
         trvs={
             entity_id: TrvDesired(
-                entity_id=entity_id, setpoint=setpoint, valve_percent=valve_percent
+                entity_id=entity_id,
+                setpoint=setpoint,
+                valve_percent=valve_percent,
+                offset=offset,
             )
         }
     )
@@ -712,6 +720,10 @@ async def control_trv(self, heater_entity_id=None):
             )
 
             _calibration = float(str(_calibration))
+            # Command boundary: the hull owns the device's calibration range.
+            _calibration = _through_safety_hull(
+                snapshot, heater_entity_id, offset=_calibration
+            ).offset
 
             _old_calibration = self.real_trvs[heater_entity_id].last_calibration
             if _old_calibration is None:
