@@ -11,18 +11,16 @@ from homeassistant.const import STATE_UNAVAILABLE, STATE_UNKNOWN
 
 from ..calibration import _get_current_outdoor_temp, _get_current_solar_intensity
 from ..core.snapshot import TrvReported, WorldSnapshot, parse_hvac_mode
+from .helpers import convert_to_float
 
 
-def _as_float(value: object) -> float | None:
-    """Best-effort float conversion; None for missing/unparseable values."""
-    if isinstance(value, (int, float)):
-        return float(value)
-    if isinstance(value, str):
-        try:
-            return float(value)
-        except ValueError:
-            return None
-    return None
+def _as_float(self, value) -> float | None:
+    """Normalize one observation via the shared converter.
+
+    The 0.01-step rounding rule lives in ``convert_to_float``; the
+    snapshot must carry the same numbers the rest of BT computes with.
+    """
+    return convert_to_float(value, self.device_name, "build_snapshot()")
 
 
 def _build_trv_reported(self, entity_id: str, trv) -> TrvReported:
@@ -38,13 +36,13 @@ def _build_trv_reported(self, entity_id: str, trv) -> TrvReported:
         entity_id=entity_id,
         available=available,
         hvac_mode=parse_hvac_mode(trv.hvac_mode),
-        current_temp=_as_float(trv.current_temperature),
-        setpoint=_as_float(trv.last_temperature),
-        min_temp=_as_float(trv.min_temp),
-        max_temp=_as_float(trv.max_temp),
-        valve_max_opening=_as_float(trv.valve_max_opening),
-        local_calibration_min=_as_float(trv.local_calibration_min),
-        local_calibration_max=_as_float(trv.local_calibration_max),
+        current_temp=_as_float(self, trv.current_temperature),
+        setpoint=_as_float(self, trv.last_temperature),
+        min_temp=_as_float(self, trv.min_temp),
+        max_temp=_as_float(self, trv.max_temp),
+        valve_max_opening=_as_float(self, trv.valve_max_opening),
+        local_calibration_min=_as_float(self, trv.local_calibration_min),
+        local_calibration_max=_as_float(self, trv.local_calibration_max),
     )
 
 
@@ -69,16 +67,16 @@ def build_snapshot(self) -> WorldSnapshot:
     return WorldSnapshot(
         now=self.clock.now(),
         now_monotonic=self.clock.monotonic(),
-        target_temp=_as_float(self.bt_target_temp),
-        target_cooltemp=_as_float(self.bt_target_cooltemp),
+        target_temp=_as_float(self, self.bt_target_temp),
+        target_cooltemp=_as_float(self, self.bt_target_cooltemp),
         hvac_mode=parse_hvac_mode(self.bt_hvac_mode),
-        room_temp=_as_float(self.cur_temp),
-        room_temp_filtered=_as_float(self.cur_temp_filtered),
-        temp_slope=_as_float(self.temp_slope),
+        room_temp=_as_float(self, self.cur_temp),
+        room_temp_filtered=_as_float(self, self.cur_temp_filtered),
+        temp_slope=_as_float(self, self.temp_slope),
         window_open=self.window_open,
         call_for_heat=bool(self.call_for_heat),
         preset_mode=self.preset_mode,
-        tolerance=_as_float(self.tolerance) or 0.0,
+        tolerance=_as_float(self, self.tolerance) or 0.0,
         outdoor_temp=_get_current_outdoor_temp(self),
         is_day=is_day,
         solar_intensity=solar_intensity,
@@ -86,7 +84,7 @@ def build_snapshot(self) -> WorldSnapshot:
         in_maintenance=bool(self.in_maintenance),
         ignore_states=bool(self.ignore_states),
         degraded=bool(self.degraded_mode),
-        min_temp=_as_float(self.bt_min_temp),
-        max_temp=_as_float(self.bt_max_temp),
+        min_temp=_as_float(self, self.bt_min_temp),
+        max_temp=_as_float(self, self.bt_max_temp),
         trvs=trvs,
     )

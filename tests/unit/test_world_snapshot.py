@@ -112,6 +112,15 @@ class TestSnapshotCompleteness:
         all_fields = {f.name for f in fields(WorldSnapshot)}
         assert all_fields == mapped | produced_elsewhere
 
+    def test_observations_use_the_shared_float_normalization(self):
+        """Raw readings are normalized by the shared converter (0.01 step),
+        so the snapshot carries the same numbers the rest of BT computes
+        with instead of a second, unrounded parse."""
+        bt = _make_bt()
+        bt.cur_temp = 19.974999
+        snapshot = build_snapshot(bt)
+        assert snapshot.room_temp == 19.97
+
     def test_time_comes_from_the_injected_clock(self):
         """The snapshot carries both clock axes at build time."""
         bt = _make_bt()
