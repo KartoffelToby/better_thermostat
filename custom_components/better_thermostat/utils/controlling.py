@@ -65,6 +65,29 @@ def _no_off_system_mode(trv) -> bool:
     return (trv.advanced or {}).get("no_off_system_mode", False) is True
 
 
+def _schedule_budget_retry(self, entity_id: str, retry_in_s: float) -> None:
+    """Queue one control cycle for when the write budget reopens.
+
+    A deferred setpoint write needs this follow-up: the reconciler
+    compares the device against the last value actually written — which
+    the device still matches — and configurations without a calibration
+    tick have no other periodic trigger.
+    """
+    trv = self.real_trvs[entity_id]
+    if trv.budget_retry_pending:
+        return
+    trv.budget_retry_pending = True
+
+    async def _retry() -> None:
+        try:
+            await asyncio.sleep(max(retry_in_s, 0.0))
+        finally:
+            trv.budget_retry_pending = False
+        request_control_cycle(self)
+
+    self.task_manager.create_task(_retry(), name=f"bt_budget_retry_{entity_id}")
+
+
 def _stamp_heartbeat(self) -> None:
     """Record that a control cycle ran to a deliberate decision.
 
@@ -888,6 +911,12 @@ async def control_trv(self, heater_entity_id=None, cycle=None):
                         self.device_name,
                         heater_entity_id,
                         now_mono - trv_entry.last_write_monotonic,
+                    )
+                    _schedule_budget_retry(
+                        self,
+                        heater_entity_id,
+                        MIN_WRITE_INTERVAL_S
+                        - (now_mono - trv_entry.last_write_monotonic),
                     )
                     _stamp_heartbeat(self)
                     await asyncio.sleep(3)

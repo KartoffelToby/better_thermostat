@@ -170,10 +170,16 @@ class TestReconcileTick:
         bt.control_queue_task.put_nowait.assert_not_called()
 
 
+def _close_coro(coro, name=None):
+    """Close an untracked coroutine to avoid RuntimeWarning."""
+    coro.close()
+    return Mock()
+
+
 def _control_bt():
     bt = _make_bt()
     bt._temp_lock = asyncio.Lock()
-    bt.task_manager = Mock(create_task=Mock())
+    bt.task_manager = Mock(create_task=Mock(side_effect=_close_coro))
     bt.real_trvs["climate.trv"].hvac_modes = [HVACMode.HEAT, HVACMode.OFF]
     bt.real_trvs["climate.trv"].advanced = {
         "calibration_mode": CalibrationMode.NO_CALIBRATION,
@@ -184,6 +190,69 @@ def _control_bt():
     bt.real_trvs["climate.trv"].target_temp_received = False
     bt.real_trvs["climate.trv"].calibration_received = False
     return bt
+
+
+async def _run_setpoint_cycle(bt, target):
+    """Run one control_trv cycle that wants ``target`` written."""
+    with (
+        patch(f"{_CTRL}.convert_outbound_states") as conv,
+        patch(f"{_CTRL}.set_temperature", new=AsyncMock()) as set_temp,
+        patch(f"{_CTRL}.set_hvac_mode", new=AsyncMock()),
+        patch(f"{_CTRL}.override_set_hvac_mode", new=AsyncMock(return_value=False)),
+        patch("asyncio.sleep", new=AsyncMock()),
+    ):
+        conv.return_value = {"temperature": target, "system_mode": HVACMode.HEAT}
+        await control_trv(bt, "climate.trv")
+    return set_temp
+
+
+class TestBudgetRetry:
+    """A budget-deferred setpoint write schedules its own follow-up.
+
+    Returning success without one loses the write: the reconciler
+    compares the device against the last value actually written, which
+    the device still matches.
+    """
+
+    def _capture_tasks(self, bt):
+        captured = []
+        bt.task_manager.create_task = Mock(
+            side_effect=lambda coro, name=None: captured.append((coro, name)) or Mock()
+        )
+        return captured
+
+    @pytest.mark.asyncio
+    async def test_deferred_write_schedules_a_retry_cycle(self):
+        """The deferred setpoint is re-requested when the budget reopens."""
+        bt = _control_bt()
+        captured = self._capture_tasks(bt)
+        await _run_setpoint_cycle(bt, target=22.0)
+        assert captured == []
+
+        bt.clock.advance(10.0)
+        set_temp = await _run_setpoint_cycle(bt, target=23.0)
+        set_temp.assert_not_called()
+        assert len(captured) == 1
+        coro, name = captured[0]
+        assert "budget_retry" in name
+
+        with patch("asyncio.sleep", new=AsyncMock()):
+            await coro
+        bt.control_queue_task.put_nowait.assert_called_once()
+        assert bt.real_trvs["climate.trv"].budget_retry_pending is False
+
+    @pytest.mark.asyncio
+    async def test_repeated_defers_schedule_only_one_retry(self):
+        """Back-to-back defers coalesce into a single pending retry."""
+        bt = _control_bt()
+        captured = self._capture_tasks(bt)
+        await _run_setpoint_cycle(bt, target=22.0)
+        bt.clock.advance(5.0)
+        await _run_setpoint_cycle(bt, target=23.0)
+        bt.clock.advance(5.0)
+        await _run_setpoint_cycle(bt, target=23.5)
+        assert len(captured) == 1
+        captured[0][0].close()
 
 
 class TestWatchdogHeartbeat:

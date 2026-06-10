@@ -96,6 +96,9 @@ class Trv:
     last_write_monotonic: float | None = None
     last_offset_write_monotonic: float | None = None
     last_valve_write_monotonic: float | None = None
+    # Whether a follow-up control cycle is already scheduled for a
+    # budget-deferred setpoint write.
+    budget_retry_pending: bool = False
 
     # -- Calibration results -----------------------------------------------
     calibration_balance: dict[str, Any] | None = None
