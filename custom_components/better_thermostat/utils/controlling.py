@@ -765,13 +765,11 @@ async def control_trv(self, heater_entity_id=None, cycle=None):
                 heater_entity_id,
             )
 
-        # Apply the kernel's intent: a suppression override (open window or
-        # no heat demand) forces a literal OFF; otherwise the mode follows
-        # the device-specific remap of the BT mode.
-        if trv_desired.hvac_mode == HVACMode.OFF and (
-            self.kernel_state.window.effective_open
-            or self.kernel_state.mode.hvac_mode != HVACMode.OFF
-        ):
+        # Apply the kernel's intent: a suppression (open window, no heat
+        # demand) forces a literal OFF; otherwise the mode follows the
+        # device-specific remap of the BT mode. The intent carries the
+        # distinction so no shell code re-derives it from the regions.
+        if trv_desired.hvac_mode == HVACMode.OFF and trv_desired.suppression is not None:
             _new_hvac_mode = HVACMode.OFF
         else:
             _new_hvac_mode = _remapped_states.get("system_mode", None)

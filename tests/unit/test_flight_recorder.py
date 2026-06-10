@@ -242,6 +242,7 @@ class TestRoundtripCompleteness:
         from custom_components.better_thermostat.core.decide import KernelState
         from custom_components.better_thermostat.core.desired import (
             DesiredState,
+            Suppression,
             TrvDesired,
         )
         from custom_components.better_thermostat.core.fsm.control_mode import (
@@ -338,6 +339,7 @@ class TestRoundtripCompleteness:
             "setpoint": 21.5,
             "valve_percent": 60.0,
             "offset": -1.5,
+            "suppression": Suppression.WINDOW,
         }
         assert set(trv_desired_kwargs) == {f.name for f in fields(TrvDesired)}
         desired = DesiredState(

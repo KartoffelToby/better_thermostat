@@ -14,7 +14,7 @@ from dataclasses import asdict, dataclass, field
 from datetime import datetime
 
 from .decide import KernelState, decide
-from .desired import DesiredState, TrvDesired
+from .desired import DesiredState, Suppression, TrvDesired
 from .fsm.control_mode import ControlMode, ControlModeState
 from .fsm.lifecycle import LifecyclePhase, LifecycleState
 from .fsm.maintenance import MaintenancePhase, MaintenanceState
@@ -242,6 +242,11 @@ def desired_from_dict(data: dict[str, Json]) -> DesiredState:
             setpoint=_float_or_none(raw["setpoint"]),
             valve_percent=_float_or_none(raw["valve_percent"]),
             offset=_float_or_none(raw["offset"]),
+            suppression=(
+                Suppression(_str_of(raw["suppression"]))
+                if raw["suppression"] is not None
+                else None
+            ),
         )
     return DesiredState(call_for_heat=_bool_of(data["call_for_heat"]), trvs=trvs)
 

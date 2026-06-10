@@ -1,6 +1,7 @@
 """Pure tests for the decision kernel — snapshot in, desired out, no HA."""
 
 from custom_components.better_thermostat.core.decide import KernelState, decide
+from custom_components.better_thermostat.core.desired import Suppression
 from custom_components.better_thermostat.core.fsm.control_mode import (
     ControlMode,
     ControlModeState,
@@ -281,6 +282,44 @@ class TestHeatingBranch:
             make_snapshot(), make_state(mode=ModeState(hvac_mode=HvacMode.HEAT_COOL))
         )
         assert all(t.hvac_mode == HvacMode.HEAT_COOL for t in desired.trvs.values())
+
+
+class TestSuppression:
+    """OFF intents carry why they are OFF.
+
+    The shell needs the distinction to pick between a literal OFF
+    (suppression) and the device-specific remap of the BT mode; it must
+    not re-derive it from the kernel's regions.
+    """
+
+    def test_window_off_is_marked_as_suppression(self):
+        """An open window suppresses heating."""
+        desired, _ = decide(
+            make_snapshot(), make_state(window=WindowState(phase=WindowPhase.OPEN))
+        )
+        assert all(
+            t.suppression == Suppression.WINDOW for t in desired.trvs.values()
+        )
+
+    def test_no_heat_demand_is_marked_as_suppression(self):
+        """Missing heat demand suppresses heating."""
+        desired, _ = decide(make_snapshot(call_for_heat=False), make_state())
+        assert all(
+            t.suppression == Suppression.NO_CALL_FOR_HEAT
+            for t in desired.trvs.values()
+        )
+
+    def test_mode_off_is_not_a_suppression(self):
+        """OFF as the selected mode is the mode, not a suppression."""
+        desired, _ = decide(
+            make_snapshot(), make_state(mode=ModeState(hvac_mode=HvacMode.OFF))
+        )
+        assert all(t.suppression is None for t in desired.trvs.values())
+
+    def test_heating_carries_no_suppression(self):
+        """Heating intents carry no suppression."""
+        desired, _ = decide(make_snapshot(), make_state())
+        assert all(t.suppression is None for t in desired.trvs.values())
 
 
 class TestHoldRung:

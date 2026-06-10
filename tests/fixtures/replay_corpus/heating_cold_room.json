@@ -7,6 +7,7 @@
         "hvac_mode": "heat",
         "offset": null,
         "setpoint": 21.0,
+        "suppression": null,
         "valve_percent": null
       },
       "climate.trv2": {
@@ -14,6 +15,7 @@
         "hvac_mode": "heat",
         "offset": null,
         "setpoint": 21.0,
+        "suppression": null,
         "valve_percent": null
       }
     }

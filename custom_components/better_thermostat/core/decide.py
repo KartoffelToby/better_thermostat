@@ -32,7 +32,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field, replace
 
-from .desired import DesiredState, TrvDesired
+from .desired import DesiredState, Suppression, TrvDesired
 from .fsm.control_mode import ControlMode, ControlModeState
 from .fsm.lifecycle import LifecyclePhase, LifecycleState
 from .fsm.maintenance import MaintenanceState
@@ -105,10 +105,16 @@ def _addressed(snapshot: WorldSnapshot) -> list[str]:
     ]
 
 
-def _with_mode(entity_ids: list[str], hvac_mode: HvacMode) -> dict[str, TrvDesired]:
+def _with_mode(
+    entity_ids: list[str],
+    hvac_mode: HvacMode,
+    suppression: Suppression | None = None,
+) -> dict[str, TrvDesired]:
     """Build one intent per TRV carrying ``hvac_mode``."""
     return {
-        entity_id: TrvDesired(entity_id=entity_id, hvac_mode=hvac_mode)
+        entity_id: TrvDesired(
+            entity_id=entity_id, hvac_mode=hvac_mode, suppression=suppression
+        )
         for entity_id in entity_ids
     }
 
@@ -156,14 +162,19 @@ def decide(
         return (
             DesiredState(
                 call_for_heat=snapshot.call_for_heat,
-                trvs=_with_mode(addressed, HvacMode.OFF),
+                trvs=_with_mode(addressed, HvacMode.OFF, Suppression.WINDOW),
             ),
             state,
         )
 
     if not snapshot.call_for_heat:
         return (
-            DesiredState(call_for_heat=False, trvs=_with_mode(addressed, HvacMode.OFF)),
+            DesiredState(
+                call_for_heat=False,
+                trvs=_with_mode(
+                    addressed, HvacMode.OFF, Suppression.NO_CALL_FOR_HEAT
+                ),
+            ),
             state,
         )
 
