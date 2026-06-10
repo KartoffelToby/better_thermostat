@@ -154,7 +154,6 @@ from .utils.restore import (
     mean_trv_target,
     restore_target_temperature,
 )
-from .utils.snapshot import build_snapshot
 from .utils.state_manager import StateManager
 from .utils.telemetry import (
     collect_balance_attrs,
@@ -2620,18 +2619,23 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
         return result.action
 
     def _compute_hvac_action_pure(self):
-        """Compute current HVAC action from a fresh world snapshot."""
-        snapshot = build_snapshot(self)
+        """Compute current HVAC action from the typed containers and regions.
+
+        This runs on every state write (via the hvac_action property), so
+        it reads the container-backed attributes directly instead of
+        building a full world snapshot; the control path's snapshot is
+        built once per cycle in compute_control_cycle().
+        """
         return compute_hvac_action(
             hysteresis=self._hysteresis,
-            cur_temp=snapshot.room_temp,
-            target_temp=snapshot.target_temp,
-            cool_target=snapshot.target_cooltemp,
+            cur_temp=self.cur_temp,
+            target_temp=self.bt_target_temp,
+            cool_target=self.bt_target_cooltemp,
             hvac_mode=self.hvac_mode,
-            bt_hvac_mode=snapshot.hvac_mode,
-            window_open=snapshot.window_open,
-            tolerance=snapshot.tolerance,
-            ignore_states=snapshot.ignore_states,
+            bt_hvac_mode=self.bt_hvac_mode,
+            window_open=self.window_open,
+            tolerance=self.tolerance or 0.0,
+            ignore_states=self.ignore_states,
             trv_snapshots=self._build_trv_snapshots(),
             device_name=self.device_name,
         )
