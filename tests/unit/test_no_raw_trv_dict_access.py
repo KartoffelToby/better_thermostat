@@ -18,6 +18,10 @@ _FORBIDDEN = (
     re.compile(r"real_trvs\[[^\]]+\]\.get\("),
     # empty-dict fallbacks that imply dict-shaped entries
     re.compile(r"real_trvs\.get\([^)]*,\s*\{\}\)"),
+    # "key" in real_trvs[x] membership tests on an entry
+    re.compile(r"\bin\s+(?:\w+(?:\.\w+)*\.)?real_trvs\[[^\]]+\]\s*(?::|$|\))"),
+    # real_trvs[x].pop()/.keys()/... dict methods on an entry
+    re.compile(r"real_trvs\[[^\]]+\]\.(pop|keys|values|items|setdefault|update)\("),
 )
 
 

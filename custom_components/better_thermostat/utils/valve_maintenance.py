@@ -135,6 +135,13 @@ def build_trv_snapshots(
             continue
 
         trv_data = real_trvs.get(trv_id)
+        if trv_data is None:
+            _LOGGER.debug(
+                "better_thermostat %s: maintenance skip %s (not in real_trvs)",
+                device_name,
+                trv_id,
+            )
+            continue
         quirks = trv_data.model_quirks
         support_valve = bool(trv_data.valve_position_entity) or bool(
             getattr(quirks, "override_set_valve", None)
