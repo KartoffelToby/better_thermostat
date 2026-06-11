@@ -576,8 +576,9 @@ def sanitize_pid_state(
     """Heal a (possibly poisoned) PID state before computing.
 
     Non-finite values fall back to their defaults, runaway gains return
-    to the configured defaults, and a wound-up integrator is reset. The
-    returned pathology names the worst finding, or None.
+    to the configured defaults, and a wound-up integrator is reset. All
+    pathologies are healed in one pass; the returned pathology names the
+    most severe finding, or None.
     """
     pathology: str | None = None
 
@@ -595,30 +596,29 @@ def sanitize_pid_state(
             setattr(state, gain_attr, None)
             pathology = "non-finite state"
 
-    if pathology is None:
-        runaway = (
-            (
-                state.pid_kp is not None
-                and not params.kp_min <= state.pid_kp <= params.kp_max
-            )
-            or (
-                state.pid_ki is not None
-                and not params.ki_min <= state.pid_ki <= params.ki_max
-            )
-            or (
-                state.pid_kd is not None
-                and not params.kd_min <= state.pid_kd <= params.kd_max
-            )
+    runaway = (
+        (
+            state.pid_kp is not None
+            and not params.kp_min <= state.pid_kp <= params.kp_max
         )
-        if runaway:
-            state.pid_kp = None
-            state.pid_ki = None
-            state.pid_kd = None
-            pathology = "runaway gains"
+        or (
+            state.pid_ki is not None
+            and not params.ki_min <= state.pid_ki <= params.ki_max
+        )
+        or (
+            state.pid_kd is not None
+            and not params.kd_min <= state.pid_kd <= params.kd_max
+        )
+    )
+    if runaway:
+        state.pid_kp = None
+        state.pid_ki = None
+        state.pid_kd = None
+        pathology = pathology or "runaway gains"
 
-    if pathology is None and not (params.i_min <= state.pid_integral <= params.i_max):
+    if not (params.i_min <= state.pid_integral <= params.i_max):
         state.pid_integral = 0.0
-        pathology = "integrator windup"
+        pathology = pathology or "integrator windup"
 
     return state, pathology
 

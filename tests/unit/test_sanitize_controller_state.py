@@ -124,6 +124,15 @@ class TestSanitizePidState:
         assert healed.pid_integral == 0.0
         assert healed.pid_kp == 60.0
 
+    def test_combined_pathologies_all_heal_in_one_pass(self):
+        """A non-finite field does not shield runaway gains or windup."""
+        state = PIDState(pid_last_meas=math.nan, pid_kp=1e9, pid_integral=1e6)
+        healed, pathology = sanitize_pid_state(state, PIDParams())
+        assert pathology == "non-finite state"
+        assert healed.pid_last_meas is None
+        assert healed.pid_kp is None
+        assert healed.pid_integral == 0.0
+
 
 class TestComputeHealsPoisonedState:
     """Each compute entry point sanitizes the resolved state and warns."""
