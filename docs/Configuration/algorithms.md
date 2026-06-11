@@ -14,8 +14,8 @@ If you're unsure which algorithm to use, here's a quick guide:
 
 - **Just starting out?** Try **AI Time Based** (default) - it works well for most situations
 - **Room heats too slowly?** Try **Aggressive**
-- **Temperature overshoots often?** Try **MPC Predictive** (tested & stable)
-- **Have technical knowledge and want fine control?** Try **PID Controller** (⚠️ beta)
+- **Temperature overshoots often?** Try **MPC Predictive** (⚠️ beta)
+- **Have technical knowledge and want fine control?** Try **PID Controller** 
 - **Want something simple and reliable?** Try **Normal** or **TPI Controller**
 
 ## Algorithm Descriptions

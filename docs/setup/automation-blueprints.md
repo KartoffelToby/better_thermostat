@@ -53,31 +53,7 @@ ventilation switch and/or send a notification.
 
 ---
 
-### 3 · Pause heating when window opens
-
-**File:** `blueprints/window_heating_control.yaml`
-
-Automatically drops the thermostat to a frost-protection temperature (or turns
-it off completely) when Better Thermostat detects an open window, and resumes
-normal operation as soon as the window closes again.
-
-| Input | Description | Default |
-|---|---|---|
-| Better Thermostat device | Device to control | – |
-| Better Thermostat climate entity | Climate entity of the device above | – |
-| Delay before turning off | Seconds to wait after window opens | `30` |
-| Frost-protection temperature | °C to set while window is open; `0` = turn off | `12` |
-| Notification target | Optional `notify.*` service | *(empty)* |
-
-> **Tip:** This blueprint works *in addition to* Better Thermostat's built-in window
-> delay setting (`window_off_delay`). Use one or the other, not both, to avoid
-> conflicts.
-
-[![Import blueprint](https://my.home-assistant.io/badges/blueprint_import.svg)](https://my.home-assistant.io/redirect/blueprint_import/?blueprint_url=https%3A%2F%2Fgithub.com%2FKartoffelToby%2Fbetter_thermostat%2Fblob%2Fmaster%2Fblueprints%2Fwindow_heating_control.yaml)
-
----
-
-### 4 · Low TRV battery notification
+### 3 · Low TRV battery notification
 
 **File:** `blueprints/battery_low_notify.yaml`
 
@@ -95,7 +71,7 @@ with a Better Thermostat device drops below the configured threshold (default
 
 ---
 
-### 5 · Device error and target temperature alerts
+### 4 · Device error and target temperature alerts
 
 **File:** `blueprints/device_error_notify.yaml`
 
@@ -118,7 +94,7 @@ A combined blueprint with two optional alerts:
 
 ---
 
-### 6 · Night mode (Sleep preset)
+### 5 · Night mode (Sleep preset)
 
 **File:** `blueprints/night_mode.yaml`
 
@@ -141,7 +117,7 @@ settings — no temperature input is needed here.
 
 ---
 
-### 7 · Away preset when nobody is home
+### 6 · Away preset when nobody is home
 
 **File:** `blueprints/presence_away_preset.yaml`
 
@@ -169,7 +145,7 @@ re-checked before applying the Away preset.
 
 ---
 
-### 8 · Weekly Heating Schedule
+### 7 · Weekly Heating Schedule
 
 **File:** `blueprints/weekly_heating_schedule.yaml`
 

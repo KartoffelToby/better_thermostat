@@ -26,7 +26,10 @@ As an example, you can use this blueprint:
 ```yaml
 blueprint:
   name: Better Thermostat Night mode
-  description: Set BT Thermostats to night mode if Schedule event is active.
+  description: >
+    Set BT Thermostats to the Sleep preset when a Schedule event is active,
+    and restore the None (normal) preset when the schedule ends.
+    Requires the Sleep preset to be enabled in your Better Thermostat configuration.
   domain: automation
   source_url: https://github.com/KartoffelToby/better_thermostat/blob/master/blueprints/night_mode.yaml
   input:
@@ -45,16 +48,6 @@ blueprint:
           entity:
             integration: better_thermostat
             domain: climate
-
-    night_temp:
-      name: Night Temperature
-      description: The target temperature at night
-      default: 18
-      selector:
-        number:
-          min: 5
-          max: 35
-          unit_of_measurement: °C
 
 mode: queued
 max_exceeded: silent
@@ -75,12 +68,13 @@ action:
         entity_id: !input night_times_schedule
         state: "on"
     then:
-      - service: better_thermostat.set_temp_target_temperature
+      - service: climate.set_preset_mode
         data:
-          temperature: !input night_temp
+          preset_mode: sleep
         target: !input thermostat_target
     else:
-      - service: better_thermostat.restore_saved_target_temperature
-        data: {}
+      - service: climate.set_preset_mode
+        data:
+          preset_mode: none
         target: !input thermostat_target
 ```
