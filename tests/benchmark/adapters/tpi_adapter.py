@@ -36,7 +36,6 @@ class TpiAdapter:
         self._key = key
         self._sim_time_s: float = 0.0
         self._original_monotonic = tpi_mod.monotonic
-        tpi_mod._TPI_STATES.pop(self._key, None)
 
     def _virtualise_time(self) -> None:
         tpi_mod.monotonic = lambda: self._sim_time_s
@@ -49,7 +48,6 @@ class TpiAdapter:
         _ = prior
         self._state = _TpiState()
         self._sim_time_s = 0.0
-        tpi_mod._TPI_STATES.pop(self._key, None)
 
     def step(self, ctx: BenchmarkContext) -> BenchmarkOutput:
         """Compute one TPI step for the given benchmark context."""
@@ -66,7 +64,7 @@ class TpiAdapter:
                 bt_name="benchmark",
                 entity_id="bench_trv",
             )
-            out, self._state = compute_tpi(inp, self._params, self._state)
+            out, self._state = compute_tpi(inp, self._params, state=self._state)
         finally:
             self._restore_time()
 

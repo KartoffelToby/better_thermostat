@@ -11,6 +11,7 @@ This is benchmark-only code: never imported by production.
 
 from __future__ import annotations
 
+from dataclasses import asdict
 from typing import Any
 
 from custom_components.better_thermostat.utils.calibration import mpc as mpc_mod
@@ -18,9 +19,9 @@ from custom_components.better_thermostat.utils.calibration.mpc import (
     MpcInput,
     MpcParams,
     _MpcState,
-    _serialize_state,
     compute_mpc,
 )
+from custom_components.better_thermostat.utils.state_manager import _make_json_safe
 
 from .base import BenchmarkContext, BenchmarkOutput, ControllerFamily
 
@@ -39,8 +40,6 @@ class MpcAdapter:
         self._key = key
         self._sim_time_s: float = 0.0
         self._original_time = mpc_mod.time
-        # All benchmark adapters share the global _MPC_STATES dict; isolate ours.
-        mpc_mod._MPC_STATES.pop(self._key, None)
 
     def _virtualise_time(self) -> None:
         mpc_mod.time = lambda: self._sim_time_s
@@ -53,7 +52,6 @@ class MpcAdapter:
         _ = prior
         self._state = _MpcState()
         self._sim_time_s = 0.0
-        mpc_mod._MPC_STATES.pop(self._key, None)
 
     def step(self, ctx: BenchmarkContext) -> BenchmarkOutput:
         """Compute one MPC step for the given benchmark context."""
@@ -72,7 +70,9 @@ class MpcAdapter:
                 bt_name="benchmark",
                 entity_id="bench_trv",
             )
-            out, self._state = compute_mpc(inp, self._params, self._state)
+            out, self._state = compute_mpc(
+                inp, self._params, state=self._state, all_states={}
+            )
         finally:
             self._restore_time()
 
@@ -88,4 +88,4 @@ class MpcAdapter:
 
     def export_state(self) -> dict[str, Any]:
         """Return a serializable snapshot of the wrapped MPC state."""
-        return _serialize_state(self._state)
+        return _make_json_safe(asdict(self._state))
