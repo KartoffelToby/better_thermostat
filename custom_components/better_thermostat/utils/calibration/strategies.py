@@ -6,9 +6,11 @@ shared dispatch in ``calibration.py`` resolves the configured mode to a
 strategy and applies identical valve-fraction mathematics afterwards,
 so the per-mode behavior stays exactly what it was.
 
-``observe`` and ``actuate`` are still one combined step here (the
-balance computation both learns and emits); splitting them so the model
-keeps converging in standby is the fail-soft ladder's work (M8).
+``observe`` and ``actuate`` are one combined step here by design: the
+controllers gate themselves in standby (PID and TPI skip, MPC drops the
+in-flight learning interval and keeps the model) while the entity-level
+estimates keep converging — see tests/unit/test_standby_contract.py for
+the pinned contract.
 """
 
 from __future__ import annotations
