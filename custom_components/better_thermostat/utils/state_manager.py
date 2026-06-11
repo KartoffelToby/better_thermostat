@@ -35,6 +35,7 @@ from collections import deque
 from collections.abc import Mapping
 from dataclasses import asdict, dataclass, field
 import logging
+import math
 from typing import Any
 
 from homeassistant.core import HomeAssistant
@@ -162,7 +163,10 @@ def deserialize_mpc(raw: dict[str, Any]) -> MpcState:
             elif attr in _STR_FIELDS:
                 setattr(state, attr, str(value))
             else:
-                setattr(state, attr, float(value))
+                number = float(value)
+                if not math.isfinite(number):
+                    continue
+                setattr(state, attr, number)
         except (TypeError, ValueError):
             continue
     return state
@@ -184,7 +188,10 @@ def deserialize_pid(raw: dict[str, Any]) -> PIDState:
             elif attr in _BOOL_FIELDS:
                 setattr(state, attr, bool(value))
             else:
-                setattr(state, attr, float(value))
+                number = float(value)
+                if not math.isfinite(number):
+                    continue
+                setattr(state, attr, number)
         except (TypeError, ValueError):
             continue
     return state
@@ -201,7 +208,10 @@ def deserialize_tpi(raw: dict[str, Any]) -> TpiState:
             setattr(state, attr, None)
             continue
         try:
-            setattr(state, attr, float(value))
+            number = float(value)
+            if not math.isfinite(number):
+                continue
+            setattr(state, attr, number)
         except (TypeError, ValueError):
             continue
     return state

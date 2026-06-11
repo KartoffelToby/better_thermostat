@@ -806,3 +806,28 @@ class TestSyncControllers:
         ):
             mgr.sync_controllers("p:", None, None)
         assert "p:bad" not in mgr.state.mpc
+
+
+class TestDeserializeRejectsNonFinite:
+    """Persisted non-finite numbers never enter a restored state.
+
+    A NaN that survives the restore poisons every value derived from it,
+    so the deserializers keep the field default instead.
+    """
+
+    def test_mpc_nan_scalar_keeps_default(self):
+        """A NaN in a stored MPC scalar is skipped."""
+        mpc = deserialize_mpc({"gain_est": float("nan"), "last_percent": 40.0})
+        assert mpc.gain_est is None
+        assert mpc.last_percent == 40.0
+
+    def test_pid_inf_integral_keeps_default(self):
+        """An Inf in the stored PID integrator is skipped."""
+        pid = deserialize_pid({"pid_integral": float("inf"), "pid_kp": 60.0})
+        assert pid.pid_integral == 0.0
+        assert pid.pid_kp == 60.0
+
+    def test_tpi_nan_percent_keeps_default(self):
+        """A NaN in the stored TPI duty cycle is skipped."""
+        tpi = deserialize_tpi({"last_percent": float("nan")})
+        assert tpi.last_percent is None
