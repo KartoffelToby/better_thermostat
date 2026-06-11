@@ -487,9 +487,9 @@ class StateManager:
             self._state = _deserialize(raw)
         except Exception:
             _LOGGER.warning(
-                "better_thermostat [%s]: persisted state is unreadable, "
-                "starting fresh",
+                "better_thermostat [%s]: persisted state is unreadable, starting fresh",
                 self._entry_id,
+                exc_info=True,
             )
             self._state = RuntimeState()
             self._dirty = False

@@ -1252,7 +1252,10 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
                     "Open" if self.window_open else "Closed",
                 )
             else:
-                # Window sensor unavailable - assume closed (safer default)
+                # At startup, unavailable/unknown usually means the sensor
+                # has not joined HA yet, so heating continues normally
+                # (assume closed). At runtime the same states mean a live
+                # sensor was lost and count as open (see events/window.py).
                 self.window_open = False
                 _LOGGER.debug(
                     "better_thermostat %s: window sensor unavailable, assuming closed",
@@ -1630,7 +1633,7 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
             # unit conversion (a literal "5" read as °F becomes about
             # -15 °C), and a real reading of 0.0 is a reading.
             _raw_current_temp = _attrs.get("current_temperature")
-            trv_data["current_temperature"] = (
+            _current_temp = (
                 convert_to_float_celsius(
                     str(_raw_current_temp),
                     self.device_name,
@@ -1642,6 +1645,20 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
                 if _raw_current_temp is not None
                 else 5.0
             )
+            # Marker / garbage readings (for example AVM's 126.5 / 127 °C)
+            # must not seed the cache and feed the first control cycle.
+            if _current_temp is not None and not is_reasonable_temperature(
+                _current_temp
+            ):
+                _LOGGER.warning(
+                    "better_thermostat %s: TRV %s reports implausible "
+                    "current_temperature %s at startup; ignoring",
+                    self.device_name,
+                    trv,
+                    _current_temp,
+                )
+                _current_temp = None
+            trv_data["current_temperature"] = _current_temp
             _LOGGER.debug(
                 "better_thermostat %s: controlling TRV %s...", self.device_name, trv
             )

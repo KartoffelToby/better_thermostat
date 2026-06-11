@@ -10,7 +10,10 @@ from unittest.mock import MagicMock, Mock, patch
 
 import pytest
 
-from custom_components.better_thermostat.events.window import trigger_window_change
+from custom_components.better_thermostat.events.window import (
+    trigger_window_change,
+    window_queue,
+)
 
 _WINDOW = "custom_components.better_thermostat.events.window"
 
@@ -63,3 +66,23 @@ async def test_unrecognized_state_raises_an_issue():
         await trigger_window_change(bt, _event("banana"))
     issue.assert_called_once()
     assert bt.window_queue_task.empty()
+
+
+@pytest.mark.asyncio
+async def test_queue_survives_a_sensor_that_vanished_during_debounce():
+    """A sensor removed during the debounce delay drops the event, not the task."""
+    bt = _make_bt(sensor_state="on")
+    bt.window_delay = 0
+    bt.window_delay_after = 0
+    bt.hass.states.get.return_value = None
+
+    task = asyncio.create_task(window_queue(bt))
+    await bt.window_queue_task.put(True)
+    await asyncio.wait_for(bt.window_queue_task.join(), timeout=1)
+
+    assert not task.done()
+    bt.async_write_ha_state.assert_not_called()
+
+    task.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await task

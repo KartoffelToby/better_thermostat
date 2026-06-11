@@ -113,13 +113,18 @@ async def window_queue(self):
                             self.window_delay_after,
                         )
                         await asyncio.sleep(self.window_delay_after)
+                    window_state = self.hass.states.get(self.window_id)
+                    if window_state is None:
+                        _LOGGER.debug(
+                            "better_thermostat %s: Window sensor %s vanished "
+                            "during the debounce delay; skipping event",
+                            self.device_name,
+                            self.window_id,
+                        )
+                        continue
                     # remap off on to true false
                     current_window_state = True
-                    if self.hass.states.get(self.window_id).state in (
-                        "off",
-                        "false",
-                        "closed",
-                    ):
+                    if window_state.state in ("off", "false", "closed"):
                         current_window_state = False
                     # make sure the current state is the suggested change state to prevent a false positive:
                     if current_window_state == window_event_to_process:

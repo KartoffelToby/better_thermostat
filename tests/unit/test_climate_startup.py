@@ -418,6 +418,14 @@ class TestInitializeTrvCurrentTemperature:
         await self._run(bt)
         assert bt.real_trvs[TRV_ID]["current_temperature"] == 0.0
 
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("marker_temp", [126.5, 127.0])
+    async def test_implausible_startup_reading_is_dropped(self, bt, marker_temp):
+        """AVM marker values must not seed the cache for the first control cycle."""
+        bt = self._trv_only_bt(bt, {"current_temperature": marker_temp})
+        await self._run(bt)
+        assert bt.real_trvs[TRV_ID]["current_temperature"] is None
+
 
 class TestRestoreState:
     """Tests for _restore_state."""

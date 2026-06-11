@@ -96,6 +96,9 @@ async def trigger_trv_change(self, event):
                 _org_trv_state.state,
             )
             self.real_trvs[entity_id]["current_temperature"] = None
+            # The next valid reading is the first live data after the
+            # outage and must not be dropped by the debounce below.
+            self.real_trvs[entity_id]["accept_next_internal_temp"] = True
         return
 
     child_lock = self.real_trvs[entity_id]["advanced"].get("child_lock")
@@ -158,7 +161,8 @@ async def trigger_trv_change(self, event):
         _new_current_temp is not None
         and self.real_trvs[entity_id]["current_temperature"] != _new_current_temp
         and (
-            (dt_util.now() - self.last_internal_sensor_change).total_seconds()
+            self.real_trvs[entity_id].pop("accept_next_internal_temp", False)
+            or (dt_util.now() - self.last_internal_sensor_change).total_seconds()
             > _time_diff
             or (
                 self.real_trvs[entity_id]["calibration_received"] is False
