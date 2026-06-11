@@ -8,8 +8,9 @@ cycle duration and exposes rich debug logs for diagnostics.
 from __future__ import annotations
 
 from collections.abc import Mapping
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, fields
 import logging
+import math
 from time import monotonic
 from typing import Any
 
@@ -56,6 +57,19 @@ class TpiOutput:
 class _TpiState:
     last_percent: float | None = None
     last_update_ts: float = 0.0
+
+
+def sanitize_tpi_state(state: _TpiState) -> tuple[_TpiState, str | None]:
+    """Return a usable TPI state; a poisoned one is replaced by a fresh one.
+
+    TPI carries no learned model — a non-finite remnant is simply
+    dropped and the duty cycle derives from live readings again.
+    """
+    for f in fields(state):
+        value = getattr(state, f.name)
+        if isinstance(value, float) and not math.isfinite(value):
+            return _TpiState(), "non-finite state"
+    return state, None
 
 
 # Public alias so callers can reference the state type without
@@ -147,6 +161,15 @@ def compute_tpi(
     if state is None:
         state = _TPI_STATES.setdefault(inp.key, _TpiState())
     else:
+        _TPI_STATES[inp.key] = state
+
+    state, pathology = sanitize_tpi_state(state)
+    if pathology is not None:
+        _LOGGER.warning(
+            "better_thermostat: discarding poisoned TPI state for %s (%s)",
+            inp.key,
+            pathology,
+        )
         _TPI_STATES[inp.key] = state
 
     name = inp.bt_name or "BT"
