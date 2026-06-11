@@ -69,6 +69,29 @@ async def test_unrecognized_state_raises_an_issue():
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("final_state", ["unknown", "unavailable"])
+async def test_queue_treats_unknown_and_unavailable_as_open(final_state):
+    """A sensor that turns unknown/unavailable during debounce confirms an open event."""
+    bt = _make_bt(sensor_state=final_state)
+    bt.window_delay = 0
+    bt.window_delay_after = 0
+    bt.in_maintenance = False
+    bt.control_queue_task = asyncio.Queue()
+
+    task = asyncio.create_task(window_queue(bt))
+    await bt.window_queue_task.put(True)
+    await asyncio.wait_for(bt.window_queue_task.join(), timeout=1)
+
+    assert bt.window_open is True
+    bt.async_write_ha_state.assert_called_once()
+    assert bt.control_queue_task.qsize() == 1
+
+    task.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await task
+
+
+@pytest.mark.asyncio
 async def test_queue_survives_a_sensor_that_vanished_during_debounce():
     """A sensor removed during the debounce delay drops the event, not the task."""
     bt = _make_bt(sensor_state="on")

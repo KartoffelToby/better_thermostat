@@ -47,6 +47,11 @@ async def trigger_window_change(self, event) -> None:
                 "better_thermostat %s: Window sensor state is unknown, assuming window is open",
                 self.device_name,
             )
+        elif new_state == "unavailable":
+            _LOGGER.info(
+                "better_thermostat %s: Window sensor is unavailable, assuming window is open",
+                self.device_name,
+            )
 
         # window was opened, disable heating power calculation for this period
         self._heating_tracker.start_temp = None
