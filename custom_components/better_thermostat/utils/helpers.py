@@ -76,7 +76,8 @@ def entity_uses_calibration_mode(bt, entity_id: str, expected: CalibrationMode) 
     """Check if the given TRV has ``expected`` calibration mode configured."""
 
     try:
-        advanced = (bt.real_trvs.get(entity_id, {}) or {}).get("advanced", {}) or {}
+        _trv = bt.real_trvs.get(entity_id)
+        advanced = (_trv.advanced if _trv is not None else {}) or {}
     except AttributeError:
         return False
     mode = advanced.get("calibration_mode")
@@ -155,7 +156,7 @@ def mode_remap(self, entity_id, hvac_mode: str, inbound: bool = False) -> str:
     str
             remapped mode according to device's quirks
     """
-    _heat_auto_swapped = self.real_trvs[entity_id]["advanced"].get(
+    _heat_auto_swapped = self.real_trvs[entity_id].advanced.get(
         CONF_HEAT_AUTO_SWAPPED, False
     )
 
@@ -166,7 +167,7 @@ def mode_remap(self, entity_id, hvac_mode: str, inbound: bool = False) -> str:
             return HVACMode.HEAT
         return hvac_mode
 
-    trv_modes = self.real_trvs[entity_id]["hvac_modes"]
+    trv_modes = self.real_trvs[entity_id].hvac_modes
     if HVACMode.HEAT not in trv_modes and HVACMode.HEAT_COOL in trv_modes:
         # entity only supports HEAT_COOL, but not HEAT - need to translate
         if not inbound and hvac_mode == HVACMode.HEAT:

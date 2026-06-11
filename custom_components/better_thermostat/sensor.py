@@ -277,7 +277,7 @@ def _get_active_algorithms(bt_climate: BetterThermostat) -> set[CalibrationMode]
 
     active_algorithms: set[CalibrationMode] = set()
     for trv_id, trv in bt_climate.real_trvs.items():
-        advanced = trv.get("advanced", {})
+        advanced = trv.advanced or {}
         calibration_mode = advanced.get(CONF_CALIBRATION_MODE)
         if calibration_mode:
             # Konvertiere String zu Enum falls nötig
@@ -303,7 +303,7 @@ def _get_pid_trvs(bt_climate: BetterThermostat) -> set[str]:
     if not bt_climate.real_trvs:
         return pid_trvs
     for trv_entity_id, trv_data in bt_climate.real_trvs.items():
-        advanced = trv_data.get("advanced", {})
+        advanced = trv_data.advanced or {}
         calibration_mode = advanced.get(CONF_CALIBRATION_MODE)
         # Normalize string values to CalibrationMode enum
         if isinstance(calibration_mode, str):
@@ -631,7 +631,7 @@ class _BtMpcSensorBase(_BtSensorBase):
         val = None
         if self._bt_climate.real_trvs:
             for trv_data in self._bt_climate.real_trvs.values():
-                cal_bal = trv_data.get("calibration_balance")
+                cal_bal = trv_data.calibration_balance
                 if cal_bal and "debug" in cal_bal:
                     debug = cal_bal["debug"]
                     if self._debug_key in debug:
