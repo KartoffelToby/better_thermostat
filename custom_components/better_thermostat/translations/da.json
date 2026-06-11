@@ -3,7 +3,7 @@
   "config": {
     "step": {
       "user": {
-        "description": "Konfigurer din Better Thermostat til at integrere med Home Assistant",
+        "description": "Konfigurer din Better Thermostat til at integrere med Home Assistant\n\n**Detaljerede oplysninger:** {docs_url}",
         "data": {
           "name": "Navn",
           "thermostat": "Den rigtige termostat",
@@ -20,7 +20,7 @@
         }
       },
       "advanced": {
-        "description": "Avanceret konfiguration {trv}",
+        "description": "Avanceret konfiguration {trv}\n\n**Detaljerede oplysninger:** {docs_url}",
         "data": {
           "protect_overheating": "Overophedningsbeskyttelse?",
           "heat_auto_swapped": "Hvis auto betyder varme for din TRV og du vil bytte det",
