@@ -3,7 +3,7 @@
   "config": {
     "step": {
       "user": {
-        "description": "Configura il tuo Better Thermostat per integrarlo con Home Assistant",
+        "description": "Configura il tuo Better Thermostat per integrarlo con Home Assistant\n\n**Informazioni dettagliate:** {docs_url}",
         "data": {
           "name": "Nome",
           "thermostat": "Il termostato reale",
@@ -20,7 +20,7 @@
         }
       },
       "advanced": {
-        "description": "Configurazione avanzata {trv}",
+        "description": "Configurazione avanzata {trv}\n\n**Informazioni dettagliate:** {docs_url}",
         "data": {
           "protect_overheating": "Protezione dal surriscaldamento?",
           "heat_auto_swapped": "Se 'auto' indica riscaldamento per il tuo TRV e vuoi invertirlo",

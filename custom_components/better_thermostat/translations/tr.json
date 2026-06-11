@@ -3,7 +3,7 @@
   "config": {
     "step": {
       "user": {
-        "description": "Better Thermostat'ınızı Home Assistant ile entegre etmek için yapılandırın",
+        "description": "Better Thermostat'ınızı Home Assistant ile entegre etmek için yapılandırın\n\n**Detaylı Bilgiler:** {docs_url}",
         "data": {
           "name": "Ad",
           "thermostat": "Gerçek termostat",
@@ -21,7 +21,7 @@
         }
       },
       "advanced": {
-        "description": "Gelişmiş yapılandırma {trv}",
+        "description": "Gelişmiş yapılandırma {trv}\n\n**Detaylı Bilgiler:** {docs_url}",
         "data": {
           "balance_mode": "Hidrolik denge modu (Deneysel)",
           "mpc_thermal_gain": "MPC termal kazanç",

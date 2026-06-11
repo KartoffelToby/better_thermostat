@@ -3,7 +3,7 @@
   "config": {
     "step": {
       "user": {
-        "description": "Настройте термостат Better Thermostat для интеграции с Home Assistant",
+        "description": "Настройте термостат Better Thermostat для интеграции с Home Assistant\n\n**Подробная информация:** {docs_url}",
         "data": {
           "name": "Имя",
           "thermostat": "Реальный термостат",
@@ -20,7 +20,7 @@
         }
       },
       "advanced": {
-        "description": "Расширенная конфигурация {trv}",
+        "description": "Расширенная конфигурация {trv}\n\n**Подробная информация:** {docs_url}",
         "data": {
           "protect_overheating": "Защита от перегрева?",
           "heat_auto_swapped": "Если автомат означает обогрев вашего термостата, и вы хотите его поменять",
