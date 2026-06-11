@@ -97,11 +97,17 @@ class FakeTrvEntity(ClimateEntity):
         self._attr_target_temperature = 20.0
         self.set_temperature_calls: list[float] = []
         self.set_hvac_mode_calls: list[str] = []
+        # Radio loss simulation: the next setpoint write is recorded but
+        # neither applied nor confirmed.
+        self.drop_next_setpoint_write = False
 
     async def async_set_temperature(self, **kwargs) -> None:
         """Apply and confirm a setpoint write."""
         temperature = kwargs[ATTR_TEMPERATURE]
         self.set_temperature_calls.append(temperature)
+        if self.drop_next_setpoint_write:
+            self.drop_next_setpoint_write = False
+            return
         self._attr_target_temperature = temperature
         self.async_write_ha_state()
 
