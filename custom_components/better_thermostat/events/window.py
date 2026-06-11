@@ -7,7 +7,6 @@ delayed handling so that HVAC behavior uses window-open information reliably.
 import asyncio
 import logging
 
-from homeassistant.const import STATE_OFF
 from homeassistant.core import callback
 from homeassistant.helpers import issue_registry as ir
 
@@ -41,7 +40,7 @@ async def trigger_window_change(self, event) -> None:
 
     old_window_open = self.window_open
 
-    if new_state in ("on", "unknown", "unavailable"):
+    if new_state in ("on", "true", "open", "unknown", "unavailable"):
         new_window_open = True
         if new_state == "unknown":
             _LOGGER.warning(
@@ -52,7 +51,7 @@ async def trigger_window_change(self, event) -> None:
         # window was opened, disable heating power calculation for this period
         self._heating_tracker.start_temp = None
         self.async_write_ha_state()
-    elif new_state == "off":
+    elif new_state in ("off", "false", "closed"):
         new_window_open = False
     else:
         _LOGGER.error(
@@ -116,7 +115,11 @@ async def window_queue(self):
                         await asyncio.sleep(self.window_delay_after)
                     # remap off on to true false
                     current_window_state = True
-                    if self.hass.states.get(self.window_id).state == STATE_OFF:
+                    if self.hass.states.get(self.window_id).state in (
+                        "off",
+                        "false",
+                        "closed",
+                    ):
                         current_window_state = False
                     # make sure the current state is the suggested change state to prevent a false positive:
                     if current_window_state == window_event_to_process:

@@ -1626,13 +1626,21 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
             trv_data["last_temperature"] = attr_to_celsius(
                 self, _s, "temperature", None, "startup()"
             )
-            trv_data["current_temperature"] = convert_to_float_celsius(
-                str(_attrs.get("current_temperature") or 5),
-                self.device_name,
-                "startup()",
-                unit_of_measurement=state_temperature_unit(
-                    _attrs, self.hass.config.units.temperature_unit
-                ),
+            # The 5.0 °C fallback for a missing reading must not pass the
+            # unit conversion (a literal "5" read as °F becomes about
+            # -15 °C), and a real reading of 0.0 is a reading.
+            _raw_current_temp = _attrs.get("current_temperature")
+            trv_data["current_temperature"] = (
+                convert_to_float_celsius(
+                    str(_raw_current_temp),
+                    self.device_name,
+                    "startup()",
+                    unit_of_measurement=state_temperature_unit(
+                        _attrs, self.hass.config.units.temperature_unit
+                    ),
+                )
+                if _raw_current_temp is not None
+                else 5.0
             )
             _LOGGER.debug(
                 "better_thermostat %s: controlling TRV %s...", self.device_name, trv
@@ -2337,10 +2345,15 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
 
     @property
     def hvac_action(self):
-        """Return the current HVAC action."""
-        if self.attr_hvac_action is not None:
-            return self.attr_hvac_action
-        return self._compute_hvac_action_pure().action
+        """Return the current HVAC action.
+
+        Every control cycle commits a fresh action; the one computation
+        here bridges the gap until the first commit and is cached so
+        repeated state reads do not rebuild it.
+        """
+        if self.attr_hvac_action is None:
+            self.attr_hvac_action = self._compute_hvac_action_pure().action
+        return self.attr_hvac_action
 
     def _should_heat_with_tolerance(
         self, previous_action: HVACAction | None, tol: float

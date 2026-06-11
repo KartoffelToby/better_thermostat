@@ -120,6 +120,21 @@ def _make_event(bt, new_state=None, old_state=None, entity_id=ENTITY_ID):
 # ---------------------------------------------------------------------------
 
 
+class TestUnavailableInvalidation:
+    """An unavailable TRV must not keep feeding a stale internal temperature."""
+
+    @pytest.mark.asyncio
+    async def test_unavailable_trv_invalidates_internal_temperature(self, mock_bt):
+        """The stored reading is cleared so calibration stops using it."""
+        unavailable = State(ENTITY_ID, "unavailable")
+        mock_bt.hass.states.get.return_value = unavailable
+
+        event = _make_event(mock_bt, new_state=unavailable)
+        await trigger_trv_change(mock_bt, event)
+
+        assert mock_bt.real_trvs[ENTITY_ID]["current_temperature"] is None
+
+
 class TestTriggerTrvChangeGuards:
     """Guard-clause tests for trigger_trv_change()."""
 

@@ -8,6 +8,7 @@ convert thermostat states and prepare outbound payloads.
 import logging
 
 from homeassistant.components.climate.const import HVACMode
+from homeassistant.const import STATE_UNAVAILABLE, STATE_UNKNOWN
 from homeassistant.core import State, callback
 from homeassistant.util import dt as dt_util
 
@@ -83,6 +84,20 @@ async def trigger_trv_change(self, event):
         )
         return
 
+    if _org_trv_state.state in (STATE_UNAVAILABLE, STATE_UNKNOWN):
+        # The device is gone; its last internal temperature must not
+        # keep feeding the calibration as if it were live.
+        if self.real_trvs[entity_id].get("current_temperature") is not None:
+            _LOGGER.debug(
+                "better_thermostat %s: TRV %s became %s; invalidating its "
+                "internal temperature",
+                self.device_name,
+                entity_id,
+                _org_trv_state.state,
+            )
+            self.real_trvs[entity_id]["current_temperature"] = None
+        return
+
     child_lock = self.real_trvs[entity_id]["advanced"].get("child_lock")
 
     # Dynamische Modell-Erkennung: nur einmalig (z. B. beim Start) – nicht bei jedem Event
@@ -99,17 +114,16 @@ async def trigger_trv_change(self, event):
                 ):
                     detected = await get_device_model(self, entity_id)
                     if isinstance(detected, str) and detected:
-                        if prev_model != detected:
-                            _LOGGER.info(
-                                "better_thermostat %s: TRV %s model changed: %s -> %s; reloading quirks",
-                                self.device_name,
-                                entity_id,
-                                prev_model,
-                                detected,
-                            )
-                            quirks = await load_model_quirks(self, detected, entity_id)
-                            self.real_trvs[entity_id]["model"] = detected
-                            self.real_trvs[entity_id]["model_quirks"] = quirks
+                        _LOGGER.info(
+                            "better_thermostat %s: TRV %s model detected: %s; "
+                            "loading quirks",
+                            self.device_name,
+                            entity_id,
+                            detected,
+                        )
+                        quirks = await load_model_quirks(self, detected, entity_id)
+                        self.real_trvs[entity_id]["model"] = detected
+                        self.real_trvs[entity_id]["model_quirks"] = quirks
     except Exception as e:
         _LOGGER.debug(
             "better_thermostat %s: dynamic model detection failed for %s: %s",

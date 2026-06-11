@@ -1,0 +1,65 @@
+"""Tests for the window sensor event handler.
+
+The accepted state vocabulary matches what the invalid_window_state
+repair issue promises: on/true/open count as open, off/false/closed as
+closed, unknown/unavailable as open (the safe direction).
+"""
+
+import asyncio
+from unittest.mock import MagicMock, Mock, patch
+
+import pytest
+
+from custom_components.better_thermostat.events.window import trigger_window_change
+
+_WINDOW = "custom_components.better_thermostat.events.window"
+
+
+def _make_bt(*, sensor_state="off", window_open=False):
+    bt = MagicMock()
+    bt.device_name = "Test BT"
+    bt.window_id = "binary_sensor.window"
+    bt.window_open = window_open
+    bt.async_write_ha_state = Mock()
+    bt.window_queue_task = asyncio.Queue()
+
+    state = Mock()
+    state.state = sensor_state
+    bt.hass.states.get.return_value = state
+    return bt
+
+
+def _event(state_value):
+    new_state = Mock()
+    new_state.state = state_value
+    event = Mock()
+    event.data = {"new_state": new_state}
+    return event
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("reading", ["on", "true", "open", "unknown", "unavailable"])
+async def test_open_readings_queue_an_open_event(reading):
+    """Every documented open synonym is accepted as open."""
+    bt = _make_bt(sensor_state=reading)
+    await trigger_window_change(bt, _event(reading))
+    assert bt.window_queue_task.get_nowait() is True
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("reading", ["off", "false", "closed"])
+async def test_closed_readings_queue_a_close_event(reading):
+    """Every documented closed synonym is accepted as closed."""
+    bt = _make_bt(sensor_state=reading, window_open=True)
+    await trigger_window_change(bt, _event(reading))
+    assert bt.window_queue_task.get_nowait() is False
+
+
+@pytest.mark.asyncio
+async def test_unrecognized_state_raises_an_issue():
+    """Anything outside the documented vocabulary raises a repair issue."""
+    bt = _make_bt(sensor_state="banana")
+    with patch(f"{_WINDOW}.ir.async_create_issue") as issue:
+        await trigger_window_change(bt, _event("banana"))
+    issue.assert_called_once()
+    assert bt.window_queue_task.empty()

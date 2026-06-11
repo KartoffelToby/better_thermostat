@@ -516,6 +516,24 @@ class TestStateManagerLoadSave:
         assert mgr.dirty is False
 
     @pytest.mark.asyncio
+    async def test_load_survives_a_poisoned_store(self):
+        """A store that breaks deserialization yields defaults, not a crash.
+
+        load() runs inside the entity's startup task; an exception here
+        would kill startup over data that relearning replaces anyway.
+        """
+        mgr, mock_store = self._make_manager_with_store()
+        mock_store.async_load.return_value = {"version": 1, "mpc": {"k": {}}}
+        with patch(
+            "custom_components.better_thermostat.utils.state_manager._deserialize",
+            side_effect=TypeError("poisoned"),
+        ):
+            await mgr.load()
+
+        assert mgr.state.mpc == {}
+        assert mgr.dirty is False
+
+    @pytest.mark.asyncio
     async def test_load_valid_state(self):
         """Loading valid v1 data populates all sections."""
         mgr, mock_store = self._make_manager_with_store()
