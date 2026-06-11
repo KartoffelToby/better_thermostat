@@ -73,7 +73,7 @@ def fix_local_calibration(self, entity_id, offset):
     local calibration offset.
     """
 
-    _new_offset = self.real_trvs[entity_id]["model_quirks"].fix_local_calibration(
+    _new_offset = self.real_trvs[entity_id].model_quirks.fix_local_calibration(
         self, entity_id, offset
     )
 
@@ -98,7 +98,7 @@ def fix_valve_calibration(self, entity_id, valve):
     valve calibration value.
     """
 
-    quirks = self.real_trvs[entity_id]["model_quirks"]
+    quirks = self.real_trvs[entity_id].model_quirks
     if hasattr(quirks, "fix_valve_calibration"):
         _new_valve = quirks.fix_valve_calibration(self, entity_id, valve)
     else:
@@ -123,9 +123,9 @@ def fix_target_temperature_calibration(self, entity_id, temperature):
     requested setpoint temperature.
     """
 
-    _new_temperature = self.real_trvs[entity_id][
-        "model_quirks"
-    ].fix_target_temperature_calibration(self, entity_id, temperature)
+    _new_temperature = self.real_trvs[
+        entity_id
+    ].model_quirks.fix_target_temperature_calibration(self, entity_id, temperature)
 
     if temperature != _new_temperature:
         _LOGGER.debug(
@@ -144,7 +144,7 @@ async def override_set_hvac_mode(self, entity_id, hvac_mode):
 
     Returns the model-quirks module's response (True if handled).
     """
-    return await self.real_trvs[entity_id]["model_quirks"].override_set_hvac_mode(
+    return await self.real_trvs[entity_id].model_quirks.override_set_hvac_mode(
         self, entity_id, hvac_mode
     )
 
@@ -154,13 +154,13 @@ async def override_set_temperature(self, entity_id, temperature):
 
     Returns the model-quirks module's response (True if handled).
     """
-    return await self.real_trvs[entity_id]["model_quirks"].override_set_temperature(
+    return await self.real_trvs[entity_id].model_quirks.override_set_temperature(
         self, entity_id, temperature
     )
 
 
 async def inital_tweak(self, entity_id):
     """Run initial tweaks for the device."""
-    quirks = self.real_trvs[entity_id]["model_quirks"]
+    quirks = self.real_trvs[entity_id].model_quirks
     if hasattr(quirks, "inital_tweak"):
         await quirks.inital_tweak(self, entity_id)

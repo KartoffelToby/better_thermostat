@@ -74,7 +74,7 @@ async def check_operation_mode(self, entity_id, goal: str = "1"):
 
 async def inital_tweak(self, entity_id):
     """Run initial tweaks for the device."""
-    _calibration_type = self.real_trvs[entity_id]["advanced"].get(
+    _calibration_type = self.real_trvs[entity_id].advanced.get(
         "calibration", CalibrationType.TARGET_TEMP_BASED
     )
     if _calibration_type == CalibrationType.DIRECT_VALVE_BASED:

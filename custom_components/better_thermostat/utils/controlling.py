@@ -571,9 +571,9 @@ async def control_trv(self, heater_entity_id=None):
 
             _calibration = float(str(_calibration))
 
-            _old_calibration = self.real_trvs[heater_entity_id].get(
-                "last_calibration", _current_calibration
-            )
+            _old_calibration = self.real_trvs[heater_entity_id].last_calibration
+            if _old_calibration is None:
+                _old_calibration = _current_calibration
 
             # If current calibration already matches target, reset calibration_received
             # to avoid it getting stuck at False when the state event was suppressed.
