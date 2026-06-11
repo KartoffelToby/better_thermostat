@@ -12,14 +12,13 @@ that cannot be switched off receive their minimum temperature instead.
 
 Better Thermostat expects a binary sensor:
 
-- `on` — window open.
-- `off` — window closed.
+- `on`, `true`, `open` — window open.
+- `off`, `false`, `closed` — window closed.
 - `unknown` and `unavailable` count as **open**: with no trustworthy
   reading, not heating out of the window is the safe direction.
 
-Any other state raises a repair issue. This typically happens when a
-group or template entity reports something like `open`/`closed` instead
-of `on`/`off` — normalize it to a binary sensor, for example with a
+Any other state raises a repair issue — normalize the entity to one of
+the values above, for example with a
 [group helper](https://www.home-assistant.io/integrations/group/) or a
 [template binary sensor](https://www.home-assistant.io/integrations/template/).
 

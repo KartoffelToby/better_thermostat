@@ -75,6 +75,22 @@ class TestTriggerWindowChange:
         assert bt.window_queue_task.get_nowait() is True
 
     @pytest.mark.asyncio
+    @pytest.mark.parametrize("reading", ["true", "open"])
+    async def test_open_synonyms_are_accepted(self, reading):
+        """'true' and 'open' count as open, as the repair issue promises."""
+        bt = _make_bt(sensor_state=reading, open_delay=10)
+        await trigger_window_change(bt, _event(reading))
+        assert bt.kernel_state.window.phase == WindowPhase.OPENING
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("reading", ["false", "closed"])
+    async def test_closed_synonyms_are_accepted(self, reading):
+        """'false' and 'closed' count as closed."""
+        bt = _make_bt(sensor_state=reading, window_open=True, close_delay=10)
+        await trigger_window_change(bt, _event(reading))
+        assert bt.kernel_state.window.phase == WindowPhase.CLOSING
+
+    @pytest.mark.asyncio
     async def test_unknown_sensor_state_is_treated_as_open(self):
         """'unknown' counts as open (conservative) and is queued."""
         bt = _make_bt(sensor_state="unknown", open_delay=10)
