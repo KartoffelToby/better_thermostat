@@ -163,7 +163,9 @@ class IdealOracleAdapter:
             u_ff_pct = max(0.0, min(100.0, 100.0 * (T_rad_ss - sp) / denom))
 
         # Aggressive P-feedback so the oracle reacts to transients quickly.
-        error_K = sp - ctx.current_temp_C
+        # Feed back on the plant truth: the oracle is the perfect-knowledge
+        # upper bound, so sensor lag/noise must not depress its ceiling.
+        error_K = sp - ctx.raw_room_temp_C
         u_fb_pct = max(
             -self._feedback_clamp,
             min(self._feedback_clamp, error_K * self._feedback_gain),

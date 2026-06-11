@@ -40,6 +40,7 @@ def _scored(
     comfort: float = 0.9,
     actuator: float = 0.7,
     energy: float = 0.85,
+    block_label: str = "",
 ) -> ScoredResult:
     return ScoredResult(
         controller=controller,
@@ -48,6 +49,7 @@ def _scored(
         scores=DimensionScores(
             overall=overall, comfort=comfort, actuator=actuator, energy=energy
         ),
+        block_label=block_label,
     )
 
 
@@ -184,3 +186,40 @@ def test_render_plant_sweep_sorts_controllers_by_cross_mean():
         {"plant=a": block_a, "plant=b": block_b}, PROFILES["balanced"]
     )
     assert out.index("strong") < out.index("weak")
+
+
+def test_score_results_threads_block_label():
+    """score_results carries the block label into ScoredResult."""
+    results = {"plant=a": [ScenarioResult("pid", "S01", _m())]}
+    oracle = {("plant=a", "S01"): _m()}
+    scored = score_results(results, oracle, PROFILES["balanced"])
+    assert scored[0].block_label == "plant=a"
+
+
+def test_per_scenario_qualifies_rows_per_block_label():
+    """Same-named scenarios from different blocks render as separate rows."""
+    scored = [
+        _scored("pid", "S01", 0.9, block_label="plant=a"),
+        _scored("pid", "S01", 0.5, block_label="plant=b"),
+    ]
+    out = render_per_scenario(scored, PROFILES["balanced"])
+    assert "S01 [plant=a]" in out
+    assert "S01 [plant=b]" in out
+
+
+def test_plant_sweep_ranks_full_coverage_first():
+    """A partially-covered controller sorts below full-sweep controllers."""
+    scored_per_plant = {
+        "plant=a": [
+            _scored("low_full", "S01", 0.2),
+            _scored("high_partial", "S01", 0.99),
+        ],
+        "plant=b": [_scored("low_full", "S01", 0.2)],
+    }
+    out = render_plant_sweep(scored_per_plant, PROFILES["balanced"])
+    lines = out.splitlines()
+    row_low = next(i for i, line in enumerate(lines) if "low_full" in line)
+    row_high = next(i for i, line in enumerate(lines) if "high_partial" in line)
+    assert row_low < row_high
+    assert "2/2" in lines[row_low]
+    assert "1/2" in lines[row_high]

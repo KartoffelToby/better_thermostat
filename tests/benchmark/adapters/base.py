@@ -34,13 +34,41 @@ class BenchmarkOutput:
     """What the controller produced at one step.
 
     Exactly one of ``valve_percent`` / ``setpoint_offset_K`` / ``duty_cycle_pct``
-    should be set, matching the controller's :attr:`family`.
+    should be set, matching the controller's :attr:`family`. The one exception:
+    duty-family controllers additionally mirror their duty cycle into
+    ``valve_percent``, because the plant is actuated through ``valve_percent``
+    regardless of family.
     """
 
     valve_percent: float | None = None
     setpoint_offset_K: float | None = None
     duty_cycle_pct: float | None = None
     diagnostics: dict[str, Any] = field(default_factory=dict)
+
+    def __post_init__(self) -> None:
+        """Validate the one-output contract at the adapter boundary.
+
+        Raises
+        ------
+        ValueError
+            If no output field is populated, or if a combination other
+            than the documented duty+valve pairing is populated.
+        """
+        populated = {
+            name
+            for name in ("valve_percent", "setpoint_offset_K", "duty_cycle_pct")
+            if getattr(self, name) is not None
+        }
+        if not populated:
+            raise ValueError(
+                "BenchmarkOutput requires one of valve_percent, "
+                "setpoint_offset_K, duty_cycle_pct"
+            )
+        if len(populated) > 1 and populated != {"valve_percent", "duty_cycle_pct"}:
+            raise ValueError(
+                "BenchmarkOutput allows only one output family "
+                f"(or duty_cycle_pct mirrored into valve_percent), got: {sorted(populated)}"
+            )
 
 
 ControllerFamily = Literal["valve", "offset", "duty"]

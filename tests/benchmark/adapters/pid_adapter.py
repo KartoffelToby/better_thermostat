@@ -6,6 +6,7 @@ This adapter normalises it to the common protocol shape.
 
 from __future__ import annotations
 
+from itertools import count
 from typing import Any
 
 from custom_components.better_thermostat.utils.calibration import pid as pid_mod
@@ -17,6 +18,10 @@ from custom_components.better_thermostat.utils.calibration.pid import (
 
 from .base import BenchmarkContext, BenchmarkOutput, ControllerFamily
 
+# Each adapter instance fronts an entry in the module-global ``_PID_STATES``;
+# unique default keys keep concurrent instances from evicting each other.
+_KEY_COUNTER = count()
+
 
 class PidAdapter:
     """Benchmark adapter for the production PID controller."""
@@ -24,12 +29,10 @@ class PidAdapter:
     name: str = "pid"
     family: ControllerFamily = "valve"
 
-    def __init__(
-        self, params: PIDParams | None = None, key: str = "bench:trv:t0"
-    ) -> None:
+    def __init__(self, params: PIDParams | None = None, key: str | None = None) -> None:
         self._params = params if params is not None else PIDParams()
         self._state: PIDState = PIDState()
-        self._key = key
+        self._key = key if key is not None else f"bench:trv:pid{next(_KEY_COUNTER)}"
         self._sim_time_s: float = 0.0
         self._original_monotonic = pid_mod.monotonic
         pid_mod._PID_STATES.pop(self._key, None)

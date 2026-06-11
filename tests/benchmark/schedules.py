@@ -14,24 +14,80 @@ import random
 
 
 def step(t_threshold_s: float, before: float, after: float) -> Callable[[float], float]:
-    """``before`` until ``t_threshold_s``, ``after`` from then on."""
+    """Build a single-step schedule.
+
+    Parameters
+    ----------
+    t_threshold_s : float
+        Time of the step in seconds.
+    before : float
+        Value returned for ``t < t_threshold_s``.
+    after : float
+        Value returned for ``t >= t_threshold_s``.
+
+    Returns
+    -------
+    Callable[[float], float]
+        Schedule function ``t -> value``.
+    """
     return lambda t: after if t >= t_threshold_s else before
 
 
 def constant(value: float) -> Callable[[float], float]:
-    """Time-independent constant signal."""
+    """Build a time-independent constant schedule.
+
+    Parameters
+    ----------
+    value : float
+        Value returned for every ``t``.
+
+    Returns
+    -------
+    Callable[[float], float]
+        Schedule function ``t -> value``.
+    """
     return lambda _t: value
 
 
 def pulse(
     t_start_s: float, t_end_s: float, value: float, default: float = 0.0
 ) -> Callable[[float], float]:
-    """Return ``value`` for t in [t_start, t_end) and ``default`` otherwise."""
+    """Build a rectangular pulse schedule.
+
+    Parameters
+    ----------
+    t_start_s : float
+        Pulse start in seconds (inclusive).
+    t_end_s : float
+        Pulse end in seconds (exclusive).
+    value : float
+        Value returned inside ``[t_start_s, t_end_s)``.
+    default : float
+        Value returned outside the pulse.
+
+    Returns
+    -------
+    Callable[[float], float]
+        Schedule function ``t -> value``.
+    """
     return lambda t: value if t_start_s <= t < t_end_s else default
 
 
 def pulse_bool(t_start_s: float, t_end_s: float) -> Callable[[float], bool]:
-    """Return True for t in [t_start, t_end), False otherwise."""
+    """Build a boolean pulse schedule.
+
+    Parameters
+    ----------
+    t_start_s : float
+        Pulse start in seconds (inclusive).
+    t_end_s : float
+        Pulse end in seconds (exclusive).
+
+    Returns
+    -------
+    Callable[[float], bool]
+        Schedule function returning True inside ``[t_start_s, t_end_s)``.
+    """
     return lambda t: t_start_s <= t < t_end_s
 
 
@@ -42,12 +98,38 @@ def ramp(
     end_value: float,
     after: float | None = None,
 ) -> Callable[[float], float]:
-    """Piecewise linear ramp.
+    """Build a piecewise linear ramp schedule.
 
-    Constant ``start_value`` before ``t_start``, linear ramp to
+    Constant ``start_value`` before ``t_start_s``, linear ramp to
     ``end_value``, constant ``after`` (or ``end_value`` if unspecified)
     afterwards.
+
+    Parameters
+    ----------
+    t_start_s : float
+        Ramp start in seconds. Must be strictly less than ``t_end_s``.
+    t_end_s : float
+        Ramp end in seconds.
+    start_value : float
+        Value before and at the start of the ramp.
+    end_value : float
+        Value at the end of the ramp.
+    after : float or None
+        Value after the ramp; defaults to ``end_value``.
+
+    Returns
+    -------
+    Callable[[float], float]
+        Schedule function ``t -> value``.
+
+    Raises
+    ------
+    ValueError
+        If ``t_end_s <= t_start_s``.
     """
+    if t_end_s <= t_start_s:
+        raise ValueError("t_end_s must be greater than t_start_s")
+
     final = after if after is not None else end_value
 
     def _f(t: float) -> float:
@@ -64,7 +146,20 @@ def ramp(
 def piecewise_step(
     pairs: list[tuple[float, float]], initial: float
 ) -> Callable[[float], float]:
-    """Step function defined by ``(t_threshold, value)`` pairs."""
+    """Build a multi-step schedule from threshold/value pairs.
+
+    Parameters
+    ----------
+    pairs : list of tuple of float
+        ``(t_threshold_s, value)`` pairs; sorted internally.
+    initial : float
+        Value before the first threshold.
+
+    Returns
+    -------
+    Callable[[float], float]
+        Schedule function ``t -> value``.
+    """
     sorted_pairs = sorted(pairs)
 
     def _f(t: float) -> float:
@@ -82,10 +177,26 @@ def piecewise_step(
 def sinus_diurnal(
     min_value: float, max_value: float, period_h: float = 24.0, phase_min_h: float = 6.0
 ) -> Callable[[float], float]:
-    """Sinusoidal diurnal profile.
+    """Build a sinusoidal diurnal schedule.
 
     Minimum at simulation hour ``phase_min_h``; maximum ``period_h/2``
     later. Used for BOPTEST/Sinergym-style outdoor diurnal cycles.
+
+    Parameters
+    ----------
+    min_value : float
+        Minimum of the sinusoid.
+    max_value : float
+        Maximum of the sinusoid.
+    period_h : float
+        Period in hours.
+    phase_min_h : float
+        Simulation hour at which the minimum occurs.
+
+    Returns
+    -------
+    Callable[[float], float]
+        Schedule function ``t -> value``.
     """
     period_s = period_h * 3600.0
     offset_s = phase_min_h * 3600.0
@@ -101,12 +212,44 @@ def stochastic_windows(
     min_duration_s: float = 5 * 60.0,
     max_duration_s: float = 30 * 60.0,
 ) -> Callable[[float], bool]:
-    """Deterministic stochastic window-open schedule.
+    """Build a deterministic stochastic window-open schedule.
 
     ``count`` non-overlapping events distributed roughly evenly over
-    ``duration_s``. Reproducible for a given ``seed`` (IEA Annex 79
-    residential window-opening pattern, simplified).
+    ``duration_s`` — each event stays inside its own ``duration_s/count``
+    slot. Reproducible for a given ``seed`` (IEA Annex 79 residential
+    window-opening pattern, simplified).
+
+    Parameters
+    ----------
+    seed : int
+        RNG seed; identical seeds produce identical schedules.
+    count : int
+        Number of window-open events. Must be positive.
+    duration_s : float
+        Total schedule horizon in seconds.
+    min_duration_s : float
+        Lower bound of one event's duration in seconds.
+    max_duration_s : float
+        Upper bound of one event's duration in seconds.
+
+    Returns
+    -------
+    Callable[[float], bool]
+        Schedule function returning True while a window is open.
+
+    Raises
+    ------
+    ValueError
+        If ``count`` is not positive or the duration bounds are
+        inconsistent.
     """
+    if count <= 0:
+        raise ValueError("count must be greater than 0")
+    if min_duration_s < 0.0 or max_duration_s < min_duration_s:
+        raise ValueError(
+            "duration bounds must satisfy 0 <= min_duration_s <= max_duration_s"
+        )
+
     rng = random.Random(seed)
     slot_s = duration_s / count
     events: list[tuple[float, float]] = []
@@ -116,7 +259,12 @@ def stochastic_windows(
             t_start = i * slot_s
         else:
             t_start = i * slot_s + rng.uniform(0.0, latest_start)
-        dur = rng.uniform(min_duration_s, max_duration_s)
+        # Clamp the duration to the remaining slot budget so short slots
+        # cannot spill an event into the next slot.
+        slot_remaining = (i + 1) * slot_s - t_start
+        max_dur = min(max_duration_s, slot_remaining)
+        min_dur = min(min_duration_s, max_dur)
+        dur = rng.uniform(min_dur, max_dur)
         events.append((t_start, t_start + dur))
 
     def schedule(t: float) -> bool:
@@ -132,7 +280,26 @@ def solar_trapezoid(
     t_fall_end: float,
     peak: float = 1.0,
 ) -> Callable[[float], float]:
-    """Trapezoidal solar profile: ramp up, plateau, ramp down."""
+    """Build a trapezoidal solar schedule: ramp up, plateau, ramp down.
+
+    Parameters
+    ----------
+    t_rise_start : float
+        Start of the rising edge in seconds.
+    t_rise_end : float
+        End of the rising edge / start of the plateau in seconds.
+    t_fall_start : float
+        End of the plateau / start of the falling edge in seconds.
+    t_fall_end : float
+        End of the falling edge in seconds.
+    peak : float
+        Plateau intensity (0.0 - 1.0).
+
+    Returns
+    -------
+    Callable[[float], float]
+        Schedule function ``t -> intensity``.
+    """
 
     def _f(t: float) -> float:
         if t < t_rise_start or t >= t_fall_end:

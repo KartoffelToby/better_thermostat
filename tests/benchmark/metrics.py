@@ -21,6 +21,26 @@ class TimeSeries:
     T_setpoint_C: Sequence[float]
     valve_pct: Sequence[float]
 
+    def __post_init__(self) -> None:
+        """Validate the parallel-array invariants every metric relies on.
+
+        Raises
+        ------
+        ValueError
+            If the four sequences differ in length or ``t_s`` is not
+            strictly increasing.
+        """
+        lengths = {
+            len(self.t_s),
+            len(self.T_room_C),
+            len(self.T_setpoint_C),
+            len(self.valve_pct),
+        }
+        if len(lengths) != 1:
+            raise ValueError("TimeSeries fields must have the same length")
+        if any(t2 <= t1 for t1, t2 in zip(self.t_s, self.t_s[1:])):
+            raise ValueError("TimeSeries.t_s must be strictly increasing")
+
 
 @dataclass(frozen=True)
 class MetricValues:
@@ -159,9 +179,12 @@ def _compute_setpoint_imbalance_K_h(
     above_K_h = 0.0
     below_K_h = 0.0
     for i in range(1, len(series.t_s)):
-        if series.t_s[i] < transient_start_s:
+        seg_end = series.t_s[i]
+        if seg_end <= transient_start_s:
             continue
-        dt_h = (series.t_s[i] - series.t_s[i - 1]) / 3600.0
+        # Clip the first interval so pre-transient time is not charged.
+        seg_start = max(series.t_s[i - 1], transient_start_s)
+        dt_h = (seg_end - seg_start) / 3600.0
         err = series.T_room_C[i] - series.T_setpoint_C[i]
         if err > 0.0:
             above_K_h += err * dt_h

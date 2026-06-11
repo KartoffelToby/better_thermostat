@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from dataclasses import replace
+
 from tests.benchmark.plant import (
     PROFILE_STANDARD,
     PlantParams,
@@ -75,11 +77,15 @@ def test_pipe_delay_buffer_serves_old_value():
         T_water_C=65.0,
         valve_command_delay_s=120.0,
     )
-    plant_a = TwoStatePlant(PROFILE_STANDARD, PlantState(T_room_C=18.0, T_rad_C=18.0))
+    # Identical thermal constants — only the delay differs, so the
+    # comparison isolates the pipe-delay behaviour.
+    no_delay = replace(delayed, valve_command_delay_s=0.0)
+    plant_a = TwoStatePlant(no_delay, PlantState(T_room_C=18.0, T_rad_C=18.0))
     plant_b = TwoStatePlant(delayed, PlantState(T_room_C=18.0, T_rad_C=18.0))
 
-    # Prime plant_b's delay buffer with u=0.
+    # Prime both plants with u=0 so they share the same pre-state.
     for _ in range(4):  # 2 min of u=0
+        plant_a.step(30.0, 0.0, 5.0)
         plant_b.step(30.0, 0.0, 5.0)
     # Now command u=1.0. The next 2 minutes (4 steps of 30 s) the
     # radiator should still see u=0 from the buffer; only after that

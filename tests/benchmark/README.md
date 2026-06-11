@@ -13,7 +13,7 @@ python -m tests.benchmark.runner
 
 prints a controller × dimension score matrix:
 
-```
+```text
 ============================================================================================
 Score matrix — user profile: balanced (w_c=0.5, w_a=0.3, w_e=0.2)
 Scores are 0..1, oracle-normalised; 1.0 = oracle-equivalent.
@@ -135,8 +135,7 @@ This is the closer-to-reality benchmark for **multi-radiator rooms**
 (living rooms, larger kitchens) — common in residential setups. For
 single-radiator rooms the single-TRV matrix is the relevant one.
 
-### Indirect TRVs (`pid+indirect_trv`, `tpi+indirect_trv`,
-`mpc+indirect_trv`)
+### Indirect TRVs (`pid+indirect_trv`, `tpi+indirect_trv`, `mpc+indirect_trv`)
 
 A wrapper that mediates the controller's valve-% intent through an
 offset-mode TRV (Tado, Bosch BTH-RA, Sonoff TRVZB offset-mode, Tuya
@@ -232,7 +231,7 @@ Schedule shape generators (`step`, `ramp`, `pulse`, `piecewise_step`,
 
 ## Module layout
 
-```
+```text
 tests/benchmark/
 ├── plant.py              RC2 / RC3 thermal plant + plant profiles
 ├── multi_trv_plant.py    N parallel radiators sharing one room

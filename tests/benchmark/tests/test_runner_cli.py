@@ -12,7 +12,9 @@ import io
 
 import pytest
 
-from tests.benchmark.runner import main
+from tests.benchmark.adapters.baselines import LinearPAdapter
+from tests.benchmark.runner import main, run_scenario
+from tests.benchmark.scenarios import S01_SETPOINT_STEP_SMALL
 
 
 def _run(argv: list[str]) -> tuple[int, str]:
@@ -207,3 +209,32 @@ def test_main_plant_all_keyword_runs_full_sweep():
     # The "all" keyword expands to every PLANT_PROFILE; runs to completion.
     assert rc == 0
     assert "Score matrix" in out
+
+
+def test_main_rejects_non_positive_step_s():
+    """Main rejects non positive step_s with exit code 2."""
+    rc, out = _run(
+        [
+            "--controller",
+            "linear_p",
+            "--scenario",
+            "S01_setpoint_step_small",
+            "--step-s",
+            "0",
+        ]
+    )
+    assert rc == 2
+    assert "--step-s" in out
+
+
+def test_main_plant_sweep_with_unknown_scenario_exits_with_code_2():
+    """Unknown scenarios are reported before --plant-sweep filtering."""
+    rc, out = _run(["--plant-sweep", "--scenario", "S99_does_not_exist"])
+    assert rc == 2
+    assert "Unknown scenario" in out
+
+
+def test_run_scenario_rejects_non_positive_step_s():
+    """run_scenario rejects non positive step_s."""
+    with pytest.raises(ValueError):
+        run_scenario(LinearPAdapter(), S01_SETPOINT_STEP_SMALL, step_s=0.0)

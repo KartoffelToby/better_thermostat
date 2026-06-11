@@ -107,10 +107,10 @@ def test_sensor_jitter_changes_next_interval():
     """Sensor jitter changes next interval."""
     p = SensorParams(sample_interval_s=30.0, jitter_std_s=10.0)
     s = Sensor(p)
-    # Force the first sample so the jitter recomputation runs.
+    # Force the first sample so the jitter recomputation runs. The RNG is
+    # deterministic, so the rolled interval must differ from the nominal.
     s.read(0.0, 20.0)
-    # Internal interval should now differ from the nominal 30 s in most runs.
-    assert s._next_sample_interval_s != 30.0 or True  # smoke — at minimum, no crash
+    assert s._next_sample_interval_s != 30.0
     # Drive several reads.
     for t in range(1, 20):
         s.read(t * 30.0, 20.0)
@@ -141,3 +141,33 @@ def test_sensor_bias_and_drift_apply():
     later = s.read(3600.0, 20.0)
     assert later is not None
     assert abs(later - 20.6) < 1e-6
+
+
+def test_sensor_dropout_window_with_start():
+    """The dropout honours its start timestamp, not just the end."""
+    p = SensorParams(dropout_from_t_s=600.0, dropout_until_t_s=1200.0)
+    s = Sensor(p)
+    assert s.read(0.0, 20.0) is not None  # before the outage
+    assert s.read(600.0, 20.0) is None
+    assert s.read(1199.0, 20.0) is None
+    assert s.read(1200.0, 20.0) is not None  # after the outage
+
+
+def test_thermal_lag_advances_through_dropout():
+    """The sensor body keeps tracking the room during the outage."""
+    p = SensorParams(
+        sample_interval_s=0.0,
+        thermal_lag_s=60.0,
+        dropout_from_t_s=10.0,
+        dropout_until_t_s=600.0,
+    )
+    s = Sensor(p)
+    s.read(0.0, 20.0)  # initialise the lag state at 20 °C
+    # Room steps to 25 °C during the outage.
+    for t in range(10, 600, 30):
+        assert s.read(float(t), 25.0) is None
+    after = s.read(600.0, 25.0)
+    # ~10 lag time-constants passed → the first post-outage reading must
+    # reflect the new room temperature, not the pre-outage state.
+    assert after is not None
+    assert after > 24.0

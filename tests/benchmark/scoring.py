@@ -34,7 +34,19 @@ from .metrics import MetricValues
 
 @dataclass(frozen=True)
 class DimensionScores:
-    """Sub-scores per dimension, plus the weighted overall score."""
+    """Sub-scores per dimension, plus the weighted overall score.
+
+    Attributes
+    ----------
+    comfort : float
+        Comfort sub-score in 0..1.
+    actuator : float
+        Actuator-longevity sub-score in 0..1.
+    energy : float
+        Energy sub-score in 0..1.
+    overall : float
+        Profile-weighted aggregate of the three sub-scores.
+    """
 
     comfort: float
     actuator: float
@@ -48,6 +60,17 @@ class UserProfile:
 
     The three weights must sum to 1. ``balanced`` is the safe default;
     the other profiles bias the score toward a specific axis.
+
+    Attributes
+    ----------
+    name : str
+        Profile identifier used in reports and the CLI.
+    w_comfort : float
+        Weight of the comfort dimension.
+    w_actuator : float
+        Weight of the actuator-longevity dimension.
+    w_energy : float
+        Weight of the energy dimension.
     """
 
     name: str
@@ -56,7 +79,13 @@ class UserProfile:
     w_energy: float
 
     def __post_init__(self) -> None:
-        """Validate that the three weights sum to 1.0."""
+        """Validate that the three weights sum to 1.0.
+
+        Raises
+        ------
+        ValueError
+            If the weights do not sum to 1.0 within tolerance.
+        """
         s = self.w_comfort + self.w_actuator + self.w_energy
         if not math.isclose(s, 1.0, abs_tol=1e-3):
             raise ValueError(
@@ -79,22 +108,60 @@ def _clamp_01(x: float) -> float:
     return max(0.0, min(1.0, x))
 
 
+# When the oracle settles instantly there is no transient to normalise
+# against; a candidate consuming this many minutes still earns the full
+# settling penalty.
+_ABS_SETTLING_FAILURE_MIN = 5.0
+
+
 def _settling_ratio(metric: float, oracle: float) -> float:
-    """Settling-time ratio with sensible inf handling."""
+    """Settling-time ratio with sensible inf handling.
+
+    Parameters
+    ----------
+    metric : float
+        Candidate controller's settling time in minutes (may be inf).
+    oracle : float
+        Oracle's settling time in minutes (may be inf).
+
+    Returns
+    -------
+    float
+        Ratio ``metric / oracle``; capped at 10 when only the candidate
+        never settles, and computed against an absolute scale when the
+        oracle settled instantly.
+    """
     if math.isinf(metric) and math.isinf(oracle):
         return 1.0
     if math.isinf(metric):
         return 10.0
-    if math.isinf(oracle) or oracle <= 0.0:
+    if math.isinf(oracle):
         return 1.0
+    if oracle <= 0.0:
+        # Zero-settling oracle: score the candidate on an absolute scale
+        # instead of treating every settling time as oracle-equivalent.
+        return 1.0 + _clamp_01(metric / _ABS_SETTLING_FAILURE_MIN) * 4.0
     return metric / oracle
 
 
 def comfort_score(metrics: MetricValues, oracle: MetricValues) -> float:
-    """Score 0..1 across overshoot, settling and steady-state error.
+    """Score comfort across overshoot, settling and steady-state error.
 
     Weights inside comfort: 0.4 overshoot, 0.4 settling, 0.2 ss_error.
     Failure thresholds: +1 K overshoot, 5× oracle settling, +0.5 K ss_error.
+
+    Parameters
+    ----------
+    metrics : MetricValues
+        Candidate controller's metrics.
+    oracle : MetricValues
+        Oracle baseline metrics for the same scenario.
+
+    Returns
+    -------
+    float
+        Comfort score; 1.0 is oracle-equivalent, 0.0 is at/beyond the
+        failure thresholds.
     """
     overshoot_excess = max(0.0, metrics.max_overshoot_K - oracle.max_overshoot_K)
     overshoot_pen = _clamp_01(overshoot_excess / 1.0)
@@ -112,12 +179,24 @@ def comfort_score(metrics: MetricValues, oracle: MetricValues) -> float:
 
 
 def actuator_score(metrics: MetricValues, oracle: MetricValues) -> float:
-    """Score 0..1 — total valve travel relative to oracle.
+    """Score total valve travel relative to the oracle.
 
     Failure threshold: 5× oracle's total travel. Cycle count is *not*
     used directly — see WHITEPAPER §13 / reflexion: tracking-precise
     controllers (oracle) cycle many small times; total travel is the
     honest wear/battery proxy.
+
+    Parameters
+    ----------
+    metrics : MetricValues
+        Candidate controller's metrics.
+    oracle : MetricValues
+        Oracle baseline metrics for the same scenario.
+
+    Returns
+    -------
+    float
+        Actuator score in 0..1.
     """
     if oracle.total_valve_travel_pct < 1.0:
         # Oracle barely moved. Compare against a floor so a low-activity
@@ -129,12 +208,24 @@ def actuator_score(metrics: MetricValues, oracle: MetricValues) -> float:
 
 
 def energy_score(metrics: MetricValues, oracle: MetricValues) -> float:
-    """Score 0..1 — integral valve usage relative to oracle (symmetric).
+    """Score integral valve usage relative to the oracle (symmetric).
 
     The oracle delivers exactly the heat required to track the setpoint, so
     any deviation is waste: ≥ 2× the oracle's integral is over-heating
     (overshoot losses), ≤ 0 is under-heating (setpoint missed — the same
     logic applies in cooling). Both directions are penalised equally.
+
+    Parameters
+    ----------
+    metrics : MetricValues
+        Candidate controller's metrics.
+    oracle : MetricValues
+        Oracle baseline metrics for the same scenario.
+
+    Returns
+    -------
+    float
+        Energy score in 0..1.
     """
     if oracle.integral_valve_pct_min < 100.0:
         # Edge case — scenario barely heated/cooled; treat as neutral.
@@ -147,7 +238,22 @@ def energy_score(metrics: MetricValues, oracle: MetricValues) -> float:
 def compute_scores(
     metrics: MetricValues, oracle: MetricValues, profile: UserProfile
 ) -> DimensionScores:
-    """Return all three sub-scores plus the profile-weighted overall."""
+    """Compute all three sub-scores plus the profile-weighted overall.
+
+    Parameters
+    ----------
+    metrics : MetricValues
+        Candidate controller's metrics.
+    oracle : MetricValues
+        Oracle baseline metrics for the same scenario.
+    profile : UserProfile
+        Weighting profile for the overall aggregate.
+
+    Returns
+    -------
+    DimensionScores
+        Sub-scores and the weighted overall score.
+    """
     c = comfort_score(metrics, oracle)
     a = actuator_score(metrics, oracle)
     e = energy_score(metrics, oracle)

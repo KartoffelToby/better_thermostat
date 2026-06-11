@@ -9,7 +9,8 @@ data dependency.
 The model:
 
 * Seasonal mean: cosine over the year, minimum at day 14 (mid-January).
-* Diurnal cycle: cosine over the day, minimum at 05:00, maximum at 15:00.
+* Diurnal cycle: cosine over the day, maximum at 15:00 and minimum
+  12 hours earlier.
 * Synoptic anomaly: AR(1) process on a 1-hour grid; lag-1
   autocorrelation around 0.9 (~24 h decorrelation timescale, matching
   observed mid-latitude winter synoptics).
@@ -179,7 +180,7 @@ def make_schedules(
         day = start_day_of_year + hours_in / 24.0
         hour_of_day = (hours_in + 0.0) % 24.0
         seasonal = _seasonal_mean(int(day), params)
-        diurnal = -params.diurnal_amp_C * math.cos(
+        diurnal = params.diurnal_amp_C * math.cos(
             2.0 * math.pi * (hour_of_day - 15.0) / 24.0
         )
         # Linear interp the synoptic anomaly between hourly samples.

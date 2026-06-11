@@ -157,7 +157,7 @@ def test_main_csv_path_runs_end_to_end():
 
 def test_main_missing_outdoor_proxy_returns_1():
     """Main missing outdoor proxy returns 1."""
-    # Write a CSV that lacks the outdoor entity.
+    # Write a CSV that lacks any outdoor entity.
     with tempfile.TemporaryDirectory() as tmp:
         path = Path(tmp) / "demo.csv"
         with path.open("w") as f:
@@ -167,4 +167,30 @@ def test_main_missing_outdoor_proxy_returns_1():
         with contextlib.redirect_stdout(buf_out), contextlib.redirect_stderr(buf_err):
             rc = fit_plant.main(str(path))
         assert rc == 1
-        assert "outdoor proxy" in buf_err.getvalue()
+        assert "outdoor" in buf_err.getvalue()
+
+
+def test_main_csv_discovers_arbitrary_entity_ids():
+    """CSV mode maps non-synthetic entity ids to rooms + outdoor proxy."""
+    with tempfile.TemporaryDirectory() as tmp:
+        path = Path(tmp) / "export.csv"
+        with path.open("w") as f:
+            for hour in range(24):
+                t = f"2026-01-01 {hour:02d}:00:00"
+                f.write(f"{t},{20.0 - hour * 0.05},sensor.bedroom_temp\n")
+                f.write(f"{t},{2.0},sensor.outdoor_north\n")
+        buf = io.StringIO()
+        with contextlib.redirect_stdout(buf):
+            rc = fit_plant.main(str(path))
+    assert rc == 0
+    out = buf.getvalue()
+    assert "sensor.outdoor_north" in out
+    assert "sensor.bedroom_temp" in out
+
+
+def test_summarise_uses_true_median_for_even_counts():
+    """Even-length inputs report the mean of the two middle values."""
+    buf = io.StringIO()
+    with contextlib.redirect_stdout(buf):
+        fit_plant._summarise("x", [1.0, 2.0, 10.0, 11.0])
+    assert "median=6.0" in buf.getvalue()

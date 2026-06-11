@@ -180,3 +180,11 @@ def test_overall_score_respects_profile_weights():
     # comfort_first should rate this candidate higher (good comfort dominates),
     # longevity_first should rate it lower (bad actuator dominates).
     assert score_comfort_first > score_balanced > score_longevity_first
+
+
+def test_zero_settling_oracle_still_penalises_slow_candidates():
+    """An instantly-settled oracle must not mask slow candidate settling."""
+    oracle = _zero_metrics(settling_time_min=0.0)
+    slow = _zero_metrics(settling_time_min=10.0)
+    instant = _zero_metrics(settling_time_min=0.0)
+    assert comfort_score(slow, oracle) < comfort_score(instant, oracle)

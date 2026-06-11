@@ -133,8 +133,15 @@ def run_multi_trv_scenario(
     stabilisation_min: float = 60.0,
 ) -> ScenarioResult:
     """Run a scenario against a multi-TRV plant with BT's distribute_valve_percent."""
+    if step_s <= 0.0:
+        raise ValueError("step_s must be > 0")
     plant = MultiTrvPlant(plant_params, initial_state)
-    _stabilise_multi_trv(plant, scenario, stabilisation_min, step_s)
+    effective_stabilisation_min = (
+        scenario.stabilisation_min
+        if scenario.stabilisation_min is not None
+        else stabilisation_min
+    )
+    _stabilise_multi_trv(plant, scenario, effective_stabilisation_min, step_s)
 
     equiv = _equivalent_single_plant(plant_params)
     time_scale = _plant_time_scale(equiv)

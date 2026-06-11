@@ -36,12 +36,18 @@ def format_metric(val: float, decimals: int = 2) -> str:
 
 @dataclass(frozen=True)
 class ScoredResult:
-    """A :class:`ScenarioResult` enriched with oracle-relative scores."""
+    """A :class:`ScenarioResult` enriched with oracle-relative scores.
+
+    ``block_label`` carries the plant-override block the result came
+    from; the same scenario name can exist under several blocks, so the
+    pair (``block_label``, ``scenario``) is the full scenario identity.
+    """
 
     controller: str
     scenario: str
     metrics: MetricValues
     scores: DimensionScores
+    block_label: str = ""
 
 
 def score_results(
@@ -68,6 +74,7 @@ def score_results(
                     scenario=r.scenario,
                     metrics=r.metrics,
                     scores=s,
+                    block_label=label,
                 )
             )
     return out
@@ -181,14 +188,18 @@ def render_plant_sweep(
         for ctrl, vs in per_ctrl.items():
             cell[(ctrl, label)] = _mean(vs)
 
-    # mean + cross-plant stdev
+    # mean + cross-plant stdev + plant coverage. Controllers with results
+    # on only a subset of plants must not outrank full-sweep controllers
+    # on an inflated mean, so coverage sorts first.
     cross_mean: dict[str, float] = {}
     cross_std: dict[str, float] = {}
+    cross_cov: dict[str, int] = {}
     for ctrl in controllers:
         vals = [cell.get((ctrl, p), float("nan")) for p in plant_names]
+        cross_cov[ctrl] = sum(1 for v in vals if not math.isnan(v))
         cross_mean[ctrl] = _mean(vals)
         cross_std[ctrl] = _stdev(vals)
-    controllers.sort(key=lambda c: -cross_mean[c])
+    controllers.sort(key=lambda c: (-cross_cov[c], -cross_mean[c]))
 
     lines: list[str] = []
     lines.append("")
@@ -197,8 +208,11 @@ def render_plant_sweep(
         f"Cross-plant overall — profile: {profile.name}  "
         f"({len(plant_names)} plants × {len({sr.scenario for items in scored_per_plant.values() for sr in items})} scenarios)"
     )
-    lines.append("±σ = population stdev of mean overall across plants.")
-    header = f"  {'controller':<18}{header_cells}{'mean':>10}{'±σ':>8}"
+    lines.append(
+        "±σ = population stdev of mean overall across plants. "
+        "cov = plants with results; incomplete rows rank below complete ones."
+    )
+    header = f"  {'controller':<18}{header_cells}{'mean':>10}{'±σ':>8}{'cov':>8}"
     lines.append(header)
     lines.append("  " + "-" * (len(header) - 2))
     for ctrl in controllers:
@@ -206,18 +220,27 @@ def render_plant_sweep(
         for p in plant_names:
             v = cell.get((ctrl, p), float("nan"))
             row += f"{v:>14.3f}"
-        row += f"{cross_mean[ctrl]:>10.3f}{cross_std[ctrl]:>8.3f}"
+        cov = f"{cross_cov[ctrl]}/{len(plant_names)}"
+        row += f"{cross_mean[ctrl]:>10.3f}{cross_std[ctrl]:>8.3f}{cov:>8}"
         lines.append(row)
     return "\n".join(lines)
 
 
 def render_per_scenario(scored: list[ScoredResult], profile: UserProfile) -> str:
-    """Render the controller × scenario matrix (one row per scenario, overall score per cell)."""
+    """Render the controller × scenario matrix (one row per scenario, overall score per cell).
+
+    When the results span more than one block label, rows are keyed by
+    ``scenario [block]`` so same-named scenarios from different plant
+    overrides do not overwrite each other.
+    """
+    labels = {sr.block_label for sr in scored}
+    qualify = len(labels) > 1
     by_scen: dict[str, dict[str, float]] = {}
     controllers: list[str] = []
     seen: set[str] = set()
     for sr in scored:
-        by_scen.setdefault(sr.scenario, {})[sr.controller] = sr.scores.overall
+        row_key = f"{sr.scenario} [{sr.block_label}]" if qualify else sr.scenario
+        by_scen.setdefault(row_key, {})[sr.controller] = sr.scores.overall
         if sr.controller not in seen:
             controllers.append(sr.controller)
             seen.add(sr.controller)

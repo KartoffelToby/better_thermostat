@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import pytest
 
-from tests.benchmark.adapters.base import BenchmarkContext
+from tests.benchmark.adapters.base import BenchmarkContext, BenchmarkOutput
 from tests.benchmark.adapters.indirect_trv import (
     BOSCH_PARAMS,
     SONOFF_TRVZB_PARAMS,
@@ -19,6 +19,26 @@ from tests.benchmark.adapters.indirect_trv import (
     IndirectTrvParams,
 )
 from tests.benchmark.adapters.pid_adapter import PidAdapter
+
+
+class _FakeValveAdapter:
+    """Inner adapter whose valve demand is controlled by the test."""
+
+    name = "fake"
+    family = "valve"
+
+    def __init__(self, pct: float) -> None:
+        self.pct = pct
+
+    def reset(self, prior=None) -> None:
+        _ = prior
+
+    def step(self, ctx: BenchmarkContext) -> BenchmarkOutput:
+        _ = ctx
+        return BenchmarkOutput(valve_percent=self.pct)
+
+    def export_state(self) -> dict:
+        return {}
 
 
 def _ctx(target: float = 21.0, current: float = 20.0) -> BenchmarkContext:
@@ -100,17 +120,31 @@ def test_hysteresis_holds_old_setpoint_inside_band():
 
 
 def test_command_latency_delays_setpoint_change():
-    """Command latency delays setpoint change."""
+    """A setpoint change reaches the TRV only after command_latency_steps."""
     params = IndirectTrvParams(
         setpoint_step_K=0.5,
         internal_hysteresis_K=0.0,
         internal_p_gain=30.0,
         command_latency_steps=3,
     )
-    adapter = IndirectTrvAdapter(PidAdapter(), params)
-    # Run many steps and verify the pending-FIFO grows then drains.
-    for _ in range(5):
-        adapter.step(_ctx(target=22.0, current=18.0))
+    inner = _FakeValveAdapter(0.0)
+    adapter = IndirectTrvAdapter(inner, params)
+    # Saturate the FIFO with the all-closed command (setpoint == target).
+    out = adapter.step(_ctx(target=22.0, current=18.0))
+    for _ in range(4):
+        out = adapter.step(_ctx(target=22.0, current=18.0))
+    old_sp = out.diagnostics["indirect_setpoint_C"]
+    assert old_sp == pytest.approx(22.0)
+
+    # Inner controller now demands full heat → new setpoint target+headroom.
+    inner.pct = 100.0
+    for _ in range(params.command_latency_steps):
+        out = adapter.step(_ctx(target=22.0, current=18.0))
+        assert out.diagnostics["indirect_setpoint_C"] == pytest.approx(old_sp)
+    out = adapter.step(_ctx(target=22.0, current=18.0))
+    assert out.diagnostics["indirect_setpoint_C"] == pytest.approx(
+        22.0 + params.max_calibration_headroom_K
+    )
     assert len(adapter._pending_setpoints) <= params.command_latency_steps + 1
 
 
@@ -161,7 +195,7 @@ def test_zero_error_yields_zero_valve():
     # lands at/near room temp, so internal P-loop produces ~0 %.
     out = adapter.step(_ctx(target=20.0, current=20.0))
     assert out.valve_percent is not None
-    assert 0.0 <= out.valve_percent <= 100.0
+    assert out.valve_percent == pytest.approx(0.0, abs=1e-6)
 
 
 @pytest.mark.parametrize(
@@ -173,3 +207,26 @@ def test_every_vendor_preset_drives_a_full_step_cleanly(preset):
     out = adapter.step(_ctx(target=22.0, current=19.0))
     assert out.valve_percent is not None
     assert 0.0 <= out.valve_percent <= 100.0
+
+
+def test_reset_restores_exported_state():
+    """``reset(export_state())`` restores the wrapper's TRV-layer cache."""
+    params = IndirectTrvParams(
+        setpoint_step_K=0.5,
+        internal_hysteresis_K=0.0,
+        internal_p_gain=30.0,
+        command_latency_steps=2,
+    )
+    adapter = IndirectTrvAdapter(_FakeValveAdapter(100.0), params)
+    for _ in range(3):
+        adapter.step(_ctx(target=22.0, current=18.0))
+    snapshot = adapter.export_state()
+    assert snapshot["pending_setpoints"]
+
+    adapter.reset(snapshot)
+    assert adapter._last_quantised_setpoint_C == snapshot["last_quantised_setpoint_C"]
+    assert adapter._pending_setpoints == snapshot["pending_setpoints"]
+
+    adapter.reset()
+    assert adapter._last_quantised_setpoint_C is None
+    assert adapter._pending_setpoints == []

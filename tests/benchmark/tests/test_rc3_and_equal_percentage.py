@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from dataclasses import replace
+
 from tests.benchmark.actuator import Actuator, ActuatorParams, ActuatorProfile
 from tests.benchmark.plant import (
     PROFILE_STANDARD,
@@ -99,17 +101,26 @@ def test_rc3_room_cools_slower_than_rc2_with_same_lumped_tau():
 
 
 def test_rc2_path_unchanged_when_tau_wall_zero():
-    """A plant with tau_wall_min == 0 produces identical trajectories to before."""
-    plant = TwoStatePlant(
-        PROFILE_STANDARD,  # RC2 default
+    """``tau_wall_min == 0`` follows the RC2 reference exactly.
+
+    Non-default wall parameters must have no effect while the wall layer
+    is disabled, so both plants must produce bit-identical trajectories.
+    """
+    reference = TwoStatePlant(
+        PROFILE_STANDARD,  # RC2 default (tau_wall_min == 0)
+        PlantState(T_room_C=20.0, T_rad_C=20.0),
+    )
+    tau_zero = TwoStatePlant(
+        replace(PROFILE_STANDARD, tau_wall_min=0.0, r_room_wall=3.7),
         PlantState(T_room_C=20.0, T_rad_C=20.0),
     )
     for _ in range(60):
-        plant.step(30.0, 0.5, 5.0)
-    # Don't assert exact value — just sanity check that RC2 still warms.
-    assert 20.0 < plant.state.T_room_C < 35.0
-    # T_wall_C still tracks T_room_C in RC2 mode because step() does not
-    # update it. That's fine; nothing reads it.
+        reference.step(30.0, 0.5, 5.0)
+        tau_zero.step(30.0, 0.5, 5.0)
+        assert tau_zero.state.T_room_C == reference.state.T_room_C
+        assert tau_zero.state.T_rad_C == reference.state.T_rad_C
+    # Sanity check that RC2 still warms.
+    assert 20.0 < reference.state.T_room_C < 35.0
 
 
 # ---------- EQUAL_PERCENTAGE actuator ----------

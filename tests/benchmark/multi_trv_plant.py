@@ -59,6 +59,12 @@ class MultiTrvPlant:
             raise ValueError("coupling_rad_room length must equal n_trvs")
         if len(params.trv_sensor_offsets_K) != params.n_trvs:
             raise ValueError("trv_sensor_offsets_K length must equal n_trvs")
+        if params.deadband_pcts_per_trv and (
+            len(params.deadband_pcts_per_trv) != params.n_trvs
+        ):
+            raise ValueError(
+                "deadband_pcts_per_trv must be empty or have length n_trvs"
+            )
         self.params = params
         self.state = MultiTrvPlantState(
             T_room_C=initial.T_room_C, T_rads_C=list(initial.T_rads_C)

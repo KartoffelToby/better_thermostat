@@ -11,6 +11,7 @@ This is benchmark-only code: never imported by production.
 
 from __future__ import annotations
 
+from itertools import count
 from typing import Any
 
 from custom_components.better_thermostat.utils.calibration import mpc as mpc_mod
@@ -24,6 +25,10 @@ from custom_components.better_thermostat.utils.calibration.mpc import (
 
 from .base import BenchmarkContext, BenchmarkOutput, ControllerFamily
 
+# Each adapter instance fronts an entry in the module-global ``_MPC_STATES``;
+# unique default keys keep concurrent instances from evicting each other.
+_KEY_COUNTER = count()
+
 
 class MpcAdapter:
     """Benchmark adapter for the production MPC controller."""
@@ -31,12 +36,10 @@ class MpcAdapter:
     name: str = "mpc"
     family: ControllerFamily = "valve"
 
-    def __init__(
-        self, params: MpcParams | None = None, key: str = "bench:trv:t0"
-    ) -> None:
+    def __init__(self, params: MpcParams | None = None, key: str | None = None) -> None:
         self._params = params if params is not None else MpcParams()
         self._state: _MpcState = _MpcState()
-        self._key = key
+        self._key = key if key is not None else f"bench:trv:mpc{next(_KEY_COUNTER)}"
         self._sim_time_s: float = 0.0
         self._original_time = mpc_mod.time
         # All benchmark adapters share the global _MPC_STATES dict; isolate ours.

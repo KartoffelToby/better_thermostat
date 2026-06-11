@@ -367,7 +367,14 @@ def run_scenario(
         Minutes to pre-warm the plant via :class:`IdealOracleAdapter` before
         the test adapter takes over. ``0`` disables stabilisation and gives
         the cold-start behaviour of earlier versions.
+
+    Raises
+    ------
+    ValueError
+        If ``step_s`` is not positive.
     """
+    if step_s <= 0.0:
+        raise ValueError("step_s must be > 0")
     actual_plant = plant_params if plant_params is not None else scenario.plant
     plant = TwoStatePlant(
         actual_plant,
@@ -512,9 +519,22 @@ def main(argv: list[str] | None = None) -> int:
     )
     args = parser.parse_args(argv)
     profile = PROFILES[args.profile]
+    if args.step_s <= 0.0:
+        print("--step-s must be > 0", file=sys.stderr)
+        return 2
 
     controllers = args.controller or list(ADAPTER_FACTORIES.keys())
     scenarios = args.scenario or list(ALL_SCENARIOS.keys())
+
+    # Validate names before any filtering indexes into the registries.
+    for c in controllers:
+        if c not in ADAPTER_FACTORIES:
+            print(f"Unknown controller: {c}", file=sys.stderr)
+            return 2
+    for s in scenarios:
+        if s not in ALL_SCENARIOS:
+            print(f"Unknown scenario: {s}", file=sys.stderr)
+            return 2
 
     # Resolve plant selection.
     plant_args: list[str] = args.plant or []
@@ -536,14 +556,6 @@ def main(argv: list[str] | None = None) -> int:
     else:
         plant_names = ["__default__"]  # use each scenario's own plant
 
-    for c in controllers:
-        if c not in ADAPTER_FACTORIES:
-            print(f"Unknown controller: {c}", file=sys.stderr)
-            return 2
-    for s in scenarios:
-        if s not in ALL_SCENARIOS:
-            print(f"Unknown scenario: {s}", file=sys.stderr)
-            return 2
     for p in plant_names:
         if p != "__default__" and p not in PLANT_PROFILES:
             print(f"Unknown plant profile: {p}", file=sys.stderr)

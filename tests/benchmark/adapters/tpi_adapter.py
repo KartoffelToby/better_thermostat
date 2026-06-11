@@ -9,6 +9,7 @@ relative to the simulator step.
 
 from __future__ import annotations
 
+from itertools import count
 from typing import Any
 
 from custom_components.better_thermostat.utils.calibration import tpi as tpi_mod
@@ -21,6 +22,10 @@ from custom_components.better_thermostat.utils.calibration.tpi import (
 
 from .base import BenchmarkContext, BenchmarkOutput, ControllerFamily
 
+# Each adapter instance fronts an entry in the module-global ``_TPI_STATES``;
+# unique default keys keep concurrent instances from evicting each other.
+_KEY_COUNTER = count()
+
 
 class TpiAdapter:
     """Benchmark adapter for the production TPI controller."""
@@ -28,12 +33,10 @@ class TpiAdapter:
     name: str = "tpi"
     family: ControllerFamily = "duty"
 
-    def __init__(
-        self, params: TpiParams | None = None, key: str = "bench:trv:t0"
-    ) -> None:
+    def __init__(self, params: TpiParams | None = None, key: str | None = None) -> None:
         self._params = params if params is not None else TpiParams()
         self._state: _TpiState = _TpiState()
-        self._key = key
+        self._key = key if key is not None else f"bench:trv:tpi{next(_KEY_COUNTER)}"
         self._sim_time_s: float = 0.0
         self._original_monotonic = tpi_mod.monotonic
         tpi_mod._TPI_STATES.pop(self._key, None)

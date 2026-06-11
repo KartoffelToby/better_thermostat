@@ -117,3 +117,10 @@ def test_default_climate_params_constructible():
     p = ClimateParams()
     assert p.annual_mean_C > 0
     assert p.synoptic_alpha < 1.0
+
+
+def test_diurnal_cycle_peaks_mid_afternoon():
+    """With synoptics muted, 15:00 must be warmer than the small hours."""
+    calm = ClimateParams(name="calm", synoptic_sigma_C=0.0)
+    outdoor, _solar = make_schedules(calm, start_day_of_year=14, duration_h=24, seed=1)
+    assert outdoor(15 * 3600.0) > outdoor(3 * 3600.0)

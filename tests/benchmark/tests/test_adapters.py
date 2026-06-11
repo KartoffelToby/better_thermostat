@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import pytest
 
-from tests.benchmark.adapters.base import BenchmarkContext
+from tests.benchmark.adapters.base import BenchmarkContext, BenchmarkOutput
 from tests.benchmark.adapters.baselines import (
     BangBangAdapter,
     IdealOracleAdapter,
@@ -99,3 +99,38 @@ def test_error_drives_demand_for_feedback_controllers():
         out = adapter.step(_ctx(target=22.0, current=18.0))
         valve = out.valve_percent or 0.0
         assert valve > 0.0, f"{adapter_cls.__name__} should command heat when cold"
+
+
+def test_benchmark_output_requires_exactly_one_family_field():
+    """The output contract rejects empty and mixed-family outputs."""
+    with pytest.raises(ValueError):
+        BenchmarkOutput()
+    with pytest.raises(ValueError):
+        BenchmarkOutput(valve_percent=50.0, setpoint_offset_K=1.0)
+    # The documented duty controllers' pairing stays allowed.
+    out = BenchmarkOutput(duty_cycle_pct=40.0, valve_percent=40.0)
+    assert out.duty_cycle_pct == 40.0
+
+
+def test_state_backed_adapters_use_unique_default_keys():
+    """Two default-keyed instances must not share controller state entries."""
+    for cls in (PidAdapter, TpiAdapter, MpcAdapter):
+        a, b = cls(), cls()
+        assert a._key != b._key
+    assert PidAdapter(key="shared")._key == "shared"
+
+
+def test_oracle_feedback_uses_plant_truth():
+    """The oracle's P-term reads the plant truth, not the lagged sensor."""
+    adapter = IdealOracleAdapter()
+    ctx = BenchmarkContext(
+        t=0.0,
+        dt=30.0,
+        target_temp_C=21.0,
+        current_temp_C=18.0,  # lagged/noisy sensor reading
+        raw_room_temp_C=21.0,  # plant truth already at setpoint
+        trv_temp_C=None,
+        outdoor_temp_C=5.0,
+    )
+    out = adapter.step(ctx)
+    assert out.diagnostics["error_K"] == pytest.approx(0.0)

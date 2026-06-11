@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import math
 
+import pytest
+
 from tests.benchmark.metrics import TimeSeries, compute_metrics
 
 
@@ -90,3 +92,38 @@ def test_integral_valve_pct_min():
     )
     m = compute_metrics(series, transient_start_s=0.0)
     assert abs(m.integral_valve_pct_min - 3000.0) < 1e-6
+
+
+def test_timeseries_rejects_mismatched_lengths():
+    """Parallel arrays of different length fail at construction."""
+    with pytest.raises(ValueError):
+        TimeSeries(
+            t_s=[0.0, 30.0],
+            T_room_C=[20.0],
+            T_setpoint_C=[21.0, 21.0],
+            valve_pct=[0.0, 0.0],
+        )
+
+
+def test_timeseries_rejects_non_monotonic_time():
+    """Non-increasing timestamps fail at construction."""
+    with pytest.raises(ValueError):
+        TimeSeries(
+            t_s=[0.0, 30.0, 30.0],
+            T_room_C=[20.0, 20.0, 20.0],
+            T_setpoint_C=[21.0, 21.0, 21.0],
+            valve_pct=[0.0, 0.0, 0.0],
+        )
+
+
+def test_imbalance_clips_interval_straddling_transient_start():
+    """Only the post-transient portion of a straddling interval is charged."""
+    series = TimeSeries(
+        t_s=[0.0, 3600.0],
+        T_room_C=[22.0, 22.0],
+        T_setpoint_C=[21.0, 21.0],
+        valve_pct=[0.0, 0.0],
+    )
+    m = compute_metrics(series, transient_start_s=1800.0)
+    # 1 K error over the half hour after the transient start → 0.5 K·h.
+    assert m.time_above_setpoint_K_h == pytest.approx(0.5)

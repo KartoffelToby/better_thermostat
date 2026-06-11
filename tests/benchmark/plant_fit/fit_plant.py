@@ -35,6 +35,7 @@ from collections import defaultdict
 import csv
 from dataclasses import dataclass
 import math
+import statistics
 import sys
 
 
@@ -182,7 +183,7 @@ def _summarise(label: str, values: list[float]) -> None:
         return
     values_sorted = sorted(values)
     n = len(values_sorted)
-    median = values_sorted[n // 2]
+    median = statistics.median(values_sorted)
     mean = sum(values_sorted) / n
     print(
         f"  {label}: n={n}, mean={mean:.1f}, median={median:.1f}, "
@@ -195,9 +196,12 @@ def main(path: str | None = None) -> int:
 
     ``path`` is the long-format CSV exported by Home Assistant's
     ``recorder`` ``statistics`` table — the natural input for users who
-    bring their own data. When ``None`` (default), the demo uses the
-    deterministic synthetic dataset from :mod:`generate_synthetic_data`
-    directly, in memory, with no file round-trip.
+    bring their own data. Entity IDs are discovered from the CSV itself:
+    the first entity containing ``outdoor`` (case-insensitive) becomes
+    the outdoor proxy, every other entity is fitted as a room. When
+    ``None`` (default), the demo uses the deterministic synthetic dataset
+    from :mod:`generate_synthetic_data` directly, in memory, with no file
+    round-trip.
     """
     if path is None:
         from . import generate_synthetic_data
@@ -210,11 +214,17 @@ def main(path: str | None = None) -> int:
         }
     else:
         data = _load_csv(path)
+        outdoor_candidates = sorted(eid for eid in data if "outdoor" in eid.lower())
+        if not outdoor_candidates:
+            print(
+                "ERROR: no entity with 'outdoor' in its id found in CSV",
+                file=sys.stderr,
+            )
+            return 1
+        outdoor_id = outdoor_candidates[0]
         rooms = {
-            "living": "synthetic.living_room_temperature",
-            "kitchen": "synthetic.kitchen_temperature",
+            eid.rsplit(".", 1)[-1]: eid for eid in sorted(data) if eid != outdoor_id
         }
-        outdoor_id = "synthetic.outdoor_temperature"
     if outdoor_id not in data:
         print(f"ERROR: outdoor proxy {outdoor_id} not in CSV", file=sys.stderr)
         return 1
@@ -256,4 +266,4 @@ def main(path: str | None = None) -> int:
 
 
 if __name__ == "__main__":
-    raise SystemExit(main())
+    raise SystemExit(main(sys.argv[1] if len(sys.argv) > 1 else None))

@@ -127,10 +127,18 @@ class IndirectTrvAdapter:
         self._pending_setpoints: list[float] = []
 
     def reset(self, prior: dict[str, Any] | None = None) -> None:
-        """Reset wrapped controller and the TRV layer."""
-        self.inner.reset(prior)
-        self._last_quantised_setpoint_C = None
-        self._pending_setpoints = []
+        """Reset wrapped controller and the TRV layer.
+
+        ``prior`` takes the shape produced by :meth:`export_state`: the
+        inner controller's snapshot under ``"inner"``, the TRV-layer cache
+        at the top level. Missing keys fall back to a cleared state.
+        """
+        inner_prior = prior.get("inner") if prior is not None else None
+        self.inner.reset(inner_prior if isinstance(inner_prior, dict) else None)
+        last = prior.get("last_quantised_setpoint_C") if prior is not None else None
+        self._last_quantised_setpoint_C = last if isinstance(last, float) else None
+        pending = prior.get("pending_setpoints") if prior is not None else None
+        self._pending_setpoints = list(pending) if isinstance(pending, list) else []
 
     def step(self, ctx: BenchmarkContext) -> BenchmarkOutput:
         """Translate the inner controller's valve_percent into TRV-controlled u."""
@@ -200,4 +208,5 @@ class IndirectTrvAdapter:
         return {
             "inner": self.inner.export_state(),
             "last_quantised_setpoint_C": self._last_quantised_setpoint_C,
+            "pending_setpoints": list(self._pending_setpoints),
         }

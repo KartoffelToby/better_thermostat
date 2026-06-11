@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import math
 
+import pytest
+
 from tests.benchmark import schedules
 
 
@@ -152,3 +154,53 @@ def test_solar_trapezoid_envelope():
     assert math.isclose(f(350.0), 1.0)  # half-fall
     assert f(400.0) == 0.0  # past fall
     assert f(1000.0) == 0.0  # well past
+
+
+def test_ramp_rejects_non_positive_span():
+    """A zero- or negative-length ramp window is rejected."""
+    with pytest.raises(ValueError):
+        schedules.ramp(100.0, 100.0, 0.0, 1.0)
+    with pytest.raises(ValueError):
+        schedules.ramp(200.0, 100.0, 0.0, 1.0)
+
+
+def test_stochastic_windows_rejects_non_positive_count():
+    """Count <= 0 is rejected instead of dividing by zero."""
+    with pytest.raises(ValueError):
+        schedules.stochastic_windows(seed=1, count=0, duration_s=3600.0)
+
+
+def test_stochastic_windows_rejects_inconsistent_duration_bounds():
+    """min_duration_s > max_duration_s is rejected."""
+    with pytest.raises(ValueError):
+        schedules.stochastic_windows(
+            seed=1,
+            count=2,
+            duration_s=3600.0,
+            min_duration_s=600.0,
+            max_duration_s=300.0,
+        )
+
+
+def test_stochastic_windows_do_not_spill_into_next_slot():
+    """Short slots clamp event durations so events stay non-overlapping."""
+    count = 6
+    slot_s = 600.0
+    sched = schedules.stochastic_windows(
+        seed=7,
+        count=count,
+        duration_s=count * slot_s,
+        min_duration_s=300.0,
+        max_duration_s=1800.0,  # far longer than one slot
+    )
+    edges = 0
+    prev = False
+    t = 0.0
+    while t < count * slot_s:
+        cur = sched(t)
+        if cur and not prev:
+            edges += 1
+        prev = cur
+        t += 1.0
+    # Spilling events would merge with their successors → fewer edges.
+    assert edges == count

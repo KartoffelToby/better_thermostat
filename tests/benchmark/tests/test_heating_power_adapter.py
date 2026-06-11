@@ -167,3 +167,17 @@ def test_repeated_steps_are_deterministic():
         out_b = b.step(_ctx(t=t * 30.0, target=21.0, current=20.0 + 0.01 * t))
         assert out_a.valve_percent == out_b.valve_percent
     assert a.heating_power == b.heating_power
+
+
+def test_cycle_finalizes_when_heating_resumes_before_cooldown():
+    """Demand resuming above the tracked peak still finalizes the cycle."""
+    adapter = HeatingPowerAdapter(initial_heating_power=0.02)
+    # Heating phase: room 20 → 21 over 10 minutes.
+    for i in range(20):
+        adapter.step(_ctx(t=i * 30.0, target=22.0, current=20.0 + 0.05 * i))
+    # Valve closes and the post-heat peak is tracked, but demand resumes
+    # before the room ever cools below that peak.
+    adapter.step(_ctx(t=20 * 30.0, target=20.5, current=21.2))  # valve = 0, peak
+    adapter.step(_ctx(t=21 * 30.0, target=23.0, current=21.2))  # heating resumes
+    # The finished cycle updated the learner instead of being dropped.
+    assert adapter.heating_power != 0.02

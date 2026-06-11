@@ -125,6 +125,15 @@ class HeatingPowerAdapter:
         then EMA the observed K/min into ``heating_power``.
         """
         if is_heating and not self._was_heating:
+            # Demand can resume before the room cools below the tracked
+            # peak; finalize the finished cycle instead of dropping it.
+            if (
+                self._cycle_start_temp is not None
+                and self._cycle_start_t is not None
+                and self._cycle_peak_temp is not None
+                and self._cycle_peak_t is not None
+            ):
+                self._finalize_cycle()
             self._cycle_start_temp = ctx.current_temp_C
             self._cycle_start_t = ctx.t
             self._cycle_peak_temp = None

@@ -29,7 +29,11 @@ class SensorParams:
     sample_interval_s: float = 60.0
     ema_alpha: float = 1.0  # 1.0 = no EMA filter; <1.0 = smoothed toward filtered
     noise_std_K: float = 0.0
-    dropout_until_t_s: float = -1.0  # if t_s < this, sensor returns None
+    # Dropout window: the sensor returns None while
+    # ``dropout_from_t_s <= t_s < dropout_until_t_s``. The defaults
+    # (0.0 / -1.0) describe an empty window, i.e. no dropout.
+    dropout_from_t_s: float = 0.0
+    dropout_until_t_s: float = -1.0
     # Sensor's own thermal time constant. ``0`` disables the lag;
     # typical residential values are 60–180 s.
     thermal_lag_s: float = 0.0
@@ -92,10 +96,12 @@ class Sensor:
 
     def read(self, t_s: float, T_true_C: float) -> float | None:
         """Return the currently observed temperature, or None on dropout."""
-        if t_s < self.params.dropout_until_t_s:
+        # The sensor body keeps tracking the room even while reporting is
+        # down, so the lag state must advance through the outage.
+        T_lagged = self._apply_thermal_lag(t_s, T_true_C)
+        if self.params.dropout_from_t_s <= t_s < self.params.dropout_until_t_s:
             return None
 
-        T_lagged = self._apply_thermal_lag(t_s, T_true_C)
         T_lagged += self.params.bias_K + self.params.drift_K_per_h * (t_s / 3600.0)
 
         should_sample = (

@@ -2,10 +2,12 @@
 
 from __future__ import annotations
 
+from dataclasses import replace
 import math
 
 import pytest
 
+from tests.benchmark import multi_trv_runner
 from tests.benchmark.adapters.baselines import IdealOracleAdapter
 from tests.benchmark.adapters.pid_adapter import PidAdapter
 from tests.benchmark.multi_trv_plant import (
@@ -198,3 +200,43 @@ def test_heterogeneous_multi_trv_run_keeps_room_bounded():
     )
     # Even with a deadbanded TRV the run completes and produces finite metrics.
     assert math.isfinite(result.metrics.rmse_tracking_K)
+
+
+def test_deadband_length_mismatch_raises():
+    """A deadband list that is neither empty nor n_trvs long is rejected."""
+    params = replace(PROFILE_MULTI_SYMMETRIC, deadband_pcts_per_trv=[10.0])
+    with pytest.raises(ValueError):
+        MultiTrvPlant(
+            params, MultiTrvPlantState(T_room_C=20.0, T_rads_C=[20.0, 20.0, 20.0])
+        )
+
+
+def test_run_multi_trv_scenario_rejects_non_positive_step_s():
+    """run_multi_trv_scenario rejects non positive step_s."""
+    with pytest.raises(ValueError):
+        run_multi_trv_scenario(
+            PidAdapter(),
+            S01_SETPOINT_STEP_SMALL,
+            PROFILE_MULTI_SYMMETRIC,
+            MultiTrvPlantState(T_room_C=20.0, T_rads_C=[20.0, 20.0, 20.0]),
+            step_s=0.0,
+        )
+
+
+def test_run_multi_trv_scenario_honors_scenario_stabilisation_override(monkeypatch):
+    """A per-scenario stabilisation override beats the caller default."""
+    seen: dict[str, float] = {}
+
+    def _spy(plant, scenario, stabilisation_min, step_s):
+        seen["min"] = stabilisation_min
+
+    monkeypatch.setattr(multi_trv_runner, "_stabilise_multi_trv", _spy)
+    scenario = replace(S01_SETPOINT_STEP_SMALL, stabilisation_min=7.0, duration_min=1)
+    run_multi_trv_scenario(
+        PidAdapter(),
+        scenario,
+        PROFILE_MULTI_SYMMETRIC,
+        MultiTrvPlantState(T_room_C=20.0, T_rads_C=[20.0, 20.0, 20.0]),
+        stabilisation_min=60.0,
+    )
+    assert seen["min"] == 7.0
