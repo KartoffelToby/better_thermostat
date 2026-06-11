@@ -84,6 +84,40 @@ decide(snapshot, state) -> (desired, state')
   (via `utils/state_manager.py`), and the kernel state it threads through
   the cycles.
 
+### Control cycles: pulled, not polled
+
+A control cycle is one pass of `build_snapshot() → decide() → apply`.
+The snapshot is not a maintained cache — it is built fresh at the start
+of each cycle and discarded afterwards, so a decision always sees one
+coherent world (this is also what makes flight-recorder replay
+deterministic). Reactivity comes from the push side: every trigger
+requests a cycle through the scheduler, and the queue holds at most one
+pending request — a pending cycle covers any state change that arrives
+before it runs.
+
+A cycle runs on:
+
+- **sensor events** — a relevant room-temperature change, a TRV state
+  change, a window transition (after the configured debounce; window
+  kicks replace a pending request),
+- **user actions** on the entity — target temperature, preset, HVAC
+  mode (the service path requests the cycle directly),
+- **the five-minute ticks** — the calibration tick (controller modes)
+  and the reconciler,
+- **the follow-up** a budget-deferred write schedules for itself.
+
+Only one cycle runs at a time; the worst-case latency from event to
+decision is the remainder of the cycle currently running (a few
+seconds).
+
+A cycle writes only differences — a device already matching the intent
+gets no write. Per TRV and channel (setpoint, offset, valve):
+safety-relevant writes (OFF for an open window or absent heat demand,
+the frost floor, closing the valve) always go out immediately;
+everything else waits out the 30-second write budget and is re-sent
+automatically once the slot frees up. Deciding is never throttled —
+only the radio traffic to the device is.
+
 ### Where new logic goes
 
 A new rule about *what should happen* (a gate, a precedence, a mode)
