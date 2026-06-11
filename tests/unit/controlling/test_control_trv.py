@@ -166,7 +166,7 @@ class TestControlTrvUnavailablePath:
             result = await control_trv(mock_self, "climate.trv1")
 
             assert result is True
-            assert mock_self.real_trvs["climate.trv1"]["ignore_trv_states"] is False
+            assert mock_self.real_trvs["climate.trv1"].ignore_trv_states is False
 
     @pytest.mark.asyncio
     async def test_trv_unavailable_returns_true(self):
@@ -495,7 +495,7 @@ class TestControlTrvUnavailablePath:
             await control_trv(mock_self, "climate.trv1")
 
             # After completion, flag should be reset
-            assert mock_self.real_trvs["climate.trv1"]["ignore_trv_states"] is False
+            assert mock_self.real_trvs["climate.trv1"].ignore_trv_states is False
 
 
 # ---------------------------------------------------------------------------
@@ -644,7 +644,7 @@ class TestControlTrvAvailablePath:
             result = await control_trv(mock_self, "climate.trv1")
 
             # The fix should reset calibration_received to True
-            assert mock_self.real_trvs["climate.trv1"]["calibration_received"] is True
+            assert mock_self.real_trvs["climate.trv1"].calibration_received is True
             assert result is True
 
     @pytest.mark.asyncio
@@ -1267,8 +1267,8 @@ class TestRaceConditionLockCoverage:
 
             assert results[0] is True
             assert results[1] is True
-            assert mock_self.real_trvs["climate.trv1"]["ignore_trv_states"] is False
-            assert mock_self.real_trvs["climate.trv2"]["ignore_trv_states"] is False
+            assert mock_self.real_trvs["climate.trv1"].ignore_trv_states is False
+            assert mock_self.real_trvs["climate.trv2"].ignore_trv_states is False
 
     @pytest.mark.asyncio
     async def test_lock_protects_critical_sections(self):
@@ -1480,11 +1480,11 @@ class TestGroupedTrvCalibration:
                 "system_mode": "heat",
             }
 
-            assert mock_bt_grouped.real_trvs[entity_id]["calibration_received"] is False
+            assert mock_bt_grouped.real_trvs[entity_id].calibration_received is False
 
             await control_trv(mock_bt_grouped, entity_id)
 
-            assert mock_bt_grouped.real_trvs[entity_id]["calibration_received"] is False
+            assert mock_bt_grouped.real_trvs[entity_id].calibration_received is False
             mock_set_offset.assert_not_called()
 
     @pytest.mark.anyio
@@ -1518,12 +1518,12 @@ class TestGroupedTrvCalibration:
                 "system_mode": "heat",
             }
 
-            assert mock_bt_grouped.real_trvs[entity_id]["calibration_received"] is True
+            assert mock_bt_grouped.real_trvs[entity_id].calibration_received is True
 
             await control_trv(mock_bt_grouped, entity_id)
 
             mock_set_offset.assert_called_once_with(mock_bt_grouped, entity_id, 3.0)
-            assert mock_bt_grouped.real_trvs[entity_id]["calibration_received"] is False
+            assert mock_bt_grouped.real_trvs[entity_id].calibration_received is False
 
     @pytest.mark.anyio
     async def test_calibration_tolerance_within_half_degree(self, mock_bt_grouped):
@@ -1554,11 +1554,11 @@ class TestGroupedTrvCalibration:
                 "system_mode": "heat",
             }
 
-            assert mock_bt_grouped.real_trvs[entity_id]["calibration_received"] is False
+            assert mock_bt_grouped.real_trvs[entity_id].calibration_received is False
 
             await control_trv(mock_bt_grouped, entity_id)
 
-            assert mock_bt_grouped.real_trvs[entity_id]["calibration_received"] is True
+            assert mock_bt_grouped.real_trvs[entity_id].calibration_received is True
 
     @pytest.mark.anyio
     async def test_calibration_tolerance_outside_half_degree(self, mock_bt_grouped):
@@ -1589,8 +1589,8 @@ class TestGroupedTrvCalibration:
                 "system_mode": "heat",
             }
 
-            assert mock_bt_grouped.real_trvs[entity_id]["calibration_received"] is False
+            assert mock_bt_grouped.real_trvs[entity_id].calibration_received is False
 
             await control_trv(mock_bt_grouped, entity_id)
 
-            assert mock_bt_grouped.real_trvs[entity_id]["calibration_received"] is False
+            assert mock_bt_grouped.real_trvs[entity_id].calibration_received is False

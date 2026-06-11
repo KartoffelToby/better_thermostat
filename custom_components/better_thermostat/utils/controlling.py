@@ -59,9 +59,8 @@ def _get_valve_control(
         _is_boost_heating_active(self)
         and calibration_type == CalibrationType.DIRECT_VALVE_BASED
     ):
-        max_opening = (self.real_trvs.get(heater_entity_id) or {}).get(
-            "valve_max_opening", 100
-        )
+        _trv = self.real_trvs.get(heater_entity_id)
+        max_opening = _trv.valve_max_opening if _trv is not None else 100
         if isinstance(max_opening, (int, float)):
             target_pct = max(0, min(100, int(round(float(max_opening)))))
         else:

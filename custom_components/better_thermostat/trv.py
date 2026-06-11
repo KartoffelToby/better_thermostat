@@ -4,12 +4,7 @@ A :class:`Trv` bundles everything Better Thermostat knows about one
 thermostatic radiator valve: static configuration (integration, model,
 adapter, quirks), reported device state, and the write-tracking flags
 the control loop maintains. The entries of ``real_trvs`` are
-instances of this class.
-
-During the migration the class also speaks the dict protocol
-(``trv["key"]`` / ``trv.get("key")``), so call sites can move to
-attribute access file by file. The bridge disappears once every
-consumer is converted.
+instances of this class, accessed via typed attributes.
 """
 
 from __future__ import annotations
@@ -17,8 +12,6 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from types import ModuleType
 from typing import Any
-
-_NO_DEFAULT = object()
 
 
 @dataclass
@@ -91,42 +84,3 @@ class Trv:
         trv = cls(entity_id=entity_id, **fields_in)
         trv.extra.update(extra)
         return trv
-
-    # -- Transitional dict protocol ----------------------------------------
-
-    def _is_field(self, key: str) -> bool:
-        """Return True when ``key`` names a typed field (not the scratchpad)."""
-        return key != "extra" and key in self.__dataclass_fields__
-
-    def __getitem__(self, key: str) -> Any:
-        """Dict-style read of a field or ``extra`` entry."""
-        if self._is_field(key):
-            return getattr(self, key)
-        return self.extra[key]
-
-    def __setitem__(self, key: str, value: Any) -> None:
-        """Dict-style write to a field or the ``extra`` scratchpad."""
-        if self._is_field(key):
-            setattr(self, key, value)
-        else:
-            self.extra[key] = value
-
-    def __contains__(self, key: object) -> bool:
-        """Dict-style membership over fields and ``extra``."""
-        return (isinstance(key, str) and self._is_field(key)) or key in self.extra
-
-    def get(self, key: str, default: Any = None) -> Any:
-        """Dict-style read: field value or ``extra`` entry or ``default``."""
-        if self._is_field(key):
-            return getattr(self, key)
-        return self.extra.get(key, default)
-
-    def pop(self, key: str, default: Any = _NO_DEFAULT) -> Any:
-        """Dict-style clear: fields are reset to ``None``, extras removed."""
-        if self._is_field(key):
-            value = getattr(self, key)
-            setattr(self, key, None)
-            return value
-        if default is _NO_DEFAULT:
-            return self.extra.pop(key)
-        return self.extra.pop(key, default)

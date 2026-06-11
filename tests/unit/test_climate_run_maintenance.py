@@ -13,6 +13,7 @@ from homeassistant.components.climate.const import HVACMode
 import pytest
 
 from custom_components.better_thermostat.climate import BetterThermostat
+from custom_components.better_thermostat.trv import Trv
 
 _CLIMATE = "custom_components.better_thermostat.climate"
 _NEXT = datetime(2026, 1, 8, 12, 0, tzinfo=UTC)
@@ -25,7 +26,7 @@ def bt():
     mock.device_name = "Test BT"
     mock.in_maintenance = False
     mock.ignore_states = False
-    mock.real_trvs = {"climate.trv": {}}
+    mock.real_trvs = {"climate.trv": Trv(entity_id="climate.trv")}
     mock.bt_hvac_mode = HVACMode.HEAT
     mock.hass = MagicMock()
     mock.control_queue_task = MagicMock()
