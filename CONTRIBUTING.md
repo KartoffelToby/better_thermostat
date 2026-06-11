@@ -87,36 +87,15 @@ decide(snapshot, state) -> (desired, state')
 ### Control cycles: pulled, not polled
 
 A control cycle is one pass of `build_snapshot() → decide() → apply`.
-The snapshot is not a maintained cache — it is built fresh at the start
-of each cycle and discarded afterwards, so a decision always sees one
-coherent world (this is also what makes flight-recorder replay
-deterministic). Reactivity comes from the push side: every trigger
-requests a cycle through the scheduler, and the queue holds at most one
-pending request — a pending cycle covers any state change that arrives
-before it runs.
-
-A cycle runs on:
-
-- **sensor events** — a relevant room-temperature change, a TRV state
-  change, a window transition (after the configured debounce; window
-  kicks replace a pending request),
-- **user actions** on the entity — target temperature, preset, HVAC
-  mode (the service path requests the cycle directly),
-- **the five-minute ticks** — the calibration tick (controller modes)
-  and the reconciler,
-- **the follow-up** a budget-deferred write schedules for itself.
-
-Only one cycle runs at a time; the worst-case latency from event to
-decision is the remainder of the cycle currently running (a few
-seconds).
-
-A cycle writes only differences — a device already matching the intent
-gets no write. Per TRV and channel (setpoint, offset, valve):
-safety-relevant writes (OFF for an open window or absent heat demand,
-the frost floor, closing the valve) always go out immediately;
-everything else waits out the 30-second write budget and is re-sent
-automatically once the slot frees up. Deciding is never throttled —
-only the radio traffic to the device is.
+The snapshot is not a maintained cache — it is built fresh per cycle,
+so a decision always sees one coherent world; reactivity comes from
+events, user actions, and the five-minute ticks each *requesting* a
+cycle (requests coalesce). A cycle writes only differences;
+safety-relevant writes go out immediately, everything else is spaced by
+the 30-second per-channel write budget. The full trigger and write
+model, the regions, the fail-soft ladder, and the test strategy are
+documented in depth under [docs/internals/](docs/internals/architecture.md)
+(published at better-thermostat.org under *Internals*).
 
 ### Where new logic goes
 
