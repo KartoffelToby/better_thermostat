@@ -19,7 +19,7 @@ _FORBIDDEN = (
     # empty-dict fallbacks that imply dict-shaped entries
     re.compile(r"real_trvs\.get\([^)]*,\s*\{\}\)"),
     # "key" in real_trvs[x] membership tests on an entry
-    re.compile(r"\bin\s+(?:\w+(?:\.\w+)*\.)?real_trvs\[[^\]]+\]\s*(?::|$|\))"),
+    re.compile(r"\bin\s+(?:\w+(?:\.\w+)*\.)?real_trvs\[[^\]]+\]\s*(?::|$|\))", re.M),
     # real_trvs[x].pop()/.keys()/... dict methods on an entry
     re.compile(r"real_trvs\[[^\]]+\]\.(pop|keys|values|items|setdefault|update)\("),
 )
@@ -30,10 +30,12 @@ def test_no_raw_dict_access_to_real_trvs_entries():
     offenders: list[str] = []
     for path in sorted(_PACKAGE.rglob("*.py")):
         source = path.read_text()
-        for lineno, line in enumerate(source.splitlines(), start=1):
-            for pattern in _FORBIDDEN:
-                if pattern.search(line):
-                    offenders.append(f"{path.name}:{lineno}: {line.strip()}")
+        lines = source.splitlines()
+        for pattern in _FORBIDDEN:
+            for match in pattern.finditer(source):
+                lineno = source.count("\n", 0, match.start()) + 1
+                line = lines[lineno - 1].strip() if lineno <= len(lines) else ""
+                offenders.append(f"{path.name}:{lineno}: {line}")
     assert offenders == [], "raw dict access to real_trvs entries:\n" + "\n".join(
         offenders
     )

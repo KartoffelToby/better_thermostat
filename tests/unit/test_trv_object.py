@@ -60,6 +60,27 @@ class TestExtraScratchpad:
         assert trv.advanced == {"child_lock": True}
         assert trv.extra == {"_quirk_scratch": 3}
 
+    def test_from_legacy_dict_ignores_entity_id_key(self):
+        """A legacy ``entity_id`` key never collides with the argument."""
+        trv = Trv.from_legacy_dict(
+            "climate.trv", {"entity_id": "climate.stale", "model": "TRVZB"}
+        )
+        assert trv.entity_id == "climate.trv"
+        assert trv.model == "TRVZB"
+        assert "entity_id" not in trv.extra
+
+    def test_from_legacy_dict_merges_extra_dict(self):
+        """A legacy ``extra`` dict is flattened into ``extra``, not nested."""
+        trv = Trv.from_legacy_dict(
+            "climate.trv", {"extra": {"_seq": 7}, "_quirk_scratch": 3}
+        )
+        assert trv.extra == {"_seq": 7, "_quirk_scratch": 3}
+
+    def test_from_legacy_dict_keeps_non_dict_extra_value(self):
+        """A non-dict legacy ``extra`` value survives under the ``extra`` key."""
+        trv = Trv.from_legacy_dict("climate.trv", {"extra": 42})
+        assert trv.extra == {"extra": 42}
+
     def test_no_dict_protocol(self):
         """Trv does not speak the dict protocol: attribute access only."""
         trv = _make()

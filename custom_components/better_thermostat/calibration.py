@@ -230,7 +230,7 @@ def _compute_mpc_balance(self, entity_id: str):
         trv_temps = {}
         warmest_temp: float | None = None
         for eid, tdata in self.real_trvs.items():
-            _t = tdata.get("current_temperature")
+            _t = tdata.current_temperature
             if _t is not None:
                 try:
                     temp_val = float(_t)

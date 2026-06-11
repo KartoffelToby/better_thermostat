@@ -83,12 +83,20 @@ async def trigger_trv_change(self, event):
         )
         return
 
-    child_lock = self.real_trvs[entity_id].advanced.get("child_lock")
+    trv = self.real_trvs.get(entity_id)
+    if trv is None:
+        _LOGGER.debug(
+            "better_thermostat %s: TRV %s is not tracked in real_trvs, skipping",
+            self.device_name,
+            entity_id,
+        )
+        return
+
+    child_lock = (trv.advanced or {}).get("child_lock")
 
     # Dynamische Modell-Erkennung: nur einmalig (z. B. beim Start) – nicht bei jedem Event
     try:
-        _trv_entry = self.real_trvs.get(entity_id)
-        prev_model = _trv_entry.model if _trv_entry is not None else None
+        prev_model = trv.model
         if not prev_model:
             if _org_trv_state is not None and isinstance(
                 _org_trv_state.attributes, dict
@@ -109,8 +117,8 @@ async def trigger_trv_change(self, event):
                                 detected,
                             )
                             quirks = await load_model_quirks(self, detected, entity_id)
-                            self.real_trvs[entity_id].model = detected
-                            self.real_trvs[entity_id].model_quirks = quirks
+                            trv.model = detected
+                            trv.model_quirks = quirks
     except Exception as e:
         _LOGGER.debug(
             "better_thermostat %s: dynamic model detection failed for %s: %s",

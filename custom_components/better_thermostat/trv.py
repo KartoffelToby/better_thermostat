@@ -73,11 +73,33 @@ class Trv:
         """Build a Trv from a plain per-entity dict.
 
         Known keys become typed fields; unknown keys land in ``extra``.
+        A legacy ``extra`` dict is merged into ``extra`` rather than
+        nested, and a legacy ``entity_id`` key is ignored in favor of
+        the ``entity_id`` argument.
+
+        Parameters
+        ----------
+        entity_id : str
+            Entity id of the TRV this state belongs to.
+        data : dict[str, Any]
+            Legacy per-entity dict as previously stored in ``real_trvs``.
+
+        Returns
+        -------
+        Trv
+            Typed equivalent of ``data``.
         """
-        fields_in = {}
+        fields_in: dict[str, Any] = {}
         extra: dict[str, Any] = {}
         for key, value in data.items():
-            if key != "extra" and key in cls.__dataclass_fields__:
+            if key == "entity_id":
+                continue
+            if key == "extra":
+                if isinstance(value, dict):
+                    extra.update(value)
+                else:
+                    extra[key] = value
+            elif key in cls.__dataclass_fields__:
                 fields_in[key] = value
             else:
                 extra[key] = value

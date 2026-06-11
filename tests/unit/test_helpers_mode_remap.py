@@ -6,7 +6,6 @@ heat_auto_swapped devices and TRVs that only support HEAT_COOL but not HEAT.
 """
 
 from homeassistant.components.climate.const import HVACMode
-import pytest
 
 from custom_components.better_thermostat.trv import Trv
 from custom_components.better_thermostat.utils.helpers import mode_remap
@@ -149,17 +148,13 @@ class TestModeRemapHeatCoolTranslation:
 class TestModeRemapEdgeCases:
     """Test edge cases and potential bugs."""
 
-    def test_missing_entity_id(self):
-        """Test behavior when entity_id is not in real_trvs."""
+    def test_missing_entity_id_passes_mode_through(self):
+        """An untracked entity_id leaves the mode unchanged instead of raising."""
         mock_bt = MockThermostat()
         # Don't add any TRVs
 
-        try:
-            mode_remap(mock_bt, "climate.missing", HVACMode.HEAT, inbound=False)
-            pytest.fail("Should have raised KeyError for missing entity")
-        except KeyError:
-            # Expected - we found a potential crash scenario
-            pass
+        result = mode_remap(mock_bt, "climate.missing", HVACMode.HEAT, inbound=False)
+        assert result == HVACMode.HEAT
 
     def test_missing_advanced_config_defaults_to_no_swap(self):
         """Without advanced config the Trv defaults make remap a no-op."""
@@ -172,18 +167,19 @@ class TestModeRemapEdgeCases:
         result = mode_remap(mock_bt, "climate.test", HVACMode.HEAT, inbound=False)
         assert result == HVACMode.HEAT
 
-    def test_unreported_hvac_modes_raise(self):
-        """hvac_modes=None (device never reported) surfaces as TypeError.
+    def test_unreported_hvac_modes_pass_through(self):
+        """hvac_modes=None (device never reported) leaves the mode unchanged.
 
-        convert_outbound_states catches this and skips the control cycle.
+        convert_outbound_states then handles the device via its
+        no-system-mode branch instead of aborting on an exception.
         """
         mock_bt = MockThermostat()
         mock_bt.real_trvs["climate.test"] = Trv.from_legacy_dict(
             "climate.test", {"advanced": {"heat_auto_swapped": False}}
         )
 
-        with pytest.raises(TypeError):
-            mode_remap(mock_bt, "climate.test", HVACMode.HEAT, inbound=False)
+        result = mode_remap(mock_bt, "climate.test", HVACMode.HEAT, inbound=False)
+        assert result == HVACMode.HEAT
 
     def test_cool_mode_handling(self):
         """Test handling of COOL mode."""
