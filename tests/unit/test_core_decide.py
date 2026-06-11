@@ -303,16 +303,13 @@ class TestSuppression:
         desired, _ = decide(
             make_snapshot(), make_state(window=WindowState(phase=WindowPhase.OPEN))
         )
-        assert all(
-            t.suppression == Suppression.WINDOW for t in desired.trvs.values()
-        )
+        assert all(t.suppression == Suppression.WINDOW for t in desired.trvs.values())
 
     def test_no_heat_demand_is_marked_as_suppression(self):
         """Missing heat demand suppresses heating."""
         desired, _ = decide(make_snapshot(call_for_heat=False), make_state())
         assert all(
-            t.suppression == Suppression.NO_CALL_FOR_HEAT
-            for t in desired.trvs.values()
+            t.suppression == Suppression.NO_CALL_FOR_HEAT for t in desired.trvs.values()
         )
 
     def test_mode_off_is_not_a_suppression(self):

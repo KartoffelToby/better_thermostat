@@ -270,9 +270,7 @@ def _valve_diverges(self, trv) -> bool:
     reported = convert_to_float(state.state, self.device_name, "reconcile()")
     if reported is None:
         return False
-    return (
-        abs(float(trv.last_valve_percent) - reported) > RECONCILE_VALVE_TOLERANCE_PCT
-    )
+    return abs(float(trv.last_valve_percent) - reported) > RECONCILE_VALVE_TOLERANCE_PCT
 
 
 def desired_diverges(self, snapshot, desired) -> bool:
@@ -818,7 +816,10 @@ async def control_trv(self, heater_entity_id=None, cycle=None):
         # demand) forces a literal OFF; otherwise the mode follows the
         # device-specific remap of the BT mode. The intent carries the
         # distinction so no shell code re-derives it from the regions.
-        if trv_desired.hvac_mode == HVACMode.OFF and trv_desired.suppression is not None:
+        if (
+            trv_desired.hvac_mode == HVACMode.OFF
+            and trv_desired.suppression is not None
+        ):
             _new_hvac_mode = HVACMode.OFF
         else:
             _new_hvac_mode = _remapped_states.get("system_mode", None)

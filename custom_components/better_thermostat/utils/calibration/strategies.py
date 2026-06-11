@@ -51,7 +51,7 @@ class ModeTraits:
     updated.
     """
 
-    balance: "BalanceStrategy | None" = None
+    balance: BalanceStrategy | None = None
     needs_target: bool = True
     uses_tolerance_band: bool = True
     skip_post_adjustments: bool = False

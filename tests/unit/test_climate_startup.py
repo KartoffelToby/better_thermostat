@@ -640,9 +640,7 @@ class TestStartupControlSync:
         bt.real_trvs = {TRV_ID: {}, TRV_ID_2: {}}
         cycle = object()
         with (
-            patch(
-                f"{_CLIMATE}.compute_control_cycle", return_value=cycle
-            ) as compute,
+            patch(f"{_CLIMATE}.compute_control_cycle", return_value=cycle) as compute,
             patch(f"{_CLIMATE}.control_trv", AsyncMock(return_value=True)) as ctl,
         ):
             await BetterThermostat._startup_control_trvs(bt)

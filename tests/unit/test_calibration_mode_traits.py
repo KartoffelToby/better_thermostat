@@ -5,10 +5,7 @@ cascade; this table test pins each mode's traits so a change to one
 mode's behavior is an explicit table edit.
 """
 
-from custom_components.better_thermostat.calibration import (
-    _PASSIVE_TRAITS,
-    MODE_TRAITS,
-)
+from custom_components.better_thermostat.calibration import _PASSIVE_TRAITS, MODE_TRAITS
 from custom_components.better_thermostat.utils.const import CalibrationMode
 
 

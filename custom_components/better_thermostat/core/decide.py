@@ -106,9 +106,7 @@ def _addressed(snapshot: WorldSnapshot) -> list[str]:
 
 
 def _with_mode(
-    entity_ids: list[str],
-    hvac_mode: HvacMode,
-    suppression: Suppression | None = None,
+    entity_ids: list[str], hvac_mode: HvacMode, suppression: Suppression | None = None
 ) -> dict[str, TrvDesired]:
     """Build one intent per TRV carrying ``hvac_mode``."""
     return {
@@ -171,9 +169,7 @@ def decide(
         return (
             DesiredState(
                 call_for_heat=False,
-                trvs=_with_mode(
-                    addressed, HvacMode.OFF, Suppression.NO_CALL_FOR_HEAT
-                ),
+                trvs=_with_mode(addressed, HvacMode.OFF, Suppression.NO_CALL_FOR_HEAT),
             ),
             state,
         )

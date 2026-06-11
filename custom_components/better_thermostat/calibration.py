@@ -643,9 +643,7 @@ MODE_TRAITS: dict[CalibrationMode, ModeTraits] = {
     # Pure offset from external sensor vs TRV temperature; no
     # controller, no tolerance/overheating heuristics.
     CalibrationMode.DEFAULT: ModeTraits(
-        needs_target=False,
-        uses_tolerance_band=False,
-        skip_post_adjustments=True,
+        needs_target=False, uses_tolerance_band=False, skip_post_adjustments=True
     ),
     CalibrationMode.MPC_CALIBRATION: ModeTraits(
         balance=BALANCE_STRATEGIES[CalibrationMode.MPC_CALIBRATION],
@@ -662,14 +660,11 @@ MODE_TRAITS: dict[CalibrationMode, ModeTraits] = {
     # Aggressive starts heating faster: it boosts the channel value and
     # skips the tolerance delay, but keeps overheating protection.
     CalibrationMode.AGGRESIVE_CALIBRATION: ModeTraits(
-        tolerance_delay=False,
-        adjust=_aggressive_adjust,
+        tolerance_delay=False, adjust=_aggressive_adjust
     ),
     # Heating power decides per TRV whether it holds the channel (direct
     # valve control) or derives a value — including the skip flag.
-    CalibrationMode.HEATING_POWER_CALIBRATION: ModeTraits(
-        adjust=_heating_power_adjust,
-    ),
+    CalibrationMode.HEATING_POWER_CALIBRATION: ModeTraits(adjust=_heating_power_adjust),
     CalibrationMode.NO_CALIBRATION: _PASSIVE_TRAITS,
 }
 
