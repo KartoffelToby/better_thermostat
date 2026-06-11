@@ -48,3 +48,14 @@ def test_is_on_reflects_advanced_flag(state):
     switch = _make_switch(trv)
 
     assert switch.is_on is state
+
+
+def test_missing_trv_entry_is_safe():
+    """A switch whose TRV vanished reads False and ignores writes."""
+    trv = Trv(entity_id=TRV_ID)
+    switch = _make_switch(trv)
+    switch._bt_climate.real_trvs = {}
+
+    assert switch.is_on is False
+    switch._update_state(True)
+    switch.async_write_ha_state.assert_not_called()
