@@ -30,6 +30,8 @@ from custom_components.better_thermostat.utils.calibration.pid import (
     sanitize_pid_state,
 )
 from custom_components.better_thermostat.utils.calibration.strategies import (
+    ChannelAdjustment,
+    ModeTraits,
     build_strategy_registry,
 )
 from custom_components.better_thermostat.utils.calibration.tpi import (
@@ -610,6 +612,68 @@ BALANCE_STRATEGIES = build_strategy_registry(
 )
 
 
+def _aggressive_adjust(self, entity_id, value, skip_post, ctx):
+    """Boost the heating-promoting direction while actively heating.
+
+    The boost only tops the value up to 2.5 past the channel's neutral
+    reference; a value already past that point stays untouched.
+    """
+    if self.hvac_action == HVACAction.HEATING:
+        if ctx.boost_sign * (value - ctx.boost_neutral) < 2.5:
+            value += ctx.boost_sign * 2.5
+    return value, skip_post
+
+
+def _heating_power_adjust(self, entity_id, value, skip_post, ctx):
+    """Derive the channel value from the learned heating power."""
+    return _heating_power_adjustment(
+        self,
+        entity_id,
+        value,
+        hold_value=ctx.hold_value,
+        legacy_fallback=ctx.legacy_fallback,
+    )
+
+
+# Any unknown mode runs the plain cascade: no controller, tolerance
+# band, post adjustments including the delay.
+_PASSIVE_TRAITS = ModeTraits()
+
+MODE_TRAITS: dict[CalibrationMode, ModeTraits] = {
+    # Pure offset from external sensor vs TRV temperature; no
+    # controller, no tolerance/overheating heuristics.
+    CalibrationMode.DEFAULT: ModeTraits(
+        needs_target=False,
+        uses_tolerance_band=False,
+        skip_post_adjustments=True,
+    ),
+    CalibrationMode.MPC_CALIBRATION: ModeTraits(
+        balance=BALANCE_STRATEGIES[CalibrationMode.MPC_CALIBRATION],
+        skip_post_adjustments=True,
+    ),
+    CalibrationMode.TPI_CALIBRATION: ModeTraits(
+        balance=BALANCE_STRATEGIES[CalibrationMode.TPI_CALIBRATION],
+        skip_post_adjustments=True,
+    ),
+    CalibrationMode.PID_CALIBRATION: ModeTraits(
+        balance=BALANCE_STRATEGIES[CalibrationMode.PID_CALIBRATION],
+        skip_post_adjustments=True,
+    ),
+    # Aggressive starts heating faster: it boosts the channel value and
+    # skips the tolerance delay, but keeps overheating protection.
+    CalibrationMode.AGGRESIVE_CALIBRATION: ModeTraits(
+        tolerance_delay=False,
+        adjust=_aggressive_adjust,
+    ),
+    # Heating power decides per TRV whether it holds the channel (direct
+    # valve control) or derives a value — including the skip flag.
+    CalibrationMode.HEATING_POWER_CALIBRATION: ModeTraits(
+        adjust=_heating_power_adjust,
+    ),
+    CalibrationMode.NO_CALIBRATION: _PASSIVE_TRAITS,
+}
+
+
 def calculate_calibration_local(self, entity_id) -> float | None:
     """Calculate local delta to adjust the setpoint of the TRV based on the air temperature of the external sensor.
 
@@ -638,19 +702,17 @@ def calculate_calibration_local(self, entity_id) -> float | None:
     )
     if _calibration_mode is None:
         _calibration_mode = CalibrationMode.MPC_CALIBRATION
+    traits = MODE_TRAITS.get(_calibration_mode, _PASSIVE_TRAITS)
 
-    # DEFAULT: compute a pure offset from external sensor vs TRV temperature.
-    # No predictive/controller modes, no tolerance/overheating heuristics.
-    if _calibration_mode == CalibrationMode.DEFAULT:
-        if self.cur_temp is None:
-            return None
-    elif self.cur_temp is None or self.bt_target_temp is None:
+    if self.cur_temp is None:
+        return None
+    if traits.needs_target and self.bt_target_temp is None:
         return None
 
     _cur_external_temp = effective_room_temp(self)
     _cur_target_temp = self.bt_target_temp
 
-    if _calibration_mode != CalibrationMode.DEFAULT:
+    if traits.uses_tolerance_band:
         # Add tolerance check – use asymmetric band [target - tol, target]
         # so the TRV stops receiving a heating-promoting calibration once
         # the room reaches the set temperature (not target + tolerance).
@@ -660,13 +722,10 @@ def calculate_calibration_local(self, entity_id) -> float | None:
         )
 
         if _within_tolerance:
-            # When within tolerance, don't adjust calibration but keep MPC/TPI/PID valve data fresh
-            if _calibration_mode == CalibrationMode.MPC_CALIBRATION:
-                _compute_mpc_balance(self, entity_id)
-            elif _calibration_mode == CalibrationMode.TPI_CALIBRATION:
-                _compute_tpi_balance(self, entity_id)
-            elif _calibration_mode == CalibrationMode.PID_CALIBRATION:
-                _compute_pid_balance(self, entity_id)
+            # Within tolerance the calibration holds, but a controller
+            # keeps its valve data fresh.
+            if traits.balance is not None:
+                traits.balance.compute(self, entity_id)
             else:
                 self.real_trvs[entity_id].calibration_balance = None
             return self.real_trvs[entity_id].last_calibration
@@ -699,7 +758,7 @@ def calculate_calibration_local(self, entity_id) -> float | None:
         return None
 
     _cur_external_temp = float(_cur_external_temp)
-    if _calibration_mode != CalibrationMode.DEFAULT:
+    if traits.needs_target:
         _cur_target_temp = float(_cur_target_temp)
     _cur_trv_temp_f = float(_cur_trv_temp_f)
     _current_trv_calibration = float(_current_trv_calibration)
@@ -709,12 +768,11 @@ def calculate_calibration_local(self, entity_id) -> float | None:
         _cur_external_temp - _cur_trv_temp_f
     ) + _current_trv_calibration
 
-    strategy = BALANCE_STRATEGIES.get(_calibration_mode)
-    if strategy is None:
+    if traits.balance is None:
         # DEFAULT and non-controller modes carry no valve/controller data.
         self.real_trvs[entity_id].calibration_balance = None
     else:
-        _percent, _use_valve = strategy.run(self, entity_id)
+        _percent, _use_valve = traits.balance.run(self, entity_id)
         if _use_valve:
             _new_trv_calibration = _current_trv_calibration
         elif _percent is not None:
@@ -741,21 +799,11 @@ def calculate_calibration_local(self, entity_id) -> float | None:
     if _new_trv_calibration is None:
         return None
 
-    _skip_post_adjustments = _calibration_mode in (
-        CalibrationMode.DEFAULT,
-        CalibrationMode.MPC_CALIBRATION,
-        CalibrationMode.TPI_CALIBRATION,
-        CalibrationMode.PID_CALIBRATION,
-    )
+    _skip_post_adjustments = traits.skip_post_adjustments
 
     _new_trv_calibration = float(_new_trv_calibration)
 
-    if _calibration_mode == CalibrationMode.AGGRESIVE_CALIBRATION:
-        if self.hvac_action == HVACAction.HEATING:
-            if _new_trv_calibration > -2.5:
-                _new_trv_calibration -= 2.5
-
-    if _calibration_mode == CalibrationMode.HEATING_POWER_CALIBRATION:
+    if traits.adjust is not None:
 
         def _legacy_offset(valve_position):
             return _current_trv_calibration - (
@@ -763,19 +811,25 @@ def calculate_calibration_local(self, entity_id) -> float | None:
                 * valve_position
             )
 
-        _new_trv_calibration, _skip_post_adjustments = _heating_power_adjustment(
+        _new_trv_calibration, _skip_post_adjustments = traits.adjust(
             self,
             entity_id,
             _new_trv_calibration,
-            # Keep TRV calibration unchanged when we control the valve directly.
-            hold_value=_current_trv_calibration,
-            legacy_fallback=_legacy_offset,
+            _skip_post_adjustments,
+            ChannelAdjustment(
+                # Keep the TRV calibration unchanged when the valve is
+                # controlled directly.
+                hold_value=_current_trv_calibration,
+                legacy_fallback=_legacy_offset,
+                boost_sign=-1.0,
+                boost_neutral=0.0,
+            ),
         )
 
-    # Respecting tolerance in all calibration modes, delaying heat
-    # Skip tolerance delay for aggressive mode - it should start heating faster
+    # Respecting tolerance, delaying heat; modes that should start
+    # heating faster opt out of the delay via their traits.
     if not _skip_post_adjustments:
-        if _calibration_mode != CalibrationMode.AGGRESIVE_CALIBRATION:
+        if traits.tolerance_delay:
             if self.hvac_action == HVACAction.IDLE:
                 if _new_trv_calibration < 0.0:
                     _new_trv_calibration += self.tolerance * 2.0
@@ -874,6 +928,7 @@ def calculate_calibration_setpoint(self, entity_id) -> float | None:
     )
     if _calibration_mode is None:
         _calibration_mode = CalibrationMode.MPC_CALIBRATION
+    traits = MODE_TRAITS.get(_calibration_mode, _PASSIVE_TRAITS)
 
     if self.cur_temp is None or self.bt_target_temp is None:
         return None
@@ -898,12 +953,11 @@ def calculate_calibration_setpoint(self, entity_id) -> float | None:
 
     _calibrated_setpoint = (_cur_target_temp - _cur_external_temp) + _cur_trv_temp
 
-    strategy = BALANCE_STRATEGIES.get(_calibration_mode)
-    if strategy is None:
+    if traits.balance is None:
         # DEFAULT and non-controller modes carry no valve/controller data.
         self.real_trvs[entity_id].calibration_balance = None
     else:
-        _percent, _use_valve = strategy.run(self, entity_id)
+        _percent, _use_valve = traits.balance.run(self, entity_id)
         if _use_valve and _percent is not None:
             if float(_percent) == 0.0:
                 # Valve closed: push setpoint below TRV's own temp so it doesn't
@@ -938,19 +992,9 @@ def calculate_calibration_setpoint(self, entity_id) -> float | None:
                     )
                     _calibrated_setpoint = _cur_trv_temp - _offset
 
-    _skip_post_adjustments = _calibration_mode in (
-        CalibrationMode.DEFAULT,
-        CalibrationMode.MPC_CALIBRATION,
-        CalibrationMode.TPI_CALIBRATION,
-        CalibrationMode.PID_CALIBRATION,
-    )
+    _skip_post_adjustments = traits.skip_post_adjustments
 
-    if _calibration_mode == CalibrationMode.AGGRESIVE_CALIBRATION:
-        if self.hvac_action == HVACAction.HEATING:
-            if _calibrated_setpoint - _cur_trv_temp < 2.5:
-                _calibrated_setpoint += 2.5
-
-    if _calibration_mode == CalibrationMode.HEATING_POWER_CALIBRATION:
+    if traits.adjust is not None:
 
         def _legacy_setpoint(valve_position):
             max_temp = _convert_to_float(self.real_trvs[entity_id].max_temp)
@@ -958,13 +1002,19 @@ def calculate_calibration_setpoint(self, entity_id) -> float | None:
                 return _calibrated_setpoint
             return _cur_trv_temp + ((float(max_temp) - _cur_trv_temp) * valve_position)
 
-        _calibrated_setpoint, _skip_post_adjustments = _heating_power_adjustment(
+        _calibrated_setpoint, _skip_post_adjustments = traits.adjust(
             self,
             entity_id,
             _calibrated_setpoint,
-            # Keep the TRV at the BT target when we control the valve directly.
-            hold_value=_cur_target_temp,
-            legacy_fallback=_legacy_setpoint,
+            _skip_post_adjustments,
+            ChannelAdjustment(
+                # Keep the TRV at the BT target when the valve is
+                # controlled directly.
+                hold_value=_cur_target_temp,
+                legacy_fallback=_legacy_setpoint,
+                boost_sign=1.0,
+                boost_neutral=_cur_trv_temp,
+            ),
         )
 
     if _calibrated_setpoint is None:
@@ -972,10 +1022,10 @@ def calculate_calibration_setpoint(self, entity_id) -> float | None:
 
     _calibrated_setpoint = float(_calibrated_setpoint)
 
-    # Respecting tolerance in all calibration modes, delaying heat
-    # Skip tolerance delay for aggressive mode - it should start heating faster
+    # Respecting tolerance, delaying heat; modes that should start
+    # heating faster opt out of the delay via their traits.
     if not _skip_post_adjustments:
-        if _calibration_mode != CalibrationMode.AGGRESIVE_CALIBRATION:
+        if traits.tolerance_delay:
             if self.hvac_action == HVACAction.IDLE:
                 if _calibrated_setpoint - _cur_trv_temp > 0.0:
                     _calibrated_setpoint -= self.tolerance * 2.0

@@ -22,6 +22,44 @@ from ..const import CalibrationMode
 
 
 @dataclass(frozen=True)
+class ChannelAdjustment:
+    """Channel-specific inputs for a mode's value adjustment.
+
+    The two calibration channels (local offset, setpoint) share the
+    mode logic but differ in direction and reference values; this
+    carries the differences so one adjustment hook serves both.
+    """
+
+    hold_value: float
+    legacy_fallback: Callable[[float], float]
+    # Heating-promoting direction of the channel: -1.0 for the offset
+    # channel (more negative opens the valve), +1.0 for the setpoint.
+    boost_sign: float
+    # Reference the boost distance is measured from: 0.0 for the offset
+    # channel, the TRV-internal temperature for the setpoint.
+    boost_neutral: float
+
+
+@dataclass(frozen=True)
+class ModeTraits:
+    """Per-mode behavior of the calibration cascade.
+
+    The cascade itself is identical for every mode; the traits carry
+    everything mode-specific so the channel functions contain no mode
+    branches. ``adjust`` receives the channel value, the current
+    skip-post flag, and a :class:`ChannelAdjustment`, and returns both
+    updated.
+    """
+
+    balance: "BalanceStrategy | None" = None
+    needs_target: bool = True
+    uses_tolerance_band: bool = True
+    skip_post_adjustments: bool = False
+    tolerance_delay: bool = True
+    adjust: Callable | None = None
+
+
+@dataclass(frozen=True)
 class BalanceStrategy:
     """One calibration mode's balance computation and result accessor."""
 
