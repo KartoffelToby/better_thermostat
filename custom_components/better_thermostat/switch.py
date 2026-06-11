@@ -145,6 +145,13 @@ class BetterThermostatPIDAutoTuneSwitch(SwitchEntity, RestoreEntity):
                 changed = True
         if changed:
             state_mgr.mark_dirty()
+        else:
+            # No bucket for this TRV yet (fresh start or after a PID
+            # reset): seed the active bucket so the toggle is not lost.
+            key = build_pid_key(self._bt_climate, self._trv_entity_id)
+            pid_state = state_mgr.get_pid(key)
+            pid_state.auto_tune = state
+            state_mgr.set_pid(key, pid_state)
 
         self._bt_climate.schedule_save_state()
         self.async_write_ha_state()
