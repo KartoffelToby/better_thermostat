@@ -92,6 +92,7 @@ class FakeTrvEntity(ClimateEntity):
     _attr_target_temperature_step = 0.5
 
     def __init__(self):
+        """Initialize device state and the recorded-write assertion surface."""
         self._attr_hvac_mode = HVACMode.HEAT
         self._attr_current_temperature = 19.5
         self._attr_target_temperature = 20.0
@@ -102,7 +103,12 @@ class FakeTrvEntity(ClimateEntity):
         self.drop_next_setpoint_write = False
 
     async def async_set_temperature(self, **kwargs) -> None:
-        """Apply and confirm a setpoint write."""
+        """Apply and confirm a setpoint write.
+
+        The write is always recorded; with ``drop_next_setpoint_write``
+        set it is then swallowed instead of applied, simulating a device
+        that lost the command over the radio.
+        """
         temperature = kwargs[ATTR_TEMPERATURE]
         self.set_temperature_calls.append(temperature)
         if self.drop_next_setpoint_write:

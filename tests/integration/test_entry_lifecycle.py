@@ -24,6 +24,7 @@ BT_ENTITY = "climate.bt_test"
 
 
 def _room_sensor(hass, value="18.0"):
+    """Set the external room temperature sensor to ``value`` (°C)."""
     hass.states.async_set(SENSOR_ID, value, {"unit_of_measurement": "°C"})
 
 
