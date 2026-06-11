@@ -3,7 +3,7 @@
   "config": {
     "step": {
       "user": {
-        "description": "Nastavenie lepšieho termostatu na integráciu s aplikáciou Home Assistant",
+        "description": "Nastavenie lepšieho termostatu na integráciu s aplikáciou Home Assistant\n\n**Podrobné informácie:** {docs_url}",
         "data": {
           "name": "Názov",
           "thermostat": "Skutočný termostat",
@@ -25,7 +25,7 @@
         }
       },
       "advanced": {
-        "description": "Rozšírená konfigurácia {trv}",
+        "description": "Rozšírená konfigurácia {trv}\n\n**Podrobné informácie:** {docs_url}",
         "data": {
           "protect_overheating": "Ochrana proti prehriatiu?",
           "heat_auto_swapped": "Ak auto znamená teplo pre váš TRV a chcete ho vymeniť",
