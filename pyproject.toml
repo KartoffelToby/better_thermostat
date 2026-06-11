@@ -7,8 +7,9 @@ dependencies = ["homeassistant>=2026.2.3"]
 
 [dependency-groups]
 dev = [
-    "pytest>=9.0.3",
-    "pytest-asyncio>=1.4.0",
+    "pytest>=9",
+    "pytest-asyncio>=1.3.0",
+    "pytest-homeassistant-custom-component>=0.13.316",
     "pre-commit>=4.6.0",
     "codespell>=2.4.2",
     "ruff>=0.15.15",
@@ -17,6 +18,12 @@ dev = [
 
 [tool.uv]
 package = false  # HA custom integration, not an installable package
+# No Home Assistant release supports Python 3.14.0/3.14.1 (2026.6+ needs
+# >=3.14.2), so that window is unsolvable and excluded from resolution.
+environments = [
+    "python_full_version < '3.14'",
+    "python_full_version >= '3.14.2'",
+]
 
 [tool.ruff]
 target-version = "py313"

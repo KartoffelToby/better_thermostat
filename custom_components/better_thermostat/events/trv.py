@@ -25,8 +25,8 @@ from custom_components.better_thermostat.utils.const import (
     CalibrationType,
 )
 from custom_components.better_thermostat.utils.helpers import (
+    attr_to_celsius,
     convert_to_float,
-    convert_to_float_celsius,
     get_device_model,
     is_reasonable_temperature,
     mode_remap,
@@ -118,13 +118,8 @@ async def trigger_trv_change(self, event):
             e,
         )
 
-    _new_current_temp = convert_to_float_celsius(
-        str(_org_trv_state.attributes.get("current_temperature", None)),
-        self.device_name,
-        "TRV_current_temp",
-        unit_of_measurement=_org_trv_state.attributes.get(
-            "temperature_unit", _org_trv_state.attributes.get("unit_of_measurement")
-        ),
+    _new_current_temp = attr_to_celsius(
+        self, _org_trv_state, "current_temperature", None, "TRV_current_temp"
     )
     if _new_current_temp is not None and not is_reasonable_temperature(
         _new_current_temp
@@ -254,21 +249,11 @@ async def trigger_trv_change(self, event):
     if "temperature" not in old_state.attributes:
         _main_key = "target_temp_low"
 
-    _old_heating_setpoint = convert_to_float_celsius(
-        str(old_state.attributes.get(_main_key, None)),
-        self.device_name,
-        "trigger_trv_change()",
-        unit_of_measurement=old_state.attributes.get(
-            "temperature_unit", old_state.attributes.get("unit_of_measurement")
-        ),
+    _old_heating_setpoint = attr_to_celsius(
+        self, old_state, _main_key, None, "trigger_trv_change()"
     )
-    _new_heating_setpoint = convert_to_float_celsius(
-        str(new_state.attributes.get(_main_key, None)),
-        self.device_name,
-        "trigger_trv_change()",
-        unit_of_measurement=new_state.attributes.get(
-            "temperature_unit", new_state.attributes.get("unit_of_measurement")
-        ),
+    _new_heating_setpoint = attr_to_celsius(
+        self, new_state, _main_key, None, "trigger_trv_change()"
     )
     _is_no_off_device = self.real_trvs[entity_id]["advanced"].get(
         "no_off_system_mode", False
@@ -326,7 +311,7 @@ async def trigger_trv_change(self, event):
             v is not None and abs(_new_heating_setpoint - v) < _step
             for v in _bt_known_values
         )
-        if (
+        _accept_user_setpoint = (
             not _is_echo
             and not child_lock
             and self.real_trvs[entity_id]["target_temp_received"] is True
@@ -334,7 +319,8 @@ async def trigger_trv_change(self, event):
             and self.real_trvs[entity_id]["hvac_mode"] != HVACMode.OFF
             and self.window_open is False
             and not self.real_trvs[entity_id].get("ignore_trv_states", False)
-        ):
+        )
+        if _accept_user_setpoint:
             _LOGGER.debug(
                 "better_thermostat %s: TRV %s decoded TRV target temp changed from %s to %s",
                 self.device_name,
@@ -350,12 +336,45 @@ async def trigger_trv_change(self, event):
                     )
 
             _main_change = True
+        elif _new_heating_setpoint != _old_heating_setpoint:
+            # A setpoint change arrived from the TRV but was not adopted as user
+            # intent. Record which guard suppressed it so intermittent "change
+            # ignored" / "device not syncing" reports can be diagnosed from a
+            # debug log instead of guesswork.
+            _LOGGER.debug(
+                "better_thermostat %s: TRV %s setpoint change %s -> %s NOT adopted "
+                "(echo=%s child_lock=%s target_temp_received=%s system_mode_received=%s "
+                "hvac_mode=%s window_open=%s ignore_trv_states=%s bt_target_temp=%s "
+                "last_temperature=%s step=%s)",
+                self.device_name,
+                entity_id,
+                _old_heating_setpoint,
+                _new_heating_setpoint,
+                _is_echo,
+                child_lock,
+                self.real_trvs[entity_id]["target_temp_received"],
+                self.real_trvs[entity_id]["system_mode_received"],
+                self.real_trvs[entity_id]["hvac_mode"],
+                self.window_open,
+                self.real_trvs[entity_id].get("ignore_trv_states", False),
+                self.bt_target_temp,
+                self.real_trvs[entity_id]["last_temperature"],
+                _step,
+            )
 
         if self.real_trvs[entity_id]["advanced"].get("no_off_system_mode", False):
             if _new_heating_setpoint == self.real_trvs[entity_id]["min_temp"]:
                 # Only set OFF if window is NOT open - min_temp during window
                 # open was set by BT, not by user turning off heating
                 if not self.window_open:
+                    if self.bt_hvac_mode != HVACMode.OFF:
+                        _LOGGER.debug(
+                            "better_thermostat %s: TRV %s reported min_temp %s on a "
+                            "no_off_system_mode device -> interpreting as heating OFF",
+                            self.device_name,
+                            entity_id,
+                            _new_heating_setpoint,
+                        )
                     self.bt_hvac_mode = HVACMode.OFF
             else:
                 self.bt_hvac_mode = HVACMode.HEAT

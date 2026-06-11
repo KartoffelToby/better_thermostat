@@ -64,6 +64,33 @@ def test_fahrenheit_bounds_and_step_converted(bt):
     assert bt.bt_target_temp_step == pytest.approx(round(1.0 * 5.0 / 9.0, 4))
 
 
+def test_fahrenheit_bounds_without_unit_attr_use_system_unit(bt):
+    """A climate child reports no unit attribute; the system unit decides.
+
+    HA climate entities never expose ``temperature_unit`` /
+    ``unit_of_measurement`` in their state attributes and always report in the
+    configured system unit. With a Fahrenheit system the raw 41/86 bounds must
+    therefore be read as °F and converted to 5/30 °C — otherwise BT would treat
+    41 °F as 41 °C and clamp every setpoint far too high.
+    """
+    bt.hass.config.units.temperature_unit = UnitOfTemperature.FAHRENHEIT
+    states = [_trv(min_t=41.0, max_t=86.0, step=1.0)]
+    BetterThermostat._resolve_temperature_range(bt, states)
+    assert bt.bt_min_temp == pytest.approx(5.0)
+    assert bt.bt_max_temp == pytest.approx(30.0)
+    assert bt.bt_target_temp_step == pytest.approx(round(1.0 * 5.0 / 9.0, 4))
+
+
+def test_celsius_bounds_without_unit_attr_unchanged(bt):
+    """With a Celsius system the raw bounds stay as-is (no spurious conversion)."""
+    bt.hass.config.units.temperature_unit = UnitOfTemperature.CELSIUS
+    states = [_trv(min_t=5.0, max_t=30.0, step=0.5)]
+    BetterThermostat._resolve_temperature_range(bt, states)
+    assert bt.bt_min_temp == pytest.approx(5.0)
+    assert bt.bt_max_temp == pytest.approx(30.0)
+    assert bt.bt_target_temp_step == pytest.approx(0.5)
+
+
 def test_step_picks_coarsest(bt):
     """When several steps are present the coarsest is chosen."""
     states = [_trv(step=0.1, eid="climate.a"), _trv(step=0.5, eid="climate.b")]

@@ -305,6 +305,12 @@ async def check_ambient_air_temperature(self):
                     )
 
         avg_temp = _temp_history.min
+        if avg_temp is None:
+            # No usable recorder history (e.g. a freshly created helper or a
+            # sensor the recorder does not retain). Fall back to the current
+            # reading so the outdoor threshold still applies instead of
+            # defaulting to "heat".
+            avg_temp = self.last_avg_outdoor_temp
 
         _LOGGER.debug("Initializing from database completed")
     else:
