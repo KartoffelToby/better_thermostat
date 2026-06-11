@@ -1,9 +1,9 @@
 """Decision kernel of Better Thermostat.
 
 ``decide(snapshot, state)`` maps one immutable observation onto the
-desired state of every TRV — the precedence cascade that used to be
-scattered across the shell, expressed as a single pure function. It
-performs no IO and reads no clocks; time arrives inside the snapshot.
+desired state of every TRV — the precedence cascade as a single pure
+function. It performs no IO and reads no clocks; time arrives inside
+the snapshot.
 
 The cascade (top wins):
 
@@ -20,12 +20,12 @@ The cascade (top wins):
    carries no setpoint: with no usable temperature the controller stops
    adjusting and the device keeps its last commanded state. The
    calibrated numbers (setpoint corrections, offsets, valve
-   percentages) stay in the shell until the calibrator strategies move
-   into the core (M7).
+   percentages) are computed in the shell by the calibration
+   strategies.
 
-The ``degraded`` flag deliberately does not branch anywhere: today it is
-pure annunciation. Giving it an effect on the control law is the
-fail-soft ladder's job (M8) and a product decision, not a refactoring.
+Degraded annunciation (unavailable optional sensors) deliberately does
+not branch anywhere; only the control-mode region's rung affects the
+decision.
 """
 
 from __future__ import annotations

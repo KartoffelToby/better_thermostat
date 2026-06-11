@@ -1,9 +1,9 @@
 """Reachability region (per TRV): online <-> offline with retry backoff.
 
-The region debounces nothing — a TRV reported unavailable is skipped
-immediately, exactly like before. What it adds is the typed record of
-*since when* a TRV is offline and an exponential retry schedule that
-the fail-soft ladder (M8) builds its per-TRV PASSTHROUGH decision on.
+The region debounces nothing — addressing skips an unavailable TRV
+directly via the snapshot. What the region carries is the typed record
+of *since when* a TRV is offline and how many retries have elapsed,
+recorded with every decision tuple for outage diagnosis.
 """
 
 from __future__ import annotations

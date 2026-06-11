@@ -1,10 +1,9 @@
-"""Behavior tests for the fail-soft ladder's effect on the control law (M8).
+"""Behavior tests for the fail-soft ladder's effect on the control law.
 
-New behavior, specified conservatively: SENSOR_FALLBACK substitutes the
-mean of the available TRV-internal temperatures for a dead room sensor
-(completing the fallback the watcher has always announced); HOLD stops
-adjusting entirely; one dead TRV never drags the others down; and the
-watchdog flags a silently stalled control loop.
+SENSOR_FALLBACK substitutes the mean of the available TRV-internal
+temperatures for a dead room sensor; HOLD stops adjusting entirely; one
+dead TRV never drags the others down; and the watchdog flags a silently
+stalled control loop.
 """
 
 from datetime import UTC, datetime

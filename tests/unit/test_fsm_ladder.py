@@ -1,4 +1,4 @@
-"""Pure tests for the fail-soft ladder (M8): debounced down, hysteretic up."""
+"""Pure tests for the fail-soft ladder: debounced down, hysteretic up."""
 
 from custom_components.better_thermostat.core.fsm.control_mode import (
     ControlMode,

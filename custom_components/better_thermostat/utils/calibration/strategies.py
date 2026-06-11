@@ -167,8 +167,8 @@ class BalanceCalibrator:
     """Production adapter from a :class:`BalanceStrategy` to the core protocol.
 
     ``observe`` runs the strategy's balance computation (which both
-    learns and emits — the standby split lives in the fail-soft ladder)
-    and caches the result; ``actuate`` hands out the cached percentage.
+    learns and emits; the controllers handle standby internally) and
+    caches the result; ``actuate`` hands out the cached percentage.
     One instance belongs to one TRV of one entity.
     """
 

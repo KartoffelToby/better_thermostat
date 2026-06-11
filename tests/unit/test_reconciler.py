@@ -1,8 +1,7 @@
-"""Behavior tests for the reconciler and the per-TRV write budget (M6).
+"""Behavior tests for the reconciler and the per-TRV write budget.
 
-This is deliberately new behavior: lost writes converge through the
-periodic reconcile tick, and non-safety writes to one TRV keep a
-minimum spacing.
+Lost writes converge through the periodic reconcile tick, and
+non-safety writes to one TRV keep a minimum spacing.
 """
 
 import asyncio

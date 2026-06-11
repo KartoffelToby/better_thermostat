@@ -1,6 +1,6 @@
 """Control-mode region: the fail-soft ladder OPTIMAL -> SENSOR_FALLBACK -> HOLD.
 
-Behavior specification (M8, conservative first version):
+The rungs:
 
 * OPTIMAL — the room sensor delivers; the control law works as configured.
 * SENSOR_FALLBACK — the room sensor is unavailable but at least one TRV
