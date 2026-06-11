@@ -17,7 +17,8 @@ file contains:
 - the **flight recorder**: the last control decisions, each as the
   observation, the controller state, and the resulting intent. It shows
   *why* Better Thermostat did what it did, which a log line usually
-  cannot.
+  cannot (see [Internals: Observability](/internals/observability-and-testing/)
+  for how it works).
 
 ## Enable debug logging via configuration.yaml
 
