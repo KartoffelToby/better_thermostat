@@ -12,6 +12,7 @@ This is benchmark-only code: never imported by production.
 from __future__ import annotations
 
 from dataclasses import asdict
+import random
 from typing import Any
 
 from custom_components.better_thermostat.utils.calibration import mpc as mpc_mod
@@ -40,6 +41,9 @@ class MpcAdapter:
         self._key = key
         self._sim_time_s: float = 0.0
         self._original_time = mpc_mod.time
+        # The hybrid-learning path draws from the global RNG; one seed
+        # per episode keeps benchmark runs reproducible.
+        random.seed(self._key)
 
     def _virtualise_time(self) -> None:
         mpc_mod.time = lambda: self._sim_time_s
@@ -52,6 +56,7 @@ class MpcAdapter:
         _ = prior
         self._state = _MpcState()
         self._sim_time_s = 0.0
+        random.seed(self._key)
 
     def step(self, ctx: BenchmarkContext) -> BenchmarkOutput:
         """Compute one MPC step for the given benchmark context."""
