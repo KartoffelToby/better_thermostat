@@ -61,7 +61,7 @@
   "options": {
     "step": {
       "user": {
-        "description": "Zaktualizuj ustawienia Better Thermostat",
+        "description": "Zaktualizuj ustawienia Better Thermostat\n\n**Szczegółowe informacje:** {docs_url}",
         "data": {
           "name": "Nazwa",
           "thermostat": "Prawdziwy termostat",
@@ -87,7 +87,7 @@
         }
       },
       "advanced": {
-        "description": "Zaawansowana konfiguracja {trv}",
+        "description": "Zaawansowana konfiguracja {trv}\n\n**Szczegółowe informacje:** {docs_url}",
         "data": {
           "protect_overheating": "Zabezpieczenie przed przegrzaniem?",
           "heat_auto_swapped": "Jeżeli tryb auto oznacza grzanie dla Twojego TRV i chcesz to zmienić",

@@ -12,17 +12,6 @@ TRANSLATIONS = COMPONENT / "translations"
 
 LANGUAGES = sorted(p.stem for p in TRANSLATIONS.glob("*.json") if p.stem != "en")
 
-RU_OUT_OF_SYNC = pytest.mark.xfail(
-    reason="ru.json is not yet synchronized with en.json", strict=False
-)
-
-
-def _lang_param(lang: str):
-    return pytest.param(lang, marks=RU_OUT_OF_SYNC) if lang == "ru" else lang
-
-
-LANG_PARAMS = [_lang_param(lang) for lang in LANGUAGES]
-
 
 def _flatten(obj: dict, prefix: str = "") -> dict[str, str]:
     flat: dict[str, str] = {}
@@ -48,7 +37,7 @@ def test_strings_json_matches_en_json():
     assert _load(COMPONENT / "strings.json") == _load(TRANSLATIONS / "en.json")
 
 
-@pytest.mark.parametrize("lang", LANG_PARAMS)
+@pytest.mark.parametrize("lang", LANGUAGES)
 def test_no_unknown_keys(lang: str):
     """Translation files must not contain keys that do not exist in en.json."""
     en = _load(TRANSLATIONS / "en.json")
@@ -57,7 +46,7 @@ def test_no_unknown_keys(lang: str):
     assert not unknown, f"{lang}.json has keys unknown to en.json: {unknown}"
 
 
-@pytest.mark.parametrize("lang", LANG_PARAMS)
+@pytest.mark.parametrize("lang", LANGUAGES)
 def test_all_keys_translated(lang: str):
     """Translation files must cover every key of en.json."""
     en = _load(TRANSLATIONS / "en.json")

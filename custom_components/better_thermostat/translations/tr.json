@@ -61,7 +61,7 @@
   "options": {
     "step": {
       "user": {
-        "description": "Better Thermostat ayarlarınızı güncelleyin",
+        "description": "Better Thermostat ayarlarınızı güncelleyin\n\n**Detaylı Bilgiler:** {docs_url}",
         "data": {
           "name": "Ad",
           "thermostat": "Gerçek termostat",
@@ -87,7 +87,7 @@
         }
       },
       "advanced": {
-        "description": "Gelişmiş yapılandırma {trv}",
+        "description": "Gelişmiş yapılandırma {trv}\n\n**Detaylı Bilgiler:** {docs_url}",
         "data": {
           "protect_overheating": "Aşırı ısınma koruması?",
           "heat_auto_swapped": "TRV'nizde otomatik mod ısıtma anlamına geliyorsa ve değiştirmek istiyorsanız",

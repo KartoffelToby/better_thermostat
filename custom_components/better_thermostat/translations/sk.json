@@ -61,7 +61,7 @@
   "options": {
     "step": {
       "user": {
-        "description": "Aktualizujte Better Thermostat nastavenia",
+        "description": "Aktualizujte Better Thermostat nastavenia\n\n**Podrobné informácie:** {docs_url}",
         "data": {
           "name": "Názov",
           "thermostat": "Reálny thermostat",
@@ -87,7 +87,7 @@
         }
       },
       "advanced": {
-        "description": "Rozšírená konfigurácia {trv}",
+        "description": "Rozšírená konfigurácia {trv}\n\n**Podrobné informácie:** {docs_url}",
         "data": {
           "protect_overheating": "Ochrana proti prehriatiu?",
           "heat_auto_swapped": "Ak auto znamená teplo pre váš TRV a chcete ho vymeniť",

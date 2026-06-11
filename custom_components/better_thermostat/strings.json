@@ -61,7 +61,7 @@
   "options": {
     "step": {
       "user": {
-        "description": "Update your Better Thermostat settings",
+        "description": "Update your Better Thermostat settings\n\n**Detailed information:** {docs_url}",
         "data": {
           "name": "Name",
           "thermostat": "The real thermostat",
@@ -87,7 +87,7 @@
         }
       },
       "advanced": {
-        "description": "Advanced configuration {trv}",
+        "description": "Advanced configuration {trv}\n\n**Detailed information:** {docs_url}",
         "data": {
           "protect_overheating": "Overheating protection?",
           "heat_auto_swapped": "If 'auto' means 'heat' for your TRV and you want to swap it",

@@ -61,7 +61,7 @@
   "options": {
     "step": {
       "user": {
-        "description": "Aktualisiere die Better Thermostat Einstellungen",
+        "description": "Aktualisiere die Better Thermostat Einstellungen\n\n**Detaillierte Infos:** {docs_url}",
         "data": {
           "name": "Name",
           "thermostat": "Das reale Thermostat",
@@ -87,7 +87,7 @@
         }
       },
       "advanced": {
-        "description": "Aktualisiere die Einstellungen für {trv}",
+        "description": "Aktualisiere die Einstellungen für {trv}\n\n**Detaillierte Infos:** {docs_url}",
         "data": {
           "protect_overheating": "Überhitzung verhindern?",
           "heat_auto_swapped": "Tauscht die Modi auto und heat, falls diese bei dem realen Thermostat vertauscht sind.",
