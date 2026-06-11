@@ -1,7 +1,7 @@
 """Guard: production code accesses TRV state via Trv attributes only.
 
-The per-entity dicts behind ``real_trvs`` were replaced by the typed Trv
-object; this scan keeps raw dict-style access from creeping back in.
+The entries of ``real_trvs`` are typed Trv objects; this scan rejects
+dict-style access to them in production code.
 """
 
 from pathlib import Path

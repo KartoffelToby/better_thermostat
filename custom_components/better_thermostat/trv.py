@@ -3,11 +3,8 @@
 A :class:`Trv` bundles everything Better Thermostat knows about one
 thermostatic radiator valve: static configuration (integration, model,
 adapter, quirks), reported device state, and the write-tracking flags
-the control loop maintains. It replaces the untyped ``real_trvs``
-per-entity dicts.
-
-Access is attribute-based only; the per-entity dicts (and the
-transitional dict protocol used during the migration) are gone.
+the control loop maintains. The entries of ``real_trvs`` are
+instances of this class, accessed via typed attributes.
 """
 
 from __future__ import annotations
@@ -133,7 +130,7 @@ class Trv:
 
     @classmethod
     def from_legacy_dict(cls, entity_id: str, data: dict[str, Any]) -> Trv:
-        """Build a Trv from a legacy per-entity dict.
+        """Build a Trv from a plain per-entity dict.
 
         Known keys become typed fields; unknown keys land in ``extra``.
         """

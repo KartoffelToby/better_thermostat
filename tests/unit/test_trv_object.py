@@ -1,4 +1,4 @@
-"""Tests for the Trv domain object and its transitional dict bridge."""
+"""Tests for the Trv domain object."""
 
 import pytest
 
@@ -61,7 +61,7 @@ class TestExtraScratchpad:
         assert trv.extra == {"_quirk_scratch": 3}
 
     def test_no_dict_protocol(self):
-        """The transitional dict protocol is gone: attribute access only."""
+        """Trv does not speak the dict protocol: attribute access only."""
         trv = _make()
         with pytest.raises(TypeError):
             trv["current_temperature"]

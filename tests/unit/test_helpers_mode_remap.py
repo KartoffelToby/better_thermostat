@@ -173,7 +173,7 @@ class TestModeRemapEdgeCases:
         assert result == HVACMode.HEAT
 
     def test_unreported_hvac_modes_raise(self):
-        """hvac_modes=None (device never reported) still surfaces as TypeError.
+        """hvac_modes=None (device never reported) surfaces as TypeError.
 
         convert_outbound_states catches this and skips the control cycle.
         """
