@@ -5,7 +5,6 @@ import math
 
 from homeassistant.components.climate.const import HVACAction, HVACMode
 
-from custom_components.better_thermostat.core.calibrator import CalibratorHealth
 from custom_components.better_thermostat.core.fsm.control_mode import ControlMode
 from custom_components.better_thermostat.model_fixes.model_quirks import (
     fix_local_calibration,
@@ -18,6 +17,7 @@ from custom_components.better_thermostat.utils.calibration.mpc import (
     build_mpc_key,
     compute_mpc,
     distribute_valve_percent,
+    sanitize_mpc_state,
 )
 from custom_components.better_thermostat.utils.calibration.pid import (
     DEFAULT_PID_AUTO_TUNE,
@@ -32,6 +32,7 @@ from custom_components.better_thermostat.utils.calibration.pid import (
 from custom_components.better_thermostat.utils.calibration.strategies import (
     ChannelAdjustment,
     ModeTraits,
+    annunciate_health,
     build_strategy_registry,
 )
 from custom_components.better_thermostat.utils.calibration.tpi import (
@@ -39,6 +40,7 @@ from custom_components.better_thermostat.utils.calibration.tpi import (
     TpiParams,
     build_tpi_key,
     compute_tpi,
+    sanitize_tpi_state,
 )
 from custom_components.better_thermostat.utils.const import (
     CONF_PROTECT_OVERHEATING,
@@ -341,6 +343,11 @@ def _compute_mpc_balance(self, entity_id: str):
 
     mpc_state = self.state_mgr.get_mpc(mpc_key)
 
+    # Self-heal a poisoned state before it reaches the controller; the
+    # verdict is annunciated on the TRV.
+    mpc_state, _mpc_health = sanitize_mpc_state(mpc_state)
+    annunciate_health(self, entity_id, _mpc_health)
+
     try:
         mpc_output, mpc_state = compute_mpc(
             MpcInput(
@@ -448,6 +455,8 @@ def _compute_tpi_balance(self, entity_id: str):
 
     key = build_tpi_key(self, entity_id)
     tpi_state = self.state_mgr.get_tpi(key)
+    tpi_state, _tpi_health = sanitize_tpi_state(tpi_state)
+    annunciate_health(self, entity_id, _tpi_health)
 
     try:
         tpi_output, tpi_state = compute_tpi(
@@ -519,13 +528,7 @@ def _compute_pid_balance(self, entity_id: str):
     # Self-heal a poisoned state (non-finite values, runaway gains,
     # wound-up integrator) before it reaches the controller.
     pid_state, _pid_health = sanitize_pid_state(pid_state, PIDParams())
-    if _pid_health != CalibratorHealth.HEALTHY:
-        _LOGGER.warning(
-            "better_thermostat %s: PID state for %s self-healed (%s)",
-            self.device_name,
-            entity_id,
-            _pid_health,
-        )
+    annunciate_health(self, entity_id, _pid_health)
 
     # Use learned gains if available, otherwise from config, otherwise defaults
     params = PIDParams(

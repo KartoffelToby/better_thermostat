@@ -4,12 +4,14 @@ from __future__ import annotations
 
 from collections import deque
 from collections.abc import Mapping
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, fields
 import logging
 import math
 import random
 from time import time
 from typing import Any
+
+from custom_components.better_thermostat.core.calibrator import CalibratorHealth
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -146,6 +148,32 @@ class _MpcState:
     consecutive_insufficient_heat: int = 0
     kalman_P: float = 1.0  # Kalman filter error covariance
     tolerance_hold_active: bool = False
+
+
+def _all_finite(value: object) -> bool:
+    """Whether every number reachable inside ``value`` is finite."""
+    if isinstance(value, bool):
+        return True
+    if isinstance(value, (int, float)):
+        return math.isfinite(value)
+    if isinstance(value, dict):
+        return all(_all_finite(item) for item in value.values())
+    if isinstance(value, (list, tuple, deque)):
+        return all(_all_finite(item) for item in value)
+    return True
+
+
+def sanitize_mpc_state(state: _MpcState) -> tuple[_MpcState, CalibratorHealth]:
+    """Self-heal a poisoned MPC state before computing.
+
+    A non-finite number anywhere in the learned state poisons every
+    prediction derived from it, so the whole state is discarded and the
+    model relearns from live data.
+    """
+    for f in fields(state):
+        if not _all_finite(getattr(state, f.name)):
+            return _MpcState(), CalibratorHealth.NON_FINITE
+    return state, CalibratorHealth.HEALTHY
 
 
 # Public alias so callers can reference the state type without

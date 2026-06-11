@@ -2437,6 +2437,11 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
             "unavailable_sensors": self.unavailable_sensors,
             # Mode annunciation: which fail-soft rung rules, since when
             "control_mode": str(self.kernel_state.control_mode.mode),
+            # Calibrator annunciation: worst self-reported health per TRV
+            "calibrator_health": {
+                entity_id: str(trv.calibrator_health)
+                for entity_id, trv in self.real_trvs.items()
+            },
             "degraded_for_s": (
                 round(
                     self.clock.monotonic()

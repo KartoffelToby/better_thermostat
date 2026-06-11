@@ -15,10 +15,58 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from dataclasses import dataclass
+import logging
 import math
 
-from ...core.calibrator import CalibratorHealth, Capability
+from ...core.calibrator import CalibratorHealth, Capability, detect_oscillation
 from ..const import CalibrationMode
+
+_LOGGER = logging.getLogger(__name__)
+
+
+# Grades the controllers' sanitize steps own (and may clear again).
+SELF_HEAL_GRADES = (
+    CalibratorHealth.NON_FINITE,
+    CalibratorHealth.RUNAWAY_GAINS,
+    CalibratorHealth.WINDUP_SUSPECT,
+)
+
+
+def annunciate_health(
+    bt,
+    entity_id: str,
+    health: CalibratorHealth,
+    *,
+    recovers: tuple[CalibratorHealth, ...] = SELF_HEAL_GRADES,
+) -> None:
+    """Record a calibrator health grade on the TRV, logging transitions.
+
+    Annunciation only: the self-healing lives in the controllers'
+    sanitize steps, and the oscillation detector never backs gains off
+    by itself. A HEALTHY verdict clears only the grades its reporter
+    owns (``recovers``), so the sanitize path and the oscillation
+    watcher do not flap each other's annunciations.
+    """
+    trv = bt.real_trvs.get(entity_id)
+    if trv is None or trv.calibrator_health == health:
+        return
+    if health == CalibratorHealth.HEALTHY and trv.calibrator_health not in recovers:
+        return
+    if health == CalibratorHealth.HEALTHY:
+        _LOGGER.info(
+            "better_thermostat %s: calibrator for %s recovered (was %s)",
+            bt.device_name,
+            entity_id,
+            trv.calibrator_health,
+        )
+    else:
+        _LOGGER.warning(
+            "better_thermostat %s: calibrator for %s reports %s",
+            bt.device_name,
+            entity_id,
+            health,
+        )
+    trv.calibrator_health = health
 
 
 @dataclass(frozen=True)
@@ -79,7 +127,22 @@ class BalanceStrategy:
         percent = self.percent_of(result)
         if not isinstance(percent, (int, float)):
             return None, bool(use_valve)
+        self._watch_oscillation(bt, entity_id, float(percent))
         return float(percent), bool(use_valve)
+
+    def _watch_oscillation(self, bt, entity_id: str, percent: float) -> None:
+        """Feed the oscillation detector and annunciate its verdict."""
+        trv = bt.real_trvs.get(entity_id)
+        if trv is None:
+            return
+        trv.balance_percent_history.append(percent)
+        oscillating = detect_oscillation(trv.balance_percent_history)
+        annunciate_health(
+            bt,
+            entity_id,
+            CalibratorHealth.OSCILLATING if oscillating else CalibratorHealth.HEALTHY,
+            recovers=(CalibratorHealth.OSCILLATING,),
+        )
 
     def capability(self, bt, entity_id: str) -> Capability:
         """Report the capability level for this TRV (annunciation only).
@@ -92,6 +155,7 @@ class BalanceStrategy:
             trv is not None
             and bt.cur_temp is not None
             and bt.bt_target_temp is not None
+            and trv.calibrator_health == CalibratorHealth.HEALTHY
         )
         ready = bool(healthy and trv is not None and trv.calibration_balance)
         return Capability(configured=True, healthy=bool(healthy), ready=ready)

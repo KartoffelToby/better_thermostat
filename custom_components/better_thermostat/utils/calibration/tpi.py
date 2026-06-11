@@ -7,10 +7,13 @@ cycle duration and exposes rich debug logs for diagnostics.
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, fields
 import logging
+import math
 from time import monotonic
 from typing import Any
+
+from custom_components.better_thermostat.core.calibrator import CalibratorHealth
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -55,6 +58,19 @@ class TpiOutput:
 class _TpiState:
     last_percent: float | None = None
     last_update_ts: float = 0.0
+
+
+def sanitize_tpi_state(state: _TpiState) -> tuple[_TpiState, CalibratorHealth]:
+    """Self-heal a poisoned TPI state before computing.
+
+    TPI carries no learned model — a non-finite remnant is simply
+    dropped and the duty cycle derives from live readings again.
+    """
+    for f in fields(state):
+        value = getattr(state, f.name)
+        if isinstance(value, float) and not math.isfinite(value):
+            return _TpiState(), CalibratorHealth.NON_FINITE
+    return state, CalibratorHealth.HEALTHY
 
 
 # Public alias so callers can reference the state type without

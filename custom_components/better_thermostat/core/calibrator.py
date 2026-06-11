@@ -13,6 +13,7 @@ the re-promotion after a gap.
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from dataclasses import dataclass
 from enum import StrEnum
 from typing import Protocol, runtime_checkable
@@ -73,3 +74,32 @@ class Calibrator(Protocol):
     def health(self) -> CalibratorHealth:
         """Report the current health grade."""
         ...
+
+
+# Oscillation detection: annunciation only. A detector that
+# automatically backs gains off can thrash a controller on a false
+# positive — worse than the oscillation it reacts to — so the backoff
+# stays a manual decision until the detector is validated against the
+# calibration benchmark.
+OSCILLATION_WINDOW = 10
+OSCILLATION_MIN_REVERSALS = 4
+OSCILLATION_MIN_SWING_PCT = 20.0
+
+
+def detect_oscillation(outputs: Sequence[float]) -> bool:
+    """Whether a command history shows sustained output oscillation.
+
+    Looks at the last :data:`OSCILLATION_WINDOW` commanded percentages
+    and reports True when at least :data:`OSCILLATION_MIN_REVERSALS`
+    direction reversals occur between swings of at least
+    :data:`OSCILLATION_MIN_SWING_PCT` points each.
+    """
+    recent = list(outputs)[-OSCILLATION_WINDOW:]
+    deltas = [later - earlier for earlier, later in zip(recent, recent[1:])]
+    significant = [d for d in deltas if abs(d) >= OSCILLATION_MIN_SWING_PCT]
+    reversals = sum(
+        1
+        for first, second in zip(significant, significant[1:])
+        if (first > 0) != (second > 0)
+    )
+    return reversals >= OSCILLATION_MIN_REVERSALS

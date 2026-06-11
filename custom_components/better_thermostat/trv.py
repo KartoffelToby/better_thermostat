@@ -12,10 +12,13 @@ transitional dict protocol used during the migration) are gone.
 
 from __future__ import annotations
 
+from collections import deque
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
 from types import ModuleType
 from typing import Any, Protocol, runtime_checkable
+
+from custom_components.better_thermostat.core.calibrator import CalibratorHealth
 
 
 @runtime_checkable
@@ -103,6 +106,12 @@ class Trv:
     # -- Calibration results -----------------------------------------------
     calibration_balance: dict[str, Any] | None = None
     balance: dict[str, Any] | None = None
+
+    # -- Calibrator annunciation --------------------------------------------
+    # Worst health grade the calibrator reported for this TRV, plus the
+    # recent commanded percentages the oscillation detector looks at.
+    calibrator_health: CalibratorHealth = CalibratorHealth.HEALTHY
+    balance_percent_history: deque = field(default_factory=lambda: deque(maxlen=10))
 
     # -- Quirk scratchpad ----------------------------------------------------
     # Model quirks may stash private bookkeeping here (e.g. TRVZB valve
