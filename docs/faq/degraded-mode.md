@@ -39,7 +39,10 @@ minutes — short sensor flaps do not flip the behavior back and forth.
 The Better Thermostat climate entity exposes the rung as the
 `control_mode` attribute (`optimal`, `sensor_fallback`, or `hold`),
 along with `degraded_for_s` (how long the degradation has lasted) and
-`unavailable_sensors`. Check them under **Developer tools → States**.
+`unavailable_sensors`. The `calibrator_health` attribute reports per
+TRV whether its calibration controller is healthy or has self-healed
+(for example after a poisoned learning state) or shows oscillating
+output. Check them under **Developer tools → States**.
 
 ## What you should do
 
