@@ -1,0 +1,94 @@
+"""Consistency checks for strings.json and the translation files."""
+
+import json
+from pathlib import Path
+import re
+
+import pytest
+import yaml
+
+COMPONENT = Path(__file__).parents[1] / "custom_components" / "better_thermostat"
+TRANSLATIONS = COMPONENT / "translations"
+
+LANGUAGES = sorted(p.stem for p in TRANSLATIONS.glob("*.json") if p.stem != "en")
+
+RU_OUT_OF_SYNC = pytest.mark.xfail(
+    reason="ru.json is not yet synchronized with en.json", strict=False
+)
+
+
+def _lang_param(lang: str):
+    return pytest.param(lang, marks=RU_OUT_OF_SYNC) if lang == "ru" else lang
+
+
+LANG_PARAMS = [_lang_param(lang) for lang in LANGUAGES]
+
+
+def _flatten(obj: dict, prefix: str = "") -> dict[str, str]:
+    flat: dict[str, str] = {}
+    for key, value in obj.items():
+        path = f"{prefix}.{key}" if prefix else key
+        if isinstance(value, dict):
+            flat.update(_flatten(value, path))
+        else:
+            flat[path] = value
+    return flat
+
+
+def _load(path: Path) -> dict[str, str]:
+    return _flatten(json.loads(path.read_text(encoding="utf-8")))
+
+
+def _placeholders(text: str) -> list[str]:
+    return sorted(re.findall(r"\{[^}]*\}", text))
+
+
+def test_strings_json_matches_en_json():
+    """strings.json (source) and translations/en.json must be identical."""
+    assert _load(COMPONENT / "strings.json") == _load(TRANSLATIONS / "en.json")
+
+
+@pytest.mark.parametrize("lang", LANG_PARAMS)
+def test_no_unknown_keys(lang: str):
+    """Translation files must not contain keys that do not exist in en.json."""
+    en = _load(TRANSLATIONS / "en.json")
+    translated = _load(TRANSLATIONS / f"{lang}.json")
+    unknown = sorted(key for key in translated if key not in en)
+    assert not unknown, f"{lang}.json has keys unknown to en.json: {unknown}"
+
+
+@pytest.mark.parametrize("lang", LANG_PARAMS)
+def test_all_keys_translated(lang: str):
+    """Translation files must cover every key of en.json."""
+    en = _load(TRANSLATIONS / "en.json")
+    translated = _load(TRANSLATIONS / f"{lang}.json")
+    missing = sorted(key for key in en if key not in translated)
+    assert not missing, f"{lang}.json is missing keys: {missing}"
+
+
+@pytest.mark.parametrize("lang", LANGUAGES)
+def test_placeholders_match(lang: str):
+    """Shared keys must use exactly the same placeholders as en.json."""
+    en = _load(TRANSLATIONS / "en.json")
+    translated = _load(TRANSLATIONS / f"{lang}.json")
+    mismatched = {
+        key: (en[key], translated[key])
+        for key in en.keys() & translated.keys()
+        if _placeholders(en[key]) != _placeholders(translated[key])
+    }
+    assert not mismatched, f"{lang}.json placeholder mismatch: {mismatched}"
+
+
+def test_services_yaml_covered():
+    """Every service and service field in services.yaml has a translation."""
+    services = yaml.safe_load((COMPONENT / "services.yaml").read_text(encoding="utf-8"))
+    en = json.loads((TRANSLATIONS / "en.json").read_text(encoding="utf-8"))
+    translated_services = en.get("services", {})
+
+    assert set(services) == set(translated_services)
+    for name, spec in services.items():
+        expected_fields = set(spec.get("fields", {}))
+        translated_fields = set(translated_services[name].get("fields", {}))
+        assert expected_fields == translated_fields, (
+            f"service {name}: fields in services.yaml and en.json differ"
+        )
