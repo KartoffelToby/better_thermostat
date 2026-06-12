@@ -65,18 +65,28 @@ blueprint:
     notify_target:
       name: Notification target (optional)
       description: >
-        Optional `notify.*` service for away/home notifications.
-        Leave empty to skip notifications.
-      default: ""
+        Notification service for away/home notifications.
+        Example: `notify.mobile_app_my_phone`.
+      default: notify.notify
       selector:
         text: {}
+
+    enable_notify:
+      name: Enable notifications
+      description: Send notifications when away/home preset changes happen.
+      default: false
+      selector:
+        boolean: {}
 
 mode: single
 max_exceeded: silent
 
 variables:
   notify_target: !input notify_target
+  enable_notify: !input enable_notify
   presence_entities: !input presence_entities
+  away_delay: !input away_delay
+  home_preset: !input home_preset
 
 trigger:
   - platform: state
@@ -121,7 +131,7 @@ action:
 
           - if:
               - condition: template
-                value_template: "{{ notify_target != '' }}"
+                value_template: "{{ enable_notify and notify_target != '' }}"
             then:
               - service: !input notify_target
                 data:
@@ -140,7 +150,7 @@ action:
 
           - if:
               - condition: template
-                value_template: "{{ notify_target != '' }}"
+                value_template: "{{ enable_notify and notify_target != '' }}"
             then:
               - service: !input notify_target
                 data:
@@ -148,7 +158,3 @@ action:
                   message: >
                     👋 Someone arrived – thermostats restored to
                     '{{ home_preset }}' preset.
-
-variables:
-  away_delay: !input away_delay
-  home_preset: !input home_preset

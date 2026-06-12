@@ -1,6 +1,6 @@
 """Helper functions for the Better Thermostat component."""
 
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from datetime import datetime
 import logging
 import math
@@ -9,6 +9,7 @@ from typing import Any
 
 from homeassistant.components.climate.const import HVACMode
 from homeassistant.const import UnitOfTemperature
+from homeassistant.core import State
 from homeassistant.helpers import device_registry as dr, entity_registry as er
 from homeassistant.helpers.entity_registry import async_entries_for_config_entry
 from homeassistant.util import dt as dt_util
@@ -363,6 +364,87 @@ def convert_to_float_celsius(
         )
         result = round(result, 2)
     return result
+
+
+def state_temperature_unit(
+    attributes: Mapping[str, object] | None, system_unit: str | None
+) -> str | None:
+    """Resolve the temperature unit of a state's attributes.
+
+    ``climate`` entities report their temperatures in the Home Assistant system
+    unit and do not expose a ``temperature_unit`` / ``unit_of_measurement``
+    attribute. ``system_unit`` (``hass.config.units.temperature_unit``) is used
+    as the fallback so the values are interpreted in the right unit. Sensors
+    that carry an explicit ``unit_of_measurement`` keep it.
+
+    Parameters
+    ----------
+    attributes : Mapping[str, object] | None
+            the state attributes to inspect, or None when the state is missing
+    system_unit : str | None
+            the configured system temperature unit, used as fallback
+
+    Returns
+    -------
+    str | None
+            the resolved temperature unit, or ``system_unit`` when no explicit
+            unit attribute is present
+    """
+    if not attributes:
+        return system_unit
+    for attr in ("temperature_unit", "unit_of_measurement"):
+        unit = attributes.get(attr)
+        if isinstance(unit, str):
+            return unit
+    return system_unit
+
+
+def attr_to_celsius(
+    self,
+    state: State | None,
+    key: str,
+    default: str | int | float | None = None,
+    context: str = "",
+) -> float | None:
+    """Read a temperature attribute from a foreign state and return it in °C.
+
+    The single inbound boundary for foreign temperatures: it resolves the source
+    unit via :func:`state_temperature_unit` (system-unit fallback, since
+    ``climate`` entities expose no unit attribute) and converts to the Celsius
+    Better Thermostat works in internally.
+
+    Parameters
+    ----------
+    self :
+            the Better Thermostat instance, supplying ``hass`` and ``device_name``
+    state : State | None
+            the source state to read from, or None when it is unavailable
+    key : str
+            the attribute name holding the temperature (e.g. ``"temperature"``)
+    default : str | int | float | None
+            value used when the attribute is missing
+    context : str
+            calling context, forwarded for logging
+
+    Returns
+    -------
+    float | None
+            the temperature in Celsius, or None if conversion failed
+
+    See Also
+    --------
+    convert_to_float_celsius : performs the unit conversion
+    state_temperature_unit : resolves the source unit
+    """
+    attributes = state.attributes if state is not None else {}
+    return convert_to_float_celsius(
+        str(attributes.get(key, default)),
+        self.device_name,
+        context,
+        unit_of_measurement=state_temperature_unit(
+            attributes, self.hass.config.units.temperature_unit
+        ),
+    )
 
 
 class rounding:

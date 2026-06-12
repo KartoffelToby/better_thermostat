@@ -1,10 +1,7 @@
 ---
-layout: default
 title: How do I activate the debug mode?
-nav_order: 3
-description: "BT."
-permalink: qanda/debugging
-parent: Q&A
+description: Enable Better Thermostat debug logging with or without a restart.
+slug: qanda/debugging
 ---
 
 # How do I activate the debug mode?

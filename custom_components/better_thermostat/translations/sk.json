@@ -3,7 +3,7 @@
   "config": {
     "step": {
       "user": {
-        "description": "Nastavenie lepšieho termostatu na integráciu s aplikáciou Home Assistant\n**Ak potrebujete viac informácií: https://better-thermostat.org/configuration#first-step**",
+        "description": "Nastavenie lepšieho termostatu na integráciu s aplikáciou Home Assistant\n\n**Podrobné informácie:** {docs_url}",
         "data": {
           "name": "Názov",
           "thermostat": "Skutočný termostat",
@@ -25,7 +25,7 @@
         }
       },
       "advanced": {
-        "description": "Rozšírená konfigurácia {trv}\n***Informácie o druhoch kalibrácie: https://better-thermostat.org/configuration#second-step***",
+        "description": "Rozšírená konfigurácia {trv}\n\n**Podrobné informácie:** {docs_url}",
         "data": {
           "protect_overheating": "Ochrana proti prehriatiu?",
           "heat_auto_swapped": "Ak auto znamená teplo pre váš TRV a chcete ho vymeniť",
@@ -61,7 +61,7 @@
   "options": {
     "step": {
       "user": {
-        "description": "Aktualizujte Better Thermostat nastavenia",
+        "description": "Aktualizujte Better Thermostat nastavenia\n\n**Podrobné informácie:** {docs_url}",
         "data": {
           "name": "Názov",
           "thermostat": "Reálny thermostat",
@@ -73,11 +73,11 @@
           "window_off_delay": "Oneskorenie pred vypnutím termostatu pri otvorení okna",
           "window_off_delay_after": "Oneskorenie pred zapnutím termostatu pri zatvorenom okne",
           "outdoor_sensor": "Ak máte vonkajší snímač, môžete pomocou neho zistiť vonkajšiu teplotu",
-          "valve_maintenance": "Ak váš termostat nemá vlastný režim údržby, môžete použiť tento režim",
-          "calibration": "Druh kalibrácie https://better-thermostat.org/configuration#second-step",
           "weather": "Váš meteorologický subjekt na zistenie vonkajšej teploty",
-          "presets": "Enabled Predvoľby",
           "target_temp_step": "Krok cieľovej teploty",
+          "presets": "Enabled Predvoľby",
+          "valve_maintenance": "Ak váš termostat nemá vlastný režim údržby, môžete použiť tento režim",
+          "calibration": "Druh kalibrácie",
           "heat_auto_swapped": "Ak auto znamená teplo pre váš TRV a chcete ho vymeniť",
           "child_lock": "Ignorovať všetky vstupy na TRV ako detský zámok",
           "homematicip": "Ak používate HomematicIP, mali by ste túto funkciu povoliť, aby ste spomalili požiadavky a zabránili tak pracovnému cyklu"
@@ -87,11 +87,8 @@
         }
       },
       "advanced": {
-        "description": "Rozšírená konfigurácia {trv}\n***Informácie o druhoch kalibrácie: https://better-thermostat.org/configuration#second-step***",
+        "description": "Rozšírená konfigurácia {trv}\n\n**Podrobné informácie:** {docs_url}",
         "data": {
-          "trend_mix_trv": "Dočasná zmes (externá hmotnosť, 0–1)",
-          "percent_hysteresis_pts": "Hysterézia (percentuálne body)",
-          "min_update_interval_s": "Minimálny interval aktualizácie (sekundy)",
           "protect_overheating": "Ochrana proti prehriatiu?",
           "heat_auto_swapped": "Ak auto znamená teplo pre váš TRV a chcete ho vymeniť",
           "child_lock": "Ignorovať všetky vstupy na TRV ako detský zámok",
@@ -131,21 +128,39 @@
     }
   },
   "services": {
-    "save_current_target_temperature": {
-      "name": "Uložiť aktuálnu teplotu",
-      "description": "Uloženie aktuálnej cieľovej teploty na neskoršie obnovenie."
-    },
-    "restore_saved_target_temperature": {
-      "name": "Obnoviť teploty",
-      "description": "Obnovenie uloženej cieľovej teploty."
+    "run_valve_maintenance": {
+      "name": "Spustiť údržbu ventilu teraz",
+      "description": "Okamžite spustí cyklus údržby ventilu pre túto entitu Better Thermostat."
     },
     "reset_heating_power": {
       "name": "Reset vykurovacieho výkonu",
       "description": "Obnovenie výkonu vykurovania na predvolenú hodnotu."
     },
-    "set_temp_target_temperature": {
-      "name": "Nastavenie eko teploty",
-      "description": "Nastavte cieľovú teplotu na dočasný, napríklad nočný režim, a uložte starú teplotu."
+    "reset_pid_learnings": {
+      "name": "Vynulovať naučené hodnoty PID",
+      "description": "Vymaže všetok naučený stav PID (a voliteľne naučené limity otvorenia) pre túto entitu.",
+      "fields": {
+        "include_open_caps": {
+          "name": "Vymazať aj naučené limity otvorenia",
+          "description": "Ak je povolené, vymažú sa aj naučené minimálne/maximálne percentá otvorenia pre každý TRV/cieľové pásmo."
+        },
+        "apply_pid_defaults": {
+          "name": "Po vynulovaní použiť predvolené hodnoty PID",
+          "description": "Ak je povolené, aktuálne cieľové pásma sa predvyplnia predvolenými zosilneniami PID (kp/ki/kd). Predvolené hodnoty môžete prepísať nižšie."
+        },
+        "defaults_kp": {
+          "name": "Predvolené kp",
+          "description": "Proporcionálne zosilnenie nastavené po vynulovaní (ak nie je zadané, použije sa BalanceParams.kp)."
+        },
+        "defaults_ki": {
+          "name": "Predvolené ki",
+          "description": "Integračné zosilnenie nastavené po vynulovaní (ak nie je zadané, použije sa BalanceParams.ki)."
+        },
+        "defaults_kd": {
+          "name": "Predvolené kd",
+          "description": "Derivačné zosilnenie nastavené po vynulovaní (ak nie je zadané, použije sa BalanceParams.kd)."
+        }
+      }
     }
   },
   "selector": {
@@ -188,6 +203,12 @@
       },
       "pid_auto_tune_no_trv": {
         "name": "PID Auto Tune"
+      },
+      "child_lock": {
+        "name": "{trv_name} Detská poistka"
+      },
+      "child_lock_no_trv": {
+        "name": "Detská poistka"
       }
     }
   },
@@ -204,6 +225,14 @@
       "hvac_mode_changed": "Režim HVAC zmenený",
       "current_temperature_changed": "Aktuálna teplota zmenená",
       "current_humidity_changed": "Aktuálna vlhkosť zmenená"
+    },
+    "condition_type": {
+      "is_hvac_mode": "Termostat je nastavený na konkrétny režim HVAC",
+      "is_hvac_action": "Termostat vykonáva konkrétnu akciu HVAC"
+    },
+    "action_type": {
+      "set_hvac_mode": "Nastaviť režim HVAC",
+      "set_temperature": "Nastaviť cieľovú teplotu"
     }
   }
 }

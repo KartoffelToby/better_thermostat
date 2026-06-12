@@ -397,7 +397,7 @@ blueprint:
         occupancy. Only evaluated when presence mode is enabled above.
         For multi-person households use a group or a template binary sensor
         that is 'on' when at least one person is home.
-      default: ""
+      default: binary_sensor.bt_presence_placeholder
       selector:
         entity:
           filter:
@@ -444,7 +444,7 @@ blueprint:
       description: >
         An input_boolean helper. Create one under Settings → Helpers → Toggle,
         then select it here. Only used when the pause switch feature is enabled.
-      default: ""
+      default: input_boolean.bt_schedule_pause_placeholder
       selector:
         entity:
           domain: input_boolean
@@ -454,10 +454,17 @@ blueprint:
       name: "🔔 Notification target (optional)"
       description: >
         A notify.* service that receives a message on every slot change.
-        Leave empty to disable notifications.
-      default: ""
+        Example: `notify.mobile_app_my_phone`.
+      default: notify.notify
       selector:
         text: {}
+
+    enable_notify:
+      name: "Enable notifications"
+      description: Send a message on slot and state transitions.
+      default: false
+      selector:
+        boolean: {}
 
 
 mode: queued
@@ -497,6 +504,7 @@ variables:
   enable_pause_switch: !input enable_pause_switch
   pause_switch: !input pause_switch
   notify_target: !input notify_target
+  enable_notify: !input enable_notify
 
   # ── Day-type: weekday | saturday | sunday ───────────────────────────────
   day_type: >
@@ -699,7 +707,7 @@ action:
                   target: !input thermostat_target
                 - if:
                     - condition: template
-                      value_template: "{{ notify_target != '' }}"
+                      value_template: "{{ enable_notify and notify_target != '' }}"
                   then:
                     - service: !input notify_target
                       data:
@@ -715,7 +723,7 @@ action:
               target: !input thermostat_target
             - if:
                 - condition: template
-                  value_template: "{{ notify_target != '' }}"
+                  value_template: "{{ enable_notify and notify_target != '' }}"
               then:
                 - service: !input notify_target
                   data:
@@ -752,7 +760,7 @@ action:
                   target: !input thermostat_target
                 - if:
                     - condition: template
-                      value_template: "{{ notify_target != '' }}"
+                      value_template: "{{ enable_notify and notify_target != '' }}"
                   then:
                     - service: !input notify_target
                       data:
@@ -767,7 +775,7 @@ action:
               target: !input thermostat_target
             - if:
                 - condition: template
-                  value_template: "{{ notify_target != '' }}"
+                  value_template: "{{ enable_notify and notify_target != '' }}"
               then:
                 - service: !input notify_target
                   data:
@@ -804,7 +812,7 @@ action:
                   target: !input thermostat_target
                 - if:
                     - condition: template
-                      value_template: "{{ notify_target != '' }}"
+                      value_template: "{{ enable_notify and notify_target != '' }}"
                   then:
                     - service: !input notify_target
                       data:
@@ -819,7 +827,7 @@ action:
               target: !input thermostat_target
             - if:
                 - condition: template
-                  value_template: "{{ notify_target != '' }}"
+                  value_template: "{{ enable_notify and notify_target != '' }}"
               then:
                 - service: !input notify_target
                   data:
@@ -856,7 +864,7 @@ action:
                   target: !input thermostat_target
                 - if:
                     - condition: template
-                      value_template: "{{ notify_target != '' }}"
+                      value_template: "{{ enable_notify and notify_target != '' }}"
                   then:
                     - service: !input notify_target
                       data:
@@ -871,7 +879,7 @@ action:
               target: !input thermostat_target
             - if:
                 - condition: template
-                  value_template: "{{ notify_target != '' }}"
+                  value_template: "{{ enable_notify and notify_target != '' }}"
               then:
                 - service: !input notify_target
                   data:
@@ -909,7 +917,7 @@ action:
                   target: !input thermostat_target
                 - if:
                     - condition: template
-                      value_template: "{{ notify_target != '' }}"
+                      value_template: "{{ enable_notify and notify_target != '' }}"
                   then:
                     - service: !input notify_target
                       data:
@@ -924,7 +932,7 @@ action:
               target: !input thermostat_target
             - if:
                 - condition: template
-                  value_template: "{{ notify_target != '' }}"
+                  value_template: "{{ enable_notify and notify_target != '' }}"
               then:
                 - service: !input notify_target
                   data:
@@ -961,7 +969,7 @@ action:
               target: !input thermostat_target
             - if:
                 - condition: template
-                  value_template: "{{ notify_target != '' }}"
+                  value_template: "{{ enable_notify and notify_target != '' }}"
               then:
                 - service: !input notify_target
                   data:
@@ -985,7 +993,7 @@ action:
           target: !input thermostat_target
         - if:
             - condition: template
-              value_template: "{{ notify_target != '' }}"
+              value_template: "{{ enable_notify and notify_target != '' }}"
           then:
             - service: !input notify_target
               data:
@@ -1014,7 +1022,7 @@ action:
           target: !input thermostat_target
         - if:
             - condition: template
-              value_template: "{{ notify_target != '' }}"
+              value_template: "{{ enable_notify and notify_target != '' }}"
           then:
             - service: !input notify_target
               data:

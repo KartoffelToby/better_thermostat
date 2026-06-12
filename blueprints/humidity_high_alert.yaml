@@ -28,20 +28,37 @@ blueprint:
     notify_target:
       name: Notification target (optional)
       description: >
-        Leave empty to skip notifications. Example: `notify.mobile_app_my_phone`.
-      default: ""
+        Notification service to call when alerts are enabled.
+        Example: `notify.mobile_app_my_phone`.
+      default: notify.notify
       selector:
         text: {}
+
+    enable_notify:
+      name: Enable notifications
+      description: Turn on to send a notification when humidity is high.
+      default: false
+      selector:
+        boolean: {}
 
     ventilation_switch:
       name: Ventilation switch (optional)
       description: >
         A switch entity to turn on when humidity is high (e.g. a fan or
-        ventilation relay). Leave empty to skip.
-      default: ""
+        ventilation relay). The default `switch.bt_ventilation_placeholder`
+        is only a placeholder. Replace `ventilation_switch` with a real
+        switch before enabling `enable_ventilation`.
+      default: switch.bt_ventilation_placeholder
       selector:
         entity:
           domain: switch
+
+    enable_ventilation:
+      name: Enable ventilation switch control
+      description: Turn on to switch on the selected ventilation switch.
+      default: false
+      selector:
+        boolean: {}
 
 mode: single
 max_exceeded: silent
@@ -60,7 +77,7 @@ condition: []
 action:
   - if:
       - condition: template
-        value_template: "{{ (notify_target | default('')) != '' }}"
+        value_template: "{{ enable_notify and (notify_target | default('')) != '' }}"
     then:
       - service: !input notify_target
         data:
@@ -71,7 +88,7 @@ action:
 
   - if:
       - condition: template
-        value_template: "{{ (ventilation_switch | default('')) != '' }}"
+        value_template: "{{ enable_ventilation and (ventilation_switch | default('')) != '' }}"
     then:
       - service: switch.turn_on
         target:
@@ -79,5 +96,7 @@ action:
 
 variables:
   notify_target: !input notify_target
+  enable_notify: !input enable_notify
   ventilation_switch: !input ventilation_switch
+  enable_ventilation: !input enable_ventilation
   humidity_threshold: !input humidity_threshold

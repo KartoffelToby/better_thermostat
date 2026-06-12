@@ -15,6 +15,7 @@ from __future__ import annotations
 
 from collections import deque
 from dataclasses import asdict
+import logging
 from unittest.mock import AsyncMock, patch
 
 import pytest
@@ -514,6 +515,30 @@ class TestStateManagerLoadSave:
 
         assert mgr.state.mpc == {}
         assert mgr.dirty is False
+
+    @pytest.mark.asyncio
+    async def test_load_survives_a_poisoned_store(self, caplog):
+        """A store that breaks deserialization yields defaults, not a crash.
+
+        load() runs inside the entity's startup task; an exception here
+        would kill startup over data that relearning replaces anyway.
+        The recovery is announced by a warning that carries the exception.
+        """
+        mgr, mock_store = self._make_manager_with_store()
+        mock_store.async_load.return_value = {"version": 1, "mpc": {"k": {}}}
+        with (
+            caplog.at_level(logging.WARNING),
+            patch(
+                "custom_components.better_thermostat.utils.state_manager._deserialize",
+                side_effect=TypeError("poisoned"),
+            ),
+        ):
+            await mgr.load()
+
+        assert mgr.state.mpc == {}
+        assert mgr.dirty is False
+        assert "persisted state is unreadable, starting fresh" in caplog.text
+        assert "poisoned" in caplog.text
 
     @pytest.mark.asyncio
     async def test_load_valid_state(self):

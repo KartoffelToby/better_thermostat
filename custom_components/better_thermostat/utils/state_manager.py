@@ -477,11 +477,23 @@ class StateManager:
             )
             return
 
-        version = raw.get("version", 0)
-        if version < 1:
-            raw = _migrate_v0_to_v1(raw)
-
-        self._state = _deserialize(raw)
+        # A store that breaks deserialization yields defaults, not a
+        # crash: load() runs inside the entity's startup task, and
+        # relearning replaces anything a poisoned store could offer.
+        try:
+            version = raw.get("version", 0)
+            if version < 1:
+                raw = _migrate_v0_to_v1(raw)
+            self._state = _deserialize(raw)
+        except Exception:
+            _LOGGER.warning(
+                "better_thermostat [%s]: persisted state is unreadable, starting fresh",
+                self._entry_id,
+                exc_info=True,
+            )
+            self._state = RuntimeState()
+            self._dirty = False
+            return
         self._dirty = False
         _LOGGER.debug(
             "better_thermostat [%s]: Loaded state v%d (%d mpc, %d pid, %d tpi keys)",

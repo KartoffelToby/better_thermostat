@@ -55,6 +55,10 @@ from .utils.helpers import get_device_model, get_trv_intigration
 
 _LOGGER = logging.getLogger(__name__)
 
+CONFIG_WALKTHROUGH_URL = (
+    "https://better-thermostat.org/setup/configuration-walkthrough/"
+)
+
 
 TEMP_STEP_SELECTOR = selector.SelectSelector(
     selector.SelectSelectorConfig(
@@ -793,7 +797,10 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             step_id="advanced",
             data_schema=vol.Schema(fields),
             last_step=False,
-            description_placeholders={"trv": ctx.get("trv_id") or "-"},
+            description_placeholders={
+                "trv": ctx.get("trv_id") or "-",
+                "docs_url": CONFIG_WALKTHROUGH_URL,
+            },
         )
 
     async def async_step_user(self, user_input=None):
@@ -844,6 +851,7 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             data_schema=vol.Schema(fields),
             errors=errors,
             last_step=False,
+            description_placeholders={"docs_url": CONFIG_WALKTHROUGH_URL},
         )
 
 
@@ -957,7 +965,10 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
             step_id="advanced",
             data_schema=vol.Schema(fields),
             last_step=self._last_step,
-            description_placeholders={"trv": ctx.get("trv_id") or "-"},
+            description_placeholders={
+                "trv": ctx.get("trv_id") or "-",
+                "docs_url": CONFIG_WALKTHROUGH_URL,
+            },
         )
 
     async def async_step_user(self, user_input=None):
@@ -1022,7 +1033,10 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
         )
 
         return self.async_show_form(
-            step_id="user", data_schema=vol.Schema(fields), last_step=False
+            step_id="user",
+            data_schema=vol.Schema(fields),
+            last_step=False,
+            description_placeholders={"docs_url": CONFIG_WALKTHROUGH_URL},
         )
 
     async def _check_calibration_changes(self) -> None:

@@ -16,14 +16,17 @@ from homeassistant.const import ATTR_TEMPERATURE
 from homeassistant.core import State
 
 from .const import MAX_HEAT_LOSS, MAX_HEATING_POWER, MIN_HEAT_LOSS, MIN_HEATING_POWER
-from .helpers import convert_to_float_celsius
+from .helpers import convert_to_float_celsius, state_temperature_unit
 from .thermal_learning import clamp
 
 _LOGGER = logging.getLogger(__name__)
 
 
 def mean_trv_target(
-    states: list[State], device_name: str, context: str = "restore(target)"
+    states: list[State],
+    device_name: str,
+    context: str = "restore(target)",
+    system_unit: str | None = None,
 ) -> float | None:
     """Mean of the valid TRV target temperatures, each converted to Celsius.
 
@@ -34,9 +37,7 @@ def mean_trv_target(
         raw = state.attributes.get(ATTR_TEMPERATURE)
         if raw is None:
             continue
-        unit = state.attributes.get(
-            "temperature_unit", state.attributes.get("unit_of_measurement")
-        )
+        unit = state_temperature_unit(state.attributes, system_unit)
         celsius = convert_to_float_celsius(
             str(raw), device_name, context, unit_of_measurement=unit
         )
@@ -51,6 +52,7 @@ def restore_target_temperature(
     min_temp: float | None,
     max_temp: float | None,
     device_name: str,
+    system_unit: str | None = None,
 ) -> float | None:
     """Resolve the restored heating target.
 
@@ -60,18 +62,19 @@ def restore_target_temperature(
     yields a value.
     """
     if saved is None:
-        return mean_trv_target(states, device_name)
+        return mean_trv_target(states, device_name, system_unit=system_unit)
 
-    try:
-        value = float(saved)
-    except (TypeError, ValueError):
+    value = convert_to_float_celsius(
+        saved, device_name, "restore_target_temperature", system_unit
+    )
+    if value is None:
         _LOGGER.warning(
             "better_thermostat %s: Saved target temperature %r is not numeric, "
             "falling back to the TRV mean",
             device_name,
             saved,
         )
-        return mean_trv_target(states, device_name)
+        return mean_trv_target(states, device_name, system_unit=system_unit)
 
     low = min_temp if min_temp is not None else 5.0
     high = max_temp if max_temp is not None else 30.0

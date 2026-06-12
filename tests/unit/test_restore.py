@@ -79,6 +79,20 @@ class TestMeanTrvTarget:
         )
         assert mean_trv_target([s], DEV) == pytest.approx(20.0)
 
+    def test_no_unit_attr_uses_system_unit(self):
+        """Without a unit attribute the passed system unit decides the reading."""
+        result = mean_trv_target(
+            [_trv(68.0)], DEV, system_unit=UnitOfTemperature.FAHRENHEIT
+        )
+        assert result == pytest.approx(20.0)
+
+    def test_no_unit_attr_celsius_system_unchanged(self):
+        """A Celsius system leaves a unit-less reading as-is."""
+        result = mean_trv_target(
+            [_trv(20.0)], DEV, system_unit=UnitOfTemperature.CELSIUS
+        )
+        assert result == pytest.approx(20.0)
+
 
 # ---------------------------------------------------------------------------
 # restore_target_temperature
@@ -137,6 +151,18 @@ class TestRestoreTargetTemperature:
     def test_malformed_saved_no_trv_returns_none(self):
         """A non-numeric saved value with no TRV target → None, not a crash."""
         assert restore_target_temperature("n/a", [], 5.0, 30.0, DEV) is None
+
+    def test_saved_fahrenheit_converted_to_celsius(self):
+        """A saved value in Fahrenheit is converted to Celsius on restoration."""
+        assert restore_target_temperature(
+            68.0, [], 5.0, 30.0, DEV, UnitOfTemperature.FAHRENHEIT
+        ) == pytest.approx(20.0)
+
+    def test_saved_fahrenheit_string_converted_to_celsius(self):
+        """A saved string value in Fahrenheit is converted to Celsius on restoration."""
+        assert restore_target_temperature(
+            "68.0", [], 5.0, 30.0, DEV, UnitOfTemperature.FAHRENHEIT
+        ) == pytest.approx(20.0)
 
 
 # ---------------------------------------------------------------------------

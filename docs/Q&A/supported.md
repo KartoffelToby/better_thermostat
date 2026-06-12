@@ -1,10 +1,7 @@
 ---
-layout: default
 title: Which devices are currently supported?
-nav_order: 3
-description: "BT."
-permalink: qanda/supported
-parent: Q&A
+description: Which TRVs and integrations Better Thermostat supports.
+slug: qanda/supported
 ---
 
 # Which devices are currently supported?

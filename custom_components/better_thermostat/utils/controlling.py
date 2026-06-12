@@ -4,7 +4,8 @@ import asyncio
 import logging
 
 from homeassistant.components.climate.const import PRESET_BOOST, HVACMode
-from homeassistant.const import STATE_UNAVAILABLE, STATE_UNKNOWN
+from homeassistant.const import STATE_UNAVAILABLE, STATE_UNKNOWN, UnitOfTemperature
+from homeassistant.util.unit_conversion import TemperatureConverter
 
 from custom_components.better_thermostat.adapters.delegate import (
     get_current_offset,
@@ -21,7 +22,10 @@ from custom_components.better_thermostat.utils.const import (
     CalibrationMode,
     CalibrationType,
 )
-from custom_components.better_thermostat.utils.helpers import convert_to_float
+from custom_components.better_thermostat.utils.helpers import (
+    attr_to_celsius,
+    convert_to_float,
+)
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -302,7 +306,14 @@ async def control_cooler(self):
         desired_mode = HVACMode.OFF
 
     # Only send temperature command if it differs from current
-    if current_temp is None or current_temp != desired_temp:
+    if desired_temp is None:
+        _LOGGER.debug(
+            "better_thermostat %s: cooler %s desired temperature is None, "
+            "skipping set_temperature",
+            self.device_name,
+            self.cooler_entity_id,
+        )
+    elif current_temp is None or current_temp != desired_temp:
         if current_temp is None:
             _LOGGER.debug(
                 "better_thermostat %s: cooler %s current temperature is unknown, "
@@ -318,10 +329,16 @@ async def control_cooler(self):
                 current_temp,
                 desired_temp,
             )
+        _temp_to_set = desired_temp
+        if self.hass.config.units.temperature_unit == UnitOfTemperature.FAHRENHEIT:
+            _temp_to_set = TemperatureConverter.convert(
+                desired_temp, UnitOfTemperature.CELSIUS, UnitOfTemperature.FAHRENHEIT
+            )
+            _temp_to_set = round(_temp_to_set, 1)
         await self.hass.services.async_call(
             "climate",
             "set_temperature",
-            {"entity_id": self.cooler_entity_id, "temperature": desired_temp},
+            {"entity_id": self.cooler_entity_id, "temperature": _temp_to_set},
             blocking=True,
             context=self.context,
         )
@@ -403,10 +420,8 @@ async def control_trv(self, heater_entity_id=None):
             self.real_trvs[heater_entity_id]["ignore_trv_states"] = False
             return True
 
-        _current_set_temperature = convert_to_float(
-            str(_trv.attributes.get("temperature", None)),
-            self.device_name,
-            "controlling()",
+        _current_set_temperature = attr_to_celsius(
+            self, _trv, "temperature", None, "controlling()"
         )
 
         _remapped_states = convert_outbound_states(
@@ -666,10 +681,13 @@ async def check_system_mode(self, heater_entity_id=None):
     _real_trv = self.real_trvs[heater_entity_id]
     while _real_trv["hvac_mode"] != _real_trv["last_hvac_mode"]:
         if _timeout > 360:
-            _LOGGER.debug(
-                "better_thermostat %s: %s the real TRV did not respond to the system mode change",
+            _LOGGER.warning(
+                "better_thermostat %s: TRV %s did not confirm the system mode change "
+                "after 360s (wrote=%s, last reported=%s); giving up and assuming applied",
                 self.device_name,
                 heater_entity_id,
+                _real_trv["last_hvac_mode"],
+                _real_trv["hvac_mode"],
             )
             _timeout = 0
             break
@@ -709,10 +727,8 @@ async def check_target_temperature(self, heater_entity_id=None):
                 heater_entity_id,
             )
             break
-        _current_set_temperature = convert_to_float(
-            str(_trv_state.attributes.get("temperature", None)),
-            self.device_name,
-            "check_target_temperature()",
+        _current_set_temperature = attr_to_celsius(
+            self, _trv_state, "temperature", None, "check_target_temperature()"
         )
         if _timeout == 0:
             _LOGGER.debug(
@@ -729,10 +745,13 @@ async def check_target_temperature(self, heater_entity_id=None):
             _timeout = 0
             break
         if _timeout > 360:
-            _LOGGER.debug(
-                "better_thermostat %s: %s the real TRV did not respond to the target temperature change",
+            _LOGGER.warning(
+                "better_thermostat %s: TRV %s did not confirm the target temperature "
+                "after 360s (wrote=%s, last reported=%s); giving up and assuming applied",
                 self.device_name,
                 heater_entity_id,
+                _real_trv["last_temperature"],
+                _current_set_temperature,
             )
             _timeout = 0
             break
