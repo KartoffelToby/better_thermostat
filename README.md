@@ -11,7 +11,7 @@
 ## Requirements
 
 - Minimum required Home Assistant version: `2025.12`
-  (_continuously tested against the latest Home Assistant release_)
+  (_continuously tested against the Home Assistant version pinned in [`requirements.dev.txt`](requirements.dev.txt)_)
 
 ### Companion UI
 
