@@ -2,7 +2,7 @@
 
 [![Active installations](https://badge.t-haber.de/badge/better_thermostat?kill_cache=1)](https://github.com/KartoffelToby/better_thermostat/)
 [![GitHub issues](https://img.shields.io/github/issues/KartoffelToby/better_thermostat?style=for-the-badge)](https://github.com/KartoffelToby/better_thermostat/issues)
-[![Version - 1.8.1](https://img.shields.io/badge/Version-1.8.1-009688?style=for-the-badge)](https://github.com/KartoffelToby/better_thermostat/releases)
+[![Version](https://img.shields.io/github/v/release/KartoffelToby/better_thermostat?style=for-the-badge&label=Version&color=009688)](https://github.com/KartoffelToby/better_thermostat/releases)
 [![Discord](https://img.shields.io/discord/925725316540923914.svg?style=for-the-badge)](https://discord.gg/9BUegWTG3K)
 [![hacs_badge](https://img.shields.io/badge/HACS-Default-41BDF5.svg?style=for-the-badge)](https://github.com/hacs/integration)
 
@@ -10,8 +10,8 @@
 
 ## Requirements
 
-- Minimum required Home Assistant version: `2024.12`
-  (_Latest tested version: `2026.6.0`_)
+- Minimum required Home Assistant version: `2025.12`
+  (_continuously tested against Home Assistant_ [![Tested Home Assistant version](https://img.shields.io/badge/dynamic/regex?url=https%3A%2F%2Fraw.githubusercontent.com%2FKartoffelToby%2Fbetter_thermostat%2Fdevelop%2Frequirements.dev.txt&search=homeassistant%3D%3D%28%5B0-9.%5D%2B%29&replace=%241&label=&color=009688)](requirements.dev.txt))
 
 ### Companion UI
 

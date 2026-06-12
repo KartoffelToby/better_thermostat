@@ -1,5 +1,5 @@
-homeassistant==2026.2.3
-pytest-homeassistant-custom-component==0.13.316
+homeassistant==2026.6.2
+pytest-homeassistant-custom-component==0.13.338
 pre-commit==4.6.0
 codespell==2.4.2
 ruff==0.15.15
