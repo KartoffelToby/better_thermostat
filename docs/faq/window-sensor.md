@@ -29,16 +29,16 @@ change.
 2. Use a `binary_sensor` (device class `window`/`door`/`opening`), or a
    group of binary sensors:
 
-```yaml
-group:
-  livingroom_windows:
-    name: Livingroom Windows
-    icon: mdi:window-open-variant
-    all: false
-    entities:
-      - binary_sensor.openclose_1
-      - binary_sensor.openclose_2
-```
+   ```yaml
+   group:
+     livingroom_windows:
+       name: Livingroom Windows
+       icon: mdi:window-open-variant
+       all: false
+       entities:
+         - binary_sensor.openclose_1
+         - binary_sensor.openclose_2
+   ```
 
 3. If you template your own sensor, make sure it only ever renders
    `on` or `off`.

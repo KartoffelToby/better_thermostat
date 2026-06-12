@@ -9,9 +9,11 @@ slug: schedule
 Actions you can perform from Home Assistant to set a temporary target temperature for a thermostat.
 
 ## Action: `better_thermostat.set_temp_target_temperature`
+
 <a href="https://my.home-assistant.io/redirect/developer_call_service/?service=better_thermostat.set_temp_target_temperature" target="_blank"><img src="https://my.home-assistant.io/badges/developer_call_service.svg" alt="Open your Home Assistant instance and show your service developer tools with a specific service selected." /></a>
 
 ## Action: `better_thermostat.restore_saved_target_temperature`
+
 <a href="https://my.home-assistant.io/redirect/developer_call_service/?service=better_thermostat.restore_saved_target_temperature" target="_blank"><img src="https://my.home-assistant.io/badges/developer_call_service.svg" alt="Open your Home Assistant instance and show your service developer tools with a specific service selected." /></a>
 
 # How can I set up a night mode schedule?

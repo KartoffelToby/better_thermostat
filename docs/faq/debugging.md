@@ -26,7 +26,7 @@ data:
 
 Open **Developer tools → Actions** directly:
 
-<a href="https://my.home-assistant.io/redirect/developer_services/" target="_blank"><img src="https://my.home-assistant.io/badges/developer_services.svg" alt="Open developer services" /></a>
+<a href="https://my.home-assistant.io/redirect/developer_services/" target="_blank"><img src="https://my.home-assistant.io/badges/developer_services.svg" alt="Open Developer tools → Actions" /></a>
 
 ## What to check first
 
