@@ -5,6 +5,7 @@ from __future__ import annotations
 from abc import ABC
 import asyncio
 from collections import deque
+from dataclasses import replace
 from datetime import datetime, timedelta
 from functools import cached_property
 import json
@@ -33,12 +34,12 @@ from homeassistant.const import (
     STATE_UNKNOWN,
     UnitOfTemperature,
 )
-from homeassistant.core import CALLBACK_TYPE, Context, ServiceCall, State, callback
+from homeassistant.core import Context, State, callback
+from homeassistant.exceptions import ServiceValidationError
 from homeassistant.helpers import entity_platform
 from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.dispatcher import dispatcher_send
 from homeassistant.helpers.event import (
-    async_call_later,
     async_track_state_change_event,
     async_track_time_change,
     async_track_time_interval,
@@ -100,7 +101,6 @@ from .utils.const import (
     ATTR_STATE_ERRORS,
     ATTR_STATE_HEAT_LOSS,
     ATTR_STATE_HEATING_POWER,
-    ATTR_STATE_HUMIDIY,
     ATTR_STATE_LAST_CHANGE,
     ATTR_STATE_MAIN_MODE,
     ATTR_STATE_OFF_TEMPERATURE,
@@ -197,31 +197,6 @@ DEFAULT_FALLBACK_TEMPERATURE = 20.0
 
 # Signal für dynamische Entity-Updates
 SIGNAL_BT_CONFIG_CHANGED = "bt_config_changed_{}"
-
-
-@callback
-def async_set_temperature_service_validate(service_call: ServiceCall) -> ServiceCall:
-    """Validate temperature inputs for set_temperature service."""
-    if ATTR_TEMPERATURE in service_call.data:
-        temp = service_call.data[ATTR_TEMPERATURE]
-        if not isinstance(temp, (int, float)):
-            raise ValueError(f"Invalid temperature value {temp}, must be numeric")
-
-    if ATTR_TARGET_TEMP_HIGH in service_call.data:
-        temp_high = service_call.data[ATTR_TARGET_TEMP_HIGH]
-        if not isinstance(temp_high, (int, float)):
-            raise ValueError(
-                f"Invalid target high temperature value {temp_high}, must be numeric"
-            )
-
-    if ATTR_TARGET_TEMP_LOW in service_call.data:
-        temp_low = service_call.data[ATTR_TARGET_TEMP_LOW]
-        if not isinstance(temp_low, (int, float)):
-            raise ValueError(
-                f"Invalid target low temperature value {temp_low}, must be numeric"
-            )
-
-    return service_call
 
 
 async def async_setup_platform(hass, config, async_add_entities, discovery_info=None):
@@ -747,7 +722,6 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
         self.cur_temp_filtered = None
         # Unified state persistence (replaces per-controller stores)
         self.state_mgr: StateManager | None = None
-        self._save_cancel: CALLBACK_TYPE | None = None
 
         self.last_known_external_temp = None
         self._slope_periodic_last_ts = None
@@ -865,12 +839,11 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
 
         def on_remove():
             self.is_removed = True
-            self.kernel_state.lifecycle = lifecycle_stop(self.kernel_state.lifecycle)
-            # Cancel any pending debounced save so it doesn't fire after
-            # the entity is gone.  flush() below will save immediately.
-            if self._save_cancel is not None:
-                self._save_cancel()
-                self._save_cancel = None
+            self.kernel_state = replace(
+                self.kernel_state, lifecycle=lifecycle_stop(self.kernel_state.lifecycle)
+            )
+            # flush() saves immediately; the Store cancels its own
+            # pending delayed write when async_save runs.
             if self.state_mgr is not None:
                 try:
                     self._record_runtime_to_state()
@@ -1422,10 +1395,13 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
                 None,
             ):
                 check = window.state
-                self.kernel_state.window = WindowState(
-                    phase=WindowPhase.OPEN
-                    if check in ("on", "open", "true")
-                    else WindowPhase.CLOSED
+                self.kernel_state = replace(
+                    self.kernel_state,
+                    window=WindowState(
+                        phase=WindowPhase.OPEN
+                        if check in ("on", "open", "true")
+                        else WindowPhase.CLOSED
+                    ),
                 )
                 _LOGGER.debug(
                     "better_thermostat %s: detected window state at startup: %s",
@@ -1434,13 +1410,13 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
                 )
             else:
                 # Window sensor unavailable - assume closed (safer default)
-                self.kernel_state.window = WindowState()
+                self.kernel_state = replace(self.kernel_state, window=WindowState())
                 _LOGGER.debug(
                     "better_thermostat %s: window sensor unavailable, assuming closed",
                     self.device_name,
                 )
         else:
-            self.kernel_state.window = WindowState()
+            self.kernel_state = replace(self.kernel_state, window=WindowState())
 
     async def _restore_state(self, states: list[State]) -> None:
         """Restore previous state from HA state machine or fall back to defaults."""
@@ -1558,29 +1534,40 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
                         self.device_name,
                         old_state.state,
                     )
-            if old_state.attributes.get(ATTR_STATE_CALL_FOR_HEAT, None) is not None:
-                self.call_for_heat = bool(
-                    old_state.attributes.get(ATTR_STATE_CALL_FOR_HEAT)
-                )
+            # call_for_heat and humidity are observations, not UI state:
+            # they are rebuilt from live data within the first cycles, so
+            # they are deliberately not restored from entity attributes.
             if old_state.attributes.get(ATTR_STATE_SAVED_TEMPERATURE, None) is not None:
                 self._saved_temperature = convert_to_float(
                     str(old_state.attributes.get(ATTR_STATE_SAVED_TEMPERATURE, None)),
                     self.device_name,
                     "startup()",
                 )
-            if old_state.attributes.get(ATTR_STATE_HUMIDIY, None) is not None:
-                self._current_humidity = float(old_state.attributes[ATTR_STATE_HUMIDIY])
             if old_state.attributes.get(ATTR_STATE_MAIN_MODE, None) is not None:
                 self.last_main_hvac_mode = str(
                     old_state.attributes[ATTR_STATE_MAIN_MODE]
                 )
-            if old_state.attributes.get(ATTR_STATE_HEATING_POWER, None) is not None:
+
+            # Learned values: the StateManager is the persistence
+            # authority. The restored attributes only fill in when the
+            # store carries nothing — a one-time migration fallback for
+            # upgrades from versions that persisted via RestoreEntity.
+            _stored_power, _stored_loss = (
+                self.state_mgr.clamped_thermal()
+                if self.state_mgr is not None
+                else (None, None)
+            )
+            if (
+                _stored_power is None
+                and old_state.attributes.get(ATTR_STATE_HEATING_POWER, None) is not None
+            ):
                 self.heating_power = clamp_heating_power(
                     old_state.attributes.get(ATTR_STATE_HEATING_POWER), self.device_name
                 )
-
-            # Restore heat loss if available
-            if old_state.attributes.get(ATTR_STATE_HEAT_LOSS, None) is not None:
+            if (
+                _stored_loss is None
+                and old_state.attributes.get(ATTR_STATE_HEAT_LOSS, None) is not None
+            ):
                 _restored_loss = clamp_heat_loss(
                     old_state.attributes.get(ATTR_STATE_HEAT_LOSS)
                 )
@@ -1871,8 +1858,9 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
         )
         await self._trigger_check_weather(None)
         _LOGGER.debug("better_thermostat %s: startup finishing...", self.device_name)
-        self.kernel_state.lifecycle = lifecycle_startup_finished(
-            self.kernel_state.lifecycle
+        self.kernel_state = replace(
+            self.kernel_state,
+            lifecycle=lifecycle_startup_finished(self.kernel_state.lifecycle),
         )
         await self._startup_control_trvs()
         self._available = True
@@ -1915,8 +1903,11 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
         # logged at DEBUG and the HA repair issue is deferred — slow cloud
         # integrations get time to come online before the user sees a warning.
         self._degraded_grace_until = self.clock.now() + STARTUP_DEGRADED_GRACE_PERIOD
-        self.kernel_state.lifecycle = lifecycle_extend_grace(
-            self.kernel_state.lifecycle, self._degraded_grace_until
+        self.kernel_state = replace(
+            self.kernel_state,
+            lifecycle=lifecycle_extend_grace(
+                self.kernel_state.lifecycle, self._degraded_grace_until
+            ),
         )
         await await_optional_sensors(self)
         await check_and_update_degraded_mode(self)
@@ -2145,7 +2136,7 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
             hvac_off=HVACMode.OFF in (self.hvac_mode, self.bt_hvac_mode),
             has_enabled_trvs=bool(trvs_to_service),
         )
-        self.kernel_state.maintenance = region
+        self.kernel_state = replace(self.kernel_state, maintenance=region)
         if region.next_due is not None:
             self.next_valve_maintenance = region.next_due
 
@@ -2173,8 +2164,9 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
             region = MaintenanceState(
                 phase=MaintenancePhase.DUE, next_due=region.next_due
             )
-        self.kernel_state.maintenance = maintenance_start_run(
-            region, self.clock.monotonic()
+        self.kernel_state = replace(
+            self.kernel_state,
+            maintenance=maintenance_start_run(region, self.clock.monotonic()),
         )
         # Suppress control loop briefly to prevent interference during maintenance
         self.ignore_states = True
@@ -2252,8 +2244,11 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
                 if isinstance(self.next_valve_maintenance, datetime)
                 else None
             )
-            self.kernel_state.maintenance = maintenance_finish_run(
-                self.kernel_state.maintenance, next_due
+            self.kernel_state = replace(
+                self.kernel_state,
+                maintenance=maintenance_finish_run(
+                    self.kernel_state.maintenance, next_due
+                ),
             )
             # Always release ignore_states after maintenance.
             # If we restore a previous True here, the control_queue loop can get
@@ -2305,33 +2300,18 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
 
     @callback
     def schedule_save_state(self, delay_s: float = 15.0) -> None:
-        """Schedule a debounced persist of unified state.
+        """Schedule a coalesced persist of unified state.
 
-        Uses ``async_call_later`` so the timer is cancelable and
-        HA-idiomatic.  Repeated calls within *delay_s* reset the timer
-        so that the save always happens *delay_s* after the **last**
-        trigger (true debounce).
+        Delegates to the Store's delayed save: the runtime values are
+        recorded at write time, a pending save is flushed on Home
+        Assistant's final-write event (normal shutdown), and repeated
+        triggers cannot starve the write.
         """
-        state_mgr = self.state_mgr
-        if state_mgr is None:
+        if self.state_mgr is None:
             return
-
-        # Cancel any previously scheduled save (resets the timer).
-        if self._save_cancel is not None:
-            self._save_cancel()
-            self._save_cancel = None
-
-        async def _do_save(_now: object) -> None:
-            self._save_cancel = None
-            try:
-                self._record_runtime_to_state()
-                await state_mgr.save_if_dirty()
-            except Exception:
-                _LOGGER.exception(
-                    "better_thermostat %s: failed to persist state", self.device_name
-                )
-
-        self._save_cancel = async_call_later(self.hass, delay_s, _do_save)
+        self.state_mgr.schedule_delay_save(
+            pre_save=self._record_runtime_to_state, delay_s=delay_s
+        )
 
     async def calculate_heating_power(self):
         """Learn effective heating power (°C/min) from completed heating cycles.
@@ -2565,7 +2545,9 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
     def bt_hvac_mode(self, value: HVACMode | None) -> None:
         """Set the BT-internal HVAC mode and advance the mode region."""
         self._bt_hvac_mode = value
-        self.kernel_state.mode = mode_set_hvac_mode(self.kernel_state.mode, value)
+        self.kernel_state = replace(
+            self.kernel_state, mode=mode_set_hvac_mode(self.kernel_state.mode, value)
+        )
 
     @property
     def hvac_mode(self) -> HVACMode | None:
@@ -2739,14 +2721,12 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
         """
 
         hvac_mode_norm = normalize_hvac_mode(hvac_mode)
-        if hvac_mode_norm in (HVACMode.HEAT, HVACMode.HEAT_COOL, HVACMode.OFF):
-            self.bt_hvac_mode = HVACMode(get_hvac_bt_mode(self, hvac_mode_norm))
-        else:
-            _LOGGER.error(
-                "better_thermostat %s: Unsupported hvac_mode %s",
-                self.device_name,
-                hvac_mode_norm,
+        if hvac_mode_norm not in (HVACMode.HEAT, HVACMode.HEAT_COOL, HVACMode.OFF):
+            raise ServiceValidationError(
+                f"Unsupported hvac_mode {hvac_mode!r} for {self.device_name}; "
+                f"supported: heat, heat_cool, off"
             )
+        self.bt_hvac_mode = HVACMode(get_hvac_bt_mode(self, hvac_mode_norm))
         self.async_write_ha_state()
         # During valve maintenance we must not block on the control queue (maxsize=1)
         # and must not override maintenance valve exercise.
@@ -2801,35 +2781,43 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
                 if hvac_mode_val is not None
                 else None
             )
-            if hvac_mode_norm in (HVACMode.HEAT, HVACMode.HEAT_COOL, HVACMode.OFF):
-                self.bt_hvac_mode = hvac_mode_norm
-            else:
-                _LOGGER.error(
-                    "better_thermostat %s: Unsupported hvac_mode %s",
-                    self.device_name,
-                    hvac_mode_norm,
+            if hvac_mode_norm not in (HVACMode.HEAT, HVACMode.HEAT_COOL, HVACMode.OFF):
+                raise ServiceValidationError(
+                    f"Unsupported hvac_mode {hvac_mode_val!r} for "
+                    f"{self.device_name}; supported: heat, heat_cool, off"
                 )
+            # Same normalization as async_set_hvac_mode, so both service
+            # entry points map HEAT/HEAT_COOL identically.
+            self.bt_hvac_mode = HVACMode(get_hvac_bt_mode(self, hvac_mode_norm))
 
-        if ATTR_TEMPERATURE in kwargs:
-            _new_setpoint = convert_to_float(
-                str(kwargs.get(ATTR_TEMPERATURE, None)),
-                self.device_name,
-                "controlling.settarget_temperature()",
-            )
+        def _validated_setpoint(attr: str, context: str) -> float | None:
+            """Cast one temperature kwarg to float or reject the call.
 
-        if ATTR_TARGET_TEMP_LOW in kwargs:
-            _new_setpointlow = convert_to_float(
-                str(kwargs.get(ATTR_TARGET_TEMP_LOW, None)),
-                self.device_name,
-                "controlling.settarget_temperature_low()",
+            Frontend cards pass unscrutinized payloads; a present but
+            unparseable value is a caller error, not something to drop
+            silently.
+            """
+            if attr not in kwargs:
+                return None
+            value = convert_to_float(
+                str(kwargs.get(attr, None)), self.device_name, context
             )
+            if value is None:
+                raise ServiceValidationError(
+                    f"Invalid {attr} {kwargs.get(attr)!r} for "
+                    f"{self.device_name}; must be numeric"
+                )
+            return value
 
-        if ATTR_TARGET_TEMP_HIGH in kwargs:
-            _new_setpointhigh = convert_to_float(
-                str(kwargs.get(ATTR_TARGET_TEMP_HIGH, None)),
-                self.device_name,
-                "controlling.settarget_temperature_high()",
-            )
+        _new_setpoint = _validated_setpoint(
+            ATTR_TEMPERATURE, "controlling.settarget_temperature()"
+        )
+        _new_setpointlow = _validated_setpoint(
+            ATTR_TARGET_TEMP_LOW, "controlling.settarget_temperature_low()"
+        )
+        _new_setpointhigh = _validated_setpoint(
+            ATTR_TARGET_TEMP_HIGH, "controlling.settarget_temperature_high()"
+        )
 
         if (
             _new_setpoint is None
@@ -3014,8 +3002,9 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
             new_temp = self.preset_mgr.activate(
                 preset_mode, self.bt_target_temp, self.min_temp, self.max_temp
             )
-            self.kernel_state.mode = mode_set_preset(
-                self.kernel_state.mode, self.preset_mgr.mode
+            self.kernel_state = replace(
+                self.kernel_state,
+                mode=mode_set_preset(self.kernel_state.mode, self.preset_mgr.mode),
             )
 
             if new_temp is None and preset_mode not in self.preset_mgr.available_modes:

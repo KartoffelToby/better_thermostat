@@ -27,9 +27,11 @@ from custom_components.better_thermostat.utils.calibration.pid import (
     PIDParams,
     build_pid_key,
     compute_pid,
+    observe_standby as pid_observe_standby,
     sanitize_pid_state,
 )
 from custom_components.better_thermostat.utils.calibration.strategies import (
+    BalanceCalibrator,
     ChannelAdjustment,
     ModeTraits,
     annunciate_health,
@@ -512,12 +514,21 @@ def _compute_pid_balance(self, entity_id: str):
         trv_state.calibration_balance = None
         return None, False
 
-    if self.window_open is True:
-        trv_state.calibration_balance = None
-        return None, False
-
-    hvac_mode = self.bt_hvac_mode
-    if hvac_mode == HVACMode.OFF:
+    if self.window_open is True or self.bt_hvac_mode == HVACMode.OFF:
+        # Standby: no actuation, but the measurement chain keeps
+        # following the room so control resumes bump-free (the first
+        # post-standby cycle sees a fresh measurement and a small dt
+        # instead of an hours-old timestamp).
+        key = build_pid_key(self, entity_id)
+        pid_state = self.state_mgr.get_pid(key)
+        pid_state = pid_observe_standby(
+            PIDParams(),
+            pid_state,
+            effective_room_temp(self),
+            self.clock.monotonic(),
+            inp_current_temp_ema_C=self.cur_temp_filtered,
+        )
+        self.state_mgr.set_pid(key, pid_state)
         trv_state.calibration_balance = None
         return None, False
 
@@ -672,6 +683,21 @@ MODE_TRAITS: dict[CalibrationMode, ModeTraits] = {
 }
 
 
+def _balance_calibrator(self, entity_id: str, strategy) -> BalanceCalibrator:
+    """Return the TRV's calibrator, rebuilding it when the mode changed.
+
+    The calibrator is the live protocol seam: the dispatch calls
+    ``observe`` every cycle and reads the result through
+    ``is_ready``/``cached`` — never the strategy directly.
+    """
+    trv = self.real_trvs[entity_id]
+    calibrator = trv.calibrator
+    if calibrator is None or calibrator.strategy is not strategy:
+        calibrator = BalanceCalibrator(self, entity_id, strategy)
+        trv.calibrator = calibrator
+    return calibrator
+
+
 def calculate_calibration_local(self, entity_id) -> float | None:
     """Calculate local delta to adjust the setpoint of the TRV based on the air temperature of the external sensor.
 
@@ -770,7 +796,9 @@ def calculate_calibration_local(self, entity_id) -> float | None:
         # DEFAULT and non-controller modes carry no valve/controller data.
         self.real_trvs[entity_id].calibration_balance = None
     else:
-        _percent, _use_valve = traits.balance.run(self, entity_id)
+        _calibrator = _balance_calibrator(self, entity_id, traits.balance)
+        _calibrator.observe(None, self.clock.monotonic())
+        _percent, _use_valve = _calibrator.cached()
         if _use_valve:
             _new_trv_calibration = _current_trv_calibration
         elif _percent is not None:
@@ -955,7 +983,9 @@ def calculate_calibration_setpoint(self, entity_id) -> float | None:
         # DEFAULT and non-controller modes carry no valve/controller data.
         self.real_trvs[entity_id].calibration_balance = None
     else:
-        _percent, _use_valve = traits.balance.run(self, entity_id)
+        _calibrator = _balance_calibrator(self, entity_id, traits.balance)
+        _calibrator.observe(None, self.clock.monotonic())
+        _percent, _use_valve = _calibrator.cached()
         if _use_valve and _percent is not None:
             if float(_percent) == 0.0:
                 # Valve closed: push setpoint below TRV's own temp so it doesn't

@@ -120,12 +120,7 @@ async def migrate_v0_stores(
     """
     # If the unified store already has data, skip migration.
     current_state = state_mgr.state
-    if (
-        current_state.mpc
-        or current_state.pid
-        or current_state.tpi
-        or current_state.presets
-    ):
+    if current_state.mpc or current_state.pid or current_state.tpi:
         return
     if (
         current_state.thermal.heating_power is not None

@@ -196,14 +196,29 @@ class TestBalanceCalibrator:
         adapter.observe(None, 0.0)
         assert adapter.actuate(None) is None
 
-    def test_capability_and_readiness_delegate_to_the_strategy(self):
+    def test_capability_delegates_to_the_strategy(self):
         """Capability comes from the strategy's report on the live entity."""
         adapter, bt = self._adapter(balance={"valve_percent": 40})
-        assert adapter.is_ready() is True
         cap = adapter.capability()
         assert cap.configured and cap.healthy and cap.ready
         bt.cur_temp = None
-        assert adapter.is_ready() is False
+        assert adapter.capability().healthy is False
+
+    def test_readiness_means_a_finite_observed_result(self):
+        """is_ready() gates actuation on a usable observed result.
+
+        Narrower than capability: an annunciated grade does not drop
+        control to passthrough, only a missing or non-finite result.
+        """
+        adapter, _ = self._adapter(percent=40.0)
+        assert adapter.is_ready() is False  # nothing observed yet
+        adapter.observe(None, 0.0)
+        assert adapter.is_ready() is True
+
+        nan_adapter, _ = self._adapter(percent=float("nan"))
+        nan_adapter.observe(None, 0.0)
+        assert nan_adapter.is_ready() is False
+        assert nan_adapter.actuate(None) is None
 
     def test_health_flags_non_finite_results(self):
         """A non-finite observed percentage degrades the health grade."""

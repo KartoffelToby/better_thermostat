@@ -5,6 +5,7 @@ ignore_states MUST always be released (even on error), otherwise the control
 loop can stall.  Also covers the re-entry guard, reschedule, and control kick.
 """
 
+from dataclasses import replace
 from datetime import UTC, datetime
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -50,8 +51,11 @@ def _snapshots():
 @pytest.mark.asyncio
 async def test_reentry_guard(bt):
     """A run while the region is RUNNING returns without doing work."""
-    bt.kernel_state.maintenance = start_run(
-        MaintenanceState(phase=MaintenancePhase.DUE), now_monotonic=900.0
+    bt.kernel_state = replace(
+        bt.kernel_state,
+        maintenance=start_run(
+            MaintenanceState(phase=MaintenancePhase.DUE), now_monotonic=900.0
+        ),
     )
     with patch(f"{_CLIMATE}.build_trv_snapshots") as snap:
         await BetterThermostat._run_valve_maintenance(bt, ["climate.trv"])

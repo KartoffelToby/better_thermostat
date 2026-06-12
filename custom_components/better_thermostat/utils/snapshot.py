@@ -46,6 +46,17 @@ def _build_trv_reported(self, entity_id: str, trv) -> TrvReported:
     )
 
 
+def _raw_window_open(self) -> bool | None:
+    """Read the raw window-sensor state (None: no sensor configured)."""
+    window_id = getattr(self, "window_id", None)
+    if not window_id or self.hass is None:
+        return None
+    state = self.hass.states.get(window_id)
+    if state is None or state.state in (STATE_UNAVAILABLE, STATE_UNKNOWN):
+        return None
+    return state.state not in ("off", "false", "closed")
+
+
 def build_snapshot(self) -> WorldSnapshot:
     """Build the immutable world snapshot for one control cycle.
 
@@ -69,6 +80,7 @@ def build_snapshot(self) -> WorldSnapshot:
         room_temp_filtered=_as_float(self, self.cur_temp_filtered),
         temp_slope=_as_float(self, self.temp_slope),
         call_for_heat=bool(self.call_for_heat),
+        window_open=_raw_window_open(self),
         preset_mode=self.preset_mode,
         tolerance=_as_float(self, self.tolerance) or 0.0,
         outdoor_temp=_get_current_outdoor_temp(self),

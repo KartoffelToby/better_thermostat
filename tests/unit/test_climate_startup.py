@@ -473,13 +473,18 @@ class TestRestoreState:
         assert bt.bt_target_temp is not None
 
     @pytest.mark.asyncio
-    async def test_restores_call_for_heat(self, bt):
-        """Test Restores call for heat."""
+    async def test_call_for_heat_not_restored(self, bt):
+        """call_for_heat is an observation, not UI state.
+
+        A stored False is ignored and the safe default (True) keeps
+        ruling until the first live prediction.
+        """
         old = MagicMock()
         old.state = "heat"
-        old.attributes = {ATTR_TEMPERATURE: 21.0, ATTR_STATE_CALL_FOR_HEAT: True}
+        old.attributes = {ATTR_TEMPERATURE: 21.0, ATTR_STATE_CALL_FOR_HEAT: False}
         bt.async_get_last_state = AsyncMock(return_value=old)
         bt.preset_mgr.temperatures = {}
+        bt.call_for_heat = True
 
         states = [_make_trv_state()]
         await BetterThermostat._restore_state(bt, states)

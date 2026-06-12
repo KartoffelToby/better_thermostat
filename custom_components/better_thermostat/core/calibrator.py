@@ -53,7 +53,14 @@ class Capability:
 
 @runtime_checkable
 class Calibrator(Protocol):
-    """Strategy contract for calibration controllers."""
+    """Strategy contract for calibration controllers.
+
+    Exactly three methods: ``observe`` runs every cycle (also in
+    standby), ``is_ready`` gates actuation, ``actuate`` emits the valve
+    percentage. Annunciation lives in the separate
+    :class:`AnnunciatingCalibrator` extension so the control contract
+    stays minimal.
+    """
 
     def observe(self, snapshot: WorldSnapshot, now: float) -> None:
         """Feed one observation into the model (always, even in standby)."""
@@ -66,6 +73,11 @@ class Calibrator(Protocol):
     def actuate(self, snapshot: WorldSnapshot) -> float | None:
         """Return the valve percentage to command, or None for no intent."""
         ...
+
+
+@runtime_checkable
+class AnnunciatingCalibrator(Calibrator, Protocol):
+    """Calibrator that additionally self-reports capability and health."""
 
     def capability(self) -> Capability:
         """Report the current capability level."""

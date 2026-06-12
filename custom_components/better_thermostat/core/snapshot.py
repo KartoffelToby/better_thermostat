@@ -70,6 +70,10 @@ class WorldSnapshot:
     room_temp_filtered: float | None = None
     temp_slope: float | None = None
     call_for_heat: bool = True
+    # Raw window-sensor reading at snapshot time (None: no sensor
+    # configured). Pure observation for the flight recorder — the
+    # debounced window region in the kernel state rules the control law.
+    window_open: bool | None = None
     preset_mode: str | None = None
     tolerance: float = 0.0
     outdoor_temp: float | None = None

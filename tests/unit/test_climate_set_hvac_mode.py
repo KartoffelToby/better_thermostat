@@ -7,6 +7,7 @@ maintenance defer that must not enqueue a control action mid-exercise.
 from unittest.mock import MagicMock, patch
 
 from homeassistant.components.climate.const import HVACMode
+from homeassistant.exceptions import ServiceValidationError
 import pytest
 
 from custom_components.better_thermostat.climate import BetterThermostat
@@ -45,12 +46,16 @@ async def test_supported_mode_is_applied_and_queued(bt, mode):
 
 @pytest.mark.asyncio
 async def test_unsupported_mode_is_rejected(bt):
-    """An unsupported mode leaves bt_hvac_mode untouched but still queues control."""
+    """An unsupported mode raises to the service caller and changes nothing.
+
+    No state write, no control cycle.
+    """
     with patch(f"{_CLIMATE}.get_hvac_bt_mode", _identity_mode()) as mapper:
-        await BetterThermostat.async_set_hvac_mode(bt, HVACMode.COOL)
+        with pytest.raises(ServiceValidationError):
+            await BetterThermostat.async_set_hvac_mode(bt, HVACMode.COOL)
     assert bt.bt_hvac_mode == HVACMode.HEAT  # unchanged
     mapper.assert_not_called()
-    bt.control_queue_task.put_nowait.assert_called_once_with(bt)
+    bt.control_queue_task.put_nowait.assert_not_called()
 
 
 @pytest.mark.asyncio

@@ -9,6 +9,7 @@ file.
 from __future__ import annotations
 
 import asyncio
+from dataclasses import replace
 from datetime import UTC, datetime
 from unittest.mock import MagicMock
 
@@ -31,10 +32,7 @@ DEFAULT_TRV_ID = "climate.trv"
 
 def make_state(**overrides) -> KernelState:
     """Return a post-startup KernelState; overridable per test."""
-    state = running_kernel_state()
-    for key, value in overrides.items():
-        setattr(state, key, value)
-    return state
+    return replace(running_kernel_state(), **overrides)
 
 
 def make_snapshot(**overrides) -> WorldSnapshot:

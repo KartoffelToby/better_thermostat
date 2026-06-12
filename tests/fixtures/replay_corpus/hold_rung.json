@@ -6,7 +6,7 @@
         "entity_id": "climate.trv1",
         "hvac_mode": "heat",
         "offset": null,
-        "setpoint": null,
+        "setpoint": 21.0,
         "suppression": null,
         "valve_percent": null
       },
@@ -14,7 +14,7 @@
         "entity_id": "climate.trv2",
         "hvac_mode": "heat",
         "offset": null,
-        "setpoint": null,
+        "setpoint": 21.0,
         "suppression": null,
         "valve_percent": null
       }
@@ -62,7 +62,8 @@
         "setpoint": null,
         "valve_max_opening": null
       }
-    }
+    },
+    "window_open": null
   },
   "state": {
     "control_mode": {

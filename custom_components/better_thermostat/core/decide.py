@@ -16,9 +16,9 @@ The cascade (top wins):
    moment it returns).
 5. Call for heat — without heat demand every TRV is turned off.
 6. Heating — every addressed TRV is asked to heat towards the room
-   target. Under the ladder's HOLD rung the intent keeps the mode but
-   carries no setpoint: with no usable temperature the controller stops
-   adjusting and the device keeps its last commanded state. The
+   target. Under the ladder's HOLD rung no calibration runs; the intent
+   carries the raw user target (passthrough) so the device stays locked
+   on the last known target with the safety hull's frost floor. The
    calibrated numbers (setpoint corrections, offsets, valve
    percentages) are computed in the shell by the calibration
    strategies.
@@ -33,8 +33,8 @@ from __future__ import annotations
 from dataclasses import dataclass, field, replace
 
 from .desired import DesiredState, Suppression, TrvDesired
-from .fsm.control_mode import ControlMode, ControlModeState
-from .fsm.lifecycle import LifecyclePhase, LifecycleState
+from .fsm.control_mode import ControlModeState
+from .fsm.lifecycle import LifecyclePhase, LifecycleState, tick as lifecycle_tick
 from .fsm.maintenance import MaintenanceState
 from .fsm.mode import ModeState
 from .fsm.reachability import ReachabilityState, step as reachability_step
@@ -45,9 +45,13 @@ from .snapshot import HvacMode, WorldSnapshot
 PRESET_BOOST = "boost"
 
 
-@dataclass
+@dataclass(frozen=True)
 class KernelState:
     """Aggregate controller-side state threaded through ``decide()``.
+
+    Immutable like the regions it aggregates: every update goes through
+    ``dataclasses.replace``, so a state object can be recorded, compared
+    and replayed without defensive copies.
 
     The regions are authoritative: ``decide()`` branches on them, not on
     the mirrored snapshot flags (those remain pure observations for the
@@ -126,9 +130,12 @@ def decide(
     returned. The flight recorder records the input as the pre-decide
     state of the cycle.
     """
-    # Advance the per-TRV reachability regions from this observation.
+    # Advance the kernel-owned regions from this observation: lifecycle
+    # promotes STARTING to RUNNING once the grace window has passed, and
+    # the per-TRV reachability regions track availability.
     state = replace(
         state,
+        lifecycle=lifecycle_tick(state.lifecycle, snapshot.now),
         reachability={
             entity_id: reachability_step(
                 state.reachability.get(entity_id, ReachabilityState()),
@@ -174,14 +181,16 @@ def decide(
             state,
         )
 
-    # HOLD rung of the fail-soft ladder: no usable temperature exists,
-    # so the intent keeps the mode and adjusts nothing.
-    hold = state.control_mode.mode == ControlMode.HOLD
+    # Heating rung. Under the ladder's HOLD rung no usable temperature
+    # exists, so no calibration runs — but the intent still carries the
+    # raw user target (passthrough): the device setpoint stays locked on
+    # the last known target, re-sent if the device loses it, with the
+    # safety hull enforcing the frost floor at the command boundary.
     heating = {
         entity_id: TrvDesired(
             entity_id=entity_id,
             hvac_mode=state.mode.hvac_mode,
-            setpoint=None if hold else snapshot.target_temp,
+            setpoint=snapshot.target_temp,
         )
         for entity_id in addressed
     }

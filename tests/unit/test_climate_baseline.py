@@ -19,6 +19,7 @@ from homeassistant.components.climate.const import (
     HVACMode,
 )
 from homeassistant.const import ATTR_TEMPERATURE
+from homeassistant.exceptions import ServiceValidationError
 import pytest
 
 from custom_components.better_thermostat.climate import BetterThermostat
@@ -28,6 +29,7 @@ from custom_components.better_thermostat.utils.thermal_learning import (
     HeatingPowerTracker,
     HeatLossTracker,
 )
+from tests.factories import make_state
 
 # ---------------------------------------------------------------------------
 # Fixture
@@ -53,6 +55,9 @@ def mock_bt():
     bt.hvac_mode = HVACMode.HEAT
     bt.window_open = False
     bt.ignore_states = False
+    # Real kernel state: production updates it via dataclasses.replace,
+    # which rejects a MagicMock stand-in.
+    bt.kernel_state = make_state()
     # Hysteresis
     bt._hysteresis = ToleranceHysteresis()
     # Thermal trackers (real objects – new thin-wrapper methods delegate to these)
@@ -978,6 +983,36 @@ class TestAsyncSetTemperature:
             mock_bt, **{ATTR_TEMPERATURE: 22.0, ATTR_HVAC_MODE: HVACMode.OFF}
         )
         assert mock_bt.bt_hvac_mode == HVACMode.OFF
+
+    @pytest.mark.asyncio
+    async def test_garbage_temperature_rejected(self, mock_bt):
+        """A present but non-numeric temperature raises.
+
+        Garbage input is a caller error, not something to drop silently.
+        """
+        mock_bt.preset_mgr.mode = PRESET_NONE
+        mock_bt.bt_hvac_mode = HVACMode.HEAT
+        mock_bt.bt_target_temp = 21.0
+        with pytest.raises(ServiceValidationError):
+            await self._call(mock_bt, **{ATTR_TEMPERATURE: "warm"})
+        assert mock_bt.bt_target_temp == 21.0
+
+    @pytest.mark.asyncio
+    async def test_none_temperature_rejected(self, mock_bt):
+        """An explicit None temperature raises a validation error."""
+        mock_bt.preset_mgr.mode = PRESET_NONE
+        mock_bt.bt_hvac_mode = HVACMode.HEAT
+        with pytest.raises(ServiceValidationError):
+            await self._call(mock_bt, **{ATTR_TEMPERATURE: None})
+
+    @pytest.mark.asyncio
+    async def test_unsupported_hvac_mode_in_kwargs_rejected(self, mock_bt):
+        """An unsupported hvac_mode in kwargs raises and changes nothing."""
+        mock_bt.preset_mgr.mode = PRESET_NONE
+        mock_bt.bt_hvac_mode = HVACMode.HEAT
+        with pytest.raises(ServiceValidationError):
+            await self._call(mock_bt, **{ATTR_TEMPERATURE: 22.0, ATTR_HVAC_MODE: "dry"})
+        assert mock_bt.bt_hvac_mode == HVACMode.HEAT
 
     @pytest.mark.asyncio
     async def test_heat_cool_low_high_setpoints(self, mock_bt):

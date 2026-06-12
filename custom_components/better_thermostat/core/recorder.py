@@ -165,6 +165,7 @@ def snapshot_from_dict(data: dict[str, Json]) -> WorldSnapshot:
         room_temp_filtered=_float_or_none(data["room_temp_filtered"]),
         temp_slope=_float_or_none(data["temp_slope"]),
         call_for_heat=_bool_of(data["call_for_heat"]),
+        window_open=_bool_or_none(data.get("window_open")),
         preset_mode=_str_or_none(data["preset_mode"]),
         tolerance=_float_of(data["tolerance"]),
         outdoor_temp=_float_or_none(data["outdoor_temp"]),

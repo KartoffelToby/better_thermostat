@@ -103,6 +103,8 @@ class TestSnapshotCompleteness:
             "is_day",
             "solar_intensity",
             "trvs",
+            # Raw sensor reading, read straight from hass in the builder.
+            "window_open",
         }
         all_fields = {f.name for f in fields(WorldSnapshot)}
         assert all_fields == mapped | produced_elsewhere

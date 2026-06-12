@@ -139,6 +139,43 @@ def _r(val: float | None, decimals: int = 2) -> float | None:
 # --- PID Computation -----------------------------------------------
 
 
+def observe_standby(
+    params: PIDParams,
+    state: PIDState,
+    inp_current_temp_C: float | None,
+    now: float,
+    inp_current_temp_ema_C: float | None = None,
+) -> PIDState:
+    """Track the measurement chain while actuation is suppressed.
+
+    Bumpless transfer: during window-open or OFF the controller emits
+    nothing, but ``pid_last_meas`` (the D-channel's smoothed measurement)
+    and ``pid_last_time`` keep following the room. The first cycle after
+    control resumes then sees a fresh measurement and a small ``dt`` —
+    no derivative kick and no one-step integral jump computed from an
+    hours-old timestamp. The integral itself stays frozen.
+    """
+    current_temp = inp_current_temp_C
+    if inp_current_temp_ema_C is not None:
+        current_temp = inp_current_temp_ema_C
+    if current_temp is None:
+        return state
+
+    if params.d_on_measurement:
+        try:
+            a = max(0.0, min(1.0, float(params.d_smoothing_alpha)))
+        except (TypeError, ValueError):
+            a = 0.5
+        prev = state.pid_last_meas
+        state.pid_last_meas = (
+            current_temp if prev is None else ((1.0 - a) * prev + a * current_temp)
+        )
+    else:
+        state.pid_last_meas = current_temp
+    state.pid_last_time = now
+    return state
+
+
 def compute_pid(
     params: PIDParams,
     inp_target_temp_C: float | None,

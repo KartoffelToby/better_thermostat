@@ -13,6 +13,7 @@ Absorbed tests from:
 """
 
 import asyncio
+from dataclasses import replace
 import inspect
 from unittest.mock import AsyncMock, MagicMock, Mock, patch
 
@@ -27,6 +28,7 @@ from custom_components.better_thermostat.core.fsm.control_mode import (
     ControlModeState,
 )
 from custom_components.better_thermostat.core.fsm.mode import ModeState
+from custom_components.better_thermostat.core.fsm.reachability import ReachabilityState
 from custom_components.better_thermostat.core.fsm.window import WindowPhase, WindowState
 from custom_components.better_thermostat.core.snapshot import (
     parse_hvac_mode as _parse_mode,
@@ -64,9 +66,9 @@ def _kernel_state_for(mock_self):
     state = running_kernel_state()
     parsed = _parse_mode(str(mock_self.bt_hvac_mode))
     if parsed is not None:
-        state.mode = ModeState(hvac_mode=parsed)
+        state = replace(state, mode=ModeState(hvac_mode=parsed))
     if mock_self.window_open:
-        state.window = WindowState(phase=WindowPhase.OPEN)
+        state = replace(state, window=WindowState(phase=WindowPhase.OPEN))
     return state
 
 
@@ -223,6 +225,46 @@ class TestControlTrvUnavailablePath:
             result = await control_trv(mock_self, "climate.trv1")
 
             assert result is True
+
+    @pytest.mark.asyncio
+    async def test_offline_trv_schedules_reachability_retry(self):
+        """Skipping an offline TRV schedules the region's retry.
+
+        Consumes the reachability region's retry_at: a follow-up
+        control cycle is scheduled for the retry window.
+        """
+        mock_self = _make_mock_self(trv_state=STATE_UNAVAILABLE)
+        mock_self.kernel_state = replace(
+            mock_self.kernel_state,
+            reachability={
+                "climate.trv1": ReachabilityState(
+                    online=False, offline_since=100.0, retry_count=0, retry_at=130.0
+                )
+            },
+        )
+        mock_self.real_trvs["climate.trv1"].reachability_retry_pending = False
+
+        with (
+            patch(_PATCHES["convert_outbound_states"]) as mock_convert,
+            patch(
+                _PATCHES["override_set_hvac_mode"], new=AsyncMock(return_value=False)
+            ),
+            patch(_PATCHES["set_hvac_mode"], new=AsyncMock()),
+            patch(_PATCHES["set_temperature"], new=AsyncMock()),
+            patch("asyncio.sleep", new=AsyncMock()),
+        ):
+            mock_convert.return_value = {
+                "temperature": 20.0,
+                "system_mode": HVACMode.HEAT,
+            }
+
+            result = await control_trv(mock_self, "climate.trv1")
+
+            assert result is True
+            assert (
+                mock_self.real_trvs["climate.trv1"].reachability_retry_pending is True
+            )
+            assert mock_self.task_manager.create_task.called
 
     @pytest.mark.asyncio
     async def test_unavailable_trv_no_operations_called(self):
@@ -911,8 +953,9 @@ class TestBoostModeSafetyOverride:
     async def test_boost_does_not_override_hold(self):
         """The HOLD rung outranks boost.
 
-        During a total sensor outage no setpoint or valve write happens,
-        boost preset or not.
+        During a total sensor outage no valve write happens, boost
+        preset or not. The setpoint channel locks the raw user target
+        (passthrough through the safety hull) instead.
         """
         mock_self = _make_mock_self(
             trv_state=HVACMode.HEAT,
@@ -930,7 +973,9 @@ class TestBoostModeSafetyOverride:
                 )
             },
         )
-        mock_self.kernel_state.control_mode = ControlModeState(mode=ControlMode.HOLD)
+        mock_self.kernel_state = replace(
+            mock_self.kernel_state, control_mode=ControlModeState(mode=ControlMode.HOLD)
+        )
 
         with (
             patch(_PATCHES["convert_outbound_states"]) as mock_convert,
@@ -949,8 +994,10 @@ class TestBoostModeSafetyOverride:
             result = await control_trv(mock_self, "climate.trv1")
 
         assert result is True
-        mock_set_temp.assert_not_called()
         mock_set_valve.assert_not_called()
+        # The raw target is locked on the device (22.0, not boost max).
+        mock_set_temp.assert_called_once()
+        assert mock_set_temp.call_args[0][2] == 22.0
 
     @pytest.mark.asyncio
     async def test_boost_safety_reset_stamps_the_valve_budget(self):

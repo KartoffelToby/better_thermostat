@@ -8,12 +8,19 @@ import logging
 
 from homeassistant.const import STATE_UNAVAILABLE, STATE_UNKNOWN
 
+from .base import AdapterCapabilities
 from .generic import (
     set_hvac_mode as generic_set_hvac_mode,
     set_temperature as generic_set_temperature,
 )
 
 _LOGGER = logging.getLogger(__name__)
+
+# Tado: offset via the tado.set_climate_temperature_offset service,
+# no valve channel.
+CAPABILITIES = AdapterCapabilities(
+    offset_write=True, offset_needs_entity=False, valve_write=False
+)
 
 
 async def get_info(self, entity_id):

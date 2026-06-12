@@ -36,15 +36,19 @@ class ModelQuirks(Protocol):
 
 @dataclass(frozen=True)
 class TrvCapabilities:
-    """What this TRV can do, derived from its discovered surface.
+    """What this TRV can do.
 
-    The kernel expresses intent; whoever writes consults the
+    The adapter module declares what its ecosystem supports
+    (``CAPABILITIES`` in ``adapters/*``); this descriptor intersects
+    that declaration with the discovered entity surface and the model
+    quirks. The kernel expresses intent; whoever writes consults the
     capabilities instead of re-deriving them from scattered quirk and
     entity checks.
     """
 
     supports_offset_write: bool = False
     supports_valve_write: bool = False
+    supports_off_mode: bool = True
 
 
 @dataclass
@@ -99,10 +103,16 @@ class Trv:
     # Whether a follow-up control cycle is already scheduled for a
     # budget-deferred setpoint write.
     budget_retry_pending: bool = False
+    # Whether a follow-up control cycle is already scheduled for this
+    # TRV's next reachability-retry window.
+    reachability_retry_pending: bool = False
 
     # -- Calibration results -----------------------------------------------
     calibration_balance: dict[str, Any] | None = None
     balance: dict[str, Any] | None = None
+    # Per-TRV calibrator (BalanceCalibrator): the protocol adapter the
+    # dispatch observes every cycle and actuates through when ready.
+    calibrator: Any | None = None
 
     # -- Calibrator annunciation --------------------------------------------
     # Worst health grade the calibrator reported for this TRV, plus the
@@ -116,16 +126,31 @@ class Trv:
     extra: dict[str, Any] = field(default_factory=dict)
 
     def capabilities(self) -> TrvCapabilities:
-        """Derive the capability descriptor from the discovered surface."""
+        """Effective capabilities: adapter declaration ∩ discovered surface."""
         quirk_valve = callable(getattr(self.model_quirks, "override_set_valve", None))
+        offset_entity = self.local_temperature_calibration_entity is not None
+        valve_entity = bool(self.valve_position_entity and self.valve_position_writable)
+
+        declared = getattr(self.adapter, "CAPABILITIES", None)
+        if declared is None:
+            # Adapter without a declaration: the discovered surface rules.
+            offset = offset_entity
+            valve = valve_entity
+        else:
+            offset = declared.offset_write and (
+                offset_entity or not declared.offset_needs_entity
+            )
+            valve = declared.valve_write and (
+                valve_entity or not declared.valve_needs_entity
+            )
+
+        no_off = (self.hvac_modes is not None and "off" not in self.hvac_modes) or (
+            self.advanced or {}
+        ).get("no_off_system_mode", False) is True
         return TrvCapabilities(
-            supports_offset_write=(
-                self.local_temperature_calibration_entity is not None
-            ),
-            supports_valve_write=(
-                bool(self.valve_position_entity and self.valve_position_writable)
-                or quirk_valve
-            ),
+            supports_offset_write=offset,
+            supports_valve_write=valve or quirk_valve,
+            supports_off_mode=not no_off,
         )
 
     @classmethod

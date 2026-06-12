@@ -1,5 +1,6 @@
 """Tests for the flight recorder: ring buffer, export, deterministic replay."""
 
+from dataclasses import FrozenInstanceError, replace
 from datetime import UTC, datetime
 import json
 
@@ -45,8 +46,9 @@ def _snapshot(target=21.0) -> WorldSnapshot:
 
 
 def _record_one(recorder: FlightRecorder, snapshot: WorldSnapshot) -> None:
-    state = running_kernel_state()
-    state.window = WindowState(phase=WindowPhase.CLOSED)
+    state = replace(
+        running_kernel_state(), window=WindowState(phase=WindowPhase.CLOSED)
+    )
     desired, _ = decide(snapshot, state)
     recorder.record(snapshot, running_kernel_state(), desired)
 
@@ -63,14 +65,21 @@ class TestRingBuffer:
         exported = recorder.export()
         assert [e["snapshot"]["target_temp"] for e in exported] == [21.0, 22.0, 23.0]
 
-    def test_pre_decide_state_is_copied(self):
-        """Mutating the live kernel state later does not alter the record."""
+    def test_pre_decide_state_is_immutable(self):
+        """The recorded kernel state cannot drift under the record.
+
+        The aggregate is frozen, so later in-place mutation is
+        impossible and rebinding the live variable leaves the record
+        untouched.
+        """
         recorder = FlightRecorder()
         state = running_kernel_state()
         snapshot = _snapshot()
         desired, state = decide(snapshot, state)
         recorder.record(snapshot, state, desired)
-        state.last_control_monotonic = 999.0
+        with pytest.raises(FrozenInstanceError):
+            state.last_control_monotonic = 999.0
+        state = replace(state, last_control_monotonic=999.0)
         assert recorder.export()[0]["state"]["last_control_monotonic"] is None
 
 
@@ -285,6 +294,7 @@ class TestRoundtripCompleteness:
             "room_temp_filtered": 19.1,
             "temp_slope": 0.02,
             "call_for_heat": True,
+            "window_open": True,
             "preset_mode": "eco",
             "tolerance": 0.3,
             "outdoor_temp": 5.5,

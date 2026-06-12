@@ -75,12 +75,22 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
 
 async def async_remove_entry(hass: HomeAssistant, entry: ConfigEntry) -> None:
-    """Remove repair-registry issues created by this Better Thermostat instance.
+    """Clean up everything this Better Thermostat instance persisted.
 
-    Issues are scoped by ``device_name`` or by individual ``entity_id`` and
-    persist in HA's issue registry until explicitly deleted, so they have to
-    be cleaned up here to avoid stale warnings after a config entry is gone.
+    Repair-registry issues are scoped by ``device_name`` or by individual
+    ``entity_id`` and persist until explicitly deleted; the unified state
+    store is a per-entry file that would otherwise be orphaned.
     """
+    from .utils.state_manager import StateManager
+
+    try:
+        await StateManager.async_remove_store(hass, entry.entry_id)
+    except Exception:
+        _LOGGER.exception(
+            "better_thermostat: failed to remove state store for entry %s",
+            entry.entry_id,
+        )
+
     device_name = entry.data.get(CONF_NAME, entry.title)
 
     for issue_id in (

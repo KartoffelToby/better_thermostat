@@ -5,6 +5,7 @@ maintenance now, postpone it, or schedule it far out.  These tests pin every
 decision branch so the scheduling contract is locked down.
 """
 
+from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -140,10 +141,13 @@ async def test_schedule_resync_keeps_running_since(bt):
     """
     stale_now = MAX_RUN_S + 1.0
     bt.clock.monotonic.return_value = stale_now
-    bt.kernel_state.maintenance = MaintenanceState(
-        phase=MaintenancePhase.RUNNING,
-        next_due=_NOW - timedelta(hours=2),
-        running_since=0.0,
+    bt.kernel_state = replace(
+        bt.kernel_state,
+        maintenance=MaintenanceState(
+            phase=MaintenancePhase.RUNNING,
+            next_due=_NOW - timedelta(hours=2),
+            running_since=0.0,
+        ),
     )
     bt.next_valve_maintenance = _NOW
     with (

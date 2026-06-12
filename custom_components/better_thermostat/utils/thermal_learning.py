@@ -11,6 +11,7 @@ from collections import deque
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 import logging
+import math
 from typing import TYPE_CHECKING, TypedDict
 
 if TYPE_CHECKING:
@@ -97,7 +98,14 @@ def ema_smooth(old: float, new: float, alpha: float) -> float:
 
 
 def clamp(value: float, lo: float, hi: float) -> float:
-    """Clamp *value* into ``[lo, hi]``."""
+    """Clamp *value* into ``[lo, hi]``.
+
+    Total over floats: NaN maps to ``lo`` so the result is always inside
+    the range — NaN comparisons are False and would otherwise leak
+    through into setpoints.
+    """
+    if math.isnan(value):
+        return lo
     if value < lo:
         return lo
     if value > hi:

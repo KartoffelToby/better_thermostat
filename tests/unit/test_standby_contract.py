@@ -19,6 +19,7 @@ from custom_components.better_thermostat.utils.calibration.mpc import (
     MpcState,
     compute_mpc,
 )
+from custom_components.better_thermostat.utils.calibration.pid import PIDState
 from custom_components.better_thermostat.utils.calibration.tpi import (
     TpiInput,
     TpiParams,
@@ -34,34 +35,46 @@ def _pid_bt(*, window_open):
     bt.device_name = "Test BT"
     bt.bt_target_temp = 21.0
     bt.cur_temp = 18.0
+    bt.cur_temp_filtered = None
     bt.window_open = window_open
     bt.bt_hvac_mode = HVACMode.HEAT
+    bt.clock.monotonic.return_value = 5000.0
     bt.real_trvs = {ENTITY_ID: Trv(entity_id=ENTITY_ID)}
+    bt.state_mgr.get_pid.return_value = PIDState(
+        pid_integral=12.0, pid_last_meas=19.6, pid_last_time=1000.0
+    )
     return bt
 
 
-def test_pid_does_not_run_during_an_open_window():
-    """No PID step in standby.
+def test_pid_observes_but_does_not_actuate_during_an_open_window():
+    """Standby separates observation from actuation.
 
-    The integrator cannot wind up on the growing error of a cooling
-    room.
+    No PID step runs (the integrator cannot wind up on the growing
+    error of a cooling room), but the measurement chain keeps tracking
+    the room so re-entry sees a fresh measurement and a small dt —
+    bumpless transfer.
     """
     bt = _pid_bt(window_open=True)
     result, use_valve = _compute_pid_balance(bt, ENTITY_ID)
 
     assert result is None
     assert use_valve is False
-    bt.state_mgr.get_pid.assert_not_called()
+    saved = bt.state_mgr.set_pid.call_args[0][1]
+    assert saved.pid_integral == 12.0  # frozen: no windup in standby
+    assert saved.pid_last_time == 5000.0  # but time keeps tracking
+    assert saved.pid_last_meas != 19.6  # and the measurement follows the room
 
 
-def test_pid_does_not_run_when_off():
-    """OFF is standby too."""
+def test_pid_observes_but_does_not_actuate_when_off():
+    """OFF is standby too: observation only."""
     bt = _pid_bt(window_open=False)
     bt.bt_hvac_mode = HVACMode.OFF
     result, _ = _compute_pid_balance(bt, ENTITY_ID)
 
     assert result is None
-    bt.state_mgr.get_pid.assert_not_called()
+    saved = bt.state_mgr.set_pid.call_args[0][1]
+    assert saved.pid_integral == 12.0
+    assert saved.pid_last_time == 5000.0
 
 
 def test_mpc_discards_the_interval_but_keeps_the_model():

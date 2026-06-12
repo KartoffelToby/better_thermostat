@@ -1,6 +1,7 @@
 """Controlling module for Better Thermostat."""
 
 import asyncio
+from dataclasses import replace
 import logging
 
 from homeassistant.components.climate.const import HVACMode
@@ -91,15 +92,21 @@ def _consume_budget(
     return True
 
 
+def _budget_remaining(self, entity_id: str, channel: str) -> float:
+    """Seconds until a channel's write-budget slot reopens."""
+    trv = self.real_trvs[entity_id]
+    last = getattr(trv, _BUDGET_STAMPS[channel])
+    return MIN_WRITE_INTERVAL_S - (self.clock.monotonic() - (last or 0.0))
+
+
 def _no_off_system_mode(trv) -> bool:
     """Whether this TRV cannot be switched off.
 
     Such devices receive their min temp in place of OFF and keep
-    reporting a heating mode, by design.
+    reporting a heating mode, by design. Answered by the capability
+    descriptor, not by re-deriving from raw fields.
     """
-    if trv.hvac_modes is not None and HVACMode.OFF not in trv.hvac_modes:
-        return True
-    return (trv.advanced or {}).get("no_off_system_mode", False) is True
+    return not trv.capabilities().supports_off_mode
 
 
 def _schedule_budget_retry(self, entity_id: str, retry_in_s: float) -> None:
@@ -125,6 +132,33 @@ def _schedule_budget_retry(self, entity_id: str, retry_in_s: float) -> None:
     self.task_manager.create_task(_retry(), name=f"bt_budget_retry_{entity_id}")
 
 
+def _schedule_reachability_retry(self, entity_id: str) -> None:
+    """Queue one control cycle for an offline TRV's next retry window.
+
+    Consumes the reachability region's ``retry_at``: the cycle re-probes
+    the device, and while it stays offline the region's step advances
+    the exponential backoff. Availability events still trigger an
+    immediate cycle when the device returns by itself.
+    """
+    region = self.kernel_state.reachability.get(entity_id)
+    if region is None or region.online or region.retry_at is None:
+        return
+    trv = self.real_trvs[entity_id]
+    if trv.reachability_retry_pending:
+        return
+    trv.reachability_retry_pending = True
+    delay = max(region.retry_at - self.clock.monotonic(), 0.0)
+
+    async def _retry() -> None:
+        try:
+            await asyncio.sleep(delay)
+        finally:
+            trv.reachability_retry_pending = False
+        request_control_cycle(self)
+
+    self.task_manager.create_task(_retry(), name=f"bt_reachability_retry_{entity_id}")
+
+
 def _stamp_heartbeat(self) -> None:
     """Record that a control cycle ran to a deliberate decision.
 
@@ -132,7 +166,9 @@ def _stamp_heartbeat(self) -> None:
     such a decision; error paths that bail out without one deliberately
     leave the stamp alone so the watchdog can detect a silent hang.
     """
-    self.kernel_state.last_control_monotonic = self.clock.monotonic()
+    self.kernel_state = replace(
+        self.kernel_state, last_control_monotonic=self.clock.monotonic()
+    )
 
 
 def _get_valve_control(
@@ -237,7 +273,11 @@ def _offset_diverges(self, trv) -> bool:
     Compared only once the device has confirmed the last write — an
     in-flight write is the write path's business, not the reconciler's.
     """
+    if not trv.capabilities().supports_offset_write:
+        return False
     if trv.local_temperature_calibration_entity is None:
+        # Service-call ecosystems have no readable calibration entity;
+        # divergence is only verifiable through one.
         return False
     if trv.last_calibration is None or trv.calibration_received is not True:
         return False
@@ -260,7 +300,10 @@ def _valve_diverges(self, trv) -> bool:
     Only the adapter-written number entity is verifiable; quirk-driven
     valve writes have no readable target.
     """
+    if not trv.capabilities().supports_valve_write:
+        return False
     if not (trv.valve_position_entity and trv.valve_position_writable is True):
+        # Quirk-driven valve writes have no readable target to verify.
         return False
     if trv.last_valve_percent is None:
         return False
@@ -271,6 +314,21 @@ def _valve_diverges(self, trv) -> bool:
     if reported is None:
         return False
     return abs(float(trv.last_valve_percent) - reported) > RECONCILE_VALVE_TOLERANCE_PCT
+
+
+def _valve_at_target(self, entity_id: str, target_pct: float) -> bool:
+    """Whether the valve channel already matches the intent.
+
+    True when the last commanded percentage equals the (int-rounded)
+    target and the readable position entity, if any, has not diverged
+    from it — no difference, no network write.
+    """
+    trv = self.real_trvs[entity_id]
+    if trv.last_valve_percent is None:
+        return False
+    if int(round(float(trv.last_valve_percent))) != int(round(float(target_pct))):
+        return False
+    return not _valve_diverges(self, trv)
 
 
 def desired_diverges(self, snapshot, desired) -> bool:
@@ -705,6 +763,7 @@ async def control_trv(self, heater_entity_id=None, cycle=None):
                 self.device_name,
                 heater_entity_id,
             )
+            _schedule_reachability_retry(self, heater_entity_id)
             _stamp_heartbeat(self)
             self.real_trvs[heater_entity_id].ignore_trv_states = False
             return True
@@ -746,17 +805,19 @@ async def control_trv(self, heater_entity_id=None, cycle=None):
             _temperature = self.real_trvs[heater_entity_id].max_temp
 
         # HOLD rung of the fail-soft ladder: no usable temperature exists,
-        # so the controller stops adjusting and keeps the last commanded
-        # state. Mode suppression (OFF / window) below stays active, and
-        # nothing after this gate may re-introduce an adjustment.
+        # so no calibration runs. The kernel's intent carries the raw
+        # user target (passthrough); it is re-sent only when the device
+        # diverges, and the safety hull enforces the frost floor. Mode
+        # suppression (OFF / window) below stays active.
         if self.kernel_state.control_mode.mode == ControlMode.HOLD:
             _LOGGER.debug(
-                "better_thermostat %s: control mode HOLD - keeping last "
-                "commanded state for %s",
+                "better_thermostat %s: control mode HOLD - locking %s on the "
+                "last known target %s",
                 self.device_name,
                 heater_entity_id,
+                trv_desired.setpoint,
             )
-            _temperature = None
+            _temperature = trv_desired.setpoint
             _calibration = None
 
         # Optional: set valve position if supported (e.g., MQTT/Z2M)
@@ -784,7 +845,15 @@ async def control_trv(self, heater_entity_id=None, cycle=None):
                 # Closing the valve (0 %) is the overheat-safe direction
                 # and bypasses the write budget; everything else waits
                 # for the next slot and converges via the next cycle.
-                if _consume_budget(
+                if _valve_at_target(self, heater_entity_id, target_pct):
+                    _LOGGER.debug(
+                        "better_thermostat %s: valve of %s already at %s%%, "
+                        "skipping write",
+                        self.device_name,
+                        heater_entity_id,
+                        target_pct,
+                    )
+                elif _consume_budget(
                     self, heater_entity_id, "valve", bypass=target_pct == 0
                 ):
                     _LOGGER.debug(
@@ -803,6 +872,15 @@ async def control_trv(self, heater_entity_id=None, cycle=None):
                             heater_entity_id,
                             _source,
                         )
+                else:
+                    # A deferred valve write re-derives on the catch-up
+                    # cycle; without it the reconciler cannot see the
+                    # miss (it compares against the last value written).
+                    _schedule_budget_retry(
+                        self,
+                        heater_entity_id,
+                        _budget_remaining(self, heater_entity_id, "valve"),
+                    )
             elif _calibration_type != CalibrationType.DIRECT_VALVE_BASED:
                 pass  # non-valve TRV: no valve control expected
         except Exception:
@@ -848,8 +926,9 @@ async def control_trv(self, heater_entity_id=None, cycle=None):
                     or 0.0
                 )
             )
-            _consume_budget(self, heater_entity_id, "valve", bypass=True)
-            await set_valve(self, heater_entity_id, _reset_pct)
+            if not _valve_at_target(self, heater_entity_id, _reset_pct):
+                _consume_budget(self, heater_entity_id, "valve", bypass=True)
+                await set_valve(self, heater_entity_id, _reset_pct)
 
         # Manage TRVs with no HVACMode.OFF
         _trv_has_no_off = _no_off_system_mode(self.real_trvs[heater_entity_id])
@@ -954,6 +1033,12 @@ async def control_trv(self, heater_entity_id=None, cycle=None):
                     )
                     await set_offset(self, heater_entity_id, _calibration)
                     self.real_trvs[heater_entity_id].calibration_received = False
+                else:
+                    _schedule_budget_retry(
+                        self,
+                        heater_entity_id,
+                        _budget_remaining(self, heater_entity_id, "offset"),
+                    )
 
         # set new target temperature
         _safety_overrode_setpoint = False
@@ -980,11 +1065,7 @@ async def control_trv(self, heater_entity_id=None, cycle=None):
                     _schedule_budget_retry(
                         self,
                         heater_entity_id,
-                        MIN_WRITE_INTERVAL_S
-                        - (
-                            self.clock.monotonic()
-                            - (trv_entry.last_write_monotonic or 0.0)
-                        ),
+                        _budget_remaining(self, heater_entity_id, "setpoint"),
                     )
                     _stamp_heartbeat(self)
                     await asyncio.sleep(3)

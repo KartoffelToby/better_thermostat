@@ -168,26 +168,35 @@ class BalanceCalibrator:
 
     ``observe`` runs the strategy's balance computation (which both
     learns and emits; the controllers handle standby internally) and
-    caches the result; ``actuate`` hands out the cached percentage.
-    One instance belongs to one TRV of one entity.
+    caches the result; ``actuate`` hands out the cached percentage once
+    ``is_ready`` allows it. One instance belongs to one TRV of one
+    entity; the dispatch in ``calibration.py`` keeps it on the Trv and
+    rebuilds it when the configured mode changes.
     """
 
     def __init__(self, bt, entity_id: str, strategy: BalanceStrategy) -> None:
         self._bt = bt
         self._entity_id = entity_id
-        self._strategy = strategy
+        self.strategy = strategy
         self._last_percent: float | None = None
         self._last_use_valve = False
 
     def observe(self, snapshot, now: float) -> None:
         """Run the balance computation and cache its result."""
-        self._last_percent, self._last_use_valve = self._strategy.run(
+        self._last_percent, self._last_use_valve = self.strategy.run(
             self._bt, self._entity_id
         )
 
     def is_ready(self) -> bool:
-        """Whether the strategy reports a usable balance result."""
-        return self.capability().ready
+        """Whether a usable (finite) balance result exists to actuate on.
+
+        Deliberately narrower than :meth:`capability`: an OSCILLATING
+        annunciation does not drop control to passthrough (automatic
+        backoff on a false positive is worse than the oscillation —
+        see the detector's note in ``core/calibrator.py``); only a
+        missing or non-finite result blocks actuation.
+        """
+        return self._last_percent is not None and math.isfinite(self._last_percent)
 
     def actuate(self, snapshot) -> float | None:
         """Return the cached setpoint-channel percentage, if any.
@@ -195,13 +204,24 @@ class BalanceCalibrator:
         A ``use_valve`` result is executed through the valve intent the
         computation already published, not through this channel.
         """
-        if self._last_use_valve:
+        if not self.is_ready() or self._last_use_valve:
             return None
         return self._last_percent
 
+    def cached(self) -> tuple[float | None, bool]:
+        """Return ``(percent, use_valve)`` once ready, else ``(None, False)``.
+
+        Channel split for the dispatch: the setpoint/offset channel
+        translates the percentage, the valve channel executes the intent
+        the computation already published on the Trv.
+        """
+        if not self.is_ready():
+            return None, False
+        return self._last_percent, self._last_use_valve
+
     def capability(self) -> Capability:
         """Report the strategy's capability on the live entity."""
-        return self._strategy.capability(self._bt, self._entity_id)
+        return self.strategy.capability(self._bt, self._entity_id)
 
     def health(self) -> CalibratorHealth:
         """Report NON_FINITE when the cached result is not a finite number."""

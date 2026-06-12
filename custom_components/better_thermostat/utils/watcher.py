@@ -9,6 +9,7 @@ outdoor, weather) can be unavailable without blocking thermostat operation.
 
 from __future__ import annotations
 
+from dataclasses import replace
 from datetime import timedelta
 import logging
 
@@ -365,8 +366,11 @@ async def check_and_update_degraded_mode(self) -> bool:
     # The control-mode region is the typed record; the entity's
     # degraded_mode property derives from it.
     old_degraded = self.kernel_state.control_mode.degraded
-    self.kernel_state.control_mode = control_mode_step(
-        self.kernel_state.control_mode, unavailable, self.clock.monotonic()
+    self.kernel_state = replace(
+        self.kernel_state,
+        control_mode=control_mode_step(
+            self.kernel_state.control_mode, unavailable, self.clock.monotonic()
+        ),
     )
     # A stored reading only counts while its TRV is actually reachable;
     # otherwise a pre-outage value would keep HOLD unreachable forever.
@@ -375,12 +379,15 @@ async def check_and_update_degraded_mode(self) -> bool:
         and is_entity_available(self.hass, entity_id)
         for entity_id, trv in self.real_trvs.items()
     )
-    self.kernel_state.control_mode = control_mode_step_ladder(
-        self.kernel_state.control_mode,
-        room_sensor_ok=bool(sensor_available),
-        trv_temp_ok=trv_temp_ok,
-        now=self.clock.monotonic(),
-        params=LadderParams(),
+    self.kernel_state = replace(
+        self.kernel_state,
+        control_mode=control_mode_step_ladder(
+            self.kernel_state.control_mode,
+            room_sensor_ok=bool(sensor_available),
+            trv_temp_ok=trv_temp_ok,
+            now=self.clock.monotonic(),
+            params=LadderParams(),
+        ),
     )
     self.unavailable_sensors = unavailable
     degraded = self.kernel_state.control_mode.degraded

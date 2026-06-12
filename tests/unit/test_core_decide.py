@@ -1,12 +1,17 @@
 """Pure tests for the decision kernel — snapshot in, desired out, no HA."""
 
+from datetime import timedelta
+
 from custom_components.better_thermostat.core.decide import KernelState, decide
 from custom_components.better_thermostat.core.desired import Suppression
 from custom_components.better_thermostat.core.fsm.control_mode import (
     ControlMode,
     ControlModeState,
 )
-from custom_components.better_thermostat.core.fsm.lifecycle import LifecycleState
+from custom_components.better_thermostat.core.fsm.lifecycle import (
+    LifecyclePhase,
+    LifecycleState,
+)
 from custom_components.better_thermostat.core.fsm.mode import ModeState
 from custom_components.better_thermostat.core.fsm.window import WindowPhase, WindowState
 from custom_components.better_thermostat.core.snapshot import HvacMode, TrvReported
@@ -30,6 +35,33 @@ class TestLifecycleGate:
             ),
         )
         assert dict(desired.trvs) == {}
+
+    def test_starting_promotes_to_running_after_grace(self):
+        """decide() ticks the lifecycle region without a dedicated caller.
+
+        STARTING becomes RUNNING once the grace window has passed.
+        """
+        snapshot = make_snapshot()
+        state = make_state(
+            lifecycle=LifecycleState(
+                phase=LifecyclePhase.STARTING,
+                grace_until=snapshot.now - timedelta(seconds=1),
+            )
+        )
+        _, state_after = decide(snapshot, state)
+        assert state_after.lifecycle.phase == LifecyclePhase.RUNNING
+
+    def test_starting_stays_within_grace(self):
+        """STARTING holds while the grace deadline is in the future."""
+        snapshot = make_snapshot()
+        state = make_state(
+            lifecycle=LifecycleState(
+                phase=LifecyclePhase.STARTING,
+                grace_until=snapshot.now + timedelta(minutes=5),
+            )
+        )
+        _, state_after = decide(snapshot, state)
+        assert state_after.lifecycle.phase == LifecyclePhase.STARTING
 
 
 class TestModeOff:
@@ -328,8 +360,14 @@ class TestSuppression:
 class TestHoldRung:
     """Under HOLD the kernel keeps the mode but adjusts nothing."""
 
-    def test_hold_emits_intent_without_numbers(self):
-        """The heating tier carries the mode and no setpoint."""
+    def test_hold_emits_raw_target_passthrough(self):
+        """The heating tier locks the raw user target under HOLD.
+
+        No calibration numbers (valve, offset) — but the setpoint
+        carries the last known target so the device stays locked on it
+        and a device-side loss heals; the safety hull enforces the
+        frost floor.
+        """
         desired, _ = decide(
             make_snapshot(),
             make_state(control_mode=ControlModeState(mode=ControlMode.HOLD)),
@@ -337,7 +375,9 @@ class TestHoldRung:
         assert set(desired.trvs) == {"climate.trv1", "climate.trv2"}
         for trv in desired.trvs.values():
             assert trv.hvac_mode == HvacMode.HEAT
-            assert trv.setpoint is None
+            assert trv.setpoint == 21.0
+            assert trv.valve_percent is None
+            assert trv.offset is None
 
     def test_hold_keeps_mode_suppression(self):
         """The OFF/window tiers stay above the rung."""

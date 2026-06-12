@@ -6,6 +6,7 @@ the queue handler committing or cancelling them, and the control kicks.
 """
 
 import asyncio
+from dataclasses import replace
 from unittest.mock import MagicMock, Mock, patch
 
 import pytest
@@ -30,8 +31,11 @@ def _make_bt(*, sensor_state="off", window_open=False, open_delay=0, close_delay
     bt.window_delay_after = close_delay
     bt.clock = FakeClock()
     bt.kernel_state = running_kernel_state()
-    bt.kernel_state.window = WindowState(
-        phase=WindowPhase.OPEN if window_open else WindowPhase.CLOSED
+    bt.kernel_state = replace(
+        bt.kernel_state,
+        window=WindowState(
+            phase=WindowPhase.OPEN if window_open else WindowPhase.CLOSED
+        ),
     )
     bt.in_maintenance = False
     bt._heating_tracker = Mock()

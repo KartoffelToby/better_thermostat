@@ -2,8 +2,7 @@
 
 Replaces four separate HA Store files with a single versioned store per
 config entry. The StateManager owns all runtime state that must survive
-a Home Assistant restart (calibration models, thermal stats, learned
-presets).
+a Home Assistant restart (calibration models, thermal stats, filters).
 
 Usage in climate.py
 -------------------
@@ -87,7 +86,9 @@ class RuntimeState:
     tpi: dict[str, TpiState] = field(default_factory=dict)
     thermal: ThermalStats = field(default_factory=ThermalStats)
     filters: FilterState = field(default_factory=FilterState)
-    presets: dict[str, float] = field(default_factory=dict)
+    # Learned preset temperatures are user input and live in the preset
+    # number entities (RestoreEntity is correct for genuine UI state);
+    # they are deliberately not duplicated here.
 
 
 # ---------------------------------------------------------------------------
@@ -147,8 +148,36 @@ def _serialize(state: RuntimeState) -> dict[str, Any]:
     return _make_json_safe(data)
 
 
+class _PoisonedState(ValueError):
+    """A stored entry carries a mathematical anomaly (NaN/inf)."""
+
+
+def _finite_or_poison(value: Any, attr: str, kind: str) -> float:
+    """Parse one float field; a non-finite number poisons the entry.
+
+    Wrong types merely skip the field (schema evolution), but NaN or
+    infinity means the entry's math is corrupt — the rest of it cannot
+    be trusted either, so the whole entry resets to defaults and the
+    learning restarts.
+    """
+    number = float(value)
+    if not math.isfinite(number):
+        _LOGGER.warning(
+            "better_thermostat: non-finite %s in stored %s state; "
+            "resetting that entry to defaults",
+            attr,
+            kind,
+        )
+        raise _PoisonedState(attr)
+    return number
+
+
 def deserialize_mpc(raw: dict[str, Any]) -> MpcState:
-    """Deserialize a single MPC state dict into an MpcState dataclass."""
+    """Deserialize a single MPC state dict into an MpcState dataclass.
+
+    A non-finite numeric field rejects the whole entry: learning
+    restarts from defaults rather than continuing on corrupt math.
+    """
     state = MpcState()
     for attr in MpcState.__dataclass_fields__:
         if attr not in raw:
@@ -172,17 +201,20 @@ def deserialize_mpc(raw: dict[str, Any]) -> MpcState:
             elif attr in _STR_FIELDS:
                 setattr(state, attr, str(value))
             else:
-                number = float(value)
-                if not math.isfinite(number):
-                    continue
-                setattr(state, attr, number)
+                setattr(state, attr, _finite_or_poison(value, attr, "mpc"))
+        except _PoisonedState:
+            return MpcState()
         except (TypeError, ValueError):
             continue
     return state
 
 
 def deserialize_pid(raw: dict[str, Any]) -> PIDState:
-    """Deserialize a single PID state dict into a PIDState dataclass."""
+    """Deserialize a single PID state dict into a PIDState dataclass.
+
+    A non-finite numeric field rejects the whole entry: learning
+    restarts from defaults rather than continuing on corrupt math.
+    """
     state = PIDState()
     for attr in PIDState.__dataclass_fields__:
         if attr not in raw:
@@ -197,17 +229,20 @@ def deserialize_pid(raw: dict[str, Any]) -> PIDState:
             elif attr in _BOOL_FIELDS:
                 setattr(state, attr, bool(value))
             else:
-                number = float(value)
-                if not math.isfinite(number):
-                    continue
-                setattr(state, attr, number)
+                setattr(state, attr, _finite_or_poison(value, attr, "pid"))
+        except _PoisonedState:
+            return PIDState()
         except (TypeError, ValueError):
             continue
     return state
 
 
 def deserialize_tpi(raw: dict[str, Any]) -> TpiState:
-    """Deserialize a single TPI state dict into a TpiState dataclass."""
+    """Deserialize a single TPI state dict into a TpiState dataclass.
+
+    A non-finite numeric field rejects the whole entry: learning
+    restarts from defaults rather than continuing on corrupt math.
+    """
     state = TpiState()
     for attr in TpiState.__dataclass_fields__:
         if attr not in raw:
@@ -217,10 +252,9 @@ def deserialize_tpi(raw: dict[str, Any]) -> TpiState:
             setattr(state, attr, None)
             continue
         try:
-            number = float(value)
-            if not math.isfinite(number):
-                continue
-            setattr(state, attr, number)
+            setattr(state, attr, _finite_or_poison(value, attr, "tpi"))
+        except _PoisonedState:
+            return TpiState()
         except (TypeError, ValueError):
             continue
     return state
@@ -256,11 +290,15 @@ def _deserialize(raw: dict[str, Any]) -> RuntimeState:
             heating_power = float(heating_power) if heating_power is not None else None
         except (TypeError, ValueError):
             heating_power = None
+        if heating_power is not None and not math.isfinite(heating_power):
+            heating_power = None
         try:
             heat_loss_rate = (
                 float(heat_loss_rate) if heat_loss_rate is not None else None
             )
         except (TypeError, ValueError):
+            heat_loss_rate = None
+        if heat_loss_rate is not None and not math.isfinite(heat_loss_rate):
             heat_loss_rate = None
         state.thermal = ThermalStats(
             heating_power=heating_power, heat_loss_rate=heat_loss_rate
@@ -279,13 +317,8 @@ def _deserialize(raw: dict[str, Any]) -> RuntimeState:
             if math.isfinite(number):
                 setattr(state.filters, attr, number)
 
-    presets_raw = raw.get("presets", {})
-    if isinstance(presets_raw, dict):
-        for name, temp in presets_raw.items():
-            try:
-                state.presets[str(name)] = float(temp)
-            except (TypeError, ValueError):
-                continue
+    # A legacy "presets" section is ignored: preset temperatures are UI
+    # state owned by the preset number entities.
 
     return state
 
@@ -308,7 +341,6 @@ def _migrate_v0_to_v1(raw: dict[str, Any]) -> dict[str, Any]:
     raw.setdefault("tpi", {})
     raw.setdefault("thermal", {})
     raw.setdefault("filters", {})
-    raw.setdefault("presets", {})
     return raw
 
 
@@ -335,6 +367,12 @@ class StateManager:
         self._entry_id = entry_id
         self._state = RuntimeState()
         self._dirty = False
+        self._delay_save_pending = False
+
+    @staticmethod
+    async def async_remove_store(hass: HomeAssistant, entry_id: str) -> None:
+        """Delete the per-entry store file when its config entry is removed."""
+        await Store(hass, CURRENT_VERSION, f"{DOMAIN}_{entry_id}_state").async_remove()
 
     # -- Public properties ---------------------------------------------------
 
@@ -410,17 +448,6 @@ class StateManager:
         self._state.thermal = value
         self._dirty = True
 
-    @property
-    def presets(self) -> dict[str, float]:
-        """Return learned preset temperatures."""
-        return self._state.presets
-
-    @presets.setter
-    def presets(self, value: dict[str, float]) -> None:
-        """Set learned preset temperatures and mark dirty."""
-        self._state.presets = value
-        self._dirty = True
-
     def mark_dirty(self) -> None:
         """Manually mark state as needing persistence."""
         self._dirty = True
@@ -438,18 +465,18 @@ class StateManager:
         heating_power: float | None = None
         if thermal.heating_power is not None:
             try:
-                heating_power = clamp(
-                    float(thermal.heating_power), MIN_HEATING_POWER, MAX_HEATING_POWER
-                )
+                number = float(thermal.heating_power)
+                if math.isfinite(number):
+                    heating_power = clamp(number, MIN_HEATING_POWER, MAX_HEATING_POWER)
             except (TypeError, ValueError):
                 heating_power = None
 
         heat_loss_rate: float | None = None
         if thermal.heat_loss_rate is not None:
             try:
-                heat_loss_rate = clamp(
-                    float(thermal.heat_loss_rate), MIN_HEAT_LOSS, MAX_HEAT_LOSS
-                )
+                number = float(thermal.heat_loss_rate)
+                if math.isfinite(number):
+                    heat_loss_rate = clamp(number, MIN_HEAT_LOSS, MAX_HEAT_LOSS)
             except (TypeError, ValueError):
                 heat_loss_rate = None
 
@@ -478,6 +505,35 @@ class StateManager:
         self._dirty = True
 
     # -- Load / Save ---------------------------------------------------------
+
+    def schedule_delay_save(self, pre_save=None, delay_s: float = 15.0) -> None:
+        """Schedule a coalesced disk write through the Store.
+
+        The Store flushes a pending delayed save on Home Assistant's
+        final-write event, so the data survives a normal shutdown.
+        While a save is pending, further calls are no-ops instead of
+        resetting the timer: ``pre_save`` and the serialization run at
+        write time, so the earliest deadline already covers later
+        changes — and a steady trigger stream cannot starve the save.
+        """
+        if self._delay_save_pending:
+            return
+        self._delay_save_pending = True
+
+        def _data_to_save() -> dict[str, Any]:
+            self._delay_save_pending = False
+            if pre_save is not None:
+                try:
+                    pre_save()
+                except Exception:
+                    _LOGGER.exception(
+                        "better_thermostat [%s]: pre-save callback failed",
+                        self._entry_id,
+                    )
+            self._dirty = False
+            return _serialize(self._state)
+
+        self._store.async_delay_save(_data_to_save, delay_s)
 
     async def load(self) -> None:
         """Load state from HA Store.  Applies migrations if needed."""
@@ -518,6 +574,8 @@ class StateManager:
     async def save(self) -> None:
         """Persist current state to HA Store unconditionally."""
         data = _serialize(self._state)
+        # async_save cancels a pending delayed write inside the Store.
+        self._delay_save_pending = False
         await self._store.async_save(data)
         self._dirty = False
         _LOGGER.debug(

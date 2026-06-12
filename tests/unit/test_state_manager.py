@@ -184,14 +184,27 @@ class TestSerializeDeserializeRoundtrip:
         assert restored.thermal.heating_power == 1200.0
         assert restored.thermal.heat_loss_rate == 0.03
 
-    def test_presets_roundtrip(self):
-        """Preset temperatures survive roundtrip."""
-        original = RuntimeState(presets={"comfort": 22.0, "eco": 18.5})
+    def test_legacy_presets_section_ignored(self):
+        """A legacy presets section in a stored payload is ignored.
 
-        raw = _serialize(original)
+        Preset temperatures live in the preset number entities.
+        """
+        raw = _serialize(RuntimeState())
+        raw["presets"] = {"comfort": 22.0}
+
         restored = _deserialize(raw)
 
-        assert restored.presets == {"comfort": 22.0, "eco": 18.5}
+        assert not hasattr(restored, "presets")
+
+    def test_thermal_rejects_non_finite(self):
+        """NaN/inf thermal stats in a stored payload are rejected on load."""
+        raw = _serialize(RuntimeState())
+        raw["thermal"] = {"heating_power": float("nan"), "heat_loss_rate": float("inf")}
+
+        restored = _deserialize(raw)
+
+        assert restored.thermal.heating_power is None
+        assert restored.thermal.heat_loss_rate is None
 
     def test_full_state_roundtrip(self):
         """Complete state with all sections populated."""
@@ -200,7 +213,6 @@ class TestSerializeDeserializeRoundtrip:
             pid={"k1": PIDState(pid_kp=2.0)},
             tpi={"k1": TpiState(last_percent=30.0)},
             thermal=ThermalStats(heating_power=800.0),
-            presets={"away": 16.0},
         )
 
         raw = _serialize(original)
@@ -210,7 +222,6 @@ class TestSerializeDeserializeRoundtrip:
         assert restored.pid["k1"].pid_kp == 2.0
         assert restored.tpi["k1"].last_percent == 30.0
         assert restored.thermal.heating_power == 800.0
-        assert restored.presets["away"] == 16.0
 
 
 # ---------------------------------------------------------------------------
@@ -333,7 +344,6 @@ class TestDeserializeEdgeCases:
         assert state.mpc == {}
         assert state.pid == {}
         assert state.tpi == {}
-        assert state.presets == {}
 
     def test_non_dict_mpc_payload_skipped(self):
         """Non-dict payloads inside mpc section are skipped."""
@@ -347,19 +357,6 @@ class TestDeserializeEdgeCases:
         raw = {"version": 1, "thermal": "garbage"}
         state = _deserialize(raw)
         assert state.thermal.heating_power is None
-
-    def test_invalid_preset_skipped(self):
-        """Non-numeric preset values are skipped, valid ones kept."""
-        raw = {"version": 1, "presets": {"good": 21.0, "bad": "not_a_number"}}
-        state = _deserialize(raw)
-        assert state.presets["good"] == 21.0
-        assert "bad" not in state.presets
-
-    def test_non_dict_presets_ignored(self):
-        """Non-dict presets section produces empty dict."""
-        raw = {"version": 1, "presets": [1, 2, 3]}
-        state = _deserialize(raw)
-        assert state.presets == {}
 
 
 # ---------------------------------------------------------------------------
@@ -379,7 +376,6 @@ class TestMigrationV0ToV1:
         assert result["pid"] == {}
         assert result["tpi"] == {}
         assert result["thermal"] == {}
-        assert result["presets"] == {}
 
     def test_preserves_existing_data(self):
         """Existing data is preserved during migration."""
@@ -477,13 +473,6 @@ class TestStateManagerDirtyTracking:
         assert mgr.dirty is True
         assert mgr.thermal.heating_power == 500.0
 
-    def test_presets_setter_dirties(self):
-        """Assigning presets property sets dirty."""
-        mgr = self._make_manager()
-        mgr.presets = {"eco": 18.0}
-        assert mgr.dirty is True
-        assert mgr.presets == {"eco": 18.0}
-
 
 # ---------------------------------------------------------------------------
 # StateManager — load / save lifecycle
@@ -543,7 +532,6 @@ class TestStateManagerLoadSave:
             "pid": {},
             "tpi": {},
             "thermal": {"heating_power": 1000.0},
-            "presets": {"comfort": 22.0},
         }
 
         await mgr.load()
@@ -551,7 +539,6 @@ class TestStateManagerLoadSave:
         assert mgr.state.mpc["k1"].gain_est == 0.5
         assert mgr.state.mpc["k1"].dead_zone_hits == 2
         assert mgr.state.thermal.heating_power == 1000.0
-        assert mgr.state.presets["comfort"] == 22.0
         assert mgr.dirty is False
 
     @pytest.mark.asyncio
@@ -646,11 +633,6 @@ class TestStateManagerStateAccess:
         mgr = self._make_manager()
         assert isinstance(mgr.thermal, ThermalStats)
 
-    def test_presets_getter(self):
-        """Presets property returns empty dict by default."""
-        mgr = self._make_manager()
-        assert mgr.presets == {}
-
     def test_multiple_keys_independent(self):
         """Different MPC keys store independent state."""
         mgr = self._make_manager()
@@ -716,6 +698,14 @@ class TestClampedThermal:
         mgr = _make_manager()
         mgr.thermal = ThermalStats(heating_power="oops")  # type: ignore[arg-type]
         assert mgr.clamped_thermal()[0] is None
+
+    def test_non_finite_values_yield_none(self):
+        """NaN/inf persisted thermal stats degrade to None instead of leaking."""
+        mgr = _make_manager()
+        mgr.thermal = ThermalStats(
+            heating_power=float("nan"), heat_loss_rate=float("inf")
+        )
+        assert mgr.clamped_thermal() == (None, None)
 
 
 # ---------------------------------------------------------------------------

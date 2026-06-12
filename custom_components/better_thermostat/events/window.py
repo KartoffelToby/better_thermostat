@@ -5,6 +5,7 @@ delayed handling so that HVAC behavior uses window-open information reliably.
 """
 
 import asyncio
+from dataclasses import replace
 import logging
 
 from homeassistant.core import callback
@@ -94,11 +95,14 @@ async def trigger_window_change(self, event) -> None:
     # state travels along so the handler can detect a commit even when a
     # zero delay commits immediately.
     was_open = self.kernel_state.window.effective_open
-    self.kernel_state.window = window_step(
-        self.kernel_state.window,
-        sensor_open=new_window_open,
-        now=self.clock.monotonic(),
-        params=_window_params(self),
+    self.kernel_state = replace(
+        self.kernel_state,
+        window=window_step(
+            self.kernel_state.window,
+            sensor_open=new_window_open,
+            now=self.clock.monotonic(),
+            params=_window_params(self),
+        ),
     )
     await self.window_queue_task.put(was_open)
 
@@ -141,11 +145,14 @@ async def _settle_window_region(self, was_open: bool) -> None:
             await asyncio.sleep(remaining)
         sensor = self.hass.states.get(self.window_id)
         sensor_open = sensor is None or sensor.state not in ("off", "false", "closed")
-        self.kernel_state.window = window_step(
-            self.kernel_state.window,
-            sensor_open=sensor_open,
-            now=self.clock.monotonic(),
-            params=_window_params(self),
+        self.kernel_state = replace(
+            self.kernel_state,
+            window=window_step(
+                self.kernel_state.window,
+                sensor_open=sensor_open,
+                now=self.clock.monotonic(),
+                params=_window_params(self),
+            ),
         )
 
     if was_open != self.kernel_state.window.effective_open:

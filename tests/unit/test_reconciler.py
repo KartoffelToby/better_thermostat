@@ -5,6 +5,7 @@ non-safety writes to one TRV keep a minimum spacing.
 """
 
 import asyncio
+from dataclasses import replace
 from unittest.mock import AsyncMock, MagicMock, Mock, patch
 
 from homeassistant.components.climate.const import HVACMode
@@ -88,7 +89,9 @@ class TestReconcileTick:
         """An intent of OFF against a heating device triggers reconciliation."""
         bt = _make_bt()
         bt.bt_hvac_mode = HVACMode.OFF
-        bt.kernel_state.mode = ModeState(hvac_mode=CoreHvacMode.OFF)
+        bt.kernel_state = replace(
+            bt.kernel_state, mode=ModeState(hvac_mode=CoreHvacMode.OFF)
+        )
         await reconcile_tick(bt)
         bt.control_queue_task.put_nowait.assert_called_once()
 
@@ -102,7 +105,9 @@ class TestReconcileTick:
         """
         bt = _make_bt(reported_target=5.0, commanded=5.0)
         bt.bt_hvac_mode = HVACMode.OFF
-        bt.kernel_state.mode = ModeState(hvac_mode=CoreHvacMode.OFF)
+        bt.kernel_state = replace(
+            bt.kernel_state, mode=ModeState(hvac_mode=CoreHvacMode.OFF)
+        )
         bt.real_trvs["climate.trv"].advanced = {"no_off_system_mode": True}
         await reconcile_tick(bt)
         bt.control_queue_task.put_nowait.assert_not_called()
@@ -112,7 +117,9 @@ class TestReconcileTick:
         """A TRV whose hvac_modes lack OFF can never report 'off'."""
         bt = _make_bt(reported_target=5.0, commanded=5.0)
         bt.bt_hvac_mode = HVACMode.OFF
-        bt.kernel_state.mode = ModeState(hvac_mode=CoreHvacMode.OFF)
+        bt.kernel_state = replace(
+            bt.kernel_state, mode=ModeState(hvac_mode=CoreHvacMode.OFF)
+        )
         bt.real_trvs["climate.trv"].hvac_modes = [HVACMode.HEAT]
         await reconcile_tick(bt)
         bt.control_queue_task.put_nowait.assert_not_called()
@@ -122,7 +129,9 @@ class TestReconcileTick:
         """The setpoint comparison keeps covering no-off devices."""
         bt = _make_bt(reported_target=21.0, commanded=5.0)
         bt.bt_hvac_mode = HVACMode.OFF
-        bt.kernel_state.mode = ModeState(hvac_mode=CoreHvacMode.OFF)
+        bt.kernel_state = replace(
+            bt.kernel_state, mode=ModeState(hvac_mode=CoreHvacMode.OFF)
+        )
         bt.real_trvs["climate.trv"].advanced = {"no_off_system_mode": True}
         await reconcile_tick(bt)
         bt.control_queue_task.put_nowait.assert_called_once()

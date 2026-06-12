@@ -1,6 +1,6 @@
 """Tests for the Config/Runtime/Learned containers and their entity bridges."""
 
-from dataclasses import FrozenInstanceError
+from dataclasses import FrozenInstanceError, replace
 
 import pytest
 
@@ -85,7 +85,9 @@ class TestRuntimeAndLearnedBridges:
         bare.kernel_state = running_kernel_state()
         assert bare.startup_running is False
         assert bare.window_open is False
-        bare.kernel_state.window = WindowState(phase=WindowPhase.OPEN)
+        bare.kernel_state = replace(
+            bare.kernel_state, window=WindowState(phase=WindowPhase.OPEN)
+        )
         assert bare.window_open is True
         with pytest.raises(AttributeError):
             bare.window_open = False

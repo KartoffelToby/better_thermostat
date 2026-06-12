@@ -54,7 +54,8 @@
         "setpoint": null,
         "valve_max_opening": null
       }
-    }
+    },
+    "window_open": null
   },
   "state": {
     "control_mode": {
