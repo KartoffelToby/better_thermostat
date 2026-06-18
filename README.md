@@ -46,6 +46,17 @@ Better Thermostat now supports multiple advanced control strategies to optimize 
 - **TPI (Time Proportional Integral)**: A control method that cycles the valve on and off (or modulates it) to maintain a stable temperature, reducing overshoot.
 - **AI Time Based**: Uses a custom algorithm based on simple measurements and calculations (not actual AI) to calculate the required heating power and adjusts the TRV calibration to achieve it. This improves upon the standard TRV internal algorithm.
 
+**Not sure which to pick? A quick guide:**
+
+| Algorithm | Best For | Trade-off |
+|-----------|----------|-----------|
+| **MPC** | Rooms with predictable heat loss | Needs model parameter tuning |
+| **PID** | Stable rooms, precise control | Autotune is still in beta |
+| **TPI** | Simple on/off valves | Less precise on modulating valves |
+| **AI Time Based** | Quick setup, no tuning | Less precise in complex rooms |
+
+Start with **TPI** or **AI Time Based** and switch to **PID** or **MPC** once you're comfortable.
+
 These modes can be selected in the advanced configuration of the device.
 
 ### Preset Temperature Configuration
