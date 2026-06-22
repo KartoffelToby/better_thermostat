@@ -40,7 +40,19 @@ class KernelState:
 
 
 def is_boost_heating(snapshot: WorldSnapshot) -> bool:
-    """Return True while the boost preset is active and the room is too cold."""
+    """Return whether boost heating is currently demanded.
+
+    Parameters
+    ----------
+    snapshot : WorldSnapshot
+        Immutable observation of the world to evaluate.
+
+    Returns
+    -------
+    bool
+        ``True`` while the boost preset is active and the room temperature
+        is below the target, ``False`` otherwise.
+    """
     return (
         snapshot.preset_mode == PRESET_BOOST
         and snapshot.room_temp is not None
@@ -72,7 +84,25 @@ def _with_mode(entity_ids: list[str], hvac_mode: HvacMode) -> dict[str, TrvDesir
 def decide(
     snapshot: WorldSnapshot, state: KernelState
 ) -> tuple[DesiredState, KernelState]:
-    """Map one world snapshot onto the desired state of every TRV."""
+    """Map one world snapshot onto the desired state of every TRV.
+
+    The deterministic precedence cascade (top wins): the lifecycle and
+    maintenance gate, mode OFF, an open window, no call for heat, and
+    otherwise heating to the target.
+
+    Parameters
+    ----------
+    snapshot : WorldSnapshot
+        Immutable observation of the world for this control cycle.
+    state : KernelState
+        Controller-side state threaded through the kernel.
+
+    Returns
+    -------
+    tuple[DesiredState, KernelState]
+        The desired state to apply to the devices and the updated kernel
+        state.
+    """
     if snapshot.startup_running or snapshot.in_maintenance:
         # Lifecycle gate: no intent while starting up, and maintenance
         # pre-empts control entirely (it owns the valves).
