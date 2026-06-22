@@ -616,12 +616,21 @@ def main(argv: list[str] | None = None) -> int:
         )
         section: list[ScenarioResult] = []
         for c in controllers:
-            adapter = _make_adapter(c, plant_override)
             for s in scenarios:
+                scen = _scenario_for(s)
+                # Plant-aware adapters (the oracle) must be built with the
+                # scenario's own plant in default mode, not the standard
+                # default — otherwise the reference row is suboptimal on
+                # non-standard-plant scenarios. A fresh instance per
+                # scenario is equivalent to the reset run_scenario performs.
+                adapter_plant = (
+                    plant_override if plant_override is not None else scen.plant
+                )
+                adapter = _make_adapter(c, adapter_plant)
                 section.append(
                     run_scenario(
                         adapter,
-                        _scenario_for(s),
+                        scen,
                         step_s=args.step_s,
                         plant_params=plant_override,
                         stabilisation_min=args.stabilisation_min,

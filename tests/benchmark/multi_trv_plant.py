@@ -39,8 +39,9 @@ class MultiTrvPlantParams:
         Raises
         ------
         ValueError
-            If ``n_trvs`` is not positive or a time constant the integrator
-            divides by is not positive.
+            If ``n_trvs`` is not positive, a time constant the integrator
+            divides by is not positive, or a deadband percent is outside
+            ``[0, 100]``.
         """
         if self.n_trvs < 1:
             raise ValueError(
@@ -50,6 +51,11 @@ class MultiTrvPlantParams:
             raise ValueError(
                 "MultiTrvPlantParams tau_room_min and tau_rad_min must be > 0, got "
                 f"tau_room_min={self.tau_room_min}, tau_rad_min={self.tau_rad_min}"
+            )
+        if any(not 0.0 <= d <= 100.0 for d in self.deadband_pcts_per_trv):
+            raise ValueError(
+                "MultiTrvPlantParams deadband_pcts_per_trv must be within [0, 100], "
+                f"got {self.deadband_pcts_per_trv}"
             )
 
 

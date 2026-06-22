@@ -13,7 +13,7 @@ see [`DESIGN.md`](DESIGN.md).
 ## Quick start
 
 ```sh
-python -m tests.benchmark.runner
+uv run python -m tests.benchmark.runner
 ```
 
 prints a controller × dimension score matrix:
@@ -52,14 +52,14 @@ the four vendor presets, so they aggregate more runs than direct rows.
 
 | Command | What it shows |
 |---|---|
-| `python -m tests.benchmark.runner` | All controllers × all scenarios (default) |
-| `python -m tests.benchmark.runner --controller mpc --scenario S01_setpoint_step_small` | One controller × one scenario |
-| `python -m tests.benchmark.runner --profile longevity_first` | Re-weight toward actuator wear |
-| `python -m tests.benchmark.runner --per-scenario` | Add per-scenario detail table |
-| `python -m tests.benchmark.runner --multi-trv` | Add multi-TRV matrices (parallel radiators sharing one room) |
-| `python -m tests.benchmark.runner --plant-sweep` | Realistic + DOE envelope classes, cross-plant summary |
+| `uv run python -m tests.benchmark.runner` | All controllers × all scenarios (default) |
+| `uv run python -m tests.benchmark.runner --controller mpc --scenario S01_setpoint_step_small` | One controller × one scenario |
+| `uv run python -m tests.benchmark.runner --profile longevity_first` | Re-weight toward actuator wear |
+| `uv run python -m tests.benchmark.runner --per-scenario` | Add per-scenario detail table |
+| `uv run python -m tests.benchmark.runner --multi-trv` | Add multi-TRV matrices (parallel radiators sharing one room) |
+| `uv run python -m tests.benchmark.runner --plant-sweep` | Realistic + DOE envelope classes, cross-plant summary |
 
-Run `python -m tests.benchmark.runner --help` for the full flag list.
+Run `uv run python -m tests.benchmark.runner --help` for the full flag list.
 
 ## How to read the results
 
@@ -262,22 +262,22 @@ recorder-style temperature export. It finds natural cooling phases and
 fits `T(t) = T_outdoor + (T0 − T_outdoor) · exp(−t/τ)` per window.
 
 ```sh
-python -m tests.benchmark.plant_fit.fit_plant
+uv run python -m tests.benchmark.plant_fit.fit_plant
 ```
 
 Defaults to an in-memory synthetic dataset (deterministic, no committed
 CSV). Pass a path to fit against an external HA recorder export:
 
 ```sh
-python -m tests.benchmark.plant_fit.fit_plant path/to/recorder_export.csv
+uv run python -m tests.benchmark.plant_fit.fit_plant path/to/recorder_export.csv
 ```
 
-Run `python -m tests.benchmark.plant_fit.generate_synthetic_data` to dump
+Run `uv run python -m tests.benchmark.plant_fit.generate_synthetic_data` to dump
 the synthetic dataset as a CSV in the recorder format, for example to
 inspect what shape `fit_plant` expects.
 
 ## Tests
 
 ```sh
-python -m pytest tests/benchmark/tests -p no:homeassistant
+uv run python -m pytest tests/benchmark/tests -p no:homeassistant
 ```
