@@ -30,9 +30,9 @@ def _snaps(bt):
     return BetterThermostat._build_trv_snapshots(bt)
 
 
-def test_non_dict_entry_skipped(bt):
-    """A non-dict real_trvs entry is ignored."""
-    bt.real_trvs = {"climate.trv": "not-a-dict"}
+def test_non_trv_entry_skipped(bt):
+    """A real_trvs entry that is not a Trv is ignored."""
+    bt.real_trvs = {"climate.trv": "not-a-trv"}
     assert _snaps(bt) == []
 
 

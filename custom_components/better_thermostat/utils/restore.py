@@ -107,7 +107,7 @@ def clamp_heating_power(raw: str | int | float | None, device_name: str) -> floa
     """
     try:
         value = 0.01 if raw is None else float(raw)
-    except (TypeError, ValueError):
+    except TypeError, ValueError:
         value = 0.01
     if not math.isfinite(value):
         value = 0.01
@@ -131,7 +131,7 @@ def clamp_heat_loss(raw: str | int | float | None) -> float | None:
         return None
     try:
         value = float(raw)
-    except (TypeError, ValueError):
+    except TypeError, ValueError:
         return None
     if not math.isfinite(value):
         return None

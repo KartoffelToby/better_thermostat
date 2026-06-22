@@ -88,6 +88,9 @@ class Trv:
     calibration_received: bool = True
     target_temp_received: bool = True
     system_mode_received: bool = True
+    # One-shot flag: the next live internal reading after an outage must
+    # bypass the debounce so it is not dropped as a stale duplicate.
+    accept_next_internal_temp: bool = False
     last_temperature: float | None = None
     last_valve_position: float | None = None
     last_hvac_mode: str | None = None
@@ -124,6 +127,19 @@ class Trv:
     # Model quirks may stash private bookkeeping here (e.g. TRVZB valve
     # bump sequencing) without widening the typed surface.
     extra: dict[str, Any] = field(default_factory=dict)
+
+    def consume_accept_next_internal_temp(self) -> bool:
+        """Return and clear the one-shot accept-next-internal-temp flag.
+
+        Returns
+        -------
+        bool
+            ``True`` if the next internal reading should bypass the
+            debounce; the flag is reset to ``False`` as a side effect.
+        """
+        accepted = self.accept_next_internal_temp
+        self.accept_next_internal_temp = False
+        return accepted
 
     def capabilities(self) -> TrvCapabilities:
         """Effective capabilities: adapter declaration ∩ discovered surface."""

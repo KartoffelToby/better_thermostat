@@ -560,7 +560,7 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
                         name,
                         parsed_off,
                     )
-            except (TypeError, ValueError):
+            except TypeError, ValueError:
                 _LOGGER.warning(
                     "better_thermostat %s: invalid off_temperature '%s', ignoring",
                     name,
@@ -1026,13 +1026,13 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
                             self.device_name,
                             trv_id,
                         )
-                except (OSError, RuntimeError, AttributeError, TypeError):
+                except OSError, RuntimeError, AttributeError, TypeError:
                     _LOGGER.debug(
                         "better_thermostat %s: external_temperature keepalive write failed for %s (non critical)",
                         self.device_name,
                         trv_id,
                     )
-        except (OSError, RuntimeError, AttributeError, TypeError):
+        except OSError, RuntimeError, AttributeError, TypeError:
             _LOGGER.debug(
                 "better_thermostat %s: external_temperature keepalive encountered an error",
                 self.device_name,
@@ -1409,7 +1409,10 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
                     "Open" if self.window_open else "Closed",
                 )
             else:
-                # Window sensor unavailable - assume closed (safer default)
+                # At startup, unavailable/unknown usually means the sensor
+                # has not joined HA yet, so heating continues normally
+                # (assume closed). At runtime the same states mean a live
+                # sensor was lost and count as open (see events/window.py).
                 self.kernel_state = replace(self.kernel_state, window=WindowState())
                 _LOGGER.debug(
                     "better_thermostat %s: window sensor unavailable, assuming closed",
@@ -1446,7 +1449,7 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
                         self.device_name,
                         _restored_ema,
                     )
-                except (ValueError, TypeError):
+                except ValueError, TypeError:
                     pass
 
             if (
@@ -1460,7 +1463,7 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
                         self.device_name,
                         _restored_slope,
                     )
-                except (ValueError, TypeError):
+                except ValueError, TypeError:
                     pass
 
             _LOGGER.debug(
@@ -1797,7 +1800,7 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
             # SENSOR_FALLBACK as if it were live and keep the ladder's
             # HOLD rung unreachable.
             _raw_current_temp = _attrs.get("current_temperature")
-            trv_data.current_temperature = (
+            _current_temp = (
                 convert_to_float_celsius(
                     str(_raw_current_temp),
                     self.device_name,
@@ -1809,6 +1812,20 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
                 if _raw_current_temp is not None
                 else None
             )
+            # Marker / garbage readings (for example AVM's 126.5 / 127 °C)
+            # must not seed the cache and feed the first control cycle.
+            if _current_temp is not None and not is_reasonable_temperature(
+                _current_temp
+            ):
+                _LOGGER.warning(
+                    "better_thermostat %s: TRV %s reports implausible "
+                    "current_temperature %s at startup; ignoring",
+                    self.device_name,
+                    trv,
+                    _current_temp,
+                )
+                _current_temp = None
+            trv_data.current_temperature = _current_temp
 
     async def _startup_control_trvs(self) -> None:
         """Write the initial mode/setpoint/calibration to every TRV.
@@ -2852,6 +2869,30 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
         # Enforce ordering: cool target should be above heat target in HEAT_COOL.
         self._enforce_cool_above_heat()
 
+        # If a specific preset (Comfort, Eco, …) is active and the user manually
+        # changes the target temperature to a value that does not match the
+        # preset's stored temperature, deactivate the preset (return to
+        # PRESET_NONE) while keeping the new manual temperature. The preset's
+        # own Number entity also funnels through this method, but it first
+        # updates the preset's stored temperature so the values match and the
+        # preset stays active.
+        if (
+            (_new_setpoint is not None or _new_setpointlow is not None)
+            and self.bt_target_temp is not None
+            and self.preset_mgr.mode != PRESET_NONE
+        ):
+            applied = float(self.bt_target_temp)
+            preset_stored = self.preset_mgr.get_temperature(self.preset_mgr.mode)
+            if preset_stored is None or abs(applied - float(preset_stored)) > 1e-3:
+                old_preset = self.preset_mgr.mode
+                self.preset_mgr.deactivate()
+                _LOGGER.debug(
+                    "better_thermostat %s: Deactivated preset %s due to manual target temperature change to %s",
+                    self.device_name,
+                    old_preset,
+                    applied,
+                )
+
         # If the user manually changes the temperature while in PRESET_NONE (Manual),
         # record it as the stored manual temperature. Specific presets (Comfort, Eco,
         # etc.) are managed via separate Number entities and must NOT be overwritten
@@ -3109,7 +3150,7 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
                     def _bucket(temp):
                         try:
                             return format_bucket(round_to_bucket(temp))
-                        except (TypeError, ValueError):
+                        except TypeError, ValueError:
                             return None
 
                     # Build list of candidate buckets: current and ±0.5°C neighbors
@@ -3125,7 +3166,7 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
                             ]
                         elif bucket_tag:
                             buckets = [bucket_tag]
-                    except (TypeError, ValueError):
+                    except TypeError, ValueError:
                         if bucket_tag:
                             buckets = [bucket_tag]
                     uid = resolve_unique_id(self)

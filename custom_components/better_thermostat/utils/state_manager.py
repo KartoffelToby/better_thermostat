@@ -204,7 +204,7 @@ def deserialize_mpc(raw: dict[str, Any]) -> MpcState:
                 setattr(state, attr, _finite_or_poison(value, attr, "mpc"))
         except _PoisonedState:
             return MpcState()
-        except (TypeError, ValueError):
+        except (TypeError, ValueError, OverflowError):
             continue
     return state
 
@@ -232,7 +232,7 @@ def deserialize_pid(raw: dict[str, Any]) -> PIDState:
                 setattr(state, attr, _finite_or_poison(value, attr, "pid"))
         except _PoisonedState:
             return PIDState()
-        except (TypeError, ValueError):
+        except (TypeError, ValueError, OverflowError):
             continue
     return state
 
@@ -255,7 +255,7 @@ def deserialize_tpi(raw: dict[str, Any]) -> TpiState:
             setattr(state, attr, _finite_or_poison(value, attr, "tpi"))
         except _PoisonedState:
             return TpiState()
-        except (TypeError, ValueError):
+        except (TypeError, ValueError, OverflowError):
             continue
     return state
 
@@ -288,7 +288,7 @@ def _deserialize(raw: dict[str, Any]) -> RuntimeState:
         heat_loss_rate = thermal_raw.get("heat_loss_rate")
         try:
             heating_power = float(heating_power) if heating_power is not None else None
-        except (TypeError, ValueError):
+        except (TypeError, ValueError, OverflowError):
             heating_power = None
         if heating_power is not None and not math.isfinite(heating_power):
             heating_power = None
@@ -296,7 +296,7 @@ def _deserialize(raw: dict[str, Any]) -> RuntimeState:
             heat_loss_rate = (
                 float(heat_loss_rate) if heat_loss_rate is not None else None
             )
-        except (TypeError, ValueError):
+        except (TypeError, ValueError, OverflowError):
             heat_loss_rate = None
         if heat_loss_rate is not None and not math.isfinite(heat_loss_rate):
             heat_loss_rate = None
@@ -312,7 +312,7 @@ def _deserialize(raw: dict[str, Any]) -> RuntimeState:
                 continue
             try:
                 number = float(value)
-            except (TypeError, ValueError):
+            except (TypeError, ValueError, OverflowError):
                 continue
             if math.isfinite(number):
                 setattr(state.filters, attr, number)
@@ -468,7 +468,7 @@ class StateManager:
                 number = float(thermal.heating_power)
                 if math.isfinite(number):
                     heating_power = clamp(number, MIN_HEATING_POWER, MAX_HEATING_POWER)
-            except (TypeError, ValueError):
+            except (TypeError, ValueError, OverflowError):
                 heating_power = None
 
         heat_loss_rate: float | None = None
@@ -477,7 +477,7 @@ class StateManager:
                 number = float(thermal.heat_loss_rate)
                 if math.isfinite(number):
                     heat_loss_rate = clamp(number, MIN_HEAT_LOSS, MAX_HEAT_LOSS)
-            except (TypeError, ValueError):
+            except (TypeError, ValueError, OverflowError):
                 heat_loss_rate = None
 
         return heating_power, heat_loss_rate
@@ -557,6 +557,7 @@ class StateManager:
             _LOGGER.warning(
                 "better_thermostat [%s]: persisted state is unreadable, starting fresh",
                 self._entry_id,
+                exc_info=True,
             )
             self._state = RuntimeState()
             self._dirty = False

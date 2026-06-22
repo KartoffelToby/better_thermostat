@@ -97,6 +97,9 @@ async def trigger_trv_change(self, event):
                 _org_trv_state.state,
             )
             self.real_trvs[entity_id].current_temperature = None
+            # The next valid reading is the first live data after the
+            # outage and must not be dropped by the debounce below.
+            self.real_trvs[entity_id].accept_next_internal_temp = True
         return
 
     child_lock = self.real_trvs[entity_id].advanced.get("child_lock")
@@ -116,17 +119,16 @@ async def trigger_trv_change(self, event):
                 ):
                     detected = await get_device_model(self, entity_id)
                     if isinstance(detected, str) and detected:
-                        if prev_model != detected:
-                            _LOGGER.info(
-                                "better_thermostat %s: TRV %s model changed: %s -> %s; reloading quirks",
-                                self.device_name,
-                                entity_id,
-                                prev_model,
-                                detected,
-                            )
-                            quirks = await load_model_quirks(self, detected, entity_id)
-                            self.real_trvs[entity_id].model = detected
-                            self.real_trvs[entity_id].model_quirks = quirks
+                        _LOGGER.info(
+                            "better_thermostat %s: TRV %s model detected: %s; "
+                            "loading quirks",
+                            self.device_name,
+                            entity_id,
+                            detected,
+                        )
+                        quirks = await load_model_quirks(self, detected, entity_id)
+                        self.real_trvs[entity_id].model = detected
+                        self.real_trvs[entity_id].model_quirks = quirks
     except Exception as e:
         _LOGGER.debug(
             "better_thermostat %s: dynamic model detection failed for %s: %s",
@@ -152,8 +154,8 @@ async def trigger_trv_change(self, event):
 
     _time_diff = 5
     try:
-        for trv in self.all_trvs:
-            if trv["advanced"][CONF_HOMEMATICIP]:
+        for trv_conf in self.all_trvs:
+            if trv_conf["advanced"][CONF_HOMEMATICIP]:
                 _time_diff = 600
     except KeyError:
         pass
@@ -161,7 +163,8 @@ async def trigger_trv_change(self, event):
         _new_current_temp is not None
         and self.real_trvs[entity_id].current_temperature != _new_current_temp
         and (
-            (dt_util.now() - self.last_internal_sensor_change).total_seconds()
+            self.real_trvs[entity_id].consume_accept_next_internal_temp()
+            or (dt_util.now() - self.last_internal_sensor_change).total_seconds()
             > _time_diff
             or (
                 self.real_trvs[entity_id].calibration_received is False

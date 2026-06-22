@@ -19,7 +19,7 @@ _LOGGER = logging.getLogger(__name__)
 
 
 class CalibrationBalance(TypedDict, total=False):
-    """Shape of ``trv_state['calibration_balance']`` written by calibration.py.
+    """Shape of the ``calibration_balance`` mapping written by calibration.py.
 
     ``debug`` is ``PIDDebugInfo`` for PID mode and other shapes for MPC/TPI;
     consumers must check ``debug['mode']`` before narrowing.
@@ -30,11 +30,22 @@ class CalibrationBalance(TypedDict, total=False):
     debug: Mapping[str, object]
 
 
-class TrvInfo(TypedDict, total=False):
-    """Subset of ``real_trvs[entity_id]`` fields consumed by telemetry."""
+class TrvInfo(Protocol):
+    """Subset of the per-TRV object surface consumed by telemetry.
 
-    model: str
-    calibration_balance: CalibrationBalance | None
+    ``Trv`` satisfies this structurally; ``calibration_balance`` carries a
+    :class:`CalibrationBalance`-shaped mapping when set.
+    """
+
+    @property
+    def model(self) -> str | None:
+        """Detected TRV model, if known."""
+        ...
+
+    @property
+    def calibration_balance(self) -> Mapping[str, Any] | None:
+        """Last calibration balance result, if any."""
+        ...
 
 
 class TelemetrySource(Protocol):
@@ -47,7 +58,7 @@ class TelemetrySource(Protocol):
 
     @property
     def real_trvs(self) -> Mapping[str, TrvInfo]:
-        """Per-TRV info dicts, keyed by entity id."""
+        """Per-TRV info objects, keyed by entity id."""
         ...
 
     @property
@@ -103,7 +114,7 @@ def _serialize_cycles(
         return {}
     try:
         return {count_key: len(cycles), last_key: json.dumps(cycles[-1])}
-    except (TypeError, ValueError):
+    except TypeError, ValueError:
         _LOGGER.exception("Error while serializing %s", label)
         return {}
 
@@ -132,7 +143,7 @@ def collect_cycle_telemetry(bt: TelemetrySource) -> dict[str, Any]:
     if bt.last_heat_loss_stats:
         try:
             out[ATTR_STATE_HEAT_LOSS_STATS] = json.dumps(list(bt.last_heat_loss_stats))
-        except (TypeError, ValueError):
+        except TypeError, ValueError:
             _LOGGER.exception("Error while serializing heat loss stats")
 
     out["heating_power_norm"] = bt.heating_power_normalized

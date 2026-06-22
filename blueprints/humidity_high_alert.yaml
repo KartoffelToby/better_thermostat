@@ -45,7 +45,9 @@ blueprint:
       name: Ventilation switch (optional)
       description: >
         A switch entity to turn on when humidity is high (e.g. a fan or
-        ventilation relay).
+        ventilation relay). The default `switch.bt_ventilation_placeholder`
+        is only a placeholder. Replace `ventilation_switch` with a real
+        switch before enabling `enable_ventilation`.
       default: switch.bt_ventilation_placeholder
       selector:
         entity:

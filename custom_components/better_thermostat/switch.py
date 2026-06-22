@@ -145,6 +145,13 @@ class BetterThermostatPIDAutoTuneSwitch(SwitchEntity, RestoreEntity):
                 changed = True
         if changed:
             state_mgr.mark_dirty()
+        else:
+            # No bucket for this TRV yet (fresh start or after a PID
+            # reset): seed the active bucket so the toggle is not lost.
+            key = build_pid_key(self._bt_climate, self._trv_entity_id)
+            pid_state = state_mgr.get_pid(key)
+            pid_state.auto_tune = state
+            state_mgr.set_pid(key, pid_state)
 
         self._bt_climate.schedule_save_state()
         self.async_write_ha_state()
@@ -179,9 +186,10 @@ class BetterThermostatChildLockSwitch(SwitchEntity, RestoreEntity):
     @property
     def is_on(self) -> bool | None:
         """Return true if switch is on."""
-        return (self._bt_climate.real_trvs[self._trv_entity_id].advanced or {}).get(
-            "child_lock", False
-        )
+        trv = self._bt_climate.real_trvs.get(self._trv_entity_id)
+        if trv is None:
+            return False
+        return (trv.advanced or {}).get("child_lock", False)
 
     async def async_turn_on(self, **kwargs) -> None:
         """Turn the switch on."""
@@ -195,7 +203,9 @@ class BetterThermostatChildLockSwitch(SwitchEntity, RestoreEntity):
 
     def _update_state(self, state: bool):
         """Update the state."""
-        trv = self._bt_climate.real_trvs[self._trv_entity_id]
+        trv = self._bt_climate.real_trvs.get(self._trv_entity_id)
+        if trv is None:
+            return
         if trv.advanced is None:
             trv.advanced = {}
         trv.advanced["child_lock"] = state

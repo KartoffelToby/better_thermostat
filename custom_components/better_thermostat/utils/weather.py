@@ -210,7 +210,7 @@ async def check_weather_prediction(self) -> bool | None:
             return bool(cond_cur or cond_fc)
         else:
             raise TypeError
-    except (TypeError, ServiceNotSupported, HomeAssistantError):
+    except TypeError, ServiceNotSupported, HomeAssistantError:
         _LOGGER.warning(
             "better_thermostat %s: no weather entity data found.", self.device_name
         )
@@ -282,7 +282,7 @@ async def check_ambient_air_temperature(self):
         items = []
         try:
             items = history_list.get(lower_entity_id) or []
-        except (AttributeError, KeyError, TypeError):
+        except AttributeError, KeyError, TypeError:
             items = []
         for item in items:
             # filter out all None, NaN, "unknown" and "unavailable" states.

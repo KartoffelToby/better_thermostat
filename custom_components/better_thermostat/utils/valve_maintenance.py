@@ -17,12 +17,13 @@ from homeassistant.components.climate.const import HVACMode
 from homeassistant.core import State
 from homeassistant.util import dt as dt_util
 
+from ..trv import Trv
 from .const import CONF_VALVE_MAINTENANCE, CalibrationType
 
 _LOGGER = logging.getLogger(__name__)
 
-# Type alias for the nested TRV config dicts used throughout the codebase.
-TrvMap = dict[str, dict[str, object]]
+# Type alias for the per-entity Trv registry (``real_trvs``).
+TrvMap = dict[str, Trv]
 
 # ---------------------------------------------------------------------------
 # Data types
@@ -46,8 +47,8 @@ class MaintenanceTrvInfo:
 # ---------------------------------------------------------------------------
 
 
-def _get_advanced(info) -> dict[str, object]:
-    """Safely extract the ``advanced`` sub-dict from a TRV config entry."""
+def _get_advanced(info: Trv) -> dict[str, object]:
+    """Safely extract the ``advanced`` dict from a Trv entry."""
     adv = info.advanced
     return adv if isinstance(adv, dict) else {}
 

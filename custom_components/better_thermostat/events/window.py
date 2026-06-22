@@ -54,6 +54,11 @@ async def trigger_window_change(self, event) -> None:
                 "better_thermostat %s: Window sensor state is unknown, assuming window is open",
                 self.device_name,
             )
+        elif new_state == "unavailable":
+            _LOGGER.info(
+                "better_thermostat %s: Window sensor is unavailable, assuming window is open",
+                self.device_name,
+            )
 
         # window was opened, disable heating power calculation for this period
         self._heating_tracker.start_temp = None
@@ -72,7 +77,7 @@ async def trigger_window_change(self, event) -> None:
             issue_id=f"invalid_window_state_{self.device_name}",
             is_fixable=False,
             is_persistent=False,
-            learn_more_url="https://better-thermostat.org/qanda/window_sensor",
+            learn_more_url="https://better-thermostat.org/faq/window-sensor",
             severity=ir.IssueSeverity.ERROR,
             translation_key="invalid_window_state",
             translation_placeholders={

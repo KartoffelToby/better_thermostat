@@ -1,7 +1,26 @@
+[project]
+name = "better-thermostat"
+version = "1.8.0-dev"  # keep in sync with manifest.json
+description = "Better Thermostat — Home Assistant custom integration for smart TRV control"
+requires-python = ">=3.14.2"  # floor inherited from Home Assistant 2026.6.x
+dependencies = ["homeassistant>=2026.6.2"]
+
+[dependency-groups]
+dev = [
+    "pytest>=9",
+    "pytest-asyncio>=1.3.0",
+    "pytest-homeassistant-custom-component>=0.13.338",
+    "pre-commit>=4.6.0",
+    "codespell>=2.4.2",
+    "ruff>=0.15.18",
+    "yamllint>=1.38.0",
+]
+
+[tool.uv]
+package = false  # HA custom integration, not an installable package
+
 [tool.ruff]
-# Keep in sync with requirements.dev.txt and the version-file in .github/workflows/ruff.yml.
-required-version = "==0.15.15"
-target-version = "py312"
+target-version = "py314"
 line-length = 88
 exclude = [
     ".venv",
@@ -83,4 +102,4 @@ exclude = [
 ]
 reportMissingImports = true
 reportMissingTypeStubs = false
-pythonVersion = "3.12"
+pythonVersion = "3.14"

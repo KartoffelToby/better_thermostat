@@ -133,7 +133,7 @@ async def check_all_entities(self) -> bool:
                 issue_id=f"missing_entity_{name}",
                 is_fixable=True,
                 is_persistent=False,
-                learn_more_url="https://better-thermostat.org/qanda/missing_entity",
+                learn_more_url="https://better-thermostat.org/faq/missing-entity",
                 severity=ir.IssueSeverity.WARNING,
                 translation_key="missing_entity",
                 translation_placeholders={
@@ -212,7 +212,7 @@ async def check_critical_entities(self) -> bool:
                     issue_id=f"missing_entity_{entity}",
                     is_fixable=True,
                     is_persistent=False,
-                    learn_more_url="https://better-thermostat.org/qanda/missing_entity",
+                    learn_more_url="https://better-thermostat.org/faq/missing-entity",
                     severity=ir.IssueSeverity.ERROR,
                     translation_key="missing_entity",
                     translation_placeholders={
@@ -407,7 +407,7 @@ async def check_and_update_degraded_mode(self) -> bool:
             issue_id=f"degraded_mode_{self.device_name}",
             is_fixable=False,
             is_persistent=False,
-            learn_more_url="https://better-thermostat.org/qanda/degraded_mode",
+            learn_more_url="https://better-thermostat.org/faq/degraded-mode",
             severity=ir.IssueSeverity.WARNING,
             translation_key="degraded_mode",
             translation_placeholders={
