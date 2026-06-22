@@ -17,12 +17,13 @@ from homeassistant.components.climate.const import HVACMode
 from homeassistant.core import State
 from homeassistant.util import dt as dt_util
 
+from ..trv import Trv
 from .const import CONF_VALVE_MAINTENANCE, CalibrationType
 
 _LOGGER = logging.getLogger(__name__)
 
-# Type alias for the nested TRV config dicts used throughout the codebase.
-TrvMap = dict[str, dict[str, object]]
+# Type alias for the per-entity Trv registry (``real_trvs``).
+TrvMap = dict[str, Trv]
 
 # ---------------------------------------------------------------------------
 # Data types
@@ -46,9 +47,9 @@ class MaintenanceTrvInfo:
 # ---------------------------------------------------------------------------
 
 
-def _get_advanced(info: dict[str, object]) -> dict[str, object]:
-    """Safely extract the ``advanced`` sub-dict from a TRV config entry."""
-    adv = info.get("advanced")
+def _get_advanced(info: Trv) -> dict[str, object]:
+    """Safely extract the ``advanced`` dict from a Trv entry."""
+    adv = info.advanced
     return adv if isinstance(adv, dict) else {}
 
 
@@ -75,7 +76,8 @@ def compute_next_maintenance(
 
     min_interval_hours = 168  # default 7 days
     for trv_id in trv_ids:
-        quirks = (real_trvs.get(trv_id, {}) or {}).get("model_quirks")
+        _trv = real_trvs.get(trv_id)
+        quirks = _trv.model_quirks if _trv is not None else None
         interval = int(getattr(quirks, "VALVE_MAINTENANCE_INTERVAL_HOURS", 168))
         min_interval_hours = min(min_interval_hours, interval)
 
@@ -96,7 +98,8 @@ def compute_initial_maintenance(
 
     min_interval_hours = 168
     for trv_id in trv_ids:
-        quirks = (real_trvs.get(trv_id, {}) or {}).get("model_quirks")
+        _trv = real_trvs.get(trv_id)
+        quirks = _trv.model_quirks if _trv is not None else None
         interval = int(getattr(quirks, "VALVE_MAINTENANCE_INTERVAL_HOURS", 168))
         min_interval_hours = min(min_interval_hours, interval)
 
@@ -132,9 +135,16 @@ def build_trv_snapshots(
             )
             continue
 
-        trv_data = real_trvs.get(trv_id, {}) or {}
-        valve_entity = trv_data.get("valve_position_entity")
-        quirks = trv_data.get("model_quirks")
+        trv_data = real_trvs.get(trv_id)
+        if trv_data is None:
+            _LOGGER.debug(
+                "better_thermostat %s: maintenance skip %s (not in real_trvs)",
+                device_name,
+                trv_id,
+            )
+            continue
+        valve_entity = trv_data.valve_position_entity
+        quirks = trv_data.model_quirks
         support_valve = bool(valve_entity) or bool(
             getattr(quirks, "override_set_valve", None)
         )
@@ -144,8 +154,8 @@ def build_trv_snapshots(
             support_valve and cal_type == CalibrationType.DIRECT_VALVE_BASED
         )
 
-        raw_max = trv_data.get("max_temp", 30)
-        raw_min = trv_data.get("min_temp", 5)
+        raw_max = trv_data.max_temp
+        raw_min = trv_data.min_temp
         infos.append(
             MaintenanceTrvInfo(
                 entity_id=trv_id,

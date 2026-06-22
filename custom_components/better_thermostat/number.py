@@ -341,8 +341,8 @@ class BetterThermostatValveMaxOpeningNumber(NumberEntity, RestoreEntity):
         return self._get_value()
 
     def _get_value(self) -> float:
-        trv_state = self._bt_climate.real_trvs.get(self._trv_entity_id) or {}
-        val = trv_state.get("valve_max_opening", 100.0)
+        trv_state = self._bt_climate.real_trvs.get(self._trv_entity_id)
+        val = trv_state.valve_max_opening if trv_state is not None else 100.0
         try:
             return float(val)
         except TypeError, ValueError:
@@ -352,7 +352,7 @@ class BetterThermostatValveMaxOpeningNumber(NumberEntity, RestoreEntity):
         trv_state = self._bt_climate.real_trvs.get(self._trv_entity_id)
         if trv_state is None:
             return
-        trv_state["valve_max_opening"] = max(0.0, min(100.0, float(value)))
+        trv_state.valve_max_opening = max(0.0, min(100.0, float(value)))
 
     async def async_set_native_value(self, value: float) -> None:
         """Update the current value."""

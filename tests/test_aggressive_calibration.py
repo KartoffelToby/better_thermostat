@@ -22,6 +22,7 @@ from custom_components.better_thermostat.calibration import (
     calculate_calibration_local,
     calculate_calibration_setpoint,
 )
+from custom_components.better_thermostat.trv import Trv
 from custom_components.better_thermostat.utils.const import CalibrationMode
 
 ENTITY_ID = "climate.test_trv"
@@ -69,21 +70,24 @@ def _make_bt(
     )
 
     bt.real_trvs = {
-        ENTITY_ID: {
-            "advanced": {
-                "calibration_mode": calibration_mode,
-                "protect_overheating": False,
+        ENTITY_ID: Trv.from_legacy_dict(
+            ENTITY_ID,
+            {
+                "advanced": {
+                    "calibration_mode": calibration_mode,
+                    "protect_overheating": False,
+                },
+                "current_temperature": trv_temp,
+                "last_calibration": last_calibration,
+                "local_calibration_step": calibration_step,
+                "local_calibration_min": cal_min,
+                "local_calibration_max": cal_max,
+                "target_temp_step": target_temp_step,
+                "min_temp": min_temp,
+                "max_temp": max_temp,
+                "model_quirks": quirks,
             },
-            "current_temperature": trv_temp,
-            "last_calibration": last_calibration,
-            "local_calibration_step": calibration_step,
-            "local_calibration_min": cal_min,
-            "local_calibration_max": cal_max,
-            "target_temp_step": target_temp_step,
-            "min_temp": min_temp,
-            "max_temp": max_temp,
-            "model_quirks": quirks,
-        }
+        )
     }
     return bt
 

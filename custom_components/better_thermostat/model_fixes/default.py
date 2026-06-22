@@ -93,7 +93,7 @@ async def inital_tweak(self, entity_id):
                 )
 
         # 2. Child lock sync setting
-        child_lock_setting = self.real_trvs[entity_id]["advanced"].get("child_lock")
+        child_lock_setting = self.real_trvs[entity_id].advanced.get("child_lock")
         if child_lock_setting is not None:
             # Look for switch (Z2M) or lock
             cl_entity = find_entity(

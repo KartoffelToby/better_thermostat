@@ -7,9 +7,13 @@ using real time with sufficiently large deltas.
 from __future__ import annotations
 
 from time import time
+from unittest.mock import MagicMock
 
+from homeassistant.components.climate.const import HVACMode
 import pytest
 
+from custom_components.better_thermostat.calibration import _compute_mpc_balance
+from custom_components.better_thermostat.trv import Trv
 from custom_components.better_thermostat.utils.calibration.mpc import (
     DISTRIBUTE_COMPENSATION_PCT_PER_K,
     MpcInput,
@@ -2188,3 +2192,70 @@ class TestIntegrationAccumulation:
         _compute(_inp(key="integ_win", window_open=True), params)
         assert state.u_integral == 0.0
         assert state.time_integral == 0.0
+
+
+class _MpcStateStub:
+    """Minimal stand-in for the state manager's MPC accessors."""
+
+    def __init__(self) -> None:
+        self.mpc: dict[str, _MpcState] = {}
+
+    @property
+    def state(self):
+        return self
+
+    def get_mpc(self, key: str) -> _MpcState:
+        """Return the stored state for ``key``, creating it on first access."""
+        return self.mpc.setdefault(key, _MpcState())
+
+    def set_mpc(self, key: str, mpc: _MpcState) -> None:
+        """Store ``mpc`` under ``key``."""
+        self.mpc[key] = mpc
+
+
+class TestComputeMpcBalanceMultiTrv:
+    """_compute_mpc_balance with more than one TRV (grouped distribution)."""
+
+    def _bt(self) -> MagicMock:
+        """Build a BT mock with two TRVs and a stub MPC state manager."""
+        bt = MagicMock()
+        bt.device_name = "test"
+        bt.unique_id = "uid1"
+        bt.hass = None
+        bt.weather_entity = None
+        bt.outdoor_sensor = None
+        bt.bt_target_temp = 21.0
+        bt.cur_temp = 20.0
+        bt.cur_temp_filtered = None
+        bt.bt_hvac_mode = HVACMode.HEAT
+        bt.tolerance = 0.2
+        bt.temp_slope = 0.0
+        bt.window_open = False
+        bt.real_trvs = {
+            "climate.warm": Trv(entity_id="climate.warm", current_temperature=21.5),
+            "climate.cold": Trv(entity_id="climate.cold", current_temperature=19.0),
+        }
+        bt.state_mgr = _MpcStateStub()
+        return bt
+
+    def test_multi_trv_reads_typed_current_temperature(self):
+        """The per-TRV temperature loop reads Trv attributes, not dict keys."""
+        bt = self._bt()
+
+        output, supports_valve = _compute_mpc_balance(bt, "climate.cold")
+
+        assert output is not None
+        assert supports_valve is False
+        balance = bt.real_trvs["climate.cold"].calibration_balance
+        assert balance is not None
+        assert "distributed_valve_pct" in balance["debug"]
+
+    def test_multi_trv_handles_unreported_temperature(self):
+        """A TRV without current_temperature still gets a distributed share."""
+        bt = self._bt()
+        bt.real_trvs["climate.cold"].current_temperature = None
+
+        output, _ = _compute_mpc_balance(bt, "climate.cold")
+
+        assert output is not None
+        assert bt.real_trvs["climate.cold"].calibration_balance is not None

@@ -129,11 +129,8 @@ async def _apply_temperature_update(self, new_temp):
         if not trv_ids and hasattr(self, "entity_ids"):
             trv_ids = list(self.entity_ids or [])
         for trv_id in trv_ids:
-            quirks = (
-                self.real_trvs.get(trv_id, {}).get("model_quirks")
-                if hasattr(self, "real_trvs")
-                else None
-            )
+            _trv = self.real_trvs.get(trv_id) if hasattr(self, "real_trvs") else None
+            quirks = _trv.model_quirks if _trv is not None else None
             if quirks and hasattr(quirks, "maybe_set_external_temperature"):
                 await quirks.maybe_set_external_temperature(self, trv_id, self.cur_temp)
             else:
@@ -335,12 +332,13 @@ async def trigger_temperature_change(self, event):
                                 if not trv_ids and hasattr(self, "entity_ids"):
                                     trv_ids = list(self.entity_ids or [])
                                 for trv_id in trv_ids:
-                                    quirks = (
-                                        self.real_trvs.get(trv_id, {}).get(
-                                            "model_quirks"
-                                        )
+                                    _trv = (
+                                        self.real_trvs.get(trv_id)
                                         if hasattr(self, "real_trvs")
                                         else None
+                                    )
+                                    quirks = (
+                                        _trv.model_quirks if _trv is not None else None
                                     )
                                     if quirks and hasattr(
                                         quirks, "maybe_set_external_temperature"
