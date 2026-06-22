@@ -245,9 +245,7 @@ def energy_score(metrics: MetricValues, oracle: MetricValues) -> float:
         # rather than treating every candidate as oracle-equivalent. The
         # deviation is symmetric (matching the main branch): both gross
         # over-heating and under-heating are penalised here.
-        deviation = abs(
-            metrics.integral_valve_pct_min - oracle.integral_valve_pct_min
-        )
+        deviation = abs(metrics.integral_valve_pct_min - oracle.integral_valve_pct_min)
         return _clamp_01(1.0 - deviation / _ENERGY_FLOOR_PCT_MIN)
     ratio = metrics.integral_valve_pct_min / oracle.integral_valve_pct_min
     deviation = abs(ratio - 1.0)

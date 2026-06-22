@@ -66,7 +66,11 @@ class SensorParams:
             raise ValueError(
                 f"SensorParams ema_alpha must be in (0, 1], got {self.ema_alpha}"
             )
-        if self.noise_std_K < 0.0 or self.thermal_lag_s < 0.0 or self.jitter_std_s < 0.0:
+        if (
+            self.noise_std_K < 0.0
+            or self.thermal_lag_s < 0.0
+            or self.jitter_std_s < 0.0
+        ):
             raise ValueError(
                 "SensorParams noise_std_K, thermal_lag_s and jitter_std_s must be "
                 f">= 0, got noise_std_K={self.noise_std_K}, "
