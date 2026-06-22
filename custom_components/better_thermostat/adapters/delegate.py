@@ -52,39 +52,37 @@ async def init(self, entity_id):
     ``wait_for_calibration_entity_or_timeout`` (6 × 5 s polls). The call
     is invoked under a 30 s outer budget in ``_initialize_trvs``.
     """
-    return await self.real_trvs[entity_id]["adapter"].init(self, entity_id)
+    return await self.real_trvs[entity_id].adapter.init(self, entity_id)
 
 
 @async_retry(retries=5)
 async def get_info(self, entity_id):
     """Get info."""
-    return await self.real_trvs[entity_id]["adapter"].get_info(self, entity_id)
+    return await self.real_trvs[entity_id].adapter.get_info(self, entity_id)
 
 
 @async_retry(retries=5)
 async def get_current_offset(self, entity_id):
     """Get current offset."""
-    return await self.real_trvs[entity_id]["adapter"].get_current_offset(
-        self, entity_id
-    )
+    return await self.real_trvs[entity_id].adapter.get_current_offset(self, entity_id)
 
 
 @async_retry(retries=5)
 async def get_offset_step(self, entity_id):
     """Get offset steps."""
-    return await self.real_trvs[entity_id]["adapter"].get_offset_step(self, entity_id)
+    return await self.real_trvs[entity_id].adapter.get_offset_step(self, entity_id)
 
 
 @async_retry(retries=5)
 async def get_min_offset(self, entity_id):
     """Get min offset."""
-    return await self.real_trvs[entity_id]["adapter"].get_min_offset(self, entity_id)
+    return await self.real_trvs[entity_id].adapter.get_min_offset(self, entity_id)
 
 
 @async_retry(retries=5)
 async def get_max_offset(self, entity_id):
     """Get max offset."""
-    return await self.real_trvs[entity_id]["adapter"].get_max_offset(self, entity_id)
+    return await self.real_trvs[entity_id].adapter.get_max_offset(self, entity_id)
 
 
 @async_retry(retries=5)
@@ -104,7 +102,8 @@ async def set_temperature(self, entity_id, temperature):
     step = 0.5
     try:
         # Step precedence: per-TRV (usually from config) > global config > device attribute > default 0.5
-        per_trv_step = self.real_trvs.get(entity_id, {}).get("target_temp_step")
+        trv = self.real_trvs.get(entity_id)
+        per_trv_step = trv.target_temp_step if trv is not None else None
         global_cfg_step = getattr(self, "bt_target_temp_step", None)
         if global_cfg_step in (0, 0.0):
             global_cfg_step = None
@@ -116,8 +115,9 @@ async def set_temperature(self, entity_id, temperature):
         rounded = float(t)
 
     # Clamp to device min/max if available
-    t_min_raw = self.real_trvs.get(entity_id, {}).get("min_temp")
-    t_max_raw = self.real_trvs.get(entity_id, {}).get("max_temp")
+    trv = self.real_trvs.get(entity_id)
+    t_min_raw = trv.min_temp if trv is not None else None
+    t_max_raw = trv.max_temp if trv is not None else None
     t_min = None
     t_max = None
     try:
@@ -149,7 +149,7 @@ async def set_temperature(self, entity_id, temperature):
         )
     # Keep last_temperature in sync with the actually sent value
     try:
-        self.real_trvs[entity_id]["last_temperature"] = rounded
+        self.real_trvs[entity_id].last_temperature = rounded
     except Exception as e:
         _LOGGER.warning(
             "better_thermostat %s: Failed to update last_temperature for entity_id %s: %s",
@@ -158,7 +158,7 @@ async def set_temperature(self, entity_id, temperature):
             e,
         )
 
-    return await self.real_trvs[entity_id]["adapter"].set_temperature(
+    return await self.real_trvs[entity_id].adapter.set_temperature(
         self, entity_id, rounded
     )
 
@@ -166,7 +166,7 @@ async def set_temperature(self, entity_id, temperature):
 @async_retry(retries=5)
 async def set_hvac_mode(self, entity_id, hvac_mode):
     """Set new target hvac mode."""
-    return await self.real_trvs[entity_id]["adapter"].set_hvac_mode(
+    return await self.real_trvs[entity_id].adapter.set_hvac_mode(
         self, entity_id, hvac_mode
     )
 
@@ -176,7 +176,7 @@ async def set_offset(self, entity_id, offset):
 
     @async_retry(retries=5)
     async def inner():
-        return await self.real_trvs[entity_id]["adapter"].set_offset(
+        return await self.real_trvs[entity_id].adapter.set_offset(
             self, entity_id, offset
         )
 
@@ -199,19 +199,21 @@ async def set_valve(self, entity_id, valve):
     except Exception:
         target_pct = valve
     try:
-        trv_state = self.real_trvs.get(entity_id, {}) or {}
+        trv_state = self.real_trvs.get(entity_id)
 
         # Check if the override_set_valve method is implemented in the model quirks of the trv
         # This takes precedence over the standard adapter set_valve
         _override_set_valve = getattr(
-            trv_state.get("model_quirks"), "override_set_valve", None
+            trv_state.model_quirks if trv_state is not None else None,
+            "override_set_valve",
+            None,
         )
         if _override_set_valve is not None:
             ok = await _override_set_valve(self, entity_id, target_pct)
             if ok:
                 try:
-                    self.real_trvs[entity_id]["last_valve_percent"] = int(target_pct)
-                    self.real_trvs[entity_id]["last_valve_method"] = "override"
+                    self.real_trvs[entity_id].last_valve_percent = int(target_pct)
+                    self.real_trvs[entity_id].last_valve_method = "override"
                 except Exception:
                     _LOGGER.exception(
                         "better_thermostat %s: Failed to set last_valve_percent or last_valve_method for %s in override",
@@ -220,17 +222,21 @@ async def set_valve(self, entity_id, valve):
                     )
                 return True
 
-        valve_entity = trv_state.get("valve_position_entity")
-        valve_writable = trv_state.get("valve_position_writable")
+        valve_entity = (
+            trv_state.valve_position_entity if trv_state is not None else None
+        )
+        valve_writable = (
+            trv_state.valve_position_writable if trv_state is not None else None
+        )
 
         # Only write to a helper entity when we know it's writable.
         if valve_entity and valve_writable is True:
-            await self.real_trvs[entity_id]["adapter"].set_valve(
+            await self.real_trvs[entity_id].adapter.set_valve(
                 self, entity_id, target_pct
             )
             try:
-                self.real_trvs[entity_id]["last_valve_percent"] = int(target_pct)
-                self.real_trvs[entity_id]["last_valve_method"] = "adapter"
+                self.real_trvs[entity_id].last_valve_percent = int(target_pct)
+                self.real_trvs[entity_id].last_valve_method = "adapter"
             except Exception as exc:
                 _LOGGER.debug(
                     "better_thermostat %s: Failed to record last_valve_percent/method for %s: %s",

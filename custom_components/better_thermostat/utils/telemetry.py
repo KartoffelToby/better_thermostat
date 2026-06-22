@@ -19,7 +19,7 @@ _LOGGER = logging.getLogger(__name__)
 
 
 class CalibrationBalance(TypedDict, total=False):
-    """Shape of ``trv_state['calibration_balance']`` written by calibration.py.
+    """Shape of the ``calibration_balance`` mapping written by calibration.py.
 
     ``debug`` is ``PIDDebugInfo`` for PID mode and other shapes for MPC/TPI;
     consumers must check ``debug['mode']`` before narrowing.
@@ -30,11 +30,22 @@ class CalibrationBalance(TypedDict, total=False):
     debug: Mapping[str, object]
 
 
-class TrvInfo(TypedDict, total=False):
-    """Subset of ``real_trvs[entity_id]`` fields consumed by telemetry."""
+class TrvInfo(Protocol):
+    """Subset of the per-TRV object surface consumed by telemetry.
 
-    model: str
-    calibration_balance: CalibrationBalance | None
+    ``Trv`` satisfies this structurally; ``calibration_balance`` carries a
+    :class:`CalibrationBalance`-shaped mapping when set.
+    """
+
+    @property
+    def model(self) -> str | None:
+        """Detected TRV model, if known."""
+        ...
+
+    @property
+    def calibration_balance(self) -> Mapping[str, Any] | None:
+        """Last calibration balance result, if any."""
+        ...
 
 
 class TelemetrySource(Protocol):
@@ -47,7 +58,7 @@ class TelemetrySource(Protocol):
 
     @property
     def real_trvs(self) -> Mapping[str, TrvInfo]:
-        """Per-TRV info dicts, keyed by entity id."""
+        """Per-TRV info objects, keyed by entity id."""
         ...
 
     @property
@@ -149,7 +160,7 @@ def collect_balance_attrs(bt: TelemetrySource) -> dict[str, Any]:
 
     bal_compact: dict[str, dict[str, float | None]] = {}
     for trv, info in bt.real_trvs.items():
-        bal = info.get("calibration_balance")
+        bal = info.calibration_balance
         if bal is None:
             continue
         bal_compact[trv] = {"valve%": bal.get("valve_percent")}
@@ -181,7 +192,7 @@ _PID_SCALAR_FIELDS: tuple[tuple[PIDScalarKey, str, int], ...] = (
 def _pick_representative_trv(real_trvs: Mapping[str, TrvInfo]) -> str | None:
     """Prefer a sonoff/trvzb TRV; else first key."""
     for trv_id, info in real_trvs.items():
-        model = (info.get("model") or "").lower()
+        model = (info.model or "").lower()
         if "sonoff" in model or "trvzb" in model:
             return trv_id
     return next(iter(real_trvs), None)
@@ -191,7 +202,7 @@ def _extract_pid_debug(info: TrvInfo | None) -> PIDDebugInfo | None:
     """Return PID debug payload when the TRV's calibration is in PID mode."""
     if info is None:
         return None
-    bal = info.get("calibration_balance")
+    bal = info.calibration_balance
     if bal is None:
         return None
     debug = bal.get("debug")

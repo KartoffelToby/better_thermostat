@@ -401,6 +401,6 @@ For developers and advanced users who want to understand the implementation deta
 
 If you're still unsure which algorithm to use or experiencing issues:
 
-1. Check the [Q&A section](../Q&A/qanda.md) for common questions
+1. Check the [FAQ](../faq/common-questions.md) for common questions
 2. Visit the [GitHub Discussions](https://github.com/KartoffelToby/better_thermostat/discussions)
 3. Report bugs on [GitHub Issues](https://github.com/KartoffelToby/better_thermostat/issues)

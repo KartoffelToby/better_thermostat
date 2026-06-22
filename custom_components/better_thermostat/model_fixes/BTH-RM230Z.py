@@ -39,7 +39,7 @@ async def override_set_temperature(self, entity_id, temperature):
     If the device supports both 'heat' and 'cool', send target_temp_high and
     target_temp_low instead of a single temperature value.
     """
-    model = self.real_trvs[entity_id]["model"]
+    model = self.real_trvs[entity_id].model
     if model == "BTH-RM230Z":
         _LOGGER.debug(
             f"better_thermostat {self.device_name}: TRV {entity_id} device quirk bth-rm230z for set_temperature active"

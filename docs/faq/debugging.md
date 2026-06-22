@@ -16,17 +16,17 @@ Restart Home Assistant after editing `configuration.yaml`.
 
 ## Enable debug logging without restart
 
-Use Home Assistant service `logger.set_level`:
+Use the Home Assistant action `logger.set_level`:
 
 ```yaml
-service: logger.set_level
+action: logger.set_level
 data:
   custom_components.better_thermostat: debug
 ```
 
-Open Services directly:
+Open **Developer tools → Actions** directly:
 
-<a href="https://my.home-assistant.io/redirect/developer_services/" target="_blank"><img src="https://my.home-assistant.io/badges/developer_services.svg" alt="Open developer services" /></a>
+<a href="https://my.home-assistant.io/redirect/developer_services/" target="_blank"><img src="https://my.home-assistant.io/badges/developer_services.svg" alt="Open Developer tools → Actions" /></a>
 
 ## What to check first
 

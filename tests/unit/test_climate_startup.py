@@ -15,6 +15,7 @@ from custom_components.better_thermostat.climate import (
     DEFAULT_FALLBACK_TEMPERATURE,
     BetterThermostat,
 )
+from custom_components.better_thermostat.trv import Trv
 from custom_components.better_thermostat.utils.const import (
     ATTR_STATE_CALL_FOR_HEAT,
     ATTR_STATE_HEAT_LOSS,
@@ -379,7 +380,7 @@ class TestInitializeTrvCurrentTemperature:
     """
 
     def _trv_only_bt(self, bt, attrs, unit="°C"):
-        bt.real_trvs = {TRV_ID: {"calibration": 1, "advanced": {}}}
+        bt.real_trvs = {TRV_ID: Trv(entity_id=TRV_ID, calibration=1)}
         bt.hass.config.units.temperature_unit = unit
         bt.hass.states.get.return_value = _make_trv_state(attrs=attrs)
         return bt
@@ -402,21 +403,21 @@ class TestInitializeTrvCurrentTemperature:
         """No reading: the fallback is 5.0 °C on a Celsius system."""
         bt = self._trv_only_bt(bt, {"current_temperature": None})
         await self._run(bt)
-        assert bt.real_trvs[TRV_ID]["current_temperature"] == 5.0
+        assert bt.real_trvs[TRV_ID].current_temperature == 5.0
 
     @pytest.mark.asyncio
     async def test_fallback_is_not_unit_converted(self, bt):
         """On a Fahrenheit system the fallback stays 5.0 °C, not -15 °C."""
         bt = self._trv_only_bt(bt, {"current_temperature": None}, unit="°F")
         await self._run(bt)
-        assert bt.real_trvs[TRV_ID]["current_temperature"] == 5.0
+        assert bt.real_trvs[TRV_ID].current_temperature == 5.0
 
     @pytest.mark.asyncio
     async def test_zero_reading_is_kept(self, bt):
         """A legitimate 0.0° reading is a reading, not a missing value."""
         bt = self._trv_only_bt(bt, {"current_temperature": 0.0})
         await self._run(bt)
-        assert bt.real_trvs[TRV_ID]["current_temperature"] == 0.0
+        assert bt.real_trvs[TRV_ID].current_temperature == 0.0
 
     @pytest.mark.asyncio
     @pytest.mark.parametrize("marker_temp", [126.5, 127.0])
@@ -424,7 +425,7 @@ class TestInitializeTrvCurrentTemperature:
         """AVM marker values must not seed the cache for the first control cycle."""
         bt = self._trv_only_bt(bt, {"current_temperature": marker_temp})
         await self._run(bt)
-        assert bt.real_trvs[TRV_ID]["current_temperature"] is None
+        assert bt.real_trvs[TRV_ID].current_temperature is None
 
 
 class TestRestoreState:

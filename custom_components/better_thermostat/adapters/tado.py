@@ -81,7 +81,7 @@ async def set_offset(self, entity_id, offset):
         blocking=True,
         context=self.context,
     )
-    self.real_trvs[entity_id]["last_calibration"] = offset
+    self.real_trvs[entity_id].last_calibration = offset
 
 
 async def set_valve(self, entity_id, valve):

@@ -1,24 +1,24 @@
 ---
-layout: default
 title: Schedule/Planner
-nav_order: 6
-description: "BT."
-permalink: schedule
+description: Actions to set a temporary target temperature and how to build a night mode schedule.
+slug: schedule
 ---
 
 # Schedule/Planner
 
-Services you can call from Home Assistant to set a temporary target temperature for a thermostat.
+Actions you can perform from Home Assistant to set a temporary target temperature for a thermostat.
 
-## Service: `better_thermostat.set_temp_target_temperature`
+## Action: `better_thermostat.set_temp_target_temperature`
+
 <a href="https://my.home-assistant.io/redirect/developer_call_service/?service=better_thermostat.set_temp_target_temperature" target="_blank"><img src="https://my.home-assistant.io/badges/developer_call_service.svg" alt="Open your Home Assistant instance and show your service developer tools with a specific service selected." /></a>
 
-## Service: `better_thermostat.restore_saved_target_temperature`
+## Action: `better_thermostat.restore_saved_target_temperature`
+
 <a href="https://my.home-assistant.io/redirect/developer_call_service/?service=better_thermostat.restore_saved_target_temperature" target="_blank"><img src="https://my.home-assistant.io/badges/developer_call_service.svg" alt="Open your Home Assistant instance and show your service developer tools with a specific service selected." /></a>
 
 # How can I set up a night mode schedule?
 
-You can set up an automation that triggers a service call for every climate entity.
+You can set up an automation that performs an action for every climate entity.
 As an example, you can use this blueprint:
 
 <a href="https://my.home-assistant.io/redirect/blueprint_import/?blueprint_url=https://github.com/KartoffelToby/better_thermostat/blob/master/blueprints/night_mode.yaml" target="_blank"><img src="https://my.home-assistant.io/badges/blueprint_import.svg" alt="Open your Home Assistant instance and show the blueprint import dialog with a specific blueprint pre-filled." /></a>

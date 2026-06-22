@@ -39,7 +39,7 @@ async def override_set_temperature(self, entity_id, temperature):
     If the device reports both 'heat' and 'cool' modes, call set_temperature
     with both `target_temp_high` and `target_temp_low` set to the same value.
     """
-    model = self.real_trvs[entity_id]["model"]
+    model = self.real_trvs[entity_id].model
     if model == "BTH-RM":
         _LOGGER.debug(
             "better_thermostat %s: TRV %s device quirk bth-rm for set_temperature active",
