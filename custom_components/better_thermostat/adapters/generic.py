@@ -74,7 +74,7 @@ async def get_current_offset(self, entity_id):
             # For SELECT entities, remove the 'k' suffix if present (e.g., "1.5k" -> "1.5")
             state_str = str(state.state).replace("k", "")
             return float(state_str)
-        except (ValueError, TypeError):
+        except ValueError, TypeError:
             _LOGGER.warning(
                 "better_thermostat %s: Could not convert calibration offset '%s' to float, using 0",
                 self.device_name,
@@ -115,7 +115,7 @@ async def get_min_offset(self, entity_id):
                     # Extract numeric values from options (remove 'k' suffix)
                     values = [float(opt.replace("k", "")) for opt in options]
                     return min(values)
-                except (ValueError, TypeError):
+                except ValueError, TypeError:
                     return -6.0
             return -6.0
 
@@ -142,7 +142,7 @@ async def get_max_offset(self, entity_id):
                     # Extract numeric values from options (remove 'k' suffix)
                     values = [float(opt.replace("k", "")) for opt in options]
                     return max(values)
-                except (ValueError, TypeError):
+                except ValueError, TypeError:
                     return 6.0
             return 6.0
 
@@ -240,7 +240,7 @@ async def set_offset(self, entity_id, offset):
                         for opt in options:
                             try:
                                 parsed_options[opt] = float(str(opt).replace("k", ""))
-                            except (ValueError, TypeError):
+                            except ValueError, TypeError:
                                 continue
 
                         if parsed_options:
@@ -250,7 +250,7 @@ async def set_offset(self, entity_id, offset):
                                 key=lambda opt: abs(parsed_options[opt] - offset),
                             )
                             option_value = closest_option
-                    except (ValueError, TypeError):
+                    except ValueError, TypeError:
                         # If parsing fails, keep original option_value and hope for the best
                         pass
 

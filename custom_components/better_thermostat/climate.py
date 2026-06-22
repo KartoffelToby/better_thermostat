@@ -68,9 +68,8 @@ from .events.trv import trigger_trv_change
 from .events.window import trigger_window_change, window_queue
 from .model_fixes.model_quirks import inital_tweak, load_model_quirks
 from .utils.calibration.pid import (
-    export_pid_states as pid_export_states,
+    PIDParams,
     format_bucket,
-    reset_pid_state as pid_reset_state,
     resolve_unique_id,
     round_to_bucket,
 )
@@ -272,7 +271,7 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
     # Thermal tracker properties
     # Used by: extra_state_attributes, helpers.py, sensor.py,
     #          _restore_state, _hydrate_thermal_from_state,
-    #          _sync_controllers_to_state
+    #          _record_thermal_to_state
     # TODO: Eliminate most of these by accessing trackers directly.
     #   - heating_power_normalized, last_heating_power_stats, heating_cycles,
     #     last_heat_loss_stats, loss_cycles: only read by extra_state_attributes
@@ -400,7 +399,7 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
                         self.device_name,
                         parsed_off,
                     )
-            except (TypeError, ValueError):
+            except TypeError, ValueError:
                 _LOGGER.warning(
                     "better_thermostat %s: invalid off_temperature '%s', ignoring",
                     self.device_name,
@@ -412,7 +411,7 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
             self.tolerance = float(tolerance) if tolerance is not None else 0.0
             if unit == UnitOfTemperature.FAHRENHEIT:
                 self.tolerance = self.tolerance * 5.0 / 9.0
-        except (TypeError, ValueError):
+        except TypeError, ValueError:
             _LOGGER.warning(
                 "better_thermostat %s: invalid tolerance '%s', falling back to 0.0",
                 self.device_name,
@@ -693,7 +692,7 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
                 self._save_cancel = None
             if self.state_mgr is not None:
                 try:
-                    self._sync_controllers_to_state()
+                    self._record_thermal_to_state()
                     self.hass.async_create_background_task(
                         self.state_mgr.flush(),
                         name=f"bt_state_flush_{self.device_name}",
@@ -721,7 +720,6 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
                 entity_prefix=f"{self._unique_id}:",
                 config_entry_id=self._config_entry_id,
             )
-            self._hydrate_controllers_from_state()
             self._hydrate_thermal_from_state()
         except (FileNotFoundError, PermissionError, RuntimeError) as e:
             _LOGGER.debug(
@@ -873,13 +871,13 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
                             self.device_name,
                             trv_id,
                         )
-                except (OSError, RuntimeError, AttributeError, TypeError):
+                except OSError, RuntimeError, AttributeError, TypeError:
                     _LOGGER.debug(
                         "better_thermostat %s: external_temperature keepalive write failed for %s (non critical)",
                         self.device_name,
                         trv_id,
                     )
-        except (OSError, RuntimeError, AttributeError, TypeError):
+        except OSError, RuntimeError, AttributeError, TypeError:
             _LOGGER.debug(
                 "better_thermostat %s: external_temperature keepalive encountered an error",
                 self.device_name,
@@ -1288,7 +1286,7 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
                         self.device_name,
                         _restored_ema,
                     )
-                except (ValueError, TypeError):
+                except ValueError, TypeError:
                     pass
 
             # Restore temp_slope if available
@@ -1301,7 +1299,7 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
                         self.device_name,
                         _restored_slope,
                     )
-                except (ValueError, TypeError):
+                except ValueError, TypeError:
                     pass
 
             _LOGGER.debug(
@@ -1983,7 +1981,7 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
             for trv_id in trvs:
                 try:
                     self.real_trvs[trv_id]["ignore_trv_states"] = True
-                except (KeyError, TypeError):
+                except KeyError, TypeError:
                     pass
 
             # Build snapshots (skips TRVs with state=None)
@@ -1997,7 +1995,7 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
                 if trv_id not in serviced_ids:
                     try:
                         self.real_trvs[trv_id]["ignore_trv_states"] = False
-                    except (KeyError, TypeError):
+                    except KeyError, TypeError:
                         pass
 
             # Bind adapter callbacks to self
@@ -2034,7 +2032,7 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
             for trv_id in serviced_ids:
                 try:
                     self.real_trvs[trv_id]["ignore_trv_states"] = False
-                except (KeyError, TypeError):
+                except KeyError, TypeError:
                     pass
 
             # Schedule next run
@@ -2063,12 +2061,6 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
 
     # -- Unified state persistence helpers ------------------------------------
 
-    def _hydrate_controllers_from_state(self) -> None:
-        """Seed the module-level controller caches from persisted state."""
-        if self.state_mgr is None:
-            return
-        self.state_mgr.hydrate_controllers(f"{self._unique_id}:")
-
     def _hydrate_thermal_from_state(self) -> None:
         """Apply persisted, clamped thermal stats to entity attributes."""
         if self.state_mgr is None:
@@ -2079,14 +2071,12 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
         if heat_loss_rate is not None:
             self.heat_loss_rate = heat_loss_rate
 
-    def _sync_controllers_to_state(self) -> None:
-        """Push current controller caches and thermal stats into the StateManager."""
+    def _record_thermal_to_state(self) -> None:
+        """Push the entity-held thermal stats into the StateManager."""
         if self.state_mgr is None:
             return
-        self.state_mgr.sync_controllers(
-            f"{self._unique_id}:",
-            getattr(self, "heating_power", None),
-            getattr(self, "heat_loss_rate", None),
+        self.state_mgr.record_thermal(
+            getattr(self, "heating_power", None), getattr(self, "heat_loss_rate", None)
         )
 
     @callback
@@ -2110,7 +2100,7 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
         async def _do_save(_now: object) -> None:
             self._save_cancel = None
             try:
-                self._sync_controllers_to_state()
+                self._record_thermal_to_state()
                 await state_mgr.save_if_dirty()
             except Exception:
                 _LOGGER.exception(
@@ -2618,6 +2608,30 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
         # Enforce ordering: cool target should be above heat target in HEAT_COOL.
         self._enforce_cool_above_heat()
 
+        # If a specific preset (Comfort, Eco, …) is active and the user manually
+        # changes the target temperature to a value that does not match the
+        # preset's stored temperature, deactivate the preset (return to
+        # PRESET_NONE) while keeping the new manual temperature. The preset's
+        # own Number entity also funnels through this method, but it first
+        # updates the preset's stored temperature so the values match and the
+        # preset stays active.
+        if (
+            (_new_setpoint is not None or _new_setpointlow is not None)
+            and self.bt_target_temp is not None
+            and self.preset_mgr.mode != PRESET_NONE
+        ):
+            applied = float(self.bt_target_temp)
+            preset_stored = self.preset_mgr.get_temperature(self.preset_mgr.mode)
+            if preset_stored is None or abs(applied - float(preset_stored)) > 1e-3:
+                old_preset = self.preset_mgr.mode
+                self.preset_mgr.deactivate()
+                _LOGGER.debug(
+                    "better_thermostat %s: Deactivated preset %s due to manual target temperature change to %s",
+                    self.device_name,
+                    old_preset,
+                    applied,
+                )
+
         # If the user manually changes the temperature while in PRESET_NONE (Manual),
         # record it as the stored manual temperature. Specific presets (Comfort, Eco,
         # etc.) are managed via separate Number entities and must NOT be overwritten
@@ -2834,20 +2848,15 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
         - Schedules persistence saves for the map
         """
         try:
+            state_mgr = self.state_mgr
+            if state_mgr is None:
+                _LOGGER.debug(
+                    "better_thermostat %s: no state manager, nothing to reset",
+                    self.device_name,
+                )
+                return
             prefix = f"{self._unique_id}:"
-            # Collect keys to reset from balance module
-            current = pid_export_states(prefix=prefix) or {}
-            count = 0
-            for key in list(current.keys()):
-                try:
-                    pid_reset_state(key)
-                    count += 1
-                except Exception:
-                    _LOGGER.debug(
-                        "better_thermostat %s: could not reset PID state %s",
-                        self.device_name,
-                        key,
-                    )
+            count = state_mgr.reset_pid_states(prefix)
             _LOGGER.info(
                 "better_thermostat %s: reset %d PID learning state entries (prefix=%s)",
                 self.device_name,
@@ -2866,8 +2875,6 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
             # Optionally seed PID defaults for the CURRENT target bucket(s)
             if apply_pid_defaults:
                 try:
-                    from .utils.calibration.pid import PIDParams, seed_pid_gains
-
                     # Use provided overrides or PIDParams defaults
                     _defs = PIDParams()
                     kp = float(defaults_kp) if defaults_kp is not None else _defs.kp
@@ -2878,7 +2885,7 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
                     def _bucket(temp):
                         try:
                             return format_bucket(round_to_bucket(temp))
-                        except (TypeError, ValueError):
+                        except TypeError, ValueError:
                             return None
 
                     # Build list of candidate buckets: current and ±0.5°C neighbors
@@ -2894,7 +2901,7 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
                             ]
                         elif bucket_tag:
                             buckets = [bucket_tag]
-                    except (TypeError, ValueError):
+                    except TypeError, ValueError:
                         if bucket_tag:
                             buckets = [bucket_tag]
                     uid = resolve_unique_id(self)
@@ -2903,8 +2910,12 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
                         for b in buckets or []:
                             key = f"{uid}:{trv_id}:{b}"
                             try:
-                                if seed_pid_gains(key, kp=kp, ki=ki, kd=kd):
-                                    seeded += 1
+                                pid_state = state_mgr.get_pid(key)
+                                pid_state.pid_kp = kp
+                                pid_state.pid_ki = ki
+                                pid_state.pid_kd = kd
+                                state_mgr.set_pid(key, pid_state)
+                                seeded += 1
                             except Exception:
                                 _LOGGER.debug(
                                     "better_thermostat %s: could not seed PID gains for %s",

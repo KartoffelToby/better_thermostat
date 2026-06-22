@@ -1060,6 +1060,54 @@ class TestAsyncSetTemperature:
         await self._call(mock_bt, **{ATTR_TEMPERATURE: 22.0})
         mock_bt.control_queue_task.put.assert_awaited_once_with(mock_bt)
 
+    @pytest.mark.asyncio
+    async def test_active_preset_deactivated_on_manual_change(self, mock_bt):
+        """Changing target temp while a preset is active deactivates it (back to NONE)."""
+        mock_bt.preset_mgr.mode = PRESET_COMFORT
+        mock_bt.preset_mgr.saved_temperature = 20.0
+        mock_bt.preset_mgr.temperatures[PRESET_COMFORT] = 21.0
+        mock_bt.bt_target_temp = 21.0
+        mock_bt.bt_hvac_mode = HVACMode.HEAT
+        mock_bt.min_temp = mock_bt.bt_min_temp
+        mock_bt.max_temp = mock_bt.bt_max_temp
+        await self._call(mock_bt, **{ATTR_TEMPERATURE: 19.0})
+        assert mock_bt.preset_mgr.mode == PRESET_NONE
+        assert mock_bt.preset_mgr.saved_temperature is None
+        assert mock_bt.bt_target_temp == 19.0
+        # New manual value is stored as the PRESET_NONE temperature
+        assert mock_bt.preset_mgr.temperatures[PRESET_NONE] == 19.0
+        # Stored Comfort preset temperature is left untouched
+        assert mock_bt.preset_mgr.temperatures[PRESET_COMFORT] == 21.0
+
+    @pytest.mark.asyncio
+    async def test_active_preset_kept_when_new_temp_matches_stored(self, mock_bt):
+        """Setting temp to the preset's stored value (e.g. from its Number entity) keeps the preset active."""
+        mock_bt.preset_mgr.mode = PRESET_COMFORT
+        mock_bt.preset_mgr.saved_temperature = 20.0
+        mock_bt.preset_mgr.temperatures[PRESET_COMFORT] = 22.5
+        mock_bt.bt_target_temp = 21.0
+        mock_bt.bt_hvac_mode = HVACMode.HEAT
+        mock_bt.min_temp = mock_bt.bt_min_temp
+        mock_bt.max_temp = mock_bt.bt_max_temp
+        await self._call(mock_bt, **{ATTR_TEMPERATURE: 22.5})
+        assert mock_bt.preset_mgr.mode == PRESET_COMFORT
+        assert mock_bt.preset_mgr.saved_temperature == 20.0
+        assert mock_bt.bt_target_temp == 22.5
+
+    @pytest.mark.asyncio
+    async def test_preset_none_change_does_not_trigger_deactivation_path(self, mock_bt):
+        """In PRESET_NONE, the deactivation branch is skipped and stored temp is updated."""
+        mock_bt.preset_mgr.mode = PRESET_NONE
+        mock_bt.preset_mgr.saved_temperature = None
+        mock_bt.bt_target_temp = 20.0
+        mock_bt.bt_hvac_mode = HVACMode.HEAT
+        mock_bt.min_temp = mock_bt.bt_min_temp
+        mock_bt.max_temp = mock_bt.bt_max_temp
+        await self._call(mock_bt, **{ATTR_TEMPERATURE: 23.0})
+        assert mock_bt.preset_mgr.mode == PRESET_NONE
+        assert mock_bt.preset_mgr.saved_temperature is None
+        assert mock_bt.preset_mgr.temperatures[PRESET_NONE] == 23.0
+
 
 # ===========================================================================
 # 7. TestEnforceCoolAboveHeat
