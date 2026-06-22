@@ -1,6 +1,7 @@
 // @ts-check
 import { defineConfig } from "astro/config";
 import starlight from "@astrojs/starlight";
+import mermaid from "astro-mermaid";
 import starlightThemeFlexoki from "starlight-theme-flexoki";
 import lit from "@astrojs/lit";
 
@@ -19,6 +20,7 @@ export default defineConfig({
   },
 
   integrations: [
+    mermaid({ theme: "neutral" }),
     lit(),
     starlight({
       title: "Better Thermostat",
@@ -46,6 +48,10 @@ export default defineConfig({
         {
           label: "Deep explanations",
           autogenerate: { directory: "deep-explanations" },
+        },
+        {
+          label: "Internals",
+          autogenerate: { directory: "internals" },
         },
         {
           label: "Support",

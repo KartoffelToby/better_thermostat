@@ -28,6 +28,86 @@ document in a pull request.
 - Test BT in a specific HA version -> Run "Install a specific version of Home Assistant" in Task Runner and the version you want to test in the terminal prompt.
 - Test BT with the latest HA version -> Run "upgrade Home Assistant to latest dev" in Task Runner
 
+## Architecture
+
+Better Thermostat separates a pure decision core from an imperative shell.
+The core computes *what* every TRV should do; the shell observes Home
+Assistant and performs the device writes.
+
+### The core (`custom_components/better_thermostat/core/`)
+
+The core imports no Home Assistant code, performs no IO, and reads no
+clocks — time arrives inside its inputs. Its heart is one function:
+
+```
+decide(snapshot, state) -> (desired, state')
+```
+
+- `snapshot.py` — `WorldSnapshot`: the immutable observation of one control
+  cycle (temperatures, modes, environment, per-TRV reported state).
+- `desired.py` — `DesiredState` / `TrvDesired`: the intent per TRV
+  (mode, setpoint, valve percent, offset). Intent, not commands.
+- `decide.py` — the precedence cascade: lifecycle gate → mode OFF →
+  open window → reachability → call-for-heat → heating. `decide()` never
+  mutates its input state; it returns a successor state.
+- `fsm/` — one small state machine per concern (*region*): `window`
+  (debounced open/closed), `maintenance` (valve exercise with a liveness
+  bound), `lifecycle` (startup/running/stopped), `mode`, `control_mode`
+  (the fail-soft ladder OPTIMAL → SENSOR_FALLBACK → HOLD), `reachability`
+  (per-TRV online/offline with retry backoff). Regions gate; controllers
+  compute. Regions never read each other's internals.
+- `safety.py` — the safety hull: clamps every outgoing setpoint, offset,
+  and valve percentage to device limits and the frost floor. Every device
+  write passes through it.
+- `watchdog.py` — detects a silently stalled control loop.
+- `recorder.py` — the flight recorder: a bounded ring of
+  (snapshot, pre-decide state, desired) tuples. Exported in the HA
+  diagnostics download; `replay()` re-runs an exported tuple through the
+  kernel deterministically.
+- `clock.py` — the `Clock` protocol plus a deterministic `FakeClock` for
+  tests and replay.
+- `calibrator.py` — the contract calibration strategies implement
+  (capabilities, health).
+
+### The shell
+
+- `utils/snapshot.py` — `build_snapshot()`: the single seam that flattens
+  entity attributes and HA states into a `WorldSnapshot`.
+- `utils/controlling.py` — `compute_control_cycle()` (one observation and
+  decision per cycle, recorded once), `control_trv()` (translates intent
+  into adapter calls), the per-TRV/per-channel write budget (minimum
+  spacing between non-safety writes), and `reconcile_tick()` (periodic:
+  re-converges devices whose reported state diverged from the intent).
+- `utils/scheduler.py` — `request_control_cycle()`: the only way to ask
+  for a control cycle; requests coalesce.
+- `climate.py` — the entity: HA lifecycle, event listeners, persistence
+  (via `utils/state_manager.py`), and the kernel state it threads through
+  the cycles.
+
+### Control cycles: pulled, not polled
+
+A control cycle is one pass of `build_snapshot() → decide() → apply`.
+The snapshot is not a maintained cache — it is built fresh per cycle,
+so a decision always sees one coherent world; reactivity comes from
+events, user actions, and the five-minute ticks each *requesting* a
+cycle (requests coalesce). A cycle writes only differences;
+safety-relevant writes go out immediately, everything else is spaced by
+the 30-second per-channel write budget. The full trigger and write
+model, the regions, the fail-soft ladder, and the test strategy are
+documented in depth under [docs/internals/](docs/internals/architecture.md)
+(published at better-thermostat.org under *Internals*).
+
+### Where new logic goes
+
+A new rule about *what should happen* (a gate, a precedence, a mode)
+belongs in the core: extend `decide()` or a region, with pure unit tests.
+New *device interaction* belongs in the shell behind the existing
+boundaries — writes go through the safety hull and the write budget, and
+cycles are requested through the scheduler. The shell applies intent; it
+does not second-guess the kernel after `decide()` ran.
+
+Run the test suite with `pytest tests/`.
+
 ## How Can I Contribute?
 
 ## New Adapter

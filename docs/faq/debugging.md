@@ -1,7 +1,24 @@
 ---
 title: Debugging
-description: Enable debug logs and verify Better Thermostat behavior.
+description: Download diagnostics, enable debug logs, and verify Better Thermostat behavior.
 ---
+
+## Download diagnostics
+
+For bug reports, the diagnostics download is the most useful artifact —
+attach it before reaching for debug logs.
+
+Go to **Settings → Devices & services → Better Thermostat**, open the
+three-dot menu of the entry, and choose **Download diagnostics**. The
+file contains:
+
+- the configuration of the entry and the state of every configured TRV
+  and sensor,
+- the **flight recorder**: the last control decisions, each as the
+  observation, the controller state, and the resulting intent. It shows
+  *why* Better Thermostat did what it did, which a log line usually
+  cannot (see [Internals: Observability](/internals/observability-and-testing/)
+  for how it works).
 
 ## Enable debug logging via configuration.yaml
 
