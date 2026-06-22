@@ -164,7 +164,7 @@ def observe_standby(
     if params.d_on_measurement:
         try:
             a = max(0.0, min(1.0, float(params.d_smoothing_alpha)))
-        except (TypeError, ValueError):
+        except TypeError, ValueError:
             a = 0.5
         prev = state.pid_last_meas
         state.pid_last_meas = (
@@ -290,7 +290,7 @@ def compute_pid(
                 # EMA-Glättung nur für den D-Kanal
                 try:
                     a = max(0.0, min(1.0, float(params.d_smoothing_alpha)))
-                except (TypeError, ValueError):
+                except TypeError, ValueError:
                     a = 0.5
                 prev = st.pid_last_meas
                 smoothed = (
@@ -418,7 +418,7 @@ def compute_pid(
         base = current_temp
         try:
             a = max(0.0, min(1.0, float(params.d_smoothing_alpha)))
-        except (TypeError, ValueError):
+        except TypeError, ValueError:
             a = 0.5
         if base is not None:
             prev = st.pid_last_meas
@@ -554,7 +554,7 @@ def _auto_tune_pid(
             st.pid_ki = ki
             st.pid_kd = kd
             st.last_tune_ts = now_ts
-    except (ValueError, TypeError):
+    except ValueError, TypeError:
         # Best-effort: numerische Probleme ignorieren
         return
 

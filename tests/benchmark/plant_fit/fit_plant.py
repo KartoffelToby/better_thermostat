@@ -60,7 +60,7 @@ def _load_csv(path: str) -> dict[str, TimeSeries]:
             try:
                 ts = datetime.fromisoformat(t_str).timestamp()
                 val = float(val_str)
-            except (ValueError, TypeError):
+            except ValueError, TypeError:
                 continue
             per_entity[eid].ts.append(ts)
             per_entity[eid].val.append(val)

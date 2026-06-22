@@ -42,7 +42,7 @@ async def async_setup_entry(
         try:
             if isinstance(calibration_mode, str):
                 calibration_mode = CalibrationMode(calibration_mode)
-        except (ValueError, TypeError):
+        except ValueError, TypeError:
             # Invalid or unknown calibration mode, skip PID creation
             calibration_mode = None
 

@@ -261,7 +261,7 @@ def _heating_power_adjustment(
     ):
         try:
             _pct = clamp_valve_percent(float(_valve_position) * 100.0)
-        except (TypeError, ValueError):
+        except TypeError, ValueError:
             _pct = None
         if _pct is not None:
             trv.calibration_balance = {

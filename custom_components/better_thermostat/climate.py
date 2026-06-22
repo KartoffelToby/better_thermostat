@@ -572,7 +572,7 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
             _tolerance = float(tolerance) if tolerance is not None else 0.0
             if unit == UnitOfTemperature.FAHRENHEIT:
                 _tolerance = _tolerance * 5.0 / 9.0
-        except (TypeError, ValueError):
+        except TypeError, ValueError:
             _LOGGER.warning(
                 "better_thermostat %s: invalid tolerance '%s', falling back to 0.0",
                 name,
@@ -2193,7 +2193,7 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
             for trv_id in trvs:
                 try:
                     self.real_trvs[trv_id].ignore_trv_states = True
-                except (KeyError, TypeError):
+                except KeyError, TypeError:
                     pass
 
             # Build snapshots (skips TRVs with state=None)
@@ -2207,7 +2207,7 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
                 if trv_id not in serviced_ids:
                     try:
                         self.real_trvs[trv_id].ignore_trv_states = False
-                    except (KeyError, TypeError):
+                    except KeyError, TypeError:
                         pass
 
             # Bind adapter callbacks to self
@@ -2244,7 +2244,7 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
             for trv_id in serviced_ids:
                 try:
                     self.real_trvs[trv_id].ignore_trv_states = False
-                except (KeyError, TypeError):
+                except KeyError, TypeError:
                     pass
 
             # Schedule next run
