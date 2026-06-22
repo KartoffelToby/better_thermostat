@@ -3,7 +3,7 @@
   "config": {
     "step": {
       "user": {
-        "description": "Konfigurer din Better Thermostat til at integrere med Home Assistant\n**Hvis du har brug for mere info: https://better-thermostat.org/configuration#first-step**",
+        "description": "Konfigurer din Better Thermostat til at integrere med Home Assistant\n\n**Detaljerede oplysninger:** {docs_url}",
         "data": {
           "name": "Navn",
           "thermostat": "Den rigtige termostat",
@@ -16,11 +16,16 @@
           "window_off_delay": "Forsinkelse, før termostaten slukker, når vinduet er åbent, og tændt, når vinduet er lukket",
           "window_off_delay_after": "Forsinkelse, før termostaten tænder, når vinduet er lukket",
           "outdoor_sensor": "Hvis du har en udeføler, kan du bruge den til at få udetemperaturen",
-          "weather": "Din vejrentitet for at få udendørstemperaturen"
+          "weather": "Din vejrentitet for at få udendørstemperaturen",
+          "target_temp_step": "Trin for måltemperatur",
+          "presets": "Aktiverede forudindstillinger"
+        },
+        "data_description": {
+          "presets": "Vælg de forudindstillinger, der skal være tilgængelige for denne termostat."
         }
       },
       "advanced": {
-        "description": "Avanceret konfiguration {trv}\n***Info om kalibreringstyper: https://better-thermostat.org/configuration#second-step*** ",
+        "description": "Avanceret konfiguration {trv}\n\n**Detaljerede oplysninger:** {docs_url}",
         "data": {
           "protect_overheating": "Overophedningsbeskyttelse?",
           "heat_auto_swapped": "Hvis auto betyder varme for din TRV og du vil bytte det",
@@ -56,7 +61,7 @@
   "options": {
     "step": {
       "user": {
-        "description": "Opdater dine Better Thermostat indstillinger",
+        "description": "Opdater dine Better Thermostat indstillinger\n\n**Detaljerede oplysninger:** {docs_url}",
         "data": {
           "name": "Navn",
           "thermostat": "Den rigtige termostat",
@@ -68,16 +73,21 @@
           "window_off_delay": "Forsinkelse, før termostaten slukker, når vinduet er åbent, og tændt, når vinduet er lukket",
           "window_off_delay_after": "Forsinkelse, før termostaten tænder, når vinduet er lukket",
           "outdoor_sensor": "Har du en udendørsføler, kan du bruge den til at få udetemperaturen",
-          "valve_maintenance": "Hvis din termostat ikke har nogen egen vedligeholdelsestilstand, kan du bruge denne",
-          "calibration": "Den slags kalibrering https://better-thermostat.org/configuration#second-step",
           "weather": "Din vejrentitet for at få udendørstemperaturen",
+          "target_temp_step": "Trin for måltemperatur",
+          "presets": "Aktiverede forudindstillinger",
+          "valve_maintenance": "Hvis din termostat ikke har nogen egen vedligeholdelsestilstand, kan du bruge denne",
+          "calibration": "Den slags kalibrering",
           "heat_auto_swapped": "Hvis auto betyder varme til din TRV, og du ønsker at bytte den",
           "child_lock": "Ignorer alle input på TRV som en børnesikring",
-          "homaticip": "Hvis du bruger HomematicIP, bør du aktivere dette for at bremse anmodningerne for at forhindre arbejdscyklus"
+          "homematicip": "Hvis du bruger HomematicIP, bør du aktivere dette for at bremse anmodningerne for at forhindre arbejdscyklus"
+        },
+        "data_description": {
+          "presets": "Vælg de forudindstillinger, der skal være tilgængelige for denne termostat."
         }
       },
       "advanced": {
-        "description": "Avanceret konfiguration {trv}\n***Info om kalibreringstyper: https://better-thermostat.org/configuration#second-step*** ",
+        "description": "Avanceret konfiguration {trv}\n\n**Detaljerede oplysninger:** {docs_url}",
         "data": {
           "protect_overheating": "Overophedningsbeskyttelse?",
           "heat_auto_swapped": "Hvis auto betyder varme for din TRV og du vil bytte det",
@@ -118,21 +128,88 @@
     }
   },
   "services": {
-    "save_current_target_temperature": {
-      "name": "Gem nuværende temperatur",
-      "description": "Gem den nuværende måltemperatur til senere gendannelse."
-    },
-    "restore_saved_target_temperature": {
-      "name": "Gendan temperatur",
-      "description": "Gendan den gemte måltemperatur."
+    "run_valve_maintenance": {
+      "name": "Kør ventilvedligeholdelse nu",
+      "description": "Kører ventilvedligeholdelsescyklussen for denne Better Thermostat-enhed med det samme."
     },
     "reset_heating_power": {
       "name": "Nulstil opvarmningskraft",
       "description": "Nulstil opvarmningskraft til standardværdi."
     },
-    "set_temp_target_temperature": {
-      "name": "Indstil eco-temperatur",
-      "description": "Indstil måltemperaturen til en midlertidig som nattilstand, og gem den gamle."
+    "reset_pid_learnings": {
+      "name": "Nulstil PID-læring",
+      "description": "Rydder al lært PID-tilstand (og eventuelt lærte åbningsgrænser) for denne enhed.",
+      "fields": {
+        "include_open_caps": {
+          "name": "Ryd også lærte åbningsgrænser",
+          "description": "Hvis aktiveret, ryddes også de lærte minimums-/maksimumsåbningsprocenter pr. TRV/målinterval."
+        },
+        "apply_pid_defaults": {
+          "name": "Anvend PID-standardværdier efter nulstilling",
+          "description": "Hvis aktiveret, forudfyldes de aktuelle målintervaller med PID-standardforstærkninger (kp/ki/kd). Du kan tilsidesætte standardværdierne nedenfor."
+        },
+        "defaults_kp": {
+          "name": "Standard-kp",
+          "description": "Proportionalforstærkning, der sættes efter nulstilling (falder tilbage til BalanceParams.kp, hvis ikke angivet)."
+        },
+        "defaults_ki": {
+          "name": "Standard-ki",
+          "description": "Integralforstærkning, der sættes efter nulstilling (falder tilbage til BalanceParams.ki, hvis ikke angivet)."
+        },
+        "defaults_kd": {
+          "name": "Standard-kd",
+          "description": "Differentialforstærkning, der sættes efter nulstilling (falder tilbage til BalanceParams.kd, hvis ikke angivet)."
+        }
+      }
+    }
+  },
+  "selector": {
+    "presets": {
+      "options": {
+        "eco": "Eco",
+        "away": "Ude",
+        "boost": "Boost",
+        "comfort": "Komfort",
+        "home": "Hjemme",
+        "sleep": "Søvn",
+        "activity": "Aktivitet"
+      }
+    }
+  },
+  "entity": {
+    "number": {
+      "pid_kp": {
+        "name": "{trv_name} PID Kp (proportional)"
+      },
+      "pid_ki": {
+        "name": "{trv_name} PID Ki (integral)"
+      },
+      "pid_kd": {
+        "name": "{trv_name} PID Kd (differentiel)"
+      },
+      "pid_kp_no_trv": {
+        "name": "PID Kp (proportional)"
+      },
+      "pid_ki_no_trv": {
+        "name": "PID Ki (integral)"
+      },
+      "pid_kd_no_trv": {
+        "name": "PID Kd (differentiel)"
+      }
+    },
+    "switch": {
+      "pid_auto_tune": {
+        "name": "{trv_name} PID-autotuning"
+      },
+      "pid_auto_tune_no_trv": {
+        "name": "PID-autotuning"
+      },
+      "child_lock": {
+        "name": "{trv_name} Børnesikring"
+      },
+      "child_lock_no_trv": {
+        "name": "Børnesikring"
+      }
     }
   },
   "device_automation": {
@@ -148,6 +225,14 @@
       "hvac_mode_changed": "HVAC-tilstand ændret",
       "current_temperature_changed": "Aktuel temperatur ændret",
       "current_humidity_changed": "Aktuel luftfugtighed ændret"
+    },
+    "condition_type": {
+      "is_hvac_mode": "Termostaten er indstillet til en bestemt HVAC-tilstand",
+      "is_hvac_action": "Termostaten udfører en bestemt HVAC-handling"
+    },
+    "action_type": {
+      "set_hvac_mode": "Indstil HVAC-tilstand",
+      "set_temperature": "Indstil måltemperatur"
     }
   }
 }

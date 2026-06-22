@@ -3,30 +3,38 @@
   "config": {
     "step": {
       "user": {
-        "description": "Skonfiguruj swój Better Thermostat do integracji z Home Assistant\n**Więcej informacji znajdziesz na: https://better-thermostat.org/configuration#first-step**",
+        "description": "Skonfiguruj swój Better Thermostat do integracji z Home Assistant\n\n**Szczegółowe informacje:** {docs_url}",
         "data": {
           "name": "Nazwa",
           "thermostat": "Twój termostat",
+          "cooler": "Urządzenie chłodzące (opcjonalnie)",
           "temperature_sensor": "Sensor temperatury",
           "humidity_sensor": "Sensor wilgotności",
           "window_sensors": "Sensor okna",
           "off_temperature": "Temperatura zewnętrzna, przy której termostat ma się wyłączyć",
+          "tolerance": "Tolerancja, aby zapobiec zbyt częstemu włączaniu i wyłączaniu termostatu",
           "window_off_delay": "Opóźnienie wyłączenia termostatu, kiedy otworzysz okno lub je zamkniesz (w sekundach)",
+          "window_off_delay_after": "Opóźnienie włączenia termostatu po zamknięciu okna",
           "outdoor_sensor": "Jeśli masz czujnik zewnętrzny, możesz go użyć, aby uzyskać temperaturę zewnętrzną",
-          "weather": "Twoja jednostka pogodowa, aby uzyskać temperaturę zewnętrzną"
+          "weather": "Twoja jednostka pogodowa, aby uzyskać temperaturę zewnętrzną",
+          "target_temp_step": "Krok temperatury docelowej",
+          "presets": "Włączone ustawienia predefiniowane"
+        },
+        "data_description": {
+          "presets": "Wybierz ustawienia predefiniowane, które mają być dostępne dla tego termostatu."
         }
       },
       "advanced": {
-        "description": "Zaawansowana konfiguracja {trv}\n***Informacja o typach kalibracji: https://better-thermostat.org/configuration#second-step***",
+        "description": "Zaawansowana konfiguracja {trv}\n\n**Szczegółowe informacje:** {docs_url}",
         "data": {
+          "protect_overheating": "Zabezpieczenie przed przegrzaniem?",
           "heat_auto_swapped": "Jeżeli tryb auto oznacza grzanie dla Twojego TRV i chcesz to zmienić",
           "child_lock": "Ignoruj wszystkie wejścia w TRV jak np. Blokada dziecięca",
           "homematicip": "Jeżeli używasz HomematicIP, powinieneś włączyć tę opcję, żeby spowolnić żądania cyklu pracy",
           "valve_maintenance": "Jeżeli Twój termostat nie ma trybu konserwacji, możesz użyć tej opcji.",
           "calibration": "Rodzaj kalibracji, której chcesz użyć",
-          "no_off_system_mode": "Jeśli Twój TRV nie obsługuje trybu wyłączenia, możesz go włączyć, aby zamiast tego używać temperatury docelowej 5°C",
           "calibration_mode": "Tryb kalibracji",
-          "protect_overheating": "Zabezpieczenie przed przegrzaniem?"
+          "no_off_system_mode": "Jeśli Twój TRV nie obsługuje trybu wyłączenia, możesz go włączyć, aby zamiast tego używać temperatury docelowej 5°C"
         },
         "data_description": {
           "protect_overheating": "Niektóre TRV całkowicie zamykają zawór po osiągnięciu temperatury. Lub grzejnik ma dużo ciepła resztkowego. Może to spowodować przegrzanie. Ta opcja może temu zapobiec.",
@@ -40,10 +48,10 @@
       }
     },
     "error": {
-      "no_outside_temp": "Nie masz czujnika temperatury zewnętrznej. Better Thermostat zamiast tego użyje jednostki pogodowej.",
       "failed": "coś poszło nie tak.",
       "no_name": "Proszę podać nazwę.",
-      "no_off_mode": "Twoje urządzenie jest inne i nie ma trybu wyłączenia :(\nTo będzie działać, ale musisz stworzyć automatyzację, aby ustawić funkcje pod swoje urządzenie"
+      "no_off_mode": "Twoje urządzenie jest inne i nie ma trybu wyłączenia :(\nTo będzie działać, ale musisz stworzyć automatyzację, aby ustawić funkcje pod swoje urządzenie",
+      "no_outside_temp": "Nie masz czujnika temperatury zewnętrznej. Better Thermostat zamiast tego użyje jednostki pogodowej."
     },
     "abort": {
       "single_instance_allowed": "Dozwolony jest tylko jeden termostat dla jednego urządzenia.",
@@ -53,33 +61,40 @@
   "options": {
     "step": {
       "user": {
-        "description": "Zaktualizuj ustawienia Better Thermostat",
+        "description": "Zaktualizuj ustawienia Better Thermostat\n\n**Szczegółowe informacje:** {docs_url}",
         "data": {
+          "name": "Nazwa",
+          "thermostat": "Prawdziwy termostat",
           "temperature_sensor": "Sensor temperatury",
           "humidity_sensor": "Sensor wilgotności",
           "window_sensors": "Sensor okna",
           "off_temperature": "Temperatura zewnętrzna, przy której termostat ma się wyłączyć",
+          "tolerance": "Tolerancja, aby zapobiec zbyt częstemu włączaniu i wyłączaniu termostatu",
           "window_off_delay": "Opóźnienie wyłączenia termostatu, kiedy otworzysz okno lub je zamkniesz (w sekundach)",
+          "window_off_delay_after": "Opóźnienie włączenia termostatu po zamknięciu okna",
           "outdoor_sensor": "Jeśli masz czujnik zewnętrzny, możesz go użyć, aby uzyskać temperaturę zewnętrzną",
-          "valve_maintenance": "Jeżeli Twój termostat nie ma własnego trybu konserwacji, możesz użyć tej opcji.",
-          "calibration": "Rodzaje kalibracji https://better-thermostat.org/configuration#second-step",
           "weather": "Twoja jednostka pogodowa, aby uzyskać temperaturę zewnętrzną",
+          "target_temp_step": "Krok temperatury docelowej",
+          "presets": "Włączone ustawienia predefiniowane",
+          "valve_maintenance": "Jeżeli Twój termostat nie ma własnego trybu konserwacji, możesz użyć tej opcji.",
+          "calibration": "Rodzaje kalibracji",
           "heat_auto_swapped": "Jeżeli tryb auto oznacza grzanie dla Twojego TRV i chcesz to zmienić",
           "child_lock": "Ignoruj wszystkie wejścia w TRV jak np. Blokada dziecięca",
-          "homematicip": "Jeżeli używasz HomematicIP, powinienieś włączyć tę opcję żeby spowolnić żądania",
-          "name": "Nazwa",
-          "thermostat": "Prawdziwy termostat"
+          "homematicip": "Jeżeli używasz HomematicIP, powinienieś włączyć tę opcję żeby spowolnić żądania"
+        },
+        "data_description": {
+          "presets": "Wybierz ustawienia predefiniowane, które mają być dostępne dla tego termostatu."
         }
       },
       "advanced": {
-        "description": "Zaawansowana konfiguracja {trv}\n***Informacja o typach kalibracji: https://better-thermostat.org/configuration#second-step***",
+        "description": "Zaawansowana konfiguracja {trv}\n\n**Szczegółowe informacje:** {docs_url}",
         "data": {
+          "protect_overheating": "Zabezpieczenie przed przegrzaniem?",
           "heat_auto_swapped": "Jeżeli tryb auto oznacza grzanie dla Twojego TRV i chcesz to zmienić",
           "child_lock": "Ignoruj wszystkie wejścia w TRV jak np. Blokada dziecięca",
           "homematicip": "Jeżeli używasz HomematicIP, powinieneś włączyć tę opcję, żeby spowolnić żądania spowolnienia cyklu pracy",
           "valve_maintenance": "Jeżeli Twój termostat nie ma trybu konserwacji, możesz użyć tej opcji.",
           "calibration": "Rodzaj kalibracji, której chcesz użyć",
-          "protect_overheating": "Zabezpieczenie przed przegrzaniem?",
           "calibration_mode": "Tryb kalibracji",
           "no_off_system_mode": "Jeśli Twój TRV nie obsługuje trybu wyłączenia, możesz go włączyć, aby zamiast tego używać temperatury docelowej 5°C"
         },
@@ -112,7 +127,91 @@
       "description": "Czujnik okna dla Better Thermostat {name} zgłosił nierozpoznany stan: {state}.\n\nOczekiwane stany to: 'on', 'off', 'true', 'false', 'open', 'closed'.\n\nSprawdź konfigurację czujnika okna."
     }
   },
-  "services": {},
+  "services": {
+    "run_valve_maintenance": {
+      "name": "Uruchom teraz konserwację zaworu",
+      "description": "Natychmiast uruchamia cykl konserwacji zaworu dla tej encji Better Thermostat."
+    },
+    "reset_heating_power": {
+      "name": "Zresetuj moc grzewczą",
+      "description": "Resetuje moc grzewczą do wartości domyślnej."
+    },
+    "reset_pid_learnings": {
+      "name": "Zresetuj nauczone wartości PID",
+      "description": "Czyści cały nauczony stan PID (i opcjonalnie nauczone limity otwarcia) dla tej encji.",
+      "fields": {
+        "include_open_caps": {
+          "name": "Wyczyść także nauczone limity otwarcia",
+          "description": "Jeśli włączone, czyści również nauczone minimalne/maksymalne procenty otwarcia dla każdego TRV/przedziału docelowego."
+        },
+        "apply_pid_defaults": {
+          "name": "Zastosuj domyślne wartości PID po resecie",
+          "description": "Jeśli włączone, bieżące przedziały docelowe zostaną wstępnie wypełnione domyślnymi wzmocnieniami PID (kp/ki/kd). Wartości domyślne można nadpisać poniżej."
+        },
+        "defaults_kp": {
+          "name": "Domyślne kp",
+          "description": "Wzmocnienie proporcjonalne ustawiane po resecie (jeśli nie podano, używane jest BalanceParams.kp)."
+        },
+        "defaults_ki": {
+          "name": "Domyślne ki",
+          "description": "Wzmocnienie całkujące ustawiane po resecie (jeśli nie podano, używane jest BalanceParams.ki)."
+        },
+        "defaults_kd": {
+          "name": "Domyślne kd",
+          "description": "Wzmocnienie różniczkujące ustawiane po resecie (jeśli nie podano, używane jest BalanceParams.kd)."
+        }
+      }
+    }
+  },
+  "selector": {
+    "presets": {
+      "options": {
+        "eco": "Eko",
+        "away": "Poza domem",
+        "boost": "Boost",
+        "comfort": "Komfort",
+        "home": "W domu",
+        "sleep": "Sen",
+        "activity": "Aktywność"
+      }
+    }
+  },
+  "entity": {
+    "number": {
+      "pid_kp": {
+        "name": "{trv_name} PID Kp (proporcjonalny)"
+      },
+      "pid_ki": {
+        "name": "{trv_name} PID Ki (całkujący)"
+      },
+      "pid_kd": {
+        "name": "{trv_name} PID Kd (różniczkujący)"
+      },
+      "pid_kp_no_trv": {
+        "name": "PID Kp (proporcjonalny)"
+      },
+      "pid_ki_no_trv": {
+        "name": "PID Ki (całkujący)"
+      },
+      "pid_kd_no_trv": {
+        "name": "PID Kd (różniczkujący)"
+      }
+    },
+    "switch": {
+      "pid_auto_tune": {
+        "name": "{trv_name} Automatyczne strojenie PID"
+      },
+      "pid_auto_tune_no_trv": {
+        "name": "Automatyczne strojenie PID"
+      },
+      "child_lock": {
+        "name": "{trv_name} Blokada rodzicielska"
+      },
+      "child_lock_no_trv": {
+        "name": "Blokada rodzicielska"
+      }
+    }
+  },
   "device_automation": {
     "trigger_type": {
       "heating_active": "Termostat przełącza się na ogrzewanie",
@@ -126,6 +225,14 @@
       "hvac_mode_changed": "Tryb HVAC zmieniony",
       "current_temperature_changed": "Aktualna temperatura zmieniona",
       "current_humidity_changed": "Aktualna wilgotność zmieniona"
+    },
+    "condition_type": {
+      "is_hvac_mode": "Termostat jest ustawiony na określony tryb HVAC",
+      "is_hvac_action": "Termostat wykonuje określoną akcję HVAC"
+    },
+    "action_type": {
+      "set_hvac_mode": "Ustaw tryb HVAC",
+      "set_temperature": "Ustaw temperaturę docelową"
     }
   }
 }

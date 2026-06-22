@@ -43,6 +43,8 @@ from homeassistant.helpers.storage import Store
 from .calibration.mpc import MpcState
 from .calibration.pid import PIDState
 from .calibration.tpi import TpiState
+from .const import MAX_HEAT_LOSS, MAX_HEATING_POWER, MIN_HEAT_LOSS, MIN_HEATING_POWER
+from .thermal_learning import clamp
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -161,7 +163,7 @@ def deserialize_mpc(raw: dict[str, Any]) -> MpcState:
                 setattr(state, attr, str(value))
             else:
                 setattr(state, attr, float(value))
-        except (TypeError, ValueError):
+        except TypeError, ValueError:
             continue
     return state
 
@@ -183,7 +185,7 @@ def deserialize_pid(raw: dict[str, Any]) -> PIDState:
                 setattr(state, attr, bool(value))
             else:
                 setattr(state, attr, float(value))
-        except (TypeError, ValueError):
+        except TypeError, ValueError:
             continue
     return state
 
@@ -200,7 +202,7 @@ def deserialize_tpi(raw: dict[str, Any]) -> TpiState:
             continue
         try:
             setattr(state, attr, float(value))
-        except (TypeError, ValueError):
+        except TypeError, ValueError:
             continue
     return state
 
@@ -233,13 +235,13 @@ def _deserialize(raw: dict[str, Any]) -> RuntimeState:
         heat_loss_rate = thermal_raw.get("heat_loss_rate")
         try:
             heating_power = float(heating_power) if heating_power is not None else None
-        except (TypeError, ValueError):
+        except TypeError, ValueError:
             heating_power = None
         try:
             heat_loss_rate = (
                 float(heat_loss_rate) if heat_loss_rate is not None else None
             )
-        except (TypeError, ValueError):
+        except TypeError, ValueError:
             heat_loss_rate = None
         state.thermal = ThermalStats(
             heating_power=heating_power, heat_loss_rate=heat_loss_rate
@@ -250,7 +252,7 @@ def _deserialize(raw: dict[str, Any]) -> RuntimeState:
         for name, temp in presets_raw.items():
             try:
                 state.presets[str(name)] = float(temp)
-            except (TypeError, ValueError):
+            except TypeError, ValueError:
                 continue
 
     return state
@@ -339,6 +341,19 @@ class StateManager:
         self._state.pid[key] = pid
         self._dirty = True
 
+    def reset_pid_states(self, prefix: str) -> int:
+        """Drop all PID states whose key starts with *prefix*.
+
+        Returns the number of removed entries; marks the store dirty when
+        anything was removed.
+        """
+        keys = [key for key in self._state.pid if key.startswith(prefix)]
+        for key in keys:
+            del self._state.pid[key]
+        if keys:
+            self._dirty = True
+        return len(keys)
+
     def get_tpi(self, key: str) -> TpiState:
         """Get or create TPI state for a key."""
         if key not in self._state.tpi:
@@ -377,6 +392,44 @@ class StateManager:
         """Manually mark state as needing persistence."""
         self._dirty = True
 
+    # -- Thermal stats ---------------------------------------------------------
+
+    def clamped_thermal(self) -> tuple[float | None, float | None]:
+        """Return persisted thermal stats clamped to their valid bounds.
+
+        Returns ``(heating_power, heat_loss_rate)``; an element is ``None`` when
+        the persisted value is absent or cannot be parsed as a float.
+        """
+        thermal = self._state.thermal
+
+        heating_power: float | None = None
+        if thermal.heating_power is not None:
+            try:
+                heating_power = clamp(
+                    float(thermal.heating_power), MIN_HEATING_POWER, MAX_HEATING_POWER
+                )
+            except TypeError, ValueError:
+                heating_power = None
+
+        heat_loss_rate: float | None = None
+        if thermal.heat_loss_rate is not None:
+            try:
+                heat_loss_rate = clamp(
+                    float(thermal.heat_loss_rate), MIN_HEAT_LOSS, MAX_HEAT_LOSS
+                )
+            except TypeError, ValueError:
+                heat_loss_rate = None
+
+        return heating_power, heat_loss_rate
+
+    def record_thermal(
+        self, heating_power: float | None, heat_loss_rate: float | None
+    ) -> None:
+        """Record the entity-held thermal stats before a save."""
+        self.thermal = ThermalStats(
+            heating_power=heating_power, heat_loss_rate=heat_loss_rate
+        )
+
     # -- Load / Save ---------------------------------------------------------
 
     async def load(self) -> None:
@@ -389,11 +442,23 @@ class StateManager:
             )
             return
 
-        version = raw.get("version", 0)
-        if version < 1:
-            raw = _migrate_v0_to_v1(raw)
-
-        self._state = _deserialize(raw)
+        # A store that breaks deserialization yields defaults, not a
+        # crash: load() runs inside the entity's startup task, and
+        # relearning replaces anything a poisoned store could offer.
+        try:
+            version = raw.get("version", 0)
+            if version < 1:
+                raw = _migrate_v0_to_v1(raw)
+            self._state = _deserialize(raw)
+        except Exception:
+            _LOGGER.warning(
+                "better_thermostat [%s]: persisted state is unreadable, starting fresh",
+                self._entry_id,
+                exc_info=True,
+            )
+            self._state = RuntimeState()
+            self._dirty = False
+            return
         self._dirty = False
         _LOGGER.debug(
             "better_thermostat [%s]: Loaded state v%d (%d mpc, %d pid, %d tpi keys)",

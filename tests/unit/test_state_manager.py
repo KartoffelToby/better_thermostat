@@ -15,10 +15,17 @@ from __future__ import annotations
 
 from collections import deque
 from dataclasses import asdict
+import logging
 from unittest.mock import AsyncMock, patch
 
 import pytest
 
+from custom_components.better_thermostat.utils.const import (
+    MAX_HEAT_LOSS,
+    MAX_HEATING_POWER,
+    MIN_HEAT_LOSS,
+    MIN_HEATING_POWER,
+)
 from custom_components.better_thermostat.utils.state_manager import (
     CURRENT_VERSION,
     MpcState,
@@ -34,6 +41,8 @@ from custom_components.better_thermostat.utils.state_manager import (
     deserialize_pid,
     deserialize_tpi,
 )
+
+_SM = "custom_components.better_thermostat.utils.state_manager"
 
 # ---------------------------------------------------------------------------
 # Dataclass defaults
@@ -508,6 +517,30 @@ class TestStateManagerLoadSave:
         assert mgr.dirty is False
 
     @pytest.mark.asyncio
+    async def test_load_survives_a_poisoned_store(self, caplog):
+        """A store that breaks deserialization yields defaults, not a crash.
+
+        load() runs inside the entity's startup task; an exception here
+        would kill startup over data that relearning replaces anyway.
+        The recovery is announced by a warning that carries the exception.
+        """
+        mgr, mock_store = self._make_manager_with_store()
+        mock_store.async_load.return_value = {"version": 1, "mpc": {"k": {}}}
+        with (
+            caplog.at_level(logging.WARNING),
+            patch(
+                "custom_components.better_thermostat.utils.state_manager._deserialize",
+                side_effect=TypeError("poisoned"),
+            ),
+        ):
+            await mgr.load()
+
+        assert mgr.state.mpc == {}
+        assert mgr.dirty is False
+        assert "persisted state is unreadable, starting fresh" in caplog.text
+        assert "poisoned" in caplog.text
+
+    @pytest.mark.asyncio
     async def test_load_valid_state(self):
         """Loading valid v1 data populates all sections."""
         mgr, mock_store = self._make_manager_with_store()
@@ -633,3 +666,132 @@ class TestStateManagerStateAccess:
 
         assert mgr.get_mpc("trv1__20").gain_est == 0.5
         assert mgr.get_mpc("trv1__22").gain_est == 0.8
+
+
+# ---------------------------------------------------------------------------
+# Controller bridging: clamped_thermal
+# ---------------------------------------------------------------------------
+
+
+def _make_manager() -> StateManager:
+    """Create a StateManager with a mocked Store."""
+    mock_hass = AsyncMock()
+    with patch(f"{_SM}.Store"):
+        return StateManager(mock_hass, "test_entry")
+
+
+class TestClampedThermal:
+    """clamped_thermal() returns persisted thermal stats clamped to valid bounds."""
+
+    def test_both_none_returns_none(self):
+        """Absent thermal stats yield (None, None)."""
+        mgr = _make_manager()
+        assert mgr.clamped_thermal() == (None, None)
+
+    def test_valid_values_passed_through(self):
+        """In-range values are returned unchanged."""
+        mgr = _make_manager()
+        hp = (MIN_HEATING_POWER + MAX_HEATING_POWER) / 2
+        hl = (MIN_HEAT_LOSS + MAX_HEAT_LOSS) / 2
+        mgr.thermal = ThermalStats(heating_power=hp, heat_loss_rate=hl)
+        assert mgr.clamped_thermal() == (hp, hl)
+
+    def test_heating_power_clamped_to_max(self):
+        """A heating_power above the max is clamped down."""
+        mgr = _make_manager()
+        mgr.thermal = ThermalStats(heating_power=MAX_HEATING_POWER * 10)
+        hp, _ = mgr.clamped_thermal()
+        assert hp == MAX_HEATING_POWER
+
+    def test_heating_power_clamped_to_min(self):
+        """A heating_power below the min is clamped up."""
+        mgr = _make_manager()
+        mgr.thermal = ThermalStats(heating_power=-5.0)
+        hp, _ = mgr.clamped_thermal()
+        assert hp == MIN_HEATING_POWER
+
+    def test_heat_loss_clamped_to_bounds(self):
+        """heat_loss_rate is clamped to its min/max."""
+        mgr = _make_manager()
+        mgr.thermal = ThermalStats(heat_loss_rate=MAX_HEAT_LOSS * 10)
+        assert mgr.clamped_thermal()[1] == MAX_HEAT_LOSS
+        mgr.thermal = ThermalStats(heat_loss_rate=-1.0)
+        assert mgr.clamped_thermal()[1] == MIN_HEAT_LOSS
+
+    def test_unparseable_value_yields_none(self):
+        """A non-numeric persisted value degrades to None instead of raising."""
+        mgr = _make_manager()
+        mgr.thermal = ThermalStats(heating_power="oops")  # type: ignore[arg-type]
+        assert mgr.clamped_thermal()[0] is None
+
+
+# ---------------------------------------------------------------------------
+# Thermal stats recording
+# ---------------------------------------------------------------------------
+
+
+class TestRecordThermal:
+    """record_thermal() stores the supplied stats; controller state stays put."""
+
+    def test_records_thermal_and_dirties(self):
+        """Supplied thermal stats are stored and the store is marked dirty."""
+        mgr = _make_manager()
+        mgr.record_thermal(0.07, 0.02)
+        assert mgr.thermal.heating_power == 0.07
+        assert mgr.thermal.heat_loss_rate == 0.02
+        assert mgr.dirty is True
+
+    def test_does_not_touch_controller_state(self):
+        """MPC/PID/TPI state in the store stays untouched by record_thermal."""
+        mgr = _make_manager()
+        mgr.set_mpc("p:trv1", MpcState(gain_est=1.23))
+        mgr.set_pid("p:trv1", PIDState(pid_kp=42.0))
+        mgr.set_tpi("p:trv1", TpiState(last_percent=33.0))
+
+        mgr.record_thermal(None, None)
+
+        assert mgr.state.mpc["p:trv1"].gain_est == 1.23
+        assert mgr.state.pid["p:trv1"].pid_kp == 42.0
+        assert mgr.state.tpi["p:trv1"].last_percent == 33.0
+
+
+# ---------------------------------------------------------------------------
+# PID state reset
+# ---------------------------------------------------------------------------
+
+
+class TestResetPidStates:
+    """reset_pid_states() drops prefixed keys and reports the count."""
+
+    def test_removes_only_prefixed_keys(self):
+        """Keys with the prefix are removed; others stay."""
+        mgr = _make_manager()
+        mgr.set_pid("p:trv1:t21.0", PIDState())
+        mgr.set_pid("p:trv1:t21.5", PIDState())
+        mgr.set_pid("other:trvX:t20.0", PIDState())
+
+        removed = mgr.reset_pid_states("p:")
+
+        assert removed == 2
+        assert set(mgr.state.pid) == {"other:trvX:t20.0"}
+
+    def test_removal_marks_dirty(self):
+        """Removing entries marks the store dirty."""
+        mgr = _make_manager()
+        mgr.set_pid("p:trv1:t21.0", PIDState())
+        mgr._dirty = False
+
+        mgr.reset_pid_states("p:")
+
+        assert mgr.dirty is True
+
+    def test_no_match_returns_zero_and_stays_clean(self):
+        """Without matching keys nothing is removed and dirty stays False."""
+        mgr = _make_manager()
+        mgr.set_pid("other:trvX:t20.0", PIDState())
+        mgr._dirty = False
+
+        removed = mgr.reset_pid_states("p:")
+
+        assert removed == 0
+        assert mgr.dirty is False

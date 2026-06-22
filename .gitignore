@@ -80,3 +80,4 @@ logs/
 *.bak
 *.swp
 *~
+node_modules

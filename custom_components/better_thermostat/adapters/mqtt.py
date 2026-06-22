@@ -76,7 +76,7 @@ async def init(self, entity_id):
             await self.hass.services.async_call(
                 "climate",
                 "set_preset_mode",
-                {"entity_id": entity_id, "preset_mode": "manual"},
+                {"entity_id": entity_id, "preset_mode": "none"},
                 blocking=True,
                 context=self.context,
             )
@@ -102,7 +102,7 @@ async def get_current_offset(self, entity_id):
         return 0.0
     try:
         return float(str(state.state))
-    except (ValueError, TypeError):
+    except ValueError, TypeError:
         _LOGGER.warning(
             "better_thermostat %s: Could not convert calibration offset '%s' to float, using 0",
             self.device_name,

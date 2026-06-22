@@ -557,17 +557,17 @@ export class BtConfigurator extends LitElement {
     let notes = [];
 
     if (this.answers.heatingType === 'underfloor') {
-      algo = 'MPC Predictive (Model Predictive Control)';
-      algoDesc = 'Best for slow response heating to prevent massive overshoots.';
+      algo = 'AI Time Based';
+      algoDesc = 'Learns the thermal mass of underfloor heating; expects slow response and avoids aggressive changes.';
       tolerance = '0.5°C';
     } else if (this.answers.roomType === 'bathroom' || this.answers.insulation === 'poor' || this.answers.roomSize === 'large') {
       algo = 'Aggressive (Aggressive Target Temperature Calibration)';
       algoDesc = 'Faster warm-up, ideal for rooms that heat slowly or need quick heat bursts.';
     } else if (this.answers.roomType === 'kitchen' || this.answers.roomType === 'hallway') {
-      algo = 'PID Controller';
+      algo = 'AI Time Based';
       algoDesc = 'Advanced control with auto-tuning, great for handling strong disturbances like drafts or ovens.';
     } else if (this.answers.insulation === 'good' || this.answers.roomSize === 'small') {
-      algo = 'MPC Predictive (Model Predictive Control)';
+      algo = 'PID Controller';
       algoDesc = 'Prevents overshoots in well-insulated or small rooms that heat up too quickly.';
     }
 

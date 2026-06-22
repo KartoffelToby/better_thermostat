@@ -1280,9 +1280,14 @@ class TestEdgeCasesAndPotentialBugs:
         bt = _make_bt_climate()
         import asyncio
 
-        asyncio.get_event_loop().run_until_complete(
-            _cleanup_stale_algorithm_entities(hass, "entry_1", bt, set())
-        )
+        # Fresh event loop avoids HA pytest plugin issues with the current loop.
+        loop = asyncio.new_event_loop()
+        try:
+            loop.run_until_complete(
+                _cleanup_stale_algorithm_entities(hass, "entry_1", bt, set())
+            )
+        finally:
+            loop.close()
         # The function checks `if not _ACTIVE_ALGORITHM_ENTITIES[entry_id]`
         # and deletes it → entry should be gone
         assert "entry_1" not in _ACTIVE_ALGORITHM_ENTITIES

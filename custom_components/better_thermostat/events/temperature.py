@@ -128,8 +128,6 @@ async def _apply_temperature_update(self, new_temp):
         trv_ids = list(self.real_trvs.keys())
         if not trv_ids and hasattr(self, "entity_ids"):
             trv_ids = list(self.entity_ids or [])
-        if not trv_ids and hasattr(self, "heater_entity_id"):
-            trv_ids = [self.heater_entity_id]
         for trv_id in trv_ids:
             quirks = (
                 self.real_trvs.get(trv_id, {}).get("model_quirks")
@@ -144,7 +142,7 @@ async def _apply_temperature_update(self, new_temp):
                     self.device_name,
                     trv_id,
                 )
-    except (AttributeError, KeyError, TypeError, ValueError, RuntimeError):
+    except AttributeError, KeyError, TypeError, ValueError, RuntimeError:
         _LOGGER.debug(
             "better_thermostat %s: external_temperature write to TRV failed (non critical)",
             self.device_name,
@@ -212,7 +210,7 @@ async def trigger_temperature_change(self, event):
         for trv in self.all_trvs:
             if trv["advanced"][CONF_HOMEMATICIP]:
                 _time_diff = 600
-    except (KeyError, TypeError):
+    except KeyError, TypeError:
         pass
 
     if not is_reasonable_temperature(_incoming_temperature_q):
@@ -242,7 +240,7 @@ async def trigger_temperature_change(self, event):
     _now = dt_util.now()
     try:
         _age = (_now - self.last_external_sensor_change).total_seconds()
-    except (TypeError, AttributeError):  # defensiv, sollte nicht auftreten
+    except TypeError, AttributeError:  # defensiv, sollte nicht auftreten
         _age = 999999
     # Gerundete Vergleichswerte
     _cur_q = None if self.cur_temp is None else round(self.cur_temp, 2)
@@ -269,7 +267,7 @@ async def trigger_temperature_change(self, event):
         # Plane eine Übernahme nach Ablauf des Revert-Fensters, falls der Sensorwert stabil bleibt
         try:
             remaining = max(0.0, float(FLICKER_REVERT_WINDOW) - float(_age))
-        except (ValueError, TypeError):
+        except ValueError, TypeError:
             remaining = float(FLICKER_REVERT_WINDOW)
         # Merke Kandidatenwert und cancel ggf. vorherige Planung
         cancel_cb = self.flicker_unignore_cancel
@@ -336,8 +334,6 @@ async def trigger_temperature_change(self, event):
                                 trv_ids = list(self.real_trvs.keys())
                                 if not trv_ids and hasattr(self, "entity_ids"):
                                     trv_ids = list(self.entity_ids or [])
-                                if not trv_ids and hasattr(self, "heater_entity_id"):
-                                    trv_ids = [self.heater_entity_id]
                                 for trv_id in trv_ids:
                                     quirks = (
                                         self.real_trvs.get(trv_id, {}).get(

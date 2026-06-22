@@ -1,9 +1,7 @@
 ---
-layout: default
 title: Calibration Algorithms
-nav_order: 2
-has_children: true
-permalink: calibration_algorithms
+description: The Better Thermostat calibration algorithms and how to choose one.
+slug: calibration_algorithms
 ---
 
 Better Thermostat offers several calibration algorithms (also called "Calibration Modes") that control how your TRV (Thermostatic Radiator Valve) is adjusted to maintain your desired temperature. Each algorithm has different characteristics and is suited for different situations.
@@ -14,8 +12,8 @@ If you're unsure which algorithm to use, here's a quick guide:
 
 - **Just starting out?** Try **AI Time Based** (default) - it works well for most situations
 - **Room heats too slowly?** Try **Aggressive**
-- **Temperature overshoots often?** Try **MPC Predictive** (tested & stable)
-- **Have technical knowledge and want fine control?** Try **PID Controller** (⚠️ beta)
+- **Temperature overshoots often?** Try **MPC Predictive** (⚠️ beta)
+- **Have technical knowledge and want fine control?** Try **PID Controller** 
 - **Want something simple and reliable?** Try **Normal** or **TPI Controller**
 
 ## Algorithm Descriptions
