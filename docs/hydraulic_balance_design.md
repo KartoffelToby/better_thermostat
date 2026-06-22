@@ -1,9 +1,7 @@
 ---
-layout: default
 title: Hydraulic
-nav_order: 6
-description: "BT."
-permalink: hydraulic
+description: Decentralized hydraulic balance in Better Thermostat.
+slug: hydraulic
 ---
 
 # Decentralized Hydraulic Balance in Better Thermostat

@@ -15,6 +15,7 @@ from __future__ import annotations
 
 from collections import deque
 from dataclasses import asdict
+import logging
 from unittest.mock import AsyncMock, patch
 
 import pytest
@@ -516,6 +517,30 @@ class TestStateManagerLoadSave:
         assert mgr.dirty is False
 
     @pytest.mark.asyncio
+    async def test_load_survives_a_poisoned_store(self, caplog):
+        """A store that breaks deserialization yields defaults, not a crash.
+
+        load() runs inside the entity's startup task; an exception here
+        would kill startup over data that relearning replaces anyway.
+        The recovery is announced by a warning that carries the exception.
+        """
+        mgr, mock_store = self._make_manager_with_store()
+        mock_store.async_load.return_value = {"version": 1, "mpc": {"k": {}}}
+        with (
+            caplog.at_level(logging.WARNING),
+            patch(
+                "custom_components.better_thermostat.utils.state_manager._deserialize",
+                side_effect=TypeError("poisoned"),
+            ),
+        ):
+            await mgr.load()
+
+        assert mgr.state.mpc == {}
+        assert mgr.dirty is False
+        assert "persisted state is unreadable, starting fresh" in caplog.text
+        assert "poisoned" in caplog.text
+
+    @pytest.mark.asyncio
     async def test_load_valid_state(self):
         """Loading valid v1 data populates all sections."""
         mgr, mock_store = self._make_manager_with_store()
@@ -701,108 +726,72 @@ class TestClampedThermal:
 
 
 # ---------------------------------------------------------------------------
-# Controller bridging: hydrate_controllers
+# Thermal stats recording
 # ---------------------------------------------------------------------------
 
 
-class TestHydrateControllers:
-    """hydrate_controllers() seeds module caches with the prefix-filtered state."""
-
-    def test_imports_only_prefixed_keys(self):
-        """Only keys starting with the prefix are pushed into the caches."""
-        mgr = _make_manager()
-        mgr.set_mpc("p:trv1", MpcState(gain_est=0.5))
-        mgr.set_mpc("other:trvX", MpcState(gain_est=9.9))
-        mgr.set_pid("p:trv1", PIDState())
-        mgr.set_tpi("p:trv1", TpiState())
-
-        with (
-            patch(f"{_SM}.import_mpc_state_map") as imp_mpc,
-            patch(f"{_SM}.import_pid_states") as imp_pid,
-            patch(f"{_SM}.import_tpi_state_map") as imp_tpi,
-        ):
-            mgr.hydrate_controllers("p:")
-
-        imp_mpc.assert_called_once()
-        assert set(imp_mpc.call_args[0][0]) == {"p:trv1"}
-        imp_pid.assert_called_once()
-        assert imp_pid.call_args.kwargs["prefix_filter"] == "p:"
-        assert set(imp_pid.call_args[0][0]) == {"p:trv1"}
-        imp_tpi.assert_called_once()
-        assert set(imp_tpi.call_args[0][0]) == {"p:trv1"}
-
-    def test_no_matching_keys_skips_import(self):
-        """When nothing matches the prefix, the import functions are not called."""
-        mgr = _make_manager()
-        mgr.set_mpc("other:trvX", MpcState())
-
-        with (
-            patch(f"{_SM}.import_mpc_state_map") as imp_mpc,
-            patch(f"{_SM}.import_pid_states") as imp_pid,
-            patch(f"{_SM}.import_tpi_state_map") as imp_tpi,
-        ):
-            mgr.hydrate_controllers("p:")
-
-        imp_mpc.assert_not_called()
-        imp_pid.assert_not_called()
-        imp_tpi.assert_not_called()
-
-    def test_hydrate_does_not_mark_dirty(self):
-        """Seeding caches from persisted state must not dirty the store."""
-        mgr = _make_manager()
-        mgr.set_mpc("p:trv1", MpcState())
-        mgr._dirty = False
-        with (
-            patch(f"{_SM}.import_mpc_state_map"),
-            patch(f"{_SM}.import_pid_states"),
-            patch(f"{_SM}.import_tpi_state_map"),
-        ):
-            mgr.hydrate_controllers("p:")
-        assert mgr.dirty is False
-
-
-# ---------------------------------------------------------------------------
-# Controller bridging: sync_controllers
-# ---------------------------------------------------------------------------
-
-
-class TestSyncControllers:
-    """sync_controllers() exports module caches and records thermal stats."""
+class TestRecordThermal:
+    """record_thermal() stores the supplied stats; controller state stays put."""
 
     def test_records_thermal_and_dirties(self):
         """Supplied thermal stats are stored and the store is marked dirty."""
         mgr = _make_manager()
-        with (
-            patch(f"{_SM}.export_mpc_state_map", return_value={}),
-            patch(f"{_SM}.export_pid_states", return_value={}),
-            patch(f"{_SM}.export_tpi_state_map", return_value={}),
-        ):
-            mgr.sync_controllers("p:", 0.07, 0.02)
+        mgr.record_thermal(0.07, 0.02)
         assert mgr.thermal.heating_power == 0.07
         assert mgr.thermal.heat_loss_rate == 0.02
         assert mgr.dirty is True
 
-    def test_exports_controller_caches_into_store(self):
-        """Exported controller dicts are deserialized back into the store."""
+    def test_does_not_touch_controller_state(self):
+        """MPC/PID/TPI state in the store stays untouched by record_thermal."""
         mgr = _make_manager()
-        with (
-            patch(
-                f"{_SM}.export_mpc_state_map",
-                return_value={"p:trv1": asdict(MpcState(gain_est=1.23))},
-            ),
-            patch(f"{_SM}.export_pid_states", return_value={}),
-            patch(f"{_SM}.export_tpi_state_map", return_value={}),
-        ):
-            mgr.sync_controllers("p:", None, None)
-        assert mgr.state.mpc["p:trv1"].gain_est == 1.23
+        mgr.set_mpc("p:trv1", MpcState(gain_est=1.23))
+        mgr.set_pid("p:trv1", PIDState(pid_kp=42.0))
+        mgr.set_tpi("p:trv1", TpiState(last_percent=33.0))
 
-    def test_non_dict_export_entry_is_skipped(self):
-        """A malformed (non-dict) export entry is ignored, not stored."""
+        mgr.record_thermal(None, None)
+
+        assert mgr.state.mpc["p:trv1"].gain_est == 1.23
+        assert mgr.state.pid["p:trv1"].pid_kp == 42.0
+        assert mgr.state.tpi["p:trv1"].last_percent == 33.0
+
+
+# ---------------------------------------------------------------------------
+# PID state reset
+# ---------------------------------------------------------------------------
+
+
+class TestResetPidStates:
+    """reset_pid_states() drops prefixed keys and reports the count."""
+
+    def test_removes_only_prefixed_keys(self):
+        """Keys with the prefix are removed; others stay."""
         mgr = _make_manager()
-        with (
-            patch(f"{_SM}.export_mpc_state_map", return_value={"p:bad": "notadict"}),
-            patch(f"{_SM}.export_pid_states", return_value={}),
-            patch(f"{_SM}.export_tpi_state_map", return_value={}),
-        ):
-            mgr.sync_controllers("p:", None, None)
-        assert "p:bad" not in mgr.state.mpc
+        mgr.set_pid("p:trv1:t21.0", PIDState())
+        mgr.set_pid("p:trv1:t21.5", PIDState())
+        mgr.set_pid("other:trvX:t20.0", PIDState())
+
+        removed = mgr.reset_pid_states("p:")
+
+        assert removed == 2
+        assert set(mgr.state.pid) == {"other:trvX:t20.0"}
+
+    def test_removal_marks_dirty(self):
+        """Removing entries marks the store dirty."""
+        mgr = _make_manager()
+        mgr.set_pid("p:trv1:t21.0", PIDState())
+        mgr._dirty = False
+
+        mgr.reset_pid_states("p:")
+
+        assert mgr.dirty is True
+
+    def test_no_match_returns_zero_and_stays_clean(self):
+        """Without matching keys nothing is removed and dirty stays False."""
+        mgr = _make_manager()
+        mgr.set_pid("other:trvX:t20.0", PIDState())
+        mgr._dirty = False
+
+        removed = mgr.reset_pid_states("p:")
+
+        assert removed == 0
+        assert mgr.dirty is False

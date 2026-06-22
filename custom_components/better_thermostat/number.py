@@ -12,11 +12,9 @@ from homeassistant.helpers.restore_state import RestoreEntity
 
 from .sensor import _ACTIVE_PID_NUMBERS, _ACTIVE_PRESET_NUMBERS
 from .utils.calibration.pid import (
-    _PID_STATES,
     DEFAULT_PID_KD,
     DEFAULT_PID_KI,
     DEFAULT_PID_KP,
-    PIDState,
     build_pid_key,
 )
 from .utils.const import (
@@ -244,13 +242,14 @@ class BetterThermostatPIDNumber(NumberEntity, RestoreEntity):
     def native_value(self) -> float | None:
         """Return the value of the number."""
         # Try to get the value from the current active PID state
-        key = build_pid_key(self._bt_climate, self._trv_entity_id)
-        pid_state = _PID_STATES.get(key)
-
-        if pid_state is not None:
-            val = getattr(pid_state, f"pid_{self._parameter}")
-            if val is not None:
-                return val
+        state_mgr = getattr(self._bt_climate, "state_mgr", None)
+        if state_mgr is not None:
+            key = build_pid_key(self._bt_climate, self._trv_entity_id)
+            pid_state = state_mgr.state.pid.get(key)
+            if pid_state is not None:
+                val = getattr(pid_state, f"pid_{self._parameter}")
+                if val is not None:
+                    return val
 
         # Defaults
         if self._parameter == "kp":
@@ -263,14 +262,18 @@ class BetterThermostatPIDNumber(NumberEntity, RestoreEntity):
 
     async def async_set_native_value(self, value: float) -> None:
         """Update the current value."""
+        state_mgr = getattr(self._bt_climate, "state_mgr", None)
+        if state_mgr is None:
+            _LOGGER.debug(
+                "Cannot set PID %s for %s: state manager not ready",
+                self._parameter,
+                self._trv_entity_id,
+            )
+            return
+
         # Update ONLY the current PID state to avoid overwriting learned values for other temperatures
         key = build_pid_key(self._bt_climate, self._trv_entity_id)
-
-        # Ensure state exists
-        if key not in _PID_STATES:
-            _PID_STATES[key] = PIDState()
-
-        pid_state = _PID_STATES[key]
+        pid_state = state_mgr.get_pid(key)
 
         _LOGGER.debug(
             "Updating PID state key %s: %s -> %s",
@@ -279,6 +282,7 @@ class BetterThermostatPIDNumber(NumberEntity, RestoreEntity):
             value,
         )
         setattr(pid_state, f"pid_{self._parameter}", value)
+        state_mgr.set_pid(key, pid_state)
 
         self._bt_climate.schedule_save_state()
         self.async_write_ha_state()

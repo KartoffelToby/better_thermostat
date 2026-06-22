@@ -13,7 +13,6 @@ from homeassistant.helpers.restore_state import RestoreEntity
 # Import tracking variables from sensor.py
 from .sensor import _ACTIVE_SWITCH_ENTITIES
 from .utils.calibration.pid import (
-    _PID_STATES,
     DEFAULT_PID_AUTO_TUNE,
     build_pid_key,
     resolve_unique_id,
@@ -108,11 +107,12 @@ class BetterThermostatPIDAutoTuneSwitch(SwitchEntity, RestoreEntity):
     def is_on(self) -> bool | None:
         """Return true if switch is on."""
         # Try to get the value from the current active PID state
-        key = build_pid_key(self._bt_climate, self._trv_entity_id)
-        pid_state = _PID_STATES.get(key)
-
-        if pid_state is not None and pid_state.auto_tune is not None:
-            return pid_state.auto_tune
+        state_mgr = getattr(self._bt_climate, "state_mgr", None)
+        if state_mgr is not None:
+            key = build_pid_key(self._bt_climate, self._trv_entity_id)
+            pid_state = state_mgr.state.pid.get(key)
+            if pid_state is not None and pid_state.auto_tune is not None:
+                return pid_state.auto_tune
 
         return DEFAULT_PID_AUTO_TUNE
 
@@ -126,13 +126,32 @@ class BetterThermostatPIDAutoTuneSwitch(SwitchEntity, RestoreEntity):
 
     def _update_state(self, state: bool):
         """Update the state."""
+        state_mgr = getattr(self._bt_climate, "state_mgr", None)
+        if state_mgr is None:
+            _LOGGER.debug(
+                "Cannot set PID auto-tune for %s: state manager not ready",
+                self._trv_entity_id,
+            )
+            return
+
         # Update persistent PID states (if any exist for this TRV)
         uid = resolve_unique_id(self._bt_climate)
         prefix = f"{uid}:{self._trv_entity_id}:"
 
-        for key, pid_state in _PID_STATES.items():
+        changed = False
+        for key, pid_state in state_mgr.state.pid.items():
             if key.startswith(prefix):
                 pid_state.auto_tune = state
+                changed = True
+        if changed:
+            state_mgr.mark_dirty()
+        else:
+            # No bucket for this TRV yet (fresh start or after a PID
+            # reset): seed the active bucket so the toggle is not lost.
+            key = build_pid_key(self._bt_climate, self._trv_entity_id)
+            pid_state = state_mgr.get_pid(key)
+            pid_state.auto_tune = state
+            state_mgr.set_pid(key, pid_state)
 
         self._bt_climate.schedule_save_state()
         self.async_write_ha_state()
