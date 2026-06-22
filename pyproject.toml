@@ -144,3 +144,15 @@ errors = { implicit-any-parameter = true, implicit-any-attribute = true, implici
 [[tool.pyrefly.sub-config]]
 matches = "custom_components/better_thermostat/model_fixes/SEA801-Zigbee_SEA802-Zigbee.py"
 errors = { implicit-any-parameter = true, implicit-any-attribute = true, implicit-any-type-argument = true, implicit-any-empty-container = true, missing-override-decorator = true }
+
+[[tool.pyrefly.sub-config]]
+matches = "custom_components/better_thermostat/trv.py"
+errors = { implicit-any-parameter = true, implicit-any-attribute = true, implicit-any-type-argument = true, implicit-any-empty-container = true, missing-override-decorator = true }
+
+[[tool.pyrefly.sub-config]]
+matches = "custom_components/better_thermostat/utils/telemetry.py"
+errors = { implicit-any-parameter = true, implicit-any-attribute = true, implicit-any-type-argument = true, implicit-any-empty-container = true, missing-override-decorator = true }
+
+[[tool.pyrefly.sub-config]]
+matches = "custom_components/better_thermostat/utils/retry.py"
+errors = { implicit-any-parameter = true, implicit-any-attribute = true, implicit-any-type-argument = true, implicit-any-empty-container = true, missing-override-decorator = true }
