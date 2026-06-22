@@ -22,6 +22,7 @@ from homeassistant.const import ATTR_TEMPERATURE
 import pytest
 
 from custom_components.better_thermostat.climate import BetterThermostat
+from custom_components.better_thermostat.trv import Trv
 from custom_components.better_thermostat.utils.hvac_action import ToleranceHysteresis
 from custom_components.better_thermostat.utils.thermal_learning import (
     HeatingPowerTracker,
@@ -261,7 +262,11 @@ class TestComputeHvacAction:
         mock_bt.cur_temp = 21.7  # in band: target-tol(21.5) < cur < target(22.0)
         mock_bt.bt_target_temp = 22.0
         mock_bt._hysteresis.last_action = HVACAction.IDLE
-        mock_bt.real_trvs = {"climate.trv1": {"hvac_action": "heating"}}
+        mock_bt.real_trvs = {
+            "climate.trv1": Trv.from_legacy_dict(
+                "climate.trv1", {"hvac_action": "heating"}
+            )
+        }
         assert self._call(mock_bt) == HVACAction.HEATING
 
     def test_trv_override_valve_position(self, mock_bt):
@@ -269,7 +274,9 @@ class TestComputeHvacAction:
         mock_bt.cur_temp = 21.7
         mock_bt.bt_target_temp = 22.0
         mock_bt._hysteresis.last_action = HVACAction.IDLE
-        mock_bt.real_trvs = {"climate.trv1": {"valve_position": 50}}
+        mock_bt.real_trvs = {
+            "climate.trv1": Trv.from_legacy_dict("climate.trv1", {"valve_position": 50})
+        }
         assert self._call(mock_bt) == HVACAction.HEATING
 
     def test_trv_override_last_valve_percent_0_1_range(self, mock_bt):
@@ -277,7 +284,11 @@ class TestComputeHvacAction:
         mock_bt.cur_temp = 21.7
         mock_bt.bt_target_temp = 22.0
         mock_bt._hysteresis.last_action = HVACAction.IDLE
-        mock_bt.real_trvs = {"climate.trv1": {"last_valve_percent": 0.8}}
+        mock_bt.real_trvs = {
+            "climate.trv1": Trv.from_legacy_dict(
+                "climate.trv1", {"last_valve_percent": 0.8}
+            )
+        }
         assert self._call(mock_bt) == HVACAction.HEATING
 
     def test_trv_override_suppressed_above_target(self, mock_bt):
@@ -285,7 +296,11 @@ class TestComputeHvacAction:
         mock_bt.cur_temp = 22.3  # above target → BT has decided IDLE
         mock_bt.bt_target_temp = 22.0
         mock_bt._hysteresis.last_action = HVACAction.HEATING
-        mock_bt.real_trvs = {"climate.trv1": {"hvac_action": "heating"}}
+        mock_bt.real_trvs = {
+            "climate.trv1": Trv.from_legacy_dict(
+                "climate.trv1", {"hvac_action": "heating"}
+            )
+        }
         assert self._call(mock_bt) == HVACAction.IDLE
 
     def test_ignore_states_no_trv_override(self, mock_bt):
@@ -294,7 +309,11 @@ class TestComputeHvacAction:
         mock_bt.bt_target_temp = 22.0
         mock_bt._hysteresis.last_action = HVACAction.IDLE
         mock_bt.ignore_states = True
-        mock_bt.real_trvs = {"climate.trv1": {"hvac_action": "heating"}}
+        mock_bt.real_trvs = {
+            "climate.trv1": Trv.from_legacy_dict(
+                "climate.trv1", {"hvac_action": "heating"}
+            )
+        }
         assert self._call(mock_bt) == HVACAction.IDLE
 
     def test_ignore_trv_states_per_trv(self, mock_bt):
@@ -303,7 +322,9 @@ class TestComputeHvacAction:
         mock_bt.bt_target_temp = 22.0
         mock_bt._hysteresis.last_action = HVACAction.IDLE
         mock_bt.real_trvs = {
-            "climate.trv1": {"hvac_action": "heating", "ignore_trv_states": True}
+            "climate.trv1": Trv.from_legacy_dict(
+                "climate.trv1", {"hvac_action": "heating", "ignore_trv_states": True}
+            )
         }
         assert self._call(mock_bt) == HVACAction.IDLE
 
@@ -312,7 +333,11 @@ class TestComputeHvacAction:
         mock_bt.cur_temp = 21.7  # in band → tolerance says IDLE
         mock_bt.bt_target_temp = 22.0
         mock_bt._hysteresis.last_action = HVACAction.IDLE
-        mock_bt.real_trvs = {"climate.trv1": {"hvac_action": "heating"}}
+        mock_bt.real_trvs = {
+            "climate.trv1": Trv.from_legacy_dict(
+                "climate.trv1", {"hvac_action": "heating"}
+            )
+        }
         self._call(mock_bt)
         # Tolerance last action should be IDLE (tolerance decision), not HEATING
         assert mock_bt._hysteresis.last_action == HVACAction.IDLE
@@ -1059,6 +1084,54 @@ class TestAsyncSetTemperature:
         mock_bt.max_temp = mock_bt.bt_max_temp
         await self._call(mock_bt, **{ATTR_TEMPERATURE: 22.0})
         mock_bt.control_queue_task.put.assert_awaited_once_with(mock_bt)
+
+    @pytest.mark.asyncio
+    async def test_active_preset_deactivated_on_manual_change(self, mock_bt):
+        """Changing target temp while a preset is active deactivates it (back to NONE)."""
+        mock_bt.preset_mgr.mode = PRESET_COMFORT
+        mock_bt.preset_mgr.saved_temperature = 20.0
+        mock_bt.preset_mgr.temperatures[PRESET_COMFORT] = 21.0
+        mock_bt.bt_target_temp = 21.0
+        mock_bt.bt_hvac_mode = HVACMode.HEAT
+        mock_bt.min_temp = mock_bt.bt_min_temp
+        mock_bt.max_temp = mock_bt.bt_max_temp
+        await self._call(mock_bt, **{ATTR_TEMPERATURE: 19.0})
+        assert mock_bt.preset_mgr.mode == PRESET_NONE
+        assert mock_bt.preset_mgr.saved_temperature is None
+        assert mock_bt.bt_target_temp == 19.0
+        # New manual value is stored as the PRESET_NONE temperature
+        assert mock_bt.preset_mgr.temperatures[PRESET_NONE] == 19.0
+        # Stored Comfort preset temperature is left untouched
+        assert mock_bt.preset_mgr.temperatures[PRESET_COMFORT] == 21.0
+
+    @pytest.mark.asyncio
+    async def test_active_preset_kept_when_new_temp_matches_stored(self, mock_bt):
+        """Setting temp to the preset's stored value (e.g. from its Number entity) keeps the preset active."""
+        mock_bt.preset_mgr.mode = PRESET_COMFORT
+        mock_bt.preset_mgr.saved_temperature = 20.0
+        mock_bt.preset_mgr.temperatures[PRESET_COMFORT] = 22.5
+        mock_bt.bt_target_temp = 21.0
+        mock_bt.bt_hvac_mode = HVACMode.HEAT
+        mock_bt.min_temp = mock_bt.bt_min_temp
+        mock_bt.max_temp = mock_bt.bt_max_temp
+        await self._call(mock_bt, **{ATTR_TEMPERATURE: 22.5})
+        assert mock_bt.preset_mgr.mode == PRESET_COMFORT
+        assert mock_bt.preset_mgr.saved_temperature == 20.0
+        assert mock_bt.bt_target_temp == 22.5
+
+    @pytest.mark.asyncio
+    async def test_preset_none_change_does_not_trigger_deactivation_path(self, mock_bt):
+        """In PRESET_NONE, the deactivation branch is skipped and stored temp is updated."""
+        mock_bt.preset_mgr.mode = PRESET_NONE
+        mock_bt.preset_mgr.saved_temperature = None
+        mock_bt.bt_target_temp = 20.0
+        mock_bt.bt_hvac_mode = HVACMode.HEAT
+        mock_bt.min_temp = mock_bt.bt_min_temp
+        mock_bt.max_temp = mock_bt.bt_max_temp
+        await self._call(mock_bt, **{ATTR_TEMPERATURE: 23.0})
+        assert mock_bt.preset_mgr.mode == PRESET_NONE
+        assert mock_bt.preset_mgr.saved_temperature is None
+        assert mock_bt.preset_mgr.temperatures[PRESET_NONE] == 23.0
 
 
 # ===========================================================================

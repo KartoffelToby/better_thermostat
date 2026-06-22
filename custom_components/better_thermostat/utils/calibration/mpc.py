@@ -153,117 +153,6 @@ class _MpcState:
 # for backwards compatibility within this module.
 MpcState = _MpcState
 
-_MPC_STATES: dict[str, _MpcState] = {}
-
-_STATE_EXPORT_FIELDS = (
-    "last_percent",
-    "last_update_ts",
-    "last_target_C",
-    "ema_slope",
-    "gain_est",
-    "loss_est",
-    "ka_est",
-    "solar_gain_est",
-    "last_temp",
-    "last_time",
-    "last_trv_temp",
-    "last_trv_temp_ts",
-    "last_window_open_ts",
-    "min_effective_percent",
-    "dead_zone_hits",
-    "last_learn_time",
-    "last_learn_temp",
-    "last_residual_time",
-    "virtual_temp",
-    "virtual_temp_ts",
-    "last_room_temp_C",
-    "last_room_temp_ts",
-    "perf_curve",
-    "u_integral",
-    "time_integral",
-    "last_integration_ts",
-    "trv_profile",
-    "profile_confidence",
-    "profile_samples",
-    "created_ts",
-    "loss_learn_count",
-    "gain_learn_count",
-    "is_calibration_active",
-    "recent_errors",
-    "regime_boost_active",
-    "consecutive_insufficient_heat",
-    "kalman_P",
-    "tolerance_hold_active",
-)
-
-
-def _serialize_state(state: _MpcState) -> dict[str, Any]:
-    payload: dict[str, Any] = {}
-    for attr in _STATE_EXPORT_FIELDS:
-        value = getattr(state, attr, None)
-        if value is None:
-            continue
-        # Convert deque to list for JSON serialization
-        if isinstance(value, deque):
-            value = list(value)
-        payload[attr] = value
-    return payload
-
-
-def export_mpc_state_map(prefix: str | None = None) -> dict[str, dict[str, Any]]:
-    """Return a serializable mapping of MPC states, optionally filtered by key prefix."""
-
-    exported: dict[str, dict[str, Any]] = {}
-    for key, state in _MPC_STATES.items():
-        if prefix is not None and not key.startswith(prefix):
-            continue
-        payload = _serialize_state(state)
-        if payload:
-            exported[key] = payload
-    return exported
-
-
-def import_mpc_state_map(state_map: Mapping[str, Mapping[str, Any]]) -> None:
-    """Hydrate MPC states from a previously exported mapping."""
-
-    for key, payload in state_map.items():
-        if not isinstance(payload, Mapping):
-            continue
-        state = _MPC_STATES.setdefault(key, _MpcState())
-        for attr in _STATE_EXPORT_FIELDS:
-            if attr not in payload:
-                continue
-            value = payload[attr]
-            if value is None:
-                setattr(state, attr, None)
-                continue
-            if attr == "perf_curve" and isinstance(value, Mapping):
-                setattr(state, attr, dict(value))
-                continue
-            if attr == "recent_errors" and isinstance(value, (list, tuple)):
-                setattr(state, attr, deque(value, maxlen=20))
-                continue
-            try:
-                coerced: int | float | bool | str
-                match attr:
-                    case (
-                        "dead_zone_hits"
-                        | "loss_learn_count"
-                        | "gain_learn_count"
-                        | "profile_samples"
-                        | "consecutive_insufficient_heat"
-                    ):
-                        coerced = int(value)
-                    case "is_calibration_active" | "regime_boost_active":
-                        coerced = bool(value)
-                    case "trv_profile":
-                        coerced = str(value)
-                    case _:
-                        coerced = float(value)
-            except (TypeError, ValueError):
-                continue
-            setattr(state, attr, coerced)
-
 
 def _curve_bin_label(percent: float, bin_pct: float) -> str:
     bin_pct = max(1.0, float(bin_pct))
@@ -367,28 +256,91 @@ def _split_mpc_key(key: str) -> tuple[str | None, str | None, str | None]:
         return None, None, None
 
 
+def _parse_bucket(bucket: str | None) -> float | None:
+    """Parse a target-temp bucket label (``t21.0``) back into a float."""
+    if not bucket or not bucket.startswith("t"):
+        return None
+    try:
+        return float(bucket[1:])
+    except ValueError:
+        return None
+
+
 def _seed_state_from_siblings(
-    key: str,
-    state: _MpcState,
-    params: MpcParams,
-    all_states: dict[str, _MpcState] | None = None,
+    key: str, state: _MpcState, params: MpcParams, all_states: Mapping[str, _MpcState]
 ) -> None:
-    if not bool(getattr(params, "enable_min_effective_percent", True)):
-        return
-    if state.min_effective_percent is not None:
-        return
-    uid, entity, _ = _split_mpc_key(key)
+    """Seed a fresh per-bucket MPC state from its nearest sibling.
+
+    ``build_mpc_key`` partitions MPC state by ``round(target * 2.0) / 2.0``,
+    so a setpoint change crossing a half-degree boundary allocates a
+    fresh ``_MpcState`` with all defaults. Without seeding, every
+    per-room and per-TRV characteristic would be relearned from scratch
+    on each setpoint move.
+
+    This function copies *target-independent* learned values from the
+    nearest existing sibling (same ``uid`` and ``entity``, different
+    target bucket). Fields that are part of the live controller state
+    (``virtual_temp``, ``recent_errors``, Kalman covariance) or that may
+    legitimately differ across operating points (``gain_est``,
+    ``loss_est``, ``ka_est``) are not touched.
+
+    Existing values in *state* are never overwritten — seeding only
+    fills in defaults.
+    """
+    uid, entity, bucket = _split_mpc_key(key)
     if not uid or not entity:
         return
-    states = all_states if all_states is not None else _MPC_STATES
-    for other_key, other_state in states.items():
+    own_target = _parse_bucket(bucket)
+    siblings: list[tuple[float, _MpcState]] = []
+    for other_key, other_state in all_states.items():
         if other_key == key:
             continue
-        ouid, oentity, _ = _split_mpc_key(other_key)
-        if ouid == uid and oentity == entity:
-            if other_state.min_effective_percent is not None:
-                state.min_effective_percent = other_state.min_effective_percent
-                return
+        ouid, oentity, obucket = _split_mpc_key(other_key)
+        if ouid != uid or oentity != entity:
+            continue
+        other_target = _parse_bucket(obucket)
+        if own_target is not None and other_target is not None:
+            distance = abs(other_target - own_target)
+        else:
+            distance = math.inf
+        siblings.append((distance, other_state))
+
+    if not siblings:
+        return
+
+    siblings.sort(key=lambda item: item[0])
+
+    # --- min_effective_percent (gated by feature flag) ---
+    if state.min_effective_percent is None and bool(
+        getattr(params, "enable_min_effective_percent", True)
+    ):
+        for _, sib in siblings:
+            if sib.min_effective_percent is not None:
+                state.min_effective_percent = sib.min_effective_percent
+                break
+
+    # --- Target-independent learned characteristics ---
+    if not state.perf_curve:
+        for _, sib in siblings:
+            if sib.perf_curve:
+                state.perf_curve = {
+                    label: dict(stats) for label, stats in sib.perf_curve.items()
+                }
+                break
+
+    if state.trv_profile == "unknown" and state.profile_samples == 0:
+        for _, sib in siblings:
+            if sib.trv_profile != "unknown" and sib.profile_samples > 0:
+                state.trv_profile = sib.trv_profile
+                state.profile_confidence = sib.profile_confidence
+                state.profile_samples = sib.profile_samples
+                break
+
+    if state.solar_gain_est is None:
+        for _, sib in siblings:
+            if sib.solar_gain_est is not None:
+                state.solar_gain_est = sib.solar_gain_est
+                break
 
 
 def build_mpc_key(bt, entity_id: str) -> str:
@@ -406,7 +358,7 @@ def build_mpc_key(bt, entity_id: str) -> str:
             if isinstance(target, (int, float))
             else "tunknown"
         )
-    except (TypeError, ValueError):
+    except TypeError, ValueError:
         bucket = "tunknown"
 
     uid = getattr(bt, "unique_id", None) or getattr(bt, "_unique_id", "bt")
@@ -427,7 +379,7 @@ def build_mpc_group_key(bt) -> str:
             if isinstance(target, (int, float))
             else "tunknown"
         )
-    except (TypeError, ValueError):
+    except TypeError, ValueError:
         bucket = "tunknown"
 
     uid = getattr(bt, "unique_id", None) or getattr(bt, "_unique_id", "bt")
@@ -551,16 +503,16 @@ def _round_for_debug(value: float | int | None, digits: int = 3) -> float | int 
         return None
     try:
         return round(float(value), digits)
-    except (TypeError, ValueError):
+    except TypeError, ValueError:
         return value
 
 
 def compute_mpc(
     inp: MpcInput,
     params: MpcParams,
-    state: _MpcState | None = None,
     *,
-    all_states: dict[str, _MpcState] | None = None,
+    state: _MpcState,
+    all_states: Mapping[str, _MpcState],
 ) -> tuple[MpcOutput | None, _MpcState]:
     """Run the predictive controller and emit a valve recommendation.
 
@@ -571,12 +523,12 @@ def compute_mpc(
     params:
         Controller configuration (tuning knobs).
     state:
-        Mutable controller state for this key.  When ``None`` the function
-        falls back to the module-level ``_MPC_STATES`` dict for backwards
-        compatibility, but callers are encouraged to pass state explicitly.
+        Mutable controller state for this key, owned by the caller
+        (typically read from and written back to the ``StateManager``).
+        It is mutated in place and returned.
     all_states:
-        Mapping of *all* MPC states (used for sibling seeding).  When
-        ``None`` the module-level ``_MPC_STATES`` dict is used.
+        Mapping of *all* MPC states (used for sibling seeding across
+        target-temperature buckets), typically ``state_mgr.state.mpc``.
 
     Returns
     -------
@@ -586,15 +538,6 @@ def compute_mpc(
     """
 
     now = time()
-
-    # --- Resolve state ---
-    if state is None:
-        # Legacy path: use the module-level global dict.
-        state = _MPC_STATES.setdefault(inp.key, _MpcState())
-    else:
-        # Explicit state path: also store in global dict so that
-        # export_mpc_state_map() still works during the transition period.
-        _MPC_STATES[inp.key] = state
 
     if state.created_ts == 0.0:
         # For existing trained models, backdate the creation timestamp
@@ -957,7 +900,7 @@ def _compute_predictive_percent(
         try:
             current_temp_cost_C = float(inp.filtered_temp_C)
             temp_cost_source = "filtered"
-        except (TypeError, ValueError):
+        except TypeError, ValueError:
             current_temp_cost_C = current_temp_C
             inp.filtered_temp_C = None
 
@@ -1466,7 +1409,7 @@ def _compute_predictive_percent(
                 )
                 state.ka_est = float(_loss_val) / _delta
 
-        except (TypeError, ValueError, ZeroDivisionError):
+        except TypeError, ValueError, ZeroDivisionError:
             pass
 
     # convert to per-step quantities (°C per simulation step)
@@ -1754,7 +1697,7 @@ def _post_process_percent(
                 target_changed = (
                     abs(float(inp.target_temp_C) - float(prev_target)) >= 0.05
                 )
-            except (TypeError, ValueError):
+            except TypeError, ValueError:
                 target_changed = False
         state.last_target_C = inp.target_temp_C
 
@@ -1768,7 +1711,7 @@ def _post_process_percent(
         try:
             if delta_t is None:
                 delta_t = inp.target_temp_C - inp.current_temp_C
-        except (TypeError, ValueError):
+        except TypeError, ValueError:
             delta_t = None
 
     # ============================================================

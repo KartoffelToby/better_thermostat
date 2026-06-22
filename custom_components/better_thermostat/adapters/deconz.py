@@ -53,7 +53,7 @@ async def get_current_offset(self, entity_id):
         return 0.0
     try:
         return float(str(state.attributes.get("offset", 0)))
-    except (ValueError, TypeError):
+    except ValueError, TypeError:
         _LOGGER.warning(
             "better_thermostat %s: Could not convert calibration offset '%s' to float, using 0",
             self.device_name,
@@ -86,7 +86,7 @@ async def set_offset(self, entity_id, offset):
         blocking=True,
         context=self.context,
     )
-    self.real_trvs[entity_id]["last_calibration"] = offset
+    self.real_trvs[entity_id].last_calibration = offset
 
 
 async def set_valve(self, entity_id, valve):
