@@ -204,3 +204,15 @@ def test_stochastic_windows_do_not_spill_into_next_slot():
         t += 1.0
     # Spilling events would merge with their successors → fewer edges.
     assert edges == count
+
+
+def test_stochastic_windows_rejects_nonpositive_duration():
+    """A non-positive duration_s is rejected before slot computation."""
+    with pytest.raises(ValueError):
+        schedules.stochastic_windows(seed=0, count=3, duration_s=0.0)
+
+
+def test_solar_trapezoid_rejects_unordered_edges():
+    """Zero-width or misordered edges are rejected (no divide-by-zero)."""
+    with pytest.raises(ValueError):
+        schedules.solar_trapezoid(100.0, 100.0, 200.0, 300.0)  # zero-width rise

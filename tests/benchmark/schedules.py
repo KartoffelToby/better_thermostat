@@ -301,7 +301,20 @@ def solar_trapezoid(
     -------
     Callable[[float], float]
         Schedule function ``t -> intensity``.
+
+    Raises
+    ------
+    ValueError
+        If the edges are not strictly ordered
+        ``t_rise_start < t_rise_end <= t_fall_start < t_fall_end`` (a
+        zero-width rising or falling edge would divide by zero).
     """
+    if not (t_rise_start < t_rise_end <= t_fall_start < t_fall_end):
+        raise ValueError(
+            "solar_trapezoid requires t_rise_start < t_rise_end <= "
+            "t_fall_start < t_fall_end, got "
+            f"({t_rise_start}, {t_rise_end}, {t_fall_start}, {t_fall_end})"
+        )
 
     def _f(t: float) -> float:
         if t < t_rise_start or t >= t_fall_end:
