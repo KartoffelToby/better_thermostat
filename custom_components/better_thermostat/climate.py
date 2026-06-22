@@ -367,8 +367,8 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
         ----------
         name : str
             Display name of the thermostat.
-        heater_entity_id : str | list[str]
-            TRV (heater) entity id(s) controlled by this thermostat.
+        heater_entity_id : list[dict]
+            TRV configuration entries controlled by this thermostat.
         sensor_entity_id : str | None
             External temperature sensor entity id.
         humidity_sensor_entity_id : str | None
