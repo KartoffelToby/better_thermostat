@@ -33,6 +33,25 @@ class MultiTrvPlantParams:
     # 22 % deadband mixed with two normal TRVs).
     deadband_pcts_per_trv: list[float] = field(default_factory=list)
 
+    def __post_init__(self) -> None:
+        """Reject non-physical parameters that would crash the integrator.
+
+        Raises
+        ------
+        ValueError
+            If ``n_trvs`` is not positive or a time constant the integrator
+            divides by is not positive.
+        """
+        if self.n_trvs < 1:
+            raise ValueError(
+                f"MultiTrvPlantParams n_trvs must be >= 1, got {self.n_trvs}"
+            )
+        if self.tau_room_min <= 0.0 or self.tau_rad_min <= 0.0:
+            raise ValueError(
+                "MultiTrvPlantParams tau_room_min and tau_rad_min must be > 0, got "
+                f"tau_room_min={self.tau_room_min}, tau_rad_min={self.tau_rad_min}"
+            )
+
 
 @dataclass
 class MultiTrvPlantState:

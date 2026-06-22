@@ -267,6 +267,7 @@ def _drive_adapter(
 
     t = 0.0
     last_valve_pct = 0.0
+    last_measured_temp = facade.T_room_C
     restart_fired = False
 
     while t <= duration_s + 1e-6:
@@ -308,9 +309,12 @@ def _drive_adapter(
             if scenario.controller_solar_schedule is not None
             else solar_intensity
         )
-        T_measured = sensor.read(t, facade.T_room_C)
-        if T_measured is None:
-            T_measured = facade.T_room_C
+        # On dropout the sensor returns None; the controller keeps using
+        # its last good reading rather than being handed the plant truth.
+        sampled = sensor.read(t, facade.T_room_C)
+        if sampled is not None:
+            last_measured_temp = sampled
+        T_measured = last_measured_temp
 
         ctx = BenchmarkContext(
             t=t,
