@@ -24,6 +24,7 @@ from custom_components.better_thermostat.utils.calibration.mpc import (
     _detect_trv_profile,
     _MpcState,
     _round_for_debug,
+    _seed_state_from_siblings,
     _split_mpc_key,
     _update_perf_curve,
     build_mpc_group_key,
@@ -1264,6 +1265,163 @@ class TestSeedFromSiblings:
         _compute(_inp(key="uid3:climate.trv_B:t22.0", current_temp_C=20.0), params)
         new_state = _STATES["uid3:climate.trv_B:t22.0"]
         assert new_state.min_effective_percent is None
+
+    # ------------------------------------------------------------------
+    # Cross-bucket carryover of target-independent learned values.
+    # build_mpc_key buckets state by ``round(target * 2.0) / 2.0``, so a
+    # 0.5 °C setpoint move past a bucket boundary spawns a fresh
+    # _MpcState. Without seeding, perf_curve / trv_profile /
+    # solar_gain_est are relearned from scratch on every setpoint move.
+    # ------------------------------------------------------------------
+
+    def test_perf_curve_seeded_from_sibling(self):
+        """A fresh bucket inherits the learned perf_curve from its nearest sibling."""
+        params = _default_params()
+        sibling = _MpcState()
+        sibling.perf_curve = {
+            "p00_02": {"count": 5, "avg_room_rate": 0.01, "avg_percent": 1.0},
+            "p20_22": {"count": 12, "avg_room_rate": 0.04, "avg_percent": 21.0},
+        }
+        _STATES["uidA:climate.trv:t21.0"] = sibling
+
+        fresh = _MpcState()
+        _seed_state_from_siblings(
+            "uidA:climate.trv:t22.0", fresh, params, all_states=_STATES
+        )
+
+        assert fresh.perf_curve == sibling.perf_curve
+        # Copy, not alias: mutating the seeded curve must not affect the source.
+        fresh.perf_curve["p00_02"]["count"] = 99
+        assert sibling.perf_curve["p00_02"]["count"] == 5
+
+    def test_trv_profile_seeded_from_sibling(self):
+        """A fresh bucket inherits a confirmed TRV profile from its nearest sibling."""
+        params = _default_params()
+        sibling = _MpcState()
+        sibling.trv_profile = "threshold"
+        sibling.profile_confidence = 0.82
+        sibling.profile_samples = 17
+        _STATES["uidB:climate.trv:t20.0"] = sibling
+
+        fresh = _MpcState()
+        _seed_state_from_siblings(
+            "uidB:climate.trv:t21.0", fresh, params, all_states=_STATES
+        )
+
+        assert fresh.trv_profile == "threshold"
+        assert fresh.profile_confidence == pytest.approx(0.82)
+        assert fresh.profile_samples == 17
+
+    def test_solar_gain_est_seeded_from_sibling(self):
+        """A fresh bucket inherits the learned solar gain estimate."""
+        params = _default_params()
+        sibling = _MpcState()
+        sibling.solar_gain_est = 0.018
+        _STATES["uidC:climate.trv:t19.0"] = sibling
+
+        fresh = _MpcState()
+        _seed_state_from_siblings(
+            "uidC:climate.trv:t22.0", fresh, params, all_states=_STATES
+        )
+
+        assert fresh.solar_gain_est == pytest.approx(0.018)
+
+    def test_seeding_picks_nearest_target_sibling(self):
+        """When multiple siblings exist, the nearest-target one is preferred."""
+        params = _default_params()
+        far = _MpcState()
+        far.solar_gain_est = 0.040
+        near = _MpcState()
+        near.solar_gain_est = 0.012
+        _STATES["uidD:climate.trv:t18.0"] = far
+        _STATES["uidD:climate.trv:t21.5"] = near
+
+        fresh = _MpcState()
+        _seed_state_from_siblings(
+            "uidD:climate.trv:t22.0", fresh, params, all_states=_STATES
+        )
+
+        # 22.0 is closer to 21.5 than to 18.0.
+        assert fresh.solar_gain_est == pytest.approx(0.012)
+
+    def test_seeding_does_not_overwrite_existing_values(self):
+        """Re-seeding must not clobber values the fresh state already has."""
+        params = _default_params()
+        sibling = _MpcState()
+        sibling.solar_gain_est = 0.040
+        sibling.trv_profile = "threshold"
+        sibling.profile_confidence = 0.9
+        sibling.profile_samples = 30
+        sibling.perf_curve = {"p10_12": {"count": 1, "avg_room_rate": 0.02}}
+        _STATES["uidE:climate.trv:t21.0"] = sibling
+
+        already_trained = _MpcState()
+        already_trained.solar_gain_est = 0.005
+        already_trained.trv_profile = "linear"
+        already_trained.profile_confidence = 0.7
+        already_trained.profile_samples = 11
+        already_trained.perf_curve = {"p50_52": {"count": 8, "avg_room_rate": 0.05}}
+
+        _seed_state_from_siblings(
+            "uidE:climate.trv:t22.0", already_trained, params, all_states=_STATES
+        )
+
+        # Original values must be preserved.
+        assert already_trained.solar_gain_est == pytest.approx(0.005)
+        assert already_trained.trv_profile == "linear"
+        assert already_trained.profile_confidence == pytest.approx(0.7)
+        assert already_trained.profile_samples == 11
+        assert "p50_52" in already_trained.perf_curve
+        assert "p10_12" not in already_trained.perf_curve
+
+    def test_seeding_ignores_default_value_siblings(self):
+        """Siblings whose fields are still at defaults must not act as seed sources."""
+        params = _default_params()
+        empty_sibling = _MpcState()  # all defaults
+        _STATES["uidF:climate.trv:t21.0"] = empty_sibling
+
+        fresh = _MpcState()
+        _seed_state_from_siblings(
+            "uidF:climate.trv:t22.0", fresh, params, all_states=_STATES
+        )
+
+        assert fresh.perf_curve == {}
+        assert fresh.trv_profile == "unknown"
+        assert fresh.solar_gain_est is None
+
+    def test_seeding_skips_group_keys_for_entity_keys(self):
+        """Group-keyed siblings (uid:group:tX.X) must not seed entity-keyed states."""
+        params = _default_params()
+        group_sibling = _MpcState()
+        group_sibling.solar_gain_est = 0.025
+        _STATES["uidG:group:t21.0"] = group_sibling
+
+        fresh = _MpcState()
+        _seed_state_from_siblings(
+            "uidG:climate.trv:t22.0", fresh, params, all_states=_STATES
+        )
+
+        # uid matches but the entity slot differs ("group" vs "climate.trv"),
+        # so seeding must not happen.
+        assert fresh.solar_gain_est is None
+
+    def test_seeding_runs_through_compute_mpc_on_first_call(self):
+        """Integration: first compute_mpc call on a new bucket triggers seeding."""
+        params = _default_params()
+        sibling = _MpcState()
+        sibling.solar_gain_est = 0.022
+        sibling.perf_curve = {"p20_22": {"count": 4, "avg_room_rate": 0.03}}
+        sibling.trv_profile = "threshold"
+        sibling.profile_confidence = 0.7
+        sibling.profile_samples = 8
+        _STATES["uidH:climate.trv:t20.0"] = sibling
+
+        _compute(_inp(key="uidH:climate.trv:t22.0", current_temp_C=20.0), params)
+        new_state = _STATES["uidH:climate.trv:t22.0"]
+
+        assert new_state.solar_gain_est == pytest.approx(0.022)
+        assert new_state.trv_profile == "threshold"
+        assert "p20_22" in new_state.perf_curve
 
 
 # ===================================================================
