@@ -94,6 +94,16 @@ def test_sensor_noise_path_is_deterministic():
     assert any(v != 20.0 for v in a)  # noise actually fires
 
 
+def test_sensor_seed_is_deterministic_and_decorrelating():
+    """Same seed → identical noise; different seeds → different realisations."""
+    p = SensorParams(noise_std_K=0.5, sample_interval_s=30.0)
+    same_a = [Sensor(p, seed=7).read(t * 30.0, 20.0) for t in range(5)]
+    same_b = [Sensor(p, seed=7).read(t * 30.0, 20.0) for t in range(5)]
+    assert same_a == same_b  # reproducible
+    other = [Sensor(p, seed=99).read(t * 30.0, 20.0) for t in range(5)]
+    assert other != same_a  # decorrelated across seeds
+
+
 def test_sensor_dropout_returns_none():
     """Sensor dropout returns none."""
     p = SensorParams(dropout_until_t_s=600.0)

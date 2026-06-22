@@ -14,6 +14,7 @@ import argparse
 from collections.abc import Callable
 import sys
 from typing import Any, Protocol
+import zlib
 
 from .actuator import Actuator, ActuatorParams, ActuatorProfile
 from .adapters.base import BenchmarkContext, ControllerAdapter
@@ -252,7 +253,11 @@ def _drive_adapter(
     the plant, which the facade encapsulates.
     """
     sensor_params = scenario.sensor_params or SensorParams(sample_interval_s=60.0)
-    sensor = Sensor(sensor_params)
+    # Derive a stable per-scenario seed so sensor noise/jitter is
+    # decorrelated across scenarios while staying fully reproducible.
+    # ``zlib.crc32`` is used over the built-in ``hash`` because the latter
+    # is salted per process (PYTHONHASHSEED) and would break determinism.
+    sensor = Sensor(sensor_params, seed=zlib.crc32(scenario.name.encode()))
     adapter.reset()
 
     t_s_list: list[float] = []

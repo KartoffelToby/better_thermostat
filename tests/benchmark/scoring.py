@@ -182,7 +182,7 @@ def actuator_score(metrics: MetricValues, oracle: MetricValues) -> float:
     """Score total valve travel relative to the oracle.
 
     Failure threshold: 5× oracle's total travel. Cycle count is *not*
-    used directly — see WHITEPAPER §13 / reflexion: tracking-precise
+    used directly — see DESIGN.md §5 (actuator metric): tracking-precise
     controllers (oracle) cycle many small times; total travel is the
     honest wear/battery proxy.
 
@@ -207,6 +207,12 @@ def actuator_score(metrics: MetricValues, oracle: MetricValues) -> float:
     return _clamp_01(1.0 - penalty)
 
 
+#: Below this oracle integral the ratio is ill-conditioned (the scenario
+#: barely heated/cooled), so excess usage is scored against this absolute
+#: floor instead. A candidate that over-uses by a full floor scores 0.
+_ENERGY_FLOOR_PCT_MIN = 100.0
+
+
 def energy_score(metrics: MetricValues, oracle: MetricValues) -> float:
     """Score integral valve usage relative to the oracle (symmetric).
 
@@ -227,9 +233,15 @@ def energy_score(metrics: MetricValues, oracle: MetricValues) -> float:
     float
         Energy score in 0..1.
     """
-    if oracle.integral_valve_pct_min < 100.0:
-        # Edge case — scenario barely heated/cooled; treat as neutral.
-        return 1.0
+    if oracle.integral_valve_pct_min < _ENERGY_FLOOR_PCT_MIN:
+        # Oracle barely moved, so the ratio is ill-conditioned. Score the
+        # candidate's *excess* usage over the oracle against the floor
+        # rather than treating every candidate as oracle-equivalent —
+        # otherwise a grossly over-heating controller escapes scoring here.
+        excess = max(
+            0.0, metrics.integral_valve_pct_min - oracle.integral_valve_pct_min
+        )
+        return _clamp_01(1.0 - excess / _ENERGY_FLOOR_PCT_MIN)
     ratio = metrics.integral_valve_pct_min / oracle.integral_valve_pct_min
     deviation = abs(ratio - 1.0)
     return _clamp_01(1.0 - deviation)

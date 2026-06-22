@@ -6,7 +6,7 @@ Two distinct time-domain effects are modelled here:
    reading approaches the air temperature with a first-order continuous
    filter (time constant ``thermal_lag_s``). This is the dominant
    physical lag in residential temperature sensors (typ. 30 s – 3 min,
-   see LITERATURE_REVIEW.md §5).
+   see DESIGN.md §8 (sensor modelling)).
 
 2. **Sampling** — sensors only emit values every ``sample_interval_s``
    (typical 1–5 min for Zigbee). Between samples the previous reading
@@ -56,11 +56,14 @@ class Sensor:
     operate on the lagged value.
     """
 
-    def __init__(self, params: SensorParams) -> None:
+    def __init__(self, params: SensorParams, seed: int = 12345) -> None:
         self.params = params
         self._filtered: float | None = None
         self._last_sample_t: float = -1.0
-        self._rng_state: int = 12345
+        # Noise/jitter RNG seed. Defaults to a fixed value for standalone
+        # use; the runner derives a per-scenario seed so noise realisations
+        # are decorrelated across scenarios rather than identical.
+        self._rng_state: int = seed & 0x7FFFFFFF
         # Thermal-lag state: continuously updated regardless of sampling.
         self._lag_state: float | None = None
         self._last_lag_update_t: float = -1.0
