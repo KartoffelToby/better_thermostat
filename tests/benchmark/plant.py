@@ -73,6 +73,30 @@ class PlantParams:
     # at the radiator. ``0`` disables the delay.
     valve_command_delay_s: float = 0.0
 
+    def __post_init__(self) -> None:
+        """Reject non-physical parameters that would crash ``step``.
+
+        Raises
+        ------
+        ValueError
+            If a time constant that the integrator divides by is not
+            positive, or the wall layer / pipe delay is negative.
+        """
+        if self.tau_room_min <= 0.0 or self.tau_rad_min <= 0.0:
+            raise ValueError(
+                "PlantParams tau_room_min and tau_rad_min must be > 0, got "
+                f"tau_room_min={self.tau_room_min}, tau_rad_min={self.tau_rad_min}"
+            )
+        if self.tau_wall_min < 0.0:
+            raise ValueError(
+                f"PlantParams tau_wall_min must be >= 0, got {self.tau_wall_min}"
+            )
+        if self.valve_command_delay_s < 0.0:
+            raise ValueError(
+                "PlantParams valve_command_delay_s must be >= 0, got "
+                f"{self.valve_command_delay_s}"
+            )
+
 
 @dataclass
 class PlantState:

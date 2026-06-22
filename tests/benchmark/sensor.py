@@ -48,6 +48,31 @@ class SensorParams:
     # async sensor-report behaviour of Zigbee TRVs that report on change.
     jitter_std_s: float = 0.0
 
+    def __post_init__(self) -> None:
+        """Reject physically invalid sensor parameters.
+
+        Raises
+        ------
+        ValueError
+            If the sampling interval is not positive, the EMA factor is
+            outside (0, 1], or a noise/lag/jitter magnitude is negative.
+        """
+        # 0 is valid and means "sample on every step"; only negatives are rejected.
+        if self.sample_interval_s < 0.0:
+            raise ValueError(
+                f"SensorParams sample_interval_s must be >= 0, got {self.sample_interval_s}"
+            )
+        if not (0.0 < self.ema_alpha <= 1.0):
+            raise ValueError(
+                f"SensorParams ema_alpha must be in (0, 1], got {self.ema_alpha}"
+            )
+        if self.noise_std_K < 0.0 or self.thermal_lag_s < 0.0 or self.jitter_std_s < 0.0:
+            raise ValueError(
+                "SensorParams noise_std_K, thermal_lag_s and jitter_std_s must be "
+                f">= 0, got noise_std_K={self.noise_std_K}, "
+                f"thermal_lag_s={self.thermal_lag_s}, jitter_std_s={self.jitter_std_s}"
+            )
+
 
 class Sensor:
     """Sampled-output sensor with optional thermal lag and EMA filtering.

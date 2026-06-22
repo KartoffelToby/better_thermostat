@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from dataclasses import replace
 
+import pytest
+
 from tests.benchmark.plant import (
     PROFILE_STANDARD,
     PlantParams,
@@ -102,3 +104,12 @@ def test_realistic_profile_has_both_features():
 
     assert PROFILE_REALISTIC.tau_wall_min > 0.0
     assert PROFILE_REALISTIC.valve_command_delay_s > 0.0
+
+
+def test_pipe_delay_rejects_changed_dt_s():
+    """Changing dt_s after the delay buffer is sized fails fast."""
+    params = replace(PROFILE_STANDARD, valve_command_delay_s=60.0)
+    plant = TwoStatePlant(params, PlantState(T_room_C=20.0, T_rad_C=20.0))
+    plant.step(30.0, 1.0, 5.0)  # sizes the buffer for dt_s=30
+    with pytest.raises(ValueError):
+        plant.step(60.0, 1.0, 5.0)  # different dt_s → reject
