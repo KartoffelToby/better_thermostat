@@ -39,7 +39,7 @@ Assistant and performs the device writes.
 The core imports no Home Assistant code, performs no IO, and reads no
 clocks — time arrives inside its inputs. Its heart is one function:
 
-```
+```text
 decide(snapshot, state) -> (desired, state')
 ```
 

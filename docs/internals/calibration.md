@@ -80,7 +80,6 @@ warmup bootstrapping), and capability/health reporting is annunciation.
 
 Calibration is the most behavior-sensitive code in the project. Two
 nets pin it: the per-mode unit suites, and the seeded calibration
-benchmark (`python -m tests.benchmark.runner`) — a pure thermal
-simulation across all controllers and ~37 scenarios whose output is
-deterministic and therefore diffable. A refactoring of this code is
+benchmark — a pure thermal simulation across all controllers and ~37
+scenarios whose output is deterministic and therefore diffable. A refactoring of this code is
 proven by a byte-identical benchmark before and after.

@@ -50,15 +50,16 @@ stateDiagram-v2
   write. Nothing downstream of the HOLD decision may re-introduce an
   adjustment — boost included.
 
-Downgrades are debounced (~2 min) so a flapping sensor does not flip
-behavior; upgrades require sustained recovery (~5 min). The rung is
+Downgrades are debounced (`down_debounce_s`, 120 s) so a flapping sensor
+does not flip behavior; upgrades require sustained recovery
+(`up_stability_s`, 300 s). The rung is
 visible as the `control_mode` attribute, along with `degraded_for_s`
 and `unavailable_sensors`; entering degraded mode raises a repair issue
 that clears itself on recovery.
 
 Per-TRV, the bulkhead is the cascade itself: a dead TRV receives no
 intent and its native thermostat keeps controlling at the last
-commanded state — de-facto passthrough — while the other TRVs stay
+commanded state — effectively in passthrough mode — while the other TRVs stay
 fully controlled.
 
 ## The watchdog

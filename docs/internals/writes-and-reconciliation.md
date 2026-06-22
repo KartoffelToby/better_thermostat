@@ -72,8 +72,7 @@ On divergence the reconciler queues one ordinary control cycle — the
 general healing mechanism that replaces per-case keepalives. The
 tolerances are deliberate: a reconciler that fights device quantization
 or normal modulation would re-send the same value every five minutes
-and drain batteries, which is exactly what the budget exists to
-prevent.
+and drain batteries, which is what the budget exists to prevent.
 
 The same tick hosts the watchdog check: if no control cycle completed
 for 15 minutes, it logs an error and forces one.

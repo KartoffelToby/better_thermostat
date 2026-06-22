@@ -10,7 +10,7 @@ Better Thermostat separates a **pure decision core** from an
 shell observes Home Assistant and performs the device writes. The
 boundary is one function:
 
-```
+```text
 decide(snapshot, state) -> (desired, state')
 ```
 
