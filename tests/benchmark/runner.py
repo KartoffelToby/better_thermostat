@@ -283,10 +283,10 @@ def _drive_adapter(
             stored: dict[str, Any] | None = None
             export = getattr(adapter, "export_state", None)
             if callable(export):
-                try:
-                    candidate = export()
-                except Exception:
-                    candidate = None
+                # Let a genuinely broken export_state surface rather than
+                # silently cold-starting; a non-dict return is still
+                # tolerated (treated as no persisted state).
+                candidate = export()
                 if isinstance(candidate, dict):
                     stored = candidate
             adapter.reset(prior=stored)

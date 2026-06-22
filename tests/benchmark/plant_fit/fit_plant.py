@@ -63,6 +63,8 @@ def _load_csv(path: str) -> dict[str, TimeSeries]:
                 val = float(val_str)
             except ValueError, TypeError:
                 continue
+            if not math.isfinite(val):
+                continue
             per_entity[eid].ts.append(ts)
             per_entity[eid].val.append(val)
     return dict(per_entity)
@@ -213,7 +215,11 @@ def main(path: str | None = None) -> int:
             spec.name: spec.entity_id for spec in generate_synthetic_data.DEFAULT_ROOMS
         }
     else:
-        data = _load_csv(path)
+        try:
+            data = _load_csv(path)
+        except OSError as err:
+            print(f"ERROR: could not read {path}: {err}", file=sys.stderr)
+            return 1
         outdoor_candidates = sorted(eid for eid in data if "outdoor" in eid.lower())
         if not outdoor_candidates:
             print(
