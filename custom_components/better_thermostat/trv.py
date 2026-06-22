@@ -72,7 +72,14 @@ class Trv:
     extra: dict[str, Any] = field(default_factory=dict)
 
     def consume_accept_next_internal_temp(self) -> bool:
-        """Return and clear the one-shot accept-next-internal-temp flag."""
+        """Return and clear the one-shot accept-next-internal-temp flag.
+
+        Returns
+        -------
+        bool
+            ``True`` if the next internal reading should bypass the
+            debounce; the flag is reset to ``False`` as a side effect.
+        """
         accepted = self.accept_next_internal_temp
         self.accept_next_internal_temp = False
         return accepted

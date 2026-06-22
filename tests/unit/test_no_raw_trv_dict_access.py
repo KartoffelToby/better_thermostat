@@ -19,9 +19,12 @@ _FORBIDDEN = (
     # empty-dict fallbacks that imply dict-shaped entries
     re.compile(r"real_trvs\.get\([^)]*,\s*\{\}\)"),
     # "key" in real_trvs[x] membership tests on an entry; the lookahead
-    # accepts any non-attribute continuation (whitespace, ':', ')', ',',
-    # end of line) so e.g. `x in real_trvs[eid] and ...` is caught too.
-    re.compile(r"\bin\s+(?:\w+(?:\.\w+)*\.)?real_trvs\[[^\]]+\](?=\s|:|\)|,|$)", re.M),
+    # accepts any non-attribute continuation (whitespace, ':', a closing
+    # bracket of any kind, ',', end of line) so e.g. `x in real_trvs[eid]
+    # and ...` or `[x in real_trvs[eid]]` is caught too.
+    re.compile(
+        r"\bin\s+(?:\w+(?:\.\w+)*\.)?real_trvs\[[^\]]+\](?=\s|:|[)\],}]|$)", re.M
+    ),
     # real_trvs[x].pop()/.keys()/... dict methods on an entry
     re.compile(r"real_trvs\[[^\]]+\]\.(pop|keys|values|items|setdefault|update)\("),
 )
