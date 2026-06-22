@@ -22,7 +22,19 @@ from .desired import DesiredState, TrvDesired
 from .snapshot import TrvReported, WorldSnapshot
 
 
+def _finite_bound(value: float | None) -> float | None:
+    """Return ``value`` only when it is a finite bound, else ``None``.
+
+    A NaN/inf bound would compare False against every value and silently
+    disable the corresponding clamp; dropping it falls back to the
+    caller's default instead.
+    """
+    return value if value is not None and math.isfinite(value) else None
+
+
 def _clamp_value(value: float, lower: float | None, upper: float | None) -> float:
+    lower = _finite_bound(lower)
+    upper = _finite_bound(upper)
     if not math.isfinite(value):
         # NaN/inf compare False against every bound, so they would slip through
         # the inequality checks below and reach a device as an invalid payload.
@@ -56,7 +68,9 @@ def _clamp_trv(
 
     valve = intent.valve_percent
     if valve is not None:
-        upper = reported.valve_max_opening if reported is not None else 100.0
+        upper = _finite_bound(
+            reported.valve_max_opening if reported is not None else None
+        )
         valve = _clamp_value(valve, 0.0, upper if upper is not None else 100.0)
         if (
             max_valve_jump is not None

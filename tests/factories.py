@@ -31,12 +31,34 @@ DEFAULT_TRV_ID = "climate.trv"
 
 
 def make_state(**overrides) -> KernelState:
-    """Return a post-startup KernelState; overridable per test."""
+    """Return a post-startup KernelState; overridable per test.
+
+    Parameters
+    ----------
+    **overrides
+        Field values applied via ``dataclasses.replace``.
+
+    Returns
+    -------
+    KernelState
+        A running kernel state with the requested overrides.
+    """
     return replace(running_kernel_state(), **overrides)
 
 
 def make_snapshot(**overrides) -> WorldSnapshot:
-    """Return a heating-mode snapshot with two TRVs; overridable per test."""
+    """Return a heating-mode snapshot with two TRVs; overridable per test.
+
+    Parameters
+    ----------
+    **overrides
+        Field values that replace the snapshot defaults.
+
+    Returns
+    -------
+    WorldSnapshot
+        A heating-mode snapshot with the requested overrides.
+    """
     defaults = {
         "now": datetime(2026, 1, 2, 8, 30, tzinfo=UTC),
         "now_monotonic": 1000.0,
@@ -55,7 +77,20 @@ def make_snapshot(**overrides) -> WorldSnapshot:
 
 
 def make_trv(entity_id: str = DEFAULT_TRV_ID, **fields) -> Trv:
-    """Return a Trv with identity model quirks; overridable per test."""
+    """Return a Trv with identity model quirks; overridable per test.
+
+    Parameters
+    ----------
+    entity_id : str
+        Entity id for the built TRV.
+    **fields
+        Field values that replace the TRV defaults.
+
+    Returns
+    -------
+    Trv
+        A TRV with identity calibration quirks and the requested fields.
+    """
     quirks = MagicMock()
     quirks.fix_local_calibration.side_effect = lambda _self, _eid, offset: float(offset)
     quirks.fix_target_temperature_calibration.side_effect = (
@@ -88,8 +123,25 @@ def make_bt(
 ) -> MagicMock:
     """Return the recurring entity mock: clock, kernel regions, queues, TRVs.
 
-    Keyword arguments beyond the listed ones are forwarded into every
-    TRV built for ``trv_ids``.
+    Parameters
+    ----------
+    trv_ids : tuple of str
+        Entity ids for the TRVs to build on the mock.
+    hvac_action : HVACAction
+        Initial HVAC action reported by the mock.
+    cur_temp : float | None
+        Current room temperature.
+    bt_target_temp : float | None
+        Target temperature.
+    tolerance : float
+        Control tolerance band.
+    **trv_fields
+        Forwarded into every TRV built for ``trv_ids``.
+
+    Returns
+    -------
+    MagicMock
+        The entity mock with clock, kernel regions, queues and TRVs.
     """
     bt = MagicMock()
     bt.name = "better_thermostat"

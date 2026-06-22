@@ -96,6 +96,17 @@ def effective_room_temp(self) -> float | None:
     temperatures substitutes the (dead) room sensor — completing the
     fallback that the watcher has always announced. On every other rung
     this is simply the current room temperature.
+
+    Parameters
+    ----------
+    self :
+        BetterThermostat entity instance.
+
+    Returns
+    -------
+    float | None
+        Effective room temperature, or ``None`` when no usable reading
+        exists.
     """
     mode = self.kernel_state.control_mode.mode
     if mode == ControlMode.SENSOR_FALLBACK:

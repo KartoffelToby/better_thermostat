@@ -131,7 +131,7 @@ class TestTriggerWindowChange:
 async def _run_queue_once(bt):
     """Drive window_queue through exactly one queued event."""
     task = asyncio.create_task(window_queue(bt))
-    await bt.window_queue_task.join()
+    await asyncio.wait_for(bt.window_queue_task.join(), timeout=1)
     task.cancel()
     try:
         await task

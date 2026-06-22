@@ -22,6 +22,19 @@ class AdapterCapabilities:
     writes through a number entity only has the capability once that
     entity was discovered, while a service-call ecosystem (deCONZ,
     Tado) carries it unconditionally.
+
+    Attributes
+    ----------
+    offset_write : bool
+        Whether the adapter can write a local temperature offset.
+    valve_write : bool
+        Whether the adapter can write a valve position.
+    offset_needs_entity : bool
+        Whether the offset write requires a discovered number entity
+        rather than an ecosystem service call.
+    valve_needs_entity : bool
+        Whether the valve write requires a discovered number entity
+        rather than an ecosystem service call.
     """
 
     offset_write: bool = False

@@ -39,7 +39,13 @@ GOLDEN_DIR = Path(__file__).resolve().parents[1] / "fixtures" / "replay_corpus"
 
 
 def _scenarios() -> dict[str, tuple]:
-    """One (snapshot, state) pair per kernel decision tier."""
+    """One (snapshot, state) pair per kernel decision tier.
+
+    Returns
+    -------
+    dict of str to tuple
+        Mapping of scenario name to its ``(snapshot, state)`` pair.
+    """
     return {
         "heating_cold_room": (make_snapshot(room_temp=18.0), make_state()),
         "no_call_for_heat": (make_snapshot(call_for_heat=False), make_state()),
@@ -97,6 +103,18 @@ def _scenarios() -> dict[str, tuple]:
 
 
 def _export_entry(name: str) -> dict:
+    """Export one recorded decision entry for the named scenario.
+
+    Parameters
+    ----------
+    name : str
+        Scenario key from :func:`_scenarios`.
+
+    Returns
+    -------
+    dict
+        The exported flight-recorder entry.
+    """
     snapshot, state = _scenarios()[name]
     recorder = FlightRecorder(capacity=1)
     desired, _ = decide(snapshot, state)
@@ -106,7 +124,13 @@ def _export_entry(name: str) -> dict:
 
 @pytest.mark.parametrize("name", sorted(_scenarios()))
 def test_decision_matches_the_golden_file(name):
-    """The exported decision tuple is byte-stable against the golden."""
+    """The exported decision tuple is byte-stable against the golden.
+
+    Parameters
+    ----------
+    name : str
+        Scenario key under test.
+    """
     entry = _export_entry(name)
     golden_path = GOLDEN_DIR / f"{name}.json"
 
@@ -120,7 +144,13 @@ def test_decision_matches_the_golden_file(name):
 
 @pytest.mark.parametrize("name", sorted(_scenarios()))
 def test_golden_replays_through_the_kernel(name):
-    """replay() reproduces every recorded decision from the corpus."""
+    """replay() reproduces every recorded decision from the corpus.
+
+    Parameters
+    ----------
+    name : str
+        Scenario key under test.
+    """
     golden = json.loads((GOLDEN_DIR / f"{name}.json").read_text())
     matches, recomputed = replay(golden)
     assert matches, f"kernel diverged from recorded decision: {recomputed}"

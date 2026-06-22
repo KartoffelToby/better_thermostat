@@ -178,7 +178,9 @@ class BalanceStrategy:
             and bt.bt_target_temp is not None
             and trv.calibrator_health == CalibratorHealth.HEALTHY
         )
-        ready = bool(healthy and trv is not None and trv.calibration_balance)
+        ready = bool(
+            healthy and trv is not None and trv.calibration_balance is not None
+        )
         return Capability(configured=True, healthy=bool(healthy), ready=ready)
 
 

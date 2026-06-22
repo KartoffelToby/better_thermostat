@@ -30,6 +30,7 @@ decision.
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import dataclass, field, replace
 
 from .desired import DesiredState, Suppression, TrvDesired
@@ -70,7 +71,7 @@ class KernelState:
     lifecycle: LifecycleState = field(default_factory=LifecycleState)
     mode: ModeState = field(default_factory=ModeState)
     control_mode: ControlModeState = field(default_factory=ControlModeState)
-    reachability: dict[str, ReachabilityState] = field(default_factory=dict)
+    reachability: Mapping[str, ReachabilityState] = field(default_factory=dict)
     # Watchdog heartbeat: monotonic time of the last completed control pass.
     last_control_monotonic: float | None = None
 

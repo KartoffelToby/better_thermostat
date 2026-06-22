@@ -116,9 +116,13 @@ async def trigger_trv_change(self, event):
                 _org_trv_state.state,
             )
             trv.current_temperature = None
-            # The next valid reading is the first live data after the
-            # outage and must not be dropped by the debounce below.
-            trv.accept_next_internal_temp = True
+        # The next valid reading is the first live data after the
+        # outage and must not be dropped by the debounce below.
+        trv.accept_next_internal_temp = True
+        # Reachability/fail-soft state must re-evaluate now; otherwise it
+        # stays stale until the next unrelated event.
+        self.async_write_ha_state()
+        request_control_cycle(self)
         return
 
     advanced = trv.advanced or {}

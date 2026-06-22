@@ -764,7 +764,11 @@ async def control_trv(self, heater_entity_id=None, cycle=None):
         # The cycle decision normally arrives from control_queue; a
         # standalone invocation is its own cycle.
         if cycle is None:
-            cycle = compute_control_cycle(self)
+            try:
+                cycle = compute_control_cycle(self)
+            except Exception:
+                self.real_trvs[heater_entity_id].ignore_trv_states = False
+                raise
         snapshot, desired = cycle
         trv_desired = desired.trvs.get(heater_entity_id)
 

@@ -7,9 +7,8 @@ dict-style access to them in production code.
 from pathlib import Path
 import re
 
-_PACKAGE = (
-    Path(__file__).resolve().parents[2] / "custom_components" / "better_thermostat"
-)
+_REPO_ROOT = Path(__file__).resolve().parents[2]
+_PACKAGE = _REPO_ROOT / "custom_components" / "better_thermostat"
 
 _FORBIDDEN = (
     # real_trvs[x]["key"] subscripting of an entry
@@ -38,7 +37,8 @@ def test_no_raw_dict_access_to_real_trvs_entries():
         for pattern in _FORBIDDEN:
             for match in pattern.finditer(source):
                 lineno = source.count("\n", 0, match.start()) + 1
-                offenders.append(f"{path.name}:{lineno}: {lines[lineno - 1].strip()}")
+                rel = path.relative_to(_REPO_ROOT).as_posix()
+                offenders.append(f"{rel}:{lineno}: {lines[lineno - 1].strip()}")
     assert offenders == [], "raw dict access to real_trvs entries:\n" + "\n".join(
         offenders
     )

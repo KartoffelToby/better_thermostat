@@ -55,6 +55,7 @@ async def test_unsupported_mode_is_rejected(bt):
             await BetterThermostat.async_set_hvac_mode(bt, HVACMode.COOL)
     assert bt.bt_hvac_mode == HVACMode.HEAT  # unchanged
     mapper.assert_not_called()
+    bt.async_write_ha_state.assert_not_called()
     bt.control_queue_task.put_nowait.assert_not_called()
 
 

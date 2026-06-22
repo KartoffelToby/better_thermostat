@@ -19,6 +19,13 @@ def request_control_cycle(self, *, replace_pending: bool = False) -> None:
 
     Never blocks the caller. With ``replace_pending`` a stale pending
     item is dropped first (window transitions jump the line).
+
+    Parameters
+    ----------
+    self :
+        BetterThermostat entity instance that owns the control queue.
+    replace_pending : bool
+        Whether to drop any pending request before enqueueing this one.
     """
     queue = self.control_queue_task
     if replace_pending:
@@ -46,6 +53,11 @@ def empty_queue(q: asyncio.Queue) -> None:
     """Empty out a queue of pending items.
 
     Consumes all pending items from the queue and marks them as done.
+
+    Parameters
+    ----------
+    q : asyncio.Queue
+        The queue whose pending items are consumed and marked done.
     """
     for _ in range(q.qsize()):
         q.get_nowait()

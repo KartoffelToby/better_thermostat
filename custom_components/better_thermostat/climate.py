@@ -11,6 +11,7 @@ from datetime import datetime, timedelta
 from functools import cached_property
 import json
 import logging
+import math
 from random import randint
 from typing import Any
 
@@ -611,6 +612,8 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
         # Robust tolerance parsing & sanitizing
         try:
             _tolerance = float(tolerance) if tolerance is not None else 0.0
+            if not math.isfinite(_tolerance):
+                raise ValueError
             if unit == UnitOfTemperature.FAHRENHEIT:
                 _tolerance = _tolerance * 5.0 / 9.0
         except TypeError, ValueError:

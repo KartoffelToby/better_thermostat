@@ -496,7 +496,7 @@ async def check_and_update_degraded_mode(self) -> bool:
     # A stored reading only counts while its TRV is actually reachable;
     # otherwise a pre-outage value would keep HOLD unreachable forever.
     trv_temp_ok = any(
-        trv.current_temperature is not None
+        isinstance(trv.current_temperature, (int, float))
         and is_entity_available(self.hass, entity_id)
         for entity_id, trv in self.real_trvs.items()
     )

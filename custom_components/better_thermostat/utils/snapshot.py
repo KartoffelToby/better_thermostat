@@ -62,6 +62,16 @@ def build_snapshot(self) -> WorldSnapshot:
 
     ``self`` is the BetterThermostat entity; this function is the only
     place that flattens its attributes into the core snapshot type.
+
+    Parameters
+    ----------
+    self :
+        BetterThermostat entity instance.
+
+    Returns
+    -------
+    WorldSnapshot
+        Immutable observation used by the core control cycle.
     """
     trvs = {
         entity_id: _build_trv_reported(self, entity_id, trv)

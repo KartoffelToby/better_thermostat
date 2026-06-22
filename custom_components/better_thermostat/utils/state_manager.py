@@ -69,7 +69,15 @@ class ThermalStats:
 
 @dataclass
 class FilterState:
-    """Runtime filter state that should survive a restart."""
+    """Runtime filter state that should survive a restart.
+
+    Attributes
+    ----------
+    external_temp_ema : float | None
+        Exponential moving average of the external temperature.
+    temp_slope : float | None
+        Estimated room-temperature slope.
+    """
 
     external_temp_ema: float | None = None
     temp_slope: float | None = None
@@ -372,7 +380,15 @@ class StateManager:
 
     @staticmethod
     async def async_remove_store(hass: HomeAssistant, entry_id: str) -> None:
-        """Delete the per-entry store file when its config entry is removed."""
+        """Delete the per-entry store file when its config entry is removed.
+
+        Parameters
+        ----------
+        hass : HomeAssistant
+            The Home Assistant instance.
+        entry_id : str
+            Config entry identifier whose store file is removed.
+        """
         await Store(hass, CURRENT_VERSION, f"{DOMAIN}_{entry_id}_state").async_remove()
 
     # -- Public properties ---------------------------------------------------
@@ -512,7 +528,15 @@ class StateManager:
     def record_filters(
         self, external_temp_ema: float | None, temp_slope: float | None
     ) -> None:
-        """Record the entity-held filter state before a save."""
+        """Record the entity-held filter state before a save.
+
+        Parameters
+        ----------
+        external_temp_ema : float | None
+            Exponential moving average of the external temperature.
+        temp_slope : float | None
+            Estimated room-temperature slope.
+        """
         self._state.filters = FilterState(
             external_temp_ema=external_temp_ema, temp_slope=temp_slope
         )
@@ -529,6 +553,14 @@ class StateManager:
         resetting the timer: ``pre_save`` and the serialization run at
         write time, so the earliest deadline already covers later
         changes — and a steady trigger stream cannot starve the save.
+
+        Parameters
+        ----------
+        pre_save : callable or None
+            Optional callback invoked at write time to refresh the state
+            before serialization.
+        delay_s : float
+            Coalescing window in seconds before the disk write fires.
         """
         if self._delay_save_pending:
             return
