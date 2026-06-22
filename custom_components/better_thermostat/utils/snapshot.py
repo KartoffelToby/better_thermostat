@@ -15,6 +15,8 @@ from ..core.snapshot import TrvReported, WorldSnapshot, parse_hvac_mode
 
 def _as_float(value: object) -> float | None:
     """Best-effort float conversion; None for missing/unparseable values."""
+    if isinstance(value, bool):
+        return None
     if isinstance(value, (int, float)):
         return float(value)
     if isinstance(value, str):
@@ -25,8 +27,9 @@ def _as_float(value: object) -> float | None:
     return None
 
 
-def _build_trv_reported(self, entity_id: str, data: dict) -> TrvReported:
+def _build_trv_reported(self, entity_id: str, data: object) -> TrvReported:
     """Condense one ``real_trvs`` entry into a TrvReported."""
+    payload = data if isinstance(data, dict) else {}
     available = False
     if self.hass is not None:
         state = self.hass.states.get(entity_id)
@@ -37,12 +40,12 @@ def _build_trv_reported(self, entity_id: str, data: dict) -> TrvReported:
     return TrvReported(
         entity_id=entity_id,
         available=available,
-        hvac_mode=parse_hvac_mode(data.get("hvac_mode")),
-        current_temp=_as_float(data.get("current_temperature")),
-        setpoint=_as_float(data.get("last_temperature")),
-        min_temp=_as_float(data.get("min_temp")),
-        max_temp=_as_float(data.get("max_temp")),
-        valve_max_opening=_as_float(data.get("valve_max_opening")),
+        hvac_mode=parse_hvac_mode(payload.get("hvac_mode")),
+        current_temp=_as_float(payload.get("current_temperature")),
+        setpoint=_as_float(payload.get("last_temperature")),
+        min_temp=_as_float(payload.get("min_temp")),
+        max_temp=_as_float(payload.get("max_temp")),
+        valve_max_opening=_as_float(payload.get("valve_max_opening")),
     )
 
 
@@ -53,7 +56,7 @@ def build_snapshot(self) -> WorldSnapshot:
     place that flattens its attributes into the core snapshot type.
     """
     trvs = {
-        entity_id: _build_trv_reported(self, entity_id, data or {})
+        entity_id: _build_trv_reported(self, entity_id, data)
         for entity_id, data in self.real_trvs.items()
     }
 

@@ -9,6 +9,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
+import math
 from typing import Protocol, runtime_checkable
 
 
@@ -45,6 +46,11 @@ class FakeClock:
     monotonic_value: float = 0.0
     now_value: datetime = field(default_factory=_default_now)
 
+    def __post_init__(self) -> None:
+        """Reject inputs that would violate the time-axis invariants."""
+        if self.now_value.tzinfo is None or self.now_value.utcoffset() is None:
+            raise ValueError("now_value must be timezone-aware")
+
     def monotonic(self) -> float:
         """Return the controlled monotonic timestamp."""
         return self.monotonic_value
@@ -59,5 +65,7 @@ class FakeClock:
 
     def advance(self, seconds: float) -> None:
         """Move both time axes forward by ``seconds``."""
+        if not math.isfinite(seconds) or seconds < 0:
+            raise ValueError("seconds must be a finite, non-negative number")
         self.monotonic_value += seconds
         self.now_value += timedelta(seconds=seconds)

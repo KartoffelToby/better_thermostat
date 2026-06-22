@@ -1,6 +1,9 @@
 """Tests for the core Clock protocol and its implementations."""
 
 from datetime import UTC, datetime, timedelta, timezone
+import math
+
+import pytest
 
 from custom_components.better_thermostat.core.clock import Clock, FakeClock
 from custom_components.better_thermostat.utils.clock import SystemClock
@@ -41,6 +44,25 @@ class TestFakeClock:
     def test_satisfies_clock_protocol(self):
         """FakeClock structurally implements Clock."""
         assert isinstance(FakeClock(), Clock)
+
+    def test_rejects_naive_now_value(self):
+        """A naive now_value violates the aware-datetime contract."""
+        with pytest.raises(ValueError, match="timezone-aware"):
+            FakeClock(now_value=datetime(2025, 1, 1, 12, 0, 0))
+
+    def test_advance_rejects_negative(self):
+        """advance() never moves time backwards."""
+        clock = FakeClock()
+        with pytest.raises(ValueError, match="non-negative"):
+            clock.advance(-1.0)
+
+    def test_advance_rejects_non_finite(self):
+        """advance() rejects nan/inf that would poison the time axes."""
+        clock = FakeClock()
+        with pytest.raises(ValueError, match="finite"):
+            clock.advance(math.inf)
+        with pytest.raises(ValueError, match="finite"):
+            clock.advance(math.nan)
 
 
 class TestSystemClock:

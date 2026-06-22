@@ -7,6 +7,7 @@ optional vs critical sensor classification, and degraded mode state management.
 import inspect
 from unittest.mock import MagicMock, patch
 
+from homeassistant.util import dt as dt_util
 import pytest
 
 
@@ -51,6 +52,8 @@ def mock_bt_instance(mock_hass):
     bt._degraded_warning_emitted = False
     bt._critical_grace_until = None
     bt.is_removed = False
+    bt.clock = MagicMock()
+    bt.clock.now.side_effect = dt_util.now
     return bt
 
 
@@ -497,8 +500,6 @@ class TestDegradedModeGracePeriod:
         """Grace active → degraded transition logs DEBUG, no issue, no WARNING."""
         from datetime import timedelta
 
-        from homeassistant.util import dt as dt_util
-
         from custom_components.better_thermostat.utils.watcher import (
             check_and_update_degraded_mode,
         )
@@ -521,8 +522,6 @@ class TestDegradedModeGracePeriod:
     async def test_warns_after_grace_expires(self, mock_bt_instance, caplog):
         """Grace passed → still-degraded re-check logs WARNING and raises issue."""
         from datetime import timedelta
-
-        from homeassistant.util import dt as dt_util
 
         from custom_components.better_thermostat.utils.watcher import (
             check_and_update_degraded_mode,
@@ -548,8 +547,6 @@ class TestDegradedModeGracePeriod:
     async def test_silent_recovery_during_grace(self, mock_bt_instance, caplog):
         """Recover during grace → no INFO log, no issue deleted (none was created)."""
         from datetime import timedelta
-
-        from homeassistant.util import dt as dt_util
 
         from custom_components.better_thermostat.utils.watcher import (
             check_and_update_degraded_mode,

@@ -9,6 +9,7 @@ from dataclasses import FrozenInstanceError, fields
 from datetime import UTC, datetime
 from unittest.mock import MagicMock
 
+from homeassistant.core import State
 import pytest
 
 from custom_components.better_thermostat.core.clock import FakeClock
@@ -55,9 +56,7 @@ def _make_bt() -> MagicMock:
             "valve_max_opening": 80.0,
         }
     }
-    trv_state = MagicMock()
-    trv_state.state = "heat"
-    bt.hass.states.get.return_value = trv_state
+    bt.hass.states.get.return_value = State("climate.trv", "heat")
     return bt
 
 
@@ -138,9 +137,7 @@ class TestTrvReportedBuilding:
     def test_unavailable_state_marks_trv_unavailable(self):
         """An unavailable HA state yields available=False."""
         bt = _make_bt()
-        trv_state = MagicMock()
-        trv_state.state = "unavailable"
-        bt.hass.states.get.return_value = trv_state
+        bt.hass.states.get.return_value = State("climate.trv", "unavailable")
         snapshot = build_snapshot(bt)
         assert snapshot.trvs["climate.trv"].available is False
 
@@ -156,6 +153,22 @@ class TestTrvReportedBuilding:
         bt = _make_bt()
         bt.real_trvs["climate.trv"]["current_temperature"] = "oops"
         bt.real_trvs["climate.trv"]["hvac_mode"] = "bogus"
+        snapshot = build_snapshot(bt)
+        trv = snapshot.trvs["climate.trv"]
+        assert trv.current_temp is None
+        assert trv.hvac_mode is None
+
+    def test_boolean_values_are_not_coerced_to_float(self):
+        """A bool reading does not silently become 1.0/0.0."""
+        bt = _make_bt()
+        bt.real_trvs["climate.trv"]["current_temperature"] = True
+        snapshot = build_snapshot(bt)
+        assert snapshot.trvs["climate.trv"].current_temp is None
+
+    def test_non_dict_payload_does_not_crash(self):
+        """A malformed (non-dict) real_trvs entry degrades to an empty report."""
+        bt = _make_bt()
+        bt.real_trvs["climate.trv"] = "not-a-dict"
         snapshot = build_snapshot(bt)
         trv = snapshot.trvs["climate.trv"]
         assert trv.current_temp is None
