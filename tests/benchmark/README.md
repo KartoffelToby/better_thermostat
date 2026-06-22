@@ -25,10 +25,10 @@ Scores are 0..1, oracle-normalised; 1.0 = oracle-equivalent.
 σ = population stdev across scenarios (lower = steadier per dimension).
 ============================================================================================
   controller          overall      σ  comfort      σ  actuator      σ   energy      σ    n
- *ideal_oracle          0.963  0.109    0.954  0.141     0.987  0.079    0.951  0.172   37
+ *ideal_oracle          1.000  0.000    1.000  0.000     1.000  0.000    1.000  0.000   37
   tpi                   0.783  0.153    0.694  0.228     0.844  0.263    0.914  0.157   37
-  pid                   0.778  0.143    0.849  0.208     0.555  0.365    0.933  0.160   37
-  mpc                   0.685  0.134    0.855  0.179     0.256  0.354    0.904  0.157   37
+  pid                   0.777  0.143    0.849  0.209     0.554  0.364    0.933  0.160   37
+  mpc                   0.685  0.134    0.855  0.179     0.255  0.354    0.903  0.157   37
   bangbang              0.567  0.151    0.761  0.194     0.129  0.301    0.736  0.175   37
 ```
 
@@ -108,9 +108,10 @@ a controller wins.
 
 ### Anchor points
 
-* **Oracle ≈ 0.96** — practical ceiling. Even the Oracle isn't 1.0:
-  some scenarios have permanent disturbances (diurnal outdoor, multi-day
-  weather) where settling-to-setpoint is impossible by construction.
+* **Oracle = 1.0** — the ceiling by construction. Every dimension
+  normalises against the Oracle, so it scores itself 1.0 on every
+  scenario, including the permanent-disturbance ones (diurnal outdoor,
+  multi-day weather) where the disturbance cancels on both sides.
 * **BangBang ≈ 0.57** — noise floor. A deliberately naive on/off
   controller; anything close to BangBang has a real problem.
 * **Production controllers (`pid`, `tpi`, `mpc`, `heating_power`) ≈

@@ -112,10 +112,10 @@ reference:
 
 This makes scores comparable *across* scenarios and houses: 0.85 always
 means "85 % of the way from catastrophic to physically perfect, in this
-specific situation". It also means **no real controller can score 1.0** —
-the oracle cheats by construction. Read the oracle as a ceiling, not a
-target (it sits near 0.96 overall because some scenarios have permanent
-disturbances where settling-to-setpoint is impossible).
+specific situation". The oracle normalises against itself, so it scores
+**1.0** by construction — a real controller approaching 1.0 is matching
+the perfect-knowledge bound. Read the oracle as a ceiling, not a target:
+it cheats by knowing the plant exactly, which no deployable controller can.
 
 ---
 
@@ -429,11 +429,11 @@ quantisation model real valve imperfections (the §7-F family).
 Read the matrix top-down with three anchors (full tables in
 [`README.md`](README.md#how-to-read-the-results)):
 
-* **Oracle ≈ 0.96** — the ceiling. Not 1.0 because some scenarios have
-  unsettleable permanent disturbances.
-* **BangBang ≈ 0.60** — the noise floor. A naive on/off controller;
+* **Oracle = 1.0** — the ceiling. It normalises against itself, so it
+  scores 1.0 on every scenario by construction.
+* **BangBang ≈ 0.57** — the noise floor. A naive on/off controller;
   anything near it has a real problem.
-* **Production controllers ≈ 0.70–0.85** — the realistic band.
+* **Production controllers ≈ 0.68–0.78** — the realistic band.
 
 Then read *across* the dimension columns, not just `overall`:
 
