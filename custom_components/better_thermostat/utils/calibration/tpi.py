@@ -67,7 +67,7 @@ def _round_dbg(v: float | int | None, d: int = 3) -> float | int | None:
         return None
     try:
         return round(float(v), d)
-    except (TypeError, ValueError):
+    except TypeError, ValueError:
         return v
 
 
@@ -196,7 +196,7 @@ def build_tpi_key(bt, entity_id: str) -> str:
             if isinstance(target, (int, float))
             else "tunknown"
         )
-    except (TypeError, ValueError):
+    except TypeError, ValueError:
         bucket = "tunknown"
 
     uid = getattr(bt, "unique_id", None) or getattr(bt, "_unique_id", "bt")

@@ -114,7 +114,7 @@ def _serialize_cycles(
         return {}
     try:
         return {count_key: len(cycles), last_key: json.dumps(cycles[-1])}
-    except (TypeError, ValueError):
+    except TypeError, ValueError:
         _LOGGER.exception("Error while serializing %s", label)
         return {}
 
@@ -143,7 +143,7 @@ def collect_cycle_telemetry(bt: TelemetrySource) -> dict[str, Any]:
     if bt.last_heat_loss_stats:
         try:
             out[ATTR_STATE_HEAT_LOSS_STATS] = json.dumps(list(bt.last_heat_loss_stats))
-        except (TypeError, ValueError):
+        except TypeError, ValueError:
             _LOGGER.exception("Error while serializing heat loss stats")
 
     out["heating_power_norm"] = bt.heating_power_normalized

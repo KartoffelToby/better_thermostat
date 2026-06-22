@@ -291,7 +291,7 @@ def build_mpc_key(bt, entity_id: str) -> str:
             if isinstance(target, (int, float))
             else "tunknown"
         )
-    except (TypeError, ValueError):
+    except TypeError, ValueError:
         bucket = "tunknown"
 
     uid = getattr(bt, "unique_id", None) or getattr(bt, "_unique_id", "bt")
@@ -312,7 +312,7 @@ def build_mpc_group_key(bt) -> str:
             if isinstance(target, (int, float))
             else "tunknown"
         )
-    except (TypeError, ValueError):
+    except TypeError, ValueError:
         bucket = "tunknown"
 
     uid = getattr(bt, "unique_id", None) or getattr(bt, "_unique_id", "bt")
@@ -436,7 +436,7 @@ def _round_for_debug(value: float | int | None, digits: int = 3) -> float | int 
         return None
     try:
         return round(float(value), digits)
-    except (TypeError, ValueError):
+    except TypeError, ValueError:
         return value
 
 
@@ -833,7 +833,7 @@ def _compute_predictive_percent(
         try:
             current_temp_cost_C = float(inp.filtered_temp_C)
             temp_cost_source = "filtered"
-        except (TypeError, ValueError):
+        except TypeError, ValueError:
             current_temp_cost_C = current_temp_C
             inp.filtered_temp_C = None
 
@@ -1342,7 +1342,7 @@ def _compute_predictive_percent(
                 )
                 state.ka_est = float(_loss_val) / _delta
 
-        except (TypeError, ValueError, ZeroDivisionError):
+        except TypeError, ValueError, ZeroDivisionError:
             pass
 
     # convert to per-step quantities (°C per simulation step)
@@ -1630,7 +1630,7 @@ def _post_process_percent(
                 target_changed = (
                     abs(float(inp.target_temp_C) - float(prev_target)) >= 0.05
                 )
-            except (TypeError, ValueError):
+            except TypeError, ValueError:
                 target_changed = False
         state.last_target_C = inp.target_temp_C
 
@@ -1644,7 +1644,7 @@ def _post_process_percent(
         try:
             if delta_t is None:
                 delta_t = inp.target_temp_C - inp.current_temp_C
-        except (TypeError, ValueError):
+        except TypeError, ValueError:
             delta_t = None
 
     # ============================================================

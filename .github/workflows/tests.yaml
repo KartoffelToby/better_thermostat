@@ -21,22 +21,18 @@ jobs:
 
     steps:
       - name: Checkout code
-        uses: actions/checkout@v6
-
-      - name: Set up Python ${{ matrix.python-version }}
-        uses: actions/setup-python@v6
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6
         with:
-          python-version: ${{ matrix.python-version }}
+          persist-credentials: false
 
-      - name: Set up uv (resolver + install cache)
-        uses: astral-sh/setup-uv@v6
+      - name: Set up uv (Python ${{ matrix.python-version }} + install cache)
+        uses: astral-sh/setup-uv@fac544c07dec837d0ccb6301d7b5580bf5edae39  # v8.2.0
         with:
           enable-cache: true
+          python-version: ${{ matrix.python-version }}
 
       - name: Install dependencies
-        run: |
-          uv pip install --system pytest pytest-asyncio
-          if [ -f requirements.dev.txt ]; then uv pip install --system -r requirements.dev.txt; fi
+        run: uv sync --locked
 
       - name: Run pytest
-        run: pytest tests
+        run: uv run --locked pytest tests

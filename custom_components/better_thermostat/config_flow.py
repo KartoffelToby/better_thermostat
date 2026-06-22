@@ -162,18 +162,14 @@ async def _load_adapter_info(
         if adapter is None:
             try:
                 adapter = await load_adapter(flow, integration, trv_id)
-            except (
-                RuntimeError,
-                ValueError,
-                TypeError,
-            ):  # pragma: no cover - defensive
+            except RuntimeError, ValueError, TypeError:  # pragma: no cover - defensive
                 _LOGGER.debug("load_adapter failed", exc_info=True)
 
         if adapter is not None and hasattr(adapter, "get_info"):
             try:
                 # type: ignore[attr-defined]
                 info = await adapter.get_info(flow, trv_id)
-            except (RuntimeError, ValueError, TypeError, AttributeError):
+            except RuntimeError, ValueError, TypeError, AttributeError:
                 _LOGGER.debug("adapter get_info failed", exc_info=True)
 
     return adapter, info
@@ -345,12 +341,12 @@ def _duration_dict_to_seconds(duration: int | float | dict[str, int] | None) -> 
     if isinstance(duration, (int, float)):
         try:
             return max(int(duration), 0)
-        except (TypeError, ValueError):
+        except TypeError, ValueError:
             return 0
     if isinstance(duration, dict):
         try:
             return int(cv.time_period_dict(duration).total_seconds()) or 0
-        except (vol.Invalid, TypeError, ValueError):
+        except vol.Invalid, TypeError, ValueError:
             return 0
     return 0
 
@@ -358,7 +354,7 @@ def _duration_dict_to_seconds(duration: int | float | dict[str, int] | None) -> 
 def _seconds_to_duration_dict(value: int | float | str | None) -> dict[str, int]:
     try:
         total = int(value or 0)
-    except (TypeError, ValueError):
+    except TypeError, ValueError:
         total = 0
     total = max(total, 0)
     hours, remainder = divmod(total, 3600)
@@ -494,7 +490,7 @@ def _build_user_fields(
     )
     try:
         off_temp_default = int(off_temp_default)
-    except (TypeError, ValueError):
+    except TypeError, ValueError:
         off_temp_default = _USER_FIELD_DEFAULTS[CONF_OFF_TEMPERATURE]
     add_field(CONF_OFF_TEMPERATURE, int, default=off_temp_default)
 
@@ -505,7 +501,7 @@ def _build_user_fields(
     tolerance_default = resolve(CONF_TOLERANCE, _USER_FIELD_DEFAULTS[CONF_TOLERANCE])
     try:
         tolerance_default = float(tolerance_default)
-    except (TypeError, ValueError):
+    except TypeError, ValueError:
         tolerance_default = _USER_FIELD_DEFAULTS[CONF_TOLERANCE]
     add_field(
         CONF_TOLERANCE,
@@ -588,7 +584,7 @@ def _normalize_user_submission(
     else:
         try:
             normalized[CONF_OFF_TEMPERATURE] = int(off_temp)
-        except (TypeError, ValueError):
+        except TypeError, ValueError:
             normalized[CONF_OFF_TEMPERATURE] = _USER_FIELD_DEFAULTS[
                 CONF_OFF_TEMPERATURE
             ]
@@ -607,7 +603,7 @@ def _normalize_user_submission(
     else:
         try:
             normalized[CONF_TOLERANCE] = float(tolerance)
-        except (TypeError, ValueError):
+        except TypeError, ValueError:
             normalized[CONF_TOLERANCE] = _USER_FIELD_DEFAULTS[CONF_TOLERANCE]
 
     target_step = user_input.get(

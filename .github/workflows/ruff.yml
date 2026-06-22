@@ -14,12 +14,15 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
-      - uses: actions/checkout@v6
-      - uses: astral-sh/ruff-action@v4.0.0
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6
         with:
-          version-file: requirements.dev.txt
-          args: "check"
-      - uses: astral-sh/ruff-action@v4.0.0
+          persist-credentials: false
+      - name: Set up uv (install cache)
+        uses: astral-sh/setup-uv@fac544c07dec837d0ccb6301d7b5580bf5edae39  # v8.2.0
         with:
-          version-file: requirements.dev.txt
-          args: "format --check"
+          enable-cache: true
+      # --only-group dev skips Home Assistant; ruff is all lint needs.
+      - name: ruff check
+        run: uv run --locked --only-group dev ruff check
+      - name: ruff format --check
+        run: uv run --locked --only-group dev ruff format --check
