@@ -81,6 +81,13 @@ async def async_remove_entry(hass: HomeAssistant, entry: ConfigEntry) -> None:
     Repair-registry issues are scoped by ``device_name`` or by individual
     ``entity_id`` and persist until explicitly deleted; the unified state
     store is a per-entry file that would otherwise be orphaned.
+
+    Parameters
+    ----------
+    hass : HomeAssistant
+        The running Home Assistant instance.
+    entry : ConfigEntry
+        The config entry being removed.
     """
     from .utils.state_manager import StateManager
 

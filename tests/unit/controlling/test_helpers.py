@@ -30,7 +30,13 @@ from tests.factories import make_snapshot
 
 
 def _boost_snapshot():
-    """Snapshot of an active boost: preset set, room below target."""
+    """Create a snapshot for an active boost scenario.
+
+    Returns
+    -------
+    WorldSnapshot
+        Snapshot with boost preset enabled and room temperature below target.
+    """
     return make_snapshot(preset_mode="boost", room_temp=19.0, target_temp=22.0)
 
 

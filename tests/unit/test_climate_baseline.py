@@ -1015,6 +1015,17 @@ class TestAsyncSetTemperature:
         assert mock_bt.bt_hvac_mode == HVACMode.HEAT
 
     @pytest.mark.asyncio
+    async def test_valid_hvac_with_invalid_temperature_is_atomic(self, mock_bt):
+        """Valid hvac_mode + invalid temperature must not partially apply state."""
+        mock_bt.preset_mgr.mode = PRESET_NONE
+        mock_bt.bt_hvac_mode = HVACMode.HEAT
+        with pytest.raises(ServiceValidationError):
+            await self._call(
+                mock_bt, **{ATTR_HVAC_MODE: HVACMode.OFF, ATTR_TEMPERATURE: "warm"}
+            )
+        assert mock_bt.bt_hvac_mode == HVACMode.HEAT
+
+    @pytest.mark.asyncio
     async def test_heat_cool_low_high_setpoints(self, mock_bt):
         """HEAT_COOL with low/high setpoints."""
         mock_bt.hvac_mode = HVACMode.HEAT_COOL

@@ -544,8 +544,9 @@ class StateManager:
                         "better_thermostat [%s]: pre-save callback failed",
                         self._entry_id,
                     )
+            data = _serialize(self._state)
             self._dirty = False
-            return _serialize(self._state)
+            return data
 
         self._store.async_delay_save(_data_to_save, delay_s)
 

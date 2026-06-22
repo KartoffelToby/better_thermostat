@@ -749,12 +749,12 @@ def calculate_calibration_local(self, entity_id) -> float | None:
         _calibration_mode = CalibrationMode.MPC_CALIBRATION
     traits = _traits_for(_calibration_mode)
 
-    if self.cur_temp is None:
+    _cur_external_temp = effective_room_temp(self)
+    if _cur_external_temp is None:
         return None
     if traits.needs_target and self.bt_target_temp is None:
         return None
 
-    _cur_external_temp = effective_room_temp(self)
     _cur_target_temp = self.bt_target_temp
 
     if traits.uses_tolerance_band:
@@ -979,13 +979,12 @@ def calculate_calibration_setpoint(self, entity_id) -> float | None:
         _calibration_mode = CalibrationMode.MPC_CALIBRATION
     traits = _traits_for(_calibration_mode)
 
-    if self.cur_temp is None or self.bt_target_temp is None:
+    if self.bt_target_temp is None:
         return None
 
-    # cur_temp is not None here, so effective_room_temp() never is —
-    # and a fallback reading of exactly 0.0 is a reading, not a gap.
     _effective_room_temp = effective_room_temp(self)
-    assert _effective_room_temp is not None
+    if _effective_room_temp is None:
+        return None
     _cur_external_temp = float(_effective_room_temp)
     _cur_target_temp = float(self.bt_target_temp)
 

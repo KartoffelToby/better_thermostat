@@ -602,25 +602,25 @@ def sanitize_pid_state(
             setattr(state, gain_attr, None)
             health = CalibratorHealth.NON_FINITE
 
-    if health == CalibratorHealth.HEALTHY:
-        runaway = (
-            (
-                state.pid_kp is not None
-                and not params.kp_min <= state.pid_kp <= params.kp_max
-            )
-            or (
-                state.pid_ki is not None
-                and not params.ki_min <= state.pid_ki <= params.ki_max
-            )
-            or (
-                state.pid_kd is not None
-                and not params.kd_min <= state.pid_kd <= params.kd_max
-            )
+    runaway = (
+        (
+            state.pid_kp is not None
+            and not params.kp_min <= state.pid_kp <= params.kp_max
         )
-        if runaway:
-            state.pid_kp = None
-            state.pid_ki = None
-            state.pid_kd = None
+        or (
+            state.pid_ki is not None
+            and not params.ki_min <= state.pid_ki <= params.ki_max
+        )
+        or (
+            state.pid_kd is not None
+            and not params.kd_min <= state.pid_kd <= params.kd_max
+        )
+    )
+    if runaway:
+        state.pid_kp = None
+        state.pid_ki = None
+        state.pid_kd = None
+        if health == CalibratorHealth.HEALTHY:
             health = CalibratorHealth.RUNAWAY_GAINS
 
     if health == CalibratorHealth.HEALTHY and not (

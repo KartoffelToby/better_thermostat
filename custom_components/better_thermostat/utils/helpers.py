@@ -234,8 +234,8 @@ def mode_remap(self, entity_id, hvac_mode: str, inbound: bool = False) -> str:
 
     Parameters
     ----------
-    self :
-            FIXME
+    self : BetterThermostat
+            The thermostat instance holding the per-TRV configuration.
     entity_id :
             entity id of the TRV whose mode is being remapped
     hvac_mode : str
@@ -409,8 +409,28 @@ def clamp_valve_percent(value: float) -> int:
 
     Intents stay in device percent; the user's valve_max_opening cap is
     enforced by the safety hull at the command boundary.
+
+    Parameters
+    ----------
+    value : float
+            The valve intent to normalize.
+
+    Returns
+    -------
+    int
+            The clamped percentage in ``0..100``.
+
+    Raises
+    ------
+    ValueError
+            If ``value`` is not finite. A non-finite input would otherwise
+            map to a full-open command, so callers must supply their own
+            fallback instead.
     """
-    return int(round(max(0.0, min(100.0, float(value)))))
+    numeric = float(value)
+    if not math.isfinite(numeric):
+        raise ValueError("valve percent must be finite")
+    return int(round(max(0.0, min(100.0, numeric))))
 
 
 def is_reasonable_temperature(value: float | None) -> bool:

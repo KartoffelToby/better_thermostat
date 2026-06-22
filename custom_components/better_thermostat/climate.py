@@ -2914,6 +2914,10 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
         _new_setpointlow = None
         _new_setpointhigh = None
 
+        # Validate every field before mutating any state, so a rejected
+        # payload (e.g. valid hvac_mode + unparseable temperature) leaves
+        # the thermostat unchanged instead of partially applied.
+        _new_hvac_mode: HVACMode | None = None
         if ATTR_HVAC_MODE in kwargs:
             hvac_mode_val = kwargs.get(ATTR_HVAC_MODE, None)
             hvac_mode_norm = (
@@ -2928,7 +2932,7 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
                 )
             # Same normalization as async_set_hvac_mode, so both service
             # entry points map HEAT/HEAT_COOL identically.
-            self.bt_hvac_mode = HVACMode(get_hvac_bt_mode(self, hvac_mode_norm))
+            _new_hvac_mode = HVACMode(get_hvac_bt_mode(self, hvac_mode_norm))
 
         def _validated_setpoint(attr: str, context: str) -> float | None:
             """Cast one temperature kwarg to float or reject the call.
@@ -2958,6 +2962,9 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
         _new_setpointhigh = _validated_setpoint(
             ATTR_TARGET_TEMP_HIGH, "controlling.settarget_temperature_high()"
         )
+
+        if _new_hvac_mode is not None:
+            self.bt_hvac_mode = _new_hvac_mode
 
         if (
             _new_setpoint is None

@@ -59,6 +59,7 @@ def _clamp_trv(
                 valve = previous.valve_percent + (
                     max_valve_jump if delta > 0 else -max_valve_jump
                 )
+                valve = _clamp_value(valve, 0.0, upper if upper is not None else 100.0)
 
     if (
         setpoint == intent.setpoint

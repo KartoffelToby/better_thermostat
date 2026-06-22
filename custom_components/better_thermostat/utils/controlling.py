@@ -630,11 +630,12 @@ async def control_cooler(self, snapshot=None):
     room_temp = snapshot.room_temp
     target_cooltemp = snapshot.target_cooltemp
     target_temp = snapshot.target_temp
+    tolerance = snapshot.tolerance
 
     if (
         room_temp is None
         or target_cooltemp is None
-        or self.tolerance is None
+        or tolerance is None
         or target_temp is None
     ):
         _LOGGER.debug(
@@ -645,13 +646,13 @@ async def control_cooler(self, snapshot=None):
             self.cooler_entity_id,
             room_temp,
             target_cooltemp,
-            self.tolerance,
+            tolerance,
             target_temp,
         )
         desired_mode = HVACMode.OFF
     elif snapshot.hvac_mode == HVACMode.OFF:
         desired_mode = HVACMode.OFF
-    elif room_temp >= target_cooltemp - snapshot.tolerance and room_temp > target_temp:
+    elif room_temp >= target_cooltemp - tolerance and room_temp > target_temp:
         desired_mode = HVACMode.COOL
     else:
         desired_mode = HVACMode.OFF
@@ -885,6 +886,14 @@ async def control_trv(self, heater_entity_id=None, cycle=None):
                             target_pct,
                             heater_entity_id,
                             _source,
+                        )
+                        # The budget was already consumed but the valve never
+                        # moved; re-derive on the catch-up cycle so the write
+                        # is not dropped permanently.
+                        _schedule_budget_retry(
+                            self,
+                            heater_entity_id,
+                            _budget_remaining(self, heater_entity_id, "valve"),
                         )
                 else:
                     # A deferred valve write re-derives on the catch-up

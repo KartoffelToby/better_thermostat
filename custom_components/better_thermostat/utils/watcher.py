@@ -16,7 +16,6 @@ import logging
 
 from homeassistant.const import STATE_UNAVAILABLE, STATE_UNKNOWN
 from homeassistant.helpers import issue_registry as ir
-from homeassistant.util import dt as dt_util
 
 from custom_components.better_thermostat.core.fsm.control_mode import (
     LadderParams,
@@ -514,7 +513,7 @@ async def check_and_update_degraded_mode(self) -> bool:
     self.unavailable_sensors = unavailable
     degraded = self.kernel_state.control_mode.degraded
 
-    in_grace = self.kernel_state.lifecycle.in_grace(dt_util.now())
+    in_grace = self.kernel_state.lifecycle.in_grace(self.clock.now())
     has_warned = getattr(self, "_degraded_warning_emitted", False)
 
     if degraded and not has_warned and not in_grace:

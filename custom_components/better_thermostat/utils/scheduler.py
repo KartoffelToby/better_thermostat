@@ -21,8 +21,17 @@ def request_control_cycle(self, *, replace_pending: bool = False) -> None:
     item is dropped first (window transitions jump the line).
     """
     queue = self.control_queue_task
-    if replace_pending and not queue.empty():
+    if replace_pending:
         empty_queue(queue)
+    elif not queue.empty():
+        # A cycle is already pending; it will see the new state. The
+        # facade enforces the single-pending-cycle contract here rather
+        # than relying on the queue's capacity.
+        _LOGGER.debug(
+            "better_thermostat %s: control cycle already pending, coalescing",
+            self.device_name,
+        )
+        return
     try:
         queue.put_nowait(self)
     except asyncio.QueueFull:

@@ -144,9 +144,8 @@ class TestIgnoreTrvStates:
 
         assert should_adopt_temp is False
 
-    def test_ignore_trv_states_default_is_false(self, mock_bt_instance):
+    def test_ignore_trv_states_default_is_false(self):
         """The ignore_trv_states flag defaults to False when not set."""
-        trv_data = mock_bt_instance.real_trvs["climate.test_trv"]
-        ignore_states = trv_data.ignore_trv_states
+        trv_data = Trv.from_legacy_dict("climate.default_test", {})
 
-        assert ignore_states is False
+        assert trv_data.ignore_trv_states is False

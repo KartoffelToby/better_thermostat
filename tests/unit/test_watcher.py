@@ -548,8 +548,6 @@ class TestDegradedModeGracePeriod:
         """Grace active → degraded transition logs DEBUG, no issue, no WARNING."""
         from datetime import timedelta
 
-        from homeassistant.util import dt as dt_util
-
         from custom_components.better_thermostat.utils.watcher import (
             check_and_update_degraded_mode,
         )
@@ -561,7 +559,7 @@ class TestDegradedModeGracePeriod:
             mock_bt_instance.kernel_state,
             lifecycle=LifecycleState(
                 phase=LifecyclePhase.STARTING,
-                grace_until=dt_util.now() + timedelta(minutes=5),
+                grace_until=mock_bt_instance.clock.now() + timedelta(minutes=5),
             ),
         )
 
@@ -579,8 +577,6 @@ class TestDegradedModeGracePeriod:
         """Grace passed → still-degraded re-check logs WARNING and raises issue."""
         from datetime import timedelta
 
-        from homeassistant.util import dt as dt_util
-
         from custom_components.better_thermostat.utils.watcher import (
             check_and_update_degraded_mode,
         )
@@ -593,7 +589,7 @@ class TestDegradedModeGracePeriod:
             mock_bt_instance.kernel_state,
             lifecycle=LifecycleState(
                 phase=LifecyclePhase.STARTING,
-                grace_until=dt_util.now() - timedelta(minutes=1),
+                grace_until=mock_bt_instance.clock.now() - timedelta(minutes=1),
             ),
         )
         # Simulate that the silent-during-grace check already set degraded=True
@@ -612,8 +608,6 @@ class TestDegradedModeGracePeriod:
         """Recover during grace → no INFO log, no issue deleted (none was created)."""
         from datetime import timedelta
 
-        from homeassistant.util import dt as dt_util
-
         from custom_components.better_thermostat.utils.watcher import (
             check_and_update_degraded_mode,
         )
@@ -627,7 +621,7 @@ class TestDegradedModeGracePeriod:
             mock_bt_instance.kernel_state,
             lifecycle=LifecycleState(
                 phase=LifecyclePhase.STARTING,
-                grace_until=dt_util.now() + timedelta(minutes=5),
+                grace_until=mock_bt_instance.clock.now() + timedelta(minutes=5),
             ),
         )
         mock_bt_instance.degraded_mode = True

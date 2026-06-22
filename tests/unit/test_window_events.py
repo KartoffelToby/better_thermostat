@@ -256,9 +256,15 @@ async def test_cancellation_during_processing_propagates():
     """A cancel arriving mid-debounce is logged and re-raised cleanly."""
     bt = _make_bt(sensor_state="on", open_delay=30)
     await trigger_window_change(bt, _event("on"))
-    task = asyncio.create_task(window_queue(bt))
-    # Let the handler dequeue the event and enter its debounce sleep.
-    await asyncio.sleep(0.05)
-    task.cancel()
-    with pytest.raises(asyncio.CancelledError):
-        await task
+    entered_sleep = asyncio.Event()
+
+    async def fake_sleep(_seconds):
+        entered_sleep.set()
+        await asyncio.Future()  # cancelled by task cancellation
+
+    with patch(f"{_WINDOW}.asyncio.sleep", side_effect=fake_sleep):
+        task = asyncio.create_task(window_queue(bt))
+        await entered_sleep.wait()
+        task.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await task
