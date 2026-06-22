@@ -10,7 +10,6 @@ from __future__ import annotations
 
 from collections import deque
 from collections.abc import Mapping, Sequence
-from copy import deepcopy
 from dataclasses import asdict, dataclass, field
 from datetime import datetime
 
@@ -114,6 +113,37 @@ def _datetime_or_none(value: Json) -> datetime | None:
     return datetime.fromisoformat(_str_of(value))
 
 
+def _state_asdict(state: KernelState) -> dict[str, _Recordable]:
+    """Return ``asdict``-equivalent output for a ``KernelState``.
+
+    ``KernelState.reachability`` is a read-only ``MappingProxyType``,
+    which :func:`dataclasses.asdict` cannot recurse into. The proxy is
+    converted to a plain ``dict`` of ``asdict``-ed entries; every other
+    field is a frozen region dataclass flattened by ``asdict``.
+
+    Parameters
+    ----------
+    state : KernelState
+        The kernel state to flatten into JSON-ready primitives.
+
+    Returns
+    -------
+    dict
+        Mapping of field name to its ``asdict`` representation.
+    """
+    return {
+        "window": asdict(state.window),
+        "maintenance": asdict(state.maintenance),
+        "lifecycle": asdict(state.lifecycle),
+        "mode": asdict(state.mode),
+        "control_mode": asdict(state.control_mode),
+        "reachability": {
+            entity_id: asdict(entry) for entity_id, entry in state.reachability.items()
+        },
+        "last_control_monotonic": state.last_control_monotonic,
+    }
+
+
 @dataclass
 class FlightRecorder:
     """Bounded ring buffer of decision tuples."""
@@ -144,8 +174,13 @@ class FlightRecorder:
 
         ``state`` must be the kernel state *before* the decision so that
         a replay reproduces the run exactly.
+
+        ``KernelState`` is deeply immutable — every region is a frozen
+        dataclass and ``reachability`` is a read-only mapping — so the
+        recorded reference cannot be mutated by a later cycle and needs
+        no defensive copy.
         """
-        self._entries.append((snapshot, deepcopy(state), desired))
+        self._entries.append((snapshot, state, desired))
         while len(self._entries) > self.capacity:
             self._entries.popleft()
 
@@ -158,7 +193,7 @@ class FlightRecorder:
         return [
             {
                 "snapshot": _json_safe(asdict(snapshot)),
-                "state": _json_safe(asdict(state)),
+                "state": _json_safe(_state_asdict(state)),
                 "desired": _json_safe(asdict(desired)),
             }
             for snapshot, state, desired in self._entries

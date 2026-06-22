@@ -13,6 +13,7 @@ import asyncio
 from dataclasses import replace
 from datetime import timedelta
 import logging
+import math
 
 from homeassistant.const import STATE_UNAVAILABLE, STATE_UNKNOWN
 from homeassistant.helpers import issue_registry as ir
@@ -497,6 +498,7 @@ async def check_and_update_degraded_mode(self) -> bool:
     # otherwise a pre-outage value would keep HOLD unreachable forever.
     trv_temp_ok = any(
         isinstance(trv.current_temperature, (int, float))
+        and math.isfinite(float(trv.current_temperature))
         and is_entity_available(self.hass, entity_id)
         for entity_id, trv in self.real_trvs.items()
     )

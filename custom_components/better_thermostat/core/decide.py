@@ -32,6 +32,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 from dataclasses import dataclass, field, replace
+from types import MappingProxyType
 
 from .desired import DesiredState, Suppression, TrvDesired
 from .fsm.control_mode import ControlModeState
@@ -74,6 +75,18 @@ class KernelState:
     reachability: Mapping[str, ReachabilityState] = field(default_factory=dict)
     # Watchdog heartbeat: monotonic time of the last completed control pass.
     last_control_monotonic: float | None = None
+
+    def __post_init__(self) -> None:
+        """Freeze the reachability mapping so the invariant holds at runtime.
+
+        ``@dataclass(frozen=True)`` only blocks attribute reassignment;
+        wrapping the dict in a :class:`~types.MappingProxyType` also
+        prevents in-place mutation, keeping every update on the
+        ``dataclasses.replace`` path.
+        """
+        object.__setattr__(
+            self, "reachability", MappingProxyType(dict(self.reachability))
+        )
 
 
 def running_kernel_state() -> KernelState:
