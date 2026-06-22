@@ -7,7 +7,6 @@ cycle duration and exposes rich debug logs for diagnostics.
 
 from __future__ import annotations
 
-from collections.abc import Mapping
 from dataclasses import dataclass, field, fields
 import logging
 import math
@@ -76,53 +75,6 @@ def sanitize_tpi_state(state: _TpiState) -> tuple[_TpiState, str | None]:
 # importing a private name.
 TpiState = _TpiState
 
-_TPI_STATES: dict[str, _TpiState] = {}
-
-_STATE_EXPORT_FIELDS = ("last_percent",)
-
-
-def export_tpi_state_map(prefix: str | None = None) -> dict[str, dict[str, Any]]:
-    """Return a serializable mapping of TPI states, optionally filtered by key prefix."""
-
-    exported: dict[str, dict[str, Any]] = {}
-    for key, state in _TPI_STATES.items():
-        if prefix is not None and not key.startswith(prefix):
-            continue
-        payload: dict[str, Any] = {}
-        for attr in _STATE_EXPORT_FIELDS:
-            value = getattr(state, attr, None)
-            if value is None:
-                continue
-            payload[attr] = value
-        if payload:
-            exported[key] = payload
-    return exported
-
-
-def import_tpi_state_map(state_map: Mapping[str, Mapping[str, Any]]) -> None:
-    """Hydrate TPI states from a previously exported mapping."""
-
-    for key, payload in state_map.items():
-        if not isinstance(payload, Mapping):
-            continue
-        state = _TPI_STATES.setdefault(key, _TpiState())
-        for attr in _STATE_EXPORT_FIELDS:
-            if attr not in payload:
-                continue
-            value = payload[attr]
-            if value is None:
-                setattr(state, attr, None)
-                continue
-            try:
-                coerced: int | float
-                if attr in ("dead_zone_hits",):
-                    coerced = int(value)
-                else:
-                    coerced = float(value)
-            except (TypeError, ValueError):
-                continue
-            setattr(state, attr, coerced)
-
 
 def _round_dbg(v: float | int | None, d: int = 3) -> float | int | None:
     if v is None:
@@ -134,7 +86,7 @@ def _round_dbg(v: float | int | None, d: int = 3) -> float | int | None:
 
 
 def compute_tpi(
-    inp: TpiInput, params: TpiParams, state: _TpiState | None = None
+    inp: TpiInput, params: TpiParams, *, state: _TpiState
 ) -> tuple[TpiOutput | None, _TpiState]:
     """Compute TPI duty cycle and on/off durations.
 
@@ -145,9 +97,9 @@ def compute_tpi(
     params:
         Controller configuration.
     state:
-        Mutable controller state.  When ``None`` the function falls back
-        to the module-level ``_TPI_STATES`` dict for backwards
-        compatibility, but callers are encouraged to pass state explicitly.
+        Mutable controller state, owned by the caller (typically read from
+        and written back to the ``StateManager``).  It is mutated in place
+        and returned.
 
     Returns
     -------
@@ -157,12 +109,7 @@ def compute_tpi(
     """
     now = monotonic()
 
-    # --- Resolve state ---
-    if state is None:
-        state = _TPI_STATES.setdefault(inp.key, _TpiState())
-    else:
-        _TPI_STATES[inp.key] = state
-
+    # Heal a poisoned (NaN/Inf) state before it can feed the controller.
     state, pathology = sanitize_tpi_state(state)
     if pathology is not None:
         _LOGGER.warning(
@@ -170,7 +117,6 @@ def compute_tpi(
             inp.key,
             pathology,
         )
-        _TPI_STATES[inp.key] = state
 
     name = inp.bt_name or "BT"
     entity = inp.entity_id or "unknown"

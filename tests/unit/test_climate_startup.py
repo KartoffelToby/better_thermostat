@@ -370,6 +370,63 @@ class TestInitializeSensors:
 # ---------------------------------------------------------------------------
 
 
+class TestInitializeTrvCurrentTemperature:
+    """The startup fallback for a missing TRV reading is 5.0 °C, literally.
+
+    Passing the literal through the unit conversion turned it into about
+    -15 °C on Fahrenheit systems, and the falsy-or fallback swallowed a
+    real reading of 0.0.
+    """
+
+    def _trv_only_bt(self, bt, attrs, unit="°C"):
+        bt.real_trvs = {TRV_ID: {"calibration": 1, "advanced": {}}}
+        bt.hass.config.units.temperature_unit = unit
+        bt.hass.states.get.return_value = _make_trv_state(attrs=attrs)
+        return bt
+
+    async def _run(self, bt):
+        with (
+            patch("custom_components.better_thermostat.climate.init", AsyncMock()),
+            patch(
+                "custom_components.better_thermostat.climate.inital_tweak", AsyncMock()
+            ),
+            patch(
+                "custom_components.better_thermostat.climate.control_trv",
+                AsyncMock(return_value=True),
+            ),
+        ):
+            await BetterThermostat._initialize_trvs(bt)
+
+    @pytest.mark.asyncio
+    async def test_missing_reading_falls_back_to_five_celsius(self, bt):
+        """No reading: the fallback is 5.0 °C on a Celsius system."""
+        bt = self._trv_only_bt(bt, {"current_temperature": None})
+        await self._run(bt)
+        assert bt.real_trvs[TRV_ID]["current_temperature"] == 5.0
+
+    @pytest.mark.asyncio
+    async def test_fallback_is_not_unit_converted(self, bt):
+        """On a Fahrenheit system the fallback stays 5.0 °C, not -15 °C."""
+        bt = self._trv_only_bt(bt, {"current_temperature": None}, unit="°F")
+        await self._run(bt)
+        assert bt.real_trvs[TRV_ID]["current_temperature"] == 5.0
+
+    @pytest.mark.asyncio
+    async def test_zero_reading_is_kept(self, bt):
+        """A legitimate 0.0° reading is a reading, not a missing value."""
+        bt = self._trv_only_bt(bt, {"current_temperature": 0.0})
+        await self._run(bt)
+        assert bt.real_trvs[TRV_ID]["current_temperature"] == 0.0
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("marker_temp", [126.5, 127.0])
+    async def test_implausible_startup_reading_is_dropped(self, bt, marker_temp):
+        """AVM marker values must not seed the cache for the first control cycle."""
+        bt = self._trv_only_bt(bt, {"current_temperature": marker_temp})
+        await self._run(bt)
+        assert bt.real_trvs[TRV_ID]["current_temperature"] is None
+
+
 class TestRestoreState:
     """Tests for _restore_state."""
 

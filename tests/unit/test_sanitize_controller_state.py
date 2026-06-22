@@ -142,7 +142,9 @@ class TestComputeHealsPoisonedState:
         poisoned = MpcState(gain_est=math.nan)
         inp = MpcInput(key="poison_mpc", target_temp_C=22.0, current_temp_C=20.0)
         with caplog.at_level(logging.WARNING):
-            output, new_state = compute_mpc(inp, MpcParams(), state=poisoned)
+            output, new_state = compute_mpc(
+                inp, MpcParams(), state=poisoned, all_states={}
+            )
         assert new_state is not poisoned
         assert new_state.gain_est is None or math.isfinite(new_state.gain_est)
         assert output is not None

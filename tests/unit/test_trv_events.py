@@ -120,6 +120,43 @@ def _make_event(bt, new_state=None, old_state=None, entity_id=ENTITY_ID):
 # ---------------------------------------------------------------------------
 
 
+class TestUnavailableInvalidation:
+    """An unavailable TRV must not keep feeding a stale internal temperature."""
+
+    @pytest.mark.asyncio
+    async def test_unavailable_trv_invalidates_internal_temperature(self, mock_bt):
+        """The stored reading is cleared so calibration stops using it."""
+        unavailable = State(ENTITY_ID, "unavailable")
+        mock_bt.hass.states.get.return_value = unavailable
+
+        event = _make_event(mock_bt, new_state=unavailable)
+        await trigger_trv_change(mock_bt, event)
+
+        assert mock_bt.real_trvs[ENTITY_ID]["current_temperature"] is None
+
+    @pytest.mark.asyncio
+    async def test_first_reading_after_recovery_bypasses_debounce(self, mock_bt):
+        """The first valid reading after an outage repopulates the cache at once."""
+        unavailable = State(ENTITY_ID, "unavailable")
+        mock_bt.hass.states.get.return_value = unavailable
+        await trigger_trv_change(mock_bt, _make_event(mock_bt, new_state=unavailable))
+        assert mock_bt.real_trvs[ENTITY_ID]["current_temperature"] is None
+
+        # The TRV recovers well inside the 5 s debounce window.
+        mock_bt.last_internal_sensor_change = dt_util.now()
+        trv_state = _make_state(attributes={"current_temperature": 18.0})
+        mock_bt.hass.states.get.return_value = trv_state
+        event = _make_event(mock_bt, new_state=trv_state, old_state=trv_state)
+
+        with patch(
+            "custom_components.better_thermostat.events.trv.convert_inbound_states",
+            return_value=HVACMode.HEAT,
+        ):
+            await trigger_trv_change(mock_bt, event)
+
+        assert mock_bt.real_trvs[ENTITY_ID]["current_temperature"] == 18.0
+
+
 class TestTriggerTrvChangeGuards:
     """Guard-clause tests for trigger_trv_change()."""
 

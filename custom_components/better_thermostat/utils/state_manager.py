@@ -41,9 +41,9 @@ from typing import Any
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.storage import Store
 
-from .calibration.mpc import MpcState, export_mpc_state_map, import_mpc_state_map
-from .calibration.pid import PIDState, export_pid_states, import_pid_states
-from .calibration.tpi import TpiState, export_tpi_state_map, import_tpi_state_map
+from .calibration.mpc import MpcState
+from .calibration.pid import PIDState
+from .calibration.tpi import TpiState
 from .const import MAX_HEAT_LOSS, MAX_HEATING_POWER, MIN_HEAT_LOSS, MIN_HEATING_POWER
 from .thermal_learning import clamp
 
@@ -351,6 +351,19 @@ class StateManager:
         self._state.pid[key] = pid
         self._dirty = True
 
+    def reset_pid_states(self, prefix: str) -> int:
+        """Drop all PID states whose key starts with *prefix*.
+
+        Returns the number of removed entries; marks the store dirty when
+        anything was removed.
+        """
+        keys = [key for key in self._state.pid if key.startswith(prefix)]
+        for key in keys:
+            del self._state.pid[key]
+        if keys:
+            self._dirty = True
+        return len(keys)
+
     def get_tpi(self, key: str) -> TpiState:
         """Get or create TPI state for a key."""
         if key not in self._state.tpi:
@@ -389,38 +402,7 @@ class StateManager:
         """Manually mark state as needing persistence."""
         self._dirty = True
 
-    # -- Controller bridging -------------------------------------------------
-
-    def hydrate_controllers(self, prefix: str) -> None:
-        """Seed the module-level controller caches from persisted state.
-
-        The MPC/PID/TPI controllers keep their own global ``_*_STATES`` dicts.
-        This copies the persisted entries whose key starts with *prefix* into
-        those caches so ``compute_*()`` works immediately after startup.
-        """
-        mpc_data = {
-            key: asdict(mpc)
-            for key, mpc in self._state.mpc.items()
-            if key.startswith(prefix)
-        }
-        if mpc_data:
-            import_mpc_state_map(mpc_data)
-
-        pid_data = {
-            key: asdict(pid)
-            for key, pid in self._state.pid.items()
-            if key.startswith(prefix)
-        }
-        if pid_data:
-            import_pid_states(pid_data, prefix_filter=prefix)
-
-        tpi_data = {
-            key: asdict(tpi)
-            for key, tpi in self._state.tpi.items()
-            if key.startswith(prefix)
-        }
-        if tpi_data:
-            import_tpi_state_map(tpi_data)
+    # -- Thermal stats ---------------------------------------------------------
 
     def clamped_thermal(self) -> tuple[float | None, float | None]:
         """Return persisted thermal stats clamped to their valid bounds.
@@ -450,27 +432,10 @@ class StateManager:
 
         return heating_power, heat_loss_rate
 
-    def sync_controllers(
-        self, prefix: str, heating_power: float | None, heat_loss_rate: float | None
+    def record_thermal(
+        self, heating_power: float | None, heat_loss_rate: float | None
     ) -> None:
-        """Export the module-level controller caches back into the store.
-
-        Pulls the latest MPC/PID/TPI runtime state for *prefix* from the global
-        controller caches and records the supplied thermal stats, so a following
-        save reflects current runtime values.
-        """
-        for key, state_dict in export_mpc_state_map(prefix).items():
-            if isinstance(state_dict, dict):
-                self.set_mpc(key, deserialize_mpc(state_dict))
-
-        for key, state_dict in export_pid_states(prefix=prefix).items():
-            if isinstance(state_dict, dict):
-                self.set_pid(key, deserialize_pid(state_dict))
-
-        for key, state_dict in export_tpi_state_map(prefix).items():
-            if isinstance(state_dict, dict):
-                self.set_tpi(key, deserialize_tpi(state_dict))
-
+        """Record the entity-held thermal stats before a save."""
         self.thermal = ThermalStats(
             heating_power=heating_power, heat_loss_rate=heat_loss_rate
         )
@@ -487,11 +452,23 @@ class StateManager:
             )
             return
 
-        version = raw.get("version", 0)
-        if version < 1:
-            raw = _migrate_v0_to_v1(raw)
-
-        self._state = _deserialize(raw)
+        # A store that breaks deserialization yields defaults, not a
+        # crash: load() runs inside the entity's startup task, and
+        # relearning replaces anything a poisoned store could offer.
+        try:
+            version = raw.get("version", 0)
+            if version < 1:
+                raw = _migrate_v0_to_v1(raw)
+            self._state = _deserialize(raw)
+        except Exception:
+            _LOGGER.warning(
+                "better_thermostat [%s]: persisted state is unreadable, starting fresh",
+                self._entry_id,
+                exc_info=True,
+            )
+            self._state = RuntimeState()
+            self._dirty = False
+            return
         self._dirty = False
         _LOGGER.debug(
             "better_thermostat [%s]: Loaded state v%d (%d mpc, %d pid, %d tpi keys)",
