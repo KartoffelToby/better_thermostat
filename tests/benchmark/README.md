@@ -26,10 +26,10 @@ Scores are 0..1, oracle-normalised; 1.0 = oracle-equivalent.
 ============================================================================================
   controller          overall      σ  comfort      σ  actuator      σ   energy      σ    n
  *ideal_oracle          0.963  0.109    0.954  0.141     0.987  0.079    0.951  0.172   37
-  pid                   0.818  0.121    0.946  0.123     0.525  0.373    0.938  0.160   37
-  tpi                   0.804  0.161    0.747  0.220     0.825  0.277    0.917  0.157   37
-  mpc                   0.707  0.113    0.903  0.119     0.252  0.354    0.896  0.158   37
-  bangbang              0.604  0.120    0.840  0.126     0.129  0.301    0.729  0.175   37
+  tpi                   0.783  0.153    0.694  0.228     0.844  0.263    0.914  0.157   37
+  pid                   0.778  0.143    0.849  0.208     0.555  0.365    0.933  0.160   37
+  mpc                   0.685  0.134    0.855  0.179     0.256  0.354    0.904  0.157   37
+  bangbang              0.567  0.151    0.761  0.194     0.129  0.301    0.736  0.175   37
 ```
 
 Higher is better. Each dimension is **oracle-normalised**: `1.0` matches
@@ -111,12 +111,12 @@ a controller wins.
 * **Oracle ≈ 0.96** — practical ceiling. Even the Oracle isn't 1.0:
   some scenarios have permanent disturbances (diurnal outdoor, multi-day
   weather) where settling-to-setpoint is impossible by construction.
-* **BangBang ≈ 0.60** — noise floor. A deliberately naive on/off
+* **BangBang ≈ 0.57** — noise floor. A deliberately naive on/off
   controller; anything close to BangBang has a real problem.
-* **Production controllers (`pid`, `tpi`, `mpc`) ≈ 0.70–0.85.** That
-  band is the realistic operating range. A controller above 0.85 is
-  beating most of the field; below 0.70 means a clear weakness in at
-  least one dimension.
+* **Production controllers (`pid`, `tpi`, `mpc`, `heating_power`) ≈
+  0.68–0.78.** That band is the realistic operating range. A controller
+  above 0.80 is beating most of the field; near the BangBang floor means
+  a clear weakness in at least one dimension.
 
 Rule of thumb: when a controller scores well below the Oracle, look at
 which dimension column dropped. A 0.92 comfort with 0.25 actuator means

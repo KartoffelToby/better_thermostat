@@ -26,3 +26,16 @@ def test_mpc_against_s01_runs_to_completion():
     assert m.rmse_tracking_K >= 0.0
     assert m.valve_cycle_count >= 0
     assert m.integral_valve_pct_min >= 0.0
+
+
+def test_mpc_run_is_deterministic():
+    """Two independent MPC runs of S01 produce byte-identical metrics.
+
+    The production MPC uses ``random.random()`` for its hybrid-learning
+    forced calibration; the adapter seeds a deterministic stand-in so the
+    benchmark's reproducibility guarantee holds for MPC too. This guards
+    against that seeding regressing.
+    """
+    a = run_scenario(MpcAdapter(), S01_SETPOINT_STEP_SMALL).metrics
+    b = run_scenario(MpcAdapter(), S01_SETPOINT_STEP_SMALL).metrics
+    assert a == b

@@ -13,6 +13,7 @@ from __future__ import annotations
 
 from dataclasses import asdict
 from itertools import count
+import random
 from typing import Any
 
 from custom_components.better_thermostat.utils.calibration import mpc as mpc_mod
@@ -30,6 +31,12 @@ from .base import BenchmarkContext, BenchmarkOutput, ControllerFamily
 # map so concurrent instances never share learned state.
 _KEY_COUNTER = count()
 
+# Fixed seed for the MPC's hybrid-learning RNG (``random.random()`` in
+# mpc.py). Re-applied on every reset so each scenario sees the same
+# forced-calibration realisation regardless of run order — the benchmark's
+# determinism guarantee extends to MPC's stochastic learning path.
+_MPC_RNG_SEED = 1_234_567
+
 
 class MpcAdapter:
     """Benchmark adapter for the production MPC controller."""
@@ -44,12 +51,20 @@ class MpcAdapter:
         self._key = key if key is not None else f"bench:trv:mpc{next(_KEY_COUNTER)}"
         self._sim_time_s: float = 0.0
         self._original_time = mpc_mod.time
+        # Deterministic stand-in for the module-global ``random`` that
+        # mpc.py uses for its hybrid-learning forced calibration.
+        self._rng = random.Random(_MPC_RNG_SEED)
+        self._original_random = mpc_mod.random
 
-    def _virtualise_time(self) -> None:
+    def _virtualise(self) -> None:
+        """Swap the mpc module's time + random for deterministic stand-ins."""
         mpc_mod.time = lambda: self._sim_time_s
+        mpc_mod.random = self._rng
 
-    def _restore_time(self) -> None:
+    def _restore(self) -> None:
+        """Restore the mpc module's real time + random symbols."""
         mpc_mod.time = self._original_time
+        mpc_mod.random = self._original_random
 
     def reset(self, prior: dict[str, Any] | None = None) -> None:
         """Drop learned state. ``prior`` is unused."""
@@ -57,11 +72,12 @@ class MpcAdapter:
         self._state = _MpcState()
         self._all_states.clear()
         self._sim_time_s = 0.0
+        self._rng.seed(_MPC_RNG_SEED)
 
     def step(self, ctx: BenchmarkContext) -> BenchmarkOutput:
         """Compute one MPC step for the given benchmark context."""
         self._sim_time_s = ctx.t
-        self._virtualise_time()
+        self._virtualise()
         try:
             inp = MpcInput(
                 key=self._key,
@@ -79,7 +95,7 @@ class MpcAdapter:
                 inp, self._params, state=self._state, all_states=self._all_states
             )
         finally:
-            self._restore_time()
+            self._restore()
 
         if out is None:
             # Early exit (e.g. window-open, missing temp). Hold previous output.
