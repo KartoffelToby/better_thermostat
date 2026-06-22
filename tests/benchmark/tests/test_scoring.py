@@ -50,6 +50,14 @@ def test_profile_rejects_invalid_weights():
         UserProfile("bad", 0.5, 0.5, 0.5)
 
 
+def test_profile_rejects_out_of_range_weights():
+    """Weights summing to 1 but outside [0, 1] are rejected (no inverted priorities)."""
+    with pytest.raises(ValueError):
+        UserProfile("neg", 1.2, -0.1, -0.1)
+    with pytest.raises(ValueError):
+        UserProfile("over", 1.5, 0.5, -1.0)
+
+
 # ---------- Comfort score ----------
 
 
@@ -146,6 +154,14 @@ def test_energy_score_low_oracle_penalises_gross_overuse():
     candidate = _zero_metrics(integral_valve_pct_min=2000.0)
     # Excess of ~1980 pct·min against the 100 floor → fully penalised.
     assert energy_score(candidate, oracle) == pytest.approx(0.0)
+
+
+def test_energy_score_low_oracle_penalises_underheating():
+    """Under-heating in the low-oracle path is penalised symmetrically (not 1.0)."""
+    oracle = _zero_metrics(integral_valve_pct_min=80.0)
+    candidate = _zero_metrics(integral_valve_pct_min=0.0)
+    # Deviation of 80 pct·min against the 100 floor → score 0.2.
+    assert energy_score(candidate, oracle) == pytest.approx(1.0 - 80.0 / 100.0)
 
 
 def test_energy_score_undershoot_penalised_symmetrically():

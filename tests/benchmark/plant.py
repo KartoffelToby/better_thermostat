@@ -307,6 +307,9 @@ class TwoStatePlant:
         # once we know the simulator's step size.
         self._u_delay_buffer: deque[float] = deque()
         self._u_buffer_target_len: int = 0
+        # Step size captured when the delay buffer is sized; the modelled
+        # transport delay is only correct while dt_s stays constant.
+        self._delay_dt_s: float | None = None
 
     def step(
         self, dt_s: float, u: float, T_outdoor_C: float, Q_K_per_min: float = 0.0
@@ -324,12 +327,18 @@ class TwoStatePlant:
         # ago, not the just-commanded value.
         if p.valve_command_delay_s > 0.0:
             if self._u_buffer_target_len == 0:
+                self._delay_dt_s = dt_s
                 self._u_buffer_target_len = max(
                     1, round(p.valve_command_delay_s / dt_s)
                 )
                 # Prime the buffer with the current u so the first
                 # ``delay`` steps are not artificially zero.
                 self._u_delay_buffer.extend([u_clamped] * self._u_buffer_target_len)
+            elif self._delay_dt_s is not None and abs(dt_s - self._delay_dt_s) > 1e-9:
+                raise ValueError(
+                    "TwoStatePlant with valve_command_delay_s requires a constant "
+                    f"dt_s; buffer was sized for {self._delay_dt_s} s but got {dt_s} s"
+                )
             self._u_delay_buffer.append(u_clamped)
             u_clamped = self._u_delay_buffer.popleft()
 

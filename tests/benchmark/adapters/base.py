@@ -10,6 +10,7 @@ the controller itself.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+import math
 from typing import Any, Literal, Protocol
 
 
@@ -68,6 +69,17 @@ class BenchmarkOutput:
             raise ValueError(
                 "BenchmarkOutput allows only one output family "
                 f"(or duty_cycle_pct mirrored into valve_percent), got: {sorted(populated)}"
+            )
+        valve, duty = self.valve_percent, self.duty_cycle_pct
+        if (
+            populated == {"valve_percent", "duty_cycle_pct"}
+            and valve is not None
+            and duty is not None
+            and not math.isclose(valve, duty, abs_tol=1e-9)
+        ):
+            raise ValueError(
+                "BenchmarkOutput duty_cycle_pct must be mirrored into valve_percent "
+                f"(got valve_percent={valve}, duty_cycle_pct={duty})"
             )
 
 

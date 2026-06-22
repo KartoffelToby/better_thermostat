@@ -79,14 +79,20 @@ class UserProfile:
     w_energy: float
 
     def __post_init__(self) -> None:
-        """Validate that the three weights sum to 1.0.
+        """Validate that each weight is in [0, 1] and the three sum to 1.0.
 
         Raises
         ------
         ValueError
-            If the weights do not sum to 1.0 within tolerance.
+            If any weight falls outside [0, 1], or the weights do not sum
+            to 1.0 within tolerance.
         """
-        s = self.w_comfort + self.w_actuator + self.w_energy
+        weights = (self.w_comfort, self.w_actuator, self.w_energy)
+        if any(w < 0.0 or w > 1.0 for w in weights):
+            raise ValueError(
+                f"UserProfile weights must each be in [0, 1], got {weights} for {self.name}"
+            )
+        s = sum(weights)
         if not math.isclose(s, 1.0, abs_tol=1e-3):
             raise ValueError(
                 f"UserProfile weights must sum to 1.0, got {s:.4f} for {self.name}"
@@ -235,13 +241,14 @@ def energy_score(metrics: MetricValues, oracle: MetricValues) -> float:
     """
     if oracle.integral_valve_pct_min < _ENERGY_FLOOR_PCT_MIN:
         # Oracle barely moved, so the ratio is ill-conditioned. Score the
-        # candidate's *excess* usage over the oracle against the floor
-        # rather than treating every candidate as oracle-equivalent —
-        # otherwise a grossly over-heating controller escapes scoring here.
-        excess = max(
-            0.0, metrics.integral_valve_pct_min - oracle.integral_valve_pct_min
+        # candidate's absolute deviation from the oracle against the floor
+        # rather than treating every candidate as oracle-equivalent. The
+        # deviation is symmetric (matching the main branch): both gross
+        # over-heating and under-heating are penalised here.
+        deviation = abs(
+            metrics.integral_valve_pct_min - oracle.integral_valve_pct_min
         )
-        return _clamp_01(1.0 - excess / _ENERGY_FLOOR_PCT_MIN)
+        return _clamp_01(1.0 - deviation / _ENERGY_FLOOR_PCT_MIN)
     ratio = metrics.integral_valve_pct_min / oracle.integral_valve_pct_min
     deviation = abs(ratio - 1.0)
     return _clamp_01(1.0 - deviation)

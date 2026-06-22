@@ -86,13 +86,13 @@ def test_rc3_room_cools_slower_than_rc2_with_same_lumped_tau():
 
     # Pre-warm wall in RC3 so it really acts like a battery — heat for 4 h
     # against a steady setpoint by injecting some heater command.
-    for _ in range(8 * 60 * 2):  # 4 h at 30 s
+    for _ in range(4 * 60 * 2):  # 4 h at 30 s
         plant_rc3.step(30.0, 0.25, 5.0)
-    for _ in range(8 * 60 * 2):
+    for _ in range(4 * 60 * 2):
         plant_rc2.step(30.0, 0.25, 5.0)
 
     # Now switch heater off and let both cool for 2 h.
-    for _ in range(4 * 60 * 2):  # 2 h
+    for _ in range(2 * 60 * 2):  # 2 h
         plant_rc2.step(30.0, 0.0, 5.0)
         plant_rc3.step(30.0, 0.0, 5.0)
 
