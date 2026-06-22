@@ -87,8 +87,10 @@ class DefaultCalibrationAdapter:
 class AggressiveCalibrationAdapter:
     """``CalibrationMode.AGGRESIVE_CALIBRATION`` — DEFAULT + −2.5 K boost while heating.
 
-    The boost is latched: it kicks in once the previous step commanded
-    a non-zero valve and stays active until the room reaches the target.
+    The boost adds ``p_gain · 2.5`` to the proportional valve command on
+    every step where the room is below the target (positive error),
+    mirroring production's downward offset bias while heating. It is not
+    latched — it tracks the error sign step by step.
     """
 
     name: str = "aggressive"
@@ -121,7 +123,7 @@ class AggressiveCalibrationAdapter:
         )
 
     def export_state(self) -> dict[str, Any]:
-        """Return whether the boost is currently latched."""
+        """Return whether the last step commanded a non-zero valve."""
         return {"was_heating": self._was_heating}
 
 

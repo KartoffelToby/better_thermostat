@@ -58,6 +58,20 @@ class IndirectTrvParams:
     # internal regulator as a first-class layer rather than a bolt-on.
     setpoint_mapping: str = "heuristic"
 
+    def __post_init__(self) -> None:
+        """Reject an unknown ``setpoint_mapping`` rather than silently inverting.
+
+        Raises
+        ------
+        ValueError
+            If ``setpoint_mapping`` is neither ``"heuristic"`` nor ``"inversion"``.
+        """
+        if self.setpoint_mapping not in ("heuristic", "inversion"):
+            raise ValueError(
+                "IndirectTrvParams setpoint_mapping must be 'heuristic' or "
+                f"'inversion', got {self.setpoint_mapping!r}"
+            )
+
 
 # Vendor quirk presets. Values are heuristic — sourced from user-side
 # observations of each TRV family's offset-mode behaviour, not from
@@ -143,7 +157,12 @@ class IndirectTrvAdapter:
     def step(self, ctx: BenchmarkContext) -> BenchmarkOutput:
         """Translate the inner controller's valve_percent into TRV-controlled u."""
         inner_out = self.inner.step(ctx)
-        bt_valve_pct = inner_out.valve_percent or 0.0
+        if inner_out.valve_percent is None:
+            raise ValueError(
+                f"{self.name}: inner adapter {self.inner.name} produced no "
+                "valve_percent; IndirectTrvAdapter only wraps valve-family controllers"
+            )
+        bt_valve_pct = inner_out.valve_percent
 
         # Map BT's "heat intent" (0-100 % valve) onto a TRV setpoint.
         #

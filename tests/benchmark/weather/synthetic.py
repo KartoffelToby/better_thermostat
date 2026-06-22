@@ -100,7 +100,21 @@ def _ar1_path(
 
     ``x[k] = mean + alpha · (x[k-1] − mean) + ε`` where ``ε`` is white
     noise sized so the stationary variance matches ``sigma²``.
+
+    Raises
+    ------
+    ValueError
+        If ``n < 1``, ``|alpha| >= 1`` (non-stationary; the innovation
+        variance would go negative), or ``sigma < 0``.
     """
+    if n < 1:
+        raise ValueError(f"_ar1_path n must be >= 1, got {n}")
+    if not -1.0 < alpha < 1.0:
+        raise ValueError(
+            f"_ar1_path requires |alpha| < 1 for a stationary process, got {alpha}"
+        )
+    if sigma < 0.0:
+        raise ValueError(f"_ar1_path sigma must be >= 0, got {sigma}")
     # Drive the AR(1) at its stationary variance.
     inno_sigma = sigma * math.sqrt(1.0 - alpha * alpha)
     x = mean + rng.gauss(0.0, sigma)

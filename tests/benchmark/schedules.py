@@ -245,6 +245,8 @@ def stochastic_windows(
     """
     if count <= 0:
         raise ValueError("count must be greater than 0")
+    if duration_s <= 0.0:
+        raise ValueError("duration_s must be greater than 0")
     if min_duration_s < 0.0 or max_duration_s < min_duration_s:
         raise ValueError(
             "duration bounds must satisfy 0 <= min_duration_s <= max_duration_s"

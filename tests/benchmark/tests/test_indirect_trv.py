@@ -230,3 +230,33 @@ def test_reset_restores_exported_state():
     adapter.reset()
     assert adapter._last_quantised_setpoint_C is None
     assert adapter._pending_setpoints == []
+
+
+class _FakeOffsetAdapter:
+    """Inner adapter that emits a non-valve (offset) output."""
+
+    name = "fake_offset"
+    family = "offset"
+
+    def reset(self, prior=None) -> None:
+        _ = prior
+
+    def step(self, ctx: BenchmarkContext) -> BenchmarkOutput:
+        _ = ctx
+        return BenchmarkOutput(setpoint_offset_K=1.0)
+
+    def export_state(self) -> dict:
+        return {}
+
+
+def test_indirect_params_rejects_invalid_mapping():
+    """An unknown setpoint_mapping is rejected at construction."""
+    with pytest.raises(ValueError):
+        IndirectTrvParams(setpoint_mapping="bogus")
+
+
+def test_indirect_rejects_missing_inner_valve():
+    """Wrapping a non-valve inner controller fails fast instead of coercing to 0%."""
+    wrapper = IndirectTrvAdapter(_FakeOffsetAdapter(), TADO_PARAMS)
+    with pytest.raises(ValueError):
+        wrapper.step(_ctx())
