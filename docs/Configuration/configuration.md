@@ -1,9 +1,7 @@
 ---
-layout: default
 title: Configuration
-nav_order: 2
-has_children: true
-permalink: configuration
+description: Create and configure a Better Thermostat device.
+slug: configuration
 ---
 
 ## Create a new Better Thermostat device

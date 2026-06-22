@@ -8,7 +8,8 @@ Goals:
 Notes
 -----
 - This module only computes recommendations; writing to the device stays in adapters/controlling.
-- Lightweight per-room state by a `key` (e.g., entity_id): EMA, hysteresis, rate limit.
+- Per-room state (EMA, hysteresis, rate limit) is owned by the caller and passed
+  in explicitly; the ``StateManager`` is the single source of truth.
 """
 
 from __future__ import annotations
@@ -16,7 +17,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 import logging
 from time import monotonic
-from typing import Any, Protocol, TypedDict
+from typing import Protocol, TypedDict
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -124,11 +125,6 @@ class PIDParams:
     big_change_threshold_pct: float = 33.0
 
 
-# --- Global State Storage -----------------------------------------------
-
-_PID_STATES: dict[str, PIDState] = {}
-
-
 # --- Helper Functions -----------------------------------------------
 
 
@@ -149,7 +145,8 @@ def compute_pid(
     key: str,
     inp_current_temp_ema_C: float | None = None,
     max_opening_pct: float | None = None,
-    state: PIDState | None = None,
+    *,
+    state: PIDState,
 ) -> tuple[float, PIDDebugInfo, PIDState]:
     """Compute PID-based valve opening percentage.
 
@@ -172,9 +169,9 @@ def compute_pid(
     max_opening_pct:
         Optional maximum valve opening percentage.
     state:
-        Mutable controller state.  When ``None`` the function falls back
-        to the module-level ``_PID_STATES`` dict for backwards
-        compatibility, but callers are encouraged to pass state explicitly.
+        Mutable controller state, owned by the caller (typically read from
+        and written back to the ``StateManager``).  It is mutated in place
+        and returned.
 
     Returns
     -------
@@ -183,12 +180,7 @@ def compute_pid(
     """
     now = monotonic()
 
-    # --- Resolve state ---
-    if state is None:
-        st = _PID_STATES.setdefault(key, PIDState())
-    else:
-        st = state
-        _PID_STATES[key] = st
+    st = state
 
     max_opening = 100.0
     if isinstance(max_opening_pct, (int, float)):
@@ -258,7 +250,7 @@ def compute_pid(
                 # EMA-Glättung nur für den D-Kanal
                 try:
                     a = max(0.0, min(1.0, float(params.d_smoothing_alpha)))
-                except (TypeError, ValueError):
+                except TypeError, ValueError:
                     a = 0.5
                 prev = st.pid_last_meas
                 smoothed = (
@@ -386,7 +378,7 @@ def compute_pid(
         base = current_temp
         try:
             a = max(0.0, min(1.0, float(params.d_smoothing_alpha)))
-        except (TypeError, ValueError):
+        except TypeError, ValueError:
             a = 0.5
         if base is not None:
             prev = st.pid_last_meas
@@ -522,45 +514,9 @@ def _auto_tune_pid(
             st.pid_ki = ki
             st.pid_kd = kd
             st.last_tune_ts = now_ts
-    except (ValueError, TypeError):
+    except ValueError, TypeError:
         # Best-effort: numerische Probleme ignorieren
         return
-
-
-def reset_pid_state(key: str) -> None:
-    """Reset learned/smoothing values for a given room key."""
-    if key in _PID_STATES:
-        del _PID_STATES[key]
-
-
-def get_pid_state(key: str) -> PIDState | None:
-    """Return the PIDState for key or None if missing.
-
-    This is a small helper used externally to read persisted/learned gains.
-    """
-    return _PID_STATES.get(key)
-
-
-def seed_pid_gains(key: str, kp: float, ki: float, kd: float) -> bool:
-    """Seed PID gains for a given key, creating state if missing.
-
-    Args:
-        key: PID state key (format: {unique_id}:{entity_id}:{bucket})
-        kp: Proportional gain
-        ki: Integral gain
-        kd: Derivative gain
-
-    Returns
-    -------
-        True if gains were successfully seeded
-    """
-    if key not in _PID_STATES:
-        _PID_STATES[key] = PIDState()
-    state = _PID_STATES[key]
-    state.pid_kp = kp
-    state.pid_ki = ki
-    state.pid_kd = kd
-    return True
 
 
 # --- Key Builder Helper -----------------------------------------------
@@ -617,77 +573,3 @@ def build_pid_key(self, entity_id: str) -> str:
         bucket_tag = "tunknown"
 
     return f"{resolve_unique_id(self)}:{entity_id}:{bucket_tag}"
-
-
-# --- Persistence helpers --------------------------------------------
-
-
-def export_pid_states(prefix: str | None = None) -> dict[str, dict[str, Any]]:
-    """Export internal PID state to a JSON-serializable dict.
-
-    prefix: if provided, only include keys starting with this prefix.
-    """
-    out: dict[str, dict[str, Any]] = {}
-    for k, st in _PID_STATES.items():
-        if prefix is not None and not k.startswith(prefix):
-            continue
-        out[k] = {
-            "pid_integral": st.pid_integral,
-            "pid_last_meas": st.pid_last_meas,
-            "pid_last_time": st.pid_last_time,
-            "pid_kp": st.pid_kp,
-            "pid_ki": st.pid_ki,
-            "pid_kd": st.pid_kd,
-            "auto_tune": st.auto_tune,
-            "last_tune_ts": st.last_tune_ts,
-            "last_delta_sign": st.last_delta_sign,
-            "last_error_sign": st.last_error_sign,
-            "previous_abs_error": st.previous_abs_error,
-            "last_abs_error": st.last_abs_error,
-            "ema_slope": st.ema_slope,
-            "last_percent": st.last_percent,
-            "last_output_change_ts": st.last_output_change_ts,
-            "last_target_temp": st.last_target_temp,
-        }
-    return out
-
-
-def import_pid_states(
-    data: dict[str, dict[str, Any]], prefix_filter: str | None = None
-) -> int:
-    """Import previously saved PID states into the module-local cache.
-
-    Returns the number of imported entries. If prefix_filter is provided,
-    only keys starting with that prefix will be imported.
-    """
-    if not isinstance(data, dict):
-        return 0
-    count = 0
-    for k, v in data.items():
-        if prefix_filter is not None and not str(k).startswith(prefix_filter):
-            continue
-        try:
-            st = PIDState(
-                pid_integral=v.get("pid_integral", 0.0),
-                pid_last_meas=v.get("pid_last_meas"),
-                pid_last_time=v.get("pid_last_time", 0.0),
-                pid_kp=v.get("pid_kp"),
-                pid_ki=v.get("pid_ki"),
-                pid_kd=v.get("pid_kd"),
-                auto_tune=v.get("auto_tune"),
-                last_tune_ts=v.get("last_tune_ts", 0.0),
-                last_delta_sign=v.get("last_delta_sign"),
-                last_error_sign=v.get("last_error_sign"),
-                previous_abs_error=v.get("previous_abs_error"),
-                last_abs_error=v.get("last_abs_error"),
-                ema_slope=v.get("ema_slope"),
-                last_percent=v.get("last_percent", 0.0),
-                last_output_change_ts=v.get("last_output_change_ts", 0.0),
-                last_target_temp=v.get("last_target_temp"),
-            )
-            _PID_STATES[str(k)] = st
-            count += 1
-        except (KeyError, TypeError, ValueError):
-            # Ignore malformed entries
-            continue
-    return count

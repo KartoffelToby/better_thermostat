@@ -306,7 +306,14 @@ async def control_cooler(self):
         desired_mode = HVACMode.OFF
 
     # Only send temperature command if it differs from current
-    if current_temp is None or current_temp != desired_temp:
+    if desired_temp is None:
+        _LOGGER.debug(
+            "better_thermostat %s: cooler %s desired temperature is None, "
+            "skipping set_temperature",
+            self.device_name,
+            self.cooler_entity_id,
+        )
+    elif current_temp is None or current_temp != desired_temp:
         if current_temp is None:
             _LOGGER.debug(
                 "better_thermostat %s: cooler %s current temperature is unknown, "

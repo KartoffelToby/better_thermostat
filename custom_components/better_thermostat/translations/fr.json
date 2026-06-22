@@ -16,7 +16,12 @@
           "window_off_delay": "Délai avant que le thermostat ne s'éteigne lorsque la fenêtre est ouverte",
           "window_off_delay_after": "Délai avant que le thermostat ne s'allume lorsque la fenêtre est fermée",
           "outdoor_sensor": "Si vous avez un capteur extérieur, vous pouvez l'utiliser pour obtenir la température extérieure",
-          "weather": "Votre entité météo pour obtenir la température extérieure"
+          "weather": "Votre entité météo pour obtenir la température extérieure",
+          "target_temp_step": "Pas de la température cible",
+          "presets": "Préréglages activés"
+        },
+        "data_description": {
+          "presets": "Sélectionnez les préréglages qui doivent être disponibles pour ce thermostat."
         }
       },
       "advanced": {
@@ -56,7 +61,7 @@
   "options": {
     "step": {
       "user": {
-        "description": "Mettez à jour les paramètres de Better Thermostat",
+        "description": "Mettez à jour les paramètres de Better Thermostat\n\n**Infos détaillées :** {docs_url}",
         "data": {
           "name": "Nom",
           "thermostat": "Le vrai thermostat",
@@ -68,16 +73,21 @@
           "window_off_delay": "Délai avant que le thermostat ne s'éteigne lorsque la fenêtre est ouverte",
           "window_off_delay_after": "Délai avant que le thermostat ne s'allume lorsque la fenêtre est fermée",
           "outdoor_sensor": "Si vous avez un capteur extérieur, vous pouvez l'utiliser pour obtenir la température extérieure",
+          "weather": "Votre entité météo pour obtenir la température extérieure",
+          "target_temp_step": "Pas de la température cible",
+          "presets": "Préréglages activés",
           "valve_maintenance": "Si votre thermostat n'a pas de mode maintenance propre, vous pouvez utiliser celui-ci",
           "calibration": "Le type de calibrage",
-          "weather": "Votre entité météo pour obtenir la température extérieure",
           "heat_auto_swapped": "Si le mode automatique signifie chauffage pour votre TRV et que vous voulez le permuter",
           "child_lock": "Ignorer toutes les entrées sur le TRV comme une sécurité enfant",
           "homematicip": "Si vous utilisez HomematicIP, vous devriez l'activer pour ralentir les demandes et éviter le cycle de fonctionnement excessif"
+        },
+        "data_description": {
+          "presets": "Sélectionnez les préréglages qui doivent être disponibles pour ce thermostat."
         }
       },
       "advanced": {
-        "description": "Configuration avancée {trv}",
+        "description": "Configuration avancée {trv}\n\n**Infos détaillées :** {docs_url}",
         "data": {
           "protect_overheating": "Protection contre la surchauffe ?",
           "heat_auto_swapped": "Si le mode automatique signifie chauffage pour votre TRV et que vous voulez le permuter",
@@ -118,21 +128,88 @@
     }
   },
   "services": {
-    "save_current_target_temperature": {
-      "name": "Enregistrer la température actuelle",
-      "description": "Enregistrez la température cible actuelle pour une restauration ultérieure."
-    },
-    "restore_saved_target_temperature": {
-      "name": "Restaurer la température",
-      "description": "Restaurez la température cible enregistrée."
+    "run_valve_maintenance": {
+      "name": "Lancer la maintenance de la vanne maintenant",
+      "description": "Exécute immédiatement le cycle de maintenance de la vanne pour cette entité Better Thermostat."
     },
     "reset_heating_power": {
       "name": "Réinitialiser la puissance de chauffage",
       "description": "Réinitialisez la puissance de chauffage à la valeur par défaut."
     },
-    "set_temp_target_temperature": {
-      "name": "Définir la température éco",
-      "description": "Définissez la température cible sur une valeur temporaire comme le mode nuit, et enregistrez l'ancienne."
+    "reset_pid_learnings": {
+      "name": "Réinitialiser l'apprentissage PID",
+      "description": "Efface tout l'état PID appris (et éventuellement les limites d'ouverture apprises) pour cette entité.",
+      "fields": {
+        "include_open_caps": {
+          "name": "Effacer aussi les limites d'ouverture apprises",
+          "description": "Si activé, efface également les pourcentages d'ouverture min/max appris par TRV/plage de consigne."
+        },
+        "apply_pid_defaults": {
+          "name": "Appliquer les valeurs PID par défaut après la réinitialisation",
+          "description": "Si activé, prérenseigne les plages de consigne actuelles avec les gains PID par défaut (kp/ki/kd). Vous pouvez remplacer les valeurs par défaut ci-dessous."
+        },
+        "defaults_kp": {
+          "name": "kp par défaut",
+          "description": "Gain proportionnel appliqué après la réinitialisation (utilise BalanceParams.kp si non renseigné)."
+        },
+        "defaults_ki": {
+          "name": "ki par défaut",
+          "description": "Gain intégral appliqué après la réinitialisation (utilise BalanceParams.ki si non renseigné)."
+        },
+        "defaults_kd": {
+          "name": "kd par défaut",
+          "description": "Gain dérivé appliqué après la réinitialisation (utilise BalanceParams.kd si non renseigné)."
+        }
+      }
+    }
+  },
+  "selector": {
+    "presets": {
+      "options": {
+        "eco": "Éco",
+        "away": "Absent",
+        "boost": "Boost",
+        "comfort": "Confort",
+        "home": "Maison",
+        "sleep": "Sommeil",
+        "activity": "Activité"
+      }
+    }
+  },
+  "entity": {
+    "number": {
+      "pid_kp": {
+        "name": "{trv_name} PID Kp (proportionnel)"
+      },
+      "pid_ki": {
+        "name": "{trv_name} PID Ki (intégral)"
+      },
+      "pid_kd": {
+        "name": "{trv_name} PID Kd (dérivé)"
+      },
+      "pid_kp_no_trv": {
+        "name": "PID Kp (proportionnel)"
+      },
+      "pid_ki_no_trv": {
+        "name": "PID Ki (intégral)"
+      },
+      "pid_kd_no_trv": {
+        "name": "PID Kd (dérivé)"
+      }
+    },
+    "switch": {
+      "pid_auto_tune": {
+        "name": "{trv_name} Réglage automatique PID"
+      },
+      "pid_auto_tune_no_trv": {
+        "name": "Réglage automatique PID"
+      },
+      "child_lock": {
+        "name": "{trv_name} Sécurité enfant"
+      },
+      "child_lock_no_trv": {
+        "name": "Sécurité enfant"
+      }
     }
   },
   "device_automation": {
@@ -148,6 +225,14 @@
       "hvac_mode_changed": "Mode CVC modifié",
       "current_temperature_changed": "Température actuelle modifiée",
       "current_humidity_changed": "Humidité actuelle modifiée"
+    },
+    "condition_type": {
+      "is_hvac_mode": "Le thermostat est réglé sur un mode HVAC spécifique",
+      "is_hvac_action": "Le thermostat exécute une action HVAC spécifique"
+    },
+    "action_type": {
+      "set_hvac_mode": "Définir le mode HVAC",
+      "set_temperature": "Définir la température cible"
     }
   }
 }
