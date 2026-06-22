@@ -90,6 +90,12 @@ async def _setup_algorithm_sensors(
 
     Parameters
     ----------
+    hass : HomeAssistant
+        Home Assistant instance.
+    entry : ConfigEntry
+        Config entry the sensors belong to.
+    bt_climate : BetterThermostat
+        Better Thermostat climate entity the sensors report on.
     algorithms_to_create : set | None
         When provided, only sensors for these algorithms are created.
         When ``None`` (initial setup), all active algorithms are created.

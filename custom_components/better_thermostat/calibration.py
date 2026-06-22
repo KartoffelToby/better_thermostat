@@ -535,6 +535,8 @@ def calculate_calibration_local(self, entity_id) -> float | None:
     ----------
     self :
             self instance of better_thermostat
+    entity_id :
+            entity id of the TRV to calibrate
 
     Returns
     -------
@@ -880,6 +882,8 @@ def calculate_calibration_setpoint(self, entity_id) -> float | None:
     ----------
     self :
             self instance of better_thermostat
+    entity_id :
+            entity id of the TRV to calibrate
 
     Returns
     -------

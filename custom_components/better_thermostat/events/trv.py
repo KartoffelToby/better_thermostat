@@ -405,6 +405,8 @@ def convert_inbound_states(self, entity_id, state: State) -> str | None:
     ----------
     self :
         self instance of better_thermostat
+    entity_id :
+        entity id of the TRV whose state is being converted
     state : State
         Inbound thermostat state, which will be modified
 

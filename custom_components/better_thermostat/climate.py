@@ -365,7 +365,44 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
 
         Parameters
         ----------
-        TODO
+        name : str
+            Display name of the thermostat.
+        heater_entity_id : list[dict]
+            TRV configuration entries controlled by this thermostat.
+        sensor_entity_id : str | None
+            External temperature sensor entity id.
+        humidity_sensor_entity_id : str | None
+            External humidity sensor entity id.
+        window_id : str | None
+            Window/door contact sensor entity id for open-window detection.
+        window_delay : int
+            Delay in seconds before reacting to a window opening.
+        window_delay_after : int
+            Delay in seconds before reacting to a window closing.
+        weather_entity : str | None
+            Weather entity used as outdoor temperature source.
+        outdoor_sensor : str | None
+            Outdoor temperature sensor entity id.
+        off_temperature : float | None
+            Outdoor temperature above which heating is switched off.
+        tolerance : float
+            Temperature hysteresis in degrees.
+        target_temp_step : str | float | None
+            Step size for target temperature adjustments.
+        model : str
+            Detected TRV model identifier.
+        cooler_entity_id : str | None
+            Cooler entity id.
+        enabled_presets : list[str]
+            Presets enabled for this thermostat.
+        unit : str
+            Temperature unit reported by the entity.
+        unique_id : str
+            Unique id of the config entry.
+        device_class : str | None
+            Device class of the climate entity.
+        state_class : str | None
+            State class of the climate entity.
         """
         self.device_name = name
         self.model = model
