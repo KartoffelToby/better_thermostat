@@ -54,7 +54,7 @@ class SensorParams:
         Raises
         ------
         ValueError
-            If the sampling interval is not positive, the EMA factor is
+            If the sampling interval is negative, the EMA factor is
             outside (0, 1], or a noise/lag/jitter magnitude is negative.
         """
         # 0 is valid and means "sample on every step"; only negatives are rejected.
