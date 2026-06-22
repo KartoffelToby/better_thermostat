@@ -9,9 +9,12 @@ import logging
 import math
 import random
 from time import time
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
-from .types import CalibrationHost
+from custom_components.better_thermostat.core.calibrator import CalibratorHealth
+
+if TYPE_CHECKING:
+    from ...climate import BetterThermostat
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -150,7 +153,7 @@ class _MpcState:
     tolerance_hold_active: bool = False
 
 
-def _all_finite(value: Any) -> bool:
+def _all_finite(value: object) -> bool:
     """Whether every number reachable inside ``value`` is finite."""
     if isinstance(value, bool):
         return True
@@ -163,8 +166,8 @@ def _all_finite(value: Any) -> bool:
     return True
 
 
-def sanitize_mpc_state(state: _MpcState) -> tuple[_MpcState, str | None]:
-    """Return a usable MPC state; a poisoned one is replaced by a fresh one.
+def sanitize_mpc_state(state: _MpcState) -> tuple[_MpcState, CalibratorHealth]:
+    """Self-heal a poisoned MPC state before computing.
 
     A non-finite number anywhere in the learned state poisons every
     prediction derived from it, so the whole state is discarded and the
@@ -172,8 +175,8 @@ def sanitize_mpc_state(state: _MpcState) -> tuple[_MpcState, str | None]:
     """
     for f in fields(state):
         if not _all_finite(getattr(state, f.name)):
-            return _MpcState(), "non-finite state"
-    return state, None
+            return _MpcState(), CalibratorHealth.NON_FINITE
+    return state, CalibratorHealth.HEALTHY
 
 
 # Public alias so callers can reference the state type without importing
@@ -283,94 +286,27 @@ def _split_mpc_key(key: str) -> tuple[str | None, str | None, str | None]:
         return None, None, None
 
 
-def _parse_bucket(bucket: str | None) -> float | None:
-    """Parse a target-temp bucket label (``t21.0``) back into a float."""
-    if not bucket or not bucket.startswith("t"):
-        return None
-    try:
-        return float(bucket[1:])
-    except ValueError:
-        return None
-
-
 def _seed_state_from_siblings(
     key: str, state: _MpcState, params: MpcParams, all_states: Mapping[str, _MpcState]
 ) -> None:
-    """Seed a fresh per-bucket MPC state from its nearest sibling.
-
-    ``build_mpc_key`` partitions MPC state by ``round(target * 2.0) / 2.0``,
-    so a setpoint change crossing a half-degree boundary allocates a
-    fresh ``_MpcState`` with all defaults. Without seeding, every
-    per-room and per-TRV characteristic would be relearned from scratch
-    on each setpoint move.
-
-    This function copies *target-independent* learned values from the
-    nearest existing sibling (same ``uid`` and ``entity``, different
-    target bucket). Fields that are part of the live controller state
-    (``virtual_temp``, ``recent_errors``, Kalman covariance) or that may
-    legitimately differ across operating points (``gain_est``,
-    ``loss_est``, ``ka_est``) are not touched.
-
-    Existing values in *state* are never overwritten — seeding only
-    fills in defaults.
-    """
-    uid, entity, bucket = _split_mpc_key(key)
+    if not bool(getattr(params, "enable_min_effective_percent", True)):
+        return
+    if state.min_effective_percent is not None:
+        return
+    uid, entity, _ = _split_mpc_key(key)
     if not uid or not entity:
         return
-    own_target = _parse_bucket(bucket)
-    siblings: list[tuple[float, _MpcState]] = []
     for other_key, other_state in all_states.items():
         if other_key == key:
             continue
-        ouid, oentity, obucket = _split_mpc_key(other_key)
-        if ouid != uid or oentity != entity:
-            continue
-        other_target = _parse_bucket(obucket)
-        if own_target is not None and other_target is not None:
-            distance = abs(other_target - own_target)
-        else:
-            distance = math.inf
-        siblings.append((distance, other_state))
-
-    if not siblings:
-        return
-
-    siblings.sort(key=lambda item: item[0])
-
-    # --- min_effective_percent (gated by feature flag) ---
-    if state.min_effective_percent is None and bool(
-        getattr(params, "enable_min_effective_percent", True)
-    ):
-        for _, sib in siblings:
-            if sib.min_effective_percent is not None:
-                state.min_effective_percent = sib.min_effective_percent
-                break
-
-    # --- Target-independent learned characteristics ---
-    if not state.perf_curve:
-        for _, sib in siblings:
-            if sib.perf_curve:
-                state.perf_curve = {
-                    label: dict(stats) for label, stats in sib.perf_curve.items()
-                }
-                break
-
-    if state.trv_profile == "unknown" and state.profile_samples == 0:
-        for _, sib in siblings:
-            if sib.trv_profile != "unknown" and sib.profile_samples > 0:
-                state.trv_profile = sib.trv_profile
-                state.profile_confidence = sib.profile_confidence
-                state.profile_samples = sib.profile_samples
-                break
-
-    if state.solar_gain_est is None:
-        for _, sib in siblings:
-            if sib.solar_gain_est is not None:
-                state.solar_gain_est = sib.solar_gain_est
-                break
+        ouid, oentity, _ = _split_mpc_key(other_key)
+        if ouid == uid and oentity == entity:
+            if other_state.min_effective_percent is not None:
+                state.min_effective_percent = other_state.min_effective_percent
+                return
 
 
-def build_mpc_key(bt: CalibrationHost, entity_id: str) -> str:
+def build_mpc_key(bt: BetterThermostat, entity_id: str) -> str:
     """Return a stable key for MPC state tracking.
 
     For a single-TRV BT instance this key is entity-specific.
@@ -392,7 +328,7 @@ def build_mpc_key(bt: CalibrationHost, entity_id: str) -> str:
     return f"{uid}:{entity_id}:{bucket}"
 
 
-def build_mpc_group_key(bt: CalibrationHost) -> str:
+def build_mpc_group_key(bt: BetterThermostat) -> str:
     """Return a BT-level (group) key for MPC state tracking.
 
     All TRVs under the same BT instance share this key so that a single
@@ -565,15 +501,6 @@ def compute_mpc(
     """
 
     now = time()
-
-    # Heal a poisoned (NaN/Inf) state before it can feed the controller.
-    state, pathology = sanitize_mpc_state(state)
-    if pathology is not None:
-        _LOGGER.warning(
-            "better_thermostat: discarding poisoned MPC state for %s (%s)",
-            inp.key,
-            pathology,
-        )
 
     if state.created_ts == 0.0:
         # For existing trained models, backdate the creation timestamp

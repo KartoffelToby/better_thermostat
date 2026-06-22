@@ -7,12 +7,19 @@ delayed handling so that HVAC behavior uses window-open information reliably.
 from __future__ import annotations
 
 import asyncio
+from dataclasses import replace
 import logging
 
 from homeassistant.core import callback
 from homeassistant.helpers import issue_registry as ir
 
 from custom_components.better_thermostat import DOMAIN
+from custom_components.better_thermostat.core.fsm.window import (
+    WindowParams,
+    WindowPhase,
+    step as window_step,
+)
+from custom_components.better_thermostat.utils.scheduler import request_control_cycle
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -89,62 +96,95 @@ async def trigger_window_change(self, event) -> None:
             self.device_name,
         )
         return
-    await self.window_queue_task.put(new_window_open)
+
+    # Start the pending transition in the window region; the queued task
+    # settles it (the region owns the timing). The pre-step committed
+    # state travels along so the handler can detect a commit even when a
+    # zero delay commits immediately.
+    was_open = self.kernel_state.window.effective_open
+    self.kernel_state = replace(
+        self.kernel_state,
+        window=window_step(
+            self.kernel_state.window,
+            sensor_open=new_window_open,
+            now=self.clock.monotonic(),
+            params=_window_params(self),
+        ),
+    )
+    await self.window_queue_task.put(was_open)
+
+
+def _window_params(self) -> WindowParams:
+    """Debounce delays from the entity configuration."""
+    return WindowParams(
+        open_delay_s=float(self.window_delay or 0),
+        close_delay_s=float(self.window_delay_after or 0),
+    )
+
+
+async def _settle_window_region(self, was_open: bool) -> None:
+    """Drive the window region until no transition is pending.
+
+    The region owns the debounce timing: this helper sleeps exactly the
+    remaining delay the region asks for, re-reads the sensor, and
+    re-steps. A delay reconfigured mid-flight changes the next sleep,
+    and a sensor that reverted cancels the transition (false positive).
+    """
+    while True:
+        region = self.kernel_state.window
+        if region.pending_since is None:
+            break
+        params = _window_params(self)
+        delay = (
+            params.open_delay_s
+            if region.phase == WindowPhase.OPENING
+            else params.close_delay_s
+        )
+        remaining = region.pending_since + delay - self.clock.monotonic()
+        if remaining > 0:
+            _LOGGER.debug(
+                "better_thermostat %s: window %s, waiting %.1f seconds "
+                "before continuing",
+                self.device_name,
+                "opened" if region.phase == WindowPhase.OPENING else "closed",
+                remaining,
+            )
+            await asyncio.sleep(remaining)
+        sensor = self.hass.states.get(self.window_id)
+        sensor_open = sensor is None or sensor.state not in ("off", "false", "closed")
+        self.kernel_state = replace(
+            self.kernel_state,
+            window=window_step(
+                self.kernel_state.window,
+                sensor_open=sensor_open,
+                now=self.clock.monotonic(),
+                params=_window_params(self),
+            ),
+        )
+
+    if was_open != self.kernel_state.window.effective_open:
+        self.async_write_ha_state()
+        if getattr(self, "in_maintenance", False):
+            # Keep state up to date during maintenance, but defer control
+            # until maintenance ends.
+            self._control_needed_after_maintenance = True
+        else:
+            request_control_cycle(self, replace_pending=True)
 
 
 async def window_queue(self):
     """Process queued window-open events.
 
-    This coroutine dequeues window state changes, applies configured wait
-    delays and triggers the control queue when the window remains in the
-    expected state after the delay.
+    Each queued item carries the committed state from before the event;
+    settling the region decides whether the change commits, and a real
+    change kicks the control queue.
     """
     try:
         while True:
-            window_event_to_process = await self.window_queue_task.get()
+            queued = await self.window_queue_task.get()
             try:
-                if window_event_to_process is not None:
-                    if window_event_to_process:
-                        _LOGGER.debug(
-                            "better_thermostat %s: Window opened, "
-                            "waiting %s seconds before continuing",
-                            self.device_name,
-                            self.window_delay,
-                        )
-                        await asyncio.sleep(self.window_delay)
-                    else:
-                        _LOGGER.debug(
-                            "better_thermostat %s: Window closed, "
-                            "waiting %s seconds before continuing",
-                            self.device_name,
-                            self.window_delay_after,
-                        )
-                        await asyncio.sleep(self.window_delay_after)
-                    window_state = self.hass.states.get(self.window_id)
-                    if window_state is None:
-                        _LOGGER.debug(
-                            "better_thermostat %s: Window sensor %s vanished "
-                            "during the debounce delay; skipping event",
-                            self.device_name,
-                            self.window_id,
-                        )
-                        continue
-                    # remap off on to true false
-                    current_window_state = True
-                    if window_state.state in ("off", "false", "closed"):
-                        current_window_state = False
-                    # make sure the current state is the suggested change state to prevent a false positive:
-                    if current_window_state == window_event_to_process:
-                        self.window_open = window_event_to_process
-                        self.async_write_ha_state()
-                        if getattr(self, "in_maintenance", False):
-                            # Keep state up to date during maintenance, but defer control
-                            # until maintenance ends.
-                            self._control_needed_after_maintenance = True
-                        else:
-                            if not self.control_queue_task.empty():
-                                empty_queue(self.control_queue_task)
-                            await self.control_queue_task.put(self)
+                if queued is not None:
+                    await _settle_window_region(self, was_open=queued)
             except asyncio.CancelledError:
                 _LOGGER.debug(
                     "better_thermostat %s: Window queue processing cancelled",
@@ -158,13 +198,3 @@ async def window_queue(self):
             "better_thermostat %s: Window queue task cancelled", self.device_name
         )
         raise
-
-
-def empty_queue(q: asyncio.Queue):
-    """Empty out a Queue of pending items.
-
-    Consumes all pending items from the queue and marks them as done.
-    """
-    for _ in range(q.qsize()):
-        q.get_nowait()
-        q.task_done()

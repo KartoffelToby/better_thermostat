@@ -18,9 +18,12 @@ from dataclasses import dataclass
 import logging
 import math
 from time import monotonic
-from typing import Protocol, TypedDict
+from typing import TYPE_CHECKING, Protocol, TypedDict
 
-from .types import CalibrationHost
+from ...core.calibrator import CalibratorHealth
+
+if TYPE_CHECKING:
+    from ...climate import BetterThermostat
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -140,6 +143,43 @@ def _r(val: float | None, decimals: int = 2) -> float | None:
 # --- PID Computation -----------------------------------------------
 
 
+def observe_standby(
+    params: PIDParams,
+    state: PIDState,
+    inp_current_temp_C: float | None,
+    now: float,
+    inp_current_temp_ema_C: float | None = None,
+) -> PIDState:
+    """Track the measurement chain while actuation is suppressed.
+
+    Bumpless transfer: during window-open or OFF the controller emits
+    nothing, but ``pid_last_meas`` (the D-channel's smoothed measurement)
+    and ``pid_last_time`` keep following the room. The first cycle after
+    control resumes then sees a fresh measurement and a small ``dt`` —
+    no derivative kick and no one-step integral jump computed from an
+    hours-old timestamp. The integral itself stays frozen.
+    """
+    current_temp = inp_current_temp_C
+    if inp_current_temp_ema_C is not None:
+        current_temp = inp_current_temp_ema_C
+    if current_temp is None:
+        return state
+
+    if params.d_on_measurement:
+        try:
+            a = max(0.0, min(1.0, float(params.d_smoothing_alpha)))
+        except TypeError, ValueError:
+            a = 0.5
+        prev = state.pid_last_meas
+        state.pid_last_meas = (
+            current_temp if prev is None else ((1.0 - a) * prev + a * current_temp)
+        )
+    else:
+        state.pid_last_meas = current_temp
+    state.pid_last_time = now
+    return state
+
+
 def compute_pid(
     params: PIDParams,
     inp_target_temp_C: float | None,
@@ -185,12 +225,6 @@ def compute_pid(
     now = monotonic()
 
     st = state
-
-    st, pathology = sanitize_pid_state(st, params)
-    if pathology is not None:
-        _LOGGER.warning(
-            "better_thermostat: healed poisoned PID state for %s (%s)", key, pathology
-        )
 
     max_opening = 100.0
     if isinstance(max_opening_pct, (int, float)):
@@ -542,58 +576,60 @@ def _auto_tune_pid(
 
 def sanitize_pid_state(
     state: PIDState, params: PIDParams
-) -> tuple[PIDState, str | None]:
-    """Heal a (possibly poisoned) PID state before computing.
+) -> tuple[PIDState, CalibratorHealth]:
+    """Self-heal a (possibly poisoned) PID state before computing.
 
-    Non-finite values fall back to their defaults, runaway gains return
-    to the configured defaults, and a wound-up integrator is reset. All
-    pathologies are healed in one pass; the returned pathology names the
-    most severe finding, or None.
+    Non-finite values are dropped back to defaults, runaway gains return
+    to the configured defaults, and a wound-up integrator is reset. The
+    returned health grade reports the worst pathology found.
     """
-    pathology: str | None = None
+    health = CalibratorHealth.HEALTHY
 
     def _finite(value: float | None) -> bool:
         return value is None or math.isfinite(value)
 
     if not _finite(state.pid_integral):
         state.pid_integral = 0.0
-        pathology = "non-finite state"
+        health = CalibratorHealth.NON_FINITE
     if not _finite(state.pid_last_meas):
         state.pid_last_meas = None
-        pathology = "non-finite state"
+        health = CalibratorHealth.NON_FINITE
     if not _finite(state.pid_last_error):
         state.pid_last_error = None
-        pathology = "non-finite state"
+        health = CalibratorHealth.NON_FINITE
     for gain_attr in ("pid_kp", "pid_ki", "pid_kd"):
         if not _finite(getattr(state, gain_attr)):
             setattr(state, gain_attr, None)
-            pathology = "non-finite state"
+            health = CalibratorHealth.NON_FINITE
 
-    runaway = (
-        (
-            state.pid_kp is not None
-            and not params.kp_min <= state.pid_kp <= params.kp_max
+    if health == CalibratorHealth.HEALTHY:
+        runaway = (
+            (
+                state.pid_kp is not None
+                and not params.kp_min <= state.pid_kp <= params.kp_max
+            )
+            or (
+                state.pid_ki is not None
+                and not params.ki_min <= state.pid_ki <= params.ki_max
+            )
+            or (
+                state.pid_kd is not None
+                and not params.kd_min <= state.pid_kd <= params.kd_max
+            )
         )
-        or (
-            state.pid_ki is not None
-            and not params.ki_min <= state.pid_ki <= params.ki_max
-        )
-        or (
-            state.pid_kd is not None
-            and not params.kd_min <= state.pid_kd <= params.kd_max
-        )
-    )
-    if runaway:
-        state.pid_kp = None
-        state.pid_ki = None
-        state.pid_kd = None
-        pathology = pathology or "runaway gains"
+        if runaway:
+            state.pid_kp = None
+            state.pid_ki = None
+            state.pid_kd = None
+            health = CalibratorHealth.RUNAWAY_GAINS
 
-    if not (params.i_min <= state.pid_integral <= params.i_max):
+    if health == CalibratorHealth.HEALTHY and not (
+        params.i_min <= state.pid_integral <= params.i_max
+    ):
         state.pid_integral = 0.0
-        pathology = pathology or "integrator windup"
+        health = CalibratorHealth.WINDUP_SUSPECT
 
-    return state, pathology
+    return state, health
 
 
 # --- Key Builder Helper -----------------------------------------------
@@ -625,7 +661,7 @@ def format_bucket(bucket: float) -> str:
     return f"t{bucket:.1f}"
 
 
-def build_pid_key(self: CalibrationHost, entity_id: str) -> str:
+def build_pid_key(self: BetterThermostat, entity_id: str) -> str:
     """Build consistent PID state key across all modules.
 
     Format: {unique_id}:{entity_id}:t{target_temp:.1f}

@@ -4,9 +4,10 @@ Pins the supported-mode handling, the rejection of unsupported modes, and the
 maintenance defer that must not enqueue a control action mid-exercise.
 """
 
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import MagicMock, patch
 
 from homeassistant.components.climate.const import HVACMode
+from homeassistant.exceptions import ServiceValidationError
 import pytest
 
 from custom_components.better_thermostat.climate import BetterThermostat
@@ -23,7 +24,7 @@ def bt():
     mock.in_maintenance = False
     mock._control_needed_after_maintenance = False
     mock.async_write_ha_state = MagicMock()
-    mock.control_queue_task = AsyncMock()
+    mock.control_queue_task = MagicMock()
     return mock
 
 
@@ -40,17 +41,21 @@ async def test_supported_mode_is_applied_and_queued(bt, mode):
         await BetterThermostat.async_set_hvac_mode(bt, mode)
     assert bt.bt_hvac_mode == mode
     bt.async_write_ha_state.assert_called_once()
-    bt.control_queue_task.put.assert_awaited_once_with(bt)
+    bt.control_queue_task.put_nowait.assert_called_once_with(bt)
 
 
 @pytest.mark.asyncio
 async def test_unsupported_mode_is_rejected(bt):
-    """An unsupported mode leaves bt_hvac_mode untouched but still queues control."""
+    """An unsupported mode raises to the service caller and changes nothing.
+
+    No state write, no control cycle.
+    """
     with patch(f"{_CLIMATE}.get_hvac_bt_mode", _identity_mode()) as mapper:
-        await BetterThermostat.async_set_hvac_mode(bt, HVACMode.COOL)
+        with pytest.raises(ServiceValidationError):
+            await BetterThermostat.async_set_hvac_mode(bt, HVACMode.COOL)
     assert bt.bt_hvac_mode == HVACMode.HEAT  # unchanged
     mapper.assert_not_called()
-    bt.control_queue_task.put.assert_awaited_once_with(bt)
+    bt.control_queue_task.put_nowait.assert_not_called()
 
 
 @pytest.mark.asyncio
@@ -60,4 +65,4 @@ async def test_maintenance_defers_control(bt):
     with patch(f"{_CLIMATE}.get_hvac_bt_mode", _identity_mode()):
         await BetterThermostat.async_set_hvac_mode(bt, HVACMode.HEAT)
     assert bt._control_needed_after_maintenance is True
-    bt.control_queue_task.put.assert_not_awaited()
+    bt.control_queue_task.put_nowait.assert_not_called()

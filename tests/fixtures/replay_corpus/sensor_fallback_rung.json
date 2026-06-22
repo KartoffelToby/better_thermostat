@@ -1,0 +1,96 @@
+{
+  "desired": {
+    "call_for_heat": true,
+    "trvs": {
+      "climate.trv1": {
+        "entity_id": "climate.trv1",
+        "hvac_mode": "heat",
+        "offset": null,
+        "setpoint": 21.0,
+        "suppression": null,
+        "valve_percent": null
+      },
+      "climate.trv2": {
+        "entity_id": "climate.trv2",
+        "hvac_mode": "heat",
+        "offset": null,
+        "setpoint": 21.0,
+        "suppression": null,
+        "valve_percent": null
+      }
+    }
+  },
+  "snapshot": {
+    "call_for_heat": true,
+    "hvac_mode": "heat",
+    "is_day": true,
+    "max_temp": null,
+    "min_temp": null,
+    "now": "2026-01-02T08:30:00+00:00",
+    "now_monotonic": 1000.0,
+    "outdoor_temp": null,
+    "preset_mode": null,
+    "room_temp": 19.5,
+    "room_temp_filtered": null,
+    "solar_intensity": 0.0,
+    "target_cooltemp": null,
+    "target_temp": 21.0,
+    "temp_slope": null,
+    "tolerance": 0.3,
+    "trvs": {
+      "climate.trv1": {
+        "available": true,
+        "current_temp": null,
+        "entity_id": "climate.trv1",
+        "hvac_mode": null,
+        "local_calibration_max": null,
+        "local_calibration_min": null,
+        "max_temp": null,
+        "min_temp": null,
+        "setpoint": null,
+        "valve_max_opening": null
+      },
+      "climate.trv2": {
+        "available": true,
+        "current_temp": null,
+        "entity_id": "climate.trv2",
+        "hvac_mode": null,
+        "local_calibration_max": null,
+        "local_calibration_min": null,
+        "max_temp": null,
+        "min_temp": null,
+        "setpoint": null,
+        "valve_max_opening": null
+      }
+    },
+    "window_open": null
+  },
+  "state": {
+    "control_mode": {
+      "degraded_since": 700.0,
+      "down_pending_since": null,
+      "mode": "sensor_fallback",
+      "unavailable_sensors": [],
+      "up_pending_since": null
+    },
+    "last_control_monotonic": null,
+    "lifecycle": {
+      "grace_until": null,
+      "phase": "running"
+    },
+    "maintenance": {
+      "next_due": null,
+      "phase": "idle",
+      "running_since": null
+    },
+    "mode": {
+      "hvac_mode": "heat",
+      "preset": null
+    },
+    "reachability": {},
+    "window": {
+      "pending_since": null,
+      "phase": "closed"
+    }
+  }
+}

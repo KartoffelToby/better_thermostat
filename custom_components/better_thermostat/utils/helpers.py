@@ -235,7 +235,7 @@ def mode_remap(self, entity_id, hvac_mode: str, inbound: bool = False) -> str:
     Parameters
     ----------
     self :
-            self instance of better_thermostat
+            FIXME
     entity_id :
             entity id of the TRV whose mode is being remapped
     hvac_mode : str
@@ -249,11 +249,9 @@ def mode_remap(self, entity_id, hvac_mode: str, inbound: bool = False) -> str:
     str
             remapped mode according to device's quirks
     """
-    trv = self.real_trvs.get(entity_id)
-    if trv is None:
-        return hvac_mode
-
-    _heat_auto_swapped = (trv.advanced or {}).get(CONF_HEAT_AUTO_SWAPPED, False)
+    _heat_auto_swapped = self.real_trvs[entity_id].advanced.get(
+        CONF_HEAT_AUTO_SWAPPED, False
+    )
 
     if _heat_auto_swapped:
         if hvac_mode == HVACMode.HEAT and not inbound:
@@ -262,9 +260,7 @@ def mode_remap(self, entity_id, hvac_mode: str, inbound: bool = False) -> str:
             return HVACMode.HEAT
         return hvac_mode
 
-    trv_modes = trv.hvac_modes
-    if not trv_modes:
-        return hvac_mode
+    trv_modes = self.real_trvs[entity_id].hvac_modes
     if HVACMode.HEAT not in trv_modes and HVACMode.HEAT_COOL in trv_modes:
         # entity only supports HEAT_COOL, but not HEAT - need to translate
         if not inbound and hvac_mode == HVACMode.HEAT:
@@ -406,6 +402,15 @@ def heating_power_valve_position(self, entity_id):
         round(valve_pos * 100),
     )
     return valve_pos
+
+
+def clamp_valve_percent(value: float) -> int:
+    """Normalize a valve intent to an integer percentage in 0..100.
+
+    Intents stay in device percent; the user's valve_max_opening cap is
+    enforced by the safety hull at the command boundary.
+    """
+    return int(round(max(0.0, min(100.0, float(value)))))
 
 
 def is_reasonable_temperature(value: float | None) -> bool:

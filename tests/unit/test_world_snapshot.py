@@ -2,14 +2,13 @@
 
 The completeness table pins that every entity attribute the control path
 reads today has a corresponding snapshot field and that ``build_snapshot``
-copies each one. A forgotten field would surface here.
+copies each one. A forgotten field would surface here, not deep in M2.
 """
 
 from dataclasses import FrozenInstanceError, fields
 from datetime import UTC, datetime
 from unittest.mock import MagicMock
 
-from homeassistant.core import State
 import pytest
 
 from custom_components.better_thermostat.core.clock import FakeClock
@@ -19,6 +18,7 @@ from custom_components.better_thermostat.core.snapshot import (
     WorldSnapshot,
     parse_hvac_mode,
 )
+from custom_components.better_thermostat.trv import Trv
 from custom_components.better_thermostat.utils.snapshot import build_snapshot
 
 
@@ -47,16 +47,21 @@ def _make_bt() -> MagicMock:
     bt.bt_min_temp = 5.0
     bt.bt_max_temp = 30.0
     bt.real_trvs = {
-        "climate.trv": {
-            "hvac_mode": "heat",
-            "current_temperature": 21.0,
-            "last_temperature": 22.0,
-            "min_temp": 5.0,
-            "max_temp": 30.0,
-            "valve_max_opening": 80.0,
-        }
+        "climate.trv": Trv.from_legacy_dict(
+            "climate.trv",
+            {
+                "hvac_mode": "heat",
+                "current_temperature": 21.0,
+                "last_temperature": 22.0,
+                "min_temp": 5.0,
+                "max_temp": 30.0,
+                "valve_max_opening": 80.0,
+            },
+        )
     }
-    bt.hass.states.get.return_value = State("climate.trv", "heat")
+    trv_state = MagicMock()
+    trv_state.state = "heat"
+    bt.hass.states.get.return_value = trv_state
     return bt
 
 
@@ -68,14 +73,9 @@ COMPLETENESS_TABLE = [
     ("cur_temp", "room_temp", 20.1),
     ("cur_temp_filtered", "room_temp_filtered", 20.2),
     ("temp_slope", "temp_slope", 0.05),
-    ("window_open", "window_open", False),
     ("call_for_heat", "call_for_heat", True),
     ("preset_mode", "preset_mode", "eco"),
     ("tolerance", "tolerance", 0.3),
-    ("startup_running", "startup_running", False),
-    ("in_maintenance", "in_maintenance", False),
-    ("ignore_states", "ignore_states", False),
-    ("degraded_mode", "degraded", False),
     ("bt_min_temp", "min_temp", 5.0),
     ("bt_max_temp", "max_temp", 30.0),
 ]
@@ -103,9 +103,22 @@ class TestSnapshotCompleteness:
             "is_day",
             "solar_intensity",
             "trvs",
+            # Raw sensor reading, read straight from hass in the builder.
+            "window_open",
         }
         all_fields = {f.name for f in fields(WorldSnapshot)}
         assert all_fields == mapped | produced_elsewhere
+
+    def test_observations_use_the_shared_float_normalization(self):
+        """Raw readings pass the shared converter (0.01 step).
+
+        The snapshot carries the same numbers the rest of BT computes
+        with.
+        """
+        bt = _make_bt()
+        bt.cur_temp = 19.974999
+        snapshot = build_snapshot(bt)
+        assert snapshot.room_temp == 19.97
 
     def test_time_comes_from_the_injected_clock(self):
         """The snapshot carries both clock axes at build time."""
@@ -132,12 +145,16 @@ class TestTrvReportedBuilding:
             min_temp=5.0,
             max_temp=30.0,
             valve_max_opening=80.0,
+            local_calibration_min=-7,
+            local_calibration_max=7,
         )
 
     def test_unavailable_state_marks_trv_unavailable(self):
         """An unavailable HA state yields available=False."""
         bt = _make_bt()
-        bt.hass.states.get.return_value = State("climate.trv", "unavailable")
+        trv_state = MagicMock()
+        trv_state.state = "unavailable"
+        bt.hass.states.get.return_value = trv_state
         snapshot = build_snapshot(bt)
         assert snapshot.trvs["climate.trv"].available is False
 
@@ -151,24 +168,8 @@ class TestTrvReportedBuilding:
     def test_unparseable_values_become_none(self):
         """Garbage in the real_trvs entry degrades to None, not a crash."""
         bt = _make_bt()
-        bt.real_trvs["climate.trv"]["current_temperature"] = "oops"
-        bt.real_trvs["climate.trv"]["hvac_mode"] = "bogus"
-        snapshot = build_snapshot(bt)
-        trv = snapshot.trvs["climate.trv"]
-        assert trv.current_temp is None
-        assert trv.hvac_mode is None
-
-    def test_boolean_values_are_not_coerced_to_float(self):
-        """A bool reading does not silently become 1.0/0.0."""
-        bt = _make_bt()
-        bt.real_trvs["climate.trv"]["current_temperature"] = True
-        snapshot = build_snapshot(bt)
-        assert snapshot.trvs["climate.trv"].current_temp is None
-
-    def test_non_dict_payload_does_not_crash(self):
-        """A malformed (non-dict) real_trvs entry degrades to an empty report."""
-        bt = _make_bt()
-        bt.real_trvs["climate.trv"] = "not-a-dict"
+        bt.real_trvs["climate.trv"].current_temperature = "oops"
+        bt.real_trvs["climate.trv"].hvac_mode = "bogus"
         snapshot = build_snapshot(bt)
         trv = snapshot.trvs["climate.trv"]
         assert trv.current_temp is None

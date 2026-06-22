@@ -5,7 +5,7 @@ mock_bt fixture (MagicMock with explicit attributes).
 """
 
 from datetime import UTC, datetime, timedelta
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import MagicMock
 
 from homeassistant.components.climate.const import (
     ATTR_HVAC_MODE,
@@ -19,6 +19,7 @@ from homeassistant.components.climate.const import (
     HVACMode,
 )
 from homeassistant.const import ATTR_TEMPERATURE
+from homeassistant.exceptions import ServiceValidationError
 import pytest
 
 from custom_components.better_thermostat.climate import BetterThermostat
@@ -28,6 +29,7 @@ from custom_components.better_thermostat.utils.thermal_learning import (
     HeatingPowerTracker,
     HeatLossTracker,
 )
+from tests.factories import make_state
 
 # ---------------------------------------------------------------------------
 # Fixture
@@ -53,6 +55,9 @@ def mock_bt():
     bt.hvac_mode = HVACMode.HEAT
     bt.window_open = False
     bt.ignore_states = False
+    # Real kernel state: production updates it via dataclasses.replace,
+    # which rejects a MagicMock stand-in.
+    bt.kernel_state = make_state()
     # Hysteresis
     bt._hysteresis = ToleranceHysteresis()
     # Thermal trackers (real objects – new thin-wrapper methods delegate to these)
@@ -98,7 +103,7 @@ def mock_bt():
     # TRVs
     bt.real_trvs = {}
     # HA callbacks
-    bt.control_queue_task = AsyncMock()
+    bt.control_queue_task = MagicMock()
     bt.async_write_ha_state = MagicMock()
     bt.schedule_save_state = MagicMock()
     bt.in_maintenance = False
@@ -947,7 +952,7 @@ class TestAsyncSetPresetMode:
         mock_bt.min_temp = mock_bt.bt_min_temp
         mock_bt.max_temp = mock_bt.bt_max_temp
         await self._call(mock_bt, PRESET_COMFORT)
-        mock_bt.control_queue_task.put.assert_awaited_once_with(mock_bt)
+        mock_bt.control_queue_task.put_nowait.assert_called_once_with(mock_bt)
 
 
 # ===========================================================================
@@ -978,6 +983,36 @@ class TestAsyncSetTemperature:
             mock_bt, **{ATTR_TEMPERATURE: 22.0, ATTR_HVAC_MODE: HVACMode.OFF}
         )
         assert mock_bt.bt_hvac_mode == HVACMode.OFF
+
+    @pytest.mark.asyncio
+    async def test_garbage_temperature_rejected(self, mock_bt):
+        """A present but non-numeric temperature raises.
+
+        Garbage input is a caller error, not something to drop silently.
+        """
+        mock_bt.preset_mgr.mode = PRESET_NONE
+        mock_bt.bt_hvac_mode = HVACMode.HEAT
+        mock_bt.bt_target_temp = 21.0
+        with pytest.raises(ServiceValidationError):
+            await self._call(mock_bt, **{ATTR_TEMPERATURE: "warm"})
+        assert mock_bt.bt_target_temp == 21.0
+
+    @pytest.mark.asyncio
+    async def test_none_temperature_rejected(self, mock_bt):
+        """An explicit None temperature raises a validation error."""
+        mock_bt.preset_mgr.mode = PRESET_NONE
+        mock_bt.bt_hvac_mode = HVACMode.HEAT
+        with pytest.raises(ServiceValidationError):
+            await self._call(mock_bt, **{ATTR_TEMPERATURE: None})
+
+    @pytest.mark.asyncio
+    async def test_unsupported_hvac_mode_in_kwargs_rejected(self, mock_bt):
+        """An unsupported hvac_mode in kwargs raises and changes nothing."""
+        mock_bt.preset_mgr.mode = PRESET_NONE
+        mock_bt.bt_hvac_mode = HVACMode.HEAT
+        with pytest.raises(ServiceValidationError):
+            await self._call(mock_bt, **{ATTR_TEMPERATURE: 22.0, ATTR_HVAC_MODE: "dry"})
+        assert mock_bt.bt_hvac_mode == HVACMode.HEAT
 
     @pytest.mark.asyncio
     async def test_heat_cool_low_high_setpoints(self, mock_bt):
@@ -1042,7 +1077,7 @@ class TestAsyncSetTemperature:
         mock_bt.min_temp = mock_bt.bt_min_temp
         mock_bt.max_temp = mock_bt.bt_max_temp
         await self._call(mock_bt, **{ATTR_TEMPERATURE: 22.0})
-        mock_bt.control_queue_task.put.assert_not_awaited()
+        mock_bt.control_queue_task.put_nowait.assert_not_called()
 
     @pytest.mark.asyncio
     async def test_maintenance_no_queue_put(self, mock_bt):
@@ -1054,7 +1089,7 @@ class TestAsyncSetTemperature:
         mock_bt.max_temp = mock_bt.bt_max_temp
         await self._call(mock_bt, **{ATTR_TEMPERATURE: 22.0})
         assert mock_bt._control_needed_after_maintenance is True
-        mock_bt.control_queue_task.put.assert_not_awaited()
+        mock_bt.control_queue_task.put_nowait.assert_not_called()
 
     @pytest.mark.asyncio
     async def test_queue_put_called_in_heat_mode(self, mock_bt):
@@ -1064,7 +1099,7 @@ class TestAsyncSetTemperature:
         mock_bt.min_temp = mock_bt.bt_min_temp
         mock_bt.max_temp = mock_bt.bt_max_temp
         await self._call(mock_bt, **{ATTR_TEMPERATURE: 22.0})
-        mock_bt.control_queue_task.put.assert_awaited_once_with(mock_bt)
+        mock_bt.control_queue_task.put_nowait.assert_called_once_with(mock_bt)
 
     @pytest.mark.asyncio
     async def test_active_preset_deactivated_on_manual_change(self, mock_bt):

@@ -15,7 +15,6 @@ from __future__ import annotations
 
 from collections import deque
 from dataclasses import asdict
-import logging
 from unittest.mock import AsyncMock, patch
 
 import pytest
@@ -185,14 +184,27 @@ class TestSerializeDeserializeRoundtrip:
         assert restored.thermal.heating_power == 1200.0
         assert restored.thermal.heat_loss_rate == 0.03
 
-    def test_presets_roundtrip(self):
-        """Preset temperatures survive roundtrip."""
-        original = RuntimeState(presets={"comfort": 22.0, "eco": 18.5})
+    def test_legacy_presets_section_ignored(self):
+        """A legacy presets section in a stored payload is ignored.
 
-        raw = _serialize(original)
+        Preset temperatures live in the preset number entities.
+        """
+        raw = _serialize(RuntimeState())
+        raw["presets"] = {"comfort": 22.0}
+
         restored = _deserialize(raw)
 
-        assert restored.presets == {"comfort": 22.0, "eco": 18.5}
+        assert not hasattr(restored, "presets")
+
+    def test_thermal_rejects_non_finite(self):
+        """NaN/inf thermal stats in a stored payload are rejected on load."""
+        raw = _serialize(RuntimeState())
+        raw["thermal"] = {"heating_power": float("nan"), "heat_loss_rate": float("inf")}
+
+        restored = _deserialize(raw)
+
+        assert restored.thermal.heating_power is None
+        assert restored.thermal.heat_loss_rate is None
 
     def test_full_state_roundtrip(self):
         """Complete state with all sections populated."""
@@ -201,7 +213,6 @@ class TestSerializeDeserializeRoundtrip:
             pid={"k1": PIDState(pid_kp=2.0)},
             tpi={"k1": TpiState(last_percent=30.0)},
             thermal=ThermalStats(heating_power=800.0),
-            presets={"away": 16.0},
         )
 
         raw = _serialize(original)
@@ -211,7 +222,6 @@ class TestSerializeDeserializeRoundtrip:
         assert restored.pid["k1"].pid_kp == 2.0
         assert restored.tpi["k1"].last_percent == 30.0
         assert restored.thermal.heating_power == 800.0
-        assert restored.presets["away"] == 16.0
 
 
 # ---------------------------------------------------------------------------
@@ -334,7 +344,6 @@ class TestDeserializeEdgeCases:
         assert state.mpc == {}
         assert state.pid == {}
         assert state.tpi == {}
-        assert state.presets == {}
 
     def test_non_dict_mpc_payload_skipped(self):
         """Non-dict payloads inside mpc section are skipped."""
@@ -348,19 +357,6 @@ class TestDeserializeEdgeCases:
         raw = {"version": 1, "thermal": "garbage"}
         state = _deserialize(raw)
         assert state.thermal.heating_power is None
-
-    def test_invalid_preset_skipped(self):
-        """Non-numeric preset values are skipped, valid ones kept."""
-        raw = {"version": 1, "presets": {"good": 21.0, "bad": "not_a_number"}}
-        state = _deserialize(raw)
-        assert state.presets["good"] == 21.0
-        assert "bad" not in state.presets
-
-    def test_non_dict_presets_ignored(self):
-        """Non-dict presets section produces empty dict."""
-        raw = {"version": 1, "presets": [1, 2, 3]}
-        state = _deserialize(raw)
-        assert state.presets == {}
 
 
 # ---------------------------------------------------------------------------
@@ -380,7 +376,6 @@ class TestMigrationV0ToV1:
         assert result["pid"] == {}
         assert result["tpi"] == {}
         assert result["thermal"] == {}
-        assert result["presets"] == {}
 
     def test_preserves_existing_data(self):
         """Existing data is preserved during migration."""
@@ -478,13 +473,6 @@ class TestStateManagerDirtyTracking:
         assert mgr.dirty is True
         assert mgr.thermal.heating_power == 500.0
 
-    def test_presets_setter_dirties(self):
-        """Assigning presets property sets dirty."""
-        mgr = self._make_manager()
-        mgr.presets = {"eco": 18.0}
-        assert mgr.dirty is True
-        assert mgr.presets == {"eco": 18.0}
-
 
 # ---------------------------------------------------------------------------
 # StateManager — load / save lifecycle
@@ -517,28 +505,22 @@ class TestStateManagerLoadSave:
         assert mgr.dirty is False
 
     @pytest.mark.asyncio
-    async def test_load_survives_a_poisoned_store(self, caplog):
+    async def test_load_survives_a_poisoned_store(self):
         """A store that breaks deserialization yields defaults, not a crash.
 
         load() runs inside the entity's startup task; an exception here
         would kill startup over data that relearning replaces anyway.
-        The recovery is announced by a warning that carries the exception.
         """
         mgr, mock_store = self._make_manager_with_store()
         mock_store.async_load.return_value = {"version": 1, "mpc": {"k": {}}}
-        with (
-            caplog.at_level(logging.WARNING),
-            patch(
-                "custom_components.better_thermostat.utils.state_manager._deserialize",
-                side_effect=TypeError("poisoned"),
-            ),
+        with patch(
+            "custom_components.better_thermostat.utils.state_manager._deserialize",
+            side_effect=TypeError("poisoned"),
         ):
             await mgr.load()
 
         assert mgr.state.mpc == {}
         assert mgr.dirty is False
-        assert "persisted state is unreadable, starting fresh" in caplog.text
-        assert "poisoned" in caplog.text
 
     @pytest.mark.asyncio
     async def test_load_valid_state(self):
@@ -550,7 +532,6 @@ class TestStateManagerLoadSave:
             "pid": {},
             "tpi": {},
             "thermal": {"heating_power": 1000.0},
-            "presets": {"comfort": 22.0},
         }
 
         await mgr.load()
@@ -558,7 +539,6 @@ class TestStateManagerLoadSave:
         assert mgr.state.mpc["k1"].gain_est == 0.5
         assert mgr.state.mpc["k1"].dead_zone_hits == 2
         assert mgr.state.thermal.heating_power == 1000.0
-        assert mgr.state.presets["comfort"] == 22.0
         assert mgr.dirty is False
 
     @pytest.mark.asyncio
@@ -653,11 +633,6 @@ class TestStateManagerStateAccess:
         mgr = self._make_manager()
         assert isinstance(mgr.thermal, ThermalStats)
 
-    def test_presets_getter(self):
-        """Presets property returns empty dict by default."""
-        mgr = self._make_manager()
-        assert mgr.presets == {}
-
     def test_multiple_keys_independent(self):
         """Different MPC keys store independent state."""
         mgr = self._make_manager()
@@ -723,6 +698,14 @@ class TestClampedThermal:
         mgr = _make_manager()
         mgr.thermal = ThermalStats(heating_power="oops")  # type: ignore[arg-type]
         assert mgr.clamped_thermal()[0] is None
+
+    def test_non_finite_values_yield_none(self):
+        """NaN/inf persisted thermal stats degrade to None instead of leaking."""
+        mgr = _make_manager()
+        mgr.thermal = ThermalStats(
+            heating_power=float("nan"), heat_loss_rate=float("inf")
+        )
+        assert mgr.clamped_thermal() == (None, None)
 
 
 # ---------------------------------------------------------------------------
@@ -808,37 +791,34 @@ class TestResetPidStates:
         assert mgr.dirty is False
 
 
-class TestDeserializeRejectsNonFinite:
-    """Persisted non-finite numbers never enter a restored state.
+# ---------------------------------------------------------------------------
+# Filter state persistence
+# ---------------------------------------------------------------------------
 
-    A NaN that survives the restore poisons every value derived from it,
-    so the deserializers keep the field default instead.
-    """
 
-    def test_mpc_nan_scalar_keeps_default(self):
-        """A NaN in a stored MPC scalar is skipped."""
-        mpc = deserialize_mpc({"gain_est": float("nan"), "last_percent": 40.0})
-        assert mpc.gain_est is None
-        assert mpc.last_percent == 40.0
+class TestFilterState:
+    """The runtime filter state persists through the unified store."""
 
-    def test_pid_inf_integral_keeps_default(self):
-        """An Inf in the stored PID integrator is skipped."""
-        pid = deserialize_pid({"pid_integral": float("inf"), "pid_kp": 60.0})
-        assert pid.pid_integral == 0.0
-        assert pid.pid_kp == 60.0
+    def test_record_and_read_back(self):
+        """record_filters stores the values and marks dirty."""
+        mgr = _make_manager()
+        mgr.record_filters(20.5, 0.0012)
+        assert mgr.filters.external_temp_ema == 20.5
+        assert mgr.filters.temp_slope == 0.0012
+        assert mgr.dirty is True
 
-    def test_tpi_nan_percent_keeps_default(self):
-        """A NaN in the stored TPI duty cycle is skipped."""
-        tpi = deserialize_tpi({"last_percent": float("nan")})
-        assert tpi.last_percent is None
+    def test_roundtrip_through_serialization(self):
+        """Filter values survive a serialize/deserialize cycle."""
+        mgr = _make_manager()
+        mgr.record_filters(20.5, 0.0012)
+        restored = _deserialize(_serialize(mgr.state))
+        assert restored.filters.external_temp_ema == 20.5
+        assert restored.filters.temp_slope == 0.0012
 
-    def test_overflowing_int_keeps_default_and_spares_other_fields(self):
-        """An int too large for float() is skipped, not propagated as OverflowError.
-
-        Without catching OverflowError the bad field escapes the per-field
-        guard and load() resets the whole store; only the offending field
-        must be dropped.
-        """
-        mpc = deserialize_mpc({"gain_est": 10**400, "last_percent": 40.0})
-        assert mpc.gain_est is None
-        assert mpc.last_percent == 40.0
+    def test_non_finite_values_are_dropped_on_load(self):
+        """Poisoned filter values degrade to defaults instead of loading."""
+        raw = _serialize(RuntimeState())
+        raw["filters"] = {"external_temp_ema": float("nan"), "temp_slope": "oops"}
+        restored = _deserialize(raw)
+        assert restored.filters.external_temp_ema is None
+        assert restored.filters.temp_slope is None

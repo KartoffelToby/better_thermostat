@@ -5,6 +5,7 @@ ignore_states MUST always be released (even on error), otherwise the control
 loop can stall.  Also covers the re-entry guard, reschedule, and control kick.
 """
 
+from dataclasses import replace
 from datetime import UTC, datetime
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -13,6 +14,12 @@ from homeassistant.components.climate.const import HVACMode
 import pytest
 
 from custom_components.better_thermostat.climate import BetterThermostat
+from custom_components.better_thermostat.core.decide import KernelState
+from custom_components.better_thermostat.core.fsm.maintenance import (
+    MaintenancePhase,
+    MaintenanceState,
+    start_run,
+)
 from custom_components.better_thermostat.trv import Trv
 
 _CLIMATE = "custom_components.better_thermostat.climate"
@@ -27,6 +34,9 @@ def bt():
     mock.in_maintenance = False
     mock.ignore_states = False
     mock.real_trvs = {"climate.trv": Trv(entity_id="climate.trv")}
+    mock.clock = MagicMock()
+    mock.clock.monotonic.return_value = 1000.0
+    mock.kernel_state = KernelState()
     mock.bt_hvac_mode = HVACMode.HEAT
     mock.hass = MagicMock()
     mock.control_queue_task = MagicMock()
@@ -40,8 +50,13 @@ def _snapshots():
 
 @pytest.mark.asyncio
 async def test_reentry_guard(bt):
-    """A run while already in maintenance returns without doing work."""
-    bt.in_maintenance = True
+    """A run while the region is RUNNING returns without doing work."""
+    bt.kernel_state = replace(
+        bt.kernel_state,
+        maintenance=start_run(
+            MaintenanceState(phase=MaintenancePhase.DUE), now_monotonic=900.0
+        ),
+    )
     with patch(f"{_CLIMATE}.build_trv_snapshots") as snap:
         await BetterThermostat._run_valve_maintenance(bt, ["climate.trv"])
     snap.assert_not_called()

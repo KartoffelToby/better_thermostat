@@ -52,7 +52,7 @@ class PresetManager:
         return [PRESET_NONE] + self.enabled_presets
 
     def activate(
-        self, preset: str, current_temp: float, min_temp: float, max_temp: float
+        self, preset: str, current_temp: float | None, min_temp: float, max_temp: float
     ) -> float | None:
         """Switch to *preset*. Returns new target temperature, or ``None``."""
         if preset not in self.available_modes:

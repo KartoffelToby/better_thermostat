@@ -53,6 +53,8 @@ class TrvReported:
     min_temp: float | None = None
     max_temp: float | None = None
     valve_max_opening: float | None = None
+    local_calibration_min: float | None = None
+    local_calibration_max: float | None = None
 
 
 @dataclass(frozen=True)
@@ -67,17 +69,16 @@ class WorldSnapshot:
     room_temp: float | None = None
     room_temp_filtered: float | None = None
     temp_slope: float | None = None
-    window_open: bool | None = None
     call_for_heat: bool = True
+    # Raw window-sensor reading at snapshot time (None: no sensor
+    # configured). Pure observation for the flight recorder — the
+    # debounced window region in the kernel state rules the control law.
+    window_open: bool | None = None
     preset_mode: str | None = None
     tolerance: float = 0.0
     outdoor_temp: float | None = None
     is_day: bool = True
     solar_intensity: float = 0.0
-    startup_running: bool = False
-    in_maintenance: bool = False
-    ignore_states: bool = False
-    degraded: bool = False
     min_temp: float | None = None
     max_temp: float | None = None
     trvs: Mapping[str, TrvReported] = field(default_factory=dict)
