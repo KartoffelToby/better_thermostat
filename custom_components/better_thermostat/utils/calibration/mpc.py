@@ -176,9 +176,8 @@ def sanitize_mpc_state(state: _MpcState) -> tuple[_MpcState, str | None]:
     return state, None
 
 
-# Public alias so callers can reference the state type without
-# importing a private name.  The underscore-prefixed original is kept
-# for backwards compatibility within this module.
+# Public alias so callers can reference the state type without importing
+# a private name.
 MpcState = _MpcState
 
 
