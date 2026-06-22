@@ -220,8 +220,9 @@ def make_schedules(
         envelope = 4.0 * x * (1.0 - x)
         peak = _solar_peak(day, params)
         # Linear interp the cloud fraction between hourly samples.
-        c0 = cloud[min(i, len(cloud) - 1)]
-        c1 = cloud[min(i + 1, len(cloud) - 1)]
+        # Clamp both ends so a negative t cannot wrap via negative indexing.
+        c0 = cloud[max(0, min(i, len(cloud) - 1))]
+        c1 = cloud[max(0, min(i + 1, len(cloud) - 1))]
         clouds = c0 + frac * (c1 - c0)
         w_per_m2 = peak * envelope * (1.0 - clouds)
         # Normalise to [0..1] against a 1000 W/m² clear-sky reference.
