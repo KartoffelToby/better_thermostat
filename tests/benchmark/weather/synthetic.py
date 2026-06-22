@@ -198,8 +198,10 @@ def make_schedules(
             2.0 * math.pi * (hour_of_day - 15.0) / 24.0
         )
         # Linear interp the synoptic anomaly between hourly samples.
-        s0 = synoptic[min(i, len(synoptic) - 1)]
-        s1 = synoptic[min(i + 1, len(synoptic) - 1)]
+        # Clamp both ends so a negative t (or t past the path) cannot wrap
+        # around via negative indexing.
+        s0 = synoptic[max(0, min(i, len(synoptic) - 1))]
+        s1 = synoptic[max(0, min(i + 1, len(synoptic) - 1))]
         return seasonal + diurnal + s0 + frac * (s1 - s0)
 
     def solar(t_s: float) -> float:

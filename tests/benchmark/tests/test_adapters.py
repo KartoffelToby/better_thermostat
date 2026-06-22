@@ -134,3 +134,10 @@ def test_oracle_feedback_uses_plant_truth():
     )
     out = adapter.step(ctx)
     assert out.diagnostics["error_K"] == pytest.approx(0.0)
+
+
+def test_benchmark_output_rejects_mismatched_duty_valve_mirror():
+    """duty_cycle_pct paired with a non-matching valve_percent is rejected."""
+    BenchmarkOutput(valve_percent=30.0, duty_cycle_pct=30.0)  # mirror OK
+    with pytest.raises(ValueError):
+        BenchmarkOutput(valve_percent=50.0, duty_cycle_pct=30.0)

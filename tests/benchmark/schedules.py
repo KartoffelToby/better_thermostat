@@ -197,7 +197,14 @@ def sinus_diurnal(
     -------
     Callable[[float], float]
         Schedule function ``t -> value``.
+
+    Raises
+    ------
+    ValueError
+        If ``period_h`` is not positive (the cosine argument divides by it).
     """
+    if period_h <= 0.0:
+        raise ValueError(f"sinus_diurnal period_h must be > 0, got {period_h}")
     period_s = period_h * 3600.0
     offset_s = phase_min_h * 3600.0
     amp = (max_value - min_value) / 2.0

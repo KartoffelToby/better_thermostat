@@ -276,7 +276,7 @@ S05_SLOW_RADIATOR = ScenarioConfig(
 
 S14_NIGHTLY_SETBACK = ScenarioConfig(
     name="S14_nightly_setback",
-    description="Setback 18 °C → wake-up 21 °C @ 06:30 → setback 18 °C @ 16:30",
+    description="Setback 18 °C → wake-up 21 °C after 30 min → setback 18 °C at 10 h",
     duration_min=12 * 60,
     initial=InitialConditions(T_room_C=18.0, T_rad_C=18.0),
     plant=PROFILE_STANDARD,

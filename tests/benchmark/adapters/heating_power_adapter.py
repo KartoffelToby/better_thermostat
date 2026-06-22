@@ -158,7 +158,7 @@ class HeatingPowerAdapter:
             elapsed_since_peak_min = (ctx.t - self._cycle_peak_t) / 60.0
             if (
                 ctx.current_temp_C < self._cycle_peak_temp
-                or elapsed_since_peak_min > _FINALIZE_TIMEOUT_MIN
+                or elapsed_since_peak_min >= _FINALIZE_TIMEOUT_MIN
             ):
                 self._finalize_cycle()
 

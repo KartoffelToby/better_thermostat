@@ -59,17 +59,36 @@ class IndirectTrvParams:
     setpoint_mapping: str = "heuristic"
 
     def __post_init__(self) -> None:
-        """Reject an unknown ``setpoint_mapping`` rather than silently inverting.
+        """Reject invalid mapping and non-physical numeric fields.
 
         Raises
         ------
         ValueError
-            If ``setpoint_mapping`` is neither ``"heuristic"`` nor ``"inversion"``.
+            If ``setpoint_mapping`` is neither ``"heuristic"`` nor
+            ``"inversion"``, if ``setpoint_step_K`` or ``internal_p_gain``
+            is not positive, or if a hysteresis/headroom/latency field is
+            negative.
         """
         if self.setpoint_mapping not in ("heuristic", "inversion"):
             raise ValueError(
                 "IndirectTrvParams setpoint_mapping must be 'heuristic' or "
                 f"'inversion', got {self.setpoint_mapping!r}"
+            )
+        if self.setpoint_step_K <= 0.0 or self.internal_p_gain <= 0.0:
+            raise ValueError(
+                "IndirectTrvParams setpoint_step_K and internal_p_gain must be "
+                f"> 0, got setpoint_step_K={self.setpoint_step_K}, "
+                f"internal_p_gain={self.internal_p_gain}"
+            )
+        if (
+            self.internal_hysteresis_K < 0.0
+            or self.max_calibration_headroom_K < 0.0
+            or self.command_latency_steps < 0
+        ):
+            raise ValueError(
+                "IndirectTrvParams internal_hysteresis_K, "
+                "max_calibration_headroom_K and command_latency_steps must be "
+                ">= 0"
             )
 
 
