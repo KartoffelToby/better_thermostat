@@ -1278,10 +1278,12 @@ class TestSeedFromSiblings:
             "p00_02": {"count": 5, "avg_room_rate": 0.01, "avg_percent": 1.0},
             "p20_22": {"count": 12, "avg_room_rate": 0.04, "avg_percent": 21.0},
         }
-        mpc_mod._MPC_STATES["uidA:climate.trv:t21.0"] = sibling
+        _STATES["uidA:climate.trv:t21.0"] = sibling
 
         fresh = _MpcState()
-        _seed_state_from_siblings("uidA:climate.trv:t22.0", fresh, params)
+        _seed_state_from_siblings(
+            "uidA:climate.trv:t22.0", fresh, params, all_states=_STATES
+        )
 
         assert fresh.perf_curve == sibling.perf_curve
         # Copy, not alias: mutating the seeded curve must not affect the source.
@@ -1295,10 +1297,12 @@ class TestSeedFromSiblings:
         sibling.trv_profile = "threshold"
         sibling.profile_confidence = 0.82
         sibling.profile_samples = 17
-        mpc_mod._MPC_STATES["uidB:climate.trv:t20.0"] = sibling
+        _STATES["uidB:climate.trv:t20.0"] = sibling
 
         fresh = _MpcState()
-        _seed_state_from_siblings("uidB:climate.trv:t21.0", fresh, params)
+        _seed_state_from_siblings(
+            "uidB:climate.trv:t21.0", fresh, params, all_states=_STATES
+        )
 
         assert fresh.trv_profile == "threshold"
         assert fresh.profile_confidence == pytest.approx(0.82)
@@ -1309,10 +1313,12 @@ class TestSeedFromSiblings:
         params = _default_params()
         sibling = _MpcState()
         sibling.solar_gain_est = 0.018
-        mpc_mod._MPC_STATES["uidC:climate.trv:t19.0"] = sibling
+        _STATES["uidC:climate.trv:t19.0"] = sibling
 
         fresh = _MpcState()
-        _seed_state_from_siblings("uidC:climate.trv:t22.0", fresh, params)
+        _seed_state_from_siblings(
+            "uidC:climate.trv:t22.0", fresh, params, all_states=_STATES
+        )
 
         assert fresh.solar_gain_est == pytest.approx(0.018)
 
@@ -1323,11 +1329,13 @@ class TestSeedFromSiblings:
         far.solar_gain_est = 0.040
         near = _MpcState()
         near.solar_gain_est = 0.012
-        mpc_mod._MPC_STATES["uidD:climate.trv:t18.0"] = far
-        mpc_mod._MPC_STATES["uidD:climate.trv:t21.5"] = near
+        _STATES["uidD:climate.trv:t18.0"] = far
+        _STATES["uidD:climate.trv:t21.5"] = near
 
         fresh = _MpcState()
-        _seed_state_from_siblings("uidD:climate.trv:t22.0", fresh, params)
+        _seed_state_from_siblings(
+            "uidD:climate.trv:t22.0", fresh, params, all_states=_STATES
+        )
 
         # 22.0 is closer to 21.5 than to 18.0.
         assert fresh.solar_gain_est == pytest.approx(0.012)
@@ -1341,7 +1349,7 @@ class TestSeedFromSiblings:
         sibling.profile_confidence = 0.9
         sibling.profile_samples = 30
         sibling.perf_curve = {"p10_12": {"count": 1, "avg_room_rate": 0.02}}
-        mpc_mod._MPC_STATES["uidE:climate.trv:t21.0"] = sibling
+        _STATES["uidE:climate.trv:t21.0"] = sibling
 
         already_trained = _MpcState()
         already_trained.solar_gain_est = 0.005
@@ -1350,7 +1358,9 @@ class TestSeedFromSiblings:
         already_trained.profile_samples = 11
         already_trained.perf_curve = {"p50_52": {"count": 8, "avg_room_rate": 0.05}}
 
-        _seed_state_from_siblings("uidE:climate.trv:t22.0", already_trained, params)
+        _seed_state_from_siblings(
+            "uidE:climate.trv:t22.0", already_trained, params, all_states=_STATES
+        )
 
         # Original values must be preserved.
         assert already_trained.solar_gain_est == pytest.approx(0.005)
@@ -1364,10 +1374,12 @@ class TestSeedFromSiblings:
         """Siblings whose fields are still at defaults must not act as seed sources."""
         params = _default_params()
         empty_sibling = _MpcState()  # all defaults
-        mpc_mod._MPC_STATES["uidF:climate.trv:t21.0"] = empty_sibling
+        _STATES["uidF:climate.trv:t21.0"] = empty_sibling
 
         fresh = _MpcState()
-        _seed_state_from_siblings("uidF:climate.trv:t22.0", fresh, params)
+        _seed_state_from_siblings(
+            "uidF:climate.trv:t22.0", fresh, params, all_states=_STATES
+        )
 
         assert fresh.perf_curve == {}
         assert fresh.trv_profile == "unknown"
@@ -1378,10 +1390,12 @@ class TestSeedFromSiblings:
         params = _default_params()
         group_sibling = _MpcState()
         group_sibling.solar_gain_est = 0.025
-        mpc_mod._MPC_STATES["uidG:group:t21.0"] = group_sibling
+        _STATES["uidG:group:t21.0"] = group_sibling
 
         fresh = _MpcState()
-        _seed_state_from_siblings("uidG:climate.trv:t22.0", fresh, params)
+        _seed_state_from_siblings(
+            "uidG:climate.trv:t22.0", fresh, params, all_states=_STATES
+        )
 
         # uid matches but the entity slot differs ("group" vs "climate.trv"),
         # so seeding must not happen.
@@ -1396,10 +1410,10 @@ class TestSeedFromSiblings:
         sibling.trv_profile = "threshold"
         sibling.profile_confidence = 0.7
         sibling.profile_samples = 8
-        mpc_mod._MPC_STATES["uidH:climate.trv:t20.0"] = sibling
+        _STATES["uidH:climate.trv:t20.0"] = sibling
 
         _compute(_inp(key="uidH:climate.trv:t22.0", current_temp_C=20.0), params)
-        new_state = mpc_mod._MPC_STATES["uidH:climate.trv:t22.0"]
+        new_state = _STATES["uidH:climate.trv:t22.0"]
 
         assert new_state.solar_gain_est == pytest.approx(0.022)
         assert new_state.trv_profile == "threshold"
