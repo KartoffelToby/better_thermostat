@@ -4,12 +4,14 @@ from __future__ import annotations
 
 from collections import deque
 from collections.abc import Mapping
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, fields
 import logging
 import math
 import random
 from time import time
 from typing import Any
+
+from .types import CalibrationHost
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -141,7 +143,7 @@ class _MpcState:
     loss_learn_count: int = 0
     gain_learn_count: int = 0
     is_calibration_active: bool = False
-    recent_errors: deque = field(default_factory=lambda: deque(maxlen=20))
+    recent_errors: deque[float] = field(default_factory=lambda: deque(maxlen=20))
     regime_boost_active: bool = False
     consecutive_insufficient_heat: int = 0
     kalman_P: float = 1.0  # Kalman filter error covariance
@@ -151,6 +153,32 @@ class _MpcState:
 # Public alias so callers can reference the state type without
 # importing a private name.  The underscore-prefixed original is kept
 # for backwards compatibility within this module.
+def _all_finite(value: Any) -> bool:
+    """Whether every number reachable inside ``value`` is finite."""
+    if isinstance(value, bool):
+        return True
+    if isinstance(value, (int, float)):
+        return math.isfinite(value)
+    if isinstance(value, dict):
+        return all(_all_finite(item) for item in value.values())
+    if isinstance(value, (list, tuple, deque)):
+        return all(_all_finite(item) for item in value)
+    return True
+
+
+def sanitize_mpc_state(state: _MpcState) -> tuple[_MpcState, str | None]:
+    """Return a usable MPC state; a poisoned one is replaced by a fresh one.
+
+    A non-finite number anywhere in the learned state poisons every
+    prediction derived from it, so the whole state is discarded and the
+    model relearns from live data.
+    """
+    for f in fields(state):
+        if not _all_finite(getattr(state, f.name)):
+            return _MpcState(), "non-finite state"
+    return state, None
+
+
 MpcState = _MpcState
 
 
@@ -343,7 +371,7 @@ def _seed_state_from_siblings(
                 break
 
 
-def build_mpc_key(bt, entity_id: str) -> str:
+def build_mpc_key(bt: CalibrationHost, entity_id: str) -> str:
     """Return a stable key for MPC state tracking.
 
     For a single-TRV BT instance this key is entity-specific.
@@ -365,7 +393,7 @@ def build_mpc_key(bt, entity_id: str) -> str:
     return f"{uid}:{entity_id}:{bucket}"
 
 
-def build_mpc_group_key(bt) -> str:
+def build_mpc_group_key(bt: CalibrationHost) -> str:
     """Return a BT-level (group) key for MPC state tracking.
 
     All TRVs under the same BT instance share this key so that a single
@@ -464,7 +492,7 @@ def distribute_valve_percent(
     return result
 
 
-def _detect_regime_change(recent_errors: deque | list) -> bool:
+def _detect_regime_change(recent_errors: deque[float] | list[float]) -> bool:
     """Detect systematic bias in prediction errors using Student's t-test.
 
     If the mean error deviates significantly from 0 relative to standard deviation,
@@ -538,6 +566,15 @@ def compute_mpc(
     """
 
     now = time()
+
+    # Heal a poisoned (NaN/Inf) state before it can feed the controller.
+    state, pathology = sanitize_mpc_state(state)
+    if pathology is not None:
+        _LOGGER.warning(
+            "better_thermostat: discarding poisoned MPC state for %s (%s)",
+            inp.key,
+            pathology,
+        )
 
     if state.created_ts == 0.0:
         # For existing trained models, backdate the creation timestamp

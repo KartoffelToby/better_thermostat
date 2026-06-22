@@ -1,0 +1,27 @@
+name: Types
+
+on:
+  push:
+    branches: [develop, master]
+  pull_request:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  pyrefly:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6
+        with:
+          persist-credentials: false
+      - name: Set up uv (install cache)
+        uses: astral-sh/setup-uv@fac544c07dec837d0ccb6301d7b5580bf5edae39  # v8.2.0
+        with:
+          enable-cache: true
+      # pyrefly resolves imports, so it needs the full environment with Home
+      # Assistant installed, not just the dev group.
+      - name: pyrefly check
+        run: uv run --locked pyrefly check

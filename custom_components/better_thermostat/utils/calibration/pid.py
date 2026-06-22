@@ -16,8 +16,11 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 import logging
+import math
 from time import monotonic
 from typing import Protocol, TypedDict
+
+from .types import CalibrationHost
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -181,6 +184,12 @@ def compute_pid(
     now = monotonic()
 
     st = state
+
+    st, pathology = sanitize_pid_state(st, params)
+    if pathology is not None:
+        _LOGGER.warning(
+            "better_thermostat: healed poisoned PID state for %s (%s)", key, pathology
+        )
 
     max_opening = 100.0
     if isinstance(max_opening_pct, (int, float)):
@@ -519,6 +528,59 @@ def _auto_tune_pid(
         return
 
 
+def sanitize_pid_state(
+    state: PIDState, params: PIDParams
+) -> tuple[PIDState, str | None]:
+    """Heal a (possibly poisoned) PID state before computing.
+
+    Non-finite values fall back to their defaults, runaway gains return
+    to the configured defaults, and a wound-up integrator is reset. All
+    pathologies are healed in one pass; the returned pathology names the
+    most severe finding, or None.
+    """
+    pathology: str | None = None
+
+    def _finite(value: float | None) -> bool:
+        return value is None or math.isfinite(value)
+
+    if not _finite(state.pid_integral):
+        state.pid_integral = 0.0
+        pathology = "non-finite state"
+    if not _finite(state.pid_last_meas):
+        state.pid_last_meas = None
+        pathology = "non-finite state"
+    for gain_attr in ("pid_kp", "pid_ki", "pid_kd"):
+        if not _finite(getattr(state, gain_attr)):
+            setattr(state, gain_attr, None)
+            pathology = "non-finite state"
+
+    runaway = (
+        (
+            state.pid_kp is not None
+            and not params.kp_min <= state.pid_kp <= params.kp_max
+        )
+        or (
+            state.pid_ki is not None
+            and not params.ki_min <= state.pid_ki <= params.ki_max
+        )
+        or (
+            state.pid_kd is not None
+            and not params.kd_min <= state.pid_kd <= params.kd_max
+        )
+    )
+    if runaway:
+        state.pid_kp = None
+        state.pid_ki = None
+        state.pid_kd = None
+        pathology = pathology or "runaway gains"
+
+    if not (params.i_min <= state.pid_integral <= params.i_max):
+        state.pid_integral = 0.0
+        pathology = pathology or "integrator windup"
+
+    return state, pathology
+
+
 # --- Key Builder Helper -----------------------------------------------
 
 
@@ -548,7 +610,7 @@ def format_bucket(bucket: float) -> str:
     return f"t{bucket:.1f}"
 
 
-def build_pid_key(self, entity_id: str) -> str:
+def build_pid_key(self: CalibrationHost, entity_id: str) -> str:
     """Build consistent PID state key across all modules.
 
     Format: {unique_id}:{entity_id}:t{target_temp:.1f}

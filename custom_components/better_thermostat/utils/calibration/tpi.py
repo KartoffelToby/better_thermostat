@@ -7,10 +7,13 @@ cycle duration and exposes rich debug logs for diagnostics.
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, fields
 import logging
+import math
 from time import monotonic
 from typing import Any
+
+from .types import CalibrationHost
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -57,6 +60,19 @@ class _TpiState:
     last_update_ts: float = 0.0
 
 
+def sanitize_tpi_state(state: _TpiState) -> tuple[_TpiState, str | None]:
+    """Return a usable TPI state; a poisoned one is replaced by a fresh one.
+
+    TPI carries no learned model — a non-finite remnant is simply
+    dropped and the duty cycle derives from live readings again.
+    """
+    for f in fields(state):
+        value = getattr(state, f.name)
+        if isinstance(value, float) and not math.isfinite(value):
+            return _TpiState(), "non-finite state"
+    return state, None
+
+
 # Public alias so callers can reference the state type without
 # importing a private name.
 TpiState = _TpiState
@@ -94,6 +110,15 @@ def compute_tpi(
         the updated state object.
     """
     now = monotonic()
+
+    # Heal a poisoned (NaN/Inf) state before it can feed the controller.
+    state, pathology = sanitize_tpi_state(state)
+    if pathology is not None:
+        _LOGGER.warning(
+            "better_thermostat: discarding poisoned TPI state for %s (%s)",
+            inp.key,
+            pathology,
+        )
 
     name = inp.bt_name or "BT"
     entity = inp.entity_id or "unknown"
@@ -186,7 +211,7 @@ def _finalize_output(
     return TpiOutput(duty_cycle_pct=duty_pct, debug=debug), state
 
 
-def build_tpi_key(bt, entity_id: str) -> str:
+def build_tpi_key(bt: CalibrationHost, entity_id: str) -> str:
     """Return a stable key for TPI state tracking (similar to MPC)."""
 
     try:
