@@ -97,7 +97,7 @@ async def set_temperature(self, entity_id, temperature):
     # Normalize input to float early
     try:
         t = float(temperature)
-    except (TypeError, ValueError):
+    except TypeError, ValueError:
         t = 0.0
 
     # Initialize step with default value
@@ -125,7 +125,7 @@ async def set_temperature(self, entity_id, temperature):
             t_min = float(t_min_raw)
         if t_max_raw is not None:
             t_max = float(t_max_raw)
-    except (TypeError, ValueError):
+    except TypeError, ValueError:
         t_min = None
         t_max = None
     if isinstance(t_min, (int, float)) and isinstance(t_max, (int, float)):

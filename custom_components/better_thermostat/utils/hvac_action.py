@@ -50,7 +50,7 @@ def to_pct(val: float | str | None) -> float | None:
         return None
     try:
         v = float(val)
-    except (TypeError, ValueError):
+    except TypeError, ValueError:
         return None
     return v * 100.0 if 0.0 <= v < 1.0 else v
 

@@ -53,6 +53,37 @@ We use numpy type docstrings. Documentation can be found here:
 
 https://sphinxcontrib-napoleon.readthedocs.io/en/latest/example_numpy.html
 
-## Setup
+## Local setup (uv)
 
-Install the pip install pre-commit  used for pre-commit hooks.
+For the containerized workflow see [Development → Setup](#setup) above; this
+section covers running the tooling directly on your machine.
+
+This project uses [uv](https://docs.astral.sh/uv/) to manage the development
+and test environment. Install uv, then create the environment from the lockfile:
+
+```bash
+uv sync --frozen
+```
+
+Install the pre-commit hooks (ruff check + format) once:
+
+```bash
+uv run pre-commit install
+```
+
+Common tasks:
+
+```bash
+uv run pytest tests          # run the test suite
+uv run ruff check            # lint
+uv run ruff format           # format
+```
+
+CI runs these with `uv run --locked` (and `uv sync --locked`) to fail on any
+drift between `pyproject.toml` and `uv.lock`; locally the simpler forms above
+are fine after `uv sync`.
+
+Dependencies are declared in `pyproject.toml` (`[project]` for the runtime
+platform, `[dependency-groups].dev` for tooling) and pinned in `uv.lock`. To
+update a dependency, run e.g. `uv lock --upgrade-package homeassistant` and
+commit the changed `uv.lock`.

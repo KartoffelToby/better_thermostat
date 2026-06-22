@@ -72,13 +72,13 @@ async def async_setup_entry(
             try:
                 if isinstance(calibration_mode, str):
                     calibration_mode = CalibrationMode(calibration_mode)
-            except (ValueError, TypeError):
+            except ValueError, TypeError:
                 calibration_mode = None
 
             try:
                 if isinstance(calibration_type, str):
                     calibration_type = CalibrationType(calibration_type)
-            except (ValueError, TypeError):
+            except ValueError, TypeError:
                 calibration_type = None
 
             if calibration_mode == CalibrationMode.PID_CALIBRATION:
@@ -327,7 +327,7 @@ class BetterThermostatValveMaxOpeningNumber(NumberEntity, RestoreEntity):
             try:
                 val = float(last_state.state)
                 self._set_value(val)
-            except (TypeError, ValueError):
+            except TypeError, ValueError:
                 pass
 
     @property
@@ -345,7 +345,7 @@ class BetterThermostatValveMaxOpeningNumber(NumberEntity, RestoreEntity):
         val = trv_state.get("valve_max_opening", 100.0)
         try:
             return float(val)
-        except (TypeError, ValueError):
+        except TypeError, ValueError:
             return 100.0
 
     def _set_value(self, value: float) -> None:

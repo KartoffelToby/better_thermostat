@@ -1,8 +1,13 @@
 // See https://aka.ms/vscode-remote/devcontainer.json for format details.
 {
-  "image": "mcr.microsoft.com/devcontainers/python:3.13-bookworm",
+  "image": "mcr.microsoft.com/devcontainers/python:3.14-bookworm",
   "name": "BETTER THERMOSTAT development",
   "initializeCommand": "/bin/mkdir -p ${localWorkspaceFolder}/.haconfig && /bin/cp ${localWorkspaceFolder}/.devcontainer/configuration.yaml ${localWorkspaceFolder}/.haconfig",
+  // Provides uv (used by scripts/setup and the rest of the dev tooling) on top
+  // of the Microsoft Python image. Pinned to the v1 feature digest.
+  "features": {
+    "ghcr.io/va-h/devcontainers-features/uv@sha256:a15737142539d150ef4d358e2d6a7424a0a2f3dc43b29a3aa1b50162a8b11bc1": {}
+  },
   "containerUser": "1000",
   "remoteUser": "1000",
   "appPort": [
@@ -25,7 +30,7 @@
         "files.eol": "\n",
         "editor.tabSize": 4,
         "editor.insertSpaces": true,
-        "python.pythonPath": "/usr/bin/python3",
+        "python.defaultInterpreterPath": "/usr/bin/python3",
         "python.analysis.autoSearchPaths": false,
         "[python]": {
           "editor.defaultFormatter": "charliermarsh.ruff",

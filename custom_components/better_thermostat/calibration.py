@@ -129,7 +129,7 @@ def _get_current_solar_intensity(self) -> float:
             try:
                 # 0% clouds = 1.0 intensity, 100% clouds = 0.0 intensity
                 return max(0.0, min(1.0, (100.0 - float(cc)) / 100.0))
-            except (ValueError, TypeError):
+            except ValueError, TypeError:
                 pass
 
     # 2. UV Index (0-10+) -> Higher is better
@@ -139,7 +139,7 @@ def _get_current_solar_intensity(self) -> float:
             try:
                 # Normalize UV index (approx 0-10 range)
                 return max(0.0, min(1.0, float(uv) / 10.0))
-            except (ValueError, TypeError):
+            except ValueError, TypeError:
                 pass
 
     # 3. Weather condition mapping
@@ -235,7 +235,7 @@ def _compute_mpc_balance(self, entity_id: str):
                     if warmest_temp is None or temp_val > warmest_temp:
                         warmest_temp = temp_val
                         warmest_trv_id = eid
-                except (TypeError, ValueError):
+                except TypeError, ValueError:
                     trv_temps[eid] = None
             else:
                 trv_temps[eid] = None
@@ -752,7 +752,7 @@ def calculate_calibration_local(self, entity_id) -> float | None:
             if _supports_valve and isinstance(_valve_position, (int, float)):
                 try:
                     _pct = int(max(0, min(100, round(float(_valve_position) * 100.0))))
-                except (TypeError, ValueError):
+                except TypeError, ValueError:
                     _pct = None
 
                 if _pct is not None:
@@ -1072,7 +1072,7 @@ def calculate_calibration_setpoint(self, entity_id) -> float | None:
             if _supports_valve and isinstance(_valve_position, (int, float)):
                 try:
                     _pct = int(max(0, min(100, round(float(_valve_position) * 100.0))))
-                except (TypeError, ValueError):
+                except TypeError, ValueError:
                     _pct = None
 
                 if _pct is not None:

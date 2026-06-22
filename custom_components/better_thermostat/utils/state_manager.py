@@ -167,7 +167,7 @@ def deserialize_mpc(raw: dict[str, Any]) -> MpcState:
                 if not math.isfinite(number):
                     continue
                 setattr(state, attr, number)
-        except (TypeError, ValueError):
+        except TypeError, ValueError:
             continue
     return state
 
@@ -192,7 +192,7 @@ def deserialize_pid(raw: dict[str, Any]) -> PIDState:
                 if not math.isfinite(number):
                     continue
                 setattr(state, attr, number)
-        except (TypeError, ValueError):
+        except TypeError, ValueError:
             continue
     return state
 
@@ -212,7 +212,7 @@ def deserialize_tpi(raw: dict[str, Any]) -> TpiState:
             if not math.isfinite(number):
                 continue
             setattr(state, attr, number)
-        except (TypeError, ValueError):
+        except TypeError, ValueError:
             continue
     return state
 
@@ -245,13 +245,13 @@ def _deserialize(raw: dict[str, Any]) -> RuntimeState:
         heat_loss_rate = thermal_raw.get("heat_loss_rate")
         try:
             heating_power = float(heating_power) if heating_power is not None else None
-        except (TypeError, ValueError):
+        except TypeError, ValueError:
             heating_power = None
         try:
             heat_loss_rate = (
                 float(heat_loss_rate) if heat_loss_rate is not None else None
             )
-        except (TypeError, ValueError):
+        except TypeError, ValueError:
             heat_loss_rate = None
         state.thermal = ThermalStats(
             heating_power=heating_power, heat_loss_rate=heat_loss_rate
@@ -262,7 +262,7 @@ def _deserialize(raw: dict[str, Any]) -> RuntimeState:
         for name, temp in presets_raw.items():
             try:
                 state.presets[str(name)] = float(temp)
-            except (TypeError, ValueError):
+            except TypeError, ValueError:
                 continue
 
     return state
@@ -418,7 +418,7 @@ class StateManager:
                 heating_power = clamp(
                     float(thermal.heating_power), MIN_HEATING_POWER, MAX_HEATING_POWER
                 )
-            except (TypeError, ValueError):
+            except TypeError, ValueError:
                 heating_power = None
 
         heat_loss_rate: float | None = None
@@ -427,7 +427,7 @@ class StateManager:
                 heat_loss_rate = clamp(
                     float(thermal.heat_loss_rate), MIN_HEAT_LOSS, MAX_HEAT_LOSS
                 )
-            except (TypeError, ValueError):
+            except TypeError, ValueError:
                 heat_loss_rate = None
 
         return heating_power, heat_loss_rate
