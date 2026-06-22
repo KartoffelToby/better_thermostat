@@ -161,26 +161,23 @@ async def trigger_trv_change(self, event):
 
     _time_diff = 5
     try:
-        for trv in self.all_trvs:
-            if trv["advanced"][CONF_HOMEMATICIP]:
+        for trv_conf in self.all_trvs:
+            if trv_conf["advanced"][CONF_HOMEMATICIP]:
                 _time_diff = 600
     except KeyError:
         pass
     if (
         _new_current_temp is not None
-        and self.real_trvs[entity_id].current_temperature != _new_current_temp
+        and trv.current_temperature != _new_current_temp
         and (
-            self.real_trvs[entity_id].consume_accept_next_internal_temp()
+            trv.consume_accept_next_internal_temp()
             or (dt_util.now() - self.last_internal_sensor_change).total_seconds()
             > _time_diff
-            or (
-                self.real_trvs[entity_id].calibration_received is False
-                and self.real_trvs[entity_id].calibration != 1
-            )
+            or (trv.calibration_received is False and trv.calibration != 1)
         )
     ):
-        _old_temp = self.real_trvs[entity_id].current_temperature
-        self.real_trvs[entity_id].current_temperature = _new_current_temp
+        _old_temp = trv.current_temperature
+        trv.current_temperature = _new_current_temp
         _LOGGER.debug(
             "better_thermostat %s: TRV %s sends new internal temperature from %s to %s",
             self.device_name,
@@ -192,18 +189,16 @@ async def trigger_trv_change(self, event):
         _main_change = True
 
         # async def in controlling? (left as note)
-        if self.real_trvs[entity_id].calibration_received is False:
-            self.real_trvs[entity_id].calibration_received = True
+        if trv.calibration_received is False:
+            trv.calibration_received = True
             _LOGGER.debug(
                 "better_thermostat %s: calibration accepted by TRV %s",
                 self.device_name,
                 entity_id,
             )
             _main_change = False
-            if self.real_trvs[entity_id].calibration == 0:
-                self.real_trvs[entity_id].last_calibration = await get_current_offset(
-                    self, entity_id
-                )
+            if trv.calibration == 0:
+                trv.last_calibration = await get_current_offset(self, entity_id)
 
     if self.ignore_states:
         return
@@ -225,8 +220,8 @@ async def trigger_trv_change(self, event):
             hvac_action_attr = _org_trv_state.attributes.get("action")
         if hvac_action_attr is not None:
             val = str(hvac_action_attr).strip().lower()
-            prev = self.real_trvs[entity_id].hvac_action
-            self.real_trvs[entity_id].hvac_action = val
+            prev = trv.hvac_action
+            trv.hvac_action = val
             if prev != val:
                 _main_change = True
                 _LOGGER.debug(
@@ -240,7 +235,7 @@ async def trigger_trv_change(self, event):
         # valve_position aktualisieren
         val_pos = _org_trv_state.attributes.get("valve_position")
         if val_pos is not None:
-            self.real_trvs[entity_id].valve_position = convert_to_float(
+            trv.valve_position = convert_to_float(
                 str(val_pos), self.device_name, "trv_event"
             )
 
@@ -248,11 +243,8 @@ async def trigger_trv_change(self, event):
         pass
 
     if mapped_state in (HVACMode.OFF, HVACMode.HEAT, HVACMode.HEAT_COOL):
-        if (
-            self.real_trvs[entity_id].hvac_mode != _org_trv_state.state
-            and not child_lock
-        ):
-            _old = self.real_trvs[entity_id].hvac_mode
+        if trv.hvac_mode != _org_trv_state.state and not child_lock:
+            _old = trv.hvac_mode
             _LOGGER.debug(
                 "better_thermostat %s: TRV %s decoded TRV mode changed from %s to %s - converted %s",
                 self.device_name,
@@ -261,12 +253,12 @@ async def trigger_trv_change(self, event):
                 _org_trv_state.state,
                 new_state.state,
             )
-            self.real_trvs[entity_id].hvac_mode = _org_trv_state.state
+            trv.hvac_mode = _org_trv_state.state
             _main_change = True
             if (
                 child_lock is False
-                and self.real_trvs[entity_id].system_mode_received is True
-                and self.real_trvs[entity_id].last_hvac_mode != _org_trv_state.state
+                and trv.system_mode_received is True
+                and trv.last_hvac_mode != _org_trv_state.state
             ):
                 self.bt_hvac_mode = mapped_state
 
@@ -282,9 +274,7 @@ async def trigger_trv_change(self, event):
     _new_heating_setpoint = attr_to_celsius(
         self, new_state, _main_key, None, "trigger_trv_change()"
     )
-    _is_no_off_device = self.real_trvs[entity_id].advanced.get(
-        "no_off_system_mode", False
-    )
+    _is_no_off_device = trv.advanced.get("no_off_system_mode", False)
     if (
         _new_heating_setpoint is not None
         and _old_heating_setpoint is not None
@@ -295,7 +285,7 @@ async def trigger_trv_change(self, event):
             self.device_name,
             _old_heating_setpoint,
             _new_heating_setpoint,
-            self.real_trvs[entity_id].last_temperature,
+            trv.last_temperature,
         )
         if (
             _new_heating_setpoint < self.bt_min_temp
@@ -316,11 +306,7 @@ async def trigger_trv_change(self, event):
         # step are treated as device-side rounding echoes of a BT-written
         # value, not as user input. User input on a TRV display moves the
         # setpoint by at least one step.
-        _step_raw = (
-            self.real_trvs[entity_id].target_temp_step
-            or self.bt_target_temp_step
-            or 0.5
-        )
+        _step_raw = trv.target_temp_step or self.bt_target_temp_step or 0.5
         try:
             _step = float(_step_raw)
         except TypeError, ValueError:
@@ -330,10 +316,7 @@ async def trigger_trv_change(self, event):
         # Compare only against values BT itself wrote. ``_old_heating_setpoint``
         # is the TRV's previously published state and is not necessarily a
         # BT-written value, so it does not belong in the echo-suppression set.
-        _bt_known_values = (
-            self.bt_target_temp,
-            self.real_trvs[entity_id].last_temperature,
-        )
+        _bt_known_values = (self.bt_target_temp, trv.last_temperature)
         _is_echo = any(
             v is not None and abs(_new_heating_setpoint - v) < _step
             for v in _bt_known_values
@@ -341,11 +324,11 @@ async def trigger_trv_change(self, event):
         _accept_user_setpoint = (
             not _is_echo
             and not child_lock
-            and self.real_trvs[entity_id].target_temp_received is True
-            and self.real_trvs[entity_id].system_mode_received is True
-            and self.real_trvs[entity_id].hvac_mode != HVACMode.OFF
+            and trv.target_temp_received is True
+            and trv.system_mode_received is True
+            and trv.hvac_mode != HVACMode.OFF
             and self.window_open is False
-            and not self.real_trvs[entity_id].ignore_trv_states
+            and not trv.ignore_trv_states
         )
         if _accept_user_setpoint:
             _LOGGER.debug(
@@ -379,18 +362,18 @@ async def trigger_trv_change(self, event):
                 _new_heating_setpoint,
                 _is_echo,
                 child_lock,
-                self.real_trvs[entity_id].target_temp_received,
-                self.real_trvs[entity_id].system_mode_received,
-                self.real_trvs[entity_id].hvac_mode,
+                trv.target_temp_received,
+                trv.system_mode_received,
+                trv.hvac_mode,
                 self.window_open,
-                self.real_trvs[entity_id].ignore_trv_states,
+                trv.ignore_trv_states,
                 self.bt_target_temp,
-                self.real_trvs[entity_id].last_temperature,
+                trv.last_temperature,
                 _step,
             )
 
-        if self.real_trvs[entity_id].advanced.get("no_off_system_mode", False):
-            if _new_heating_setpoint == self.real_trvs[entity_id].min_temp:
+        if trv.advanced.get("no_off_system_mode", False):
+            if _new_heating_setpoint == trv.min_temp:
                 # Only set OFF if window is NOT open - min_temp during window
                 # open was set by BT, not by user turning off heating
                 if not self.window_open:

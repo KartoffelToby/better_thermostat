@@ -489,8 +489,6 @@ def _compute_pid_balance(self, entity_id: str):
             state=pid_state,
         )
         self.state_mgr.set_pid(key, pid_state)
-        if callable(getattr(self, "schedule_save_state", None)):
-            self.schedule_save_state()
     except (ValueError, TypeError, ZeroDivisionError) as err:
         _LOGGER.debug(
             "better_thermostat %s: PID calibration compute failed for %s: %s",
@@ -520,6 +518,9 @@ def _compute_pid_balance(self, entity_id: str):
         supports_valve,
         debug,
     )
+
+    if callable(getattr(self, "schedule_save_state", None)):
+        self.schedule_save_state()
 
     return percent, supports_valve
 

@@ -2217,6 +2217,7 @@ class TestComputeMpcBalanceMultiTrv:
     """_compute_mpc_balance with more than one TRV (grouped distribution)."""
 
     def _bt(self) -> MagicMock:
+        """Build a BT mock with two TRVs and a stub MPC state manager."""
         bt = MagicMock()
         bt.device_name = "test"
         bt.unique_id = "uid1"
