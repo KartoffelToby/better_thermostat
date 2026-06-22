@@ -512,7 +512,7 @@ def main(argv: list[str] | None = None) -> int:
             "In addition to the single-TRV matrix, run every controller "
             "through the three multi-TRV plant profiles (symmetric, "
             "asymmetric, heterogeneous) — three parallel radiators sharing "
-            "one room state, valve % distributed via BT's "
+            "one room state, valve %% distributed via BT's "
             "``distribute_valve_percent``. Scenarios that pin a non-standard "
             "plant are excluded."
         ),

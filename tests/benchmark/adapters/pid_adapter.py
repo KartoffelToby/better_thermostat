@@ -18,8 +18,8 @@ from custom_components.better_thermostat.utils.calibration.pid import (
 
 from .base import BenchmarkContext, BenchmarkOutput, ControllerFamily
 
-# Each adapter instance fronts an entry in the module-global ``_PID_STATES``;
-# unique default keys keep concurrent instances from evicting each other.
+# Controller state is caller-owned; the adapter threads its own ``_state``
+# through compute_pid, so instances never share learned state.
 _KEY_COUNTER = count()
 
 
@@ -35,7 +35,6 @@ class PidAdapter:
         self._key = key if key is not None else f"bench:trv:pid{next(_KEY_COUNTER)}"
         self._sim_time_s: float = 0.0
         self._original_monotonic = pid_mod.monotonic
-        pid_mod._PID_STATES.pop(self._key, None)
         self._prev_temp: float | None = None
         self._prev_t: float | None = None
 
@@ -52,7 +51,6 @@ class PidAdapter:
         self._sim_time_s = 0.0
         self._prev_temp = None
         self._prev_t = None
-        pid_mod._PID_STATES.pop(self._key, None)
 
     def _estimate_slope(self, ctx: BenchmarkContext) -> float | None:
         if self._prev_temp is None or self._prev_t is None:

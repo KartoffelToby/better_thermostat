@@ -22,8 +22,8 @@ from custom_components.better_thermostat.utils.calibration.tpi import (
 
 from .base import BenchmarkContext, BenchmarkOutput, ControllerFamily
 
-# Each adapter instance fronts an entry in the module-global ``_TPI_STATES``;
-# unique default keys keep concurrent instances from evicting each other.
+# Controller state is caller-owned; the adapter threads its own ``_state``
+# through compute_tpi, so instances never share learned state.
 _KEY_COUNTER = count()
 
 
@@ -39,7 +39,6 @@ class TpiAdapter:
         self._key = key if key is not None else f"bench:trv:tpi{next(_KEY_COUNTER)}"
         self._sim_time_s: float = 0.0
         self._original_monotonic = tpi_mod.monotonic
-        tpi_mod._TPI_STATES.pop(self._key, None)
 
     def _virtualise_time(self) -> None:
         tpi_mod.monotonic = lambda: self._sim_time_s
@@ -52,7 +51,6 @@ class TpiAdapter:
         _ = prior
         self._state = _TpiState()
         self._sim_time_s = 0.0
-        tpi_mod._TPI_STATES.pop(self._key, None)
 
     def step(self, ctx: BenchmarkContext) -> BenchmarkOutput:
         """Compute one TPI step for the given benchmark context."""
@@ -69,7 +67,7 @@ class TpiAdapter:
                 bt_name="benchmark",
                 entity_id="bench_trv",
             )
-            out, self._state = compute_tpi(inp, self._params, self._state)
+            out, self._state = compute_tpi(inp, self._params, state=self._state)
         finally:
             self._restore_time()
 
