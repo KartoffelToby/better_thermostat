@@ -4,7 +4,7 @@ EQUAL_PERCENTAGE is the most realistic of the four for typical TRV
 hardware: a given fractional change in commanded valve position
 produces the same fractional change in delivered flow, which gives
 the controller a roughly constant loop gain across the operating
-range. See LITERATURE_REVIEW.md §4 (Altecnic, Karlsson 1980).
+range. See DESIGN.md §8 (actuator modelling; Karlsson 1980).
 
 flow = (pct/100)^alpha       (alpha ≈ 3 for typical residential TRVs)
 

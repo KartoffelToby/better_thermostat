@@ -5,6 +5,11 @@ controllers (`mpc`, `pid`, `tpi`) against reproducible thermal-dynamics
 scenarios. No Home Assistant runtime, no hardware, no external data —
 every result is a deterministic function of code + seeds.
 
+This README covers *running* the benchmark and *reading* its output. For
+*why* it is designed this way — the simulation approach, the oracle
+normalisation, the scenario taxonomy, and the metric/scoring rationale —
+see [`DESIGN.md`](DESIGN.md).
+
 ## Quick start
 
 ```sh

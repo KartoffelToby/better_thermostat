@@ -46,8 +46,8 @@ class TimeSeries:
 class MetricValues:
     """Computed metrics for one (controller, scenario) run.
 
-    The metrics span four of the five user-priority dimensions identified
-    in WHITEPAPER §13 (the fifth — adaptation across runs — is a
+    The metrics span four of the five user-priority dimensions described
+    in DESIGN.md §4 (the fifth — adaptation across runs — is a
     benchmark-suite-level metric, not a per-run one):
 
     * **Comfort**: max_overshoot_K, max_undershoot_K, rmse_tracking_K,
