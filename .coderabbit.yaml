@@ -55,6 +55,18 @@ reviews:
         Home Assistant custom integration. Comments must describe the current
         (IS) state only — no change history or PR references. Public functions,
         classes and methods need docstrings.
+    - path: "**/*.py"
+      instructions: >-
+        This project targets Python 3.14+ (`requires-python = ">=3.14.2"`) and
+        the formatter rewrites code to it. Parenthesis-free `except`/`except*`
+        clauses with multiple types — e.g. `except TypeError, ValueError:` — are
+        valid PEP 758 syntax, exactly equivalent to `except (TypeError,
+        ValueError):`, and catch every listed type. Do NOT flag them as a syntax
+        error or as the Python-2 `except Exc, name:` binding form. The
+        unparenthesised form is only valid without an `as` clause: a binding
+        like `except TypeError, ValueError as e:` is a real syntax error and
+        must keep the parentheses (`except (TypeError, ValueError) as e:`) —
+        that one should still be flagged.
 
   tools:
     # ruff is the linter and formatter of record for this repo.

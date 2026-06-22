@@ -7,10 +7,13 @@ using real time with sufficiently large deltas.
 from __future__ import annotations
 
 from time import time
+from unittest.mock import MagicMock
 
+from homeassistant.components.climate.const import HVACMode
 import pytest
 
-from custom_components.better_thermostat.utils.calibration import mpc as mpc_mod
+from custom_components.better_thermostat.calibration import _compute_mpc_balance
+from custom_components.better_thermostat.trv import Trv
 from custom_components.better_thermostat.utils.calibration.mpc import (
     DISTRIBUTE_COMPENSATION_PCT_PER_K,
     MpcInput,
@@ -21,15 +24,29 @@ from custom_components.better_thermostat.utils.calibration.mpc import (
     _detect_trv_profile,
     _MpcState,
     _round_for_debug,
+    _seed_state_from_siblings,
     _split_mpc_key,
     _update_perf_curve,
     build_mpc_group_key,
     build_mpc_key,
-    compute_mpc,
+    compute_mpc as _compute_mpc_raw,
     distribute_valve_percent,
-    export_mpc_state_map,
-    import_mpc_state_map,
 )
+from custom_components.better_thermostat.utils.state_manager import deserialize_mpc
+
+_STATES: dict[str, _MpcState] = {}
+
+
+def compute_mpc(inp, params):
+    """Run ``compute_mpc`` threading state for ``inp.key`` via ``_STATES``.
+
+    Mirrors how production owns controller state in the StateManager.
+    """
+    state = _STATES.setdefault(inp.key, _MpcState())
+    output, new_state = _compute_mpc_raw(inp, params, state=state, all_states=_STATES)
+    _STATES[inp.key] = new_state
+    return output, new_state
+
 
 # ---------------------------------------------------------------------------
 # Fixtures
@@ -38,10 +55,10 @@ from custom_components.better_thermostat.utils.calibration.mpc import (
 
 @pytest.fixture(autouse=True)
 def _clean_mpc_states():
-    """Reset global MPC state before every test."""
-    mpc_mod._MPC_STATES.clear()
+    """Reset the test-local MPC state dict before every test."""
+    _STATES.clear()
     yield
-    mpc_mod._MPC_STATES.clear()
+    _STATES.clear()
 
 
 _UNSET: object = object()
@@ -289,19 +306,17 @@ class TestBuildMpcKey:
 
 
 # ===================================================================
-# 2. STATE PERSISTENCE (export / import)
+# 2. STATE PERSISTENCE (StateManager serialization)
 # ===================================================================
 
 
 class TestStatePersistence:
-    """Tests for export_mpc_state_map and import_mpc_state_map."""
-
-    def test_export_empty(self):
-        """Test that exporting with no states returns empty dict."""
-        assert export_mpc_state_map() == {}
+    """Persistence of MpcState via the StateManager's deserializer."""
 
     def test_round_trip(self):
-        """Test that all MPC state fields survive an export/import round-trip."""
+        """All MPC state fields survive an asdict/deserialize round-trip."""
+        from dataclasses import asdict
+
         state = _MpcState()
         state.gain_est = 0.08
         state.loss_est = 0.015
@@ -311,70 +326,37 @@ class TestStatePersistence:
         state.is_calibration_active = True
         state.trv_profile = "threshold"
         state.profile_confidence = 0.85
-        mpc_mod._MPC_STATES["k1"] = state
 
-        exported = export_mpc_state_map()
-        assert "k1" in exported
-        payload = exported["k1"]
-        assert payload["gain_est"] == 0.08
-        assert payload["dead_zone_hits"] == 3
-        assert payload["trv_profile"] == "threshold"
-
-        # Clear and re-import
-        mpc_mod._MPC_STATES.clear()
-        import_mpc_state_map(exported)
-        restored = mpc_mod._MPC_STATES["k1"]
+        restored = deserialize_mpc(asdict(state))
         assert restored.gain_est == pytest.approx(0.08)
         assert restored.loss_est == pytest.approx(0.015)
         assert restored.dead_zone_hits == 3
         assert restored.is_calibration_active is True
         assert restored.trv_profile == "threshold"
+        assert restored.last_percent == 42.0
+        assert restored.min_effective_percent == 12.0
 
-    def test_export_with_prefix_filter(self):
-        """Test that export with prefix only returns matching keys."""
-        mpc_mod._MPC_STATES["bt1:trv:t22.0"] = _MpcState(gain_est=0.05)
-        mpc_mod._MPC_STATES["bt2:trv:t22.0"] = _MpcState(gain_est=0.06)
+    def test_deserialize_ignores_unknown_fields(self):
+        """Unknown fields in the payload are ignored without error."""
+        restored = deserialize_mpc({"gain_est": 0.05, "unknown_field": 999})
+        assert restored.gain_est == pytest.approx(0.05)
 
-        filtered = export_mpc_state_map(prefix="bt1")
-        assert "bt1:trv:t22.0" in filtered
-        assert "bt2:trv:t22.0" not in filtered
+    def test_deserialize_coerces_types(self):
+        """String values are coerced to proper numeric types."""
+        restored = deserialize_mpc({"gain_est": "0.07", "dead_zone_hits": "5"})
+        assert restored.gain_est == pytest.approx(0.07)
+        assert restored.dead_zone_hits == 5
 
-    def test_import_ignores_invalid_payload(self):
-        """Test that non-dict payloads are silently skipped."""
-        import_mpc_state_map({"k": "not_a_dict"})
-        assert "k" not in mpc_mod._MPC_STATES
+    def test_deserialize_handles_none_values(self):
+        """None values in the payload are preserved."""
+        restored = deserialize_mpc({"gain_est": None})
+        assert restored.gain_est is None
 
-    def test_import_ignores_unknown_fields(self):
-        """Test that unknown fields in payload are ignored without error."""
-        import_mpc_state_map({"k": {"gain_est": 0.05, "unknown_field": 999}})
-        assert mpc_mod._MPC_STATES["k"].gain_est == pytest.approx(0.05)
-
-    def test_import_coerces_types(self):
-        """Test that string values are coerced to proper numeric types."""
-        import_mpc_state_map({"k": {"gain_est": "0.07", "dead_zone_hits": "5"}})
-        s = mpc_mod._MPC_STATES["k"]
-        assert s.gain_est == pytest.approx(0.07)
-        assert s.dead_zone_hits == 5
-
-    def test_import_handles_none_values(self):
-        """Test that None values in payload are preserved."""
-        import_mpc_state_map({"k": {"gain_est": None}})
-        assert mpc_mod._MPC_STATES["k"].gain_est is None
-
-    def test_import_handles_perf_curve(self):
-        """Test that perf_curve dicts are restored correctly."""
+    def test_deserialize_handles_perf_curve(self):
+        """perf_curve dicts are restored correctly."""
         curve = {"p00_05": {"count": 3, "avg_room_rate": 0.01}}
-        import_mpc_state_map({"k": {"perf_curve": curve}})
-        assert mpc_mod._MPC_STATES["k"].perf_curve == curve
-
-    def test_export_skips_none_fields(self):
-        """Serialization should skip None values to keep payload compact."""
-        mpc_mod._MPC_STATES["k"] = _MpcState()  # All defaults (mostly None)
-        exported = export_mpc_state_map()
-        # A default state has very few non-None values
-        if "k" in exported:
-            for v in exported["k"].values():
-                assert v is not None
+        restored = deserialize_mpc({"perf_curve": curve})
+        assert restored.perf_curve == curve
 
 
 # ===================================================================
@@ -473,13 +455,13 @@ class TestComputeMpcBasic:
         """Test that window_open resets integrals and control state."""
         params = _default_params(mpc_adapt=True)
         _compute(_inp(key="win"), params)
-        state = mpc_mod._MPC_STATES["win"]
+        state = _STATES["win"]
         state.last_percent = 50.0
         state.u_integral = 1000.0
         state.time_integral = 100.0
 
         _compute(_inp(key="win", window_open=True), params)
-        state = mpc_mod._MPC_STATES["win"]
+        state = _STATES["win"]
         assert state.last_percent == 0.0
         assert state.u_integral == 0.0
         assert state.time_integral == 0.0
@@ -490,16 +472,16 @@ class TestComputeMpcBasic:
         """Active calibration should be aborted when window opens."""
         params = _default_params()
         _compute(_inp(key="cal_abort"), params)
-        mpc_mod._MPC_STATES["cal_abort"].is_calibration_active = True
+        _STATES["cal_abort"].is_calibration_active = True
 
         _compute(_inp(key="cal_abort", window_open=True), params)
-        assert mpc_mod._MPC_STATES["cal_abort"].is_calibration_active is False
+        assert _STATES["cal_abort"].is_calibration_active is False
 
     def test_valve_integration_accumulates(self):
         """u_integral should accumulate valve position over time."""
         params = _default_params()
         _compute(_inp(key="integ"), params)
-        state = mpc_mod._MPC_STATES["integ"]
+        state = _STATES["integ"]
         state.last_percent = 50.0
         old_integral = state.u_integral
 
@@ -520,7 +502,7 @@ class TestAdaptiveLearning:
     def _setup_learning_state(self, key: str, params: MpcParams, **state_overrides):
         """Initialize MPC state and set up for learning."""
         _compute(_inp(key=key), params)
-        state = mpc_mod._MPC_STATES[key]
+        state = _STATES[key]
         for k, v in state_overrides.items():
             setattr(state, k, v)
         return state
@@ -529,21 +511,21 @@ class TestAdaptiveLearning:
         """Test that gain_est is seeded from mpc_thermal_gain on first call."""
         params = _default_params(mpc_adapt=True, mpc_thermal_gain=0.08)
         _compute(_inp(key="ginit"), params)
-        state = mpc_mod._MPC_STATES["ginit"]
+        state = _STATES["ginit"]
         assert state.gain_est == pytest.approx(0.08)
 
     def test_loss_initialized_on_first_call(self):
         """Test that loss_est is seeded from mpc_loss_coeff on first call."""
         params = _default_params(mpc_adapt=True, mpc_loss_coeff=0.012)
         _compute(_inp(key="linit"), params)
-        state = mpc_mod._MPC_STATES["linit"]
+        state = _STATES["linit"]
         assert state.loss_est == pytest.approx(0.012)
 
     def test_no_adaptation_when_disabled(self):
         """Test that gain_est and loss_est stay None when mpc_adapt=False."""
         params = _default_params(mpc_adapt=False)
         _compute(_inp(key="noadapt"), params)
-        state = mpc_mod._MPC_STATES["noadapt"]
+        state = _STATES["noadapt"]
         assert state.gain_est is None
         assert state.loss_est is None
 
@@ -744,7 +726,7 @@ class TestAdaptiveLearning:
         """ka_est should be calculated when outdoor_temp is provided."""
         params = _default_params(mpc_adapt=True, mpc_loss_coeff=0.01)
         _compute(_inp(key="ka", current_temp_C=20.0, outdoor_temp_C=5.0), params)
-        state = mpc_mod._MPC_STATES["ka"]
+        state = _STATES["ka"]
         assert state.ka_est is not None
         # ka = loss / (indoor - outdoor) = 0.01 / 15 ≈ 0.000667
         assert state.ka_est == pytest.approx(0.01 / 15.0, rel=0.01)
@@ -791,14 +773,14 @@ class TestVirtualTemperature:
         """Test that virtual_temp starts at the sensor reading."""
         params = _default_params(use_virtual_temp=True)
         _compute(_inp(key="vinit", current_temp_C=20.5), params)
-        state = mpc_mod._MPC_STATES["vinit"]
+        state = _STATES["vinit"]
         assert state.virtual_temp == pytest.approx(20.5)
 
     def test_virtual_temp_corrects_large_drift(self):
         """Kalman filter should correct virtual_temp when it drifts far from sensor."""
         params = _default_params(use_virtual_temp=True)
         _compute(_inp(key="vreset", current_temp_C=20.0), params)
-        state = mpc_mod._MPC_STATES["vreset"]
+        state = _STATES["vreset"]
         # Artificially drift virtual temp far from sensor
         state.virtual_temp = 21.0  # 1K off from sensor at 20.0
         state.last_sensor_temp_C = 19.5  # different from current so update triggers
@@ -813,7 +795,7 @@ class TestVirtualTemperature:
         """Kalman update should keep virtual_temp close to sensor value."""
         params = _default_params(use_virtual_temp=True)
         _compute(_inp(key="vclamp", current_temp_C=20.0), params)
-        state = mpc_mod._MPC_STATES["vclamp"]
+        state = _STATES["vclamp"]
         state.virtual_temp = 20.3  # slightly drifted
         state.last_sensor_temp_C = 19.9  # different so update fires
         state.last_percent = 50.0
@@ -826,7 +808,7 @@ class TestVirtualTemperature:
         """Sync should be skipped when sensor value hasn't changed."""
         params = _default_params(use_virtual_temp=True)
         _compute(_inp(key="vsame", current_temp_C=20.0), params)
-        state = mpc_mod._MPC_STATES["vsame"]
+        state = _STATES["vsame"]
         state.last_sensor_temp_C = 20.0  # same as current
         state.last_percent = 50.0
 
@@ -837,7 +819,7 @@ class TestVirtualTemperature:
         """When virtual temp is enabled, delta_t should use virtual temp, not sensor."""
         params = _default_params(use_virtual_temp=True)
         _compute(_inp(key="vdelta", current_temp_C=20.0, target_temp_C=22.0), params)
-        state = mpc_mod._MPC_STATES["vdelta"]
+        state = _STATES["vdelta"]
         # Virtual temp should be close to sensor on first call
         assert state.virtual_temp is not None
 
@@ -845,10 +827,10 @@ class TestVirtualTemperature:
         """Test that window_open resets virtual_temp to None."""
         params = _default_params(use_virtual_temp=True)
         _compute(_inp(key="vwin", current_temp_C=20.0), params)
-        assert mpc_mod._MPC_STATES["vwin"].virtual_temp is not None
+        assert _STATES["vwin"].virtual_temp is not None
 
         _compute(_inp(key="vwin", window_open=True), params)
-        assert mpc_mod._MPC_STATES["vwin"].virtual_temp is None
+        assert _STATES["vwin"].virtual_temp is None
 
 
 # ===================================================================
@@ -912,7 +894,7 @@ class TestRegimeBoostIntegration:
         """Test that regime boost triggers when recent_errors show sustained bias."""
         params = _default_params(mpc_adapt=True, mpc_adapt_alpha=0.1)
         _compute(_inp(key="rboost"), params)
-        state = mpc_mod._MPC_STATES["rboost"]
+        state = _STATES["rboost"]
         # Inject biased errors to trigger regime change
         state.recent_errors = [0.05] * 15
         # But _detect_regime_change returns False when std==0
@@ -1050,7 +1032,7 @@ class TestPostProcessing:
 
         # First call: cold room -> high valve
         _compute(_inp(key="dumax", current_temp_C=18.0), params)
-        state = mpc_mod._MPC_STATES["dumax"]
+        state = _STATES["dumax"]
         state.last_percent = 50.0  # Force a known starting point
         state.last_update_ts = time()
 
@@ -1064,7 +1046,7 @@ class TestPostProcessing:
         params = _default_params(mpc_du_max_pct=5.0)
 
         _compute(_inp(key="dumax_over", current_temp_C=18.0), params)
-        state = mpc_mod._MPC_STATES["dumax_over"]
+        state = _STATES["dumax_over"]
         state.last_percent = 50.0
         state.last_update_ts = time()
 
@@ -1093,7 +1075,7 @@ class TestPostProcessing:
         """If min_effective_percent is set, low nonzero outputs should be clamped up."""
         params = _default_params(enable_min_effective_percent=True)
         _compute(_inp(key="mineff"), params)
-        state = mpc_mod._MPC_STATES["mineff"]
+        state = _STATES["mineff"]
         state.min_effective_percent = 15.0
 
         # Request a small valve opening
@@ -1177,7 +1159,7 @@ class TestForcedCalibration:
         """Active calibration should end when temp < target - hysteresis."""
         params = _default_params()
         _compute(_inp(key="calend", current_temp_C=22.5, target_temp_C=22.0), params)
-        state = mpc_mod._MPC_STATES["calend"]
+        state = _STATES["calend"]
         state.is_calibration_active = True
 
         # Temp drops to 21.7 (< 22.0 - 0.2 = 21.8)
@@ -1188,7 +1170,7 @@ class TestForcedCalibration:
         """During active calibration, valve should be forced to 0."""
         params = _default_params()
         _compute(_inp(key="cal0", current_temp_C=22.1, target_temp_C=22.0), params)
-        state = mpc_mod._MPC_STATES["cal0"]
+        state = _STATES["cal0"]
         state.is_calibration_active = True
 
         result = _compute(
@@ -1203,7 +1185,7 @@ class TestForcedCalibration:
         for i in range(50):
             key = f"cal_stoch_{i}"
             _compute(_inp(key=key, current_temp_C=22.5, target_temp_C=22.0), params)
-            state = mpc_mod._MPC_STATES[key]
+            state = _STATES[key]
             if state.is_calibration_active:
                 triggered = True
                 break
@@ -1214,7 +1196,7 @@ class TestForcedCalibration:
         """Calibration chance should decay as loss_learn_count increases."""
         params = _default_params()
         _compute(_inp(key="cal_decay"), params)
-        state = mpc_mod._MPC_STATES["cal_decay"]
+        state = _STATES["cal_decay"]
         state.loss_learn_count = 100
         # chance = max(0.05, 1/(100+1)) ≈ 0.01 -> clamped to 0.05
         # Very unlikely to trigger in a single attempt
@@ -1234,7 +1216,7 @@ class TestStaleStateDetection:
         """Test that stale state (>15min) resets learning anchors."""
         params = _default_params(mpc_adapt=True)
         _compute(_inp(key="stale"), params)
-        state = mpc_mod._MPC_STATES["stale"]
+        state = _STATES["stale"]
         state.last_time = time() - 1000  # 16+ min ago
         state.last_learn_temp = 19.0
         state.u_integral = 5000.0
@@ -1257,32 +1239,189 @@ class TestSeedFromSiblings:
         params = _default_params(enable_min_effective_percent=True)
         # Create a sibling with known min_effective_percent
         sibling_state = _MpcState(min_effective_percent=15.0)
-        mpc_mod._MPC_STATES["uid1:climate.trv:t21.0"] = sibling_state
+        _STATES["uid1:climate.trv:t21.0"] = sibling_state
 
         # New key same uid+entity, different bucket
         _compute(_inp(key="uid1:climate.trv:t22.0", current_temp_C=20.0), params)
-        new_state = mpc_mod._MPC_STATES["uid1:climate.trv:t22.0"]
+        new_state = _STATES["uid1:climate.trv:t22.0"]
         assert new_state.min_effective_percent == 15.0
 
     def test_no_seeding_when_disabled(self):
         """Test that seeding is skipped when enable_min_effective_percent=False."""
         params = _default_params(enable_min_effective_percent=False)
         sibling_state = _MpcState(min_effective_percent=15.0)
-        mpc_mod._MPC_STATES["uid2:climate.trv:t21.0"] = sibling_state
+        _STATES["uid2:climate.trv:t21.0"] = sibling_state
 
         _compute(_inp(key="uid2:climate.trv:t22.0", current_temp_C=20.0), params)
-        new_state = mpc_mod._MPC_STATES["uid2:climate.trv:t22.0"]
+        new_state = _STATES["uid2:climate.trv:t22.0"]
         assert new_state.min_effective_percent is None
 
     def test_no_seeding_from_different_entity(self):
         """Test that seeding only happens from same uid+entity siblings."""
         params = _default_params(enable_min_effective_percent=True)
         sibling_state = _MpcState(min_effective_percent=15.0)
-        mpc_mod._MPC_STATES["uid3:climate.trv_A:t21.0"] = sibling_state
+        _STATES["uid3:climate.trv_A:t21.0"] = sibling_state
 
         _compute(_inp(key="uid3:climate.trv_B:t22.0", current_temp_C=20.0), params)
-        new_state = mpc_mod._MPC_STATES["uid3:climate.trv_B:t22.0"]
+        new_state = _STATES["uid3:climate.trv_B:t22.0"]
         assert new_state.min_effective_percent is None
+
+    # ------------------------------------------------------------------
+    # Cross-bucket carryover of target-independent learned values.
+    # build_mpc_key buckets state by ``round(target * 2.0) / 2.0``, so a
+    # 0.5 °C setpoint move past a bucket boundary spawns a fresh
+    # _MpcState. Without seeding, perf_curve / trv_profile /
+    # solar_gain_est are relearned from scratch on every setpoint move.
+    # ------------------------------------------------------------------
+
+    def test_perf_curve_seeded_from_sibling(self):
+        """A fresh bucket inherits the learned perf_curve from its nearest sibling."""
+        params = _default_params()
+        sibling = _MpcState()
+        sibling.perf_curve = {
+            "p00_02": {"count": 5, "avg_room_rate": 0.01, "avg_percent": 1.0},
+            "p20_22": {"count": 12, "avg_room_rate": 0.04, "avg_percent": 21.0},
+        }
+        _STATES["uidA:climate.trv:t21.0"] = sibling
+
+        fresh = _MpcState()
+        _seed_state_from_siblings(
+            "uidA:climate.trv:t22.0", fresh, params, all_states=_STATES
+        )
+
+        assert fresh.perf_curve == sibling.perf_curve
+        # Copy, not alias: mutating the seeded curve must not affect the source.
+        fresh.perf_curve["p00_02"]["count"] = 99
+        assert sibling.perf_curve["p00_02"]["count"] == 5
+
+    def test_trv_profile_seeded_from_sibling(self):
+        """A fresh bucket inherits a confirmed TRV profile from its nearest sibling."""
+        params = _default_params()
+        sibling = _MpcState()
+        sibling.trv_profile = "threshold"
+        sibling.profile_confidence = 0.82
+        sibling.profile_samples = 17
+        _STATES["uidB:climate.trv:t20.0"] = sibling
+
+        fresh = _MpcState()
+        _seed_state_from_siblings(
+            "uidB:climate.trv:t21.0", fresh, params, all_states=_STATES
+        )
+
+        assert fresh.trv_profile == "threshold"
+        assert fresh.profile_confidence == pytest.approx(0.82)
+        assert fresh.profile_samples == 17
+
+    def test_solar_gain_est_seeded_from_sibling(self):
+        """A fresh bucket inherits the learned solar gain estimate."""
+        params = _default_params()
+        sibling = _MpcState()
+        sibling.solar_gain_est = 0.018
+        _STATES["uidC:climate.trv:t19.0"] = sibling
+
+        fresh = _MpcState()
+        _seed_state_from_siblings(
+            "uidC:climate.trv:t22.0", fresh, params, all_states=_STATES
+        )
+
+        assert fresh.solar_gain_est == pytest.approx(0.018)
+
+    def test_seeding_picks_nearest_target_sibling(self):
+        """When multiple siblings exist, the nearest-target one is preferred."""
+        params = _default_params()
+        far = _MpcState()
+        far.solar_gain_est = 0.040
+        near = _MpcState()
+        near.solar_gain_est = 0.012
+        _STATES["uidD:climate.trv:t18.0"] = far
+        _STATES["uidD:climate.trv:t21.5"] = near
+
+        fresh = _MpcState()
+        _seed_state_from_siblings(
+            "uidD:climate.trv:t22.0", fresh, params, all_states=_STATES
+        )
+
+        # 22.0 is closer to 21.5 than to 18.0.
+        assert fresh.solar_gain_est == pytest.approx(0.012)
+
+    def test_seeding_does_not_overwrite_existing_values(self):
+        """Re-seeding must not clobber values the fresh state already has."""
+        params = _default_params()
+        sibling = _MpcState()
+        sibling.solar_gain_est = 0.040
+        sibling.trv_profile = "threshold"
+        sibling.profile_confidence = 0.9
+        sibling.profile_samples = 30
+        sibling.perf_curve = {"p10_12": {"count": 1, "avg_room_rate": 0.02}}
+        _STATES["uidE:climate.trv:t21.0"] = sibling
+
+        already_trained = _MpcState()
+        already_trained.solar_gain_est = 0.005
+        already_trained.trv_profile = "linear"
+        already_trained.profile_confidence = 0.7
+        already_trained.profile_samples = 11
+        already_trained.perf_curve = {"p50_52": {"count": 8, "avg_room_rate": 0.05}}
+
+        _seed_state_from_siblings(
+            "uidE:climate.trv:t22.0", already_trained, params, all_states=_STATES
+        )
+
+        # Original values must be preserved.
+        assert already_trained.solar_gain_est == pytest.approx(0.005)
+        assert already_trained.trv_profile == "linear"
+        assert already_trained.profile_confidence == pytest.approx(0.7)
+        assert already_trained.profile_samples == 11
+        assert "p50_52" in already_trained.perf_curve
+        assert "p10_12" not in already_trained.perf_curve
+
+    def test_seeding_ignores_default_value_siblings(self):
+        """Siblings whose fields are still at defaults must not act as seed sources."""
+        params = _default_params()
+        empty_sibling = _MpcState()  # all defaults
+        _STATES["uidF:climate.trv:t21.0"] = empty_sibling
+
+        fresh = _MpcState()
+        _seed_state_from_siblings(
+            "uidF:climate.trv:t22.0", fresh, params, all_states=_STATES
+        )
+
+        assert fresh.perf_curve == {}
+        assert fresh.trv_profile == "unknown"
+        assert fresh.solar_gain_est is None
+
+    def test_seeding_skips_group_keys_for_entity_keys(self):
+        """Group-keyed siblings (uid:group:tX.X) must not seed entity-keyed states."""
+        params = _default_params()
+        group_sibling = _MpcState()
+        group_sibling.solar_gain_est = 0.025
+        _STATES["uidG:group:t21.0"] = group_sibling
+
+        fresh = _MpcState()
+        _seed_state_from_siblings(
+            "uidG:climate.trv:t22.0", fresh, params, all_states=_STATES
+        )
+
+        # uid matches but the entity slot differs ("group" vs "climate.trv"),
+        # so seeding must not happen.
+        assert fresh.solar_gain_est is None
+
+    def test_seeding_runs_through_compute_mpc_on_first_call(self):
+        """Integration: first compute_mpc call on a new bucket triggers seeding."""
+        params = _default_params()
+        sibling = _MpcState()
+        sibling.solar_gain_est = 0.022
+        sibling.perf_curve = {"p20_22": {"count": 4, "avg_room_rate": 0.03}}
+        sibling.trv_profile = "threshold"
+        sibling.profile_confidence = 0.7
+        sibling.profile_samples = 8
+        _STATES["uidH:climate.trv:t20.0"] = sibling
+
+        _compute(_inp(key="uidH:climate.trv:t22.0", current_temp_C=20.0), params)
+        new_state = _STATES["uidH:climate.trv:t22.0"]
+
+        assert new_state.solar_gain_est == pytest.approx(0.022)
+        assert new_state.trv_profile == "threshold"
+        assert "p20_22" in new_state.perf_curve
 
 
 # ===================================================================
@@ -1378,7 +1517,7 @@ class TestEdgeCases:
         """When temp_slope_K_per_min is provided, EMA slope should be tracked."""
         params = _default_params()
         _compute(_inp(key="slope_ema", temp_slope_K_per_min=0.05), params)
-        state = mpc_mod._MPC_STATES["slope_ema"]
+        state = _STATES["slope_ema"]
         assert state.ema_slope is not None
         assert state.ema_slope == pytest.approx(0.05)
 
@@ -1525,7 +1664,7 @@ class TestKalmanFilter:
         """
         params = _default_params(use_virtual_temp=True, kalman_R=0.04)
         _compute(_inp(key="kp_init", current_temp_C=20.0), params)
-        state = mpc_mod._MPC_STATES["kp_init"]
+        state = _STATES["kp_init"]
         # Init sets P=R=0.04, then sensor_changed triggers update:
         # K = P/(P+R) = 0.04/(0.04+0.04) = 0.5
         # P_new = (1-0.5)*0.04 = 0.02
@@ -1535,7 +1674,7 @@ class TestKalmanFilter:
         """P should increase after predict step (uncertainty grows with time)."""
         params = _default_params(use_virtual_temp=True, kalman_Q=0.001)
         _compute(_inp(key="kp_grow", current_temp_C=20.0), params)
-        state = mpc_mod._MPC_STATES["kp_grow"]
+        state = _STATES["kp_grow"]
         state.last_percent = 50.0
         P_after_init = state.kalman_P
 
@@ -1550,7 +1689,7 @@ class TestKalmanFilter:
         """P should decrease after update step (measurement reduces uncertainty)."""
         params = _default_params(use_virtual_temp=True, kalman_Q=0.001, kalman_R=0.04)
         _compute(_inp(key="kp_shrink", current_temp_C=20.0), params)
-        state = mpc_mod._MPC_STATES["kp_shrink"]
+        state = _STATES["kp_shrink"]
         state.last_percent = 50.0
         state.kalman_P = 1.0  # High uncertainty
         state.last_sensor_temp_C = 19.5  # Different from current → triggers update
@@ -1563,7 +1702,7 @@ class TestKalmanFilter:
         """With high P (relative to R), Kalman gain K → 1, trusting sensor more."""
         params = _default_params(use_virtual_temp=True, kalman_R=0.04)
         _compute(_inp(key="kg_high", current_temp_C=20.0), params)
-        state = mpc_mod._MPC_STATES["kg_high"]
+        state = _STATES["kg_high"]
         state.kalman_P = 100.0  # Very high uncertainty
         state.last_sensor_temp_C = 19.0  # Force update
         state.virtual_temp = 21.0  # Far from sensor
@@ -1577,7 +1716,7 @@ class TestKalmanFilter:
         """With low P (relative to R), Kalman gain K → 0, trusting model more."""
         params = _default_params(use_virtual_temp=True, kalman_R=0.04)
         _compute(_inp(key="kg_low", current_temp_C=20.0), params)
-        state = mpc_mod._MPC_STATES["kg_low"]
+        state = _STATES["kg_low"]
         state.kalman_P = 0.0001  # Very low uncertainty
         state.last_sensor_temp_C = 19.0  # Force update
         state.virtual_temp = 21.0  # Far from sensor
@@ -1596,7 +1735,7 @@ class TestKalmanFilter:
             mpc_adapt=True,
         )
         _compute(_inp(key="kpred", current_temp_C=20.0), params)
-        state = mpc_mod._MPC_STATES["kpred"]
+        state = _STATES["kpred"]
         state.last_percent = 100.0  # Full open
         state.gain_est = 0.06
         state.loss_est = 0.01
@@ -1737,7 +1876,7 @@ class TestGainLearnCountGuard:
             enable_min_effective_percent=False,
         )
         _compute(_inp(key=key, current_temp_C=20.0), params)
-        state = mpc_mod._MPC_STATES[key]
+        state = _STATES[key]
         state.gain_est = 0.06
         state.loss_est = 0.02
         state.gain_learn_count = gain_learn_count
@@ -1787,7 +1926,7 @@ class TestGainRecovery:
             mpc_adapt=True, mpc_adapt_alpha=0.1, enable_min_effective_percent=False
         )
         _compute(_inp(key="grecov", current_temp_C=20.0), params)
-        state = mpc_mod._MPC_STATES["grecov"]
+        state = _STATES["grecov"]
         state.gain_est = 0.02  # Artificially low gain
         state.loss_est = 0.005
         state.last_percent = 50.0  # u=0.5
@@ -1809,7 +1948,7 @@ class TestGainRecovery:
             mpc_adapt=True, mpc_adapt_alpha=0.1, enable_min_effective_percent=False
         )
         _compute(_inp(key="gnorec", current_temp_C=20.0), params)
-        state = mpc_mod._MPC_STATES["gnorec"]
+        state = _STATES["gnorec"]
         state.gain_est = 0.10
         state.loss_est = 0.01
         state.last_percent = 50.0  # u=0.5
@@ -1845,7 +1984,7 @@ class TestHighUSteadyStateGain:
             mpc_adapt=True, mpc_adapt_alpha=0.1, enable_min_effective_percent=False
         )
         _compute(_inp(key="huss", current_temp_C=20.0), params)
-        state = mpc_mod._MPC_STATES["huss"]
+        state = _STATES["huss"]
         state.gain_est = 0.10
         state.loss_est = 0.01
         state.last_percent = 30.0  # u=0.3 > 0.15
@@ -1881,13 +2020,13 @@ class TestKaEstDynamicLoss:
         params = _default_params(mpc_adapt=True, mpc_loss_coeff=0.01)
         # Cold outside: delta = 20 - (-10) = 30
         _compute(_inp(key="ka_cold", current_temp_C=20.0, outdoor_temp_C=-10.0), params)
-        state_cold = mpc_mod._MPC_STATES["ka_cold"]
+        state_cold = _STATES["ka_cold"]
         assert state_cold.ka_est is not None
         assert state_cold.ka_est == pytest.approx(0.01 / 30.0, rel=0.01)
 
         # Warm outside: delta = max(5.0, 20 - 15) = 5
         _compute(_inp(key="ka_warm", current_temp_C=20.0, outdoor_temp_C=15.0), params)
-        state_warm = mpc_mod._MPC_STATES["ka_warm"]
+        state_warm = _STATES["ka_warm"]
         assert state_warm.ka_est is not None
         assert state_warm.ka_est == pytest.approx(0.01 / 5.0, rel=0.01)
 
@@ -1903,7 +2042,7 @@ class TestKaEstDynamicLoss:
             enable_min_effective_percent=False,
         )
         _compute(_inp(key="ka_upd", current_temp_C=21.0, outdoor_temp_C=5.0), params)
-        state = mpc_mod._MPC_STATES["ka_upd"]
+        state = _STATES["ka_upd"]
         state.last_percent = 0.0
         state.last_learn_temp = 21.0
         state.last_learn_time = time() - 300
@@ -1935,7 +2074,7 @@ class TestResidualRateLimiting:
         )
         now = time()
         _compute(_inp(key=key, current_temp_C=20.0), params)
-        state = mpc_mod._MPC_STATES[key]
+        state = _STATES[key]
         state.gain_est = 0.06
         state.loss_est = 0.01
         state.last_percent = 17.0  # close to u0 = 0.01/0.06 ≈ 0.167 → 16.7%
@@ -1982,7 +2121,7 @@ class TestBigChangeHoldBypass:
         )
         # First call: set low valve
         _compute(_inp(key="bigopen", current_temp_C=22.0, target_temp_C=22.0), params)
-        state = mpc_mod._MPC_STATES["bigopen"]
+        state = _STATES["bigopen"]
         state.last_percent = 10.0
         state.last_update_ts = time()  # just updated
 
@@ -2001,7 +2140,7 @@ class TestBigChangeHoldBypass:
             big_change_force_close_pct=10.0,
         )
         _compute(_inp(key="bigclose", current_temp_C=18.0, target_temp_C=22.0), params)
-        state = mpc_mod._MPC_STATES["bigclose"]
+        state = _STATES["bigclose"]
         state.last_percent = 80.0
         state.last_update_ts = time()  # just updated
 
@@ -2022,7 +2161,7 @@ class TestBigChangeHoldBypass:
         _compute(
             _inp(key="smallclose", current_temp_C=18.0, target_temp_C=22.0), params
         )
-        state = mpc_mod._MPC_STATES["smallclose"]
+        state = _STATES["smallclose"]
         state.last_percent = 25.0
         state.last_update_ts = time()
 
@@ -2068,7 +2207,7 @@ class TestStaleStateAnchorReset:
         """Stale detection should reset learn_time and learn_temp, not just u_integral."""
         params = _default_params(mpc_adapt=True)
         _compute(_inp(key="stale_full", current_temp_C=20.0), params)
-        state = mpc_mod._MPC_STATES["stale_full"]
+        state = _STATES["stale_full"]
         state.last_time = time() - 1000  # 16+ min ago
         state.last_learn_temp = 18.0
         state.last_learn_time = time() - 1000
@@ -2095,7 +2234,7 @@ class TestTargetChangeBoundary:
         """A target change of exactly 0.05K should be detected."""
         params = _default_params(mpc_adapt=True, mpc_adapt_alpha=0.5)
         _compute(_inp(key="tgt_exact", current_temp_C=20.0, target_temp_C=22.0), params)
-        state = mpc_mod._MPC_STATES["tgt_exact"]
+        state = _STATES["tgt_exact"]
         state.last_target_C = 22.0
         state.last_learn_temp = 20.0
         state.last_learn_time = time() - 300
@@ -2117,7 +2256,7 @@ class TestTargetChangeBoundary:
         """A target change of less than 0.05K should NOT be detected."""
         params = _default_params(mpc_adapt=True, mpc_adapt_alpha=0.5)
         _compute(_inp(key="tgt_sub", current_temp_C=20.0, target_temp_C=22.0), params)
-        state = mpc_mod._MPC_STATES["tgt_sub"]
+        state = _STATES["tgt_sub"]
         state.last_target_C = 22.0
         state.last_learn_temp = 20.0
         state.last_learn_time = time() - 300
@@ -2165,7 +2304,7 @@ class TestSolarGainInit:
         """solar_gain_est should be initialized when mpc_adapt=True."""
         params = _default_params(mpc_adapt=True)
         _compute(_inp(key="solar_init", current_temp_C=20.0), params)
-        state = mpc_mod._MPC_STATES["solar_init"]
+        state = _STATES["solar_init"]
         assert state.solar_gain_est is not None
         assert state.solar_gain_est == pytest.approx(
             0.01
@@ -2175,7 +2314,7 @@ class TestSolarGainInit:
         """solar_gain_est should stay None when mpc_adapt=False."""
         params = _default_params(mpc_adapt=False)
         _compute(_inp(key="solar_noinit", current_temp_C=20.0), params)
-        state = mpc_mod._MPC_STATES["solar_noinit"]
+        state = _STATES["solar_noinit"]
         assert state.solar_gain_est is None
 
 
@@ -2191,7 +2330,7 @@ class TestIntegrationAccumulation:
         """u_integral and time_integral should track valve usage over time."""
         params = _default_params()
         _compute(_inp(key="integ_prec", current_temp_C=20.0), params)
-        state = mpc_mod._MPC_STATES["integ_prec"]
+        state = _STATES["integ_prec"]
         state.last_percent = 50.0
         state.last_integration_ts = time() - 60  # 60s ago
 
@@ -2204,10 +2343,77 @@ class TestIntegrationAccumulation:
         """Window open should reset u_integral and time_integral."""
         params = _default_params()
         _compute(_inp(key="integ_win", current_temp_C=20.0), params)
-        state = mpc_mod._MPC_STATES["integ_win"]
+        state = _STATES["integ_win"]
         state.u_integral = 5000.0
         state.time_integral = 300.0
 
         _compute(_inp(key="integ_win", window_open=True), params)
         assert state.u_integral == 0.0
         assert state.time_integral == 0.0
+
+
+class _MpcStateStub:
+    """Minimal stand-in for the state manager's MPC accessors."""
+
+    def __init__(self) -> None:
+        self.mpc: dict[str, _MpcState] = {}
+
+    @property
+    def state(self):
+        return self
+
+    def get_mpc(self, key: str) -> _MpcState:
+        """Return the stored state for ``key``, creating it on first access."""
+        return self.mpc.setdefault(key, _MpcState())
+
+    def set_mpc(self, key: str, mpc: _MpcState) -> None:
+        """Store ``mpc`` under ``key``."""
+        self.mpc[key] = mpc
+
+
+class TestComputeMpcBalanceMultiTrv:
+    """_compute_mpc_balance with more than one TRV (grouped distribution)."""
+
+    def _bt(self) -> MagicMock:
+        """Build a BT mock with two TRVs and a stub MPC state manager."""
+        bt = MagicMock()
+        bt.device_name = "test"
+        bt.unique_id = "uid1"
+        bt.hass = None
+        bt.weather_entity = None
+        bt.outdoor_sensor = None
+        bt.bt_target_temp = 21.0
+        bt.cur_temp = 20.0
+        bt.cur_temp_filtered = None
+        bt.bt_hvac_mode = HVACMode.HEAT
+        bt.tolerance = 0.2
+        bt.temp_slope = 0.0
+        bt.window_open = False
+        bt.real_trvs = {
+            "climate.warm": Trv(entity_id="climate.warm", current_temperature=21.5),
+            "climate.cold": Trv(entity_id="climate.cold", current_temperature=19.0),
+        }
+        bt.state_mgr = _MpcStateStub()
+        return bt
+
+    def test_multi_trv_reads_typed_current_temperature(self):
+        """The per-TRV temperature loop reads Trv attributes, not dict keys."""
+        bt = self._bt()
+
+        output, supports_valve = _compute_mpc_balance(bt, "climate.cold")
+
+        assert output is not None
+        assert supports_valve is False
+        balance = bt.real_trvs["climate.cold"].calibration_balance
+        assert balance is not None
+        assert "distributed_valve_pct" in balance["debug"]
+
+    def test_multi_trv_handles_unreported_temperature(self):
+        """A TRV without current_temperature still gets a distributed share."""
+        bt = self._bt()
+        bt.real_trvs["climate.cold"].current_temperature = None
+
+        output, _ = _compute_mpc_balance(bt, "climate.cold")
+
+        assert output is not None
+        assert bt.real_trvs["climate.cold"].calibration_balance is not None

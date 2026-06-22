@@ -15,6 +15,7 @@ from unittest.mock import MagicMock, Mock
 from homeassistant.components.climate.const import HVACMode
 import pytest
 
+from custom_components.better_thermostat.trv import Trv
 from custom_components.better_thermostat.utils.const import (
     CalibrationMode,
     CalibrationType,
@@ -102,19 +103,22 @@ class TestHandleWindowOpenWithNoOffMode:
         bt.window_open = False
         bt.tolerance = 0.3
         bt.real_trvs = {
-            "climate.test_trv": {
-                "hvac_modes": [HVACMode.HEAT],  # No OFF mode
-                "min_temp": 5.0,
-                "max_temp": 30.0,
-                "current_temperature": 19.0,
-                "temperature": 21.0,
-                "advanced": {
-                    "calibration": CalibrationType.TARGET_TEMP_BASED,
-                    "calibration_mode": CalibrationMode.NO_CALIBRATION,
-                    "no_off_system_mode": True,
-                    "heat_auto_swapped": False,
+            "climate.test_trv": Trv.from_legacy_dict(
+                "climate.test_trv",
+                {
+                    "hvac_modes": [HVACMode.HEAT],  # No OFF mode
+                    "min_temp": 5.0,
+                    "max_temp": 30.0,
+                    "current_temperature": 19.0,
+                    "temperature": 21.0,
+                    "advanced": {
+                        "calibration": CalibrationType.TARGET_TEMP_BASED,
+                        "calibration_mode": CalibrationMode.NO_CALIBRATION,
+                        "no_off_system_mode": True,
+                        "heat_auto_swapped": False,
+                    },
                 },
-            }
+            )
         }
         return bt
 
@@ -194,17 +198,20 @@ class TestCheckSystemMode:
         mock_self = Mock()
         mock_self.device_name = "test_thermostat"
         mock_self.real_trvs = {
-            "climate.trv1": {
-                "hvac_mode": HVACMode.HEAT,
-                "last_hvac_mode": HVACMode.HEAT,
-                "system_mode_received": False,
-            }
+            "climate.trv1": Trv.from_legacy_dict(
+                "climate.trv1",
+                {
+                    "hvac_mode": HVACMode.HEAT,
+                    "last_hvac_mode": HVACMode.HEAT,
+                    "system_mode_received": False,
+                },
+            )
         }
 
         result = await check_system_mode(mock_self, "climate.trv1")
 
         assert result is True
-        assert mock_self.real_trvs["climate.trv1"]["system_mode_received"] is True
+        assert mock_self.real_trvs["climate.trv1"].system_mode_received is True
 
     @pytest.mark.asyncio
     async def test_mode_matches_after_delay(self):
@@ -212,17 +219,20 @@ class TestCheckSystemMode:
         mock_self = Mock()
         mock_self.device_name = "test_thermostat"
         mock_self.real_trvs = {
-            "climate.trv1": {
-                "hvac_mode": HVACMode.OFF,
-                "last_hvac_mode": HVACMode.HEAT,
-                "system_mode_received": False,
-            }
+            "climate.trv1": Trv.from_legacy_dict(
+                "climate.trv1",
+                {
+                    "hvac_mode": HVACMode.OFF,
+                    "last_hvac_mode": HVACMode.HEAT,
+                    "system_mode_received": False,
+                },
+            )
         }
 
         # Simulate mode change after 0.5 seconds
         async def update_mode():
             await asyncio.sleep(0.1)
-            mock_self.real_trvs["climate.trv1"]["hvac_mode"] = HVACMode.HEAT
+            mock_self.real_trvs["climate.trv1"].hvac_mode = HVACMode.HEAT
 
         update_task = asyncio.create_task(update_mode())
 
@@ -230,7 +240,7 @@ class TestCheckSystemMode:
 
         await update_task
         assert result is True
-        assert mock_self.real_trvs["climate.trv1"]["system_mode_received"] is True
+        assert mock_self.real_trvs["climate.trv1"].system_mode_received is True
 
     @pytest.mark.asyncio
     async def test_timeout_after_360_seconds(self):
@@ -241,11 +251,14 @@ class TestCheckSystemMode:
         mock_self = Mock()
         mock_self.device_name = "test_thermostat"
         mock_self.real_trvs = {
-            "climate.trv1": {
-                "hvac_mode": HVACMode.OFF,
-                "last_hvac_mode": HVACMode.HEAT,
-                "system_mode_received": False,
-            }
+            "climate.trv1": Trv.from_legacy_dict(
+                "climate.trv1",
+                {
+                    "hvac_mode": HVACMode.OFF,
+                    "last_hvac_mode": HVACMode.HEAT,
+                    "system_mode_received": False,
+                },
+            )
         }
 
         # Track sleep calls
@@ -272,9 +285,9 @@ class TestCheckSystemMode:
 
             assert result is True
             # Flag should still be set to True after timeout
-            assert mock_self.real_trvs["climate.trv1"]["system_mode_received"] is True
+            assert mock_self.real_trvs["climate.trv1"].system_mode_received is True
             # Mode should not have changed
-            assert mock_self.real_trvs["climate.trv1"]["hvac_mode"] == HVACMode.OFF
+            assert mock_self.real_trvs["climate.trv1"].hvac_mode == HVACMode.OFF
         finally:
             controlling_module.asyncio.sleep = original_sleep_func
 
@@ -284,16 +297,19 @@ class TestCheckSystemMode:
         mock_self = Mock()
         mock_self.device_name = "test_thermostat"
         mock_self.real_trvs = {
-            "climate.trv1": {
-                "hvac_mode": HVACMode.HEAT,
-                "last_hvac_mode": HVACMode.HEAT,
-                "system_mode_received": False,
-            }
+            "climate.trv1": Trv.from_legacy_dict(
+                "climate.trv1",
+                {
+                    "hvac_mode": HVACMode.HEAT,
+                    "last_hvac_mode": HVACMode.HEAT,
+                    "system_mode_received": False,
+                },
+            )
         }
 
         await check_system_mode(mock_self, "climate.trv1")
 
-        assert mock_self.real_trvs["climate.trv1"]["system_mode_received"] is True
+        assert mock_self.real_trvs["climate.trv1"].system_mode_received is True
 
 
 # ---------------------------------------------------------------------------
@@ -317,13 +333,16 @@ class TestCheckTargetTemperature:
         mock_self.device_name = "test_thermostat"
         mock_self.hass = mock_hass
         mock_self.real_trvs = {
-            "climate.trv1": {"last_temperature": 21.0, "target_temp_received": False}
+            "climate.trv1": Trv.from_legacy_dict(
+                "climate.trv1",
+                {"last_temperature": 21.0, "target_temp_received": False},
+            )
         }
 
         result = await check_target_temperature(mock_self, "climate.trv1")
 
         assert result is True
-        assert mock_self.real_trvs["climate.trv1"]["target_temp_received"] is True
+        assert mock_self.real_trvs["climate.trv1"].target_temp_received is True
 
     @pytest.mark.asyncio
     async def test_temperature_is_none(self):
@@ -338,13 +357,16 @@ class TestCheckTargetTemperature:
         mock_self.device_name = "test_thermostat"
         mock_self.hass = mock_hass
         mock_self.real_trvs = {
-            "climate.trv1": {"last_temperature": 21.0, "target_temp_received": False}
+            "climate.trv1": Trv.from_legacy_dict(
+                "climate.trv1",
+                {"last_temperature": 21.0, "target_temp_received": False},
+            )
         }
 
         result = await check_target_temperature(mock_self, "climate.trv1")
 
         assert result is True
-        assert mock_self.real_trvs["climate.trv1"]["target_temp_received"] is True
+        assert mock_self.real_trvs["climate.trv1"].target_temp_received is True
 
     @pytest.mark.asyncio
     async def test_temperature_matches_after_delay(self):
@@ -359,7 +381,10 @@ class TestCheckTargetTemperature:
         mock_self.device_name = "test_thermostat"
         mock_self.hass = mock_hass
         mock_self.real_trvs = {
-            "climate.trv1": {"last_temperature": 21.0, "target_temp_received": False}
+            "climate.trv1": Trv.from_legacy_dict(
+                "climate.trv1",
+                {"last_temperature": 21.0, "target_temp_received": False},
+            )
         }
 
         # Simulate temperature change after 0.1 seconds
@@ -373,7 +398,7 @@ class TestCheckTargetTemperature:
 
         await update_task
         assert result is True
-        assert mock_self.real_trvs["climate.trv1"]["target_temp_received"] is True
+        assert mock_self.real_trvs["climate.trv1"].target_temp_received is True
 
     @pytest.mark.asyncio
     async def test_timeout_after_360_seconds(self):
@@ -388,7 +413,10 @@ class TestCheckTargetTemperature:
         mock_self.device_name = "test_thermostat"
         mock_self.hass = mock_hass
         mock_self.real_trvs = {
-            "climate.trv1": {"last_temperature": 21.0, "target_temp_received": False}
+            "climate.trv1": Trv.from_legacy_dict(
+                "climate.trv1",
+                {"last_temperature": 21.0, "target_temp_received": False},
+            )
         }
 
         # Track sleep calls
@@ -412,7 +440,7 @@ class TestCheckTargetTemperature:
             result = await check_target_temperature(mock_self, "climate.trv1")
 
             assert result is True
-            assert mock_self.real_trvs["climate.trv1"]["target_temp_received"] is True
+            assert mock_self.real_trvs["climate.trv1"].target_temp_received is True
         finally:
             controlling_module.asyncio.sleep = original_sleep_func
 
@@ -429,7 +457,10 @@ class TestCheckTargetTemperature:
         mock_self.device_name = "test_thermostat"
         mock_self.hass = mock_hass
         mock_self.real_trvs = {
-            "climate.trv1": {"last_temperature": 21.0, "target_temp_received": False}
+            "climate.trv1": Trv.from_legacy_dict(
+                "climate.trv1",
+                {"last_temperature": 21.0, "target_temp_received": False},
+            )
         }
 
         result = await check_target_temperature(mock_self, "climate.trv1")
@@ -451,7 +482,7 @@ class TestGetValveControlBoostCalibrationType:
         mock_self.preset_mode = "boost"
         mock_self.cur_temp = 19.0
         mock_self.bt_target_temp = 22.0
-        mock_self.real_trvs = {"climate.trv1": {}}
+        mock_self.real_trvs = {"climate.trv1": Trv.from_legacy_dict("climate.trv1", {})}
         return mock_self
 
     def test_boost_direct_valve_returns_valve_settings(self):
@@ -504,13 +535,17 @@ class TestGetValveControlBoostMaxOpening:
         mock_self.preset_mode = "boost"
         mock_self.cur_temp = 19.0
         mock_self.bt_target_temp = 22.0
-        mock_self.real_trvs = {"climate.trv1": {"valve_max_opening": max_opening}}
+        mock_self.real_trvs = {
+            "climate.trv1": Trv.from_legacy_dict(
+                "climate.trv1", {"valve_max_opening": max_opening}
+            )
+        }
         return mock_self
 
     def test_no_setting_defaults_to_100(self):
         """Without a configured limit, boost still applies 100%."""
         mock_self = self._mock_in_boost(max_opening=None)
-        mock_self.real_trvs["climate.trv1"] = {}
+        mock_self.real_trvs["climate.trv1"] = Trv(entity_id="climate.trv1")
         bal, source = _get_valve_control(
             mock_self,
             "climate.trv1",

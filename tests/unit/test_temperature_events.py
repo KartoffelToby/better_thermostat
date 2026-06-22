@@ -16,6 +16,7 @@ from custom_components.better_thermostat.events.temperature import (
     _update_external_temp_ema,
     trigger_temperature_change,
 )
+from custom_components.better_thermostat.trv import Trv
 from custom_components.better_thermostat.utils.const import CONF_HOMEMATICIP
 
 SENSOR_ID = "sensor.external_temp"
@@ -261,7 +262,11 @@ class TestApplyTemperatureUpdate:
     async def test_quirks_external_temp_called(self, mock_bt):
         """Call model_quirks.maybe_set_external_temperature() for each TRV."""
         quirks = AsyncMock()
-        mock_bt.real_trvs = {"climate.trv1": {"model_quirks": quirks}}
+        mock_bt.real_trvs = {
+            "climate.trv1": Trv.from_legacy_dict(
+                "climate.trv1", {"model_quirks": quirks}
+            )
+        }
 
         await _apply_temperature_update(mock_bt, 21.0)
 

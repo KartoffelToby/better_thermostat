@@ -42,7 +42,7 @@ def normalize_calibration_mode(
     if isinstance(mode, (int, float)):
         try:
             numeric = int(mode)
-        except (TypeError, ValueError):
+        except TypeError, ValueError:
             numeric = None
         if numeric == 0:
             return CalibrationMode.DEFAULT
@@ -76,7 +76,8 @@ def entity_uses_calibration_mode(bt, entity_id: str, expected: CalibrationMode) 
     """Check if the given TRV has ``expected`` calibration mode configured."""
 
     try:
-        advanced = (bt.real_trvs.get(entity_id, {}) or {}).get("advanced", {}) or {}
+        _trv = bt.real_trvs.get(entity_id)
+        advanced = (_trv.advanced if _trv is not None else {}) or {}
     except AttributeError:
         return False
     mode = advanced.get("calibration_mode")
@@ -155,9 +156,11 @@ def mode_remap(self, entity_id, hvac_mode: str, inbound: bool = False) -> str:
     str
             remapped mode according to device's quirks
     """
-    _heat_auto_swapped = self.real_trvs[entity_id]["advanced"].get(
-        CONF_HEAT_AUTO_SWAPPED, False
-    )
+    trv = self.real_trvs.get(entity_id)
+    if trv is None:
+        return hvac_mode
+
+    _heat_auto_swapped = (trv.advanced or {}).get(CONF_HEAT_AUTO_SWAPPED, False)
 
     if _heat_auto_swapped:
         if hvac_mode == HVACMode.HEAT and not inbound:
@@ -166,7 +169,9 @@ def mode_remap(self, entity_id, hvac_mode: str, inbound: bool = False) -> str:
             return HVACMode.HEAT
         return hvac_mode
 
-    trv_modes = self.real_trvs[entity_id]["hvac_modes"]
+    trv_modes = trv.hvac_modes
+    if not trv_modes:
+        return hvac_mode
     if HVACMode.HEAT not in trv_modes and HVACMode.HEAT_COOL in trv_modes:
         # entity only supports HEAT_COOL, but not HEAT - need to translate
         if not inbound and hvac_mode == HVACMode.HEAT:
@@ -320,7 +325,7 @@ def convert_to_float(
         # Rounding to 0.1 caused issues where 19.97 became 20.0, leading to
         # incorrect HVAC action decisions (see issues #1792, #1789, #1785).
         return round_by_step(float(value), 0.01)
-    except (ValueError, TypeError, AttributeError, KeyError):
+    except ValueError, TypeError, AttributeError, KeyError:
         _LOGGER.debug(
             "better thermostat %s: Could not convert '%s' to float in %s",
             instance_name,
@@ -518,7 +523,7 @@ def check_float(potential_float):
     try:
         float(potential_float)
         return True
-    except (ValueError, TypeError):
+    except ValueError, TypeError:
         return False
 
 
@@ -793,7 +798,7 @@ async def _find_lowest_battery_in_group(self, member_ids, visited=None):
 
         try:
             level = float(battery_state.state)
-        except (ValueError, TypeError):
+        except ValueError, TypeError:
             _LOGGER.debug(
                 "better_thermostat: non-numeric battery state '%s' for %s",
                 battery_state.state,
@@ -924,7 +929,7 @@ def get_max_value(obj, value, default):
             if _temp is not None:
                 _raw.append(_temp)
         return max(_raw, key=float)
-    except (KeyError, ValueError):
+    except KeyError, ValueError:
         return default
 
 
@@ -937,7 +942,7 @@ def get_min_value(obj, value, default):
             if _temp is not None:
                 _raw.append(_temp)
         return min(_raw, key=float)
-    except (KeyError, ValueError):
+    except KeyError, ValueError:
         return default
 
 

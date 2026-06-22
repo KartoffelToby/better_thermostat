@@ -45,29 +45,31 @@ async def init(self, entity_id):
 
         valve = await _find_valve(self, entity_id)
         if valve is not None:
-            self.real_trvs[entity_id]["valve_position_entity"] = valve.get("entity_id")
-            self.real_trvs[entity_id]["valve_position_writable"] = bool(
+            self.real_trvs[entity_id].valve_position_entity = valve.get("entity_id")
+            self.real_trvs[entity_id].valve_position_writable = bool(
                 valve.get("writable", False)
             )
     except Exception:
         pass
 
     if (
-        self.real_trvs[entity_id]["local_temperature_calibration_entity"] is None
-        and self.real_trvs[entity_id]["calibration"] != 1
+        self.real_trvs[entity_id].local_temperature_calibration_entity is None
+        and self.real_trvs[entity_id].calibration != 1
     ):
-        self.real_trvs[entity_id][
-            "local_temperature_calibration_entity"
-        ] = await find_local_calibration_entity(self, entity_id)
+        self.real_trvs[
+            entity_id
+        ].local_temperature_calibration_entity = await find_local_calibration_entity(
+            self, entity_id
+        )
         _LOGGER.debug(
             "better_thermostat %s: uses local calibration entity %s",
             self.device_name,
-            self.real_trvs[entity_id]["local_temperature_calibration_entity"],
+            self.real_trvs[entity_id].local_temperature_calibration_entity,
         )
         await wait_for_calibration_entity_or_timeout(
             self,
             entity_id,
-            self.real_trvs[entity_id]["local_temperature_calibration_entity"],
+            self.real_trvs[entity_id].local_temperature_calibration_entity,
         )
 
         state = self.hass.states.get(entity_id)
@@ -96,13 +98,13 @@ async def set_hvac_mode(self, entity_id, hvac_mode):
 async def get_current_offset(self, entity_id):
     """Get current offset."""
     state = self.hass.states.get(
-        self.real_trvs[entity_id]["local_temperature_calibration_entity"]
+        self.real_trvs[entity_id].local_temperature_calibration_entity
     )
     if state is None or state.state in (STATE_UNAVAILABLE, STATE_UNKNOWN):
         return 0.0
     try:
         return float(str(state.state))
-    except (ValueError, TypeError):
+    except ValueError, TypeError:
         _LOGGER.warning(
             "better_thermostat %s: Could not convert calibration offset '%s' to float, using 0",
             self.device_name,
@@ -114,7 +116,7 @@ async def get_current_offset(self, entity_id):
 async def get_offset_step(self, entity_id):
     """Get offset step."""
     state = self.hass.states.get(
-        self.real_trvs[entity_id]["local_temperature_calibration_entity"]
+        self.real_trvs[entity_id].local_temperature_calibration_entity
     )
     if state is None:
         return 1.0
@@ -124,7 +126,7 @@ async def get_offset_step(self, entity_id):
 async def get_min_offset(self, entity_id):
     """Get min offset."""
     state = self.hass.states.get(
-        self.real_trvs[entity_id]["local_temperature_calibration_entity"]
+        self.real_trvs[entity_id].local_temperature_calibration_entity
     )
     if state is None:
         return -10.0
@@ -134,7 +136,7 @@ async def get_min_offset(self, entity_id):
 async def get_max_offset(self, entity_id):
     """Get max offset."""
     state = self.hass.states.get(
-        self.real_trvs[entity_id]["local_temperature_calibration_entity"]
+        self.real_trvs[entity_id].local_temperature_calibration_entity
     )
     if state is None:
         return 10.0
@@ -153,22 +155,20 @@ async def set_offset(self, entity_id, offset):
         "number",
         SERVICE_SET_VALUE,
         {
-            "entity_id": self.real_trvs[entity_id][
-                "local_temperature_calibration_entity"
-            ],
+            "entity_id": self.real_trvs[entity_id].local_temperature_calibration_entity,
             "value": offset,
         },
         blocking=True,
         context=self.context,
     )
-    self.real_trvs[entity_id]["last_calibration"] = offset
+    self.real_trvs[entity_id].last_calibration = offset
     if (
-        self.real_trvs[entity_id]["last_hvac_mode"] is not None
-        and self.real_trvs[entity_id]["last_hvac_mode"] != "off"
+        self.real_trvs[entity_id].last_hvac_mode is not None
+        and self.real_trvs[entity_id].last_hvac_mode != "off"
     ):
         await asyncio.sleep(3)
         return await generic_set_hvac_mode(
-            self, entity_id, self.real_trvs[entity_id]["last_hvac_mode"]
+            self, entity_id, self.real_trvs[entity_id].last_hvac_mode
         )
 
 
@@ -180,7 +180,8 @@ async def set_valve(self, entity_id, valve):
         entity_id,
         valve,
     )
-    if self.real_trvs.get(entity_id, {}).get("valve_position_writable") is False:
+    trv = self.real_trvs.get(entity_id)
+    if trv is not None and trv.valve_position_writable is False:
         _LOGGER.debug(
             "better_thermostat %s: valve entity for %s is read-only, skip adapter write",
             self.device_name,
@@ -189,9 +190,7 @@ async def set_valve(self, entity_id, valve):
         return
 
     # get min max from entity attributes
-    valve_entity = self.hass.states.get(
-        self.real_trvs[entity_id]["valve_position_entity"]
-    )
+    valve_entity = self.hass.states.get(self.real_trvs[entity_id].valve_position_entity)
     if valve_entity is not None:
         min_valve = float(str(valve_entity.attributes.get("min", 0)))
         max_valve = float(str(valve_entity.attributes.get("max", 100)))
@@ -202,10 +201,7 @@ async def set_valve(self, entity_id, valve):
     await self.hass.services.async_call(
         "number",
         SERVICE_SET_VALUE,
-        {
-            "entity_id": self.real_trvs[entity_id]["valve_position_entity"],
-            "value": valve,
-        },
+        {"entity_id": self.real_trvs[entity_id].valve_position_entity, "value": valve},
         blocking=True,
         context=self.context,
     )

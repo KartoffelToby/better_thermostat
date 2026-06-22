@@ -48,10 +48,10 @@
       }
     },
     "error": {
-      "no_outside_temp": "Es kann keine Außentemperatur geladen werden.",
       "failed": "Ups, hier stimmt was nicht.",
       "no_name": "Du musst einen Namen vergeben.",
-      "no_off_mode": "Dein Gerät ist ein Sonderfall, es hat keinen OFF Modus :(\nBetter Thermostat wird stattdessen das TRV auf den Minimalwert setzen."
+      "no_off_mode": "Dein Gerät ist ein Sonderfall, es hat keinen OFF Modus :(\nBetter Thermostat wird stattdessen das TRV auf den Minimalwert setzen.",
+      "no_outside_temp": "Es kann keine Außentemperatur geladen werden."
     },
     "abort": {
       "single_instance_allowed": "Es ist nur ein einzelnes BT je realem Thermostat erlaubt.",
@@ -61,7 +61,7 @@
   "options": {
     "step": {
       "user": {
-        "description": "Aktualisiere die Better Thermostat Einstellungen",
+        "description": "Aktualisiere die Better Thermostat Einstellungen\n\n**Detaillierte Infos:** {docs_url}",
         "data": {
           "name": "Name",
           "thermostat": "Das reale Thermostat",
@@ -77,21 +77,18 @@
           "target_temp_step": "Solltemperatur-Schritt",
           "presets": "Aktivierte Presets",
           "valve_maintenance": "Wenn Ihr Thermostat keinen eigenen Wartungsmodus hat, können Sie diesen verwenden.",
-          "child_lock": "Ignorieren Sie alle Eingaben am TRV wie eine Kindersicherung.",
-          "homematicip": "Wenn Sie HomematicIP verwenden, sollten Sie dies aktivieren, um die Anfragen zu verlangsamen und den Duty Cycle zu verhindern.",
+          "calibration": "Die Art der Kalibrierung",
           "heat_auto_swapped": "Wenn das Auto Wärme für Ihr TRV bedeutet und Sie es austauschen möchten.",
-          "calibration": "Die Art der Kalibrierung"
+          "child_lock": "Ignorieren Sie alle Eingaben am TRV wie eine Kindersicherung.",
+          "homematicip": "Wenn Sie HomematicIP verwenden, sollten Sie dies aktivieren, um die Anfragen zu verlangsamen und den Duty Cycle zu verhindern."
         },
         "data_description": {
           "presets": "Wähle die Presets aus, die für dieses Thermostat verfügbar sein sollen."
         }
       },
       "advanced": {
-        "description": "Aktualisiere die Einstellungen für {trv}",
+        "description": "Aktualisiere die Einstellungen für {trv}\n\n**Detaillierte Infos:** {docs_url}",
         "data": {
-          "trend_mix_trv": "Glättung (EMA‑Mix, 0–1)",
-          "percent_hysteresis_pts": "Hysterese (Prozentpunkte)",
-          "min_update_interval_s": "Minimales Update‑Intervall (Sek.)",
           "protect_overheating": "Überhitzung verhindern?",
           "heat_auto_swapped": "Tauscht die Modi auto und heat, falls diese bei dem realen Thermostat vertauscht sind.",
           "child_lock": "Ignoriere alle manuellen Einstellungen am realen Thermostat (Kindersicherung).",
@@ -131,21 +128,39 @@
     }
   },
   "services": {
-    "save_current_target_temperature": {
-      "name": "Speichere die aktuelle Zieltemperatur",
-      "description": "Speichert die aktuelle Zieltemperatur um sie zu einem späteren Zeitpunkt wiederherzustellen."
-    },
-    "restore_saved_target_temperature": {
-      "name": "Stelle die Zieltemperatur wieder her",
-      "description": "Stellt die Zieltemperatur aus dem letzten gespeicherten Wert wieder her."
+    "run_valve_maintenance": {
+      "name": "Ventilwartung jetzt ausführen",
+      "description": "Führt den Ventilwartungszyklus für diese Better-Thermostat-Entität sofort aus."
     },
     "reset_heating_power": {
       "name": "Setze 'Heating Power' zurück",
       "description": "Stellt die Heating Power auf den Startwert zurück."
     },
-    "set_temp_target_temperature": {
-      "name": "Setze die Temperatur für ECO",
-      "description": "Speichert eine ECO Temperatur, die für den ECO Modus genutzt wird."
+    "reset_pid_learnings": {
+      "name": "PID-Lernwerte zurücksetzen",
+      "description": "Löscht alle gelernten PID-Werte (und optional gelernte Öffnungsgrenzen) für diese Entität.",
+      "fields": {
+        "include_open_caps": {
+          "name": "Auch gelernte Öffnungsgrenzen löschen",
+          "description": "Wenn aktiviert, werden auch die gelernten minimalen/maximalen Öffnungsprozente je TRV/Ziel-Bereich gelöscht."
+        },
+        "apply_pid_defaults": {
+          "name": "PID-Standardwerte nach dem Zurücksetzen anwenden",
+          "description": "Wenn aktiviert, wird der aktuelle Ziel-Bereich mit den PID-Standardverstärkungen (kp/ki/kd) vorbelegt. Die Standardwerte können unten überschrieben werden."
+        },
+        "defaults_kp": {
+          "name": "Standard-kp",
+          "description": "Proportionalverstärkung, die nach dem Zurücksetzen gesetzt wird (fällt auf BalanceParams.kp zurück, wenn nicht angegeben)."
+        },
+        "defaults_ki": {
+          "name": "Standard-ki",
+          "description": "Integralverstärkung, die nach dem Zurücksetzen gesetzt wird (fällt auf BalanceParams.ki zurück, wenn nicht angegeben)."
+        },
+        "defaults_kd": {
+          "name": "Standard-kd",
+          "description": "Differenzialverstärkung, die nach dem Zurücksetzen gesetzt wird (fällt auf BalanceParams.kd zurück, wenn nicht angegeben)."
+        }
+      }
     }
   },
   "selector": {
@@ -188,6 +203,12 @@
       },
       "pid_auto_tune_no_trv": {
         "name": "PID Auto-Tuning"
+      },
+      "child_lock": {
+        "name": "{trv_name} Kindersicherung"
+      },
+      "child_lock_no_trv": {
+        "name": "Kindersicherung"
       }
     }
   },
@@ -204,6 +225,14 @@
       "hvac_mode_changed": "HVAC-Modus geändert",
       "current_temperature_changed": "Aktuelle Temperatur geändert",
       "current_humidity_changed": "Aktuelle Luftfeuchtigkeit geändert"
+    },
+    "condition_type": {
+      "is_hvac_mode": "Thermostat ist auf einen bestimmten HVAC-Modus eingestellt",
+      "is_hvac_action": "Thermostat führt eine bestimmte HVAC-Aktion aus"
+    },
+    "action_type": {
+      "set_hvac_mode": "HVAC-Modus setzen",
+      "set_temperature": "Zieltemperatur setzen"
     }
   }
 }

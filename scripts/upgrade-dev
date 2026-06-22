@@ -4,6 +4,8 @@ set -e
 
 cd "$(dirname "$0")/.."
 
-python3 -m pip install homeassistant
+# Bump Home Assistant to the latest compatible release in the lockfile.
+uv lock --upgrade-package homeassistant
+uv sync
 
 echo "Done."

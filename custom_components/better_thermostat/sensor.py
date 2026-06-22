@@ -277,7 +277,7 @@ def _get_active_algorithms(bt_climate: BetterThermostat) -> set[CalibrationMode]
 
     active_algorithms: set[CalibrationMode] = set()
     for trv_id, trv in bt_climate.real_trvs.items():
-        advanced = trv.get("advanced", {})
+        advanced = trv.advanced or {}
         calibration_mode = advanced.get(CONF_CALIBRATION_MODE)
         if calibration_mode:
             # Konvertiere String zu Enum falls nötig
@@ -303,13 +303,13 @@ def _get_pid_trvs(bt_climate: BetterThermostat) -> set[str]:
     if not bt_climate.real_trvs:
         return pid_trvs
     for trv_entity_id, trv_data in bt_climate.real_trvs.items():
-        advanced = trv_data.get("advanced", {})
+        advanced = trv_data.advanced or {}
         calibration_mode = advanced.get(CONF_CALIBRATION_MODE)
         # Normalize string values to CalibrationMode enum
         if isinstance(calibration_mode, str):
             try:
                 calibration_mode = CalibrationMode(calibration_mode)
-            except (ValueError, TypeError):
+            except ValueError, TypeError:
                 continue
         if calibration_mode == CalibrationMode.PID_CALIBRATION:
             pid_trvs.add(trv_entity_id)
@@ -631,7 +631,7 @@ class _BtMpcSensorBase(_BtSensorBase):
         val = None
         if self._bt_climate.real_trvs:
             for trv_data in self._bt_climate.real_trvs.values():
-                cal_bal = trv_data.get("calibration_balance")
+                cal_bal = trv_data.calibration_balance
                 if cal_bal and "debug" in cal_bal:
                     debug = cal_bal["debug"]
                     if self._debug_key in debug:
@@ -641,7 +641,7 @@ class _BtMpcSensorBase(_BtSensorBase):
         if val is not None:
             try:
                 self._attr_native_value = float(val)
-            except (ValueError, TypeError):
+            except ValueError, TypeError:
                 self._attr_native_value = None
         else:
             self._attr_native_value = None
@@ -662,7 +662,7 @@ class _BtSimpleAttributeSensor(_BtSensorBase):
                 self._attr_native_value = (
                     round(fval, self._rounding) if self._rounding is not None else fval
                 )
-            except (ValueError, TypeError):
+            except ValueError, TypeError:
                 self._attr_native_value = None
         else:
             self._attr_native_value = None
@@ -687,7 +687,7 @@ class BetterThermostatExternalTempSensor(_BtSensorBase):
         if val is not None:
             try:
                 self._attr_native_value = float(val)
-            except (ValueError, TypeError):
+            except ValueError, TypeError:
                 self._attr_native_value = None
         else:
             self._attr_native_value = None
@@ -736,7 +736,7 @@ class BetterThermostatExternalTemp1hEMASensor(_BtSensorBase):
                 self._update_ema(float(val))
                 assert self._ema_value is not None  # set by _update_ema
                 self._attr_native_value = round(self._ema_value, 2)
-            except (ValueError, TypeError):
+            except ValueError, TypeError:
                 self._attr_native_value = None
         else:
             self._attr_native_value = None

@@ -1,28 +1,42 @@
 """Tests for the PID controller."""
 
 from custom_components.better_thermostat.utils.calibration.pid import (
+    PIDDebugInfo,
     PIDParams,
+    PIDState,
     build_pid_key,
     compute_pid,
-    get_pid_state,
-    seed_pid_gains,
 )
 
 
 class TestPIDController:
-    """Test cases for PID controller."""
+    """Test cases for PID controller.
+
+    State is threaded explicitly: each test keeps its own per-key state
+    dict, mirroring how the StateManager owns controller state in
+    production.
+    """
 
     def setup_method(self):
-        """Reset PID states before each test."""
-        # Reset all states to ensure clean tests
-        import custom_components.better_thermostat.utils.calibration.pid as pid_module
+        """Start each test with a fresh per-key state dict."""
+        self._states: dict[str, PIDState] = {}
 
-        pid_module._PID_STATES.clear()
+    def _compute(self, **kwargs) -> tuple[float, PIDDebugInfo, PIDState]:
+        """Call ``compute_pid`` threading state for ``kwargs['key']``."""
+        key = kwargs["key"]
+        state = self._states.setdefault(key, PIDState())
+        percent, debug, new_state = compute_pid(state=state, **kwargs)
+        self._states[key] = new_state
+        return percent, debug, new_state
+
+    def _state(self, key: str) -> PIDState | None:
+        """Return the threaded state for ``key`` (None if never computed)."""
+        return self._states.get(key)
 
     def test_no_temperatures(self):
         """Test behavior when temperatures are missing."""
         params = PIDParams()
-        percent, debug, _ = compute_pid(
+        percent, debug, _ = self._compute(
             params=params,
             inp_target_temp_C=None,
             inp_current_temp_C=20.0,
@@ -41,7 +55,7 @@ class TestPIDController:
             auto_tune=False, kp=10.0, ki=1.0, kd=5.0, min_hold_time_s=0.0
         )
         # First call to initialize
-        percent1, _, _ = compute_pid(
+        percent1, _, _ = self._compute(
             params=params,
             inp_target_temp_C=22.0,
             inp_current_temp_C=20.0,
@@ -53,7 +67,7 @@ class TestPIDController:
         assert percent1 > 0
 
         # Second call with same error; integer rounding may mask tiny increments
-        percent2, _, _ = compute_pid(
+        percent2, _, _ = self._compute(
             params=params,
             inp_target_temp_C=22.0,
             inp_current_temp_C=20.0,
@@ -66,7 +80,7 @@ class TestPIDController:
         # After a few iterations the integral term should raise the output
         percent_last = percent2
         for _ in range(6):
-            percent_last, _, _ = compute_pid(
+            percent_last, _, _ = self._compute(
                 params=params,
                 inp_target_temp_C=22.0,
                 inp_current_temp_C=20.0,
@@ -80,7 +94,7 @@ class TestPIDController:
         """Test anti-windup clamping."""
         params = PIDParams(auto_tune=False, kp=100.0, ki=10.0, i_min=-10.0, i_max=10.0)
         # Large error to cause windup
-        percent, _, _ = compute_pid(
+        percent, _, _ = self._compute(
             params=params,
             inp_target_temp_C=30.0,
             inp_current_temp_C=20.0,
@@ -91,7 +105,7 @@ class TestPIDController:
         # Should be clamped to 100%
         assert percent == 100.0
         # Check that integral is clamped
-        state = get_pid_state("test_windup")
+        state = self._state("test_windup")
         assert state.pid_integral <= params.i_max
 
     def test_auto_tune_overshoot(self):
@@ -106,7 +120,7 @@ class TestPIDController:
         key = "test_overshoot"
 
         # First call: positive error > band
-        compute_pid(
+        self._compute(
             params=params,
             inp_target_temp_C=22.0,
             inp_current_temp_C=20.0,
@@ -116,7 +130,7 @@ class TestPIDController:
         )
 
         # Second call: overshoot (negative error < band)
-        compute_pid(
+        self._compute(
             params=params,
             inp_target_temp_C=22.0,
             inp_current_temp_C=22.05,  # error = -0.05 < band
@@ -125,7 +139,7 @@ class TestPIDController:
             key=key,
         )
 
-        state = get_pid_state(key)
+        state = self._state(key)
         # kp should be reduced, kd increased
         assert state.pid_kp < params.kp
         assert state.pid_kd > params.kd
@@ -142,7 +156,7 @@ class TestPIDController:
         key = "test_sluggish"
 
         # Large error < 1.0, small slope -> sluggish
-        compute_pid(
+        self._compute(
             params=params,
             inp_target_temp_C=20.8,  # error = 0.8 < 1.0
             inp_current_temp_C=20.0,  # error = 0.8 > band
@@ -151,7 +165,7 @@ class TestPIDController:
             key=key,
         )
 
-        state = get_pid_state(key)
+        state = self._state(key)
         # ki should be increased
         assert state.pid_ki > params.ki
 
@@ -166,7 +180,7 @@ class TestPIDController:
         key = "test_steady"
 
         # Small error, low percent -> steady state
-        compute_pid(
+        self._compute(
             params=params,
             inp_target_temp_C=20.1,
             inp_current_temp_C=20.0,  # error = 0.1 < band
@@ -175,7 +189,7 @@ class TestPIDController:
             key=key,
         )
 
-        state = get_pid_state(key)
+        state = self._state(key)
         # ki should be decreased
         assert state.pid_ki < params.ki
 
@@ -191,7 +205,7 @@ class TestPIDController:
         key = "test_interval"
 
         # First call: sluggish -> tune
-        compute_pid(
+        self._compute(
             params=params,
             inp_target_temp_C=20.8,  # error = 0.8 < 1.0
             inp_current_temp_C=20.0,
@@ -200,7 +214,7 @@ class TestPIDController:
             key=key,
         )
 
-        state_after_first = get_pid_state(key)
+        state_after_first = self._state(key)
         assert state_after_first is not None
         kp_after_first = state_after_first.pid_kp
         ki_after_first = state_after_first.pid_ki
@@ -209,7 +223,7 @@ class TestPIDController:
         assert ki_after_first > params.ki  # Should have increased due to sluggish
 
         # Immediate second call with sluggish again - should not tune due to interval
-        compute_pid(
+        self._compute(
             params=params,
             inp_target_temp_C=22.0,
             inp_current_temp_C=20.0,  # same error
@@ -218,7 +232,7 @@ class TestPIDController:
             key=key,
         )
 
-        state_after_second = get_pid_state(key)
+        state_after_second = self._state(key)
         assert state_after_second is not None
         # Gains should remain the same as after first tune
         assert state_after_second.pid_kp == kp_after_first
@@ -249,7 +263,7 @@ class TestPIDController:
         # Trigger overshoot multiple times to push gains to limits
         for _ in range(5):
             # Positive error
-            compute_pid(
+            self._compute(
                 params=params,
                 inp_target_temp_C=22.0,
                 inp_current_temp_C=20.0,
@@ -258,7 +272,7 @@ class TestPIDController:
                 key=key,
             )
             # Overshoot
-            compute_pid(
+            self._compute(
                 params=params,
                 inp_target_temp_C=22.0,
                 inp_current_temp_C=22.2,  # error = -0.2 > threshold
@@ -267,7 +281,7 @@ class TestPIDController:
                 key=key,
             )
 
-        state = get_pid_state(key)
+        state = self._state(key)
         # kp should be clamped to min, kd to max
         assert state is not None
         assert state.pid_kp >= params.kp_min
@@ -289,7 +303,7 @@ class TestPIDController:
         key = "test_combined"
 
         # First: sluggish (error <1.0, small slope)
-        compute_pid(
+        self._compute(
             params=params,
             inp_target_temp_C=20.8,  # error = 0.8
             inp_current_temp_C=20.0,
@@ -298,14 +312,14 @@ class TestPIDController:
             key=key,
         )
 
-        state_after_sluggish = get_pid_state(key)
+        state_after_sluggish = self._state(key)
         assert state_after_sluggish is not None
         ki_after_sluggish = state_after_sluggish.pid_ki
         assert ki_after_sluggish is not None
         assert ki_after_sluggish > params.ki  # Increased
 
         # Second: overshoot (previous abs > band, current abs < band)
-        compute_pid(
+        self._compute(
             params=params,
             inp_target_temp_C=20.8,  # error = 0.8 > band
             inp_current_temp_C=20.0,
@@ -313,7 +327,7 @@ class TestPIDController:
             inp_temp_slope_K_per_min=0.02,  # > threshold, no sluggish
             key=key,
         )
-        compute_pid(
+        self._compute(
             params=params,
             inp_target_temp_C=20.8,
             inp_current_temp_C=20.83,  # error = -0.03 < band
@@ -322,7 +336,7 @@ class TestPIDController:
             key=key,
         )
 
-        state_after_combined = get_pid_state(key)
+        state_after_combined = self._state(key)
         assert state_after_combined is not None
         assert state_after_combined.pid_ki is not None
         assert state_after_combined.pid_kp is not None
@@ -351,7 +365,7 @@ class TestPIDController:
         for i in range(10):
             error = 2.0 if i % 2 == 0 else -0.5  # Alternate positive and overshoot
             current_temp = 20.0 + (2.0 - error)  # Adjust to create error
-            compute_pid(
+            self._compute(
                 params=params,
                 inp_target_temp_C=22.0,
                 inp_current_temp_C=current_temp,
@@ -359,7 +373,7 @@ class TestPIDController:
                 inp_temp_slope_K_per_min=0.0,
                 key=key,
             )
-            state = get_pid_state(key)
+            state = self._state(key)
             assert state is not None
             assert state.pid_kp is not None
             assert state.pid_ki is not None
@@ -382,7 +396,7 @@ class TestPIDController:
             auto_tune=False, d_on_measurement=True, d_smoothing_alpha=0.5
         )
         # First call to initialize
-        compute_pid(
+        self._compute(
             params=params,
             inp_target_temp_C=22.0,
             inp_current_temp_C=20.0,
@@ -391,7 +405,7 @@ class TestPIDController:
             key="test_deriv",
         )
         # Second call to have dt > 0
-        _, debug, _ = compute_pid(
+        _, debug, _ = self._compute(
             params=params,
             inp_target_temp_C=22.0,
             inp_current_temp_C=20.0,
@@ -418,7 +432,7 @@ class TestPIDController:
         key = "test_hold_block"
 
         # First call establishes baseline
-        percent1, _, _ = compute_pid(
+        percent1, _, _ = self._compute(
             params=params,
             inp_target_temp_C=22.0,
             inp_current_temp_C=20.0,  # Error = 2.0, P = 20%
@@ -429,7 +443,7 @@ class TestPIDController:
         assert percent1 == 20.0  # P-term only: 10 * 2.0 = 20
 
         # Second call with slightly different error (small change < 33%)
-        percent2, _, _ = compute_pid(
+        percent2, _, _ = self._compute(
             params=params,
             inp_target_temp_C=22.0,
             inp_current_temp_C=20.5,  # Error = 1.5, P = 15%
@@ -453,7 +467,7 @@ class TestPIDController:
         key = "test_hold_big"
 
         # First call establishes baseline
-        percent1, _, _ = compute_pid(
+        percent1, _, _ = self._compute(
             params=params,
             inp_target_temp_C=22.0,
             inp_current_temp_C=20.0,  # Error = 2.0, P = 20%
@@ -464,7 +478,7 @@ class TestPIDController:
         assert percent1 == 20.0
 
         # Second call with large error change (big change >= 33%)
-        percent2, _, _ = compute_pid(
+        percent2, _, _ = self._compute(
             params=params,
             inp_target_temp_C=22.0,
             inp_current_temp_C=15.0,  # Error = 7.0, P = 70%
@@ -488,7 +502,7 @@ class TestPIDController:
         key = "test_hold_target"
 
         # First call establishes baseline
-        percent1, _, _ = compute_pid(
+        percent1, _, _ = self._compute(
             params=params,
             inp_target_temp_C=22.0,
             inp_current_temp_C=20.0,  # Error = 2.0, P = 20%
@@ -499,7 +513,7 @@ class TestPIDController:
         assert percent1 == 20.0
 
         # Second call with changed target temperature
-        percent2, _, _ = compute_pid(
+        percent2, _, _ = self._compute(
             params=params,
             inp_target_temp_C=23.0,  # Target changed by 1.0°C (> 0.05)
             inp_current_temp_C=20.0,  # Error = 3.0, P = 30%
@@ -523,7 +537,7 @@ class TestPIDController:
         key = "test_hold_disabled"
 
         # First call
-        percent1, _, _ = compute_pid(
+        percent1, _, _ = self._compute(
             params=params,
             inp_target_temp_C=22.0,
             inp_current_temp_C=20.0,
@@ -534,7 +548,7 @@ class TestPIDController:
         assert percent1 == 20.0
 
         # Second call with small change - should NOT be blocked
-        percent2, _, _ = compute_pid(
+        percent2, _, _ = self._compute(
             params=params,
             inp_target_temp_C=22.0,
             inp_current_temp_C=20.5,  # Small change
@@ -560,67 +574,3 @@ class TestPIDController:
         bt.bt_target_temp = None
         key = build_pid_key(bt, "climate.test")
         assert key == "test_bt:climate.test:tunknown"
-
-    def test_seed_pid_gains_creates_new_state(self):
-        """Test that seed_pid_gains creates a new state if key doesn't exist."""
-        key = "test_seed_new"
-
-        # Ensure state doesn't exist
-        assert get_pid_state(key) is None
-
-        # Seed gains
-        result = seed_pid_gains(key, kp=15.0, ki=0.05, kd=300.0)
-
-        assert result is True
-        state = get_pid_state(key)
-        assert state is not None
-        assert state.pid_kp == 15.0
-        assert state.pid_ki == 0.05
-        assert state.pid_kd == 300.0
-
-    def test_seed_pid_gains_updates_existing_state(self):
-        """Test that seed_pid_gains updates an existing state."""
-        key = "test_seed_update"
-
-        # Create initial state with different values
-        seed_pid_gains(key, kp=10.0, ki=0.01, kd=100.0)
-        state_before = get_pid_state(key)
-        assert state_before.pid_kp == 10.0
-
-        # Update with new values
-        result = seed_pid_gains(key, kp=20.0, ki=0.02, kd=200.0)
-
-        assert result is True
-        state_after = get_pid_state(key)
-        assert state_after.pid_kp == 20.0
-        assert state_after.pid_ki == 0.02
-        assert state_after.pid_kd == 200.0
-
-    def test_seed_pid_gains_preserves_other_state_fields(self):
-        """Test that seed_pid_gains only updates gains, not other fields."""
-        key = "test_seed_preserve"
-        params = PIDParams(auto_tune=False, kp=10.0, ki=0.1, kd=50.0)
-
-        # Run PID to create state with integral value
-        compute_pid(
-            params=params,
-            inp_target_temp_C=22.0,
-            inp_current_temp_C=20.0,
-            inp_trv_temp_C=21.0,
-            inp_temp_slope_K_per_min=0.0,
-            key=key,
-        )
-
-        state_before = get_pid_state(key)
-        integral_before = state_before.pid_integral
-
-        # Seed new gains
-        seed_pid_gains(key, kp=25.0, ki=0.08, kd=400.0)
-
-        state_after = get_pid_state(key)
-        # Gains should be updated
-        assert state_after.pid_kp == 25.0
-        assert state_after.pid_ki == 0.08
-        assert state_after.pid_kd == 400.0
-        # Integral should be preserved
-        assert state_after.pid_integral == integral_before

@@ -1,10 +1,25 @@
-"""Tests for the MPC (Model Predictive Control) controller."""
+"""Tests for the MPC (Model Predictive Control) controller.
+
+State is threaded explicitly through a test-local state dict, mirroring how
+the StateManager owns controller state in production.
+"""
 
 from custom_components.better_thermostat.utils.calibration.mpc import (
     MpcInput,
     MpcParams,
-    compute_mpc,
+    MpcState,
+    compute_mpc as _compute_mpc,
 )
+
+_STATES: dict[str, MpcState] = {}
+
+
+def compute_mpc(inp, params):
+    """Run ``_compute_mpc`` threading state for ``inp.key`` via ``_STATES``."""
+    state = _STATES.setdefault(inp.key, MpcState())
+    output, new_state = _compute_mpc(inp, params, state=state, all_states=_STATES)
+    _STATES[inp.key] = new_state
+    return output, new_state
 
 
 class TestMPCController:
@@ -12,10 +27,7 @@ class TestMPCController:
 
     def setup_method(self):
         """Reset MPC states before each test."""
-        # Reset all states to ensure clean tests
-        import custom_components.better_thermostat.utils.calibration.mpc as mpc_module
-
-        mpc_module._MPC_STATES.clear()
+        _STATES.clear()
 
     def test_no_temperatures(self):
         """Test behavior when temperatures are missing."""
@@ -136,10 +148,6 @@ class TestMPCController:
 
     def test_adaptive_parameter_estimation(self):
         """Test adaptive estimation of thermal gain and loss coefficients."""
-        from custom_components.better_thermostat.utils.calibration.mpc import (
-            _MPC_STATES,
-        )
-
         params = MpcParams(
             mpc_adapt=True,
             mpc_adapt_alpha=0.5,
@@ -168,7 +176,7 @@ class TestMPCController:
         result1, _ = compute_mpc(inp1, params)
         assert result1 is not None
         # Should set initial gain_est and loss_est
-        state = _MPC_STATES[key]
+        state = _STATES[key]
         print(
             f"After inp1 (error={target - current}): gain_est={state.gain_est}, loss_est={state.loss_est}, valve_percent={result1.valve_percent}"
         )
@@ -241,10 +249,6 @@ class TestMPCController:
 
         from time import time
 
-        from custom_components.better_thermostat.utils.calibration.mpc import (
-            _MPC_STATES,
-        )
-
         params = MpcParams(
             mpc_adapt=True,
             mpc_adapt_alpha=0.5,
@@ -259,7 +263,7 @@ class TestMPCController:
         )
         _ = compute_mpc(inp1, params)
 
-        st = _MPC_STATES[key]
+        st = _STATES[key]
         st.last_percent = 100.0
         st.last_learn_temp = inp1.current_temp_C
         st.last_learn_time = time() - 300.0  # >=180s, but <600s (no steady-state gain)
@@ -271,7 +275,7 @@ class TestMPCController:
             key=key, target_temp_C=22.0, current_temp_C=21.5, temp_slope_K_per_min=0.08
         )
         _ = compute_mpc(inp2, params)
-        st = _MPC_STATES[key]
+        st = _STATES[key]
 
         assert st.gain_est is not None
         assert float(st.gain_est) <= gain_before
@@ -280,10 +284,6 @@ class TestMPCController:
         """If valve is high, temperature is flat, and still below target, gain should decrease."""
 
         from time import time
-
-        from custom_components.better_thermostat.utils.calibration.mpc import (
-            _MPC_STATES,
-        )
 
         params = MpcParams(
             mpc_adapt=True,
@@ -298,7 +298,7 @@ class TestMPCController:
             MpcInput(key=key, target_temp_C=22.0, current_temp_C=21.5), params
         )
 
-        st = _MPC_STATES[key]
+        st = _STATES[key]
         st.gain_est = 0.1
         st.loss_est = 0.01
         st.last_percent = 90.0
@@ -324,10 +324,6 @@ class TestMPCController:
 
         from time import time
 
-        from custom_components.better_thermostat.utils.calibration.mpc import (
-            _MPC_STATES,
-        )
-
         params = MpcParams(
             mpc_adapt=True,
             mpc_adapt_alpha=0.5,
@@ -341,7 +337,7 @@ class TestMPCController:
             MpcInput(key=key, target_temp_C=22.0, current_temp_C=21.8), params
         )
 
-        st = _MPC_STATES[key]
+        st = _STATES[key]
         st.gain_est = 0.12
         st.loss_est = 0.01
         st.last_percent = 36.0
@@ -462,8 +458,6 @@ class TestMPCController:
     def test_tolerance_hold_keeps_virtual_temp_fresh(self):
         """Virtual temperature/Kalman state should keep updating while tolerance hold is active."""
 
-        import custom_components.better_thermostat.utils.calibration.mpc as mpc_module
-
         params = MpcParams(
             mpc_adapt=False,
             min_update_interval_s=0.0,
@@ -482,7 +476,7 @@ class TestMPCController:
         assert first is not None
         assert first.valve_percent == 0
 
-        state = mpc_module._MPC_STATES[key]
+        state = _STATES[key]
         v1 = state.virtual_temp
         assert v1 is not None
 
@@ -499,10 +493,6 @@ class TestMPCController:
 
     def test_heating_sequence_simulation(self):
         """Simulate a heating sequence to test controller behavior over time."""
-        from custom_components.better_thermostat.utils.calibration.mpc import (
-            export_mpc_state_map,
-        )
-
         params = MpcParams(
             # mpc_adapt=True,
             mpc_thermal_gain=0.06,
@@ -538,10 +528,7 @@ class TestMPCController:
             valve_pct = result.valve_percent
             dbg = result.debug or {}
 
-            state_map = export_mpc_state_map(prefix=key)
-            vtemp = None
-            if key in state_map:
-                vtemp = state_map[key].get("virtual_temp")
+            vtemp = _STATES[key].virtual_temp if key in _STATES else None
 
             error = target - current
             results.append((current, valve_pct))

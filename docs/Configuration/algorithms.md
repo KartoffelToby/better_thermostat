@@ -1,9 +1,7 @@
 ---
-layout: default
 title: Calibration Algorithms
-nav_order: 2
-has_children: true
-permalink: calibration_algorithms
+description: The Better Thermostat calibration algorithms and how to choose one.
+slug: calibration_algorithms
 ---
 
 Better Thermostat offers several calibration algorithms (also called "Calibration Modes") that control how your TRV (Thermostatic Radiator Valve) is adjusted to maintain your desired temperature. Each algorithm has different characteristics and is suited for different situations.
@@ -403,6 +401,6 @@ For developers and advanced users who want to understand the implementation deta
 
 If you're still unsure which algorithm to use or experiencing issues:
 
-1. Check the [Q&A section](../Q&A/qanda.md) for common questions
+1. Check the [FAQ](../faq/common-questions.md) for common questions
 2. Visit the [GitHub Discussions](https://github.com/KartoffelToby/better_thermostat/discussions)
 3. Report bugs on [GitHub Issues](https://github.com/KartoffelToby/better_thermostat/issues)

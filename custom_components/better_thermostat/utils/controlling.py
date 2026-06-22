@@ -59,9 +59,8 @@ def _get_valve_control(
         _is_boost_heating_active(self)
         and calibration_type == CalibrationType.DIRECT_VALVE_BASED
     ):
-        max_opening = (self.real_trvs.get(heater_entity_id) or {}).get(
-            "valve_max_opening", 100
-        )
+        _trv = self.real_trvs.get(heater_entity_id)
+        max_opening = _trv.valve_max_opening if _trv is not None else 100
         if isinstance(max_opening, (int, float)):
             target_pct = max(0, min(100, int(round(float(max_opening)))))
         else:
@@ -73,7 +72,7 @@ def _get_valve_control(
         return None, None
 
     # Try calibration balance from various calibration modes
-    cal_bal = self.real_trvs[heater_entity_id].get("calibration_balance")
+    cal_bal = self.real_trvs[heater_entity_id].calibration_balance
     if (
         isinstance(cal_bal, dict)
         and cal_bal.get("apply_valve")
@@ -90,7 +89,7 @@ def _get_valve_control(
             return cal_bal, source
 
     # Fallback to raw balance
-    raw_balance = self.real_trvs[heater_entity_id].get("balance")
+    raw_balance = self.real_trvs[heater_entity_id].balance
     if (
         isinstance(raw_balance, dict)
         and raw_balance.get("apply_valve")
@@ -306,7 +305,14 @@ async def control_cooler(self):
         desired_mode = HVACMode.OFF
 
     # Only send temperature command if it differs from current
-    if current_temp is None or current_temp != desired_temp:
+    if desired_temp is None:
+        _LOGGER.debug(
+            "better_thermostat %s: cooler %s desired temperature is None, "
+            "skipping set_temperature",
+            self.device_name,
+            self.cooler_entity_id,
+        )
+    elif current_temp is None or current_temp != desired_temp:
         if current_temp is None:
             _LOGGER.debug(
                 "better_thermostat %s: cooler %s current temperature is unknown, "
@@ -382,7 +388,7 @@ async def control_trv(self, heater_entity_id=None):
         self.task_manager = TaskManager(hass=self.hass)
 
     async with self._temp_lock:
-        self.real_trvs[heater_entity_id]["ignore_trv_states"] = True
+        self.real_trvs[heater_entity_id].ignore_trv_states = True
         try:
             # Preserve old action for change detection if attributes exist
             if hasattr(self, "attr_hvac_action"):
@@ -410,7 +416,7 @@ async def control_trv(self, heater_entity_id=None):
                 self.device_name,
                 heater_entity_id,
             )
-            self.real_trvs[heater_entity_id]["ignore_trv_states"] = False
+            self.real_trvs[heater_entity_id].ignore_trv_states = False
             return True
 
         _current_set_temperature = attr_to_celsius(
@@ -429,15 +435,15 @@ async def control_trv(self, heater_entity_id=None):
                 heater_entity_id,
             )
             await asyncio.sleep(2)
-            self.real_trvs[heater_entity_id]["ignore_trv_states"] = False
+            self.real_trvs[heater_entity_id].ignore_trv_states = False
             return False
 
         _temperature = _remapped_states.get("temperature", None)
         _calibration = _remapped_states.get("local_temperature_calibration", None)
-        _calibration_mode = self.real_trvs[heater_entity_id]["advanced"].get(
+        _calibration_mode = self.real_trvs[heater_entity_id].advanced.get(
             "calibration_mode", CalibrationMode.MPC_CALIBRATION
         )
-        _calibration_type = self.real_trvs[heater_entity_id]["advanced"].get(
+        _calibration_type = self.real_trvs[heater_entity_id].advanced.get(
             "calibration", CalibrationType.TARGET_TEMP_BASED
         )
         # Pair the forced 100 % valve with a max-temp setpoint so the TRV
@@ -446,7 +452,7 @@ async def control_trv(self, heater_entity_id=None):
             _is_boost_heating_active(self)
             and _calibration_type == CalibrationType.DIRECT_VALVE_BASED
         ):
-            _temperature = self.real_trvs[heater_entity_id]["max_temp"]
+            _temperature = self.real_trvs[heater_entity_id].max_temp
 
         # Optional: set valve position if supported (e.g., MQTT/Z2M)
         try:
@@ -503,15 +509,13 @@ async def control_trv(self, heater_entity_id=None):
 
         # Manage TRVs with no HVACMode.OFF
         _no_off_system_mode = (
-            HVACMode.OFF not in self.real_trvs[heater_entity_id]["hvac_modes"]
+            HVACMode.OFF not in self.real_trvs[heater_entity_id].hvac_modes
         ) or (
-            self.real_trvs[heater_entity_id]["advanced"].get(
-                "no_off_system_mode", False
-            )
+            self.real_trvs[heater_entity_id].advanced.get("no_off_system_mode", False)
             is True
         )
         if _no_off_system_mode is True and _new_hvac_mode == HVACMode.OFF:
-            _min_temp = self.real_trvs[heater_entity_id]["min_temp"]
+            _min_temp = self.real_trvs[heater_entity_id].min_temp
             _LOGGER.debug(
                 "better_thermostat %s: sending %s°C to the TRV because this device has no system mode off and heater should be off",
                 self.device_name,
@@ -535,14 +539,14 @@ async def control_trv(self, heater_entity_id=None):
                 _trv.state,
                 _new_hvac_mode,
             )
-            self.real_trvs[heater_entity_id]["last_hvac_mode"] = _new_hvac_mode
+            self.real_trvs[heater_entity_id].last_hvac_mode = _new_hvac_mode
             _tvr_has_quirk = await override_set_hvac_mode(
                 self, heater_entity_id, _new_hvac_mode
             )
             if _tvr_has_quirk is False:
                 await set_hvac_mode(self, heater_entity_id, _new_hvac_mode)
-            if self.real_trvs[heater_entity_id]["system_mode_received"] is True:
-                self.real_trvs[heater_entity_id]["system_mode_received"] = False
+            if self.real_trvs[heater_entity_id].system_mode_received is True:
+                self.real_trvs[heater_entity_id].system_mode_received = False
                 self.task_manager.create_task(
                     check_system_mode(self, heater_entity_id),
                     name=f"bt_check_system_mode_{heater_entity_id}",
@@ -562,7 +566,7 @@ async def control_trv(self, heater_entity_id=None):
                     self.device_name,
                     heater_entity_id,
                 )
-                self.real_trvs[heater_entity_id]["ignore_trv_states"] = False
+                self.real_trvs[heater_entity_id].ignore_trv_states = False
                 return True
 
             _current_calibration = convert_to_float(
@@ -571,14 +575,14 @@ async def control_trv(self, heater_entity_id=None):
 
             _calibration = float(str(_calibration))
 
-            _old_calibration = self.real_trvs[heater_entity_id].get(
-                "last_calibration", _current_calibration
-            )
+            _old_calibration = self.real_trvs[heater_entity_id].last_calibration
+            if _old_calibration is None:
+                _old_calibration = _current_calibration
 
             # If current calibration already matches target, reset calibration_received
             # to avoid it getting stuck at False when the state event was suppressed.
             if (
-                self.real_trvs[heater_entity_id]["calibration_received"] is False
+                self.real_trvs[heater_entity_id].calibration_received is False
                 and _current_calibration is not None
                 and abs(float(_current_calibration) - float(_calibration)) < 0.5
             ):
@@ -589,11 +593,11 @@ async def control_trv(self, heater_entity_id=None):
                     heater_entity_id,
                     _calibration,
                 )
-                self.real_trvs[heater_entity_id]["calibration_received"] = True
+                self.real_trvs[heater_entity_id].calibration_received = True
 
-            if self.real_trvs[heater_entity_id][
-                "calibration_received"
-            ] is True and float(_old_calibration) != float(_calibration):
+            if self.real_trvs[heater_entity_id].calibration_received is True and float(
+                _old_calibration
+            ) != float(_calibration):
                 _LOGGER.debug(
                     "better_thermostat %s: TO TRV set_local_temperature_calibration: %s from: %s to: %s",
                     self.device_name,
@@ -602,14 +606,14 @@ async def control_trv(self, heater_entity_id=None):
                     _calibration,
                 )
                 await set_offset(self, heater_entity_id, _calibration)
-                self.real_trvs[heater_entity_id]["calibration_received"] = False
+                self.real_trvs[heater_entity_id].calibration_received = False
 
         # set new target temperature
         if _temperature is not None and (
             _new_hvac_mode != HVACMode.OFF or _no_off_system_mode
         ):
             if _temperature != _current_set_temperature:
-                old = self.real_trvs[heater_entity_id].get("last_temperature", "?")
+                old = self.real_trvs[heater_entity_id].last_temperature
                 _LOGGER.debug(
                     "better_thermostat %s: TO TRV set_temperature: %s from: %s to: %s",
                     self.device_name,
@@ -617,10 +621,10 @@ async def control_trv(self, heater_entity_id=None):
                     old,
                     _temperature,
                 )
-                self.real_trvs[heater_entity_id]["last_temperature"] = _temperature
+                self.real_trvs[heater_entity_id].last_temperature = _temperature
                 await set_temperature(self, heater_entity_id, _temperature)
-                if self.real_trvs[heater_entity_id]["target_temp_received"] is True:
-                    self.real_trvs[heater_entity_id]["target_temp_received"] = False
+                if self.real_trvs[heater_entity_id].target_temp_received is True:
+                    self.real_trvs[heater_entity_id].target_temp_received = False
                     self.task_manager.create_task(
                         check_target_temperature(self, heater_entity_id),
                         name=f"bt_check_target_temp_{heater_entity_id}",
@@ -628,7 +632,7 @@ async def control_trv(self, heater_entity_id=None):
 
     # Let TRV state updates propagate before accepting new state events
     await asyncio.sleep(3)
-    self.real_trvs[heater_entity_id]["ignore_trv_states"] = False
+    self.real_trvs[heater_entity_id].ignore_trv_states = False
     return True
 
 
@@ -672,22 +676,22 @@ async def check_system_mode(self, heater_entity_id=None):
     """
     _timeout = 0
     _real_trv = self.real_trvs[heater_entity_id]
-    while _real_trv["hvac_mode"] != _real_trv["last_hvac_mode"]:
+    while _real_trv.hvac_mode != _real_trv.last_hvac_mode:
         if _timeout > 360:
             _LOGGER.warning(
                 "better_thermostat %s: TRV %s did not confirm the system mode change "
                 "after 360s (wrote=%s, last reported=%s); giving up and assuming applied",
                 self.device_name,
                 heater_entity_id,
-                _real_trv["last_hvac_mode"],
-                _real_trv["hvac_mode"],
+                _real_trv.last_hvac_mode,
+                _real_trv.hvac_mode,
             )
             _timeout = 0
             break
         await asyncio.sleep(1)
         _timeout += 1
     await asyncio.sleep(2)
-    _real_trv["system_mode_received"] = True
+    _real_trv.system_mode_received = True
     return True
 
 
@@ -728,12 +732,12 @@ async def check_target_temperature(self, heater_entity_id=None):
                 "better_thermostat %s: %s / check_target_temp / _last: %s - _current: %s",
                 self.device_name,
                 heater_entity_id,
-                _real_trv["last_temperature"],
+                _real_trv.last_temperature,
                 _current_set_temperature,
             )
         if (
             _current_set_temperature is None
-            or _real_trv["last_temperature"] == _current_set_temperature
+            or _real_trv.last_temperature == _current_set_temperature
         ):
             _timeout = 0
             break
@@ -743,7 +747,7 @@ async def check_target_temperature(self, heater_entity_id=None):
                 "after 360s (wrote=%s, last reported=%s); giving up and assuming applied",
                 self.device_name,
                 heater_entity_id,
-                _real_trv["last_temperature"],
+                _real_trv.last_temperature,
                 _current_set_temperature,
             )
             _timeout = 0
@@ -752,5 +756,5 @@ async def check_target_temperature(self, heater_entity_id=None):
         _timeout += 1
     await asyncio.sleep(2)
 
-    _real_trv["target_temp_received"] = True
+    _real_trv.target_temp_received = True
     return True

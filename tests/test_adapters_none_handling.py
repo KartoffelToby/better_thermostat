@@ -7,6 +7,8 @@ from unittest.mock import MagicMock
 
 import pytest
 
+from custom_components.better_thermostat.trv import Trv
+
 
 @pytest.fixture
 def anyio_backend():
@@ -29,9 +31,10 @@ def mock_bt_instance(mock_hass):
     bt.hass = mock_hass
     bt.device_name = "Test Thermostat"
     bt.real_trvs = {
-        "climate.test_trv": {
-            "local_temperature_calibration_entity": "number.test_calibration"
-        }
+        "climate.test_trv": Trv(
+            entity_id="climate.test_trv",
+            local_temperature_calibration_entity="number.test_calibration",
+        )
     }
     return bt
 
@@ -172,7 +175,9 @@ class TestGenericAdapter:
         from custom_components.better_thermostat.adapters.generic import get_offset_step
 
         mock_bt_instance.real_trvs = {
-            "climate.test_trv": {"local_temperature_calibration_entity": None}
+            "climate.test_trv": Trv(
+                entity_id="climate.test_trv", local_temperature_calibration_entity=None
+            )
         }
 
         result = await get_offset_step(mock_bt_instance, "climate.test_trv")

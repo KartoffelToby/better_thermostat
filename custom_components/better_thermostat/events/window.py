@@ -7,7 +7,6 @@ delayed handling so that HVAC behavior uses window-open information reliably.
 import asyncio
 import logging
 
-from homeassistant.const import STATE_OFF
 from homeassistant.core import callback
 from homeassistant.helpers import issue_registry as ir
 
@@ -41,18 +40,23 @@ async def trigger_window_change(self, event) -> None:
 
     old_window_open = self.window_open
 
-    if new_state in ("on", "unknown", "unavailable"):
+    if new_state in ("on", "true", "open", "unknown", "unavailable"):
         new_window_open = True
         if new_state == "unknown":
             _LOGGER.warning(
                 "better_thermostat %s: Window sensor state is unknown, assuming window is open",
                 self.device_name,
             )
+        elif new_state == "unavailable":
+            _LOGGER.info(
+                "better_thermostat %s: Window sensor is unavailable, assuming window is open",
+                self.device_name,
+            )
 
         # window was opened, disable heating power calculation for this period
         self._heating_tracker.start_temp = None
         self.async_write_ha_state()
-    elif new_state == "off":
+    elif new_state in ("off", "false", "closed"):
         new_window_open = False
     else:
         _LOGGER.error(
@@ -66,7 +70,7 @@ async def trigger_window_change(self, event) -> None:
             issue_id=f"invalid_window_state_{self.device_name}",
             is_fixable=False,
             is_persistent=False,
-            learn_more_url="https://better-thermostat.org/qanda/window_sensor",
+            learn_more_url="https://better-thermostat.org/faq/window-sensor",
             severity=ir.IssueSeverity.ERROR,
             translation_key="invalid_window_state",
             translation_placeholders={
@@ -114,9 +118,18 @@ async def window_queue(self):
                             self.window_delay_after,
                         )
                         await asyncio.sleep(self.window_delay_after)
+                    window_state = self.hass.states.get(self.window_id)
+                    if window_state is None:
+                        _LOGGER.debug(
+                            "better_thermostat %s: Window sensor %s vanished "
+                            "during the debounce delay; skipping event",
+                            self.device_name,
+                            self.window_id,
+                        )
+                        continue
                     # remap off on to true false
                     current_window_state = True
-                    if self.hass.states.get(self.window_id).state == STATE_OFF:
+                    if window_state.state in ("off", "false", "closed"):
                         current_window_state = False
                     # make sure the current state is the suggested change state to prevent a false positive:
                     if current_window_state == window_event_to_process:
