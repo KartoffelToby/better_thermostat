@@ -263,3 +263,13 @@ class TestPidSelfHealing:
         assert health == CalibratorHealth.WINDUP_SUSPECT
         assert healed.pid_integral == 0.0
         assert healed.pid_kp == 60.0
+
+    def test_windup_is_healed_even_when_another_pathology_grades_first(self):
+        """A wound-up integrator still resets when NON_FINITE wins the grade."""
+        state = PIDState(pid_integral=1e6, pid_kp=float("inf"))
+        healed, health = sanitize_pid_state(state, PIDParams())
+        # The reported grade keeps the first pathology's priority...
+        assert health == CalibratorHealth.NON_FINITE
+        # ...but every unsafe field is still healed.
+        assert healed.pid_integral == 0.0
+        assert healed.pid_kp is None

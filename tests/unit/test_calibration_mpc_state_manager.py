@@ -6,6 +6,7 @@ from custom_components.better_thermostat.calibration import _compute_mpc_balance
 from custom_components.better_thermostat.trv import Trv
 from custom_components.better_thermostat.utils.calibration.mpc import (
     MpcState,
+    build_mpc_group_key,
     build_mpc_key,
 )
 
@@ -89,6 +90,7 @@ def test_mpc_balance_handles_multiple_trvs() -> None:
 
     assert skipped is False
     assert payload is not None
+    assert build_mpc_group_key(bt) in state_mgr.mpc
 
 
 def test_mpc_balance_threads_the_same_state_across_calls() -> None:

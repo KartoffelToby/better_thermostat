@@ -38,6 +38,7 @@ def bt():
     mock.clock.monotonic.return_value = 1000.0
     mock.kernel_state = KernelState()
     mock.bt_hvac_mode = HVACMode.HEAT
+    mock._control_needed_after_maintenance = False
     mock.hass = MagicMock()
     mock.control_queue_task = MagicMock()
     return mock
@@ -105,3 +106,18 @@ async def test_no_control_kick_when_off(bt):
     ):
         await BetterThermostat._run_valve_maintenance(bt, ["climate.trv"])
     bt.control_queue_task.put_nowait.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_deferred_control_kicks_even_when_off(bt):
+    """A control request deferred during maintenance is honored, even in OFF."""
+    bt.bt_hvac_mode = HVACMode.OFF
+    bt._control_needed_after_maintenance = True
+    with (
+        patch(f"{_CLIMATE}.build_trv_snapshots", _snapshots()),
+        patch(f"{_CLIMATE}.run_valve_maintenance", AsyncMock()),
+        patch(f"{_CLIMATE}.compute_next_maintenance", MagicMock(return_value=_NEXT)),
+    ):
+        await BetterThermostat._run_valve_maintenance(bt, ["climate.trv"])
+    bt.control_queue_task.put_nowait.assert_called_once_with(bt)
+    assert bt._control_needed_after_maintenance is False

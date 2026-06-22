@@ -123,6 +123,20 @@ class FlightRecorder:
         default_factory=deque, repr=False
     )
 
+    def __post_init__(self) -> None:
+        """Validate the configured capacity and trim any over-capacity entries.
+
+        Raises
+        ------
+        ValueError
+            If ``capacity`` is negative, which would otherwise drain the
+            buffer empty and raise ``IndexError`` on the next ``record``.
+        """
+        if self.capacity < 0:
+            raise ValueError("capacity must be >= 0")
+        while len(self._entries) > self.capacity:
+            self._entries.popleft()
+
     def record(
         self, snapshot: WorldSnapshot, state: KernelState, desired: DesiredState
     ) -> None:

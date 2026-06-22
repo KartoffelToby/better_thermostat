@@ -66,6 +66,20 @@ def test_within_limits_is_untouched():
     assert clamp(desired, _snapshot()) == desired
 
 
+def test_non_finite_setpoint_is_pinned_to_a_bound():
+    """NaN/inf setpoints never slip past the hull as invalid payloads."""
+    out = clamp(_desired(setpoint=float("nan")), _snapshot())
+    assert out.trvs["climate.trv"].setpoint == 5.0
+    out = clamp(_desired(setpoint=float("inf")), _snapshot())
+    assert out.trvs["climate.trv"].setpoint == 5.0
+
+
+def test_non_finite_valve_is_pinned_to_a_bound():
+    """NaN/inf valve percentages are clamped instead of leaking through."""
+    out = clamp(_desired(valve=float("inf")), _snapshot())
+    assert out.trvs["climate.trv"].valve_percent == 0.0
+
+
 def test_unknown_trv_keeps_intent_but_caps_valve_at_100():
     """Without reported limits, the valve still stays inside 0..100."""
     snapshot = WorldSnapshot(

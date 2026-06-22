@@ -16,12 +16,21 @@ matter what the controller upstream computed:
 from __future__ import annotations
 
 from dataclasses import replace
+import math
 
 from .desired import DesiredState, TrvDesired
 from .snapshot import TrvReported, WorldSnapshot
 
 
 def _clamp_value(value: float, lower: float | None, upper: float | None) -> float:
+    if not math.isfinite(value):
+        # NaN/inf compare False against every bound, so they would slip through
+        # the inequality checks below and reach a device as an invalid payload.
+        if lower is not None:
+            return lower
+        if upper is not None:
+            return upper
+        return 0.0
     if lower is not None and value < lower:
         return lower
     if upper is not None and value > upper:

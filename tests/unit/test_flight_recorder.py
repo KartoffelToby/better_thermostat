@@ -65,6 +65,11 @@ class TestRingBuffer:
         exported = recorder.export()
         assert [e["snapshot"]["target_temp"] for e in exported] == [21.0, 22.0, 23.0]
 
+    def test_negative_capacity_is_rejected(self):
+        """A negative capacity is caught at construction, not on first record."""
+        with pytest.raises(ValueError):
+            FlightRecorder(capacity=-1)
+
     def test_pre_decide_state_is_immutable(self):
         """The recorded kernel state cannot drift under the record.
 

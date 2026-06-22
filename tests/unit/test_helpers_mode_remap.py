@@ -154,12 +154,8 @@ class TestModeRemapEdgeCases:
         mock_bt = MockThermostat()
         # Don't add any TRVs
 
-        try:
+        with pytest.raises(KeyError):
             mode_remap(mock_bt, "climate.missing", HVACMode.HEAT, inbound=False)
-            pytest.fail("Should have raised KeyError for missing entity")
-        except KeyError:
-            # Expected - we found a potential crash scenario
-            pass
 
     def test_missing_advanced_config_defaults_to_no_swap(self):
         """Without advanced config the Trv defaults make remap a no-op."""

@@ -2378,6 +2378,7 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
                 self.next_valve_maintenance,
             )
         finally:
+            control_needed = self._control_needed_after_maintenance
             self._control_needed_after_maintenance = False
             next_due = (
                 self.next_valve_maintenance
@@ -2390,6 +2391,14 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
                     self.kernel_state.maintenance, next_due
                 ),
             )
+            # Release every TRV guard even if maintenance raised before the
+            # serviced-TRV cleanup above; a lingering guard suppresses future
+            # TRV updates.
+            for trv_id in trvs:
+                try:
+                    self.real_trvs[trv_id].ignore_trv_states = False
+                except KeyError, TypeError:
+                    pass
             # Always release ignore_states after maintenance.
             # If we restore a previous True here, the control_queue loop can get
             # stuck sleeping forever and never consume queued control actions.
@@ -2397,7 +2406,7 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
 
             # Trigger one control cycle after maintenance so BT immediately
             # resumes with the latest window/temp/target states.
-            if self.bt_hvac_mode != HVACMode.OFF:
+            if control_needed or self.bt_hvac_mode != HVACMode.OFF:
                 try:
                     request_control_cycle(self)
                 except Exception:

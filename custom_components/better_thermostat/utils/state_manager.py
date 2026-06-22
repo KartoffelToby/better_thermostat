@@ -536,6 +536,7 @@ class StateManager:
 
         def _data_to_save() -> dict[str, Any]:
             self._delay_save_pending = False
+            pre_save_failed = False
             if pre_save is not None:
                 try:
                     pre_save()
@@ -544,8 +545,13 @@ class StateManager:
                         "better_thermostat [%s]: pre-save callback failed",
                         self._entry_id,
                     )
+                    pre_save_failed = True
+                    self._dirty = True
             data = _serialize(self._state)
-            self._dirty = False
+            # Keep ``_dirty`` set on pre-save failure so ``save_if_dirty``
+            # retries instead of acknowledging an out-of-sync snapshot.
+            if not pre_save_failed:
+                self._dirty = False
             return data
 
         self._store.async_delay_save(_data_to_save, delay_s)

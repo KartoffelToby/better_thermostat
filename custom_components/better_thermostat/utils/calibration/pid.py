@@ -623,11 +623,11 @@ def sanitize_pid_state(
         if health == CalibratorHealth.HEALTHY:
             health = CalibratorHealth.RUNAWAY_GAINS
 
-    if health == CalibratorHealth.HEALTHY and not (
-        params.i_min <= state.pid_integral <= params.i_max
-    ):
+    windup = not params.i_min <= state.pid_integral <= params.i_max
+    if windup:
         state.pid_integral = 0.0
-        health = CalibratorHealth.WINDUP_SUSPECT
+        if health == CalibratorHealth.HEALTHY:
+            health = CalibratorHealth.WINDUP_SUSPECT
 
     return state, health
 

@@ -9,6 +9,7 @@ from dataclasses import FrozenInstanceError, fields
 from datetime import UTC, datetime
 from unittest.mock import MagicMock
 
+from homeassistant.core import State
 import pytest
 
 from custom_components.better_thermostat.core.clock import FakeClock
@@ -59,9 +60,7 @@ def _make_bt() -> MagicMock:
             },
         )
     }
-    trv_state = MagicMock()
-    trv_state.state = "heat"
-    bt.hass.states.get.return_value = trv_state
+    bt.hass.states.get.return_value = State("climate.trv", "heat")
     return bt
 
 
@@ -152,9 +151,7 @@ class TestTrvReportedBuilding:
     def test_unavailable_state_marks_trv_unavailable(self):
         """An unavailable HA state yields available=False."""
         bt = _make_bt()
-        trv_state = MagicMock()
-        trv_state.state = "unavailable"
-        bt.hass.states.get.return_value = trv_state
+        bt.hass.states.get.return_value = State("climate.trv", "unavailable")
         snapshot = build_snapshot(bt)
         assert snapshot.trvs["climate.trv"].available is False
 

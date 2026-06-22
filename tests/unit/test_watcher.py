@@ -57,9 +57,6 @@ def mock_bt_instance(mock_hass):
         "climate.trv_2": Trv(entity_id="climate.trv_2"),
     }
     bt.devices_errors = []
-    bt.degraded_mode = False
-    bt.unavailable_sensors = []
-    bt._degraded_grace_until = None
     bt._degraded_warning_emitted = False
     bt._critical_grace_until = None
     bt.is_removed = False
