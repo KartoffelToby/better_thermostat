@@ -11,6 +11,8 @@ import random
 from time import time
 from typing import Any
 
+from .types import CalibrationHost
+
 _LOGGER = logging.getLogger(__name__)
 
 
@@ -141,7 +143,7 @@ class _MpcState:
     loss_learn_count: int = 0
     gain_learn_count: int = 0
     is_calibration_active: bool = False
-    recent_errors: deque = field(default_factory=lambda: deque(maxlen=20))
+    recent_errors: deque[float] = field(default_factory=lambda: deque(maxlen=20))
     regime_boost_active: bool = False
     consecutive_insufficient_heat: int = 0
     kalman_P: float = 1.0  # Kalman filter error covariance
@@ -276,7 +278,7 @@ def _seed_state_from_siblings(
                 return
 
 
-def build_mpc_key(bt, entity_id: str) -> str:
+def build_mpc_key(bt: CalibrationHost, entity_id: str) -> str:
     """Return a stable key for MPC state tracking.
 
     For a single-TRV BT instance this key is entity-specific.
@@ -298,7 +300,7 @@ def build_mpc_key(bt, entity_id: str) -> str:
     return f"{uid}:{entity_id}:{bucket}"
 
 
-def build_mpc_group_key(bt) -> str:
+def build_mpc_group_key(bt: CalibrationHost) -> str:
     """Return a BT-level (group) key for MPC state tracking.
 
     All TRVs under the same BT instance share this key so that a single
@@ -397,7 +399,7 @@ def distribute_valve_percent(
     return result
 
 
-def _detect_regime_change(recent_errors: deque | list) -> bool:
+def _detect_regime_change(recent_errors: deque[float] | list[float]) -> bool:
     """Detect systematic bias in prediction errors using Student's t-test.
 
     If the mean error deviates significantly from 0 relative to standard deviation,

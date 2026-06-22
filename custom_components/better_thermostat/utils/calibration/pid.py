@@ -19,6 +19,8 @@ import logging
 from time import monotonic
 from typing import Protocol, TypedDict
 
+from .types import CalibrationHost
+
 _LOGGER = logging.getLogger(__name__)
 
 
@@ -548,7 +550,7 @@ def format_bucket(bucket: float) -> str:
     return f"t{bucket:.1f}"
 
 
-def build_pid_key(self, entity_id: str) -> str:
+def build_pid_key(self: CalibrationHost, entity_id: str) -> str:
     """Build consistent PID state key across all modules.
 
     Format: {unique_id}:{entity_id}:t{target_temp:.1f}

@@ -103,3 +103,16 @@ exclude = [
 reportMissingImports = true
 reportMissingTypeStubs = false
 pythonVersion = "3.14"
+
+[tool.pyrefly]
+python-version = "3.14"
+project-includes = ["custom_components/better_thermostat"]
+min-severity = "error"
+
+[[tool.pyrefly.sub-config]]
+matches = "custom_components/better_thermostat/number.py"
+errors = { bad-override-mutable-attribute = false }
+
+[[tool.pyrefly.sub-config]]
+matches = "custom_components/better_thermostat/utils/calibration/*.py"
+errors = { implicit-any-parameter = true, implicit-any-attribute = true, implicit-any-type-argument = true, implicit-any-empty-container = true, missing-override-decorator = true }
