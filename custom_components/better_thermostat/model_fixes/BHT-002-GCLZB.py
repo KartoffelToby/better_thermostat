@@ -7,8 +7,10 @@ helper functions below normalize values to sensible integer offsets.
 
 import math
 
+from custom_components.better_thermostat.model_fixes.types import ModelFixHost
 
-def fix_local_calibration(self, entity_id, offset):
+
+def fix_local_calibration(self: ModelFixHost, entity_id: str, offset: float) -> float:
     """Sanitize and normalize a reported calibration offset.
 
     Rounds to the nearest integer (towards ceiling if the room is heating)
@@ -23,16 +25,22 @@ def fix_local_calibration(self, entity_id, offset):
     return offset
 
 
-def fix_target_temperature_calibration(self, entity_id, temperature):
+def fix_target_temperature_calibration(
+    self: ModelFixHost, entity_id: str, temperature: float
+) -> float:
     """No-op target-temperature calibration fix for this model."""
     return temperature
 
 
-async def override_set_hvac_mode(self, entity_id, hvac_mode):
+async def override_set_hvac_mode(
+    self: ModelFixHost, entity_id: str, hvac_mode: str
+) -> bool:
     """No override on system mode for this model."""
     return False
 
 
-async def override_set_temperature(self, entity_id, temperature):
+async def override_set_temperature(
+    self: ModelFixHost, entity_id: str, temperature: float
+) -> bool:
     """No temperature override for this model."""
     return False

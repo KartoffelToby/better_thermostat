@@ -3,8 +3,10 @@
 Contains model-specific handling for known quirks in TS0601-based devices.
 """
 
+from custom_components.better_thermostat.model_fixes.types import ModelFixHost
 
-def fix_local_calibration(self, entity_id, offset):
+
+def fix_local_calibration(self: ModelFixHost, entity_id: str, offset: float) -> float:
     """Normalize local calibration offset for TS0601 devices.
 
     This function performs model-specific rounding/adjustment to avoid
@@ -21,17 +23,21 @@ def fix_local_calibration(self, entity_id, offset):
     return offset
 
 
-def fix_target_temperature_calibration(self, entity_id, temperature):
+def fix_target_temperature_calibration(
+    self: ModelFixHost, entity_id: str, temperature: float
+) -> float:
     """Adjust target temperature calibration for TS0601 devices.
 
     Ensures a minimum distance between the current TRV internal temperature
     and the requested setpoint to avoid oscillation.
     """
-    _cur_trv_temp = float(
-        self.hass.states.get(entity_id).attributes["current_temperature"]
-    )
+    _state = self.hass.states.get(entity_id)
+    _cur_trv_temp = None
+    if _state is not None:
+        _cur_trv_temp = _state.attributes.get("current_temperature")
     if _cur_trv_temp is None:
         return temperature
+    _cur_trv_temp = float(_cur_trv_temp)
     if (
         round(temperature, 1) > round(_cur_trv_temp, 1)
         and temperature - _cur_trv_temp < 1.5
@@ -41,11 +47,15 @@ def fix_target_temperature_calibration(self, entity_id, temperature):
     return temperature
 
 
-async def override_set_hvac_mode(self, entity_id, hvac_mode):
+async def override_set_hvac_mode(
+    self: ModelFixHost, entity_id: str, hvac_mode: str
+) -> bool:
     """No special HVAC mode override for TS0601 devices."""
     return False
 
 
-async def override_set_temperature(self, entity_id, temperature):
+async def override_set_temperature(
+    self: ModelFixHost, entity_id: str, temperature: float
+) -> bool:
     """No special set_temperature override for TS0601 devices."""
     return False
