@@ -5,6 +5,7 @@ from datetime import UTC, datetime, timedelta
 from custom_components.better_thermostat.core.fsm.lifecycle import (
     LifecyclePhase,
     LifecycleState,
+    extend_grace,
     startup_finished,
     stop,
     tick,
@@ -57,7 +58,6 @@ def test_stop_is_terminal():
 
 def test_extend_grace_updates_the_deadline_while_starting():
     """extend_grace sets the annunciation deadline in STARTING."""
-    from custom_components.better_thermostat.core.fsm.lifecycle import extend_grace
 
     state = startup_finished(LifecycleState())
     assert state.grace_until is None
@@ -68,7 +68,6 @@ def test_extend_grace_updates_the_deadline_while_starting():
 
 def test_extend_grace_is_a_noop_outside_starting():
     """extend_grace leaves other phases untouched."""
-    from custom_components.better_thermostat.core.fsm.lifecycle import extend_grace
 
     running = LifecycleState(phase=LifecyclePhase.RUNNING)
     assert extend_grace(running, GRACE_END) == running

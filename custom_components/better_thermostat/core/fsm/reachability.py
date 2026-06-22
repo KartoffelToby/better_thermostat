@@ -9,9 +9,15 @@ recorded with every decision tuple for outage diagnosis.
 from __future__ import annotations
 
 from dataclasses import dataclass
+import math
 
 RETRY_INITIAL_S = 30.0
 RETRY_MAX_S = 600.0
+
+# Exponent at which the backoff already saturates at RETRY_MAX_S. Clamping the
+# exponent to this before ``2.0**`` keeps long outages from overflowing the
+# float power before the ``min`` clamp would cap it.
+_MAX_BACKOFF_EXP = math.ceil(math.log2(RETRY_MAX_S / RETRY_INITIAL_S))
 
 
 @dataclass(frozen=True)
@@ -25,8 +31,22 @@ class ReachabilityState:
 
 
 def _backoff(retry_count: int) -> float:
-    """Exponential backoff: 30 s doubling up to 10 min."""
-    return min(RETRY_MAX_S, RETRY_INITIAL_S * (2.0**retry_count))
+    """Return the retry interval in seconds for ``retry_count`` elapsed retries.
+
+    Parameters
+    ----------
+    retry_count : int
+        Number of retries already elapsed while offline.
+
+    Returns
+    -------
+    float
+        Exponential backoff (30 s doubling) capped at ``RETRY_MAX_S``.
+    """
+    if retry_count <= 0:
+        return RETRY_INITIAL_S
+    clamped = min(retry_count, _MAX_BACKOFF_EXP)
+    return min(RETRY_MAX_S, RETRY_INITIAL_S * (2.0**clamped))
 
 
 def step(

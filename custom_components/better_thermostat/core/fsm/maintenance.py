@@ -60,6 +60,24 @@ def evaluate_tick(
     Postpone rules mirror the shell behavior: an open window or OFF mode
     pushes the schedule out an hour; without any maintenance-enabled TRV
     the next check moves a week out. Otherwise a due schedule arms DUE.
+
+    Parameters
+    ----------
+    state : MaintenanceState
+        Current maintenance state.
+    now : datetime
+        Current time used to evaluate the schedule.
+    window_open : bool
+        Whether a window is currently open.
+    hvac_off : bool
+        Whether the thermostat is in OFF mode.
+    has_enabled_trvs : bool
+        Whether any TRV has valve maintenance enabled.
+
+    Returns
+    -------
+    MaintenanceState
+        The advanced state (possibly DUE or with a postponed schedule).
     """
     if state.phase != MaintenancePhase.IDLE:
         return state
@@ -73,7 +91,20 @@ def evaluate_tick(
 
 
 def start_run(state: MaintenanceState, now_monotonic: float) -> MaintenanceState:
-    """DUE -> RUNNING; any other phase is unchanged (no double starts)."""
+    """Move DUE to RUNNING; any other phase is unchanged (no double starts).
+
+    Parameters
+    ----------
+    state : MaintenanceState
+        Current maintenance state.
+    now_monotonic : float
+        Monotonic timestamp marking the start of the run.
+
+    Returns
+    -------
+    MaintenanceState
+        RUNNING state when previously DUE, otherwise ``state`` unchanged.
+    """
     if state.phase != MaintenancePhase.DUE:
         return state
     return MaintenanceState(
@@ -87,5 +118,17 @@ def finish_run(state: MaintenanceState, next_due: datetime | None) -> Maintenanc
     """Return the region to IDLE with the new schedule.
 
     Finishing is unconditional so the region can never stay RUNNING.
+
+    Parameters
+    ----------
+    state : MaintenanceState
+        Current maintenance state.
+    next_due : datetime | None
+        When the next maintenance check is scheduled.
+
+    Returns
+    -------
+    MaintenanceState
+        A fresh IDLE state carrying ``next_due``.
     """
     return MaintenanceState(next_due=next_due)

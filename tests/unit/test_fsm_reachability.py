@@ -1,6 +1,7 @@
 """Pure tests for the per-TRV reachability FSM (offline record + backoff)."""
 
 from custom_components.better_thermostat.core.fsm.reachability import (
+    RETRY_MAX_S,
     ReachabilityState,
     step,
 )
@@ -33,9 +34,12 @@ def test_retry_backoff_doubles_up_to_cap():
     state = step(state, reported_available=False, now=90.0)
     assert state.retry_at == 90.0 + 120.0
     for _ in range(10):
-        state = step(state, reported_available=False, now=state.retry_at)
-    assert state.retry_at - state.offline_since <= 10_000
-    assert state.retry_at is not None
+        assert state.retry_at is not None
+        now = state.retry_at
+        state = step(state, reported_available=False, now=now)
+        assert state.retry_at is not None
+        # Each retry interval is capped at RETRY_MAX_S, even after saturation.
+        assert state.retry_at - now <= RETRY_MAX_S
 
 
 def test_observation_before_retry_window_changes_nothing():
