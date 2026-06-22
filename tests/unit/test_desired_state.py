@@ -53,7 +53,7 @@ class TestDesiredState:
             desired.trvs["climate.trv"].setpoint = 5.0
 
     def test_serializable_for_flight_recorder(self):
-        """asdict() output survives json round-tripping (M10 requirement)."""
+        """asdict() output survives json round-tripping."""
         payload = json.dumps(asdict(_sample()))
         restored = json.loads(payload)
         assert restored["call_for_heat"] is True

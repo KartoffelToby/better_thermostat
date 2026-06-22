@@ -47,8 +47,6 @@ from homeassistant.helpers.event import (
 )
 from homeassistant.helpers.restore_state import RestoreEntity
 from homeassistant.helpers.start import async_at_started
-
-# preferred for HA time handling (UTC aware)
 from homeassistant.util.unit_conversion import TemperatureConverter
 
 # Local imports

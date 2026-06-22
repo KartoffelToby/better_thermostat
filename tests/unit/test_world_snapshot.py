@@ -2,7 +2,7 @@
 
 The completeness table pins that every entity attribute the control path
 reads today has a corresponding snapshot field and that ``build_snapshot``
-copies each one. A forgotten field would surface here, not deep in M2.
+copies each one. A forgotten field would surface here.
 """
 
 from dataclasses import FrozenInstanceError, fields
