@@ -820,3 +820,14 @@ class TestDeserializeRejectsNonFinite:
         """A NaN in the stored TPI duty cycle is skipped."""
         tpi = deserialize_tpi({"last_percent": float("nan")})
         assert tpi.last_percent is None
+
+    def test_overflowing_int_keeps_default_and_spares_other_fields(self):
+        """An int too large for float() is skipped, not propagated as OverflowError.
+
+        Without catching OverflowError the bad field escapes the per-field
+        guard and load() resets the whole store; only the offending field
+        must be dropped.
+        """
+        mpc = deserialize_mpc({"gain_est": 10**400, "last_percent": 40.0})
+        assert mpc.gain_est is None
+        assert mpc.last_percent == 40.0
