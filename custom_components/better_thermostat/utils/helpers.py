@@ -144,7 +144,9 @@ def mode_remap(self, entity_id, hvac_mode: str, inbound: bool = False) -> str:
     Parameters
     ----------
     self :
-            FIXME
+            self instance of better_thermostat
+    entity_id :
+            entity id of the TRV whose mode is being remapped
     hvac_mode : str
             HVAC mode to be remapped
 
@@ -768,9 +770,12 @@ async def _find_lowest_battery_in_group(self, member_ids, visited=None):
 
     Parameters
     ----------
-    self : BetterThermostat instance
-    member_ids : list of entity_id strings
-    visited : set of already visited entity_ids to prevent infinite recursion
+    self :
+        BetterThermostat instance
+    member_ids :
+        list of entity_id strings to search
+    visited :
+        set of already visited entity_ids to prevent infinite recursion
 
     Returns
     -------
@@ -837,6 +842,8 @@ async def find_local_calibration_entity(self, entity_id):
     ----------
     self :
             self instance of better_thermostat
+    entity_id :
+            entity id of the TRV to find the local calibration entity for
 
     Returns
     -------
@@ -904,6 +911,8 @@ async def get_trv_intigration(self, entity_id):
     ----------
     self :
             self instance of better_thermostat
+    entity_id :
+            entity id of the TRV to look up
 
     Returns
     -------

@@ -19,6 +19,8 @@ def fix_local_calibration(self: ModelFixHost, entity_id: str, offset: float) -> 
 
     Parameters
     ----------
+    self : ModelFixHost
+        Better Thermostat host providing device state and HA access.
     entity_id : str
         Entity id of the TRV the offset belongs to.
     offset : float
@@ -39,6 +41,8 @@ def fix_target_temperature_calibration(
 
     Parameters
     ----------
+    self : ModelFixHost
+        Better Thermostat host providing device state and HA access.
     entity_id : str
         Entity id of the TRV whose setpoint is calibrated.
     temperature : float
@@ -62,6 +66,8 @@ async def override_set_hvac_mode(
 
     Parameters
     ----------
+    self : ModelFixHost
+        Better Thermostat host providing device state and HA access.
     entity_id : str
         Entity id of the TRV.
     hvac_mode : str
@@ -85,6 +91,8 @@ async def override_set_temperature(
 
     Parameters
     ----------
+    self : ModelFixHost
+        Better Thermostat host providing device state and HA access.
     entity_id : str
         Entity id of the TRV.
     temperature : float
