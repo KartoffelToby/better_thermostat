@@ -16,6 +16,18 @@ def fix_local_calibration(self: ModelFixHost, entity_id: str, offset: float) -> 
     Rounds to the nearest integer (towards ceiling if the room is heating)
     to recover from the erroneous float values produced by some Zigbee
     integrations.
+
+    Parameters
+    ----------
+    entity_id : str
+        Entity id of the TRV the offset belongs to.
+    offset : float
+        Local calibration offset reported by the device.
+
+    Returns
+    -------
+    float
+        The normalized integer-valued calibration offset.
     """
     if self.cur_temp < self.bt_target_temp:
         offset = math.ceil(offset)
@@ -28,19 +40,58 @@ def fix_local_calibration(self: ModelFixHost, entity_id: str, offset: float) -> 
 def fix_target_temperature_calibration(
     self: ModelFixHost, entity_id: str, temperature: float
 ) -> float:
-    """No-op target-temperature calibration fix for this model."""
+    """No-op target-temperature calibration fix for this model.
+
+    Parameters
+    ----------
+    entity_id : str
+        Entity id of the TRV whose setpoint is calibrated.
+    temperature : float
+        Requested setpoint temperature.
+
+    Returns
+    -------
+    float
+        The unchanged setpoint temperature.
+    """
     return temperature
 
 
 async def override_set_hvac_mode(
     self: ModelFixHost, entity_id: str, hvac_mode: str
 ) -> bool:
-    """No override on system mode for this model."""
+    """No override on system mode for this model.
+
+    Parameters
+    ----------
+    entity_id : str
+        Entity id of the TRV.
+    hvac_mode : str
+        Requested HVAC mode.
+
+    Returns
+    -------
+    bool
+        True if the model handled the change, otherwise False.
+    """
     return False
 
 
 async def override_set_temperature(
     self: ModelFixHost, entity_id: str, temperature: float
 ) -> bool:
-    """No temperature override for this model."""
+    """No temperature override for this model.
+
+    Parameters
+    ----------
+    entity_id : str
+        Entity id of the TRV.
+    temperature : float
+        Requested setpoint temperature.
+
+    Returns
+    -------
+    bool
+        True if the model handled the change, otherwise False.
+    """
     return False
