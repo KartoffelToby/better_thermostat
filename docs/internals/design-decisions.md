@@ -58,9 +58,12 @@ keeping the last commanded state is the predictable one, and the frost
 floor stays enforced. For a *single* dead TRV the hand-over happens
 naturally: it receives no intent and its native thermostat continues.
 
-**`unknown`/`unavailable` window readings count as open.** With no
-trustworthy reading, not heating out of the window is the cheap-failure
-direction; the reverse error heats the street.
+**`unknown`/`unavailable` window readings count as closed.** Windows are
+usually closed, and a lost sensor (e.g. a dead battery) must not stop
+heating and leave the room cold; the frost floor still applies, and the
+unavailability is surfaced separately. The reverse — treating an absent
+reading as open — heats the street only when a window is actually open,
+but freezes the occupant on every dead battery.
 
 ## Chosen constants
 

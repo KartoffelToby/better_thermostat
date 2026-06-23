@@ -43,7 +43,8 @@ Four nets with distinct failure modes they catch:
 1. **Pure unit tests** (`tests/unit/`, the bulk) — the core is HA-free,
    so the kernel, the regions, the safety hull, and the recorder are
    tested without mocks; the shell is tested against `MagicMock`
-   entities. The core sits at 100% coverage.
+   entities. The core is covered exhaustively — every branch of the
+   decision path and every region transition has a test.
 2. **Integration tests** (`tests/integration/`) — a real config entry
    against a real (simulated) climate entity in a real Home Assistant
    instance. They exist because a control path that silently writes

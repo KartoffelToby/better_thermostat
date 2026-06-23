@@ -88,6 +88,7 @@ availability is push-based — writing to an unavailable entity does
 nothing, and the device's return triggers state events that resume
 control naturally. The region's value is the flight-recorder trail
 (`offline_since`, `retry_count`) when analyzing an outage. The actual
-gate is in the cascade: unreachable TRVs simply receive no intent
-(except while boost heating is active, which keeps commanding so the
-TRV catches up the moment it returns).
+effect is an address filter, not a cascade tier: unreachable TRVs are
+dropped from the commanded set and receive no intent (except while boost
+heating is active, which keeps commanding so the TRV catches up the
+moment it returns).

@@ -44,8 +44,10 @@ stale one.
 
 ## The controllers
 
-MPC, TPI, and PID are pure functions in `utils/calibration/`:
-`compute_*(input, params, state) -> (output, state')`. Each strategy
+MPC, TPI, and PID are deterministic, state-threading helpers in
+`utils/calibration/`: `compute_*(input, params, state) -> (output,
+state')`, and standby paths such as `observe_standby()` update the
+passed state in place. Each strategy
 owns its state; the `StateManager` is the only persistence authority.
 The strategy layer (`BalanceStrategy`) wraps each computation behind
 the core `Calibrator` contract (observe / actuate / capability /

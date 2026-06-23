@@ -95,9 +95,11 @@ flowchart TD
 OFF intents carry their **suppression reason** so the shell can choose
 between a literal OFF (window, no heat demand) and the device-specific
 remap of the user's OFF mode — without reading the kernel's internals.
-Unreachable TRVs receive no intent at all (their native thermostat
-keeps controlling at the last commanded state), and one dead TRV never
-drags the others down: intents are strictly per TRV.
+Reachability is an address filter rather than a cascade tier: an
+unreachable TRV is dropped from the commanded set and receives no intent
+at all (its native thermostat keeps controlling at the last commanded
+state), and one dead TRV never drags the others down: intents are
+strictly per TRV.
 
 ## Where things live
 

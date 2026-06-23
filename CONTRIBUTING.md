@@ -48,8 +48,10 @@ decide(snapshot, state) -> (desired, state')
 - `desired.py` — `DesiredState` / `TrvDesired`: the intent per TRV
   (mode, setpoint, valve percent, offset). Intent, not commands.
 - `decide.py` — the precedence cascade: lifecycle gate → mode OFF →
-  open window → reachability → call-for-heat → heating. `decide()` never
-  mutates its input state; it returns a successor state.
+  open window → call-for-heat → heating. Reachability is an address
+  filter applied across it (unreachable TRVs are dropped from the
+  commanded set), not a cascade tier. `decide()` never mutates its input
+  state; it returns a successor state.
 - `fsm/` — one small state machine per concern (*region*): `window`
   (debounced open/closed), `maintenance` (valve exercise with a liveness
   bound), `lifecycle` (startup/running/stopped), `mode`, `control_mode`
