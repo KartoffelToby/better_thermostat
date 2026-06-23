@@ -920,6 +920,8 @@ class TestAwaitCriticalEntities:
             await_critical_entities,
         )
 
+        mock_bt_instance.real_trvs = {"climate.trv_1": {}, "climate.trv_2": {}}
+
         trv1_calls = 0
 
         def mock_get(entity_id):
