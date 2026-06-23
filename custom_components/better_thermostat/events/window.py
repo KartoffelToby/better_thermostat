@@ -49,24 +49,29 @@ async def trigger_window_change(self, event) -> None:
 
     old_window_open = self.window_open
 
-    if new_state in ("on", "true", "open", "unknown", "unavailable"):
+    if new_state in ("on", "true", "open"):
         new_window_open = True
-        if new_state == "unknown":
-            _LOGGER.warning(
-                "better_thermostat %s: Window sensor state is unknown, assuming window is open",
-                self.device_name,
-            )
-        elif new_state == "unavailable":
-            _LOGGER.info(
-                "better_thermostat %s: Window sensor is unavailable, assuming window is open",
-                self.device_name,
-            )
-
         # window was opened, disable heating power calculation for this period
         self._heating_tracker.start_temp = None
         self.async_write_ha_state()
     elif new_state in ("off", "false", "closed"):
         new_window_open = False
+    elif new_state in ("unknown", "unavailable"):
+        # A non-active window sensor counts as closed so heating continues:
+        # windows are usually closed, and a lost sensor (e.g. a dead battery)
+        # must not stop heating. The unavailability is still surfaced as a
+        # warning so it does not go unnoticed.
+        new_window_open = False
+        if new_state == "unknown":
+            _LOGGER.warning(
+                "better_thermostat %s: Window sensor state is unknown, assuming window is closed",
+                self.device_name,
+            )
+        else:
+            _LOGGER.info(
+                "better_thermostat %s: Window sensor is unavailable, assuming window is closed",
+                self.device_name,
+            )
     else:
         _LOGGER.error(
             "better_thermostat %s: New window sensor state '%s' not recognized",
@@ -151,7 +156,9 @@ async def _settle_window_region(self, was_open: bool) -> None:
             )
             await asyncio.sleep(remaining)
         sensor = self.hass.states.get(self.window_id)
-        sensor_open = sensor is None or sensor.state not in ("off", "false", "closed")
+        # A non-active sensor (missing / unavailable / unknown) counts as
+        # closed, mirroring the live event handler.
+        sensor_open = sensor is not None and sensor.state in ("on", "true", "open")
         self.kernel_state = replace(
             self.kernel_state,
             window=window_step(

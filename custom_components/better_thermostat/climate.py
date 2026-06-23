@@ -1471,10 +1471,10 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
                     "Open" if self.window_open else "Closed",
                 )
             else:
-                # At startup, unavailable/unknown usually means the sensor
-                # has not joined HA yet, so heating continues normally
-                # (assume closed). At runtime the same states mean a live
-                # sensor was lost and count as open (see events/window.py).
+                # A non-active window sensor (unavailable/unknown) is treated
+                # as closed so heating continues; windows are usually closed
+                # and a lost sensor must not stop heating. Runtime handling
+                # matches this (see events/window.py).
                 self.kernel_state = replace(self.kernel_state, window=WindowState())
                 _LOGGER.debug(
                     "better_thermostat %s: window sensor unavailable, assuming closed",

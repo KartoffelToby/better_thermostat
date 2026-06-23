@@ -10,7 +10,8 @@ binary sensor:
 - `on`, `true` or `open` — window is open, heating pauses
 - `off`, `false` or `closed` — window is closed, heating resumes
 - `unknown` or `unavailable` — Better Thermostat assumes the window is
-  open as a precaution
+  closed so heating continues (a lost sensor must not stop heating); the
+  unavailability is still reported
 
 If the sensor reports anything else, Better Thermostat raises an
 **invalid window sensor state** repair issue and ignores the state

@@ -95,12 +95,21 @@ class TestTriggerWindowChange:
         assert bt.kernel_state.window.phase == WindowPhase.CLOSING
 
     @pytest.mark.asyncio
-    async def test_unknown_sensor_state_is_treated_as_open(self):
-        """'unknown' counts as open (conservative) and is queued."""
+    async def test_unknown_sensor_state_is_treated_as_closed(self):
+        """'unknown' counts as closed so heating continues; no open transition."""
         bt = _make_bt(sensor_state="unknown", open_delay=10)
         await trigger_window_change(bt, _event("unknown"))
-        assert bt.kernel_state.window.phase == WindowPhase.OPENING
-        assert bt.window_queue_task.get_nowait() is False
+        # Window was closed and stays closed: nothing to queue.
+        assert bt.kernel_state.window.phase == WindowPhase.CLOSED
+        assert bt.window_queue_task.empty()
+
+    @pytest.mark.asyncio
+    async def test_unavailable_sensor_closes_an_open_window(self):
+        """A lost sensor on an open window closes it so heating resumes."""
+        bt = _make_bt(sensor_state="unavailable", window_open=True, close_delay=10)
+        await trigger_window_change(bt, _event("unavailable"))
+        assert bt.kernel_state.window.phase == WindowPhase.CLOSING
+        assert bt.window_queue_task.get_nowait() is True
 
     @pytest.mark.asyncio
     async def test_unchanged_state_is_skipped(self):
