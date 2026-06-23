@@ -11,17 +11,19 @@ The cascade (top wins):
    commanded.
 2. Mode — OFF turns every TRV off.
 3. Window — an open window turns every TRV off without touching the mode.
-4. Reachability — unreachable TRVs receive no intent, except while boost
-   heating is active (boost keeps commanding so the TRV catches up the
-   moment it returns).
-5. Call for heat — without heat demand every TRV is turned off.
-6. Heating — every addressed TRV is asked to heat towards the room
+4. Call for heat — without heat demand every TRV is turned off.
+5. Heating — every addressed TRV is asked to heat towards the room
    target. Under the ladder's HOLD rung no calibration runs; the intent
    carries the raw user target (passthrough) so the device stays locked
    on the last known target with the safety hull's frost floor. The
    calibrated numbers (setpoint corrections, offsets, valve
    percentages) are computed in the shell by the calibration
    strategies.
+
+Reachability is an address filter applied across the cascade rather than
+a tier of it: an unreachable TRV is dropped from the addressed set and
+receives no intent, except while boost heating is active (boost keeps
+commanding so the TRV catches up the moment it returns).
 
 Degraded annunciation (unavailable optional sensors) deliberately does
 not branch anywhere; only the control-mode region's rung affects the
