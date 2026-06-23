@@ -8,9 +8,7 @@ drop the previously stored value instead of silently keeping it.
 
 from homeassistant.const import CONF_NAME
 
-from custom_components.better_thermostat.config_flow import (
-    _normalize_user_submission,
-)
+from custom_components.better_thermostat.config_flow import _normalize_user_submission
 from custom_components.better_thermostat.utils.const import (
     CONF_COOLER,
     CONF_HEATER,
