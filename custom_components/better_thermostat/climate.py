@@ -1701,6 +1701,8 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
         # false-positive that lingers in the repair dashboard even after the
         # valve comes online.
         await await_critical_entities(self)
+        if self.is_removed:
+            return
         _LOGGER.debug(
             "better_thermostat %s: checking critical entities...", self.device_name
         )
