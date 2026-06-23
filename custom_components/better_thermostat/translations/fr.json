@@ -121,7 +121,7 @@
     },
     "degraded_mode": {
       "title": "BT: {name} - erreur de capteur : {sensors} fonctionne en mode dégradé",
-      "description": "Better Thermostat fonctionne en mode dégradé car certains capteurs ne sont pas disponibles : {sensors}\n\nLe thermostat continuera à fonctionner avec des fonctionnalités réduites. Par exemple :\n- Si le capteur de température ambiante n'est pas disponible, le capteur interne du TRV sera utilisé à la place.\n- Si les capteurs de fenêtre ne sont pas disponibles, les fenêtres sont considérées comme fermées.\n- Si les capteurs extérieurs/météo ne sont pas disponibles, le chauffage sera toujours activé.\n\nVérifiez si les appareils concernés ont des problèmes de batterie ou de connectivité."
+      "description": "Better Thermostat fonctionne en mode dégradé car certains capteurs sont indisponibles : {sensors}\n\nLe thermostat continue de réguler et se dégrade progressivement :\n- Si le capteur de température ambiante est indisponible, la moyenne des températures internes des TRV le remplace.\n- Si ni le capteur de pièce ni aucune température de TRV n'est exploitable, le thermostat cesse d'ajuster et conserve le dernier état commandé ; la protection antigel reste active.\n- Si le capteur de fenêtre est indisponible, la fenêtre est considérée comme fermée et le chauffage continue ; un capteur perdu ne doit pas arrêter le chauffage.\n- Si les capteurs extérieurs/météo sont indisponibles, le chauffage reste activé.\n\nVérifiez si les appareils concernés ont des problèmes de batterie ou de connectivité. Ce problème se résout de lui-même une fois tous les capteurs de nouveau disponibles."
     },
     "invalid_window_state": {
       "title": "BT: {name} - état du capteur de fenêtre invalide",
