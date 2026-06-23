@@ -548,9 +548,9 @@ def _normalize_user_submission(
             if isinstance(item, dict) and item.get("trv")
         ]
     normalized[CONF_HEATER] = list(heaters_list)
-    normalized[CONF_COOLER] = user_input.get(CONF_COOLER, normalized.get(CONF_COOLER))
 
     optional_keys = (
+        CONF_COOLER,
         CONF_SENSOR,
         CONF_SENSOR_WINDOW,
         CONF_HUMIDITY,
