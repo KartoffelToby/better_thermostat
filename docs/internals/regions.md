@@ -69,9 +69,9 @@ come online before the user sees a repair issue.
 
 ## Mode — the user's HVAC mode
 
-A validated mirror of the user's selected mode (heat / off /
-heat-cool). The mode tier of the cascade reads it; setting the mode on
-the entity advances the region.
+A validated mirror of the user's selected mode (off / heat / cool /
+heat-cool), with the preset axis orthogonal to it. The mode tier of the
+cascade reads it; setting the mode on the entity advances the region.
 
 ## Control mode — the fail-soft ladder
 

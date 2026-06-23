@@ -36,7 +36,7 @@ This integration brings some smartness to your connected radiator thermostats se
 - Dynamic preset temperature learning & persistence (baseline/"no preset" remembers the last temperature you set and survives restarts)
 - **Advanced Control Algorithms**: Choose between MPC, PID, TPI, AI Time Based or simple target temperature matching for precise control.
 - **Selectable Presets**: Configure which preset modes are available for your thermostat during setup.
-- **Fail-soft and observable**: keeps controlling when sensors drop out (graceful degradation with repair issues), spaces radio writes to protect TRV batteries, and ships a flight recorder in the diagnostics download for bug reports.
+- **Fail-soft and observable**: keeps controlling while a usable temperature source remains (a dead room sensor falls back to the TRV-internal mean) and drops to HOLD — last commanded state with the frost floor, no new setpoints — when none is left, all surfaced as repair issues; spaces radio writes to protect TRV batteries, and ships a flight recorder in the diagnostics download for bug reports.
 
 ### Advanced Control Algorithms
 

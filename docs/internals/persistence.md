@@ -44,9 +44,9 @@ old entity attributes only when the store has nothing.
 Persisted state is treated as untrusted input, absorbed at three
 layers:
 
-1. **Per field at load:** deserialization skips wrong-typed and
-   non-finite values field by field; a corrupt section yields that
-   section's defaults.
+1. **Per field at load:** deserialization skips a wrong-typed field
+   individually, while a non-finite value poisons the whole stored entry,
+   which then falls back to its defaults.
 2. **Per store at load:** if deserialization itself breaks on an
    unexpected shape, the store starts fresh with a warning instead of
    killing the startup task — relearning replaces anything a poisoned
