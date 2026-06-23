@@ -156,6 +156,7 @@ from .utils.valve_maintenance import (
 )
 from .utils.watcher import (
     STARTUP_DEGRADED_GRACE_PERIOD,
+    await_critical_entities,
     await_optional_sensors,
     check_and_update_degraded_mode,
     check_critical_entities,
@@ -1728,6 +1729,12 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
                 async_track_time_change(self.hass, self._trigger_time, 5, 0, 0)
             )
 
+        # Wait for critical entities (TRVs) with increasing retry delays before
+        # raising a missing_entity repair issue.  Cloud-backed valves (e.g.
+        # Tado) often initialise later than Home Assistant itself, so a single
+        # immediate check would report a false-positive that lingers in the
+        # repair dashboard even after the valve comes online.
+        await await_critical_entities(self)
         _LOGGER.debug(
             "better_thermostat %s: checking critical entities...", self.device_name
         )

@@ -773,6 +773,224 @@ class TestAwaitOptionalSensors:
         assert sleep_calls == [2, 4]
 
 
+class TestAwaitCriticalEntities:
+    """Tests for await_critical_entities retry logic.
+
+    Mirrors TestAwaitOptionalSensors but for critical entities (TRVs), which
+    on cloud-backed integrations (e.g. Tado) may take longer to initialise
+    than Home Assistant itself.
+    """
+
+    @staticmethod
+    def _run(coro):
+        """Run a coroutine in a fresh event loop (avoids HA plugin issues)."""
+        import asyncio
+
+        loop = asyncio.new_event_loop()
+        try:
+            return loop.run_until_complete(coro)
+        finally:
+            loop.close()
+
+    def test_returns_empty_when_all_trvs_available_immediately(self, mock_bt_instance):
+        """All TRVs available on first check → no sleep, empty result."""
+        from custom_components.better_thermostat.utils.watcher import (
+            await_critical_entities,
+        )
+
+        mock_state = MagicMock()
+        mock_state.state = "heat"
+        mock_bt_instance.hass.states.get.return_value = mock_state
+
+        sleep_calls = []
+
+        async def fake_sleep(seconds):
+            sleep_calls.append(seconds)
+
+        result = self._run(
+            await_critical_entities(
+                mock_bt_instance, delays=(3, 5, 10), _sleep=fake_sleep
+            )
+        )
+
+        assert result == []
+        assert sleep_calls == [], "Should not sleep when all TRVs are available"
+
+    def test_returns_empty_when_no_trvs_configured(self, mock_bt_instance):
+        """No critical entities configured → immediate empty result."""
+        from custom_components.better_thermostat.utils.watcher import (
+            await_critical_entities,
+        )
+
+        mock_bt_instance.real_trvs = {}
+
+        sleep_calls = []
+
+        async def fake_sleep(seconds):
+            sleep_calls.append(seconds)
+
+        result = self._run(
+            await_critical_entities(mock_bt_instance, delays=(3, 5), _sleep=fake_sleep)
+        )
+
+        assert result == []
+        assert sleep_calls == []
+
+    def test_retries_until_trv_comes_online(self, mock_bt_instance):
+        """TRV unavailable on first check, available on second → one sleep."""
+        from custom_components.better_thermostat.utils.watcher import (
+            await_critical_entities,
+        )
+
+        # Single TRV configured
+        mock_bt_instance.real_trvs = {"climate.trv_1": {}}
+
+        call_count = 0
+
+        def mock_get(entity_id):
+            nonlocal call_count
+            state = MagicMock()
+            if entity_id == "climate.trv_1":
+                call_count += 1
+                # Unavailable on first call, available from second onwards
+                state.state = "unavailable" if call_count <= 1 else "heat"
+            else:
+                state.state = "heat"
+            return state
+
+        mock_bt_instance.hass.states.get.side_effect = mock_get
+
+        sleep_calls = []
+
+        async def fake_sleep(seconds):
+            sleep_calls.append(seconds)
+
+        result = self._run(
+            await_critical_entities(
+                mock_bt_instance, delays=(3, 5, 10), _sleep=fake_sleep
+            )
+        )
+
+        assert result == []
+        assert sleep_calls == [3], "Should sleep once (3 s) before TRV comes online"
+
+    def test_returns_pending_after_all_retries_exhausted(self, mock_bt_instance):
+        """TRV stays unavailable through all retries → returned in pending list."""
+        from custom_components.better_thermostat.utils.watcher import (
+            await_critical_entities,
+        )
+
+        mock_bt_instance.real_trvs = {"climate.trv_1": {}}
+
+        mock_state = MagicMock()
+        mock_state.state = "unavailable"
+        mock_bt_instance.hass.states.get.return_value = mock_state
+
+        sleep_calls = []
+
+        async def fake_sleep(seconds):
+            sleep_calls.append(seconds)
+
+        result = self._run(
+            await_critical_entities(
+                mock_bt_instance, delays=(2, 4, 8), _sleep=fake_sleep
+            )
+        )
+
+        assert result == ["climate.trv_1"]
+        assert sleep_calls == [2, 4, 8], "Should sleep through all delays"
+
+    def test_default_delays_increasing_and_total_roughly_90s(self):
+        """Default critical delays are increasing and sum to roughly 90 s."""
+        from custom_components.better_thermostat.utils.watcher import (
+            DEFAULT_CRITICAL_ENTITY_DELAYS,
+        )
+
+        total = sum(DEFAULT_CRITICAL_ENTITY_DELAYS)
+        assert 80 <= total <= 100, f"Expected ~90 s total, got {total} s"
+        for i in range(1, len(DEFAULT_CRITICAL_ENTITY_DELAYS)):
+            assert (
+                DEFAULT_CRITICAL_ENTITY_DELAYS[i]
+                > DEFAULT_CRITICAL_ENTITY_DELAYS[i - 1]
+            )
+
+    def test_partial_trvs_come_online(self, mock_bt_instance):
+        """One TRV comes online while another stays unavailable."""
+        from custom_components.better_thermostat.utils.watcher import (
+            await_critical_entities,
+        )
+
+        trv1_calls = 0
+
+        def mock_get(entity_id):
+            nonlocal trv1_calls
+            state = MagicMock()
+            if entity_id == "climate.trv_1":
+                trv1_calls += 1
+                # Comes online after first sleep
+                state.state = "unavailable" if trv1_calls <= 1 else "heat"
+            elif entity_id == "climate.trv_2":
+                # Stays unavailable forever
+                state.state = "unavailable"
+            else:
+                state.state = "heat"
+            return state
+
+        mock_bt_instance.hass.states.get.side_effect = mock_get
+
+        sleep_calls = []
+
+        async def fake_sleep(seconds):
+            sleep_calls.append(seconds)
+
+        result = self._run(
+            await_critical_entities(
+                mock_bt_instance, delays=(2, 4, 8), _sleep=fake_sleep
+            )
+        )
+
+        assert result == ["climate.trv_2"]
+        assert sleep_calls == [2, 4, 8]
+
+    def test_final_check_after_last_sleep(self, mock_bt_instance):
+        """TRV comes online during the last sleep → caught by final check."""
+        from custom_components.better_thermostat.utils.watcher import (
+            await_critical_entities,
+        )
+
+        mock_bt_instance.real_trvs = {"climate.trv_1": {}}
+
+        get_count = 0
+
+        def mock_get(entity_id):
+            nonlocal get_count
+            state = MagicMock()
+            if entity_id == "climate.trv_1":
+                get_count += 1
+                # With delays=(2, 4): unavailable for the two loop checks,
+                # available on the final check.
+                state.state = "unavailable" if get_count <= 2 else "heat"
+            else:
+                state.state = "heat"
+            return state
+
+        mock_bt_instance.hass.states.get.side_effect = mock_get
+
+        sleep_calls = []
+
+        async def fake_sleep(seconds):
+            sleep_calls.append(seconds)
+
+        result = self._run(
+            await_critical_entities(mock_bt_instance, delays=(2, 4), _sleep=fake_sleep)
+        )
+
+        assert result == [], (
+            "TRV came online during last sleep, final check should catch it"
+        )
+        assert sleep_calls == [2, 4]
+
+
 class TestBatteryStatusCalls:
     """Tests for battery status updates in entity checks."""
 

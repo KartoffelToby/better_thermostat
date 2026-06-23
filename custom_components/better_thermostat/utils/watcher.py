@@ -310,6 +310,93 @@ async def await_optional_sensors(
     return pending
 
 
+# Default delays for the critical-entity startup retry loop.  Critical entities
+# are TRVs, which on cloud-backed integrations (e.g. Tado) can take noticeably
+# longer to initialise than local Zigbee valves, so the schedule is slightly
+# longer than the optional-sensor one.  Total ≈ 90 s.
+DEFAULT_CRITICAL_ENTITY_DELAYS: tuple[int, ...] = (3, 5, 10, 15, 25, 30)
+
+
+async def await_critical_entities(
+    self,
+    delays: tuple[int, ...] | list[int] = DEFAULT_CRITICAL_ENTITY_DELAYS,
+    _sleep=None,
+) -> list[str]:
+    """Wait for critical entities (TRVs) to become available with retry delays.
+
+    After a reboot, the underlying TRVs frequently need a few seconds to
+    initialise.  Cloud-backed integrations (e.g. Tado) load even later than
+    Home Assistant itself, so a single availability check at startup raises a
+    false-positive ``missing_entity`` repair issue before the valve is ready.
+    This helper retries with increasing intervals so that
+    ``check_critical_entities`` is not called while TRVs are still starting up.
+
+    Parameters
+    ----------
+    self :
+        BetterThermostat instance (must expose ``.hass`` and
+        ``.device_name``).
+    delays :
+        Sequence of sleep durations in seconds between retries.
+        Defaults to ``DEFAULT_CRITICAL_ENTITY_DELAYS`` (3/5/10/15/25/30 s).
+    _sleep :
+        Injectable sleep coroutine for testing.  Defaults to
+        ``asyncio.sleep``.
+
+    Returns
+    -------
+    list[str]
+        Entity IDs of critical entities that are still unavailable after all
+        retries have been exhausted (empty if all came online).
+    """
+    import asyncio
+
+    if _sleep is None:
+        _sleep = asyncio.sleep
+
+    elapsed = 0
+    pending: list[str] = []
+
+    for idx, delay in enumerate(delays):
+        pending = [
+            eid
+            for eid in get_critical_entities(self)
+            if not is_entity_available(self.hass, eid)
+        ]
+        if not pending:
+            _LOGGER.debug(
+                "better_thermostat %s: all critical entities available (after %d s)",
+                self.device_name,
+                elapsed,
+            )
+            return []
+        _LOGGER.debug(
+            "better_thermostat %s: waiting for critical entities "
+            "(attempt %d/%d, next check in %d s, pending: %s)",
+            self.device_name,
+            idx + 1,
+            len(delays),
+            delay,
+            ", ".join(pending),
+        )
+        await _sleep(delay)
+        elapsed += delay
+
+    # Final check after the last sleep
+    pending = [
+        eid
+        for eid in get_critical_entities(self)
+        if not is_entity_available(self.hass, eid)
+    ]
+    if not pending:
+        _LOGGER.debug(
+            "better_thermostat %s: all critical entities available (after %d s)",
+            self.device_name,
+            elapsed,
+        )
+    return pending
+
+
 async def check_and_update_degraded_mode(self) -> bool:
     """Check optional sensors and update degraded mode status.
 
