@@ -279,9 +279,11 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
         self.async_write_ha_state()
 
     # Thermal tracker properties
-    # Used by: extra_state_attributes, helpers.py, sensor.py,
-    #          _restore_state, _hydrate_thermal_from_state,
-    #          _record_thermal_to_state
+    # These forward to self._heating_tracker / self._loss_tracker and provide
+    # the read-only surface that the TelemetrySource protocol (utils/telemetry.py)
+    # consumes, plus the attribute names sensor.py maps via _climate_attr. Keeping
+    # them on the entity is what lets telemetry stay decoupled from the tracker
+    # internals instead of reaching into the private trackers directly.
     # ------------------------------------------------------------------
 
     @property
