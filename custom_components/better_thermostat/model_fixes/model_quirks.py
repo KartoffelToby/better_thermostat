@@ -15,8 +15,7 @@ _LOGGER = logging.getLogger(__name__)
 async def load_model_quirks(self, model, entity_id):
     """Load model quirks module for a given TRV model, falling back to default.
 
-    Adds explicit debug logs for both success and fallback paths to make it
-    visible why nothing appeared previously.
+    Emits debug logs for both the success and the fallback path.
     """
 
     # Normalize model to a safe module suffix
