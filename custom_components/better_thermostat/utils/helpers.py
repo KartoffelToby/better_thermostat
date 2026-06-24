@@ -354,8 +354,8 @@ def convert_to_float(
         return None
     try:
         # Use 0.01 step (2 decimal places) to preserve sensor precision.
-        # Rounding to 0.1 caused issues where 19.97 became 20.0, leading to
-        # incorrect HVAC action decisions (see issues #1792, #1789, #1785).
+        # Rounding to 0.1 can turn 19.97 into 20.0, leading to incorrect
+        # HVAC action decisions.
         return round_by_step(float(value), 0.01)
     except ValueError, TypeError, AttributeError, KeyError:
         _LOGGER.debug(
