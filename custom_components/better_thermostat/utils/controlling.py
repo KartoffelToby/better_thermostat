@@ -84,6 +84,7 @@ def _get_valve_control(
     ):
         source_map = {
             CalibrationMode.MPC_CALIBRATION: "mpc_calibration",
+            CalibrationMode.MPC_V2_CALIBRATION: "mpc_v2_calibration",
             CalibrationMode.TPI_CALIBRATION: "tpi_calibration",
             CalibrationMode.PID_CALIBRATION: "pid_calibration",
             CalibrationMode.HEATING_POWER_CALIBRATION: "heating_power_calibration",
