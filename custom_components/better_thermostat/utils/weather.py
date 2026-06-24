@@ -52,7 +52,6 @@ async def check_weather(self) -> bool:
 
     if self.outdoor_sensor is not None:
         if None in (self.last_avg_outdoor_temp, self.off_temperature):
-            # TODO: add condition if heating period (oct-mar) then set it to true?
             # Check if sensor is currently unavailable (expected during startup)
             _outdoor_state = self.hass.states.get(self.outdoor_sensor)
             _sensor_unavailable = _outdoor_state is None or _outdoor_state.state in (
