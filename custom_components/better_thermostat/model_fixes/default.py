@@ -45,7 +45,7 @@ async def override_set_valve(self, entity_id, percent: int):
     return False
 
 
-async def inital_tweak(self, entity_id):
+async def initial_tweak(self, entity_id):
     """Run initial tweaks for the device."""
     entity_registry = er.async_get(self.hass)
     reg_entity = entity_registry.async_get(entity_id)
