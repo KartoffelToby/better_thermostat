@@ -67,7 +67,6 @@ async def trigger_trv_change(self, event):
             entity_id,
         )
         return
-    # set context HACK TO FIND OUT IF AN EVENT WAS SEND BY BT
 
     # Check if the update is coming from the code
     if self.context == event.context:

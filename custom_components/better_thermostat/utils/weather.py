@@ -83,10 +83,7 @@ async def check_weather(self) -> bool:
         self.call_for_heat = True
         return True
 
-    if old_call_for_heat != self.call_for_heat:
-        return True
-    else:
-        return False
+    return old_call_for_heat != self.call_for_heat
 
 
 async def check_weather_prediction(self) -> bool | None:
