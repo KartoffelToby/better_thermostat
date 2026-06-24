@@ -213,7 +213,7 @@ async def trigger_trv_change(self, event):
         )
         return
 
-    # hvac_action bedingungslos in den Cache schreiben (immer aktuell halten)
+    # Always cache hvac_action from the TRV state so it stays current
     try:
         hvac_action_attr = _org_trv_state.attributes.get("hvac_action")
         if hvac_action_attr is None:
@@ -261,8 +261,6 @@ async def trigger_trv_change(self, event):
                 and trv.last_hvac_mode != _org_trv_state.state
             ):
                 self.bt_hvac_mode = mapped_state
-
-    # hvac_action is read directly from the TRV state in climate.py
 
     _main_key = "temperature"
     if "temperature" not in old_state.attributes:
