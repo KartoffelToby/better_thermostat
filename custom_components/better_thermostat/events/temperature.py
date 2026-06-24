@@ -86,7 +86,7 @@ async def _apply_temperature_update(self, new_temp):
     # Remember previous value as stable pre-measure before updating
     if _cur_q is not None and _cur_q != new_temp_q:
         self.prev_stable_temp = _cur_q
-    # Richtung merken (nur bei echter Änderung)
+    # Remember the direction (only on a real change)
     if _cur_q is not None:
         if new_temp_q > _cur_q:
             self.last_change_direction = 1
@@ -123,7 +123,7 @@ async def _apply_temperature_update(self, new_temp):
             float(new_temp_q),
             float(_ema),
         )
-    # Schreibe den von BT verwendeten Wert (self.cur_temp) ins TRV
+    # Write the value used by BT (self.cur_temp) to the TRV
     try:
         trv_ids = list(self.real_trvs.keys())
         if not trv_ids and hasattr(self, "entity_ids"):
@@ -185,22 +185,22 @@ async def trigger_temperature_change(self, event):
         "external_temperature",
         unit_of_measurement=new_state.attributes.get("unit_of_measurement"),
     )
-    # Quantisiere auf 2 Dezimalstellen, um FP-Artefakte zu vermeiden
+    # Quantize to 2 decimals to avoid floating-point artifacts
     _incoming_temperature_q = (
         None if _incoming_temperature is None else round(_incoming_temperature, 2)
     )
 
     # Ensure timestamp exists (first run guard)
     if self.last_external_sensor_change is None:
-        # Setze einen alten Zeitpunkt, damit erste Änderung akzeptiert wird
+        # Set an old timestamp so the first change is accepted
         self.last_external_sensor_change = dt_util.now()
 
-    # Basis-Debounce (Sekunden) für normale Geräte; durch Anti-Flicker können wir hier auf 5s runter
-    # gesetzt werden. HomematicIP erhält unten weiterhin ein höheres Intervall (600s).
+    # Base debounce (seconds) for normal devices; anti-flicker lets us go down to 5s
+    # here. HomematicIP still gets a higher interval (600s) below.
     _time_diff = 5
-    # Signifikanz-Schwelle: 0.11°C (um 0.1°C Rauschen zu filtern).
-    # Wir ignorieren die Toleranz-Einstellung hier, um auch bei größerer Regel-Toleranz
-    # präzise Sensor-Updates zu erhalten.
+    # Significance threshold: 0.11°C (to filter out 0.1°C noise).
+    # We ignore the tolerance setting here so we keep getting precise sensor
+    # updates even with a larger control tolerance.
     _sig_threshold = 0.11
 
     try:
@@ -219,7 +219,7 @@ async def trigger_temperature_change(self, event):
             _incoming_temperature_q,
             new_state.state,
         )
-        # Minimal kompatibler Aufruf (Parameter-Namen angepasst an aktuelle HA API)
+        # Minimal compatible call (parameter names match the current HA API)
         ir.async_create_issue(
             hass=self.hass,
             domain="better_thermostat",
@@ -237,12 +237,12 @@ async def trigger_temperature_change(self, event):
     _now = dt_util.now()
     try:
         _age = (_now - self.last_external_sensor_change).total_seconds()
-    except TypeError, AttributeError:  # defensiv, sollte nicht auftreten
+    except TypeError, AttributeError:  # defensive, should not happen
         _age = 999999
-    # Gerundete Vergleichswerte
+    # Rounded comparison values
     _cur_q = None if self.cur_temp is None else round(self.cur_temp, 2)
     _diff = None if _cur_q is None else abs(_incoming_temperature_q - _cur_q)
-    # Quantisierte Differenz zur robusten Schwellenprüfung (vermeidet 0.099999-Fehler)
+    # Quantized difference for a robust threshold check (avoids 0.099999 errors)
     _diff_q = None if _diff is None else round(_diff, 2)
     _sig_threshold_q = round(_sig_threshold, 2)
     _is_significant = _cur_q is None or (
@@ -515,7 +515,7 @@ async def trigger_temperature_change(self, event):
         _accept_reason = "plateau"
 
     if _accept_reason is not None:
-        # Verarbeite sofort, wenn Intervall abgelaufen ODER Änderung sehr groß
+        # Process immediately when the interval has elapsed OR the change is very large
         _LOGGER.debug(
             "better_thermostat %s: external_temperature update accepted (old=%.2f new=%.2f diff=%.2f "
             "age=%.1fs threshold=%.2f interval=%ss reason=%s accum=%.2f dir=%s)",

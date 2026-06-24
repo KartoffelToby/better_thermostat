@@ -84,9 +84,9 @@ def fix_target_temperature_calibration(
         round(temperature, 1) > round(_cur_trv_temp, 1)
         and temperature - _cur_trv_temp < 1.5
     ):
-        # Statt die gewünschte Temperatur pauschal um 1.5°C zu erhöhen,
-        # setze sie auf mindestens (aktuelle TRV-Temp + 1.5°C).
-        # So ist der Mindestabstand garantiert, ohne unnötig zu überschießen.
+        # Instead of bumping the target temperature by a flat 1.5°C,
+        # set it to at least (current TRV temp + 1.5°C).
+        # This guarantees the minimum gap without overshooting unnecessarily.
         temperature = round(_cur_trv_temp + 1.5, 1)
 
     return temperature

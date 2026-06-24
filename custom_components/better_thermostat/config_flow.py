@@ -1077,7 +1077,7 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
             advanced = trv.get("advanced", {})
             calibration_mode = advanced.get(CONF_CALIBRATION_MODE)
             if calibration_mode:
-                # Konvertiere String zu Enum falls nötig
+                # Convert string to enum if needed
                 if isinstance(calibration_mode, str):
                     try:
                         calibration_mode = CalibrationMode(calibration_mode)

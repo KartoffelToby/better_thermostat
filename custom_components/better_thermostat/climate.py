@@ -169,7 +169,7 @@ DOMAIN = "better_thermostat"
 # Default temperature when no sensor data is available (last resort fallback)
 DEFAULT_FALLBACK_TEMPERATURE = 20.0
 
-# Signal für dynamische Entity-Updates
+# Signal for dynamic entity updates
 SIGNAL_BT_CONFIG_CHANGED = "bt_config_changed_{}"
 
 
@@ -844,9 +844,9 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
                 )
                 return
 
-            # Verwende die bekannten TRV-Entity-IDs (Keys in real_trvs)
+            # Use the known TRV entity IDs (keys in real_trvs)
             trv_ids = list(self.real_trvs.keys())
-            # Fallback (sollte i.d.R. nicht benötigt werden)
+            # Fallback (normally should not be needed)
             if not trv_ids and hasattr(self, "entity_ids"):
                 trv_ids = list(self.entity_ids or [])
             if not trv_ids:
@@ -1771,7 +1771,7 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
             )
         )
 
-        # Periodischer 5-Minuten-Tick: nur aktivieren, wenn Balance konfiguriert ist
+        # Periodic 5-minute tick: only enable when balance is configured
         balance_modes = {"heuristic", "pid"}
         active_balance_modes = set()
         active_calibration_modes = set()
@@ -1819,7 +1819,7 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
                 self.device_name,
             )
 
-            # Ventilwartung: separaten Tick nur aktivieren, wenn mindestens ein TRV sie eingeschaltet hat
+            # Valve maintenance: only enable a separate tick when at least one TRV has it turned on
             try:
                 maint_trvs = collect_maintenance_trvs(self.real_trvs)
             except Exception:
@@ -1881,7 +1881,7 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
                     self.hass, [self.outdoor_sensor], self._trigger_outdoor_change
                 )
             )
-        # Sende initial sofort einen Keepalive, damit TRVs nicht bis zum ersten 30min-Tick warten müssen
+        # Send an immediate initial keepalive so TRVs don't have to wait for the first 30min tick
         try:
             _LOGGER.debug(
                 "better_thermostat %s: creating keepalive task...", self.device_name

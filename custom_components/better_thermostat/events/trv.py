@@ -112,14 +112,14 @@ async def trigger_trv_change(self, event):
 
     child_lock = (trv.advanced or {}).get("child_lock")
 
-    # Dynamische Modell-Erkennung: nur einmalig (z. B. beim Start) – nicht bei jedem Event
+    # Dynamic model detection: only once (e.g. at startup), not on every event
     try:
         prev_model = trv.model
         if not prev_model:
             if _org_trv_state is not None and isinstance(
                 _org_trv_state.attributes, dict
             ):
-                # Nur prüfen, wenn Hinweise vorhanden sind
+                # Only check when there are hints available
                 if (
                     "model_id" in _org_trv_state.attributes
                     or "device" in _org_trv_state.attributes
@@ -262,7 +262,7 @@ async def trigger_trv_change(self, event):
             ):
                 self.bt_hvac_mode = mapped_state
 
-    # Hinweis: Kein Caching von hvac_action mehr – BT liest direkt vom TRV-State in climate.py
+    # Note: hvac_action is no longer cached; BT reads it directly from the TRV state in climate.py
 
     _main_key = "temperature"
     if "temperature" not in old_state.attributes:
@@ -446,7 +446,7 @@ def convert_outbound_states(self, entity_id, hvac_mode) -> dict | None:
                 "better_thermostat %s: no calibration type found in device config, talking to the TRV using fallback mode",
                 self.device_name,
             )
-            # Fallback: keine lokale Kalibrierung durchführen, nur Solltemperatur setzen
+            # Fallback: do not apply local calibration, only set the target temperature
             _new_heating_setpoint = self.bt_target_temp
             _new_local_calibration = None
 
