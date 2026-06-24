@@ -44,6 +44,8 @@ def find_device_entity(
     ``domains`` and whose name, unique_id or entity_id contains any of
     ``keywords`` (case-insensitive). Returns ``None`` if nothing matches.
     """
+    domains = tuple(domains)
+    keywords = tuple(k.lower() for k in keywords)
     for ent in entity_registry.entities.values():
         if ent.device_id != device_id or ent.domain not in domains:
             continue
