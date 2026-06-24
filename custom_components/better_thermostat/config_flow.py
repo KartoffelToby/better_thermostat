@@ -39,6 +39,7 @@ from .utils.const import (
     CONF_HOMEMATICIP,
     CONF_HUMIDITY,
     CONF_MODEL,
+    CONF_MPC_V2_PLANT_PRESET,
     CONF_NO_SYSTEM_MODE_OFF,
     CONF_OFF_TEMPERATURE,
     CONF_OUTDOOR_SENSOR,
@@ -55,6 +56,7 @@ from .utils.const import (
     CONF_WINDOW_TIMEOUT_AFTER,
     CalibrationMode,
     CalibrationType,
+    MpcV2PlantPreset,
 )
 from .utils.helpers import get_device_model, get_trv_intigration
 
@@ -97,6 +99,10 @@ CALIBRATION_MODE_SELECTOR = selector.SelectSelector(
                 value=CalibrationMode.MPC_CALIBRATION, label="MPC Predictive (Beta)"
             ),
             selector.SelectOptionDict(
+                value=CalibrationMode.MPC_V2_CALIBRATION,
+                label="(AI) MPC v2 (QP + Kalman, experimental)",
+            ),
+            selector.SelectOptionDict(
                 value=CalibrationMode.AGGRESIVE_CALIBRATION, label="Agressive"
             ),
             selector.SelectOptionDict(
@@ -107,6 +113,30 @@ CALIBRATION_MODE_SELECTOR = selector.SelectSelector(
             ),
             selector.SelectOptionDict(
                 value=CalibrationMode.NO_CALIBRATION, label="No Calibration"
+            ),
+        ],
+        mode=selector.SelectSelectorMode.DROPDOWN,
+    )
+)
+
+
+MPC_V2_PLANT_PRESET_SELECTOR = selector.SelectSelector(
+    selector.SelectSelectorConfig(
+        options=[
+            selector.SelectOptionDict(
+                value=MpcV2PlantPreset.AUTO, label="Auto (use learned heat-loss rate)"
+            ),
+            selector.SelectOptionDict(
+                value=MpcV2PlantPreset.SMALL_ROOM,
+                label="Small room (~10 m², fast response)",
+            ),
+            selector.SelectOptionDict(
+                value=MpcV2PlantPreset.MEDIUM_ROOM,
+                label="Medium room (~20 m², standard)",
+            ),
+            selector.SelectOptionDict(
+                value=MpcV2PlantPreset.LARGE_ROOM,
+                label="Large room (~40 m², slow envelope)",
             ),
         ],
         mode=selector.SelectSelectorMode.DROPDOWN,
@@ -281,6 +311,13 @@ def _build_advanced_fields(
             ),
         )
     ] = CALIBRATION_MODE_SELECTOR
+
+    ordered[
+        vol.Optional(
+            CONF_MPC_V2_PLANT_PRESET,
+            default=get_value(CONF_MPC_V2_PLANT_PRESET, MpcV2PlantPreset.AUTO),
+        )
+    ] = MPC_V2_PLANT_PRESET_SELECTOR
 
     ordered[
         vol.Optional(
