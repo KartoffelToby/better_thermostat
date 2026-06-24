@@ -273,12 +273,6 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
     # Used by: extra_state_attributes, helpers.py, sensor.py,
     #          _restore_state, _hydrate_thermal_from_state,
     #          _record_thermal_to_state
-    # TODO: Eliminate most of these by accessing trackers directly.
-    #   - heating_power_normalized, last_heating_power_stats, heating_cycles,
-    #     last_heat_loss_stats, loss_cycles: only read by extra_state_attributes
-    #   - heat_loss_rate: only used within climate.py
-    #   - heating_power + heat_loss_rate: keep until sensor.py generic
-    #     attribute mapping (_climate_attr) is refactored
     # ------------------------------------------------------------------
 
     @property

@@ -140,11 +140,6 @@ async def _setup_algorithm_sensors(
             entry_id,
         )
 
-    # TODO: Additional algorithms can be added here
-    # if CalibrationMode.PID_CALIBRATION in current_algorithms:
-    #     pid_sensors = [...]
-    #     algorithm_sensors.extend(pid_sensors)
-
     return algorithm_sensors
 
 
