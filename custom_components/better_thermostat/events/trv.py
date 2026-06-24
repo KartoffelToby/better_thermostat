@@ -262,7 +262,7 @@ async def trigger_trv_change(self, event):
             ):
                 self.bt_hvac_mode = mapped_state
 
-    # Note: hvac_action is no longer cached; BT reads it directly from the TRV state in climate.py
+    # hvac_action is read directly from the TRV state in climate.py
 
     _main_key = "temperature"
     if "temperature" not in old_state.attributes:
