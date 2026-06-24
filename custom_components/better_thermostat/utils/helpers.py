@@ -1,6 +1,6 @@
 """Helper functions for the Better Thermostat component."""
 
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Iterable, Mapping
 from datetime import datetime
 import logging
 import math
@@ -30,6 +30,34 @@ from custom_components.better_thermostat.utils.const import (
 )
 
 _LOGGER = logging.getLogger(__name__)
+
+
+def find_device_entity(
+    entity_registry: er.EntityRegistry,
+    device_id: str,
+    domains: Iterable[str],
+    keywords: Iterable[str],
+) -> str | None:
+    """Return the entity_id of the first matching entity on a device.
+
+    A match is any entity belonging to ``device_id`` whose domain is in
+    ``domains`` and whose name, unique_id or entity_id contains any of
+    ``keywords`` (case-insensitive). Returns ``None`` if nothing matches.
+    """
+    for ent in entity_registry.entities.values():
+        if ent.device_id != device_id or ent.domain not in domains:
+            continue
+        name = (getattr(ent, "original_name", "") or "").lower()
+        uid = (ent.unique_id or "").lower()
+        eid = (ent.entity_id or "").lower()
+
+        if (
+            any(k in name for k in keywords)
+            or any(k in uid for k in keywords)
+            or any(k in eid for k in keywords)
+        ):
+            return ent.entity_id
+    return None
 
 
 def normalize_calibration_mode(

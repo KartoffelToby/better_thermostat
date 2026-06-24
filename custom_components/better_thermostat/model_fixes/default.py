@@ -10,6 +10,8 @@ from homeassistant.components.lock import LockState
 from homeassistant.const import STATE_OFF, STATE_ON
 from homeassistant.helpers import entity_registry as er
 
+from ..utils.helpers import find_device_entity
+
 _LOGGER = logging.getLogger(__name__)
 
 VALVE_MAINTENANCE_INTERVAL_HOURS = 168  # Default: 7 days
@@ -54,20 +56,9 @@ async def inital_tweak(self, entity_id):
         device_id = reg_entity.device_id
 
         def find_entity(domains, keywords):
-            for ent in entity_registry.entities.values():
-                if ent.device_id != device_id or ent.domain not in domains:
-                    continue
-                name = (getattr(ent, "original_name", "") or "").lower()
-                uid = (ent.unique_id or "").lower()
-                eid = (ent.entity_id or "").lower()
-
-                if (
-                    any(k in name for k in keywords)
-                    or any(k in uid for k in keywords)
-                    or any(k in eid for k in keywords)
-                ):
-                    return ent.entity_id
-            return None
+            return find_device_entity(
+                entity_registry, device_id, domains, keywords
+            )
 
         # 1. Local calibration -> 0
         cal_entity = find_entity(

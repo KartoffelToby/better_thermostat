@@ -18,6 +18,7 @@ from .utils.calibration.pid import (
     resolve_unique_id,
 )
 from .utils.const import CONF_CALIBRATION_MODE, CalibrationMode
+from .utils.helpers import find_device_entity
 
 _LOGGER = logging.getLogger(__name__)
 DOMAIN = "better_thermostat"
@@ -221,25 +222,12 @@ class BetterThermostatChildLockSwitch(SwitchEntity, RestoreEntity):
 
         device_id = reg_entity.device_id
 
-        def find_entity(domains, keywords):
-            for ent in entity_registry.entities.values():
-                if ent.device_id != device_id or ent.domain not in domains:
-                    continue
-                name = (getattr(ent, "original_name", "") or "").lower()
-                uid = (ent.unique_id or "").lower()
-                eid = (ent.entity_id or "").lower()
-
-                if (
-                    any(k in name for k in keywords)
-                    or any(k in uid for k in keywords)
-                    or any(k in eid for k in keywords)
-                ):
-                    return ent.entity_id
-            return None
-
         # Look for switch (Z2M) or lock
-        cl_entity = find_entity(
-            ["switch", "lock"], ["child_lock", "child lock", "lock"]
+        cl_entity = find_device_entity(
+            entity_registry,
+            device_id,
+            ["switch", "lock"],
+            ["child_lock", "child lock", "lock"],
         )
 
         if cl_entity:
