@@ -29,18 +29,21 @@ class MpcV2Params:
     plant_step_s: float = 30.0
 
 
-# Static plant priors keyed roughly to room size / envelope speed. These
-# are alternatives to the AUTO path which derives ``tau_room_min`` from BT's
-# online learnings.
+# Static plant priors as an alternative to the AUTO path (which derives
+# ``tau_room_min`` from BT's online learnings). The presets differ only in
+# ``tau_room_min`` — the envelope speed that tracks room size. Gain, radiator
+# time constant and coupling stay at the robust default: across realistic
+# plant profiles ``gain_heater`` does not correlate with room size, so a
+# single ~2.0 prior is more robust than size-scaled values.
 PLANT_PRESETS: dict[str, PlantParams] = {
     "small_room": PlantParams(
-        tau_room_min=240.0, tau_rad_min=10.0, gain_heater=2.5, coupling_rad_room=1.0
+        tau_room_min=180.0, tau_rad_min=15.0, gain_heater=2.0, coupling_rad_room=1.0
     ),
     "medium_room": PlantParams(
         tau_room_min=480.0, tau_rad_min=15.0, gain_heater=2.0, coupling_rad_room=1.0
     ),
     "large_room": PlantParams(
-        tau_room_min=900.0, tau_rad_min=20.0, gain_heater=1.5, coupling_rad_room=1.0
+        tau_room_min=720.0, tau_rad_min=15.0, gain_heater=2.0, coupling_rad_room=1.0
     ),
 }
 
