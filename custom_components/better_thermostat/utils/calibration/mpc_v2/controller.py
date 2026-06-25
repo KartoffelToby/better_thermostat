@@ -15,7 +15,6 @@ from ..mpc_v2_internals.governor import ScalarReferenceGovernor
 from ..mpc_v2_internals.kalman import KalmanObserver
 from ..mpc_v2_internals.plant import PlantModelRC2
 from ..mpc_v2_internals.qp_optimiser import QpOptimiser, require_daqp
-from ..mpc_v2_internals.rls import RLSIdentifier, RlsStateSnapshot
 from ..mpc_v2_internals.smith import SmithPredictor
 from .io import MpcV2Diagnostics
 from .params import MpcV2Params
@@ -44,11 +43,9 @@ class ControllerSnapshot:
     last_u: float
     e_integral_K_min: float
     u_history: list[float]
-    plant_params: dict[str, float]
     rg_v_C: float | None
     last_t_s: float
     next_mpc_t_s: float
-    rls: RlsStateSnapshot | None
 
     @classmethod
     def from_mapping(cls, raw: Mapping[str, Any]) -> ControllerSnapshot | None:
@@ -66,8 +63,6 @@ class ControllerSnapshot:
                 SNAPSHOT_VERSION,
             )
             return None
-        rls_raw = raw.get("rls")
-        plant_raw: Mapping[str, Any] = raw.get("plant_params") or {}
         return cls(
             v=version,
             x_hat=[float(x) for x in raw.get("x_hat", [])],
@@ -76,23 +71,17 @@ class ControllerSnapshot:
             last_u=float(raw.get("last_u", 0.0)),
             e_integral_K_min=float(raw.get("e_integral_K_min", 0.0)),
             u_history=[float(x) for x in raw.get("u_history", [])],
-            plant_params={k: float(v) for k, v in plant_raw.items()},
             rg_v_C=None if raw.get("rg_v_C") is None else float(raw["rg_v_C"]),
             last_t_s=float(raw.get("last_t_s", 0.0)),
             next_mpc_t_s=float(raw.get("next_mpc_t_s", -1.0)),
-            rls=(
-                RlsStateSnapshot.from_mapping(rls_raw)
-                if isinstance(rls_raw, Mapping)
-                else None
-            ),
         )
 
 
 class MpcV2Controller:
-    """Glue: plant + Kalman + Smith + DOB + RLS + governor + QP.
+    """Glue: plant + Kalman + Smith + DOB + governor + QP.
 
-    Lifetime is one room. The controller mutates its plant params via RLS
-    over time; rehydration from persistent state goes through
+    Lifetime is one room. The plant params are a fixed prior for the
+    controller's lifetime; rehydration from persistent state goes through
     :meth:`export_snapshot` / :meth:`restore_snapshot`.
     """
 
@@ -102,27 +91,22 @@ class MpcV2Controller:
         Parameters
         ----------
         mpc_params : MpcV2Params
-            Plant prior plus observer/optimiser/governor/RLS tunables. The
-            mutated sub-params (``plant``, ``qp``) are copied so online RLS
-            updates never mutate the caller's object.
+            Plant prior plus observer/optimiser/governor tunables. The ``qp``
+            sub-params are copied because ``step_s`` is rewritten below, so the
+            caller's object is never mutated.
         """
         # Fail fast when the daqp wheel is missing so the HA log carries
         # a clear message instead of crashing on the first QP solve.
         require_daqp()
-        # Copy the two sub-params this controller mutates in place — ``plant``
-        # (folded by RLS) and ``qp`` (``step_s`` rewritten below) — so the
-        # caller's object is never aliased. Both are flat dataclasses, so a
-        # shallow ``replace`` fully isolates them; the read-only kalman/dob/rls/
-        # governor params are shared by reference. Aliasing the caller's plant
-        # would drift ``_plant_signature_of(params)`` from the build-time
-        # signature and falsely trip the preset-change rebuild guard.
-        mpc_params = replace(
-            mpc_params, plant=replace(mpc_params.plant), qp=replace(mpc_params.qp)
-        )
+        # Copy the one sub-param this controller mutates in place — ``qp``
+        # (``step_s`` rewritten below) — so the caller's object is never
+        # aliased. It is a flat dataclass, so a shallow ``replace`` fully
+        # isolates it; the read-only plant/kalman/dob/governor params are
+        # shared by reference.
+        mpc_params = replace(mpc_params, qp=replace(mpc_params.qp))
         self.params = mpc_params
         # Plant-aware MPC step: faster envelopes ⇒ finer grid. One-shot at
-        # construction to avoid rebuilding the QP workspace on every RLS
-        # update.
+        # construction so the QP workspace is built once.
         if mpc_params.qp.adaptive_step_s:
             tau_eff = max(mpc_params.plant.tau_room_min, 1.0)
             target = tau_eff * mpc_params.qp.adaptive_step_s_per_tau
@@ -137,11 +121,6 @@ class MpcV2Controller:
         self.dob = DisturbanceObserver(mpc_params.dob)
         self.optimiser = QpOptimiser(self.plant_coarse, mpc_params.qp)
         self.governor = ScalarReferenceGovernor(self.plant_coarse, mpc_params.governor)
-        self.rls = (
-            RLSIdentifier(self.plant_fine, mpc_params.rls)
-            if mpc_params.enable_rls
-            else None
-        )
 
         self._u_history: deque[float] = deque(maxlen=64)
         self._last_u: float = 0.0
@@ -163,7 +142,7 @@ class MpcV2Controller:
         ----------
         t_s : float
             Wall-clock timestamp of this cycle in seconds; drives the dt used
-            by the disturbance observer and RLS, and the MPC re-plan cadence.
+            by the disturbance observer and the MPC re-plan cadence.
         T_room_C : float
             Measured room temperature — the sole Kalman measurement.
         T_target_C : float
@@ -191,13 +170,6 @@ class MpcV2Controller:
         innovation = self.kalman.innovation(T_room_C, self._last_u, T_outdoor_C)
         x_hat = self.kalman.update(T_room_C, self._last_u, T_outdoor_C)
         self.dob.update(innovation, dt_s)
-        if self.rls is not None:
-            self.rls.update(
-                t_s=t_s,
-                T_room_C=T_room_C,
-                T_rad_C=float(x_hat[1]),
-                T_outdoor_C=T_outdoor_C,
-            )
 
         if t_s < self._next_mpc_t_s:
             return self._last_u, self._diagnostics()
@@ -233,16 +205,9 @@ class MpcV2Controller:
             last_u=self._last_u,
             e_integral_K_min=self.optimiser.e_integral_K_min,
             u_history=[float(u) for u in self._u_history],
-            plant_params={
-                "tau_room_min": self.plant_fine.params.tau_room_min,
-                "tau_rad_min": self.plant_fine.params.tau_rad_min,
-                "gain_heater": self.plant_fine.params.gain_heater,
-                "coupling_rad_room": self.plant_fine.params.coupling_rad_room,
-            },
             rg_v_C=self.governor.state(),
             last_t_s=self._last_t_s,
             next_mpc_t_s=self._next_mpc_t_s,
-            rls=None if self.rls is None else self.rls.export_state(),
         )
 
     def restore_snapshot(self, snap: ControllerSnapshot) -> None:
@@ -259,16 +224,11 @@ class MpcV2Controller:
         self.dob.D_hat_K_per_min = snap.D_hat_K_per_min
         self.optimiser.e_integral_K_min = snap.e_integral_K_min
         self._last_u = snap.last_u
-        for name, value in snap.plant_params.items():
-            if hasattr(self.plant_fine.params, name):
-                setattr(self.plant_fine.params, name, value)
         for u in snap.u_history:
             self._u_history.append(u)
         self.governor.restore(snap.rg_v_C)
         self._last_t_s = snap.last_t_s
         self._next_mpc_t_s = snap.next_mpc_t_s
-        if snap.rls is not None and self.rls is not None:
-            self.rls.restore_state(snap.rls)
         self._initialised = True
 
     def set_applied_u(self, u: float) -> None:
@@ -294,8 +254,6 @@ class MpcV2Controller:
             T_room_hat=float(self.kalman.x_hat[0]),
             T_rad_hat=float(self.kalman.x_hat[1]),
             D_hat_K_per_min=self.dob.D_hat_K_per_min,
-            rls_updates=self.rls.update_count if self.rls is not None else 0,
-            rls_skips=self.rls.skip_count if self.rls is not None else 0,
             tau_room_min=self.plant_fine.params.tau_room_min,
             coupling_rad_room=self.plant_fine.params.coupling_rad_room,
         )

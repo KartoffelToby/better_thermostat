@@ -441,9 +441,9 @@ def _replace_plant(scenario: ScenarioConfig, plant: PlantParams) -> ScenarioConf
 
 
 #: Factory keys for adapters that accept ``plant_params=`` and should
-#: receive the override. Other registered factories either ignore the
-#: override (e.g. the RLS-learning variants are meant to discover the
-#: plant from data) or take no constructor arguments.
+#: receive the override. Other registered factories either take no
+#: constructor arguments or take a different config object (e.g. mpc_v2
+#: takes ``MpcV2Params`` with a fixed plant prior).
 PLANT_AWARE_FACTORIES: set[str] = {"ideal_oracle"}
 
 

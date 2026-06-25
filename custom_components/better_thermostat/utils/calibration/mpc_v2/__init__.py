@@ -5,9 +5,9 @@ Entry point:
     compute_mpc_v2(inp, params, state) -> (MpcV2Output | None, MpcV2State)
 
 Internals live in :mod:`mpc_v2_internals` (plant model, Kalman observer,
-Smith predictor, disturbance observer, RLS identifier, reference governor,
-QP optimiser). Scope is direct-valve TRVs only; the indirect (offset-based)
-TRV family is out of scope.
+Smith predictor, disturbance observer, reference governor, QP optimiser).
+Scope is direct-valve TRVs only; the indirect (offset-based) TRV family is
+out of scope.
 """
 
 from __future__ import annotations

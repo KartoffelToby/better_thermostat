@@ -278,13 +278,4 @@ def collect_mpc_v2_debug_attrs(bt: TelemetrySource) -> dict[str, Any]:
         if (value := _to_float(debug.get(src_key))) is not None:
             out[dst_key] = round(value, decimals)
 
-    # Integer counters (RLS bookkeeping).
-    for src_key, dst_key in (
-        ("rls_updates", "mpc_v2_rls_updates"),
-        ("rls_skips", "mpc_v2_rls_skips"),
-    ):
-        raw = debug.get(src_key)
-        if isinstance(raw, (int, float)):
-            out[dst_key] = int(raw)
-
     return out

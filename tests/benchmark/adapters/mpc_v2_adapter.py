@@ -34,7 +34,7 @@ _KEY_COUNTER = count()
 
 
 class MpcV2Adapter:
-    """Benchmark adapter for the MPC v2 (QP + Kalman + RLS) controller."""
+    """Benchmark adapter for the MPC v2 (QP + Kalman) controller."""
 
     name: str = "mpc_v2"
     family: ControllerFamily = "valve"
