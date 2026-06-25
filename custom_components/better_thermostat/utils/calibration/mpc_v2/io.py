@@ -35,8 +35,6 @@ class MpcV2Diagnostics:
     T_room_hat: float
     T_rad_hat: float
     D_hat_K_per_min: float
-    rls_updates: int
-    rls_skips: int
     tau_room_min: float
     coupling_rad_room: float
 

@@ -9,7 +9,6 @@ from ..mpc_v2_internals.governor import GovernorParams
 from ..mpc_v2_internals.kalman import KalmanParams
 from ..mpc_v2_internals.plant import PlantParams
 from ..mpc_v2_internals.qp_optimiser import QpParams
-from ..mpc_v2_internals.rls import RlsParams
 
 
 @dataclass
@@ -24,17 +23,15 @@ class MpcV2Params:
     kalman: KalmanParams = field(default_factory=KalmanParams)
     dob: DobParams = field(default_factory=DobParams)
     qp: QpParams = field(default_factory=QpParams)
-    rls: RlsParams = field(default_factory=RlsParams)
     governor: GovernorParams = field(default_factory=GovernorParams)
-    # Observer / plant-simulation cadence (Kalman, Smith, RLS sampling).
-    # QP cadence lives on ``qp.step_s``.
+    # Observer / plant-simulation cadence (Kalman, Smith). QP cadence lives
+    # on ``qp.step_s``.
     plant_step_s: float = 30.0
-    enable_rls: bool = True
 
 
 # Static plant priors keyed roughly to room size / envelope speed. These
 # are alternatives to the AUTO path which derives ``tau_room_min`` from BT's
-# online learnings. RLS still adapts on top of whichever prior is chosen.
+# online learnings.
 PLANT_PRESETS: dict[str, PlantParams] = {
     "small_room": PlantParams(
         tau_room_min=240.0, tau_rad_min=10.0, gain_heater=2.5, coupling_rad_room=1.0
@@ -61,17 +58,14 @@ def make_plant_prior(
     1. If ``preset`` matches one of :data:`PLANT_PRESETS`, return that
        prior verbatim — the user explicitly opted out of auto-derivation.
     2. Otherwise derive ``tau_room_min`` from ``heat_loss_rate`` (assumed
-       at ``typical_delta_K`` outdoor delta), clamped into the RLS bounds.
+       at ``typical_delta_K`` outdoor delta), clamped to a plausible range.
     3. Fall back to ``PlantParams()`` defaults when neither input applies.
-
-    RLS still tunes the resulting prior online; the preset only sets the
-    *starting point* for the identifier.
     """
     if preset and preset in PLANT_PRESETS:
         return replace(PLANT_PRESETS[preset])
     params = PlantParams()
     if heat_loss_rate is not None and heat_loss_rate > 0.0:
         params.tau_room_min = max(60.0, min(2000.0, typical_delta_K / heat_loss_rate))
-    # heating_power not mapped yet — RLS adapts gain from the first cycle.
+    # heating_power not mapped yet — the gain stays at the prior default.
     _ = heating_power
     return params

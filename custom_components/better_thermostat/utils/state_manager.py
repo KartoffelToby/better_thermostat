@@ -395,7 +395,7 @@ class StateManager:
     def get_mpc_v2_live(self, key: str, params: MpcV2Params) -> MpcV2State:
         """Return the live MPC v2 controller state, building it on first use.
 
-        The live controller (Kalman/QP/RLS/governor) is kept in memory across
+        The live controller (Kalman/QP/governor) is kept in memory across
         control cycles. On first access it is rehydrated from the persisted
         snapshot (when one exists); thereafter the same instance is reused, so
         learned state is not rebuilt every cycle. Conversion to the persistable

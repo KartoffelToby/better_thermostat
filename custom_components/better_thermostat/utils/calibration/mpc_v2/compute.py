@@ -45,7 +45,7 @@ def compute_mpc_v2(
 
     ``now`` overrides the wall-clock used as the controller's ``t_s``.
     Production callers leave it ``None`` (real ``time.time()``); tests
-    pass a synthetic value so realistic dt-driven behaviour (DOB, RLS)
+    pass a synthetic value so realistic dt-driven behaviour (DOB)
     can be exercised without sleeping.
     """
     if now is None:
@@ -105,7 +105,7 @@ def compute_mpc_v2(
             _LOGGER.warning(
                 "better_thermostat %s: MPC v2 (%s) no outdoor_temp_C — falling "
                 "back to %.1f °C. Configure an outdoor sensor for accurate "
-                "feed-forward (u_ss + RLS regressor).",
+                "feed-forward (u_ss).",
                 inp.bt_name or "BT",
                 inp.entity_id or inp.key,
                 T_outdoor,

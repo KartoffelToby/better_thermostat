@@ -87,7 +87,6 @@ def test_diagnostics_exposed() -> None:
     assert out is not None
     diag = out.diagnostics
     assert diag.tau_room_min > 0
-    assert isinstance(diag.rls_updates, int)
     # Estimates are finite numbers once the controller has run a cycle.
     assert diag.T_room_hat == diag.T_room_hat  # not NaN
     assert diag.T_rad_hat == diag.T_rad_hat

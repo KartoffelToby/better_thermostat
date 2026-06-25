@@ -368,7 +368,7 @@ def _compute_mpc_balance(self, entity_id: str):
 
 
 def _compute_mpc_v2_balance(self, entity_id: str):
-    """Run the MPC v2 (QP + Kalman + RLS) balance algorithm.
+    """Run the MPC v2 (QP + Kalman) balance algorithm.
 
     Routes through ``compute_mpc_v2`` so the receding-horizon QP controller
     produces the valve recommendation. Multi-TRV setups use the shared
