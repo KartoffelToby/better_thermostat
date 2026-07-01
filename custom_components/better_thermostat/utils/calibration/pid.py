@@ -270,10 +270,11 @@ def compute_pid(
                     d_meas = (smoothed - prev) / dt
                     d_term = -float(st.pid_kd) * d_meas
                 # Stored (smoothed) measurement is updated after the u calculation below
-    # Derivative on error (needs the last error, approximated via the last measurement)
-    elif dt > 0 and st.pid_last_meas is not None:
-        last_e = inp_target_temp_C - st.pid_last_meas
-        d_err = (e - last_e) / dt
+    # Derivative on error: use the previous cycle's stored error so a setpoint
+    # change produces a derivative kick. This is what distinguishes the mode
+    # from derivative-on-measurement above, where the setpoint term cancels.
+    elif dt > 0 and st.pid_last_error is not None:
+        d_err = (e - st.pid_last_error) / dt
         d_term = float(st.pid_kd) * d_err
 
     # Update the slope EMA in PID mode too (for logging/diagnostics)
@@ -551,6 +552,9 @@ def sanitize_pid_state(
         pathology = "non-finite state"
     if not _finite(state.pid_last_meas):
         state.pid_last_meas = None
+        pathology = "non-finite state"
+    if not _finite(state.pid_last_error):
+        state.pid_last_error = None
         pathology = "non-finite state"
     for gain_attr in ("pid_kp", "pid_ki", "pid_kd"):
         if not _finite(getattr(state, gain_attr)):

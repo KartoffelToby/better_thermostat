@@ -418,6 +418,40 @@ class TestPIDController:
         assert debug["meas_current_used"] is not None
         assert debug["meas_external_raw"] is not None
 
+    def test_derivative_on_error_setpoint_kick(self):
+        """Derivative-on-error reacts to a setpoint change, unlike on-measurement.
+
+        With ``d_on_measurement=False`` the D channel must use the stored
+        previous error (``pid_last_error``). Holding the measurement fixed
+        while the target jumps therefore produces a non-zero derivative kick;
+        reconstructing the error from the *current* target instead would cancel
+        the setpoint term and collapse the mode to derivative-on-measurement.
+        """
+        params = PIDParams(
+            auto_tune=False, kd=5.0, min_hold_time_s=0.0, d_on_measurement=False
+        )
+        # First call initializes pid_last_error (= 2.0); no derivative yet.
+        self._compute(
+            params=params,
+            inp_target_temp_C=22.0,
+            inp_current_temp_C=20.0,
+            inp_trv_temp_C=21.0,
+            inp_temp_slope_K_per_min=0.0,
+            key="test_deriv_err",
+        )
+        # Target jumps +1 K while the measurement stays at 20.0: error rises
+        # 2.0 -> 3.0, so d = kd * (3-2)/dt with dt clamped to 1.0.
+        _, debug, state = self._compute(
+            params=params,
+            inp_target_temp_C=23.0,
+            inp_current_temp_C=20.0,
+            inp_trv_temp_C=21.0,
+            inp_temp_slope_K_per_min=0.0,
+            key="test_deriv_err",
+        )
+        assert debug["d"] == 5.0
+        assert state.pid_last_error == 3.0
+
     def test_hold_time_blocks_small_changes(self):
         """Test that hold-time blocks small output changes within the hold period."""
         # Use short hold time for testing, but long enough to block

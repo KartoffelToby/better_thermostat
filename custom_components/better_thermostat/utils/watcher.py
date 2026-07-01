@@ -379,8 +379,6 @@ async def await_critical_entities(
         Entity IDs of critical entities that are still unavailable after all
         retries have been exhausted (empty if all came online).
     """
-    import asyncio
-
     if _sleep is None:
         _sleep = asyncio.sleep
 

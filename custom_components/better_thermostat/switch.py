@@ -223,12 +223,13 @@ class BetterThermostatChildLockSwitch(SwitchEntity, RestoreEntity):
 
         device_id = reg_entity.device_id
 
-        # Look for switch (Z2M) or lock
+        # Look for switch (Z2M) or lock. Prefer child-lock-specific names and
+        # only fall back to a bare "lock" match, so a device exposing several
+        # lock entities does not select the wrong one.
         cl_entity = find_device_entity(
-            entity_registry,
-            device_id,
-            ["switch", "lock"],
-            ["child_lock", "child lock", "lock"],
+            entity_registry, device_id, ["switch", "lock"], ["child_lock", "child lock"]
+        ) or find_device_entity(
+            entity_registry, device_id, ["switch", "lock"], ["lock"]
         )
 
         if cl_entity:

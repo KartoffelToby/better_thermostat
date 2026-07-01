@@ -43,12 +43,14 @@ def test_single_member_always_true():
 
 
 def test_all_off_true():
+    """Every member reporting off -> the group counts as off."""
     members = {f"climate.{n}": _member() for n in ("a", "b", "c")}
     states = {f"climate.{n}": _state(f"climate.{n}", "off") for n in ("a", "b", "c")}
     assert group_all_members_off(_fake_self(members, states)) is True
 
 
 def test_mixed_false():
+    """A single member still heating blocks the group-off verdict."""
     members = {"climate.a": _member(), "climate.b": _member()}
     states = {
         "climate.a": _state("climate.a", "off"),
@@ -58,6 +60,7 @@ def test_mixed_false():
 
 
 def test_no_off_all_at_min_true():
+    """no_off members all at min_temp count as off."""
     members = {"climate.a": _member(no_off=True), "climate.b": _member(no_off=True)}
     states = {
         "climate.a": _state("climate.a", "heat", temperature=5.0),
@@ -67,6 +70,7 @@ def test_no_off_all_at_min_true():
 
 
 def test_no_off_one_above_min_false():
+    """One no_off member above min_temp blocks the group-off verdict."""
     members = {"climate.a": _member(no_off=True), "climate.b": _member(no_off=True)}
     states = {
         "climate.a": _state("climate.a", "heat", temperature=5.0),
