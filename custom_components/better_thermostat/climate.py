@@ -32,6 +32,7 @@ from homeassistant.const import (
     CONF_NAME,
     STATE_UNAVAILABLE,
     STATE_UNKNOWN,
+    Platform,
     UnitOfTemperature,
 )
 from homeassistant.core import CALLBACK_TYPE, Context, ServiceCall, State, callback
@@ -62,6 +63,7 @@ from .adapters.delegate import (
     set_hvac_mode as adapter_set_hvac_mode,
     set_temperature as adapter_set_temperature,
 )
+from .device_binding import async_bind_trv_device
 from .events.cooler import trigger_cooler_change
 from .events.temperature import trigger_temperature_change
 from .events.trv import trigger_trv_change
@@ -116,6 +118,7 @@ from .utils.const import (
 )
 from .utils.controlling import control_queue, control_trv
 from .utils.helpers import (
+    async_normalize_bt_entity_ids,
     attr_to_celsius,
     convert_to_float,
     convert_to_float_celsius,
@@ -253,6 +256,7 @@ async def async_setup_entry(hass, entry, async_add_entities):
         state_class="better_thermostat_state",
     )
     hass.data[DOMAIN][entry.entry_id]["climate"] = bt_entity
+    async_normalize_bt_entity_ids(hass, entry, Platform.CLIMATE)
     async_add_entities([bt_entity])
     _LOGGER.debug(
         "better_thermostat %s: async_setup_entry finished creating entity",
@@ -1726,6 +1730,14 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
         self.startup_running = False
         self._available = True
         self.async_write_ha_state()
+
+        if isinstance(self.all_trvs, list):
+            for trv_conf in self.all_trvs:
+                trv_id = trv_conf.get("trv")
+                if trv_id:
+                    await async_bind_trv_device(
+                        self.hass, self._unique_id, trv_id, self._config_entry_id
+                    )
 
         _LOGGER.debug("better_thermostat %s: sleeping 15s...", self.device_name)
         await asyncio.sleep(15)

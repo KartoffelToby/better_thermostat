@@ -54,8 +54,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         )
     except Exception:
         _LOGGER.exception(
-            "better_thermostat: error loading platforms for entry %s",
-            entry.entry_id,
+            "better_thermostat: error loading platforms for entry %s", entry.entry_id
         )
         return False
     entry.async_on_unload(entry.add_update_listener(config_entry_update_listener))

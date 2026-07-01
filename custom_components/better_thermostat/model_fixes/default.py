@@ -58,9 +58,7 @@ async def initial_tweak(self, entity_id):
         device_id = reg_entity.device_id
 
         def find_entity(domains, keywords):
-            return find_device_entity(
-                entity_registry, device_id, domains, keywords
-            )
+            return find_device_entity(entity_registry, device_id, domains, keywords)
 
         # 1. Local calibration -> 0
         cal_entity = find_entity(

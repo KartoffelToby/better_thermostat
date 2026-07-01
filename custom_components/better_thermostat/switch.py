@@ -6,7 +6,7 @@ import logging
 
 from homeassistant.components.switch import SwitchEntity
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.const import STATE_OFF, STATE_ON, EntityCategory
+from homeassistant.const import STATE_OFF, STATE_ON, EntityCategory, Platform
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
@@ -20,7 +20,7 @@ from .utils.calibration.pid import (
     resolve_unique_id,
 )
 from .utils.const import CONF_CALIBRATION_MODE, DOMAIN, CalibrationMode
-from .utils.helpers import find_device_entity
+from .utils.helpers import async_normalize_bt_entity_ids, find_device_entity
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -76,6 +76,7 @@ async def async_setup_entry(
         len(switch_unique_ids),
     )
 
+    async_normalize_bt_entity_ids(hass, entry, Platform.SWITCH)
     async_add_entities(switches)
 
 

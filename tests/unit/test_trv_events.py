@@ -1450,3 +1450,260 @@ class TestConvertOutboundStates:
             result = convert_outbound_states(mock_bt, ENTITY_ID, HVACMode.HEAT)
 
         assert result is None
+
+
+# ---------------------------------------------------------------------------
+# 6. Grouped-TRV mode adoption (quorum-gated OFF)
+# ---------------------------------------------------------------------------
+
+GRP_IDS = ["climate.grp_trv1", "climate.grp_trv2", "climate.grp_trv3"]
+
+
+def _grp_state(entity_id, state_str, temperature=19.0, current=18.0):
+    """Build an HA State for a grouped-TRV test member."""
+    return State(
+        entity_id,
+        state_str,
+        attributes={"current_temperature": current, "temperature": temperature},
+    )
+
+
+def _make_group_bt(entity_ids, *, no_off=False, bt_hvac_mode=HVACMode.HEAT):
+    """Build a mock BetterThermostat controlling several TRVs.
+
+    Mirrors the single-TRV ``mock_bt`` fixture but with an arbitrary number of
+    members so the group-quorum logic can be exercised.
+    """
+    bt = MagicMock()
+    bt.hass = MagicMock()
+    bt.device_name = "Grouped Thermostat"
+    bt.bt_hvac_mode = bt_hvac_mode
+    bt.bt_target_temp = 19.0
+    bt.bt_min_temp = 5.0
+    bt.bt_max_temp = 30.0
+    bt.bt_target_cooltemp = 25.0
+    bt.bt_target_temp_step = 0.5
+    bt.cur_temp = 18.0
+    bt.window_open = False
+    bt.tolerance = 0.3
+    bt.startup_running = False
+    bt.control_queue_task = AsyncMock()
+    bt.bt_update_lock = False
+    bt.cooler_entity_id = None
+    bt.ignore_states = False
+    bt.context = MagicMock()
+    bt.last_internal_sensor_change = dt_util.now() - timedelta(seconds=60)
+    bt.async_write_ha_state = MagicMock()
+    bt.all_trvs = [{"advanced": {CONF_HOMEMATICIP: False}} for _ in entity_ids]
+
+    bt.real_trvs = {
+        eid: Trv.from_legacy_dict(
+            eid,
+            {
+                "hvac_mode": HVACMode.HEAT,
+                "hvac_modes": [HVACMode.OFF, HVACMode.HEAT],
+                "min_temp": 5.0,
+                "max_temp": 30.0,
+                "current_temperature": 18.0,
+                "temperature": 19.0,
+                "last_temperature": 19.0,
+                "last_hvac_mode": "heat",
+                "target_temp_received": True,
+                "system_mode_received": True,
+                "calibration_received": True,
+                "calibration": 1,
+                "last_calibration": 0.0,
+                "ignore_trv_states": False,
+                "model": "SomeModel",
+                "model_quirks": None,
+                "hvac_action": "heating",
+                "valve_position": 50,
+                "advanced": {
+                    "calibration": CalibrationType.LOCAL_BASED,
+                    "calibration_mode": CalibrationMode.DEFAULT,
+                    "no_off_system_mode": no_off,
+                    "heat_auto_swapped": False,
+                    "child_lock": False,
+                },
+            },
+        )
+        for eid in entity_ids
+    }
+    return bt
+
+
+def _install_states(bt, states):
+    """Route ``bt.hass.states.get`` to a per-entity mapping."""
+    bt.hass.states.get.side_effect = states.get
+
+
+class TestGroupedModeAdoption:
+    """Quorum-gated OFF adoption for BT instances with several TRVs."""
+
+    @pytest.mark.asyncio
+    async def test_group_off_not_adopted_when_others_heat(self):
+        """One valve reporting off must not switch a heating group off."""
+        trigger, other1, other2 = GRP_IDS
+        bt = _make_group_bt(GRP_IDS)
+        _install_states(
+            bt,
+            {
+                trigger: _grp_state(trigger, "off"),
+                other1: _grp_state(other1, "heat"),
+                other2: _grp_state(other2, "heat"),
+            },
+        )
+        bt.real_trvs[trigger].hvac_mode = "heat"
+        bt.real_trvs[trigger].last_hvac_mode = "heat"
+
+        event = _make_event(
+            bt,
+            new_state=_grp_state(trigger, "off"),
+            old_state=_grp_state(trigger, "heat"),
+            entity_id=trigger,
+        )
+        with patch(
+            "custom_components.better_thermostat.events.trv.convert_inbound_states",
+            return_value=HVACMode.OFF,
+        ):
+            await trigger_trv_change(bt, event)
+
+        assert bt.bt_hvac_mode == HVACMode.HEAT
+
+    @pytest.mark.asyncio
+    async def test_group_off_adopted_when_all_off(self):
+        """The group switches off only when every member reports off."""
+        trigger = GRP_IDS[0]
+        bt = _make_group_bt(GRP_IDS)
+        _install_states(bt, {eid: _grp_state(eid, "off") for eid in GRP_IDS})
+        bt.real_trvs[trigger].hvac_mode = "heat"
+        bt.real_trvs[trigger].last_hvac_mode = "heat"
+
+        event = _make_event(
+            bt,
+            new_state=_grp_state(trigger, "off"),
+            old_state=_grp_state(trigger, "heat"),
+            entity_id=trigger,
+        )
+        with patch(
+            "custom_components.better_thermostat.events.trv.convert_inbound_states",
+            return_value=HVACMode.OFF,
+        ):
+            await trigger_trv_change(bt, event)
+
+        assert bt.bt_hvac_mode == HVACMode.OFF
+
+    @pytest.mark.asyncio
+    async def test_group_on_adopted_from_single_valve(self):
+        """A single valve turning on still switches the whole group on."""
+        trigger, other1, other2 = GRP_IDS
+        bt = _make_group_bt(GRP_IDS, bt_hvac_mode=HVACMode.OFF)
+        _install_states(
+            bt,
+            {
+                trigger: _grp_state(trigger, "heat"),
+                other1: _grp_state(other1, "off"),
+                other2: _grp_state(other2, "off"),
+            },
+        )
+        bt.real_trvs[trigger].hvac_mode = "off"
+        bt.real_trvs[trigger].last_hvac_mode = "off"
+
+        event = _make_event(
+            bt,
+            new_state=_grp_state(trigger, "heat"),
+            old_state=_grp_state(trigger, "off"),
+            entity_id=trigger,
+        )
+        with patch(
+            "custom_components.better_thermostat.events.trv.convert_inbound_states",
+            return_value=HVACMode.HEAT,
+        ):
+            await trigger_trv_change(bt, event)
+
+        assert bt.bt_hvac_mode == HVACMode.HEAT
+
+    @pytest.mark.asyncio
+    async def test_single_trv_off_still_adopted(self):
+        """Single-TRV instances keep the historical single-valve behavior."""
+        only = "climate.solo_trv"
+        bt = _make_group_bt([only])
+        _install_states(bt, {only: _grp_state(only, "off")})
+        bt.real_trvs[only].hvac_mode = "heat"
+        bt.real_trvs[only].last_hvac_mode = "heat"
+
+        event = _make_event(
+            bt,
+            new_state=_grp_state(only, "off"),
+            old_state=_grp_state(only, "heat"),
+            entity_id=only,
+        )
+        with patch(
+            "custom_components.better_thermostat.events.trv.convert_inbound_states",
+            return_value=HVACMode.OFF,
+        ):
+            await trigger_trv_change(bt, event)
+
+        assert bt.bt_hvac_mode == HVACMode.OFF
+
+
+class TestGroupedNoOffAdoption:
+    """Quorum-gated OFF for no_off_system_mode groups (min_temp means off)."""
+
+    _IDS = ["climate.hm_trv1", "climate.hm_trv2"]
+
+    @pytest.mark.asyncio
+    async def test_no_off_group_not_off_when_other_above_min(self):
+        """One no_off valve at min_temp must not switch the group off."""
+        trigger, other = self._IDS
+        bt = _make_group_bt(self._IDS, no_off=True, bt_hvac_mode=HVACMode.HEAT)
+        _install_states(
+            bt,
+            {
+                trigger: _grp_state(trigger, "heat", temperature=5.0),
+                other: _grp_state(other, "heat", temperature=20.0),
+            },
+        )
+        bt.real_trvs[trigger].hvac_mode = "heat"  # keep HVAC-mode block a no-op
+
+        event = _make_event(
+            bt,
+            new_state=_grp_state(trigger, "heat", temperature=5.0),
+            old_state=_grp_state(trigger, "heat", temperature=19.0),
+            entity_id=trigger,
+        )
+        with patch(
+            "custom_components.better_thermostat.events.trv.convert_inbound_states",
+            return_value=None,
+        ):
+            await trigger_trv_change(bt, event)
+
+        assert bt.bt_hvac_mode == HVACMode.HEAT
+
+    @pytest.mark.asyncio
+    async def test_no_off_group_off_when_all_at_min(self):
+        """The group switches off when every no_off member is at min_temp."""
+        trigger, other = self._IDS
+        bt = _make_group_bt(self._IDS, no_off=True, bt_hvac_mode=HVACMode.HEAT)
+        _install_states(
+            bt,
+            {
+                trigger: _grp_state(trigger, "heat", temperature=5.0),
+                other: _grp_state(other, "heat", temperature=5.0),
+            },
+        )
+        bt.real_trvs[trigger].hvac_mode = "heat"
+
+        event = _make_event(
+            bt,
+            new_state=_grp_state(trigger, "heat", temperature=5.0),
+            old_state=_grp_state(trigger, "heat", temperature=19.0),
+            entity_id=trigger,
+        )
+        with patch(
+            "custom_components.better_thermostat.events.trv.convert_inbound_states",
+            return_value=None,
+        ):
+            await trigger_trv_change(bt, event)
+
+        assert bt.bt_hvac_mode == HVACMode.OFF

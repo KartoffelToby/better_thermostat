@@ -31,6 +31,7 @@ from custom_components.better_thermostat.utils.helpers import (
     attr_to_celsius,
     convert_to_float,
     get_device_model,
+    group_all_members_off,
     is_reasonable_temperature,
     mode_remap,
 )
@@ -260,6 +261,7 @@ async def trigger_trv_change(self, event):
                 child_lock is False
                 and trv.system_mode_received is True
                 and trv.last_hvac_mode != _org_trv_state.state
+                and (mapped_state != HVACMode.OFF or group_all_members_off(self))
             ):
                 self.bt_hvac_mode = mapped_state
 
@@ -308,7 +310,7 @@ async def trigger_trv_change(self, event):
         _step_raw = trv.target_temp_step or self.bt_target_temp_step or 0.5
         try:
             _step = float(_step_raw)
-        except (TypeError, ValueError):
+        except TypeError, ValueError:
             _step = 0.5
         if _step <= 0:
             _step = 0.5
@@ -374,8 +376,10 @@ async def trigger_trv_change(self, event):
         if trv.advanced.get("no_off_system_mode", False):
             if _new_heating_setpoint == trv.min_temp:
                 # Only set OFF if window is NOT open - min_temp during window
-                # open was set by BT, not by user turning off heating
-                if not self.window_open:
+                # open was set by BT, not by user turning off heating - and only
+                # when the whole group agrees, so a single no_off valve dropping
+                # to min_temp cannot switch the room off.
+                if not self.window_open and group_all_members_off(self):
                     if self.bt_hvac_mode != HVACMode.OFF:
                         _LOGGER.debug(
                             "better_thermostat %s: TRV %s reported min_temp %s on a "

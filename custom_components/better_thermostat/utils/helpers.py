@@ -10,15 +10,23 @@ import re
 from typing import Any
 
 from homeassistant.components.climate.const import HVACMode
-from homeassistant.const import UnitOfTemperature
-from homeassistant.core import State
+from homeassistant.config_entries import ConfigEntry
+from homeassistant.const import (
+    CONF_NAME,
+    STATE_UNAVAILABLE,
+    STATE_UNKNOWN,
+    Platform,
+    UnitOfTemperature,
+)
+from homeassistant.core import HomeAssistant, State, callback
 from homeassistant.helpers import device_registry as dr, entity_registry as er
 from homeassistant.helpers.entity_registry import async_entries_for_config_entry
-from homeassistant.util import dt as dt_util
+from homeassistant.util import dt as dt_util, slugify
 from homeassistant.util.unit_conversion import TemperatureConverter
 
 from custom_components.better_thermostat.utils.const import (
     CONF_HEAT_AUTO_SWAPPED,
+    DOMAIN,
     MAX_HEATING_POWER,
     MAX_REASONABLE_TEMPERATURE,
     MIN_HEATING_POWER,
@@ -62,6 +70,54 @@ def find_device_entity(
         ):
             return ent.entity_id
     return None
+
+
+@callback
+def async_normalize_bt_entity_ids(
+    hass: HomeAssistant, entry: ConfigEntry, domain: str
+) -> None:
+    """Rename stale BT registry entries so their entity_id tracks the name.
+
+    HA's entity registry reuses the existing entry on reload (unique id ==
+    config entry id), so the entity_id is frozen at first creation while only
+    the friendly name follows the device. Blueprints/automations that reference
+    ``<domain>.bt_<room>`` then miss. Rename each existing entry to the id HA
+    would generate from the current name, before the platform re-adds the
+    entities (which reuse the now-correct id).
+
+    For the climate entity the device does not exist yet at this point in
+    setup, so the desired id is derived directly from the configured name.
+    For the auxiliary platforms the device already exists (climate set it up
+    first), so HA's own ``async_regenerate_entity_id`` is used.
+    """
+    registry = er.async_get(hass)
+    # The registry is populated lazily on first load; with a mocked hass
+    # (unit tests) it is an unloaded shell without ``.entities``, so there is
+    # nothing to rename.
+    if not hasattr(registry, "entities"):
+        return
+    for reg_entry in registry.entities.get_entries_for_config_entry_id(entry.entry_id):
+        if reg_entry.platform != DOMAIN or reg_entry.domain != domain:
+            continue
+        if domain == Platform.CLIMATE:
+            object_id = slugify(entry.data.get(CONF_NAME) or "better_thermostat")
+            desired = registry.async_get_available_entity_id(
+                domain, object_id, current_entity_id=reg_entry.entity_id
+            )
+        else:
+            desired = registry.async_regenerate_entity_id(reg_entry)
+        if desired == reg_entry.entity_id:
+            continue
+        try:
+            registry.async_update_entity(reg_entry.entity_id, new_entity_id=desired)
+        except ValueError as err:
+            _LOGGER.warning(
+                "better_thermostat %s: could not rename %s to %s: %s",
+                entry.data.get(CONF_NAME),
+                reg_entry.entity_id,
+                desired,
+                err,
+            )
 
 
 def normalize_calibration_mode(
@@ -230,6 +286,49 @@ def mode_remap(self, entity_id, hvac_mode: str, inbound: bool = False) -> str:
         hvac_mode,
     )
     return HVACMode.OFF
+
+
+def group_all_members_off(self) -> bool:
+    """Whether every available group member is effectively off.
+
+    Gates group-wide "switch off" adoptions so a single valve entering frost
+    protection (reported as ``off`` in HA) or a single ``no_off_system_mode``
+    valve dropping to its minimum temperature cannot turn the whole room off.
+    Single-TRV instances always agree, preserving historical behavior.
+
+    A member counts as off when its reported HVAC state is ``off`` or, for a
+    ``no_off_system_mode`` device (which never reports ``off``), when its
+    current setpoint has dropped to that device's minimum temperature.
+    """
+    trv_ids = list(self.real_trvs.keys())
+    if len(trv_ids) <= 1:
+        return True
+
+    saw_member = False
+    for entity_id in trv_ids:
+        state = self.hass.states.get(entity_id)
+        if state is None or state.state in (STATE_UNAVAILABLE, STATE_UNKNOWN, None):
+            continue
+        saw_member = True
+        if state.state == HVACMode.OFF:
+            continue
+        member = self.real_trvs.get(entity_id)
+        if member is not None and (member.advanced or {}).get(
+            "no_off_system_mode", False
+        ):
+            setpoint = convert_to_float(
+                str(state.attributes.get("temperature")),
+                self.device_name,
+                "group_all_members_off()",
+            )
+            if (
+                setpoint is not None
+                and member.min_temp is not None
+                and setpoint <= member.min_temp
+            ):
+                continue
+        return False
+    return saw_member
 
 
 def heating_power_valve_position(self, entity_id):

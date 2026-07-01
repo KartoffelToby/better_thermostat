@@ -7,7 +7,7 @@ import logging
 from homeassistant.components.climate.const import PRESET_NONE
 from homeassistant.components.number import NumberDeviceClass, NumberEntity, NumberMode
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.const import EntityCategory, UnitOfTemperature
+from homeassistant.const import EntityCategory, Platform, UnitOfTemperature
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.restore_state import RestoreEntity
@@ -26,7 +26,7 @@ from .utils.const import (
     CalibrationMode,
     CalibrationType,
 )
-from .utils.helpers import convert_to_float_celsius
+from .utils.helpers import async_normalize_bt_entity_ids, convert_to_float_celsius
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -112,6 +112,7 @@ async def async_setup_entry(
         len(pid_unique_ids),
     )
 
+    async_normalize_bt_entity_ids(hass, entry, Platform.NUMBER)
     async_add_entities(numbers)
 
 
