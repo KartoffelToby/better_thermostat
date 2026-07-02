@@ -143,7 +143,7 @@
     },
     "reset_pid_learnings": {
       "name": "PID öğrenmelerini sıfırla",
-      "description": "Bu varlık için öğrenilen tüm PID durumunu (ve isteğe bağlı olarak öğrenilen açıklık sınırlarını) temizler.",
+      "description": "Bu varlık için öğrenilen tüm PID durumunu temizler.",
       "fields": {
         "apply_pid_defaults": {
           "name": "Sıfırlamadan sonra PID varsayılanlarını uygula",

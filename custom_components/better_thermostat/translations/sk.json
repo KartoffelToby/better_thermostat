@@ -143,7 +143,7 @@
     },
     "reset_pid_learnings": {
       "name": "Vynulovať naučené hodnoty PID",
-      "description": "Vymaže všetok naučený stav PID (a voliteľne naučené limity otvorenia) pre túto entitu.",
+      "description": "Vymaže všetok naučený stav PID pre túto entitu.",
       "fields": {
         "apply_pid_defaults": {
           "name": "Po vynulovaní použiť predvolené hodnoty PID",

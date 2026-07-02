@@ -143,7 +143,7 @@
     },
     "reset_pid_learnings": {
       "name": "Réinitialiser l'apprentissage PID",
-      "description": "Efface tout l'état PID appris (et éventuellement les limites d'ouverture apprises) pour cette entité.",
+      "description": "Efface tout l'état PID appris pour cette entité.",
       "fields": {
         "apply_pid_defaults": {
           "name": "Appliquer les valeurs PID par défaut après la réinitialisation",
