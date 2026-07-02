@@ -44,27 +44,46 @@ def fix_target_temperature_calibration(self, entity_id, temperature):
 
 
 async def override_set_hvac_mode(self, entity_id, hvac_mode):
-    """No special handling required for TRVZB when setting hvac mode."""
-    await self.hass.services.async_call(
-        "climate",
-        "set_hvac_mode",
-        {"entity_id": entity_id, "hvac_mode": hvac_mode},
-        blocking=True,
-        context=self.context,
-    )
-    return True
+    """No special HVAC mode handling for TRVZB; the generic adapter performs the write.
+
+    Parameters
+    ----------
+    self :
+            self instance of better_thermostat
+    entity_id : str
+            entity_id of the TRV
+    hvac_mode : str
+            the HVAC mode to set
+
+    Returns
+    -------
+    bool
+            False, always: the generic adapter fallback performs the
+            service call, including its retry handling
+    """
+    return False
 
 
 async def override_set_temperature(self, entity_id, temperature):
-    """No special setpoint handling required; ensure manual preset if needed."""
-    await self.hass.services.async_call(
-        "climate",
-        "set_temperature",
-        {"entity_id": entity_id, "temperature": temperature},
-        blocking=True,
-        context=self.context,
-    )
-    return True
+    """No special setpoint handling for TRVZB; the generic adapter performs the write.
+
+    Parameters
+    ----------
+    self :
+            self instance of better_thermostat
+    entity_id : str
+            entity_id of the TRV
+    temperature : float
+            the target temperature to set
+
+    Returns
+    -------
+    bool
+            False, always: the generic adapter fallback performs the
+            service call, including step rounding and system-unit
+            conversion
+    """
+    return False
 
 
 async def maybe_set_sonoff_valve_percent(self, entity_id, percent: int) -> bool:
