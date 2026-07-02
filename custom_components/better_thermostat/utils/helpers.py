@@ -1016,6 +1016,11 @@ _CALIBRATION_TRANSLATION_KEYS: set[str] = {
     "offset",
 }
 
+# Domains the calibration write path can address (number.set_value or
+# select option handling).  Read-only entities such as the Zigbee2MQTT
+# sensor.*_local_temperature must never be picked as calibration target.
+_CALIBRATION_ENTITY_DOMAINS: set[str] = {"number", "select"}
+
 
 async def find_local_calibration_entity(self, entity_id):
     """Find the local calibration entity for the TRV.
@@ -1023,6 +1028,8 @@ async def find_local_calibration_entity(self, entity_id):
     Uses the entity registry's ``translation_key`` and ``original_name``
     for a stable, language-independent lookup.  Falls back to the legacy
     unique_id / entity_id string matching for older integrations.
+    Only writable candidates (``number`` or ``select`` entities) are
+    considered.
 
     Parameters
     ----------
@@ -1051,6 +1058,8 @@ async def find_local_calibration_entity(self, entity_id):
     for entity in entity_entries:
         if entity.device_id != reg_entity.device_id:
             continue
+        if entity.domain not in _CALIBRATION_ENTITY_DOMAINS:
+            continue
         tk = getattr(entity, "translation_key", None)
         if tk and tk in _CALIBRATION_TRANSLATION_KEYS:
             _LOGGER.debug(
@@ -1063,17 +1072,15 @@ async def find_local_calibration_entity(self, entity_id):
             break
 
     # Second pass: fallback to string matching on unique_id / entity_id / original_name.
-    # Restricted to the "number" domain: only number entities are writable
-    # calibration controls, so a read-only sensor sharing the same substring
-    # (e.g. sensor.*_local_temperature) is never a valid match here. Without
-    # this restriction the winner depended on registry iteration order, which
-    # is not a guaranteed order.
+    # Restricted to writable calibration domains: a read-only sensor sharing
+    # the same substring (e.g. sensor.*_local_temperature) is never a valid
+    # match, and without the restriction the winner depended on registry
+    # iteration order, which is not guaranteed.
     if calibration_entity is None:
         for entity in entity_entries:
             if entity.device_id != reg_entity.device_id:
                 continue
-            domain = (entity.entity_id or "").split(".", 1)[0]
-            if domain != "number":
+            if entity.domain not in _CALIBRATION_ENTITY_DOMAINS:
                 continue
             descriptor = f"{entity.unique_id} {entity.entity_id} {getattr(entity, 'original_name', '') or ''}".lower()
             if (
