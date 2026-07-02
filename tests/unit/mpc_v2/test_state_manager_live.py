@@ -12,8 +12,8 @@ import pytest
 
 pytest.importorskip("daqp")
 
-from custom_components.better_thermostat.utils.calibration.mpc import MpcInput
 from custom_components.better_thermostat.utils.calibration.mpc_v2 import (
+    MpcV2Input,
     MpcV2Params,
     MpcV2State,
     compute_mpc_v2,
@@ -31,7 +31,7 @@ def _make_manager() -> StateManager:
 def _warm(state: MpcV2State) -> MpcV2State:
     """Run one compute cycle so the state holds a live controller."""
     _out, state = compute_mpc_v2(
-        MpcInput(
+        MpcV2Input(
             key="k",
             target_temp_C=22.0,
             current_temp_C=19.0,
