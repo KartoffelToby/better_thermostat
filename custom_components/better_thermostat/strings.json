@@ -11,10 +11,13 @@
           "temperature_sensor": "Temperature sensor",
           "humidity_sensor": "Humidity sensor",
           "window_sensors": "Window sensor",
+          "door_sensors": "Door sensor",
           "off_temperature": "The outdoor temperature when the thermostat should turn off",
           "tolerance": "Tolerance, to prevent the thermostat from turning on and off too often",
           "window_off_delay": "Delay before the thermostat should turn off when the window is opened",
           "window_off_delay_after": "Delay before the thermostat should turn on when the window is closed",
+          "door_off_delay": "Delay before the thermostat should turn off when the door is opened",
+          "door_off_delay_after": "Delay before the thermostat should turn on when the door is closed",
           "outdoor_sensor": "Outdoor temperature sensor",
           "weather": "Weather entity to get the outdoor temperature",
           "target_temp_step": "Target temperature step",
@@ -69,10 +72,13 @@
           "temperature_sensor": "Temperature Sensor",
           "humidity_sensor": "Humidity sensor",
           "window_sensors": "Window Sensor",
+          "door_sensors": "Door sensor",
           "off_temperature": "The outdoor temperature when the thermostat should turn off",
           "tolerance": "Tolerance, to prevent the thermostat from turning on and off too often",
           "window_off_delay": "Delay before the thermostat should turn off when the window is opened",
           "window_off_delay_after": "Delay before the thermostat should turn on when the window is closed",
+          "door_off_delay": "Delay before the thermostat should turn off when the door is opened",
+          "door_off_delay_after": "Delay before the thermostat should turn on when the door is closed",
           "outdoor_sensor": "Outdoor temperature sensor",
           "weather": "Weather entity to get the outdoor temperature",
           "target_temp_step": "Target temperature step",
@@ -126,6 +132,10 @@
     "invalid_window_state": {
       "title": "BT: {name} - invalid window sensor state",
       "description": "The window sensor for Better Thermostat {name} reported an unrecognized state: {state}.\n\nExpected states are: 'on', 'off', 'true', 'false', 'open', 'closed'.\n\nPlease check your window sensor configuration."
+    },
+    "invalid_door_state": {
+      "title": "BT: {name} - invalid door sensor state",
+      "description": "The door sensor for Better Thermostat {name} reported an unrecognized state: {state}.\n\nExpected states are: 'on', 'off', 'true', 'false', 'open', 'closed'.\n\nPlease check your door sensor configuration."
     },
     "invalid_external_temperature": {
       "title": "BT: {name} - invalid external temperature",

@@ -32,7 +32,7 @@ from custom_components.better_thermostat.utils.controlling import control_trv
 _CTRL = "custom_components.better_thermostat.utils.controlling"
 _PATCHES = {
     "convert_outbound_states": f"{_CTRL}.convert_outbound_states",
-    "handle_window_open": f"{_CTRL}.handle_window_open",
+    "handle_contact_open": f"{_CTRL}.handle_contact_open",
     "set_hvac_mode": f"{_CTRL}.set_hvac_mode",
     "set_temperature": f"{_CTRL}.set_temperature",
     "set_offset": f"{_CTRL}.set_offset",
@@ -83,6 +83,8 @@ def _make_mock_self(trv_state=None, trv_attrs=None, real_trvs=None, **kwargs):
     mock_self.calculate_heating_power = AsyncMock()
     mock_self.bt_hvac_mode = kwargs.pop("bt_hvac_mode", HVACMode.HEAT)
     mock_self.window_open = kwargs.pop("window_open", False)
+    mock_self.door_open = kwargs.pop("door_open", False)
+    mock_self.contact_open = bool(mock_self.window_open) or bool(mock_self.door_open)
     mock_self.call_for_heat = kwargs.pop("call_for_heat", True)
     mock_self.cooler_entity_id = kwargs.pop("cooler_entity_id", None)
     mock_self.preset_mode = kwargs.pop("preset_mode", None)
@@ -147,7 +149,7 @@ class TestControlTrvUnavailablePath:
 
         with (
             patch(_PATCHES["convert_outbound_states"]) as mock_convert,
-            patch(_PATCHES["handle_window_open"]) as mock_window,
+            patch(_PATCHES["handle_contact_open"]) as mock_window,
             patch(
                 _PATCHES["override_set_hvac_mode"], new=AsyncMock(return_value=False)
             ),
@@ -179,7 +181,7 @@ class TestControlTrvUnavailablePath:
 
         with (
             patch(_PATCHES["convert_outbound_states"]) as mock_convert,
-            patch(_PATCHES["handle_window_open"]) as mock_window,
+            patch(_PATCHES["handle_contact_open"]) as mock_window,
             patch(
                 _PATCHES["override_set_hvac_mode"], new=AsyncMock(return_value=False)
             ),
@@ -227,7 +229,7 @@ class TestControlTrvUnavailablePath:
 
         with (
             patch(_PATCHES["convert_outbound_states"]) as mock_convert,
-            patch(_PATCHES["handle_window_open"]) as mock_window,
+            patch(_PATCHES["handle_contact_open"]) as mock_window,
             patch(
                 _PATCHES["override_set_hvac_mode"], new=AsyncMock(return_value=False)
             ),
@@ -292,7 +294,7 @@ class TestControlTrvUnavailablePath:
         with (
             patch(_PATCHES["convert_outbound_states"]) as mock_convert,
             patch(_PATCHES["set_temperature"]) as mock_set_temp,
-            patch(_PATCHES["handle_window_open"]) as mock_window,
+            patch(_PATCHES["handle_contact_open"]) as mock_window,
             patch(
                 _PATCHES["override_set_hvac_mode"], new=AsyncMock(return_value=False)
             ),
@@ -342,7 +344,7 @@ class TestControlTrvUnavailablePath:
         with (
             patch(_PATCHES["convert_outbound_states"]) as mock_convert,
             patch(_PATCHES["set_temperature"]) as mock_set_temp,
-            patch(_PATCHES["handle_window_open"]) as mock_window,
+            patch(_PATCHES["handle_contact_open"]) as mock_window,
             patch(
                 _PATCHES["override_set_hvac_mode"], new=AsyncMock(return_value=False)
             ),
@@ -391,7 +393,7 @@ class TestControlTrvUnavailablePath:
             patch(_PATCHES["convert_outbound_states"]) as mock_convert,
             patch(_PATCHES["set_temperature"]) as mock_set_temp,
             patch(_PATCHES["set_valve"]) as mock_set_valve,
-            patch(_PATCHES["handle_window_open"]) as mock_window,
+            patch(_PATCHES["handle_contact_open"]) as mock_window,
             patch(
                 _PATCHES["override_set_hvac_mode"], new=AsyncMock(return_value=False)
             ),
@@ -435,7 +437,7 @@ class TestControlTrvUnavailablePath:
             patch(
                 _PATCHES["override_set_temperature"], new=AsyncMock(return_value=False)
             ),
-            patch(_PATCHES["handle_window_open"]) as mock_window,
+            patch(_PATCHES["handle_contact_open"]) as mock_window,
             patch(_PATCHES["set_temperature"], new=AsyncMock()),
             patch("asyncio.sleep", new=AsyncMock()),
         ):
@@ -445,7 +447,7 @@ class TestControlTrvUnavailablePath:
             }
             mock_set_hvac.return_value = None
             mock_override.return_value = False
-            # handle_window_open returns OFF when window is open
+            # handle_contact_open returns OFF when window is open
             mock_window.return_value = HVACMode.OFF
 
             result = await control_trv(mock_self, "climate.trv1")
@@ -472,7 +474,7 @@ class TestControlTrvUnavailablePath:
         with (
             patch(_PATCHES["convert_outbound_states"]) as mock_convert,
             patch(_PATCHES["set_temperature"]) as mock_set_temp,
-            patch(_PATCHES["handle_window_open"]) as mock_window,
+            patch(_PATCHES["handle_contact_open"]) as mock_window,
             patch(
                 _PATCHES["override_set_hvac_mode"], new=AsyncMock(return_value=False)
             ),
@@ -503,7 +505,7 @@ class TestControlTrvUnavailablePath:
 
         with (
             patch(_PATCHES["convert_outbound_states"]) as mock_convert,
-            patch(_PATCHES["handle_window_open"]) as mock_window,
+            patch(_PATCHES["handle_contact_open"]) as mock_window,
             patch(
                 _PATCHES["override_set_hvac_mode"], new=AsyncMock(return_value=False)
             ),
@@ -546,7 +548,7 @@ class TestControlTrvAvailablePath:
 
         with (
             patch(_PATCHES["convert_outbound_states"]) as mock_convert,
-            patch(_PATCHES["handle_window_open"]) as mock_window,
+            patch(_PATCHES["handle_contact_open"]) as mock_window,
             patch(
                 _PATCHES["override_set_hvac_mode"], new=AsyncMock(return_value=False)
             ),
@@ -711,7 +713,7 @@ class TestControlTrvAvailablePath:
         with (
             patch(_PATCHES["convert_outbound_states"]) as mock_convert,
             patch(_PATCHES["set_valve"]) as mock_set_valve,
-            patch(_PATCHES["handle_window_open"]) as mock_window,
+            patch(_PATCHES["handle_contact_open"]) as mock_window,
             patch(
                 _PATCHES["override_set_hvac_mode"], new=AsyncMock(return_value=False)
             ),
@@ -762,7 +764,7 @@ class TestControlTrvAvailablePath:
         with (
             patch(_PATCHES["convert_outbound_states"]) as mock_convert,
             patch(_PATCHES["get_current_offset"]) as mock_get_offset,
-            patch(_PATCHES["handle_window_open"]) as mock_window,
+            patch(_PATCHES["handle_contact_open"]) as mock_window,
             patch(
                 _PATCHES["override_set_hvac_mode"], new=AsyncMock(return_value=False)
             ),
@@ -809,7 +811,7 @@ class TestControlTrvAvailablePath:
         with (
             patch(_PATCHES["convert_outbound_states"]) as mock_convert,
             patch(_PATCHES["get_current_offset"]) as mock_get_offset,
-            patch(_PATCHES["handle_window_open"]) as mock_window,
+            patch(_PATCHES["handle_contact_open"]) as mock_window,
             patch(
                 _PATCHES["override_set_hvac_mode"], new=AsyncMock(return_value=False)
             ),
@@ -851,7 +853,7 @@ class TestControlTrvAvailablePath:
             patch(
                 _PATCHES["override_set_temperature"], new=AsyncMock(return_value=False)
             ),
-            patch(_PATCHES["handle_window_open"]) as mock_window,
+            patch(_PATCHES["handle_contact_open"]) as mock_window,
             patch(_PATCHES["set_temperature"], new=AsyncMock()),
             patch("asyncio.sleep", new=AsyncMock()),
         ):
@@ -891,7 +893,7 @@ class TestControlTrvAvailablePath:
             patch(
                 _PATCHES["override_set_temperature"], new=AsyncMock(return_value=False)
             ),
-            patch(_PATCHES["handle_window_open"]) as mock_window,
+            patch(_PATCHES["handle_contact_open"]) as mock_window,
             patch(_PATCHES["set_temperature"], new=AsyncMock()),
             patch("asyncio.sleep", new=AsyncMock()),
         ):
@@ -926,7 +928,7 @@ class TestControlTrvAvailablePath:
 
         with (
             patch(_PATCHES["convert_outbound_states"]) as mock_convert,
-            patch(_PATCHES["handle_window_open"]) as mock_window,
+            patch(_PATCHES["handle_contact_open"]) as mock_window,
             patch(
                 _PATCHES["override_set_hvac_mode"], new=AsyncMock(return_value=False)
             ),
@@ -987,6 +989,7 @@ class TestBoostModeSafetyOverride:
         mock_self.bt_target_temp = 22.0
         mock_self.bt_hvac_mode = HVACMode.HEAT
         mock_self.window_open = True  # Window is OPEN
+        mock_self.contact_open = True
         mock_self.call_for_heat = True
         mock_self.cooler_entity_id = None
         mock_self.calculate_heating_power = AsyncMock()
@@ -1068,6 +1071,7 @@ class TestBoostModeSafetyOverride:
         mock_self.bt_target_temp = 22.0
         mock_self.bt_hvac_mode = HVACMode.HEAT
         mock_self.window_open = False
+        mock_self.contact_open = False
         mock_self.call_for_heat = False  # No heat call
         mock_self.cooler_entity_id = None
         mock_self.calculate_heating_power = AsyncMock()
@@ -1177,6 +1181,7 @@ class TestRaceConditionLockCoverage:
         mock_self.bt_target_temp = 22.0
         mock_self.bt_hvac_mode = HVACMode.HEAT
         mock_self.window_open = False
+        mock_self.contact_open = False
         mock_self.call_for_heat = True
 
         mock_self.real_trvs = {
@@ -1354,6 +1359,7 @@ class TestRaceConditionLockCoverage:
         mock_self.bt_target_temp = 22.0
         mock_self.bt_hvac_mode = HVACMode.HEAT
         mock_self.window_open = False
+        mock_self.contact_open = False
         mock_self.call_for_heat = True
 
         mock_self.real_trvs = {
@@ -1453,6 +1459,7 @@ class TestRaceConditionLockCoverage:
         mock_self.bt_target_temp = 22.0
         mock_self.bt_hvac_mode = HVACMode.HEAT
         mock_self.window_open = False
+        mock_self.contact_open = False
         mock_self.call_for_heat = True
         mock_self.real_trvs = {
             "climate.trv1": Trv.from_legacy_dict(
@@ -1551,6 +1558,7 @@ def mock_bt_grouped():
     bt.bt_target_temp = 21.0
     bt.cur_temp = 20.0
     bt.window_open = False
+    bt.contact_open = False
     bt.call_for_heat = True
     bt.tolerance = 0.5
     bt._temp_lock = asyncio.Lock()

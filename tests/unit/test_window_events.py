@@ -15,7 +15,7 @@ from custom_components.better_thermostat.events.window import (
     window_queue,
 )
 
-_WINDOW = "custom_components.better_thermostat.events.window"
+_CONTACT = "custom_components.better_thermostat.events.contact"
 
 
 def _make_bt(*, sensor_state="off", window_open=False):
@@ -62,7 +62,7 @@ async def test_closed_readings_queue_a_close_event(reading):
 async def test_unrecognized_state_raises_an_issue():
     """Anything outside the documented vocabulary raises a repair issue."""
     bt = _make_bt(sensor_state="banana")
-    with patch(f"{_WINDOW}.ir.async_create_issue") as issue:
+    with patch(f"{_CONTACT}.ir.async_create_issue") as issue:
         await trigger_window_change(bt, _event("banana"))
     issue.assert_called_once()
     assert bt.window_queue_task.empty()

@@ -1,7 +1,7 @@
 """Tests for helper functions in utils/controlling.py.
 
 Tests for:
-- handle_window_open()
+- handle_contact_open()
 - check_system_mode()
 - check_target_temperature()
 
@@ -24,25 +24,26 @@ from custom_components.better_thermostat.utils.controlling import (
     _get_valve_control,
     check_system_mode,
     check_target_temperature,
-    handle_window_open,
+    handle_contact_open,
 )
 
 # ---------------------------------------------------------------------------
-# handle_window_open
+# handle_contact_open
 # ---------------------------------------------------------------------------
 
 
 class TestHandleWindowOpen:
-    """Test handle_window_open function."""
+    """Test handle_contact_open function."""
 
     def test_window_open_returns_off(self):
         """Test that window open returns HVACMode.OFF."""
         mock_self = Mock()
         mock_self.window_open = True
+        mock_self.contact_open = True
 
         remapped_states = {"system_mode": HVACMode.HEAT}
 
-        result = handle_window_open(mock_self, remapped_states)
+        result = handle_contact_open(mock_self, remapped_states)
 
         assert result == HVACMode.OFF
 
@@ -50,10 +51,11 @@ class TestHandleWindowOpen:
         """Test that window closed returns system_mode from remapped_states."""
         mock_self = Mock()
         mock_self.window_open = False
+        mock_self.contact_open = False
 
         remapped_states = {"system_mode": HVACMode.HEAT}
 
-        result = handle_window_open(mock_self, remapped_states)
+        result = handle_contact_open(mock_self, remapped_states)
 
         assert result == HVACMode.HEAT
 
@@ -61,10 +63,11 @@ class TestHandleWindowOpen:
         """Test that window closed with no system_mode returns None."""
         mock_self = Mock()
         mock_self.window_open = False
+        mock_self.contact_open = False
 
         remapped_states = {}
 
-        result = handle_window_open(mock_self, remapped_states)
+        result = handle_contact_open(mock_self, remapped_states)
 
         assert result is None
 
@@ -72,23 +75,24 @@ class TestHandleWindowOpen:
         """Test that window closed with system_mode=None returns None."""
         mock_self = Mock()
         mock_self.window_open = False
+        mock_self.contact_open = False
 
         remapped_states = {"system_mode": None}
 
-        result = handle_window_open(mock_self, remapped_states)
+        result = handle_contact_open(mock_self, remapped_states)
 
         assert result is None
 
 
 class TestHandleWindowOpenWithNoOffMode:
-    """Tests for handle_window_open with no_off_system_mode TRVs.
+    """Tests for handle_contact_open with no_off_system_mode TRVs.
 
     Issue #1195: TRV stays forever at 5C after window closed
     (with no_off_system_mode).
 
     When no_off_system_mode is True and window was open,
     convert_outbound_states sets system_mode=None. Then when window
-    closes, handle_window_open returns None instead of HEAT.
+    closes, handle_contact_open returns None instead of HEAT.
     """
 
     @pytest.fixture
@@ -101,6 +105,7 @@ class TestHandleWindowOpenWithNoOffMode:
         bt.bt_target_temp = 21.0
         bt.cur_temp = 19.0
         bt.window_open = False
+        bt.contact_open = False
         bt.tolerance = 0.3
         bt.real_trvs = {
             "climate.test_trv": Trv.from_legacy_dict(
@@ -127,19 +132,20 @@ class TestHandleWindowOpenWithNoOffMode:
 
         This documents the bug where convert_outbound_states sets
         system_mode=None for no_off_system_mode devices when hvac_mode
-        is OFF (during window open), and handle_window_open returns None.
+        is OFF (during window open), and handle_contact_open returns None.
         """
         mock_bt_no_off_mode.window_open = False
+        mock_bt_no_off_mode.contact_open = False
         remapped_states = {"system_mode": None, "temperature": 5.0}
 
-        result = handle_window_open(mock_bt_no_off_mode, remapped_states)
+        result = handle_contact_open(mock_bt_no_off_mode, remapped_states)
 
         assert result is None
 
     def test_window_close_should_restore_heating_mode(self, mock_bt_no_off_mode):
         """Test that closing window restores HEAT mode, not None.
 
-        Integration test through convert_outbound_states + handle_window_open.
+        Integration test through convert_outbound_states + handle_contact_open.
         """
         from custom_components.better_thermostat.events.trv import (
             convert_outbound_states,
@@ -147,28 +153,31 @@ class TestHandleWindowOpenWithNoOffMode:
 
         # Step 1: Window is closed, TRV is heating normally
         mock_bt_no_off_mode.window_open = False
+        mock_bt_no_off_mode.contact_open = False
         mock_bt_no_off_mode.bt_hvac_mode = HVACMode.HEAT
 
         states_heating = convert_outbound_states(
             mock_bt_no_off_mode, "climate.test_trv", HVACMode.HEAT
         )
-        handle_window_open(mock_bt_no_off_mode, states_heating)
+        handle_contact_open(mock_bt_no_off_mode, states_heating)
 
         assert states_heating.get("temperature") == 21.0
 
         # Step 2: Window opens
         mock_bt_no_off_mode.window_open = True
-        hvac_mode_window_open = handle_window_open(mock_bt_no_off_mode, states_heating)
+        mock_bt_no_off_mode.contact_open = True
+        hvac_mode_window_open = handle_contact_open(mock_bt_no_off_mode, states_heating)
         assert hvac_mode_window_open == HVACMode.OFF
 
         # Step 3: Window closes
         mock_bt_no_off_mode.window_open = False
+        mock_bt_no_off_mode.contact_open = False
         assert mock_bt_no_off_mode.bt_hvac_mode == HVACMode.HEAT
 
         states_after_close = convert_outbound_states(
             mock_bt_no_off_mode, "climate.test_trv", mock_bt_no_off_mode.bt_hvac_mode
         )
-        hvac_mode_after_close = handle_window_open(
+        hvac_mode_after_close = handle_contact_open(
             mock_bt_no_off_mode, states_after_close
         )
 

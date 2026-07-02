@@ -11,10 +11,13 @@
           "temperature_sensor": "Snímač teploty",
           "humidity_sensor": "Snímač vlhkosti",
           "window_sensors": "Snímač okna",
+          "door_sensors": "Snímač dverí",
           "off_temperature": "Vonkajšia teplota pri vypnutom termostate",
           "tolerance": "Tolerancia, aby sa zabránilo príliš častému zapínaniu a vypínaniu termostatu.",
           "window_off_delay": "Oneskorenie pred vypnutím termostatu pri otvorení okna",
           "window_off_delay_after": "Oneskorenie pred zapnutím termostatu pri zatvorenom okne",
+          "door_off_delay": "Oneskorenie pred vypnutím termostatu pri otvorení dverí",
+          "door_off_delay_after": "Oneskorenie pred zapnutím termostatu pri zatvorených dverách",
           "outdoor_sensor": "Ak máte vonkajší snímač, môžete pomocou neho zistiť vonkajšiu teplotu",
           "weather": "Váš meteorologický subjekt na zistenie vonkajšej teploty",
           "target_temp_step": "Krok cieľovej teploty",
@@ -69,10 +72,13 @@
           "temperature_sensor": "Snímač teploty",
           "humidity_sensor": "Snímač vlhkosti",
           "window_sensors": "Snímač okna",
+          "door_sensors": "Snímač dverí",
           "off_temperature": "Vonkajšia teplota pri vypnutí termostatu",
           "tolerance": "Tolerancia, aby sa zabránilo príliš častému zapínaniu a vypínaniu termostatu.",
           "window_off_delay": "Oneskorenie pred vypnutím termostatu pri otvorení okna",
           "window_off_delay_after": "Oneskorenie pred zapnutím termostatu pri zatvorenom okne",
+          "door_off_delay": "Oneskorenie pred vypnutím termostatu pri otvorení dverí",
+          "door_off_delay_after": "Oneskorenie pred zapnutím termostatu pri zatvorených dverách",
           "outdoor_sensor": "Ak máte vonkajší snímač, môžete pomocou neho zistiť vonkajšiu teplotu",
           "weather": "Váš meteorologický subjekt na zistenie vonkajšej teploty",
           "target_temp_step": "Krok cieľovej teploty",
@@ -126,6 +132,10 @@
     "invalid_window_state": {
       "title": "BT: {name} - neplatný stav snímača okna",
       "description": "Snímač okna pre Better Thermostat {name} nahlásil nerozpoznaný stav: {state}.\n\nOčakávané stavy sú: 'on', 'off', 'true', 'false', 'open', 'closed'.\n\nSkontrolujte konfiguráciu snímača okna."
+    },
+    "invalid_door_state": {
+      "title": "BT: {name} - neplatný stav snímača dverí",
+      "description": "Snímač dverí pre Better Thermostat {name} nahlásil nerozpoznaný stav: {state}.\n\nOčakávané stavy sú: 'on', 'off', 'true', 'false', 'open', 'closed'.\n\nSkontrolujte konfiguráciu snímača dverí."
     },
     "invalid_external_temperature": {
       "title": "BT: {name} - neplatná vonkajšia teplota",

@@ -34,6 +34,7 @@ def mock_bt():
     bt.hvac_mode = HVACMode.HEAT
     bt.bt_hvac_mode = HVACMode.HEAT
     bt.window_open = False
+    bt.contact_open = False
     bt.ignore_states = False
     bt.real_trvs = {}
     bt._hysteresis = ToleranceHysteresis()

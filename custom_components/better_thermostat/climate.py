@@ -66,6 +66,7 @@ from .adapters.delegate import (
 )
 from .device_binding import async_bind_trv_device
 from .events.cooler import trigger_cooler_change
+from .events.door import door_queue, trigger_door_change
 from .events.temperature import trigger_temperature_change
 from .events.trv import trigger_trv_change
 from .events.window import trigger_window_change, window_queue
@@ -80,6 +81,7 @@ from .utils.calibration.pid import (
 from .utils.const import (
     ATTR_STATE_BATTERIES,
     ATTR_STATE_CALL_FOR_HEAT,
+    ATTR_STATE_DOOR_OPEN,
     ATTR_STATE_ERRORS,
     ATTR_STATE_HEAT_LOSS,
     ATTR_STATE_HEATING_POWER,
@@ -92,6 +94,8 @@ from .utils.const import (
     ATTR_STATE_WINDOW_OPEN,
     BETTERTHERMOSTAT_RESET_PID_SCHEMA,
     CONF_COOLER,
+    CONF_DOOR_TIMEOUT,
+    CONF_DOOR_TIMEOUT_AFTER,
     CONF_HEATER,
     CONF_HUMIDITY,
     CONF_MODEL,
@@ -99,6 +103,7 @@ from .utils.const import (
     CONF_OUTDOOR_SENSOR,
     CONF_PRESETS,
     CONF_SENSOR,
+    CONF_SENSOR_DOOR,
     CONF_SENSOR_WINDOW,
     CONF_TARGET_TEMP_STEP,
     CONF_TOLERANCE,
@@ -243,6 +248,9 @@ async def async_setup_entry(hass, entry, async_add_entities):
         entry.data.get(CONF_SENSOR_WINDOW, None),
         entry.data.get(CONF_WINDOW_TIMEOUT, None),
         entry.data.get(CONF_WINDOW_TIMEOUT_AFTER, None),
+        entry.data.get(CONF_SENSOR_DOOR, None),
+        entry.data.get(CONF_DOOR_TIMEOUT, None),
+        entry.data.get(CONF_DOOR_TIMEOUT_AFTER, None),
         entry.data.get(CONF_WEATHER, None),
         entry.data.get(CONF_OUTDOOR_SENSOR, None),
         entry.data.get(CONF_OFF_TEMPERATURE, None),
@@ -354,6 +362,9 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
         window_id,
         window_delay,
         window_delay_after,
+        door_id,
+        door_delay,
+        door_delay_after,
         weather_entity,
         outdoor_sensor,
         off_temperature,
@@ -380,11 +391,17 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
         humidity_sensor_entity_id : str | None
             External humidity sensor entity id.
         window_id : str | None
-            Window/door contact sensor entity id for open-window detection.
+            Window contact sensor entity id for open-window detection.
         window_delay : int
             Delay in seconds before reacting to a window opening.
         window_delay_after : int
             Delay in seconds before reacting to a window closing.
+        door_id : str | None
+            Door contact sensor entity id for open-door detection.
+        door_delay : int
+            Delay in seconds before reacting to a door opening.
+        door_delay_after : int
+            Delay in seconds before reacting to a door closing.
         weather_entity : str | None
             Weather entity used as outdoor temperature source.
         outdoor_sensor : str | None
@@ -421,6 +438,9 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
         self.window_id = window_id or None
         self.window_delay = window_delay or 0
         self.window_delay_after = window_delay_after or 0
+        self.door_id = door_id or None
+        self.door_delay = door_delay or 0
+        self.door_delay_after = door_delay_after or 0
         self.weather_entity = weather_entity or None
         self.outdoor_sensor = outdoor_sensor or None
         # Robust off temperature parsing: preserve 0.0 and ignore invalid strings
@@ -487,6 +507,7 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
         self.cur_temp = None
         self._current_humidity: float | None = 0.0
         self.window_open = None
+        self.door_open = None
         self.bt_target_temp_step = (
             float(target_temp_step)
             if target_temp_step and target_temp_step != "0.0"
@@ -568,8 +589,13 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
             self.window_queue_task: asyncio.Queue[BetterThermostat] = asyncio.Queue(
                 maxsize=1
             )
+        if self.door_id is not None:
+            self.door_queue_task: asyncio.Queue[BetterThermostat] = asyncio.Queue(
+                maxsize=1
+            )
         self._control_task = None
         self._window_task = None
+        self._door_task = None
         self.is_removed = False
         # Valve maintenance control
         self.in_maintenance = False
@@ -623,6 +649,10 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
         if self.window_id is not None:
             self._window_task = self.hass.async_create_background_task(
                 window_queue(self), name=f"bt_window_queue_{self.device_name}"
+            )
+        if self.door_id is not None:
+            self._door_task = self.hass.async_create_background_task(
+                door_queue(self), name=f"bt_door_queue_{self.device_name}"
             )
 
         if self.cooler_entity_id is not None:
@@ -961,6 +991,22 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
                 name=f"bt_trigger_window_change_{self.device_name}",
             )
 
+    async def _trigger_door_change(self, event):
+        _check = await check_critical_entities(self)
+        if _check is False:
+            return
+        await check_and_update_degraded_mode(self)
+        self.async_set_context(event.context)
+        if (event.data.get("new_state")) is None:
+            return
+
+        # Only process door changes if door sensor is available
+        if is_entity_available(self.hass, self.door_id):
+            self.hass.async_create_background_task(
+                trigger_door_change(self, event),
+                name=f"bt_trigger_door_change_{self.device_name}",
+            )
+
     async def _trigger_cooler_change(self, event):
         _check = await check_critical_entities(self)
         if _check is False:
@@ -1297,6 +1343,38 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
                 )
         else:
             self.window_open = False
+
+        if self.door_id is not None:
+            self.all_entities.append(self.door_id)
+            door = self.hass.states.get(self.door_id)
+
+            if door is not None and door.state not in (
+                STATE_UNAVAILABLE,
+                STATE_UNKNOWN,
+                None,
+            ):
+                check = door.state
+                if check in ("on", "open", "true"):
+                    self.door_open = True
+                else:
+                    self.door_open = False
+                _LOGGER.debug(
+                    "better_thermostat %s: detected door state at startup: %s",
+                    self.device_name,
+                    "Open" if self.door_open else "Closed",
+                )
+            else:
+                # At startup, unavailable/unknown usually means the sensor
+                # has not joined HA yet, so heating continues normally
+                # (assume closed). At runtime the same states mean a live
+                # sensor was lost and count as open (see events/contact.py).
+                self.door_open = False
+                _LOGGER.debug(
+                    "better_thermostat %s: door sensor unavailable, assuming closed",
+                    self.device_name,
+                )
+        else:
+            self.door_open = False
 
     async def _restore_state(self, states: list[State]) -> None:
         """Restore previous state from HA state machine or fall back to defaults."""
@@ -1951,6 +2029,12 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
                     self.hass, [self.window_id], self._trigger_window_change
                 )
             )
+        if self.door_id is not None:
+            self.async_on_remove(
+                async_track_state_change_event(
+                    self.hass, [self.door_id], self._trigger_door_change
+                )
+            )
         if self.cooler_entity_id is not None:
             self.async_on_remove(
                 async_track_state_change_event(
@@ -2017,12 +2101,12 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
             # let this tick re-evaluate the schedule.
             pass
 
-        # Skip when device is OFF or window open
-        if self.window_open:
+        # Skip when device is OFF or a window/door contact is open
+        if self.contact_open:
             # postpone by an hour to avoid hammering
             self.next_valve_maintenance = now + timedelta(hours=1)
             _LOGGER.debug(
-                "better_thermostat %s: valve maintenance postponed (window open)",
+                "better_thermostat %s: valve maintenance postponed (window or door open)",
                 self.device_name,
             )
             return
@@ -2249,7 +2333,7 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
             self.cur_temp,
             current_action,
             dt_util.utcnow(),
-            window_open=bool(self.window_open),
+            window_open=self.contact_open,
         )
 
         if result.cycle_result is not None:
@@ -2277,6 +2361,15 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
         return None
 
     @property
+    def contact_open(self) -> bool:
+        """Return True when a window or door contact is confirmed open.
+
+        Both sensor kinds suppress heating once their debounce delay has
+        passed; this is the combined flag the control logic gates on.
+        """
+        return bool(self.window_open) or bool(self.door_open)
+
+    @property
     def extra_state_attributes(self) -> dict[str, Any]:
         """Return the device specific state attributes.
 
@@ -2287,6 +2380,7 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
         """
         dev_specific = {
             ATTR_STATE_WINDOW_OPEN: self.window_open,
+            ATTR_STATE_DOOR_OPEN: self.door_open,
             ATTR_STATE_CALL_FOR_HEAT: self.call_for_heat,
             ATTR_STATE_LAST_CHANGE: self.last_change.isoformat(),
             ATTR_STATE_SAVED_TEMPERATURE: self._saved_temperature,
@@ -2519,7 +2613,7 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
             cool_target=self.bt_target_cooltemp,
             hvac_mode=self.hvac_mode,
             bt_hvac_mode=self.bt_hvac_mode,
-            window_open=self.window_open,
+            window_open=self.contact_open,
             tolerance=self.tolerance or 0.0,
             ignore_states=self.ignore_states,
             trv_snapshots=self._build_trv_snapshots(),
@@ -3147,6 +3241,12 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
             self._window_task.cancel()
             try:
                 await self._window_task
+            except asyncio.CancelledError:
+                pass
+        if self._door_task:
+            self._door_task.cancel()
+            try:
+                await self._door_task
             except asyncio.CancelledError:
                 pass
         await super().async_will_remove_from_hass()

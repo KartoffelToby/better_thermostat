@@ -334,7 +334,7 @@ async def trigger_trv_change(self, event):
             and trv.target_temp_received is True
             and trv.system_mode_received is True
             and trv.hvac_mode != HVACMode.OFF
-            and self.window_open is False
+            and self.contact_open is False
             and not trv.ignore_trv_states
         )
         if _accept_user_setpoint:
@@ -381,11 +381,12 @@ async def trigger_trv_change(self, event):
 
         if advanced.get("no_off_system_mode", False):
             if _raw_heating_setpoint == trv.min_temp:
-                # Only set OFF if window is NOT open - min_temp during window
-                # open was set by BT, not by user turning off heating - and only
+                # Only set OFF if no window/door contact is open - min_temp
+                # during an open contact was set by BT, not by the user turning
+                # off heating - and only
                 # when the whole group agrees, so a single no_off valve dropping
                 # to min_temp cannot switch the room off.
-                if not self.window_open and group_all_members_off(self):
+                if not self.contact_open and group_all_members_off(self):
                     if self.bt_hvac_mode != HVACMode.OFF:
                         _LOGGER.debug(
                             "better_thermostat %s: TRV %s reported min_temp %s on a "

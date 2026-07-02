@@ -30,6 +30,7 @@ TRV_ID = "climate.test_trv"
 TRV_ID_2 = "climate.test_trv_2"
 COOLER_ID = "climate.cooler"
 WINDOW_ID = "binary_sensor.window"
+DOOR_ID = "binary_sensor.door"
 HUMIDITY_ID = "sensor.humidity"
 
 
@@ -49,6 +50,7 @@ def bt():
     mock.cooler_entity_id = None
     mock.humidity_sensor_entity_id = None
     mock.window_id = None
+    mock.door_id = None
     mock.all_entities = []
     mock.unavailable_sensors = []
     mock.degraded_mode = False
@@ -67,6 +69,7 @@ def bt():
     mock.last_known_external_temp = None
     mock._current_humidity = None
     mock.window_open = None
+    mock.contact_open = None
     mock.last_window_state = None
     mock.last_main_hvac_mode = None
     mock.call_for_heat = None
@@ -169,6 +172,7 @@ class TestStartupUnloadBailout:
         """Unload clears startup_running so the loop condition terminates."""
         bt._control_task = None
         bt._window_task = None
+        bt._door_task = None
         bt.startup_running = True
 
         await BetterThermostat.async_will_remove_from_hass(bt)
@@ -419,6 +423,42 @@ class TestInitializeSensors:
         sensor = _make_sensor_state("20.0")
         BetterThermostat._initialize_sensors(bt, sensor)
         assert bt.window_open is False
+
+    def test_door_open_detected(self, bt):
+        """Test Door open detected."""
+        bt.door_id = DOOR_ID
+        sensor = _make_sensor_state("20.0")
+
+        def side_effect(entity_id):
+            if entity_id == DOOR_ID:
+                return State(DOOR_ID, "on")
+            return None
+
+        bt.hass.states.get.side_effect = side_effect
+        BetterThermostat._initialize_sensors(bt, sensor)
+        assert bt.door_open is True
+        assert DOOR_ID in bt.all_entities
+
+    def test_door_none_defaults_closed(self, bt):
+        """Test Door none defaults closed."""
+        bt.door_id = None
+        sensor = _make_sensor_state("20.0")
+        BetterThermostat._initialize_sensors(bt, sensor)
+        assert bt.door_open is False
+
+    def test_door_unavailable_assumes_closed(self, bt):
+        """Test Door sensor unavailable at startup counts as closed."""
+        bt.door_id = DOOR_ID
+        sensor = _make_sensor_state("20.0")
+
+        def side_effect(entity_id):
+            if entity_id == DOOR_ID:
+                return State(DOOR_ID, "unavailable")
+            return None
+
+        bt.hass.states.get.side_effect = side_effect
+        BetterThermostat._initialize_sensors(bt, sensor)
+        assert bt.door_open is False
 
     def test_humidity_sensor_initialized(self, bt):
         """Test Humidity sensor initialized."""
@@ -728,6 +768,7 @@ class TestValidateHvacMode:
         """Test Last window state set."""
         bt.bt_hvac_mode = HVACMode.HEAT
         bt.window_open = True
+        bt.contact_open = True
         bt.humidity_sensor_entity_id = None
         states = [_make_trv_state()]
         BetterThermostat._validate_hvac_mode(bt, states)
