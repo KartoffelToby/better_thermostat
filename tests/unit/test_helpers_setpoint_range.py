@@ -117,31 +117,39 @@ class TestMatchesAnySetpoint:
     """Tolerance-based setpoint matching across float rounding grids."""
 
     def test_exact_match(self):
+        """Match a value that equals a setpoint exactly."""
         assert matches_any_setpoint(20.7, {20.7}) is True
 
     def test_match_within_tolerance(self):
+        """Match a value that deviates by less than the default tolerance."""
         # 0.005 is the worst legitimate write-vs-readback divergence
         # (half the 0.01 read grid).
         assert matches_any_setpoint(20.705, {20.7}) is True
 
     def test_no_match_outside_tolerance(self):
+        """Reject a value that deviates by more than the default tolerance."""
         assert matches_any_setpoint(20.72, {20.7}) is False
 
     def test_no_match_on_adjacent_step(self):
+        """Reject the adjacent setpoint one 0.1 step away."""
         # 0.1 is the smallest distinguishable setpoint step; the tolerance
         # must never conflate two distinct setpoints.
         assert matches_any_setpoint(20.8, {20.7}) is False
 
     def test_none_value_returns_false(self):
+        """Reject a missing value."""
         assert matches_any_setpoint(None, {20.7}) is False
 
     def test_empty_set_returns_false(self):
+        """Reject any value against an empty setpoint set."""
         assert matches_any_setpoint(20.7, set()) is False
 
     def test_matches_any_element_of_set(self):
+        """Match when any element of the setpoint set is within tolerance."""
         assert matches_any_setpoint(21.0, {17.0, 21.0}) is True
 
     def test_step_grid_value_matches_read_grid_value(self):
+        """Match a step-grid write against its read-back-grid counterpart."""
         # round_by_step(20.7, 0.1) yields 20.700000000000003, which is not
         # set-equal to the 20.7 produced by the 0.01 read-back grid.
         written = round_by_step(20.7, 0.1)
@@ -149,7 +157,9 @@ class TestMatchesAnySetpoint:
         assert matches_any_setpoint(written, {20.7}) is True
 
     def test_custom_tolerance_is_honored(self):
+        """Honor a caller-supplied tolerance wider than the default."""
         assert matches_any_setpoint(20.9, {20.7}, tolerance=0.25) is True
 
     def test_default_tolerance_constant(self):
+        """Pin the default tolerance constant at 0.01."""
         assert SETPOINT_MATCH_TOLERANCE == 0.01
