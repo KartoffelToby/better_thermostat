@@ -1,4 +1,4 @@
-"""Tests for the BTH-RM230Z set_temperature model quirk."""
+"""Tests for the BTH-RM and BTH-RM230Z set_temperature model quirks."""
 
 import importlib
 from unittest.mock import AsyncMock, Mock
@@ -7,11 +7,15 @@ from homeassistant.components.climate.const import ClimateEntityFeature
 from homeassistant.const import UnitOfTemperature
 import pytest
 
-quirk = importlib.import_module(
-    "custom_components.better_thermostat.model_fixes.BTH-RM230Z"
-)
-
 RANGE_BIT = int(ClimateEntityFeature.TARGET_TEMPERATURE_RANGE)
+
+
+@pytest.fixture(params=["BTH-RM", "BTH-RM230Z"])
+def quirk(request):
+    """Provide each Bosch room-thermostat quirk module under test."""
+    return importlib.import_module(
+        f"custom_components.better_thermostat.model_fixes.{request.param}"
+    )
 
 
 def _make_self(state, temperature_unit=UnitOfTemperature.CELSIUS):
@@ -36,7 +40,7 @@ class TestOverrideSetTemperature:
     """The quirk picks the write attributes from the live feature bitmask."""
 
     @pytest.mark.asyncio
-    async def test_range_supported_writes_high_and_low(self):
+    async def test_range_supported_writes_high_and_low(self, quirk):
         """With the range feature active, both range attributes are written."""
         mock_self = _make_self(_state(RANGE_BIT))
 
@@ -56,7 +60,7 @@ class TestOverrideSetTemperature:
         )
 
     @pytest.mark.asyncio
-    async def test_no_range_support_writes_single_setpoint(self):
+    async def test_no_range_support_writes_single_setpoint(self, quirk):
         """Without the range feature, the plain temperature attribute is written."""
         mock_self = _make_self(_state(0))
 
@@ -72,7 +76,7 @@ class TestOverrideSetTemperature:
         )
 
     @pytest.mark.asyncio
-    async def test_fahrenheit_system_converts_range_payload(self):
+    async def test_fahrenheit_system_converts_range_payload(self, quirk):
         """On a Fahrenheit install, the range payload carries the converted value."""
         mock_self = _make_self(
             _state(RANGE_BIT), temperature_unit=UnitOfTemperature.FAHRENHEIT
@@ -94,7 +98,7 @@ class TestOverrideSetTemperature:
         )
 
     @pytest.mark.asyncio
-    async def test_missing_state_falls_back_to_single_setpoint(self):
+    async def test_missing_state_falls_back_to_single_setpoint(self, quirk):
         """Without a current state, the quirk falls back to a plain write."""
         mock_self = _make_self(None)
 

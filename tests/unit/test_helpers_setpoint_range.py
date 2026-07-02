@@ -27,17 +27,21 @@ class TestTrvSupportsTemperatureRange:
     """Feature detection reads the supported_features bitmask."""
 
     def test_none_state_returns_false(self):
+        """Report no range support when the TRV state is missing."""
         assert trv_supports_temperature_range(None) is False
 
     def test_missing_attribute_returns_false(self):
+        """Report no range support when supported_features is absent."""
         state = State("climate.trv", "heat", {})
         assert trv_supports_temperature_range(state) is False
 
     def test_bit_not_set_returns_false(self):
+        """Report no range support when the range bit is not set."""
         state = State("climate.trv", "heat", {"supported_features": 0})
         assert trv_supports_temperature_range(state) is False
 
     def test_bit_set_returns_true(self):
+        """Report range support when the range bit is set."""
         state = State("climate.trv", "heat", {"supported_features": RANGE_BIT})
         assert trv_supports_temperature_range(state) is True
 
@@ -46,12 +50,14 @@ class TestGetCurrentSetTemperatures:
     """Setpoint collection honors the range feature bit."""
 
     def test_single_setpoint_only(self):
+        """Collect only the plain setpoint when the range feature is off."""
         state = State(
             "climate.trv", "heat", {"temperature": 20.0, "supported_features": 0}
         )
         assert get_current_set_temperatures(_fake_self(), state, "test") == {20.0}
 
     def test_range_low_included_when_supported(self):
+        """Include target_temp_low when the range feature is active."""
         state = State(
             "climate.trv",
             "heat",
@@ -64,6 +70,7 @@ class TestGetCurrentSetTemperatures:
         assert get_current_set_temperatures(_fake_self(), state, "test") == {17.0, 21.0}
 
     def test_range_low_ignored_without_feature_bit(self):
+        """Ignore target_temp_low when the range feature bit is not set."""
         state = State(
             "climate.trv",
             "heat",
@@ -72,6 +79,7 @@ class TestGetCurrentSetTemperatures:
         assert get_current_set_temperatures(_fake_self(), state, "test") == {17.0}
 
     def test_none_state_returns_empty_set(self):
+        """Return an empty set when the TRV state is missing."""
         assert get_current_set_temperatures(_fake_self(), None, "test") == set()
 
 
@@ -86,14 +94,17 @@ class TestCelsiusToSystemTemperature:
         return hass
 
     def test_celsius_system_returns_value_unchanged(self):
+        """Pass the Celsius value through unchanged on a Celsius system."""
         hass = self._hass(UnitOfTemperature.CELSIUS)
         assert celsius_to_system_temperature(hass, 21.37) == 21.37
 
     def test_fahrenheit_system_converts_value(self):
+        """Convert the Celsius value to Fahrenheit on a Fahrenheit system."""
         hass = self._hass(UnitOfTemperature.FAHRENHEIT)
         assert celsius_to_system_temperature(hass, 21.0) == 69.8
 
     def test_fahrenheit_conversion_rounds_to_one_decimal(self):
+        """Round the Fahrenheit conversion result to one decimal place."""
         hass = self._hass(UnitOfTemperature.FAHRENHEIT)
         # 21.11 C is 69.998 F; the result is rounded to one decimal.
         assert celsius_to_system_temperature(hass, 21.11) == 70.0
