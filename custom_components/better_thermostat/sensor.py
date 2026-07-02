@@ -634,7 +634,9 @@ class _BtSensorBase(SensorEntity):
 class _BtMpcSensorBase(_BtSensorBase):
     """Base class for calibration debug sensors (MPC and PID).
 
-    Reads a single key from the TRV's ``calibration_balance['debug']`` payload.
+    Reads a single key from the ``calibration_balance['debug']`` payload,
+    iterating all TRVs of the climate entity; the first TRV whose payload
+    contains the key wins.
     """
 
     _debug_key: str
