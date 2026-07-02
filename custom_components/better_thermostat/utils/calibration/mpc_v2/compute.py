@@ -124,7 +124,9 @@ def compute_mpc_v2(
 
     percent_int = round(max(0.0, min(1.0, u)) * 100.0)
     if inp.max_opening_pct is not None:
-        percent_int = min(percent_int, int(inp.max_opening_pct))
+        # The cap is a percent by contract; clamp it into 0..100 here so an
+        # out-of-range value from a caller cannot widen or invert the limit.
+        percent_int = min(percent_int, int(max(0.0, min(100.0, inp.max_opening_pct))))
 
     # Feed the actually-applied (possibly capped) fraction back so the observer
     # and rate limiter track the real valve input, not the uncapped request.

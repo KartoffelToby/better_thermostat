@@ -87,11 +87,13 @@ def _trv_info(
     current_temp: float | None,
     supports_valve: bool,
     max_temp: float = 30.0,
+    valve_max_opening: float = 100.0,
 ) -> Trv:
     """Build a Trv configured for MPC v2 calibration."""
     return Trv(
         entity_id=entity_id,
         current_temperature=current_temp,
+        valve_max_opening=valve_max_opening,
         advanced={
             "calibration": (
                 CalibrationType.DIRECT_VALVE_BASED
@@ -141,6 +143,39 @@ def test_multi_trv_distributes_group_valve() -> None:
         trv_temps={"climate.living_cold": 19.0, "climate.living_warm": 21.0},
     )
     assert split["climate.living_cold"] >= split["climate.living_warm"]
+
+
+def test_multi_trv_clamps_to_per_trv_max_opening() -> None:
+    """A boosted cold TRV is clamped to its own configured max opening.
+
+    The controller only sees the warmest TRV's cap, so the distribution can
+    hand the cold TRV a share above its own limit; the dispatcher must clamp
+    the per-TRV command to that TRV's ``valve_max_opening``.
+    """
+    real_trvs = {
+        "climate.living_cold": _trv_info(
+            "climate.living_cold",
+            current_temp=15.0,
+            supports_valve=True,
+            valve_max_opening=40.0,
+        ),
+        "climate.living_warm": _trv_info(
+            "climate.living_warm", current_temp=22.0, supports_valve=True
+        ),
+    }
+    bt = _make_bt(real_trvs=real_trvs)
+    bt.bt_target_temp = 25.0
+    bt.cur_temp = 15.0
+
+    out_cold, _ = _compute_mpc_v2_balance(bt, "climate.living_cold")
+
+    assert out_cold is not None
+    cal_cold = real_trvs["climate.living_cold"].calibration_balance
+    # The group command exceeds the cold TRV's cap, so the clamp is exercised
+    # (the distribution only ever adds to the group value for a colder TRV).
+    assert cal_cold["debug"]["group_valve_pct"] > 40.0
+    assert cal_cold["valve_percent"] == 40
+    assert out_cold.valve_percent == 40
 
 
 def test_single_trv_passes_through_without_distribution() -> None:

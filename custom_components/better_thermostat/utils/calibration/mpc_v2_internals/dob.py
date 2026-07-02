@@ -39,10 +39,17 @@ class DisturbanceObserver:
         Converts the per-step innovation into a ``K/min`` rate and blends it
         with EMA weight ``a`` derived from ``dt_s`` and ``tau_s``. Non-positive
         ``dt_s`` leaves the current estimate unchanged.
+
+        The weight scales linearly with ``dt_s`` (no lower floor): the
+        innovation rate grows as ``1/dt_s``, so a dt-proportional weight keeps
+        the per-update contribution ``a * innov_rate`` bounded by
+        ``60 * innovation_K / tau_s`` even for near-zero intervals, as they
+        occur when a shared group controller is stepped once per TRV within
+        the same control pass.
         """
         if dt_s <= 0.0:
             return self.D_hat_K_per_min
         innov_rate = innovation_K / (dt_s / 60.0)
-        a = max(1e-3, min(1.0, dt_s / max(self.params.tau_s, dt_s)))
+        a = min(1.0, dt_s / max(self.params.tau_s, dt_s))
         self.D_hat_K_per_min = (1.0 - a) * self.D_hat_K_per_min + a * innov_rate
         return self.D_hat_K_per_min
