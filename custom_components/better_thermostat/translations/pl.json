@@ -143,7 +143,7 @@
     },
     "reset_pid_learnings": {
       "name": "Zresetuj nauczone wartości PID",
-      "description": "Czyści cały nauczony stan PID (i opcjonalnie nauczone limity otwarcia) dla tej encji.",
+      "description": "Czyści cały nauczony stan PID dla tej encji.",
       "fields": {
         "apply_pid_defaults": {
           "name": "Zastosuj domyślne wartości PID po resecie",
