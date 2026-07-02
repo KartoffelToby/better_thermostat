@@ -668,8 +668,11 @@ def handle_window_open(self, _remapped_states):
 async def check_system_mode(self, heater_entity_id=None):
     """Wait for TRV to confirm HVAC mode change, timeout after 6 minutes.
 
-    Polls the TRV state every second until hvac_mode matches last_hvac_mode
-    or timeout is reached. Sets system_mode_received flag when complete.
+    Polls the TRV's live entity state every second until it matches
+    last_hvac_mode or timeout is reached. Sets system_mode_received flag
+    when complete. Reading the live state directly avoids depending on the
+    internal hvac_mode cache, which is not refreshed while state events are
+    suppressed (control cycle) or when child lock is configured.
 
     Parameters
     ----------
@@ -685,7 +688,18 @@ async def check_system_mode(self, heater_entity_id=None):
     """
     _timeout = 0
     _real_trv = self.real_trvs[heater_entity_id]
-    while _real_trv.hvac_mode != _real_trv.last_hvac_mode:
+    while True:
+        _trv_state = self.hass.states.get(heater_entity_id)
+        if _trv_state is None or _trv_state.state in (STATE_UNAVAILABLE, STATE_UNKNOWN):
+            _LOGGER.debug(
+                "better_thermostat %s: %s became unavailable during check_system_mode",
+                self.device_name,
+                heater_entity_id,
+            )
+            break
+        if _trv_state.state == _real_trv.last_hvac_mode:
+            _timeout = 0
+            break
         if _timeout > 360:
             _LOGGER.warning(
                 "better_thermostat %s: TRV %s did not confirm the system mode change "
@@ -693,7 +707,7 @@ async def check_system_mode(self, heater_entity_id=None):
                 self.device_name,
                 heater_entity_id,
                 _real_trv.last_hvac_mode,
-                _real_trv.hvac_mode,
+                _trv_state.state,
             )
             _timeout = 0
             break
