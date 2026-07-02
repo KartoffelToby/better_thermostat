@@ -8,6 +8,7 @@ its minimum temperature). Single-TRV instances always agree.
 import types
 from unittest.mock import MagicMock
 
+from homeassistant.const import UnitOfTemperature
 from homeassistant.core import State
 
 from custom_components.better_thermostat.utils.helpers import group_all_members_off
@@ -24,12 +25,13 @@ def _state(entity_id, state_str, temperature=19.0):
     return State(entity_id, state_str, attributes={"temperature": temperature})
 
 
-def _fake_self(members, states):
+def _fake_self(members, states, system_unit=UnitOfTemperature.CELSIUS):
     self_ = types.SimpleNamespace()
     self_.device_name = "Test"
     self_.real_trvs = members
     hass = MagicMock()
     hass.states.get.side_effect = states.get
+    hass.config.units.temperature_unit = system_unit
     self_.hass = hass
     return self_
 
@@ -77,6 +79,38 @@ def test_no_off_one_above_min_false():
         "climate.b": _state("climate.b", "heat", temperature=20.0),
     }
     assert group_all_members_off(_fake_self(members, states)) is False
+
+
+def test_no_off_fahrenheit_at_min_true():
+    """no_off members reporting 41 degF (5 degC) at min_temp 5 degC count as off."""
+    members = {"climate.a": _member(no_off=True), "climate.b": _member(no_off=True)}
+    states = {
+        "climate.a": _state("climate.a", "heat", temperature=41.0),
+        "climate.b": _state("climate.b", "heat", temperature=41.0),
+    }
+    self_ = _fake_self(members, states, system_unit=UnitOfTemperature.FAHRENHEIT)
+    assert group_all_members_off(self_) is True
+
+
+def test_no_off_fahrenheit_above_min_false():
+    """A no_off member at 50 degF (10 degC) is above min_temp and blocks group-off."""
+    members = {"climate.a": _member(no_off=True), "climate.b": _member(no_off=True)}
+    states = {
+        "climate.a": _state("climate.a", "heat", temperature=41.0),
+        "climate.b": _state("climate.b", "heat", temperature=50.0),
+    }
+    self_ = _fake_self(members, states, system_unit=UnitOfTemperature.FAHRENHEIT)
+    assert group_all_members_off(self_) is False
+
+
+def test_no_off_target_temp_low_at_min_true():
+    """A member exposing only target_temp_low at min_temp counts as off."""
+    members = {"climate.a": _member(no_off=True), "climate.b": _member(no_off=True)}
+    states = {
+        "climate.a": _state("climate.a", "heat", temperature=5.0),
+        "climate.b": State("climate.b", "heat", attributes={"target_temp_low": 5.0}),
+    }
+    assert group_all_members_off(_fake_self(members, states)) is True
 
 
 def test_unavailable_members_skipped():
