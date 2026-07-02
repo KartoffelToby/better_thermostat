@@ -191,10 +191,23 @@ async def contact_queue(self, role: ContactRole):
                             entity_id,
                         )
                         continue
-                    # remap off on to true false
-                    current_contact_state = True
-                    if contact_state.state in _CLOSED_STATES:
+                    # remap the sensor state with the same vocabulary as the
+                    # trigger; a state outside it cannot confirm anything
+                    if contact_state.state in _OPEN_STATES:
+                        current_contact_state = True
+                    elif contact_state.state in _CLOSED_STATES:
                         current_contact_state = False
+                    else:
+                        _LOGGER.debug(
+                            "better_thermostat %s: %s sensor %s reported "
+                            "unrecognized state '%s' during the debounce "
+                            "delay; skipping event",
+                            self.device_name,
+                            role.kind.capitalize(),
+                            entity_id,
+                            contact_state.state,
+                        )
+                        continue
                     # make sure the current state is the suggested change state to prevent a false positive:
                     if current_contact_state == contact_event_to_process:
                         setattr(self, role.open_attr, contact_event_to_process)

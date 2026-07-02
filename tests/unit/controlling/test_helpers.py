@@ -32,7 +32,7 @@ from custom_components.better_thermostat.utils.controlling import (
 # ---------------------------------------------------------------------------
 
 
-class TestHandleWindowOpen:
+class TestHandleContactOpen:
     """Test handle_contact_open function."""
 
     def test_window_open_returns_off(self):
@@ -84,7 +84,7 @@ class TestHandleWindowOpen:
         assert result is None
 
 
-class TestHandleWindowOpenWithNoOffMode:
+class TestHandleContactOpenWithNoOffMode:
     """Tests for handle_contact_open with no_off_system_mode TRVs.
 
     Issue #1195: TRV stays forever at 5C after window closed

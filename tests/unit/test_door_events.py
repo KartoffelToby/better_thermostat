@@ -139,3 +139,25 @@ async def test_queue_survives_a_sensor_that_vanished_during_debounce():
     task.cancel()
     with pytest.raises(asyncio.CancelledError):
         await task
+
+
+@pytest.mark.asyncio
+async def test_queue_skips_event_on_unrecognized_state_during_debounce():
+    """A state outside the vocabulary during debounce confirms nothing."""
+    bt = _make_bt(sensor_state="banana")
+    bt.door_delay = 0
+    bt.door_delay_after = 0
+    bt.in_maintenance = False
+    bt.control_queue_task = asyncio.Queue()
+
+    task = asyncio.create_task(door_queue(bt))
+    await bt.door_queue_task.put(True)
+    await asyncio.wait_for(bt.door_queue_task.join(), timeout=1)
+
+    assert bt.door_open is False
+    bt.async_write_ha_state.assert_not_called()
+    assert bt.control_queue_task.qsize() == 0
+
+    task.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await task
