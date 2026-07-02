@@ -1728,7 +1728,14 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
             await asyncio.sleep(remaining)
         if self.is_removed:
             return
-        await recheck(self)
+        try:
+            await recheck(self)
+        except Exception:
+            _LOGGER.warning(
+                "better_thermostat %s: post-grace availability recheck failed",
+                self.device_name,
+                exc_info=True,
+            )
 
     async def _finalize_startup(self) -> None:
         """Run post-init tasks: triggers, listeners, periodic jobs."""
