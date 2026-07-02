@@ -46,7 +46,11 @@ async def async_get_actions(
 
     # Get all the integrations entities for this device
     for entry in entity_registry.async_entries_for_device(registry, device_id):
-        if entry.domain != DOMAIN:
+        # Both action types call climate services on the Better Thermostat
+        # climate entity (the action schema restricts the entity to the
+        # climate domain), so only that entity qualifies: it must belong to
+        # this integration (platform) and be a climate entity (domain).
+        if entry.platform != DOMAIN or entry.domain != CLIMATE_DOMAIN:
             continue
 
         base_action = {

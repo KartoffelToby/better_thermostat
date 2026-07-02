@@ -22,7 +22,7 @@ Classic triggers (kept for backwards compatibility):
 
 from __future__ import annotations
 
-from homeassistant.components.climate.const import HVAC_MODES
+from homeassistant.components.climate.const import DOMAIN as CLIMATE_DOMAIN, HVAC_MODES
 from homeassistant.components.device_automation import DEVICE_TRIGGER_BASE_SCHEMA
 from homeassistant.components.homeassistant.triggers import (
     numeric_state as numeric_state_trigger,
@@ -102,7 +102,10 @@ async def async_get_triggers(
     triggers: list[dict[str, str | dict[str, bool]]] = []
 
     for entry in entity_registry.async_entries_for_device(registry, device_id):
-        if entry.domain != DOMAIN:
+        # All trigger templates read attributes of the Better Thermostat
+        # climate entity, so only that entity qualifies: it must belong to
+        # this integration (platform) and be a climate entity (domain).
+        if entry.platform != DOMAIN or entry.domain != CLIMATE_DOMAIN:
             continue
 
         if not hass.states.get(entry.entity_id):
