@@ -1012,6 +1012,10 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
             self._initialize_sensors(sensor_state)
             await check_and_update_degraded_mode(self)
             await self._restore_state(states)
+            # The awaits above yield to the event loop, so the entity may have
+            # been removed in the meantime; bail out before writing to TRVs.
+            if self.is_removed:
+                return
             self._validate_hvac_mode(states)
             await self._initialize_trvs()
             await self._finalize_startup()

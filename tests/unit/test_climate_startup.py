@@ -144,6 +144,27 @@ class TestStartupUnloadBailout:
         bt._collect_trv_states.assert_not_called()
 
     @pytest.mark.asyncio
+    async def test_returns_when_removed_before_trv_initialization(self, bt):
+        """Stop before writing to TRVs when removal happens during restore."""
+        bt.is_removed = False
+        bt.startup_running = True
+        bt._check_entities_ready.return_value = True
+
+        async def fake_restore_state(_states):
+            bt.is_removed = True
+
+        bt._restore_state.side_effect = fake_restore_state
+
+        with patch(
+            "custom_components.better_thermostat.climate.check_and_update_degraded_mode",
+            new=AsyncMock(),
+        ):
+            await asyncio.wait_for(BetterThermostat.startup(bt), timeout=1)
+
+        bt._initialize_trvs.assert_not_called()
+        bt._finalize_startup.assert_not_called()
+
+    @pytest.mark.asyncio
     async def test_will_remove_from_hass_stops_startup_loop(self, bt):
         """Unload clears startup_running so the loop condition terminates."""
         bt._control_task = None
