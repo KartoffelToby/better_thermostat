@@ -4,6 +4,7 @@ Covers: _check_entities_ready, _collect_trv_states, _resolve_temperature_range,
 _initialize_sensors, _restore_state, _validate_hvac_mode.
 """
 
+import asyncio
 from unittest.mock import AsyncMock, MagicMock, patch
 
 from homeassistant.components.climate.const import HVACMode
@@ -102,6 +103,56 @@ def _make_trv_state(entity_id=TRV_ID, state="heat", attrs=None):
 def _make_sensor_state(temp="21.5", state_val=None):
     """Build a sensor State."""
     return State(SENSOR_ID, state_val or temp)
+
+
+# ---------------------------------------------------------------------------
+# 0. startup() retry loop unload behavior
+# ---------------------------------------------------------------------------
+
+
+class TestStartupUnloadBailout:
+    """The startup retry loop exits when the entity is removed."""
+
+    @pytest.mark.asyncio
+    async def test_returns_immediately_when_already_removed(self, bt):
+        """Return before any readiness check when the entity is removed."""
+        bt.is_removed = True
+        bt.startup_running = True
+
+        await asyncio.wait_for(BetterThermostat.startup(bt), timeout=1)
+
+        bt._check_entities_ready.assert_not_called()
+        bt._collect_trv_states.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_returns_when_removed_during_retry_sleep(self, bt):
+        """Exit the retry loop when removal happens while sleeping."""
+        bt.is_removed = False
+        bt.startup_running = True
+        bt._check_entities_ready.return_value = False
+
+        async def fake_sleep(_seconds):
+            bt.is_removed = True
+
+        with patch(
+            "custom_components.better_thermostat.climate.asyncio.sleep",
+            side_effect=fake_sleep,
+        ) as mock_sleep:
+            await asyncio.wait_for(BetterThermostat.startup(bt), timeout=1)
+
+        mock_sleep.assert_awaited_once()
+        bt._collect_trv_states.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_will_remove_from_hass_stops_startup_loop(self, bt):
+        """Unload clears startup_running so the loop condition terminates."""
+        bt._control_task = None
+        bt._window_task = None
+        bt.startup_running = True
+
+        await BetterThermostat.async_will_remove_from_hass(bt)
+
+        assert bt.startup_running is False
 
 
 # ---------------------------------------------------------------------------

@@ -992,6 +992,8 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
         # ``_finalize_startup`` to cover post-startup reconnection blips.
         self._critical_grace_until = dt_util.now() + STARTUP_CRITICAL_GRACE_PERIOD
         while self.startup_running:
+            if self.is_removed:
+                return
             _LOGGER.info(
                 "better_thermostat %s: Starting version %s. Waiting for entity to be ready...",
                 self.device_name,
@@ -1001,6 +1003,8 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
             sensor_state = self.hass.states.get(self.sensor_entity_id)
             if not self._check_entities_ready(sensor_state):
                 await asyncio.sleep(20)
+                if self.is_removed:
+                    return
                 continue
 
             states = self._collect_trv_states()
@@ -3084,6 +3088,9 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
 
     async def async_will_remove_from_hass(self):
         """Run when entity will be removed from hass."""
+        # Terminate the startup retry loop so an entity whose dependencies
+        # never became available does not keep polling after unload.
+        self.startup_running = False
         if self._control_task:
             self._control_task.cancel()
             try:
