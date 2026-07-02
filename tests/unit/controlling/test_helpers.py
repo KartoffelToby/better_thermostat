@@ -376,6 +376,44 @@ class TestCheckTargetTemperature:
         assert mock_self.real_trvs["climate.trv1"].target_temp_received is True
 
     @pytest.mark.asyncio
+    async def test_step_grid_written_value_confirms_against_read_grid(self):
+        """A step-grid written setpoint confirms against the 0.01 read grid.
+
+        The write side stores last_temperature rounded on the device step
+        grid (round_by_step(20.7, 0.1) == 20.700000000000003), while the
+        read-back passes through convert_to_float's 0.01 grid (20.7). The
+        tolerance-based comparison must confirm immediately instead of
+        polling until the 360s timeout.
+        """
+        from custom_components.better_thermostat.utils.helpers import round_by_step
+
+        written = round_by_step(20.7, 0.1)
+        assert written != 20.7  # the grids genuinely diverge
+
+        mock_state = Mock()
+        mock_state.attributes = {"temperature": 20.7}
+
+        mock_hass = Mock()
+        mock_hass.states.get.return_value = mock_state
+
+        mock_self = Mock()
+        mock_self.device_name = "test_thermostat"
+        mock_self.hass = mock_hass
+        mock_self.real_trvs = {
+            "climate.trv1": Trv.from_legacy_dict(
+                "climate.trv1",
+                {"last_temperature": written, "target_temp_received": False},
+            )
+        }
+
+        result = await asyncio.wait_for(
+            check_target_temperature(mock_self, "climate.trv1"), timeout=10
+        )
+
+        assert result is True
+        assert mock_self.real_trvs["climate.trv1"].target_temp_received is True
+
+    @pytest.mark.asyncio
     async def test_range_mode_confirms_via_target_temp_low(self):
         """A range-capable TRV confirms the write through target_temp_low."""
         mock_state = Mock()

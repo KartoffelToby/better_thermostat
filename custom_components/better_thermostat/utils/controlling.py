@@ -28,6 +28,7 @@ from custom_components.better_thermostat.utils.const import (
 from custom_components.better_thermostat.utils.helpers import (
     convert_to_float,
     get_current_set_temperatures,
+    matches_any_setpoint,
 )
 
 _LOGGER = logging.getLogger(__name__)
@@ -617,7 +618,10 @@ async def control_trv(self, heater_entity_id=None):
         if _temperature is not None and (
             _new_hvac_mode != HVACMode.OFF or _no_off_system_mode
         ):
-            if _temperature not in _current_set_temperatures:
+            # Tolerance-based comparison: the outbound value lies on the
+            # device step grid, the read-back values on the 0.01 grid, so
+            # exact set membership would re-send identical setpoints.
+            if not matches_any_setpoint(_temperature, _current_set_temperatures):
                 old = self.real_trvs[heater_entity_id].last_temperature
                 _LOGGER.debug(
                     "better_thermostat %s: TO TRV set_temperature: %s from: %s to: %s",
@@ -723,7 +727,8 @@ async def check_target_temperature(self, heater_entity_id=None):
 
     Polls the TRV's temperature (and target_temp_low, when range mode is
     supported) attribute every second until either matches last_temperature
-    or timeout is reached. Sets target_temp_received flag when complete.
+    within SETPOINT_MATCH_TOLERANCE or timeout is reached. Sets
+    target_temp_received flag when complete.
 
     Parameters
     ----------
@@ -761,9 +766,11 @@ async def check_target_temperature(self, heater_entity_id=None):
                 _real_trv.last_temperature,
                 _current_set_temperatures,
             )
-        if (
-            not _current_set_temperatures
-            or _real_trv.last_temperature in _current_set_temperatures
+        # An empty set (no readable setpoint) is treated as confirmed; a
+        # non-empty set is matched with a tolerance because written and
+        # read-back setpoints lie on different float rounding grids.
+        if not _current_set_temperatures or matches_any_setpoint(
+            _real_trv.last_temperature, _current_set_temperatures
         ):
             _timeout = 0
             break

@@ -7,8 +7,11 @@ from homeassistant.const import UnitOfTemperature
 from homeassistant.core import State
 
 from custom_components.better_thermostat.utils.helpers import (
+    SETPOINT_MATCH_TOLERANCE,
     celsius_to_system_temperature,
     get_current_set_temperatures,
+    matches_any_setpoint,
+    round_by_step,
     trv_supports_temperature_range,
 )
 
@@ -108,3 +111,45 @@ class TestCelsiusToSystemTemperature:
         hass = self._hass(UnitOfTemperature.FAHRENHEIT)
         # 21.11 C is 69.998 F; the result is rounded to one decimal.
         assert celsius_to_system_temperature(hass, 21.11) == 70.0
+
+
+class TestMatchesAnySetpoint:
+    """Tolerance-based setpoint matching across float rounding grids."""
+
+    def test_exact_match(self):
+        assert matches_any_setpoint(20.7, {20.7}) is True
+
+    def test_match_within_tolerance(self):
+        # 0.005 is the worst legitimate write-vs-readback divergence
+        # (half the 0.01 read grid).
+        assert matches_any_setpoint(20.705, {20.7}) is True
+
+    def test_no_match_outside_tolerance(self):
+        assert matches_any_setpoint(20.72, {20.7}) is False
+
+    def test_no_match_on_adjacent_step(self):
+        # 0.1 is the smallest distinguishable setpoint step; the tolerance
+        # must never conflate two distinct setpoints.
+        assert matches_any_setpoint(20.8, {20.7}) is False
+
+    def test_none_value_returns_false(self):
+        assert matches_any_setpoint(None, {20.7}) is False
+
+    def test_empty_set_returns_false(self):
+        assert matches_any_setpoint(20.7, set()) is False
+
+    def test_matches_any_element_of_set(self):
+        assert matches_any_setpoint(21.0, {17.0, 21.0}) is True
+
+    def test_step_grid_value_matches_read_grid_value(self):
+        # round_by_step(20.7, 0.1) yields 20.700000000000003, which is not
+        # set-equal to the 20.7 produced by the 0.01 read-back grid.
+        written = round_by_step(20.7, 0.1)
+        assert written not in {20.7}
+        assert matches_any_setpoint(written, {20.7}) is True
+
+    def test_custom_tolerance_is_honored(self):
+        assert matches_any_setpoint(20.9, {20.7}, tolerance=0.25) is True
+
+    def test_default_tolerance_constant(self):
+        assert SETPOINT_MATCH_TOLERANCE == 0.01
