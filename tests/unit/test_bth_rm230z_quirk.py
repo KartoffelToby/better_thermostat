@@ -4,6 +4,7 @@ import importlib
 from unittest.mock import AsyncMock, Mock
 
 from homeassistant.components.climate.const import ClimateEntityFeature
+from homeassistant.const import UnitOfTemperature
 import pytest
 
 quirk = importlib.import_module(
@@ -13,11 +14,12 @@ quirk = importlib.import_module(
 RANGE_BIT = int(ClimateEntityFeature.TARGET_TEMPERATURE_RANGE)
 
 
-def _make_self(state):
+def _make_self(state, temperature_unit=UnitOfTemperature.CELSIUS):
     """Create a mock BetterThermostat whose TRV state lookup returns state."""
     mock_self = Mock()
     mock_self.device_name = "test_thermostat"
     mock_self.context = Mock()
+    mock_self.hass.config.units.temperature_unit = temperature_unit
     mock_self.hass.states.get.return_value = state
     mock_self.hass.services.async_call = AsyncMock()
     return mock_self
@@ -65,6 +67,28 @@ class TestOverrideSetTemperature:
             "climate",
             "set_temperature",
             {"entity_id": "climate.trv1", "temperature": 21.0},
+            blocking=True,
+            context=mock_self.context,
+        )
+
+    @pytest.mark.asyncio
+    async def test_fahrenheit_system_converts_range_payload(self):
+        """On a Fahrenheit install, the range payload carries the converted value."""
+        mock_self = _make_self(
+            _state(RANGE_BIT), temperature_unit=UnitOfTemperature.FAHRENHEIT
+        )
+
+        handled = await quirk.override_set_temperature(mock_self, "climate.trv1", 21.0)
+
+        assert handled is True
+        mock_self.hass.services.async_call.assert_awaited_once_with(
+            "climate",
+            "set_temperature",
+            {
+                "entity_id": "climate.trv1",
+                "target_temp_high": 69.8,
+                "target_temp_low": 69.8,
+            },
             blocking=True,
             context=mock_self.context,
         )

@@ -9,6 +9,7 @@ from __future__ import annotations
 import logging
 
 from custom_components.better_thermostat.utils.helpers import (
+    celsius_to_system_temperature,
     trv_supports_temperature_range,
 )
 
@@ -57,7 +58,8 @@ async def override_set_temperature(self, entity_id, temperature):
     entity_id : str
             entity_id of the TRV
     temperature : float
-            the target temperature to set
+            the target temperature to set, in Celsius (converted to the
+            system unit before the write)
 
     Returns
     -------
@@ -68,6 +70,7 @@ async def override_set_temperature(self, entity_id, temperature):
             otherwise), so the caller never needs the generic
             adapter fallback.
     """
+    temperature = celsius_to_system_temperature(self.hass, temperature)
     state = self.hass.states.get(entity_id)
     if state is None:
         _LOGGER.debug(

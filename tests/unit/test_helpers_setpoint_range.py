@@ -7,6 +7,7 @@ from homeassistant.const import UnitOfTemperature
 from homeassistant.core import State
 
 from custom_components.better_thermostat.utils.helpers import (
+    celsius_to_system_temperature,
     get_current_set_temperatures,
     trv_supports_temperature_range,
 )
@@ -72,3 +73,27 @@ class TestGetCurrentSetTemperatures:
 
     def test_none_state_returns_empty_set(self):
         assert get_current_set_temperatures(_fake_self(), None, "test") == set()
+
+
+class TestCelsiusToSystemTemperature:
+    """Outbound writes are expressed in the configured system unit."""
+
+    @staticmethod
+    def _hass(temperature_unit):
+        """Create a mock hass with the given system temperature unit."""
+        hass = Mock()
+        hass.config.units.temperature_unit = temperature_unit
+        return hass
+
+    def test_celsius_system_returns_value_unchanged(self):
+        hass = self._hass(UnitOfTemperature.CELSIUS)
+        assert celsius_to_system_temperature(hass, 21.37) == 21.37
+
+    def test_fahrenheit_system_converts_value(self):
+        hass = self._hass(UnitOfTemperature.FAHRENHEIT)
+        assert celsius_to_system_temperature(hass, 21.0) == 69.8
+
+    def test_fahrenheit_conversion_rounds_to_one_decimal(self):
+        hass = self._hass(UnitOfTemperature.FAHRENHEIT)
+        # 21.11 C is 69.998 F; the result is rounded to one decimal.
+        assert celsius_to_system_temperature(hass, 21.11) == 70.0
