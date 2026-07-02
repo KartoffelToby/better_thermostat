@@ -246,12 +246,16 @@ def _deserialize(raw: dict[str, Any]) -> RuntimeState:
         heat_loss_rate = thermal_raw.get("heat_loss_rate")
         try:
             heating_power = float(heating_power) if heating_power is not None else None
+            if heating_power is not None and not math.isfinite(heating_power):
+                heating_power = None
         except TypeError, ValueError, OverflowError:
             heating_power = None
         try:
             heat_loss_rate = (
                 float(heat_loss_rate) if heat_loss_rate is not None else None
             )
+            if heat_loss_rate is not None and not math.isfinite(heat_loss_rate):
+                heat_loss_rate = None
         except TypeError, ValueError, OverflowError:
             heat_loss_rate = None
         state.thermal = ThermalStats(
