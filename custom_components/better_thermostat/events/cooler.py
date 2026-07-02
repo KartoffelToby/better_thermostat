@@ -52,7 +52,9 @@ async def trigger_cooler_change(self, event):
             entity_id,
         )
         return
-    # Check if the update is coming from the code
+
+    # Skip updates that BT itself triggered: our own service calls carry
+    # self.context, so a matching context means this is an echo of our write.
     if self.context == event.context:
         return
 
