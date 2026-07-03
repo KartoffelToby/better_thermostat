@@ -56,32 +56,38 @@ class ControllerSnapshot:
 
     @classmethod
     def from_mapping(cls, raw: Mapping[str, Any]) -> ControllerSnapshot | None:
-        """Parse a persisted mapping; return ``None`` for a future version.
+        """Parse a persisted mapping; ``None`` for a future version or bad data.
 
         This is the single place raw (untyped) persisted data is validated and
         coerced; missing keys fall back to the controller's construction
-        defaults, so a partial snapshot degrades gracefully.
+        defaults, so a partial snapshot degrades gracefully. A snapshot with
+        non-numeric values is dropped entirely — the controller then boots
+        fresh instead of running on half-restored state.
         """
-        version = int(raw.get("v", 0))
-        if version > SNAPSHOT_VERSION:
-            _LOGGER.warning(
-                "MPC v2 snapshot version %d > supported %d; ignoring",
-                version,
-                SNAPSHOT_VERSION,
+        try:
+            version = int(raw.get("v", 0))
+            if version > SNAPSHOT_VERSION:
+                _LOGGER.warning(
+                    "MPC v2 snapshot version %d > supported %d; ignoring",
+                    version,
+                    SNAPSHOT_VERSION,
+                )
+                return None
+            return cls(
+                v=version,
+                x_hat=[float(x) for x in raw.get("x_hat", [])],
+                kalman_P=[[float(x) for x in row] for row in raw.get("kalman_P", [])],
+                D_hat_K_per_min=float(raw.get("D_hat_K_per_min", 0.0)),
+                last_u=float(raw.get("last_u", 0.0)),
+                e_integral_K_min=float(raw.get("e_integral_K_min", 0.0)),
+                u_history=[float(x) for x in raw.get("u_history", [])],
+                rg_v_C=None if raw.get("rg_v_C") is None else float(raw["rg_v_C"]),
+                last_t_s=float(raw.get("last_t_s", 0.0)),
+                next_mpc_t_s=float(raw.get("next_mpc_t_s", -1.0)),
             )
+        except TypeError, ValueError, OverflowError:
+            _LOGGER.warning("MPC v2 snapshot contains non-numeric data; ignoring")
             return None
-        return cls(
-            v=version,
-            x_hat=[float(x) for x in raw.get("x_hat", [])],
-            kalman_P=[[float(x) for x in row] for row in raw.get("kalman_P", [])],
-            D_hat_K_per_min=float(raw.get("D_hat_K_per_min", 0.0)),
-            last_u=float(raw.get("last_u", 0.0)),
-            e_integral_K_min=float(raw.get("e_integral_K_min", 0.0)),
-            u_history=[float(x) for x in raw.get("u_history", [])],
-            rg_v_C=None if raw.get("rg_v_C") is None else float(raw["rg_v_C"]),
-            last_t_s=float(raw.get("last_t_s", 0.0)),
-            next_mpc_t_s=float(raw.get("next_mpc_t_s", -1.0)),
-        )
 
 
 class MpcV2Controller:
@@ -225,14 +231,19 @@ class MpcV2Controller:
     def restore_snapshot(self, snap: ControllerSnapshot) -> None:
         """Seed controller state from a snapshot, mutating sub-state in place.
 
-        Empty estimate/covariance/history (a partial snapshot) leaves the
-        freshly constructed defaults in place; version gating lives in
+        Empty or wrong-shaped estimate/covariance/history (a partial or
+        corrupted snapshot) leaves the freshly constructed defaults in place —
+        a mis-shaped covariance would otherwise poison every subsequent
+        Kalman update. Version gating lives in
         :meth:`ControllerSnapshot.from_mapping`.
         """
-        if snap.x_hat:
+        n = self.plant_fine.state_dim
+        if len(snap.x_hat) == n:
             self.kalman.initialise(np.asarray(snap.x_hat, dtype=float))
         if snap.kalman_P:
-            self.kalman.P = np.asarray(snap.kalman_P, dtype=float)
+            P = np.asarray(snap.kalman_P, dtype=float)
+            if P.shape == (n, n) and bool(np.all(np.isfinite(P))):
+                self.kalman.P = P
         self.dob.D_hat_K_per_min = snap.D_hat_K_per_min
         self.optimiser.e_integral_K_min = snap.e_integral_K_min
         self._last_u = snap.last_u

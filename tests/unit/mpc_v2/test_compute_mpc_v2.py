@@ -418,3 +418,34 @@ def test_controller_drives_simulated_plant_toward_setpoint() -> None:
         last_T_room = float(x[0])
     # Within 1 K of setpoint after ~3.3 h of simulated time.
     assert abs(last_T_room - 21.0) < 1.0
+
+
+def test_malformed_snapshot_values_are_rejected(caplog) -> None:
+    """Non-numeric persisted values drop the whole snapshot, not the process."""
+    bogus = {"v": SNAPSHOT_VERSION, "last_u": "junk"}
+    with caplog.at_level("WARNING"):
+        snap = ControllerSnapshot.from_mapping(bogus)
+    assert snap is None
+    assert any("non-numeric" in r.getMessage() for r in caplog.records)
+
+
+def test_wrong_shaped_covariance_is_ignored_on_restore() -> None:
+    """A mis-shaped kalman_P/x_hat must not poison the rebuilt filter."""
+    controller = MpcV2Controller(MpcV2Params())
+    default_P = controller.kalman.P.copy()
+    default_x = controller.kalman.x_hat.copy()
+
+    snap = ControllerSnapshot.from_mapping(
+        {
+            "v": SNAPSHOT_VERSION,
+            "x_hat": [20.0, 21.0, 22.0],  # wrong length
+            "kalman_P": [[1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]],
+            "last_u": 0.4,
+        }
+    )
+    assert snap is not None
+    controller.restore_snapshot(snap)
+
+    np.testing.assert_array_equal(controller.kalman.P, default_P)
+    np.testing.assert_array_equal(controller.kalman.x_hat, default_x)
+    assert controller._last_u == 0.4  # scalar fields still restore
