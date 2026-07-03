@@ -9,7 +9,7 @@ from time import time
 from .controller import MpcV2Controller
 from .io import MpcV2Input, MpcV2Output
 from .params import MpcV2Params
-from .state import MpcV2State, _plant_signature_of
+from .state import MpcV2State, _plant_signature_of, plant_signature_differs
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -85,7 +85,7 @@ def compute_mpc_v2(
     if (
         state.controller is not None
         and state.plant_signature is not None
-        and state.plant_signature != new_signature
+        and plant_signature_differs(state.plant_signature, new_signature)
     ):
         _LOGGER.info(
             "MPC v2 plant prior changed for %s (%s → %s); rebuilding controller",

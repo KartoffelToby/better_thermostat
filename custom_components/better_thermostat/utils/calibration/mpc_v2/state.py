@@ -15,7 +15,7 @@ _LOGGER = logging.getLogger(__name__)
 
 @dataclass
 class MpcV2State:
-    """Per-room runtime state — owned by the caller, persisted via RestoreEntity."""
+    """Per-room runtime state — owned by the caller, persisted via the StateManager store."""
 
     controller: MpcV2Controller | None = None
     last_percent: float | None = None
@@ -38,6 +38,30 @@ def _plant_signature_of(params: MpcV2Params) -> tuple[float, ...]:
         round(p.tau_rad_min, 3),
         round(p.gain_heater, 4),
         round(p.coupling_rad_room, 4),
+    )
+
+
+# Relative per-component drift below this fraction is absorbed without a
+# controller rebuild. The AUTO prior re-derives ``tau_room_min`` from the
+# learned ``heat_loss_rate``, which moves a little after every completed
+# idle-cooling cycle; rebuilding on each tick would discard the observer
+# state (Kalman, DOB, integral) several times a day. Preset switches move
+# the signature far beyond this tolerance and still trigger a rebuild.
+_SIGNATURE_REL_TOL = 0.1
+
+
+def plant_signature_differs(old: tuple[float, ...], new: tuple[float, ...]) -> bool:
+    """Return ``True`` when the plant prior moved enough to warrant a rebuild.
+
+    Compares component-wise against :data:`_SIGNATURE_REL_TOL` relative to the
+    build-time value ``old``. Because the stored signature stays anchored at
+    the params the controller was built with, slow cumulative drift eventually
+    crosses the tolerance and rebuilds exactly once.
+    """
+    if len(old) != len(new):
+        return True
+    return any(
+        abs(n - o) > _SIGNATURE_REL_TOL * max(abs(o), 1e-9) for o, n in zip(old, new)
     )
 
 
