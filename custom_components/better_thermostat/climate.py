@@ -5,6 +5,7 @@ from __future__ import annotations
 from abc import ABC
 import asyncio
 from collections import deque
+from collections.abc import Awaitable, Callable
 from datetime import datetime, timedelta
 from functools import cached_property
 import json
@@ -279,9 +280,11 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
         self.async_write_ha_state()
 
     # Thermal tracker properties
-    # Used by: extra_state_attributes, helpers.py, sensor.py,
-    #          _restore_state, _hydrate_thermal_from_state,
-    #          _record_thermal_to_state
+    # These forward to self._heating_tracker / self._loss_tracker and provide
+    # the read-only surface that the TelemetrySource protocol (utils/telemetry.py)
+    # consumes, plus the attribute names sensor.py maps via _climate_attr. Keeping
+    # them on the entity is what lets telemetry stay decoupled from the tracker
+    # internals instead of reaching into the private trackers directly.
     # ------------------------------------------------------------------
 
     @property
@@ -992,6 +995,8 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
         # ``_finalize_startup`` to cover post-startup reconnection blips.
         self._critical_grace_until = dt_util.now() + STARTUP_CRITICAL_GRACE_PERIOD
         while self.startup_running:
+            if self.is_removed:
+                return
             _LOGGER.info(
                 "better_thermostat %s: Starting version %s. Waiting for entity to be ready...",
                 self.device_name,
@@ -1001,6 +1006,8 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
             sensor_state = self.hass.states.get(self.sensor_entity_id)
             if not self._check_entities_ready(sensor_state):
                 await asyncio.sleep(20)
+                if self.is_removed:
+                    return
                 continue
 
             states = self._collect_trv_states()
@@ -1008,6 +1015,10 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
             self._initialize_sensors(sensor_state)
             await check_and_update_degraded_mode(self)
             await self._restore_state(states)
+            # The awaits above yield to the event loop, so the entity may have
+            # been removed in the meantime; bail out before writing to TRVs.
+            if self.is_removed:
+                return
             self._validate_hvac_mode(states)
             await self._initialize_trvs()
             await self._finalize_startup()
@@ -1698,6 +1709,44 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
                     exc,
                 )
 
+    async def _post_grace_recheck(
+        self,
+        grace_until: datetime | None,
+        recheck: Callable[[BetterThermostat], Awaitable[bool]],
+    ) -> None:
+        """Re-run an availability check once a startup grace window elapses.
+
+        During a startup grace window, availability checks defer their
+        Home Assistant repair issue. This helper sleeps for the remaining
+        grace time (if any) and runs the check again, so an entity that is
+        still unavailable after the window surfaces a repair issue without
+        waiting for the next unrelated trigger.
+
+        Parameters
+        ----------
+        grace_until : datetime | None
+            End of the grace window; ``None`` or a past instant runs the
+            recheck immediately.
+        recheck : Callable[[BetterThermostat], Awaitable[bool]]
+            Availability check coroutine function, invoked with this
+            thermostat instance.
+        """
+        remaining = (
+            (grace_until - dt_util.now()).total_seconds() if grace_until else 0.0
+        )
+        if remaining > 0:
+            await asyncio.sleep(remaining)
+        if self.is_removed:
+            return
+        try:
+            await recheck(self)
+        except Exception:
+            _LOGGER.warning(
+                "better_thermostat %s: post-grace availability recheck failed",
+                self.device_name,
+                exc_info=True,
+            )
+
     async def _finalize_startup(self) -> None:
         """Run post-init tasks: triggers, listeners, periodic jobs."""
         # Likewise give critical (TRV) entities a short grace before raising
@@ -1719,6 +1768,17 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
             "better_thermostat %s: checking critical entities...", self.device_name
         )
         await check_critical_entities(self)
+
+        # The retry schedule above finishes before the critical grace window
+        # ends, so a TRV that is still missing defers its repair issue. Re-run
+        # the check once the grace window has elapsed; otherwise the issue
+        # only appears when some later event happens to trigger a check.
+        self.hass.async_create_background_task(
+            self._post_grace_recheck(
+                self._critical_grace_until, check_critical_entities
+            ),
+            name=f"bt_post_grace_critical_{self.device_name}",
+        )
 
         _LOGGER.debug("better_thermostat %s: triggering time...", self.device_name)
         await self._trigger_time(None)
@@ -1774,20 +1834,10 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
         await await_optional_sensors(self)
         await check_and_update_degraded_mode(self)
 
-        async def _post_grace_degraded_recheck() -> None:
-            remaining = (
-                (self._degraded_grace_until - dt_util.now()).total_seconds()
-                if self._degraded_grace_until
-                else 0.0
-            )
-            if remaining > 0:
-                await asyncio.sleep(remaining)
-            if self.is_removed:
-                return
-            await check_and_update_degraded_mode(self)
-
         self.hass.async_create_background_task(
-            _post_grace_degraded_recheck(),
+            self._post_grace_recheck(
+                self._degraded_grace_until, check_and_update_degraded_mode
+            ),
             name=f"bt_post_grace_degraded_{self.device_name}",
         )
 
@@ -3084,6 +3134,9 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
 
     async def async_will_remove_from_hass(self):
         """Run when entity will be removed from hass."""
+        # Terminate the startup retry loop so an entity whose dependencies
+        # never became available does not keep polling after unload.
+        self.startup_running = False
         if self._control_task:
             self._control_task.cancel()
             try:

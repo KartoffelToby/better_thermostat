@@ -143,7 +143,7 @@
     },
     "reset_pid_learnings": {
       "name": "PID-Lernwerte zurücksetzen",
-      "description": "Löscht alle gelernten PID-Werte (und optional gelernte Öffnungsgrenzen) für diese Entität.",
+      "description": "Löscht alle gelernten PID-Werte für diese Entität.",
       "fields": {
         "apply_pid_defaults": {
           "name": "PID-Standardwerte nach dem Zurücksetzen anwenden",
