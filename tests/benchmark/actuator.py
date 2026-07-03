@@ -8,10 +8,9 @@ range. See DESIGN.md §8 (actuator modelling; Karlsson 1980).
 
 flow = (pct/100)^alpha       (alpha ≈ 3 for typical residential TRVs)
 
-EXPONENTIAL is a fixed quadratic curve, ``flow = (pct/100)^2`` — the
-alpha=2 special case of the power law, kept as a mild-curvature step
-between LINEAR and EQUAL_PERCENTAGE. It ignores
-``equal_percentage_exponent``.
+QUADRATIC is a fixed curve, ``flow = (pct/100)^2`` — the alpha=2
+special case of the power law, kept as a mild-curvature step between
+LINEAR and EQUAL_PERCENTAGE. It ignores ``equal_percentage_exponent``.
 
 LINEAR is the simplest reference profile and the default.
 """
@@ -28,7 +27,7 @@ class ActuatorProfile(StrEnum):
 
     LINEAR = "linear"
     THRESHOLD = "threshold"
-    EXPONENTIAL = "exponential"
+    QUADRATIC = "quadratic"
     EQUAL_PERCENTAGE = "equal_percentage"
 
 
@@ -110,7 +109,7 @@ class Actuator:
             else:
                 span = 100.0 - p.dead_zone_pct
                 flow = (pct - p.dead_zone_pct) / span if span > 0.0 else 1.0
-        elif p.profile == ActuatorProfile.EXPONENTIAL:
+        elif p.profile == ActuatorProfile.QUADRATIC:
             # Fixed quadratic curve (power law with alpha = 2).
             flow = (pct / 100.0) ** 2
         elif p.profile == ActuatorProfile.EQUAL_PERCENTAGE:

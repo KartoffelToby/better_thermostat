@@ -21,6 +21,11 @@ from __future__ import annotations
 from dataclasses import dataclass
 import math
 
+# A cubed uniform [-1, 1] draw has standard deviation sqrt(1/7); this
+# factor rescales the cubic-shaped kick so its standard deviation equals
+# the nominal noise/jitter parameter.
+_CUBIC_STD_CORRECTION = math.sqrt(7.0)
+
 
 @dataclass
 class SensorParams:
@@ -28,9 +33,10 @@ class SensorParams:
 
     sample_interval_s: float = 60.0
     ema_alpha: float = 1.0  # 1.0 = no EMA filter; <1.0 = smoothed toward filtered
-    # Noise scale in Kelvin. The generator cubes a uniform [-1, 1] draw,
-    # so samples cluster near zero and the effective standard deviation
-    # is ~0.38 * noise_std_K (sqrt(1/7)), with |noise| <= noise_std_K.
+    # Noise standard deviation in Kelvin. The generator cubes a uniform
+    # [-1, 1] draw and rescales it, so samples cluster near zero
+    # (Gaussian-ish) while the distribution's standard deviation equals
+    # this parameter exactly; |noise| is bounded at sqrt(7) * noise_std_K.
     noise_std_K: float = 0.0
     # Dropout window: the sensor returns None while
     # ``dropout_from_t_s <= t_s < dropout_until_t_s``. The defaults
@@ -46,10 +52,10 @@ class SensorParams:
     bias_K: float = 0.0
     drift_K_per_h: float = 0.0
     # Sample-jitter: when ``> 0``, the effective time between samples is
-    # ``sample_interval_s`` plus a deterministic LCG kick bounded by
-    # ``±jitter_std_s`` (cubic-shaped, effective stdev ~0.38 * jitter_std_s;
-    # clipped to ≥ 5 s). Models the async sensor-report behaviour of
-    # Zigbee TRVs that report on change.
+    # drawn from a deterministic LCG with mean ``sample_interval_s`` and
+    # standard deviation ``jitter_std_s`` (cubic-shaped, bounded at
+    # sqrt(7) * jitter_std_s; the result is clipped to >= 5 s). Models the
+    # async sensor-report behaviour of Zigbee TRVs that report on change.
     jitter_std_s: float = 0.0
 
     def __post_init__(self) -> None:
@@ -108,7 +114,7 @@ class Sensor:
             return 0.0
         self._rng_state = (self._rng_state * 1103515245 + 12345) & 0x7FFFFFFF
         u = (self._rng_state / 0x7FFFFFFF) * 2.0 - 1.0  # [-1, 1]
-        return u * u * u * self.params.noise_std_K
+        return u * u * u * _CUBIC_STD_CORRECTION * self.params.noise_std_K
 
     def _apply_thermal_lag(self, t_s: float, T_true_C: float) -> float:
         """Return the lagged sensor temperature for the current step.
@@ -151,7 +157,7 @@ class Sensor:
                 # from the cubic-noise generator (same RNG as _noise).
                 self._rng_state = (self._rng_state * 1103515245 + 12345) & 0x7FFFFFFF
                 u = (self._rng_state / 0x7FFFFFFF) * 2.0 - 1.0
-                kick = u * u * u * self.params.jitter_std_s
+                kick = u * u * u * _CUBIC_STD_CORRECTION * self.params.jitter_std_s
                 self._next_sample_interval_s = max(
                     5.0, self.params.sample_interval_s + kick
                 )

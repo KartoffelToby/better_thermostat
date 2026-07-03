@@ -7,6 +7,9 @@ only hit under specific param combinations these unit tests pin down.
 
 from __future__ import annotations
 
+import math
+from statistics import pstdev
+
 import pytest
 
 from tests.benchmark.actuator import Actuator, ActuatorParams, ActuatorProfile
@@ -39,9 +42,9 @@ def test_actuator_threshold_profile():
     assert abs(a.apply(100.0) - 1.0) < 1e-6
 
 
-def test_actuator_exponential_profile():
-    """Actuator exponential profile."""
-    a = Actuator(ActuatorParams(profile=ActuatorProfile.EXPONENTIAL))
+def test_actuator_quadratic_profile():
+    """Actuator quadratic profile."""
+    a = Actuator(ActuatorParams(profile=ActuatorProfile.QUADRATIC))
     assert abs(a.apply(50.0) - 0.25) < 1e-9
     assert a.apply(100.0) == 1.0
 
@@ -208,3 +211,27 @@ def test_actuator_params_reject_non_finite_values():
     """NaN or infinite parameters fail at construction."""
     with pytest.raises(ValueError):
         ActuatorParams(hysteresis_pct=float("nan"))
+
+
+def test_sensor_noise_std_matches_parameter():
+    """The empirical noise standard deviation equals ``noise_std_K``.
+
+    The cubic-shaped LCG kick is rescaled by sqrt(7) so the parameter is
+    a true standard deviation; samples stay bounded at sqrt(7) * std.
+    """
+    std_K = 0.5
+    p = SensorParams(noise_std_K=std_K, sample_interval_s=0.0)
+    s = Sensor(p, seed=3)
+    samples = [s.read(float(t), 20.0) - 20.0 for t in range(1, 20001)]
+    assert abs(pstdev(samples) - std_K) < 0.02
+    assert max(abs(x) for x in samples) <= std_K * math.sqrt(7.0) + 1e-9
+
+
+def test_sensor_jitter_kick_is_bounded():
+    """Rolled sample intervals stay within sqrt(7) * jitter_std_s of nominal."""
+    p = SensorParams(sample_interval_s=60.0, jitter_std_s=10.0)
+    s = Sensor(p)
+    bound = 10.0 * math.sqrt(7.0) + 1e-9
+    for t in range(200):
+        s.read(t * 60.0, 20.0)
+        assert abs(s._next_sample_interval_s - 60.0) <= bound
