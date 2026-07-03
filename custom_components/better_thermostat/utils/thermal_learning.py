@@ -20,9 +20,7 @@ from .const import MAX_HEAT_LOSS, MAX_HEATING_POWER, MIN_HEAT_LOSS, MIN_HEATING_
 
 _LOGGER = logging.getLogger(__name__)
 
-# ---------------------------------------------------------------------------
 # Internal constants
-# ---------------------------------------------------------------------------
 _TIMEOUT_MIN: int = 30  # plateau safety timeout (minutes)
 _MIN_CYCLE_DURATION: float = 1.0  # minimum cycle minutes to accept
 _BASE_ALPHA: float = 0.10  # EMA base smoothing factor
@@ -34,9 +32,7 @@ _STATS_MAXLEN: int = 10
 _CYCLES_MAXLEN: int = 50
 
 
-# ---------------------------------------------------------------------------
 # Telemetry record types (one entry per finalized cycle / stats sample)
-# ---------------------------------------------------------------------------
 
 
 class HeatingCycle(TypedDict):
@@ -86,9 +82,7 @@ class LossStats(TypedDict):
     loss: float
 
 
-# ---------------------------------------------------------------------------
 # Pure helpers
-# ---------------------------------------------------------------------------
 
 
 def ema_smooth(old: float, new: float, alpha: float) -> float:
@@ -131,9 +125,7 @@ def compute_env_factor(outdoor_temp: float | None, target_temp: float | None) ->
     return clamp(delta_env / 20.0, 0.7, 1.3)
 
 
-# ---------------------------------------------------------------------------
 # Result dataclasses (frozen – no mutation after creation)
-# ---------------------------------------------------------------------------
 
 
 @dataclass(frozen=True, slots=True)
@@ -160,9 +152,7 @@ class HeatLossUpdate:
     cycle_result: CycleResult | None = None
 
 
-# ---------------------------------------------------------------------------
 # HeatingPowerTracker
-# ---------------------------------------------------------------------------
 
 
 @dataclass
@@ -189,9 +179,7 @@ class HeatingPowerTracker:
         default_factory=lambda: deque(maxlen=_CYCLES_MAXLEN)
     )
 
-    # ------------------------------------------------------------------
     # Public API
-    # ------------------------------------------------------------------
 
     def update(
         self,
@@ -256,9 +244,7 @@ class HeatingPowerTracker:
         """Reset heating power to the given default."""
         self.heating_power = value
 
-    # ------------------------------------------------------------------
     # Internals
-    # ------------------------------------------------------------------
 
     def _maybe_finalize(
         self,
@@ -395,9 +381,7 @@ class HeatingPowerTracker:
         return CycleResult(power_changed=power_changed)
 
 
-# ---------------------------------------------------------------------------
 # HeatLossTracker
-# ---------------------------------------------------------------------------
 
 
 @dataclass
@@ -419,9 +403,7 @@ class HeatLossTracker:
         default_factory=lambda: deque(maxlen=_CYCLES_MAXLEN)
     )
 
-    # ------------------------------------------------------------------
     # Public API
-    # ------------------------------------------------------------------
 
     def update(
         self,
@@ -462,9 +444,7 @@ class HeatLossTracker:
         self._prev_action = current_action
         return HeatLossUpdate(cycle_result=cycle_result)
 
-    # ------------------------------------------------------------------
     # Internals
-    # ------------------------------------------------------------------
 
     def _finalize(self) -> CycleResult:
         """Evaluate the completed idle-cooling cycle."""

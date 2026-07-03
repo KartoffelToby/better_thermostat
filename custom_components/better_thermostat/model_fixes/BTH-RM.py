@@ -4,6 +4,8 @@ Provides small fixes and device behavior adjustments required for the
 Bosch BTH-RM when operated through Home Assistant integrations.
 """
 
+from __future__ import annotations
+
 import logging
 
 from homeassistant.helpers import entity_registry as er

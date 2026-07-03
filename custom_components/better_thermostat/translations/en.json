@@ -51,7 +51,8 @@
       "failed": "Something went wrong.",
       "no_name": "Please enter a name.",
       "no_off_mode": "Your device is special and has no off mode :(\nBetter Thermostat will use the minimal target temp instead.",
-      "no_outside_temp": "You have no outside temperature sensor. Better Thermostat will use the weather entity instead."
+      "no_outside_temp": "You have no outside temperature sensor. Better Thermostat will use the weather entity instead.",
+      "no_data": "No data was received. Please try again."
     },
     "abort": {
       "single_instance_allowed": "Only a single Better Thermostat is allowed for each real thermostat.",
@@ -125,6 +126,10 @@
     "invalid_window_state": {
       "title": "BT: {name} - invalid window sensor state",
       "description": "The window sensor for Better Thermostat {name} reported an unrecognized state: {state}.\n\nExpected states are: 'on', 'off', 'true', 'false', 'open', 'closed'.\n\nPlease check your window sensor configuration."
+    },
+    "invalid_external_temperature": {
+      "title": "BT: {name} - invalid external temperature",
+      "description": "The external temperature sensor for Better Thermostat {name} reported an implausible value: {value}.\n\nThe reading was outside the plausible range and has been ignored. Please check your temperature sensor configuration."
     }
   },
   "services": {
@@ -134,16 +139,12 @@
     },
     "reset_heating_power": {
       "name": "Reset heating power",
-      "description": "Reset heating power to default value."
+      "description": "Reset the heating power to its default value."
     },
     "reset_pid_learnings": {
       "name": "Reset PID learnings",
-      "description": "Clear all learned PID state (and optionally learned open caps) for this entity.",
+      "description": "Clear all learned PID state for this entity.",
       "fields": {
-        "include_open_caps": {
-          "name": "Also clear learned open caps",
-          "description": "If enabled, also clears learned min/max open percentages per TRV/target bucket."
-        },
         "apply_pid_defaults": {
           "name": "Apply PID defaults after reset",
           "description": "If enabled, seeds the current target bucket(s) with PID default gains (kp/ki/kd). You can override defaults below."

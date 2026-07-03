@@ -4,9 +4,12 @@ This module implements MQTT-specific behaviour for TRV devices used by
 the Better Thermostat integration.
 """
 
+from __future__ import annotations
+
 import asyncio
 import logging
 
+from homeassistant.components.climate.const import PRESET_NONE
 from homeassistant.components.number.const import SERVICE_SET_VALUE
 from homeassistant.const import STATE_UNAVAILABLE, STATE_UNKNOWN
 
@@ -73,14 +76,30 @@ async def init(self, entity_id):
         )
 
         state = self.hass.states.get(entity_id)
-        _has_preset = state.attributes.get("preset_modes", None) if state else None
-        if _has_preset is not None:
+        _preset_modes = (
+            state.attributes.get("preset_modes") if state is not None else None
+        )
+        # Only reset the device preset when "none" is actually a supported mode.
+        # Some TRVs (e.g. proportional Tuya models) expose ``preset_modes`` but
+        # do not accept arbitrary values, so calling the service with an
+        # unsupported mode raises ``ServiceValidationError`` and trips the
+        # startup retry loop.
+        if _preset_modes and PRESET_NONE in _preset_modes:
             await self.hass.services.async_call(
                 "climate",
                 "set_preset_mode",
-                {"entity_id": entity_id, "preset_mode": "none"},
+                {"entity_id": entity_id, "preset_mode": PRESET_NONE},
                 blocking=True,
                 context=self.context,
+            )
+        elif _preset_modes:
+            _LOGGER.debug(
+                "better_thermostat %s: TRV %s supports presets %s but not '%s'; "
+                "skipping preset reset",
+                self.device_name,
+                entity_id,
+                _preset_modes,
+                PRESET_NONE,
             )
 
 

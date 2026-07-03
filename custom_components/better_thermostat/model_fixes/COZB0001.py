@@ -4,6 +4,8 @@ Includes device-specific offsets and behavior adaptations required for certain
 COZB0001 based devices.
 """
 
+from __future__ import annotations
+
 import logging
 
 from custom_components.better_thermostat.model_fixes.types import ModelFixHost

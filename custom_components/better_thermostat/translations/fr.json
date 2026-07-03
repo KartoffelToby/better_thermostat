@@ -51,7 +51,8 @@
       "failed": "quelque chose s'est mal passé.",
       "no_name": "Veuillez entrer un nom.",
       "no_off_mode": "Votre appareil est très spécial et n'a pas de mode hors tension :(\nBetter Thermostat utilisera plutôt la température cible minimale.",
-      "no_outside_temp": "Vous n'avez pas de capteur de température extérieure. Better Thermostat utilisera plutôt l'entité météo."
+      "no_outside_temp": "Vous n'avez pas de capteur de température extérieure. Better Thermostat utilisera plutôt l'entité météo.",
+      "no_data": "Aucune donnée n'a été reçue. Veuillez réessayer."
     },
     "abort": {
       "single_instance_allowed": "Seule une instance de thermostat pour chaque vrai thermostat est autorisée.",
@@ -125,6 +126,10 @@
     "invalid_window_state": {
       "title": "BT: {name} - état du capteur de fenêtre invalide",
       "description": "Le capteur de fenêtre pour Better Thermostat {name} a signalé un état non reconnu : {state}.\n\nLes états attendus sont : 'on', 'off', 'true', 'false', 'open', 'closed'.\n\nVeuillez vérifier la configuration de votre capteur de fenêtre."
+    },
+    "invalid_external_temperature": {
+      "title": "BT: {name} - température extérieure invalide",
+      "description": "Le capteur de température extérieure pour Better Thermostat {name} a signalé une valeur invraisemblable : {value}.\n\nLa lecture était en dehors de la plage plausible et a été ignorée. Veuillez vérifier la configuration de votre capteur de température."
     }
   },
   "services": {
@@ -138,12 +143,8 @@
     },
     "reset_pid_learnings": {
       "name": "Réinitialiser l'apprentissage PID",
-      "description": "Efface tout l'état PID appris (et éventuellement les limites d'ouverture apprises) pour cette entité.",
+      "description": "Efface tout l'état PID appris pour cette entité.",
       "fields": {
-        "include_open_caps": {
-          "name": "Effacer aussi les limites d'ouverture apprises",
-          "description": "Si activé, efface également les pourcentages d'ouverture min/max appris par TRV/plage de consigne."
-        },
         "apply_pid_defaults": {
           "name": "Appliquer les valeurs PID par défaut après la réinitialisation",
           "description": "Si activé, prérenseigne les plages de consigne actuelles avec les gains PID par défaut (kp/ki/kd). Vous pouvez remplacer les valeurs par défaut ci-dessous."

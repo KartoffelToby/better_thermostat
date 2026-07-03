@@ -1,10 +1,12 @@
 """Better Thermostat Switch Platform."""
 
+from __future__ import annotations
+
 import logging
 
 from homeassistant.components.switch import SwitchEntity
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.const import STATE_OFF, STATE_ON, EntityCategory
+from homeassistant.const import STATE_OFF, STATE_ON, EntityCategory, Platform
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
@@ -17,10 +19,10 @@ from .utils.calibration.pid import (
     build_pid_key,
     resolve_unique_id,
 )
-from .utils.const import CONF_CALIBRATION_MODE, CalibrationMode
+from .utils.const import CONF_CALIBRATION_MODE, DOMAIN, CalibrationMode
+from .utils.helpers import async_normalize_bt_entity_ids, find_device_entity
 
 _LOGGER = logging.getLogger(__name__)
-DOMAIN = "better_thermostat"
 
 
 async def async_setup_entry(
@@ -74,6 +76,7 @@ async def async_setup_entry(
         len(switch_unique_ids),
     )
 
+    async_normalize_bt_entity_ids(hass, entry, Platform.SWITCH)
     async_add_entities(switches)
 
 
@@ -169,7 +172,6 @@ class BetterThermostatChildLockSwitch(SwitchEntity, RestoreEntity):
         self._bt_climate = bt_climate
         self._trv_entity_id = trv_entity_id
         self._attr_unique_id = f"{bt_climate.unique_id}_{trv_entity_id}_child_lock"
-        self._attr_name = "Child Lock"
         if show_trv_name:
             trv_state = bt_climate.hass.states.get(trv_entity_id)
             trv_name = trv_state.name if trv_state and trv_state.name else trv_entity_id
@@ -221,25 +223,13 @@ class BetterThermostatChildLockSwitch(SwitchEntity, RestoreEntity):
 
         device_id = reg_entity.device_id
 
-        def find_entity(domains, keywords):
-            for ent in entity_registry.entities.values():
-                if ent.device_id != device_id or ent.domain not in domains:
-                    continue
-                name = (getattr(ent, "original_name", "") or "").lower()
-                uid = (ent.unique_id or "").lower()
-                eid = (ent.entity_id or "").lower()
-
-                if (
-                    any(k in name for k in keywords)
-                    or any(k in uid for k in keywords)
-                    or any(k in eid for k in keywords)
-                ):
-                    return ent.entity_id
-            return None
-
-        # Look for switch (Z2M) or lock
-        cl_entity = find_entity(
-            ["switch", "lock"], ["child_lock", "child lock", "lock"]
+        # Look for switch (Z2M) or lock. Prefer child-lock-specific names and
+        # only fall back to a bare "lock" match, so a device exposing several
+        # lock entities does not select the wrong one.
+        cl_entity = find_device_entity(
+            entity_registry, device_id, ["switch", "lock"], ["child_lock", "child lock"]
+        ) or find_device_entity(
+            entity_registry, device_id, ["switch", "lock"], ["lock"]
         )
 
         if cl_entity:

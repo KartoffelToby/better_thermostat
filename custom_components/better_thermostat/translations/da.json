@@ -51,7 +51,8 @@
       "failed": "Noget gik galt.",
       "no_name": "Indtast venligst et navn.",
       "no_off_mode": "Din enhed er meget speciel og har ingen slukket tilstand :(\nDet virker alligevel, men du skal oprette en automatisering, der passer til dine specialer baseret på enhedsbegivenhederne",
-      "no_outside_temp": "Du har ingen udetemperaturføler. Better Thermostat vil bruge vejret i stedet."
+      "no_outside_temp": "Du har ingen udetemperaturføler. Better Thermostat vil bruge vejret i stedet.",
+      "no_data": "Ingen data blev modtaget. Prøv venligst igen."
     },
     "abort": {
       "single_instance_allowed": "Kun en enkelt termostat for hver virkelige er tilladt.",
@@ -125,6 +126,10 @@
     "invalid_window_state": {
       "title": "BT: {name} - ugyldig vinduesensortilstand",
       "description": "Vinduesensoren for Better Thermostat {name} rapporterede en ukendt tilstand: {state}.\n\nForventede tilstande er: 'on', 'off', 'true', 'false', 'open', 'closed'.\n\nKontroller din vinduesensorkonfiguration."
+    },
+    "invalid_external_temperature": {
+      "title": "BT: {name} - ugyldig ekstern temperatur",
+      "description": "Den eksterne temperaturføler for Better Thermostat {name} rapporterede en usandsynlig værdi: {value}.\n\nAflæsningen lå uden for det sandsynlige interval og blev ignoreret. Kontroller din temperaturfølerkonfiguration."
     }
   },
   "services": {
@@ -138,12 +143,8 @@
     },
     "reset_pid_learnings": {
       "name": "Nulstil PID-læring",
-      "description": "Rydder al lært PID-tilstand (og eventuelt lærte åbningsgrænser) for denne enhed.",
+      "description": "Rydder al lært PID-tilstand for denne enhed.",
       "fields": {
-        "include_open_caps": {
-          "name": "Ryd også lærte åbningsgrænser",
-          "description": "Hvis aktiveret, ryddes også de lærte minimums-/maksimumsåbningsprocenter pr. TRV/målinterval."
-        },
         "apply_pid_defaults": {
           "name": "Anvend PID-standardværdier efter nulstilling",
           "description": "Hvis aktiveret, forudfyldes de aktuelle målintervaller med PID-standardforstærkninger (kp/ki/kd). Du kan tilsidesætte standardværdierne nedenfor."

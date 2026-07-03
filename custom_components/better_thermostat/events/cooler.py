@@ -4,6 +4,8 @@ Contains the event handler that reacts to changes in the configured cooler
 entity and updates the integration state accordingly.
 """
 
+from __future__ import annotations
+
 import logging
 
 from homeassistant.components.climate.const import HVACMode
@@ -50,9 +52,9 @@ async def trigger_cooler_change(self, event):
             entity_id,
         )
         return
-    # set context HACK TO FIND OUT IF AN EVENT WAS SEND BY BT
 
-    # Check if the update is coming from the code
+    # Skip updates that BT itself triggered: our own service calls carry
+    # self.context, so a matching context means this is an echo of our write.
     if self.context == event.context:
         return
 

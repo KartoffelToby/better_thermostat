@@ -754,6 +754,17 @@ class TestRecordThermal:
         assert mgr.state.pid["p:trv1"].pid_kp == 42.0
         assert mgr.state.tpi["p:trv1"].last_percent == 33.0
 
+    def test_non_finite_values_dropped_to_none(self):
+        """NaN/inf samples are not persisted; finite ones are kept."""
+        mgr = _make_manager()
+        mgr.record_thermal(float("nan"), float("inf"))
+        assert mgr.thermal.heating_power is None
+        assert mgr.thermal.heat_loss_rate is None
+
+        mgr.record_thermal(1500.0, 0.5)
+        assert mgr.thermal.heating_power == 1500.0
+        assert mgr.thermal.heat_loss_rate == 0.5
+
 
 # ---------------------------------------------------------------------------
 # PID state reset

@@ -1,0 +1,37 @@
+#!/usr/bin/env bash
+
+set -e
+
+cd "$(dirname "$0")/.."
+
+# Create config dir if not present
+if [[ ! -d "${PWD}/.haconfig" ]]; then
+    mkdir -p "${PWD}/.haconfig"
+fi
+
+# Create baseline configuration.yaml if missing
+if [[ ! -f "${PWD}/.haconfig/configuration.yaml" ]]; then
+    cat > "${PWD}/.haconfig/configuration.yaml" <<EOF
+# Loads default set of integrations. Do not remove.
+default_config:
+
+# Load frontend themes from the themes folder
+frontend:
+  themes: !include_dir_merge_named themes
+
+automation: !include automations.yaml
+script: !include scripts.yaml
+scene: !include scenes.yaml
+EOF
+
+    # The include directives above reference files/dirs that must exist, or
+    # Home Assistant refuses to boot on a fresh checkout. Seed empty ones.
+    echo "[]" > "${PWD}/.haconfig/automations.yaml"
+    echo "[]" > "${PWD}/.haconfig/scripts.yaml"
+    echo "[]" > "${PWD}/.haconfig/scenes.yaml"
+    mkdir -p "${PWD}/.haconfig/themes"
+fi
+
+# Publish on 9123 to match the documented dev workflow (CONTRIBUTING.md,
+# devcontainer, VSCode task) and avoid clashing with a local HA on 8123.
+docker run -it --name=ha --rm -p 9123:8123 --pull always -v ./custom_components:/config/custom_components:ro -v ./.haconfig:/config homeassistant/home-assistant:stable

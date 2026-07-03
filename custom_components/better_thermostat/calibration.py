@@ -1,5 +1,7 @@
 """Helper functions for the Better Thermostat component."""
 
+from __future__ import annotations
+
 import logging
 import math
 

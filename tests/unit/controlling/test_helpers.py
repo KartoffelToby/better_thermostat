@@ -12,7 +12,7 @@ Absorbed tests from:
 import asyncio
 from unittest.mock import MagicMock, Mock
 
-from homeassistant.components.climate.const import HVACMode
+from homeassistant.components.climate.const import ClimateEntityFeature, HVACMode
 import pytest
 
 from custom_components.better_thermostat.trv import Trv
@@ -325,6 +325,34 @@ class TestCheckTargetTemperature:
         """Test when temperature matches immediately."""
         mock_state = Mock()
         mock_state.attributes = {"temperature": 21.0}
+
+        mock_hass = Mock()
+        mock_hass.states.get.return_value = mock_state
+
+        mock_self = Mock()
+        mock_self.device_name = "test_thermostat"
+        mock_self.hass = mock_hass
+        mock_self.real_trvs = {
+            "climate.trv1": Trv.from_legacy_dict(
+                "climate.trv1",
+                {"last_temperature": 21.0, "target_temp_received": False},
+            )
+        }
+
+        result = await check_target_temperature(mock_self, "climate.trv1")
+
+        assert result is True
+        assert mock_self.real_trvs["climate.trv1"].target_temp_received is True
+
+    @pytest.mark.asyncio
+    async def test_range_mode_confirms_via_target_temp_low(self):
+        """A range-capable TRV confirms the write through target_temp_low."""
+        mock_state = Mock()
+        mock_state.attributes = {
+            "temperature": 17.0,
+            "target_temp_low": 21.0,
+            "supported_features": int(ClimateEntityFeature.TARGET_TEMPERATURE_RANGE),
+        }
 
         mock_hass = Mock()
         mock_hass.states.get.return_value = mock_state

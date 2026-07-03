@@ -25,6 +25,7 @@ from typing import Any
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.storage import Store
 
+from .const import DOMAIN
 from .state_manager import (
     StateManager,
     ThermalStats,
@@ -34,8 +35,6 @@ from .state_manager import (
 )
 
 _LOGGER = logging.getLogger(__name__)
-
-DOMAIN = "better_thermostat"
 
 
 def _import_legacy_data(
