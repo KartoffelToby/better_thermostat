@@ -527,6 +527,36 @@ def state_temperature_unit(
     return system_unit
 
 
+def celsius_to_system_temperature(hass: HomeAssistant, temperature: float) -> float:
+    """Convert a Celsius temperature to the Home Assistant system unit.
+
+    The outbound counterpart to :func:`attr_to_celsius`: Better Thermostat
+    works in Celsius internally, while ``climate`` service payloads must
+    carry the system unit. On Fahrenheit installs the value is converted
+    and rounded to one decimal; otherwise it is returned unchanged.
+
+    Parameters
+    ----------
+    hass : HomeAssistant
+            the Home Assistant instance supplying the configured system unit
+    temperature : float
+            the temperature in Celsius
+
+    Returns
+    -------
+    float
+            the temperature expressed in the system unit
+    """
+    if hass.config.units.temperature_unit == UnitOfTemperature.FAHRENHEIT:
+        return round(
+            TemperatureConverter.convert(
+                temperature, UnitOfTemperature.CELSIUS, UnitOfTemperature.FAHRENHEIT
+            ),
+            1,
+        )
+    return temperature
+
+
 def trv_supports_temperature_range(state: State | None) -> bool:
     """Check whether a climate state advertises TARGET_TEMPERATURE_RANGE.
 
