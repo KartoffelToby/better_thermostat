@@ -43,9 +43,9 @@ from .plant import (
     PROFILE_DOE_SFD_PRE1980,
     PROFILE_FAST_SMALL,
     PROFILE_LARGE_SLOW,
-    PROFILE_REAL_KUCHE,
-    PROFILE_REAL_WOHNZIMMER,
-    PROFILE_REAL_WOHNZIMMER_RC3,
+    PROFILE_REAL_KITCHEN,
+    PROFILE_REAL_LIVING_ROOM,
+    PROFILE_REAL_LIVING_ROOM_RC3,
     PROFILE_REALISTIC,
     PROFILE_STANDARD,
     PROFILE_STANDARD_RC3,
@@ -123,10 +123,10 @@ PLANT_PROFILES: dict[str, PlantParams] = {
     "standard": PROFILE_STANDARD,
     "large_slow": PROFILE_LARGE_SLOW,
     "underfloor": PROFILE_UNDERFLOOR,
-    "real_wohnzimmer": PROFILE_REAL_WOHNZIMMER,
-    "real_kuche": PROFILE_REAL_KUCHE,
+    "real_living_room": PROFILE_REAL_LIVING_ROOM,
+    "real_kitchen": PROFILE_REAL_KITCHEN,
     "standard_rc3": PROFILE_STANDARD_RC3,
-    "real_wohnzimmer_rc3": PROFILE_REAL_WOHNZIMMER_RC3,
+    "real_living_room_rc3": PROFILE_REAL_LIVING_ROOM_RC3,
     "realistic": PROFILE_REALISTIC,
     "doe_sfd_pre1980": PROFILE_DOE_SFD_PRE1980,
     "doe_sfd_2004": PROFILE_DOE_SFD_2004,
@@ -558,6 +558,12 @@ def main(argv: list[str] | None = None) -> int:
             "doe_midrise_apt",
         ]
         scenarios = [s for s in scenarios if ALL_SCENARIOS[s].plant is PROFILE_STANDARD]
+        if not scenarios:
+            print(
+                "--plant-sweep: all selected scenarios pin their own plant; "
+                "nothing to sweep",
+                file=sys.stderr,
+            )
     elif "all" in plant_args:
         plant_names = list(PLANT_PROFILES.keys())
     elif plant_args:
@@ -699,8 +705,22 @@ def _run_multi_trv_block(
         "asymmetric": PROFILE_MULTI_ASYMMETRIC,
         "heterogeneous": PROFILE_MULTI_HETEROGENEOUS,
     }
-    eligible = [s for s in scenario_names if ALL_SCENARIOS[s].plant is PROFILE_STANDARD]
+    # Standard-plant scenarios only (others carry plant-specific intent),
+    # and no restart scenarios: the multi-TRV driver does not fire the
+    # restart protocol, so they would silently run without their defining
+    # event.
+    eligible = [
+        s
+        for s in scenario_names
+        if ALL_SCENARIOS[s].plant is PROFILE_STANDARD
+        and ALL_SCENARIOS[s].controller_restart_t_s is None
+    ]
     if not eligible:
+        print(
+            "--multi-trv: no eligible scenarios in the selection "
+            "(standard-plant, non-restart scenarios only)",
+            file=sys.stderr,
+        )
         return
 
     def _initial_for(

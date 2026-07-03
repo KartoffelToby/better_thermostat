@@ -38,7 +38,7 @@ _SCENARIOS = [
 ]
 
 # Smart controllers must stay comfortably above this. They currently sit
-# around 0.70-0.82 on this set; a floor of 0.50 ignores normal scenario
+# around 0.72-0.78 on this set; a floor of 0.50 ignores normal scenario
 # variation but trips on a genuine regression.
 _SMART_OVERALL_FLOOR = 0.50
 

@@ -45,9 +45,9 @@ if str(_REPO_ROOT) not in sys.path:
 from tests.benchmark.plant import PlantParams, PlantState, TwoStatePlant  # noqa: E402
 
 # --- Ground-truth plant params for the two simulated rooms -------------------
-# Numerically close to what the original real-data fit recovered, so the
-# downstream PROFILE_FITTED_* constants in plant.py stay representative of
-# typical mid-European apartment envelopes.
+# Numerically close to the PROFILE_REAL_LIVING_ROOM / PROFILE_REAL_KITCHEN
+# constants in plant.py, so a fit against this dataset lands in the same
+# parameter region as a fit against a typical mid-European apartment.
 
 GROUND_TRUTH_LIVING = PlantParams(
     tau_room_min=570.0,
@@ -174,7 +174,8 @@ def _emit_csv(
         for hour, T in enumerate(samples):
             ts = (start + timedelta(hours=hour)).strftime("%Y-%m-%d %H:%M:%S")
             rows.append((ts, f"{T:.4f}", entity_id))
-    rows.sort(key=lambda r: (r[2], r[0]))  # match the original CSV ordering
+    # Group rows by entity, then time — the ordering a recorder export has.
+    rows.sort(key=lambda r: (r[2], r[0]))
     with path.open("w", newline="") as f:
         writer = csv.writer(f)
         writer.writerows(rows)

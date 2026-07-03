@@ -149,6 +149,9 @@ def run_multi_trv_scenario(
         scenario.duration_min * 60.0, scenario.duration_min * 60.0 * time_scale
     )
     facade = _MultiTrvFacade(plant)
+    # The multi-TRV driver never fires the restart protocol
+    # (handle_controller_restart=False); restart scenarios are excluded
+    # from the multi-TRV block in the runner for that reason.
     series = _drive_adapter(
         adapter, facade, scenario, step_s, duration_s, handle_controller_restart=False
     )

@@ -93,9 +93,10 @@ class ScenarioConfig:
     # Per-scenario override for the stabilisation phase. ``None`` defers
     # to the CLI default.
     stabilisation_min: float | None = None
-    # If set, the runner calls ``adapter.reset()`` once when ``t`` first
-    # reaches this value — models an HA restart that wipes integrator
-    # state mid-flight.
+    # If set, the runner simulates an HA restart once when ``t`` first
+    # reaches this value: persisted controller state is snapshotted via
+    # ``export_state()`` and rehydrated through ``reset(prior=...)``;
+    # in-RAM-only state is lost.
     controller_restart_t_s: float | None = None
 
 

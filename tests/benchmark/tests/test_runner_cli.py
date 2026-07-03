@@ -238,3 +238,24 @@ def test_run_scenario_rejects_non_positive_step_s():
     """run_scenario rejects non positive step_s."""
     with pytest.raises(ValueError):
         run_scenario(LinearPAdapter(), S01_SETPOINT_STEP_SMALL, step_s=0.0)
+
+
+def test_main_multi_trv_excludes_restart_scenarios():
+    """The multi-TRV block skips scenarios whose restart cannot fire.
+
+    The multi-TRV driver runs with ``handle_controller_restart=False``,
+    so a restart scenario would silently measure a run without its
+    defining event; the runner excludes it and says so.
+    """
+    rc, out = _run(
+        [
+            "--multi-trv",
+            "--scenario",
+            "S24_controller_restart",
+            "--controller",
+            "linear_p",
+        ]
+    )
+    assert rc == 0
+    assert "[multi-TRV]" not in out
+    assert "no eligible scenarios" in out

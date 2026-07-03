@@ -110,7 +110,7 @@ def _fit_tau_room(window: list[tuple[float, float, float]]) -> float | None:
     if len(window) < 3:
         return None
     t0_s, T0, _ = window[0]
-    # Use the window's *median* outdoor temp during the cooling phase.
+    # Use the window's mean outdoor temp during the cooling phase.
     T_out = sum(w[2] for w in window) / len(window)
     if abs(T0 - T_out) < 0.5:
         return None  # No driving gradient, can't fit
