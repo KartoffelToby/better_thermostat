@@ -9,7 +9,7 @@ import math
 import re
 from typing import Any
 
-from homeassistant.components.climate.const import HVACMode
+from homeassistant.components.climate.const import ClimateEntityFeature, HVACMode
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import (
     CONF_NAME,
@@ -527,6 +527,31 @@ def state_temperature_unit(
     return system_unit
 
 
+def trv_supports_temperature_range(state: State | None) -> bool:
+    """Check whether a climate state advertises TARGET_TEMPERATURE_RANGE.
+
+    Centralizes the supported_features bitmask check so write paths
+    (model quirks) and read/confirmation paths (control_trv,
+    check_target_temperature) stay in sync if the detection logic
+    ever needs to change.
+
+    Parameters
+    ----------
+    state : State | None
+            the climate entity state to inspect
+
+    Returns
+    -------
+    bool
+            True if the range feature bit is set, False otherwise
+            (including when state is None)
+    """
+    if state is None:
+        return False
+    supported_features = state.attributes.get("supported_features", 0)
+    return bool(supported_features & ClimateEntityFeature.TARGET_TEMPERATURE_RANGE)
+
+
 def attr_to_celsius(
     self,
     state: State | None,
@@ -573,6 +598,46 @@ def attr_to_celsius(
             attributes, self.hass.config.units.temperature_unit
         ),
     )
+
+
+def get_current_set_temperatures(
+    self, state: State | None, log_source: str
+) -> set[float]:
+    """Read the single-setpoint and range-low temperatures from a climate state.
+
+    Centralizes the "read temperature and target_temp_low, then build a
+    non-None set" logic shared by control_trv()'s write-skip check and
+    check_target_temperature()'s confirmation polling. A device's
+    supported_features range bit doesn't guarantee its setpoint is
+    actually driven via target_temp_low -- only a model-specific quirk
+    makes that true, and an un-quirked range-capable device may still
+    only ever be written via plain "temperature" through the generic
+    adapter. Returning both non-None values as a set lets callers accept
+    a match on either, correct regardless of which path performed the
+    write.
+
+    Parameters
+    ----------
+    self :
+            the Better Thermostat instance, supplying ``hass`` and ``device_name``
+    state : State | None
+            the climate entity state to inspect, or None when unavailable
+    log_source : str
+            caller name, forwarded to attr_to_celsius for logging context
+
+    Returns
+    -------
+    set[float]
+            the set of non-None current setpoints (temperature and,
+            when range mode is supported, target_temp_low)
+    """
+    single = attr_to_celsius(self, state, "temperature", None, log_source)
+    range_low = (
+        attr_to_celsius(self, state, "target_temp_low", None, log_source)
+        if trv_supports_temperature_range(state)
+        else None
+    )
+    return {v for v in (single, range_low) if v is not None}
 
 
 class rounding:
@@ -997,10 +1062,18 @@ async def find_local_calibration_entity(self, entity_id):
             calibration_entity = entity.entity_id
             break
 
-    # Second pass: fallback to string matching on unique_id / entity_id / original_name
+    # Second pass: fallback to string matching on unique_id / entity_id / original_name.
+    # Restricted to the "number" domain: only number entities are writable
+    # calibration controls, so a read-only sensor sharing the same substring
+    # (e.g. sensor.*_local_temperature) is never a valid match here. Without
+    # this restriction the winner depended on registry iteration order, which
+    # is not a guaranteed order.
     if calibration_entity is None:
         for entity in entity_entries:
             if entity.device_id != reg_entity.device_id:
+                continue
+            domain = (entity.entity_id or "").split(".", 1)[0]
+            if domain != "number":
                 continue
             descriptor = f"{entity.unique_id} {entity.entity_id} {getattr(entity, 'original_name', '') or ''}".lower()
             if (
@@ -1015,6 +1088,7 @@ async def find_local_calibration_entity(self, entity_id):
                     entity_id,
                 )
                 calibration_entity = entity.entity_id
+                break
 
     if calibration_entity is None:
         _LOGGER.debug(
