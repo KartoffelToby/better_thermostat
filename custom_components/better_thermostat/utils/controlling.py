@@ -39,6 +39,7 @@ from custom_components.better_thermostat.utils.helpers import (
     clamp_valve_percent,
     convert_to_float,
     get_current_set_temperatures,
+    matches_any_setpoint,
     state_temperature_unit,
 )
 from custom_components.better_thermostat.utils.scheduler import request_control_cycle
@@ -1084,7 +1085,10 @@ async def control_trv(self, heater_entity_id=None, cycle=None):
         if _temperature is not None and (
             _new_hvac_mode != HVACMode.OFF or _trv_has_no_off
         ):
-            if _temperature not in _current_set_temperatures:
+            # Tolerance-based comparison: the outbound value lies on the
+            # device step grid, the read-back values on the 0.01 grid, so
+            # exact set membership would re-send identical setpoints.
+            if not matches_any_setpoint(_temperature, _current_set_temperatures):
                 trv_entry = self.real_trvs[heater_entity_id]
                 # Safety-relevant writes (frost floor / OFF) bypass the
                 # write budget; everything else waits for the next slot
@@ -1137,8 +1141,11 @@ async def control_trv(self, heater_entity_id=None, cycle=None):
 async def check_system_mode(self, heater_entity_id=None):
     """Wait for TRV to confirm HVAC mode change, timeout after 6 minutes.
 
-    Polls the TRV state every second until hvac_mode matches last_hvac_mode
-    or timeout is reached. Sets system_mode_received flag when complete.
+    Polls the TRV's live entity state every second until it matches
+    last_hvac_mode or timeout is reached. Sets system_mode_received flag
+    when complete. Reading the live state directly avoids depending on the
+    internal hvac_mode cache, which is not refreshed while state events are
+    suppressed (control cycle) or when child lock is configured.
 
     Parameters
     ----------
@@ -1154,7 +1161,18 @@ async def check_system_mode(self, heater_entity_id=None):
     """
     _timeout = 0
     _real_trv = self.real_trvs[heater_entity_id]
-    while _real_trv.hvac_mode != _real_trv.last_hvac_mode:
+    while True:
+        _trv_state = self.hass.states.get(heater_entity_id)
+        if _trv_state is None or _trv_state.state in (STATE_UNAVAILABLE, STATE_UNKNOWN):
+            _LOGGER.debug(
+                "better_thermostat %s: %s became unavailable during check_system_mode",
+                self.device_name,
+                heater_entity_id,
+            )
+            break
+        if _trv_state.state == _real_trv.last_hvac_mode:
+            _timeout = 0
+            break
         if _timeout > 360:
             _LOGGER.warning(
                 "better_thermostat %s: TRV %s did not confirm the system mode change "
@@ -1162,7 +1180,7 @@ async def check_system_mode(self, heater_entity_id=None):
                 self.device_name,
                 heater_entity_id,
                 _real_trv.last_hvac_mode,
-                _real_trv.hvac_mode,
+                _trv_state.state,
             )
             _timeout = 0
             break
@@ -1178,7 +1196,8 @@ async def check_target_temperature(self, heater_entity_id=None):
 
     Polls the TRV's temperature (and target_temp_low, when range mode is
     supported) attribute every second until either matches last_temperature
-    or timeout is reached. Sets target_temp_received flag when complete.
+    within SETPOINT_MATCH_TOLERANCE or timeout is reached. Sets
+    target_temp_received flag when complete.
 
     Parameters
     ----------
@@ -1216,9 +1235,11 @@ async def check_target_temperature(self, heater_entity_id=None):
                 _real_trv.last_temperature,
                 _current_set_temperatures,
             )
-        if (
-            not _current_set_temperatures
-            or _real_trv.last_temperature in _current_set_temperatures
+        # An empty set (no readable setpoint) is treated as confirmed; a
+        # non-empty set is matched with a tolerance because written and
+        # read-back setpoints lie on different float rounding grids.
+        if not _current_set_temperatures or matches_any_setpoint(
+            _real_trv.last_temperature, _current_set_temperatures
         ):
             _timeout = 0
             break

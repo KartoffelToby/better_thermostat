@@ -653,6 +653,46 @@ class TestControlTrvAvailablePath:
             mock_set_temp.assert_not_called()
 
     @pytest.mark.asyncio
+    async def test_skip_guard_matches_across_float_rounding_grids(self):
+        """An already-applied setpoint is not re-sent despite grid mismatch.
+
+        The outbound value comes from the device step grid
+        (round_by_step(20.7, 0.1) == 20.700000000000003), while the TRV
+        state reads back 20.7 through the 0.01 grid. The tolerance-based
+        skip guard must recognize the match and suppress the write.
+        """
+        from custom_components.better_thermostat.utils.helpers import round_by_step
+
+        outbound = round_by_step(20.7, 0.1)
+        assert outbound != 20.7  # the grids genuinely diverge
+
+        mock_self = _make_mock_self(
+            trv_state=HVACMode.HEAT, trv_attrs={"temperature": 20.7}
+        )
+
+        with (
+            patch(_PATCHES["convert_outbound_states"]) as mock_convert,
+            patch(
+                _PATCHES["override_set_hvac_mode"], new=AsyncMock(return_value=False)
+            ),
+            patch(
+                _PATCHES["override_set_temperature"], new=AsyncMock(return_value=False)
+            ) as mock_override,
+            patch(_PATCHES["set_hvac_mode"], new=AsyncMock()),
+            patch(_PATCHES["set_temperature"]) as mock_set_temp,
+            patch("asyncio.sleep", new=AsyncMock()),
+        ):
+            mock_convert.return_value = {
+                "temperature": outbound,
+                "system_mode": HVACMode.HEAT,
+            }
+
+            await control_trv(mock_self, "climate.trv1")
+
+            mock_override.assert_not_called()
+            mock_set_temp.assert_not_called()
+
+    @pytest.mark.asyncio
     async def test_set_temperature_falls_back_to_generic_adapter(self):
         """Without a model quirk, the generic adapter performs the write."""
         mock_self = _make_mock_self(

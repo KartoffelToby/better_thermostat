@@ -28,6 +28,11 @@ from custom_components.better_thermostat.sensor import (
     BetterThermostatMpcGainSensor,
     BetterThermostatMpcKaSensor,
     BetterThermostatMpcLossSensor,
+    BetterThermostatPidErrorSensor,
+    BetterThermostatPidKdSensor,
+    BetterThermostatPidKiSensor,
+    BetterThermostatPidKpSensor,
+    BetterThermostatPidOutputSensor,
     BetterThermostatSolarIntensitySensor,
     BetterThermostatTempSlopeSensor,
     BetterThermostatVirtualTempSensor,
@@ -498,6 +503,64 @@ class TestMpcSensorState:
         sensor = BetterThermostatVirtualTempSensor(bt)
         sensor._update_state()
         assert sensor._attr_native_value == 23.0
+
+
+class TestPidSensorState:
+    """Tests for PID sensor state retrieval from calibration_balance debug."""
+
+    def _make_trv_with_debug(self, **debug_values):
+        return {
+            "trv_1": Trv.from_legacy_dict(
+                "trv_1", {"calibration_balance": {"debug": debug_values}}
+            )
+        }
+
+    @pytest.mark.parametrize(
+        ("SensorClass", "debug_key", "value"),
+        [
+            (BetterThermostatPidKpSensor, "kp", 60.0),
+            (BetterThermostatPidKiSensor, "ki", 0.01),
+            (BetterThermostatPidKdSensor, "kd", 2000.0),
+            (BetterThermostatPidOutputSensor, "u", 42.5),
+            (BetterThermostatPidErrorSensor, "e_K", -0.3),
+        ],
+    )
+    def test_reads_value_from_debug(self, SensorClass, debug_key, value):
+        """Each PID sensor reads its debug key from calibration_balance."""
+        bt = _make_bt_climate(real_trvs=self._make_trv_with_debug(**{debug_key: value}))
+        sensor = SensorClass(bt)
+        sensor._update_state()
+        assert sensor._attr_native_value == value
+
+    def test_missing_debug_key_returns_none(self):
+        """A PID sensor whose key is absent from debug reports None."""
+        bt = _make_bt_climate(real_trvs=self._make_trv_with_debug(kp=60.0))
+        sensor = BetterThermostatPidErrorSensor(bt)
+        sensor._update_state()
+        assert sensor._attr_native_value is None
+
+    def test_invalid_debug_value_returns_none(self):
+        """A non-numeric debug value is coerced to None."""
+        bt = _make_bt_climate(real_trvs=self._make_trv_with_debug(kp="bad"))
+        sensor = BetterThermostatPidKpSensor(bt)
+        sensor._update_state()
+        assert sensor._attr_native_value is None
+
+    @pytest.mark.parametrize(
+        "SensorClass",
+        [
+            BetterThermostatPidKpSensor,
+            BetterThermostatPidKiSensor,
+            BetterThermostatPidKdSensor,
+            BetterThermostatPidOutputSensor,
+            BetterThermostatPidErrorSensor,
+        ],
+    )
+    def test_unavailable_when_hvac_off(self, SensorClass):
+        """PID sensors are unavailable when the thermostat is off."""
+        bt = _make_bt_climate(hvac_mode="off")
+        sensor = SensorClass(bt)
+        assert sensor.available is False
 
 
 # ===========================================================================

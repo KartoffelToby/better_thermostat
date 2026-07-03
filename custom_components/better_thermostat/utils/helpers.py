@@ -552,6 +552,36 @@ def state_temperature_unit(
     return system_unit
 
 
+def celsius_to_system_temperature(hass: HomeAssistant, temperature: float) -> float:
+    """Convert a Celsius temperature to the Home Assistant system unit.
+
+    The outbound counterpart to :func:`attr_to_celsius`: Better Thermostat
+    works in Celsius internally, while ``climate`` service payloads must
+    carry the system unit. On Fahrenheit installs the value is converted
+    and rounded to one decimal; otherwise it is returned unchanged.
+
+    Parameters
+    ----------
+    hass : HomeAssistant
+            the Home Assistant instance supplying the configured system unit
+    temperature : float
+            the temperature in Celsius
+
+    Returns
+    -------
+    float
+            the temperature expressed in the system unit
+    """
+    if hass.config.units.temperature_unit == UnitOfTemperature.FAHRENHEIT:
+        return round(
+            TemperatureConverter.convert(
+                temperature, UnitOfTemperature.CELSIUS, UnitOfTemperature.FAHRENHEIT
+            ),
+            1,
+        )
+    return temperature
+
+
 def trv_supports_temperature_range(state: State | None) -> bool:
     """Check whether a climate state advertises TARGET_TEMPERATURE_RANGE.
 
@@ -663,6 +693,51 @@ def get_current_set_temperatures(
         else None
     )
     return {v for v in (single, range_low) if v is not None}
+
+
+# Written setpoints are rounded on the device step grid (round_by_step with
+# e.g. 0.1, or a Fahrenheit step converted to Celsius), while read-back values
+# pass through convert_to_float's 0.01 grid. The two grids are not
+# binary-float compatible, so exact equality between a written and a read-back
+# setpoint is unreliable. 0.01 covers both the float-grid noise (~1e-14) and
+# the worst legitimate write-vs-readback divergence (half the 0.01 read grid,
+# 0.005), while staying far below the smallest distinguishable setpoint step
+# (0.1) — it can never conflate two distinct setpoints.
+SETPOINT_MATCH_TOLERANCE = 0.01
+
+
+def matches_any_setpoint(
+    value: float | None,
+    setpoints: set[float],
+    tolerance: float = SETPOINT_MATCH_TOLERANCE,
+) -> bool:
+    """Check whether a setpoint matches any element of a set within a tolerance.
+
+    Written setpoints (rounded on the device step grid) and read-back
+    setpoints (rounded on convert_to_float's 0.01 grid) land on different
+    binary-float grids, so callers compare them with this tolerance-based
+    check instead of exact set membership.
+
+    Parameters
+    ----------
+    value : float | None
+            the setpoint to look for, or None when no value is available
+    setpoints : set[float]
+            the setpoints to compare against
+    tolerance : float
+            maximum absolute difference still considered a match
+            (default: SETPOINT_MATCH_TOLERANCE)
+
+    Returns
+    -------
+    bool
+            True if value is not None and lies within tolerance of any
+            element of setpoints, False otherwise (including for an
+            empty set)
+    """
+    if value is None:
+        return False
+    return any(abs(value - setpoint) <= tolerance for setpoint in setpoints)
 
 
 class rounding:
@@ -1041,6 +1116,11 @@ _CALIBRATION_TRANSLATION_KEYS: set[str] = {
     "offset",
 }
 
+# Domains the calibration write path can address (number.set_value or
+# select option handling).  Read-only entities such as the Zigbee2MQTT
+# sensor.*_local_temperature must never be picked as calibration target.
+_CALIBRATION_ENTITY_DOMAINS: set[str] = {"number", "select"}
+
 
 async def find_local_calibration_entity(self, entity_id):
     """Find the local calibration entity for the TRV.
@@ -1048,6 +1128,8 @@ async def find_local_calibration_entity(self, entity_id):
     Uses the entity registry's ``translation_key`` and ``original_name``
     for a stable, language-independent lookup.  Falls back to the legacy
     unique_id / entity_id string matching for older integrations.
+    Only writable candidates (``number`` or ``select`` entities) are
+    considered.
 
     Parameters
     ----------
@@ -1076,6 +1158,8 @@ async def find_local_calibration_entity(self, entity_id):
     for entity in entity_entries:
         if entity.device_id != reg_entity.device_id:
             continue
+        if entity.domain not in _CALIBRATION_ENTITY_DOMAINS:
+            continue
         tk = getattr(entity, "translation_key", None)
         if tk and tk in _CALIBRATION_TRANSLATION_KEYS:
             _LOGGER.debug(
@@ -1088,17 +1172,15 @@ async def find_local_calibration_entity(self, entity_id):
             break
 
     # Second pass: fallback to string matching on unique_id / entity_id / original_name.
-    # Restricted to the "number" domain: only number entities are writable
-    # calibration controls, so a read-only sensor sharing the same substring
-    # (e.g. sensor.*_local_temperature) is never a valid match here. Without
-    # this restriction the winner depended on registry iteration order, which
-    # is not a guaranteed order.
+    # Restricted to writable calibration domains: a read-only sensor sharing
+    # the same substring (e.g. sensor.*_local_temperature) is never a valid
+    # match, and without the restriction the winner depended on registry
+    # iteration order, which is not guaranteed.
     if calibration_entity is None:
         for entity in entity_entries:
             if entity.device_id != reg_entity.device_id:
                 continue
-            domain = (entity.entity_id or "").split(".", 1)[0]
-            if domain != "number":
+            if entity.domain not in _CALIBRATION_ENTITY_DOMAINS:
                 continue
             descriptor = f"{entity.unique_id} {entity.entity_id} {getattr(entity, 'original_name', '') or ''}".lower()
             if (

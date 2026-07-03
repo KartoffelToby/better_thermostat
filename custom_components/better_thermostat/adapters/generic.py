@@ -10,10 +10,13 @@ import asyncio
 import logging
 
 from homeassistant.components.number.const import SERVICE_SET_VALUE
-from homeassistant.const import STATE_UNAVAILABLE, STATE_UNKNOWN, UnitOfTemperature
-from homeassistant.util.unit_conversion import TemperatureConverter
+from homeassistant.const import STATE_UNAVAILABLE, STATE_UNKNOWN
 
-from ..utils.helpers import find_local_calibration_entity, normalize_hvac_mode
+from ..utils.helpers import (
+    celsius_to_system_temperature,
+    find_local_calibration_entity,
+    normalize_hvac_mode,
+)
 from .base import AdapterCapabilities, wait_for_calibration_entity_or_timeout
 
 _LOGGER = logging.getLogger(__name__)
@@ -159,11 +162,7 @@ async def get_max_offset(self, entity_id):
 
 async def set_temperature(self, entity_id, temperature):
     """Set new target temperature."""
-    if self.hass.config.units.temperature_unit == UnitOfTemperature.FAHRENHEIT:
-        temperature = TemperatureConverter.convert(
-            temperature, UnitOfTemperature.CELSIUS, UnitOfTemperature.FAHRENHEIT
-        )
-        temperature = round(temperature, 1)
+    temperature = celsius_to_system_temperature(self.hass, temperature)
     await self.hass.services.async_call(
         "climate",
         "set_temperature",

@@ -43,21 +43,39 @@ def _boost_snapshot():
 class TestCheckSystemMode:
     """Test check_system_mode function."""
 
-    @pytest.mark.asyncio
-    async def test_mode_matches_immediately(self):
-        """Test when mode matches immediately."""
+    def _mock_self(self, live_state, last_hvac_mode, cached_hvac_mode=None):
+        """Build a mock BetterThermostat with a live TRV state and one Trv."""
+        mock_state = Mock()
+        mock_state.state = live_state
+
+        mock_hass = Mock()
+        mock_hass.states.get.return_value = (
+            mock_state if live_state is not None else None
+        )
+
         mock_self = Mock()
         mock_self.device_name = "test_thermostat"
+        mock_self.hass = mock_hass
         mock_self.real_trvs = {
             "climate.trv1": Trv.from_legacy_dict(
                 "climate.trv1",
                 {
-                    "hvac_mode": HVACMode.HEAT,
-                    "last_hvac_mode": HVACMode.HEAT,
+                    "hvac_mode": cached_hvac_mode,
+                    "last_hvac_mode": last_hvac_mode,
                     "system_mode_received": False,
                 },
             )
         }
+        return mock_self, mock_state
+
+    @pytest.mark.asyncio
+    async def test_mode_matches_immediately(self):
+        """Test when the live state matches immediately."""
+        mock_self, _ = self._mock_self(
+            live_state=HVACMode.HEAT,
+            last_hvac_mode=HVACMode.HEAT,
+            cached_hvac_mode=HVACMode.HEAT,
+        )
 
         result = await check_system_mode(mock_self, "climate.trv1")
 
@@ -65,25 +83,36 @@ class TestCheckSystemMode:
         assert mock_self.real_trvs["climate.trv1"].system_mode_received is True
 
     @pytest.mark.asyncio
-    async def test_mode_matches_after_delay(self):
-        """Test when mode matches after a short delay."""
-        mock_self = Mock()
-        mock_self.device_name = "test_thermostat"
-        mock_self.real_trvs = {
-            "climate.trv1": Trv.from_legacy_dict(
-                "climate.trv1",
-                {
-                    "hvac_mode": HVACMode.OFF,
-                    "last_hvac_mode": HVACMode.HEAT,
-                    "system_mode_received": False,
-                },
-            )
-        }
+    async def test_confirms_via_live_state_with_stale_cache(self):
+        """The live state confirms the write even when the internal cache is stale.
 
-        # Simulate mode change after 0.5 seconds
+        With child lock configured or state events suppressed, the internal
+        hvac_mode cache is never refreshed; confirmation must not depend on it.
+        """
+        mock_self, _ = self._mock_self(
+            live_state=HVACMode.HEAT,
+            last_hvac_mode=HVACMode.HEAT,
+            cached_hvac_mode=HVACMode.OFF,
+        )
+
+        result = await check_system_mode(mock_self, "climate.trv1")
+
+        assert result is True
+        assert mock_self.real_trvs["climate.trv1"].system_mode_received is True
+        # The stale cache stays untouched; only the live state was consulted.
+        assert mock_self.real_trvs["climate.trv1"].hvac_mode == HVACMode.OFF
+
+    @pytest.mark.asyncio
+    async def test_mode_matches_after_delay(self):
+        """Test when the live state matches after a short delay."""
+        mock_self, mock_state = self._mock_self(
+            live_state=HVACMode.OFF, last_hvac_mode=HVACMode.HEAT
+        )
+
+        # Simulate the device reporting the new mode after a short delay
         async def update_mode():
             await asyncio.sleep(0.1)
-            mock_self.real_trvs["climate.trv1"].hvac_mode = HVACMode.HEAT
+            mock_state.state = HVACMode.HEAT
 
         update_task = asyncio.create_task(update_mode())
 
@@ -99,18 +128,9 @@ class TestCheckSystemMode:
 
         Note: We use a shorter timeout for testing by mocking sleep.
         """
-        mock_self = Mock()
-        mock_self.device_name = "test_thermostat"
-        mock_self.real_trvs = {
-            "climate.trv1": Trv.from_legacy_dict(
-                "climate.trv1",
-                {
-                    "hvac_mode": HVACMode.OFF,
-                    "last_hvac_mode": HVACMode.HEAT,
-                    "system_mode_received": False,
-                },
-            )
-        }
+        mock_self, _ = self._mock_self(
+            live_state=HVACMode.OFF, last_hvac_mode=HVACMode.HEAT
+        )
 
         # Track sleep calls
         sleep_count = 0
@@ -137,26 +157,37 @@ class TestCheckSystemMode:
             assert result is True
             # Flag should still be set to True after timeout
             assert mock_self.real_trvs["climate.trv1"].system_mode_received is True
-            # Mode should not have changed
-            assert mock_self.real_trvs["climate.trv1"].hvac_mode == HVACMode.OFF
         finally:
             controlling_module.asyncio.sleep = original_sleep_func
 
     @pytest.mark.asyncio
+    async def test_unavailable_state_treated_as_done(self):
+        """An unavailable TRV ends the wait and still sets the flag."""
+        mock_self, _ = self._mock_self(
+            live_state="unavailable", last_hvac_mode=HVACMode.HEAT
+        )
+
+        result = await check_system_mode(mock_self, "climate.trv1")
+
+        assert result is True
+        assert mock_self.real_trvs["climate.trv1"].system_mode_received is True
+
+    @pytest.mark.asyncio
+    async def test_missing_state_treated_as_done(self):
+        """A missing TRV state ends the wait and still sets the flag."""
+        mock_self, _ = self._mock_self(live_state=None, last_hvac_mode=HVACMode.HEAT)
+
+        result = await check_system_mode(mock_self, "climate.trv1")
+
+        assert result is True
+        assert mock_self.real_trvs["climate.trv1"].system_mode_received is True
+
+    @pytest.mark.asyncio
     async def test_system_mode_received_flag_set(self):
         """Test that system_mode_received flag is always set to True."""
-        mock_self = Mock()
-        mock_self.device_name = "test_thermostat"
-        mock_self.real_trvs = {
-            "climate.trv1": Trv.from_legacy_dict(
-                "climate.trv1",
-                {
-                    "hvac_mode": HVACMode.HEAT,
-                    "last_hvac_mode": HVACMode.HEAT,
-                    "system_mode_received": False,
-                },
-            )
-        }
+        mock_self, _ = self._mock_self(
+            live_state=HVACMode.HEAT, last_hvac_mode=HVACMode.HEAT
+        )
 
         await check_system_mode(mock_self, "climate.trv1")
 
@@ -191,6 +222,44 @@ class TestCheckTargetTemperature:
         }
 
         result = await check_target_temperature(mock_self, "climate.trv1")
+
+        assert result is True
+        assert mock_self.real_trvs["climate.trv1"].target_temp_received is True
+
+    @pytest.mark.asyncio
+    async def test_step_grid_written_value_confirms_against_read_grid(self):
+        """A step-grid written setpoint confirms against the 0.01 read grid.
+
+        The write side stores last_temperature rounded on the device step
+        grid (round_by_step(20.7, 0.1) == 20.700000000000003), while the
+        read-back passes through convert_to_float's 0.01 grid (20.7). The
+        tolerance-based comparison must confirm immediately instead of
+        polling until the 360s timeout.
+        """
+        from custom_components.better_thermostat.utils.helpers import round_by_step
+
+        written = round_by_step(20.7, 0.1)
+        assert written != 20.7  # the grids genuinely diverge
+
+        mock_state = Mock()
+        mock_state.attributes = {"temperature": 20.7}
+
+        mock_hass = Mock()
+        mock_hass.states.get.return_value = mock_state
+
+        mock_self = Mock()
+        mock_self.device_name = "test_thermostat"
+        mock_self.hass = mock_hass
+        mock_self.real_trvs = {
+            "climate.trv1": Trv.from_legacy_dict(
+                "climate.trv1",
+                {"last_temperature": written, "target_temp_received": False},
+            )
+        }
+
+        result = await asyncio.wait_for(
+            check_target_temperature(mock_self, "climate.trv1"), timeout=10
+        )
 
         assert result is True
         assert mock_self.real_trvs["climate.trv1"].target_temp_received is True
