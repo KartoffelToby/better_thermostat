@@ -210,6 +210,34 @@ def _get_trv_max_opening(self, entity_id: str) -> float | None:
     return None
 
 
+def _collect_trv_temps_and_warmest(
+    real_trvs, fallback_id: str
+) -> tuple[dict[str, float | None], str]:
+    """Return per-TRV temperatures and the id of the warmest TRV.
+
+    TRVs whose reading is missing or non-numeric map to ``None``; when no
+    TRV has a usable reading the warmest id falls back to ``fallback_id``.
+    """
+    trv_temps: dict[str, float | None] = {}
+    warmest_trv_id = fallback_id
+    warmest_temp: float | None = None
+    for eid, tdata in real_trvs.items():
+        _t = tdata.current_temperature
+        if _t is None:
+            trv_temps[eid] = None
+            continue
+        try:
+            temp_val = float(_t)
+        except TypeError, ValueError:
+            trv_temps[eid] = None
+            continue
+        trv_temps[eid] = temp_val
+        if warmest_temp is None or temp_val > warmest_temp:
+            warmest_temp = temp_val
+            warmest_trv_id = eid
+    return trv_temps, warmest_trv_id
+
+
 def _compute_mpc_balance(self, entity_id: str):
     """Run the MPC balance algorithm for calibration purposes.
 
@@ -240,21 +268,9 @@ def _compute_mpc_balance(self, entity_id: str):
     trv_temps: dict[str, float | None] | None = None
     warmest_trv_id = entity_id
     if is_multi_trv:
-        trv_temps = {}
-        warmest_temp: float | None = None
-        for eid, tdata in self.real_trvs.items():
-            _t = tdata.current_temperature
-            if _t is not None:
-                try:
-                    temp_val = float(_t)
-                    trv_temps[eid] = temp_val
-                    if warmest_temp is None or temp_val > warmest_temp:
-                        warmest_temp = temp_val
-                        warmest_trv_id = eid
-                except TypeError, ValueError:
-                    trv_temps[eid] = None
-            else:
-                trv_temps[eid] = None
+        trv_temps, warmest_trv_id = _collect_trv_temps_and_warmest(
+            self.real_trvs, entity_id
+        )
 
     max_opening_pct = _get_trv_max_opening(
         self, warmest_trv_id if is_multi_trv else entity_id
@@ -395,21 +411,9 @@ def _compute_mpc_v2_balance(self, entity_id: str):
     trv_temps: dict[str, float | None] | None = None
     warmest_trv_id = entity_id
     if is_multi_trv:
-        trv_temps = {}
-        warmest_temp: float | None = None
-        for eid, tdata in self.real_trvs.items():
-            _t = tdata.current_temperature
-            if _t is not None:
-                try:
-                    temp_val = float(_t)
-                    trv_temps[eid] = temp_val
-                    if warmest_temp is None or temp_val > warmest_temp:
-                        warmest_temp = temp_val
-                        warmest_trv_id = eid
-                except TypeError, ValueError:
-                    trv_temps[eid] = None
-            else:
-                trv_temps[eid] = None
+        trv_temps, warmest_trv_id = _collect_trv_temps_and_warmest(
+            self.real_trvs, entity_id
+        )
 
     max_opening_pct = _get_trv_max_opening(
         self, warmest_trv_id if is_multi_trv else entity_id
