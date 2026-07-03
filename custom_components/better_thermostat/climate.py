@@ -2983,6 +2983,15 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
             and _new_setpointlow is None
             and _new_setpointhigh is None
         ):
+            if _new_hvac_mode is not None:
+                # A mode-only payload still needs to be published and
+                # applied, exactly like async_set_hvac_mode.
+                self.async_write_ha_state()
+                if getattr(self, "in_maintenance", False):
+                    self._control_needed_after_maintenance = True
+                    return
+                request_control_cycle(self)
+                return
             _LOGGER.debug(
                 "better_thermostat %s: received a new setpoint from HA, but temperature attribute was not set, ignoring",
                 self.device_name,
