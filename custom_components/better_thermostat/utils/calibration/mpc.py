@@ -150,9 +150,6 @@ class _MpcState:
     tolerance_hold_active: bool = False
 
 
-# Public alias so callers can reference the state type without
-# importing a private name.  The underscore-prefixed original is kept
-# for backwards compatibility within this module.
 def _all_finite(value: Any) -> bool:
     """Whether every number reachable inside ``value`` is finite."""
     if isinstance(value, bool):
@@ -179,6 +176,8 @@ def sanitize_mpc_state(state: _MpcState) -> tuple[_MpcState, str | None]:
     return state, None
 
 
+# Public alias so callers can reference the state type without importing
+# a private name.
 MpcState = _MpcState
 
 
