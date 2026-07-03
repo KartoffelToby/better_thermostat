@@ -956,7 +956,23 @@ async def control_trv(self, heater_entity_id=None, cycle=None):
             )
             if not _valve_at_target(self, heater_entity_id, _reset_pct):
                 _consume_budget(self, heater_entity_id, "valve", bypass=True)
-                await set_valve(self, heater_entity_id, _reset_pct)
+                ok = await set_valve(self, heater_entity_id, _reset_pct)
+                if not ok:
+                    _LOGGER.debug(
+                        "better_thermostat %s: delegate.set_valve returned False for "
+                        "safety reset (target=%s%%, entity=%s)",
+                        self.device_name,
+                        _reset_pct,
+                        heater_entity_id,
+                    )
+                    # The budget slot is stamped but the valve never moved;
+                    # re-derive on the catch-up cycle so the reset is not
+                    # dropped permanently.
+                    _schedule_budget_retry(
+                        self,
+                        heater_entity_id,
+                        _budget_remaining(self, heater_entity_id, "valve"),
+                    )
 
         # Manage TRVs with no HVACMode.OFF
         _trv_has_no_off = _no_off_system_mode(self.real_trvs[heater_entity_id])
