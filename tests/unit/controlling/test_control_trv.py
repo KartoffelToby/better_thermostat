@@ -578,7 +578,7 @@ class TestControlTrvAvailablePath:
 
         with (
             patch(_PATCHES["convert_outbound_states"]) as mock_convert,
-            patch(_PATCHES["handle_window_open"]) as mock_window,
+            patch(_PATCHES["handle_contact_open"]) as mock_window,
             patch(
                 _PATCHES["override_set_hvac_mode"], new=AsyncMock(return_value=False)
             ),
@@ -620,7 +620,7 @@ class TestControlTrvAvailablePath:
 
         with (
             patch(_PATCHES["convert_outbound_states"]) as mock_convert,
-            patch(_PATCHES["handle_window_open"]) as mock_window,
+            patch(_PATCHES["handle_contact_open"]) as mock_window,
             patch(
                 _PATCHES["override_set_hvac_mode"], new=AsyncMock(return_value=False)
             ),
@@ -651,7 +651,7 @@ class TestControlTrvAvailablePath:
 
         with (
             patch(_PATCHES["convert_outbound_states"]) as mock_convert,
-            patch(_PATCHES["handle_window_open"]) as mock_window,
+            patch(_PATCHES["handle_contact_open"]) as mock_window,
             patch(
                 _PATCHES["override_set_hvac_mode"], new=AsyncMock(return_value=False)
             ),
