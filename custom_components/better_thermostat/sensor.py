@@ -141,6 +141,33 @@ async def _setup_algorithm_sensors(
             entry_id,
         )
 
+    # Setup PID sensors
+    if CalibrationMode.PID_CALIBRATION in current_algorithms:
+        pid_sensors = [
+            BetterThermostatPidKpSensor(bt_climate),
+            BetterThermostatPidKiSensor(bt_climate),
+            BetterThermostatPidKdSensor(bt_climate),
+            BetterThermostatPidOutputSensor(bt_climate),
+            BetterThermostatPidErrorSensor(bt_climate),
+        ]
+        algorithm_sensors.extend(pid_sensors)
+
+        if entry_id not in _ACTIVE_ALGORITHM_ENTITIES:
+            _ACTIVE_ALGORITHM_ENTITIES[entry_id] = {}
+        _ACTIVE_ALGORITHM_ENTITIES[entry_id][CalibrationMode.PID_CALIBRATION] = [
+            f"{bt_climate.unique_id}_pid_kp",
+            f"{bt_climate.unique_id}_pid_ki",
+            f"{bt_climate.unique_id}_pid_kd",
+            f"{bt_climate.unique_id}_pid_output",
+            f"{bt_climate.unique_id}_pid_error",
+        ]
+
+        _LOGGER.debug(
+            "Better Thermostat %s: Created PID sensors for entry %s",
+            bt_climate.device_name,
+            entry_id,
+        )
+
     return algorithm_sensors
 
 
@@ -605,7 +632,12 @@ class _BtSensorBase(SensorEntity):
 
 
 class _BtMpcSensorBase(_BtSensorBase):
-    """Base class for MPC algorithm sensors."""
+    """Base class for calibration debug sensors (MPC and PID).
+
+    Reads a single key from the ``calibration_balance['debug']`` payload,
+    iterating all TRVs of the climate entity; the first TRV whose payload
+    contains the key wins.
+    """
 
     _debug_key: str
 
@@ -819,6 +851,63 @@ class BetterThermostatMpcKaSensor(_BtMpcSensorBase):
     _attr_entity_category = EntityCategory.DIAGNOSTIC
     _debug_key = "mpc_ka"
     _unique_id_suffix = "mpc_ka"
+
+
+class BetterThermostatPidKpSensor(_BtMpcSensorBase):
+    """Representation of a Better Thermostat PID Kp (proportional gain) Sensor."""
+
+    _attr_name = "PID Kp"
+    _attr_device_class = None
+    _attr_icon = "mdi:alpha-p-circle-outline"
+    _attr_entity_category = EntityCategory.DIAGNOSTIC
+    _debug_key = "kp"
+    _unique_id_suffix = "pid_kp"
+
+
+class BetterThermostatPidKiSensor(_BtMpcSensorBase):
+    """Representation of a Better Thermostat PID Ki (integral gain) Sensor."""
+
+    _attr_name = "PID Ki"
+    _attr_device_class = None
+    _attr_icon = "mdi:alpha-i-circle-outline"
+    _attr_entity_category = EntityCategory.DIAGNOSTIC
+    _debug_key = "ki"
+    _unique_id_suffix = "pid_ki"
+
+
+class BetterThermostatPidKdSensor(_BtMpcSensorBase):
+    """Representation of a Better Thermostat PID Kd (derivative gain) Sensor."""
+
+    _attr_name = "PID Kd"
+    _attr_device_class = None
+    _attr_icon = "mdi:alpha-d-circle-outline"
+    _attr_entity_category = EntityCategory.DIAGNOSTIC
+    _debug_key = "kd"
+    _unique_id_suffix = "pid_kd"
+
+
+class BetterThermostatPidOutputSensor(_BtMpcSensorBase):
+    """Representation of a Better Thermostat PID Output (valve command) Sensor."""
+
+    _attr_name = "PID Output"
+    _attr_device_class = None
+    _attr_native_unit_of_measurement = "%"
+    _attr_icon = "mdi:valve"
+    _attr_entity_category = EntityCategory.DIAGNOSTIC
+    _debug_key = "u"
+    _unique_id_suffix = "pid_output"
+
+
+class BetterThermostatPidErrorSensor(_BtMpcSensorBase):
+    """Representation of a Better Thermostat PID Error (setpoint deviation) Sensor."""
+
+    _attr_name = "PID Error"
+    _attr_device_class = None
+    _attr_native_unit_of_measurement = "K"
+    _attr_icon = "mdi:thermometer-alert"
+    _attr_entity_category = EntityCategory.DIAGNOSTIC
+    _debug_key = "e_K"
+    _unique_id_suffix = "pid_error"
 
 
 class BetterThermostatSolarIntensitySensor(_BtSensorBase):
