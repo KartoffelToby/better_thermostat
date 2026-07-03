@@ -670,6 +670,51 @@ def get_current_set_temperatures(
     return {v for v in (single, range_low) if v is not None}
 
 
+# Written setpoints are rounded on the device step grid (round_by_step with
+# e.g. 0.1, or a Fahrenheit step converted to Celsius), while read-back values
+# pass through convert_to_float's 0.01 grid. The two grids are not
+# binary-float compatible, so exact equality between a written and a read-back
+# setpoint is unreliable. 0.01 covers both the float-grid noise (~1e-14) and
+# the worst legitimate write-vs-readback divergence (half the 0.01 read grid,
+# 0.005), while staying far below the smallest distinguishable setpoint step
+# (0.1) — it can never conflate two distinct setpoints.
+SETPOINT_MATCH_TOLERANCE = 0.01
+
+
+def matches_any_setpoint(
+    value: float | None,
+    setpoints: set[float],
+    tolerance: float = SETPOINT_MATCH_TOLERANCE,
+) -> bool:
+    """Check whether a setpoint matches any element of a set within a tolerance.
+
+    Written setpoints (rounded on the device step grid) and read-back
+    setpoints (rounded on convert_to_float's 0.01 grid) land on different
+    binary-float grids, so callers compare them with this tolerance-based
+    check instead of exact set membership.
+
+    Parameters
+    ----------
+    value : float | None
+            the setpoint to look for, or None when no value is available
+    setpoints : set[float]
+            the setpoints to compare against
+    tolerance : float
+            maximum absolute difference still considered a match
+            (default: SETPOINT_MATCH_TOLERANCE)
+
+    Returns
+    -------
+    bool
+            True if value is not None and lies within tolerance of any
+            element of setpoints, False otherwise (including for an
+            empty set)
+    """
+    if value is None:
+        return False
+    return any(abs(value - setpoint) <= tolerance for setpoint in setpoints)
+
+
 class rounding:
     """Rounding helpers for stable step-based rounding.
 
