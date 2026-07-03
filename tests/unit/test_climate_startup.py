@@ -16,6 +16,7 @@ from custom_components.better_thermostat.climate import (
     DEFAULT_FALLBACK_TEMPERATURE,
     BetterThermostat,
 )
+from custom_components.better_thermostat.core.decide import KernelState
 from custom_components.better_thermostat.trv import Trv
 from custom_components.better_thermostat.utils.const import (
     ATTR_STATE_CALL_FOR_HEAT,
@@ -43,6 +44,8 @@ def bt():
     """Create a mock BetterThermostat with sensible defaults."""
     mock = MagicMock(spec=BetterThermostat)
     mock.clock = MagicMock()
+    mock.kernel_state = KernelState()
+    mock.state_mgr = None
     mock.hass = MagicMock()
     mock.device_name = "Test BT"
     mock.sensor_entity_id = SENSOR_ID
@@ -167,14 +170,13 @@ class TestStartupUnloadBailout:
 
     @pytest.mark.asyncio
     async def test_will_remove_from_hass_stops_startup_loop(self, bt):
-        """Unload clears startup_running so the loop condition terminates."""
+        """Unload stops the lifecycle so the loop condition terminates."""
         bt._control_task = None
         bt._window_task = None
-        bt.startup_running = True
 
         await BetterThermostat.async_will_remove_from_hass(bt)
 
-        assert bt.startup_running is False
+        assert bt.kernel_state.lifecycle.startup_running is False
 
 
 # ---------------------------------------------------------------------------
@@ -411,7 +413,7 @@ class TestInitializeSensors:
 
         bt.hass.states.get.side_effect = side_effect
         BetterThermostat._initialize_sensors(bt, sensor)
-        assert bt.window_open is True
+        assert bt.kernel_state.window.effective_open is True
         assert WINDOW_ID in bt.all_entities
 
     def test_window_none_defaults_closed(self, bt):
@@ -419,7 +421,7 @@ class TestInitializeSensors:
         bt.window_id = None
         sensor = _make_sensor_state("20.0")
         BetterThermostat._initialize_sensors(bt, sensor)
-        assert bt.window_open is False
+        assert bt.kernel_state.window.effective_open is False
 
     def test_humidity_sensor_initialized(self, bt):
         """Test Humidity sensor initialized."""
@@ -445,11 +447,11 @@ class TestInitializeSensors:
 
 
 class TestInitializeTrvCurrentTemperature:
-    """The startup fallback for a missing TRV reading is 5.0 °C, literally.
+    """Startup must not fabricate a TRV-internal temperature.
 
-    Passing the literal through the unit conversion turned it into about
-    -15 °C on Fahrenheit systems, and the falsy-or fallback swallowed a
-    real reading of 0.0.
+    A seeded value would feed SENSOR_FALLBACK as if it were live and
+    keep the fail-soft ladder's HOLD rung unreachable, and a falsy-or
+    fallback would swallow a real reading of 0.0.
     """
 
     def _trv_only_bt(self, bt, attrs, unit="°C"):
@@ -472,18 +474,11 @@ class TestInitializeTrvCurrentTemperature:
             await BetterThermostat._initialize_trvs(bt)
 
     @pytest.mark.asyncio
-    async def test_missing_reading_falls_back_to_five_celsius(self, bt):
-        """No reading: the fallback is 5.0 °C on a Celsius system."""
+    async def test_missing_reading_stays_none(self, bt):
+        """No reading at startup leaves the field unset."""
         bt = self._trv_only_bt(bt, {"current_temperature": None})
         await self._run(bt)
-        assert bt.real_trvs[TRV_ID].current_temperature == 5.0
-
-    @pytest.mark.asyncio
-    async def test_fallback_is_not_unit_converted(self, bt):
-        """On a Fahrenheit system the fallback stays 5.0 °C, not -15 °C."""
-        bt = self._trv_only_bt(bt, {"current_temperature": None}, unit="°F")
-        await self._run(bt)
-        assert bt.real_trvs[TRV_ID].current_temperature == 5.0
+        assert bt.real_trvs[TRV_ID].current_temperature is None
 
     @pytest.mark.asyncio
     async def test_zero_reading_is_kept(self, bt):
@@ -600,13 +595,18 @@ class TestRestoreState:
         assert bt.bt_target_temp is not None
 
     @pytest.mark.asyncio
-    async def test_restores_call_for_heat(self, bt):
-        """Test Restores call for heat."""
+    async def test_call_for_heat_not_restored(self, bt):
+        """call_for_heat is an observation, not UI state.
+
+        A stored False is ignored and the safe default (True) keeps
+        ruling until the first live prediction.
+        """
         old = MagicMock()
         old.state = "heat"
-        old.attributes = {ATTR_TEMPERATURE: 21.0, ATTR_STATE_CALL_FOR_HEAT: True}
+        old.attributes = {ATTR_TEMPERATURE: 21.0, ATTR_STATE_CALL_FOR_HEAT: False}
         bt.async_get_last_state = AsyncMock(return_value=old)
         bt.preset_mgr.temperatures = {}
+        bt.call_for_heat = True
 
         states = [_make_trv_state()]
         await BetterThermostat._restore_state(bt, states)
@@ -674,7 +674,86 @@ class TestRestoreState:
 
 
 # ---------------------------------------------------------------------------
-# 6. _validate_hvac_mode
+# 6. TRV attribute initialization (_initialize_trvs)
+# ---------------------------------------------------------------------------
+
+
+# ---------------------------------------------------------------------------
+# 7. Initial TRV sync (_finalize_startup / _startup_control_trvs)
+# ---------------------------------------------------------------------------
+
+
+_CLIMATE = "custom_components.better_thermostat.climate"
+
+
+class TestStartupControlSync:
+    """The initial device sync must run after the lifecycle gate opens."""
+
+    @pytest.mark.asyncio
+    async def test_finalize_startup_flips_lifecycle_before_initial_sync(self, bt):
+        """The initial sync runs only after the lifecycle flip.
+
+        While startup_running is True, decide() addresses no TRVs — a
+        sync before the flip would silently write nothing.
+        """
+        bt.is_removed = False
+        bt.all_entities = []
+        bt.all_trvs = None
+        gate_states = []
+
+        async def record_sync():
+            gate_states.append(bt.kernel_state.lifecycle.startup_running)
+            bt.is_removed = True
+
+        bt._startup_control_trvs = record_sync
+        with (
+            patch(f"{_CLIMATE}.await_critical_entities", AsyncMock()),
+            patch(f"{_CLIMATE}.check_critical_entities", AsyncMock()),
+            patch(f"{_CLIMATE}.asyncio.sleep", AsyncMock()),
+        ):
+            await BetterThermostat._finalize_startup(bt)
+
+        assert gate_states == [False]
+
+    @pytest.mark.asyncio
+    async def test_startup_control_trvs_controls_each_trv(self, bt):
+        """Every configured TRV receives one initial control call."""
+        bt.real_trvs = {TRV_ID: {}, TRV_ID_2: {}}
+        with patch(f"{_CLIMATE}.control_trv", AsyncMock(return_value=True)) as ctl:
+            await BetterThermostat._startup_control_trvs(bt)
+
+        assert [call.args[1] for call in ctl.call_args_list] == [TRV_ID, TRV_ID_2]
+
+    @pytest.mark.asyncio
+    async def test_startup_control_trvs_computes_one_cycle_for_all(self, bt):
+        """All TRVs are synced from one observation and decision."""
+        bt.real_trvs = {TRV_ID: {}, TRV_ID_2: {}}
+        cycle = object()
+        with (
+            patch(f"{_CLIMATE}.compute_control_cycle", return_value=cycle) as compute,
+            patch(f"{_CLIMATE}.control_trv", AsyncMock(return_value=True)) as ctl,
+        ):
+            await BetterThermostat._startup_control_trvs(bt)
+
+        compute.assert_called_once()
+        assert [call.kwargs.get("cycle") for call in ctl.call_args_list] == [
+            cycle,
+            cycle,
+        ]
+
+    @pytest.mark.asyncio
+    async def test_startup_control_trvs_survives_a_failing_trv(self, bt):
+        """An error on one TRV must not stop the sync of the others."""
+        bt.real_trvs = {TRV_ID: {}, TRV_ID_2: {}}
+        ctl = AsyncMock(side_effect=[RuntimeError("boom"), True])
+        with patch(f"{_CLIMATE}.control_trv", ctl):
+            await BetterThermostat._startup_control_trvs(bt)
+
+        assert ctl.call_count == 2
+
+
+# ---------------------------------------------------------------------------
+# 7. _validate_hvac_mode
 # ---------------------------------------------------------------------------
 
 

@@ -35,6 +35,7 @@ from custom_components.better_thermostat.utils.helpers import (
     is_reasonable_temperature,
     mode_remap,
 )
+from custom_components.better_thermostat.utils.scheduler import request_control_cycle
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -86,6 +87,13 @@ async def trigger_trv_change(self, event):
             entity_id,
         )
         return
+    if entity_id not in self.real_trvs:
+        _LOGGER.debug(
+            "better_thermostat %s: TRV %s is no longer tracked, skipping",
+            self.device_name,
+            entity_id,
+        )
+        return
 
     trv = self.real_trvs.get(entity_id)
     if trv is None:
@@ -98,7 +106,7 @@ async def trigger_trv_change(self, event):
 
     if _org_trv_state.state in (STATE_UNAVAILABLE, STATE_UNKNOWN):
         # The device is gone; its last internal temperature must not
-        # keep feeding the calibration as if it were live.
+        # keep feeding SENSOR_FALLBACK and the ladder as if it were live.
         if trv.current_temperature is not None:
             _LOGGER.debug(
                 "better_thermostat %s: TRV %s became %s; invalidating its "
@@ -108,9 +116,13 @@ async def trigger_trv_change(self, event):
                 _org_trv_state.state,
             )
             trv.current_temperature = None
-            # The next valid reading is the first live data after the
-            # outage and must not be dropped by the debounce below.
-            trv.accept_next_internal_temp = True
+        # The next valid reading is the first live data after the
+        # outage and must not be dropped by the debounce below.
+        trv.accept_next_internal_temp = True
+        # Reachability/fail-soft state must re-evaluate now; otherwise it
+        # stays stale until the next unrelated event.
+        self.async_write_ha_state()
+        request_control_cycle(self)
         return
 
     advanced = trv.advanced or {}
@@ -118,7 +130,8 @@ async def trigger_trv_change(self, event):
 
     # Dynamic model detection: only once (e.g. at startup), not on every event
     try:
-        prev_model = trv.model
+        _trv_entry = self.real_trvs.get(entity_id)
+        prev_model = _trv_entry.model if _trv_entry is not None else None
         if not prev_model:
             if _org_trv_state is not None and isinstance(
                 _org_trv_state.attributes, dict
@@ -138,8 +151,8 @@ async def trigger_trv_change(self, event):
                             detected,
                         )
                         quirks = await load_model_quirks(self, detected, entity_id)
-                        trv.model = detected
-                        trv.model_quirks = quirks
+                        self.real_trvs[entity_id].model = detected
+                        self.real_trvs[entity_id].model_quirks = quirks
     except Exception as e:
         _LOGGER.debug(
             "better_thermostat %s: dynamic model detection failed for %s: %s",
@@ -172,16 +185,19 @@ async def trigger_trv_change(self, event):
         pass
     if (
         _new_current_temp is not None
-        and trv.current_temperature != _new_current_temp
+        and self.real_trvs[entity_id].current_temperature != _new_current_temp
         and (
-            trv.consume_accept_next_internal_temp()
+            self.real_trvs[entity_id].consume_accept_next_internal_temp()
             or (dt_util.now() - self.last_internal_sensor_change).total_seconds()
             > _time_diff
-            or (trv.calibration_received is False and trv.calibration != 1)
+            or (
+                self.real_trvs[entity_id].calibration_received is False
+                and self.real_trvs[entity_id].calibration != 1
+            )
         )
     ):
-        _old_temp = trv.current_temperature
-        trv.current_temperature = _new_current_temp
+        _old_temp = self.real_trvs[entity_id].current_temperature
+        self.real_trvs[entity_id].current_temperature = _new_current_temp
         _LOGGER.debug(
             "better_thermostat %s: TRV %s sends new internal temperature from %s to %s",
             self.device_name,
@@ -193,16 +209,18 @@ async def trigger_trv_change(self, event):
         _main_change = True
 
         # async def in controlling? (left as note)
-        if trv.calibration_received is False:
-            trv.calibration_received = True
+        if self.real_trvs[entity_id].calibration_received is False:
+            self.real_trvs[entity_id].calibration_received = True
             _LOGGER.debug(
                 "better_thermostat %s: calibration accepted by TRV %s",
                 self.device_name,
                 entity_id,
             )
             _main_change = False
-            if trv.calibration == 0:
-                trv.last_calibration = await get_current_offset(self, entity_id)
+            if self.real_trvs[entity_id].calibration == 0:
+                self.real_trvs[entity_id].last_calibration = await get_current_offset(
+                    self, entity_id
+                )
 
     if self.ignore_states:
         return
@@ -224,8 +242,8 @@ async def trigger_trv_change(self, event):
             hvac_action_attr = _org_trv_state.attributes.get("action")
         if hvac_action_attr is not None:
             val = str(hvac_action_attr).strip().lower()
-            prev = trv.hvac_action
-            trv.hvac_action = val
+            prev = self.real_trvs[entity_id].hvac_action
+            self.real_trvs[entity_id].hvac_action = val
             if prev != val:
                 _main_change = True
                 _LOGGER.debug(
@@ -239,7 +257,7 @@ async def trigger_trv_change(self, event):
         # valve_position aktualisieren
         val_pos = _org_trv_state.attributes.get("valve_position")
         if val_pos is not None:
-            trv.valve_position = convert_to_float(
+            self.real_trvs[entity_id].valve_position = convert_to_float(
                 str(val_pos), self.device_name, "trv_event"
             )
 
@@ -247,8 +265,11 @@ async def trigger_trv_change(self, event):
         pass
 
     if mapped_state in (HVACMode.OFF, HVACMode.HEAT, HVACMode.HEAT_COOL):
-        if trv.hvac_mode != _org_trv_state.state and not child_lock:
-            _old = trv.hvac_mode
+        if (
+            self.real_trvs[entity_id].hvac_mode != _org_trv_state.state
+            and not child_lock
+        ):
+            _old = self.real_trvs[entity_id].hvac_mode
             _LOGGER.debug(
                 "better_thermostat %s: TRV %s decoded TRV mode changed from %s to %s - converted %s",
                 self.device_name,
@@ -257,7 +278,7 @@ async def trigger_trv_change(self, event):
                 _org_trv_state.state,
                 new_state.state,
             )
-            trv.hvac_mode = _org_trv_state.state
+            self.real_trvs[entity_id].hvac_mode = _org_trv_state.state
             _main_change = True
             if (
                 child_lock is False
@@ -288,7 +309,7 @@ async def trigger_trv_change(self, event):
             self.device_name,
             _old_heating_setpoint,
             _new_heating_setpoint,
-            trv.last_temperature,
+            self.real_trvs[entity_id].last_temperature,
         )
         # Preserve the device's raw reported setpoint before range clamping;
         # no_off OFF detection must compare against the device's true min_temp,
@@ -313,7 +334,11 @@ async def trigger_trv_change(self, event):
         # step are treated as device-side rounding echoes of a BT-written
         # value, not as user input. User input on a TRV display moves the
         # setpoint by at least one step.
-        _step_raw = trv.target_temp_step or self.bt_target_temp_step or 0.5
+        _step_raw = (
+            self.real_trvs[entity_id].target_temp_step
+            or self.bt_target_temp_step
+            or 0.5
+        )
         try:
             _step = float(_step_raw)
         except TypeError, ValueError:
@@ -323,7 +348,10 @@ async def trigger_trv_change(self, event):
         # Compare only against values BT itself wrote. ``_old_heating_setpoint``
         # is the TRV's previously published state and is not necessarily a
         # BT-written value, so it does not belong in the echo-suppression set.
-        _bt_known_values = (self.bt_target_temp, trv.last_temperature)
+        _bt_known_values = (
+            self.bt_target_temp,
+            self.real_trvs[entity_id].last_temperature,
+        )
         _is_echo = any(
             v is not None and abs(_new_heating_setpoint - v) < _step
             for v in _bt_known_values
@@ -331,11 +359,11 @@ async def trigger_trv_change(self, event):
         _accept_user_setpoint = (
             not _is_echo
             and not child_lock
-            and trv.target_temp_received is True
-            and trv.system_mode_received is True
-            and trv.hvac_mode != HVACMode.OFF
+            and self.real_trvs[entity_id].target_temp_received is True
+            and self.real_trvs[entity_id].system_mode_received is True
+            and self.real_trvs[entity_id].hvac_mode != HVACMode.OFF
             and self.window_open is False
-            and not trv.ignore_trv_states
+            and not self.real_trvs[entity_id].ignore_trv_states
         )
         if _accept_user_setpoint:
             _LOGGER.debug(
@@ -369,13 +397,13 @@ async def trigger_trv_change(self, event):
                 _new_heating_setpoint,
                 _is_echo,
                 child_lock,
-                trv.target_temp_received,
-                trv.system_mode_received,
-                trv.hvac_mode,
+                self.real_trvs[entity_id].target_temp_received,
+                self.real_trvs[entity_id].system_mode_received,
+                self.real_trvs[entity_id].hvac_mode,
                 self.window_open,
-                trv.ignore_trv_states,
+                self.real_trvs[entity_id].ignore_trv_states,
                 self.bt_target_temp,
-                trv.last_temperature,
+                self.real_trvs[entity_id].last_temperature,
                 _step,
             )
 
@@ -401,7 +429,7 @@ async def trigger_trv_change(self, event):
 
     if _main_change is True:
         self.async_write_ha_state()
-        return await self.control_queue_task.put(self)
+        return request_control_cycle(self)
 
     self.async_write_ha_state()
     return

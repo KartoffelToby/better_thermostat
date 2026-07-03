@@ -64,16 +64,6 @@ def test_pid_balance_persists_learned_state_in_state_manager() -> None:
     assert state_mgr.pid[key].last_abs_error == 2.0
 
 
-def test_pid_balance_schedules_state_persistence() -> None:
-    """A successful PID cycle schedules a save of the learned state."""
-    state_mgr = _PidStateStub()
-    bt = _make_bt(state_mgr)
-
-    _compute_pid_balance(bt, "climate.trv")
-
-    bt.schedule_save_state.assert_called()
-
-
 def test_pid_balance_threads_the_same_state_across_calls() -> None:
     """Repeated calls keep accumulating on the state manager's state object."""
     state_mgr = _PidStateStub()

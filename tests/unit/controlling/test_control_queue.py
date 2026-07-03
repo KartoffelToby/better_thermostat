@@ -243,7 +243,10 @@ class TestControlQueue:
                 pass
 
             # Should have called control_cooler
-            mock_control_cooler.assert_called_once_with(mock_self)
+            # The cooler runs on the cycle's snapshot (None here: the
+            # mocked compute_control_cycle yielded no cycle).
+            mock_control_cooler.assert_called_once()
+            assert mock_control_cooler.call_args.args[0] is mock_self
 
     @pytest.mark.asyncio
     async def test_handles_control_cooler_exception(self):
@@ -335,7 +338,7 @@ class TestControlQueue:
 
         call_count = 0
 
-        async def _side_effect(self_arg, entity_id):
+        async def _side_effect(self_arg, entity_id, cycle=None):
             """First TRV raises, second succeeds.  All retries succeed."""
             nonlocal call_count
             call_count += 1
@@ -383,7 +386,7 @@ class TestControlQueue:
 
         trv_call_count = 0
 
-        async def _trv_side_effect(self_arg, entity_id):
+        async def _trv_side_effect(self_arg, entity_id, cycle=None):
             nonlocal trv_call_count
             trv_call_count += 1
             return False

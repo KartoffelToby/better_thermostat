@@ -9,8 +9,20 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 from dataclasses import dataclass, field
+from enum import StrEnum
 
 from .snapshot import HvacMode
+
+
+class Suppression(StrEnum):
+    """Why heating is suppressed although the mode allows it.
+
+    Carried on an OFF intent so the shell can apply it (a literal OFF)
+    without re-deriving the cause from the kernel's regions.
+    """
+
+    WINDOW = "window"
+    NO_CALL_FOR_HEAT = "no_call_for_heat"
 
 
 @dataclass(frozen=True)
@@ -21,6 +33,8 @@ class TrvDesired:
     hvac_mode: HvacMode | None = None
     setpoint: float | None = None
     valve_percent: float | None = None
+    offset: float | None = None
+    suppression: Suppression | None = None
 
 
 @dataclass(frozen=True)

@@ -4,7 +4,7 @@ Covers guard clauses, setpoint adoption, clamping, heat-target sync,
 and control-queue triggering.
 """
 
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import MagicMock
 
 from homeassistant.components.climate.const import HVACMode
 from homeassistant.core import State
@@ -33,7 +33,7 @@ def mock_bt():
     bt.bt_min_temp = 5.0
     bt.bt_max_temp = 30.0
     bt.startup_running = False
-    bt.control_queue_task = AsyncMock()
+    bt.control_queue_task = MagicMock()
     bt.context = MagicMock()  # unique context so != event.context
     bt.async_write_ha_state = MagicMock()
     return bt
@@ -94,7 +94,7 @@ class TestTriggerCoolerChangeGuards:
         event = _make_event(mock_bt)
         event.data["new_state"] = None
         await trigger_cooler_change(mock_bt, event)
-        mock_bt.control_queue_task.put.assert_not_called()
+        mock_bt.control_queue_task.put_nowait.assert_not_called()
 
     @pytest.mark.asyncio
     async def test_returns_early_old_state_none(self, mock_bt):
@@ -102,7 +102,7 @@ class TestTriggerCoolerChangeGuards:
         event = _make_event(mock_bt)
         event.data["old_state"] = None
         await trigger_cooler_change(mock_bt, event)
-        mock_bt.control_queue_task.put.assert_not_called()
+        mock_bt.control_queue_task.put_nowait.assert_not_called()
 
     @pytest.mark.asyncio
     async def test_returns_early_not_state_instance(self, mock_bt):
@@ -110,7 +110,7 @@ class TestTriggerCoolerChangeGuards:
         event = _make_event(mock_bt)
         event.data["new_state"] = "not a state"
         await trigger_cooler_change(mock_bt, event)
-        mock_bt.control_queue_task.put.assert_not_called()
+        mock_bt.control_queue_task.put_nowait.assert_not_called()
 
     @pytest.mark.asyncio
     async def test_returns_early_attributes_none(self, mock_bt):
@@ -120,7 +120,7 @@ class TestTriggerCoolerChangeGuards:
         old_state = _make_state()
         event = _make_event(mock_bt, new_state=new_state, old_state=old_state)
         await trigger_cooler_change(mock_bt, event)
-        mock_bt.control_queue_task.put.assert_not_called()
+        mock_bt.control_queue_task.put_nowait.assert_not_called()
 
     @pytest.mark.asyncio
     async def test_skips_own_context(self, mock_bt):
@@ -128,7 +128,7 @@ class TestTriggerCoolerChangeGuards:
         event = _make_event(mock_bt)
         event.context = mock_bt.context
         await trigger_cooler_change(mock_bt, event)
-        mock_bt.control_queue_task.put.assert_not_called()
+        mock_bt.control_queue_task.put_nowait.assert_not_called()
 
 
 # ---------------------------------------------------------------------------
@@ -149,7 +149,7 @@ class TestCoolerSetpointAdoption:
         await trigger_cooler_change(mock_bt, event)
 
         assert mock_bt.bt_target_cooltemp == 27.0
-        mock_bt.control_queue_task.put.assert_awaited_once()
+        mock_bt.control_queue_task.put_nowait.assert_called_once()
 
     @pytest.mark.asyncio
     async def test_setpoint_not_adopted_when_off(self, mock_bt):
@@ -162,7 +162,7 @@ class TestCoolerSetpointAdoption:
         await trigger_cooler_change(mock_bt, event)
 
         assert mock_bt.bt_target_cooltemp == 25.0  # unchanged
-        mock_bt.control_queue_task.put.assert_not_awaited()
+        mock_bt.control_queue_task.put_nowait.assert_not_called()
 
     @pytest.mark.asyncio
     async def test_uses_target_temp_high_fallback(self, mock_bt):
@@ -197,7 +197,7 @@ class TestCoolerSetpointAdoption:
         await trigger_cooler_change(mock_bt, event)
 
         mock_bt.async_write_ha_state.assert_called_once()
-        mock_bt.control_queue_task.put.assert_not_awaited()
+        mock_bt.control_queue_task.put_nowait.assert_not_called()
 
 
 # ---------------------------------------------------------------------------
@@ -360,7 +360,7 @@ class TestEdgeCases:
 
         # No main change (both setpoints are None)
         assert mock_bt.bt_target_cooltemp == 25.0  # unchanged
-        mock_bt.control_queue_task.put.assert_not_awaited()
+        mock_bt.control_queue_task.put_nowait.assert_not_called()
 
     @pytest.mark.asyncio
     async def test_unconvertible_temperature_string(self, mock_bt):
@@ -372,7 +372,7 @@ class TestEdgeCases:
         await trigger_cooler_change(mock_bt, event)
 
         assert mock_bt.bt_target_cooltemp == 25.0  # unchanged
-        mock_bt.control_queue_task.put.assert_not_awaited()
+        mock_bt.control_queue_task.put_nowait.assert_not_called()
 
     @pytest.mark.asyncio
     async def test_only_old_setpoint_none(self, mock_bt):
@@ -389,7 +389,7 @@ class TestEdgeCases:
 
         # Setpoint NOT adopted because old is None
         assert mock_bt.bt_target_cooltemp == 25.0
-        mock_bt.control_queue_task.put.assert_not_awaited()
+        mock_bt.control_queue_task.put_nowait.assert_not_called()
 
     @pytest.mark.asyncio
     async def test_only_new_setpoint_none(self, mock_bt):
@@ -401,7 +401,7 @@ class TestEdgeCases:
         await trigger_cooler_change(mock_bt, event)
 
         assert mock_bt.bt_target_cooltemp == 25.0
-        mock_bt.control_queue_task.put.assert_not_awaited()
+        mock_bt.control_queue_task.put_nowait.assert_not_called()
 
     @pytest.mark.asyncio
     async def test_main_key_mismatch_old_has_temp_new_has_target_temp_high(

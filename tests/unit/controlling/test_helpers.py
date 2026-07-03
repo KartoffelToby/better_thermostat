@@ -1,12 +1,13 @@
 """Tests for helper functions in utils/controlling.py.
 
 Tests for:
-- handle_window_open()
 - check_system_mode()
 - check_target_temperature()
+- _get_valve_control()
 
-Absorbed tests from:
-- tests/test_window_no_off_mode.py (TestHandleWindowOpen, TestWindowCloseRestoresHeating)
+The window suppression that used to live in handle_window_open() is now
+decided by the core kernel (see tests/unit/test_core_decide.py) and
+applied in control_trv (see test_control_trv.py).
 """
 
 import asyncio
@@ -24,169 +25,19 @@ from custom_components.better_thermostat.utils.controlling import (
     _get_valve_control,
     check_system_mode,
     check_target_temperature,
-    handle_window_open,
 )
-
-# ---------------------------------------------------------------------------
-# handle_window_open
-# ---------------------------------------------------------------------------
+from tests.factories import make_snapshot
 
 
-class TestHandleWindowOpen:
-    """Test handle_window_open function."""
+def _boost_snapshot():
+    """Create a snapshot for an active boost scenario.
 
-    def test_window_open_returns_off(self):
-        """Test that window open returns HVACMode.OFF."""
-        mock_self = Mock()
-        mock_self.window_open = True
-
-        remapped_states = {"system_mode": HVACMode.HEAT}
-
-        result = handle_window_open(mock_self, remapped_states)
-
-        assert result == HVACMode.OFF
-
-    def test_window_closed_returns_system_mode(self):
-        """Test that window closed returns system_mode from remapped_states."""
-        mock_self = Mock()
-        mock_self.window_open = False
-
-        remapped_states = {"system_mode": HVACMode.HEAT}
-
-        result = handle_window_open(mock_self, remapped_states)
-
-        assert result == HVACMode.HEAT
-
-    def test_window_closed_no_system_mode(self):
-        """Test that window closed with no system_mode returns None."""
-        mock_self = Mock()
-        mock_self.window_open = False
-
-        remapped_states = {}
-
-        result = handle_window_open(mock_self, remapped_states)
-
-        assert result is None
-
-    def test_window_closed_system_mode_none(self):
-        """Test that window closed with system_mode=None returns None."""
-        mock_self = Mock()
-        mock_self.window_open = False
-
-        remapped_states = {"system_mode": None}
-
-        result = handle_window_open(mock_self, remapped_states)
-
-        assert result is None
-
-
-class TestHandleWindowOpenWithNoOffMode:
-    """Tests for handle_window_open with no_off_system_mode TRVs.
-
-    Issue #1195: TRV stays forever at 5C after window closed
-    (with no_off_system_mode).
-
-    When no_off_system_mode is True and window was open,
-    convert_outbound_states sets system_mode=None. Then when window
-    closes, handle_window_open returns None instead of HEAT.
+    Returns
+    -------
+    WorldSnapshot
+        Snapshot with boost preset enabled and room temperature below target.
     """
-
-    @pytest.fixture
-    def mock_bt_no_off_mode(self):
-        """Create a mock BetterThermostat with no_off_system_mode."""
-        bt = MagicMock()
-        bt.hass = MagicMock()
-        bt.device_name = "Test Thermostat"
-        bt.bt_hvac_mode = HVACMode.HEAT
-        bt.bt_target_temp = 21.0
-        bt.cur_temp = 19.0
-        bt.window_open = False
-        bt.tolerance = 0.3
-        bt.real_trvs = {
-            "climate.test_trv": Trv.from_legacy_dict(
-                "climate.test_trv",
-                {
-                    "hvac_modes": [HVACMode.HEAT],  # No OFF mode
-                    "min_temp": 5.0,
-                    "max_temp": 30.0,
-                    "current_temperature": 19.0,
-                    "temperature": 21.0,
-                    "advanced": {
-                        "calibration": CalibrationType.TARGET_TEMP_BASED,
-                        "calibration_mode": CalibrationMode.NO_CALIBRATION,
-                        "no_off_system_mode": True,
-                        "heat_auto_swapped": False,
-                    },
-                },
-            )
-        }
-        return bt
-
-    def test_returns_none_when_system_mode_none(self, mock_bt_no_off_mode):
-        """Test current behavior: returns None when system_mode is None.
-
-        This documents the bug where convert_outbound_states sets
-        system_mode=None for no_off_system_mode devices when hvac_mode
-        is OFF (during window open), and handle_window_open returns None.
-        """
-        mock_bt_no_off_mode.window_open = False
-        remapped_states = {"system_mode": None, "temperature": 5.0}
-
-        result = handle_window_open(mock_bt_no_off_mode, remapped_states)
-
-        assert result is None
-
-    def test_window_close_should_restore_heating_mode(self, mock_bt_no_off_mode):
-        """Test that closing window restores HEAT mode, not None.
-
-        Integration test through convert_outbound_states + handle_window_open.
-        """
-        from custom_components.better_thermostat.events.trv import (
-            convert_outbound_states,
-        )
-
-        # Step 1: Window is closed, TRV is heating normally
-        mock_bt_no_off_mode.window_open = False
-        mock_bt_no_off_mode.bt_hvac_mode = HVACMode.HEAT
-
-        states_heating = convert_outbound_states(
-            mock_bt_no_off_mode, "climate.test_trv", HVACMode.HEAT
-        )
-        handle_window_open(mock_bt_no_off_mode, states_heating)
-
-        assert states_heating.get("temperature") == 21.0
-
-        # Step 2: Window opens
-        mock_bt_no_off_mode.window_open = True
-        hvac_mode_window_open = handle_window_open(mock_bt_no_off_mode, states_heating)
-        assert hvac_mode_window_open == HVACMode.OFF
-
-        # Step 3: Window closes
-        mock_bt_no_off_mode.window_open = False
-        assert mock_bt_no_off_mode.bt_hvac_mode == HVACMode.HEAT
-
-        states_after_close = convert_outbound_states(
-            mock_bt_no_off_mode, "climate.test_trv", mock_bt_no_off_mode.bt_hvac_mode
-        )
-        hvac_mode_after_close = handle_window_open(
-            mock_bt_no_off_mode, states_after_close
-        )
-
-        # Temperature should be restored to target
-        assert states_after_close.get("temperature") == 21.0, (
-            f"Expected temperature 21.0 but got {states_after_close.get('temperature')}"
-        )
-
-        # hvac_mode should indicate heating (or at least not OFF)
-        if hvac_mode_after_close is not None:
-            assert hvac_mode_after_close != HVACMode.OFF, (
-                f"Expected HEAT or equivalent but got {hvac_mode_after_close}"
-            )
-
-
-# ---------------------------------------------------------------------------
-# check_system_mode
-# ---------------------------------------------------------------------------
+    return make_snapshot(preset_mode="boost", room_temp=19.0, target_temp=22.0)
 
 
 class TestCheckSystemMode:
@@ -518,6 +369,7 @@ class TestGetValveControlBoostCalibrationType:
         mock_self = self._mock_in_boost()
         bal, source = _get_valve_control(
             mock_self,
+            _boost_snapshot(),
             "climate.trv1",
             CalibrationMode.MPC_CALIBRATION,
             CalibrationType.DIRECT_VALVE_BASED,
@@ -530,6 +382,7 @@ class TestGetValveControlBoostCalibrationType:
         mock_self = self._mock_in_boost()
         bal, source = _get_valve_control(
             mock_self,
+            _boost_snapshot(),
             "climate.trv1",
             CalibrationMode.MPC_CALIBRATION,
             CalibrationType.LOCAL_BASED,
@@ -542,6 +395,7 @@ class TestGetValveControlBoostCalibrationType:
         mock_self = self._mock_in_boost()
         bal, source = _get_valve_control(
             mock_self,
+            _boost_snapshot(),
             "climate.trv1",
             CalibrationMode.MPC_CALIBRATION,
             CalibrationType.TARGET_TEMP_BASED,
@@ -576,6 +430,7 @@ class TestGetValveControlBoostMaxOpening:
         mock_self.real_trvs["climate.trv1"] = Trv(entity_id="climate.trv1")
         bal, source = _get_valve_control(
             mock_self,
+            _boost_snapshot(),
             "climate.trv1",
             CalibrationMode.MPC_CALIBRATION,
             CalibrationType.DIRECT_VALVE_BASED,
@@ -588,6 +443,7 @@ class TestGetValveControlBoostMaxOpening:
         mock_self = self._mock_in_boost(max_opening=100)
         bal, _ = _get_valve_control(
             mock_self,
+            _boost_snapshot(),
             "climate.trv1",
             CalibrationMode.MPC_CALIBRATION,
             CalibrationType.DIRECT_VALVE_BASED,
@@ -599,6 +455,7 @@ class TestGetValveControlBoostMaxOpening:
         mock_self = self._mock_in_boost(max_opening=60)
         bal, source = _get_valve_control(
             mock_self,
+            _boost_snapshot(),
             "climate.trv1",
             CalibrationMode.MPC_CALIBRATION,
             CalibrationType.DIRECT_VALVE_BASED,
@@ -611,6 +468,7 @@ class TestGetValveControlBoostMaxOpening:
         mock_self = self._mock_in_boost(max_opening=72.6)
         bal, _ = _get_valve_control(
             mock_self,
+            _boost_snapshot(),
             "climate.trv1",
             CalibrationMode.MPC_CALIBRATION,
             CalibrationType.DIRECT_VALVE_BASED,
@@ -622,6 +480,7 @@ class TestGetValveControlBoostMaxOpening:
         mock_self = self._mock_in_boost(max_opening=150)
         bal, _ = _get_valve_control(
             mock_self,
+            _boost_snapshot(),
             "climate.trv1",
             CalibrationMode.MPC_CALIBRATION,
             CalibrationType.DIRECT_VALVE_BASED,
@@ -633,6 +492,7 @@ class TestGetValveControlBoostMaxOpening:
         mock_self = self._mock_in_boost(max_opening="not a number")
         bal, _ = _get_valve_control(
             mock_self,
+            _boost_snapshot(),
             "climate.trv1",
             CalibrationMode.MPC_CALIBRATION,
             CalibrationType.DIRECT_VALVE_BASED,

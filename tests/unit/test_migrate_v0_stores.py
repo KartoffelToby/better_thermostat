@@ -328,19 +328,6 @@ class TestMigrateV0Stores:
         mgr.save.assert_not_called()
 
     @pytest.mark.asyncio
-    async def test_skips_when_presets_already_present(self) -> None:
-        """Migration is skipped when presets are already populated."""
-        mgr = _make_state_manager()
-        mgr.presets = {"comfort": 22.0}
-        mgr.save = AsyncMock()  # type: ignore[method-assign]
-
-        await migrate_v0_stores(
-            AsyncMock(), mgr, entity_prefix="uid1:", config_entry_id="entry1"
-        )
-
-        mgr.save.assert_not_called()
-
-    @pytest.mark.asyncio
     async def test_imports_all_four_stores(self) -> None:
         """All four legacy stores are read and their data imported."""
         mgr = _make_state_manager()

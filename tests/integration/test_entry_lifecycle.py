@@ -151,3 +151,54 @@ async def test_climate_entity_id_follows_device_name_after_rename(hass, fake_trv
         == "sensor.bt_livingroom_temperature_ema"
     )
     assert hass.states.get("climate.bt_livingroom") is not None
+
+
+async def test_reconcile_tick_heals_a_lost_setpoint_write(hass, fake_trv):
+    """A write the radio swallowed converges through the periodic tick.
+
+    This pins the wiring: the five-minute interval is registered, the
+    tick detects the commanded-vs-reported divergence, and the queued
+    control cycle re-sends through the real service. The write budget
+    is unit-tested elsewhere and zeroed here so the test does not have
+    to wait out real wall-clock spacing.
+    """
+    from datetime import timedelta
+    from unittest.mock import patch
+
+    from homeassistant.util import dt as dt_util
+    from pytest_homeassistant_custom_component.common import async_fire_time_changed
+
+    _room_sensor(hass)
+    entry = make_entry()
+    await setup_entry(hass, entry)
+    await wait_for_startup(hass, entry)
+    assert await wait_for(hass, lambda: fake_trv.set_temperature_calls)
+
+    with patch(
+        "custom_components.better_thermostat.utils.controlling.MIN_WRITE_INTERVAL_S",
+        0.0,
+    ):
+        # The device drops the write for the new target.
+        fake_trv.drop_next_setpoint_write = True
+        baseline_calls = len(fake_trv.set_temperature_calls)
+        await hass.services.async_call(
+            "climate",
+            "set_temperature",
+            {"entity_id": BT_ENTITY, "temperature": 23.0},
+            blocking=True,
+        )
+        assert await wait_for(
+            hass, lambda: len(fake_trv.set_temperature_calls) > baseline_calls
+        )
+        lost = fake_trv.set_temperature_calls[-1]
+        assert lost != fake_trv._attr_target_temperature  # really lost
+
+        # The next reconcile tick detects the divergence and re-sends.
+        resend_baseline = len(fake_trv.set_temperature_calls)
+        async_fire_time_changed(hass, dt_util.utcnow() + timedelta(minutes=6))
+        assert await wait_for(
+            hass, lambda: len(fake_trv.set_temperature_calls) > resend_baseline
+        )
+
+    assert fake_trv.set_temperature_calls[-1] == lost
+    assert fake_trv._attr_target_temperature == lost

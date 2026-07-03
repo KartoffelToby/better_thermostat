@@ -2,7 +2,7 @@
 
 The unit suite mocks the entity; everything here sets up a real config
 entry against a real (simulated) climate entity so the wiring across
-the layers — entity lifecycle, queues, adapters, services — is
+the layers — entity lifecycle, queues, kernel, adapters, services — is
 exercised end to end.
 """
 

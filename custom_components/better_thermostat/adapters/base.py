@@ -1,14 +1,48 @@
-"""Base adapter functions shared across multiple adapters."""
+"""Base adapter functions and the capability declaration shared by adapters."""
 
 from __future__ import annotations
 
 import asyncio
+from dataclasses import dataclass
 import logging
 
 from homeassistant.components.number.const import SERVICE_SET_VALUE
 from homeassistant.const import STATE_UNAVAILABLE, STATE_UNKNOWN
 
 _LOGGER = logging.getLogger(__name__)
+
+
+@dataclass(frozen=True)
+class AdapterCapabilities:
+    """What one ecosystem's adapter can do, declared per adapter module.
+
+    Each adapter exports a ``CAPABILITIES`` constant. The effective
+    per-TRV descriptor (:meth:`Trv.capabilities`) intersects this
+    declaration with the discovered entity surface: an ecosystem that
+    writes through a number entity only has the capability once that
+    entity was discovered, while a service-call ecosystem (deCONZ,
+    Tado) carries it unconditionally.
+
+    Attributes
+    ----------
+    offset_write : bool
+        Whether the adapter can write a local temperature offset.
+    valve_write : bool
+        Whether the adapter can write a valve position.
+    offset_needs_entity : bool
+        Whether the offset write requires a discovered number entity
+        rather than an ecosystem service call.
+    valve_needs_entity : bool
+        Whether the valve write requires a discovered number entity
+        rather than an ecosystem service call.
+    """
+
+    offset_write: bool = False
+    valve_write: bool = False
+    # Whether the write goes through a discovered number entity (and
+    # therefore requires one) instead of an ecosystem service call.
+    offset_needs_entity: bool = True
+    valve_needs_entity: bool = True
 
 
 async def wait_for_calibration_entity_or_timeout(self, entity_id, calibration_entity):
