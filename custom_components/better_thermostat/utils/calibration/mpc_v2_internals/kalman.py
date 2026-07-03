@@ -14,6 +14,13 @@ cycle.
 
 Process noise on ``T_rad`` is intentionally larger than on ``T_room`` so
 the filter adapts quickly to radiator dynamics the model gets wrong.
+
+Each update propagates exactly one plant step (``plant_step_s``) regardless
+of the actual wall-clock spacing of control cycles. For the slow thermal
+plant this mis-weights the model dynamics between irregular cycles, but the
+measurement correction on every cycle keeps the room channel anchored; the
+controller additionally rejects sub-second repeat steps so the same
+measurement is never folded in twice within one control pass.
 """
 
 from __future__ import annotations

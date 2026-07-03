@@ -175,6 +175,71 @@ def test_plant_signature_change_rebuilds_controller(caplog) -> None:
     assert any("plant prior changed" in r.message for r in caplog.records)
 
 
+def test_small_plant_prior_drift_keeps_controller(caplog) -> None:
+    """Sub-tolerance tau drift (AUTO learning tick) must not rebuild."""
+    state: MpcV2State | None = None
+    out, state = compute_mpc_v2(
+        _baseline_input(key="drift-test-key"),
+        MpcV2Params(plant=make_plant_prior(heat_loss_rate=0.03)),  # tau = 500
+        state,
+    )
+    assert out is not None
+    original_ctrl = state.controller
+
+    with caplog.at_level("INFO"):
+        _, state = compute_mpc_v2(
+            _baseline_input(key="drift-test-key"),
+            MpcV2Params(plant=make_plant_prior(heat_loss_rate=0.0294)),  # tau ≈ 510
+            state,
+        )
+    assert state.controller is original_ctrl
+    assert not any("plant prior changed" in r.message for r in caplog.records)
+
+
+def test_cumulative_plant_prior_drift_rebuilds_once() -> None:
+    """Drift beyond the tolerance, even in small steps, rebuilds exactly once."""
+    state: MpcV2State | None = None
+    _, state = compute_mpc_v2(
+        _baseline_input(key="cumulative-drift-key"),
+        MpcV2Params(plant=make_plant_prior(heat_loss_rate=0.03)),  # tau = 500
+        state,
+    )
+    original_ctrl = state.controller
+
+    # Two sub-tolerance ticks whose sum crosses the 10 % band: the signature
+    # stays anchored at the build-time tau (500), so the second tick trips it.
+    _, state = compute_mpc_v2(
+        _baseline_input(key="cumulative-drift-key"),
+        MpcV2Params(plant=make_plant_prior(heat_loss_rate=0.0283)),  # tau ≈ 530
+        state,
+    )
+    assert state.controller is original_ctrl
+    _, state = compute_mpc_v2(
+        _baseline_input(key="cumulative-drift-key"),
+        MpcV2Params(plant=make_plant_prior(heat_loss_rate=0.0263)),  # tau ≈ 570
+        state,
+    )
+    assert state.controller is not original_ctrl
+
+
+def test_sub_second_repeat_step_holds_covariance() -> None:
+    """A same-pass repeat step returns last_u without re-folding the measurement."""
+    controller = MpcV2Controller(MpcV2Params())
+    u1, _ = controller.step(t_s=1000.0, T_room_C=20.0, T_target_C=22.0, T_outdoor_C=5.0)
+    p_after_first = controller.kalman.P.copy()
+
+    # Second TRV in the same control pass: milliseconds later, same reading.
+    u2, _ = controller.step(
+        t_s=1000.005, T_room_C=20.0, T_target_C=22.0, T_outdoor_C=5.0
+    )
+    assert u2 == u1
+    np.testing.assert_array_equal(controller.kalman.P, p_after_first)
+
+    # A regular next cycle still advances the filter.
+    controller.step(t_s=1000.0 + 30.0, T_room_C=20.1, T_target_C=22.0, T_outdoor_C=5.0)
+    assert not np.array_equal(controller.kalman.P, p_after_first)
+
+
 def test_outdoor_fallback_logs_once(caplog) -> None:
     """Missing outdoor_temp_C triggers exactly one WARN per controller."""
     state: MpcV2State | None = None
