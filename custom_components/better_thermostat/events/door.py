@@ -7,14 +7,11 @@ The shared implementation lives in :mod:`events.contact`.
 
 from __future__ import annotations
 
-from homeassistant.core import callback
-
 from .contact import DOOR, contact_queue, empty_queue, trigger_contact_change
 
 __all__ = ["trigger_door_change", "door_queue", "empty_queue"]
 
 
-@callback
 async def trigger_door_change(self, event) -> None:
     """Triggered by door sensor event from HA to check if the door is open.
 

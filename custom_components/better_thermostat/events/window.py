@@ -7,14 +7,11 @@ The shared implementation lives in :mod:`events.contact`.
 
 from __future__ import annotations
 
-from homeassistant.core import callback
-
 from .contact import WINDOW, contact_queue, empty_queue, trigger_contact_change
 
 __all__ = ["trigger_window_change", "window_queue", "empty_queue"]
 
 
-@callback
 async def trigger_window_change(self, event) -> None:
     """Triggered by window sensor event from HA to check if the window is open.
 

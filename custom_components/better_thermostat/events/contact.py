@@ -11,16 +11,22 @@ from __future__ import annotations
 import asyncio
 from dataclasses import dataclass
 import logging
+from typing import Final, Literal
 
-from homeassistant.core import callback
 from homeassistant.helpers import issue_registry as ir
 
 from custom_components.better_thermostat import DOMAIN
 
 _LOGGER = logging.getLogger(__name__)
 
-_OPEN_STATES = ("on", "true", "open", "unknown", "unavailable")
-_CLOSED_STATES = ("off", "false", "closed")
+# Words a contact sensor may use for a confirmed open/closed reading.
+# At runtime unknown/unavailable additionally count as open (the safe
+# direction); startup detection deliberately uses only the plain words.
+OPEN_WORDS: Final = ("on", "true", "open")
+CLOSED_WORDS: Final = ("off", "false", "closed")
+
+_OPEN_STATES: Final = (*OPEN_WORDS, "unknown", "unavailable")
+_CLOSED_STATES: Final = CLOSED_WORDS
 
 
 @dataclass(frozen=True)
@@ -32,7 +38,7 @@ class ContactRole:
     event queue for this kind of contact.
     """
 
-    kind: str
+    kind: Literal["window", "door"]
     entity_id_attr: str
     open_attr: str
     delay_attr: str
@@ -64,7 +70,6 @@ DOOR = ContactRole(
 )
 
 
-@callback
 async def trigger_contact_change(self, role: ContactRole, event) -> None:
     """Handle a contact sensor state event and queue the debounced change.
 

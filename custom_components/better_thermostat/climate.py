@@ -65,6 +65,7 @@ from .adapters.delegate import (
     set_temperature as adapter_set_temperature,
 )
 from .device_binding import async_bind_trv_device
+from .events.contact import OPEN_WORDS
 from .events.cooler import trigger_cooler_change
 from .events.door import door_queue, trigger_door_change
 from .events.temperature import trigger_temperature_change
@@ -294,7 +295,7 @@ def _detect_contact_open_at_startup(self, entity_id: str | None, kind: str) -> b
         )
         return False
 
-    is_open = state.state in ("on", "open", "true")
+    is_open = state.state in OPEN_WORDS
     _LOGGER.debug(
         "better_thermostat %s: detected %s state at startup: %s",
         self.device_name,
