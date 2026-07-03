@@ -8,14 +8,19 @@ range. See DESIGN.md §8 (actuator modelling; Karlsson 1980).
 
 flow = (pct/100)^alpha       (alpha ≈ 3 for typical residential TRVs)
 
-LINEAR remains the simplest reference profile and is still the default
-so existing tests keep their behaviour.
+EXPONENTIAL is a fixed quadratic curve, ``flow = (pct/100)^2`` — the
+alpha=2 special case of the power law, kept as a mild-curvature step
+between LINEAR and EQUAL_PERCENTAGE. It ignores
+``equal_percentage_exponent``.
+
+LINEAR is the simplest reference profile and the default.
 """
 
 from __future__ import annotations
 
 from dataclasses import dataclass
 from enum import StrEnum
+import math
 
 
 class ActuatorProfile(StrEnum):
@@ -42,6 +47,37 @@ class ActuatorParams:
     # flow regardless of the profile. Distinct from ``dead_zone_pct``,
     # which only applies inside the THRESHOLD profile.
     deadband_pct: float = 0.0
+
+    def __post_init__(self) -> None:
+        """Reject non-physical actuator parameters.
+
+        Raises
+        ------
+        ValueError
+            If a parameter is not finite, a percent-domain field is
+            outside [0, 100], or the equal-percentage exponent is < 1.
+        """
+        for name in (
+            "dead_zone_pct",
+            "hysteresis_pct",
+            "quantize_pct",
+            "equal_percentage_exponent",
+            "deadband_pct",
+        ):
+            value = getattr(self, name)
+            if not math.isfinite(value):
+                raise ValueError(f"ActuatorParams {name} must be finite, got {value}")
+        for name in ("dead_zone_pct", "hysteresis_pct", "quantize_pct", "deadband_pct"):
+            value = getattr(self, name)
+            if not (0.0 <= value <= 100.0):
+                raise ValueError(
+                    f"ActuatorParams {name} must be in [0, 100], got {value}"
+                )
+        if self.equal_percentage_exponent < 1.0:
+            raise ValueError(
+                "ActuatorParams equal_percentage_exponent must be >= 1, got "
+                f"{self.equal_percentage_exponent}"
+            )
 
 
 class Actuator:
@@ -75,11 +111,13 @@ class Actuator:
                 span = 100.0 - p.dead_zone_pct
                 flow = (pct - p.dead_zone_pct) / span if span > 0.0 else 1.0
         elif p.profile == ActuatorProfile.EXPONENTIAL:
+            # Fixed quadratic curve (power law with alpha = 2).
             flow = (pct / 100.0) ** 2
         elif p.profile == ActuatorProfile.EQUAL_PERCENTAGE:
-            # Realistic TRV characteristic: equal-percentage curve.
-            exp = max(1.0, p.equal_percentage_exponent)
-            flow = (pct / 100.0) ** exp
+            # Realistic TRV characteristic: equal-percentage curve
+            # (modified power-law approximation, exponent >= 1 enforced
+            # at construction).
+            flow = (pct / 100.0) ** p.equal_percentage_exponent
         else:  # LINEAR
             flow = pct / 100.0
 

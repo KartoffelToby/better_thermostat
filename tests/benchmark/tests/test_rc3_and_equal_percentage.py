@@ -1,4 +1,4 @@
-"""Tests for the RC3 plant extension and the EQUAL_PERCENTAGE actuator profile (Phase D.1)."""
+"""Tests for the RC3 plant extension and the EQUAL_PERCENTAGE actuator profile."""
 
 from __future__ import annotations
 

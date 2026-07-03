@@ -12,8 +12,12 @@ Each dimension is normalised against the IdealOracle:
 
 Failure thresholds are chosen so the score scale is interpretable:
 
-* Comfort: a controller with ≥ 1 K extra overshoot, ≥ 5× oracle settling
-  or ≥ 0.5 K extra steady-state error scores ≤ 0
+* Comfort: weighted penalty of overshoot (0.4), settling (0.4) and
+  steady-state error (0.2). Each component saturates at 1 K extra
+  overshoot, 5× oracle settling and 0.5 K extra steady-state error
+  respectively — a single saturated component costs its weight
+  (e.g. 1 K extra overshoot alone scores 0.6); comfort reaches 0 only
+  when all three saturate
 * Actuator: a controller with ≥ 5× oracle's total valve travel scores ≤ 0
 * Energy: symmetric — ≥ 2× oracle's integral is over-heating,
   ≤ 0× is under-heating; both directions score ≤ 0
@@ -243,8 +247,8 @@ def energy_score(metrics: MetricValues, oracle: MetricValues) -> float:
         # Oracle barely moved, so the ratio is ill-conditioned. Score the
         # candidate's absolute deviation from the oracle against the floor
         # rather than treating every candidate as oracle-equivalent. The
-        # deviation is symmetric (matching the main branch): both gross
-        # over-heating and under-heating are penalised here.
+        # deviation is symmetric, matching the ratio path below: both
+        # gross over-heating and under-heating are penalised here.
         deviation = abs(metrics.integral_valve_pct_min - oracle.integral_valve_pct_min)
         return _clamp_01(1.0 - deviation / _ENERGY_FLOOR_PCT_MIN)
     ratio = metrics.integral_valve_pct_min / oracle.integral_valve_pct_min

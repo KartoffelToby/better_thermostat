@@ -1,4 +1,4 @@
-"""Tests for sensor thermal lag and pipe-transport delay (Phase D.2)."""
+"""Tests for sensor thermal lag and pipe-transport delay."""
 
 from __future__ import annotations
 
@@ -59,11 +59,12 @@ def test_sensor_thermal_lag_lags_step():
 
 
 def test_pipe_delay_zero_disables_buffer():
-    """With valve_command_delay_s = 0 the plant behaves exactly as before."""
+    """With valve_command_delay_s = 0 the delay buffer is never engaged."""
     plant = TwoStatePlant(PROFILE_STANDARD, PlantState(T_room_C=18.0, T_rad_C=18.0))
     for _ in range(60):
         plant.step(30.0, 1.0, 5.0)
-    # No assertion on absolute value — sanity check it warmed.
+    assert len(plant._u_delay_buffer) == 0
+    assert plant._u_buffer_target_len == 0
     assert plant.state.T_room_C > 18.5
 
 

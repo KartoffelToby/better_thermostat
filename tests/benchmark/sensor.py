@@ -28,6 +28,9 @@ class SensorParams:
 
     sample_interval_s: float = 60.0
     ema_alpha: float = 1.0  # 1.0 = no EMA filter; <1.0 = smoothed toward filtered
+    # Noise scale in Kelvin. The generator cubes a uniform [-1, 1] draw,
+    # so samples cluster near zero and the effective standard deviation
+    # is ~0.38 * noise_std_K (sqrt(1/7)), with |noise| <= noise_std_K.
     noise_std_K: float = 0.0
     # Dropout window: the sensor returns None while
     # ``dropout_from_t_s <= t_s < dropout_until_t_s``. The defaults
@@ -43,9 +46,10 @@ class SensorParams:
     bias_K: float = 0.0
     drift_K_per_h: float = 0.0
     # Sample-jitter: when ``> 0``, the effective time between samples is
-    # drawn from a deterministic LCG with mean ``sample_interval_s`` and
-    # standard deviation ``jitter_std_s`` (clipped to ≥ 5 s). Models the
-    # async sensor-report behaviour of Zigbee TRVs that report on change.
+    # ``sample_interval_s`` plus a deterministic LCG kick bounded by
+    # ``±jitter_std_s`` (cubic-shaped, effective stdev ~0.38 * jitter_std_s;
+    # clipped to ≥ 5 s). Models the async sensor-report behaviour of
+    # Zigbee TRVs that report on change.
     jitter_std_s: float = 0.0
 
     def __post_init__(self) -> None:

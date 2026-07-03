@@ -27,8 +27,8 @@ class TimeSeries:
         Raises
         ------
         ValueError
-            If the four sequences differ in length or ``t_s`` is not
-            strictly increasing.
+            If the four sequences differ in length, contain non-finite
+            values, or ``t_s`` is not strictly increasing.
         """
         lengths = {
             len(self.t_s),
@@ -38,6 +38,9 @@ class TimeSeries:
         }
         if len(lengths) != 1:
             raise ValueError("TimeSeries fields must have the same length")
+        for name in ("t_s", "T_room_C", "T_setpoint_C", "valve_pct"):
+            if any(not math.isfinite(v) for v in getattr(self, name)):
+                raise ValueError(f"TimeSeries.{name} must contain only finite values")
         if any(t2 <= t1 for t1, t2 in zip(self.t_s, self.t_s[1:])):
             raise ValueError("TimeSeries.t_s must be strictly increasing")
 

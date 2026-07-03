@@ -2,7 +2,14 @@
 
 from __future__ import annotations
 
-from tests.benchmark.plant import PROFILE_STANDARD, PlantState, TwoStatePlant
+import pytest
+
+from tests.benchmark.plant import (
+    PROFILE_STANDARD,
+    PlantParams,
+    PlantState,
+    TwoStatePlant,
+)
 
 
 def test_plant_warms_with_full_valve():
@@ -47,3 +54,25 @@ def test_plant_zero_dt_is_noop():
     before = (plant.state.T_room_C, plant.state.T_rad_C)
     plant.step(dt_s=0.0, u=1.0, T_outdoor_C=0.0)
     assert (plant.state.T_room_C, plant.state.T_rad_C) == before
+
+
+def test_plant_params_reject_non_positive_gain_and_coupling():
+    """Zero or negative heater gain / radiator coupling fail at construction."""
+    with pytest.raises(ValueError):
+        PlantParams(gain_heater=0.0)
+    with pytest.raises(ValueError):
+        PlantParams(coupling_rad_room=-1.0)
+
+
+def test_plant_params_reject_non_finite_values():
+    """NaN or infinite parameters fail at construction."""
+    with pytest.raises(ValueError):
+        PlantParams(gain_heater=float("nan"))
+    with pytest.raises(ValueError):
+        PlantParams(tau_room_min=float("inf"))
+
+
+def test_plant_params_reject_non_positive_wall_coupling_in_rc3():
+    """RC3 mode requires a positive room-wall coupling."""
+    with pytest.raises(ValueError):
+        PlantParams(tau_wall_min=900.0, r_room_wall=0.0)

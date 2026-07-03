@@ -127,3 +127,21 @@ def test_imbalance_clips_interval_straddling_transient_start():
     m = compute_metrics(series, transient_start_s=1800.0)
     # 1 K error over the half hour after the transient start → 0.5 K·h.
     assert m.time_above_setpoint_K_h == pytest.approx(0.5)
+
+
+def test_timeseries_rejects_non_finite_values():
+    """NaN or infinite samples fail at construction."""
+    with pytest.raises(ValueError):
+        TimeSeries(
+            t_s=[0.0, float("nan")],
+            T_room_C=[20.0, 20.0],
+            T_setpoint_C=[21.0, 21.0],
+            valve_pct=[0.0, 0.0],
+        )
+    with pytest.raises(ValueError):
+        TimeSeries(
+            t_s=[0.0, 30.0],
+            T_room_C=[20.0, float("inf")],
+            T_setpoint_C=[21.0, 21.0],
+            valve_pct=[0.0, 0.0],
+        )

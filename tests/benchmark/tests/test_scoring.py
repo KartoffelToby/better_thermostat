@@ -1,4 +1,4 @@
-"""Tests for the weighted scoring system (Phase F)."""
+"""Tests for the weighted scoring system."""
 
 from __future__ import annotations
 

@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import re
+
 from tests.benchmark.metrics import MetricValues
 from tests.benchmark.reporter import (
     ScenarioResult,
@@ -132,14 +134,14 @@ def test_render_score_matrix_orders_by_overall_descending():
     assert "Score matrix" in out
     assert "comfort" in out
     assert "σ" in out
-    # The higher-mean controller (b, mean 0.9) outranks a (mean 0.8) and gets the * marker.
-    a_line = [line for line in out.splitlines() if "a " in line and "b " not in line][
-        -1
-    ]
-    b_line = [line for line in out.splitlines() if "b " in line][-1]
-    # b appears above a in the body.
-    assert out.index(b_line) < out.index(a_line)
-    assert b_line.startswith(" *")
+    # The higher-mean controller (b, mean 0.9) outranks a (mean 0.8) and
+    # gets the * marker. Body rows start with a two-character marker
+    # column followed by the controller name.
+    lines = out.splitlines()
+    a_idx = next(i for i, line in enumerate(lines) if re.match(r"^(  | \*)a\s", line))
+    b_idx = next(i for i, line in enumerate(lines) if re.match(r"^(  | \*)b\s", line))
+    assert b_idx < a_idx
+    assert lines[b_idx].startswith(" *")
 
 
 def test_render_score_matrix_handles_single_run():

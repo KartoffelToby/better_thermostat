@@ -7,6 +7,8 @@ only hit under specific param combinations these unit tests pin down.
 
 from __future__ import annotations
 
+import pytest
+
 from tests.benchmark.actuator import Actuator, ActuatorParams, ActuatorProfile
 from tests.benchmark.sensor import Sensor, SensorParams
 
@@ -121,9 +123,14 @@ def test_sensor_jitter_changes_next_interval():
     # deterministic, so the rolled interval must differ from the nominal.
     s.read(0.0, 20.0)
     assert s._next_sample_interval_s != 30.0
-    # Drive several reads.
+    # Each subsequent sample re-rolls the interval; across several reads
+    # the effective interval must keep varying, never collapsing to one
+    # fixed value.
+    intervals = {s._next_sample_interval_s}
     for t in range(1, 20):
         s.read(t * 30.0, 20.0)
+        intervals.add(s._next_sample_interval_s)
+    assert len(intervals) > 2
 
 
 def test_sensor_thermal_lag_smooths_step():
@@ -181,3 +188,23 @@ def test_thermal_lag_advances_through_dropout():
     # reflect the new room temperature, not the pre-outage state.
     assert after is not None
     assert after > 24.0
+
+
+def test_actuator_params_reject_out_of_range_percent_fields():
+    """Percent-domain fields outside [0, 100] fail at construction."""
+    with pytest.raises(ValueError):
+        ActuatorParams(deadband_pct=-1.0)
+    with pytest.raises(ValueError):
+        ActuatorParams(dead_zone_pct=150.0)
+
+
+def test_actuator_params_reject_exponent_below_one():
+    """An equal-percentage exponent below 1 fails at construction."""
+    with pytest.raises(ValueError):
+        ActuatorParams(equal_percentage_exponent=0.5)
+
+
+def test_actuator_params_reject_non_finite_values():
+    """NaN or infinite parameters fail at construction."""
+    with pytest.raises(ValueError):
+        ActuatorParams(hysteresis_pct=float("nan"))

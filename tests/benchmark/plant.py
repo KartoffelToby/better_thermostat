@@ -38,8 +38,12 @@ does not see the *current* commanded ``u`` but the command from
 lag (typically 30 s – 3 min; Burford & Madsen 2019).
 
 Integration uses explicit Euler with a step size that the caller chooses.
-For tau_rad_min >= 5 min and step sizes <= 60 s, this is comfortably stable
-in all modes.
+The stiffest node is the radiator, whose update rate is
+``(gain_heater * u + 1) / tau_rad_min``; explicit Euler requires
+``dt_min * (gain_heater * u + 1) / tau_rad_min < 2``. For the shipped
+profiles (gain_heater <= 2.5, tau_rad_min >= 5 min) and step sizes
+<= 60 s this is comfortably stable in all modes; much larger heater
+gains need a proportionally smaller step.
 
 u is in [0, 1]; Q_K_per_min is an external disturbance heat-rate (K/min)
 that already includes the room thermal capacity.
@@ -49,6 +53,7 @@ from __future__ import annotations
 
 from collections import deque
 from dataclasses import dataclass
+import math
 
 from .sensor import SensorParams
 
@@ -79,17 +84,41 @@ class PlantParams:
         Raises
         ------
         ValueError
-            If a time constant that the integrator divides by is not
-            positive, or the wall layer / pipe delay is negative.
+            If a parameter is not finite, a time constant or gain that
+            the integrator relies on is not positive, or the wall layer
+            / pipe delay is negative.
         """
+        for name in (
+            "tau_room_min",
+            "tau_rad_min",
+            "gain_heater",
+            "coupling_rad_room",
+            "T_water_C",
+            "tau_wall_min",
+            "r_room_wall",
+            "valve_command_delay_s",
+        ):
+            value = getattr(self, name)
+            if not math.isfinite(value):
+                raise ValueError(f"PlantParams {name} must be finite, got {value}")
         if self.tau_room_min <= 0.0 or self.tau_rad_min <= 0.0:
             raise ValueError(
                 "PlantParams tau_room_min and tau_rad_min must be > 0, got "
                 f"tau_room_min={self.tau_room_min}, tau_rad_min={self.tau_rad_min}"
             )
+        if self.gain_heater <= 0.0 or self.coupling_rad_room <= 0.0:
+            raise ValueError(
+                "PlantParams gain_heater and coupling_rad_room must be > 0, got "
+                f"gain_heater={self.gain_heater}, "
+                f"coupling_rad_room={self.coupling_rad_room}"
+            )
         if self.tau_wall_min < 0.0:
             raise ValueError(
                 f"PlantParams tau_wall_min must be >= 0, got {self.tau_wall_min}"
+            )
+        if self.tau_wall_min > 0.0 and self.r_room_wall <= 0.0:
+            raise ValueError(
+                f"PlantParams r_room_wall must be > 0 in RC3 mode, got {self.r_room_wall}"
             )
         if self.valve_command_delay_s < 0.0:
             raise ValueError(
@@ -150,7 +179,7 @@ PROFILE_UNDERFLOOR = PlantParams(
 # Home Assistant recorder data; see ``plant_fit/fit_plant.py`` for the
 # methodology and ``plant_fit/generate_synthetic_data.py`` for an
 # end-to-end synthetic equivalent.
-PROFILE_REAL_WOHNZIMMER = PlantParams(
+PROFILE_REAL_LIVING_ROOM = PlantParams(
     tau_room_min=570.0,
     tau_rad_min=15.0,
     gain_heater=2.0,
@@ -158,7 +187,7 @@ PROFILE_REAL_WOHNZIMMER = PlantParams(
     T_water_C=65.0,
 )
 
-PROFILE_REAL_KUCHE = PlantParams(
+PROFILE_REAL_KITCHEN = PlantParams(
     tau_room_min=1011.0,
     tau_rad_min=15.0,
     gain_heater=2.0,
@@ -183,7 +212,7 @@ PROFILE_STANDARD_RC3 = PlantParams(
     r_room_wall=1.0,
 )
 
-PROFILE_REAL_WOHNZIMMER_RC3 = PlantParams(
+PROFILE_REAL_LIVING_ROOM_RC3 = PlantParams(
     tau_room_min=70.0,
     tau_rad_min=15.0,
     gain_heater=2.0,
@@ -193,12 +222,6 @@ PROFILE_REAL_WOHNZIMMER_RC3 = PlantParams(
     r_room_wall=1.0,
 )
 
-
-# Realistic profile: RC3 wall mass, equal-percentage-friendly gains, and
-# a moderate pipe transport delay. To use the equal-percentage actuator
-# with this plant, pass
-# ``actuator_params=ActuatorParams(profile=EQUAL_PERCENTAGE)`` on the
-# scenario.
 
 # Heat-pump / low-temperature setup: supply ~42 °C instead of 65 °C.
 # Same loss and coupling parameters as STANDARD; only the driving water
@@ -289,6 +312,11 @@ PROFILE_COOLING = PlantParams(
 )
 
 
+# Realistic profile: RC3 wall mass, equal-percentage-friendly gains, and
+# a moderate pipe transport delay. To use the equal-percentage actuator
+# with this plant, pass
+# ``actuator_params=ActuatorParams(profile=EQUAL_PERCENTAGE)`` on the
+# scenario.
 PROFILE_REALISTIC = PlantParams(
     tau_room_min=70.0,
     tau_rad_min=15.0,
