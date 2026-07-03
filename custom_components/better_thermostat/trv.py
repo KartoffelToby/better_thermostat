@@ -178,11 +178,18 @@ class Trv:
         """Build a Trv from a plain per-entity dict.
 
         Known keys become typed fields; unknown keys land in ``extra``.
+        The explicit ``entity_id`` argument wins over an ``entity_id``
+        key in the dict, and an ``extra`` key is merged into the extra
+        mapping instead of being nested under it.
         """
         fields_in = {}
         extra: dict[str, Any] = {}
         for key, value in data.items():
-            if key != "extra" and key in cls.__dataclass_fields__:
+            if key == "entity_id":
+                continue
+            if key == "extra":
+                extra.update(value)
+            elif key in cls.__dataclass_fields__:
                 fields_in[key] = value
             else:
                 extra[key] = value

@@ -60,6 +60,22 @@ class TestExtraScratchpad:
         assert trv.advanced == {"child_lock": True}
         assert trv.extra == {"_quirk_scratch": 3}
 
+    def test_from_legacy_dict_explicit_entity_id_wins(self):
+        """An ``entity_id`` key in the dict yields to the explicit argument."""
+        trv = Trv.from_legacy_dict(
+            "climate.trv", {"entity_id": "climate.stale", "current_temperature": 21.0}
+        )
+        assert trv.entity_id == "climate.trv"
+        assert trv.current_temperature == 21.0
+        assert trv.extra == {}
+
+    def test_from_legacy_dict_merges_extra_key(self):
+        """An ``extra`` key is merged into the scratchpad, not nested under it."""
+        trv = Trv.from_legacy_dict(
+            "climate.trv", {"extra": {"_quirk_scratch": 3}, "_other_scratch": 7}
+        )
+        assert trv.extra == {"_quirk_scratch": 3, "_other_scratch": 7}
+
     def test_no_dict_protocol(self):
         """Trv does not speak the dict protocol: attribute access only."""
         trv = _make()
