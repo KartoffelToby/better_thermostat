@@ -207,7 +207,7 @@ async def check_critical_entities(self) -> bool:
     """
     critical = get_critical_entities(self)
     grace_until = getattr(self, "_critical_grace_until", None)
-    in_grace = grace_until is not None and dt_util.now() < grace_until
+    in_grace = grace_until is not None and self.clock.now() < grace_until
 
     all_available = True
     for entity in critical:
