@@ -143,6 +143,11 @@ async def trigger_contact_change(self, role: ContactRole, event) -> None:
         )
         return
 
+    # a recognized reading clears any stale invalid-state repair issue
+    ir.async_delete_issue(
+        self.hass, DOMAIN, f"{role.issue_translation_key}_{self.device_name}"
+    )
+
     # make sure to skip events which do not change the saved contact state:
     if new_contact_open == old_contact_open:
         _LOGGER.debug(

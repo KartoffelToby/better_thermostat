@@ -498,7 +498,7 @@ async def control_trv(self, heater_entity_id=None):
         if self.call_for_heat is False:
             _new_hvac_mode = HVACMode.OFF
 
-        # Safety override: if boost mode was active but we forced OFF (window/no-heat),
+        # Safety override: if boost mode was active but we forced OFF (open contact/no-heat),
         # ensure valve is reset to 0% to prevent overheating. Only direct-valve
         # calibration types accept valve commands; LOCAL_BASED and
         # TARGET_TEMP_BASED control via offset / setpoint instead.

@@ -161,3 +161,25 @@ async def test_queue_skips_event_on_unrecognized_state_during_debounce():
     task.cancel()
     with pytest.raises(asyncio.CancelledError):
         await task
+
+
+@pytest.mark.asyncio
+async def test_valid_reading_clears_stale_invalid_state_issue():
+    """A recognized reading deletes any previously raised invalid-state issue."""
+    bt = _make_bt(sensor_state="on")
+    with patch(f"{_CONTACT}.ir.async_delete_issue") as delete:
+        await trigger_door_change(bt, _event("on"))
+    delete.assert_called_once()
+    assert delete.call_args.args[2] == "invalid_door_state_Test BT"
+
+
+@pytest.mark.asyncio
+async def test_unrecognized_state_does_not_clear_the_issue():
+    """An invalid reading raises the issue and must not delete it."""
+    bt = _make_bt(sensor_state="banana")
+    with (
+        patch(f"{_CONTACT}.ir.async_create_issue"),
+        patch(f"{_CONTACT}.ir.async_delete_issue") as delete,
+    ):
+        await trigger_door_change(bt, _event("banana"))
+    delete.assert_not_called()
