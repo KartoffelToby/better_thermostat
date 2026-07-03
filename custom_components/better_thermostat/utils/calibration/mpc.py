@@ -694,9 +694,7 @@ def compute_mpc(
                     restart_threshold, 3
                 )
 
-        # --------------------------------------------
         # KALMAN FILTER FOR VIRTUAL TEMPERATURE
-        # --------------------------------------------
         # Replaces the previous 3-mechanism approach (forward prediction +
         # adaptive EMA sync + hard-reset/clamp) with a single, principled
         # Kalman filter.  Two phases per tick:
@@ -785,9 +783,7 @@ def compute_mpc(
 
             state.last_sensor_temp_C = sensor_temp
 
-        # --------------------------------------------
         # DELTA T USING VIRTUAL TEMPERATURE
-        # --------------------------------------------
         if (
             use_virtual_temp
             and state.virtual_temp is not None
@@ -1464,12 +1460,10 @@ def _compute_predictive_percent(
     gain_step = gain * step_minutes
     loss_step = loss * step_minutes
 
-    # ------------------------------------------------------------
     # BASE LOAD u0
     # u0 represents the steady-state opening where gain * u0 == loss.
     # The optimizer must not control absolute u anymore; it controls du around u0.
     # u_abs = u0 + du is applied AFTER solving (before clamping downstream).
-    # ------------------------------------------------------------
     u0_frac: float
     # Subtract other heat power AND solar gain from requirements:
     # gain*u0 + other + solar = loss => gain*u0 = loss - other - solar
@@ -1502,15 +1496,12 @@ def _compute_predictive_percent(
     else:
         u_last_frac = max(0.0, min(100.0, float(last_percent))) / 100.0
 
-    # ----------------------------------------------------------------
     # COST-BASED OPTIMISATION
-    # ----------------------------------------------------------------
     # We intentionally evaluate a compact candidate set so all configured
     # penalties are active in the objective:
     # - tracking (quadratic), asymmetric for overshoot
     # - control effort around u0
     # - change penalty vs last command
-    # ----------------------------------------------------------------
 
     T0 = (
         float(state.virtual_temp)
@@ -1720,9 +1711,7 @@ def _post_process_percent(
     name = inp.bt_name or "BT"
     entity = inp.entity_id or "unknown"
 
-    # ============================================================
     # 1) INITIAL RAW VALUE
-    # ============================================================
     smooth = raw_percent
     target_changed = False
 
@@ -1751,9 +1740,7 @@ def _post_process_percent(
         except TypeError, ValueError:
             delta_t = None
 
-    # ============================================================
     # 2) MIN EFFECTIVE OPENING (FIRST!)
-    # ============================================================
     if bool(getattr(params, "enable_min_effective_percent", True)):
         min_eff = state.min_effective_percent
         if min_eff is not None and min_eff > 0.0 and smooth > 0.0 and smooth < min_eff:
@@ -1765,9 +1752,7 @@ def _post_process_percent(
             )
             smooth = min_eff
 
-    # ============================================================
     # 3) DU_MAX LIMIT (MAX STEPPING)
-    # ============================================================
     last_percent = state.last_percent
     du_max = getattr(params, "mpc_du_max_pct", None)
 
@@ -1789,9 +1774,7 @@ def _post_process_percent(
             )
             smooth = limited
 
-    # ============================================================
     # 4) HYSTERESIS
-    # ============================================================
     if last_percent is not None:
         change = abs(smooth - last_percent)
         if (change < params.percent_hysteresis_pts and not target_changed) or too_soon:
@@ -1801,9 +1784,7 @@ def _post_process_percent(
     else:
         percent_out = int(round(smooth))
 
-    # ============================================================
     # 5) FINAL MIN EFFECTIVE CHECK ON INTEGER OUTPUT
-    # ============================================================
     if bool(getattr(params, "enable_min_effective_percent", True)):
         min_eff = state.min_effective_percent
         if (
@@ -1820,9 +1801,7 @@ def _post_process_percent(
             )
             percent_out = int(round(min_eff))
 
-    # ============================================================
     # 6) DEAD-ZONE DETECTION (improved)
-    # ============================================================
     temp_delta: float | None = None
     time_delta: float | None = None
 
@@ -1956,7 +1935,6 @@ def _post_process_percent(
         state.last_trv_temp = inp.trv_temp_C
         state.last_trv_temp_ts = now
     # 7) DEBUG INFO
-    # ============================================================
     debug: dict[str, Any] = {
         "raw_percent": _round_for_debug(raw_percent, 2),
         "smooth_percent": _round_for_debug(smooth, 2),
@@ -1985,9 +1963,7 @@ def _post_process_percent(
             state.ema_slope = 0.6 * state.ema_slope + 0.4 * inp.temp_slope_K_per_min
         debug["slope_ema"] = _round_for_debug(state.ema_slope, 4)
 
-    # ===========================================
     # MINIMUM HOLD TIME – ANTI-CHATTERING
-    # ===========================================
     hold_time = params.min_percent_hold_time_s
 
     # If we sent a command shortly before, block updates
@@ -2020,9 +1996,7 @@ def _post_process_percent(
                     _round_for_debug(remaining, 1),
                 )
 
-    # ============================================================
     # 7b) MAX VALVE OPENING (USER CAP)
-    # ============================================================
     max_opening = getattr(inp, "max_opening_pct", None)
     if isinstance(max_opening, (int, float)):
         max_opening = max(0.0, min(100.0, float(max_opening)))
@@ -2031,9 +2005,7 @@ def _post_process_percent(
             debug["max_opening_clamped"] = True
             percent_out = int(round(max_opening))
 
-    # ============================================================
     # 8) UPDATE STATE ONLY IF CHANGED
-    # ============================================================
     # Only update last_percent and last_update_ts if the output actually changed
     original_last_percent = state.last_percent
     if original_last_percent is None or abs(percent_out - original_last_percent) >= 0.5:

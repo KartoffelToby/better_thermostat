@@ -4,6 +4,8 @@ This module implements the thin adapter that maps Better Thermostat actions
 onto the Tado climate services (offsets and modes).
 """
 
+from __future__ import annotations
+
 import logging
 
 from homeassistant.const import STATE_UNAVAILABLE, STATE_UNKNOWN

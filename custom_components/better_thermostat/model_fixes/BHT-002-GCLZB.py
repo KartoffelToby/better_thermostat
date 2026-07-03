@@ -5,6 +5,8 @@ floating-point values (e.g., +/- 1e6) for the local calibration. The
 helper functions below normalize values to sensible integer offsets.
 """
 
+from __future__ import annotations
+
 import math
 
 from custom_components.better_thermostat.model_fixes.types import ModelFixHost

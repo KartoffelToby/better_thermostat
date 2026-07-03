@@ -1,5 +1,7 @@
 """Quirks for TV02-Zigbee thermostats."""
 
+from __future__ import annotations
+
 import logging
 
 from homeassistant.components.climate.const import HVACMode

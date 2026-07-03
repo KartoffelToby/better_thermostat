@@ -7,9 +7,9 @@ from collections.abc import Awaitable, Callable
 import functools
 import logging
 import random
-from typing import Final, ParamSpec, TypeVar
+from typing import ParamSpec, TypeVar
 
-_LOGGER: Final = logging.getLogger(__name__)
+_LOGGER = logging.getLogger(__name__)
 
 P = ParamSpec("P")
 R = TypeVar("R")

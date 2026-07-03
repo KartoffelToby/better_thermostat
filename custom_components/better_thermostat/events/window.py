@@ -4,6 +4,8 @@ These helpers respond to window sensor events and implement debouncing and
 delayed handling so that HVAC behavior uses window-open information reliably.
 """
 
+from __future__ import annotations
+
 import asyncio
 import logging
 

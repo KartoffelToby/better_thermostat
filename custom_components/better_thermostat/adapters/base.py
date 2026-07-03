@@ -1,5 +1,7 @@
 """Base adapter functions shared across multiple adapters."""
 
+from __future__ import annotations
+
 import asyncio
 import logging
 

@@ -4,6 +4,8 @@ These helpers fix or adapt device-reported values for TS0601 thermostat
 devices used by the Better Thermostat integration.
 """
 
+from __future__ import annotations
+
 from custom_components.better_thermostat.model_fixes.types import ModelFixHost
 
 

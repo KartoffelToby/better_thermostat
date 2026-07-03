@@ -386,6 +386,23 @@ class TestTemperatureAcceptance:
         assert mock_bt.cur_temp == 21.0
 
     @pytest.mark.asyncio
+    async def test_first_update_accepted_when_timestamp_uninitialized(self, mock_bt):
+        """First real update passes even with no prior timestamp.
+
+        With a known cur_temp but ``last_external_sensor_change is None`` the
+        guard must seed a timestamp older than the debounce window (not "now"),
+        so the first significant update clears the interval check.
+        """
+        mock_bt.cur_temp = 20.0
+        mock_bt.last_external_sensor_change = None
+        event = _make_event(State(SENSOR_ID, "21.0"))
+
+        await trigger_temperature_change(mock_bt, event)
+
+        mock_bt.control_queue_task.put.assert_awaited_once()
+        assert mock_bt.cur_temp == 21.0
+
+    @pytest.mark.asyncio
     async def test_significant_change_accepted_after_interval(self, mock_bt):
         """Accept a significant change (>= 0.11) when the interval has elapsed."""
         mock_bt.cur_temp = 20.0

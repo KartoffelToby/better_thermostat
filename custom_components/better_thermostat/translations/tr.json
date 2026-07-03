@@ -51,7 +51,8 @@
       "failed": "Bir şeyler yanlış gitti.",
       "no_name": "Lütfen bir ad girin.",
       "no_off_mode": "Cihazınız çok özel ve kapalı modu yok :(\nBetter Thermostat bunun yerine minimum hedef sıcaklığı kullanacak.",
-      "no_outside_temp": "Dış ortam sıcaklık sensörünüz yok. Better Thermostat bunun yerine hava durumu varlığını kullanacak."
+      "no_outside_temp": "Dış ortam sıcaklık sensörünüz yok. Better Thermostat bunun yerine hava durumu varlığını kullanacak.",
+      "no_data": "Hiçbir veri alınamadı. Lütfen tekrar deneyin."
     },
     "abort": {
       "single_instance_allowed": "Her gerçek termostat için yalnızca tek bir Termostat'a izin verilir.",
@@ -125,6 +126,10 @@
     "invalid_window_state": {
       "title": "BT: {name} - geçersiz pencere sensörü durumu",
       "description": "Better Thermostat {name} için pencere sensörü tanınmayan bir durum bildirdi: {state}.\n\nBeklenen durumlar: 'on', 'off', 'true', 'false', 'open', 'closed'.\n\nLütfen pencere sensörü yapılandırmanızı kontrol edin."
+    },
+    "invalid_external_temperature": {
+      "title": "BT: {name} - geçersiz dış ortam sıcaklığı",
+      "description": "Better Thermostat {name} için dış ortam sıcaklık sensörü mantıksız bir değer bildirdi: {value}.\n\nOkunan değer makul aralığın dışındaydı ve yok sayıldı. Lütfen sıcaklık sensörü yapılandırmanızı kontrol edin."
     }
   },
   "services": {
@@ -138,12 +143,8 @@
     },
     "reset_pid_learnings": {
       "name": "PID öğrenmelerini sıfırla",
-      "description": "Bu varlık için öğrenilen tüm PID durumunu (ve isteğe bağlı olarak öğrenilen açıklık sınırlarını) temizler.",
+      "description": "Bu varlık için öğrenilen tüm PID durumunu temizler.",
       "fields": {
-        "include_open_caps": {
-          "name": "Öğrenilen açıklık sınırlarını da temizle",
-          "description": "Etkinleştirilirse, TRV/hedef aralığı başına öğrenilen minimum/maksimum açıklık yüzdeleri de temizlenir."
-        },
         "apply_pid_defaults": {
           "name": "Sıfırlamadan sonra PID varsayılanlarını uygula",
           "description": "Etkinleştirilirse, geçerli hedef aralıkları PID varsayılan kazançlarıyla (kp/ki/kd) doldurulur. Varsayılanları aşağıda geçersiz kılabilirsiniz."

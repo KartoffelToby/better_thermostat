@@ -24,6 +24,12 @@
             "type": "shell",
             "command": "scripts/upgrade-version",
             "problemMatcher": []
+        },
+        {
+            "label": "Run latest HomeAssistant in docker",
+            "type": "shell",
+            "command": "scripts/docker",
+            "problemMatcher": []
         }
     ]
 }

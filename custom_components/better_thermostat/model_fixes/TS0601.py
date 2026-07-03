@@ -3,6 +3,8 @@
 Contains model-specific handling for known quirks in TS0601-based devices.
 """
 
+from __future__ import annotations
+
 from custom_components.better_thermostat.model_fixes.types import ModelFixHost
 
 

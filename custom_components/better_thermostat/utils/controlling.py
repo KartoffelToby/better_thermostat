@@ -1,5 +1,7 @@
 """Controlling module for Better Thermostat."""
 
+from __future__ import annotations
+
 import asyncio
 import logging
 
@@ -17,14 +19,15 @@ from custom_components.better_thermostat.adapters.delegate import (
 from custom_components.better_thermostat.events.trv import convert_outbound_states
 from custom_components.better_thermostat.model_fixes.model_quirks import (
     override_set_hvac_mode,
+    override_set_temperature,
 )
 from custom_components.better_thermostat.utils.const import (
     CalibrationMode,
     CalibrationType,
 )
 from custom_components.better_thermostat.utils.helpers import (
-    attr_to_celsius,
     convert_to_float,
+    get_current_set_temperatures,
 )
 
 _LOGGER = logging.getLogger(__name__)
@@ -419,8 +422,10 @@ async def control_trv(self, heater_entity_id=None):
             self.real_trvs[heater_entity_id].ignore_trv_states = False
             return True
 
-        _current_set_temperature = attr_to_celsius(
-            self, _trv, "temperature", None, "controlling()"
+        # See get_current_set_temperatures() docstring for why we accept a
+        # match on either the single-setpoint or range-low attribute.
+        _current_set_temperatures = get_current_set_temperatures(
+            self, _trv, "controlling()"
         )
 
         _remapped_states = convert_outbound_states(
@@ -612,7 +617,7 @@ async def control_trv(self, heater_entity_id=None):
         if _temperature is not None and (
             _new_hvac_mode != HVACMode.OFF or _no_off_system_mode
         ):
-            if _temperature != _current_set_temperature:
+            if _temperature not in _current_set_temperatures:
                 old = self.real_trvs[heater_entity_id].last_temperature
                 _LOGGER.debug(
                     "better_thermostat %s: TO TRV set_temperature: %s from: %s to: %s",
@@ -622,7 +627,11 @@ async def control_trv(self, heater_entity_id=None):
                     _temperature,
                 )
                 self.real_trvs[heater_entity_id].last_temperature = _temperature
-                await set_temperature(self, heater_entity_id, _temperature)
+                _tvr_has_quirk = await override_set_temperature(
+                    self, heater_entity_id, _temperature
+                )
+                if _tvr_has_quirk is False:
+                    await set_temperature(self, heater_entity_id, _temperature)
                 if self.real_trvs[heater_entity_id].target_temp_received is True:
                     self.real_trvs[heater_entity_id].target_temp_received = False
                     self.task_manager.create_task(
@@ -698,8 +707,9 @@ async def check_system_mode(self, heater_entity_id=None):
 async def check_target_temperature(self, heater_entity_id=None):
     """Wait for TRV to confirm target temperature change, timeout after 6 minutes.
 
-    Polls the TRV temperature attribute every second until it matches
-    last_temperature or timeout is reached. Sets target_temp_received flag when complete.
+    Polls the TRV's temperature (and target_temp_low, when range mode is
+    supported) attribute every second until either matches last_temperature
+    or timeout is reached. Sets target_temp_received flag when complete.
 
     Parameters
     ----------
@@ -724,8 +734,10 @@ async def check_target_temperature(self, heater_entity_id=None):
                 heater_entity_id,
             )
             break
-        _current_set_temperature = attr_to_celsius(
-            self, _trv_state, "temperature", None, "check_target_temperature()"
+        # See get_current_set_temperatures() docstring for why we accept a
+        # match on either the single-setpoint or range-low attribute.
+        _current_set_temperatures = get_current_set_temperatures(
+            self, _trv_state, "check_target_temperature()"
         )
         if _timeout == 0:
             _LOGGER.debug(
@@ -733,11 +745,11 @@ async def check_target_temperature(self, heater_entity_id=None):
                 self.device_name,
                 heater_entity_id,
                 _real_trv.last_temperature,
-                _current_set_temperature,
+                _current_set_temperatures,
             )
         if (
-            _current_set_temperature is None
-            or _real_trv.last_temperature == _current_set_temperature
+            not _current_set_temperatures
+            or _real_trv.last_temperature in _current_set_temperatures
         ):
             _timeout = 0
             break
@@ -748,7 +760,7 @@ async def check_target_temperature(self, heater_entity_id=None):
                 self.device_name,
                 heater_entity_id,
                 _real_trv.last_temperature,
-                _current_set_temperature,
+                _current_set_temperatures,
             )
             _timeout = 0
             break

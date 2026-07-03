@@ -25,9 +25,7 @@ _LOGGER = logging.getLogger(__name__)
 # Type alias for the per-entity Trv registry (``real_trvs``).
 TrvMap = dict[str, Trv]
 
-# ---------------------------------------------------------------------------
 # Data types
-# ---------------------------------------------------------------------------
 
 
 @dataclass(frozen=True)
@@ -42,9 +40,7 @@ class MaintenanceTrvInfo:
     min_temp: float
 
 
-# ---------------------------------------------------------------------------
 # Pure helpers
-# ---------------------------------------------------------------------------
 
 
 def _get_advanced(info: Trv) -> dict[str, object]:
@@ -108,9 +104,7 @@ def compute_initial_maintenance(
     return now + timedelta(hours=delay_hours)
 
 
-# ---------------------------------------------------------------------------
 # Snapshot builder
-# ---------------------------------------------------------------------------
 
 
 def build_trv_snapshots(
@@ -169,9 +163,7 @@ def build_trv_snapshots(
     return infos
 
 
-# ---------------------------------------------------------------------------
 # Async step helpers
-# ---------------------------------------------------------------------------
 
 SetValveFn = Callable[[str, int], Awaitable[bool]]
 SetTemperatureFn = Callable[[str, float], Awaitable[None]]
@@ -234,9 +226,7 @@ async def restore_one(
         pass
 
 
-# ---------------------------------------------------------------------------
 # Main orchestrator
-# ---------------------------------------------------------------------------
 
 
 async def run_valve_maintenance(

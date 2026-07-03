@@ -51,7 +51,8 @@
       "failed": "niečo sa pokazilo.",
       "no_name": "Zadajte meno.",
       "no_off_mode": "Vaše zariadenie je veľmi špeciálne a nemá režim vypnutia :(\nBetter Thermostat namiesto toho použije minimálnu cieľovú teplotu.",
-      "no_outside_temp": "Nemáte snímač vonkajšej teploty. Better Thermostat namiesto toho použije entitu počasie."
+      "no_outside_temp": "Nemáte snímač vonkajšej teploty. Better Thermostat namiesto toho použije entitu počasie.",
+      "no_data": "Neprijali sa žiadne údaje. Skúste to znova."
     },
     "abort": {
       "single_instance_allowed": "Pre každý real je povolený len jeden termostat.",
@@ -125,6 +126,10 @@
     "invalid_window_state": {
       "title": "BT: {name} - neplatný stav snímača okna",
       "description": "Snímač okna pre Better Thermostat {name} nahlásil nerozpoznaný stav: {state}.\n\nOčakávané stavy sú: 'on', 'off', 'true', 'false', 'open', 'closed'.\n\nSkontrolujte konfiguráciu snímača okna."
+    },
+    "invalid_external_temperature": {
+      "title": "BT: {name} - neplatná vonkajšia teplota",
+      "description": "Snímač vonkajšej teploty pre Better Thermostat {name} nahlásil nepravdepodobnú hodnotu: {value}.\n\nNameraná hodnota bola mimo pravdepodobného rozsahu a bola ignorovaná. Skontrolujte konfiguráciu snímača teploty."
     }
   },
   "services": {
@@ -138,12 +143,8 @@
     },
     "reset_pid_learnings": {
       "name": "Vynulovať naučené hodnoty PID",
-      "description": "Vymaže všetok naučený stav PID (a voliteľne naučené limity otvorenia) pre túto entitu.",
+      "description": "Vymaže všetok naučený stav PID pre túto entitu.",
       "fields": {
-        "include_open_caps": {
-          "name": "Vymazať aj naučené limity otvorenia",
-          "description": "Ak je povolené, vymažú sa aj naučené minimálne/maximálne percentá otvorenia pre každý TRV/cieľové pásmo."
-        },
         "apply_pid_defaults": {
           "name": "Po vynulovaní použiť predvolené hodnoty PID",
           "description": "Ak je povolené, aktuálne cieľové pásma sa predvyplnia predvolenými zosilneniami PID (kp/ki/kd). Predvolené hodnoty môžete prepísať nižšie."
