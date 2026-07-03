@@ -545,6 +545,52 @@ async def test_find_local_calibration_entity_prefers_number_over_sensor():
 
 
 @pytest.mark.anyio
+async def test_find_local_calibration_entity_first_writable_match_wins():
+    """Test that the fallback pass stops at the first writable match.
+
+    With two number entities whose descriptors both match the fallback
+    substrings, the one earlier in registry order is selected.
+    """
+
+    bt_instance = _make_bt_instance()
+    device_id = "device_123"
+
+    reg_entity_trv = MagicMock()
+    reg_entity_trv.config_entry_id = "config_123"
+    reg_entity_trv.device_id = device_id
+
+    ent_first = _make_entity(
+        eid="number.trv_local_temperature_calibration",
+        uid="0x1234_local_temperature_calibration",
+        device_id=device_id,
+        translation_key=None,
+    )
+    ent_second = _make_entity(
+        eid="number.trv_temperature_offset",
+        uid="0x1234_temperature_offset",
+        device_id=device_id,
+        translation_key=None,
+    )
+
+    with (
+        patch(
+            "custom_components.better_thermostat.utils.helpers.er.async_get"
+        ) as mock_er_get,
+        patch(
+            "custom_components.better_thermostat.utils.helpers.async_entries_for_config_entry"
+        ) as mock_entries,
+    ):
+        mock_registry = MagicMock()
+        mock_er_get.return_value = mock_registry
+        mock_registry.async_get.return_value = reg_entity_trv
+
+        mock_entries.return_value = [ent_first, ent_second]
+        result = await find_local_calibration_entity(bt_instance, "climate.my_trv")
+
+        assert result == "number.trv_local_temperature_calibration"
+
+
+@pytest.mark.anyio
 async def test_find_local_calibration_translation_key_ignores_sensor_domain():
     """Test that the translation_key pass skips non-writable domains.
 
