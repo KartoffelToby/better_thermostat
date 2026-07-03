@@ -361,8 +361,8 @@ async def trigger_trv_change(self, event):
             _LOGGER.debug(
                 "better_thermostat %s: TRV %s setpoint change %s -> %s NOT adopted "
                 "(echo=%s child_lock=%s target_temp_received=%s system_mode_received=%s "
-                "hvac_mode=%s window_open=%s ignore_trv_states=%s bt_target_temp=%s "
-                "last_temperature=%s step=%s)",
+                "hvac_mode=%s window_open=%s door_open=%s ignore_trv_states=%s "
+                "bt_target_temp=%s last_temperature=%s step=%s)",
                 self.device_name,
                 entity_id,
                 _old_heating_setpoint,
@@ -373,6 +373,7 @@ async def trigger_trv_change(self, event):
                 trv.system_mode_received,
                 trv.hvac_mode,
                 self.window_open,
+                self.door_open,
                 trv.ignore_trv_states,
                 self.bt_target_temp,
                 trv.last_temperature,

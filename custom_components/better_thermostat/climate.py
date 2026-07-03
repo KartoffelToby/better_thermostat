@@ -273,6 +273,37 @@ async def async_setup_entry(hass, entry, async_add_entities):
     )
 
 
+def _detect_contact_open_at_startup(self, entity_id: str | None, kind: str) -> bool:
+    """Classify a contact sensor's state at startup as open or closed.
+
+    At startup, unavailable/unknown usually means the sensor has not joined
+    HA yet, so heating continues normally (assume closed). At runtime the
+    same states mean a live sensor was lost and count as open (see
+    events/contact.py).
+    """
+    if entity_id is None:
+        return False
+    self.all_entities.append(entity_id)
+    state = self.hass.states.get(entity_id)
+
+    if state is None or state.state in (STATE_UNAVAILABLE, STATE_UNKNOWN, None):
+        _LOGGER.debug(
+            "better_thermostat %s: %s sensor unavailable, assuming closed",
+            self.device_name,
+            kind,
+        )
+        return False
+
+    is_open = state.state in ("on", "open", "true")
+    _LOGGER.debug(
+        "better_thermostat %s: detected %s state at startup: %s",
+        self.device_name,
+        kind,
+        "Open" if is_open else "Closed",
+    )
+    return is_open
+
+
 class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
     """Representation of a Better Thermostat device."""
 
@@ -975,7 +1006,7 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
             name=f"bt_trigger_trv_change_{self.device_name}",
         )
 
-    async def _trigger_window_change(self, event):
+    async def _trigger_contact_change(self, event, contact_id, trigger_fn, task_label):
         _check = await check_critical_entities(self)
         if _check is False:
             return
@@ -984,28 +1015,22 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
         if (event.data.get("new_state")) is None:
             return
 
-        # Only process window changes if window sensor is available
-        if is_entity_available(self.hass, self.window_id):
+        # Only process contact changes if the sensor is available
+        if is_entity_available(self.hass, contact_id):
             self.hass.async_create_background_task(
-                trigger_window_change(self, event),
-                name=f"bt_trigger_window_change_{self.device_name}",
+                trigger_fn(self, event),
+                name=f"bt_trigger_{task_label}_change_{self.device_name}",
             )
+
+    async def _trigger_window_change(self, event):
+        await self._trigger_contact_change(
+            event, self.window_id, trigger_window_change, "window"
+        )
 
     async def _trigger_door_change(self, event):
-        _check = await check_critical_entities(self)
-        if _check is False:
-            return
-        await check_and_update_degraded_mode(self)
-        self.async_set_context(event.context)
-        if (event.data.get("new_state")) is None:
-            return
-
-        # Only process door changes if door sensor is available
-        if is_entity_available(self.hass, self.door_id):
-            self.hass.async_create_background_task(
-                trigger_door_change(self, event),
-                name=f"bt_trigger_door_change_{self.device_name}",
-            )
+        await self._trigger_contact_change(
+            event, self.door_id, trigger_door_change, "door"
+        )
 
     async def _trigger_cooler_change(self, event):
         _check = await check_critical_entities(self)
@@ -1312,69 +1337,10 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
                 )
             # else: already logged warning above
 
-        if self.window_id is not None:
-            self.all_entities.append(self.window_id)
-            window = self.hass.states.get(self.window_id)
-
-            if window is not None and window.state not in (
-                STATE_UNAVAILABLE,
-                STATE_UNKNOWN,
-                None,
-            ):
-                check = window.state
-                if check in ("on", "open", "true"):
-                    self.window_open = True
-                else:
-                    self.window_open = False
-                _LOGGER.debug(
-                    "better_thermostat %s: detected window state at startup: %s",
-                    self.device_name,
-                    "Open" if self.window_open else "Closed",
-                )
-            else:
-                # At startup, unavailable/unknown usually means the sensor
-                # has not joined HA yet, so heating continues normally
-                # (assume closed). At runtime the same states mean a live
-                # sensor was lost and count as open (see events/window.py).
-                self.window_open = False
-                _LOGGER.debug(
-                    "better_thermostat %s: window sensor unavailable, assuming closed",
-                    self.device_name,
-                )
-        else:
-            self.window_open = False
-
-        if self.door_id is not None:
-            self.all_entities.append(self.door_id)
-            door = self.hass.states.get(self.door_id)
-
-            if door is not None and door.state not in (
-                STATE_UNAVAILABLE,
-                STATE_UNKNOWN,
-                None,
-            ):
-                check = door.state
-                if check in ("on", "open", "true"):
-                    self.door_open = True
-                else:
-                    self.door_open = False
-                _LOGGER.debug(
-                    "better_thermostat %s: detected door state at startup: %s",
-                    self.device_name,
-                    "Open" if self.door_open else "Closed",
-                )
-            else:
-                # At startup, unavailable/unknown usually means the sensor
-                # has not joined HA yet, so heating continues normally
-                # (assume closed). At runtime the same states mean a live
-                # sensor was lost and count as open (see events/contact.py).
-                self.door_open = False
-                _LOGGER.debug(
-                    "better_thermostat %s: door sensor unavailable, assuming closed",
-                    self.device_name,
-                )
-        else:
-            self.door_open = False
+        self.window_open = _detect_contact_open_at_startup(
+            self, self.window_id, "window"
+        )
+        self.door_open = _detect_contact_open_at_startup(self, self.door_id, "door")
 
     async def _restore_state(self, states: list[State]) -> None:
         """Restore previous state from HA state machine or fall back to defaults."""
