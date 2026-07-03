@@ -99,9 +99,11 @@ def test_solar_zero_outside_daylight():
     # Midnight: definitely no sun.
     assert solar(0.0 * 3600.0) == 0.0
     assert solar(2.0 * 3600.0) == 0.0
-    # Noon: positive (cloud-modulated, so we only check >0 in principle).
+    # Noon: the sun is up, so even under cloud modulation the intensity
+    # must be strictly positive (deterministic for this seed) and stay
+    # inside the generator's [0, 1] clamp.
     noon = solar(12.0 * 3600.0)
-    assert 0.0 <= noon <= 1.0
+    assert 0.0 < noon <= 1.0
 
 
 def test_climate_preset_overrides_carry():

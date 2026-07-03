@@ -103,13 +103,13 @@ def test_aggressive_diagnostics_expose_boost_amount():
     assert out_off.diagnostics["boost_pct"] == 0.0
 
 
-def test_aggressive_reset_clears_was_heating():
-    """Reset flips the latched ``was_heating`` flag back off."""
+def test_aggressive_is_stateless():
+    """The adapter carries no state across steps or resets."""
     adapter = AggressiveCalibrationAdapter()
     adapter.step(_ctx(target=21.0, current=20.0))
-    assert adapter.export_state()["was_heating"]
+    assert adapter.export_state() == {}
     adapter.reset()
-    assert not adapter.export_state()["was_heating"]
+    assert adapter.export_state() == {}
 
 
 # -- NoCalibrationAdapter ----------------------------------------------------

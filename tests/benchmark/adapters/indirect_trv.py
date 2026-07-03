@@ -118,7 +118,7 @@ BOSCH_PARAMS = IndirectTrvParams(
 )
 """Bosch BTH-RA / Smart Radiator Thermostat II.
 
-Larger hysteresis band, gentler P-gain, command latency of ~2 MPC
+Larger hysteresis band, gentler P-gain, command latency of ~2 simulator
 steps — reflecting reports of slow follow-through on direct commands.
 """
 
@@ -169,7 +169,9 @@ class IndirectTrvAdapter:
         inner_prior = prior.get("inner") if prior is not None else None
         self.inner.reset(inner_prior if isinstance(inner_prior, dict) else None)
         last = prior.get("last_quantised_setpoint_C") if prior is not None else None
-        self._last_quantised_setpoint_C = last if isinstance(last, float) else None
+        self._last_quantised_setpoint_C = (
+            float(last) if isinstance(last, (int, float)) else None
+        )
         pending = prior.get("pending_setpoints") if prior is not None else None
         self._pending_setpoints = list(pending) if isinstance(pending, list) else []
 
@@ -222,7 +224,7 @@ class IndirectTrvAdapter:
         if self.params.command_latency_steps > 0:
             self._pending_setpoints.append(applied_setpoint)
             while len(self._pending_setpoints) > self.params.command_latency_steps + 1:
-                applied_setpoint = self._pending_setpoints.pop(0)
+                self._pending_setpoints.pop(0)
             applied_setpoint = self._pending_setpoints[0]
 
         # TRV-internal P-loop against the room temperature the TRV itself

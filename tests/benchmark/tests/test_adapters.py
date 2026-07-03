@@ -63,15 +63,15 @@ def test_adapter_constructs_with_defaults(adapter_cls):
 
 @pytest.mark.parametrize("adapter_cls", _ADAPTERS)
 def test_adapter_step_returns_output(adapter_cls):
-    """Calling step() returns a BenchmarkOutput with at least one populated field."""
+    """Calling step() succeeds and yields a BenchmarkOutput.
+
+    The one-populated-field contract itself is enforced (and separately
+    tested) in ``BenchmarkOutput.__post_init__``; this test pins that
+    every adapter's happy path gets through it without raising.
+    """
     adapter = adapter_cls()
     out = adapter.step(_ctx())
-    populated = (
-        out.valve_percent is not None
-        or out.setpoint_offset_K is not None
-        or out.duty_cycle_pct is not None
-    )
-    assert populated, f"{adapter.name} produced an output with no populated field"
+    assert isinstance(out, BenchmarkOutput)
 
 
 @pytest.mark.parametrize("adapter_cls", _ADAPTERS)
@@ -141,3 +141,68 @@ def test_benchmark_output_rejects_mismatched_duty_valve_mirror():
     BenchmarkOutput(valve_percent=30.0, duty_cycle_pct=30.0)  # mirror OK
     with pytest.raises(ValueError):
         BenchmarkOutput(valve_percent=50.0, duty_cycle_pct=30.0)
+
+
+def _ctx_at(t: float, target: float = 21.0, current: float = 20.0) -> BenchmarkContext:
+    return BenchmarkContext(
+        t=t,
+        dt=30.0,
+        target_temp_C=target,
+        current_temp_C=current,
+        raw_room_temp_C=current,
+        trv_temp_C=current,
+        outdoor_temp_C=5.0,
+    )
+
+
+def test_mpc_adapter_partitions_state_by_target_bucket():
+    """A setpoint move across a 0.5 K boundary allocates a new bucket state.
+
+    Mirrors production's ``build_mpc_key`` partitioning: one state per
+    0.5-K-rounded target, all buckets visible to ``compute_mpc`` for
+    sibling seeding.
+    """
+    adapter = MpcAdapter()
+    adapter.step(_ctx_at(0.0, target=21.0))
+    adapter.step(_ctx_at(30.0, target=22.3))  # rounds to bucket t22.5
+    keys = sorted(adapter._all_states)
+    assert len(keys) == 2
+    assert keys[0].endswith(":t21.0")
+    assert keys[1].endswith(":t22.5")
+
+
+def test_mpc_adapter_rehydrates_bucket_states_from_prior():
+    """reset(prior=export_state()) restores the per-bucket state map."""
+    adapter = MpcAdapter()
+    for i in range(5):
+        adapter.step(_ctx_at(i * 30.0))
+    snapshot = adapter.export_state()
+    assert snapshot  # at least one bucket learned
+    adapter.reset(prior=snapshot)
+    assert set(adapter._all_states) == set(snapshot)
+    adapter.reset()
+    assert adapter._all_states == {}
+
+
+def test_pid_adapter_rehydrates_from_prior():
+    """reset(prior=export_state()) restores PID internals."""
+    adapter = PidAdapter()
+    for i in range(5):
+        adapter.step(_ctx_at(i * 30.0))
+    snapshot = adapter.export_state()
+    integral = adapter._state.pid_integral
+    last_percent = adapter._state.last_percent
+    adapter.reset(prior=snapshot)
+    assert adapter._state.pid_integral == integral
+    assert adapter._state.last_percent == last_percent
+
+
+def test_tpi_adapter_rehydrates_from_prior():
+    """reset(prior=export_state()) restores TPI internals."""
+    adapter = TpiAdapter()
+    for i in range(5):
+        adapter.step(_ctx_at(i * 30.0))
+    snapshot = adapter.export_state()
+    last_percent = adapter._state.last_percent
+    adapter.reset(prior=snapshot)
+    assert adapter._state.last_percent == last_percent

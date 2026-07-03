@@ -4,10 +4,10 @@ A scenario is an immutable description of one benchmark run: initial
 conditions, plant parameters, input schedules, disturbance schedules
 and acceptance criteria.
 
-DESIGN.md §7.1 enumerates 16 scenarios; this module ships the
-``setpoint``-, ``disturbance``- and ``cold-start`` families. The
-multi-TRV variant (S14) is deferred until the simulator supports
-multiple actuators.
+The library covers setpoint dynamics, outdoor/load disturbances, cold
+starts, sensor and actuator faults, HVAC topologies, schedule-driven
+weeks and synthetic-weather weeks; ``ALL_SCENARIOS`` at the bottom of
+the module is the authoritative registry.
 """
 
 from __future__ import annotations
@@ -25,6 +25,7 @@ from .plant import (
     PlantParams,
 )
 from .sensor import SensorParams
+from .weather.synthetic import CHICAGO_LIKE, DENVER_LIKE, ClimateParams, make_schedules
 
 
 @dataclass(frozen=True)
@@ -486,8 +487,6 @@ def _build_synthetic_weather_scenario(
     ScenarioConfig
         Fully-populated weather-driven scenario.
     """
-    from .weather.synthetic import make_schedules
-
     outdoor, solar = make_schedules(
         climate, start_day_of_year=start_day_of_year, duration_h=duration_h, seed=seed
     )
@@ -509,9 +508,6 @@ def _build_synthetic_weather_scenario(
     )
 
 
-# Lazy import so the dataclass is reachable from the type annotation.
-from .weather.synthetic import CHICAGO_LIKE, DENVER_LIKE, ClimateParams  # noqa: E402
-
 S37_WINTER_WEEK_HUMID_CONT = _build_synthetic_weather_scenario(
     name="S37_winter_week_humid_continental",
     climate=CHICAGO_LIKE,
@@ -527,7 +523,12 @@ S38_WINTER_WEEK_SEMI_ARID = _build_synthetic_weather_scenario(
 
 S28_INDIRECT_TRV_TADO = ScenarioConfig(
     name="S28_indirect_trv_tado",
-    description="SP step 19 → 21 on a Tado-style indirect TRV (0.5 K steps, internal P-loop)",
+    description=(
+        "SP step 19 → 21 as the nominal pairing scenario for the "
+        "indirect-TRV wrapper controllers (Tado-style 0.5 K steps, "
+        "internal P-loop); the wrapping itself is selected by the "
+        "controller registry, not by this config"
+    ),
     duration_min=4 * 60,
     initial=InitialConditions(T_room_C=19.0, T_rad_C=19.0),
     plant=PROFILE_STANDARD,

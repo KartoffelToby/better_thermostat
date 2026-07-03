@@ -181,3 +181,27 @@ def test_cycle_finalizes_when_heating_resumes_before_cooldown():
     adapter.step(_ctx(t=21 * 30.0, target=23.0, current=21.2))  # heating resumes
     # The finished cycle updated the learner instead of being dropped.
     assert adapter.heating_power != 0.02
+
+
+def test_finalize_uses_production_adaptive_alpha():
+    """The EMA smoothing factor follows the production weight/env formula.
+
+    Hand-computed: rate = 0.5 K / 10 min = 0.05; weight factor 1.1
+    (target 20.4 in the observed 18..22 range), env factor 0.77
+    (outdoor 5 C), alpha = 0.1 * 1.1 * 0.77 = 0.0847;
+    ema(0.02, 0.05, 0.0847) rounded to 4 decimals = 0.0225.
+    """
+    adapter = HeatingPowerAdapter(initial_heating_power=0.02)
+    adapter.step(_ctx(t=0.0, target=22.0, current=20.0))  # heating starts
+    adapter.step(_ctx(t=600.0, target=20.4, current=20.5))  # valve closes, peak
+    adapter.step(_ctx(t=630.0, target=20.4, current=20.3))  # cooling -> finalize
+    assert abs(adapter.heating_power - 0.0225) < 1e-9
+
+
+def test_observed_targets_widen_the_weight_range():
+    """Observed setpoints expand the production-mirrored target range."""
+    adapter = HeatingPowerAdapter()
+    adapter.step(_ctx(t=0.0, target=25.0, current=20.0))
+    adapter.step(_ctx(t=30.0, target=16.0, current=20.0))
+    assert adapter._min_target == 16.0
+    assert adapter._max_target == 25.0

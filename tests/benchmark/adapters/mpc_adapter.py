@@ -23,7 +23,10 @@ from custom_components.better_thermostat.utils.calibration.mpc import (
     _MpcState,
     compute_mpc,
 )
-from custom_components.better_thermostat.utils.state_manager import _make_json_safe
+from custom_components.better_thermostat.utils.state_manager import (
+    _make_json_safe,
+    deserialize_mpc,
+)
 
 from .base import BenchmarkContext, BenchmarkOutput, ControllerFamily
 
@@ -46,9 +49,11 @@ class MpcAdapter:
 
     def __init__(self, params: MpcParams | None = None, key: str | None = None) -> None:
         self._params = params if params is not None else MpcParams()
-        self._state: _MpcState = _MpcState()
         self._all_states: dict[str, _MpcState] = {}
-        self._key = key if key is not None else f"bench:trv:mpc{next(_KEY_COUNTER)}"
+        # ``uid:entity`` prefix of the production state key. The full key
+        # appends the per-target bucket in ``step`` (see ``_bucket_key``),
+        # mirroring ``build_mpc_key``.
+        self._key = key if key is not None else f"bench{next(_KEY_COUNTER)}:trv"
         self._sim_time_s: float = 0.0
         self._original_time = mpc_mod.time
         # Deterministic stand-in for the module-global ``random`` that
@@ -67,20 +72,42 @@ class MpcAdapter:
         mpc_mod.random = self._original_random
 
     def reset(self, prior: dict[str, Any] | None = None) -> None:
-        """Drop learned state. ``prior`` is unused."""
-        _ = prior
-        self._state = _MpcState()
+        """Reset the adapter, optionally rehydrating persisted state.
+
+        Production persists per-bucket MPC state across Home Assistant
+        restarts (``StateManager`` store); passing a prior
+        ``export_state()`` snapshot replays that behaviour through the
+        production ``deserialize_mpc`` path. Without ``prior`` the
+        adapter cold-starts.
+        """
         self._all_states.clear()
+        if prior:
+            for bucket_key, raw in prior.items():
+                if isinstance(raw, dict):
+                    self._all_states[bucket_key] = deserialize_mpc(raw)
         self._sim_time_s = 0.0
         self._rng.seed(_MPC_RNG_SEED)
+
+    def _bucket_key(self, target_temp_C: float) -> str:
+        """Return the production-shaped per-target-bucket state key.
+
+        Mirrors ``build_mpc_key``: MPC state is partitioned by the target
+        temperature rounded to 0.5 K, so a setpoint move across a bucket
+        boundary allocates a fresh state that ``compute_mpc`` seeds from
+        its nearest sibling via ``all_states``.
+        """
+        bucket = f"t{round(float(target_temp_C) * 2.0) / 2.0:.1f}"
+        return f"{self._key}:{bucket}"
 
     def step(self, ctx: BenchmarkContext) -> BenchmarkOutput:
         """Compute one MPC step for the given benchmark context."""
         self._sim_time_s = ctx.t
+        key = self._bucket_key(ctx.target_temp_C)
+        state = self._all_states.setdefault(key, _MpcState())
         self._virtualise()
         try:
             inp = MpcInput(
-                key=self._key,
+                key=key,
                 target_temp_C=ctx.target_temp_C,
                 current_temp_C=ctx.current_temp_C,
                 trv_temp_C=ctx.trv_temp_C,
@@ -91,22 +118,27 @@ class MpcAdapter:
                 bt_name="benchmark",
                 entity_id="bench_trv",
             )
-            out, self._state = compute_mpc(
-                inp, self._params, state=self._state, all_states=self._all_states
+            out, new_state = compute_mpc(
+                inp, self._params, state=state, all_states=self._all_states
             )
+            self._all_states[key] = new_state
         finally:
             self._restore()
 
         if out is None:
-            # Early exit (e.g. window-open, missing temp). Hold previous output.
-            return BenchmarkOutput(
-                valve_percent=ctx.last_valve_percent, diagnostics={"early_exit": True}
-            )
+            # ``compute_mpc``'s contract allows None (no recommendation);
+            # production then skips the MPC result for this cycle. The
+            # benchmark has no fallback controller, so map it to a closed
+            # valve — the same floor the window-open path emits.
+            return BenchmarkOutput(valve_percent=0.0, diagnostics={"early_exit": True})
         return BenchmarkOutput(
             valve_percent=float(out.valve_percent),
             diagnostics=dict(out.debug) if out.debug else {},
         )
 
     def export_state(self) -> dict[str, Any]:
-        """Return a serializable snapshot of the wrapped MPC state."""
-        return _make_json_safe(asdict(self._state))
+        """Return a serializable snapshot of all per-bucket MPC states."""
+        return {
+            bucket_key: _make_json_safe(asdict(state))
+            for bucket_key, state in self._all_states.items()
+        }

@@ -2,10 +2,18 @@
 
 PID's signature differs from the others (positional args, no Input dataclass).
 This adapter normalises it to the common protocol shape.
+
+Deliberate simplifications relative to the production call site: the raw
+sensor reading is passed as ``inp_current_temp_ema_C`` (production feeds
+its maintained EMA ``cur_temp_filtered``), and the temperature slope is a
+two-point finite difference (production passes its own ``temp_slope``).
+Both stand-ins converge on the production values for the noise-free,
+fixed-step scenarios the benchmark runs.
 """
 
 from __future__ import annotations
 
+from dataclasses import asdict
 from itertools import count
 from typing import Any
 
@@ -14,6 +22,10 @@ from custom_components.better_thermostat.utils.calibration.pid import (
     PIDParams,
     PIDState,
     compute_pid,
+)
+from custom_components.better_thermostat.utils.state_manager import (
+    _make_json_safe,
+    deserialize_pid,
 )
 
 from .base import BenchmarkContext, BenchmarkOutput, ControllerFamily
@@ -45,9 +57,15 @@ class PidAdapter:
         pid_mod.monotonic = self._original_monotonic
 
     def reset(self, prior: dict[str, Any] | None = None) -> None:
-        """Drop learned state. ``prior`` is unused."""
-        _ = prior
-        self._state = PIDState()
+        """Reset the adapter, optionally rehydrating persisted state.
+
+        Production persists PID state across Home Assistant restarts
+        (``StateManager`` store); passing a prior ``export_state()``
+        snapshot replays that behaviour through the production
+        ``deserialize_pid`` path. Without ``prior`` the adapter
+        cold-starts.
+        """
+        self._state = deserialize_pid(prior) if prior else PIDState()
         self._sim_time_s = 0.0
         self._prev_temp = None
         self._prev_t = None
@@ -89,11 +107,5 @@ class PidAdapter:
         )
 
     def export_state(self) -> dict[str, Any]:
-        """Return a snapshot of PID internals as a dict."""
-        return {
-            "pid_integral": self._state.pid_integral,
-            "pid_kp": self._state.pid_kp,
-            "pid_ki": self._state.pid_ki,
-            "pid_kd": self._state.pid_kd,
-            "last_percent": self._state.last_percent,
-        }
+        """Return a serializable snapshot of the wrapped PID state."""
+        return _make_json_safe(asdict(self._state))

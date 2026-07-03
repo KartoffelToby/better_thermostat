@@ -192,7 +192,7 @@ def make_schedules(
         i = int(hours_in)
         frac = hours_in - i
         day = start_day_of_year + hours_in / 24.0
-        hour_of_day = (hours_in + 0.0) % 24.0
+        hour_of_day = hours_in % 24.0
         seasonal = _seasonal_mean(int(day), params)
         diurnal = params.diurnal_amp_C * math.cos(
             2.0 * math.pi * (hour_of_day - 15.0) / 24.0

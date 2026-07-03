@@ -117,9 +117,13 @@ class IdealOracleAdapter:
     plant parameters and would not exist outside simulation. It serves
     two purposes in the benchmark:
 
-    * **Upper bound** for tracking quality — what a feedback controller
-      with perfect knowledge can achieve.
-    * **Stabilisation driver** in :func:`runner.run_scenario` — warms the
+    * **Reference ceiling** for tracking quality — a feedback controller
+      with perfect plant knowledge. The feedforward inversion is exact
+      for the RC2/RC3 plants driving a linear actuator; nonlinear valve
+      profiles and reverse-acting (cooling) plants are covered only by
+      the proportional feedback term, so on those scenarios the ceiling
+      is approximate rather than optimal.
+    * **Stabilisation driver** in the benchmark runner — warms the
       plant to equilibrium before the test controller takes over.
     """
 
@@ -151,11 +155,21 @@ class IdealOracleAdapter:
         sp = ctx.target_temp_C
         T_out = ctx.outdoor_temp_C
 
-        # Steady-state inversion of the two-state plant:
-        #   T_rad_ss = 2 * sp - T_out   (from room balance)
-        #   gain * u * (T_water - T_rad_ss) = T_rad_ss - sp   (from rad balance)
+        # Steady-state inversion of the lumped-RC plant. Room balance:
+        #   coupling * (T_rad_ss - sp) = loss_ss
+        # where the steady-state envelope loss is (sp - T_out) in RC2 and
+        # r * (sp - T_out) / (1 + r) in RC3 (the wall node sits between
+        # room and outdoor). Radiator balance:
+        #   gain * u * (T_water - T_rad_ss) = T_rad_ss - sp
         #   => u_ss = (T_rad_ss - sp) / (gain * (T_water - T_rad_ss))
-        T_rad_ss = 2.0 * sp - T_out
+        coupling = getattr(p, "coupling_rad_room", 1.0)
+        r_wall = getattr(p, "r_room_wall", 1.0)
+        tau_wall = getattr(p, "tau_wall_min", 0.0)
+        if tau_wall > 0.0:
+            loss_ss = r_wall * (sp - T_out) / (1.0 + r_wall)
+        else:
+            loss_ss = sp - T_out
+        T_rad_ss = sp + loss_ss / coupling
         denom = p.gain_heater * (p.T_water_C - T_rad_ss)
         if denom <= 0.0:
             u_ff_pct = 100.0  # cannot reach setpoint with this water temp

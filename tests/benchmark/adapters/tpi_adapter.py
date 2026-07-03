@@ -9,6 +9,7 @@ relative to the simulator step.
 
 from __future__ import annotations
 
+from dataclasses import asdict
 from itertools import count
 from typing import Any
 
@@ -18,6 +19,10 @@ from custom_components.better_thermostat.utils.calibration.tpi import (
     TpiParams,
     _TpiState,
     compute_tpi,
+)
+from custom_components.better_thermostat.utils.state_manager import (
+    _make_json_safe,
+    deserialize_tpi,
 )
 
 from .base import BenchmarkContext, BenchmarkOutput, ControllerFamily
@@ -47,9 +52,15 @@ class TpiAdapter:
         tpi_mod.monotonic = self._original_monotonic
 
     def reset(self, prior: dict[str, Any] | None = None) -> None:
-        """Drop learned state. ``prior`` is unused."""
-        _ = prior
-        self._state = _TpiState()
+        """Reset the adapter, optionally rehydrating persisted state.
+
+        Production persists TPI state across Home Assistant restarts
+        (``StateManager`` store); passing a prior ``export_state()``
+        snapshot replays that behaviour through the production
+        ``deserialize_tpi`` path. Without ``prior`` the adapter
+        cold-starts.
+        """
+        self._state = deserialize_tpi(prior) if prior else _TpiState()
         self._sim_time_s = 0.0
 
     def step(self, ctx: BenchmarkContext) -> BenchmarkOutput:
@@ -72,10 +83,12 @@ class TpiAdapter:
             self._restore_time()
 
         if out is None:
+            # ``compute_tpi``'s contract allows None (no recommendation);
+            # production then skips the TPI result for this cycle. The
+            # benchmark has no fallback controller, so map it to a zero
+            # duty cycle — the same floor the window-open path emits.
             return BenchmarkOutput(
-                duty_cycle_pct=ctx.last_valve_percent,
-                valve_percent=ctx.last_valve_percent,
-                diagnostics={"early_exit": True},
+                duty_cycle_pct=0.0, valve_percent=0.0, diagnostics={"early_exit": True}
             )
         return BenchmarkOutput(
             duty_cycle_pct=float(out.duty_cycle_pct),
@@ -84,5 +97,5 @@ class TpiAdapter:
         )
 
     def export_state(self) -> dict[str, Any]:
-        """Return the (small) TPI state as a serialisable dict."""
-        return {"last_percent": self._state.last_percent}
+        """Return a serializable snapshot of the wrapped TPI state."""
+        return _make_json_safe(asdict(self._state))

@@ -8,11 +8,14 @@ pieces:
 * A heuristic valve-position formula ``valve = 0.019 · (Δt/hp)^0.946``
   with minimum-opening floors — see ``utils/helpers.py``.
 
-This adapter reimplements the state machine in pure Python (no HA
+This adapter reimplements the cycle state machine in pure Python (no HA
 ``HVACAction`` dependency) so the benchmark can exercise it the same way
-it exercises ``mpc`` / ``pid`` / ``tpi``. The valve-position formula and
-its tuning constants are imported from the production source so the
-heuristic stays in lock-step with deployed behaviour.
+it exercises ``mpc`` / ``pid`` / ``tpi``. The valve-position formula is
+re-implemented headlessly with its floor constants imported from the
+production source; ``test_production_drift.py`` pins the full formula
+against the production implementation. The EMA learner's adaptive alpha
+(weight/env factors, clamps, rounding) calls the production helpers from
+``utils/thermal_learning.py`` directly.
 """
 
 from __future__ import annotations
@@ -28,13 +31,28 @@ from custom_components.better_thermostat.utils.const import (
     VALVE_MIN_SMALL_DIFF_THRESHOLD,
     VALVE_MIN_THRESHOLD_TEMP_DIFF,
 )
+from custom_components.better_thermostat.utils.thermal_learning import (
+    _ALPHA_MAX,
+    _ALPHA_MIN,
+    _BASE_ALPHA,
+    _MIN_CYCLE_DURATION,
+    clamp,
+    compute_env_factor,
+    compute_weight_factor,
+    ema_smooth,
+)
 
 from .base import BenchmarkContext, BenchmarkOutput, ControllerFamily
 
-# Production tuning constants (mirror utils/thermal_learning.py).
-_BASE_ALPHA: float = 0.10
-_MIN_CYCLE_DURATION_MIN: float = 1.0
+# Benchmark-only plateau timeout: production finalizes a cycle when the
+# room cools below its peak; the timeout bounds pathological plateaus.
 _FINALIZE_TIMEOUT_MIN: float = 30.0
+
+# Default observed target-temperature range, mirroring
+# ``HeatingPowerTracker`` in utils/thermal_learning.py. Observed targets
+# widen the range; the weight factor positions the current target in it.
+_DEFAULT_MIN_TARGET: float = 18.0
+_DEFAULT_MAX_TARGET: float = 21.0
 
 
 class HeatingPowerAdapter:
@@ -59,6 +77,8 @@ class HeatingPowerAdapter:
         self._cycle_peak_temp: float | None = None
         self._cycle_peak_t: float | None = None
         self._was_heating: bool = False
+        self._min_target: float = _DEFAULT_MIN_TARGET
+        self._max_target: float = _DEFAULT_MAX_TARGET
 
     def reset(self, prior: dict[str, Any] | None = None) -> None:
         """Drop all learned state; optionally seed ``heating_power`` from ``prior``."""
@@ -73,6 +93,8 @@ class HeatingPowerAdapter:
         self._cycle_peak_temp = None
         self._cycle_peak_t = None
         self._was_heating = False
+        self._min_target = _DEFAULT_MIN_TARGET
+        self._max_target = _DEFAULT_MAX_TARGET
 
     def step(self, ctx: BenchmarkContext) -> BenchmarkOutput:
         """Compute valve percent + update the heating-power learner."""
@@ -133,7 +155,7 @@ class HeatingPowerAdapter:
                 and self._cycle_peak_temp is not None
                 and self._cycle_peak_t is not None
             ):
-                self._finalize_cycle()
+                self._finalize_cycle(ctx)
             self._cycle_start_temp = ctx.current_temp_C
             self._cycle_start_t = ctx.t
             self._cycle_peak_temp = None
@@ -160,24 +182,43 @@ class HeatingPowerAdapter:
                 ctx.current_temp_C < self._cycle_peak_temp
                 or elapsed_since_peak_min >= _FINALIZE_TIMEOUT_MIN
             ):
-                self._finalize_cycle()
+                self._finalize_cycle(ctx)
+
+        # Widen the observed target range after the finalize check, in the
+        # same order as ``HeatingPowerTracker.update``.
+        self._min_target = min(self._min_target, ctx.target_temp_C)
+        self._max_target = max(self._max_target, ctx.target_temp_C)
 
         self._was_heating = is_heating
 
-    def _finalize_cycle(self) -> None:
-        """Update the EMA from the just-closed cycle and reset cycle state."""
+    def _finalize_cycle(self, ctx: BenchmarkContext) -> None:
+        """Update the EMA from the just-closed cycle and reset cycle state.
+
+        The adaptive smoothing factor is the production formula:
+        ``alpha = clamp(base * weight * env, min, max)`` with the weight
+        and environment factors computed by ``utils/thermal_learning.py``.
+        """
         assert self._cycle_start_temp is not None
         assert self._cycle_start_t is not None
         assert self._cycle_peak_temp is not None
         assert self._cycle_peak_t is not None
         temp_diff_K = self._cycle_peak_temp - self._cycle_start_temp
         duration_min = (self._cycle_peak_t - self._cycle_start_t) / 60.0
-        if duration_min >= _MIN_CYCLE_DURATION_MIN and temp_diff_K > 0.0:
-            heating_rate = temp_diff_K / duration_min
-            updated = (
-                self.heating_power * (1.0 - _BASE_ALPHA) + heating_rate * _BASE_ALPHA
+        if duration_min >= _MIN_CYCLE_DURATION and temp_diff_K > 0.0:
+            heating_rate = round(temp_diff_K / duration_min, 4)
+            weight_factor = compute_weight_factor(
+                ctx.target_temp_C, self._min_target, self._max_target
             )
-            self.heating_power = max(MIN_HEATING_POWER, min(MAX_HEATING_POWER, updated))
+            env_factor = compute_env_factor(ctx.outdoor_temp_C, ctx.target_temp_C)
+            alpha = clamp(
+                _BASE_ALPHA * weight_factor * env_factor, _ALPHA_MIN, _ALPHA_MAX
+            )
+            updated = clamp(
+                ema_smooth(self.heating_power, heating_rate, alpha),
+                MIN_HEATING_POWER,
+                MAX_HEATING_POWER,
+            )
+            self.heating_power = round(updated, 4)
         self._cycle_start_temp = None
         self._cycle_start_t = None
         self._cycle_peak_temp = None

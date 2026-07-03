@@ -98,12 +98,10 @@ class AggressiveCalibrationAdapter:
 
     def __init__(self, params: PassiveModeParams | None = None) -> None:
         self._params = params if params is not None else PassiveModeParams()
-        self._was_heating: bool = False
 
     def reset(self, prior: dict[str, Any] | None = None) -> None:
-        """Forget whether we were heating last step."""
+        """No state to reset."""
         _ = prior
-        self._was_heating = False
 
     def step(self, ctx: BenchmarkContext) -> BenchmarkOutput:
         """Add ``p_gain · 2.5`` to the proportional output while heating."""
@@ -116,15 +114,14 @@ class AggressiveCalibrationAdapter:
         valve = max(
             self._params.clamp_min_pct, min(self._params.clamp_max_pct, raw_pct)
         )
-        self._was_heating = valve > 0.0
         return BenchmarkOutput(
             valve_percent=valve,
             diagnostics={"error_K": round(error_K, 3), "boost_pct": round(boost, 2)},
         )
 
     def export_state(self) -> dict[str, Any]:
-        """Return whether the last step commanded a non-zero valve."""
-        return {"was_heating": self._was_heating}
+        """Stateless adapter: nothing to export."""
+        return {}
 
 
 class NoCalibrationAdapter:
