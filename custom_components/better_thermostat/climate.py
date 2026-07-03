@@ -1133,12 +1133,13 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
         if (event.data.get("new_state")) is None:
             return
 
-        # Only process window changes if window sensor is available
-        if is_entity_available(self.hass, self.window_id):
-            self.hass.async_create_background_task(
-                trigger_window_change(self, event),
-                name=f"bt_trigger_window_change_{self.device_name}",
-            )
+        # The window handler interprets unknown/unavailable readings itself
+        # (a lost sensor counts as closed so heating resumes), so events are
+        # dispatched regardless of sensor availability.
+        self.hass.async_create_background_task(
+            trigger_window_change(self, event),
+            name=f"bt_trigger_window_change_{self.device_name}",
+        )
 
     async def _trigger_cooler_change(self, event):
         _check = await check_critical_entities(self)
