@@ -28,7 +28,7 @@ Scores are 0..1, oracle-normalised; 1.0 = oracle-equivalent.
  *ideal_oracle          1.000  0.000    1.000  0.000     1.000  0.000    1.000  0.000   37
   pid                   0.785  0.144    0.850  0.209     0.577  0.355    0.936  0.159   37
   tpi                   0.783  0.155    0.680  0.230     0.870  0.223    0.911  0.158   37
-  mpc                   0.709  0.150    0.864  0.181     0.315  0.376    0.912  0.157   37
+  mpc                   0.709  0.151    0.864  0.181     0.315  0.378    0.912  0.157   37
   bangbang              0.567  0.151    0.760  0.193     0.129  0.301    0.740  0.175   37
 ```
 
@@ -242,7 +242,7 @@ tests/benchmark/
 ├── plant.py              RC2 / RC3 thermal plant + plant profiles
 ├── multi_trv_plant.py    N parallel radiators sharing one room
 ├── sensor.py             Sampled-output sensor (lag, EMA, dropout, bias, drift, jitter)
-├── actuator.py           Linear / threshold / exponential / equal-percentage flow
+├── actuator.py           Linear / threshold / quadratic / equal-percentage flow
 ├── schedules.py          Setpoint / outdoor / disturbance schedule builders
 ├── scenarios.py          ScenarioConfig library
 ├── weather/              Synthetic AR(1) outdoor + solar generator
