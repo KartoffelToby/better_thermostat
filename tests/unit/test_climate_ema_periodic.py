@@ -28,6 +28,7 @@ def bt():
     mock._slope_periodic_last_ts = None
     mock.temp_slope = None
     mock.async_write_ha_state = MagicMock()
+    mock.clock = MagicMock()
     return mock
 
 
@@ -56,10 +57,8 @@ async def test_updates_ema_and_writes_state_without_slope(bt):
     """First run (no previous EMA) updates the filter and writes state, no slope."""
     bt.external_temp_ema = None
     bt._slope_periodic_last_ts = None
-    with (
-        patch(_EMA, MagicMock(return_value=20.5)),
-        patch(f"{_CLIMATE}.monotonic", return_value=1000.0),
-    ):
+    bt.clock.monotonic.return_value = 1000.0
+    with patch(_EMA, MagicMock(return_value=20.5)):
         await BetterThermostat._async_update_ema_periodic(bt)
     assert bt.temp_slope is None
     assert bt._slope_periodic_last_ts == 1000.0
@@ -71,10 +70,8 @@ async def test_computes_slope_from_ema_change(bt):
     """With a previous EMA and timestamp, the slope is (Δema / Δt_min)."""
     bt.external_temp_ema = 20.0
     bt._slope_periodic_last_ts = 1000.0  # 600 s before "now"
-    with (
-        patch(_EMA, MagicMock(return_value=21.0)),
-        patch(f"{_CLIMATE}.monotonic", return_value=1600.0),
-    ):
+    bt.clock.monotonic.return_value = 1600.0
+    with patch(_EMA, MagicMock(return_value=21.0)):
         await BetterThermostat._async_update_ema_periodic(bt)
     # Δt = 600 s = 10 min, Δema = 1.0 K  ->  slope = 0.1 K/min
     assert bt.temp_slope == pytest.approx(0.1)
@@ -86,10 +83,8 @@ async def test_tiny_interval_skips_slope(bt):
     """A sub-0.1-minute interval does not produce a slope (avoids noise/div issues)."""
     bt.external_temp_ema = 20.0
     bt._slope_periodic_last_ts = 1599.0  # 1 s before "now"
-    with (
-        patch(_EMA, MagicMock(return_value=21.0)),
-        patch(f"{_CLIMATE}.monotonic", return_value=1600.0),
-    ):
+    bt.clock.monotonic.return_value = 1600.0
+    with patch(_EMA, MagicMock(return_value=21.0)):
         await BetterThermostat._async_update_ema_periodic(bt)
     assert bt.temp_slope is None
     assert bt._slope_periodic_last_ts == 1600.0
@@ -100,10 +95,8 @@ async def test_ema_error_is_caught(bt):
     """An error from the EMA update is swallowed (tick must not crash)."""
     bt.external_temp_ema = 20.0
     bt._slope_periodic_last_ts = 1000.0
-    with (
-        patch(_EMA, MagicMock(side_effect=RuntimeError("boom"))),
-        patch(f"{_CLIMATE}.monotonic", return_value=1600.0),
-    ):
+    bt.clock.monotonic.return_value = 1600.0
+    with patch(_EMA, MagicMock(side_effect=RuntimeError("boom"))):
         await BetterThermostat._async_update_ema_periodic(bt)
     # No slope written, no crash
     assert bt.temp_slope is None

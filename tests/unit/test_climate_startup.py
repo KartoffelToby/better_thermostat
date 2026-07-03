@@ -42,6 +42,7 @@ HUMIDITY_ID = "sensor.humidity"
 def bt():
     """Create a mock BetterThermostat with sensible defaults."""
     mock = MagicMock(spec=BetterThermostat)
+    mock.clock = MagicMock()
     mock.hass = MagicMock()
     mock.device_name = "Test BT"
     mock.sensor_entity_id = SENSOR_ID
