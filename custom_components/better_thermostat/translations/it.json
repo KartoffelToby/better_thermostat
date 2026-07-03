@@ -121,7 +121,7 @@
     },
     "degraded_mode": {
       "title": "BT: {name} - errore sensore: {sensors} in modalità degradata",
-      "description": "Better Thermostat è in modalità degradata perché alcuni sensori non sono disponibili: {sensors}\n\nIl termostato continuerà a funzionare con funzionalità ridotte. Ad esempio:\n- Se il sensore di temperatura ambiente non è disponibile, verrà utilizzato il sensore interno del TRV.\n- Se i sensori delle finestre non sono disponibili, le finestre vengono considerate chiuse.\n- Se i sensori esterni/meteo non sono disponibili, il riscaldamento sarà sempre attivo.\n\nVerifica se i dispositivi interessati hanno problemi di batteria o di connettività."
+      "description": "Better Thermostat è in modalità degradata perché alcuni sensori non sono disponibili: {sensors}\n\nIl termostato continua a regolare e si degrada gradualmente:\n- Se il sensore di temperatura ambiente non è disponibile, viene sostituito dalla media delle temperature interne dei TRV.\n- Se né il sensore ambiente né alcuna temperatura dei TRV è utilizzabile, il termostato smette di regolare e mantiene l'ultimo stato comandato; la protezione antigelo resta attiva.\n- Se il sensore della finestra non è disponibile, la finestra è considerata chiusa e il riscaldamento continua; un sensore perso non deve fermare il riscaldamento.\n- Se i sensori esterni/meteo non sono disponibili, il riscaldamento resta attivo.\n\nVerifica se i dispositivi interessati hanno problemi di batteria o di connettività. Questo problema si risolve da solo una volta che tutti i sensori sono di nuovo disponibili."
     },
     "invalid_window_state": {
       "title": "BT: {name} - stato del sensore finestra non valido",
