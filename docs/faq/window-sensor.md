@@ -1,45 +1,43 @@
 ---
-title: Window sensor states
-description: What the "invalid window sensor state" repair issue means and how to fix it.
-slug: faq/window-sensor
+title: Window sensor
+description: How Better Thermostat reads the window sensor and how the open/close delays behave.
+slug: qanda/window_sensor
 ---
 
-Better Thermostat expects the configured window sensor to behave like a
-binary sensor:
+When the configured window sensor reports **open**, Better Thermostat
+turns the heating off; when it reports **closed**, heating resumes. TRVs
+that cannot be switched off receive their minimum temperature instead.
 
-- `on`, `true` or `open` — window is open, heating pauses
-- `off`, `false` or `closed` — window is closed, heating resumes
-- `unknown` or `unavailable` — Better Thermostat assumes the window is
-  closed so heating continues (a lost sensor must not stop heating); the
-  unavailability is still reported
+## Sensor states
 
-If the sensor reports anything else, Better Thermostat raises an
-**invalid window sensor state** repair issue and ignores the state
-change.
+Better Thermostat expects a binary sensor:
 
-## Common causes
+- `on`, `true`, `open` — window open.
+- `off`, `false`, `closed` — window closed.
+- `unknown` and `unavailable` count as **closed** so heating continues:
+  windows are usually closed and a lost sensor (e.g. a dead battery) must
+  not stop heating. The frost floor still applies and the unavailability
+  is still reported.
 
-- The configured entity is not a binary sensor — for example a numeric
-  sensor, an input helper with custom values, or a template that returns
-  something other than `on`/`off`.
-- A group helper that aggregates non-binary entities.
+Any other state raises a repair issue — normalize the entity to one of
+the values above, for example with a
+[group helper](https://www.home-assistant.io/integrations/group/) or a
+[template binary sensor](https://www.home-assistant.io/integrations/template/).
 
-## How to fix it
+## The open and close delays
 
-1. Check the sensor's actual state under **Developer tools → States**.
-2. Use a `binary_sensor` (device class `window`/`door`/`opening`), or a
-   group of binary sensors:
+Two options debounce the sensor:
 
-   ```yaml
-   group:
-     livingroom_windows:
-       name: Livingroom Windows
-       icon: mdi:window-open-variant
-       all: false
-       entities:
-         - binary_sensor.openclose_1
-         - binary_sensor.openclose_2
-   ```
+- **"Delay before the thermostat turns off when the window is opened"**
+- **"Delay before the thermostat turns on when the window is closed"**
 
-3. If you template your own sensor, make sure it only ever renders
-   `on` or `off`.
+A state change only takes effect after it has persisted for the whole
+delay. A window that closes again within the open delay (or reopens
+within the close delay) changes nothing — short flaps, such as a door
+slamming or a quick airing check, are filtered out.
+
+- With a delay of `0` the change takes effect immediately with the event.
+- While the delay is running, the displayed window state keeps showing
+  the previous, committed state.
+- Changing a delay in the options applies to a wait that is already in
+  progress: the remaining time is recomputed from the new value.
