@@ -221,3 +221,30 @@ def test_missing_cur_temp_returns_none() -> None:
     out, supports = _compute_mpc_v2_balance(bt, "climate.x")
     assert out is None
     assert supports is False
+
+
+def test_daqp_import_failure_warns_once_and_holds(monkeypatch, caplog) -> None:
+    """A failing daqp import degrades to (None, False) with a single warning."""
+    from custom_components.better_thermostat import calibration
+    from custom_components.better_thermostat.utils.calibration.mpc_v2_internals import (
+        qp_optimiser,
+    )
+
+    monkeypatch.setattr(qp_optimiser, "DAQP_AVAILABLE", False)
+    monkeypatch.setattr(qp_optimiser, "_DAQP_IMPORT_ERROR", "synthetic test failure")
+    monkeypatch.setattr(calibration, "_MPC_V2_IMPORT_WARNED", set())
+
+    real_trvs = {
+        "climate.x": _trv_info("climate.x", current_temp=19.0, supports_valve=True)
+    }
+    bt = _make_bt(real_trvs=real_trvs)
+
+    with caplog.at_level("WARNING"):
+        out, supports = _compute_mpc_v2_balance(bt, "climate.x")
+        out2, supports2 = _compute_mpc_v2_balance(bt, "climate.x")
+
+    assert out is None and supports is False
+    assert out2 is None and supports2 is False
+    assert real_trvs["climate.x"].calibration_balance is None
+    warnings = [r for r in caplog.records if "MPC v2 unavailable" in r.getMessage()]
+    assert len(warnings) == 1
