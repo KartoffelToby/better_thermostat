@@ -5,6 +5,8 @@ helper functions used by the Better Thermostat integration to read and
 convert thermostat states and prepare outbound payloads.
 """
 
+from __future__ import annotations
+
 import logging
 
 from homeassistant.components.climate.const import HVACMode
@@ -29,6 +31,7 @@ from custom_components.better_thermostat.utils.helpers import (
     attr_to_celsius,
     convert_to_float,
     get_device_model,
+    group_all_members_off,
     is_reasonable_temperature,
     mode_remap,
 )
@@ -68,9 +71,9 @@ async def trigger_trv_change(self, event):
             entity_id,
         )
         return
-    # set context HACK TO FIND OUT IF AN EVENT WAS SEND BY BT
 
-    # Check if the update is coming from the code
+    # Skip updates that BT itself triggered: our own service calls carry
+    # self.context, so a matching context means this is an echo of our write.
     if self.context == event.context:
         return
 
@@ -80,6 +83,15 @@ async def trigger_trv_change(self, event):
     if _org_trv_state is None:
         _LOGGER.debug(
             "better_thermostat %s: TRV %s state not found in registry, skipping",
+            self.device_name,
+            entity_id,
+        )
+        return
+
+    trv = self.real_trvs.get(entity_id)
+    if trv is None:
+        _LOGGER.debug(
+            "better_thermostat %s: TRV %s is not tracked in real_trvs, skipping",
             self.device_name,
             entity_id,
         )
@@ -102,9 +114,10 @@ async def trigger_trv_change(self, event):
             self.real_trvs[entity_id].accept_next_internal_temp = True
         return
 
-    child_lock = self.real_trvs[entity_id].advanced.get("child_lock")
+    advanced = trv.advanced or {}
+    child_lock = advanced.get("child_lock")
 
-    # Dynamische Modell-Erkennung: nur einmalig (z. B. beim Start) – nicht bei jedem Event
+    # Dynamic model detection: only once (e.g. at startup), not on every event
     try:
         _trv_entry = self.real_trvs.get(entity_id)
         prev_model = _trv_entry.model if _trv_entry is not None else None
@@ -112,7 +125,7 @@ async def trigger_trv_change(self, event):
             if _org_trv_state is not None and isinstance(
                 _org_trv_state.attributes, dict
             ):
-                # Nur prüfen, wenn Hinweise vorhanden sind
+                # Only check when there are hints available
                 if (
                     "model_id" in _org_trv_state.attributes
                     or "device" in _org_trv_state.attributes
@@ -211,7 +224,7 @@ async def trigger_trv_change(self, event):
         )
         return
 
-    # hvac_action bedingungslos in den Cache schreiben (immer aktuell halten)
+    # Always cache hvac_action from the TRV state so it stays current
     try:
         hvac_action_attr = _org_trv_state.attributes.get("hvac_action")
         if hvac_action_attr is None:
@@ -258,12 +271,11 @@ async def trigger_trv_change(self, event):
             _main_change = True
             if (
                 child_lock is False
-                and self.real_trvs[entity_id].system_mode_received is True
-                and self.real_trvs[entity_id].last_hvac_mode != _org_trv_state.state
+                and trv.system_mode_received is True
+                and trv.last_hvac_mode != _org_trv_state.state
+                and (mapped_state != HVACMode.OFF or group_all_members_off(self))
             ):
                 self.bt_hvac_mode = mapped_state
-
-    # Hinweis: Kein Caching von hvac_action mehr – BT liest direkt vom TRV-State in climate.py
 
     _main_key = "temperature"
     if "temperature" not in old_state.attributes:
@@ -275,9 +287,7 @@ async def trigger_trv_change(self, event):
     _new_heating_setpoint = attr_to_celsius(
         self, new_state, _main_key, None, "trigger_trv_change()"
     )
-    _is_no_off_device = self.real_trvs[entity_id].advanced.get(
-        "no_off_system_mode", False
-    )
+    _is_no_off_device = advanced.get("no_off_system_mode", False)
     if (
         _new_heating_setpoint is not None
         and _old_heating_setpoint is not None
@@ -290,6 +300,10 @@ async def trigger_trv_change(self, event):
             _new_heating_setpoint,
             self.real_trvs[entity_id].last_temperature,
         )
+        # Preserve the device's raw reported setpoint before range clamping;
+        # no_off OFF detection must compare against the device's true min_temp,
+        # not a value the clamp may have raised into [bt_min_temp, bt_max_temp].
+        _raw_heating_setpoint = _new_heating_setpoint
         if (
             _new_heating_setpoint < self.bt_min_temp
             or self.bt_max_temp < _new_heating_setpoint
@@ -382,11 +396,13 @@ async def trigger_trv_change(self, event):
                 _step,
             )
 
-        if self.real_trvs[entity_id].advanced.get("no_off_system_mode", False):
-            if _new_heating_setpoint == self.real_trvs[entity_id].min_temp:
+        if advanced.get("no_off_system_mode", False):
+            if _raw_heating_setpoint == trv.min_temp:
                 # Only set OFF if window is NOT open - min_temp during window
-                # open was set by BT, not by user turning off heating
-                if not self.window_open:
+                # open was set by BT, not by user turning off heating - and only
+                # when the whole group agrees, so a single no_off valve dropping
+                # to min_temp cannot switch the room off.
+                if not self.window_open and group_all_members_off(self):
                     if self.bt_hvac_mode != HVACMode.OFF:
                         _LOGGER.debug(
                             "better_thermostat %s: TRV %s reported min_temp %s on a "
@@ -415,6 +431,8 @@ def convert_inbound_states(self, entity_id, state: State) -> str | None:
     ----------
     self :
         self instance of better_thermostat
+    entity_id :
+        entity id of the TRV whose state is being converted
     state : State
         Inbound thermostat state, which will be modified
 
@@ -444,17 +462,18 @@ def convert_outbound_states(self, entity_id, hvac_mode) -> dict | None:
     _new_local_calibration = None
     _new_heating_setpoint = None
     _new_valve_position = None
+    advanced = self.real_trvs[entity_id].advanced or {}
 
     try:
-        _calibration_type = self.real_trvs[entity_id].advanced.get("calibration")
-        _calibration_mode = self.real_trvs[entity_id].advanced.get("calibration_mode")
+        _calibration_type = advanced.get("calibration")
+        _calibration_mode = advanced.get("calibration_mode")
 
         if _calibration_type is None:
             _LOGGER.warning(
                 "better_thermostat %s: no calibration type found in device config, talking to the TRV using fallback mode",
                 self.device_name,
             )
-            # Fallback: keine lokale Kalibrierung durchführen, nur Solltemperatur setzen
+            # Fallback: do not apply local calibration, only set the target temperature
             _new_heating_setpoint = self.bt_target_temp
             _new_local_calibration = None
 
@@ -512,7 +531,7 @@ def convert_outbound_states(self, entity_id, hvac_mode) -> dict | None:
             )
         if hvac_mode == HVACMode.OFF and (
             (_system_modes is not None and HVACMode.OFF not in _system_modes)
-            or self.real_trvs[entity_id].advanced.get("no_off_system_mode")
+            or advanced.get("no_off_system_mode")
         ):
             _min_temp = self.real_trvs[entity_id].min_temp
             _LOGGER.debug(

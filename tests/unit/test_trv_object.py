@@ -127,7 +127,7 @@ class TestModelQuirksProtocol:
 
         checked = []
         for info in pkgutil.iter_modules(model_fixes.__path__):
-            if info.name == "model_quirks":
+            if info.name in ("model_quirks", "types"):
                 continue
             module = importlib.import_module(
                 f"custom_components.better_thermostat.model_fixes.{info.name}"

@@ -108,6 +108,49 @@ class TestPIDController:
         state = self._state("test_windup")
         assert state.pid_integral <= params.i_max
 
+    def test_integrator_relief_persisted_when_anti_windup_blocks(self):
+        """Relief near setpoint must persist even when anti-windup blocks growth.
+
+        A wound-up integrator (saturated output) with an error that just
+        flipped sign within the steady-state band applies the 20% relief to the
+        output; that reduced value must also be written back to pid_integral so
+        it is not silently forgotten on the next cycle.
+        """
+        params = PIDParams(
+            auto_tune=False,
+            kp=60.0,
+            ki=0.01,
+            kd=2000.0,
+            i_min=-100.0,
+            i_max=100.0,
+            steady_state_band_K=0.1,
+            min_hold_time_s=0.0,
+        )
+        # Wound-up integrator; the previous error was negative (sign flip below).
+        state = PIDState(
+            pid_integral=100.0,
+            last_error_sign=-1,
+            pid_kp=60.0,
+            pid_ki=0.01,
+            pid_kd=2000.0,
+        )
+        # e = 22.0 - 21.95 = 0.05: positive, within the 0.1 K band. The output
+        # stays saturated (anti-windup blocks growth) while the sign flip from
+        # negative triggers relief (i_term *= 0.8).
+        _, debug, new_state = compute_pid(
+            params=params,
+            inp_target_temp_C=22.0,
+            inp_current_temp_C=21.95,
+            inp_trv_temp_C=21.0,
+            inp_temp_slope_K_per_min=0.0,
+            key="test_relief",
+            state=state,
+        )
+        assert debug["anti_windup_blocked"] is True
+        assert debug["i_relief"] is True
+        # Relief persisted (0.8 * 100.0); without the fix this stays 100.0.
+        assert new_state.pid_integral == 80.0
+
     def test_auto_tune_overshoot(self):
         """Test auto-tuning on overshoot."""
         params = PIDParams(
@@ -417,6 +460,58 @@ class TestPIDController:
         assert debug["meas_smooth_C"] is not None
         assert debug["meas_current_used"] is not None
         assert debug["meas_external_raw"] is not None
+
+    def test_derivative_on_error_setpoint_kick(self):
+        """Derivative-on-error reacts to a setpoint change, unlike on-measurement.
+
+        With ``d_on_measurement=False`` the D channel must use the stored
+        previous error (``pid_last_error``). Holding the measurement fixed
+        while the target jumps therefore produces a non-zero derivative kick;
+        reconstructing the error from the *current* target instead would cancel
+        the setpoint term and collapse the mode to derivative-on-measurement.
+        """
+        params = PIDParams(
+            auto_tune=False, kd=5.0, min_hold_time_s=0.0, d_on_measurement=False
+        )
+        # First call initializes pid_last_error (= 2.0); no derivative yet.
+        self._compute(
+            params=params,
+            inp_target_temp_C=22.0,
+            inp_current_temp_C=20.0,
+            inp_trv_temp_C=21.0,
+            inp_temp_slope_K_per_min=0.0,
+            key="test_deriv_err",
+        )
+        # Target jumps +1 K while the measurement stays at 20.0: error rises
+        # 2.0 -> 3.0, so d = kd * (3-2)/dt with dt clamped to 1.0.
+        _, debug, state = self._compute(
+            params=params,
+            inp_target_temp_C=23.0,
+            inp_current_temp_C=20.0,
+            inp_trv_temp_C=21.0,
+            inp_temp_slope_K_per_min=0.0,
+            key="test_deriv_err",
+        )
+        assert debug["d"] == 5.0
+        assert state.pid_last_error == 3.0
+
+    def test_pid_last_error_refreshed_in_d_on_measurement_mode(self):
+        """pid_last_error tracks the current error even under d_on_measurement.
+
+        Otherwise a later switch back to derivative-on-error would pair a stale
+        error with a fresh pid_last_time and compute a spurious derivative.
+        """
+        params = PIDParams(auto_tune=False, d_on_measurement=True)
+        _, _, state = self._compute(
+            params=params,
+            inp_target_temp_C=22.0,
+            inp_current_temp_C=20.0,
+            inp_trv_temp_C=21.0,
+            inp_temp_slope_K_per_min=0.0,
+            key="test_last_err",
+        )
+        # e = 22.0 - 20.0; without the fix this stays None in D-on-measurement.
+        assert state.pid_last_error == 2.0
 
     def test_hold_time_blocks_small_changes(self):
         """Test that hold-time blocks small output changes within the hold period."""

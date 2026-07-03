@@ -1,5 +1,7 @@
 """Weather utils."""
 
+from __future__ import annotations
+
 from collections import deque
 from contextlib import suppress
 from datetime import datetime, timedelta
@@ -52,7 +54,6 @@ async def check_weather(self) -> bool:
 
     if self.outdoor_sensor is not None:
         if None in (self.last_avg_outdoor_temp, self.off_temperature):
-            # TODO: add condition if heating period (oct-mar) then set it to true?
             # Check if sensor is currently unavailable (expected during startup)
             _outdoor_state = self.hass.states.get(self.outdoor_sensor)
             _sensor_unavailable = _outdoor_state is None or _outdoor_state.state in (
@@ -83,10 +84,7 @@ async def check_weather(self) -> bool:
         self.call_for_heat = True
         return True
 
-    if old_call_for_heat != self.call_for_heat:
-        return True
-    else:
-        return False
+    return old_call_for_heat != self.call_for_heat
 
 
 async def check_weather_prediction(self) -> bool | None:

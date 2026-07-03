@@ -15,6 +15,8 @@ from typing import Any
 
 from custom_components.better_thermostat.core.calibrator import CalibratorHealth
 
+from .types import CalibrationHost
+
 _LOGGER = logging.getLogger(__name__)
 
 
@@ -111,6 +113,15 @@ def compute_tpi(
     """
     now = monotonic()
 
+    # Heal a poisoned (NaN/Inf) state before it can feed the controller.
+    state, health = sanitize_tpi_state(state)
+    if health is not CalibratorHealth.HEALTHY:
+        _LOGGER.warning(
+            "better_thermostat: discarding poisoned TPI state for %s (%s)",
+            inp.key,
+            health,
+        )
+
     name = inp.bt_name or "BT"
     entity = inp.entity_id or "unknown"
 
@@ -202,7 +213,7 @@ def _finalize_output(
     return TpiOutput(duty_cycle_pct=duty_pct, debug=debug), state
 
 
-def build_tpi_key(bt, entity_id: str) -> str:
+def build_tpi_key(bt: CalibrationHost, entity_id: str) -> str:
     """Return a stable key for TPI state tracking (similar to MPC)."""
 
     try:

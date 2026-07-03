@@ -43,17 +43,20 @@ from homeassistant.helpers.storage import Store
 from .calibration.mpc import MpcState
 from .calibration.pid import PIDState
 from .calibration.tpi import TpiState
-from .const import MAX_HEAT_LOSS, MAX_HEATING_POWER, MIN_HEAT_LOSS, MIN_HEATING_POWER
+from .const import (
+    DOMAIN,
+    MAX_HEAT_LOSS,
+    MAX_HEATING_POWER,
+    MIN_HEAT_LOSS,
+    MIN_HEATING_POWER,
+)
 from .thermal_learning import clamp
 
 _LOGGER = logging.getLogger(__name__)
 
-DOMAIN = "better_thermostat"
 CURRENT_VERSION = 1
 
-# ---------------------------------------------------------------------------
 # State dataclasses (only those NOT owned by a controller module)
-# ---------------------------------------------------------------------------
 
 
 @dataclass
@@ -91,9 +94,7 @@ class RuntimeState:
     # they are deliberately not duplicated here.
 
 
-# ---------------------------------------------------------------------------
 # Serialization helpers
-# ---------------------------------------------------------------------------
 
 # Fields that should be coerced to int during deserialization.
 _INT_FIELDS = frozenset(
@@ -323,9 +324,7 @@ def _deserialize(raw: dict[str, Any]) -> RuntimeState:
     return state
 
 
-# ---------------------------------------------------------------------------
 # Migration
-# ---------------------------------------------------------------------------
 
 
 def _migrate_v0_to_v1(raw: dict[str, Any]) -> dict[str, Any]:
@@ -344,9 +343,7 @@ def _migrate_v0_to_v1(raw: dict[str, Any]) -> dict[str, Any]:
     return raw
 
 
-# ---------------------------------------------------------------------------
 # StateManager
-# ---------------------------------------------------------------------------
 
 
 class StateManager:
@@ -485,9 +482,22 @@ class StateManager:
     def record_thermal(
         self, heating_power: float | None, heat_loss_rate: float | None
     ) -> None:
-        """Record the entity-held thermal stats before a save."""
+        """Record the entity-held thermal stats before a save.
+
+        Non-finite samples (NaN/inf) are dropped to ``None`` so a bad reading
+        cannot be persisted and reloaded; this mirrors the finite handling in
+        ``clamped_thermal()``.
+        """
+
+        def _finite_or_none(value: float | None) -> float | None:
+            try:
+                return value if value is not None and math.isfinite(value) else None
+            except TypeError:
+                return None
+
         self.thermal = ThermalStats(
-            heating_power=heating_power, heat_loss_rate=heat_loss_rate
+            heating_power=_finite_or_none(heating_power),
+            heat_loss_rate=_finite_or_none(heat_loss_rate),
         )
 
     @property

@@ -1,5 +1,7 @@
 """Config flow for Better Thermostat."""
 
+from __future__ import annotations
+
 from collections import OrderedDict
 from collections.abc import Iterable, Mapping
 import copy
@@ -548,9 +550,9 @@ def _normalize_user_submission(
             if isinstance(item, dict) and item.get("trv")
         ]
     normalized[CONF_HEATER] = list(heaters_list)
-    normalized[CONF_COOLER] = user_input.get(CONF_COOLER, normalized.get(CONF_COOLER))
 
     optional_keys = (
+        CONF_COOLER,
         CONF_SENSOR,
         CONF_SENSOR_WINDOW,
         CONF_HUMIDITY,
@@ -648,8 +650,6 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     """Config flow for Better Thermostat."""
 
     VERSION = 18
-
-    CONNECTION_CLASS = config_entries.CONN_CLASS_LOCAL_POLL
 
     def __init__(self):
         """Initialize the config flow."""
@@ -1077,7 +1077,7 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
             advanced = trv.get("advanced", {})
             calibration_mode = advanced.get(CONF_CALIBRATION_MODE)
             if calibration_mode:
-                # Konvertiere String zu Enum falls nötig
+                # Convert string to enum if needed
                 if isinstance(calibration_mode, str):
                     try:
                         calibration_mode = CalibrationMode(calibration_mode)

@@ -4,6 +4,8 @@ This module implements the minimal adapter interface required by the
 Better Thermostat integration for deCONZ-controlled TRV devices.
 """
 
+from __future__ import annotations
+
 import logging
 
 from homeassistant.const import STATE_UNAVAILABLE, STATE_UNKNOWN

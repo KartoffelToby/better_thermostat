@@ -25,6 +25,7 @@ from typing import Any
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.storage import Store
 
+from .const import DOMAIN
 from .state_manager import (
     StateManager,
     ThermalStats,
@@ -34,8 +35,6 @@ from .state_manager import (
 )
 
 _LOGGER = logging.getLogger(__name__)
-
-DOMAIN = "better_thermostat"
 
 
 def _import_legacy_data(
@@ -52,8 +51,14 @@ def _import_legacy_data(
     ----------
     state_mgr:
         The StateManager to populate.
-    mpc_data / pid_data / tpi_data:
-        Key → raw-dict mappings loaded from the respective legacy stores,
+    mpc_data:
+        Key → raw-dict mapping loaded from the legacy MPC store,
+        already filtered to the current entity prefix.
+    pid_data:
+        Key → raw-dict mapping loaded from the legacy PID store,
+        already filtered to the current entity prefix.
+    tpi_data:
+        Key → raw-dict mapping loaded from the legacy TPI store,
         already filtered to the current entity prefix.
     thermal_data:
         Raw dict for the thermal stats entry of this config entry.

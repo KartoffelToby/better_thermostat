@@ -4,6 +4,8 @@ This module dynamically imports model-specific quirk modules and exposes
 small shim functions that delegate into the model-specific implementations.
 """
 
+from __future__ import annotations
+
 import logging
 import re
 
@@ -15,8 +17,7 @@ _LOGGER = logging.getLogger(__name__)
 async def load_model_quirks(self, model, entity_id):
     """Load model quirks module for a given TRV model, falling back to default.
 
-    Adds explicit debug logs for both success and fallback paths to make it
-    visible why nothing appeared previously.
+    Emits debug logs for both the success and the fallback path.
     """
 
     # Normalize model to a safe module suffix
@@ -159,8 +160,8 @@ async def override_set_temperature(self, entity_id, temperature):
     )
 
 
-async def inital_tweak(self, entity_id):
+async def initial_tweak(self, entity_id):
     """Run initial tweaks for the device."""
     quirks = self.real_trvs[entity_id].model_quirks
-    if hasattr(quirks, "inital_tweak"):
-        await quirks.inital_tweak(self, entity_id)
+    if hasattr(quirks, "initial_tweak"):
+        await quirks.initial_tweak(self, entity_id)

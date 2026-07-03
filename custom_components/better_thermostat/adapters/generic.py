@@ -4,6 +4,8 @@ This module implements the generic, default behaviour for TRV adapters
 used by Better Thermostat when a device-specific adapter does not exist.
 """
 
+from __future__ import annotations
+
 import asyncio
 import logging
 

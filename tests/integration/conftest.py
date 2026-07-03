@@ -137,10 +137,10 @@ async def fake_trv(hass):
     return entity
 
 
-def make_entry(*, with_window=False) -> MockConfigEntry:
+def make_entry(*, with_window=False, name="BT Test") -> MockConfigEntry:
     """Build a config entry matching the current entry schema."""
     data = {
-        "name": "BT Test",
+        "name": name,
         "thermostat": [
             {
                 "trv": TRV_ID,
@@ -163,7 +163,7 @@ def make_entry(*, with_window=False) -> MockConfigEntry:
         data["window_sensors"] = WINDOW_ID
         data["window_off_delay"] = 0
         data["window_off_delay_after"] = 0
-    return MockConfigEntry(domain=DOMAIN, version=18, data=data, title="BT Test")
+    return MockConfigEntry(domain=DOMAIN, version=18, data=data, title=name)
 
 
 async def setup_entry(hass, entry) -> None:

@@ -4,6 +4,8 @@ Provides Sonoff TRVZB specific helper functions such as writing valve
 percentages and mirroring external temperature into the TRV when supported.
 """
 
+from __future__ import annotations
+
 import asyncio
 import logging
 

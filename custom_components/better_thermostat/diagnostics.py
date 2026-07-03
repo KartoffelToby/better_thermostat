@@ -1,4 +1,4 @@
-"""Diagnostics support for Brother."""
+"""Diagnostics support for Better Thermostat."""
 
 from __future__ import annotations
 

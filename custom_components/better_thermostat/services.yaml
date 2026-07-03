@@ -16,15 +16,8 @@ reset_heating_power:
 
 reset_pid_learnings:
   name: Reset PID learnings
-  description: Clear all learned PID state (and optionally learned open caps) for this entity.
+  description: Clear all learned PID state for this entity.
   fields:
-    include_open_caps:
-      name: Also clear learned open caps
-      description: If enabled, also clears learned min/max open percentages per TRV/target bucket.
-      required: false
-      default: false
-      selector:
-        boolean: {}
     apply_pid_defaults:
       name: Apply PID defaults after reset
       description: If enabled, seeds the current target bucket(s) with PID default gains (kp/ki/kd). You can override defaults below.

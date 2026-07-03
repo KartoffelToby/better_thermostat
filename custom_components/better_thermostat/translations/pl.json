@@ -51,7 +51,8 @@
       "failed": "coś poszło nie tak.",
       "no_name": "Proszę podać nazwę.",
       "no_off_mode": "Twoje urządzenie jest inne i nie ma trybu wyłączenia :(\nTo będzie działać, ale musisz stworzyć automatyzację, aby ustawić funkcje pod swoje urządzenie",
-      "no_outside_temp": "Nie masz czujnika temperatury zewnętrznej. Better Thermostat zamiast tego użyje jednostki pogodowej."
+      "no_outside_temp": "Nie masz czujnika temperatury zewnętrznej. Better Thermostat zamiast tego użyje jednostki pogodowej.",
+      "no_data": "Nie otrzymano żadnych danych. Spróbuj ponownie."
     },
     "abort": {
       "single_instance_allowed": "Dozwolony jest tylko jeden termostat dla jednego urządzenia.",
@@ -125,6 +126,10 @@
     "invalid_window_state": {
       "title": "BT: {name} - nieprawidłowy stan czujnika okna",
       "description": "Czujnik okna dla Better Thermostat {name} zgłosił nierozpoznany stan: {state}.\n\nOczekiwane stany to: 'on', 'off', 'true', 'false', 'open', 'closed'.\n\nSprawdź konfigurację czujnika okna."
+    },
+    "invalid_external_temperature": {
+      "title": "BT: {name} - nieprawidłowa temperatura zewnętrzna",
+      "description": "Czujnik temperatury zewnętrznej dla Better Thermostat {name} zgłosił niewiarygodną wartość: {value}.\n\nOdczyt był poza wiarygodnym zakresem i został zignorowany. Sprawdź konfigurację czujnika temperatury."
     }
   },
   "services": {
@@ -138,12 +143,8 @@
     },
     "reset_pid_learnings": {
       "name": "Zresetuj nauczone wartości PID",
-      "description": "Czyści cały nauczony stan PID (i opcjonalnie nauczone limity otwarcia) dla tej encji.",
+      "description": "Czyści cały nauczony stan PID dla tej encji.",
       "fields": {
-        "include_open_caps": {
-          "name": "Wyczyść także nauczone limity otwarcia",
-          "description": "Jeśli włączone, czyści również nauczone minimalne/maksymalne procenty otwarcia dla każdego TRV/przedziału docelowego."
-        },
         "apply_pid_defaults": {
           "name": "Zastosuj domyślne wartości PID po resecie",
           "description": "Jeśli włączone, bieżące przedziały docelowe zostaną wstępnie wypełnione domyślnymi wzmocnieniami PID (kp/ki/kd). Wartości domyślne można nadpisać poniżej."

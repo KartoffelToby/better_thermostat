@@ -4,6 +4,7 @@ Covers: _check_entities_ready, _collect_trv_states, _resolve_temperature_range,
 _initialize_sensors, _restore_state, _validate_hvac_mode.
 """
 
+import asyncio
 from unittest.mock import AsyncMock, MagicMock, patch
 
 from homeassistant.components.climate.const import HVACMode
@@ -16,6 +17,7 @@ from custom_components.better_thermostat.climate import (
     BetterThermostat,
 )
 from custom_components.better_thermostat.core.decide import KernelState
+from custom_components.better_thermostat.trv import Trv
 from custom_components.better_thermostat.utils.const import (
     ATTR_STATE_CALL_FOR_HEAT,
     ATTR_STATE_HEAT_LOSS,
@@ -105,6 +107,76 @@ def _make_trv_state(entity_id=TRV_ID, state="heat", attrs=None):
 def _make_sensor_state(temp="21.5", state_val=None):
     """Build a sensor State."""
     return State(SENSOR_ID, state_val or temp)
+
+
+# ---------------------------------------------------------------------------
+# 0. startup() retry loop unload behavior
+# ---------------------------------------------------------------------------
+
+
+class TestStartupUnloadBailout:
+    """The startup retry loop exits when the entity is removed."""
+
+    @pytest.mark.asyncio
+    async def test_returns_immediately_when_already_removed(self, bt):
+        """Return before any readiness check when the entity is removed."""
+        bt.is_removed = True
+        bt.startup_running = True
+
+        await asyncio.wait_for(BetterThermostat.startup(bt), timeout=1)
+
+        bt._check_entities_ready.assert_not_called()
+        bt._collect_trv_states.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_returns_when_removed_during_retry_sleep(self, bt):
+        """Exit the retry loop when removal happens while sleeping."""
+        bt.is_removed = False
+        bt.startup_running = True
+        bt._check_entities_ready.return_value = False
+
+        async def fake_sleep(_seconds):
+            bt.is_removed = True
+
+        with patch(
+            "custom_components.better_thermostat.climate.asyncio.sleep",
+            side_effect=fake_sleep,
+        ) as mock_sleep:
+            await asyncio.wait_for(BetterThermostat.startup(bt), timeout=1)
+
+        mock_sleep.assert_awaited_once()
+        bt._collect_trv_states.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_returns_when_removed_before_trv_initialization(self, bt):
+        """Stop before writing to TRVs when removal happens during restore."""
+        bt.is_removed = False
+        bt.startup_running = True
+        bt._check_entities_ready.return_value = True
+
+        async def fake_restore_state(_states):
+            bt.is_removed = True
+
+        bt._restore_state.side_effect = fake_restore_state
+
+        with patch(
+            "custom_components.better_thermostat.climate.check_and_update_degraded_mode",
+            new=AsyncMock(),
+        ):
+            await asyncio.wait_for(BetterThermostat.startup(bt), timeout=1)
+
+        bt._initialize_trvs.assert_not_called()
+        bt._finalize_startup.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_will_remove_from_hass_stops_startup_loop(self, bt):
+        """Unload stops the lifecycle so the loop condition terminates."""
+        bt._control_task = None
+        bt._window_task = None
+
+        await BetterThermostat.async_will_remove_from_hass(bt)
+
+        assert bt.kernel_state.lifecycle.startup_running is False
 
 
 # ---------------------------------------------------------------------------
@@ -374,6 +446,56 @@ class TestInitializeSensors:
 # ---------------------------------------------------------------------------
 
 
+class TestInitializeTrvCurrentTemperature:
+    """Startup must not fabricate a TRV-internal temperature.
+
+    A seeded value would feed SENSOR_FALLBACK as if it were live and
+    keep the fail-soft ladder's HOLD rung unreachable, and a falsy-or
+    fallback would swallow a real reading of 0.0.
+    """
+
+    def _trv_only_bt(self, bt, attrs, unit="°C"):
+        bt.real_trvs = {TRV_ID: Trv(entity_id=TRV_ID, calibration=1)}
+        bt.hass.config.units.temperature_unit = unit
+        bt.hass.states.get.return_value = _make_trv_state(attrs=attrs)
+        return bt
+
+    async def _run(self, bt):
+        with (
+            patch("custom_components.better_thermostat.climate.init", AsyncMock()),
+            patch(
+                "custom_components.better_thermostat.climate.initial_tweak", AsyncMock()
+            ),
+            patch(
+                "custom_components.better_thermostat.climate.control_trv",
+                AsyncMock(return_value=True),
+            ),
+        ):
+            await BetterThermostat._initialize_trvs(bt)
+
+    @pytest.mark.asyncio
+    async def test_missing_reading_stays_none(self, bt):
+        """No reading at startup leaves the field unset."""
+        bt = self._trv_only_bt(bt, {"current_temperature": None})
+        await self._run(bt)
+        assert bt.real_trvs[TRV_ID].current_temperature is None
+
+    @pytest.mark.asyncio
+    async def test_zero_reading_is_kept(self, bt):
+        """A legitimate 0.0° reading is a reading, not a missing value."""
+        bt = self._trv_only_bt(bt, {"current_temperature": 0.0})
+        await self._run(bt)
+        assert bt.real_trvs[TRV_ID].current_temperature == 0.0
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("marker_temp", [126.5, 127.0])
+    async def test_implausible_startup_reading_is_dropped(self, bt, marker_temp):
+        """AVM marker values must not seed the cache for the first control cycle."""
+        bt = self._trv_only_bt(bt, {"current_temperature": marker_temp})
+        await self._run(bt)
+        assert bt.real_trvs[TRV_ID].current_temperature is None
+
+
 class TestRestoreState:
     """Tests for _restore_state."""
 
@@ -556,50 +678,6 @@ class TestRestoreState:
 # ---------------------------------------------------------------------------
 
 
-class TestInitializeTrvCurrentTemperature:
-    """Startup must not fabricate a TRV-internal temperature.
-
-    A seeded value would feed SENSOR_FALLBACK as if it were live and
-    keep the fail-soft ladder's HOLD rung unreachable forever.
-    """
-
-    def _trv_only_bt(self, bt, attrs):
-        from custom_components.better_thermostat.trv import Trv
-
-        bt.real_trvs = {
-            TRV_ID: Trv.from_legacy_dict(TRV_ID, {"calibration": 1, "advanced": {}})
-        }
-        bt.hass.config.units.temperature_unit = "°C"
-        bt.hass.states.get.return_value = _make_trv_state(attrs=attrs)
-        return bt
-
-    @pytest.mark.asyncio
-    async def test_missing_current_temperature_stays_none(self, bt):
-        """No reading at startup leaves the field unset."""
-        bt = self._trv_only_bt(bt, {"current_temperature": None})
-        with (
-            patch("custom_components.better_thermostat.climate.init", AsyncMock()),
-            patch(
-                "custom_components.better_thermostat.climate.inital_tweak", AsyncMock()
-            ),
-        ):
-            await BetterThermostat._initialize_trvs(bt)
-        assert bt.real_trvs[TRV_ID].current_temperature is None
-
-    @pytest.mark.asyncio
-    async def test_zero_current_temperature_is_kept(self, bt):
-        """A legitimate 0.0° reading is a reading, not a missing value."""
-        bt = self._trv_only_bt(bt, {"current_temperature": 0.0})
-        with (
-            patch("custom_components.better_thermostat.climate.init", AsyncMock()),
-            patch(
-                "custom_components.better_thermostat.climate.inital_tweak", AsyncMock()
-            ),
-        ):
-            await BetterThermostat._initialize_trvs(bt)
-        assert bt.real_trvs[TRV_ID].current_temperature == 0.0
-
-
 # ---------------------------------------------------------------------------
 # 7. Initial TRV sync (_finalize_startup / _startup_control_trvs)
 # ---------------------------------------------------------------------------
@@ -618,14 +696,21 @@ class TestStartupControlSync:
         While startup_running is True, decide() addresses no TRVs — a
         sync before the flip would silently write nothing.
         """
-        bt.is_removed = True
+        bt.is_removed = False
+        bt.all_entities = []
+        bt.all_trvs = None
         gate_states = []
 
         async def record_sync():
             gate_states.append(bt.kernel_state.lifecycle.startup_running)
+            bt.is_removed = True
 
         bt._startup_control_trvs = record_sync
-        with patch(f"{_CLIMATE}.asyncio.sleep", AsyncMock()):
+        with (
+            patch(f"{_CLIMATE}.await_critical_entities", AsyncMock()),
+            patch(f"{_CLIMATE}.check_critical_entities", AsyncMock()),
+            patch(f"{_CLIMATE}.asyncio.sleep", AsyncMock()),
+        ):
             await BetterThermostat._finalize_startup(bt)
 
         assert gate_states == [False]

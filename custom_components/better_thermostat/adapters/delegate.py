@@ -1,5 +1,7 @@
 """Delegate adapter."""
 
+from __future__ import annotations
+
 import logging
 
 from homeassistant.helpers.importlib import async_import_module

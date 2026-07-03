@@ -1,5 +1,7 @@
 """Base adapter functions and the capability declaration shared by adapters."""
 
+from __future__ import annotations
+
 import asyncio
 from dataclasses import dataclass
 import logging
