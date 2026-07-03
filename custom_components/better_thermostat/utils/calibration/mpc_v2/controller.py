@@ -26,6 +26,13 @@ _LOGGER = logging.getLogger(__name__)
 # release. Pre-versioning snapshots are treated as version 0.
 SNAPSHOT_VERSION = 1
 
+# Steps arriving closer together than this carry no new information: in a
+# multi-TRV group every TRV dispatch steps the same shared controller within
+# one control pass, milliseconds apart. Re-folding the same room measurement
+# would shrink the Kalman covariance without evidence, so those repeat steps
+# return the last command unchanged.
+MIN_STEP_DT_S = 1.0
+
 
 @dataclass
 class ControllerSnapshot:
@@ -117,7 +124,10 @@ class MpcV2Controller:
         self.plant_fine = PlantModelRC2(mpc_params.plant, dt_s=mpc_params.plant_step_s)
         self.plant_coarse = PlantModelRC2(mpc_params.plant, dt_s=mpc_params.qp.step_s)
         self.kalman = KalmanObserver(self.plant_fine, mpc_params.kalman)
-        self.smith = SmithPredictor(self.plant_fine)
+        # The Smith predictor replays the command history, which holds one
+        # entry per MPC re-plan — its time base is the QP step, so it runs
+        # on the coarse plant, not the fine observer plant.
+        self.smith = SmithPredictor(self.plant_coarse)
         self.dob = DisturbanceObserver(mpc_params.dob)
         self.optimiser = QpOptimiser(self.plant_coarse, mpc_params.qp)
         self.governor = ScalarReferenceGovernor(self.plant_coarse, mpc_params.governor)
@@ -161,6 +171,8 @@ class MpcV2Controller:
             self._initialised = True
 
         dt_s = t_s - self._last_t_s if self._last_t_s > 0 else self.params.plant_step_s
+        if self._last_t_s > 0 and 0.0 <= dt_s < MIN_STEP_DT_S:
+            return self._last_u, self._diagnostics()
         self._last_t_s = t_s
 
         sp_for_opt = self.governor.update(
