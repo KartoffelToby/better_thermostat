@@ -2,22 +2,16 @@
 
 These helpers respond to window sensor events and implement debouncing and
 delayed handling so that HVAC behavior uses window-open information reliably.
+The shared implementation lives in :mod:`events.contact`.
 """
 
 from __future__ import annotations
 
-import asyncio
-import logging
+from .contact import WINDOW, contact_queue, empty_queue, trigger_contact_change
 
-from homeassistant.core import callback
-from homeassistant.helpers import issue_registry as ir
-
-from custom_components.better_thermostat import DOMAIN
-
-_LOGGER = logging.getLogger(__name__)
+__all__ = ["trigger_window_change", "window_queue", "empty_queue"]
 
 
-@callback
 async def trigger_window_change(self, event) -> None:
     """Triggered by window sensor event from HA to check if the window is open.
 
@@ -32,64 +26,7 @@ async def trigger_window_change(self, event) -> None:
     -------
     None
     """
-
-    new_state = event.data.get("new_state")
-
-    if None in (self.hass.states.get(self.window_id), self.window_id, new_state):
-        return
-
-    new_state = new_state.state
-
-    old_window_open = self.window_open
-
-    if new_state in ("on", "true", "open", "unknown", "unavailable"):
-        new_window_open = True
-        if new_state == "unknown":
-            _LOGGER.warning(
-                "better_thermostat %s: Window sensor state is unknown, assuming window is open",
-                self.device_name,
-            )
-        elif new_state == "unavailable":
-            _LOGGER.info(
-                "better_thermostat %s: Window sensor is unavailable, assuming window is open",
-                self.device_name,
-            )
-
-        # window was opened, disable heating power calculation for this period
-        self._heating_tracker.start_temp = None
-        self.async_write_ha_state()
-    elif new_state in ("off", "false", "closed"):
-        new_window_open = False
-    else:
-        _LOGGER.error(
-            "better_thermostat %s: New window sensor state '%s' not recognized",
-            self.device_name,
-            new_state,
-        )
-        ir.async_create_issue(
-            hass=self.hass,
-            domain=DOMAIN,
-            issue_id=f"invalid_window_state_{self.device_name}",
-            is_fixable=False,
-            is_persistent=False,
-            learn_more_url="https://better-thermostat.org/faq/window-sensor",
-            severity=ir.IssueSeverity.ERROR,
-            translation_key="invalid_window_state",
-            translation_placeholders={
-                "name": str(self.device_name),
-                "state": str(new_state),
-            },
-        )
-        return
-
-    # make sure to skip events which do not change the saved window state:
-    if new_window_open == old_window_open:
-        _LOGGER.debug(
-            "better_thermostat %s: Window state did not change, skipping event",
-            self.device_name,
-        )
-        return
-    await self.window_queue_task.put(new_window_open)
+    await trigger_contact_change(self, WINDOW, event)
 
 
 async def window_queue(self):
@@ -99,72 +36,4 @@ async def window_queue(self):
     delays and triggers the control queue when the window remains in the
     expected state after the delay.
     """
-    try:
-        while True:
-            window_event_to_process = await self.window_queue_task.get()
-            try:
-                if window_event_to_process is not None:
-                    if window_event_to_process:
-                        _LOGGER.debug(
-                            "better_thermostat %s: Window opened, "
-                            "waiting %s seconds before continuing",
-                            self.device_name,
-                            self.window_delay,
-                        )
-                        await asyncio.sleep(self.window_delay)
-                    else:
-                        _LOGGER.debug(
-                            "better_thermostat %s: Window closed, "
-                            "waiting %s seconds before continuing",
-                            self.device_name,
-                            self.window_delay_after,
-                        )
-                        await asyncio.sleep(self.window_delay_after)
-                    window_state = self.hass.states.get(self.window_id)
-                    if window_state is None:
-                        _LOGGER.debug(
-                            "better_thermostat %s: Window sensor %s vanished "
-                            "during the debounce delay; skipping event",
-                            self.device_name,
-                            self.window_id,
-                        )
-                        continue
-                    # remap off on to true false
-                    current_window_state = True
-                    if window_state.state in ("off", "false", "closed"):
-                        current_window_state = False
-                    # make sure the current state is the suggested change state to prevent a false positive:
-                    if current_window_state == window_event_to_process:
-                        self.window_open = window_event_to_process
-                        self.async_write_ha_state()
-                        if getattr(self, "in_maintenance", False):
-                            # Keep state up to date during maintenance, but defer control
-                            # until maintenance ends.
-                            self._control_needed_after_maintenance = True
-                        else:
-                            if not self.control_queue_task.empty():
-                                empty_queue(self.control_queue_task)
-                            await self.control_queue_task.put(self)
-            except asyncio.CancelledError:
-                _LOGGER.debug(
-                    "better_thermostat %s: Window queue processing cancelled",
-                    self.device_name,
-                )
-                raise
-            finally:
-                self.window_queue_task.task_done()
-    except asyncio.CancelledError:
-        _LOGGER.debug(
-            "better_thermostat %s: Window queue task cancelled", self.device_name
-        )
-        raise
-
-
-def empty_queue(q: asyncio.Queue):
-    """Empty out a Queue of pending items.
-
-    Consumes all pending items from the queue and marks them as done.
-    """
-    for _ in range(q.qsize()):
-        q.get_nowait()
-        q.task_done()
+    await contact_queue(self, WINDOW)

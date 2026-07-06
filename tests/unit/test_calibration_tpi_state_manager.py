@@ -33,6 +33,7 @@ def _make_bt(state_mgr: _TpiStateStub) -> MagicMock:
     bt.bt_target_temp = 22.0
     bt.cur_temp = 20.0
     bt.window_open = False
+    bt.contact_open = False
     bt.bt_hvac_mode = "heat"
     bt.outdoor_sensor = None
     bt.weather_entity = None

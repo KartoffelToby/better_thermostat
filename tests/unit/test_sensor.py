@@ -80,8 +80,10 @@ def _make_bt_climate(**overrides):
     bt.heat_loss_rate = None
     bt.real_trvs = {}
     bt.preset_modes = []
+    bt.door_open = False
     for k, v in overrides.items():
         setattr(bt, k, v)
+    bt.contact_open = bool(bt.window_open) or bool(bt.door_open)
     return bt
 
 

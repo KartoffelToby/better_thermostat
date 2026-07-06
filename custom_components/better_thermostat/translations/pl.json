@@ -11,10 +11,13 @@
           "temperature_sensor": "Sensor temperatury",
           "humidity_sensor": "Sensor wilgotności",
           "window_sensors": "Sensor okna",
+          "door_sensors": "Sensor drzwi",
           "off_temperature": "Temperatura zewnętrzna, przy której termostat ma się wyłączyć",
           "tolerance": "Tolerancja, aby zapobiec zbyt częstemu włączaniu i wyłączaniu termostatu",
           "window_off_delay": "Opóźnienie wyłączenia termostatu, kiedy otworzysz okno lub je zamkniesz (w sekundach)",
           "window_off_delay_after": "Opóźnienie włączenia termostatu po zamknięciu okna",
+          "door_off_delay": "Opóźnienie wyłączenia termostatu po otwarciu drzwi",
+          "door_off_delay_after": "Opóźnienie włączenia termostatu po zamknięciu drzwi",
           "outdoor_sensor": "Jeśli masz czujnik zewnętrzny, możesz go użyć, aby uzyskać temperaturę zewnętrzną",
           "weather": "Twoja jednostka pogodowa, aby uzyskać temperaturę zewnętrzną",
           "target_temp_step": "Krok temperatury docelowej",
@@ -69,10 +72,13 @@
           "temperature_sensor": "Sensor temperatury",
           "humidity_sensor": "Sensor wilgotności",
           "window_sensors": "Sensor okna",
+          "door_sensors": "Sensor drzwi",
           "off_temperature": "Temperatura zewnętrzna, przy której termostat ma się wyłączyć",
           "tolerance": "Tolerancja, aby zapobiec zbyt częstemu włączaniu i wyłączaniu termostatu",
           "window_off_delay": "Opóźnienie wyłączenia termostatu, kiedy otworzysz okno lub je zamkniesz (w sekundach)",
           "window_off_delay_after": "Opóźnienie włączenia termostatu po zamknięciu okna",
+          "door_off_delay": "Opóźnienie wyłączenia termostatu po otwarciu drzwi",
+          "door_off_delay_after": "Opóźnienie włączenia termostatu po zamknięciu drzwi",
           "outdoor_sensor": "Jeśli masz czujnik zewnętrzny, możesz go użyć, aby uzyskać temperaturę zewnętrzną",
           "weather": "Twoja jednostka pogodowa, aby uzyskać temperaturę zewnętrzną",
           "target_temp_step": "Krok temperatury docelowej",
@@ -126,6 +132,10 @@
     "invalid_window_state": {
       "title": "BT: {name} - nieprawidłowy stan czujnika okna",
       "description": "Czujnik okna dla Better Thermostat {name} zgłosił nierozpoznany stan: {state}.\n\nOczekiwane stany to: 'on', 'off', 'true', 'false', 'open', 'closed'.\n\nSprawdź konfigurację czujnika okna."
+    },
+    "invalid_door_state": {
+      "title": "BT: {name} - nieprawidłowy stan czujnika drzwi",
+      "description": "Czujnik drzwi dla Better Thermostat {name} zgłosił nierozpoznany stan: {state}.\n\nOczekiwane stany to: 'on', 'off', 'true', 'false', 'open', 'closed'.\n\nSprawdź konfigurację czujnika drzwi."
     },
     "invalid_external_temperature": {
       "title": "BT: {name} - nieprawidłowa temperatura zewnętrzna",
