@@ -907,33 +907,34 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
         if self._last_call_for_heat != self.call_for_heat:
             from homeassistant.helpers import translation
 
-            translations = await translation.async_get_translations(
-                self.hass,
-                self.hass.config.language,
-                "component",
-                integrations=["better_thermostat"],
-            )
-            if not self.call_for_heat:
-                log_msg = translations.get(
-                    "component.better_thermostat.entity.sensor.logbook.state.summer_mode_on",
-                    "turned off because the outdoor temperature is too high",
-                )
-            else:
-                log_msg = translations.get(
-                    "component.better_thermostat.entity.sensor.logbook.state.summer_mode_off",
-                    "resumed heating because the outdoor temperature dropped",
-                )
+            hass_obj = getattr(self, "hass", None)
 
-            self.hass.bus.async_fire(
-                "logbook_entry",
-                {
-                    "name": getattr(self, "name", "Better Thermostat"),
-                    "message": log_msg,
-                    "entity_id": getattr(self, "entity_id", None)
-                    or f"climate.{getattr(self, 'name', 'better_thermostat')}",
-                    "domain": "better_thermostat",
-                },
-            )
+            if hass_obj is not None:
+                lang = getattr(getattr(hass_obj, "config", None), "language", "en")
+                translations = await translation.async_get_translations(
+                    hass_obj, lang, "entity", integrations=["better_thermostat"]
+                )
+                if not self.call_for_heat:
+                    log_msg = translations.get(
+                        "component.better_thermostat.entity.sensor.logbook.state.summer_mode_on",
+                        "turned off because the outdoor temperature is too high",
+                    )
+                else:
+                    log_msg = translations.get(
+                        "component.better_thermostat.entity.sensor.logbook.state.summer_mode_off",
+                        "resumed heating because the outdoor temperature dropped",
+                    )
+
+                hass_obj.bus.async_fire(
+                    "logbook_entry",
+                    {
+                        "name": getattr(self, "name", "Better Thermostat"),
+                        "message": log_msg,
+                        "entity_id": getattr(self, "entity_id", None)
+                        or f"climate.{getattr(self, 'name', 'better_thermostat')}",
+                        "domain": "better_thermostat",
+                    },
+                )
 
             self._last_call_for_heat = self.call_for_heat
             self.async_write_ha_state()

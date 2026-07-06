@@ -230,7 +230,9 @@
           "summer_mode_on": "turned off because the outdoor temperature is too high",
           "summer_mode_off": "resumed heating because the outdoor temperature dropped",
           "degraded_mode_entered": "entered degraded mode because some sensors are unavailable",
-          "degraded_mode_resolved": "exited degraded mode because all sensors are available"
+          "degraded_mode_resolved": "exited degraded mode because all sensors are available",
+          "door_open": "turned off because a door was opened",
+          "door_close": "resumed heating because a door was closed"
         }
       }
     }

@@ -230,7 +230,9 @@
           "summer_mode_on": "vypnuté, pretože vonkajšia teplota je príliš vysoká",
           "summer_mode_off": "vykurovanie obnovené, pretože vonkajšia teplota klesla",
           "degraded_mode_entered": "vstúpil do núdzového režimu, pretože niektoré senzory sú nedostupné",
-          "degraded_mode_resolved": "ukončil núdzový režim, pretože všetky senzory sú dostupné"
+          "degraded_mode_resolved": "ukončil núdzový režim, pretože všetky senzory sú dostupné",
+          "door_open": "turned off because a door was opened",
+          "door_close": "resumed heating because a door was closed"
         }
       }
     }

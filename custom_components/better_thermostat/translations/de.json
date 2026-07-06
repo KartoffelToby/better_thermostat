@@ -230,7 +230,9 @@
           "summer_mode_on": "ausgeschaltet, da die Außentemperatur zu hoch ist",
           "summer_mode_off": "Heizen fortgesetzt, da die Außentemperatur gesunken ist",
           "degraded_mode_entered": "ist in den Notbetrieb gewechselt, da einige Sensoren nicht erreichbar sind",
-          "degraded_mode_resolved": "hat den Notbetrieb beendet, da alle Sensoren wieder erreichbar sind"
+          "degraded_mode_resolved": "hat den Notbetrieb beendet, da alle Sensoren wieder erreichbar sind",
+          "door_open": "abgeschaltet, weil eine Tür geöffnet wurde",
+          "door_close": "heizt wieder, weil eine Tür geschlossen wurde"
         }
       }
     }

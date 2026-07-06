@@ -230,7 +230,9 @@
           "summer_mode_on": "отключено, так как температура на улице слишком высокая",
           "summer_mode_off": "нагрев возобновлен, так как температура на улице снизилась",
           "degraded_mode_entered": "перешел в режим ограниченной функциональности, так как некоторые датчики недоступны",
-          "degraded_mode_resolved": "вышел из режима ограниченной функциональности, так как все датчики доступны"
+          "degraded_mode_resolved": "вышел из режима ограниченной функциональности, так как все датчики доступны",
+          "door_open": "turned off because a door was opened",
+          "door_close": "resumed heating because a door was closed"
         }
       }
     }

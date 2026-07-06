@@ -230,7 +230,9 @@
           "summer_mode_on": "dış ortam sıcaklığı çok yüksek olduğu için kapatıldı",
           "summer_mode_off": "dış ortam sıcaklığı düştüğü için ısıtmaya devam edildi",
           "degraded_mode_entered": "bazı sensörler kullanılamadığı için kısıtlı moda girildi",
-          "degraded_mode_resolved": "tüm sensörler kullanılabilir olduğu için kısıtlı moddan çıkıldı"
+          "degraded_mode_resolved": "tüm sensörler kullanılabilir olduğu için kısıtlı moddan çıkıldı",
+          "door_open": "turned off because a door was opened",
+          "door_close": "resumed heating because a door was closed"
         }
       }
     }
