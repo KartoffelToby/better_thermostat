@@ -84,6 +84,24 @@ async def check_weather(self) -> bool:
         self.call_for_heat = True
         return True
 
+    if old_call_for_heat != self.call_for_heat:
+        from custom_components.better_thermostat.utils.helpers import (
+            async_fire_logbook_entry,
+        )
+
+        if not self.call_for_heat:
+            await async_fire_logbook_entry(
+                self,
+                "summer_mode_on",
+                "turned off because the outdoor temperature is too high",
+            )
+        else:
+            await async_fire_logbook_entry(
+                self,
+                "summer_mode_off",
+                "resumed heating because the outdoor temperature dropped",
+            )
+
     return old_call_for_heat != self.call_for_heat
 
 

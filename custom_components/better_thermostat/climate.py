@@ -7,7 +7,6 @@ import asyncio
 from collections import deque
 from collections.abc import Awaitable, Callable
 from datetime import datetime, timedelta
-from functools import cached_property
 import json
 import logging
 from random import randint
@@ -374,16 +373,42 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
         """Return recorded heat loss cycles."""
         return self._loss_tracker.cycles
 
-    @cached_property
+    @property
     def device_info(self) -> DeviceInfo:
         """Return device info."""
-        return DeviceInfo(
+        info = DeviceInfo(
             identifiers={(DOMAIN, self.unique_id)},
             name=self.device_name,
             manufacturer="Better Thermostat",
             model=self.model,
             sw_version=VERSION,
         )
+
+        try:
+            if hasattr(self, "hass") and self.hass and self.all_trvs:
+                main_trv_id = None
+                if isinstance(self.all_trvs, list) and len(self.all_trvs) > 0:
+                    main_trv_id = self.all_trvs[0].get("trv")
+                elif isinstance(self.all_trvs, str):
+                    main_trv_id = self.all_trvs
+
+                if main_trv_id:
+                    from homeassistant.helpers import (
+                        device_registry as dr,
+                        entity_registry as er,
+                    )
+
+                    ent_reg = er.async_get(self.hass)
+                    dev_reg = dr.async_get(self.hass)
+                    trv_ent = ent_reg.async_get(main_trv_id)
+                    if trv_ent and trv_ent.device_id:
+                        trv_dev = dev_reg.async_get(trv_ent.device_id)
+                        if trv_dev and trv_dev.identifiers:
+                            info["via_device"] = list(trv_dev.identifiers)[0]
+        except Exception as e:
+            _LOGGER.debug("better_thermostat: Error getting via_device: %s", e)
+
+        return info
 
     def __init__(
         self,
@@ -880,6 +905,23 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
             return
         await check_ambient_air_temperature(self)
         if self._last_call_for_heat != self.call_for_heat:
+            from custom_components.better_thermostat.utils.helpers import (
+                async_fire_logbook_entry,
+            )
+
+            if not self.call_for_heat:
+                await async_fire_logbook_entry(
+                    self,
+                    "summer_mode_on",
+                    "turned off because the outdoor temperature is too high",
+                )
+            else:
+                await async_fire_logbook_entry(
+                    self,
+                    "summer_mode_off",
+                    "resumed heating because the outdoor temperature dropped",
+                )
+
             self._last_call_for_heat = self.call_for_heat
             self.async_write_ha_state()
             if event is not None:

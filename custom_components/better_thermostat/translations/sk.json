@@ -221,6 +221,20 @@
       "child_lock_no_trv": {
         "name": "Detská poistka"
       }
+    },
+    "sensor": {
+      "logbook": {
+        "state": {
+          "window_open": "vypnuté, pretože bolo otvorené okno",
+          "window_close": "vykurovanie obnovené, pretože bolo zatvorené okno",
+          "summer_mode_on": "vypnuté, pretože vonkajšia teplota je príliš vysoká",
+          "summer_mode_off": "vykurovanie obnovené, pretože vonkajšia teplota klesla",
+          "degraded_mode_entered": "vstúpil do núdzového režimu, pretože niektoré senzory sú nedostupné",
+          "degraded_mode_resolved": "ukončil núdzový režim, pretože všetky senzory sú dostupné",
+          "door_open": "turned off because a door was opened",
+          "door_close": "resumed heating because a door was closed"
+        }
+      }
     }
   },
   "device_automation": {

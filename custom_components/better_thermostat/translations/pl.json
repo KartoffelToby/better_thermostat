@@ -221,6 +221,20 @@
       "child_lock_no_trv": {
         "name": "Blokada rodzicielska"
       }
+    },
+    "sensor": {
+      "logbook": {
+        "state": {
+          "window_open": "wyłączono, ponieważ otworzono okno",
+          "window_close": "wznowiono ogrzewanie, ponieważ zamknięto okno",
+          "summer_mode_on": "wyłączono, ponieważ temperatura na zewnątrz jest zbyt wysoka",
+          "summer_mode_off": "wznowiono ogrzewanie, ponieważ temperatura na zewnątrz spadła",
+          "degraded_mode_entered": "wszedł w tryb awaryjny, ponieważ niektóre czujniki są niedostępne",
+          "degraded_mode_resolved": "opuścił tryb awaryjny, ponieważ wszystkie czujniki są dostępne",
+          "door_open": "turned off because a door was opened",
+          "door_close": "resumed heating because a door was closed"
+        }
+      }
     }
   },
   "device_automation": {

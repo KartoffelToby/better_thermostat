@@ -36,6 +36,7 @@ def _make_bt(advanced):
     mock.sensor_entity_id = SENSOR_ID
     mock.humidity_sensor_entity_id = None
     mock.window_id = None
+    mock.door_id = None
     mock.cooler_entity_id = None
     mock.outdoor_sensor = None
     mock._async_unsub_state_changed = None

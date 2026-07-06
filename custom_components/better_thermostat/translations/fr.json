@@ -221,6 +221,20 @@
       "child_lock_no_trv": {
         "name": "Sécurité enfant"
       }
+    },
+    "sensor": {
+      "logbook": {
+        "state": {
+          "window_open": "éteint car une fenêtre a été ouverte",
+          "window_close": "chauffage repris car une fenêtre a été fermée",
+          "summer_mode_on": "éteint car la température extérieure est trop élevée",
+          "summer_mode_off": "chauffage repris car la température extérieure a baissé",
+          "degraded_mode_entered": "est entré en mode dégradé car certains capteurs sont indisponibles",
+          "degraded_mode_resolved": "a quitté le mode dégradé car tous les capteurs sont disponibles",
+          "door_open": "éteint parce qu'une porte a été ouverte",
+          "door_close": "chauffage repris parce qu'une porte a été fermée"
+        }
+      }
     }
   },
   "device_automation": {

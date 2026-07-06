@@ -507,6 +507,16 @@ async def check_and_update_degraded_mode(self) -> bool:
             },
         )
         self._degraded_warning_emitted = True
+
+        from custom_components.better_thermostat.utils.helpers import (
+            async_fire_logbook_entry,
+        )
+
+        await async_fire_logbook_entry(
+            self,
+            "degraded_mode_entered",
+            "entered degraded mode because some sensors are unavailable",
+        )
     elif self.degraded_mode and in_grace and not old_degraded:
         _LOGGER.debug(
             "better_thermostat %s: degraded mode during startup grace period "
@@ -521,6 +531,16 @@ async def check_and_update_degraded_mode(self) -> bool:
         )
         ir.async_delete_issue(self.hass, DOMAIN, f"degraded_mode_{self.device_name}")
         self._degraded_warning_emitted = False
+
+        from custom_components.better_thermostat.utils.helpers import (
+            async_fire_logbook_entry,
+        )
+
+        await async_fire_logbook_entry(
+            self,
+            "degraded_mode_resolved",
+            "exited degraded mode because all sensors are available",
+        )
 
     self.async_write_ha_state()
     return self.degraded_mode

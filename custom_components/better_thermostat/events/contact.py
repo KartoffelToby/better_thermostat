@@ -221,6 +221,24 @@ async def contact_queue(self, role: ContactRole):
                     # make sure the current state is the suggested change state to prevent a false positive:
                     if current_contact_state == contact_event_to_process:
                         setattr(self, role.open_attr, contact_event_to_process)
+                        # Fire a logbook entry for better UX
+                        from custom_components.better_thermostat.utils.helpers import (
+                            async_fire_logbook_entry,
+                        )
+
+                        is_open = getattr(self, role.open_attr, False)
+                        if is_open:
+                            await async_fire_logbook_entry(
+                                self,
+                                f"{role.kind}_open",
+                                f"turned off because a {role.kind} was opened",
+                            )
+                        else:
+                            await async_fire_logbook_entry(
+                                self,
+                                f"{role.kind}_close",
+                                f"resumed heating because a {role.kind} was closed",
+                            )
                         self.async_write_ha_state()
                         if getattr(self, "in_maintenance", False):
                             # Keep state up to date during maintenance, but defer control

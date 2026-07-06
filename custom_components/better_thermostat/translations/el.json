@@ -221,6 +221,20 @@
       "child_lock_no_trv": {
         "name": "Παιδικό κλείδωμα"
       }
+    },
+    "sensor": {
+      "logbook": {
+        "state": {
+          "window_open": "απενεργοποιήθηκε επειδή άνοιξε ένα παράθυρο",
+          "window_close": "συνέχιση θέρμανσης επειδή έκλεισε ένα παράθυρο",
+          "summer_mode_on": "απενεργοποιήθηκε επειδή η εξωτερική θερμοκρασία είναι πολύ υψηλή",
+          "summer_mode_off": "συνέχιση θέρμανσης επειδή η εξωτερική θερμοκρασία μειώθηκε",
+          "degraded_mode_entered": "εισήλθε σε υποβαθμισμένη λειτουργία επειδή ορισμένοι αισθητήρες δεν είναι διαθέσιμοι",
+          "degraded_mode_resolved": "εξήλθε από υποβαθμισμένη λειτουργία επειδή όλοι οι αισθητήρες είναι διαθέσιμοι",
+          "door_open": "turned off because a door was opened",
+          "door_close": "resumed heating because a door was closed"
+        }
+      }
     }
   },
   "device_automation": {
