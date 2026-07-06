@@ -13,7 +13,7 @@ from dataclasses import dataclass
 import logging
 from typing import Final, Literal
 
-from homeassistant.helpers import issue_registry as ir, translation
+from homeassistant.helpers import issue_registry as ir
 
 from custom_components.better_thermostat import DOMAIN
 
@@ -222,35 +222,22 @@ async def contact_queue(self, role: ContactRole):
                     if current_contact_state == contact_event_to_process:
                         setattr(self, role.open_attr, contact_event_to_process)
                         # Fire a logbook entry for better UX
-                        hass_obj = getattr(self, "hass", None)
-                        if hass_obj is not None:
-                            lang = getattr(
-                                getattr(hass_obj, "config", None), "language", "en"
-                            )
-                            translations = await translation.async_get_translations(
-                                hass_obj, lang, "entity", integrations=[DOMAIN]
-                            )
-                            is_open = getattr(self, role.open_attr, False)
-                            if is_open:
-                                log_msg = translations.get(
-                                    f"component.{DOMAIN}.entity.sensor.logbook.state.{role.kind}_open",
-                                    f"turned off because a {role.kind} was opened",
-                                )
-                            else:
-                                log_msg = translations.get(
-                                    f"component.{DOMAIN}.entity.sensor.logbook.state.{role.kind}_close",
-                                    f"resumed heating because a {role.kind} was closed",
-                                )
+                        from custom_components.better_thermostat.utils.helpers import (
+                            async_fire_logbook_entry,
+                        )
 
-                            hass_obj.bus.async_fire(
-                                "logbook_entry",
-                                {
-                                    "name": getattr(self, "name", "Better Thermostat"),
-                                    "message": log_msg,
-                                    "entity_id": getattr(self, "entity_id", None)
-                                    or f"climate.{getattr(self, 'name', 'better_thermostat')}",
-                                    "domain": DOMAIN,
-                                },
+                        is_open = getattr(self, role.open_attr, False)
+                        if is_open:
+                            await async_fire_logbook_entry(
+                                self,
+                                f"{role.kind}_open",
+                                f"turned off because a {role.kind} was opened",
+                            )
+                        else:
+                            await async_fire_logbook_entry(
+                                self,
+                                f"{role.kind}_close",
+                                f"resumed heating because a {role.kind} was closed",
                             )
                         self.async_write_ha_state()
                         if getattr(self, "in_maintenance", False):

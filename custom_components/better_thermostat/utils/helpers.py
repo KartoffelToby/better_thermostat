@@ -1305,3 +1305,40 @@ async def get_device_model(self, entity_id: str) -> str:
         source,
     )
     return selected
+
+
+async def async_fire_logbook_entry(self, key: str, default_msg: str) -> None:
+    """Fire a logbook entry safely, with fallback translations."""
+    from homeassistant.helpers import translation
+    from homeassistant.util import slugify
+
+    from custom_components.better_thermostat.utils.const import DOMAIN
+
+    hass_obj = getattr(self, "hass", None)
+    log_msg = default_msg
+    if hass_obj is not None:
+        try:
+            lang = getattr(getattr(hass_obj, "config", None), "language", "en")
+            translations = await translation.async_get_translations(
+                hass_obj, lang, "entity", integrations=[DOMAIN]
+            )
+            log_msg = translations.get(
+                f"component.{DOMAIN}.entity.sensor.logbook.state.{key}", default_msg
+            )
+        except Exception:
+            pass
+
+        entity_id = getattr(self, "entity_id", None)
+        if not entity_id:
+            name = getattr(self, "name", "better_thermostat")
+            entity_id = f"climate.{slugify(name)}"
+
+        hass_obj.bus.async_fire(
+            "logbook_entry",
+            {
+                "name": getattr(self, "name", "Better Thermostat"),
+                "message": log_msg,
+                "entity_id": entity_id,
+                "domain": DOMAIN,
+            },
+        )
