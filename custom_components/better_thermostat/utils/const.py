@@ -55,6 +55,7 @@ CONF_CALIBRATION: Final = "calibration"
 CONF_CHILD_LOCK: Final = "child_lock"
 CONF_PROTECT_OVERHEATING: Final = "protect_overheating"
 CONF_CALIBRATION_MODE: Final = "calibration_mode"
+CONF_MPC_V2_PLANT_PRESET: Final = "mpc_v2_plant_preset"
 CONF_HEAT_AUTO_SWAPPED: Final = "heat_auto_swapped"
 CONF_MODEL: Final = "model"
 CONF_HOMEMATICIP: Final = "homematicip"
@@ -118,6 +119,20 @@ class CalibrationType(StrEnum):
     DIRECT_VALVE_BASED = "direct_valve_based"
 
 
+class MpcV2PlantPreset(StrEnum):
+    """Plant-prior presets for MPC v2.
+
+    ``AUTO`` lets ``make_plant_prior`` derive ``tau_room_min`` from BT's
+    learned ``heat_loss_rate``; the other three presets are static
+    overrides keyed roughly to room size / envelope speed.
+    """
+
+    AUTO = "auto"
+    SMALL_ROOM = "small_room"
+    MEDIUM_ROOM = "medium_room"
+    LARGE_ROOM = "large_room"
+
+
 class CalibrationMode(StrEnum):
     """Calibration mode."""
 
@@ -126,6 +141,7 @@ class CalibrationMode(StrEnum):
     HEATING_POWER_CALIBRATION = "heating_power_calibration"
     NO_CALIBRATION = "no_calibration"
     MPC_CALIBRATION = "mpc_calibration"
+    MPC_V2_CALIBRATION = "mpc_v2_calibration"
     TPI_CALIBRATION = "tpi_calibration"
     PID_CALIBRATION = "pid_calibration"
 

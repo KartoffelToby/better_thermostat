@@ -118,6 +118,17 @@ ADAPTER_FACTORIES: dict[str, Callable[[], ControllerAdapter]] = {
     ),
 }
 
+# MPC v2 needs the daqp QP solver. Register it only when daqp is importable so
+# the benchmark stays runnable without that optional dependency.
+from custom_components.better_thermostat.utils.calibration.mpc_v2_internals.qp_optimiser import (  # noqa: E402
+    DAQP_AVAILABLE,
+)
+
+if DAQP_AVAILABLE:
+    from .adapters.mpc_v2_adapter import MpcV2Adapter
+
+    ADAPTER_FACTORIES["mpc_v2"] = MpcV2Adapter
+
 PLANT_PROFILES: dict[str, PlantParams] = {
     "fast_small": PROFILE_FAST_SMALL,
     "standard": PROFILE_STANDARD,
@@ -430,9 +441,9 @@ def _replace_plant(scenario: ScenarioConfig, plant: PlantParams) -> ScenarioConf
 
 
 #: Factory keys for adapters that accept ``plant_params=`` and should
-#: receive the override. Other registered factories either ignore the
-#: override (e.g. the RLS-learning variants are meant to discover the
-#: plant from data) or take no constructor arguments.
+#: receive the override. Other registered factories either take no
+#: constructor arguments or take a different config object (e.g. mpc_v2
+#: takes ``MpcV2Params`` with a fixed plant prior).
 PLANT_AWARE_FACTORIES: set[str] = {"ideal_oracle"}
 
 

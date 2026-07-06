@@ -432,6 +432,7 @@ dependencies = [
 [package.dev-dependencies]
 dev = [
     { name = "codespell" },
+    { name = "daqp" },
     { name = "pre-commit" },
     { name = "pyrefly" },
     { name = "pytest" },
@@ -447,6 +448,7 @@ requires-dist = [{ name = "homeassistant", specifier = ">=2026.6.2" }]
 [package.metadata.requires-dev]
 dev = [
     { name = "codespell", specifier = ">=2.4.2" },
+    { name = "daqp", specifier = ">=0.8.7" },
     { name = "pre-commit", specifier = ">=4.6.0" },
     { name = "pyrefly", specifier = ">=1.1.1" },
     { name = "pytest", specifier = ">=9" },
@@ -807,6 +809,24 @@ wheels = [
     { url = "https://files.pythonhosted.org/packages/1e/75/a2e55f99c16fcac7b5d6c1eb19ad8e00799854d6be5ca845f9259eae1681/cryptography-48.0.0-cp39-abi3-musllinux_1_2_x86_64.whl", hash = "sha256:a5da777e32ffed6f85a7b2b3f7c5cbc88c146bfcd0a1d7baf5fcc6c52ee35dd4", size = 4960575, upload-time = "2026-05-04T22:59:09.851Z" },
     { url = "https://files.pythonhosted.org/packages/b8/23/6e6f32143ab5d8b36ca848a502c4bcd477ae75b9e1677e3530d669062578/cryptography-48.0.0-cp39-abi3-win32.whl", hash = "sha256:77a2ccbbe917f6710e05ba9adaa25fb5075620bf3ea6fb751997875aff4ae4bd", size = 3279117, upload-time = "2026-05-04T22:59:12.019Z" },
     { url = "https://files.pythonhosted.org/packages/9d/9a/0fea98a70cf1749d41d738836f6349d97945f7c89433a259a6c2642eefeb/cryptography-48.0.0-cp39-abi3-win_amd64.whl", hash = "sha256:16cd65b9330583e4619939b3a3843eec1e6e789744bb01e7c7e2e62e33c239c8", size = 3792100, upload-time = "2026-05-04T22:59:14.884Z" },
+]
+
+[[package]]
+name = "daqp"
+version = "0.8.7"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/91/2d/fd713bbd3660d5c5306599dd138a341ff70cff246c7ccffc7a8d586e7004/daqp-0.8.7.tar.gz", hash = "sha256:62cfd3208a9841ffb6a87d145bce930a0e87ecea802a5ffed5d0146c4b133a54", size = 37292, upload-time = "2026-05-19T17:21:44.084Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/ce/a0/958cbc79b84e6c2895ed9ec2bac957f88cb76d8972472c71485f4960b203/daqp-0.8.7-cp314-cp314-macosx_10_15_x86_64.whl", hash = "sha256:e6b8fc906d826538819d7ad296cdd45f52354bc0c76e6b4f5ac1754f16f65e0e", size = 159924, upload-time = "2026-05-19T17:34:27.002Z" },
+    { url = "https://files.pythonhosted.org/packages/c1/69/35d960a4f623b76009076793496f49d1e490a51f649259e5714384e1dd1e/daqp-0.8.7-cp314-cp314-macosx_11_0_arm64.whl", hash = "sha256:404cda6fb82381aa6dac9442c9e3d982c442babada9aeb0ad5ffd94e7fd5c06b", size = 152661, upload-time = "2026-05-19T17:34:27.967Z" },
+    { url = "https://files.pythonhosted.org/packages/f7/d3/cef77ce55a426ccbad23b1a9ef1ec1fe15b379fb6d34160d42386fe029a3/daqp-0.8.7-cp314-cp314-manylinux2014_x86_64.manylinux_2_17_x86_64.manylinux_2_28_x86_64.whl", hash = "sha256:b3f6235e59a87c17e77512be0ab766a66a82c8436f92883e32530eeccadd2002", size = 856320, upload-time = "2026-05-19T17:21:38.022Z" },
+    { url = "https://files.pythonhosted.org/packages/96/89/2d885f8df3642be3597e2699fd3c592698b99b9aa25685d84ff5eac8bcd5/daqp-0.8.7-cp314-cp314-win32.whl", hash = "sha256:7205f2927c38216eb32cdddc07fa51bf6bb7055304d570e762189581ce21ac02", size = 111718, upload-time = "2026-05-19T17:29:07.625Z" },
+    { url = "https://files.pythonhosted.org/packages/be/e5/04c773c37c6fff01bf374628b9e696eeeb1e66ca99a057b3c448e442d3fa/daqp-0.8.7-cp314-cp314-win_amd64.whl", hash = "sha256:32086d721b37ba3a09b2d56f921f334408795c18cdbcede322e46bd57e541064", size = 135270, upload-time = "2026-05-19T17:29:08.857Z" },
+    { url = "https://files.pythonhosted.org/packages/35/4c/79a0358cf660d6c701998003b069e8aaf6c09221b984b09549a70dc496e3/daqp-0.8.7-cp314-cp314t-macosx_10_15_x86_64.whl", hash = "sha256:ffa05f443ec0b452952cc03ae5a79df6dbf8176fa7a9e5820965ef66f1d84439", size = 167425, upload-time = "2026-05-19T17:34:29.365Z" },
+    { url = "https://files.pythonhosted.org/packages/ab/2b/bf47b4881e21c3af7621233fe17d28c68e88b989db56dd95712c49035fb5/daqp-0.8.7-cp314-cp314t-macosx_11_0_arm64.whl", hash = "sha256:81bdd7f5b1b9400b8cb217207882bd2854de15ee3ff0c209ac35b43a455ff5df", size = 161065, upload-time = "2026-05-19T17:34:30.51Z" },
+    { url = "https://files.pythonhosted.org/packages/6f/33/c5c35a1ed74e7d8d3c2ba8f259835bd2fa8f26af3f3e6c7cab0df587f0e6/daqp-0.8.7-cp314-cp314t-manylinux2014_x86_64.manylinux_2_17_x86_64.manylinux_2_28_x86_64.whl", hash = "sha256:39986b1c80eda2d1a03ea12f8d93f559386cca3db751323bc16278d79c1a1d85", size = 834214, upload-time = "2026-05-19T17:21:39.436Z" },
+    { url = "https://files.pythonhosted.org/packages/84/be/9142dd82f49366d90cb226c5612764a99d84e409b6101df22857e014d638/daqp-0.8.7-cp314-cp314t-win32.whl", hash = "sha256:b2daf4cd45f54b208076e69734477c6720051c0573d6b879a116acd35c4d4dd6", size = 124846, upload-time = "2026-05-19T17:29:09.936Z" },
+    { url = "https://files.pythonhosted.org/packages/d1/30/06855fdc2128fc6de9d1ac6ccbfb100dd4de1ae7bff73dcf64d8f246406e/daqp-0.8.7-cp314-cp314t-win_amd64.whl", hash = "sha256:085a352ab1ca33ce2ed40d897ea3502d9c2d59454994990de8b65a6d7298ce2f", size = 154918, upload-time = "2026-05-19T17:29:10.903Z" },
 ]
 
 [[package]]
