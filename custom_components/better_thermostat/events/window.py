@@ -148,12 +148,12 @@ async def window_queue(self):
                         )
                         if self.window_open:
                             log_msg = translations.get(
-                                f"component.{DOMAIN}.logbook.window_open",
+                                f"component.{DOMAIN}.entity.sensor.logbook.state.window_open",
                                 "turned off because a window was opened",
                             )
                         else:
                             log_msg = translations.get(
-                                f"component.{DOMAIN}.logbook.window_close",
+                                f"component.{DOMAIN}.entity.sensor.logbook.state.window_close",
                                 "resumed heating because a window was closed",
                             )
 

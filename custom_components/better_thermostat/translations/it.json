@@ -211,6 +211,18 @@
       "child_lock_no_trv": {
         "name": "Blocco bambini"
       }
+    },
+    "sensor": {
+      "logbook": {
+        "state": {
+          "window_open": "spento perché una finestra è stata aperta",
+          "window_close": "riscaldamento ripreso perché una finestra è stata chiusa",
+          "summer_mode_on": "spento perché la temperatura esterna è troppo alta",
+          "summer_mode_off": "riscaldamento ripreso perché la temperatura esterna è scesa",
+          "degraded_mode_entered": "è entrato in modalità degradata perché alcuni sensori non sono disponibili",
+          "degraded_mode_resolved": "è uscito dalla modalità degradata perché tutti i sensori sono disponibili"
+        }
+      }
     }
   },
   "device_automation": {
@@ -235,13 +247,5 @@
       "set_hvac_mode": "Imposta la modalità HVAC",
       "set_temperature": "Imposta la temperatura target"
     }
-  },
-  "logbook": {
-    "window_open": "spento perché una finestra è stata aperta",
-    "window_close": "riscaldamento ripreso perché una finestra è stata chiusa",
-    "summer_mode_on": "spento perché la temperatura esterna è troppo alta",
-    "summer_mode_off": "riscaldamento ripreso perché la temperatura esterna è scesa",
-    "degraded_mode_entered": "è entrato in modalità degradata perché alcuni sensori non sono disponibili",
-    "degraded_mode_resolved": "è uscito dalla modalità degradata perché tutti i sensori sono disponibili"
   }
 }

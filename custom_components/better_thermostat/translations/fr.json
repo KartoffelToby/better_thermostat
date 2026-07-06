@@ -211,6 +211,18 @@
       "child_lock_no_trv": {
         "name": "Sécurité enfant"
       }
+    },
+    "sensor": {
+      "logbook": {
+        "state": {
+          "window_open": "éteint car une fenêtre a été ouverte",
+          "window_close": "chauffage repris car une fenêtre a été fermée",
+          "summer_mode_on": "éteint car la température extérieure est trop élevée",
+          "summer_mode_off": "chauffage repris car la température extérieure a baissé",
+          "degraded_mode_entered": "est entré en mode dégradé car certains capteurs sont indisponibles",
+          "degraded_mode_resolved": "a quitté le mode dégradé car tous les capteurs sont disponibles"
+        }
+      }
     }
   },
   "device_automation": {
@@ -235,13 +247,5 @@
       "set_hvac_mode": "Définir le mode HVAC",
       "set_temperature": "Définir la température cible"
     }
-  },
-  "logbook": {
-    "window_open": "éteint car une fenêtre a été ouverte",
-    "window_close": "chauffage repris car une fenêtre a été fermée",
-    "summer_mode_on": "éteint car la température extérieure est trop élevée",
-    "summer_mode_off": "chauffage repris car la température extérieure a baissé",
-    "degraded_mode_entered": "est entré en mode dégradé car certains capteurs sont indisponibles",
-    "degraded_mode_resolved": "a quitté le mode dégradé car tous les capteurs sont disponibles"
   }
 }

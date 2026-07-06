@@ -511,10 +511,10 @@ async def check_and_update_degraded_mode(self) -> bool:
         from homeassistant.helpers import translation
 
         translations = await translation.async_get_translations(
-            self.hass, self.hass.config.language, "component", integrations=[DOMAIN]
+            self.hass, self.hass.config.language, "entity", integrations=[DOMAIN]
         )
         log_msg = translations.get(
-            f"component.{DOMAIN}.logbook.degraded_mode_entered",
+            f"component.{DOMAIN}.entity.sensor.logbook.state.degraded_mode_entered",
             "entered degraded mode because some sensors are unavailable",
         )
         self.hass.bus.async_fire(
@@ -545,10 +545,10 @@ async def check_and_update_degraded_mode(self) -> bool:
         from homeassistant.helpers import translation
 
         translations = await translation.async_get_translations(
-            self.hass, self.hass.config.language, "component", integrations=[DOMAIN]
+            self.hass, self.hass.config.language, "entity", integrations=[DOMAIN]
         )
         log_msg = translations.get(
-            f"component.{DOMAIN}.logbook.degraded_mode_resolved",
+            f"component.{DOMAIN}.entity.sensor.logbook.state.degraded_mode_resolved",
             "exited degraded mode because all sensors are available",
         )
         self.hass.bus.async_fire(

@@ -95,12 +95,12 @@ async def check_weather(self) -> bool:
         )
         if not self.call_for_heat:
             log_msg = translations.get(
-                "component.better_thermostat.logbook.summer_mode_on",
+                "component.better_thermostat.entity.sensor.logbook.state.summer_mode_on",
                 "turned off because the outdoor temperature is too high",
             )
         else:
             log_msg = translations.get(
-                "component.better_thermostat.logbook.summer_mode_off",
+                "component.better_thermostat.entity.sensor.logbook.state.summer_mode_off",
                 "resumed heating because the outdoor temperature dropped",
             )
 
