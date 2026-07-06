@@ -492,13 +492,13 @@ async def control_trv(self, heater_entity_id=None):
                 heater_entity_id,
             )
 
-        _new_hvac_mode = handle_window_open(self, _remapped_states)
+        _new_hvac_mode = handle_contact_open(self, _remapped_states)
 
         # if we don't need to heat, we force HVACMode to be off
         if self.call_for_heat is False:
             _new_hvac_mode = HVACMode.OFF
 
-        # Safety override: if boost mode was active but we forced OFF (window/no-heat),
+        # Safety override: if boost mode was active but we forced OFF (open contact/no-heat),
         # ensure valve is reset to 0% to prevent overheating. Only direct-valve
         # calibration types accept valve commands; LOCAL_BASED and
         # TARGET_TEMP_BASED control via offset / setpoint instead.
@@ -649,8 +649,8 @@ async def control_trv(self, heater_entity_id=None):
     return True
 
 
-def handle_window_open(self, _remapped_states):
-    """Override HVAC mode to OFF when window is open.
+def handle_contact_open(self, _remapped_states):
+    """Override HVAC mode to OFF when a window or door contact is open.
 
     Parameters
     ----------
@@ -662,9 +662,10 @@ def handle_window_open(self, _remapped_states):
     Returns
     -------
     HVACMode
-        HVACMode.OFF if window is open, otherwise the remapped system_mode
+        HVACMode.OFF if a window or door is open, otherwise the remapped
+        system_mode
     """
-    if self.window_open:
+    if self.contact_open:
         return HVACMode.OFF
     return _remapped_states.get("system_mode", None)
 

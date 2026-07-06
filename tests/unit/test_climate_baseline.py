@@ -52,6 +52,7 @@ def mock_bt():
     bt.bt_hvac_mode = HVACMode.HEAT
     bt.hvac_mode = HVACMode.HEAT
     bt.window_open = False
+    bt.contact_open = False
     bt.ignore_states = False
     # Hysteresis
     bt._hysteresis = ToleranceHysteresis()
@@ -230,6 +231,7 @@ class TestComputeHvacAction:
     def test_window_open_returns_idle(self, mock_bt):
         """Return IDLE when window is open."""
         mock_bt.window_open = True
+        mock_bt.contact_open = True
         assert self._call(mock_bt) == HVACAction.IDLE
 
     def test_heat_mode_cur_below_threshold(self, mock_bt):
@@ -384,6 +386,7 @@ class TestCalculateHeatingPower:
         mock_bt.hvac_mode = HVACMode.HEAT
         mock_bt.bt_hvac_mode = HVACMode.HEAT
         mock_bt.window_open = False
+        mock_bt.contact_open = False
         mock_bt._should_heat_with_tolerance = lambda prev, tol: (
             BetterThermostat._should_heat_with_tolerance(mock_bt, prev, tol)
         )
@@ -690,6 +693,7 @@ class TestCalculateHeatLoss:
     async def test_window_open_resets_tracking(self, mock_bt):
         """Window open → all tracking values reset."""
         mock_bt.window_open = True
+        mock_bt.contact_open = True
         mock_bt._loss_tracker.start_temp = 21.0
         mock_bt._loss_tracker.start_ts = datetime(2025, 1, 1, tzinfo=UTC)
         mock_bt._loss_tracker.end_temp = 20.5

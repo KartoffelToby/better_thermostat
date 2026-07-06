@@ -11,8 +11,11 @@ from homeassistant.const import CONF_NAME
 from custom_components.better_thermostat.config_flow import _normalize_user_submission
 from custom_components.better_thermostat.utils.const import (
     CONF_COOLER,
+    CONF_DOOR_TIMEOUT,
+    CONF_DOOR_TIMEOUT_AFTER,
     CONF_HEATER,
     CONF_SENSOR,
+    CONF_SENSOR_DOOR,
 )
 
 
@@ -87,3 +90,46 @@ def test_cooler_updated_to_different_entity():
     )
 
     assert normalized[CONF_COOLER] == "climate.new_ac"
+
+
+def test_door_sensor_removed_when_key_absent_from_input():
+    """Clearing the door sensor omits the key; the stored value must be dropped."""
+    base = {
+        CONF_NAME: "Living Room",
+        CONF_HEATER: ["climate.trv"],
+        CONF_SENSOR: "sensor.temp",
+        CONF_SENSOR_DOOR: "binary_sensor.door",
+    }
+    user_input = {
+        CONF_NAME: "Living Room",
+        CONF_HEATER: ["climate.trv"],
+        CONF_SENSOR: "sensor.temp",
+    }
+    normalized = _normalize_user_submission(user_input, mode="options", base=base)
+    assert normalized[CONF_SENSOR_DOOR] is None
+
+
+def test_door_timeouts_normalized_from_duration_dicts():
+    """Door delays submitted as duration dicts are stored as seconds."""
+    user_input = {
+        CONF_NAME: "Living Room",
+        CONF_HEATER: ["climate.trv"],
+        CONF_SENSOR: "sensor.temp",
+        CONF_DOOR_TIMEOUT: {"hours": 0, "minutes": 5, "seconds": 0},
+        CONF_DOOR_TIMEOUT_AFTER: {"hours": 0, "minutes": 0, "seconds": 30},
+    }
+    normalized = _normalize_user_submission(user_input, mode="create")
+    assert normalized[CONF_DOOR_TIMEOUT] == 300
+    assert normalized[CONF_DOOR_TIMEOUT_AFTER] == 30
+
+
+def test_door_timeouts_default_to_zero_on_create():
+    """Omitted door delays default to no delay for new entries."""
+    user_input = {
+        CONF_NAME: "Living Room",
+        CONF_HEATER: ["climate.trv"],
+        CONF_SENSOR: "sensor.temp",
+    }
+    normalized = _normalize_user_submission(user_input, mode="create")
+    assert normalized[CONF_DOOR_TIMEOUT] == 0
+    assert normalized[CONF_DOOR_TIMEOUT_AFTER] == 0

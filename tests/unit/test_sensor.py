@@ -80,8 +80,10 @@ def _make_bt_climate(**overrides):
     bt.heat_loss_rate = None
     bt.real_trvs = {}
     bt.preset_modes = []
+    bt.door_open = False
     for k, v in overrides.items():
         setattr(bt, k, v)
+    bt.contact_open = bool(bt.window_open) or bool(bt.door_open)
     return bt
 
 
@@ -1417,22 +1419,14 @@ class TestEdgeCasesAndPotentialBugs:
         # dt = max(0, now - future) = 0 → alpha = 0 → EMA stays at 20
         assert sensor._ema_value == 20.0
 
-    def test_cleanup_stale_empty_entry_removed(self):
+    @pytest.mark.asyncio
+    async def test_cleanup_stale_empty_entry_removed(self):
         """After all algorithms removed, the entry_id key should be deleted."""
         _ACTIVE_ALGORITHM_ENTITIES["entry_1"] = {}
         # empty dict → should be cleaned up
         hass = MagicMock()
         bt = _make_bt_climate()
-        import asyncio
-
-        # Fresh event loop avoids HA pytest plugin issues with the current loop.
-        loop = asyncio.new_event_loop()
-        try:
-            loop.run_until_complete(
-                _cleanup_stale_algorithm_entities(hass, "entry_1", bt, set())
-            )
-        finally:
-            loop.close()
+        await _cleanup_stale_algorithm_entities(hass, "entry_1", bt, set())
         # The function checks `if not _ACTIVE_ALGORITHM_ENTITIES[entry_id]`
         # and deletes it → entry should be gone
         assert "entry_1" not in _ACTIVE_ALGORITHM_ENTITIES

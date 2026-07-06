@@ -11,10 +11,13 @@
           "temperature_sensor": "Sıcaklık sensörü",
           "humidity_sensor": "Nem sensörü",
           "window_sensors": "Pencere sensörü",
+          "door_sensors": "Kapı sensörü",
           "off_temperature": "Termostatın kapanacağı dış ortam sıcaklığı",
           "tolerance": "Tolerans, termostatın çok sık açılıp kapanmasını önlemek için.",
           "window_off_delay": "Pencere açıldığında termostatın kapanması için gecikme süresi",
           "window_off_delay_after": "Pencere kapandığında termostatın açılması için gecikme süresi",
+          "door_off_delay": "Kapı açıldığında termostatın kapanması için gecikme süresi",
+          "door_off_delay_after": "Kapı kapandığında termostatın açılması için gecikme süresi",
           "outdoor_sensor": "Dış ortam sensörünüz varsa, dış ortam sıcaklığını almak için kullanabilirsiniz",
           "weather": "Dış ortam sıcaklığını almak için hava durumu varlığı",
           "target_temp_step": "Hedef sıcaklık adımı",
@@ -69,10 +72,13 @@
           "temperature_sensor": "Sıcaklık Sensörü",
           "humidity_sensor": "Nem sensörü",
           "window_sensors": "Pencere Sensörü",
+          "door_sensors": "Kapı sensörü",
           "off_temperature": "Termostatın kapanacağı dış ortam sıcaklığı",
           "tolerance": "Tolerans, termostatın çok sık açılıp kapanmasını önlemek için.",
           "window_off_delay": "Pencere açıldığında termostatın kapanması için gecikme süresi",
           "window_off_delay_after": "Pencere kapandığında termostatın açılması için gecikme süresi",
+          "door_off_delay": "Kapı açıldığında termostatın kapanması için gecikme süresi",
+          "door_off_delay_after": "Kapı kapandığında termostatın açılması için gecikme süresi",
           "outdoor_sensor": "Dış ortam sensörünüz varsa, dış ortam sıcaklığını almak için kullanabilirsiniz",
           "weather": "Dış ortam sıcaklığını almak için hava durumu varlığı",
           "target_temp_step": "Hedef sıcaklık adımı",
@@ -126,6 +132,10 @@
     "invalid_window_state": {
       "title": "BT: {name} - geçersiz pencere sensörü durumu",
       "description": "Better Thermostat {name} için pencere sensörü tanınmayan bir durum bildirdi: {state}.\n\nBeklenen durumlar: 'on', 'off', 'true', 'false', 'open', 'closed'.\n\nLütfen pencere sensörü yapılandırmanızı kontrol edin."
+    },
+    "invalid_door_state": {
+      "title": "BT: {name} - geçersiz kapı sensörü durumu",
+      "description": "Better Thermostat {name} için kapı sensörü tanınmayan bir durum bildirdi: {state}.\n\nBeklenen durumlar: 'on', 'off', 'true', 'false', 'open', 'closed'.\n\nLütfen kapı sensörü yapılandırmanızı kontrol edin."
     },
     "invalid_external_temperature": {
       "title": "BT: {name} - geçersiz dış ortam sıcaklığı",

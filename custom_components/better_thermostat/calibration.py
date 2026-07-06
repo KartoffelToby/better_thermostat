@@ -283,7 +283,7 @@ def _compute_mpc_balance(self, entity_id: str):
                 trv_temp_C=trv_state.current_temperature,
                 tolerance_K=float(self.tolerance or 0.0),
                 temp_slope_K_per_min=self.temp_slope,
-                window_open=self.window_open or False,
+                window_open=self.contact_open,
                 heating_allowed=True,
                 bt_name=self.device_name,
                 entity_id=entity_id,
@@ -388,7 +388,7 @@ def _compute_tpi_balance(self, entity_id: str):
                 current_temp_C=self.cur_temp,
                 target_temp_C=self.bt_target_temp,
                 outdoor_temp_C=_get_current_outdoor_temp(self),
-                window_open=self.window_open or False,
+                window_open=self.contact_open,
                 heating_allowed=True,
                 bt_name=self.device_name,
                 entity_id=entity_id,
@@ -435,7 +435,7 @@ def _compute_pid_balance(self, entity_id: str):
         trv_state.calibration_balance = None
         return None, False
 
-    if self.window_open is True:
+    if self.contact_open is True:
         trv_state.calibration_balance = None
         return None, False
 

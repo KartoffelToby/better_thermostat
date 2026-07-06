@@ -11,10 +11,13 @@
           "temperature_sensor": "Externer Temperatursensor",
           "humidity_sensor": "Luftfeuchtigkeitssensor",
           "window_sensors": "Fenstersensor(en)",
+          "door_sensors": "Türsensor(en)",
           "off_temperature": "Außentemperatur, bei welcher das Thermostat abgeschaltet wird.",
           "tolerance": "Toleranz, um zu verhindern, dass das Thermostat zu oft ein- und ausgeschaltet wird.",
           "window_off_delay": "Wartezeit, bevor das Thermostat bei geöffnetem Fenster abgeschaltet wird.",
           "window_off_delay_after": "Wartezeit, bevor das Thermostat bei geschlossenem Fenster angeschaltet wird.",
+          "door_off_delay": "Wartezeit, bevor das Thermostat bei geöffneter Tür abgeschaltet wird.",
+          "door_off_delay_after": "Wartezeit, bevor das Thermostat bei geschlossener Tür angeschaltet wird.",
           "outdoor_sensor": "Wenn ein Außentemperatursensor vorhanden ist, kann dieser anstelle der Wetter-Entität genutzt werden.",
           "weather": "Die Wetter-Entität für die Außentemperatur.",
           "target_temp_step": "Solltemperatur-Schritt",
@@ -69,10 +72,13 @@
           "temperature_sensor": "Externer Temperatursensor",
           "humidity_sensor": "Luftfeuchtigkeitssensor",
           "window_sensors": "Fenstersensor(en)",
+          "door_sensors": "Türsensor(en)",
           "off_temperature": "Außentemperatur, bei welcher das Thermostat abgeschaltet wird.",
           "tolerance": "Toleranz, um zu verhindern, dass das Thermostat zu oft ein- und ausgeschaltet wird.",
           "window_off_delay": "Wartezeit, bevor das Thermostat bei geöffnetem Fenster abgeschaltet wird.",
           "window_off_delay_after": "Wartezeit, bevor das Thermostat bei geschlossenem Fenster angeschaltet wird.",
+          "door_off_delay": "Wartezeit, bevor das Thermostat bei geöffneter Tür abgeschaltet wird.",
+          "door_off_delay_after": "Wartezeit, bevor das Thermostat bei geschlossener Tür angeschaltet wird.",
           "outdoor_sensor": "Wenn ein Außentemperatursensor vorhanden ist, kann dieser anstelle der Wetter-Entität genutzt werden.",
           "weather": "Die Wetter-Entität für die Außentemperatur.",
           "target_temp_step": "Solltemperatur-Schritt",
@@ -126,6 +132,10 @@
     "invalid_window_state": {
       "title": "BT: {name} - ungültiger Fenstersensor-Status",
       "description": "Der Fenstersensor für Better Thermostat {name} hat einen unbekannten Status gemeldet: {state}.\n\nErwartete Status sind: 'on', 'off', 'true', 'false', 'open', 'closed'.\n\nBitte überprüfen Sie Ihre Fenstersensor-Konfiguration."
+    },
+    "invalid_door_state": {
+      "title": "BT: {name} – ungültiger Türsensor-Zustand",
+      "description": "Der Türsensor von Better Thermostat {name} hat einen unbekannten Zustand gemeldet: {state}.\n\nErwartete Zustände sind: 'on', 'off', 'true', 'false', 'open', 'closed'.\n\nBitte prüfe die Konfiguration des Türsensors."
     },
     "invalid_external_temperature": {
       "title": "BT: {name} - ungültige Außentemperatur",
