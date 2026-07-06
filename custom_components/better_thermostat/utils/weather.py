@@ -82,7 +82,6 @@ async def check_weather(self) -> bool:
 
     if self.weather_entity is None and self.outdoor_sensor is None:
         self.call_for_heat = True
-        return True
 
     if old_call_for_heat != self.call_for_heat:
         from custom_components.better_thermostat.utils.helpers import (
