@@ -235,5 +235,13 @@
       "set_hvac_mode": "Set HVAC mode",
       "set_temperature": "Set target temperature"
     }
+  },
+  "logbook": {
+    "window_open": "turned off because a window was opened",
+    "window_close": "resumed heating because a window was closed",
+    "summer_mode_on": "turned off because the outdoor temperature is too high",
+    "summer_mode_off": "resumed heating because the outdoor temperature dropped",
+    "degraded_mode_entered": "entered degraded mode because some sensors are unavailable",
+    "degraded_mode_resolved": "exited degraded mode because all sensors are available"
   }
 }

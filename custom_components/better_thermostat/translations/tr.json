@@ -235,5 +235,13 @@
       "set_hvac_mode": "HVAC modunu ayarla",
       "set_temperature": "Hedef sıcaklığı ayarla"
     }
+  },
+  "logbook": {
+    "window_open": "bir pencere açıldığı için kapatıldı",
+    "window_close": "bir pencere kapatıldığı için ısıtmaya devam edildi",
+    "summer_mode_on": "dış ortam sıcaklığı çok yüksek olduğu için kapatıldı",
+    "summer_mode_off": "dış ortam sıcaklığı düştüğü için ısıtmaya devam edildi",
+    "degraded_mode_entered": "bazı sensörler kullanılamadığı için kısıtlı moda girildi",
+    "degraded_mode_resolved": "tüm sensörler kullanılabilir olduğu için kısıtlı moddan çıkıldı"
   }
 }

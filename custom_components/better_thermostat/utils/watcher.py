@@ -507,6 +507,26 @@ async def check_and_update_degraded_mode(self) -> bool:
             },
         )
         self._degraded_warning_emitted = True
+
+        from homeassistant.helpers import translation
+
+        translations = await translation.async_get_translations(
+            self.hass, self.hass.config.language, "component", integrations=[DOMAIN]
+        )
+        log_msg = translations.get(
+            f"component.{DOMAIN}.logbook.degraded_mode_entered",
+            "entered degraded mode because some sensors are unavailable",
+        )
+        self.hass.bus.async_fire(
+            "logbook_entry",
+            {
+                "name": getattr(self, "name", "Better Thermostat"),
+                "message": log_msg,
+                "entity_id": getattr(self, "entity_id", None)
+                or f"climate.{getattr(self, 'name', 'better_thermostat')}",
+                "domain": DOMAIN,
+            },
+        )
     elif self.degraded_mode and in_grace and not old_degraded:
         _LOGGER.debug(
             "better_thermostat %s: degraded mode during startup grace period "
@@ -521,6 +541,26 @@ async def check_and_update_degraded_mode(self) -> bool:
         )
         ir.async_delete_issue(self.hass, DOMAIN, f"degraded_mode_{self.device_name}")
         self._degraded_warning_emitted = False
+
+        from homeassistant.helpers import translation
+
+        translations = await translation.async_get_translations(
+            self.hass, self.hass.config.language, "component", integrations=[DOMAIN]
+        )
+        log_msg = translations.get(
+            f"component.{DOMAIN}.logbook.degraded_mode_resolved",
+            "exited degraded mode because all sensors are available",
+        )
+        self.hass.bus.async_fire(
+            "logbook_entry",
+            {
+                "name": getattr(self, "name", "Better Thermostat"),
+                "message": log_msg,
+                "entity_id": getattr(self, "entity_id", None)
+                or f"climate.{getattr(self, 'name', 'better_thermostat')}",
+                "domain": DOMAIN,
+            },
+        )
 
     self.async_write_ha_state()
     return self.degraded_mode

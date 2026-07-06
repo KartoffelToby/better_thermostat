@@ -235,5 +235,13 @@
       "set_hvac_mode": "Indstil HVAC-tilstand",
       "set_temperature": "Indstil måltemperatur"
     }
+  },
+  "logbook": {
+    "window_open": "slukket fordi et vindue blev åbnet",
+    "window_close": "genoptog opvarmning fordi et vindue blev lukket",
+    "summer_mode_on": "slukket fordi udendørstemperaturen er for høj",
+    "summer_mode_off": "genoptog opvarmning fordi udendørstemperaturen faldt",
+    "degraded_mode_entered": "gik i degraderet tilstand fordi nogle sensorer er utilgængelige",
+    "degraded_mode_resolved": "forlod degraderet tilstand fordi alle sensorer er tilgængelige"
   }
 }

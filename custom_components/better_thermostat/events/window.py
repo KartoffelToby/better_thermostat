@@ -136,6 +136,37 @@ async def window_queue(self):
                     # make sure the current state is the suggested change state to prevent a false positive:
                     if current_window_state == window_event_to_process:
                         self.window_open = window_event_to_process
+
+                        # Fire a logbook entry for better UX
+                        from homeassistant.helpers import translation
+
+                        translations = await translation.async_get_translations(
+                            self.hass,
+                            self.hass.config.language,
+                            "component",
+                            integrations=[DOMAIN],
+                        )
+                        if self.window_open:
+                            log_msg = translations.get(
+                                f"component.{DOMAIN}.logbook.window_open",
+                                "turned off because a window was opened",
+                            )
+                        else:
+                            log_msg = translations.get(
+                                f"component.{DOMAIN}.logbook.window_close",
+                                "resumed heating because a window was closed",
+                            )
+
+                        self.hass.bus.async_fire(
+                            "logbook_entry",
+                            {
+                                "name": self.name,
+                                "message": log_msg,
+                                "entity_id": self.entity_id,
+                                "domain": DOMAIN,
+                            },
+                        )
+
                         self.async_write_ha_state()
                         if getattr(self, "in_maintenance", False):
                             # Keep state up to date during maintenance, but defer control

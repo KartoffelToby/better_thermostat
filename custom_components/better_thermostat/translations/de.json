@@ -235,5 +235,13 @@
       "set_hvac_mode": "HVAC-Modus setzen",
       "set_temperature": "Zieltemperatur setzen"
     }
+  },
+  "logbook": {
+    "window_open": "ausgeschaltet, da ein Fenster geöffnet wurde",
+    "window_close": "Heizen fortgesetzt, da ein Fenster geschlossen wurde",
+    "summer_mode_on": "ausgeschaltet, da die Außentemperatur zu hoch ist",
+    "summer_mode_off": "Heizen fortgesetzt, da die Außentemperatur gesunken ist",
+    "degraded_mode_entered": "ist in den Notbetrieb gewechselt, da einige Sensoren nicht erreichbar sind",
+    "degraded_mode_resolved": "hat den Notbetrieb beendet, da alle Sensoren wieder erreichbar sind"
   }
 }
