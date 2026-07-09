@@ -209,6 +209,17 @@ def test_main_plant_all_keyword_runs_full_sweep():
     # The "all" keyword expands to every PLANT_PROFILE; runs to completion.
     assert rc == 0
     assert "Score matrix" in out
+    # The expansion must have actually swept more than one plant — a broken
+    # "all" that collapsed to a single plant would never print multiple labels.
+    from tests.benchmark.runner import PLANT_PROFILES
+
+    plant_labels = [name for name in PLANT_PROFILES if f"plant={name}" in out]
+    assert len(plant_labels) >= 2, (
+        f"'--plant all' did not expand to a multi-plant sweep: {plant_labels}"
+    )
+    # Each plant gets its own labelled matrix; the results must not collapse
+    # into a single merged block that averages across unrelated plants.
+    assert "[single-TRV]" not in out
 
 
 def test_main_rejects_non_positive_step_s():

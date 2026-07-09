@@ -20,12 +20,13 @@ def test_mpc_against_s01_runs_to_completion():
     # Metric values are finite numbers (settling may legitimately be inf if
     # the algorithm fails to converge — we don't assert PASS here).
     m = result.metrics
-    assert m.max_overshoot_K >= 0.0
-    assert m.max_undershoot_K >= 0.0
+    # Finite (not NaN/inf) is the real invariant; >= 0 alone would admit inf.
+    assert math.isfinite(m.max_overshoot_K)
+    assert math.isfinite(m.max_undershoot_K)
     assert (m.settling_time_min >= 0.0) or math.isinf(m.settling_time_min)
-    assert m.rmse_tracking_K >= 0.0
-    assert m.valve_cycle_count >= 0
-    assert m.integral_valve_pct_min >= 0.0
+    assert math.isfinite(m.rmse_tracking_K)
+    assert math.isfinite(m.valve_cycle_count)
+    assert math.isfinite(m.integral_valve_pct_min)
 
 
 def test_mpc_run_is_deterministic():
