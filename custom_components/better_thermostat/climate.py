@@ -1966,12 +1966,21 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
         self.async_write_ha_state()
 
         if isinstance(self.all_trvs, list):
-            for trv_conf in self.all_trvs:
-                trv_id = trv_conf.get("trv")
-                if trv_id:
-                    await async_bind_trv_device(
-                        self.hass, self._unique_id, trv_id, self._config_entry_id
-                    )
+            # via_device is single-valued: binding every TRV rewrites the same
+            # BT device row, leaving it attached only to the last valve. Only
+            # bind when there is exactly one TRV; skip for multi-TRV setups.
+            trv_ids = [
+                trv_conf.get("trv") for trv_conf in self.all_trvs if trv_conf.get("trv")
+            ]
+            if len(trv_ids) == 1:
+                await async_bind_trv_device(
+                    self.hass, self._unique_id, trv_ids[0], self._config_entry_id
+                )
+            elif len(trv_ids) > 1:
+                _LOGGER.debug(
+                    "better_thermostat %s: skipping via_device binding for multi-TRV setup",
+                    self.device_name,
+                )
 
         _LOGGER.debug("better_thermostat %s: sleeping 15s...", self.device_name)
         await asyncio.sleep(15)
