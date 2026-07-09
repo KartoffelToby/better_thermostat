@@ -31,11 +31,12 @@ from .plant import PlantModelRC2
 def _try_import_daqp() -> tuple[Any | None, str | None]:
     """Return ``(module, None)`` on success or ``(None, error_message)``.
 
-    ``daqp`` is an optional HA runtime requirement (manifest.json) that may be
-    absent in the dev/CI env and ships no type stubs; importing it by name via
-    ``importlib`` keeps the static checkers from resolving (and flagging) it.
-    The wrapping function also avoids ``reportConstantRedefinition`` on the
-    module-level result flags, which are written once at import.
+    ``daqp`` is an optional dependency — it is not a manifest requirement
+    (it has no aarch64 wheel for the HA Python) and may be absent, and it ships
+    no type stubs; importing it by name via ``importlib`` keeps the static
+    checkers from resolving (and flagging) it. The wrapping function also
+    avoids ``reportConstantRedefinition`` on the module-level result flags,
+    which are written once at import.
     """
     try:
         return importlib.import_module("daqp"), None
