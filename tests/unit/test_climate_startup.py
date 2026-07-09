@@ -5,7 +5,6 @@ _initialize_sensors, _restore_state, _validate_hvac_mode.
 """
 
 import asyncio
-import json
 from unittest.mock import AsyncMock, MagicMock, patch
 
 from homeassistant.components.climate.const import HVACMode

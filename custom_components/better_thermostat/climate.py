@@ -1585,7 +1585,7 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
                             )
                         )
                     )
-                except (TypeError, json.JSONDecodeError):
+                except TypeError, json.JSONDecodeError:
                     _LOGGER.debug(
                         "better_thermostat %s: could not restore preset cool temperatures",
                         self.device_name,
@@ -3090,22 +3090,7 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
                 self.bt_target_cooltemp = self._preset_cool_temperature
                 self._preset_cool_temperature = None
 
-            if (
-                self.cooler_entity_id is not None
-                and self.bt_target_cooltemp is not None
-                and self.bt_target_temp is not None
-                and self.bt_target_cooltemp <= self.bt_target_temp
-            ):
-                step = self.bt_target_temp_step or 0.5
-                self.bt_target_cooltemp = self.bt_target_temp + step
-                _LOGGER.warning(
-                    "better_thermostat %s: Preset %s cooling target adjusted to %.2f"
-                    " to stay above heating target %.2f",
-                    self.device_name,
-                    preset_mode,
-                    self.bt_target_cooltemp,
-                    self.bt_target_temp,
-                )
+            self._enforce_cool_above_heat()
 
             _LOGGER.debug(
                 "better_thermostat %s: After preset change %s -> %s, bt_target_temp=%s, bt_hvac_mode=%s",

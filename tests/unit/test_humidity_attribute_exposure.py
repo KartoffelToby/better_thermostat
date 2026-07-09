@@ -41,6 +41,7 @@ def _make_mock_bt(**overrides):
     bt.last_heating_power_stats = {}
     bt.last_heat_loss_stats = {}
     bt.next_valve_maintenance = None
+    bt._preset_cool_temperatures = {}
     for k, v in overrides.items():
         setattr(bt, k, v)
     return bt
