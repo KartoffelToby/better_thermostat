@@ -6,6 +6,9 @@ to make robust decisions about whether the external temperature should be
 propagated to the target devices.
 """
 
+from __future__ import annotations
+
+from datetime import timedelta
 import logging
 import math
 from time import monotonic
@@ -16,7 +19,7 @@ from homeassistant.helpers import issue_registry as ir
 from homeassistant.helpers.event import async_call_later
 from homeassistant.util import dt as dt_util
 
-from custom_components.better_thermostat.utils.const import CONF_HOMEMATICIP
+from custom_components.better_thermostat.utils.const import CONF_HOMEMATICIP, DOMAIN
 from custom_components.better_thermostat.utils.helpers import (
     convert_to_float_celsius,
     is_reasonable_temperature,
@@ -25,8 +28,6 @@ from custom_components.better_thermostat.utils.helpers import (
 _LOGGER = logging.getLogger(__name__)
 
 
-# is ignored for this time window (seconds).
-FLICKER_REVERT_WINDOW = 45  # can optionally be made configurable later
 # Accept sub-threshold changes if the new value stays stable for this window (seconds)
 PLATEAU_ACCEPT_WINDOW = 120
 
@@ -86,7 +87,7 @@ async def _apply_temperature_update(self, new_temp):
     # Remember previous value as stable pre-measure before updating
     if _cur_q is not None and _cur_q != new_temp_q:
         self.prev_stable_temp = _cur_q
-    # Richtung merken (nur bei echter Änderung)
+    # Remember the direction (only on a real change)
     if _cur_q is not None:
         if new_temp_q > _cur_q:
             self.last_change_direction = 1
@@ -123,17 +124,14 @@ async def _apply_temperature_update(self, new_temp):
             float(new_temp_q),
             float(_ema),
         )
-    # Schreibe den von BT verwendeten Wert (self.cur_temp) ins TRV
+    # Write the value used by BT (self.cur_temp) to the TRV
     try:
         trv_ids = list(self.real_trvs.keys())
         if not trv_ids and hasattr(self, "entity_ids"):
             trv_ids = list(self.entity_ids or [])
         for trv_id in trv_ids:
-            quirks = (
-                self.real_trvs.get(trv_id, {}).get("model_quirks")
-                if hasattr(self, "real_trvs")
-                else None
-            )
+            _trv = self.real_trvs.get(trv_id) if hasattr(self, "real_trvs") else None
+            quirks = _trv.model_quirks if _trv is not None else None
             if quirks and hasattr(quirks, "maybe_set_external_temperature"):
                 await quirks.maybe_set_external_temperature(self, trv_id, self.cur_temp)
             else:
@@ -142,7 +140,7 @@ async def _apply_temperature_update(self, new_temp):
                     self.device_name,
                     trv_id,
                 )
-    except (AttributeError, KeyError, TypeError, ValueError, RuntimeError):
+    except AttributeError, KeyError, TypeError, ValueError, RuntimeError:
         _LOGGER.debug(
             "better_thermostat %s: external_temperature write to TRV failed (non critical)",
             self.device_name,
@@ -188,30 +186,33 @@ async def trigger_temperature_change(self, event):
         "external_temperature",
         unit_of_measurement=new_state.attributes.get("unit_of_measurement"),
     )
-    # Quantisiere auf 2 Dezimalstellen, um FP-Artefakte zu vermeiden
+    # Quantize to 2 decimals to avoid floating-point artifacts
     _incoming_temperature_q = (
         None if _incoming_temperature is None else round(_incoming_temperature, 2)
     )
 
-    # Ensure timestamp exists (first run guard)
-    if self.last_external_sensor_change is None:
-        # Setze einen alten Zeitpunkt, damit erste Änderung akzeptiert wird
-        self.last_external_sensor_change = dt_util.now()
-
-    # Basis-Debounce (Sekunden) für normale Geräte; durch Anti-Flicker können wir hier auf 5s runter
-    # gesetzt werden. HomematicIP erhält unten weiterhin ein höheres Intervall (600s).
+    # Base debounce (seconds) for normal devices; anti-flicker lets us go down to 5s
+    # here. HomematicIP still gets a higher interval (600s) below.
     _time_diff = 5
-    # Signifikanz-Schwelle: 0.11°C (um 0.1°C Rauschen zu filtern).
-    # Wir ignorieren die Toleranz-Einstellung hier, um auch bei größerer Regel-Toleranz
-    # präzise Sensor-Updates zu erhalten.
+    # Significance threshold: 0.11°C (to filter out 0.1°C noise).
+    # We ignore the tolerance setting here so we keep getting precise sensor
+    # updates even with a larger control tolerance.
     _sig_threshold = 0.11
 
     try:
         for trv in self.all_trvs:
             if trv["advanced"][CONF_HOMEMATICIP]:
                 _time_diff = 600
-    except (KeyError, TypeError):
+    except KeyError, TypeError:
         pass
+
+    # First-run guard: seed the timestamp far enough in the past that the
+    # first real update clears the debounce interval finalized above (setting
+    # it to "now" would make the age zero and fail the interval check).
+    if self.last_external_sensor_change is None:
+        self.last_external_sensor_change = dt_util.now() - timedelta(
+            seconds=_time_diff + 1
+        )
 
     if not is_reasonable_temperature(_incoming_temperature_q):
         # raise a ha repair notification
@@ -222,10 +223,10 @@ async def trigger_temperature_change(self, event):
             _incoming_temperature_q,
             new_state.state,
         )
-        # Minimal kompatibler Aufruf (Parameter-Namen angepasst an aktuelle HA API)
+        # Minimal compatible call (parameter names match the current HA API)
         ir.async_create_issue(
             hass=self.hass,
-            domain="better_thermostat",
+            domain=DOMAIN,
             issue_id=f"invalid_external_temperature_{self.device_name}",
             is_fixable=False,
             severity=ir.IssueSeverity.ERROR,
@@ -240,198 +241,18 @@ async def trigger_temperature_change(self, event):
     _now = dt_util.now()
     try:
         _age = (_now - self.last_external_sensor_change).total_seconds()
-    except (TypeError, AttributeError):  # defensiv, sollte nicht auftreten
+    except TypeError, AttributeError:  # defensive, should not happen
         _age = 999999
-    # Gerundete Vergleichswerte
+    # Rounded comparison values
     _cur_q = None if self.cur_temp is None else round(self.cur_temp, 2)
     _diff = None if _cur_q is None else abs(_incoming_temperature_q - _cur_q)
-    # Quantisierte Differenz zur robusten Schwellenprüfung (vermeidet 0.099999-Fehler)
+    # Quantized difference for a robust threshold check (avoids 0.099999 errors)
     _diff_q = None if _diff is None else round(_diff, 2)
     _sig_threshold_q = round(_sig_threshold, 2)
     _is_significant = _cur_q is None or (
         _diff_q is not None and _diff_q >= _sig_threshold_q
     )
     _interval_ok = _age > _time_diff
-
-    # Anti-Flicker: Wenn der neue Wert exakt dem vorherigen stabilen Wert entspricht
-    # (also ein schneller Rücksprung) UND wir kürzlich erst umgestellt haben,
-    # dann ignorieren wir diesen Rücksprung bis das Fenster abläuft.
-    if (
-        False  # Anti-flicker disabled
-        and _cur_q is not None
-        and self.prev_stable_temp is not None
-        and _incoming_temperature_q == round(self.prev_stable_temp, 2)
-        and _incoming_temperature_q != _cur_q
-        and _age < FLICKER_REVERT_WINDOW
-    ):
-        # Plane eine Übernahme nach Ablauf des Revert-Fensters, falls der Sensorwert stabil bleibt
-        try:
-            remaining = max(0.0, float(FLICKER_REVERT_WINDOW) - float(_age))
-        except (ValueError, TypeError):
-            remaining = float(FLICKER_REVERT_WINDOW)
-        # Merke Kandidatenwert und cancel ggf. vorherige Planung
-        cancel_cb = self.flicker_unignore_cancel
-        if callable(cancel_cb):
-            cancel_cb()
-        self.flicker_unignore_cancel = None
-        self.flicker_candidate = _incoming_temperature_q
-
-        def _deadline_cb(_now):  # executed by HA loop, schedule async body
-            async def _apply_if_stable():
-                try:
-                    # Prüfe aktuellen Sensor-Status
-                    sensor_id = self.sensor_entity_id
-                    state = self.hass.states.get(sensor_id) if sensor_id else None
-                    if state is None or state.state in (
-                        STATE_UNAVAILABLE,
-                        STATE_UNKNOWN,
-                        None,
-                    ):
-                        return
-                    _val = convert_to_float_celsius(
-                        str(state.state),
-                        self.device_name,
-                        "external_temperature",
-                        unit_of_measurement=state.attributes.get("unit_of_measurement"),
-                    )
-                    _val_q = None if _val is None else round(_val, 2)
-                    cand = self.flicker_candidate
-                    # Übernehme nur, wenn Kandidatwert unverändert und ungleich cur_temp ist
-                    if _val_q is not None and cand is not None and _val_q == cand:
-                        if _val_q != self.cur_temp:
-                            _LOGGER.debug(
-                                "better_thermostat %s: external_temperature flicker revert auto-accepted after %ss (value=%.2f)",
-                                self.device_name,
-                                FLICKER_REVERT_WINDOW,
-                                _val_q,
-                            )
-                            # Akzeptiere Wert wie im normalen Pfad
-                            _prev = self.cur_temp
-                            if _prev is not None and _prev != _val_q:
-                                self.prev_stable_temp = _prev
-                                if _val_q > _prev:
-                                    self.last_change_direction = 1
-                                elif _val_q < _prev:
-                                    self.last_change_direction = -1
-                            self.cur_temp = _val_q
-                            try:
-                                _update_external_temp_ema(self, float(_val_q))
-                            except Exception:
-                                _LOGGER.debug(
-                                    "better_thermostat %s: external_temperature EMA update failed (non critical)",
-                                    self.device_name,
-                                )
-                            self.last_external_sensor_change = dt_util.now()
-                            # Reset Anti-Flicker-Akkumulatoren
-                            self.accum_delta = 0.0
-                            self.accum_dir = 0
-                            self.accum_since = dt_util.now()
-                            self.pending_temp = None
-                            self.pending_since = None
-                            self.async_write_ha_state()
-                            # Schreibe TRV-External-Temp über Quirks, falls vorhanden
-                            try:
-                                trv_ids = list(self.real_trvs.keys())
-                                if not trv_ids and hasattr(self, "entity_ids"):
-                                    trv_ids = list(self.entity_ids or [])
-                                for trv_id in trv_ids:
-                                    quirks = (
-                                        self.real_trvs.get(trv_id, {}).get(
-                                            "model_quirks"
-                                        )
-                                        if hasattr(self, "real_trvs")
-                                        else None
-                                    )
-                                    if quirks and hasattr(
-                                        quirks, "maybe_set_external_temperature"
-                                    ):
-                                        await quirks.maybe_set_external_temperature(
-                                            self, trv_id, self.cur_temp
-                                        )
-                            except (
-                                AttributeError,
-                                KeyError,
-                                TypeError,
-                                ValueError,
-                                RuntimeError,
-                            ):
-                                _LOGGER.debug(
-                                    "better_thermostat %s: external_temperature write to TRV failed (non critical)",
-                                    self.device_name,
-                                )
-                            if self.control_queue_task is not None:
-                                await self.control_queue_task.put(self)
-                finally:
-                    # Aufräumen
-                    self.flicker_unignore_cancel = None
-                    self.flicker_candidate = None
-
-            # schedule the async part
-            self.hass.loop.create_task(_apply_if_stable())
-
-        self.flicker_unignore_cancel = async_call_later(
-            self.hass, remaining + 0.1, _deadline_cb
-        )
-        _LOGGER.debug(
-            "better_thermostat %s: external_temperature flicker revert ignored (current=%.2f revert=%.2f age=%.1fs < %ss)",
-            self.device_name,
-            _cur_q,
-            _incoming_temperature_q,
-            _age,
-            FLICKER_REVERT_WINDOW,
-        )
-        return
-
-    # Richtungswechsel-Schutz: kleine Gegenbewegungen (<= Schwellwert) innerhalb des Flicker-Fensters ignorieren,
-    # um Ping-Pong um genau 0.10°C zu vermeiden.
-    _dir_now = 0
-    if _cur_q is not None:
-        if _incoming_temperature_q > _cur_q:
-            _dir_now = 1
-        elif _incoming_temperature_q < _cur_q:
-            _dir_now = -1
-    _last_dir = self.last_change_direction
-    _block_flip_small = (
-        False  # Anti-flicker disabled  # noqa: PLR1714
-        and _dir_now != 0
-        and _last_dir != 0
-        and _dir_now != _last_dir
-        and _diff_q is not None
-        and _diff_q <= _sig_threshold_q
-        and _age < FLICKER_REVERT_WINDOW
-    )
-
-    if _block_flip_small:
-        _LOGGER.debug(
-            "better_thermostat %s: external_temperature opposite-direction change ignored "
-            "(current=%.2f new=%.2f diff=%.2f age=%.1fs <= %ss threshold=%.2f)",
-            self.device_name,
-            (_cur_q if _cur_q is not None else float("nan")),
-            _incoming_temperature_q,
-            (_diff if _diff is not None else float("nan")),
-            _age,
-            FLICKER_REVERT_WINDOW,
-            _sig_threshold_q,
-        )
-        return
-
-    # Slope calculation (simple delta per minute)
-    # Disabled in favor of periodic EMA-based slope calculation in climate.py
-    # try:
-    #     now_m = monotonic()
-    #     _last_ts = getattr(self, "_slope_last_ts", None)
-    #     if _last_ts is not None and _cur_q is not None:
-    #         dt_min = max(1e-6, (now_m - _last_ts) / 60.0)
-    #         dT = _incoming_temperature_q - _cur_q  # K
-    #         inst_slope = dT / dt_min  # K/min
-    #         # light smoothing
-    #         if getattr(self, "temp_slope", None) is None:
-    #             self.temp_slope = inst_slope
-    #         else:
-    #             self.temp_slope = 0.7 * self.temp_slope + 0.3 * inst_slope
-    #     setattr(self, "_slope_last_ts", now_m)
-    # except (AttributeError, TypeError, ZeroDivisionError):
-    #     pass
 
     # Accumulation of small changes in the same direction
     _accept_reason = None
@@ -517,7 +338,9 @@ async def trigger_temperature_change(self, event):
         _accept_reason = "plateau"
 
     if _accept_reason is not None:
-        # Verarbeite sofort, wenn Intervall abgelaufen ODER Änderung sehr groß
+        # One of the accept paths above matched (first reading, or a
+        # significant / accumulated / plateau change once the debounce
+        # interval elapsed); log the decision and apply the update.
         _LOGGER.debug(
             "better_thermostat %s: external_temperature update accepted (old=%.2f new=%.2f diff=%.2f "
             "age=%.1fs threshold=%.2f interval=%ss reason=%s accum=%.2f dir=%s)",

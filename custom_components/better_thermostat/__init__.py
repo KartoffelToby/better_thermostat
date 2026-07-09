@@ -1,5 +1,7 @@
 """The better_thermostat component."""
 
+from __future__ import annotations
+
 from asyncio import Lock
 import logging
 
@@ -20,12 +22,12 @@ from .utils.const import (
     CONF_SENSOR_WINDOW,
     CONF_WINDOW_TIMEOUT,
     CONF_WINDOW_TIMEOUT_AFTER,
+    DOMAIN,
     CalibrationMode,
 )
 from .utils.helpers import get_device_model
 
 _LOGGER = logging.getLogger(__name__)
-DOMAIN = "better_thermostat"
 PLATFORMS = [Platform.CLIMATE, Platform.SENSOR, Platform.NUMBER, Platform.SWITCH]
 CONFIG_SCHEMA = vol.Schema({DOMAIN: vol.Schema({})}, extra=vol.ALLOW_EXTRA)
 
@@ -52,8 +54,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         )
     except Exception:
         _LOGGER.exception(
-            "better_thermostat: Fehler beim Laden der Plattformen für Entry %s",
-            entry.entry_id,
+            "better_thermostat: error loading platforms for entry %s", entry.entry_id
         )
         return False
     entry.async_on_unload(entry.add_update_listener(config_entry_update_listener))
@@ -107,12 +108,6 @@ async def async_remove_entry(hass: HomeAssistant, entry: ConfigEntry) -> None:
 
     for eid in entity_ids:
         ir.async_delete_issue(hass, DOMAIN, f"missing_entity_{eid}")
-
-
-async def async_reload_entry(hass: HomeAssistant, config_entry: ConfigEntry) -> None:
-    """Reload the config entry."""
-    await async_unload_entry(hass, config_entry)
-    await async_setup_entry(hass, config_entry)
 
 
 async def async_migrate_entry(hass, config_entry: ConfigEntry):

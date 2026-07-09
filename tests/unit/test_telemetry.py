@@ -3,6 +3,7 @@
 import json
 from unittest.mock import MagicMock
 
+from custom_components.better_thermostat.trv import Trv
 from custom_components.better_thermostat.utils.telemetry import (
     collect_balance_attrs,
     collect_cycle_telemetry,
@@ -93,8 +94,12 @@ class TestCollectBalanceAttrs:
         bt = MagicMock()
         bt.temp_slope = None
         bt.real_trvs = {
-            "climate.a": {"calibration_balance": {"valve_percent": 70, "extra": 1}},
-            "climate.b": {"calibration_balance": {"valve_percent": 30}},
+            "climate.a": Trv.from_legacy_dict(
+                "climate.a", {"calibration_balance": {"valve_percent": 70, "extra": 1}}
+            ),
+            "climate.b": Trv.from_legacy_dict(
+                "climate.b", {"calibration_balance": {"valve_percent": 30}}
+            ),
         }
         out = collect_balance_attrs(bt)
         parsed = json.loads(out["calibration_balance"])
@@ -105,9 +110,13 @@ class TestCollectBalanceAttrs:
         bt = MagicMock()
         bt.temp_slope = None
         bt.real_trvs = {
-            "climate.a": {"calibration_balance": {"valve_percent": 50}},
-            "climate.b": {},
-            "climate.c": {"calibration_balance": None},
+            "climate.a": Trv.from_legacy_dict(
+                "climate.a", {"calibration_balance": {"valve_percent": 50}}
+            ),
+            "climate.b": Trv.from_legacy_dict("climate.b", {}),
+            "climate.c": Trv.from_legacy_dict(
+                "climate.c", {"calibration_balance": None}
+            ),
         }
         out = collect_balance_attrs(bt)
         parsed = json.loads(out["calibration_balance"])
@@ -122,7 +131,10 @@ class TestCollectBalanceAttrs:
 def _bt_with_pid(trvs, real_trv_entries):
     """Build a mock BT with PID-bearing real_trvs."""
     bt = MagicMock()
-    bt.real_trvs = dict(zip(trvs, real_trv_entries))
+    bt.real_trvs = {
+        trv_id: Trv.from_legacy_dict(trv_id, entry)
+        for trv_id, entry in zip(trvs, real_trv_entries)
+    }
     return bt
 
 

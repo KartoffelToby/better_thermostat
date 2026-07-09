@@ -11,10 +11,13 @@
           "temperature_sensor": "Externer Temperatursensor",
           "humidity_sensor": "Luftfeuchtigkeitssensor",
           "window_sensors": "Fenstersensor(en)",
+          "door_sensors": "Türsensor(en)",
           "off_temperature": "Außentemperatur, bei welcher das Thermostat abgeschaltet wird.",
           "tolerance": "Toleranz, um zu verhindern, dass das Thermostat zu oft ein- und ausgeschaltet wird.",
           "window_off_delay": "Wartezeit, bevor das Thermostat bei geöffnetem Fenster abgeschaltet wird.",
           "window_off_delay_after": "Wartezeit, bevor das Thermostat bei geschlossenem Fenster angeschaltet wird.",
+          "door_off_delay": "Wartezeit, bevor das Thermostat bei geöffneter Tür abgeschaltet wird.",
+          "door_off_delay_after": "Wartezeit, bevor das Thermostat bei geschlossener Tür angeschaltet wird.",
           "outdoor_sensor": "Wenn ein Außentemperatursensor vorhanden ist, kann dieser anstelle der Wetter-Entität genutzt werden.",
           "weather": "Die Wetter-Entität für die Außentemperatur.",
           "target_temp_step": "Solltemperatur-Schritt",
@@ -48,10 +51,11 @@
       }
     },
     "error": {
-      "failed": "Ups, hier stimmt was nicht.",
+      "failed": "Ups, hier stimmt was nicht!",
       "no_name": "Du musst einen Namen vergeben.",
       "no_off_mode": "Dein Gerät ist ein Sonderfall, es hat keinen OFF Modus :(\nBetter Thermostat wird stattdessen das TRV auf den Minimalwert setzen.",
-      "no_outside_temp": "Es kann keine Außentemperatur geladen werden."
+      "no_outside_temp": "Es kann keine Außentemperatur geladen werden.",
+      "no_data": "Es wurden keine Daten empfangen. Bitte versuchen Sie es erneut."
     },
     "abort": {
       "single_instance_allowed": "Es ist nur ein einzelnes BT je realem Thermostat erlaubt.",
@@ -68,10 +72,13 @@
           "temperature_sensor": "Externer Temperatursensor",
           "humidity_sensor": "Luftfeuchtigkeitssensor",
           "window_sensors": "Fenstersensor(en)",
+          "door_sensors": "Türsensor(en)",
           "off_temperature": "Außentemperatur, bei welcher das Thermostat abgeschaltet wird.",
           "tolerance": "Toleranz, um zu verhindern, dass das Thermostat zu oft ein- und ausgeschaltet wird.",
           "window_off_delay": "Wartezeit, bevor das Thermostat bei geöffnetem Fenster abgeschaltet wird.",
           "window_off_delay_after": "Wartezeit, bevor das Thermostat bei geschlossenem Fenster angeschaltet wird.",
+          "door_off_delay": "Wartezeit, bevor das Thermostat bei geöffneter Tür abgeschaltet wird.",
+          "door_off_delay_after": "Wartezeit, bevor das Thermostat bei geschlossener Tür angeschaltet wird.",
           "outdoor_sensor": "Wenn ein Außentemperatursensor vorhanden ist, kann dieser anstelle der Wetter-Entität genutzt werden.",
           "weather": "Die Wetter-Entität für die Außentemperatur.",
           "target_temp_step": "Solltemperatur-Schritt",
@@ -125,6 +132,14 @@
     "invalid_window_state": {
       "title": "BT: {name} - ungültiger Fenstersensor-Status",
       "description": "Der Fenstersensor für Better Thermostat {name} hat einen unbekannten Status gemeldet: {state}.\n\nErwartete Status sind: 'on', 'off', 'true', 'false', 'open', 'closed'.\n\nBitte überprüfen Sie Ihre Fenstersensor-Konfiguration."
+    },
+    "invalid_door_state": {
+      "title": "BT: {name} – ungültiger Türsensor-Zustand",
+      "description": "Der Türsensor von Better Thermostat {name} hat einen unbekannten Zustand gemeldet: {state}.\n\nErwartete Zustände sind: 'on', 'off', 'true', 'false', 'open', 'closed'.\n\nBitte prüfe die Konfiguration des Türsensors."
+    },
+    "invalid_external_temperature": {
+      "title": "BT: {name} - ungültige Außentemperatur",
+      "description": "Der externe Temperatursensor für Better Thermostat {name} hat einen unplausiblen Wert gemeldet: {value}.\n\nDer Messwert lag außerhalb des plausiblen Bereichs und wurde ignoriert. Bitte überprüfen Sie Ihre Temperatursensor-Konfiguration."
     }
   },
   "services": {
@@ -138,12 +153,8 @@
     },
     "reset_pid_learnings": {
       "name": "PID-Lernwerte zurücksetzen",
-      "description": "Löscht alle gelernten PID-Werte (und optional gelernte Öffnungsgrenzen) für diese Entität.",
+      "description": "Löscht alle gelernten PID-Werte für diese Entität.",
       "fields": {
-        "include_open_caps": {
-          "name": "Auch gelernte Öffnungsgrenzen löschen",
-          "description": "Wenn aktiviert, werden auch die gelernten minimalen/maximalen Öffnungsprozente je TRV/Ziel-Bereich gelöscht."
-        },
         "apply_pid_defaults": {
           "name": "PID-Standardwerte nach dem Zurücksetzen anwenden",
           "description": "Wenn aktiviert, wird der aktuelle Ziel-Bereich mit den PID-Standardverstärkungen (kp/ki/kd) vorbelegt. Die Standardwerte können unten überschrieben werden."
@@ -209,6 +220,20 @@
       },
       "child_lock_no_trv": {
         "name": "Kindersicherung"
+      }
+    },
+    "sensor": {
+      "logbook": {
+        "state": {
+          "window_open": "ausgeschaltet, da ein Fenster geöffnet wurde",
+          "window_close": "Heizen fortgesetzt, da ein Fenster geschlossen wurde",
+          "summer_mode_on": "ausgeschaltet, da die Außentemperatur zu hoch ist",
+          "summer_mode_off": "Heizen fortgesetzt, da die Außentemperatur gesunken ist",
+          "degraded_mode_entered": "ist in den Notbetrieb gewechselt, da einige Sensoren nicht erreichbar sind",
+          "degraded_mode_resolved": "hat den Notbetrieb beendet, da alle Sensoren wieder erreichbar sind",
+          "door_open": "abgeschaltet, weil eine Tür geöffnet wurde",
+          "door_close": "heizt wieder, weil eine Tür geschlossen wurde"
+        }
       }
     }
   },

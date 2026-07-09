@@ -4,14 +4,19 @@ This module implements the generic, default behaviour for TRV adapters
 used by Better Thermostat when a device-specific adapter does not exist.
 """
 
+from __future__ import annotations
+
 import asyncio
 import logging
 
 from homeassistant.components.number.const import SERVICE_SET_VALUE
-from homeassistant.const import STATE_UNAVAILABLE, STATE_UNKNOWN, UnitOfTemperature
-from homeassistant.util.unit_conversion import TemperatureConverter
+from homeassistant.const import STATE_UNAVAILABLE, STATE_UNKNOWN
 
-from ..utils.helpers import find_local_calibration_entity, normalize_hvac_mode
+from ..utils.helpers import (
+    celsius_to_system_temperature,
+    find_local_calibration_entity,
+    normalize_hvac_mode,
+)
 from .base import wait_for_calibration_entity_or_timeout
 
 _LOGGER = logging.getLogger(__name__)
@@ -34,25 +39,24 @@ async def init(self, entity_id):
     for it to appear before returning. Returns None after initialization.
     """
     if (
-        self.real_trvs[entity_id]["local_temperature_calibration_entity"] is None
-        and self.real_trvs[entity_id]["calibration"] != 1
+        self.real_trvs[entity_id].local_temperature_calibration_entity is None
+        and self.real_trvs[entity_id].calibration != 1
     ):
-        self.real_trvs[entity_id][
-            "local_temperature_calibration_entity"
-        ] = await find_local_calibration_entity(self, entity_id)
+        self.real_trvs[
+            entity_id
+        ].local_temperature_calibration_entity = await find_local_calibration_entity(
+            self, entity_id
+        )
         _LOGGER.debug(
             "better_thermostat %s: uses local calibration entity %s",
             self.device_name,
-            self.real_trvs[entity_id]["local_temperature_calibration_entity"],
+            self.real_trvs[entity_id].local_temperature_calibration_entity,
         )
-        if (
-            self.real_trvs[entity_id]["local_temperature_calibration_entity"]
-            is not None
-        ):
+        if self.real_trvs[entity_id].local_temperature_calibration_entity is not None:
             await wait_for_calibration_entity_or_timeout(
                 self,
                 entity_id,
-                self.real_trvs[entity_id]["local_temperature_calibration_entity"],
+                self.real_trvs[entity_id].local_temperature_calibration_entity,
             )
         else:
             _LOGGER.warning(
@@ -64,9 +68,9 @@ async def init(self, entity_id):
 
 async def get_current_offset(self, entity_id):
     """Get current offset."""
-    if self.real_trvs[entity_id]["local_temperature_calibration_entity"] is not None:
+    if self.real_trvs[entity_id].local_temperature_calibration_entity is not None:
         state = self.hass.states.get(
-            self.real_trvs[entity_id]["local_temperature_calibration_entity"]
+            self.real_trvs[entity_id].local_temperature_calibration_entity
         )
         if state is None or state.state in (STATE_UNAVAILABLE, STATE_UNKNOWN):
             return 0.0
@@ -74,7 +78,7 @@ async def get_current_offset(self, entity_id):
             # For SELECT entities, remove the 'k' suffix if present (e.g., "1.5k" -> "1.5")
             state_str = str(state.state).replace("k", "")
             return float(state_str)
-        except (ValueError, TypeError):
+        except ValueError, TypeError:
             _LOGGER.warning(
                 "better_thermostat %s: Could not convert calibration offset '%s' to float, using 0",
                 self.device_name,
@@ -87,9 +91,9 @@ async def get_current_offset(self, entity_id):
 
 async def get_offset_step(self, entity_id):
     """Get offset step."""
-    if self.real_trvs[entity_id]["local_temperature_calibration_entity"] is not None:
+    if self.real_trvs[entity_id].local_temperature_calibration_entity is not None:
         state = self.hass.states.get(
-            self.real_trvs[entity_id]["local_temperature_calibration_entity"]
+            self.real_trvs[entity_id].local_temperature_calibration_entity
         )
         if state is None:
             return None
@@ -100,9 +104,9 @@ async def get_offset_step(self, entity_id):
 
 async def get_min_offset(self, entity_id):
     """Get min offset."""
-    if self.real_trvs[entity_id]["local_temperature_calibration_entity"] is not None:
+    if self.real_trvs[entity_id].local_temperature_calibration_entity is not None:
         state = self.hass.states.get(
-            self.real_trvs[entity_id]["local_temperature_calibration_entity"]
+            self.real_trvs[entity_id].local_temperature_calibration_entity
         )
         if state is None:
             return -6.0
@@ -115,7 +119,7 @@ async def get_min_offset(self, entity_id):
                     # Extract numeric values from options (remove 'k' suffix)
                     values = [float(opt.replace("k", "")) for opt in options]
                     return min(values)
-                except (ValueError, TypeError):
+                except ValueError, TypeError:
                     return -6.0
             return -6.0
 
@@ -127,9 +131,9 @@ async def get_min_offset(self, entity_id):
 
 async def get_max_offset(self, entity_id):
     """Get max offset."""
-    if self.real_trvs[entity_id]["local_temperature_calibration_entity"] is not None:
+    if self.real_trvs[entity_id].local_temperature_calibration_entity is not None:
         state = self.hass.states.get(
-            self.real_trvs[entity_id]["local_temperature_calibration_entity"]
+            self.real_trvs[entity_id].local_temperature_calibration_entity
         )
         if state is None:
             return 6.0
@@ -142,7 +146,7 @@ async def get_max_offset(self, entity_id):
                     # Extract numeric values from options (remove 'k' suffix)
                     values = [float(opt.replace("k", "")) for opt in options]
                     return max(values)
-                except (ValueError, TypeError):
+                except ValueError, TypeError:
                     return 6.0
             return 6.0
 
@@ -154,11 +158,7 @@ async def get_max_offset(self, entity_id):
 
 async def set_temperature(self, entity_id, temperature):
     """Set new target temperature."""
-    if self.hass.config.units.temperature_unit == UnitOfTemperature.FAHRENHEIT:
-        temperature = TemperatureConverter.convert(
-            temperature, UnitOfTemperature.CELSIUS, UnitOfTemperature.FAHRENHEIT
-        )
-        temperature = round(temperature, 1)
+    temperature = celsius_to_system_temperature(self.hass, temperature)
     await self.hass.services.async_call(
         "climate",
         "set_temperature",
@@ -204,16 +204,16 @@ async def set_hvac_mode(self, entity_id, hvac_mode):
 
 async def set_offset(self, entity_id, offset):
     """Set new target offset."""
-    if self.real_trvs[entity_id]["local_temperature_calibration_entity"] is not None:
+    if self.real_trvs[entity_id].local_temperature_calibration_entity is not None:
         max_calibration = await get_max_offset(self, entity_id)
         min_calibration = await get_min_offset(self, entity_id)
 
         offset = min(max_calibration, offset)
         offset = max(min_calibration, offset)
 
-        calibration_entity = self.real_trvs[entity_id][
-            "local_temperature_calibration_entity"
-        ]
+        calibration_entity = self.real_trvs[
+            entity_id
+        ].local_temperature_calibration_entity
         entity_state = self.hass.states.get(calibration_entity)
 
         # Derive domain safely - from entity_state if available, otherwise from entity_id
@@ -240,7 +240,7 @@ async def set_offset(self, entity_id, offset):
                         for opt in options:
                             try:
                                 parsed_options[opt] = float(str(opt).replace("k", ""))
-                            except (ValueError, TypeError):
+                            except ValueError, TypeError:
                                 continue
 
                         if parsed_options:
@@ -250,7 +250,7 @@ async def set_offset(self, entity_id, offset):
                                 key=lambda opt: abs(parsed_options[opt] - offset),
                             )
                             option_value = closest_option
-                    except (ValueError, TypeError):
+                    except ValueError, TypeError:
                         # If parsing fails, keep original option_value and hope for the best
                         pass
 
@@ -271,14 +271,14 @@ async def set_offset(self, entity_id, offset):
                 context=self.context,
             )
 
-        self.real_trvs[entity_id]["last_calibration"] = offset
+        self.real_trvs[entity_id].last_calibration = offset
         if (
-            self.real_trvs[entity_id]["last_hvac_mode"] is not None
-            and self.real_trvs[entity_id]["last_hvac_mode"] != "off"
+            self.real_trvs[entity_id].last_hvac_mode is not None
+            and self.real_trvs[entity_id].last_hvac_mode != "off"
         ):
             await asyncio.sleep(3)
             await set_hvac_mode(
-                self, entity_id, self.real_trvs[entity_id]["last_hvac_mode"]
+                self, entity_id, self.real_trvs[entity_id].last_hvac_mode
             )
 
         return offset

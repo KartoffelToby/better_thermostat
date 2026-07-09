@@ -11,10 +11,13 @@
           "temperature_sensor": "Sıcaklık sensörü",
           "humidity_sensor": "Nem sensörü",
           "window_sensors": "Pencere sensörü",
+          "door_sensors": "Kapı sensörü",
           "off_temperature": "Termostatın kapanacağı dış ortam sıcaklığı",
           "tolerance": "Tolerans, termostatın çok sık açılıp kapanmasını önlemek için.",
           "window_off_delay": "Pencere açıldığında termostatın kapanması için gecikme süresi",
           "window_off_delay_after": "Pencere kapandığında termostatın açılması için gecikme süresi",
+          "door_off_delay": "Kapı açıldığında termostatın kapanması için gecikme süresi",
+          "door_off_delay_after": "Kapı kapandığında termostatın açılması için gecikme süresi",
           "outdoor_sensor": "Dış ortam sensörünüz varsa, dış ortam sıcaklığını almak için kullanabilirsiniz",
           "weather": "Dış ortam sıcaklığını almak için hava durumu varlığı",
           "target_temp_step": "Hedef sıcaklık adımı",
@@ -51,7 +54,8 @@
       "failed": "Bir şeyler yanlış gitti.",
       "no_name": "Lütfen bir ad girin.",
       "no_off_mode": "Cihazınız çok özel ve kapalı modu yok :(\nBetter Thermostat bunun yerine minimum hedef sıcaklığı kullanacak.",
-      "no_outside_temp": "Dış ortam sıcaklık sensörünüz yok. Better Thermostat bunun yerine hava durumu varlığını kullanacak."
+      "no_outside_temp": "Dış ortam sıcaklık sensörünüz yok. Better Thermostat bunun yerine hava durumu varlığını kullanacak.",
+      "no_data": "Hiçbir veri alınamadı. Lütfen tekrar deneyin."
     },
     "abort": {
       "single_instance_allowed": "Her gerçek termostat için yalnızca tek bir Termostat'a izin verilir.",
@@ -68,10 +72,13 @@
           "temperature_sensor": "Sıcaklık Sensörü",
           "humidity_sensor": "Nem sensörü",
           "window_sensors": "Pencere Sensörü",
+          "door_sensors": "Kapı sensörü",
           "off_temperature": "Termostatın kapanacağı dış ortam sıcaklığı",
           "tolerance": "Tolerans, termostatın çok sık açılıp kapanmasını önlemek için.",
           "window_off_delay": "Pencere açıldığında termostatın kapanması için gecikme süresi",
           "window_off_delay_after": "Pencere kapandığında termostatın açılması için gecikme süresi",
+          "door_off_delay": "Kapı açıldığında termostatın kapanması için gecikme süresi",
+          "door_off_delay_after": "Kapı kapandığında termostatın açılması için gecikme süresi",
           "outdoor_sensor": "Dış ortam sensörünüz varsa, dış ortam sıcaklığını almak için kullanabilirsiniz",
           "weather": "Dış ortam sıcaklığını almak için hava durumu varlığı",
           "target_temp_step": "Hedef sıcaklık adımı",
@@ -125,6 +132,14 @@
     "invalid_window_state": {
       "title": "BT: {name} - geçersiz pencere sensörü durumu",
       "description": "Better Thermostat {name} için pencere sensörü tanınmayan bir durum bildirdi: {state}.\n\nBeklenen durumlar: 'on', 'off', 'true', 'false', 'open', 'closed'.\n\nLütfen pencere sensörü yapılandırmanızı kontrol edin."
+    },
+    "invalid_door_state": {
+      "title": "BT: {name} - geçersiz kapı sensörü durumu",
+      "description": "Better Thermostat {name} için kapı sensörü tanınmayan bir durum bildirdi: {state}.\n\nBeklenen durumlar: 'on', 'off', 'true', 'false', 'open', 'closed'.\n\nLütfen kapı sensörü yapılandırmanızı kontrol edin."
+    },
+    "invalid_external_temperature": {
+      "title": "BT: {name} - geçersiz dış ortam sıcaklığı",
+      "description": "Better Thermostat {name} için dış ortam sıcaklık sensörü mantıksız bir değer bildirdi: {value}.\n\nOkunan değer makul aralığın dışındaydı ve yok sayıldı. Lütfen sıcaklık sensörü yapılandırmanızı kontrol edin."
     }
   },
   "services": {
@@ -138,12 +153,8 @@
     },
     "reset_pid_learnings": {
       "name": "PID öğrenmelerini sıfırla",
-      "description": "Bu varlık için öğrenilen tüm PID durumunu (ve isteğe bağlı olarak öğrenilen açıklık sınırlarını) temizler.",
+      "description": "Bu varlık için öğrenilen tüm PID durumunu temizler.",
       "fields": {
-        "include_open_caps": {
-          "name": "Öğrenilen açıklık sınırlarını da temizle",
-          "description": "Etkinleştirilirse, TRV/hedef aralığı başına öğrenilen minimum/maksimum açıklık yüzdeleri de temizlenir."
-        },
         "apply_pid_defaults": {
           "name": "Sıfırlamadan sonra PID varsayılanlarını uygula",
           "description": "Etkinleştirilirse, geçerli hedef aralıkları PID varsayılan kazançlarıyla (kp/ki/kd) doldurulur. Varsayılanları aşağıda geçersiz kılabilirsiniz."
@@ -209,6 +220,20 @@
       },
       "child_lock_no_trv": {
         "name": "Çocuk kilidi"
+      }
+    },
+    "sensor": {
+      "logbook": {
+        "state": {
+          "window_open": "bir pencere açıldığı için kapatıldı",
+          "window_close": "bir pencere kapatıldığı için ısıtmaya devam edildi",
+          "summer_mode_on": "dış ortam sıcaklığı çok yüksek olduğu için kapatıldı",
+          "summer_mode_off": "dış ortam sıcaklığı düştüğü için ısıtmaya devam edildi",
+          "degraded_mode_entered": "bazı sensörler kullanılamadığı için kısıtlı moda girildi",
+          "degraded_mode_resolved": "tüm sensörler kullanılabilir olduğu için kısıtlı moddan çıkıldı",
+          "door_open": "turned off because a door was opened",
+          "door_close": "resumed heating because a door was closed"
+        }
       }
     }
   },

@@ -5,15 +5,33 @@ floating-point values (e.g., +/- 1e6) for the local calibration. The
 helper functions below normalize values to sensible integer offsets.
 """
 
+from __future__ import annotations
+
 import math
 
+from custom_components.better_thermostat.model_fixes.types import ModelFixHost
 
-def fix_local_calibration(self, entity_id, offset):
+
+def fix_local_calibration(self: ModelFixHost, entity_id: str, offset: float) -> float:
     """Sanitize and normalize a reported calibration offset.
 
     Rounds to the nearest integer (towards ceiling if the room is heating)
     to recover from the erroneous float values produced by some Zigbee
     integrations.
+
+    Parameters
+    ----------
+    self : ModelFixHost
+        Better Thermostat host providing device state and HA access.
+    entity_id : str
+        Entity id of the TRV the offset belongs to.
+    offset : float
+        Local calibration offset reported by the device.
+
+    Returns
+    -------
+    float
+        The normalized integer-valued calibration offset.
     """
     if self.cur_temp < self.bt_target_temp:
         offset = math.ceil(offset)
@@ -23,16 +41,67 @@ def fix_local_calibration(self, entity_id, offset):
     return offset
 
 
-def fix_target_temperature_calibration(self, entity_id, temperature):
-    """No-op target-temperature calibration fix for this model."""
+def fix_target_temperature_calibration(
+    self: ModelFixHost, entity_id: str, temperature: float
+) -> float:
+    """No-op target-temperature calibration fix for this model.
+
+    Parameters
+    ----------
+    self : ModelFixHost
+        Better Thermostat host providing device state and HA access.
+    entity_id : str
+        Entity id of the TRV whose setpoint is calibrated.
+    temperature : float
+        Requested setpoint temperature.
+
+    Returns
+    -------
+    float
+        The unchanged setpoint temperature.
+    """
     return temperature
 
 
-async def override_set_hvac_mode(self, entity_id, hvac_mode):
-    """No override on system mode for this model."""
+async def override_set_hvac_mode(
+    self: ModelFixHost, entity_id: str, hvac_mode: str
+) -> bool:
+    """No override on system mode for this model.
+
+    Parameters
+    ----------
+    self : ModelFixHost
+        Better Thermostat host providing device state and HA access.
+    entity_id : str
+        Entity id of the TRV.
+    hvac_mode : str
+        Requested HVAC mode.
+
+    Returns
+    -------
+    bool
+        True if the model handled the change, otherwise False.
+    """
     return False
 
 
-async def override_set_temperature(self, entity_id, temperature):
-    """No temperature override for this model."""
+async def override_set_temperature(
+    self: ModelFixHost, entity_id: str, temperature: float
+) -> bool:
+    """No temperature override for this model.
+
+    Parameters
+    ----------
+    self : ModelFixHost
+        Better Thermostat host providing device state and HA access.
+    entity_id : str
+        Entity id of the TRV.
+    temperature : float
+        Requested setpoint temperature.
+
+    Returns
+    -------
+    bool
+        True if the model handled the change, otherwise False.
+    """
     return False

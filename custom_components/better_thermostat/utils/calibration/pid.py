@@ -8,15 +8,19 @@ Goals:
 Notes
 -----
 - This module only computes recommendations; writing to the device stays in adapters/controlling.
-- Lightweight per-room state by a `key` (e.g., entity_id): EMA, hysteresis, rate limit.
+- Per-room state (EMA, hysteresis, rate limit) is owned by the caller and passed
+  in explicitly; the ``StateManager`` is the single source of truth.
 """
 
 from __future__ import annotations
 
 from dataclasses import dataclass
 import logging
+import math
 from time import monotonic
-from typing import Any, Protocol, TypedDict
+from typing import Protocol, TypedDict
+
+from .types import CalibrationHost
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -57,6 +61,7 @@ class PIDState:
     # PID-State
     pid_integral: float = 0.0
     pid_last_meas: float | None = None
+    pid_last_error: float | None = None
     pid_last_time: float = 0.0
     pid_kp: float | None = None
     pid_ki: float | None = None
@@ -124,11 +129,6 @@ class PIDParams:
     big_change_threshold_pct: float = 33.0
 
 
-# --- Global State Storage -----------------------------------------------
-
-_PID_STATES: dict[str, PIDState] = {}
-
-
 # --- Helper Functions -----------------------------------------------
 
 
@@ -149,7 +149,8 @@ def compute_pid(
     key: str,
     inp_current_temp_ema_C: float | None = None,
     max_opening_pct: float | None = None,
-    state: PIDState | None = None,
+    *,
+    state: PIDState,
 ) -> tuple[float, PIDDebugInfo, PIDState]:
     """Compute PID-based valve opening percentage.
 
@@ -172,9 +173,9 @@ def compute_pid(
     max_opening_pct:
         Optional maximum valve opening percentage.
     state:
-        Mutable controller state.  When ``None`` the function falls back
-        to the module-level ``_PID_STATES`` dict for backwards
-        compatibility, but callers are encouraged to pass state explicitly.
+        Mutable controller state, owned by the caller (typically read from
+        and written back to the ``StateManager``).  It is mutated in place
+        and returned.
 
     Returns
     -------
@@ -183,12 +184,13 @@ def compute_pid(
     """
     now = monotonic()
 
-    # --- Resolve state ---
-    if state is None:
-        st = _PID_STATES.setdefault(key, PIDState())
-    else:
-        st = state
-        _PID_STATES[key] = st
+    st = state
+
+    st, pathology = sanitize_pid_state(st, params)
+    if pathology is not None:
+        _LOGGER.warning(
+            "better_thermostat: healed poisoned PID state for %s (%s)", key, pathology
+        )
 
     max_opening = 100.0
     if isinstance(max_opening_pct, (int, float)):
@@ -231,7 +233,7 @@ def compute_pid(
     if dt <= 0 or dt < 1.0:
         dt = 1.0
 
-    # Initialisiere lernende Gains (einmalig) mit übergebenen Params
+    # Initialize the learned gains once from the passed-in params
     if st.pid_kp is None:
         st.pid_kp = params.kp
     if st.pid_ki is None:
@@ -241,7 +243,7 @@ def compute_pid(
 
     # Remove duplicate integrator update - only use conditional anti-windup below
 
-    # Ableitung
+    # Derivative
     d_term = 0.0
     p_term: float | None = None
     i_term: float | None = None
@@ -255,10 +257,10 @@ def compute_pid(
             # Use effective current temperature (EMA) for derivative
             meas_now = current_temp
             if meas_now is not None:
-                # EMA-Glättung nur für den D-Kanal
+                # EMA smoothing for the D channel only
                 try:
                     a = max(0.0, min(1.0, float(params.d_smoothing_alpha)))
-                except (TypeError, ValueError):
+                except TypeError, ValueError:
                     a = 0.5
                 prev = st.pid_last_meas
                 smoothed = (
@@ -267,14 +269,15 @@ def compute_pid(
                 if prev is not None:
                     d_meas = (smoothed - prev) / dt
                     d_term = -float(st.pid_kd) * d_meas
-                # Update des gespeicherten (geglätteten) Messwerts erfolgt nach u-Berechnung unten
-    # Derivative on error (benötigt letzten Fehler – approximiert über letzten Messwert)
-    elif dt > 0 and st.pid_last_meas is not None:
-        last_e = inp_target_temp_C - st.pid_last_meas
-        d_err = (e - last_e) / dt
+                # Stored (smoothed) measurement is updated after the u calculation below
+    # Derivative on error: use the previous cycle's stored error so a setpoint
+    # change produces a derivative kick. This is what distinguishes the mode
+    # from derivative-on-measurement above, where the setpoint term cancels.
+    elif dt > 0 and st.pid_last_error is not None:
+        d_err = (e - st.pid_last_error) / dt
         d_term = float(st.pid_kd) * d_err
 
-    # Aktualisiere die Slope-EMA auch im PID-Modus (für Logging/Diagnose)
+    # Update the slope EMA in PID mode too (for logging/diagnostics)
     try:
         s_in = inp_temp_slope_K_per_min
         if s_in is not None:
@@ -285,24 +288,24 @@ def compute_pid(
     except Exception:
         pass
 
-    # Proportionalterm
+    # Proportional term
     p_term = float(st.pid_kp) * e
 
-    # Konditionales Anti-Windup: nur integrieren, wenn nicht gesättigt
+    # Conditional anti-windup: only integrate when not saturated
     aw_blocked = False
     i_relief = False
     i_prev = st.pid_integral
     i_prop = i_prev
     if dt > 0:
-        # Vorschlag für Integrator-Update (vorläufig)
+        # Proposed integrator update (tentative)
         i_prop = i_prev + float(st.pid_ki) * e * dt
-        # Klammern
+        # Clamp
         i_prop = max(params.i_min, min(params.i_max, i_prop))
-        # Vorläufige Stellgröße ohne Sättigung prüfen
+        # Tentative control output before checking saturation
         u_prop = p_term + i_prop + d_term
-        # Gesättigte Stellgröße
+        # Saturated control output
         u_sat = max(0.0, min(max_opening, u_prop))
-        # Falls gesättigt und Fehler die Sättigung verstärken würde → Integration blockieren
+        # If saturated and the error would worsen saturation, block integration
         if (u_prop > u_sat and e > 0) or (u_prop < u_sat and e < 0):
             i_term = i_prev
             aw_blocked = True
@@ -311,26 +314,31 @@ def compute_pid(
     else:
         i_term = i_prev
 
-    # Integrator-Entlastung nahe Soll: Wenn sich das Vorzeichen des Fehlers ändert
-    # und wir innerhalb der near-Band sind, reduziere den Integrator leicht,
-    # damit früher geöffnet/geschlossen wird.
+    # Integrator relief near setpoint: when the error changes sign and we are
+    # within the near band, reduce the integrator slightly so the valve opens
+    # or closes earlier.
     try:
         cur_sign = 1 if e > 0 else (-1 if e < 0 else 0)
         if (
             st.last_error_sign is not None
+            and st.last_error_sign != 0
             and cur_sign not in (0, st.last_error_sign)
             and abs(delta_T or 0.0) <= params.steady_state_band_K
         ):
-            decay = 0.8  # 20% Entlastung
+            decay = 0.8  # 20% relief
             i_term *= decay
             i_relief = True
     except Exception:
         pass
 
-    # Endgültige Stellgröße
+    # Final control output
     u = p_term + i_term + d_term  # PID
-    # Integrator-Zustand nur übernehmen, wenn nicht blockiert
-    if not aw_blocked:
+    # Commit the integrator state when integration was not anti-windup blocked.
+    # Integrator relief only moves the value toward zero (de-saturating), so a
+    # relief adjustment must still be persisted even when anti-windup blocked
+    # this cycle's growth; otherwise the relief is applied to the output but
+    # silently forgotten for the next cycle.
+    if not aw_blocked or i_relief:
         st.pid_integral = i_term
 
     # --- Slew-Rate & Hold-Time Logic ---
@@ -381,35 +389,40 @@ def compute_pid(
     # Update last_percent
     st.last_percent = percent
 
-    # PID-States aktualisieren (für D-Anteil Messwert speichern)
+    # Update PID state (store the measurement for the D term)
     if params.d_on_measurement:
         base = current_temp
         try:
             a = max(0.0, min(1.0, float(params.d_smoothing_alpha)))
-        except (TypeError, ValueError):
+        except TypeError, ValueError:
             a = 0.5
         if base is not None:
             prev = st.pid_last_meas
             st.pid_last_meas = base if prev is None else ((1.0 - a) * prev + a * base)
     else:
         st.pid_last_meas = current_temp
+    # Refresh the last error together with pid_last_time on every cycle,
+    # regardless of the derivative mode. Otherwise a switch back to
+    # derivative-on-error would pair a stale error with a fresh timestamp and
+    # compute a spurious derivative spike.
+    st.pid_last_error = e
     st.pid_last_time = now
 
-    # Fehler-Vorzeichen für nächsten Zyklus merken
+    # Remember the error sign for the next cycle
     try:
         st.last_error_sign = 1 if e > 0 else (-1 if e < 0 else 0)
     except Exception:
         pass
 
-    # Optionales Auto-Tuning (konservativ)
+    # Optional auto-tuning (conservative)
     if params.auto_tune:
         _auto_tune_pid(
             params, st, percent, delta_T, inp_temp_slope_K_per_min or 0.0, now
         )
 
-    # Debug-Werte ablegen
+    # Store debug values
     try:
-        # Basale Debug-Infos (auch für Graphen)
+        # Basic debug info (also for graphs)
         pid_dbg = {
             "mode": "pid",
             "dt_s": _r(dt, 2),
@@ -421,13 +434,13 @@ def compute_pid(
             "kp": float(st.pid_kp) if st.pid_kp is not None else None,
             "ki": float(st.pid_ki) if st.pid_ki is not None else None,
             "kd": float(st.pid_kd) if st.pid_kd is not None else None,
-            # Anti-Windup-Indikator
+            # Anti-windup indicator
             "anti_windup_blocked": aw_blocked,
             "i_relief": i_relief,
-            # Slope (Input und EMA)
+            # Slope (input and EMA)
             "slope_in": _r(inp_temp_slope_K_per_min, 3),
             "slope_ema": _r(st.ema_slope, 3),
-            # Messwerte
+            # Measurements
             "meas_current_used": _r(current_temp, 2),
             "meas_external_raw": _r(inp_current_temp_C, 2),
             "meas_trv_C": _r(inp_trv_temp_C, 2),
@@ -463,18 +476,18 @@ def _auto_tune_pid(
     slope: float,
     now_ts: float,
 ) -> None:
-    """Sehr konservatives Auto-Tuning basierend auf einfachen Heuristiken.
+    """Very conservative auto-tuning based on simple heuristics.
 
-    Ziele:
-    - Bei häufigem Overshoot (ΔT wechselt Vorzeichen, Peak > overshoot_threshold) → kp etwas runter, kd etwas rauf.
-    - Bei Trägheit (ΔT > band_near und Slope sehr klein) → ki etwas rauf (nur moderat).
-    - Im quasi-stationären Zustand (|ΔT| < steady_state_band und Prozent klein) → ki etwas runter zur Drift-Vermeidung.
-    - Mindestabstand zwischen Anpassungen (tune_min_interval_s), Clamp der Gains in Grenzen.
+    Goals:
+    - On frequent overshoot (ΔT changes sign, peak > overshoot_threshold): lower kp a bit, raise kd a bit.
+    - On sluggishness (ΔT > band_near and slope very small): raise ki a bit (moderately).
+    - In quasi-steady state (|ΔT| < steady_state_band and small percent): lower ki a bit to avoid drift.
+    - Minimum interval between adjustments (tune_min_interval_s), clamp the gains within limits.
     """
     try:
         if delta_T is None:
             return
-        # Mindestabstand
+        # Minimum interval
         if (now_ts - st.last_tune_ts) < params.tune_min_interval_s:
             return
         sign = 1 if delta_T > 0 else (-1 if delta_T < 0 else 0)
@@ -493,14 +506,14 @@ def _auto_tune_pid(
         ki = float(st.pid_ki or params.ki)
         kd = float(st.pid_kd or params.kd)
 
-        # 1) Overshoot → kp leicht runter, kd leicht rauf, ki leicht runter
+        # 1) Overshoot: kp slightly down, kd slightly up, ki slightly down
         if overshoot:
             kp = max(params.kp_min, kp * params.kp_step_mul)
             kd = min(params.kd_max, kd * params.kd_step_mul)
             ki = max(params.ki_min, ki * params.ki_step_mul_down)
             tuned = True
 
-        # 2) Trägheit: ΔT deutlich > band_near, aber Slope sehr klein -> Ki rauf, Kp rauf
+        # 2) Sluggishness: ΔT clearly > band_near, but slope very small -> Ki up, Kp up
         # Use EMA slope if available for more stable tuning
         check_slope = st.ema_slope if st.ema_slope is not None else slope
         if (
@@ -512,7 +525,7 @@ def _auto_tune_pid(
             kp = min(params.kp_max, max(params.kp_min, kp * params.kp_step_mul_up))
             tuned = True
 
-        # 3) Quasi stationär: |ΔT| < steady_state_band und geringe Stellgröße → Ki leicht runter
+        # 3) Quasi-steady state: |ΔT| < steady_state_band and small control output -> Ki slightly down
         if abs(delta_T) < params.steady_state_band_K and percent < 20.0:
             ki = max(params.ki_min, min(params.ki_max, ki * params.ki_step_mul_down))
             tuned = True
@@ -522,45 +535,65 @@ def _auto_tune_pid(
             st.pid_ki = ki
             st.pid_kd = kd
             st.last_tune_ts = now_ts
-    except (ValueError, TypeError):
+    except ValueError, TypeError:
         # Best-effort: numerische Probleme ignorieren
         return
 
 
-def reset_pid_state(key: str) -> None:
-    """Reset learned/smoothing values for a given room key."""
-    if key in _PID_STATES:
-        del _PID_STATES[key]
+def sanitize_pid_state(
+    state: PIDState, params: PIDParams
+) -> tuple[PIDState, str | None]:
+    """Heal a (possibly poisoned) PID state before computing.
 
-
-def get_pid_state(key: str) -> PIDState | None:
-    """Return the PIDState for key or None if missing.
-
-    This is a small helper used externally to read persisted/learned gains.
+    Non-finite values fall back to their defaults, runaway gains return
+    to the configured defaults, and a wound-up integrator is reset. All
+    pathologies are healed in one pass; the returned pathology names the
+    most severe finding, or None.
     """
-    return _PID_STATES.get(key)
+    pathology: str | None = None
 
+    def _finite(value: float | None) -> bool:
+        return value is None or math.isfinite(value)
 
-def seed_pid_gains(key: str, kp: float, ki: float, kd: float) -> bool:
-    """Seed PID gains for a given key, creating state if missing.
+    if not _finite(state.pid_integral):
+        state.pid_integral = 0.0
+        pathology = "non-finite state"
+    if not _finite(state.pid_last_meas):
+        state.pid_last_meas = None
+        pathology = "non-finite state"
+    if not _finite(state.pid_last_error):
+        state.pid_last_error = None
+        pathology = "non-finite state"
+    for gain_attr in ("pid_kp", "pid_ki", "pid_kd"):
+        if not _finite(getattr(state, gain_attr)):
+            setattr(state, gain_attr, None)
+            pathology = "non-finite state"
 
-    Args:
-        key: PID state key (format: {unique_id}:{entity_id}:{bucket})
-        kp: Proportional gain
-        ki: Integral gain
-        kd: Derivative gain
+    runaway = (
+        (
+            state.pid_kp is not None
+            and not params.kp_min <= state.pid_kp <= params.kp_max
+        )
+        or (
+            state.pid_ki is not None
+            and not params.ki_min <= state.pid_ki <= params.ki_max
+        )
+        or (
+            state.pid_kd is not None
+            and not params.kd_min <= state.pid_kd <= params.kd_max
+        )
+    )
+    if runaway:
+        state.pid_kp = None
+        state.pid_ki = None
+        state.pid_kd = None
+        pathology = pathology or "runaway gains"
 
-    Returns
-    -------
-        True if gains were successfully seeded
-    """
-    if key not in _PID_STATES:
-        _PID_STATES[key] = PIDState()
-    state = _PID_STATES[key]
-    state.pid_kp = kp
-    state.pid_ki = ki
-    state.pid_kd = kd
-    return True
+    if not (params.i_min <= state.pid_integral <= params.i_max):
+        state.pid_integral = 0.0
+        pathology = pathology or "integrator windup"
+
+    return state, pathology
 
 
 # --- Key Builder Helper -----------------------------------------------
@@ -592,7 +625,7 @@ def format_bucket(bucket: float) -> str:
     return f"t{bucket:.1f}"
 
 
-def build_pid_key(self, entity_id: str) -> str:
+def build_pid_key(self: CalibrationHost, entity_id: str) -> str:
     """Build consistent PID state key across all modules.
 
     Format: {unique_id}:{entity_id}:t{target_temp:.1f}
@@ -617,77 +650,3 @@ def build_pid_key(self, entity_id: str) -> str:
         bucket_tag = "tunknown"
 
     return f"{resolve_unique_id(self)}:{entity_id}:{bucket_tag}"
-
-
-# --- Persistence helpers --------------------------------------------
-
-
-def export_pid_states(prefix: str | None = None) -> dict[str, dict[str, Any]]:
-    """Export internal PID state to a JSON-serializable dict.
-
-    prefix: if provided, only include keys starting with this prefix.
-    """
-    out: dict[str, dict[str, Any]] = {}
-    for k, st in _PID_STATES.items():
-        if prefix is not None and not k.startswith(prefix):
-            continue
-        out[k] = {
-            "pid_integral": st.pid_integral,
-            "pid_last_meas": st.pid_last_meas,
-            "pid_last_time": st.pid_last_time,
-            "pid_kp": st.pid_kp,
-            "pid_ki": st.pid_ki,
-            "pid_kd": st.pid_kd,
-            "auto_tune": st.auto_tune,
-            "last_tune_ts": st.last_tune_ts,
-            "last_delta_sign": st.last_delta_sign,
-            "last_error_sign": st.last_error_sign,
-            "previous_abs_error": st.previous_abs_error,
-            "last_abs_error": st.last_abs_error,
-            "ema_slope": st.ema_slope,
-            "last_percent": st.last_percent,
-            "last_output_change_ts": st.last_output_change_ts,
-            "last_target_temp": st.last_target_temp,
-        }
-    return out
-
-
-def import_pid_states(
-    data: dict[str, dict[str, Any]], prefix_filter: str | None = None
-) -> int:
-    """Import previously saved PID states into the module-local cache.
-
-    Returns the number of imported entries. If prefix_filter is provided,
-    only keys starting with that prefix will be imported.
-    """
-    if not isinstance(data, dict):
-        return 0
-    count = 0
-    for k, v in data.items():
-        if prefix_filter is not None and not str(k).startswith(prefix_filter):
-            continue
-        try:
-            st = PIDState(
-                pid_integral=v.get("pid_integral", 0.0),
-                pid_last_meas=v.get("pid_last_meas"),
-                pid_last_time=v.get("pid_last_time", 0.0),
-                pid_kp=v.get("pid_kp"),
-                pid_ki=v.get("pid_ki"),
-                pid_kd=v.get("pid_kd"),
-                auto_tune=v.get("auto_tune"),
-                last_tune_ts=v.get("last_tune_ts", 0.0),
-                last_delta_sign=v.get("last_delta_sign"),
-                last_error_sign=v.get("last_error_sign"),
-                previous_abs_error=v.get("previous_abs_error"),
-                last_abs_error=v.get("last_abs_error"),
-                ema_slope=v.get("ema_slope"),
-                last_percent=v.get("last_percent", 0.0),
-                last_output_change_ts=v.get("last_output_change_ts", 0.0),
-                last_target_temp=v.get("last_target_temp"),
-            )
-            _PID_STATES[str(k)] = st
-            count += 1
-        except (KeyError, TypeError, ValueError):
-            # Ignore malformed entries
-            continue
-    return count

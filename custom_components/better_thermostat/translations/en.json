@@ -11,10 +11,13 @@
           "temperature_sensor": "Temperature sensor",
           "humidity_sensor": "Humidity sensor",
           "window_sensors": "Window sensor",
+          "door_sensors": "Door sensor",
           "off_temperature": "The outdoor temperature when the thermostat should turn off",
           "tolerance": "Tolerance, to prevent the thermostat from turning on and off too often",
           "window_off_delay": "Delay before the thermostat should turn off when the window is opened",
           "window_off_delay_after": "Delay before the thermostat should turn on when the window is closed",
+          "door_off_delay": "Delay before the thermostat should turn off when the door is opened",
+          "door_off_delay_after": "Delay before the thermostat should turn on when the door is closed",
           "outdoor_sensor": "Outdoor temperature sensor",
           "weather": "Weather entity to get the outdoor temperature",
           "target_temp_step": "Target temperature step",
@@ -51,7 +54,8 @@
       "failed": "Something went wrong.",
       "no_name": "Please enter a name.",
       "no_off_mode": "Your device is special and has no off mode :(\nBetter Thermostat will use the minimal target temp instead.",
-      "no_outside_temp": "You have no outside temperature sensor. Better Thermostat will use the weather entity instead."
+      "no_outside_temp": "You have no outside temperature sensor. Better Thermostat will use the weather entity instead.",
+      "no_data": "No data was received. Please try again."
     },
     "abort": {
       "single_instance_allowed": "Only a single Better Thermostat is allowed for each real thermostat.",
@@ -68,10 +72,13 @@
           "temperature_sensor": "Temperature Sensor",
           "humidity_sensor": "Humidity sensor",
           "window_sensors": "Window Sensor",
+          "door_sensors": "Door sensor",
           "off_temperature": "The outdoor temperature when the thermostat should turn off",
           "tolerance": "Tolerance, to prevent the thermostat from turning on and off too often",
           "window_off_delay": "Delay before the thermostat should turn off when the window is opened",
           "window_off_delay_after": "Delay before the thermostat should turn on when the window is closed",
+          "door_off_delay": "Delay before the thermostat should turn off when the door is opened",
+          "door_off_delay_after": "Delay before the thermostat should turn on when the door is closed",
           "outdoor_sensor": "Outdoor temperature sensor",
           "weather": "Weather entity to get the outdoor temperature",
           "target_temp_step": "Target temperature step",
@@ -125,6 +132,14 @@
     "invalid_window_state": {
       "title": "BT: {name} - invalid window sensor state",
       "description": "The window sensor for Better Thermostat {name} reported an unrecognized state: {state}.\n\nExpected states are: 'on', 'off', 'true', 'false', 'open', 'closed'.\n\nPlease check your window sensor configuration."
+    },
+    "invalid_door_state": {
+      "title": "BT: {name} - invalid door sensor state",
+      "description": "The door sensor for Better Thermostat {name} reported an unrecognized state: {state}.\n\nExpected states are: 'on', 'off', 'true', 'false', 'open', 'closed'.\n\nPlease check your door sensor configuration."
+    },
+    "invalid_external_temperature": {
+      "title": "BT: {name} - invalid external temperature",
+      "description": "The external temperature sensor for Better Thermostat {name} reported an implausible value: {value}.\n\nThe reading was outside the plausible range and has been ignored. Please check your temperature sensor configuration."
     }
   },
   "services": {
@@ -134,16 +149,12 @@
     },
     "reset_heating_power": {
       "name": "Reset heating power",
-      "description": "Reset heating power to default value."
+      "description": "Reset the heating power to its default value."
     },
     "reset_pid_learnings": {
       "name": "Reset PID learnings",
-      "description": "Clear all learned PID state (and optionally learned open caps) for this entity.",
+      "description": "Clear all learned PID state for this entity.",
       "fields": {
-        "include_open_caps": {
-          "name": "Also clear learned open caps",
-          "description": "If enabled, also clears learned min/max open percentages per TRV/target bucket."
-        },
         "apply_pid_defaults": {
           "name": "Apply PID defaults after reset",
           "description": "If enabled, seeds the current target bucket(s) with PID default gains (kp/ki/kd). You can override defaults below."
@@ -209,6 +220,20 @@
       },
       "child_lock_no_trv": {
         "name": "Child Lock"
+      }
+    },
+    "sensor": {
+      "logbook": {
+        "state": {
+          "window_open": "turned off because a window was opened",
+          "window_close": "resumed heating because a window was closed",
+          "summer_mode_on": "turned off because the outdoor temperature is too high",
+          "summer_mode_off": "resumed heating because the outdoor temperature dropped",
+          "degraded_mode_entered": "entered degraded mode because some sensors are unavailable",
+          "degraded_mode_resolved": "exited degraded mode because all sensors are available",
+          "door_open": "turned off because a door was opened",
+          "door_close": "resumed heating because a door was closed"
+        }
       }
     }
   },

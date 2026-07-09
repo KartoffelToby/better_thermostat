@@ -16,6 +16,7 @@ from custom_components.better_thermostat.events.temperature import (
     _update_external_temp_ema,
     trigger_temperature_change,
 )
+from custom_components.better_thermostat.trv import Trv
 from custom_components.better_thermostat.utils.const import CONF_HOMEMATICIP
 
 SENSOR_ID = "sensor.external_temp"
@@ -261,7 +262,11 @@ class TestApplyTemperatureUpdate:
     async def test_quirks_external_temp_called(self, mock_bt):
         """Call model_quirks.maybe_set_external_temperature() for each TRV."""
         quirks = AsyncMock()
-        mock_bt.real_trvs = {"climate.trv1": {"model_quirks": quirks}}
+        mock_bt.real_trvs = {
+            "climate.trv1": Trv.from_legacy_dict(
+                "climate.trv1", {"model_quirks": quirks}
+            )
+        }
 
         await _apply_temperature_update(mock_bt, 21.0)
 
@@ -373,6 +378,23 @@ class TestTemperatureAcceptance:
     async def test_first_temp_accepted_when_cur_is_none(self, mock_bt):
         """Accept the first temperature reading when cur_temp is None."""
         mock_bt.cur_temp = None
+        event = _make_event(State(SENSOR_ID, "21.0"))
+
+        await trigger_temperature_change(mock_bt, event)
+
+        mock_bt.control_queue_task.put.assert_awaited_once()
+        assert mock_bt.cur_temp == 21.0
+
+    @pytest.mark.asyncio
+    async def test_first_update_accepted_when_timestamp_uninitialized(self, mock_bt):
+        """First real update passes even with no prior timestamp.
+
+        With a known cur_temp but ``last_external_sensor_change is None`` the
+        guard must seed a timestamp older than the debounce window (not "now"),
+        so the first significant update clears the interval check.
+        """
+        mock_bt.cur_temp = 20.0
+        mock_bt.last_external_sensor_change = None
         event = _make_event(State(SENSOR_ID, "21.0"))
 
         await trigger_temperature_change(mock_bt, event)

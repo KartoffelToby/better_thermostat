@@ -16,6 +16,7 @@ from unittest.mock import MagicMock
 from homeassistant.components.climate import HVACMode
 import pytest
 
+from custom_components.better_thermostat.trv import Trv
 from custom_components.better_thermostat.utils.const import (
     CalibrationMode,
     CalibrationType,
@@ -34,21 +35,24 @@ def mock_bt_instance():
     bt.window_open = False
     bt.tolerance = 0.3
     bt.real_trvs = {
-        "climate.test_trv": {
-            "hvac_modes": [HVACMode.HEAT],  # No OFF mode in hvac_modes
-            "min_temp": 5.0,
-            "max_temp": 30.0,
-            "current_temperature": 19.0,
-            "temperature": 21.0,
-            "advanced": {
-                # Use TARGET_TEMP_BASED with NO_CALIBRATION to go through
-                # the no_off_system_mode logic without needing calibration calcs
-                "calibration": CalibrationType.TARGET_TEMP_BASED,
-                "calibration_mode": CalibrationMode.NO_CALIBRATION,
-                "no_off_system_mode": True,
-                "heat_auto_swapped": False,
+        "climate.test_trv": Trv.from_legacy_dict(
+            "climate.test_trv",
+            {
+                "hvac_modes": [HVACMode.HEAT],  # No OFF mode in hvac_modes
+                "min_temp": 5.0,
+                "max_temp": 30.0,
+                "current_temperature": 19.0,
+                "temperature": 21.0,
+                "advanced": {
+                    # Use TARGET_TEMP_BASED with NO_CALIBRATION to go through
+                    # the no_off_system_mode logic without needing calibration calcs
+                    "calibration": CalibrationType.TARGET_TEMP_BASED,
+                    "calibration_mode": CalibrationMode.NO_CALIBRATION,
+                    "no_off_system_mode": True,
+                    "heat_auto_swapped": False,
+                },
             },
-        }
+        )
     }
     return bt
 
@@ -121,13 +125,13 @@ class TestTrvStateUpdateBug:
 
         mock_bt_instance.bt_hvac_mode = HVACMode.HEAT
         entity_id = "climate.test_trv"
-        min_temp = mock_bt_instance.real_trvs[entity_id]["min_temp"]
+        min_temp = mock_bt_instance.real_trvs[entity_id].min_temp
 
         # Simulate what happens in trigger_trv_change when TRV reports min_temp
         # This is the buggy code from events/trv.py:302-306
         _new_heating_setpoint = min_temp  # TRV reports 5°C
 
-        no_off_system_mode = mock_bt_instance.real_trvs[entity_id]["advanced"].get(
+        no_off_system_mode = mock_bt_instance.real_trvs[entity_id].advanced.get(
             "no_off_system_mode", False
         )
 
@@ -158,10 +162,10 @@ class TestTrvStateUpdateBug:
         mock_bt_instance.window_open = True  # Window is open
 
         entity_id = "climate.test_trv"
-        min_temp = mock_bt_instance.real_trvs[entity_id]["min_temp"]
+        min_temp = mock_bt_instance.real_trvs[entity_id].min_temp
         _new_heating_setpoint = min_temp
 
-        no_off_system_mode = mock_bt_instance.real_trvs[entity_id]["advanced"].get(
+        no_off_system_mode = mock_bt_instance.real_trvs[entity_id].advanced.get(
             "no_off_system_mode", False
         )
 
@@ -199,4 +203,4 @@ class TestControlTrvWithNoOffMode:
 
         assert mock_bt_instance.bt_hvac_mode == HVACMode.HEAT
         assert mock_bt_instance.bt_target_temp == 21.0
-        assert mock_bt_instance.real_trvs["climate.test_trv"]["min_temp"] == 5.0
+        assert mock_bt_instance.real_trvs["climate.test_trv"].min_temp == 5.0

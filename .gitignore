@@ -81,3 +81,6 @@ logs/
 *.swp
 *~
 node_modules
+
+.codebase-memory
+.serena

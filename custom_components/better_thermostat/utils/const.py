@@ -13,8 +13,10 @@ import homeassistant.helpers.config_validation as cv
 from homeassistant.helpers.config_validation import make_entity_service_schema
 import voluptuous as vol
 
-_LOGGER: Final = logging.getLogger(__name__)
+_LOGGER = logging.getLogger(__name__)
 
+
+DOMAIN: Final = "better_thermostat"
 
 DEFAULT_NAME: Final = "Better Thermostat"
 
@@ -39,11 +41,14 @@ CONF_COOLER: Final = "cooler"
 CONF_SENSOR: Final = "temperature_sensor"
 CONF_HUMIDITY: Final = "humidity_sensor"
 CONF_SENSOR_WINDOW: Final = "window_sensors"
+CONF_SENSOR_DOOR: Final = "door_sensors"
 CONF_TARGET_TEMP: Final = "target_temp"
 CONF_WEATHER: Final = "weather"
 CONF_OFF_TEMPERATURE: Final = "off_temperature"
 CONF_WINDOW_TIMEOUT: Final = "window_off_delay"
 CONF_WINDOW_TIMEOUT_AFTER: Final = "window_off_delay_after"
+CONF_DOOR_TIMEOUT: Final = "door_off_delay"
+CONF_DOOR_TIMEOUT_AFTER: Final = "door_off_delay_after"
 CONF_OUTDOOR_SENSOR: Final = "outdoor_sensor"
 CONF_VALVE_MAINTENANCE: Final = "valve_maintenance"
 CONF_MIN_TEMP: Final = "min_temp"
@@ -69,6 +74,7 @@ SUPPORT_FLAGS: Final = (
 )
 
 ATTR_STATE_WINDOW_OPEN: Final = "window_open"
+ATTR_STATE_DOOR_OPEN: Final = "door_open"
 ATTR_STATE_CALL_FOR_HEAT: Final = "call_for_heat"
 ATTR_STATE_LAST_CHANGE: Final = "last_change"
 ATTR_STATE_SAVED_TEMPERATURE: Final = "saved_temperature"
@@ -90,6 +96,7 @@ ATTR_STATE_OFF_TEMPERATURE: Final = "off_temperature"
 # set_eco_mode and save/restore temperature services removed; ECO preset still supported via PRESET_ECO
 SERVICE_RESET_HEATING_POWER: Final = "reset_heating_power"
 SERVICE_RESET_PID_LEARNINGS: Final = "reset_pid_learnings"
+SERVICE_RUN_VALVE_MAINTENANCE: Final = "run_valve_maintenance"
 
 # Optional schema for resetting PID learnings
 BETTERTHERMOSTAT_RESET_PID_SCHEMA: Final = make_entity_service_schema(
@@ -135,6 +142,12 @@ class CalibrationMode(StrEnum):
 # is in OFF / ON mode) and rejected at the BT input boundary.
 MIN_REASONABLE_TEMPERATURE = -50.0
 MAX_REASONABLE_TEMPERATURE = 60.0
+
+# Default temperature bounds / setpoint for the BT climate entity (Celsius),
+# used until the underlying TRV reports its own min/max/target.
+DEFAULT_MIN_TEMP: Final = 0.0
+DEFAULT_MAX_TEMP: Final = 30.0
+DEFAULT_TARGET_TEMP: Final = 5.0
 
 # Heating power calibration constants
 # These bounds represent realistic heating rates for residential heating systems

@@ -11,10 +11,13 @@
           "temperature_sensor": "Snímač teploty",
           "humidity_sensor": "Snímač vlhkosti",
           "window_sensors": "Snímač okna",
+          "door_sensors": "Snímač dverí",
           "off_temperature": "Vonkajšia teplota pri vypnutom termostate",
           "tolerance": "Tolerancia, aby sa zabránilo príliš častému zapínaniu a vypínaniu termostatu.",
           "window_off_delay": "Oneskorenie pred vypnutím termostatu pri otvorení okna",
           "window_off_delay_after": "Oneskorenie pred zapnutím termostatu pri zatvorenom okne",
+          "door_off_delay": "Oneskorenie pred vypnutím termostatu pri otvorení dverí",
+          "door_off_delay_after": "Oneskorenie pred zapnutím termostatu pri zatvorených dverách",
           "outdoor_sensor": "Ak máte vonkajší snímač, môžete pomocou neho zistiť vonkajšiu teplotu",
           "weather": "Váš meteorologický subjekt na zistenie vonkajšej teploty",
           "target_temp_step": "Krok cieľovej teploty",
@@ -51,7 +54,8 @@
       "failed": "niečo sa pokazilo.",
       "no_name": "Zadajte meno.",
       "no_off_mode": "Vaše zariadenie je veľmi špeciálne a nemá režim vypnutia :(\nBetter Thermostat namiesto toho použije minimálnu cieľovú teplotu.",
-      "no_outside_temp": "Nemáte snímač vonkajšej teploty. Better Thermostat namiesto toho použije entitu počasie."
+      "no_outside_temp": "Nemáte snímač vonkajšej teploty. Better Thermostat namiesto toho použije entitu počasie.",
+      "no_data": "Neprijali sa žiadne údaje. Skúste to znova."
     },
     "abort": {
       "single_instance_allowed": "Pre každý real je povolený len jeden termostat.",
@@ -68,10 +72,13 @@
           "temperature_sensor": "Snímač teploty",
           "humidity_sensor": "Snímač vlhkosti",
           "window_sensors": "Snímač okna",
+          "door_sensors": "Snímač dverí",
           "off_temperature": "Vonkajšia teplota pri vypnutí termostatu",
           "tolerance": "Tolerancia, aby sa zabránilo príliš častému zapínaniu a vypínaniu termostatu.",
           "window_off_delay": "Oneskorenie pred vypnutím termostatu pri otvorení okna",
           "window_off_delay_after": "Oneskorenie pred zapnutím termostatu pri zatvorenom okne",
+          "door_off_delay": "Oneskorenie pred vypnutím termostatu pri otvorení dverí",
+          "door_off_delay_after": "Oneskorenie pred zapnutím termostatu pri zatvorených dverách",
           "outdoor_sensor": "Ak máte vonkajší snímač, môžete pomocou neho zistiť vonkajšiu teplotu",
           "weather": "Váš meteorologický subjekt na zistenie vonkajšej teploty",
           "target_temp_step": "Krok cieľovej teploty",
@@ -125,6 +132,14 @@
     "invalid_window_state": {
       "title": "BT: {name} - neplatný stav snímača okna",
       "description": "Snímač okna pre Better Thermostat {name} nahlásil nerozpoznaný stav: {state}.\n\nOčakávané stavy sú: 'on', 'off', 'true', 'false', 'open', 'closed'.\n\nSkontrolujte konfiguráciu snímača okna."
+    },
+    "invalid_door_state": {
+      "title": "BT: {name} - neplatný stav snímača dverí",
+      "description": "Snímač dverí pre Better Thermostat {name} nahlásil nerozpoznaný stav: {state}.\n\nOčakávané stavy sú: 'on', 'off', 'true', 'false', 'open', 'closed'.\n\nSkontrolujte konfiguráciu snímača dverí."
+    },
+    "invalid_external_temperature": {
+      "title": "BT: {name} - neplatná vonkajšia teplota",
+      "description": "Snímač vonkajšej teploty pre Better Thermostat {name} nahlásil nepravdepodobnú hodnotu: {value}.\n\nNameraná hodnota bola mimo pravdepodobného rozsahu a bola ignorovaná. Skontrolujte konfiguráciu snímača teploty."
     }
   },
   "services": {
@@ -138,12 +153,8 @@
     },
     "reset_pid_learnings": {
       "name": "Vynulovať naučené hodnoty PID",
-      "description": "Vymaže všetok naučený stav PID (a voliteľne naučené limity otvorenia) pre túto entitu.",
+      "description": "Vymaže všetok naučený stav PID pre túto entitu.",
       "fields": {
-        "include_open_caps": {
-          "name": "Vymazať aj naučené limity otvorenia",
-          "description": "Ak je povolené, vymažú sa aj naučené minimálne/maximálne percentá otvorenia pre každý TRV/cieľové pásmo."
-        },
         "apply_pid_defaults": {
           "name": "Po vynulovaní použiť predvolené hodnoty PID",
           "description": "Ak je povolené, aktuálne cieľové pásma sa predvyplnia predvolenými zosilneniami PID (kp/ki/kd). Predvolené hodnoty môžete prepísať nižšie."
@@ -209,6 +220,20 @@
       },
       "child_lock_no_trv": {
         "name": "Detská poistka"
+      }
+    },
+    "sensor": {
+      "logbook": {
+        "state": {
+          "window_open": "vypnuté, pretože bolo otvorené okno",
+          "window_close": "vykurovanie obnovené, pretože bolo zatvorené okno",
+          "summer_mode_on": "vypnuté, pretože vonkajšia teplota je príliš vysoká",
+          "summer_mode_off": "vykurovanie obnovené, pretože vonkajšia teplota klesla",
+          "degraded_mode_entered": "vstúpil do núdzového režimu, pretože niektoré senzory sú nedostupné",
+          "degraded_mode_resolved": "ukončil núdzový režim, pretože všetky senzory sú dostupné",
+          "door_open": "turned off because a door was opened",
+          "door_close": "resumed heating because a door was closed"
+        }
       }
     }
   },

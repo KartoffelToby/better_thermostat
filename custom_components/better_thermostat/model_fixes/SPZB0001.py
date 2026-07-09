@@ -4,6 +4,8 @@ Device-specific quirks for SPZB0001 thermostats handled by the
 Better Thermostat integration.
 """
 
+from __future__ import annotations
+
 import logging
 
 from homeassistant.helpers import entity_registry as er
@@ -72,9 +74,9 @@ async def check_operation_mode(self, entity_id, goal: str = "1"):
     return True
 
 
-async def inital_tweak(self, entity_id):
+async def initial_tweak(self, entity_id):
     """Run initial tweaks for the device."""
-    _calibration_type = self.real_trvs[entity_id]["advanced"].get(
+    _calibration_type = self.real_trvs[entity_id].advanced.get(
         "calibration", CalibrationType.TARGET_TEMP_BASED
     )
     if _calibration_type == CalibrationType.DIRECT_VALVE_BASED:

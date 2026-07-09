@@ -16,11 +16,23 @@ echo "Available versions:"
 echo "$AVAILABLE_VERSIONS"
 
 read -p "What HA Version? " VERSION
-echo "Installing ${my_var}!"
+
+if [[ -z "$VERSION" ]]; then
+  echo "Error: No version provided."
+  exit 1
+fi
+if ! grep -qxF "$VERSION" <<< "$AVAILABLE_VERSIONS"; then
+  echo "Error: '$VERSION' is not an available Home Assistant version."
+  exit 1
+fi
+
+echo "Installing ${VERSION}!"
 
 
 cd "$(dirname "$0")/.."
 
-python3 -m pip install homeassistant==$VERSION
+# Pin the requested Home Assistant version in the lockfile, then sync.
+uv lock --upgrade-package "homeassistant==$VERSION"
+uv sync
 
 echo "Done."

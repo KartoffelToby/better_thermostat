@@ -18,6 +18,7 @@ from unittest.mock import AsyncMock
 
 import pytest
 
+from custom_components.better_thermostat.trv import Trv
 from custom_components.better_thermostat.utils.valve_maintenance import (
     MaintenanceTrvInfo,
     build_trv_snapshots,
@@ -41,15 +42,18 @@ def _trv(
     quirks: object | None = None,
     valve_entity: str | None = None,
     calibration: str | None = None,
-) -> dict:
-    """Build a ``real_trvs[entity_id]`` dict for testing."""
-    return {
-        "advanced": {"valve_maintenance": maintenance, "calibration": calibration},
-        "max_temp": max_temp,
-        "min_temp": min_temp,
-        "model_quirks": quirks,
-        "valve_position_entity": valve_entity,
-    }
+) -> Trv:
+    """Build a ``real_trvs[entity_id]`` entry for testing."""
+    return Trv.from_legacy_dict(
+        "climate.trv",
+        {
+            "advanced": {"valve_maintenance": maintenance, "calibration": calibration},
+            "max_temp": max_temp,
+            "min_temp": min_temp,
+            "model_quirks": quirks,
+            "valve_position_entity": valve_entity,
+        },
+    )
 
 
 def _info(
@@ -110,12 +114,12 @@ class TestCollectMaintenanceTrvs:
 
     def test_missing_advanced_key(self):
         """TRV dict without 'advanced' should not crash."""
-        trvs = {"trv1": {"max_temp": 30}}
+        trvs = {"trv1": Trv.from_legacy_dict("trv1", {"max_temp": 30})}
         assert collect_maintenance_trvs(trvs) == []
 
     def test_advanced_is_none(self):
         """advanced=None should not crash."""
-        trvs = {"trv1": {"advanced": None}}
+        trvs = {"trv1": Trv.from_legacy_dict("trv1", {"advanced": None})}
         assert collect_maintenance_trvs(trvs) == []
 
 

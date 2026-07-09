@@ -28,6 +28,11 @@ from custom_components.better_thermostat.sensor import (
     BetterThermostatMpcGainSensor,
     BetterThermostatMpcKaSensor,
     BetterThermostatMpcLossSensor,
+    BetterThermostatPidErrorSensor,
+    BetterThermostatPidKdSensor,
+    BetterThermostatPidKiSensor,
+    BetterThermostatPidKpSensor,
+    BetterThermostatPidOutputSensor,
     BetterThermostatSolarIntensitySensor,
     BetterThermostatTempSlopeSensor,
     BetterThermostatVirtualTempSensor,
@@ -44,6 +49,7 @@ from custom_components.better_thermostat.sensor import (
     async_setup_entry,
     async_unload_entry,
 )
+from custom_components.better_thermostat.trv import Trv
 from custom_components.better_thermostat.utils.const import (
     CONF_CALIBRATION_MODE,
     CalibrationMode,
@@ -74,8 +80,10 @@ def _make_bt_climate(**overrides):
     bt.heat_loss_rate = None
     bt.real_trvs = {}
     bt.preset_modes = []
+    bt.door_open = False
     for k, v in overrides.items():
         setattr(bt, k, v)
+    bt.contact_open = bool(bt.window_open) or bool(bt.door_open)
     return bt
 
 
@@ -406,7 +414,11 @@ class TestMpcSensorState:
     """Tests for MPC sensor state retrieval from calibration_balance debug."""
 
     def _make_trv_with_debug(self, **debug_values):
-        return {"trv_1": {"calibration_balance": {"debug": debug_values}}}
+        return {
+            "trv_1": Trv.from_legacy_dict(
+                "trv_1", {"calibration_balance": {"debug": debug_values}}
+            )
+        }
 
     def test_virtual_temp_reads_from_debug(self):
         """Virtual temp reads from debug."""
@@ -440,14 +452,18 @@ class TestMpcSensorState:
 
     def test_no_calibration_balance_returns_none(self):
         """No calibration balance returns none."""
-        bt = _make_bt_climate(real_trvs={"trv_1": {}})
+        bt = _make_bt_climate(real_trvs={"trv_1": Trv.from_legacy_dict("trv_1", {})})
         sensor = BetterThermostatVirtualTempSensor(bt)
         sensor._update_state()
         assert sensor._attr_native_value is None
 
     def test_no_debug_key_returns_none(self):
         """No debug key returns none."""
-        bt = _make_bt_climate(real_trvs={"trv_1": {"calibration_balance": {}}})
+        bt = _make_bt_climate(
+            real_trvs={
+                "trv_1": Trv.from_legacy_dict("trv_1", {"calibration_balance": {}})
+            }
+        )
         sensor = BetterThermostatVirtualTempSensor(bt)
         sensor._update_state()
         assert sensor._attr_native_value is None
@@ -479,13 +495,74 @@ class TestMpcSensorState:
         """When multiple TRVs exist, the first with debug data should be used."""
         bt = _make_bt_climate(
             real_trvs={
-                "trv_1": {},
-                "trv_2": {"calibration_balance": {"debug": {"mpc_virtual_temp": 23.0}}},
+                "trv_1": Trv.from_legacy_dict("trv_1", {}),
+                "trv_2": Trv.from_legacy_dict(
+                    "trv_2",
+                    {"calibration_balance": {"debug": {"mpc_virtual_temp": 23.0}}},
+                ),
             }
         )
         sensor = BetterThermostatVirtualTempSensor(bt)
         sensor._update_state()
         assert sensor._attr_native_value == 23.0
+
+
+class TestPidSensorState:
+    """Tests for PID sensor state retrieval from calibration_balance debug."""
+
+    def _make_trv_with_debug(self, **debug_values):
+        return {
+            "trv_1": Trv.from_legacy_dict(
+                "trv_1", {"calibration_balance": {"debug": debug_values}}
+            )
+        }
+
+    @pytest.mark.parametrize(
+        ("SensorClass", "debug_key", "value"),
+        [
+            (BetterThermostatPidKpSensor, "kp", 60.0),
+            (BetterThermostatPidKiSensor, "ki", 0.01),
+            (BetterThermostatPidKdSensor, "kd", 2000.0),
+            (BetterThermostatPidOutputSensor, "u", 42.5),
+            (BetterThermostatPidErrorSensor, "e_K", -0.3),
+        ],
+    )
+    def test_reads_value_from_debug(self, SensorClass, debug_key, value):
+        """Each PID sensor reads its debug key from calibration_balance."""
+        bt = _make_bt_climate(real_trvs=self._make_trv_with_debug(**{debug_key: value}))
+        sensor = SensorClass(bt)
+        sensor._update_state()
+        assert sensor._attr_native_value == value
+
+    def test_missing_debug_key_returns_none(self):
+        """A PID sensor whose key is absent from debug reports None."""
+        bt = _make_bt_climate(real_trvs=self._make_trv_with_debug(kp=60.0))
+        sensor = BetterThermostatPidErrorSensor(bt)
+        sensor._update_state()
+        assert sensor._attr_native_value is None
+
+    def test_invalid_debug_value_returns_none(self):
+        """A non-numeric debug value is coerced to None."""
+        bt = _make_bt_climate(real_trvs=self._make_trv_with_debug(kp="bad"))
+        sensor = BetterThermostatPidKpSensor(bt)
+        sensor._update_state()
+        assert sensor._attr_native_value is None
+
+    @pytest.mark.parametrize(
+        "SensorClass",
+        [
+            BetterThermostatPidKpSensor,
+            BetterThermostatPidKiSensor,
+            BetterThermostatPidKdSensor,
+            BetterThermostatPidOutputSensor,
+            BetterThermostatPidErrorSensor,
+        ],
+    )
+    def test_unavailable_when_hvac_off(self, SensorClass):
+        """PID sensors are unavailable when the thermostat is off."""
+        bt = _make_bt_climate(hvac_mode="off")
+        sensor = SensorClass(bt)
+        assert sensor.available is False
 
 
 # ===========================================================================
@@ -570,9 +647,14 @@ class TestGetActiveAlgorithms:
         """Mpc calibration detected."""
         bt = _make_bt_climate(
             real_trvs={
-                "trv_1": {
-                    "advanced": {CONF_CALIBRATION_MODE: CalibrationMode.MPC_CALIBRATION}
-                }
+                "trv_1": Trv.from_legacy_dict(
+                    "trv_1",
+                    {
+                        "advanced": {
+                            CONF_CALIBRATION_MODE: CalibrationMode.MPC_CALIBRATION
+                        }
+                    },
+                )
             }
         )
         result = _get_active_algorithms(bt)
@@ -582,7 +664,9 @@ class TestGetActiveAlgorithms:
         """String values should be auto-converted to CalibrationMode enum."""
         bt = _make_bt_climate(
             real_trvs={
-                "trv_1": {"advanced": {CONF_CALIBRATION_MODE: "mpc_calibration"}}
+                "trv_1": Trv.from_legacy_dict(
+                    "trv_1", {"advanced": {CONF_CALIBRATION_MODE: "mpc_calibration"}}
+                )
             }
         )
         result = _get_active_algorithms(bt)
@@ -592,7 +676,10 @@ class TestGetActiveAlgorithms:
         """Invalid calibration mode skipped."""
         bt = _make_bt_climate(
             real_trvs={
-                "trv_1": {"advanced": {CONF_CALIBRATION_MODE: "totally_invalid_mode"}}
+                "trv_1": Trv.from_legacy_dict(
+                    "trv_1",
+                    {"advanced": {CONF_CALIBRATION_MODE: "totally_invalid_mode"}},
+                )
             }
         )
         result = _get_active_algorithms(bt)
@@ -602,12 +689,22 @@ class TestGetActiveAlgorithms:
         """Multiple trvs different modes."""
         bt = _make_bt_climate(
             real_trvs={
-                "trv_1": {
-                    "advanced": {CONF_CALIBRATION_MODE: CalibrationMode.MPC_CALIBRATION}
-                },
-                "trv_2": {
-                    "advanced": {CONF_CALIBRATION_MODE: CalibrationMode.PID_CALIBRATION}
-                },
+                "trv_1": Trv.from_legacy_dict(
+                    "trv_1",
+                    {
+                        "advanced": {
+                            CONF_CALIBRATION_MODE: CalibrationMode.MPC_CALIBRATION
+                        }
+                    },
+                ),
+                "trv_2": Trv.from_legacy_dict(
+                    "trv_2",
+                    {
+                        "advanced": {
+                            CONF_CALIBRATION_MODE: CalibrationMode.PID_CALIBRATION
+                        }
+                    },
+                ),
             }
         )
         result = _get_active_algorithms(bt)
@@ -619,14 +716,18 @@ class TestGetActiveAlgorithms:
     def test_none_calibration_mode_skipped(self):
         """None calibration mode skipped."""
         bt = _make_bt_climate(
-            real_trvs={"trv_1": {"advanced": {CONF_CALIBRATION_MODE: None}}}
+            real_trvs={
+                "trv_1": Trv.from_legacy_dict(
+                    "trv_1", {"advanced": {CONF_CALIBRATION_MODE: None}}
+                )
+            }
         )
         result = _get_active_algorithms(bt)
         assert result == set()
 
     def test_missing_advanced_key_skipped(self):
         """Missing advanced key skipped."""
-        bt = _make_bt_climate(real_trvs={"trv_1": {}})
+        bt = _make_bt_climate(real_trvs={"trv_1": Trv.from_legacy_dict("trv_1", {})})
         result = _get_active_algorithms(bt)
         assert result == set()
 
@@ -654,9 +755,14 @@ class TestSetupAlgorithmSensors:
         entry = _make_entry()
         bt = _make_bt_climate(
             real_trvs={
-                "trv_1": {
-                    "advanced": {CONF_CALIBRATION_MODE: CalibrationMode.MPC_CALIBRATION}
-                }
+                "trv_1": Trv.from_legacy_dict(
+                    "trv_1",
+                    {
+                        "advanced": {
+                            CONF_CALIBRATION_MODE: CalibrationMode.MPC_CALIBRATION
+                        }
+                    },
+                )
             }
         )
         with patch(
@@ -687,9 +793,14 @@ class TestSetupAlgorithmSensors:
         entry = _make_entry()
         bt = _make_bt_climate(
             real_trvs={
-                "trv_1": {
-                    "advanced": {CONF_CALIBRATION_MODE: CalibrationMode.MPC_CALIBRATION}
-                }
+                "trv_1": Trv.from_legacy_dict(
+                    "trv_1",
+                    {
+                        "advanced": {
+                            CONF_CALIBRATION_MODE: CalibrationMode.MPC_CALIBRATION
+                        }
+                    },
+                )
             }
         )
         with patch(
@@ -709,9 +820,14 @@ class TestSetupAlgorithmSensors:
         entry = _make_entry()
         bt = _make_bt_climate(
             real_trvs={
-                "trv_1": {
-                    "advanced": {CONF_CALIBRATION_MODE: CalibrationMode.MPC_CALIBRATION}
-                }
+                "trv_1": Trv.from_legacy_dict(
+                    "trv_1",
+                    {
+                        "advanced": {
+                            CONF_CALIBRATION_MODE: CalibrationMode.MPC_CALIBRATION
+                        }
+                    },
+                )
             }
         )
         with patch(
@@ -1040,7 +1156,10 @@ class TestCleanupPidNumberEntities:
         _ACTIVE_PID_NUMBERS["entry_1"] = {"uid_kp": {"trv": "trv_1", "param": "kp"}}
         bt = _make_bt_climate(
             real_trvs={
-                "trv_1": {"advanced": {CONF_CALIBRATION_MODE: CalibrationMode.DEFAULT}}
+                "trv_1": Trv.from_legacy_dict(
+                    "trv_1",
+                    {"advanced": {CONF_CALIBRATION_MODE: CalibrationMode.DEFAULT}},
+                )
             }
         )
         await _cleanup_pid_number_entities(
@@ -1055,9 +1174,14 @@ class TestCleanupPidNumberEntities:
         _ACTIVE_PID_NUMBERS["entry_1"] = {"uid_kp": {"trv": "trv_1", "param": "kp"}}
         bt = _make_bt_climate(
             real_trvs={
-                "trv_1": {
-                    "advanced": {CONF_CALIBRATION_MODE: CalibrationMode.PID_CALIBRATION}
-                }
+                "trv_1": Trv.from_legacy_dict(
+                    "trv_1",
+                    {
+                        "advanced": {
+                            CONF_CALIBRATION_MODE: CalibrationMode.PID_CALIBRATION
+                        }
+                    },
+                )
             }
         )
         await _cleanup_pid_number_entities(
@@ -1071,9 +1195,14 @@ class TestCleanupPidNumberEntities:
         reg = _make_entity_registry()
         bt = _make_bt_climate(
             real_trvs={
-                "trv_1": {
-                    "advanced": {CONF_CALIBRATION_MODE: CalibrationMode.PID_CALIBRATION}
-                }
+                "trv_1": Trv.from_legacy_dict(
+                    "trv_1",
+                    {
+                        "advanced": {
+                            CONF_CALIBRATION_MODE: CalibrationMode.PID_CALIBRATION
+                        }
+                    },
+                )
             }
         )
         await _cleanup_pid_number_entities(
@@ -1101,7 +1230,11 @@ class TestCleanupPidNumberEntities:
         """Invalid calibration mode trv skipped."""
         reg = _make_entity_registry()
         bt = _make_bt_climate(
-            real_trvs={"trv_1": {"advanced": {CONF_CALIBRATION_MODE: "totally_bogus"}}}
+            real_trvs={
+                "trv_1": Trv.from_legacy_dict(
+                    "trv_1", {"advanced": {CONF_CALIBRATION_MODE: "totally_bogus"}}
+                )
+            }
         )
         await _cleanup_pid_number_entities(
             hass=MagicMock(), entity_registry=reg, entry_id="entry_1", bt_climate=bt
@@ -1130,7 +1263,10 @@ class TestCleanupPidSwitchEntities:
         }
         bt = _make_bt_climate(
             real_trvs={
-                "trv_1": {"advanced": {CONF_CALIBRATION_MODE: CalibrationMode.DEFAULT}}
+                "trv_1": Trv.from_legacy_dict(
+                    "trv_1",
+                    {"advanced": {CONF_CALIBRATION_MODE: CalibrationMode.DEFAULT}},
+                )
             }
         )
         await _cleanup_pid_switch_entities(
@@ -1149,7 +1285,10 @@ class TestCleanupPidSwitchEntities:
         }
         bt = _make_bt_climate(
             real_trvs={
-                "trv_1": {"advanced": {CONF_CALIBRATION_MODE: CalibrationMode.DEFAULT}}
+                "trv_1": Trv.from_legacy_dict(
+                    "trv_1",
+                    {"advanced": {CONF_CALIBRATION_MODE: CalibrationMode.DEFAULT}},
+                )
             }
         )
         await _cleanup_pid_switch_entities(
@@ -1166,7 +1305,10 @@ class TestCleanupPidSwitchEntities:
         }
         bt = _make_bt_climate(
             real_trvs={
-                "trv_1": {"advanced": {CONF_CALIBRATION_MODE: CalibrationMode.DEFAULT}}
+                "trv_1": Trv.from_legacy_dict(
+                    "trv_1",
+                    {"advanced": {CONF_CALIBRATION_MODE: CalibrationMode.DEFAULT}},
+                )
             }
         )
         await _cleanup_pid_switch_entities(
@@ -1180,9 +1322,14 @@ class TestCleanupPidSwitchEntities:
         reg = _make_entity_registry()
         bt = _make_bt_climate(
             real_trvs={
-                "trv_1": {
-                    "advanced": {CONF_CALIBRATION_MODE: CalibrationMode.PID_CALIBRATION}
-                }
+                "trv_1": Trv.from_legacy_dict(
+                    "trv_1",
+                    {
+                        "advanced": {
+                            CONF_CALIBRATION_MODE: CalibrationMode.PID_CALIBRATION
+                        }
+                    },
+                )
             }
         )
         await _cleanup_pid_switch_entities(
@@ -1272,22 +1419,14 @@ class TestEdgeCasesAndPotentialBugs:
         # dt = max(0, now - future) = 0 → alpha = 0 → EMA stays at 20
         assert sensor._ema_value == 20.0
 
-    def test_cleanup_stale_empty_entry_removed(self):
+    @pytest.mark.asyncio
+    async def test_cleanup_stale_empty_entry_removed(self):
         """After all algorithms removed, the entry_id key should be deleted."""
         _ACTIVE_ALGORITHM_ENTITIES["entry_1"] = {}
         # empty dict → should be cleaned up
         hass = MagicMock()
         bt = _make_bt_climate()
-        import asyncio
-
-        # Fresh event loop avoids HA pytest plugin issues with the current loop.
-        loop = asyncio.new_event_loop()
-        try:
-            loop.run_until_complete(
-                _cleanup_stale_algorithm_entities(hass, "entry_1", bt, set())
-            )
-        finally:
-            loop.close()
+        await _cleanup_stale_algorithm_entities(hass, "entry_1", bt, set())
         # The function checks `if not _ACTIVE_ALGORITHM_ENTITIES[entry_id]`
         # and deletes it → entry should be gone
         assert "entry_1" not in _ACTIVE_ALGORITHM_ENTITIES
@@ -1310,7 +1449,9 @@ class TestEdgeCasesAndPotentialBugs:
     @pytest.mark.asyncio
     async def test_get_active_algorithms_with_empty_advanced(self):
         """TRV with empty advanced dict should return no algorithms."""
-        bt = _make_bt_climate(real_trvs={"trv_1": {"advanced": {}}})
+        bt = _make_bt_climate(
+            real_trvs={"trv_1": Trv.from_legacy_dict("trv_1", {"advanced": {}})}
+        )
         result = _get_active_algorithms(bt)
         assert result == set()
 

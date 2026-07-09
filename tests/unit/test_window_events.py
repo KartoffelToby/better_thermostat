@@ -15,7 +15,7 @@ from custom_components.better_thermostat.events.window import (
     window_queue,
 )
 
-_WINDOW = "custom_components.better_thermostat.events.window"
+_CONTACT = "custom_components.better_thermostat.events.contact"
 
 
 def _make_bt(*, sensor_state="off", window_open=False):
@@ -62,7 +62,7 @@ async def test_closed_readings_queue_a_close_event(reading):
 async def test_unrecognized_state_raises_an_issue():
     """Anything outside the documented vocabulary raises a repair issue."""
     bt = _make_bt(sensor_state="banana")
-    with patch(f"{_WINDOW}.ir.async_create_issue") as issue:
+    with patch(f"{_CONTACT}.ir.async_create_issue") as issue:
         await trigger_window_change(bt, _event("banana"))
     issue.assert_called_once()
     assert bt.window_queue_task.empty()
@@ -109,3 +109,35 @@ async def test_queue_survives_a_sensor_that_vanished_during_debounce():
     task.cancel()
     with pytest.raises(asyncio.CancelledError):
         await task
+
+
+@pytest.mark.asyncio
+async def test_queue_skips_event_on_unrecognized_state_during_debounce():
+    """A state outside the vocabulary during debounce confirms nothing."""
+    bt = _make_bt(sensor_state="banana")
+    bt.window_delay = 0
+    bt.window_delay_after = 0
+    bt.in_maintenance = False
+    bt.control_queue_task = asyncio.Queue()
+
+    task = asyncio.create_task(window_queue(bt))
+    await bt.window_queue_task.put(True)
+    await asyncio.wait_for(bt.window_queue_task.join(), timeout=1)
+
+    assert bt.window_open is False
+    bt.async_write_ha_state.assert_not_called()
+    assert bt.control_queue_task.qsize() == 0
+
+    task.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await task
+
+
+@pytest.mark.asyncio
+async def test_valid_reading_clears_stale_invalid_state_issue():
+    """A recognized reading deletes any previously raised invalid-state issue."""
+    bt = _make_bt(sensor_state="on")
+    with patch(f"{_CONTACT}.ir.async_delete_issue") as delete:
+        await trigger_window_change(bt, _event("on"))
+    delete.assert_called_once()
+    assert delete.call_args.args[2] == "invalid_window_state_Test BT"

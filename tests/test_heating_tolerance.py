@@ -15,6 +15,7 @@ from unittest.mock import MagicMock
 from homeassistant.components.climate.const import HVACAction, HVACMode
 import pytest
 
+from custom_components.better_thermostat.trv import Trv
 from custom_components.better_thermostat.utils.hvac_action import ToleranceHysteresis
 
 # ---------------------------------------------------------------------------
@@ -33,6 +34,7 @@ def mock_bt():
     bt.hvac_mode = HVACMode.HEAT
     bt.bt_hvac_mode = HVACMode.HEAT
     bt.window_open = False
+    bt.contact_open = False
     bt.ignore_states = False
     bt.real_trvs = {}
     bt._hysteresis = ToleranceHysteresis()
@@ -183,7 +185,9 @@ class TestTrvOverrideDoesNotCorruptHysteresis:
 
         # Simulate TRV still reporting heating
         mock_bt.real_trvs = {
-            "climate.trv_1": {"hvac_action": "heating", "ignore_trv_states": False}
+            "climate.trv_1": Trv.from_legacy_dict(
+                "climate.trv_1", {"hvac_action": "heating", "ignore_trv_states": False}
+            )
         }
         mock_bt.hass = MagicMock()
 
@@ -202,7 +206,9 @@ class TestTrvOverrideDoesNotCorruptHysteresis:
         temp drops slightly → should NOT restart heating.
         """
         mock_bt.real_trvs = {
-            "climate.trv_1": {"hvac_action": "heating", "ignore_trv_states": False}
+            "climate.trv_1": Trv.from_legacy_dict(
+                "climate.trv_1", {"hvac_action": "heating", "ignore_trv_states": False}
+            )
         }
         mock_bt.hass = MagicMock()
 
@@ -212,7 +218,7 @@ class TestTrvOverrideDoesNotCorruptHysteresis:
         _compute_and_commit(mock_bt)
 
         # Cycle 2: TRV stops heating, temp drops slightly but still above target - tol
-        mock_bt.real_trvs["climate.trv_1"]["hvac_action"] = "idle"
+        mock_bt.real_trvs["climate.trv_1"].hvac_action = "idle"
         mock_bt.cur_temp = 20.8  # between target - tol (20.5) and target (21.0)
         action = _compute_and_commit(mock_bt)
 

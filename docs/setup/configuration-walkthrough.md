@@ -13,9 +13,9 @@ This page explains the two setup screens in plain language and gives practical d
 
 <div>
 
-![Configuration step 1](../../../assets/setup_1.png)
+![Configuration step 1](../assets/setup_1.png)
 
-![Configuration step 1_2](../../../assets/setup_2.png)
+![Configuration step 1_2](../assets/setup_2.png)
 
 </div>
 
@@ -62,7 +62,7 @@ group:
 
 <div>
 
-![Configuration step 2](../../../assets/setup_3.png)
+![Configuration step 2](../assets/setup_3.png)
 
 </div>
 

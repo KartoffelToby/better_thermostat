@@ -11,10 +11,13 @@
           "temperature_sensor": "Temperatur måler",
           "humidity_sensor": "Fugtighedssensor",
           "window_sensors": "Vinduessensor",
+          "door_sensors": "Dørsensor",
           "off_temperature": "Udetemperaturen, når termostaten slukker",
           "tolerance": "Tolerancen for at forhindre, at termostaten tænder og slukker for ofte.",
           "window_off_delay": "Forsinkelse, før termostaten slukker, når vinduet er åbent, og tændt, når vinduet er lukket",
           "window_off_delay_after": "Forsinkelse, før termostaten tænder, når vinduet er lukket",
+          "door_off_delay": "Forsinkelse, før termostaten slukker, når døren er åben",
+          "door_off_delay_after": "Forsinkelse, før termostaten tænder, når døren er lukket",
           "outdoor_sensor": "Hvis du har en udeføler, kan du bruge den til at få udetemperaturen",
           "weather": "Din vejrentitet for at få udendørstemperaturen",
           "target_temp_step": "Trin for måltemperatur",
@@ -51,7 +54,8 @@
       "failed": "Noget gik galt.",
       "no_name": "Indtast venligst et navn.",
       "no_off_mode": "Din enhed er meget speciel og har ingen slukket tilstand :(\nDet virker alligevel, men du skal oprette en automatisering, der passer til dine specialer baseret på enhedsbegivenhederne",
-      "no_outside_temp": "Du har ingen udetemperaturføler. Better Thermostat vil bruge vejret i stedet."
+      "no_outside_temp": "Du har ingen udetemperaturføler. Better Thermostat vil bruge vejret i stedet.",
+      "no_data": "Ingen data blev modtaget. Prøv venligst igen."
     },
     "abort": {
       "single_instance_allowed": "Kun en enkelt termostat for hver virkelige er tilladt.",
@@ -68,10 +72,13 @@
           "temperature_sensor": "Temperatur måler",
           "humidity_sensor": "Fugtighedssensor",
           "window_sensors": "Vinduessensor",
+          "door_sensors": "Dørsensor",
           "off_temperature": "Udendørstemperaturen, når termostaten skal slukker",
           "tolerance": "Tolerancen for at forhindre, at termostaten tænder og slukker for ofte.",
           "window_off_delay": "Forsinkelse, før termostaten slukker, når vinduet er åbent, og tændt, når vinduet er lukket",
           "window_off_delay_after": "Forsinkelse, før termostaten tænder, når vinduet er lukket",
+          "door_off_delay": "Forsinkelse, før termostaten slukker, når døren er åben",
+          "door_off_delay_after": "Forsinkelse, før termostaten tænder, når døren er lukket",
           "outdoor_sensor": "Har du en udendørsføler, kan du bruge den til at få udetemperaturen",
           "weather": "Din vejrentitet for at få udendørstemperaturen",
           "target_temp_step": "Trin for måltemperatur",
@@ -125,6 +132,14 @@
     "invalid_window_state": {
       "title": "BT: {name} - ugyldig vinduesensortilstand",
       "description": "Vinduesensoren for Better Thermostat {name} rapporterede en ukendt tilstand: {state}.\n\nForventede tilstande er: 'on', 'off', 'true', 'false', 'open', 'closed'.\n\nKontroller din vinduesensorkonfiguration."
+    },
+    "invalid_door_state": {
+      "title": "BT: {name} - ugyldig dørsensortilstand",
+      "description": "Dørsensoren for Better Thermostat {name} rapporterede en ukendt tilstand: {state}.\n\nForventede tilstande er: 'on', 'off', 'true', 'false', 'open', 'closed'.\n\nKontroller venligst konfigurationen af din dørsensor."
+    },
+    "invalid_external_temperature": {
+      "title": "BT: {name} - ugyldig ekstern temperatur",
+      "description": "Den eksterne temperaturføler for Better Thermostat {name} rapporterede en usandsynlig værdi: {value}.\n\nAflæsningen lå uden for det sandsynlige interval og blev ignoreret. Kontroller din temperaturfølerkonfiguration."
     }
   },
   "services": {
@@ -138,12 +153,8 @@
     },
     "reset_pid_learnings": {
       "name": "Nulstil PID-læring",
-      "description": "Rydder al lært PID-tilstand (og eventuelt lærte åbningsgrænser) for denne enhed.",
+      "description": "Rydder al lært PID-tilstand for denne enhed.",
       "fields": {
-        "include_open_caps": {
-          "name": "Ryd også lærte åbningsgrænser",
-          "description": "Hvis aktiveret, ryddes også de lærte minimums-/maksimumsåbningsprocenter pr. TRV/målinterval."
-        },
         "apply_pid_defaults": {
           "name": "Anvend PID-standardværdier efter nulstilling",
           "description": "Hvis aktiveret, forudfyldes de aktuelle målintervaller med PID-standardforstærkninger (kp/ki/kd). Du kan tilsidesætte standardværdierne nedenfor."
@@ -209,6 +220,20 @@
       },
       "child_lock_no_trv": {
         "name": "Børnesikring"
+      }
+    },
+    "sensor": {
+      "logbook": {
+        "state": {
+          "window_open": "slukket fordi et vindue blev åbnet",
+          "window_close": "genoptog opvarmning fordi et vindue blev lukket",
+          "summer_mode_on": "slukket fordi udendørstemperaturen er for høj",
+          "summer_mode_off": "genoptog opvarmning fordi udendørstemperaturen faldt",
+          "degraded_mode_entered": "gik i degraderet tilstand fordi nogle sensorer er utilgængelige",
+          "degraded_mode_resolved": "forlod degraderet tilstand fordi alle sensorer er tilgængelige",
+          "door_open": "turned off because a door was opened",
+          "door_close": "resumed heating because a door was closed"
+        }
       }
     }
   },
