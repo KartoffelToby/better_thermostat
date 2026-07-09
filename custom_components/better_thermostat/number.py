@@ -312,6 +312,10 @@ class BetterThermostatPresetCoolNumber(BetterThermostatPresetNumber):
 
         if self._bt_climate.preset_mode == self._preset_mode:
             self._bt_climate.bt_target_cooltemp = cool_value
+            self._bt_climate._enforce_cool_above_heat()
+            self._bt_climate._preset_cool_temperatures[self._preset_mode] = (
+                self._bt_climate.bt_target_cooltemp
+            )
             if self._bt_climate.bt_hvac_mode != HVACMode.OFF:
                 await self._bt_climate.control_queue_task.put(self._bt_climate)
 
