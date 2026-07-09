@@ -20,5 +20,5 @@
   "requirements": [
     "numpy>=1.26"
   ],
-  "version": "1.9.0-dev"
+  "version": "1.9.0-Beta-3"
 }
