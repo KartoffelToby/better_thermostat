@@ -17,6 +17,7 @@ pytest.importorskip("daqp")
 from homeassistant.components.climate.const import HVACMode
 
 from custom_components.better_thermostat.calibration import _compute_mpc_v2_balance
+from custom_components.better_thermostat.core.clock import FakeClock
 from custom_components.better_thermostat.trv import Trv
 from custom_components.better_thermostat.utils.calibration.mpc import (
     distribute_valve_percent,
@@ -30,6 +31,7 @@ from custom_components.better_thermostat.utils.const import (
     CalibrationType,
     MpcV2PlantPreset,
 )
+from custom_components.better_thermostat.utils.state_manager import MpcV2ReidRuntime
 
 
 class _FakeStateManager:
@@ -43,6 +45,7 @@ class _FakeStateManager:
     def __init__(self) -> None:
         """Start with an empty per-key live MPC v2 state store."""
         self._mpc_v2_live: dict[str, MpcV2State] = {}
+        self._mpc_v2_reid_live: dict[str, MpcV2ReidRuntime] = {}
 
     def get_mpc_v2_live(self, key: str, params: MpcV2Params) -> MpcV2State:
         """Return the live state for key, creating a fresh one on first use."""
@@ -55,6 +58,18 @@ class _FakeStateManager:
     def set_mpc_v2_live(self, key: str, state: MpcV2State) -> None:
         """Store the live MPC v2 state for key."""
         self._mpc_v2_live[key] = state
+
+    def get_mpc_v2_reid(self, key: str) -> None:
+        """No persisted re-identification result in the fake store."""
+        return None
+
+    def get_mpc_v2_reid_runtime(self, key: str) -> MpcV2ReidRuntime:
+        """Return the in-memory re-ID collection state, building it on first use."""
+        runtime = self._mpc_v2_reid_live.get(key)
+        if runtime is None:
+            runtime = MpcV2ReidRuntime()
+            self._mpc_v2_reid_live[key] = runtime
+        return runtime
 
 
 def _make_bt(*, real_trvs: dict[str, Trv], unique_id: str = "bt_test") -> Any:
@@ -78,6 +93,7 @@ def _make_bt(*, real_trvs: dict[str, Trv], unique_id: str = "bt_test") -> Any:
         device_id="bt_test_device",
         entry_id="bt_test_entry",
         state_mgr=_FakeStateManager(),
+        clock=FakeClock(monotonic_value=1_000_000.0),
     )
 
 

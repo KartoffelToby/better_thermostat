@@ -47,6 +47,7 @@ from .calibration.mpc_v2 import (
     export_mpc_v2_state,
     import_mpc_v2_state,
 )
+from .calibration.mpc_v2.reid import ReidBuffer
 from .calibration.pid import PIDState
 from .calibration.tpi import TpiState
 from .const import (
@@ -74,6 +75,36 @@ class MpcV2StateData:
     created_ts: float = 0.0
     outdoor_fallback_logged: bool = False
     snapshot: dict[str, Any] = field(default_factory=dict)
+
+
+@dataclass
+class MpcV2ReidData:
+    """Persisted result of an accepted offline re-identification.
+
+    Carries the fitted plant-prior components plus the validation metrics
+    of the accepting fit; the sample buffer that produced it is in-memory
+    only and never persisted.
+    """
+
+    tau_room_min: float = 0.0
+    gain_heater: float = 0.0
+    fitted_ts: float = 0.0
+    rmse_prior_K: float = 0.0
+    rmse_fit_K: float = 0.0
+    n_segments: int = 0
+
+
+@dataclass
+class MpcV2ReidRuntime:
+    """In-memory collection/scheduling state for one MPC key.
+
+    Lost on restart by design: the buffer refills within a day and the
+    attempt timer simply starts over.
+    """
+
+    buffer: ReidBuffer = field(default_factory=ReidBuffer)
+    last_fit_attempt_ts: float = 0.0
+    fit_inflight: bool = False
 
 
 _LOGGER = logging.getLogger(__name__)
@@ -118,6 +149,7 @@ class RuntimeState:
     version: int = CURRENT_VERSION
     mpc: dict[str, MpcState] = field(default_factory=dict)
     mpc_v2: dict[str, MpcV2StateData] = field(default_factory=dict)
+    mpc_v2_reid: dict[str, MpcV2ReidData] = field(default_factory=dict)
     pid: dict[str, PIDState] = field(default_factory=dict)
     tpi: dict[str, TpiState] = field(default_factory=dict)
     thermal: ThermalStats = field(default_factory=ThermalStats)
@@ -261,6 +293,33 @@ def deserialize_mpc_v2(raw: dict[str, Any]) -> MpcV2StateData:
     return state
 
 
+def deserialize_mpc_v2_reid(raw: dict[str, Any]) -> MpcV2ReidData | None:
+    """Deserialize a persisted re-identification result; None if malformed."""
+    state = MpcV2ReidData()
+    for attr in (
+        "tau_room_min",
+        "gain_heater",
+        "fitted_ts",
+        "rmse_prior_K",
+        "rmse_fit_K",
+    ):
+        value = raw.get(attr)
+        if value is None:
+            continue
+        try:
+            setattr(state, attr, float(value))
+        except TypeError, ValueError, OverflowError:
+            continue
+    try:
+        state.n_segments = int(raw.get("n_segments", 0))
+    except TypeError, ValueError:
+        state.n_segments = 0
+    # A result without both fitted components cannot seed a plant prior.
+    if state.tau_room_min <= 0.0 or state.gain_heater <= 0.0:
+        return None
+    return state
+
+
 def deserialize_pid(raw: dict[str, Any]) -> PIDState:
     """Deserialize a single PID state dict into a PIDState dataclass.
 
@@ -327,6 +386,14 @@ def _deserialize(raw: dict[str, Any]) -> RuntimeState:
         for key, state_dict in mpc_v2_raw.items():
             if isinstance(state_dict, dict):
                 state.mpc_v2[key] = deserialize_mpc_v2(state_dict)
+
+    mpc_v2_reid_raw = raw.get("mpc_v2_reid", {})
+    if isinstance(mpc_v2_reid_raw, Mapping):
+        for key, state_dict in mpc_v2_reid_raw.items():
+            if isinstance(state_dict, dict):
+                reid = deserialize_mpc_v2_reid(state_dict)
+                if reid is not None:
+                    state.mpc_v2_reid[key] = reid
 
     pid_raw = raw.get("pid", {})
     if isinstance(pid_raw, Mapping):
@@ -427,6 +494,8 @@ class StateManager:
         # Live MPC v2 controllers, held in memory across cycles. The persisted
         # ``_state.mpc_v2`` snapshots are folded in only at save time.
         self._mpc_v2_live: dict[str, MpcV2State] = {}
+        # Re-identification sample buffers and scheduling flags, in-memory only.
+        self._mpc_v2_reid_live: dict[str, MpcV2ReidRuntime] = {}
         self._dirty = False
         self._delay_save_pending = False
 
@@ -504,6 +573,43 @@ class StateManager:
             exported = export_mpc_v2_state(live)
             if exported is not None:
                 self._state.mpc_v2[key] = deserialize_mpc_v2(exported)
+
+    def get_mpc_v2_reid(self, key: str) -> MpcV2ReidData | None:
+        """Return the persisted re-identification result for a key, if any."""
+        return self._state.mpc_v2_reid.get(key)
+
+    def get_mpc_v2_reid_runtime(self, key: str) -> MpcV2ReidRuntime:
+        """Return the in-memory re-ID collection state, building it on first use."""
+        runtime = self._mpc_v2_reid_live.get(key)
+        if runtime is None:
+            runtime = MpcV2ReidRuntime()
+            self._mpc_v2_reid_live[key] = runtime
+        return runtime
+
+    def adopt_mpc_v2_reid(self, key: str, data: MpcV2ReidData) -> None:
+        """Adopt a validated re-identification result, bumplessly.
+
+        The live controller is exported into the persisted snapshot and then
+        dropped, so the next :meth:`get_mpc_v2_live` rebuilds it with the new
+        plant prior while restoring the observer state (Kalman, DOB, integral,
+        last command) from that snapshot — no cold start.
+        """
+        live = self._mpc_v2_live.pop(key, None)
+        if live is not None:
+            exported = export_mpc_v2_state(live)
+            if exported is not None:
+                self._state.mpc_v2[key] = deserialize_mpc_v2(exported)
+            else:
+                # No exportable observer state to carry over; the rebuild with
+                # the new prior falls back to the last snapshot (or a cold
+                # start). Rare, but log it so a lost transfer is diagnosable.
+                _LOGGER.debug(
+                    "MPC v2 re-identification adopt for %s: live controller had "
+                    "no exportable state; rebuild will not be bumpless",
+                    key,
+                )
+        self._state.mpc_v2_reid[key] = data
+        self._dirty = True
 
     def get_pid(self, key: str) -> PIDState:
         """Get or create PID state for a key."""

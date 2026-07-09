@@ -1,0 +1,297 @@
+"""Integration tests for re-identification: adopt path, persistence, dispatch."""
+
+from __future__ import annotations
+
+from types import SimpleNamespace
+from typing import Any
+from unittest.mock import AsyncMock, patch
+
+import pytest
+
+pytest.importorskip("daqp")
+
+from homeassistant.components.climate.const import HVACMode
+
+from custom_components.better_thermostat.calibration import _compute_mpc_v2_balance
+from custom_components.better_thermostat.core.clock import FakeClock
+from custom_components.better_thermostat.trv import Trv
+from custom_components.better_thermostat.utils.calibration.mpc_v2 import (
+    MpcV2Input,
+    MpcV2Params,
+    compute_mpc_v2,
+)
+from custom_components.better_thermostat.utils.const import (
+    CalibrationMode,
+    CalibrationType,
+    MpcV2PlantPreset,
+)
+from custom_components.better_thermostat.utils.state_manager import (
+    MpcV2ReidData,
+    StateManager,
+    _deserialize,
+    _serialize,
+    deserialize_mpc_v2_reid,
+)
+
+_REID = MpcV2ReidData(
+    tau_room_min=240.0,
+    gain_heater=3.0,
+    fitted_ts=1000.0,
+    rmse_prior_K=0.4,
+    rmse_fit_K=0.1,
+    n_segments=4,
+)
+
+
+def _make_manager() -> StateManager:
+    """Build a StateManager with a mocked HA Store."""
+    mock_hass = AsyncMock()
+    with patch("custom_components.better_thermostat.utils.state_manager.Store"):
+        return StateManager(mock_hass, "test_entry")
+
+
+def _warm(mgr: StateManager, key: str, params: MpcV2Params) -> None:
+    """Run one compute cycle so the manager holds a live controller."""
+    state = mgr.get_mpc_v2_live(key, params)
+    _out, state = compute_mpc_v2(
+        MpcV2Input(
+            key=key,
+            target_temp_C=22.0,
+            current_temp_C=19.0,
+            outdoor_temp_C=5.0,
+            heating_allowed=True,
+            window_open=False,
+        ),
+        params,
+        state=state,
+        now=0.0,
+    )
+    mgr.set_mpc_v2_live(key, state)
+
+
+# -- StateManager: adopt + persistence ---------------------------------------
+
+
+def test_adopt_is_bumpless() -> None:
+    """Adoption drops the live controller but carries its state across.
+
+    The next live access must rebuild the controller with the new prior
+    while restoring the previous command from the folded snapshot — the
+    definition of a bumpless transfer.
+    """
+    mgr = _make_manager()
+    _warm(mgr, "k", MpcV2Params())
+    old = mgr.get_mpc_v2_live("k", MpcV2Params())
+    assert old.controller is not None
+    last_u_before = old.controller._last_u
+
+    mgr.adopt_mpc_v2_reid("k", _REID)
+
+    new_params = MpcV2Params()
+    new_params.plant.tau_room_min = _REID.tau_room_min
+    new_params.plant.gain_heater = _REID.gain_heater
+    rebuilt = mgr.get_mpc_v2_live("k", new_params)
+    assert rebuilt is not old
+    assert rebuilt.controller is not None
+    assert rebuilt.controller is not old.controller
+    assert rebuilt.controller._last_u == last_u_before
+    assert rebuilt.controller.plant_fine.params.tau_room_min == _REID.tau_room_min
+
+
+def test_adopt_marks_dirty_and_result_readable() -> None:
+    """The adopted result is stored, retrievable, and flagged for saving."""
+    mgr = _make_manager()
+    mgr.adopt_mpc_v2_reid("k", _REID)
+    assert mgr.dirty is True
+    stored = mgr.get_mpc_v2_reid("k")
+    assert stored is not None
+    assert stored.tau_room_min == 240.0
+
+
+def test_reid_result_survives_serialization_round_trip() -> None:
+    """serialize -> deserialize reproduces the persisted re-ID result."""
+    mgr = _make_manager()
+    mgr.adopt_mpc_v2_reid("k", _REID)
+    raw = _serialize(mgr.state)
+    restored = _deserialize(raw)
+    assert restored.mpc_v2_reid["k"].tau_room_min == 240.0
+    assert restored.mpc_v2_reid["k"].gain_heater == 3.0
+    assert restored.mpc_v2_reid["k"].n_segments == 4
+
+
+def test_deserialize_rejects_malformed_reid_payload() -> None:
+    """Zero/garbage fitted components cannot seed a plant prior."""
+    assert deserialize_mpc_v2_reid({"tau_room_min": 0.0, "gain_heater": 2.0}) is None
+    assert deserialize_mpc_v2_reid({"tau_room_min": "junk"}) is None
+    ok = deserialize_mpc_v2_reid({"tau_room_min": 300.0, "gain_heater": 2.5})
+    assert ok is not None and ok.tau_room_min == 300.0
+
+
+# -- Dispatcher wiring --------------------------------------------------------
+
+
+def _trv_info(entity_id: str, preset: MpcV2PlantPreset) -> Trv:
+    """Build a Trv configured for MPC v2 calibration with a given preset."""
+    return Trv(
+        entity_id=entity_id,
+        current_temperature=19.0,
+        valve_max_opening=100.0,
+        advanced={
+            "calibration": CalibrationType.DIRECT_VALVE_BASED,
+            "calibration_mode": CalibrationMode.MPC_V2_CALIBRATION,
+            "mpc_v2_plant_preset": preset,
+        },
+        valve_position_writable=True,
+        valve_position_entity="number.trv_valve",
+        max_temp=30.0,
+        model_quirks=None,
+    )
+
+
+def _make_bt(preset: MpcV2PlantPreset = MpcV2PlantPreset.AUTO) -> Any:
+    """Build a minimal BT-shaped namespace with a real StateManager."""
+    return SimpleNamespace(
+        real_trvs={"climate.x": _trv_info("climate.x", preset)},
+        bt_target_temp=21.0,
+        cur_temp=19.5,
+        tolerance=0.0,
+        window_open=False,
+        device_name="BT_TEST",
+        bt_hvac_mode=HVACMode.HEAT,
+        heating_power=0.04,
+        heat_loss_rate=0.02,
+        outdoor_sensor=None,
+        weather_entity=None,
+        hass=None,
+        state_mgr=_make_manager(),
+        clock=FakeClock(monotonic_value=1_000_000.0),
+    )
+
+
+def test_auto_prior_uses_adopted_reid_result() -> None:
+    """Under AUTO, an adopted re-ID result overrides the heat-loss heuristic."""
+    bt = _make_bt()
+    out, _ = _compute_mpc_v2_balance(bt, "climate.x")
+    assert out is not None
+    key = next(iter(bt.state_mgr._mpc_v2_live))
+    bt.state_mgr.adopt_mpc_v2_reid(key, _REID)
+
+    out, _ = _compute_mpc_v2_balance(bt, "climate.x")
+    assert out is not None
+    live = bt.state_mgr.get_mpc_v2_live(key, MpcV2Params())
+    assert live.controller is not None
+    assert live.controller.plant_fine.params.tau_room_min == _REID.tau_room_min
+    assert live.controller.plant_fine.params.gain_heater == _REID.gain_heater
+    debug = bt.real_trvs["climate.x"].calibration_balance["debug"]
+    assert debug["reid_tau_room"] == _REID.tau_room_min
+
+
+def test_explicit_preset_beats_reid_result() -> None:
+    """A user-chosen preset is an opt-out: the re-ID result is ignored."""
+    bt = _make_bt(preset=MpcV2PlantPreset.SMALL_ROOM)
+    out, _ = _compute_mpc_v2_balance(bt, "climate.x")
+    assert out is not None
+    key = next(iter(bt.state_mgr._mpc_v2_live))
+    bt.state_mgr.adopt_mpc_v2_reid(key, _REID)
+
+    out, _ = _compute_mpc_v2_balance(bt, "climate.x")
+    assert out is not None
+    live = next(iter(bt.state_mgr._mpc_v2_live.values()))
+    assert live.controller is not None
+    assert live.controller.plant_fine.params.tau_room_min == 180.0  # small_room
+
+
+def test_dispatch_records_reid_samples_under_auto() -> None:
+    """Each AUTO-mode compute feeds the re-identification buffer."""
+    bt = _make_bt()
+    out, _ = _compute_mpc_v2_balance(bt, "climate.x")
+    assert out is not None
+    key = next(iter(bt.state_mgr._mpc_v2_reid_live))
+    runtime = bt.state_mgr.get_mpc_v2_reid_runtime(key)
+    assert len(runtime.buffer.samples) == 1
+    sample = runtime.buffer.samples[0]
+    assert sample.T_room_C == 19.5
+    assert sample.window_open is False
+
+
+def test_dispatch_skips_sampling_for_explicit_preset() -> None:
+    """Preset mode is a re-ID opt-out: no samples are collected."""
+    bt = _make_bt(preset=MpcV2PlantPreset.LARGE_ROOM)
+    out, _ = _compute_mpc_v2_balance(bt, "climate.x")
+    assert out is not None
+    assert bt.state_mgr._mpc_v2_reid_live == {}
+
+
+# -- Fit scheduling -----------------------------------------------------------
+
+
+class _FakeFuture:
+    """Future double that resolves synchronously in add_done_callback."""
+
+    def __init__(self, result: object) -> None:
+        self._result = result
+
+    def result(self) -> object:
+        """Return the wrapped result."""
+        return self._result
+
+    def add_done_callback(self, cb) -> None:
+        """Invoke the callback immediately with this future."""
+        cb(self)
+
+
+class _FakeHass:
+    """hass double whose executor runs the job inline."""
+
+    def async_add_executor_job(self, func, *args: object) -> _FakeFuture:
+        """Run ``func`` synchronously and hand back a resolved future."""
+        return _FakeFuture(func(*args))
+
+
+def test_fit_scheduling_adopts_accepted_outcome(monkeypatch) -> None:
+    """A due fit runs via the executor and adopts an accepted result once."""
+    from custom_components.better_thermostat import calibration as cal
+    from custom_components.better_thermostat.utils.calibration.mpc_v2 import (
+        ReidOutcome,
+        ReidSample,
+    )
+
+    bt = _make_bt()
+    bt.hass = _FakeHass()
+    out, _ = _compute_mpc_v2_balance(bt, "climate.x")
+    assert out is not None
+    key = next(iter(bt.state_mgr._mpc_v2_reid_live))
+    runtime = bt.state_mgr.get_mpc_v2_reid_runtime(key)
+    # Replace the dispatch's wall-clock sample with a dense synthetic history;
+    # mixed time bases would trip the buffer's spacing dedupe.
+    runtime.buffer.samples.clear()
+    for i in range(300):
+        runtime.buffer.append(ReidSample(t_s=float(i * 300), T_room_C=20.0, u_frac=0.5))
+    runtime.last_fit_attempt_ts = 0.0
+
+    calls: list[int] = []
+
+    def _fake_fit(samples, prior):
+        calls.append(len(samples))
+        return ReidOutcome(
+            status="accepted",
+            tau_room_min=_REID.tau_room_min,
+            gain_heater=_REID.gain_heater,
+            rmse_prior_K=0.4,
+            rmse_fit_K=0.1,
+            n_segments=4,
+            n_samples=300,
+        )
+
+    monkeypatch.setattr(cal, "run_reid_fit", _fake_fit)
+
+    cal._maybe_start_mpc_v2_reid_fit(bt, key, MpcV2Params())
+    assert calls == [len(runtime.buffer.samples)]
+    adopted = bt.state_mgr.get_mpc_v2_reid(key)
+    assert adopted is not None
+    assert adopted.tau_room_min == _REID.tau_room_min
+    assert runtime.fit_inflight is False
+
+    # A second immediate call is throttled by the attempt interval.
+    cal._maybe_start_mpc_v2_reid_fit(bt, key, MpcV2Params())
+    assert len(calls) == 1
