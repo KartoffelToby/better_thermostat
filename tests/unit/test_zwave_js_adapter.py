@@ -13,6 +13,7 @@ hardware:
 import importlib
 from unittest.mock import AsyncMock, MagicMock, patch
 
+from homeassistant.core import State
 import pytest
 
 from custom_components.better_thermostat.utils.const import CalibrationType
@@ -89,6 +90,7 @@ class TestZWA021Passthroughs:
     """The remaining quirks are safe no-ops."""
 
     def test_fix_calibrations_are_identity(self):
+        """The calibration fix helpers return their inputs unchanged."""
         mock_self = _make_self()
         assert quirk.fix_local_calibration(mock_self, "climate.trv1", 1.5) == 1.5
         assert quirk.fix_valve_calibration(mock_self, "climate.trv1", 42) == 42
@@ -99,6 +101,7 @@ class TestZWA021Passthroughs:
 
     @pytest.mark.asyncio
     async def test_set_temperature_declines(self):
+        """The temperature override always declines so the adapter writes it."""
         mock_self = _make_self(calibration=CalibrationType.DIRECT_VALVE_BASED)
         assert (
             await quirk.override_set_temperature(mock_self, "climate.trv1", 21.0)
@@ -239,6 +242,7 @@ class TestAdapterSetValve:
 
     @pytest.mark.asyncio
     async def test_skips_readonly_helper(self):
+        """A read-only valve helper is skipped without any service call."""
         mock_self = _make_self()
         mock_self.real_trvs["climate.trv1"]["valve_position_writable"] = False
         await adapter.set_valve(mock_self, "climate.trv1", 50)
@@ -252,8 +256,7 @@ class TestAdapterSetValve:
         mock_self.real_trvs["climate.trv1"]["valve_position_entity"] = (
             "number.trv1_valve"
         )
-        state = MagicMock()
-        state.attributes = {"min": 0, "max": 99, "step": 1}
+        state = State("number.trv1_valve", "50", {"min": 0, "max": 99, "step": 1})
         mock_self.hass.states.get = MagicMock(return_value=state)
 
         await adapter.set_valve(mock_self, "climate.trv1", 50)
@@ -264,3 +267,19 @@ class TestAdapterSetValve:
         assert args[2]["entity_id"] == "number.trv1_valve"
         # 0 + 0.5 * 99 = 49.5 -> snapped to step 1 -> 50 (round-half-to-even)
         assert args[2]["value"] == pytest.approx(50)
+
+    @pytest.mark.asyncio
+    async def test_out_of_range_input_is_clamped(self):
+        """An over-100 % request never exceeds the entity's max value."""
+        mock_self = _make_self()
+        mock_self.real_trvs["climate.trv1"]["valve_position_writable"] = True
+        mock_self.real_trvs["climate.trv1"]["valve_position_entity"] = (
+            "number.trv1_valve"
+        )
+        state = State("number.trv1_valve", "50", {"min": 0, "max": 99, "step": 1})
+        mock_self.hass.states.get = MagicMock(return_value=state)
+
+        await adapter.set_valve(mock_self, "climate.trv1", 150)
+
+        args, _ = mock_self.hass.services.async_call.call_args
+        assert args[2]["value"] == pytest.approx(99)
