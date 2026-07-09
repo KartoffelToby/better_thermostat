@@ -25,6 +25,7 @@ from ...core.calibrator import CalibratorHealth, Capability, detect_oscillation
 from ...core.snapshot import WorldSnapshot
 from ..const import CalibrationMode
 from .mpc import MpcOutput
+from .mpc_v2 import MpcV2Output
 from .tpi import TpiOutput
 
 if TYPE_CHECKING:
@@ -34,7 +35,7 @@ _LOGGER = logging.getLogger(__name__)
 
 # A balance computation yields either a controller-specific output object
 # (MPC/TPI) or a raw PID percentage, or ``None`` when no result was produced.
-BalanceResult = MpcOutput | TpiOutput | float
+BalanceResult = MpcOutput | MpcV2Output | TpiOutput | float
 # Each strategy's ``compute`` returns ``(result, use_valve)``.
 ComputeBalance = Callable[
     ["BetterThermostat", str], tuple["BalanceResult | None", bool]
