@@ -650,7 +650,7 @@ class _BtMpcSensorBase(_BtSensorBase):
         """
         if not self._bt_climate._available:
             return False
-        if self._bt_climate.window_open:
+        if self._bt_climate.contact_open:
             return False
         if self._bt_climate.hvac_mode == "off":
             return False

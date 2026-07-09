@@ -79,6 +79,8 @@ def _make_bt(state_mgr: _StateStub, trv_temp: float | None) -> MagicMock:
     bt.temp_slope = 0.0
     bt.tolerance = 0.0
     bt.window_open = False
+    bt.door_open = False
+    bt.contact_open = False
     bt.bt_hvac_mode = "heat"
     bt.outdoor_sensor = None
     bt.weather_entity = None

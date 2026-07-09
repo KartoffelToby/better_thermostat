@@ -10,7 +10,8 @@ The cascade (top wins):
 1. Lifecycle gate — while startup or valve maintenance runs, nothing is
    commanded.
 2. Mode — OFF turns every TRV off.
-3. Window — an open window turns every TRV off without touching the mode.
+3. Window/Door — an open window or door turns every TRV off without
+   touching the mode.
 4. Call for heat — without heat demand every TRV is turned off.
 5. Heating — every addressed TRV is asked to heat towards the room
    target. Under the ladder's HOLD rung no calibration runs; the intent
@@ -63,13 +64,14 @@ class KernelState:
 
     None of the regions is persisted across restarts. They are
     re-derived from live observations: lifecycle through the startup
-    sequence, window/maintenance/mode from the first events, and the
+    sequence, window/door/maintenance/mode from the first events, and the
     ladder and reachability within one debounce window. Only controller
     state with learning value (PID/TPI/MPC, thermal stats, filters)
     persists — via the StateManager, never through entity attributes.
     """
 
     window: WindowState = field(default_factory=WindowState)
+    door: WindowState = field(default_factory=WindowState)
     maintenance: MaintenanceState = field(default_factory=MaintenanceState)
     lifecycle: LifecycleState = field(default_factory=LifecycleState)
     mode: ModeState = field(default_factory=ModeState)
@@ -208,11 +210,17 @@ def decide(
             state,
         )
 
-    if state.window.effective_open:
+    if state.window.effective_open or state.door.effective_open:
+        # An open window or door turns every TRV off without touching the
+        # mode. Both regions debounce independently; the window reason wins
+        # the annunciation when both are open.
+        suppression = (
+            Suppression.WINDOW if state.window.effective_open else Suppression.DOOR
+        )
         return (
             DesiredState(
                 call_for_heat=snapshot.call_for_heat,
-                trvs=_with_mode(addressed, HvacMode.OFF, Suppression.WINDOW),
+                trvs=_with_mode(addressed, HvacMode.OFF, suppression),
             ),
             state,
         )

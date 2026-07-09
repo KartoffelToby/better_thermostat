@@ -22,6 +22,7 @@ class Suppression(StrEnum):
     """
 
     WINDOW = "window"
+    DOOR = "door"
     NO_CALL_FOR_HEAT = "no_call_for_heat"
 
 

@@ -918,7 +918,7 @@ async def control_trv(self, heater_entity_id=None, cycle=None):
                 heater_entity_id,
             )
 
-        # Apply the kernel's intent: a suppression (open window, no heat
+        # Apply the kernel's intent: a suppression (open window/door, no heat
         # demand) forces a literal OFF; otherwise the mode follows the
         # device-specific remap of the BT mode. The intent carries the
         # distinction so no shell code re-derives it from the regions.
@@ -930,7 +930,7 @@ async def control_trv(self, heater_entity_id=None, cycle=None):
         else:
             _new_hvac_mode = _remapped_states.get("system_mode", None)
 
-        # Safety override: if boost mode was active but we forced OFF (window/no-heat),
+        # Safety override: if boost mode was active but we forced OFF (open contact/no-heat),
         # ensure valve is reset to 0% to prevent overheating. Only direct-valve
         # calibration types accept valve commands; LOCAL_BASED and
         # TARGET_TEMP_BASED control via offset / setpoint instead.

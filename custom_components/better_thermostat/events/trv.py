@@ -362,7 +362,7 @@ async def trigger_trv_change(self, event):
             and self.real_trvs[entity_id].target_temp_received is True
             and self.real_trvs[entity_id].system_mode_received is True
             and self.real_trvs[entity_id].hvac_mode != HVACMode.OFF
-            and self.window_open is False
+            and self.contact_open is False
             and not self.real_trvs[entity_id].ignore_trv_states
         )
         if _accept_user_setpoint:
@@ -389,8 +389,8 @@ async def trigger_trv_change(self, event):
             _LOGGER.debug(
                 "better_thermostat %s: TRV %s setpoint change %s -> %s NOT adopted "
                 "(echo=%s child_lock=%s target_temp_received=%s system_mode_received=%s "
-                "hvac_mode=%s window_open=%s ignore_trv_states=%s bt_target_temp=%s "
-                "last_temperature=%s step=%s)",
+                "hvac_mode=%s window_open=%s door_open=%s ignore_trv_states=%s "
+                "bt_target_temp=%s last_temperature=%s step=%s)",
                 self.device_name,
                 entity_id,
                 _old_heating_setpoint,
@@ -401,6 +401,7 @@ async def trigger_trv_change(self, event):
                 self.real_trvs[entity_id].system_mode_received,
                 self.real_trvs[entity_id].hvac_mode,
                 self.window_open,
+                self.door_open,
                 self.real_trvs[entity_id].ignore_trv_states,
                 self.bt_target_temp,
                 self.real_trvs[entity_id].last_temperature,
@@ -409,11 +410,12 @@ async def trigger_trv_change(self, event):
 
         if advanced.get("no_off_system_mode", False):
             if _raw_heating_setpoint == trv.min_temp:
-                # Only set OFF if window is NOT open - min_temp during window
-                # open was set by BT, not by user turning off heating - and only
+                # Only set OFF if no window/door contact is open - min_temp
+                # during an open contact was set by BT, not by the user turning
+                # off heating - and only
                 # when the whole group agrees, so a single no_off valve dropping
                 # to min_temp cannot switch the room off.
-                if not self.window_open and group_all_members_off(self):
+                if not self.contact_open and group_all_members_off(self):
                     if self.bt_hvac_mode != HVACMode.OFF:
                         _LOGGER.debug(
                             "better_thermostat %s: TRV %s reported min_temp %s on a "

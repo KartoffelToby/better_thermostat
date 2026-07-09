@@ -11,10 +11,13 @@
           "temperature_sensor": "Sensore di temperatura",
           "humidity_sensor": "Sensore di umidità",
           "window_sensors": "Sensore finestra",
+          "door_sensors": "Sensore porta",
           "off_temperature": "Temperatura esterna alla quale il termostato si spegne",
           "tolerance": "Tolleranza, per evitare che il termostato si accenda e spenga troppo spesso.",
           "window_off_delay": "Ritardo prima che il termostato si spenga quando la finestra viene aperta",
           "window_off_delay_after": "Ritardo prima che il termostato si riaccenda quando la finestra viene chiusa",
+          "door_off_delay": "Ritardo prima che il termostato si spenga quando la porta viene aperta",
+          "door_off_delay_after": "Ritardo prima che il termostato si riaccenda quando la porta viene chiusa",
           "outdoor_sensor": "Se hai un sensore esterno, puoi usarlo per ottenere la temperatura esterna",
           "weather": "La tua entità meteo per ottenere la temperatura esterna",
           "target_temp_step": "Passo della temperatura target",
@@ -69,10 +72,13 @@
           "temperature_sensor": "Sensore di temperatura",
           "humidity_sensor": "Sensore di umidità",
           "window_sensors": "Sensore finestra",
+          "door_sensors": "Sensore porta",
           "off_temperature": "Temperatura esterna alla quale il termostato si spegne",
           "tolerance": "Tolleranza, per evitare che il termostato si accenda e spenga troppo spesso.",
           "window_off_delay": "Ritardo prima che il termostato si spenga quando la finestra viene aperta",
           "window_off_delay_after": "Ritardo prima che il termostato si riaccenda quando la finestra viene chiusa",
+          "door_off_delay": "Ritardo prima che il termostato si spenga quando la porta viene aperta",
+          "door_off_delay_after": "Ritardo prima che il termostato si riaccenda quando la porta viene chiusa",
           "outdoor_sensor": "Se hai un sensore esterno, puoi usarlo per ottenere la temperatura esterna",
           "weather": "La tua entità meteo per ottenere la temperatura esterna",
           "target_temp_step": "Passo della temperatura target",
@@ -126,6 +132,10 @@
     "invalid_window_state": {
       "title": "BT: {name} - stato del sensore finestra non valido",
       "description": "Il sensore finestra per Better Thermostat {name} ha riportato uno stato non riconosciuto: {state}.\n\nGli stati previsti sono: 'on', 'off', 'true', 'false', 'open', 'closed'.\n\nControlla la configurazione del sensore finestra."
+    },
+    "invalid_door_state": {
+      "title": "BT: {name} - stato del sensore porta non valido",
+      "description": "Il sensore porta per Better Thermostat {name} ha riportato uno stato non riconosciuto: {state}.\n\nGli stati previsti sono: 'on', 'off', 'true', 'false', 'open', 'closed'.\n\nControlla la configurazione del sensore porta."
     },
     "invalid_external_temperature": {
       "title": "BT: {name} - temperatura esterna non valida",
@@ -210,6 +220,20 @@
       },
       "child_lock_no_trv": {
         "name": "Blocco bambini"
+      }
+    },
+    "sensor": {
+      "logbook": {
+        "state": {
+          "window_open": "spento perché una finestra è stata aperta",
+          "window_close": "riscaldamento ripreso perché una finestra è stata chiusa",
+          "summer_mode_on": "spento perché la temperatura esterna è troppo alta",
+          "summer_mode_off": "riscaldamento ripreso perché la temperatura esterna è scesa",
+          "degraded_mode_entered": "è entrato in modalità degradata perché alcuni sensori non sono disponibili",
+          "degraded_mode_resolved": "è uscito dalla modalità degradata perché tutti i sensori sono disponibili",
+          "door_open": "turned off because a door was opened",
+          "door_close": "resumed heating because a door was closed"
+        }
       }
     }
   },

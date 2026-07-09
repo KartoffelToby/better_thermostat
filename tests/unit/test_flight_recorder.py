@@ -314,6 +314,7 @@ class TestRoundtripCompleteness:
 
         state_kwargs = {
             "window": WindowState(phase=WindowPhase.OPENING, pending_since=900.0),
+            "door": WindowState(phase=WindowPhase.CLOSING, pending_since=920.0),
             "maintenance": MaintenanceState(
                 phase=MaintenancePhase.RUNNING,
                 next_due=datetime(2026, 2, 1, tzinfo=UTC),

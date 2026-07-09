@@ -121,3 +121,23 @@ def test_features_target_range_with_cooler(bt):
     feats = _prop("supported_features", bt)
     assert feats & ClimateEntityFeature.TARGET_TEMPERATURE_RANGE
     assert not (feats & ClimateEntityFeature.TARGET_TEMPERATURE)
+
+
+# --- contact_open (combined window/door gate) -------------------------------
+
+
+@pytest.mark.parametrize(
+    ("window_open", "door_open", "expected"),
+    [
+        (False, False, False),
+        (None, None, False),
+        (True, False, True),
+        (False, True, True),
+        (True, True, True),
+        (None, True, True),
+    ],
+)
+def test_contact_open_combines_window_and_door(bt, window_open, door_open, expected):
+    bt.window_open = window_open
+    bt.door_open = door_open
+    assert _prop("contact_open", bt) is expected

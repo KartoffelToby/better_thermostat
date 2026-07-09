@@ -73,6 +73,10 @@
       "unavailable_sensors": [],
       "up_pending_since": null
     },
+    "door": {
+      "pending_since": null,
+      "phase": "closed"
+    },
     "last_control_monotonic": null,
     "lifecycle": {
       "grace_until": null,

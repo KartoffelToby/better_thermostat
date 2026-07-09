@@ -121,6 +121,35 @@ class TestWindowOpen:
         assert desired.call_for_heat is False
 
 
+class TestDoorOpen:
+    """An open door suppresses heating just like an open window."""
+
+    def test_door_open_turns_all_trvs_off(self):
+        """Both TRVs receive an OFF intent while the door is open."""
+        desired, _ = decide(
+            make_snapshot(), make_state(door=WindowState(phase=WindowPhase.OPEN))
+        )
+        assert all(t.hvac_mode == HvacMode.OFF for t in desired.trvs.values())
+
+    def test_door_open_is_marked_as_door_suppression(self):
+        """An open door is annunciated with the DOOR suppression reason."""
+        desired, _ = decide(
+            make_snapshot(), make_state(door=WindowState(phase=WindowPhase.OPEN))
+        )
+        assert all(t.suppression == Suppression.DOOR for t in desired.trvs.values())
+
+    def test_window_reason_wins_when_both_open(self):
+        """With window and door both open the window reason is reported."""
+        desired, _ = decide(
+            make_snapshot(),
+            make_state(
+                window=WindowState(phase=WindowPhase.OPEN),
+                door=WindowState(phase=WindowPhase.OPEN),
+            ),
+        )
+        assert all(t.suppression == Suppression.WINDOW for t in desired.trvs.values())
+
+
 class TestPurity:
     """decide() is a pure function of its inputs."""
 

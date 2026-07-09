@@ -47,6 +47,7 @@ def mock_bt():
     bt.bt_target_temp_step = 0.5
     bt.cur_temp = 18.0
     bt.window_open = False
+    bt.contact_open = False
     bt.tolerance = 0.3
     bt.startup_running = False
     bt.control_queue_task = MagicMock()
@@ -800,6 +801,7 @@ class TestTargetTempAdoption:
     async def test_setpoint_blocked_window_open(self, mock_bt):
         """No setpoint adoption when window is open."""
         mock_bt.window_open = True
+        mock_bt.contact_open = True
         old_state = _make_state(
             attributes={"temperature": 19.0, "current_temperature": 18.0}
         )
@@ -1462,6 +1464,7 @@ def _make_group_bt(entity_ids, *, no_off=False, bt_hvac_mode=HVACMode.HEAT):
     bt.bt_target_temp_step = 0.5
     bt.cur_temp = 18.0
     bt.window_open = False
+    bt.contact_open = False
     bt.tolerance = 0.3
     bt.startup_running = False
     bt.control_queue_task = AsyncMock()

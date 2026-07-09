@@ -34,6 +34,7 @@ def bt():
     mock.in_maintenance = False
     mock.next_valve_maintenance = None
     mock.window_open = False
+    mock.contact_open = False
     mock.hvac_mode = HVACMode.HEAT
     mock.bt_hvac_mode = HVACMode.HEAT
     mock.real_trvs = {"climate.trv": {}}
@@ -97,6 +98,7 @@ async def test_not_due_yet_returns(bt):
 async def test_window_open_postpones_one_hour(bt):
     """An open window postpones maintenance by one hour."""
     bt.window_open = True
+    bt.contact_open = True
     with (
         patch(f"{_CLIMATE}.check_critical_entities", AsyncMock(return_value=True)),
         patch(f"{_CLIMATE}.check_and_update_degraded_mode", AsyncMock()),

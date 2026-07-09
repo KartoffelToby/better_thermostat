@@ -40,6 +40,11 @@ def _boost_snapshot():
     return make_snapshot(preset_mode="boost", room_temp=19.0, target_temp=22.0)
 
 
+# ---------------------------------------------------------------------------
+# check_system_mode
+# ---------------------------------------------------------------------------
+
+
 class TestCheckSystemMode:
     """Test check_system_mode function."""
 

@@ -170,6 +170,18 @@ async def _settle_window_region(self, was_open: bool) -> None:
         )
 
     if was_open != self.kernel_state.window.effective_open:
+        from custom_components.better_thermostat.utils.helpers import (
+            async_fire_logbook_entry,
+        )
+
+        if self.kernel_state.window.effective_open:
+            await async_fire_logbook_entry(
+                self, "window_open", "turned off because a window was opened"
+            )
+        else:
+            await async_fire_logbook_entry(
+                self, "window_close", "resumed heating because a window was closed"
+            )
         self.async_write_ha_state()
         if getattr(self, "in_maintenance", False):
             # Keep state up to date during maintenance, but defer control

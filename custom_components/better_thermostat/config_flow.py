@@ -32,6 +32,8 @@ from .utils.const import (
     CONF_CALIBRATION_MODE,
     CONF_CHILD_LOCK,
     CONF_COOLER,
+    CONF_DOOR_TIMEOUT,
+    CONF_DOOR_TIMEOUT_AFTER,
     CONF_HEAT_AUTO_SWAPPED,
     CONF_HEATER,
     CONF_HOMEMATICIP,
@@ -43,6 +45,7 @@ from .utils.const import (
     CONF_PRESETS,
     CONF_PROTECT_OVERHEATING,
     CONF_SENSOR,
+    CONF_SENSOR_DOOR,
     CONF_SENSOR_WINDOW,
     CONF_TARGET_TEMP_STEP,
     CONF_TOLERANCE,
@@ -472,9 +475,17 @@ def _build_user_fields(
     add_entity_selector(
         CONF_SENSOR_WINDOW, domain=["group", "sensor", "input_boolean", "binary_sensor"]
     )
+    add_entity_selector(
+        CONF_SENSOR_DOOR, domain=["group", "sensor", "input_boolean", "binary_sensor"]
+    )
     add_entity_selector(CONF_WEATHER, domain="weather")
 
-    for key in (CONF_WINDOW_TIMEOUT, CONF_WINDOW_TIMEOUT_AFTER):
+    for key in (
+        CONF_WINDOW_TIMEOUT,
+        CONF_WINDOW_TIMEOUT_AFTER,
+        CONF_DOOR_TIMEOUT,
+        CONF_DOOR_TIMEOUT_AFTER,
+    ):
         if key in user_input and user_input[key] is not None:
             duration_default = user_input[key]
         else:
@@ -555,6 +566,7 @@ def _normalize_user_submission(
         CONF_COOLER,
         CONF_SENSOR,
         CONF_SENSOR_WINDOW,
+        CONF_SENSOR_DOOR,
         CONF_HUMIDITY,
         CONF_OUTDOOR_SENSOR,
         CONF_WEATHER,
@@ -569,7 +581,12 @@ def _normalize_user_submission(
         else:
             normalized[key] = None
 
-    for key in (CONF_WINDOW_TIMEOUT, CONF_WINDOW_TIMEOUT_AFTER):
+    for key in (
+        CONF_WINDOW_TIMEOUT,
+        CONF_WINDOW_TIMEOUT_AFTER,
+        CONF_DOOR_TIMEOUT,
+        CONF_DOOR_TIMEOUT_AFTER,
+    ):
         if key in user_input:
             normalized[key] = _duration_dict_to_seconds(user_input.get(key))
         elif mode == "create" and key not in normalized:

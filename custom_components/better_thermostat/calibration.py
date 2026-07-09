@@ -373,7 +373,7 @@ def _compute_mpc_balance(self, entity_id: str):
                 trv_temp_C=trv_state.current_temperature,
                 tolerance_K=float(self.tolerance or 0.0),
                 temp_slope_K_per_min=self.temp_slope,
-                window_open=self.window_open or False,
+                window_open=self.contact_open,
                 heating_allowed=True,
                 bt_name=self.device_name,
                 entity_id=entity_id,
@@ -481,7 +481,7 @@ def _compute_tpi_balance(self, entity_id: str):
                 current_temp_C=_room_temp,
                 target_temp_C=self.bt_target_temp,
                 outdoor_temp_C=_get_current_outdoor_temp(self),
-                window_open=self.window_open or False,
+                window_open=self.contact_open,
                 heating_allowed=True,
                 bt_name=self.device_name,
                 entity_id=entity_id,
@@ -529,7 +529,7 @@ def _compute_pid_balance(self, entity_id: str):
         trv_state.calibration_balance = None
         return None, False
 
-    if self.window_open is True or self.bt_hvac_mode == HVACMode.OFF:
+    if self.contact_open is True or self.bt_hvac_mode == HVACMode.OFF:
         # Standby: no actuation, but the measurement chain keeps
         # following the room so control resumes bump-free (the first
         # post-standby cycle sees a fresh measurement and a small dt

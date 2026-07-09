@@ -37,6 +37,8 @@ def _pid_bt(*, window_open):
     bt.cur_temp = 18.0
     bt.cur_temp_filtered = None
     bt.window_open = window_open
+    bt.door_open = False
+    bt.contact_open = bool(window_open)
     bt.bt_hvac_mode = HVACMode.HEAT
     bt.clock.monotonic.return_value = 5000.0
     bt.real_trvs = {ENTITY_ID: Trv(entity_id=ENTITY_ID)}

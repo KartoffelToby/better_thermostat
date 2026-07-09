@@ -133,6 +133,7 @@ def _state_asdict(state: KernelState) -> dict[str, _Recordable]:
     """
     return {
         "window": asdict(state.window),
+        "door": asdict(state.door),
         "maintenance": asdict(state.maintenance),
         "lifecycle": asdict(state.lifecycle),
         "mode": asdict(state.mode),
@@ -245,6 +246,8 @@ def snapshot_from_dict(data: dict[str, Json]) -> WorldSnapshot:
 def state_from_dict(data: dict[str, Json]) -> KernelState:
     """Reconstruct a KernelState from its exported form."""
     window = _dict_of(data["window"])
+    door_raw = data.get("door")
+    door = _dict_of(door_raw) if door_raw is not None else None
     maintenance = _dict_of(data["maintenance"])
     lifecycle = _dict_of(data["lifecycle"])
     mode = _dict_of(data["mode"])
@@ -265,6 +268,14 @@ def state_from_dict(data: dict[str, Json]) -> KernelState:
         window=WindowState(
             phase=WindowPhase(_str_of(window["phase"])),
             pending_since=_float_or_none(window["pending_since"]),
+        ),
+        door=(
+            WindowState(
+                phase=WindowPhase(_str_of(door["phase"])),
+                pending_since=_float_or_none(door["pending_since"]),
+            )
+            if door is not None
+            else WindowState()
         ),
         maintenance=MaintenanceState(
             phase=MaintenancePhase(_str_of(maintenance["phase"])),

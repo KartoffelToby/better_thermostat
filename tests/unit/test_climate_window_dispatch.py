@@ -21,12 +21,16 @@ CLIMATE_MOD = "custom_components.better_thermostat.climate"
 
 def _make_self():
     """Build a BetterThermostat stand-in for the window dispatcher."""
-    return SimpleNamespace(
+    ns = SimpleNamespace(
         device_name="Test BT",
         window_id="binary_sensor.window",
         hass=MagicMock(),
         async_set_context=MagicMock(),
     )
+    # ``_trigger_window_change`` delegates to the shared contact dispatcher;
+    # bind it so the stand-in resolves the method call.
+    ns._trigger_contact_change = BetterThermostat._trigger_contact_change.__get__(ns)
+    return ns
 
 
 def _event(state_value):
