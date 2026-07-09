@@ -54,9 +54,6 @@ async def trigger_door_change(self, event) -> None:
 
     if new_state in ("on", "true", "open"):
         new_door_open = True
-        # door was opened, disable heating power calculation for this period
-        self._heating_tracker.start_temp = None
-        self.async_write_ha_state()
     elif new_state in ("off", "false", "closed"):
         new_door_open = False
     elif new_state in ("unknown", "unavailable"):
@@ -103,6 +100,11 @@ async def trigger_door_change(self, event) -> None:
             self.device_name,
         )
         return
+
+    if new_door_open:
+        # door was opened, disable heating power calculation for this period
+        self._heating_tracker.start_temp = None
+        self.async_write_ha_state()
 
     # Start the pending transition in the door region; the queued task
     # settles it (the region owns the timing). The pre-step committed

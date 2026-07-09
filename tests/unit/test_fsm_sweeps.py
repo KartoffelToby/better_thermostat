@@ -174,7 +174,7 @@ class TestReachabilitySweep:
             assert result.offline_since == state.offline_since
         # The retry schedule only moves forward and the backoff is capped.
         assert result.retry_at is not None
-        assert result.retry_at > NOW - 1.0
+        assert result.retry_at > NOW
         if result.retry_count != state.retry_count:
             assert result.retry_at - NOW <= rb.RETRY_MAX_S
 

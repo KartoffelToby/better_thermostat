@@ -108,7 +108,7 @@ boundaries — writes go through the safety hull and the write budget, and
 cycles are requested through the scheduler. The shell applies intent; it
 does not second-guess the kernel after `decide()` ran.
 
-Run the test suite with `pytest tests/`.
+Run the test suite with `uv run pytest tests/`.
 
 ## How Can I Contribute?
 

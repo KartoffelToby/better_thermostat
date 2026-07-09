@@ -165,8 +165,9 @@ class FlightRecorder:
         """
         if self.capacity < 0:
             raise ValueError("capacity must be >= 0")
-        while len(self._entries) > self.capacity:
-            self._entries.popleft()
+        # Re-create the deque with a structural bound so the capacity is
+        # enforced by the container itself on every append.
+        self._entries = deque(self._entries, maxlen=self.capacity)
 
     def record(
         self, snapshot: WorldSnapshot, state: KernelState, desired: DesiredState
@@ -182,8 +183,6 @@ class FlightRecorder:
         no defensive copy.
         """
         self._entries.append((snapshot, state, desired))
-        while len(self._entries) > self.capacity:
-            self._entries.popleft()
 
     def __len__(self) -> int:
         """Return the number of recorded tuples."""

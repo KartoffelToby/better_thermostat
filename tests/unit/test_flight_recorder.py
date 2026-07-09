@@ -50,7 +50,7 @@ def _record_one(recorder: FlightRecorder, snapshot: WorldSnapshot) -> None:
         running_kernel_state(), window=WindowState(phase=WindowPhase.CLOSED)
     )
     desired, _ = decide(snapshot, state)
-    recorder.record(snapshot, running_kernel_state(), desired)
+    recorder.record(snapshot, state, desired)
 
 
 class TestRingBuffer:
