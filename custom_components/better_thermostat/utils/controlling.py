@@ -370,8 +370,8 @@ async def control_cooler(self):
                 desired_temp, UnitOfTemperature.CELSIUS, UnitOfTemperature.FAHRENHEIT
             )
             _temp_to_set = round(_temp_to_set, 1)
-        # Cache on success and on an expected service failure alike, so a
-        # cloud cooler that rejects the call is not hammered every cycle.
+        # Only prime the send-cache on success. A failed call must not look like
+        # a completed send, otherwise the nil-guard would suppress the retry.
         try:
             await self.hass.services.async_call(
                 "climate",
@@ -383,12 +383,12 @@ async def control_cooler(self):
         except HomeAssistantError as err:
             _LOGGER.warning(
                 "better_thermostat %s: set_temperature for cooler %s failed (%s); "
-                "updating send-cache to rate-limit retries",
+                "will retry on the next cycle",
                 self.device_name,
                 self.cooler_entity_id,
                 err,
             )
-        finally:
+        else:
             self.last_sent_cooler_temp = desired_temp
             self.last_sent_cooler_temp_ts = now_ts
 
@@ -432,12 +432,12 @@ async def control_cooler(self):
         except HomeAssistantError as err:
             _LOGGER.warning(
                 "better_thermostat %s: set_hvac_mode for cooler %s failed (%s); "
-                "updating send-cache to rate-limit retries",
+                "will retry on the next cycle",
                 self.device_name,
                 self.cooler_entity_id,
                 err,
             )
-        finally:
+        else:
             self.last_sent_cooler_hvac_mode = desired_mode
             self.last_sent_cooler_hvac_mode_ts = now_ts
 

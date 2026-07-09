@@ -4,6 +4,7 @@ from time import monotonic
 from unittest.mock import AsyncMock, Mock
 
 from homeassistant.components.climate.const import HVACMode
+from homeassistant.core import State
 from homeassistant.exceptions import HomeAssistantError
 import pytest
 
@@ -43,11 +44,8 @@ def _make_mock_self(
 
 
 def _make_cooler_state(state=HVACMode.COOL, temperature=None):
-    """Build a mock cooler state for control_cooler tests."""
-    s = Mock()
-    s.state = state
-    s.attributes = {"temperature": temperature}
-    return s
+    """Build a Home Assistant State for the cooler entity in control_cooler tests."""
+    return State("climate.cooler", str(state), {"temperature": temperature})
 
 
 class TestControlCooler:
@@ -367,12 +365,12 @@ class TestControlCoolerSendCache:
         assert "set_temperature" not in service_names
 
     @pytest.mark.asyncio
-    async def test_service_failure_updates_cache_without_raising(self):
-        """A failing service call is caught and still primes the send-cache.
+    async def test_service_failure_is_caught_and_not_cached(self):
+        """A failing service call is caught without priming the send-cache.
 
         When the cooler service raises HomeAssistantError, control_cooler does not
-        propagate it and records the attempted values so an enabled resend interval
-        can rate-limit retries.
+        propagate it, and it must not record the values as sent — otherwise the
+        nil-guard would suppress the retry on the next cycle.
         """
         mock_hass = Mock()
         mock_hass.services = Mock()
@@ -390,8 +388,8 @@ class TestControlCoolerSendCache:
         # Should not raise despite every service call failing.
         await control_cooler(mock_self)
 
-        # Both attempted commands are cached so a resend interval can throttle them.
-        assert mock_self.last_sent_cooler_temp == 24.0
-        assert mock_self.last_sent_cooler_hvac_mode == HVACMode.COOL
-        assert mock_self.last_sent_cooler_temp_ts is not None
-        assert mock_self.last_sent_cooler_hvac_mode_ts is not None
+        # Nothing is cached, so the next cycle retries both commands.
+        assert mock_self.last_sent_cooler_temp is None
+        assert mock_self.last_sent_cooler_hvac_mode is None
+        assert mock_self.last_sent_cooler_temp_ts is None
+        assert mock_self.last_sent_cooler_hvac_mode_ts is None
