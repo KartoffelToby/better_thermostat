@@ -234,3 +234,48 @@ def collect_pid_debug_attrs(bt: TelemetrySource) -> dict[str, Any]:
         out["pid_d_meas_K_per_min"] = round(d_per_s * 60.0, 4)
 
     return out
+
+
+# (debug key, output key, decimals)
+_MPC_V2_FIELDS: tuple[tuple[str, str, int], ...] = (
+    ("T_room_hat", "mpc_v2_T_room_hat", 3),
+    ("T_rad_hat", "mpc_v2_T_rad_hat", 3),
+    ("D_hat_K_per_min", "mpc_v2_D_hat_K_per_min", 4),
+    ("tau_room_min", "mpc_v2_tau_room_min", 1),
+    ("coupling_rad_room", "mpc_v2_coupling_rad_room", 3),
+    ("group_valve_pct", "mpc_v2_group_valve_pct", 1),
+)
+
+
+def _extract_mpc_v2_debug(info: TrvInfo | None) -> Mapping[str, object] | None:
+    """Return the v2 debug payload when calibration is in MPC v2 mode."""
+    if info is None:
+        return None
+    bal = info.calibration_balance
+    if bal is None:
+        return None
+    debug = bal.get("debug")
+    if not isinstance(debug, Mapping):
+        return None
+    if str(debug.get("controller_version")).lower() != "v2":
+        return None
+    return debug
+
+
+def collect_mpc_v2_debug_attrs(bt: TelemetrySource) -> dict[str, Any]:
+    """Flatten MPC v2 controller diagnostics from a representative TRV."""
+    out: dict[str, Any] = {}
+
+    rep = _pick_representative_trv(bt.real_trvs)
+    if rep is None:
+        return out
+
+    debug = _extract_mpc_v2_debug(bt.real_trvs.get(rep))
+    if debug is None:
+        return out
+
+    for src_key, dst_key, decimals in _MPC_V2_FIELDS:
+        if (value := _to_float(debug.get(src_key))) is not None:
+            out[dst_key] = round(value, decimals)
+
+    return out

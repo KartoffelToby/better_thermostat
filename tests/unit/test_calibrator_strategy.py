@@ -102,13 +102,14 @@ class TestStrategyRegistry:
         def compute_pid(bt, entity_id):
             return percent, use_valve
 
-        return build_strategy_registry(compute, compute, compute_pid)
+        return build_strategy_registry(compute, compute, compute, compute_pid)
 
     def test_modes_are_covered(self):
-        """MPC, TPI, and PID have strategies; DEFAULT does not."""
+        """MPC, MPC v2, TPI, and PID have strategies; DEFAULT does not."""
         registry = self._registry()
         assert set(registry) == {
             CalibrationMode.MPC_CALIBRATION,
+            CalibrationMode.MPC_V2_CALIBRATION,
             CalibrationMode.TPI_CALIBRATION,
             CalibrationMode.PID_CALIBRATION,
         }
@@ -131,6 +132,7 @@ class TestStrategyRegistry:
     def test_none_result_yields_no_percent(self):
         """A failed computation yields (None, use_valve)."""
         registry = build_strategy_registry(
+            lambda bt, e: (None, False),
             lambda bt, e: (None, False),
             lambda bt, e: (None, False),
             lambda bt, e: (None, True),
@@ -165,6 +167,7 @@ class TestBalanceCalibrator:
 
     def _adapter(self, *, percent=55.0, use_valve=False, balance=None):
         registry = build_strategy_registry(
+            lambda bt, e: (MagicMock(valve_percent=percent), use_valve),
             lambda bt, e: (MagicMock(valve_percent=percent), use_valve),
             lambda bt, e: (MagicMock(duty_cycle_pct=percent), use_valve),
             lambda bt, e: (percent, use_valve),

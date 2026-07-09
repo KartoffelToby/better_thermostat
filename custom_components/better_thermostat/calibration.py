@@ -21,6 +21,12 @@ from custom_components.better_thermostat.utils.calibration.mpc import (
     distribute_valve_percent,
     sanitize_mpc_state,
 )
+from custom_components.better_thermostat.utils.calibration.mpc_v2 import (
+    MpcV2Input,
+    MpcV2Params,
+    compute_mpc_v2,
+    make_plant_prior,
+)
 from custom_components.better_thermostat.utils.calibration.pid import (
     DEFAULT_PID_AUTO_TUNE,
     DEFAULT_PID_KD,
@@ -47,9 +53,11 @@ from custom_components.better_thermostat.utils.calibration.tpi import (
     sanitize_tpi_state,
 )
 from custom_components.better_thermostat.utils.const import (
+    CONF_MPC_V2_PLANT_PRESET,
     CONF_PROTECT_OVERHEATING,
     CalibrationMode,
     CalibrationType,
+    MpcV2PlantPreset,
 )
 from custom_components.better_thermostat.utils.helpers import (
     clamp_valve_percent,
@@ -62,6 +70,10 @@ from custom_components.better_thermostat.utils.helpers import (
 )
 
 _LOGGER = logging.getLogger(__name__)
+
+# Thermostats that already logged the MPC-v2-unavailable warning; keeps the
+# per-cycle dispatch from repeating it when the daqp import keeps failing.
+_MPC_V2_IMPORT_WARNED: set[str] = set()
 
 
 def _compute_zero_open_offset(
@@ -289,6 +301,34 @@ def _heating_power_adjustment(
     return legacy_fallback(_valve_position), False
 
 
+def _collect_trv_temps_and_warmest(
+    real_trvs, fallback_id: str
+) -> tuple[dict[str, float | None], str]:
+    """Return per-TRV temperatures and the id of the warmest TRV.
+
+    TRVs whose reading is missing or non-numeric map to ``None``; when no
+    TRV has a usable reading the warmest id falls back to ``fallback_id``.
+    """
+    trv_temps: dict[str, float | None] = {}
+    warmest_trv_id = fallback_id
+    warmest_temp: float | None = None
+    for eid, tdata in real_trvs.items():
+        _t = tdata.current_temperature
+        if _t is None:
+            trv_temps[eid] = None
+            continue
+        try:
+            temp_val = float(_t)
+        except TypeError, ValueError:
+            trv_temps[eid] = None
+            continue
+        trv_temps[eid] = temp_val
+        if warmest_temp is None or temp_val > warmest_temp:
+            warmest_temp = temp_val
+            warmest_trv_id = eid
+    return trv_temps, warmest_trv_id
+
+
 def _compute_mpc_balance(self, entity_id: str):
     """Run the MPC balance algorithm for calibration purposes.
 
@@ -320,21 +360,9 @@ def _compute_mpc_balance(self, entity_id: str):
     trv_temps: dict[str, float | None] | None = None
     warmest_trv_id = entity_id
     if is_multi_trv:
-        trv_temps = {}
-        warmest_temp: float | None = None
-        for eid, tdata in self.real_trvs.items():
-            _t = tdata.current_temperature
-            if _t is not None:
-                try:
-                    temp_val = float(_t)
-                    trv_temps[eid] = temp_val
-                    if warmest_temp is None or temp_val > warmest_temp:
-                        warmest_temp = temp_val
-                        warmest_trv_id = eid
-                except TypeError, ValueError:
-                    trv_temps[eid] = None
-            else:
-                trv_temps[eid] = None
+        trv_temps, warmest_trv_id = _collect_trv_temps_and_warmest(
+            self.real_trvs, entity_id
+        )
 
     max_opening_pct = _get_trv_max_opening(
         self, warmest_trv_id if is_multi_trv else entity_id
@@ -446,6 +474,153 @@ def _compute_mpc_balance(self, entity_id: str):
         mpc_output, valve_percent=clamp_valve_percent(this_trv_pct)
     )
 
+    return trv_output, supports_valve
+
+
+def _compute_mpc_v2_balance(self, entity_id: str):
+    """Run the MPC v2 (QP + Kalman) balance algorithm.
+
+    Routes through ``compute_mpc_v2`` so the receding-horizon QP controller
+    produces the valve recommendation. Multi-TRV setups use the shared
+    :func:`distribute_valve_percent` helper — the controller only ever sees
+    the group-level signal.
+    """
+    trv_state = self.real_trvs.get(entity_id)
+    if trv_state is None:
+        return None, False
+
+    if self.bt_target_temp is None or self.cur_temp is None:
+        trv_state.calibration_balance = None
+        return None, False
+
+    if self.bt_hvac_mode == HVACMode.OFF:
+        trv_state.calibration_balance = None
+        return None, False
+
+    is_multi_trv = len(self.real_trvs) > 1
+    trv_temps: dict[str, float | None] | None = None
+    warmest_trv_id = entity_id
+    if is_multi_trv:
+        trv_temps, warmest_trv_id = _collect_trv_temps_and_warmest(
+            self.real_trvs, entity_id
+        )
+
+    max_opening_pct = _get_trv_max_opening(
+        self, warmest_trv_id if is_multi_trv else entity_id
+    )
+
+    if is_multi_trv:
+        mpc_key = build_mpc_group_key(self)
+    else:
+        mpc_key = build_mpc_key(self, entity_id)
+
+    # In a group all TRVs share one controller state, so the plant preset must
+    # be group-stable: derive it from a deterministic representative (first TRV
+    # by entity_id) rather than whichever TRV is currently being dispatched,
+    # otherwise mixed per-TRV presets re-parameterize the shared controller.
+    preset_source_id = min(self.real_trvs) if is_multi_trv else entity_id
+    advanced = self.real_trvs[preset_source_id].advanced or {}
+    preset_raw = advanced.get(CONF_MPC_V2_PLANT_PRESET, MpcV2PlantPreset.AUTO)
+    try:
+        preset = MpcV2PlantPreset(preset_raw)
+    except ValueError:
+        preset = MpcV2PlantPreset.AUTO
+
+    v2_params = MpcV2Params(
+        plant=make_plant_prior(
+            heating_power=getattr(self, "heating_power", None),
+            heat_loss_rate=getattr(self, "heat_loss_rate", None),
+            preset=None if preset == MpcV2PlantPreset.AUTO else preset.value,
+        )
+    )
+
+    try:
+        mpc_v2_state = self.state_mgr.get_mpc_v2_live(mpc_key, v2_params)
+        mpc_output, mpc_v2_state = compute_mpc_v2(
+            MpcV2Input(
+                key=mpc_key,
+                target_temp_C=self.bt_target_temp,
+                current_temp_C=self.cur_temp,
+                trv_temp_C=trv_state.current_temperature,
+                window_open=self.window_open or False,
+                heating_allowed=True,
+                bt_name=self.device_name,
+                entity_id=entity_id,
+                outdoor_temp_C=_get_current_outdoor_temp(self),
+                max_opening_pct=max_opening_pct,
+            ),
+            v2_params,
+            state=mpc_v2_state,
+        )
+    except ImportError as err:
+        # Controller construction raises when the daqp wheel is missing.
+        # In a regular HA install the manifest requirement guarantees the
+        # wheel, so this fires only in stripped-down dev environments —
+        # warn once per thermostat instead of spamming every cycle.
+        if self.device_name not in _MPC_V2_IMPORT_WARNED:
+            _MPC_V2_IMPORT_WARNED.add(self.device_name)
+            _LOGGER.warning(
+                "better_thermostat %s: MPC v2 unavailable: %s", self.device_name, err
+            )
+        trv_state.calibration_balance = None
+        return None, False
+    except (ValueError, TypeError, ZeroDivisionError) as err:
+        _LOGGER.debug(
+            "better_thermostat %s: MPC v2 compute failed for %s: %s",
+            self.device_name,
+            entity_id,
+            err,
+        )
+        trv_state.calibration_balance = None
+        return None, False
+
+    self.state_mgr.set_mpc_v2_live(mpc_key, mpc_v2_state)
+
+    if mpc_output is None:
+        trv_state.calibration_balance = None
+        return None, False
+
+    group_valve_pct = float(mpc_output.valve_percent)
+
+    if is_multi_trv:
+        trv_temps = trv_temps or {}
+        distributed = distribute_valve_percent(
+            u_total_pct=group_valve_pct, trv_temps=trv_temps
+        )
+        this_trv_pct = distributed.get(entity_id, group_valve_pct)
+    else:
+        this_trv_pct = group_valve_pct
+
+    # The controller only sees the group-level cap (warmest TRV); the
+    # distribution can boost a colder TRV above its own configured limit,
+    # so each per-TRV command is clamped to that TRV's max opening here.
+    per_trv_max_opening = _get_trv_max_opening(self, entity_id)
+    if per_trv_max_opening is not None:
+        this_trv_pct = min(this_trv_pct, per_trv_max_opening)
+
+    from dataclasses import asdict
+
+    supports_valve = _supports_direct_valve_control(self, entity_id)
+    trv_state.calibration_balance = {
+        "valve_percent": int(round(max(0.0, min(100.0, this_trv_pct)))),
+        "apply_valve": supports_valve,
+        "debug": {
+            **asdict(mpc_output.diagnostics),
+            "group_valve_pct": group_valve_pct,
+            "distributed_valve_pct": this_trv_pct,
+            "controller_version": "v2",
+        },
+    }
+
+    _schedule_save = getattr(self, "schedule_save_state", None)
+    if callable(_schedule_save):
+        _schedule_save()
+
+    from dataclasses import replace as _dc_replace
+
+    trv_output = _dc_replace(
+        mpc_output, valve_percent=int(round(max(0.0, min(100.0, this_trv_pct))))
+    )
     return trv_output, supports_valve
 
 
@@ -640,7 +815,10 @@ def _compute_pid_balance(self, entity_id: str):
 
 
 BALANCE_STRATEGIES = build_strategy_registry(
-    _compute_mpc_balance, _compute_tpi_balance, _compute_pid_balance
+    _compute_mpc_balance,
+    _compute_mpc_v2_balance,
+    _compute_tpi_balance,
+    _compute_pid_balance,
 )
 
 
@@ -679,6 +857,10 @@ MODE_TRAITS: dict[CalibrationMode, ModeTraits] = {
     ),
     CalibrationMode.MPC_CALIBRATION: ModeTraits(
         balance=BALANCE_STRATEGIES[CalibrationMode.MPC_CALIBRATION],
+        skip_post_adjustments=True,
+    ),
+    CalibrationMode.MPC_V2_CALIBRATION: ModeTraits(
+        balance=BALANCE_STRATEGIES[CalibrationMode.MPC_V2_CALIBRATION],
         skip_post_adjustments=True,
     ),
     CalibrationMode.TPI_CALIBRATION: ModeTraits(

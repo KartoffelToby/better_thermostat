@@ -17,6 +17,9 @@
   "integration_type": "device",
   "iot_class": "local_push",
   "issue_tracker": "https://github.com/KartoffelToby/better_thermostat/issues",
-  "requirements": [],
+  "requirements": [
+    "daqp>=0.8.7",
+    "numpy>=1.26"
+  ],
   "version": "2.0.0-dev"
 }

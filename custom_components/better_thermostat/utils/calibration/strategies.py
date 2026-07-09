@@ -261,6 +261,10 @@ def _percent_of_mpc(result: BalanceResult) -> float | None:
     return getattr(result, "valve_percent", None)
 
 
+def _percent_of_mpc_v2(result: BalanceResult) -> float | None:
+    return getattr(result, "valve_percent", None)
+
+
 def _percent_of_tpi(result: BalanceResult) -> float | None:
     return getattr(result, "duty_cycle_pct", None)
 
@@ -271,6 +275,7 @@ def _percent_of_pid(result: BalanceResult) -> float | None:
 
 def build_strategy_registry(
     compute_mpc_balance: ComputeBalance,
+    compute_mpc_v2_balance: ComputeBalance,
     compute_tpi_balance: ComputeBalance,
     compute_pid_balance: ComputeBalance,
 ) -> dict[CalibrationMode, BalanceStrategy]:
@@ -280,6 +285,11 @@ def build_strategy_registry(
             mode=CalibrationMode.MPC_CALIBRATION,
             compute=compute_mpc_balance,
             percent_of=_percent_of_mpc,
+        ),
+        CalibrationMode.MPC_V2_CALIBRATION: BalanceStrategy(
+            mode=CalibrationMode.MPC_V2_CALIBRATION,
+            compute=compute_mpc_v2_balance,
+            percent_of=_percent_of_mpc_v2,
         ),
         CalibrationMode.TPI_CALIBRATION: BalanceStrategy(
             mode=CalibrationMode.TPI_CALIBRATION,
