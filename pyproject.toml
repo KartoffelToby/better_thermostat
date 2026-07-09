@@ -1,6 +1,6 @@
 [project]
 name = "better-thermostat"
-version = "1.8.0-dev"  # keep in sync with manifest.json
+version = "1.9.0-dev"  # keep in sync with manifest.json
 description = "Better Thermostat — Home Assistant custom integration for smart TRV control"
 requires-python = ">=3.14.2"  # floor inherited from Home Assistant 2026.6.x
 dependencies = ["homeassistant>=2026.6.2"]

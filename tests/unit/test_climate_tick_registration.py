@@ -110,3 +110,36 @@ async def test_maintenance_tick_skipped_when_no_trv_enables_it():
     track_interval = await _run_finalize_startup(bt)
     callbacks = _registered_callbacks(track_interval, bt)
     assert bt._maintenance_tick not in callbacks
+
+
+def _make_bt_for_binding(trv_confs):
+    """Build a _finalize_startup mock with a configured all_trvs list."""
+    bt = _make_bt({"calibration_mode": CalibrationMode.NO_CALIBRATION.value})
+    bt.all_trvs = trv_confs
+    bt._unique_id = "bt_uid"
+    bt._config_entry_id = "entry_1"
+    return bt
+
+
+@pytest.mark.asyncio
+async def test_via_device_binding_runs_for_single_trv():
+    """A single-TRV setup binds the BT device via that one valve."""
+    bt = _make_bt_for_binding([{"trv": TRV_ID}])
+    with patch(f"{_CLIMATE}.async_bind_trv_device", AsyncMock()) as bind:
+        await _run_finalize_startup(bt)
+
+    bind.assert_awaited_once_with(bt.hass, "bt_uid", TRV_ID, "entry_1")
+
+
+@pytest.mark.asyncio
+async def test_via_device_binding_skipped_for_multi_trv():
+    """A multi-TRV setup skips via_device binding.
+
+    via_device is single-valued, so binding each TRV would just rewrite the
+    same BT device row and leave it attached to the last valve only.
+    """
+    bt = _make_bt_for_binding([{"trv": TRV_ID}, {"trv": "climate.second_trv"}])
+    with patch(f"{_CLIMATE}.async_bind_trv_device", AsyncMock()) as bind:
+        await _run_finalize_startup(bt)
+
+    bind.assert_not_awaited()
