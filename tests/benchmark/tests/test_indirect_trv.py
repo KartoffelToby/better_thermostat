@@ -114,8 +114,11 @@ def test_hysteresis_holds_old_setpoint_inside_band():
     adapter = IndirectTrvAdapter(PidAdapter(), params)
     adapter.step(_ctx(target=22.0, current=18.0))  # big jump first
     first_sp = adapter._last_quantised_setpoint_C
-    # Same call → setpoint must stay (within hysteresis).
-    adapter.step(_ctx(target=22.0, current=18.0))
+    # A slightly different target shifts the raw quantised setpoint, but the
+    # hysteresis band (2.0 K) must still hold the previous setpoint. Without
+    # hysteresis this second call would change the setpoint, so the assertion
+    # only passes when the internal hysteresis logic is actually exercised.
+    adapter.step(_ctx(target=23.0, current=18.0))
     assert adapter._last_quantised_setpoint_C == first_sp
 
 

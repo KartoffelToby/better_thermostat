@@ -18,14 +18,17 @@ _KITCHEN_ID = "synthetic.kitchen_temperature"
 _OUTDOOR_ID = "synthetic.outdoor_temperature"
 
 
-def _fit_one(path: str, sensor_id: str) -> tuple[int, list[float]]:
+def _fit_one(path: str, sensor_id: str) -> tuple[int, list[float], int]:
     data = fit_plant._load_csv(path)
     aligned = fit_plant._align(data[sensor_id], data[_OUTDOOR_ID])
     windows = fit_plant._find_cooling_windows(aligned)
-    # Return every successful fit unfiltered — the range assertions live
-    # in the test body, where an out-of-bounds tau must fail loudly.
-    taus = [tau for w in windows if (tau := fit_plant._fit_tau_room(w)) is not None]
-    return len(windows), taus
+    # Keep failures separate: the 10% contract is over ALL cooling windows,
+    # so a failed fit must count as an out-of-band window rather than be
+    # silently dropped.
+    all_taus = [fit_plant._fit_tau_room(w) for w in windows]
+    taus = [tau for tau in all_taus if tau is not None]
+    failures = sum(1 for tau in all_taus if tau is None)
+    return len(windows), taus, failures
 
 
 def test_generator_produces_a_long_format_csv() -> None:
@@ -66,12 +69,16 @@ def test_fit_recovers_sensible_tau_on_synthetic_data() -> None:
         out = Path(tmp) / "demo.csv"
         generate_synthetic_data.main(out_path=str(out), days=60)
 
-        n_living, taus_living = _fit_one(str(out), _LIVING_ID)
-        n_kitchen, taus_kitchen = _fit_one(str(out), _KITCHEN_ID)
+        n_living, taus_living, fails_living = _fit_one(str(out), _LIVING_ID)
+        n_kitchen, taus_kitchen, fails_kitchen = _fit_one(str(out), _KITCHEN_ID)
 
         assert n_living >= 20 and n_kitchen >= 20
         assert taus_living and taus_kitchen
-        for taus in (taus_living, taus_kitchen):
+        for taus, n_windows, fails in (
+            (taus_living, n_living, fails_living),
+            (taus_kitchen, n_kitchen, fails_kitchen),
+        ):
             assert 60.0 <= statistics.median(taus) <= 6000.0
             outliers = [tau for tau in taus if not 60.0 <= tau <= 6000.0]
-            assert len(outliers) <= 0.1 * len(taus)
+            # 10% contract is over ALL windows (failures count as out-of-band).
+            assert len(outliers) + fails <= 0.1 * n_windows

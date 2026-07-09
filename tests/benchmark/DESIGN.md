@@ -55,12 +55,12 @@ scenarios yet reproducible run to run.
 The simulator separates the things a real controller cannot see from the
 things it acts on, mirroring the physical signal chain:
 
-```
+```text
             commanded valve %                    measured °C
 controller ───────────────► actuator ──► PLANT ──► sensor ──► controller
  (adapter)                  (flow curve)  (RC2/3)   (lag,        (next step)
-                                                     noise,
-                                                     dropout)
+                                                      noise,
+                                                      dropout)
 ```
 
 * **Plant** (`plant.py`) — the room's thermal truth (an RC2/RC3 model,

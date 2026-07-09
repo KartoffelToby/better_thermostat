@@ -177,7 +177,10 @@ class MpcV2Controller:
             self._initialised = True
 
         dt_s = t_s - self._last_t_s if self._last_t_s > 0 else self.params.plant_step_s
-        if self._last_t_s > 0 and 0.0 <= dt_s < MIN_STEP_DT_S:
+        if self._last_t_s > 0 and dt_s < MIN_STEP_DT_S:
+            # Forward-only: a non-positive dt_s (backward time jump) or a step
+            # below the minimum reuses the previous state and must NOT advance
+            # _last_t_s, otherwise a stale timestamp would reach dob.update.
             return self._last_u, self._diagnostics()
         self._last_t_s = t_s
 
