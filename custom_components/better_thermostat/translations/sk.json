@@ -8,6 +8,7 @@
           "name": "Názov",
           "thermostat": "Skutočný termostat",
           "cooler": "Chladiace zariadenie (voliteľné)",
+          "min_cooler_resend_interval": "Minimálny počet sekúnd medzi opakovanými príkazmi chladenia (0 = vypnuté)",
           "temperature_sensor": "Snímač teploty",
           "humidity_sensor": "Snímač vlhkosti",
           "window_sensors": "Snímač okna",

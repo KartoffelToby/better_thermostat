@@ -4,9 +4,11 @@ from __future__ import annotations
 
 import asyncio
 import logging
+from time import monotonic
 
 from homeassistant.components.climate.const import PRESET_BOOST, HVACMode
 from homeassistant.const import STATE_UNAVAILABLE, STATE_UNKNOWN, UnitOfTemperature
+from homeassistant.exceptions import HomeAssistantError
 from homeassistant.util.unit_conversion import TemperatureConverter
 
 from custom_components.better_thermostat.adapters.delegate import (
@@ -275,6 +277,9 @@ async def control_cooler(self):
     current_hvac_mode = cooler_state.state
     current_temp = cooler_state.attributes.get("temperature")
 
+    min_resend_interval_s = self.min_cooler_resend_interval_s
+    now_ts = monotonic()
+
     # Determine desired state based on current conditions
     desired_temp = self.bt_target_cooltemp
 
@@ -309,7 +314,11 @@ async def control_cooler(self):
     else:
         desired_mode = HVACMode.OFF
 
-    # Only send temperature command if it differs from current
+    # Decide whether a temperature command is needed. When the current
+    # temperature is unknown, only send if the desired value changed since the
+    # last successful command; otherwise send when it differs from current.
+    temp_changed_since_last_send = self.last_sent_cooler_temp != desired_temp
+    should_send_temp = False
     if desired_temp is None:
         _LOGGER.debug(
             "better_thermostat %s: cooler %s desired temperature is None, "
@@ -317,38 +326,94 @@ async def control_cooler(self):
             self.device_name,
             self.cooler_entity_id,
         )
-    elif current_temp is None or current_temp != desired_temp:
-        if current_temp is None:
+    elif current_temp is None:
+        should_send_temp = temp_changed_since_last_send
+        if not should_send_temp:
             _LOGGER.debug(
-                "better_thermostat %s: cooler %s current temperature is unknown, "
-                "sending set_temperature command anyway",
+                "better_thermostat %s: cooler %s current temperature unknown and "
+                "desired temperature unchanged (%s), skipping set_temperature",
                 self.device_name,
                 self.cooler_entity_id,
-            )
-        else:
-            _LOGGER.debug(
-                "better_thermostat %s: TO COOLER set_temperature: %s from: %s to: %s",
-                self.device_name,
-                self.cooler_entity_id,
-                current_temp,
                 desired_temp,
             )
+    elif current_temp != desired_temp:
+        should_send_temp = True
+
+    # Throttle identical resends when the state feedback lags behind.
+    if (
+        should_send_temp
+        and min_resend_interval_s > 0
+        and not temp_changed_since_last_send
+    ):
+        last_temp_ts = self.last_sent_cooler_temp_ts
+        if last_temp_ts is not None and (now_ts - last_temp_ts) < min_resend_interval_s:
+            _LOGGER.debug(
+                "better_thermostat %s: cooler %s skipping set_temperature due to "
+                "min_cooler_resend_interval_s=%ss",
+                self.device_name,
+                self.cooler_entity_id,
+                min_resend_interval_s,
+            )
+            should_send_temp = False
+
+    if should_send_temp:
+        _LOGGER.debug(
+            "better_thermostat %s: TO COOLER set_temperature: %s from: %s to: %s",
+            self.device_name,
+            self.cooler_entity_id,
+            current_temp,
+            desired_temp,
+        )
         _temp_to_set = desired_temp
         if self.hass.config.units.temperature_unit == UnitOfTemperature.FAHRENHEIT:
             _temp_to_set = TemperatureConverter.convert(
                 desired_temp, UnitOfTemperature.CELSIUS, UnitOfTemperature.FAHRENHEIT
             )
             _temp_to_set = round(_temp_to_set, 1)
-        await self.hass.services.async_call(
-            "climate",
-            "set_temperature",
-            {"entity_id": self.cooler_entity_id, "temperature": _temp_to_set},
-            blocking=True,
-            context=self.context,
-        )
+        # Cache on success and on an expected service failure alike, so a
+        # cloud cooler that rejects the call is not hammered every cycle.
+        try:
+            await self.hass.services.async_call(
+                "climate",
+                "set_temperature",
+                {"entity_id": self.cooler_entity_id, "temperature": _temp_to_set},
+                blocking=True,
+                context=self.context,
+            )
+        except HomeAssistantError as err:
+            _LOGGER.warning(
+                "better_thermostat %s: set_temperature for cooler %s failed (%s); "
+                "updating send-cache to rate-limit retries",
+                self.device_name,
+                self.cooler_entity_id,
+                err,
+            )
+        finally:
+            self.last_sent_cooler_temp = desired_temp
+            self.last_sent_cooler_temp_ts = now_ts
 
-    # Only send hvac_mode command if it differs from current
-    if current_hvac_mode != desired_mode:
+    # Decide whether an hvac_mode command is needed, throttling identical
+    # resends the same way as temperature commands.
+    mode_changed_since_last_send = self.last_sent_cooler_hvac_mode != desired_mode
+    should_send_mode = current_hvac_mode != desired_mode
+
+    if (
+        should_send_mode
+        and min_resend_interval_s > 0
+        and not mode_changed_since_last_send
+    ):
+        last_mode_ts = self.last_sent_cooler_hvac_mode_ts
+        if last_mode_ts is not None and (now_ts - last_mode_ts) < min_resend_interval_s:
+            _LOGGER.debug(
+                "better_thermostat %s: cooler %s skipping set_hvac_mode due to "
+                "min_cooler_resend_interval_s=%ss",
+                self.device_name,
+                self.cooler_entity_id,
+                min_resend_interval_s,
+            )
+            should_send_mode = False
+
+    if should_send_mode:
         _LOGGER.debug(
             "better_thermostat %s: TO COOLER set_hvac_mode: %s from: %s to: %s",
             self.device_name,
@@ -356,13 +421,25 @@ async def control_cooler(self):
             current_hvac_mode,
             desired_mode,
         )
-        await self.hass.services.async_call(
-            "climate",
-            "set_hvac_mode",
-            {"entity_id": self.cooler_entity_id, "hvac_mode": desired_mode},
-            blocking=True,
-            context=self.context,
-        )
+        try:
+            await self.hass.services.async_call(
+                "climate",
+                "set_hvac_mode",
+                {"entity_id": self.cooler_entity_id, "hvac_mode": desired_mode},
+                blocking=True,
+                context=self.context,
+            )
+        except HomeAssistantError as err:
+            _LOGGER.warning(
+                "better_thermostat %s: set_hvac_mode for cooler %s failed (%s); "
+                "updating send-cache to rate-limit retries",
+                self.device_name,
+                self.cooler_entity_id,
+                err,
+            )
+        finally:
+            self.last_sent_cooler_hvac_mode = desired_mode
+            self.last_sent_cooler_hvac_mode_ts = now_ts
 
 
 async def control_trv(self, heater_entity_id=None):

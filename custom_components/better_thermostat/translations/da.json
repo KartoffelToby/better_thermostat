@@ -8,6 +8,7 @@
           "name": "Navn",
           "thermostat": "Den rigtige termostat",
           "cooler": "Køleenhed (valgfri)",
+          "min_cooler_resend_interval": "Minimum sekunder mellem gentagne kølekommandoer (0 = deaktiveret)",
           "temperature_sensor": "Temperatur måler",
           "humidity_sensor": "Fugtighedssensor",
           "window_sensors": "Vinduessensor",

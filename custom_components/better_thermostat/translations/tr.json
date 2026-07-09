@@ -8,6 +8,7 @@
           "name": "Ad",
           "thermostat": "Gerçek termostat",
           "cooler": "Soğutma cihazı (isteğe bağlı)",
+          "min_cooler_resend_interval": "Tekrarlanan soğutucu komutları arasındaki minimum saniye (0 = devre dışı)",
           "temperature_sensor": "Sıcaklık sensörü",
           "humidity_sensor": "Nem sensörü",
           "window_sensors": "Pencere sensörü",
