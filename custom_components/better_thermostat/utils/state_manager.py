@@ -42,6 +42,12 @@ from homeassistant.core import HomeAssistant
 from homeassistant.helpers.storage import Store
 
 from .calibration.mpc import MpcState
+from .calibration.mpc_v2 import (
+    MpcV2Params,
+    MpcV2State,
+    export_mpc_v2_state,
+    import_mpc_v2_state,
+)
 from .calibration.pid import PIDState
 from .calibration.tpi import TpiState
 from .const import (
@@ -52,6 +58,24 @@ from .const import (
     MIN_HEATING_POWER,
 )
 from .thermal_learning import clamp
+
+
+@dataclass
+class MpcV2StateData:
+    """Persistable per-key state for the MPC v2 controller.
+
+    ``snapshot`` is the opaque payload returned by
+    :meth:`MpcV2Controller.export_snapshot` — restored verbatim by
+    :meth:`MpcV2Controller.restore_snapshot`. Top-level fields mirror the
+    metadata the runtime state holds independently of the controller.
+    """
+
+    last_percent: float | None = None
+    last_compute_ts: float = 0.0
+    created_ts: float = 0.0
+    outdoor_fallback_logged: bool = False
+    snapshot: dict[str, Any] = field(default_factory=dict)
+
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -78,6 +102,7 @@ class RuntimeState:
 
     version: int = CURRENT_VERSION
     mpc: dict[str, MpcState] = field(default_factory=dict)
+    mpc_v2: dict[str, MpcV2StateData] = field(default_factory=dict)
     pid: dict[str, PIDState] = field(default_factory=dict)
     tpi: dict[str, TpiState] = field(default_factory=dict)
     thermal: ThermalStats = field(default_factory=ThermalStats)
@@ -173,6 +198,24 @@ def deserialize_mpc(raw: dict[str, Any]) -> MpcState:
     return state
 
 
+def deserialize_mpc_v2(raw: dict[str, Any]) -> MpcV2StateData:
+    """Deserialize a single MPC v2 state dict into MpcV2StateData."""
+    state = MpcV2StateData()
+    for attr in ("last_percent", "last_compute_ts", "created_ts"):
+        value = raw.get(attr)
+        if value is None:
+            continue
+        try:
+            setattr(state, attr, float(value))
+        except TypeError, ValueError, OverflowError:
+            continue
+    state.outdoor_fallback_logged = bool(raw.get("outdoor_fallback_logged", False))
+    snapshot = raw.get("snapshot")
+    if isinstance(snapshot, Mapping):
+        state.snapshot = dict(snapshot)
+    return state
+
+
 def deserialize_pid(raw: dict[str, Any]) -> PIDState:
     """Deserialize a single PID state dict into a PIDState dataclass."""
     state = PIDState()
@@ -227,6 +270,12 @@ def _deserialize(raw: dict[str, Any]) -> RuntimeState:
         for key, state_dict in mpc_raw.items():
             if isinstance(state_dict, dict):
                 state.mpc[key] = deserialize_mpc(state_dict)
+
+    mpc_v2_raw = raw.get("mpc_v2", {})
+    if isinstance(mpc_v2_raw, Mapping):
+        for key, state_dict in mpc_v2_raw.items():
+            if isinstance(state_dict, dict):
+                state.mpc_v2[key] = deserialize_mpc_v2(state_dict)
 
     pid_raw = raw.get("pid", {})
     if isinstance(pid_raw, Mapping):
@@ -312,6 +361,9 @@ class StateManager:
         )
         self._entry_id = entry_id
         self._state = RuntimeState()
+        # Live MPC v2 controllers, held in memory across cycles. The persisted
+        # ``_state.mpc_v2`` snapshots are folded in only at save time.
+        self._mpc_v2_live: dict[str, MpcV2State] = {}
         self._dirty = False
 
     # -- Public properties ---------------------------------------------------
@@ -339,6 +391,42 @@ class StateManager:
         """Set MPC state for a key and mark dirty."""
         self._state.mpc[key] = mpc
         self._dirty = True
+
+    def get_mpc_v2_live(self, key: str, params: MpcV2Params) -> MpcV2State:
+        """Return the live MPC v2 controller state, building it on first use.
+
+        The live controller (Kalman/QP/governor) is kept in memory across
+        control cycles. On first access it is rehydrated from the persisted
+        snapshot (when one exists); thereafter the same instance is reused, so
+        learned state is not rebuilt every cycle. Conversion to the persistable
+        form happens only at save time (see :meth:`_sync_mpc_v2_live`).
+        """
+        live = self._mpc_v2_live.get(key)
+        if live is None:
+            persisted = self._state.mpc_v2.get(key)
+            live = (
+                import_mpc_v2_state(asdict(persisted), params)
+                if persisted is not None
+                else MpcV2State()
+            )
+            self._mpc_v2_live[key] = live
+        return live
+
+    def set_mpc_v2_live(self, key: str, state: MpcV2State) -> None:
+        """Store the live MPC v2 controller state for a key and mark dirty."""
+        self._mpc_v2_live[key] = state
+        self._dirty = True
+
+    def _sync_mpc_v2_live(self) -> None:
+        """Fold live MPC v2 controllers into the persistable snapshot.
+
+        Runs at save time only; the per-cycle path keeps the live controller in
+        memory and never serialises it.
+        """
+        for key, live in self._mpc_v2_live.items():
+            exported = export_mpc_v2_state(live)
+            if exported is not None:
+                self._state.mpc_v2[key] = deserialize_mpc_v2(exported)
 
     def get_pid(self, key: str) -> PIDState:
         """Get or create PID state for a key."""
@@ -495,6 +583,7 @@ class StateManager:
 
     async def save(self) -> None:
         """Persist current state to HA Store unconditionally."""
+        self._sync_mpc_v2_live()
         data = _serialize(self._state)
         await self._store.async_save(data)
         self._dirty = False
