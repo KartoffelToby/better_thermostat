@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import logging
 import math
-from time import time
 
 from homeassistant.components.climate.const import HVACAction, HVACMode
 
@@ -506,7 +505,7 @@ def _record_mpc_v2_reid_sample(
     runtime = self.state_mgr.get_mpc_v2_reid_runtime(mpc_key)
     runtime.buffer.append(
         ReidSample(
-            t_s=time(),
+            t_s=self.clock.monotonic(),
             T_room_C=t_room,
             u_frac=u_frac,
             T_outdoor_C=outdoor_temp,
@@ -530,7 +529,10 @@ def _maybe_start_mpc_v2_reid_fit(self, mpc_key: str, v2_params: MpcV2Params) -> 
         return
     state_mgr = self.state_mgr
     runtime = state_mgr.get_mpc_v2_reid_runtime(mpc_key)
-    now = time()
+    # Monotonic for the cadence gate and buffer timing (immune to wall-clock
+    # jumps); a separate wall-clock stamp records *when* an accepted fit
+    # happened for the persisted result and diagnostics.
+    now = self.clock.monotonic()
     if runtime.fit_inflight:
         return
     if now - runtime.last_fit_attempt_ts < _MPC_V2_REID_INTERVAL_S:
@@ -539,6 +541,7 @@ def _maybe_start_mpc_v2_reid_fit(self, mpc_key: str, v2_params: MpcV2Params) -> 
         return
     runtime.last_fit_attempt_ts = now
     runtime.fit_inflight = True
+    fitted_wall_ts = self.clock.now().timestamp()
     # Snapshot the buffer so the executor thread never races the event
     # loop's appends; the current prior is the validation baseline.
     samples = list(runtime.buffer.samples)
@@ -568,7 +571,7 @@ def _maybe_start_mpc_v2_reid_fit(self, mpc_key: str, v2_params: MpcV2Params) -> 
                 MpcV2ReidData(
                     tau_room_min=outcome.tau_room_min,
                     gain_heater=outcome.gain_heater,
-                    fitted_ts=now,
+                    fitted_ts=fitted_wall_ts,
                     rmse_prior_K=outcome.rmse_prior_K or 0.0,
                     rmse_fit_K=outcome.rmse_fit_K or 0.0,
                     n_segments=outcome.n_segments,
@@ -599,7 +602,20 @@ def _maybe_start_mpc_v2_reid_fit(self, mpc_key: str, v2_params: MpcV2Params) -> 
                 outcome.n_samples,
             )
 
-    future = hass.async_add_executor_job(run_reid_fit, samples, prior)
+    try:
+        future = hass.async_add_executor_job(run_reid_fit, samples, prior)
+    except Exception as err:
+        # Submitting the job failed before it could run; clear the guard so a
+        # later cycle can retry instead of blocking fits forever.
+        runtime.fit_inflight = False
+        _LOGGER.warning(
+            "better_thermostat %s: could not schedule MPC v2 re-identification "
+            "for %s: %s",
+            device_name,
+            mpc_key,
+            err,
+        )
+        return
     future.add_done_callback(_on_fit_done)
 
 

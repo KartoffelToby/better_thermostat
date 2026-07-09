@@ -17,6 +17,7 @@ pytest.importorskip("daqp")
 from homeassistant.components.climate.const import HVACMode
 
 from custom_components.better_thermostat.calibration import _compute_mpc_v2_balance
+from custom_components.better_thermostat.core.clock import FakeClock
 from custom_components.better_thermostat.trv import Trv
 from custom_components.better_thermostat.utils.calibration.mpc import (
     distribute_valve_percent,
@@ -92,6 +93,7 @@ def _make_bt(*, real_trvs: dict[str, Trv], unique_id: str = "bt_test") -> Any:
         device_id="bt_test_device",
         entry_id="bt_test_entry",
         state_mgr=_FakeStateManager(),
+        clock=FakeClock(monotonic_value=1_000_000.0),
     )
 
 

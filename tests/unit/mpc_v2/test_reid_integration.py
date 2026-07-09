@@ -13,6 +13,7 @@ pytest.importorskip("daqp")
 from homeassistant.components.climate.const import HVACMode
 
 from custom_components.better_thermostat.calibration import _compute_mpc_v2_balance
+from custom_components.better_thermostat.core.clock import FakeClock
 from custom_components.better_thermostat.trv import Trv
 from custom_components.better_thermostat.utils.calibration.mpc_v2 import (
     MpcV2Input,
@@ -163,6 +164,7 @@ def _make_bt(preset: MpcV2PlantPreset = MpcV2PlantPreset.AUTO) -> Any:
         weather_entity=None,
         hass=None,
         state_mgr=_make_manager(),
+        clock=FakeClock(monotonic_value=1_000_000.0),
     )
 
 

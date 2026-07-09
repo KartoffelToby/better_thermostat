@@ -599,6 +599,15 @@ class StateManager:
             exported = export_mpc_v2_state(live)
             if exported is not None:
                 self._state.mpc_v2[key] = deserialize_mpc_v2(exported)
+            else:
+                # No exportable observer state to carry over; the rebuild with
+                # the new prior falls back to the last snapshot (or a cold
+                # start). Rare, but log it so a lost transfer is diagnosable.
+                _LOGGER.debug(
+                    "MPC v2 re-identification adopt for %s: live controller had "
+                    "no exportable state; rebuild will not be bumpless",
+                    key,
+                )
         self._state.mpc_v2_reid[key] = data
         self._dirty = True
 
