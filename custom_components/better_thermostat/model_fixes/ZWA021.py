@@ -23,9 +23,19 @@ _ZWAVE_JS_DOMAIN = "zwave_js"
 _ZWAVE_JS_SET_VALUE = "set_value"
 
 # Thermostat Mode command class (0x40) with the manufacturer-specific mode
-# value that lets the device accept external valve positions.
+# value that lets the device accept external valve positions. The mode is not
+# advertised during the device interview (firmware omission), so it has to be
+# written directly.
 _THERMOSTAT_MODE_COMMAND_CLASS = "64"
 _MANUFACTURER_SPECIFIC_MODE = "31"
+
+# While in manufacturer-specific mode the valve is driven through the
+# Multilevel Switch command class (0x26); its ``targetValue`` takes the valve
+# opening on a 0-99 scale (0 = closed, 99 = fully open). This is the same
+# mechanism the zwave-js "Multilevel Switch" control and OpenZWave use — the
+# device exposes no writable valve *number* helper.
+_MULTILEVEL_SWITCH_COMMAND_CLASS = 38
+_VALVE_MAX = 99
 
 
 def _is_direct_valve(self, entity_id):
@@ -89,5 +99,38 @@ async def override_set_temperature(self, entity_id, temperature):
 
 
 async def override_set_valve(self, entity_id, percent):
-    """Do not override valve writes; the adapter handles the valve number entity."""
-    return False
+    """Drive the valve directly via the Multilevel Switch command class.
+
+    Active only in direct valve control; otherwise returns ``False`` so the
+    generic valve handling applies. The device is expected to already be in
+    manufacturer-specific mode (see :func:`override_set_hvac_mode`). The
+    requested 0-100 % opening is mapped onto the device's 0-99 range.
+    """
+    if not _is_direct_valve(self, entity_id):
+        return False
+    try:
+        value = int(round(min(max(float(percent), 0.0), 100.0) / 100.0 * _VALVE_MAX))
+    except TypeError, ValueError:
+        return False
+
+    _LOGGER.debug(
+        "better_thermostat %s: TRV %s ZWA021 set valve %s%% -> %s/%s",
+        self.device_name,
+        entity_id,
+        percent,
+        value,
+        _VALVE_MAX,
+    )
+    await self.hass.services.async_call(
+        _ZWAVE_JS_DOMAIN,
+        _ZWAVE_JS_SET_VALUE,
+        {
+            "entity_id": entity_id,
+            "command_class": _MULTILEVEL_SWITCH_COMMAND_CLASS,
+            "property": "targetValue",
+            "value": value,
+        },
+        blocking=True,
+        context=self.context,
+    )
+    return True

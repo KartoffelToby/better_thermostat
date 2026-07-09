@@ -15,7 +15,11 @@ import logging
 from homeassistant.components.number.const import SERVICE_SET_VALUE
 from homeassistant.const import STATE_UNAVAILABLE, STATE_UNKNOWN
 
-from ..utils.helpers import find_local_calibration_entity, find_valve_entity
+from ..utils.helpers import (
+    find_local_calibration_entity,
+    find_valve_entity,
+    get_device_model,
+)
 from .base import wait_for_calibration_entity_or_timeout
 from .generic import (
     set_hvac_mode as generic_set_hvac_mode,
@@ -24,13 +28,20 @@ from .generic import (
 
 _LOGGER = logging.getLogger(__name__)
 
+# Models whose valve is driven through a model quirk (Multilevel Switch command
+# class while in manufacturer-specific mode) rather than a writable number
+# helper. For these, valve support is reported even though no valve number
+# entity is exposed, so the config flow offers direct valve control.
+_QUIRK_VALVE_MODELS = {"ZWA021"}
+
 
 async def get_info(self, entity_id):
     """Report offset and valve capabilities of the TRV.
 
     Capabilities are derived from the entities the device actually exposes, so
     a Z-Wave JS TRV without a writable valve helper falls back to the same
-    (offset-only or plain) behaviour as the generic adapter.
+    (offset-only or plain) behaviour as the generic adapter. Devices whose valve
+    is controlled through a model quirk are reported as valve-capable regardless.
     """
     support_offset = False
     support_valve = False
@@ -40,6 +51,13 @@ async def get_info(self, entity_id):
     valve = await find_valve_entity(self, entity_id)
     if valve is not None and valve.get("entity_id"):
         support_valve = bool(valve.get("writable", False))
+    if not support_valve:
+        try:
+            model = await get_device_model(self, entity_id)
+        except Exception:
+            model = ""
+        if model in _QUIRK_VALVE_MODELS:
+            support_valve = True
     return {"support_offset": support_offset, "support_valve": support_valve}
 
 

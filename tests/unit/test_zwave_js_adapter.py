@@ -98,13 +98,53 @@ class TestZWA021Passthroughs:
         )
 
     @pytest.mark.asyncio
-    async def test_overrides_decline(self):
+    async def test_set_temperature_declines(self):
         mock_self = _make_self(calibration=CalibrationType.DIRECT_VALVE_BASED)
         assert (
             await quirk.override_set_temperature(mock_self, "climate.trv1", 21.0)
             is False
         )
-        assert await quirk.override_set_valve(mock_self, "climate.trv1", 50) is False
+
+
+class TestZWA021SetValve:
+    """The valve is driven via the Multilevel Switch command class (0x26)."""
+
+    @pytest.mark.asyncio
+    async def test_declines_when_not_direct_valve(self):
+        """Outside direct valve control the quirk does not touch the valve."""
+        mock_self = _make_self(calibration=CalibrationType.TARGET_TEMP_BASED)
+
+        handled = await quirk.override_set_valve(mock_self, "climate.trv1", 50)
+
+        assert handled is False
+        mock_self.hass.services.async_call.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_writes_multilevel_switch_scaled_to_99(self):
+        """100 % maps onto the device's fully-open value of 99."""
+        mock_self = _make_self(calibration=CalibrationType.DIRECT_VALVE_BASED)
+
+        handled = await quirk.override_set_valve(mock_self, "climate.trv1", 100)
+
+        assert handled is True
+        mock_self.hass.services.async_call.assert_awaited_once()
+        args, _ = mock_self.hass.services.async_call.call_args
+        assert args[0] == "zwave_js"
+        assert args[1] == "set_value"
+        assert args[2]["entity_id"] == "climate.trv1"
+        assert args[2]["command_class"] == 38
+        assert args[2]["property"] == "targetValue"
+        assert args[2]["value"] == 99
+
+    @pytest.mark.asyncio
+    async def test_closed_valve_writes_zero(self):
+        """0 % maps onto a fully closed valve."""
+        mock_self = _make_self(calibration=CalibrationType.DIRECT_VALVE_BASED)
+
+        await quirk.override_set_valve(mock_self, "climate.trv1", 0)
+
+        args, _ = mock_self.hass.services.async_call.call_args
+        assert args[2]["value"] == 0
 
 
 class TestAdapterGetInfo:
@@ -137,6 +177,36 @@ class TestAdapterGetInfo:
                 AsyncMock(
                     return_value={"entity_id": "number.trv1_valve", "writable": False}
                 ),
+            ),
+        ):
+            info = await adapter.get_info(mock_self, "climate.trv1")
+        assert info["support_valve"] is False
+
+    @pytest.mark.asyncio
+    async def test_quirk_model_reports_valve_without_number_entity(self):
+        """A ZWA021 reports valve support although it exposes no number helper."""
+        mock_self = _make_self()
+        with (
+            patch.object(
+                adapter, "find_local_calibration_entity", AsyncMock(return_value=None)
+            ),
+            patch.object(adapter, "find_valve_entity", AsyncMock(return_value=None)),
+            patch.object(adapter, "get_device_model", AsyncMock(return_value="ZWA021")),
+        ):
+            info = await adapter.get_info(mock_self, "climate.trv1")
+        assert info["support_valve"] is True
+
+    @pytest.mark.asyncio
+    async def test_other_model_without_valve_stays_unsupported(self):
+        """An unknown model without a writable helper reports no valve support."""
+        mock_self = _make_self()
+        with (
+            patch.object(
+                adapter, "find_local_calibration_entity", AsyncMock(return_value=None)
+            ),
+            patch.object(adapter, "find_valve_entity", AsyncMock(return_value=None)),
+            patch.object(
+                adapter, "get_device_model", AsyncMock(return_value="MT02650")
             ),
         ):
             info = await adapter.get_info(mock_self, "climate.trv1")
