@@ -8,6 +8,7 @@
           "name": "Name",
           "thermostat": "The real thermostat",
           "cooler": "The cooling device (optional)",
+          "min_cooler_resend_interval": "Minimum seconds between repeated cooler commands (0 = disabled)",
           "temperature_sensor": "Temperature sensor",
           "humidity_sensor": "Humidity sensor",
           "window_sensors": "Window sensor",

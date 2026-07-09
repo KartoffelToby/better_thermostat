@@ -8,6 +8,7 @@
           "name": "Nome",
           "thermostat": "Il termostato reale",
           "cooler": "Il dispositivo di raffreddamento (opzionale)",
+          "min_cooler_resend_interval": "Secondi minimi tra comandi ripetuti al raffreddatore (0 = disattivato)",
           "temperature_sensor": "Sensore di temperatura",
           "humidity_sensor": "Sensore di umidità",
           "window_sensors": "Sensore finestra",

@@ -107,6 +107,7 @@ from .utils.const import (
     CONF_DOOR_TIMEOUT_AFTER,
     CONF_HEATER,
     CONF_HUMIDITY,
+    CONF_MIN_COOLER_RESEND_INTERVAL,
     CONF_MODEL,
     CONF_OFF_TEMPERATURE,
     CONF_OUTDOOR_SENSOR,
@@ -268,6 +269,7 @@ async def async_setup_entry(hass, entry, async_add_entities):
         entry.data.get(CONF_TARGET_TEMP_STEP, "0.0"),
         entry.data.get(CONF_MODEL, None),
         entry.data.get(CONF_COOLER, None),
+        entry.data.get(CONF_MIN_COOLER_RESEND_INTERVAL, 0),
         entry.data.get(CONF_PRESETS, None),
         hass.config.units.temperature_unit,
         entry.entry_id,
@@ -439,6 +441,7 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
         target_temp_step,
         model,
         cooler_entity_id,
+        min_cooler_resend_interval,
         enabled_presets,
         unit,
         unique_id,
@@ -483,6 +486,9 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
             Detected TRV model identifier.
         cooler_entity_id : str | None
             Cooler entity id.
+        min_cooler_resend_interval : int | float | None
+            Minimum interval in seconds between identical cooler commands
+            (0 disables the throttle).
         enabled_presets : list[str]
             Presets enabled for this thermostat.
         unit : str
@@ -502,6 +508,12 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
         self.sensor_entity_id = sensor_entity_id
         self.humidity_sensor_entity_id = humidity_sensor_entity_id
         self.cooler_entity_id = cooler_entity_id
+        try:
+            self.min_cooler_resend_interval_s: float = max(
+                0.0, float(min_cooler_resend_interval or 0)
+            )
+        except TypeError, ValueError:
+            self.min_cooler_resend_interval_s = 0.0
         self.window_id = window_id or None
         self.window_delay = window_delay or 0
         self.window_delay_after = window_delay_after or 0
@@ -707,6 +719,11 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
         self.accum_dir = 0
         self.pending_temp = None
         self.pending_since = None
+        # Cooler send-cache (anti-spam for cloud-backed coolers)
+        self.last_sent_cooler_temp: float | None = None
+        self.last_sent_cooler_hvac_mode: str | None = None
+        self.last_sent_cooler_temp_ts: float | None = None
+        self.last_sent_cooler_hvac_mode_ts: float | None = None
 
     async def async_added_to_hass(self):
         """Run when entity about to be added.

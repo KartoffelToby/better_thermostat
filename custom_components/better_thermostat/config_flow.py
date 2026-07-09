@@ -38,6 +38,7 @@ from .utils.const import (
     CONF_HEATER,
     CONF_HOMEMATICIP,
     CONF_HUMIDITY,
+    CONF_MIN_COOLER_RESEND_INTERVAL,
     CONF_MODEL,
     CONF_MPC_V2_PLANT_PRESET,
     CONF_NO_SYSTEM_MODE_OFF,
@@ -166,6 +167,7 @@ _USER_FIELD_DEFAULTS: dict[str, Any] = {
     CONF_OFF_TEMPERATURE: 20,
     CONF_TOLERANCE: 0.0,
     CONF_TARGET_TEMP_STEP: "0.0",
+    CONF_MIN_COOLER_RESEND_INTERVAL: 0,
 }
 
 
@@ -493,6 +495,22 @@ def _build_user_fields(
     add_entity_selector(CONF_HEATER, domain="climate", multiple=True, required=True)
     add_entity_selector(CONF_COOLER, domain="climate", multiple=False)
 
+    # Only relevant once a cooler is configured, so keep it out of heat-only forms.
+    if resolve(CONF_COOLER):
+        resend_default = resolve(
+            CONF_MIN_COOLER_RESEND_INTERVAL,
+            _USER_FIELD_DEFAULTS[CONF_MIN_COOLER_RESEND_INTERVAL],
+        )
+        try:
+            resend_default = int(resend_default)
+        except TypeError, ValueError:
+            resend_default = _USER_FIELD_DEFAULTS[CONF_MIN_COOLER_RESEND_INTERVAL]
+        add_field(
+            CONF_MIN_COOLER_RESEND_INTERVAL,
+            vol.All(vol.Coerce(int), vol.Range(min=0)),
+            default=resend_default,
+        )
+
     add_entity_selector(
         CONF_SENSOR,
         domain=["sensor", "number", "input_number"],
@@ -671,6 +689,25 @@ def _normalize_user_submission(
     if target_step in (None, ""):
         target_step = _USER_FIELD_DEFAULTS[CONF_TARGET_TEMP_STEP]
     normalized[CONF_TARGET_TEMP_STEP] = str(target_step)
+
+    resend_interval = user_input.get(
+        CONF_MIN_COOLER_RESEND_INTERVAL,
+        normalized.get(
+            CONF_MIN_COOLER_RESEND_INTERVAL,
+            _USER_FIELD_DEFAULTS[CONF_MIN_COOLER_RESEND_INTERVAL],
+        ),
+    )
+    if resend_interval is None:
+        normalized[CONF_MIN_COOLER_RESEND_INTERVAL] = _USER_FIELD_DEFAULTS[
+            CONF_MIN_COOLER_RESEND_INTERVAL
+        ]
+    else:
+        try:
+            normalized[CONF_MIN_COOLER_RESEND_INTERVAL] = max(0, int(resend_interval))
+        except TypeError, ValueError:
+            normalized[CONF_MIN_COOLER_RESEND_INTERVAL] = _USER_FIELD_DEFAULTS[
+                CONF_MIN_COOLER_RESEND_INTERVAL
+            ]
 
     return normalized
 

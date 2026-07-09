@@ -8,6 +8,7 @@
           "name": "Nazwa",
           "thermostat": "Twój termostat",
           "cooler": "Urządzenie chłodzące (opcjonalnie)",
+          "min_cooler_resend_interval": "Minimalna liczba sekund między powtórzonymi poleceniami chłodzenia (0 = wyłączone)",
           "temperature_sensor": "Sensor temperatury",
           "humidity_sensor": "Sensor wilgotności",
           "window_sensors": "Sensor okna",

@@ -8,6 +8,7 @@
           "name": "Nom",
           "thermostat": "Le vrai thermostat",
           "cooler": "Le dispositif de refroidissement (optionnel)",
+          "min_cooler_resend_interval": "Secondes minimales entre commandes répétées du refroidisseur (0 = désactivé)",
           "temperature_sensor": "Capteur de température",
           "humidity_sensor": "Capteur d'humidité",
           "window_sensors": "Capteur de fenêtre",
