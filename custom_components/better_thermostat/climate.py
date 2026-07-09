@@ -161,6 +161,7 @@ from .utils.state_manager import StateManager
 from .utils.telemetry import (
     collect_balance_attrs,
     collect_cycle_telemetry,
+    collect_mpc_v2_debug_attrs,
     collect_pid_debug_attrs,
 )
 from .utils.thermal_learning import (
@@ -2031,6 +2032,7 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
                     if calibration_mode in (
                         CalibrationMode.DEFAULT.value,
                         CalibrationMode.MPC_CALIBRATION.value,
+                        CalibrationMode.MPC_V2_CALIBRATION.value,
                         CalibrationMode.TPI_CALIBRATION.value,
                         CalibrationMode.PID_CALIBRATION.value,
                     ):
@@ -2510,6 +2512,7 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
         dev_specific.update(collect_cycle_telemetry(self))
         dev_specific.update(collect_balance_attrs(self))
         dev_specific.update(collect_pid_debug_attrs(self))
+        dev_specific.update(collect_mpc_v2_debug_attrs(self))
 
         return dev_specific
 
