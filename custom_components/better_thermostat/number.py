@@ -247,6 +247,9 @@ class BetterThermostatPresetCoolNumber(BetterThermostatPresetNumber):
         None
             This method only updates internal state.
         """
+        # Skip BetterThermostatPresetNumber.async_added_to_hass (heating-only preset
+        # restore into preset_mgr) and call the RestoreEntity/NumberEntity bases; this
+        # entity restores into the cooling map below instead.
         await super(BetterThermostatPresetNumber, self).async_added_to_hass()
         last_state = await self.async_get_last_state()
         if last_state is None or last_state.state in (None, "unknown", "unavailable"):
@@ -302,6 +305,9 @@ class BetterThermostatPresetCoolNumber(BetterThermostatPresetNumber):
             step = self._bt_climate.bt_target_temp_step or 0.5
             cool_value = self._bt_climate.bt_target_temp + step
 
+        cool_value = min(
+            self._bt_climate.max_temp, max(self._bt_climate.min_temp, cool_value)
+        )
         self._bt_climate._preset_cool_temperatures[self._preset_mode] = cool_value
 
         if self._bt_climate.preset_mode == self._preset_mode:

@@ -1481,6 +1481,48 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
                 "better_thermostat %s: applying restored preset temperature...",
                 self.device_name,
             )
+            # Restore the persisted per-preset cooling map before applying it below,
+            # so a restored preset uses its saved cooling target instead of the default.
+            if (
+                old_state.attributes.get(ATTR_STATE_PRESET_COOL_TEMPERATURE, None)
+                is not None
+            ):
+                self._preset_cool_temperature = convert_to_float(
+                    str(
+                        old_state.attributes.get(
+                            ATTR_STATE_PRESET_COOL_TEMPERATURE, None
+                        )
+                    ),
+                    self.device_name,
+                    "startup()",
+                )
+            if (
+                old_state.attributes.get(ATTR_STATE_PRESET_COOL_TEMPERATURES, None)
+                is not None
+            ):
+                try:
+                    restored_cool_temperatures = json.loads(
+                        str(
+                            old_state.attributes.get(
+                                ATTR_STATE_PRESET_COOL_TEMPERATURES, "{}"
+                            )
+                        )
+                    )
+                except TypeError, json.JSONDecodeError:
+                    _LOGGER.debug(
+                        "better_thermostat %s: could not restore preset cool temperatures",
+                        self.device_name,
+                    )
+                else:
+                    if isinstance(restored_cool_temperatures, dict):
+                        for preset, temp in restored_cool_temperatures.items():
+                            if preset not in self._preset_cool_temperatures:
+                                continue
+                            cool_temp = convert_to_float(
+                                str(temp), self.device_name, "startup()"
+                            )
+                            if cool_temp is not None:
+                                self._preset_cool_temperatures[preset] = cool_temp
             # If we restored a preset (not NONE) and we have a stored temperature for it,
             # ensure target temp matches (unless the restored target was already equal).
             if self.preset_mgr.mode is not None and self.preset_mgr.mode != PRESET_NONE:
@@ -1560,46 +1602,6 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
                     self.device_name,
                     "startup()",
                 )
-            if (
-                old_state.attributes.get(ATTR_STATE_PRESET_COOL_TEMPERATURE, None)
-                is not None
-            ):
-                self._preset_cool_temperature = convert_to_float(
-                    str(
-                        old_state.attributes.get(
-                            ATTR_STATE_PRESET_COOL_TEMPERATURE, None
-                        )
-                    ),
-                    self.device_name,
-                    "startup()",
-                )
-            if (
-                old_state.attributes.get(ATTR_STATE_PRESET_COOL_TEMPERATURES, None)
-                is not None
-            ):
-                try:
-                    restored_cool_temperatures = json.loads(
-                        str(
-                            old_state.attributes.get(
-                                ATTR_STATE_PRESET_COOL_TEMPERATURES, "{}"
-                            )
-                        )
-                    )
-                except TypeError, json.JSONDecodeError:
-                    _LOGGER.debug(
-                        "better_thermostat %s: could not restore preset cool temperatures",
-                        self.device_name,
-                    )
-                else:
-                    if isinstance(restored_cool_temperatures, dict):
-                        for preset, temp in restored_cool_temperatures.items():
-                            if preset not in self._preset_cool_temperatures:
-                                continue
-                            cool_temp = convert_to_float(
-                                str(temp), self.device_name, "startup()"
-                            )
-                            if cool_temp is not None:
-                                self._preset_cool_temperatures[preset] = cool_temp
             # Restore preset mode
             if old_state.attributes.get("preset_mode", None) is not None:
                 restored_preset: str = str(old_state.attributes["preset_mode"])
@@ -3058,10 +3060,14 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
                 )
                 return
 
+            # Capture the manual cooling target before a preset overwrites it, so it
+            # can be preserved and restored when returning to PRESET_NONE.
+            previous_cooltemp = self.bt_target_cooltemp
             if new_temp is not None:
                 self.bt_target_temp = new_temp
                 if (
                     self.cooler_entity_id is not None
+                    and preset_mode != PRESET_NONE
                     and preset_mode in self._preset_cool_temperatures
                 ):
                     cool_temp = self._preset_cool_temperatures[preset_mode]
@@ -3081,7 +3087,7 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
                 and self.cooler_entity_id is not None
                 and self._preset_cool_temperature is None
             ):
-                self._preset_cool_temperature = self.bt_target_cooltemp
+                self._preset_cool_temperature = previous_cooltemp
             elif (
                 preset_mode == PRESET_NONE
                 and self.cooler_entity_id is not None
