@@ -464,15 +464,13 @@ def convert_to_float(
     Returns
     -------
     float | None
-            the converted value, or None if conversion failed
+            the converted value, or None if the value cannot be parsed
+            or is not finite (NaN/inf)
     """
     if value is None or value == "None":
         return None
     try:
-        # Use 0.01 step (2 decimal places) to preserve sensor precision.
-        # Rounding to 0.1 can turn 19.97 into 20.0, leading to incorrect
-        # HVAC action decisions.
-        return round_by_step(float(value), 0.01)
+        numeric = float(value)
     except ValueError, TypeError, AttributeError, KeyError:
         _LOGGER.debug(
             "better thermostat %s: Could not convert '%s' to float in %s",
@@ -481,6 +479,18 @@ def convert_to_float(
             context,
         )
         return None
+    if not math.isfinite(numeric):
+        _LOGGER.debug(
+            "better thermostat %s: Rejected non-finite value '%s' in %s",
+            instance_name,
+            value,
+            context,
+        )
+        return None
+    # Use 0.01 step (2 decimal places) to preserve sensor precision.
+    # Rounding to 0.1 can turn 19.97 into 20.0, leading to incorrect
+    # HVAC action decisions.
+    return round_by_step(numeric, 0.01)
 
 
 def convert_to_float_celsius(

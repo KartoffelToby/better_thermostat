@@ -985,6 +985,38 @@ class TestAsyncSetTemperature:
         assert mock_bt.bt_hvac_mode == HVACMode.OFF
 
     @pytest.mark.asyncio
+    async def test_mode_only_payload_writes_state_and_requests_control(self, mock_bt):
+        """A payload with only an hvac_mode publishes the state and queues a cycle."""
+        mock_bt.preset_mgr.mode = PRESET_NONE
+        mock_bt.bt_hvac_mode = HVACMode.HEAT
+        await self._call(mock_bt, **{ATTR_HVAC_MODE: HVACMode.OFF})
+        assert mock_bt.bt_hvac_mode == HVACMode.OFF
+        mock_bt.async_write_ha_state.assert_called_once()
+        mock_bt.control_queue_task.put_nowait.assert_called_once_with(mock_bt)
+
+    @pytest.mark.asyncio
+    async def test_mode_only_payload_during_maintenance_defers_control(self, mock_bt):
+        """A mode-only payload during maintenance defers the cycle, no queue.put."""
+        mock_bt.preset_mgr.mode = PRESET_NONE
+        mock_bt.bt_hvac_mode = HVACMode.HEAT
+        mock_bt.in_maintenance = True
+        await self._call(mock_bt, **{ATTR_HVAC_MODE: HVACMode.OFF})
+        assert mock_bt.bt_hvac_mode == HVACMode.OFF
+        mock_bt.async_write_ha_state.assert_called_once()
+        assert mock_bt._control_needed_after_maintenance is True
+        mock_bt.control_queue_task.put_nowait.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_empty_payload_is_ignored(self, mock_bt):
+        """A payload without temperature and without hvac_mode changes nothing."""
+        mock_bt.preset_mgr.mode = PRESET_NONE
+        mock_bt.bt_hvac_mode = HVACMode.HEAT
+        await self._call(mock_bt)
+        assert mock_bt.bt_hvac_mode == HVACMode.HEAT
+        mock_bt.async_write_ha_state.assert_not_called()
+        mock_bt.control_queue_task.put_nowait.assert_not_called()
+
+    @pytest.mark.asyncio
     async def test_garbage_temperature_rejected(self, mock_bt):
         """A present but non-numeric temperature raises.
 

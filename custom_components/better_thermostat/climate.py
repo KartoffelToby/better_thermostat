@@ -1133,12 +1133,13 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
         if (event.data.get("new_state")) is None:
             return
 
-        # Only process window changes if window sensor is available
-        if is_entity_available(self.hass, self.window_id):
-            self.hass.async_create_background_task(
-                trigger_window_change(self, event),
-                name=f"bt_trigger_window_change_{self.device_name}",
-            )
+        # The window handler interprets unknown/unavailable readings itself
+        # (a lost sensor counts as closed so heating resumes), so events are
+        # dispatched regardless of sensor availability.
+        self.hass.async_create_background_task(
+            trigger_window_change(self, event),
+            name=f"bt_trigger_window_change_{self.device_name}",
+        )
 
     async def _trigger_cooler_change(self, event):
         _check = await check_critical_entities(self)
@@ -2130,31 +2131,32 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
                 self.device_name,
             )
 
-            # Valve maintenance: only enable a separate tick when at least one TRV has it turned on
-            try:
-                maint_trvs = collect_maintenance_trvs(self.real_trvs)
-            except Exception:
-                maint_trvs = []
+        # Valve maintenance is orthogonal to balance/calibration: enable its
+        # tick whenever at least one TRV has it turned on.
+        try:
+            maint_trvs = collect_maintenance_trvs(self.real_trvs)
+        except Exception:
+            maint_trvs = []
 
-            if maint_trvs:
-                self.next_valve_maintenance = compute_initial_maintenance(
-                    self.real_trvs, maint_trvs
+        if maint_trvs:
+            self.next_valve_maintenance = compute_initial_maintenance(
+                self.real_trvs, maint_trvs
+            )
+            self.async_on_remove(
+                async_track_time_interval(
+                    self.hass, self._maintenance_tick, timedelta(minutes=5)
                 )
-                self.async_on_remove(
-                    async_track_time_interval(
-                        self.hass, self._maintenance_tick, timedelta(minutes=5)
-                    )
-                )
-                _LOGGER.debug(
-                    "better_thermostat %s: valve maintenance tick enabled (5min), first run at %s",
-                    self.device_name,
-                    self.next_valve_maintenance,
-                )
-            else:
-                _LOGGER.debug(
-                    "better_thermostat %s: valve maintenance tick skipped (no TRV enabled)",
-                    self.device_name,
-                )
+            )
+            _LOGGER.debug(
+                "better_thermostat %s: valve maintenance tick enabled (5min), first run at %s",
+                self.device_name,
+                self.next_valve_maintenance,
+            )
+        else:
+            _LOGGER.debug(
+                "better_thermostat %s: valve maintenance tick skipped (no TRV enabled)",
+                self.device_name,
+            )
 
         # The external room sensor is a required configuration field.
         assert self.sensor_entity_id is not None
@@ -2983,6 +2985,15 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
             and _new_setpointlow is None
             and _new_setpointhigh is None
         ):
+            if _new_hvac_mode is not None:
+                # A mode-only payload still needs to be published and
+                # applied, exactly like async_set_hvac_mode.
+                self.async_write_ha_state()
+                if getattr(self, "in_maintenance", False):
+                    self._control_needed_after_maintenance = True
+                    return
+                request_control_cycle(self)
+                return
             _LOGGER.debug(
                 "better_thermostat %s: received a new setpoint from HA, but temperature attribute was not set, ignoring",
                 self.device_name,

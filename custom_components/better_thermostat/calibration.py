@@ -305,7 +305,8 @@ def _compute_mpc_balance(self, entity_id: str):
     if trv_state is None:
         return None, False
 
-    if self.bt_target_temp is None or self.cur_temp is None:
+    mpc_current_temp = effective_room_temp(self)
+    if self.bt_target_temp is None or mpc_current_temp is None:
         trv_state.calibration_balance = None
         return None, False
 
@@ -343,7 +344,6 @@ def _compute_mpc_balance(self, entity_id: str):
 
     # Optional: use filtered external temperature for MPC cost evaluation to reduce jitter.
     # `cur_temp_filtered` is maintained by events/temperature.py (EMA) and passed separately.
-    mpc_current_temp = effective_room_temp(self)
     mpc_filtered_temp = (
         self.cur_temp_filtered if mpc_current_temp is self.cur_temp else None
     )
@@ -456,7 +456,8 @@ def _compute_tpi_balance(self, entity_id: str):
     if trv_state is None:
         return None, False
 
-    if self.bt_target_temp is None or self.cur_temp is None:
+    _room_temp = effective_room_temp(self)
+    if self.bt_target_temp is None or _room_temp is None:
         trv_state.calibration_balance = None
         return None, False
 
@@ -477,7 +478,7 @@ def _compute_tpi_balance(self, entity_id: str):
         tpi_output, tpi_state = compute_tpi(
             TpiInput(
                 key=key,
-                current_temp_C=effective_room_temp(self),
+                current_temp_C=_room_temp,
                 target_temp_C=self.bt_target_temp,
                 outdoor_temp_C=_get_current_outdoor_temp(self),
                 window_open=self.window_open or False,
@@ -523,7 +524,8 @@ def _compute_pid_balance(self, entity_id: str):
     if trv_state is None:
         return None, False
 
-    if self.bt_target_temp is None or self.cur_temp is None:
+    _pid_room_temp = effective_room_temp(self)
+    if self.bt_target_temp is None or _pid_room_temp is None:
         trv_state.calibration_balance = None
         return None, False
 
@@ -537,9 +539,11 @@ def _compute_pid_balance(self, entity_id: str):
         pid_state = pid_observe_standby(
             PIDParams(),
             pid_state,
-            effective_room_temp(self),
+            _pid_room_temp,
             self.clock.monotonic(),
-            inp_current_temp_ema_C=self.cur_temp_filtered,
+            inp_current_temp_ema_C=(
+                self.cur_temp_filtered if _pid_room_temp is self.cur_temp else None
+            ),
         )
         self.state_mgr.set_pid(key, pid_state)
         trv_state.calibration_balance = None
@@ -577,8 +581,6 @@ def _compute_pid_balance(self, entity_id: str):
             else DEFAULT_PID_AUTO_TUNE
         ),
     )
-
-    _pid_room_temp = effective_room_temp(self)
 
     _LOGGER.debug(
         "better_thermostat %s: Running PID calibration for %s",

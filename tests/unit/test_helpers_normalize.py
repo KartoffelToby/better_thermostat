@@ -5,6 +5,7 @@ which are critical for handling user input and TRV state conversions.
 """
 
 from homeassistant.components.climate.const import HVACMode
+import pytest
 
 from custom_components.better_thermostat.utils.const import CalibrationMode
 from custom_components.better_thermostat.utils.helpers import (
@@ -234,6 +235,15 @@ class TestConvertToFloat:
         result = convert_to_float("1.5e-3", "test", "temperature")
         # Expected behavior: 0.0015 rounded to 0.0 due to 0.01 step
         assert result == 0.0
+
+    @pytest.mark.parametrize(
+        "value",
+        [float("nan"), float("inf"), float("-inf"), "nan", "inf", "-inf", "Infinity"],
+    )
+    def test_returns_none_for_non_finite(self, value):
+        """Test that NaN/inf values (numeric or string) return None."""
+        result = convert_to_float(value, "test", "temperature")
+        assert result is None
 
 
 class TestIsReasonableTemperature:

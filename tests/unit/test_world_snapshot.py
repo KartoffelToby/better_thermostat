@@ -119,6 +119,14 @@ class TestSnapshotCompleteness:
         snapshot = build_snapshot(bt)
         assert snapshot.room_temp == 19.97
 
+    @pytest.mark.parametrize("bad", [float("nan"), float("inf"), float("-inf")])
+    def test_non_finite_observations_become_none(self, bad):
+        """NaN/inf readings are rejected at the snapshot boundary."""
+        bt = _make_bt()
+        bt.cur_temp = bad
+        snapshot = build_snapshot(bt)
+        assert snapshot.room_temp is None
+
     def test_time_comes_from_the_injected_clock(self):
         """The snapshot carries both clock axes at build time."""
         bt = _make_bt()
@@ -171,6 +179,16 @@ class TestTrvReportedBuilding:
         trv = snapshot.trvs["climate.trv"]
         assert trv.current_temp is None
         assert trv.hvac_mode is None
+
+    def test_non_finite_reported_values_become_none(self):
+        """NaN/inf in the real_trvs entry degrades to None, not a crash."""
+        bt = _make_bt()
+        bt.real_trvs["climate.trv"].current_temperature = float("nan")
+        bt.real_trvs["climate.trv"].last_temperature = float("inf")
+        snapshot = build_snapshot(bt)
+        trv = snapshot.trvs["climate.trv"]
+        assert trv.current_temp is None
+        assert trv.setpoint is None
 
 
 class TestWorldSnapshotType:
