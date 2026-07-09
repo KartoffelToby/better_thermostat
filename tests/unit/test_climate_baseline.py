@@ -939,6 +939,32 @@ class TestAsyncSetPresetMode:
         assert mock_bt.bt_target_temp == 20.0
 
     @pytest.mark.asyncio
+    async def test_manual_cool_temp_preserved_across_preset(self, mock_bt):
+        """NONE→Comfort→NONE restores the manual cooling target, not the preset's."""
+        mock_bt.preset_modes = [PRESET_NONE, PRESET_COMFORT, PRESET_ECO, PRESET_AWAY]
+        mock_bt.hvac_mode = HVACMode.HEAT_COOL
+        mock_bt.cooler_entity_id = "switch.ac"
+        mock_bt.min_temp = mock_bt.bt_min_temp
+        mock_bt.max_temp = mock_bt.bt_max_temp
+        mock_bt._preset_cool_temperatures = {
+            PRESET_NONE: 24.0,
+            PRESET_COMFORT: 24.0,
+            PRESET_ECO: 27.0,
+            PRESET_AWAY: 28.0,
+        }
+        mock_bt._preset_cool_temperature = None
+        mock_bt.preset_mgr.mode = PRESET_NONE
+        mock_bt.bt_target_temp = 20.0
+        mock_bt.bt_target_cooltemp = 26.0  # manual cooling target
+        # Entering a preset stashes the manual cool target and applies the preset's.
+        await self._call(mock_bt, PRESET_COMFORT)
+        assert mock_bt._preset_cool_temperature == 26.0
+        assert mock_bt.bt_target_cooltemp == 24.0
+        # Returning to NONE restores the manual cool target, not Comfort's.
+        await self._call(mock_bt, PRESET_NONE)
+        assert mock_bt.bt_target_cooltemp == 26.0
+
+    @pytest.mark.asyncio
     async def test_preset_temp_clamped_to_max(self, mock_bt):
         """Preset temp above max → clamped to max_temp."""
         mock_bt.preset_modes = [PRESET_NONE, PRESET_COMFORT, PRESET_ECO, PRESET_AWAY]
