@@ -120,12 +120,14 @@ def _compute_settling(
     return math.inf
 
 
-def _compute_steady_state(series: TimeSeries, window_min: float = 30.0) -> float:
-    """Mean absolute tracking error over the final ``window_min`` minutes."""
+def _compute_steady_state(
+    series: TimeSeries, transient_start_s: float = 0.0, window_min: float = 30.0
+) -> float:
+    """Mean absolute tracking error over the post-transient final ``window_min`` minutes."""
     if not series.t_s:
         return 0.0
     final_t = series.t_s[-1]
-    window_start = final_t - window_min * 60.0
+    window_start = max(final_t - window_min * 60.0, transient_start_s)
     errs = [
         abs(T - sp)
         for t, T, sp in zip(series.t_s, series.T_room_C, series.T_setpoint_C)
@@ -224,7 +226,7 @@ def compute_metrics(series: TimeSeries, transient_start_s: float) -> MetricValue
         max_overshoot_K=over,
         max_undershoot_K=under,
         settling_time_min=_compute_settling(series, transient_start_s),
-        steady_state_error_K=_compute_steady_state(series),
+        steady_state_error_K=_compute_steady_state(series, transient_start_s),
         rmse_tracking_K=_compute_rmse(series, transient_start_s),
         valve_cycle_count=_compute_valve_cycles(series),
         integral_valve_pct_min=_compute_integral_valve(series),
