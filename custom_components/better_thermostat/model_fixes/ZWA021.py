@@ -40,7 +40,7 @@ _VALVE_MAX = 99
 
 def _is_direct_valve(self, entity_id):
     """Return True when this TRV is configured for direct valve control."""
-    adv = self.real_trvs[entity_id].get("advanced", {}) or {}
+    adv = self.real_trvs[entity_id].advanced or {}
     return adv.get("calibration") == CalibrationType.DIRECT_VALVE_BASED
 
 
