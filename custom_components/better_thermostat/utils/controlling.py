@@ -591,9 +591,8 @@ async def control_trv(self, heater_entity_id=None):
                 await set_valve(self, heater_entity_id, 0)
 
             # Manage TRVs with no HVACMode.OFF
-            _no_off_system_mode = (
-                HVACMode.OFF not in self.real_trvs[heater_entity_id].hvac_modes
-            ) or (
+            _hvac_modes = self.real_trvs[heater_entity_id].hvac_modes or []
+            _no_off_system_mode = (HVACMode.OFF not in _hvac_modes) or (
                 self.real_trvs[heater_entity_id].advanced.get(
                     "no_off_system_mode", False
                 )
