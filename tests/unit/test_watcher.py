@@ -373,6 +373,92 @@ class TestCheckCriticalEntities:
         assert mock_ir.async_delete_issue.called
 
 
+class TestCheckCriticalEntitiesBattery:
+    """Battery-refresh de-duplication in check_critical_entities.
+
+    check_critical_entities runs on nearly every event, so it must not queue a
+    get_battery_status background task on every call. A refresh is spawned only
+    on the first pass (battery still unpopulated) or when a TRV recovers.
+    """
+
+    @staticmethod
+    def _make_available(mock_bt_instance):
+        state = MagicMock()
+        state.state = "heat"
+        mock_bt_instance.hass.states.get.return_value = state
+        mock_bt_instance.devices_errors = []
+        return mock_bt_instance
+
+    @pytest.mark.anyio
+    async def test_no_task_when_battery_already_populated(self, mock_bt_instance):
+        """Steady state: populated battery values spawn no background task."""
+        from custom_components.better_thermostat.utils.watcher import (
+            check_critical_entities,
+        )
+
+        bt = self._make_available(mock_bt_instance)
+        bt.devices_states = {
+            "climate.trv_1": {"battery_id": "sensor.b1", "battery": "80"},
+            "climate.trv_2": {"battery_id": "sensor.b2", "battery": "90"},
+        }
+        with patch("custom_components.better_thermostat.utils.watcher.ir"):
+            await check_critical_entities(bt)
+
+        assert bt.hass.async_create_background_task.call_count == 0
+
+    @pytest.mark.anyio
+    async def test_task_on_initial_unpopulated_battery(self, mock_bt_instance):
+        """First pass: an unpopulated battery spawns one task per TRV."""
+        from custom_components.better_thermostat.utils.watcher import (
+            check_critical_entities,
+        )
+
+        bt = self._make_available(mock_bt_instance)
+        bt.devices_states = {
+            "climate.trv_1": {"battery_id": "sensor.b1", "battery": None},
+            "climate.trv_2": {"battery_id": "sensor.b2", "battery": None},
+        }
+        with patch("custom_components.better_thermostat.utils.watcher.ir"):
+            await check_critical_entities(bt)
+
+        assert bt.hass.async_create_background_task.call_count == 2
+
+    @pytest.mark.anyio
+    async def test_task_on_recovery_even_if_populated(self, mock_bt_instance):
+        """A recovering TRV refreshes battery even if a value already exists."""
+        from custom_components.better_thermostat.utils.watcher import (
+            check_critical_entities,
+        )
+
+        bt = self._make_available(mock_bt_instance)
+        bt.devices_errors = ["climate.trv_1", "climate.trv_2"]
+        bt.devices_states = {
+            "climate.trv_1": {"battery_id": "sensor.b1", "battery": "80"},
+            "climate.trv_2": {"battery_id": "sensor.b2", "battery": "90"},
+        }
+        with patch("custom_components.better_thermostat.utils.watcher.ir"):
+            await check_critical_entities(bt)
+
+        assert bt.hass.async_create_background_task.call_count == 2
+
+    @pytest.mark.anyio
+    async def test_no_task_when_entity_has_no_battery(self, mock_bt_instance):
+        """Entities without a battery id never spawn a refresh in steady state."""
+        from custom_components.better_thermostat.utils.watcher import (
+            check_critical_entities,
+        )
+
+        bt = self._make_available(mock_bt_instance)
+        bt.devices_states = {
+            "climate.trv_1": {"battery_id": None, "battery": None},
+            "climate.trv_2": {},
+        }
+        with patch("custom_components.better_thermostat.utils.watcher.ir"):
+            await check_critical_entities(bt)
+
+        assert bt.hass.async_create_background_task.call_count == 0
+
+
 class TestCheckAndUpdateDegradedMode:
     """Tests for check_and_update_degraded_mode function."""
 
@@ -1209,7 +1295,7 @@ class TestBatteryStatusCalls:
 
     @pytest.mark.anyio
     async def test_check_critical_entities_calls_battery_status(self, mock_bt_instance):
-        """Test that check_critical_entities calls get_battery_status for available TRVs."""
+        """check_critical_entities fetches battery for available TRVs on first pass."""
         from custom_components.better_thermostat.utils.watcher import (
             check_critical_entities,
         )
@@ -1217,6 +1303,11 @@ class TestBatteryStatusCalls:
         mock_state = MagicMock()
         mock_state.state = "heat"
         mock_bt_instance.hass.states.get.return_value = mock_state
+        # Battery still unpopulated -> the initial refresh must fire.
+        mock_bt_instance.devices_states = {
+            "climate.trv_1": {"battery_id": "sensor.b1", "battery": None},
+            "climate.trv_2": {"battery_id": "sensor.b2", "battery": None},
+        }
 
         with patch("custom_components.better_thermostat.utils.watcher.ir"):
             with patch(

@@ -19,9 +19,6 @@ from homeassistant.components.climate.const import HVACMode
 from custom_components.better_thermostat.calibration import _compute_mpc_v2_balance
 from custom_components.better_thermostat.core.clock import FakeClock
 from custom_components.better_thermostat.trv import Trv
-from custom_components.better_thermostat.utils.calibration.mpc import (
-    distribute_valve_percent,
-)
 from custom_components.better_thermostat.utils.calibration.mpc_v2 import (
     MpcV2Params,
     MpcV2State,
@@ -153,12 +150,12 @@ def test_multi_trv_distributes_group_valve() -> None:
     assert cal_cold["debug"]["controller_version"] == "v2"
     assert cal_warm["debug"]["controller_version"] == "v2"
 
-    # The split favours the colder TRV for any shared group command.
-    split = distribute_valve_percent(
-        u_total_pct=40.0,
-        trv_temps={"climate.living_cold": 19.0, "climate.living_warm": 21.0},
+    # The cold-favouring split is verified through the dispatcher's own
+    # per-TRV distributed output (the real wiring), not a standalone call.
+    assert (
+        cal_cold["debug"]["distributed_valve_pct"]
+        >= cal_warm["debug"]["distributed_valve_pct"]
     )
-    assert split["climate.living_cold"] >= split["climate.living_warm"]
 
 
 def test_multi_trv_clamps_to_per_trv_max_opening() -> None:

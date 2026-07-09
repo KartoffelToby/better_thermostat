@@ -20,6 +20,22 @@ class ScenarioResult:
     metrics: MetricValues
 
 
+@dataclass(frozen=True)
+class ScoreMatrixRow:
+    """One controller's aggregated, oracle-normalised scores in the score matrix."""
+
+    controller: str
+    overall_mean: float
+    overall_stdev: float
+    comfort_mean: float
+    comfort_stdev: float
+    actuator_mean: float
+    actuator_stdev: float
+    energy_mean: float
+    energy_stdev: float
+    scenario_count: int
+
+
 def format_metric(val: float, decimals: int = 2) -> str:
     """Format a metric value for human-readable output."""
     if math.isinf(val):
@@ -103,29 +119,27 @@ def render_score_matrix(scored: list[ScoredResult], profile: UserProfile) -> str
     for sr in scored:
         by_ctrl.setdefault(sr.controller, []).append(sr)
 
-    rows: list[
-        tuple[str, float, float, float, float, float, float, float, float, int]
-    ] = []
+    rows: list[ScoreMatrixRow] = []
     for ctrl, items in by_ctrl.items():
         overalls = [i.scores.overall for i in items]
         comforts = [i.scores.comfort for i in items]
         actuators = [i.scores.actuator for i in items]
         energies = [i.scores.energy for i in items]
         rows.append(
-            (
-                ctrl,
-                _mean(overalls),
-                _stdev(overalls),
-                _mean(comforts),
-                _stdev(comforts),
-                _mean(actuators),
-                _stdev(actuators),
-                _mean(energies),
-                _stdev(energies),
-                len(items),
+            ScoreMatrixRow(
+                controller=ctrl,
+                overall_mean=_mean(overalls),
+                overall_stdev=_stdev(overalls),
+                comfort_mean=_mean(comforts),
+                comfort_stdev=_stdev(comforts),
+                actuator_mean=_mean(actuators),
+                actuator_stdev=_stdev(actuators),
+                energy_mean=_mean(energies),
+                energy_stdev=_stdev(energies),
+                scenario_count=len(items),
             )
         )
-    rows.sort(key=lambda r: -r[1])
+    rows.sort(key=lambda r: -r.overall_mean)
 
     lines: list[str] = []
     width = 92
@@ -148,15 +162,15 @@ def render_score_matrix(scored: list[ScoredResult], profile: UserProfile) -> str
         f"{'n':>5}"
     )
     lines.append("  " + "-" * (width - 4))
-    for ctrl, ov, ov_s, c, c_s, a, a_s, e, e_s, n in rows:
-        marker = " *" if (rows and ctrl == rows[0][0]) else "  "
+    for row in rows:
+        marker = " *" if row.controller == rows[0].controller else "  "
         lines.append(
-            f"{marker}{ctrl:<18}"
-            f"{ov:>9.3f}{ov_s:>7.3f}"
-            f"{c:>9.3f}{c_s:>7.3f}"
-            f"{a:>10.3f}{a_s:>7.3f}"
-            f"{e:>9.3f}{e_s:>7.3f}"
-            f"{n:>5d}"
+            f"{marker}{row.controller:<18}"
+            f"{row.overall_mean:>9.3f}{row.overall_stdev:>7.3f}"
+            f"{row.comfort_mean:>9.3f}{row.comfort_stdev:>7.3f}"
+            f"{row.actuator_mean:>10.3f}{row.actuator_stdev:>7.3f}"
+            f"{row.energy_mean:>9.3f}{row.energy_stdev:>7.3f}"
+            f"{row.scenario_count:>5d}"
         )
     lines.append("=" * width)
     return "\n".join(lines)
@@ -203,10 +217,13 @@ def render_plant_sweep(
 
     lines: list[str] = []
     lines.append("")
+    scenario_count = len(
+        {sr.scenario for items in scored_per_plant.values() for sr in items}
+    )
     header_cells = "".join(f"{p[:13]:>14}" for p in plant_names)
     lines.append(
         f"Cross-plant overall — profile: {profile.name}  "
-        f"({len(plant_names)} plants × {len({sr.scenario for items in scored_per_plant.values() for sr in items})} scenarios)"
+        f"({len(plant_names)} plants × {scenario_count} scenarios)"
     )
     lines.append(
         "±σ = population stdev of mean overall across plants. "

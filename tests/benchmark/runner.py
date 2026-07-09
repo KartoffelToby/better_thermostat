@@ -666,6 +666,17 @@ def main(argv: list[str] | None = None) -> int:
             print(f"\n[{label}]")
             print(render_score_matrix(items, profile))
         print(render_plant_sweep(scored_per_plant, profile))
+    elif len(grouped) > 1:
+        # Several plant blocks (e.g. --plant all or multiple --plant names):
+        # render one labelled matrix per plant. Collapsing them into a single
+        # matrix would average scores across unrelated plants into one
+        # meaningless row, hiding which plant a result came from.
+        for label, block in grouped.items():
+            scored = score_results({label: block}, oracle_by_label, profile)
+            print(f"\n[{label}]")
+            print(render_score_matrix(scored, profile))
+            if args.per_scenario:
+                print(render_per_scenario(scored, profile))
     else:
         scored = score_results(grouped, oracle_by_label, profile)
         print("\n[single-TRV]")

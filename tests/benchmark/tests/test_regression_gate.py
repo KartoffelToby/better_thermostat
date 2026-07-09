@@ -17,6 +17,8 @@ seed does not affect the numbers — the gate stays stable run to run.
 
 from __future__ import annotations
 
+import statistics
+
 import pytest
 
 from tests.benchmark.runner import run_scenario
@@ -64,8 +66,13 @@ def _make_adapter(name: str):
 
 
 @pytest.fixture(scope="module")
-def mean_overall_scores() -> dict[str, float]:
-    """Mean balanced overall score per controller across the scenario set."""
+def mean_overall_scores() -> dict[str, dict[str, float]]:
+    """Per-(controller, scenario) balanced overall score; oracle normalises to itself.
+
+    Retained per scenario (not just the mean) so the ceiling check can catch a
+    controller that beats the oracle on an individual scenario while losing on
+    average.
+    """
     profile = PROFILES["balanced"]
     controllers = ["ideal_oracle", "mpc", "pid", "tpi", "default"]
 
@@ -75,33 +82,46 @@ def mean_overall_scores() -> dict[str, float]:
         for s in _SCENARIOS
     }
 
-    means: dict[str, float] = {}
+    out: dict[str, dict[str, float]] = {}
     for name in controllers:
-        overalls: list[float] = []
+        per: dict[str, float] = {}
         for s in _SCENARIOS:
             metrics = run_scenario(_make_adapter(name), s).metrics
-            scores = compute_scores(metrics, oracle_metrics[s.name], profile)
-            overalls.append(scores.overall)
-        means[name] = sum(overalls) / len(overalls)
-    return means
+            per[s.name] = compute_scores(
+                metrics, oracle_metrics[s.name], profile
+            ).overall
+        out[name] = per
+    return out
 
 
-def test_oracle_is_the_ceiling(mean_overall_scores: dict[str, float]) -> None:
-    """No controller may out-score the IdealOracle on the balanced profile."""
-    oracle = mean_overall_scores["ideal_oracle"]
-    for name, score in mean_overall_scores.items():
-        if name == "ideal_oracle":
-            continue
-        assert score <= oracle + 1e-9, (
-            f"{name} ({score:.3f}) out-scored the oracle ({oracle:.3f}) — "
-            f"a scoring or normalisation regression."
-        )
+def test_oracle_is_the_ceiling(
+    mean_overall_scores: dict[str, dict[str, float]],
+) -> None:
+    """No controller may out-score the IdealOracle on ANY scenario."""
+    for s in _SCENARIOS:
+        oracle = mean_overall_scores["ideal_oracle"][s.name]
+        for name, per in mean_overall_scores.items():
+            if name == "ideal_oracle":
+                continue
+            assert per[s.name] <= oracle + 1e-9, (
+                f"{name} on {s.name} ({per[s.name]:.3f}) out-scored the oracle "
+                f"({oracle:.3f}) — a scoring or normalisation regression."
+            )
 
 
-def test_oracle_scores_near_one(mean_overall_scores: dict[str, float]) -> None:
-    """The oracle normalises against itself, so it must sit near 1.0."""
-    oracle = mean_overall_scores["ideal_oracle"]
-    assert oracle >= 0.90, f"oracle dropped to {oracle:.3f} — plant/metric regression."
+def test_oracle_scores_near_one(
+    mean_overall_scores: dict[str, dict[str, float]],
+) -> None:
+    """The oracle normalises against itself, so it must sit near 1.0.
+
+    A symmetric tolerance band catches normalisation drift in either direction
+    (a score above 1.0 would let a candidate "beat" the oracle; below would
+    mean the oracle failed to normalise to itself).
+    """
+    oracle = statistics.mean(mean_overall_scores["ideal_oracle"].values())
+    assert oracle == pytest.approx(1.0, abs=1e-3), (
+        f"oracle normalised to {oracle:.3f}, expected ~1.0 — plant/metric regression."
+    )
 
 
 @pytest.mark.parametrize("name", _SMART_CONTROLLERS)
@@ -109,7 +129,7 @@ def test_smart_controllers_above_floor(
     name: str, mean_overall_scores: dict[str, float]
 ) -> None:
     """Each smart controller must stay above the regression floor."""
-    score = mean_overall_scores[name]
+    score = statistics.mean(mean_overall_scores[name].values())
     assert score >= _SMART_OVERALL_FLOOR, (
         f"{name} fell to {score:.3f} (floor {_SMART_OVERALL_FLOOR}) — "
         f"a controller regression."

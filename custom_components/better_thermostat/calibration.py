@@ -710,8 +710,8 @@ def _compute_mpc_v2_balance(self, entity_id: str):
         )
     except ImportError as err:
         # Controller construction raises when the daqp wheel is missing.
-        # In a regular HA install the manifest requirement guarantees the
-        # wheel, so this fires only in stripped-down dev environments —
+        # daqp is not a hard manifest requirement (it has no aarch64 wheel for
+        # the HA Python), so a user can select MPC v2 without it installed —
         # warn once per thermostat instead of spamming every cycle.
         if self.device_name not in _MPC_V2_IMPORT_WARNED:
             _MPC_V2_IMPORT_WARNED.add(self.device_name)

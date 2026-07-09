@@ -252,16 +252,27 @@ async def check_critical_entities(self) -> bool:
                     )
             all_available = False
         else:
+            recovered = entity in self.devices_errors
             # Clear error if entity is now available (covers recovery after an
             # outage and stale issues from a previous run).
-            if entity in self.devices_errors:
+            if recovered:
                 self.devices_errors.remove(entity)
                 self.async_write_ha_state()
             ir.async_delete_issue(self.hass, DOMAIN, f"missing_entity_{entity}")
-            # Update battery status for available entities
-            self.hass.async_create_background_task(
-                get_battery_status(self, entity), name=f"bt_battery_status_{entity}"
+            # Refresh battery status only when it is still unpopulated (first
+            # pass after startup) or when the entity just recovered. This
+            # avoids spawning a redundant background task on every periodic
+            # check, since check_critical_entities runs on nearly every event.
+            info = self.devices_states.get(entity)
+            needs_initial = (
+                info is not None
+                and info.get("battery_id") is not None
+                and info.get("battery") is None
             )
+            if recovered or needs_initial:
+                self.hass.async_create_background_task(
+                    get_battery_status(self, entity), name=f"bt_battery_status_{entity}"
+                )
     return all_available
 
 
