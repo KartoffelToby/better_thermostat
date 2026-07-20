@@ -494,8 +494,9 @@ def _record_mpc_v2_reid_sample(
 
     The buffer's spacing floor collapses the per-TRV dispatches of a group
     pass into a single sample, and its finiteness checks reject anything a
-    later fit could choke on. Window-open samples are recorded on purpose:
-    they never enter a fit but cut segments at the right place.
+    later fit could choke on. Open-contact samples (window or door) are
+    recorded on purpose: they never enter a fit but cut segments at the
+    right place.
     """
     try:
         t_room = float(self.cur_temp)
@@ -510,7 +511,7 @@ def _record_mpc_v2_reid_sample(
             u_frac=u_frac,
             T_outdoor_C=outdoor_temp,
             T_trv_C=trv_temp if isinstance(trv_temp, (int, float)) else None,
-            window_open=bool(self.window_open),
+            window_open=bool(self.contact_open),
         )
     )
 
@@ -631,7 +632,8 @@ def _compute_mpc_v2_balance(self, entity_id: str):
     if trv_state is None:
         return None, False
 
-    if self.bt_target_temp is None or self.cur_temp is None:
+    mpc_current_temp = effective_room_temp(self)
+    if self.bt_target_temp is None or mpc_current_temp is None:
         trv_state.calibration_balance = None
         return None, False
 
@@ -696,9 +698,9 @@ def _compute_mpc_v2_balance(self, entity_id: str):
             MpcV2Input(
                 key=mpc_key,
                 target_temp_C=self.bt_target_temp,
-                current_temp_C=self.cur_temp,
+                current_temp_C=mpc_current_temp,
                 trv_temp_C=trv_state.current_temperature,
-                window_open=self.window_open or False,
+                window_open=bool(self.contact_open),
                 heating_allowed=True,
                 bt_name=self.device_name,
                 entity_id=entity_id,
