@@ -1,6 +1,6 @@
 """Tests that MPC calibration reads and writes state through the state manager."""
 
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
 from custom_components.better_thermostat.calibration import _compute_mpc_balance
 from custom_components.better_thermostat.trv import Trv
@@ -104,3 +104,26 @@ def test_mpc_balance_threads_the_same_state_across_calls() -> None:
 
     _compute_mpc_balance(bt, "climate.trv")
     assert state_mgr.mpc[key] is first
+
+
+def test_mpc_sanitized_state_is_persisted_when_compute_raises() -> None:
+    """The healed state replaces the poisoned one even on a compute failure.
+
+    Without this, the poisoned entry stays on disk and is re-healed on
+    every cycle for as long as the compute keeps failing.
+    """
+    state_mgr = _MpcStateStub()
+    bt = _make_bt(state_mgr)
+    key = build_mpc_key(bt, "climate.trv")
+    state_mgr.mpc[key] = MpcState(last_percent=float("nan"))
+
+    with patch(
+        "custom_components.better_thermostat.calibration.compute_mpc",
+        side_effect=ValueError("boom"),
+    ):
+        payload, supports_valve = _compute_mpc_balance(bt, "climate.trv")
+
+    assert payload is None
+    assert supports_valve is False
+    stored = state_mgr.mpc[key]
+    assert stored.last_percent is None  # sanitized default, not NaN

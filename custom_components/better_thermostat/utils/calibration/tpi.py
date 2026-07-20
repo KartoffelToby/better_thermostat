@@ -91,7 +91,7 @@ def _round_dbg(v: float | int | None, d: int = 3) -> float | int | None:
 
 
 def compute_tpi(
-    inp: TpiInput, params: TpiParams, *, state: _TpiState
+    inp: TpiInput, params: TpiParams, *, state: _TpiState, now: float | None = None
 ) -> tuple[TpiOutput | None, _TpiState]:
     """Compute TPI duty cycle and on/off durations.
 
@@ -105,6 +105,10 @@ def compute_tpi(
         Mutable controller state, owned by the caller (typically read from
         and written back to the ``StateManager``).  It is mutated in place
         and returned.
+    now:
+        Monotonic timestamp of this cycle; defaults to ``time.monotonic()``.
+        Callers with an injected clock pass their own reading so the
+        controller shares the entity's time source.
 
     Returns
     -------
@@ -112,7 +116,8 @@ def compute_tpi(
         The duty-cycle recommendation (or ``None`` on early exit) **and**
         the updated state object.
     """
-    now = monotonic()
+    if now is None:
+        now = monotonic()
 
     name = inp.bt_name or "BT"
     entity = inp.entity_id or "unknown"

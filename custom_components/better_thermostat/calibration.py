@@ -7,6 +7,7 @@ import math
 
 from homeassistant.components.climate.const import HVACAction, HVACMode
 
+from custom_components.better_thermostat.core.calibrator import CalibratorHealth
 from custom_components.better_thermostat.core.fsm.control_mode import ControlMode
 from custom_components.better_thermostat.model_fixes.model_quirks import (
     fix_local_calibration,
@@ -74,10 +75,6 @@ from custom_components.better_thermostat.utils.helpers import (
 from custom_components.better_thermostat.utils.state_manager import MpcV2ReidData
 
 _LOGGER = logging.getLogger(__name__)
-
-# Thermostats that already logged the MPC-v2-unavailable warning; keeps the
-# per-cycle dispatch from repeating it when the daqp import keeps failing.
-_MPC_V2_IMPORT_WARNED: set[str] = set()
 
 # Offline re-identification cadence: at most one fit attempt per key in this
 # interval, and only once the sample buffer holds enough history to plausibly
@@ -426,6 +423,11 @@ def _compute_mpc_balance(self, entity_id: str):
         )
         self.state_mgr.set_mpc(mpc_key, mpc_state)
     except (ValueError, TypeError, ZeroDivisionError) as err:
+        # A healed (sanitized) state must reach the store even when the
+        # compute fails, otherwise the poisoned version stays on disk and
+        # is re-healed every cycle.
+        if _mpc_health != CalibratorHealth.HEALTHY:
+            self.state_mgr.set_mpc(mpc_key, mpc_state)
         _LOGGER.debug(
             "better_thermostat %s: MPC calibration compute failed for %s: %s",
             self.device_name,
@@ -487,22 +489,56 @@ def _compute_mpc_balance(self, entity_id: str):
     return trv_output, supports_valve
 
 
+def _build_mpc_v2_reid_key(self) -> str:
+    """Return the target-independent re-identification key for this BT.
+
+    The plant prior describes the room, not an operating point, so the
+    re-ID buffer, its fit cadence, and the adopted result are shared
+    across all target-temperature buckets and all TRVs of a group.
+    """
+    uid = getattr(self, "unique_id", None) or getattr(self, "_unique_id", "bt")
+    return f"{uid}:reid"
+
+
+def _lookup_mpc_v2_reid(self, reid_key: str, mpc_key: str):
+    """Return the adopted re-ID result, preferring the shared key.
+
+    Results persisted under per-target-bucket keys (``uid:entity:tX.X`` or
+    ``uid:group:tX.X``) remain readable: when nothing is stored under the
+    shared key yet, the freshest bucket entry for this entity (or group)
+    still seeds the prior until a fit is adopted under the shared key.
+    """
+    result = self.state_mgr.get_mpc_v2_reid(reid_key)
+    if result is not None:
+        return result
+    uid_entity = mpc_key.rsplit(":", 1)[0]
+    candidates = [
+        data
+        for key, data in self.state_mgr.state.mpc_v2_reid.items()
+        if key.rsplit(":", 1)[0] == uid_entity
+    ]
+    if not candidates:
+        return None
+    return max(candidates, key=lambda data: data.fitted_ts)
+
+
 def _record_mpc_v2_reid_sample(
-    self, mpc_key: str, *, mpc_v2_state, trv_temp, outdoor_temp
+    self, reid_key: str, *, mpc_v2_state, trv_temp, outdoor_temp
 ) -> None:
     """Append one observation to the re-identification buffer for a key.
 
     The buffer's spacing floor collapses the per-TRV dispatches of a group
     pass into a single sample, and its finiteness checks reject anything a
-    later fit could choke on. Window-open samples are recorded on purpose:
-    they never enter a fit but cut segments at the right place.
+    later fit could choke on. Open-contact samples (window or door) are
+    recorded on purpose: they never enter a fit but cut segments at the
+    right place.
     """
     try:
         t_room = float(self.cur_temp)
     except TypeError, ValueError:
         return
     u_frac = float(mpc_v2_state.last_percent or 0.0) / 100.0
-    runtime = self.state_mgr.get_mpc_v2_reid_runtime(mpc_key)
+    runtime = self.state_mgr.get_mpc_v2_reid_runtime(reid_key)
     runtime.buffer.append(
         ReidSample(
             t_s=self.clock.monotonic(),
@@ -510,25 +546,29 @@ def _record_mpc_v2_reid_sample(
             u_frac=u_frac,
             T_outdoor_C=outdoor_temp,
             T_trv_C=trv_temp if isinstance(trv_temp, (int, float)) else None,
-            window_open=bool(self.window_open),
+            window_open=bool(self.contact_open),
         )
     )
 
 
-def _maybe_start_mpc_v2_reid_fit(self, mpc_key: str, v2_params: MpcV2Params) -> None:
+def _maybe_start_mpc_v2_reid_fit(
+    self, reid_key: str, v2_params: MpcV2Params, controller_key: str | None = None
+) -> None:
     """Kick off an offline re-identification fit in the executor when due.
 
     At most one attempt per key per ``_MPC_V2_REID_INTERVAL_S``, only once
     the buffer plausibly contains full transients, and never concurrently.
     The fit itself is pure CPU work; an accepted result is adopted through
     the state manager's bumpless path on the completion callback, so the
-    event loop never blocks on the optimisation.
+    event loop never blocks on the optimisation. ``controller_key`` names
+    the live controller that receives the bumpless transfer; the result
+    itself is stored under ``reid_key``.
     """
     hass = getattr(self, "hass", None)
     if hass is None:
         return
     state_mgr = self.state_mgr
-    runtime = state_mgr.get_mpc_v2_reid_runtime(mpc_key)
+    runtime = state_mgr.get_mpc_v2_reid_runtime(reid_key)
     # Monotonic for the cadence gate and buffer timing (immune to wall-clock
     # jumps); a separate wall-clock stamp records *when* an accepted fit
     # happened for the persisted result and diagnostics.
@@ -557,7 +597,7 @@ def _maybe_start_mpc_v2_reid_fit(self, mpc_key: str, v2_params: MpcV2Params) -> 
             _LOGGER.warning(
                 "better_thermostat %s: MPC v2 re-identification failed for %s: %s",
                 device_name,
-                mpc_key,
+                reid_key,
                 err,
             )
             return
@@ -567,7 +607,7 @@ def _maybe_start_mpc_v2_reid_fit(self, mpc_key: str, v2_params: MpcV2Params) -> 
             and outcome.gain_heater is not None
         ):
             state_mgr.adopt_mpc_v2_reid(
-                mpc_key,
+                reid_key,
                 MpcV2ReidData(
                     tau_room_min=outcome.tau_room_min,
                     gain_heater=outcome.gain_heater,
@@ -576,6 +616,7 @@ def _maybe_start_mpc_v2_reid_fit(self, mpc_key: str, v2_params: MpcV2Params) -> 
                     rmse_fit_K=outcome.rmse_fit_K or 0.0,
                     n_segments=outcome.n_segments,
                 ),
+                controller_key=controller_key,
             )
             if callable(schedule_save):
                 schedule_save()
@@ -584,7 +625,7 @@ def _maybe_start_mpc_v2_reid_fit(self, mpc_key: str, v2_params: MpcV2Params) -> 
                 "for %s: tau_room=%.0f min gain=%.2f (holdout RMSE %.3f -> %.3f K, "
                 "%d segments)",
                 device_name,
-                mpc_key,
+                reid_key,
                 outcome.tau_room_min,
                 outcome.gain_heater,
                 outcome.rmse_prior_K or 0.0,
@@ -596,7 +637,7 @@ def _maybe_start_mpc_v2_reid_fit(self, mpc_key: str, v2_params: MpcV2Params) -> 
                 "better_thermostat %s: MPC v2 re-identification for %s: %s "
                 "(segments=%d, samples=%d)",
                 device_name,
-                mpc_key,
+                reid_key,
                 outcome.status,
                 outcome.n_segments,
                 outcome.n_samples,
@@ -612,7 +653,7 @@ def _maybe_start_mpc_v2_reid_fit(self, mpc_key: str, v2_params: MpcV2Params) -> 
             "better_thermostat %s: could not schedule MPC v2 re-identification "
             "for %s: %s",
             device_name,
-            mpc_key,
+            reid_key,
             err,
         )
         return
@@ -631,7 +672,8 @@ def _compute_mpc_v2_balance(self, entity_id: str):
     if trv_state is None:
         return None, False
 
-    if self.bt_target_temp is None or self.cur_temp is None:
+    mpc_current_temp = effective_room_temp(self)
+    if self.bt_target_temp is None or mpc_current_temp is None:
         trv_state.calibration_balance = None
         return None, False
 
@@ -671,8 +713,9 @@ def _compute_mpc_v2_balance(self, entity_id: str):
     # Plant-prior resolution: an explicit preset always wins; under AUTO a
     # validated offline re-identification result beats the heat-loss
     # heuristic, which remains the fallback until the first accepted fit.
+    reid_key = _build_mpc_v2_reid_key(self)
     reid_result = (
-        self.state_mgr.get_mpc_v2_reid(mpc_key)
+        _lookup_mpc_v2_reid(self, reid_key, mpc_key)
         if preset == MpcV2PlantPreset.AUTO
         else None
     )
@@ -696,9 +739,9 @@ def _compute_mpc_v2_balance(self, entity_id: str):
             MpcV2Input(
                 key=mpc_key,
                 target_temp_C=self.bt_target_temp,
-                current_temp_C=self.cur_temp,
+                current_temp_C=mpc_current_temp,
                 trv_temp_C=trv_state.current_temperature,
-                window_open=self.window_open or False,
+                window_open=bool(self.contact_open),
                 heating_allowed=True,
                 bt_name=self.device_name,
                 entity_id=entity_id,
@@ -712,9 +755,11 @@ def _compute_mpc_v2_balance(self, entity_id: str):
         # Controller construction raises when the daqp wheel is missing.
         # daqp is not a hard manifest requirement (it has no aarch64 wheel for
         # the HA Python), so a user can select MPC v2 without it installed —
-        # warn once per thermostat instead of spamming every cycle.
-        if self.device_name not in _MPC_V2_IMPORT_WARNED:
-            _MPC_V2_IMPORT_WARNED.add(self.device_name)
+        # warn once per entity instance instead of spamming every cycle. The
+        # latch lives on the entity so a reconfigure (new instance) warns
+        # again and same-named entities do not suppress each other.
+        if not getattr(self, "_mpc_v2_import_warned", False):
+            self._mpc_v2_import_warned = True
             _LOGGER.warning(
                 "better_thermostat %s: MPC v2 unavailable: %s", self.device_name, err
             )
@@ -735,12 +780,12 @@ def _compute_mpc_v2_balance(self, entity_id: str):
     if preset == MpcV2PlantPreset.AUTO:
         _record_mpc_v2_reid_sample(
             self,
-            mpc_key,
+            reid_key,
             mpc_v2_state=mpc_v2_state,
             trv_temp=trv_state.current_temperature,
             outdoor_temp=outdoor_temp,
         )
-        _maybe_start_mpc_v2_reid_fit(self, mpc_key, v2_params)
+        _maybe_start_mpc_v2_reid_fit(self, reid_key, v2_params, controller_key=mpc_key)
 
     if mpc_output is None:
         trv_state.calibration_balance = None
@@ -833,9 +878,15 @@ def _compute_tpi_balance(self, entity_id: str):
             ),
             params,
             state=tpi_state,
+            now=self.clock.monotonic(),
         )
         self.state_mgr.set_tpi(key, tpi_state)
     except (ValueError, TypeError, ZeroDivisionError) as err:
+        # A healed (sanitized) state must reach the store even when the
+        # compute fails, otherwise the poisoned version stays on disk and
+        # is re-healed every cycle.
+        if _tpi_health != CalibratorHealth.HEALTHY:
+            self.state_mgr.set_tpi(key, tpi_state)
         _LOGGER.debug(
             "better_thermostat %s: TPI calibration compute failed for %s: %s",
             self.device_name,
@@ -946,9 +997,15 @@ def _compute_pid_balance(self, entity_id: str):
             ),
             max_opening_pct=_get_trv_max_opening(self, entity_id),
             state=pid_state,
+            now=self.clock.monotonic(),
         )
         self.state_mgr.set_pid(key, pid_state)
     except (ValueError, TypeError, ZeroDivisionError) as err:
+        # A healed (sanitized) state must reach the store even when the
+        # compute fails, otherwise the poisoned version stays on disk and
+        # is re-healed every cycle.
+        if _pid_health != CalibratorHealth.HEALTHY:
+            self.state_mgr.set_pid(key, pid_state)
         _LOGGER.debug(
             "better_thermostat %s: PID calibration compute failed for %s: %s",
             self.device_name,
