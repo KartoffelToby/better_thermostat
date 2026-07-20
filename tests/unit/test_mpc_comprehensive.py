@@ -10,6 +10,7 @@ from time import time
 
 import pytest
 
+from custom_components.better_thermostat.core.calibrator import CalibratorHealth
 from custom_components.better_thermostat.utils.calibration.mpc import (
     DISTRIBUTE_COMPENSATION_PCT_PER_K,
     MpcInput,
@@ -21,6 +22,7 @@ from custom_components.better_thermostat.utils.calibration.mpc import (
     _MpcState,
     _round_for_debug,
     _seed_state_from_siblings,
+    sanitize_mpc_state,
     _split_mpc_key,
     _update_perf_curve,
     build_mpc_group_key,
@@ -1400,6 +1402,89 @@ class TestSeedFromSiblings:
         # uid matches but the entity slot differs ("group" vs "climate.trv"),
         # so seeding must not happen.
         assert fresh.solar_gain_est is None
+
+    def test_seeding_skips_nonfinite_sibling_values(self):
+        """A sibling holding non-finite values is skipped per field.
+
+        The nearest sibling is poisoned in every seedable field; the
+        next-nearest sibling is clean. Seeding must fall through to the
+        clean sibling instead of copying NaN/inf into the fresh state.
+        """
+        params = _default_params(enable_min_effective_percent=True)
+        poisoned = _MpcState()
+        poisoned.min_effective_percent = float("inf")
+        poisoned.perf_curve = {
+            "p20_22": {"count": 3, "avg_room_rate": float("inf"), "avg_percent": 21.0}
+        }
+        poisoned.trv_profile = "threshold"
+        poisoned.profile_confidence = float("nan")
+        poisoned.profile_samples = 9
+        poisoned.solar_gain_est = float("nan")
+        clean = _MpcState()
+        clean.min_effective_percent = 12.0
+        clean.perf_curve = {
+            "p20_22": {"count": 6, "avg_room_rate": 0.03, "avg_percent": 21.0}
+        }
+        clean.trv_profile = "linear"
+        clean.profile_confidence = 0.8
+        clean.profile_samples = 12
+        clean.solar_gain_est = 0.02
+        # 21.5 is nearer to 22.0 than 19.0: the poisoned sibling is tried first.
+        _STATES["uidN:climate.trv:t21.5"] = poisoned
+        _STATES["uidN:climate.trv:t19.0"] = clean
+
+        fresh = _MpcState()
+        _seed_state_from_siblings(
+            "uidN:climate.trv:t22.0", fresh, params, all_states=_STATES
+        )
+
+        assert fresh.min_effective_percent == pytest.approx(12.0)
+        assert fresh.perf_curve == clean.perf_curve
+        assert fresh.trv_profile == "linear"
+        assert fresh.profile_confidence == pytest.approx(0.8)
+        assert fresh.profile_samples == 12
+        assert fresh.solar_gain_est == pytest.approx(0.02)
+
+    def test_seeding_with_only_poisoned_sibling_leaves_defaults(self):
+        """When every sibling candidate is non-finite, nothing is copied."""
+        params = _default_params(enable_min_effective_percent=True)
+        poisoned = _MpcState()
+        poisoned.min_effective_percent = float("nan")
+        poisoned.perf_curve = {"p20_22": {"count": 3, "avg_room_rate": float("nan")}}
+        poisoned.solar_gain_est = float("inf")
+        _STATES["uidO:climate.trv:t21.0"] = poisoned
+
+        fresh = _MpcState()
+        _seed_state_from_siblings(
+            "uidO:climate.trv:t22.0", fresh, params, all_states=_STATES
+        )
+
+        assert fresh.min_effective_percent is None
+        assert fresh.perf_curve == {}
+        assert fresh.solar_gain_est is None
+
+    def test_poisoned_zombie_sibling_does_not_repoison_active_state(self):
+        """sanitize -> compute cycles keep the active state finite.
+
+        A poisoned state persisted under an inactive target bucket is never
+        the active key, so it is never healed. Seeding runs on every
+        compute; copying its non-finite values would re-poison the freshly
+        sanitized active state each cycle, wiping the learned state forever.
+        """
+        params = _default_params()
+        zombie = _MpcState()
+        zombie.solar_gain_est = float("nan")
+        zombie.perf_curve = {"p40_42": {"count": 2, "avg_room_rate": float("inf")}}
+        _STATES["uidZ:climate.trv:t20.0"] = zombie
+
+        key = "uidZ:climate.trv:t22.0"
+        for _ in range(3):
+            state = _STATES.setdefault(key, _MpcState())
+            healed, _health = sanitize_mpc_state(state)
+            _STATES[key] = healed
+            _compute(_inp(key=key, current_temp_C=20.0), params)
+            _resanitized, health_after = sanitize_mpc_state(_STATES[key])
+            assert health_after == CalibratorHealth.HEALTHY
 
     def test_seeding_runs_through_compute_mpc_on_first_call(self):
         """Integration: first compute_mpc call on a new bucket triggers seeding."""
