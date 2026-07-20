@@ -255,7 +255,13 @@ class BalanceCalibrator:
         return self._last_percent, self._last_use_valve
 
     def capability(self) -> Capability:
-        """Report the strategy's capability on the live entity."""
+        """Report the strategy's capability on the live entity.
+
+        Annunciation only: the shell never gates actuation on this.
+        Closed-loop learners warm up through actuation, so an external
+        readiness gate would keep them cold forever — the controllers
+        gate themselves (see docs/internals/calibration.md).
+        """
         return self.strategy.capability(self._bt, self._entity_id)
 
     def health(self) -> CalibratorHealth:
