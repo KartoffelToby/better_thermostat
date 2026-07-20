@@ -101,6 +101,17 @@ class TestExport:
         assert entry["desired"]["trvs"]["climate.trv"]["hvac_mode"] == "heat"
         assert entry["state"]["window"]["phase"] == "closed"
 
+    def test_non_finite_floats_export_as_none(self):
+        """NaN/inf in a recorded snapshot never reach the JSON payload."""
+        recorder = FlightRecorder()
+        snapshot = replace(_snapshot(), room_temp=float("nan"), temp_slope=float("inf"))
+        _record_one(recorder, snapshot)
+        exported = recorder.export()
+        entry = exported[0]["snapshot"]
+        assert entry["room_temp"] is None
+        assert entry["temp_slope"] is None
+        json.dumps(exported, allow_nan=False)
+
 
 class TestReplay:
     """An exported tuple reproduces the decision deterministically."""

@@ -12,6 +12,7 @@ from collections import deque
 from collections.abc import Mapping, Sequence
 from dataclasses import asdict, dataclass, field
 from datetime import datetime
+import math
 
 from .decide import KernelState, decide
 from .desired import DesiredState, Suppression, TrvDesired
@@ -44,11 +45,19 @@ type _Recordable = (
 
 
 def _json_safe(value: _Recordable) -> Json:
-    """Convert datetimes to ISO strings, recursing through containers."""
+    """Convert datetimes to ISO strings and drop non-finite numbers.
+
+    Recurses through containers. NaN and infinities become ``None``:
+    strict JSON has no representation for them, and a diagnostics
+    download must stay parseable no matter what an upstream sensor fed
+    into a recorded snapshot.
+    """
     if isinstance(value, datetime):
         return value.isoformat()
     if isinstance(value, str):
         return value
+    if isinstance(value, float) and not math.isfinite(value):
+        return None
     if isinstance(value, Mapping):
         return {key: _json_safe(item) for key, item in value.items()}
     if isinstance(value, Sequence):
