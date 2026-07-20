@@ -72,7 +72,6 @@ from .core.clock import Clock
 from .core.containers import BtConfig, BtRuntime
 from .core.decide import KernelState
 from .core.fsm.lifecycle import (
-    extend_grace as lifecycle_extend_grace,
     startup_finished as lifecycle_startup_finished,
     stop as lifecycle_stop,
 )
@@ -2181,9 +2180,16 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
         )
         await self._trigger_check_weather(None)
         _LOGGER.debug("better_thermostat %s: startup finishing...", self.device_name)
+        # Arm the degraded-mode grace window together with the transition to
+        # STARTING: the lifecycle region carries the deadline, and the first
+        # control cycle right below already runs a lifecycle tick, which
+        # promotes STARTING to RUNNING as soon as no grace deadline is set.
+        self._degraded_grace_until = self.clock.now() + STARTUP_DEGRADED_GRACE_PERIOD
         self.kernel_state = replace(
             self.kernel_state,
-            lifecycle=lifecycle_startup_finished(self.kernel_state.lifecycle),
+            lifecycle=lifecycle_startup_finished(
+                self.kernel_state.lifecycle, grace_until=self._degraded_grace_until
+            ),
         )
         await self._startup_control_trvs()
         self._available = True
@@ -2225,16 +2231,10 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
 
         # Wait for optional sensors with increasing retry delays before
         # entering degraded mode (see await_optional_sensors for details).
-        # During the startup grace window, a transition into degraded mode is
-        # logged at DEBUG and the HA repair issue is deferred — slow cloud
-        # integrations get time to come online before the user sees a warning.
-        self._degraded_grace_until = self.clock.now() + STARTUP_DEGRADED_GRACE_PERIOD
-        self.kernel_state = replace(
-            self.kernel_state,
-            lifecycle=lifecycle_extend_grace(
-                self.kernel_state.lifecycle, self._degraded_grace_until
-            ),
-        )
+        # During the startup grace window (armed above, carried by the
+        # lifecycle region), a transition into degraded mode is logged at
+        # DEBUG and the HA repair issue is deferred — slow cloud integrations
+        # get time to come online before the user sees a warning.
         await await_optional_sensors(self)
         await check_and_update_degraded_mode(self)
 
