@@ -75,10 +75,6 @@ from custom_components.better_thermostat.utils.state_manager import MpcV2ReidDat
 
 _LOGGER = logging.getLogger(__name__)
 
-# Thermostats that already logged the MPC-v2-unavailable warning; keeps the
-# per-cycle dispatch from repeating it when the daqp import keeps failing.
-_MPC_V2_IMPORT_WARNED: set[str] = set()
-
 # Offline re-identification cadence: at most one fit attempt per key in this
 # interval, and only once the sample buffer holds enough history to plausibly
 # contain full transients (240 samples ≈ 4-20 h depending on cycle rate).
@@ -753,9 +749,11 @@ def _compute_mpc_v2_balance(self, entity_id: str):
         # Controller construction raises when the daqp wheel is missing.
         # daqp is not a hard manifest requirement (it has no aarch64 wheel for
         # the HA Python), so a user can select MPC v2 without it installed —
-        # warn once per thermostat instead of spamming every cycle.
-        if self.device_name not in _MPC_V2_IMPORT_WARNED:
-            _MPC_V2_IMPORT_WARNED.add(self.device_name)
+        # warn once per entity instance instead of spamming every cycle. The
+        # latch lives on the entity so a reconfigure (new instance) warns
+        # again and same-named entities do not suppress each other.
+        if not getattr(self, "_mpc_v2_import_warned", False):
+            self._mpc_v2_import_warned = True
             _LOGGER.warning(
                 "better_thermostat %s: MPC v2 unavailable: %s", self.device_name, err
             )
