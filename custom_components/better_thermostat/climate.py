@@ -1349,7 +1349,13 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
             )
 
             # The external room sensor is a required configuration field.
-            assert self.sensor_entity_id is not None
+            if self.sensor_entity_id is None:
+                _LOGGER.debug(
+                    "better_thermostat %s: no room temperature sensor configured, "
+                    "aborting startup",
+                    self.device_name,
+                )
+                return
             sensor_state = self.hass.states.get(self.sensor_entity_id)
             if not self._check_entities_ready(sensor_state):
                 await asyncio.sleep(20)
@@ -2359,7 +2365,13 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
             )
 
         # The external room sensor is a required configuration field.
-        assert self.sensor_entity_id is not None
+        if self.sensor_entity_id is None:
+            _LOGGER.debug(
+                "better_thermostat %s: no room temperature sensor configured, "
+                "skipping listener registration",
+                self.device_name,
+            )
+            return
         self.async_on_remove(
             async_track_state_change_event(
                 self.hass, [self.sensor_entity_id], self._trigger_temperature_change
