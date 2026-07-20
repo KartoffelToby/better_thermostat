@@ -94,7 +94,8 @@ attribute; a healthy verdict clears only the grades its reporter owns,
 so the sanitize path and the oscillation watcher cannot flap each
 other's annunciations.
 
-Persisted state is hardened at three layers: deserialization skips
-wrong-typed and non-finite fields per field, an unreadable store yields
+Persisted state is hardened at three layers: deserialization skips a
+wrong-typed field individually while a non-finite value resets the
+whole stored entry to its defaults, an unreadable store yields
 defaults instead of killing startup, and the sanitize step heals
 whatever still reaches a controller.
