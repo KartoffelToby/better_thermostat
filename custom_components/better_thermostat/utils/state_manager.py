@@ -586,19 +586,26 @@ class StateManager:
             self._mpc_v2_reid_live[key] = runtime
         return runtime
 
-    def adopt_mpc_v2_reid(self, key: str, data: MpcV2ReidData) -> None:
+    def adopt_mpc_v2_reid(
+        self, key: str, data: MpcV2ReidData, *, controller_key: str | None = None
+    ) -> None:
         """Adopt a validated re-identification result, bumplessly.
 
         The live controller is exported into the persisted snapshot and then
         dropped, so the next :meth:`get_mpc_v2_live` rebuilds it with the new
         plant prior while restoring the observer state (Kalman, DOB, integral,
-        last command) from that snapshot — no cold start.
+        last command) from that snapshot — no cold start. The result is
+        stored under ``key``; ``controller_key`` names the live controller
+        that receives the bumpless transfer when the two are keyed
+        differently (the result key is target-independent, the controller
+        key is per target bucket).
         """
-        live = self._mpc_v2_live.pop(key, None)
+        live_key = controller_key or key
+        live = self._mpc_v2_live.pop(live_key, None)
         if live is not None:
             exported = export_mpc_v2_state(live)
             if exported is not None:
-                self._state.mpc_v2[key] = deserialize_mpc_v2(exported)
+                self._state.mpc_v2[live_key] = deserialize_mpc_v2(exported)
             else:
                 # No exportable observer state to carry over; the rebuild with
                 # the new prior falls back to the last snapshot (or a cold
@@ -606,7 +613,7 @@ class StateManager:
                 _LOGGER.debug(
                     "MPC v2 re-identification adopt for %s: live controller had "
                     "no exportable state; rebuild will not be bumpless",
-                    key,
+                    live_key,
                 )
         self._state.mpc_v2_reid[key] = data
         self._dirty = True

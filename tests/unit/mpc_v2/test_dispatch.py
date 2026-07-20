@@ -44,6 +44,12 @@ class _FakeStateManager:
         """Start with an empty per-key live MPC v2 state store."""
         self._mpc_v2_live: dict[str, MpcV2State] = {}
         self._mpc_v2_reid_live: dict[str, MpcV2ReidRuntime] = {}
+        self.mpc_v2_reid: dict[str, object] = {}
+
+    @property
+    def state(self):
+        """Return self so ``state.mpc_v2_reid`` resolves like on the real store."""
+        return self
 
     def get_mpc_v2_live(self, key: str, params: MpcV2Params) -> MpcV2State:
         """Return the live state for key, creating a fresh one on first use."""

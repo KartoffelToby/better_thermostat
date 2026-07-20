@@ -46,6 +46,7 @@ class _StateStub:
         self.tpi: dict[str, TpiState] = {}
         self.mpc_v2_live: dict[str, MpcV2State] = {}
         self.mpc_v2_reid_runtime: dict[str, MpcV2ReidRuntime] = {}
+        self.mpc_v2_reid: dict[str, object] = {}
 
     @property
     def state(self):

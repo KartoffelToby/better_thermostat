@@ -487,8 +487,41 @@ def _compute_mpc_balance(self, entity_id: str):
     return trv_output, supports_valve
 
 
+def _build_mpc_v2_reid_key(self) -> str:
+    """Return the target-independent re-identification key for this BT.
+
+    The plant prior describes the room, not an operating point, so the
+    re-ID buffer, its fit cadence, and the adopted result are shared
+    across all target-temperature buckets and all TRVs of a group.
+    """
+    uid = getattr(self, "unique_id", None) or getattr(self, "_unique_id", "bt")
+    return f"{uid}:reid"
+
+
+def _lookup_mpc_v2_reid(self, reid_key: str, mpc_key: str):
+    """Return the adopted re-ID result, preferring the shared key.
+
+    Results persisted under per-target-bucket keys (``uid:entity:tX.X`` or
+    ``uid:group:tX.X``) remain readable: when nothing is stored under the
+    shared key yet, the freshest bucket entry for this entity (or group)
+    still seeds the prior until a fit is adopted under the shared key.
+    """
+    result = self.state_mgr.get_mpc_v2_reid(reid_key)
+    if result is not None:
+        return result
+    uid_entity = mpc_key.rsplit(":", 1)[0]
+    candidates = [
+        data
+        for key, data in self.state_mgr.state.mpc_v2_reid.items()
+        if key.rsplit(":", 1)[0] == uid_entity
+    ]
+    if not candidates:
+        return None
+    return max(candidates, key=lambda data: data.fitted_ts)
+
+
 def _record_mpc_v2_reid_sample(
-    self, mpc_key: str, *, mpc_v2_state, trv_temp, outdoor_temp
+    self, reid_key: str, *, mpc_v2_state, trv_temp, outdoor_temp
 ) -> None:
     """Append one observation to the re-identification buffer for a key.
 
@@ -503,7 +536,7 @@ def _record_mpc_v2_reid_sample(
     except TypeError, ValueError:
         return
     u_frac = float(mpc_v2_state.last_percent or 0.0) / 100.0
-    runtime = self.state_mgr.get_mpc_v2_reid_runtime(mpc_key)
+    runtime = self.state_mgr.get_mpc_v2_reid_runtime(reid_key)
     runtime.buffer.append(
         ReidSample(
             t_s=self.clock.monotonic(),
@@ -516,20 +549,24 @@ def _record_mpc_v2_reid_sample(
     )
 
 
-def _maybe_start_mpc_v2_reid_fit(self, mpc_key: str, v2_params: MpcV2Params) -> None:
+def _maybe_start_mpc_v2_reid_fit(
+    self, reid_key: str, v2_params: MpcV2Params, controller_key: str | None = None
+) -> None:
     """Kick off an offline re-identification fit in the executor when due.
 
     At most one attempt per key per ``_MPC_V2_REID_INTERVAL_S``, only once
     the buffer plausibly contains full transients, and never concurrently.
     The fit itself is pure CPU work; an accepted result is adopted through
     the state manager's bumpless path on the completion callback, so the
-    event loop never blocks on the optimisation.
+    event loop never blocks on the optimisation. ``controller_key`` names
+    the live controller that receives the bumpless transfer; the result
+    itself is stored under ``reid_key``.
     """
     hass = getattr(self, "hass", None)
     if hass is None:
         return
     state_mgr = self.state_mgr
-    runtime = state_mgr.get_mpc_v2_reid_runtime(mpc_key)
+    runtime = state_mgr.get_mpc_v2_reid_runtime(reid_key)
     # Monotonic for the cadence gate and buffer timing (immune to wall-clock
     # jumps); a separate wall-clock stamp records *when* an accepted fit
     # happened for the persisted result and diagnostics.
@@ -558,7 +595,7 @@ def _maybe_start_mpc_v2_reid_fit(self, mpc_key: str, v2_params: MpcV2Params) -> 
             _LOGGER.warning(
                 "better_thermostat %s: MPC v2 re-identification failed for %s: %s",
                 device_name,
-                mpc_key,
+                reid_key,
                 err,
             )
             return
@@ -568,7 +605,7 @@ def _maybe_start_mpc_v2_reid_fit(self, mpc_key: str, v2_params: MpcV2Params) -> 
             and outcome.gain_heater is not None
         ):
             state_mgr.adopt_mpc_v2_reid(
-                mpc_key,
+                reid_key,
                 MpcV2ReidData(
                     tau_room_min=outcome.tau_room_min,
                     gain_heater=outcome.gain_heater,
@@ -577,6 +614,7 @@ def _maybe_start_mpc_v2_reid_fit(self, mpc_key: str, v2_params: MpcV2Params) -> 
                     rmse_fit_K=outcome.rmse_fit_K or 0.0,
                     n_segments=outcome.n_segments,
                 ),
+                controller_key=controller_key,
             )
             if callable(schedule_save):
                 schedule_save()
@@ -585,7 +623,7 @@ def _maybe_start_mpc_v2_reid_fit(self, mpc_key: str, v2_params: MpcV2Params) -> 
                 "for %s: tau_room=%.0f min gain=%.2f (holdout RMSE %.3f -> %.3f K, "
                 "%d segments)",
                 device_name,
-                mpc_key,
+                reid_key,
                 outcome.tau_room_min,
                 outcome.gain_heater,
                 outcome.rmse_prior_K or 0.0,
@@ -597,7 +635,7 @@ def _maybe_start_mpc_v2_reid_fit(self, mpc_key: str, v2_params: MpcV2Params) -> 
                 "better_thermostat %s: MPC v2 re-identification for %s: %s "
                 "(segments=%d, samples=%d)",
                 device_name,
-                mpc_key,
+                reid_key,
                 outcome.status,
                 outcome.n_segments,
                 outcome.n_samples,
@@ -613,7 +651,7 @@ def _maybe_start_mpc_v2_reid_fit(self, mpc_key: str, v2_params: MpcV2Params) -> 
             "better_thermostat %s: could not schedule MPC v2 re-identification "
             "for %s: %s",
             device_name,
-            mpc_key,
+            reid_key,
             err,
         )
         return
@@ -673,8 +711,9 @@ def _compute_mpc_v2_balance(self, entity_id: str):
     # Plant-prior resolution: an explicit preset always wins; under AUTO a
     # validated offline re-identification result beats the heat-loss
     # heuristic, which remains the fallback until the first accepted fit.
+    reid_key = _build_mpc_v2_reid_key(self)
     reid_result = (
-        self.state_mgr.get_mpc_v2_reid(mpc_key)
+        _lookup_mpc_v2_reid(self, reid_key, mpc_key)
         if preset == MpcV2PlantPreset.AUTO
         else None
     )
@@ -737,12 +776,12 @@ def _compute_mpc_v2_balance(self, entity_id: str):
     if preset == MpcV2PlantPreset.AUTO:
         _record_mpc_v2_reid_sample(
             self,
-            mpc_key,
+            reid_key,
             mpc_v2_state=mpc_v2_state,
             trv_temp=trv_state.current_temperature,
             outdoor_temp=outdoor_temp,
         )
-        _maybe_start_mpc_v2_reid_fit(self, mpc_key, v2_params)
+        _maybe_start_mpc_v2_reid_fit(self, reid_key, v2_params, controller_key=mpc_key)
 
     if mpc_output is None:
         trv_state.calibration_balance = None
