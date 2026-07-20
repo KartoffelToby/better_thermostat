@@ -238,6 +238,31 @@ def test_replay_roundtrips_reachability_and_null_window_state():
     assert rebuilt.reachability["climate.t"].online is False
 
 
+def test_restored_running_maintenance_without_timestamp_never_blocks():
+    """A deserialized RUNNING phase lacking its timestamp cannot block.
+
+    state_from_dict accepts running_since=None alongside phase
+    "running"; the restored region must not pre-empt control forever.
+    """
+    from custom_components.better_thermostat.core.fsm.maintenance import (
+        MaintenancePhase,
+    )
+
+    recorder = FlightRecorder()
+    desired, _ = decide(_snapshot(), running_kernel_state())
+    recorder.record(_snapshot(), running_kernel_state(), desired)
+    entry = json.loads(json.dumps(recorder.export()))[0]
+    entry["state"]["maintenance"] = {
+        "phase": "running",
+        "next_due": None,
+        "running_since": None,
+    }
+    rebuilt = state_from_dict(entry["state"])
+    assert rebuilt.maintenance.phase == MaintenancePhase.RUNNING
+    assert rebuilt.maintenance.is_blocking(now_monotonic=0.0) is False
+    assert rebuilt.maintenance.is_blocking(now_monotonic=99_999.0) is False
+
+
 def test_state_without_pending_target_field_loads():
     """Exports predating control_mode.pending_target still reconstruct.
 

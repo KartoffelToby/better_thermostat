@@ -38,12 +38,15 @@ class MaintenanceState:
 
         A RUNNING phase older than ``max_run_s`` is treated as dead and
         stops blocking, bounding how long maintenance can pre-empt
-        control.
+        control. A RUNNING phase without a start timestamp (never
+        produced by ``start_run``, but reachable through deserialized or
+        hand-built state) is inconsistent: its age is unknowable, so it
+        could never age out and would block forever — it does not block.
         """
         if self.phase != MaintenancePhase.RUNNING:
             return False
         if self.running_since is None:
-            return True
+            return False
         return (now_monotonic - self.running_since) < max_run_s
 
 
