@@ -115,24 +115,47 @@ class TestLadderSweep:
             params=self.PARAMS,
         )
 
-        # The rung only ever moves to the capability target.
-        assert result.mode in (mode, target)
-
         order = (
             cm.ControlMode.OPTIMAL,
             cm.ControlMode.SENSOR_FALLBACK,
             cm.ControlMode.HOLD,
         )
+        depth = order.index
+        # The rung only ever moves toward the capability target, never
+        # past it and never against the pressure direction.
+        assert min(depth(mode), depth(target)) <= depth(result.mode) <= max(
+            depth(mode), depth(target)
+        )
+
+        degrading = depth(target) > depth(mode)
+        # A running window continues only while the prior pending rung
+        # sits on the same side of the current rung as the observation.
+        window_continued = (
+            pending_target is not None
+            and (
+                (degrading and down_since is not None and depth(pending_target) > depth(mode))
+                or (
+                    not degrading
+                    and target != mode
+                    and up_since is not None
+                    and depth(pending_target) < depth(mode)
+                )
+            )
+        )
         if result.mode != mode:
-            degrading = order.index(target) > order.index(mode)
             threshold = (
                 self.PARAMS.down_debounce_s if degrading else self.PARAMS.up_stability_s
             )
             since = down_since if degrading else up_since
-            # A commit requires the full debounce/stability window,
-            # accrued toward this exact target rung.
+            # A commit requires the full debounce/stability window of
+            # continuous same-direction pressure.
+            assert window_continued
             assert since is not None and NOW - since >= threshold
-            assert pending_target == target
+            # The commit lands on the rung nearest the old one that was
+            # continuously supported: the prior pending rung capped by
+            # the instantaneous target.
+            nearest = min if degrading else max
+            assert result.mode == nearest(pending_target, target, key=depth)
 
         # Matching capability clears all pending timers.
         if target == mode:
@@ -140,18 +163,31 @@ class TestLadderSweep:
             assert result.up_pending_since is None
             assert result.pending_target is None
 
-        # A still-pending transition records the rung it heads toward.
+        # A still-pending transition records the rung it would commit.
         if result.mode == mode and target != mode:
-            assert result.pending_target == target
+            nearest = min if degrading else max
+            expected_pending = (
+                nearest(pending_target, target, key=depth)
+                if window_continued
+                else target
+            )
+            assert result.pending_target == expected_pending
             since = (
-                result.down_pending_since
-                if order.index(target) > order.index(mode)
-                else result.up_pending_since
+                result.down_pending_since if degrading else result.up_pending_since
             )
             assert since is not None
-            # A window inherited from a different target restarts now.
-            if pending_target != target:
+            # A freshly started window begins now.
+            if not window_continued:
                 assert since == NOW
+
+        # A commit short of the instantaneous target immediately opens
+        # the follow-up window toward that target.
+        if result.mode != mode and result.mode != target:
+            assert result.pending_target == target
+            since = (
+                result.down_pending_since if degrading else result.up_pending_since
+            )
+            assert since == NOW
 
         # After a commit, degraded_since exactly mirrors the new rung.
         if result.mode != mode:
