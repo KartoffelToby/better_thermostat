@@ -835,6 +835,7 @@ def _compute_tpi_balance(self, entity_id: str):
             ),
             params,
             state=tpi_state,
+            now=self.clock.monotonic(),
         )
         self.state_mgr.set_tpi(key, tpi_state)
     except (ValueError, TypeError, ZeroDivisionError) as err:
@@ -948,6 +949,7 @@ def _compute_pid_balance(self, entity_id: str):
             ),
             max_opening_pct=_get_trv_max_opening(self, entity_id),
             state=pid_state,
+            now=self.clock.monotonic(),
         )
         self.state_mgr.set_pid(key, pid_state)
     except (ValueError, TypeError, ZeroDivisionError) as err:

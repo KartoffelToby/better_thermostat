@@ -27,6 +27,13 @@ if TYPE_CHECKING:
 
 _LOGGER = logging.getLogger(__name__)
 
+# Upper bound for one integration step. Control cycles nominally run every
+# few minutes; 600 s covers two 5-minute cycles, so a single missed cycle
+# still integrates fully while a stale ``pid_last_time`` (calibrator
+# switched away and back hours later) cannot wind the integrator up in one
+# giant step.
+MAX_DT_S = 600.0
+
 
 class PIDDebugInfo(TypedDict, total=False):
     """Debug information from PID controller."""
@@ -191,6 +198,7 @@ def compute_pid(
     max_opening_pct: float | None = None,
     *,
     state: PIDState,
+    now: float | None = None,
 ) -> tuple[float, PIDDebugInfo, PIDState]:
     """Compute PID-based valve opening percentage.
 
@@ -216,13 +224,22 @@ def compute_pid(
         Mutable controller state, owned by the caller (typically read from
         and written back to the ``StateManager``).  It is mutated in place
         and returned.
+    now:
+        Monotonic timestamp of this cycle; defaults to ``time.monotonic()``.
+        Callers with an injected clock pass their own reading so the
+        controller shares the entity's time source.
 
     Returns
     -------
     tuple[float, PIDDebugInfo, PIDState]
         ``(percent_open, debug_info, updated_state)``.
+
+    The integration step ``dt`` derived from ``now - pid_last_time`` is
+    clamped to :data:`MAX_DT_S` so a stale timestamp cannot produce one
+    oversized integral step.
     """
-    now = monotonic()
+    if now is None:
+        now = monotonic()
 
     st = state
 
@@ -261,11 +278,11 @@ def compute_pid(
     st.previous_abs_error = st.last_abs_error
     st.last_abs_error = abs(delta_T)
 
-    # Zeitdifferenz
+    # Time difference, bounded to [1.0, MAX_DT_S] seconds.
     dt = now - st.pid_last_time if st.pid_last_time > 0 else 0.0
-    # Fix dt handling: if dt <= 0 or dt < 1.0, treat as 1.0
     if dt <= 0 or dt < 1.0:
         dt = 1.0
+    dt = min(dt, MAX_DT_S)
 
     # Initialize the learned gains once from the passed-in params
     if st.pid_kp is None:
