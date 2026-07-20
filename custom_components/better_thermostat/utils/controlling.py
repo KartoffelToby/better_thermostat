@@ -59,6 +59,10 @@ RECONCILE_TOLERANCE_K = 0.05
 # suppressed while the device's state feedback lags. A changed desired
 # value always sends immediately.
 COOLER_RESEND_INTERVAL_S = 30.0
+# A cooler may snap a received setpoint onto its own step grid (e.g. 0.5 °C,
+# or a whole-°F grid). A post-send reading within this distance of the sent
+# value counts as that device-side quantization, not as an unapplied command.
+COOLER_QUANTIZATION_TOLERANCE_K = 0.5
 # Valve deviations below this are the device's own business.
 RECONCILE_VALVE_TOLERANCE_PCT = 5.0
 
@@ -688,6 +692,20 @@ async def control_cooler(self, snapshot=None):
     # reported value beyond the device tolerance.
     last_temp, last_temp_ts = last_sent.get("temperature", (None, None))
     temp_changed_since_last_send = last_temp != desired_temp
+    # A quantizing device settles near the sent value on its own grid. The
+    # first post-send reading close to the sent value is remembered as the
+    # device's answer; while it holds and the desired value is unchanged,
+    # the command counts as converged.
+    settled_temp = last_sent.get("temperature_settled")
+    if (
+        not temp_changed_since_last_send
+        and last_temp is not None
+        and current_temp is not None
+        and settled_temp is None
+        and abs(current_temp - last_temp) <= COOLER_QUANTIZATION_TOLERANCE_K
+    ):
+        settled_temp = current_temp
+        last_sent["temperature_settled"] = settled_temp
     temp_to_send: float | None = None
     if desired_temp is None:
         _LOGGER.debug(
@@ -709,6 +727,26 @@ async def control_cooler(self, snapshot=None):
             )
     elif abs(current_temp - desired_temp) > RECONCILE_TOLERANCE_K:
         temp_to_send = desired_temp
+
+    # Device quantization accepted: the reported value still sits on the
+    # settled post-send reading, so the residual difference is the device's
+    # own grid, not an unapplied command.
+    if (
+        temp_to_send is not None
+        and not temp_changed_since_last_send
+        and settled_temp is not None
+        and current_temp is not None
+        and abs(current_temp - settled_temp) <= RECONCILE_TOLERANCE_K
+    ):
+        _LOGGER.debug(
+            "better_thermostat %s: cooler %s settled at %s for desired %s "
+            "(device quantization), skipping set_temperature",
+            self.device_name,
+            self.cooler_entity_id,
+            settled_temp,
+            desired_temp,
+        )
+        temp_to_send = None
 
     # Throttle identical resends when the device's state feedback lags.
     if (
@@ -761,6 +799,9 @@ async def control_cooler(self, snapshot=None):
             )
         else:
             last_sent["temperature"] = (temp_to_send, now_monotonic)
+            # A fresh send invalidates the previously settled reading; the
+            # device answers anew.
+            last_sent.pop("temperature_settled", None)
 
     # Decide whether an hvac_mode command is needed, throttling identical
     # resends the same way as temperature commands.

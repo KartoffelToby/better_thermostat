@@ -412,6 +412,70 @@ class TestControlCoolerSendCache:
         assert temp_calls[1].args[2]["temperature"] == 23.0
 
     @pytest.mark.asyncio
+    async def test_quantized_device_reading_is_accepted_without_resend(self):
+        """A device that snaps the setpoint onto its own grid gets one send.
+
+        The device answers a desired 22.22 with a reported 22.0. That settled
+        reading counts as convergence, so the identical command is not re-sent
+        even after the resend interval expires.
+        """
+        mock_self, mock_hass, _ = _make_cooler_setup(
+            cooler_temp_attr=22.0, target_cooltemp=22.22
+        )
+
+        await control_cooler(mock_self)
+        # Post-send cycle observes the device's quantized reading.
+        mock_self.clock.monotonic_value += 1.0
+        await control_cooler(mock_self)
+        # Nothing changed after the resend interval: still converged.
+        mock_self.clock.monotonic_value += COOLER_RESEND_INTERVAL_S
+        await control_cooler(mock_self)
+        mock_self.clock.monotonic_value += COOLER_RESEND_INTERVAL_S
+        await control_cooler(mock_self)
+
+        assert len(_service_calls(mock_hass, "set_temperature")) == 1
+
+    @pytest.mark.asyncio
+    async def test_reported_drift_after_settling_triggers_resend(self):
+        """A reported value that moves off its settled reading is corrected."""
+        mock_self, mock_hass, mock_cooler_state = _make_cooler_setup(
+            cooler_temp_attr=22.0, target_cooltemp=22.22
+        )
+
+        await control_cooler(mock_self)
+        mock_self.clock.monotonic_value += 1.0
+        await control_cooler(mock_self)
+        assert len(_service_calls(mock_hass, "set_temperature")) == 1
+
+        # The device leaves its settled reading (external change).
+        mock_cooler_state.attributes = {"temperature": 24.0}
+        mock_self.clock.monotonic_value += COOLER_RESEND_INTERVAL_S
+        await control_cooler(mock_self)
+
+        temp_calls = _service_calls(mock_hass, "set_temperature")
+        assert len(temp_calls) == 2
+        assert temp_calls[1].args[2]["temperature"] == 22.22
+
+    @pytest.mark.asyncio
+    async def test_changed_target_overrides_quantization_acceptance(self):
+        """A new desired value sends immediately despite a settled reading."""
+        mock_self, mock_hass, _ = _make_cooler_setup(
+            cooler_temp_attr=22.0, target_cooltemp=22.22
+        )
+
+        await control_cooler(mock_self)
+        mock_self.clock.monotonic_value += 1.0
+        await control_cooler(mock_self)
+        assert len(_service_calls(mock_hass, "set_temperature")) == 1
+
+        mock_self.bt_target_cooltemp = 23.0
+        await control_cooler(mock_self)
+
+        temp_calls = _service_calls(mock_hass, "set_temperature")
+        assert len(temp_calls) == 2
+        assert temp_calls[1].args[2]["temperature"] == 23.0
+
+    @pytest.mark.asyncio
     async def test_failed_set_temperature_still_attempts_hvac_mode(self):
         """A failing set_temperature does not suppress set_hvac_mode."""
         mock_self, mock_hass, _ = _make_cooler_setup(
