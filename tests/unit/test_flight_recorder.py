@@ -101,6 +101,17 @@ class TestExport:
         assert entry["desired"]["trvs"]["climate.trv"]["hvac_mode"] == "heat"
         assert entry["state"]["window"]["phase"] == "closed"
 
+    def test_non_finite_floats_export_as_none(self):
+        """NaN/inf in a recorded snapshot never reach the JSON payload."""
+        recorder = FlightRecorder()
+        snapshot = replace(_snapshot(), room_temp=float("nan"), temp_slope=float("inf"))
+        _record_one(recorder, snapshot)
+        exported = recorder.export()
+        entry = exported[0]["snapshot"]
+        assert entry["room_temp"] is None
+        assert entry["temp_slope"] is None
+        json.dumps(exported, allow_nan=False)
+
 
 class TestReplay:
     """An exported tuple reproduces the decision deterministically."""
@@ -238,6 +249,53 @@ def test_replay_roundtrips_reachability_and_null_window_state():
     assert rebuilt.reachability["climate.t"].online is False
 
 
+def test_restored_running_maintenance_without_timestamp_never_blocks():
+    """A deserialized RUNNING phase lacking its timestamp cannot block.
+
+    state_from_dict accepts running_since=None alongside phase
+    "running"; the restored region must not pre-empt control forever.
+    """
+    from custom_components.better_thermostat.core.fsm.maintenance import (
+        MaintenancePhase,
+    )
+
+    recorder = FlightRecorder()
+    desired, _ = decide(_snapshot(), running_kernel_state())
+    recorder.record(_snapshot(), running_kernel_state(), desired)
+    entry = json.loads(json.dumps(recorder.export()))[0]
+    entry["state"]["maintenance"] = {
+        "phase": "running",
+        "next_due": None,
+        "running_since": None,
+    }
+    rebuilt = state_from_dict(entry["state"])
+    assert rebuilt.maintenance.phase == MaintenancePhase.RUNNING
+    assert rebuilt.maintenance.is_blocking(now_monotonic=0.0) is False
+    assert rebuilt.maintenance.is_blocking(now_monotonic=99_999.0) is False
+
+
+def test_state_without_pending_target_field_loads():
+    """Exports predating control_mode.pending_target still reconstruct.
+
+    A None pending target is omitted from the export, so an export
+    without a running window is byte-identical to the pre-field shape;
+    an explicit None in an old hand-edited export loads the same way.
+    """
+    recorder = FlightRecorder()
+    desired, _ = decide(_snapshot(), running_kernel_state())
+    recorder.record(_snapshot(), running_kernel_state(), desired)
+    entry = json.loads(json.dumps(recorder.export()))[0]
+    assert "pending_target" not in entry["state"]["control_mode"]
+    rebuilt = state_from_dict(entry["state"])
+    assert rebuilt.control_mode.pending_target is None
+    matches, _ = replay(entry)
+    assert matches is True
+
+    entry["state"]["control_mode"]["pending_target"] = None
+    rebuilt = state_from_dict(entry["state"])
+    assert rebuilt.control_mode.pending_target is None
+
+
 class TestRoundtripCompleteness:
     """Every field of every recorded type survives export and reconstruct.
 
@@ -331,6 +389,7 @@ class TestRoundtripCompleteness:
                 degraded_since=800.0,
                 down_pending_since=810.0,
                 up_pending_since=820.0,
+                pending_target=ControlMode.HOLD,
             ),
             "reachability": {
                 "climate.trv": ReachabilityState(

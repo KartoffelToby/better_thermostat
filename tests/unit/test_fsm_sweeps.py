@@ -85,19 +85,25 @@ class TestLadderSweep:
     # Pending ages: fresh, just below both thresholds, past debounce,
     # past stability.
     AGES = (None, NOW - 1.0, NOW - 119.0, NOW - 120.0, NOW - 300.0)
+    PENDING_TARGETS = (None, *RUNGS)
 
     @pytest.mark.parametrize(
-        ("mode", "down_since", "up_since", "room_ok", "trv_ok"),
-        list(itertools.product(RUNGS, AGES, AGES, (False, True), (False, True))),
+        ("mode", "down_since", "up_since", "pending_target", "room_ok", "trv_ok"),
+        list(
+            itertools.product(
+                RUNGS, AGES, AGES, PENDING_TARGETS, (False, True), (False, True)
+            )
+        ),
     )
     def test_invariants_hold_for_every_combination(
-        self, mode, down_since, up_since, room_ok, trv_ok
+        self, mode, down_since, up_since, pending_target, room_ok, trv_ok
     ):
         """Every step lands on the old rung or the capability target."""
         state = cm.ControlModeState(
             mode=mode,
             down_pending_since=down_since,
             up_pending_since=up_since,
+            pending_target=pending_target,
             degraded_since=None if mode == cm.ControlMode.OPTIMAL else NOW - 500.0,
         )
         target = cm._target_rung(room_ok, trv_ok)
@@ -123,13 +129,29 @@ class TestLadderSweep:
                 self.PARAMS.down_debounce_s if degrading else self.PARAMS.up_stability_s
             )
             since = down_since if degrading else up_since
-            # A commit requires the full debounce/stability window.
+            # A commit requires the full debounce/stability window,
+            # accrued toward this exact target rung.
             assert since is not None and NOW - since >= threshold
+            assert pending_target == target
 
         # Matching capability clears all pending timers.
         if target == mode:
             assert result.down_pending_since is None
             assert result.up_pending_since is None
+            assert result.pending_target is None
+
+        # A still-pending transition records the rung it heads toward.
+        if result.mode == mode and target != mode:
+            assert result.pending_target == target
+            since = (
+                result.down_pending_since
+                if order.index(target) > order.index(mode)
+                else result.up_pending_since
+            )
+            assert since is not None
+            # A window inherited from a different target restarts now.
+            if pending_target != target:
+                assert since == NOW
 
         # After a commit, degraded_since exactly mirrors the new rung.
         if result.mode != mode:

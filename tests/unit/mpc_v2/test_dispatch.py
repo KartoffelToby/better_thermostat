@@ -18,6 +18,7 @@ from homeassistant.components.climate.const import HVACMode
 
 from custom_components.better_thermostat.calibration import _compute_mpc_v2_balance
 from custom_components.better_thermostat.core.clock import FakeClock
+from custom_components.better_thermostat.core.fsm.control_mode import ControlMode
 from custom_components.better_thermostat.trv import Trv
 from custom_components.better_thermostat.utils.calibration.mpc_v2 import (
     MpcV2Params,
@@ -43,6 +44,12 @@ class _FakeStateManager:
         """Start with an empty per-key live MPC v2 state store."""
         self._mpc_v2_live: dict[str, MpcV2State] = {}
         self._mpc_v2_reid_live: dict[str, MpcV2ReidRuntime] = {}
+        self.mpc_v2_reid: dict[str, object] = {}
+
+    @property
+    def state(self):
+        """Return self so ``state.mpc_v2_reid`` resolves like on the real store."""
+        return self
 
     def get_mpc_v2_live(self, key: str, params: MpcV2Params) -> MpcV2State:
         """Return the live state for key, creating a fresh one on first use."""
@@ -79,6 +86,10 @@ def _make_bt(*, real_trvs: dict[str, Trv], unique_id: str = "bt_test") -> Any:
         tolerance=0.0,
         temp_slope=None,
         window_open=False,
+        contact_open=False,
+        kernel_state=SimpleNamespace(
+            control_mode=SimpleNamespace(mode=ControlMode.OPTIMAL)
+        ),
         device_name="BT_TEST",
         bt_hvac_mode=HVACMode.HEAT,
         heating_power=0.04,
@@ -238,14 +249,12 @@ def test_missing_cur_temp_returns_none() -> None:
 
 def test_daqp_import_failure_warns_once_and_holds(monkeypatch, caplog) -> None:
     """A failing daqp import degrades to (None, False) with a single warning."""
-    from custom_components.better_thermostat import calibration
     from custom_components.better_thermostat.utils.calibration.mpc_v2_internals import (
         qp_optimiser,
     )
 
     monkeypatch.setattr(qp_optimiser, "DAQP_AVAILABLE", False)
     monkeypatch.setattr(qp_optimiser, "_DAQP_IMPORT_ERROR", "synthetic test failure")
-    monkeypatch.setattr(calibration, "_MPC_V2_IMPORT_WARNED", set())
 
     real_trvs = {
         "climate.x": _trv_info("climate.x", current_temp=19.0, supports_valve=True)
@@ -261,3 +270,37 @@ def test_daqp_import_failure_warns_once_and_holds(monkeypatch, caplog) -> None:
     assert real_trvs["climate.x"].calibration_balance is None
     warnings = [r for r in caplog.records if "MPC v2 unavailable" in r.getMessage()]
     assert len(warnings) == 1
+
+
+def test_daqp_import_warning_is_latched_per_entity_instance(
+    monkeypatch, caplog
+) -> None:
+    """A fresh entity instance (e.g. after a reconfigure) warns again.
+
+    The latch lives on the BT object, not in module state — a reloaded
+    entry gets a new instance and therefore a new warning, and two
+    same-named entities each report their own condition.
+    """
+    from custom_components.better_thermostat.utils.calibration.mpc_v2_internals import (
+        qp_optimiser,
+    )
+
+    monkeypatch.setattr(qp_optimiser, "DAQP_AVAILABLE", False)
+    monkeypatch.setattr(qp_optimiser, "_DAQP_IMPORT_ERROR", "synthetic test failure")
+
+    def _fresh_bt():
+        real_trvs = {
+            "climate.x": _trv_info("climate.x", current_temp=19.0, supports_valve=True)
+        }
+        return _make_bt(real_trvs=real_trvs)
+
+    first = _fresh_bt()
+    second = _fresh_bt()  # same device_name, different instance
+
+    with caplog.at_level("WARNING"):
+        _compute_mpc_v2_balance(first, "climate.x")
+        _compute_mpc_v2_balance(first, "climate.x")
+        _compute_mpc_v2_balance(second, "climate.x")
+
+    warnings = [r for r in caplog.records if "MPC v2 unavailable" in r.getMessage()]
+    assert len(warnings) == 2

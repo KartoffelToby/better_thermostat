@@ -12,6 +12,7 @@ from collections import deque
 from collections.abc import Mapping, Sequence
 from dataclasses import asdict, dataclass, field
 from datetime import datetime
+import math
 
 from .decide import KernelState, decide
 from .desired import DesiredState, Suppression, TrvDesired
@@ -44,11 +45,19 @@ type _Recordable = (
 
 
 def _json_safe(value: _Recordable) -> Json:
-    """Convert datetimes to ISO strings, recursing through containers."""
+    """Convert datetimes to ISO strings and drop non-finite numbers.
+
+    Recurses through containers. NaN and infinities become ``None``:
+    strict JSON has no representation for them, and a diagnostics
+    download must stay parseable no matter what an upstream sensor fed
+    into a recorded snapshot.
+    """
     if isinstance(value, datetime):
         return value.isoformat()
     if isinstance(value, str):
         return value
+    if isinstance(value, float) and not math.isfinite(value):
+        return None
     if isinstance(value, Mapping):
         return {key: _json_safe(item) for key, item in value.items()}
     if isinstance(value, Sequence):
@@ -131,13 +140,20 @@ def _state_asdict(state: KernelState) -> dict[str, _Recordable]:
     dict
         Mapping of field name to its ``asdict`` representation.
     """
+    # A missing key and an explicit None both reconstruct to "no pending
+    # target"; drop the None so that export stays free of the null field.
+    control_mode = {
+        key: value
+        for key, value in asdict(state.control_mode).items()
+        if key != "pending_target" or value is not None
+    }
     return {
         "window": asdict(state.window),
         "door": asdict(state.door),
         "maintenance": asdict(state.maintenance),
         "lifecycle": asdict(state.lifecycle),
         "mode": asdict(state.mode),
-        "control_mode": asdict(state.control_mode),
+        "control_mode": control_mode,
         "reachability": {
             entity_id: asdict(entry) for entity_id, entry in state.reachability.items()
         },
@@ -263,6 +279,8 @@ def state_from_dict(data: dict[str, Json]) -> KernelState:
     unavailable = control_mode["unavailable_sensors"]
     if not isinstance(unavailable, list):
         raise ValueError("unavailable_sensors must be a list")
+    # A missing "pending_target" key loads as no pending target.
+    pending_target = _str_or_none(control_mode.get("pending_target"))
     return KernelState(
         window=WindowState(
             phase=WindowPhase(_str_of(window["phase"])),
@@ -296,6 +314,9 @@ def state_from_dict(data: dict[str, Json]) -> KernelState:
             degraded_since=_float_or_none(control_mode["degraded_since"]),
             down_pending_since=_float_or_none(control_mode["down_pending_since"]),
             up_pending_since=_float_or_none(control_mode["up_pending_since"]),
+            pending_target=(
+                ControlMode(pending_target) if pending_target is not None else None
+            ),
         ),
         reachability=reachability,
         last_control_monotonic=_float_or_none(data["last_control_monotonic"]),

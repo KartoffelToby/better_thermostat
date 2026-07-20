@@ -3,11 +3,16 @@
 from unittest.mock import AsyncMock, Mock, patch
 
 from homeassistant.components.climate.const import HVACMode
+from homeassistant.const import UnitOfTemperature
+from homeassistant.exceptions import HomeAssistantError
 import pytest
 
 from custom_components.better_thermostat.core.clock import FakeClock
 from custom_components.better_thermostat.core.snapshot import HvacMode as CoreHvacMode
-from custom_components.better_thermostat.utils.controlling import control_cooler
+from custom_components.better_thermostat.utils.controlling import (
+    COOLER_RESEND_INTERVAL_S,
+    control_cooler,
+)
 from tests.factories import make_snapshot
 
 
@@ -310,3 +315,132 @@ class TestControlCooler:
         calls = mock_hass.services.async_call.call_args_list
         # cur_temp (23.5) >= 23.5 AND cur_temp (23.5) > 20.0 -> COOL
         assert calls[-1].args[2]["hvac_mode"] == HVACMode.COOL
+
+
+def _make_cooler_setup(
+    cooler_state=HVACMode.COOL,
+    cooler_temp_attr=24.0,
+    system_unit=UnitOfTemperature.CELSIUS,
+    cur_temp=25.0,
+    target_cooltemp=24.0,
+):
+    """Build a mock BT instance with a cooler in COOL demand conditions."""
+    mock_hass = Mock()
+    mock_hass.services = Mock()
+    mock_hass.services.async_call = AsyncMock()
+    mock_hass.config.units.temperature_unit = system_unit
+
+    mock_cooler_state = Mock()
+    mock_cooler_state.state = cooler_state
+    mock_cooler_state.attributes = {"temperature": cooler_temp_attr}
+    mock_hass.states.get.return_value = mock_cooler_state
+
+    mock_self = Mock()
+    mock_self.hass = mock_hass
+    mock_self.real_trvs = {}
+    mock_self.clock = FakeClock()
+    mock_self.outdoor_sensor = None
+    mock_self.weather_entity = None
+    mock_self.bt_hvac_mode = HVACMode.COOL
+    mock_self.cooler_entity_id = "climate.cooler"
+    mock_self.context = None
+    mock_self.cur_temp = cur_temp
+    mock_self.bt_target_cooltemp = target_cooltemp
+    mock_self.bt_target_temp = 20.0
+    mock_self.tolerance = 0.5
+    mock_self._cooler_last_sent = None
+    return mock_self, mock_hass, mock_cooler_state
+
+
+def _service_calls(mock_hass, service):
+    return [
+        call
+        for call in mock_hass.services.async_call.call_args_list
+        if call.args[1] == service
+    ]
+
+
+class TestControlCoolerSendCache:
+    """Unit-correct dedup, resend throttle, and per-call error isolation."""
+
+    @pytest.mark.asyncio
+    async def test_fahrenheit_reported_temp_matching_target_is_not_resent(self):
+        """A cooler reporting the target in °F triggers no set_temperature."""
+        # 75.2 °F == 24.0 °C, the desired cooling setpoint.
+        mock_self, mock_hass, _ = _make_cooler_setup(
+            cooler_temp_attr=75.2, system_unit=UnitOfTemperature.FAHRENHEIT
+        )
+
+        await control_cooler(mock_self)
+
+        assert _service_calls(mock_hass, "set_temperature") == []
+
+    @pytest.mark.asyncio
+    async def test_identical_repeat_within_interval_is_throttled(self):
+        """An identical command is not re-sent while feedback lags."""
+        # The cooler keeps reporting a stale setpoint, so the naive
+        # compare would re-send on every cycle.
+        mock_self, mock_hass, _ = _make_cooler_setup(cooler_temp_attr=20.0)
+
+        await control_cooler(mock_self)
+        await control_cooler(mock_self)
+
+        assert len(_service_calls(mock_hass, "set_temperature")) == 1
+
+    @pytest.mark.asyncio
+    async def test_identical_repeat_after_interval_is_resent(self):
+        """After the resend interval an unconfirmed command goes out again."""
+        mock_self, mock_hass, _ = _make_cooler_setup(cooler_temp_attr=20.0)
+
+        await control_cooler(mock_self)
+        mock_self.clock.monotonic_value += COOLER_RESEND_INTERVAL_S
+        await control_cooler(mock_self)
+
+        assert len(_service_calls(mock_hass, "set_temperature")) == 2
+
+    @pytest.mark.asyncio
+    async def test_changed_target_sends_immediately(self):
+        """A changed desired value bypasses the resend interval."""
+        mock_self, mock_hass, _ = _make_cooler_setup(cooler_temp_attr=20.0)
+
+        await control_cooler(mock_self)
+        mock_self.bt_target_cooltemp = 23.0
+        await control_cooler(mock_self)
+
+        temp_calls = _service_calls(mock_hass, "set_temperature")
+        assert len(temp_calls) == 2
+        assert temp_calls[1].args[2]["temperature"] == 23.0
+
+    @pytest.mark.asyncio
+    async def test_failed_set_temperature_still_attempts_hvac_mode(self):
+        """A failing set_temperature does not suppress set_hvac_mode."""
+        mock_self, mock_hass, _ = _make_cooler_setup(
+            cooler_state=HVACMode.OFF, cooler_temp_attr=20.0
+        )
+
+        async def _fail_set_temperature(domain, service, *args, **kwargs):
+            if service == "set_temperature":
+                raise HomeAssistantError("device rejected the command")
+
+        mock_hass.services.async_call = AsyncMock(side_effect=_fail_set_temperature)
+
+        await control_cooler(mock_self)
+
+        mode_calls = _service_calls(mock_hass, "set_hvac_mode")
+        assert len(mode_calls) == 1
+        assert mode_calls[0].args[2]["hvac_mode"] == HVACMode.COOL
+
+    @pytest.mark.asyncio
+    async def test_failed_send_does_not_prime_the_send_cache(self):
+        """A failed command is retried on the next cycle despite the throttle."""
+        mock_self, mock_hass, _ = _make_cooler_setup(cooler_temp_attr=20.0)
+
+        mock_hass.services.async_call = AsyncMock(
+            side_effect=HomeAssistantError("device rejected the command")
+        )
+        await control_cooler(mock_self)
+
+        mock_hass.services.async_call = AsyncMock()
+        await control_cooler(mock_self)
+
+        assert len(_service_calls(mock_hass, "set_temperature")) == 1

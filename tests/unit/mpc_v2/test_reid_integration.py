@@ -14,6 +14,7 @@ from homeassistant.components.climate.const import HVACMode
 
 from custom_components.better_thermostat.calibration import _compute_mpc_v2_balance
 from custom_components.better_thermostat.core.clock import FakeClock
+from custom_components.better_thermostat.core.fsm.control_mode import ControlMode
 from custom_components.better_thermostat.trv import Trv
 from custom_components.better_thermostat.utils.calibration.mpc_v2 import (
     MpcV2Input,
@@ -156,6 +157,10 @@ def _make_bt(preset: MpcV2PlantPreset = MpcV2PlantPreset.AUTO) -> Any:
         cur_temp=19.5,
         tolerance=0.0,
         window_open=False,
+        contact_open=False,
+        kernel_state=SimpleNamespace(
+            control_mode=SimpleNamespace(mode=ControlMode.OPTIMAL)
+        ),
         device_name="BT_TEST",
         bt_hvac_mode=HVACMode.HEAT,
         heating_power=0.04,
@@ -295,3 +300,99 @@ def test_fit_scheduling_adopts_accepted_outcome(monkeypatch) -> None:
     # A second immediate call is throttled by the attempt interval.
     cal._maybe_start_mpc_v2_reid_fit(bt, key, MpcV2Params())
     assert len(calls) == 1
+
+
+# -- Target-independent re-ID keying ------------------------------------------
+
+
+def test_reid_buffer_is_shared_across_target_buckets() -> None:
+    """A setpoint move past a bucket boundary keeps feeding one buffer."""
+    bt = _make_bt()
+    out, _ = _compute_mpc_v2_balance(bt, "climate.x")
+    assert out is not None
+
+    bt.clock.advance(120.0)
+    bt.bt_target_temp = 22.5  # different half-degree bucket
+    out, _ = _compute_mpc_v2_balance(bt, "climate.x")
+    assert out is not None
+
+    reid_keys = list(bt.state_mgr._mpc_v2_reid_live)
+    assert len(reid_keys) == 1
+    runtime = bt.state_mgr.get_mpc_v2_reid_runtime(reid_keys[0])
+    assert len(runtime.buffer.samples) == 2
+
+
+def test_adopt_with_controller_key_splits_result_and_transfer() -> None:
+    """The result lands under the shared key; the bumpless transfer hits the controller key."""
+    mgr = _make_manager()
+    _warm(mgr, "k", MpcV2Params())
+    old = mgr.get_mpc_v2_live("k", MpcV2Params())
+    assert old.controller is not None
+    last_u_before = old.controller._last_u
+
+    mgr.adopt_mpc_v2_reid("uid:reid", _REID, controller_key="k")
+
+    assert mgr.get_mpc_v2_reid("uid:reid") is _REID
+    assert mgr.get_mpc_v2_reid("k") is None
+    # The controller-keyed live state was folded and dropped for the rebuild.
+    new_params = MpcV2Params()
+    new_params.plant.tau_room_min = _REID.tau_room_min
+    new_params.plant.gain_heater = _REID.gain_heater
+    rebuilt = mgr.get_mpc_v2_live("k", new_params)
+    assert rebuilt is not old
+    assert rebuilt.controller is not None
+    assert rebuilt.controller._last_u == last_u_before
+
+
+def test_shared_reid_key_survives_serialization_round_trip() -> None:
+    """The target-independent key persists and reloads like any other."""
+    mgr = _make_manager()
+    mgr.adopt_mpc_v2_reid("uid:reid", _REID)
+    restored = _deserialize(_serialize(mgr.state))
+    assert restored.mpc_v2_reid["uid:reid"].tau_room_min == 240.0
+
+
+def test_prior_lookup_falls_back_to_legacy_bucket_keys() -> None:
+    """A result persisted under a per-bucket key still seeds the prior."""
+    bt = _make_bt()
+    # Legacy layout: result stored under the entity's target-bucket key.
+    bt.state_mgr.adopt_mpc_v2_reid("bt:climate.x:t21.0", _REID)
+
+    out, _ = _compute_mpc_v2_balance(bt, "climate.x")
+    assert out is not None
+    live = next(iter(bt.state_mgr._mpc_v2_live.values()))
+    assert live.controller is not None
+    assert live.controller.plant_fine.params.tau_room_min == _REID.tau_room_min
+
+
+def test_prior_lookup_prefers_shared_key_over_bucket_entries() -> None:
+    """When both layouts exist, the shared-key result wins."""
+    from custom_components.better_thermostat.calibration import _lookup_mpc_v2_reid
+
+    bt = _make_bt()
+    legacy = MpcV2ReidData(
+        tau_room_min=600.0, gain_heater=1.0, fitted_ts=2_000_000.0, n_segments=3
+    )
+    bt.state_mgr.adopt_mpc_v2_reid("bt:climate.x:t21.0", legacy)
+    bt.state_mgr.adopt_mpc_v2_reid("bt:reid", _REID)
+
+    found = _lookup_mpc_v2_reid(bt, "bt:reid", "bt:climate.x:t21.0")
+    assert found is _REID
+
+
+def test_prior_lookup_picks_freshest_legacy_bucket_entry() -> None:
+    """Among legacy bucket entries, the most recently fitted one wins."""
+    from custom_components.better_thermostat.calibration import _lookup_mpc_v2_reid
+
+    bt = _make_bt()
+    stale = MpcV2ReidData(
+        tau_room_min=600.0, gain_heater=1.0, fitted_ts=100.0, n_segments=3
+    )
+    fresh = MpcV2ReidData(
+        tau_room_min=300.0, gain_heater=2.5, fitted_ts=200.0, n_segments=3
+    )
+    bt.state_mgr.adopt_mpc_v2_reid("bt:climate.x:t19.0", stale)
+    bt.state_mgr.adopt_mpc_v2_reid("bt:climate.x:t21.0", fresh)
+
+    found = _lookup_mpc_v2_reid(bt, "bt:reid", "bt:climate.x:t22.0")
+    assert found is fresh

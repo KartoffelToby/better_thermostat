@@ -161,6 +161,37 @@ class TestStrategyRegistry:
         cap = strategy.capability(bt, "climate.trv")
         assert cap.configured and not cap.healthy and not cap.ready
 
+    def test_capability_healthy_under_sensor_fallback(self):
+        """SENSOR_FALLBACK keeps the strategy healthy on the TRV mean.
+
+        The control law computes on ``effective_room_temp`` (TRV-internal
+        mean) when the room sensor is dead; the capability report must
+        judge the same input instead of flagging the calibrator unhealthy
+        while it is actively controlling.
+        """
+        from custom_components.better_thermostat.core.fsm.control_mode import (
+            ControlMode,
+        )
+
+        registry = self._registry()
+        strategy = registry[CalibrationMode.MPC_CALIBRATION]
+
+        bt = MagicMock()
+        bt.cur_temp = None
+        bt.bt_target_temp = 21.0
+        bt.kernel_state.control_mode.mode = ControlMode.SENSOR_FALLBACK
+        bt.real_trvs = {
+            "climate.trv": Trv(entity_id="climate.trv", current_temperature=20.5)
+        }
+
+        cap = strategy.capability(bt, "climate.trv")
+        assert cap.configured and cap.healthy
+
+        # Without any TRV temperature either, the fallback has no input.
+        bt.real_trvs["climate.trv"].current_temperature = None
+        cap = strategy.capability(bt, "climate.trv")
+        assert not cap.healthy
+
 
 class TestBalanceCalibrator:
     """The production adapter lifts a BalanceStrategy onto the protocol."""

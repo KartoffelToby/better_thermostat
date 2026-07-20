@@ -4,9 +4,14 @@
 limits on every intent right before it is written to a device — no
 matter what the controller upstream computed:
 
+* non-finite setpoint and offset intents (NaN/inf) are withheld
+  entirely — the hull expresses "no command" as ``None``,
 * setpoints stay inside the TRV's reported min/max temperature range
-  (the min bound doubles as the frost-protection floor),
-* calibration offsets stay inside the device's local calibration range,
+  (the min bound doubles as the frost-protection floor); when the TRV
+  reports no usable bound, conservative fallback bounds apply,
+* calibration offsets stay inside the device's local calibration range;
+  when the device reports no usable range, conservative fallback bounds
+  apply,
 * valve percentages stay inside 0..valve_max_opening,
 * optionally, valve changes are rate-limited against the previous
   intent (``max_valve_jump``); this mechanism ships disabled so today's
@@ -20,6 +25,18 @@ import math
 
 from .desired import DesiredState, TrvDesired
 from .snapshot import TrvReported, WorldSnapshot
+
+# Fallback setpoint bounds for TRVs that report no usable min/max: the
+# floor keeps the frost-protection semantics of the min bound, the cap
+# stays inside what radiator hardware commonly accepts.
+FALLBACK_MIN_SETPOINT = 4.5
+FALLBACK_MAX_SETPOINT = 35.0
+
+# Fallback calibration-offset bounds for TRVs that report no usable
+# local calibration range, matching the widest span common TRV firmware
+# accepts (typically ±12.7 K).
+FALLBACK_MIN_OFFSET = -12.0
+FALLBACK_MAX_OFFSET = 12.0
 
 
 def _finite_bound(value: float | None) -> float | None:
@@ -35,6 +52,10 @@ def _finite_bound(value: float | None) -> float | None:
 def _clamp_value(value: float, lower: float | None, upper: float | None) -> float:
     lower = _finite_bound(lower)
     upper = _finite_bound(upper)
+    if lower is not None and upper is not None and lower > upper:
+        # A misreporting device can invert its bounds; swapping restores
+        # a well-formed interval instead of clamping against lower > upper.
+        lower, upper = upper, lower
     if not math.isfinite(value):
         # NaN/inf compare False against every bound, so they would slip through
         # the inequality checks below and reach a device as an invalid payload.
@@ -57,14 +78,38 @@ def _clamp_trv(
     max_valve_jump: float | None,
 ) -> TrvDesired:
     setpoint = intent.setpoint
-    if setpoint is not None and reported is not None:
-        setpoint = _clamp_value(setpoint, reported.min_temp, reported.max_temp)
+    if setpoint is not None:
+        if not math.isfinite(setpoint):
+            # A non-finite setpoint carries no target at all; the hull
+            # withholds the write instead of inventing one.
+            setpoint = None
+        else:
+            lower = _finite_bound(reported.min_temp if reported is not None else None)
+            upper = _finite_bound(reported.max_temp if reported is not None else None)
+            setpoint = _clamp_value(
+                setpoint,
+                lower if lower is not None else FALLBACK_MIN_SETPOINT,
+                upper if upper is not None else FALLBACK_MAX_SETPOINT,
+            )
 
     offset = intent.offset
-    if offset is not None and reported is not None:
-        offset = _clamp_value(
-            offset, reported.local_calibration_min, reported.local_calibration_max
-        )
+    if offset is not None:
+        if not math.isfinite(offset):
+            # A non-finite offset carries no correction at all; the hull
+            # withholds the write instead of inventing one.
+            offset = None
+        else:
+            lower = _finite_bound(
+                reported.local_calibration_min if reported is not None else None
+            )
+            upper = _finite_bound(
+                reported.local_calibration_max if reported is not None else None
+            )
+            offset = _clamp_value(
+                offset,
+                lower if lower is not None else FALLBACK_MIN_OFFSET,
+                upper if upper is not None else FALLBACK_MAX_OFFSET,
+            )
 
     valve = intent.valve_percent
     if valve is not None:

@@ -26,7 +26,9 @@ def _snapshot(**trv_overrides) -> WorldSnapshot:
     )
 
 
-def _desired(setpoint=None, valve=None, mode=HvacMode.HEAT) -> DesiredState:
+def _desired(
+    setpoint=None, valve=None, offset=None, mode=HvacMode.HEAT
+) -> DesiredState:
     return DesiredState(
         call_for_heat=True,
         trvs={
@@ -35,6 +37,7 @@ def _desired(setpoint=None, valve=None, mode=HvacMode.HEAT) -> DesiredState:
                 hvac_mode=mode,
                 setpoint=setpoint,
                 valve_percent=valve,
+                offset=offset,
             )
         },
     )
@@ -66,12 +69,43 @@ def test_within_limits_is_untouched():
     assert clamp(desired, _snapshot()) == desired
 
 
-def test_non_finite_setpoint_is_pinned_to_a_bound():
-    """NaN/inf setpoints never slip past the hull as invalid payloads."""
+def test_non_finite_setpoint_is_withheld():
+    """NaN/inf setpoints never slip past the hull as invalid payloads.
+
+    A non-finite value carries no target at all, so the hull withholds
+    the write (None) rather than inventing a bound to pin it to.
+    """
     out = clamp(_desired(setpoint=float("nan")), _snapshot())
-    assert out.trvs["climate.trv"].setpoint == 5.0
+    assert out.trvs["climate.trv"].setpoint is None
     out = clamp(_desired(setpoint=float("inf")), _snapshot())
-    assert out.trvs["climate.trv"].setpoint == 5.0
+    assert out.trvs["climate.trv"].setpoint is None
+
+
+def test_non_finite_setpoint_is_withheld_without_reported_state():
+    """NaN/inf setpoints are rejected even for a TRV missing from the snapshot."""
+    snapshot = WorldSnapshot(
+        now=datetime(2026, 1, 10, tzinfo=UTC), now_monotonic=0.0, trvs={}
+    )
+    for value in (float("nan"), float("inf"), float("-inf")):
+        out = clamp(_desired(setpoint=value), snapshot)
+        assert out.trvs["climate.trv"].setpoint is None
+
+
+def test_non_finite_offset_is_withheld():
+    """NaN/inf offsets are rejected with and without reported bounds."""
+    with_bounds = _snapshot(local_calibration_min=-7.0, local_calibration_max=7.0)
+    without_trv = WorldSnapshot(
+        now=datetime(2026, 1, 10, tzinfo=UTC), now_monotonic=0.0, trvs={}
+    )
+    for snapshot in (with_bounds, without_trv):
+        desired = DesiredState(
+            call_for_heat=True,
+            trvs={
+                "climate.trv": TrvDesired(entity_id="climate.trv", offset=float("nan"))
+            },
+        )
+        out = clamp(desired, snapshot)
+        assert out.trvs["climate.trv"].offset is None
 
 
 def test_non_finite_valve_is_pinned_to_a_bound():
@@ -80,14 +114,48 @@ def test_non_finite_valve_is_pinned_to_a_bound():
     assert out.trvs["climate.trv"].valve_percent == 0.0
 
 
-def test_unknown_trv_keeps_intent_but_caps_valve_at_100():
-    """Without reported limits, the valve still stays inside 0..100."""
+def test_unknown_trv_falls_back_to_conservative_bounds():
+    """Without reported limits, fallback bounds still cap every channel."""
     snapshot = WorldSnapshot(
         now=datetime(2026, 1, 10, tzinfo=UTC), now_monotonic=0.0, trvs={}
     )
     out = clamp(_desired(setpoint=42.0, valve=150.0), snapshot)
-    assert out.trvs["climate.trv"].setpoint == 42.0
+    assert out.trvs["climate.trv"].setpoint == 35.0
     assert out.trvs["climate.trv"].valve_percent == 100.0
+    out = clamp(_desired(setpoint=2.0), snapshot)
+    assert out.trvs["climate.trv"].setpoint == 4.5
+
+
+def test_missing_reported_bounds_fall_back_per_bound():
+    """A TRV reporting no usable min/max gets the fallback on that bound."""
+    snapshot = _snapshot(min_temp=None, max_temp=None)
+    out = clamp(_desired(setpoint=42.0), snapshot)
+    assert out.trvs["climate.trv"].setpoint == 35.0
+    out = clamp(_desired(setpoint=2.0), snapshot)
+    assert out.trvs["climate.trv"].setpoint == 4.5
+
+    # A present bound keeps precedence; only the missing side falls back.
+    snapshot = _snapshot(min_temp=7.0, max_temp=None)
+    out = clamp(_desired(setpoint=2.0), snapshot)
+    assert out.trvs["climate.trv"].setpoint == 7.0
+    out = clamp(_desired(setpoint=50.0), snapshot)
+    assert out.trvs["climate.trv"].setpoint == 35.0
+
+    # Non-finite reported bounds count as missing, not as bounds.
+    snapshot = _snapshot(min_temp=float("nan"), max_temp=float("inf"))
+    out = clamp(_desired(setpoint=42.0), snapshot)
+    assert out.trvs["climate.trv"].setpoint == 35.0
+
+
+def test_inverted_reported_bounds_are_normalized():
+    """min_temp > max_temp from a misreporting device is swapped, not honored."""
+    snapshot = _snapshot(min_temp=30.0, max_temp=5.0)
+    out = clamp(_desired(setpoint=42.0), snapshot)
+    assert out.trvs["climate.trv"].setpoint == 30.0
+    out = clamp(_desired(setpoint=1.0), snapshot)
+    assert out.trvs["climate.trv"].setpoint == 5.0
+    out = clamp(_desired(setpoint=21.0), snapshot)
+    assert out.trvs["climate.trv"].setpoint == 21.0
 
 
 def test_jump_limit_is_opt_in():
@@ -133,6 +201,31 @@ def test_offset_is_clamped_to_the_calibration_range():
     )
     out = clamp(desired, snapshot)
     assert out.trvs["climate.trv"].offset == 7.0
+
+
+def test_offset_without_reported_state_falls_back_to_conservative_bounds():
+    """A finite offset for an unknown TRV is capped by the fallback range."""
+    snapshot = WorldSnapshot(
+        now=datetime(2026, 1, 10, tzinfo=UTC), now_monotonic=0.0, trvs={}
+    )
+    out = clamp(_desired(offset=40.0), snapshot)
+    assert out.trvs["climate.trv"].offset == 12.0
+    out = clamp(_desired(offset=-40.0), snapshot)
+    assert out.trvs["climate.trv"].offset == -12.0
+
+
+def test_offset_without_reported_calibration_range_falls_back():
+    """A device without a usable calibration range gets the fallback bounds."""
+    snapshot = _snapshot(local_calibration_min=None, local_calibration_max=None)
+    out = clamp(_desired(offset=25.0), snapshot)
+    assert out.trvs["climate.trv"].offset == 12.0
+
+    # A present bound keeps precedence; only the missing side falls back.
+    snapshot = _snapshot(local_calibration_min=-5.0, local_calibration_max=None)
+    out = clamp(_desired(offset=-9.0), snapshot)
+    assert out.trvs["climate.trv"].offset == -5.0
+    out = clamp(_desired(offset=25.0), snapshot)
+    assert out.trvs["climate.trv"].offset == 12.0
 
 
 def test_offset_inside_the_range_is_untouched():

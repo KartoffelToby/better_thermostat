@@ -81,6 +81,49 @@ def test_flap_during_recovery_restarts_the_window():
     assert state.mode == ControlMode.OPTIMAL
 
 
+def test_escalation_mid_debounce_restarts_the_debounce():
+    """A deeper target during the debounce does not inherit its credit.
+
+    Room sensor lost at t=0 (pending toward SENSOR_FALLBACK), TRV
+    temperatures lost at t=119 (pending toward HOLD): HOLD must persist
+    for its own full debounce before it commits.
+    """
+    state = _down(ControlModeState(), now=0.0)
+    assert state.pending_target == ControlMode.SENSOR_FALLBACK
+    state = _down(state, now=119.0, trv_ok=False)
+    assert state.mode == ControlMode.OPTIMAL
+    assert state.pending_target == ControlMode.HOLD
+    # One second after the escalation the HOLD condition is 1 s old.
+    state = _down(state, now=120.0, trv_ok=False)
+    assert state.mode == ControlMode.OPTIMAL
+    state = _down(state, now=238.0, trv_ok=False)
+    assert state.mode == ControlMode.OPTIMAL
+    state = _down(state, now=239.0, trv_ok=False)
+    assert state.mode == ControlMode.HOLD
+
+
+def test_second_recovery_restarts_the_stability_window():
+    """A later, deeper recovery target restarts the stability window.
+
+    TRV temperature back at t=1000 (pending toward SENSOR_FALLBACK),
+    room sensor back at t=1250 (pending toward OPTIMAL): OPTIMAL only
+    commits after the room sensor was stable for the full window.
+    """
+    state = ControlModeState(mode=ControlMode.HOLD, degraded_since=0.0)
+    state = _down(state, now=1000.0, trv_ok=True)
+    assert state.pending_target == ControlMode.SENSOR_FALLBACK
+    state = _up(state, now=1250.0)
+    assert state.mode == ControlMode.HOLD
+    assert state.pending_target == ControlMode.OPTIMAL
+    # 300 s after the first recovery, but only 50 s of room stability.
+    state = _up(state, now=1300.0)
+    assert state.mode == ControlMode.HOLD
+    state = _up(state, now=1549.0)
+    assert state.mode == ControlMode.HOLD
+    state = _up(state, now=1550.0)
+    assert state.mode == ControlMode.OPTIMAL
+
+
 def test_hold_recovers_stepwise_to_fallback():
     """From HOLD, regained TRV temperature climbs to SENSOR_FALLBACK."""
     state = ControlModeState(mode=ControlMode.HOLD, degraded_since=0.0)

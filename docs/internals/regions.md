@@ -1,13 +1,15 @@
 ---
 title: The regions
-description: Six orthogonal state machines gate the control law; controllers compute, regions gate.
+description: Seven orthogonal state machines gate the control law; controllers compute, regions gate.
 sidebar:
   order: 2
 ---
 
 Discrete concerns — is a window open, is maintenance running, which
-fail-soft rung rules — live in six small, orthogonal state machines
-under `core/fsm/`, collectively the **regions** of the `KernelState`.
+fail-soft rung rules — live in seven small, orthogonal state machines
+built from `core/fsm/`, collectively the **regions** of the
+`KernelState` (the door region is a second instance of the window
+machine).
 Two rules hold everywhere:
 
 1. **Regions gate, controllers compute.** A region decides *whether*
@@ -20,7 +22,7 @@ Two rules hold everywhere:
 All regions are plain frozen dataclasses with pure transition
 functions; none of them is persisted across restarts. They re-derive
 from live observations: lifecycle through the startup sequence,
-window/maintenance/mode from the first events, the ladder and
+window/door/maintenance/mode from the first events, the ladder and
 reachability within one debounce window.
 
 ## Window — debounced open/closed
@@ -42,6 +44,14 @@ the region asks for, re-reads the sensor, and re-steps until no
 transition is pending — a delay reconfigured mid-flight changes the
 next sleep, and a sensor that reverted cancels the transition. With a
 delay of zero, the transition commits at the event itself.
+
+## Door — a second window machine
+
+The `door` region is a second instance of the window state machine,
+fed by the door sensors with its own open/close delays. Window and
+door gate independently: either region being effectively open turns
+every TRV off without touching the mode. When both are open, the
+window suppression reason wins the annunciation.
 
 ## Maintenance — valve exercise with a liveness bound
 

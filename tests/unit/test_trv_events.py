@@ -409,6 +409,45 @@ class TestInternalTemperatureChange:
         mock_offset.assert_awaited_once_with(mock_bt, ENTITY_ID)
         assert mock_bt.real_trvs[ENTITY_ID].last_calibration == 2.5
 
+    @pytest.mark.asyncio
+    async def test_entry_removed_during_await_completes(self, mock_bt):
+        """The handler survives the entry vanishing mid-flight.
+
+        A reconfigure/unload can remove the real_trvs entry while the
+        handler awaits get_current_offset; the handler keeps working on
+        its local Trv object and completes without raising.
+        """
+        trv = mock_bt.real_trvs[ENTITY_ID]
+        trv.calibration_received = False
+        trv.calibration = 0
+        trv_state = _make_state(attributes={"current_temperature": 20.0})
+        mock_bt.hass.states.get.return_value = trv_state
+        trv.current_temperature = 18.0
+
+        event = _make_event(mock_bt, new_state=trv_state, old_state=trv_state)
+
+        async def pop_entry_and_return_offset(bt, entity_id):
+            bt.real_trvs.pop(entity_id)
+            return 2.5
+
+        with (
+            patch(
+                "custom_components.better_thermostat.events.trv.get_current_offset",
+                side_effect=pop_entry_and_return_offset,
+            ),
+            patch(
+                "custom_components.better_thermostat.events.trv.convert_inbound_states",
+                return_value=HVACMode.HEAT,
+            ),
+        ):
+            await trigger_trv_change(mock_bt, event)
+
+        assert mock_bt.real_trvs == {}
+        # Writes landed on the detached Trv object.
+        assert trv.calibration_received is True
+        assert trv.last_calibration == 2.5
+        assert trv.current_temperature == 20.0
+
 
 # ---------------------------------------------------------------------------
 # 3. HVAC action and valve position

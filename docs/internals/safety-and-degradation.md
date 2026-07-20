@@ -44,9 +44,11 @@ stateDiagram-v2
   counts while its TRV is actually reachable, and going unavailable
   invalidates it — pre-outage values cannot masquerade as live.
 - **HOLD** — neither the room sensor nor any TRV temperature is usable
-  (for example during a Zigbee outage). The kernel keeps the mode but
-  emits no setpoint: the controller stops adjusting, devices keep their
-  last commanded state, and the frost floor stays enforced on every
+  (for example during a Zigbee outage). The kernel keeps the mode and
+  passes the raw user target through as the setpoint, while calibration
+  is withheld (no offsets, no valve percentages): the controller stops
+  adjusting, each device stays locked on the last known target — re-sent
+  if the device loses it — and the frost floor stays enforced on every
   write. Nothing downstream of the HOLD decision may re-introduce an
   adjustment — boost included.
 
@@ -92,7 +94,8 @@ attribute; a healthy verdict clears only the grades its reporter owns,
 so the sanitize path and the oscillation watcher cannot flap each
 other's annunciations.
 
-Persisted state is hardened at three layers: deserialization skips
-wrong-typed and non-finite fields per field, an unreadable store yields
+Persisted state is hardened at three layers: deserialization skips a
+wrong-typed field individually while a non-finite value resets the
+whole stored entry to its defaults, an unreadable store yields
 defaults instead of killing startup, and the sanitize step heals
 whatever still reaches a controller.

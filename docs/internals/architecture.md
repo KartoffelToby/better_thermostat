@@ -82,14 +82,14 @@ flowchart TD
     A{Startup or maintenance running?} -->|yes| A1[No intents]
     A -->|no| B{Mode OFF?}
     B -->|yes| B1[OFF intent for every TRV]
-    B -->|no| C{Window open?}
-    C -->|yes| C1[OFF intent, suppression = window]
+    B -->|no| C{Window or door open?}
+    C -->|yes| C1[OFF intent, suppression = window or door]
     C -->|no| D{Call for heat?}
     D -->|no| D1[OFF intent, suppression = no_call_for_heat]
     D -->|yes| E[Heating intent: mode + setpoint]
     E --> F{HOLD rung?}
-    F -->|yes| F1[Intent keeps the mode, carries no setpoint]
-    F -->|no| F2[Setpoint = room target]
+    F -->|yes| F1[Mode kept, setpoint = raw user target, calibration withheld]
+    F -->|no| F2[Setpoint = room target, calibration in the shell]
 ```
 
 OFF intents carry their **suppression reason** so the shell can choose

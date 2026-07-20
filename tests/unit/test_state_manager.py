@@ -15,10 +15,14 @@ from __future__ import annotations
 
 from collections import deque
 from dataclasses import asdict
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
+from custom_components.better_thermostat.utils.calibration.mpc_v2 import MpcV2Params
+from custom_components.better_thermostat.utils.calibration.mpc_v2.controller import (
+    ControllerSnapshot,
+)
 from custom_components.better_thermostat.utils.const import (
     MAX_HEAT_LOSS,
     MAX_HEATING_POWER,
@@ -606,6 +610,102 @@ class TestStateManagerLoadSave:
         await mgr.flush()
 
         mock_store.async_save.assert_not_called()
+
+
+# ---------------------------------------------------------------------------
+# StateManager — delayed (coalesced) save
+# ---------------------------------------------------------------------------
+
+
+class _StubMpcV2Controller:
+    """Minimal stand-in exposing the export surface the save path uses."""
+
+    def __init__(self, snapshot: ControllerSnapshot) -> None:
+        self.snapshot = snapshot
+
+    def export_snapshot(self) -> ControllerSnapshot:
+        return self.snapshot
+
+
+def _make_snapshot(last_u: float) -> ControllerSnapshot:
+    return ControllerSnapshot(
+        v=1,
+        x_hat=[19.0, 19.0],
+        kalman_P=[[1.0, 0.0], [0.0, 1.0]],
+        D_hat_K_per_min=0.0,
+        last_u=last_u,
+        e_integral_K_min=0.0,
+        u_history=[],
+        rg_v_C=None,
+        last_t_s=0.0,
+        next_mpc_t_s=0.0,
+    )
+
+
+class TestScheduleDelaySave:
+    """The coalesced save path serializes the live state at write time."""
+
+    def _make_manager_with_store(self):
+        mock_hass = AsyncMock()
+        mock_store = AsyncMock()
+        mock_store.async_delay_save = MagicMock()
+        with patch(
+            "custom_components.better_thermostat.utils.state_manager.Store",
+            return_value=mock_store,
+        ):
+            mgr = StateManager(mock_hass, "test_entry")
+        return mgr, mock_store
+
+    def test_delay_save_serializes_current_live_mpc_v2_state(self):
+        """The write-time payload reflects the live MPC v2 controller state."""
+        mgr, mock_store = self._make_manager_with_store()
+        live = mgr.get_mpc_v2_live("k1", MpcV2Params())
+        live.controller = _StubMpcV2Controller(_make_snapshot(last_u=10.0))
+        live.last_percent = 42.0
+        mgr.set_mpc_v2_live("k1", live)
+
+        mgr.schedule_delay_save()
+        # Mutations after scheduling must still land in the payload:
+        # serialization happens when the Store fires the delayed write.
+        live.last_percent = 55.0
+        live.controller.snapshot = _make_snapshot(last_u=77.0)
+
+        data_func = mock_store.async_delay_save.call_args[0][0]
+        data = data_func()
+
+        assert data["mpc_v2"]["k1"]["last_percent"] == 55.0
+        assert data["mpc_v2"]["k1"]["snapshot"]["last_u"] == 77.0
+        assert mgr.dirty is False
+
+    def test_delay_save_keeps_dirty_when_pre_save_fails(self):
+        """A failing pre-save leaves the manager dirty for a retry."""
+        mgr, mock_store = self._make_manager_with_store()
+        mgr.mark_dirty()
+
+        def _boom():
+            raise RuntimeError("pre-save failed")
+
+        mgr.schedule_delay_save(pre_save=_boom)
+        data_func = mock_store.async_delay_save.call_args[0][0]
+        data = data_func()
+
+        assert isinstance(data, dict)
+        assert mgr.dirty is True
+
+    def test_delay_save_keeps_dirty_when_live_sync_fails(self):
+        """A failing MPC v2 live-state sync leaves the manager dirty."""
+        mgr, mock_store = self._make_manager_with_store()
+        mgr.mark_dirty()
+
+        mgr.schedule_delay_save()
+        data_func = mock_store.async_delay_save.call_args[0][0]
+        with patch.object(
+            mgr, "_sync_mpc_v2_live", side_effect=RuntimeError("sync failed")
+        ):
+            data = data_func()
+
+        assert isinstance(data, dict)
+        assert mgr.dirty is True
 
 
 # ---------------------------------------------------------------------------

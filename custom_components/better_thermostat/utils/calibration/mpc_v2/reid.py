@@ -306,6 +306,14 @@ def run_reid_fit(
     heat-up (the only place ``gain_heater`` is identifiable — cool-downs
     constrain only ``tau_room_min``). The candidate is accepted when its
     holdout RMSE beats the prior's by at least ``cfg.min_improvement``.
+
+    A holdout without meaningful heating (all valve fractions at or below
+    ``cfg.u_idle_frac``) carries no information about ``gain_heater``: the
+    simulated heater term is near zero on every step, so any gain yields
+    the same holdout prediction and a badly fitted gain could ride in on a
+    tau improvement alone. In that case the candidate keeps the prior's
+    gain and only the tau value is up for adoption — the holdout then
+    validates exactly the parameter set the caller would adopt.
     """
     cfg = cfg or ReidConfig()
     segments = extract_segments(samples, cfg)
@@ -333,6 +341,10 @@ def run_reid_fit(
         objective, x0, step=math.log(1.3), max_iterations=cfg.max_iterations
     )
     fitted = _params_from_x(x_best, prior)
+
+    holdout_max_u = max((s.u_frac for seg in holdout for s in seg.samples), default=0.0)
+    if holdout_max_u <= cfg.u_idle_frac:
+        fitted = replace(fitted, gain_heater=prior.gain_heater)
 
     rmse_prior = _rmse(prior, holdout, cfg)
     rmse_fit = _rmse(fitted, holdout, cfg)

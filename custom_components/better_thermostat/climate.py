@@ -72,7 +72,6 @@ from .core.clock import Clock
 from .core.containers import BtConfig, BtRuntime
 from .core.decide import KernelState
 from .core.fsm.lifecycle import (
-    extend_grace as lifecycle_extend_grace,
     startup_finished as lifecycle_startup_finished,
     stop as lifecycle_stop,
 )
@@ -288,9 +287,10 @@ def _seed_contact_region_at_startup(
     """Seed a contact region (window/door) from the sensor's startup state.
 
     At startup, unavailable/unknown usually means the sensor has not joined
-    HA yet, so heating continues normally (assume closed). At runtime the
-    same states mean a live sensor was lost and count as open (see
-    events/window.py and events/door.py).
+    HA yet, so the region starts closed and heating continues normally. The
+    runtime handlers (events/window.py, events/door.py) treat the same
+    states as closed too, logging the lost sensor so it does not go
+    unnoticed.
     """
     if entity_id is None:
         return WindowState()
@@ -1074,10 +1074,12 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
         self.async_on_remove(async_at_started(self.hass, _async_startup))
 
     async def _trigger_check_weather(self, event=None):
+        # The degradation ladder advances first: it must keep stepping (e.g.
+        # room sensor lost) even while an unavailable TRV aborts the trigger.
+        await check_and_update_degraded_mode(self)
         _check = await check_critical_entities(self)
         if _check is False:
             return
-        await check_and_update_degraded_mode(self)
         await check_weather(self)
         if self._last_call_for_heat != self.call_for_heat:
             self._last_call_for_heat = self.call_for_heat
@@ -1087,10 +1089,12 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
                 request_control_cycle(self)
 
     async def _trigger_time(self, event=None):
+        # The degradation ladder advances first: it must keep stepping (e.g.
+        # room sensor lost) even while an unavailable TRV aborts the trigger.
+        await check_and_update_degraded_mode(self)
         _check = await check_critical_entities(self)
         if _check is False:
             return
-        await check_and_update_degraded_mode(self)
         if getattr(self, "in_maintenance", False):
             _LOGGER.debug(
                 "better_thermostat %s: periodic tick skipped (valve maintenance running)",
@@ -1114,10 +1118,12 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
         ``call_for_heat`` actually flips, so frequent outdoor readings that
         stay on the same side of the threshold do not spam the queue.
         """
+        # The degradation ladder advances first: it must keep stepping (e.g.
+        # room sensor lost) even while an unavailable TRV aborts the trigger.
+        await check_and_update_degraded_mode(self)
         _check = await check_critical_entities(self)
         if _check is False:
             return
-        await check_and_update_degraded_mode(self)
         if getattr(self, "in_maintenance", False):
             return
         await check_ambient_air_temperature(self)
@@ -1145,10 +1151,12 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
                 request_control_cycle(self)
 
     async def _trigger_temperature_change(self, event):
+        # The degradation ladder advances first: it must keep stepping (e.g.
+        # room sensor lost) even while an unavailable TRV aborts the trigger.
+        await check_and_update_degraded_mode(self)
         _check = await check_critical_entities(self)
         if _check is False:
             return
-        await check_and_update_degraded_mode(self)
         self.async_set_context(event.context)
         if (event.data.get("new_state")) is None:
             return
@@ -1227,10 +1235,12 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
             )
 
     async def _trigger_humidity_change(self, event):
+        # The degradation ladder advances first: it must keep stepping (e.g.
+        # room sensor lost) even while an unavailable TRV aborts the trigger.
+        await check_and_update_degraded_mode(self)
         _check = await check_critical_entities(self)
         if _check is False:
             return
-        await check_and_update_degraded_mode(self)
         self.async_set_context(event.context)
         if (event.data.get("new_state")) is None:
             return
@@ -1246,10 +1256,12 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
         self.async_write_ha_state()
 
     async def _trigger_trv_change(self, event):
+        # The degradation ladder advances first: it must keep stepping (e.g.
+        # room sensor lost) even while an unavailable TRV aborts the trigger.
+        await check_and_update_degraded_mode(self)
         _check = await check_critical_entities(self)
         if _check is False:
             return
-        await check_and_update_degraded_mode(self)
         if getattr(self, "in_maintenance", False):
             _LOGGER.debug(
                 "better_thermostat %s: TRV change skipped (valve maintenance running)",
@@ -1269,10 +1281,12 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
         )
 
     async def _trigger_contact_change(self, event, trigger_fn, task_label):
+        # The degradation ladder advances first: it must keep stepping (e.g.
+        # room sensor lost) even while an unavailable TRV aborts the trigger.
+        await check_and_update_degraded_mode(self)
         _check = await check_critical_entities(self)
         if _check is False:
             return
-        await check_and_update_degraded_mode(self)
         self.async_set_context(event.context)
         if (event.data.get("new_state")) is None:
             return
@@ -1292,10 +1306,12 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
         await self._trigger_contact_change(event, trigger_door_change, "door")
 
     async def _trigger_cooler_change(self, event):
+        # The degradation ladder advances first: it must keep stepping (e.g.
+        # room sensor lost) even while an unavailable TRV aborts the trigger.
+        await check_and_update_degraded_mode(self)
         _check = await check_critical_entities(self)
         if _check is False:
             return
-        await check_and_update_degraded_mode(self)
         self.async_set_context(event.context)
         if (event.data.get("new_state")) is None:
             return
@@ -1334,7 +1350,13 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
             )
 
             # The external room sensor is a required configuration field.
-            assert self.sensor_entity_id is not None
+            if self.sensor_entity_id is None:
+                _LOGGER.debug(
+                    "better_thermostat %s: no room temperature sensor configured, "
+                    "aborting startup",
+                    self.device_name,
+                )
+                return
             sensor_state = self.hass.states.get(self.sensor_entity_id)
             if not self._check_entities_ready(sensor_state):
                 await asyncio.sleep(20)
@@ -2181,21 +2203,37 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
         )
         await self._trigger_check_weather(None)
         _LOGGER.debug("better_thermostat %s: startup finishing...", self.device_name)
+        # Arm the degraded-mode grace window together with the transition to
+        # STARTING: the lifecycle region carries the deadline, and the first
+        # control cycle right below already runs a lifecycle tick, which
+        # promotes STARTING to RUNNING as soon as no grace deadline is set.
+        self._degraded_grace_until = self.clock.now() + STARTUP_DEGRADED_GRACE_PERIOD
         self.kernel_state = replace(
             self.kernel_state,
-            lifecycle=lifecycle_startup_finished(self.kernel_state.lifecycle),
+            lifecycle=lifecycle_startup_finished(
+                self.kernel_state.lifecycle, grace_until=self._degraded_grace_until
+            ),
         )
         await self._startup_control_trvs()
         self._available = True
         self.async_write_ha_state()
 
         if isinstance(self.all_trvs, list):
-            for trv_conf in self.all_trvs:
-                trv_id = trv_conf.get("trv")
-                if trv_id:
-                    await async_bind_trv_device(
-                        self.hass, self._unique_id, trv_id, self._config_entry_id
-                    )
+            # via_device is single-valued: binding every TRV rewrites the same
+            # BT device row, leaving it attached only to the last valve. Only
+            # bind when there is exactly one TRV; skip for multi-TRV setups.
+            trv_ids = [
+                trv_conf.get("trv") for trv_conf in self.all_trvs if trv_conf.get("trv")
+            ]
+            if len(trv_ids) == 1:
+                await async_bind_trv_device(
+                    self.hass, self._unique_id, trv_ids[0], self._config_entry_id
+                )
+            elif len(trv_ids) > 1:
+                _LOGGER.debug(
+                    "better_thermostat %s: skipping via_device binding for multi-TRV setup",
+                    self.device_name,
+                )
 
         _LOGGER.debug("better_thermostat %s: sleeping 15s...", self.device_name)
         await asyncio.sleep(15)
@@ -2225,16 +2263,10 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
 
         # Wait for optional sensors with increasing retry delays before
         # entering degraded mode (see await_optional_sensors for details).
-        # During the startup grace window, a transition into degraded mode is
-        # logged at DEBUG and the HA repair issue is deferred — slow cloud
-        # integrations get time to come online before the user sees a warning.
-        self._degraded_grace_until = self.clock.now() + STARTUP_DEGRADED_GRACE_PERIOD
-        self.kernel_state = replace(
-            self.kernel_state,
-            lifecycle=lifecycle_extend_grace(
-                self.kernel_state.lifecycle, self._degraded_grace_until
-            ),
-        )
+        # During the startup grace window (armed above, carried by the
+        # lifecycle region), a transition into degraded mode is logged at
+        # DEBUG and the HA repair issue is deferred — slow cloud integrations
+        # get time to come online before the user sees a warning.
         await await_optional_sensors(self)
         await check_and_update_degraded_mode(self)
 
@@ -2334,7 +2366,13 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
             )
 
         # The external room sensor is a required configuration field.
-        assert self.sensor_entity_id is not None
+        if self.sensor_entity_id is None:
+            _LOGGER.debug(
+                "better_thermostat %s: no room temperature sensor configured, "
+                "skipping listener registration",
+                self.device_name,
+            )
+            return
         self.async_on_remove(
             async_track_state_change_event(
                 self.hass, [self.sensor_entity_id], self._trigger_temperature_change
@@ -2418,10 +2456,12 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
         """Periodic maintenance tick: runs valve exercise when due and enabled."""
         # quick availability check - only critical entities needed for maintenance
         try:
+            # The degradation ladder advances first: it must keep stepping
+            # even while an unavailable TRV aborts the tick.
+            await check_and_update_degraded_mode(self)
             ok = await check_critical_entities(self)
             if ok is False:
                 return
-            await check_and_update_degraded_mode(self)
         except Exception:
             _LOGGER.debug(
                 "better_thermostat %s: maintenance availability check failed; "

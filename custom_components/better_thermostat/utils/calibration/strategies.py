@@ -170,12 +170,19 @@ class BalanceStrategy:
         """Report the capability level for this TRV (annunciation only).
 
         A strategy is configured when selected, healthy when its inputs
-        are present, and ready once a balance result exists.
+        are present, and ready once a balance result exists. The
+        temperature input is the fail-soft effective room temperature —
+        under SENSOR_FALLBACK the strategies compute on the TRV mean, so
+        the capability judges the same input the control law uses.
         """
+        # Runtime import: calibration.py builds the strategy registry from
+        # this module, so a module-level import would be circular.
+        from ...calibration import effective_room_temp
+
         trv = bt.real_trvs.get(entity_id)
         healthy = (
             trv is not None
-            and bt.cur_temp is not None
+            and effective_room_temp(bt) is not None
             and bt.bt_target_temp is not None
             and trv.calibrator_health == CalibratorHealth.HEALTHY
         )
@@ -248,7 +255,13 @@ class BalanceCalibrator:
         return self._last_percent, self._last_use_valve
 
     def capability(self) -> Capability:
-        """Report the strategy's capability on the live entity."""
+        """Report the strategy's capability on the live entity.
+
+        Annunciation only: the shell never gates actuation on this.
+        Closed-loop learners warm up through actuation, so an external
+        readiness gate would keep them cold forever — the controllers
+        gate themselves (see docs/internals/calibration.md).
+        """
         return self.strategy.capability(self._bt, self._entity_id)
 
     def health(self) -> CalibratorHealth:

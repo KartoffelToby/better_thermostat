@@ -39,6 +39,30 @@ def test_open_false_positive_cancels():
     assert state.effective_open is False
 
 
+def test_reopen_after_false_positive_restarts_the_debounce():
+    """A re-open after a cancelled OPENING starts a fresh pending window.
+
+    The debounce must measure continuous openness: the stale
+    ``pending_since`` of the cancelled transition must not survive.
+    """
+    state = step(WindowState(), sensor_open=True, now=100.0, params=P)
+    state = step(state, sensor_open=False, now=104.0, params=P)
+    assert state.phase == WindowPhase.CLOSED
+    assert state.pending_since is None
+
+    state = step(state, sensor_open=True, now=106.0, params=P)
+    assert state.phase == WindowPhase.OPENING
+    assert state.pending_since == 106.0
+
+    # The original t=100 debounce would have committed here; the fresh one
+    # must not.
+    state = step(state, sensor_open=True, now=110.0, params=P)
+    assert state.phase == WindowPhase.OPENING
+
+    state = step(state, sensor_open=True, now=116.0, params=P)
+    assert state.phase == WindowPhase.OPEN
+
+
 def test_close_commits_only_after_delay():
     """A close reading enters CLOSING; control still sees the window open."""
     state = WindowState(phase=WindowPhase.OPEN)

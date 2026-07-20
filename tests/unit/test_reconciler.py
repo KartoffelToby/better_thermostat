@@ -259,6 +259,29 @@ class TestReconcileTick:
         bt.flight_recorder.record.assert_not_called()
 
     @pytest.mark.asyncio
+    async def test_reconcile_probe_leaves_kernel_state_untouched(self):
+        """The periodic probe advances no kernel region.
+
+        An unreachable TRV would otherwise accrue reachability retries
+        (counter and backoff) on every probe without any real retry.
+        """
+        bt = _make_bt()
+        bt.hass.states.get.return_value = None
+        state_before = bt.kernel_state
+        retry_before = {
+            entity_id: region.retry_count
+            for entity_id, region in state_before.reachability.items()
+        }
+
+        await reconcile_tick(bt)
+
+        assert bt.kernel_state is state_before
+        assert {
+            entity_id: region.retry_count
+            for entity_id, region in bt.kernel_state.reachability.items()
+        } == retry_before
+
+    @pytest.mark.asyncio
     async def test_paused_during_startup_and_maintenance(self):
         """The tick is inert while startup or ignore_states is active."""
         bt = _make_bt(reported_target=18.0)
