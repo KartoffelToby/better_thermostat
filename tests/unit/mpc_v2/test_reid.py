@@ -150,19 +150,25 @@ _TRUTH = PlantParams(tau_room_min=240.0, gain_heater=3.0)
 
 
 def _generate_day(
-    truth: PlantParams, noise: float = 0.01, spacing_s: float = 300.0
+    truth: PlantParams,
+    noise: float = 0.01,
+    spacing_s: float = 300.0,
+    phases: list[tuple[float, float]] | None = None,
 ) -> list[ReidSample]:
     """Simulate a setback day (cool-down, heat-up, cool-down) from ``truth``.
 
     Plain Euler at a finer step than the fit's substep so the fit cannot
     trivially invert its own discretisation. TRV temperature is included so
-    segment simulations seed the radiator state correctly.
+    segment simulations seed the radiator state correctly. ``phases`` is a
+    list of ``(valve_fraction, duration_s)`` tuples; the default models a
+    single setback day ending in a cool-down.
     """
     T_room, T_rad = 21.0, 21.0
     T_outdoor = 5.0
     samples: list[ReidSample] = []
     t = 0.0
-    phases = [(0.0, 4 * 3600.0), (1.0, 3 * 3600.0), (0.0, 4 * 3600.0)]
+    if phases is None:
+        phases = [(0.0, 4 * 3600.0), (1.0, 3 * 3600.0), (0.0, 4 * 3600.0)]
     step_s = 60.0
     i = 0
     for u, duration_s in phases:
@@ -189,8 +195,20 @@ def _generate_day(
 
 
 def test_fit_recovers_truth_params_and_is_accepted() -> None:
-    """On data from a plant far off the prior, the fit recovers and wins."""
-    samples = _generate_day(_TRUTH)
+    """On data from a plant far off the prior, the fit recovers and wins.
+
+    The day ends with a heat-up so the holdout carries gain information
+    and the recovered ``gain_heater`` is actually validated.
+    """
+    samples = _generate_day(
+        _TRUTH,
+        phases=[
+            (0.0, 4 * 3600.0),
+            (1.0, 3 * 3600.0),
+            (0.0, 4 * 3600.0),
+            (1.0, 3 * 3600.0),
+        ],
+    )
     prior = PlantParams()  # tau 480, gain 2.0 — both well off the truth
     outcome = run_reid_fit(samples, prior)
     assert outcome.status == "accepted"
@@ -199,6 +217,21 @@ def test_fit_recovers_truth_params_and_is_accepted() -> None:
     assert abs(outcome.gain_heater - _TRUTH.gain_heater) / _TRUTH.gain_heater < 0.25
     assert outcome.rmse_fit_K is not None and outcome.rmse_prior_K is not None
     assert outcome.rmse_fit_K < outcome.rmse_prior_K
+
+
+def test_cooldown_holdout_does_not_adopt_unvalidated_gain() -> None:
+    """A cool-down holdout cannot validate gain, so the prior gain is kept.
+
+    With u ≈ 0 throughout the holdout, any ``gain_heater`` predicts the
+    same trajectory — the candidate must not carry the (unvalidated)
+    fitted gain, only the tau value.
+    """
+    samples = _generate_day(_TRUTH)  # default day ends with a cool-down
+    prior = PlantParams()  # gain 2.0, well below the truth's 3.0
+    outcome = run_reid_fit(samples, prior)
+    assert outcome.gain_heater == prior.gain_heater
+    assert outcome.tau_room_min is not None
+    assert outcome.tau_room_min != prior.tau_room_min
 
 
 def test_fit_rejected_when_prior_already_matches() -> None:
