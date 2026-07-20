@@ -108,10 +108,26 @@ def test_non_finite_offset_is_withheld():
         assert out.trvs["climate.trv"].offset is None
 
 
-def test_non_finite_valve_is_pinned_to_a_bound():
-    """NaN/inf valve percentages are clamped instead of leaking through."""
-    out = clamp(_desired(valve=float("inf")), _snapshot())
-    assert out.trvs["climate.trv"].valve_percent == 0.0
+def test_non_finite_valve_is_withheld():
+    """NaN/inf valve percentages are withheld, not coerced to a bound.
+
+    A non-finite value carries no opening degree at all; coercing it to
+    the lower bound would issue a spurious close command.
+    """
+    for value in (float("nan"), float("inf"), float("-inf")):
+        out = clamp(_desired(valve=value), _snapshot())
+        assert out.trvs["climate.trv"].valve_percent is None
+
+
+def test_non_finite_valve_is_withheld_under_the_jump_limiter():
+    """The jump limiter passes a withheld valve intent through as None."""
+    out = clamp(
+        _desired(valve=float("nan")),
+        _snapshot(),
+        previous=_desired(valve=50.0),
+        max_valve_jump=20.0,
+    )
+    assert out.trvs["climate.trv"].valve_percent is None
 
 
 def test_unknown_trv_falls_back_to_conservative_bounds():

@@ -4,7 +4,7 @@
 limits on every intent right before it is written to a device — no
 matter what the controller upstream computed:
 
-* non-finite setpoint and offset intents (NaN/inf) are withheld
+* non-finite setpoint, offset, and valve intents (NaN/inf) are withheld
   entirely — the hull expresses "no command" as ``None``,
 * setpoints stay inside the TRV's reported min/max temperature range
   (the min bound doubles as the frost-protection floor); when the TRV
@@ -137,21 +137,29 @@ def _clamp_trv(
 
     valve = intent.valve_percent
     if valve is not None:
-        upper = _finite_bound(
-            reported.valve_max_opening if reported is not None else None
-        )
-        valve = _clamp_value(valve, 0.0, upper if upper is not None else 100.0)
-        if (
-            max_valve_jump is not None
-            and previous is not None
-            and previous.valve_percent is not None
-        ):
-            delta = valve - previous.valve_percent
-            if abs(delta) > max_valve_jump:
-                valve = previous.valve_percent + (
-                    max_valve_jump if delta > 0 else -max_valve_jump
-                )
-                valve = _clamp_value(valve, 0.0, upper if upper is not None else 100.0)
+        if not math.isfinite(valve):
+            # A non-finite valve percentage carries no opening degree at
+            # all; the hull withholds the write instead of coercing it
+            # to a bound and issuing a spurious close command.
+            valve = None
+        else:
+            upper = _finite_bound(
+                reported.valve_max_opening if reported is not None else None
+            )
+            valve = _clamp_value(valve, 0.0, upper if upper is not None else 100.0)
+            if (
+                max_valve_jump is not None
+                and previous is not None
+                and previous.valve_percent is not None
+            ):
+                delta = valve - previous.valve_percent
+                if abs(delta) > max_valve_jump:
+                    valve = previous.valve_percent + (
+                        max_valve_jump if delta > 0 else -max_valve_jump
+                    )
+                    valve = _clamp_value(
+                        valve, 0.0, upper if upper is not None else 100.0
+                    )
 
     if (
         setpoint == intent.setpoint
