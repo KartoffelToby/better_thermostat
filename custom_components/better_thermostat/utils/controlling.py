@@ -8,7 +8,6 @@ import logging
 
 from homeassistant.components.climate.const import HVACMode
 from homeassistant.const import STATE_UNAVAILABLE, STATE_UNKNOWN, UnitOfTemperature
-from homeassistant.exceptions import HomeAssistantError
 from homeassistant.util.unit_conversion import TemperatureConverter
 
 from custom_components.better_thermostat.adapters.delegate import (
@@ -59,6 +58,10 @@ RECONCILE_TOLERANCE_K = 0.05
 # suppressed while the device's state feedback lags. A changed desired
 # value always sends immediately.
 COOLER_RESEND_INTERVAL_S = 30.0
+# A cooler may snap a received setpoint onto its own step grid (e.g. 0.5 °C,
+# or a whole-°F grid). A post-send reading within this distance of the sent
+# value counts as that device-side quantization, not as an unapplied command.
+COOLER_QUANTIZATION_TOLERANCE_K = 0.5
 # Valve deviations below this are the device's own business.
 RECONCILE_VALVE_TOLERANCE_PCT = 5.0
 
@@ -688,6 +691,20 @@ async def control_cooler(self, snapshot=None):
     # reported value beyond the device tolerance.
     last_temp, last_temp_ts = last_sent.get("temperature", (None, None))
     temp_changed_since_last_send = last_temp != desired_temp
+    # A quantizing device settles near the sent value on its own grid. The
+    # first post-send reading close to the sent value is remembered as the
+    # device's answer; while it holds and the desired value is unchanged,
+    # the command counts as converged.
+    settled_temp = last_sent.get("temperature_settled")
+    if (
+        not temp_changed_since_last_send
+        and last_temp is not None
+        and current_temp is not None
+        and settled_temp is None
+        and abs(current_temp - last_temp) <= COOLER_QUANTIZATION_TOLERANCE_K
+    ):
+        settled_temp = current_temp
+        last_sent["temperature_settled"] = settled_temp
     temp_to_send: float | None = None
     if desired_temp is None:
         _LOGGER.debug(
@@ -709,6 +726,26 @@ async def control_cooler(self, snapshot=None):
             )
     elif abs(current_temp - desired_temp) > RECONCILE_TOLERANCE_K:
         temp_to_send = desired_temp
+
+    # Device quantization accepted: the reported value still sits on the
+    # settled post-send reading, so the residual difference is the device's
+    # own grid, not an unapplied command.
+    if (
+        temp_to_send is not None
+        and not temp_changed_since_last_send
+        and settled_temp is not None
+        and current_temp is not None
+        and abs(current_temp - settled_temp) <= RECONCILE_TOLERANCE_K
+    ):
+        _LOGGER.debug(
+            "better_thermostat %s: cooler %s settled at %s for desired %s "
+            "(device quantization), skipping set_temperature",
+            self.device_name,
+            self.cooler_entity_id,
+            settled_temp,
+            desired_temp,
+        )
+        temp_to_send = None
 
     # Throttle identical resends when the device's state feedback lags.
     if (
@@ -742,7 +779,10 @@ async def control_cooler(self, snapshot=None):
             _temp_to_set = round(_temp_to_set, 1)
         # Only prime the send-cache on success. A failed call must not look
         # like a completed send, otherwise the throttle would suppress the
-        # retry.
+        # retry. Any exception from this one service call is isolated
+        # (cloud integrations propagate raw errors such as ConnectionError)
+        # so the hvac_mode command below still runs; CancelledError derives
+        # from BaseException and propagates.
         try:
             await self.hass.services.async_call(
                 "climate",
@@ -751,7 +791,7 @@ async def control_cooler(self, snapshot=None):
                 blocking=True,
                 context=self.context,
             )
-        except HomeAssistantError as err:
+        except Exception as err:
             _LOGGER.warning(
                 "better_thermostat %s: set_temperature for cooler %s failed (%s); "
                 "will retry on the next cycle",
@@ -761,6 +801,9 @@ async def control_cooler(self, snapshot=None):
             )
         else:
             last_sent["temperature"] = (temp_to_send, now_monotonic)
+            # A fresh send invalidates the previously settled reading; the
+            # device answers anew.
+            last_sent.pop("temperature_settled", None)
 
     # Decide whether an hvac_mode command is needed, throttling identical
     # resends the same way as temperature commands.
@@ -791,6 +834,8 @@ async def control_cooler(self, snapshot=None):
             current_hvac_mode,
             desired_mode,
         )
+        # Isolated like the temperature call above: one failing channel must
+        # not abort the cooler cycle.
         try:
             await self.hass.services.async_call(
                 "climate",
@@ -799,7 +844,7 @@ async def control_cooler(self, snapshot=None):
                 blocking=True,
                 context=self.context,
             )
-        except HomeAssistantError as err:
+        except Exception as err:
             _LOGGER.warning(
                 "better_thermostat %s: set_hvac_mode for cooler %s failed (%s); "
                 "will retry on the next cycle",
@@ -841,9 +886,14 @@ async def control_trv(self, heater_entity_id=None, cycle=None):
     if not hasattr(self, "task_manager"):
         self.task_manager = TaskManager(hass=self.hass)
 
+    # The suppression flag is owned by the invocation that set it under the
+    # lock; a caller cancelled while still waiting for the lock never set it
+    # and must not clear it for a concurrent holder mid-write.
+    _suppression_owned = False
     try:
         async with self._temp_lock:
             self.real_trvs[heater_entity_id].ignore_trv_states = True
+            _suppression_owned = True
             try:
                 # Preserve old action for change detection if attributes exist
                 if hasattr(self, "attr_hvac_action"):
@@ -1268,7 +1318,8 @@ async def control_trv(self, heater_entity_id=None, cycle=None):
         await asyncio.sleep(3)
         return True
     finally:
-        self.real_trvs[heater_entity_id].ignore_trv_states = False
+        if _suppression_owned:
+            self.real_trvs[heater_entity_id].ignore_trv_states = False
 
 
 async def check_system_mode(self, heater_entity_id=None):
