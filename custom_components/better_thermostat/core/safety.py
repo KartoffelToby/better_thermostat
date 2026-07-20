@@ -49,6 +49,34 @@ def _finite_bound(value: float | None) -> float | None:
     return value if value is not None and math.isfinite(value) else None
 
 
+def _resolve_bounds(
+    reported_lower: float | None,
+    reported_upper: float | None,
+    fallback_lower: float,
+    fallback_upper: float,
+) -> tuple[float, float]:
+    """Combine device-reported and fallback bounds into a valid interval.
+
+    Each missing or non-finite device bound is substituted by its
+    fallback. When the resulting pair is inverted, the resolution
+    depends on where the bounds came from: two device-reported bounds
+    are swapped (a misreporting device inverted an otherwise plausible
+    interval), while a device bound inverted against a fallback bound
+    is distrusted entirely and both ends fall back — otherwise a bogus
+    device floor above the fallback cap would force every intent up to
+    the cap.
+    """
+    lower = _finite_bound(reported_lower)
+    upper = _finite_bound(reported_upper)
+    resolved_lower = lower if lower is not None else fallback_lower
+    resolved_upper = upper if upper is not None else fallback_upper
+    if resolved_lower > resolved_upper:
+        if lower is not None and upper is not None:
+            return resolved_upper, resolved_lower
+        return fallback_lower, fallback_upper
+    return resolved_lower, resolved_upper
+
+
 def _clamp_value(value: float, lower: float | None, upper: float | None) -> float:
     lower = _finite_bound(lower)
     upper = _finite_bound(upper)
@@ -84,13 +112,13 @@ def _clamp_trv(
             # withholds the write instead of inventing one.
             setpoint = None
         else:
-            lower = _finite_bound(reported.min_temp if reported is not None else None)
-            upper = _finite_bound(reported.max_temp if reported is not None else None)
-            setpoint = _clamp_value(
-                setpoint,
-                lower if lower is not None else FALLBACK_MIN_SETPOINT,
-                upper if upper is not None else FALLBACK_MAX_SETPOINT,
+            lower, upper = _resolve_bounds(
+                reported.min_temp if reported is not None else None,
+                reported.max_temp if reported is not None else None,
+                FALLBACK_MIN_SETPOINT,
+                FALLBACK_MAX_SETPOINT,
             )
+            setpoint = _clamp_value(setpoint, lower, upper)
 
     offset = intent.offset
     if offset is not None:
@@ -99,17 +127,13 @@ def _clamp_trv(
             # withholds the write instead of inventing one.
             offset = None
         else:
-            lower = _finite_bound(
-                reported.local_calibration_min if reported is not None else None
+            lower, upper = _resolve_bounds(
+                reported.local_calibration_min if reported is not None else None,
+                reported.local_calibration_max if reported is not None else None,
+                FALLBACK_MIN_OFFSET,
+                FALLBACK_MAX_OFFSET,
             )
-            upper = _finite_bound(
-                reported.local_calibration_max if reported is not None else None
-            )
-            offset = _clamp_value(
-                offset,
-                lower if lower is not None else FALLBACK_MIN_OFFSET,
-                upper if upper is not None else FALLBACK_MAX_OFFSET,
-            )
+            offset = _clamp_value(offset, lower, upper)
 
     valve = intent.valve_percent
     if valve is not None:
