@@ -131,13 +131,21 @@ def _state_asdict(state: KernelState) -> dict[str, _Recordable]:
     dict
         Mapping of field name to its ``asdict`` representation.
     """
+    # An absent key and an explicit None both reconstruct to "no
+    # pending target"; omitting the None keeps such exports
+    # byte-identical to exports from before the field existed.
+    control_mode = {
+        key: value
+        for key, value in asdict(state.control_mode).items()
+        if key != "pending_target" or value is not None
+    }
     return {
         "window": asdict(state.window),
         "door": asdict(state.door),
         "maintenance": asdict(state.maintenance),
         "lifecycle": asdict(state.lifecycle),
         "mode": asdict(state.mode),
-        "control_mode": asdict(state.control_mode),
+        "control_mode": control_mode,
         "reachability": {
             entity_id: asdict(entry) for entity_id, entry in state.reachability.items()
         },
@@ -263,6 +271,9 @@ def state_from_dict(data: dict[str, Json]) -> KernelState:
     unavailable = control_mode["unavailable_sensors"]
     if not isinstance(unavailable, list):
         raise ValueError("unavailable_sensors must be a list")
+    # Exports predating the field carry no "pending_target" key; they
+    # load with no pending target, matching the pre-field semantics.
+    pending_target = _str_or_none(control_mode.get("pending_target"))
     return KernelState(
         window=WindowState(
             phase=WindowPhase(_str_of(window["phase"])),
@@ -296,6 +307,9 @@ def state_from_dict(data: dict[str, Json]) -> KernelState:
             degraded_since=_float_or_none(control_mode["degraded_since"]),
             down_pending_since=_float_or_none(control_mode["down_pending_since"]),
             up_pending_since=_float_or_none(control_mode["up_pending_since"]),
+            pending_target=(
+                ControlMode(pending_target) if pending_target is not None else None
+            ),
         ),
         reachability=reachability,
         last_control_monotonic=_float_or_none(data["last_control_monotonic"]),

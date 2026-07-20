@@ -104,10 +104,16 @@ def test_running_cannot_block_forever():
     assert running.is_blocking(now_monotonic=100.0 + 3600.0) is False
 
 
-def test_running_without_timestamp_blocks():
-    """A RUNNING phase without a start timestamp is treated as blocking."""
+def test_running_without_timestamp_does_not_block():
+    """A RUNNING phase without a start timestamp never blocks.
+
+    Such a state cannot come from start_run, only from deserialized or
+    hand-built state; with no age to measure it could never hit the
+    max_run_s bound, so honoring it would block control forever.
+    """
     state = MaintenanceState(phase=MaintenancePhase.RUNNING, running_since=None)
-    assert state.is_blocking(now_monotonic=99_999.0) is True
+    assert state.is_blocking(now_monotonic=0.0) is False
+    assert state.is_blocking(now_monotonic=99_999.0) is False
 
 
 def test_tick_leaves_non_idle_phases_alone():
