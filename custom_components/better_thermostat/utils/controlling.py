@@ -239,18 +239,22 @@ def _get_valve_control(
     return None, None
 
 
-def compute_control_cycle(self, *, record: bool = True):
+def compute_control_cycle(self, *, record: bool = True, commit: bool = True):
     """Build one consistent observation and decision for a control cycle.
 
     Records the (snapshot, pre-decide state, desired) tuple in the
     flight recorder — exactly once per cycle. decide() treats its input
     state as immutable; the recorder copies what it stores. Probes (the
     reconciler) pass ``record=False`` to run the same observe-decide
-    step without filling the recorder ring.
+    step without filling the recorder ring, and ``commit=False`` to
+    leave the kernel regions (e.g. reachability retry counters)
+    untouched — a probe is not a real cycle.
     """
     snapshot = build_snapshot(self)
     pre_state = self.kernel_state
-    desired, self.kernel_state = decide(snapshot, pre_state)
+    desired, post_state = decide(snapshot, pre_state)
+    if commit:
+        self.kernel_state = post_state
     if record:
         self.flight_recorder.record(snapshot, pre_state, desired)
     return snapshot, desired
@@ -411,7 +415,7 @@ async def reconcile_tick(self, now=None):
             )
             request_control_cycle(self)
             return
-        snapshot, desired = compute_control_cycle(self, record=False)
+        snapshot, desired = compute_control_cycle(self, record=False, commit=False)
         desired = safety_clamp(desired, snapshot)
         if not desired_diverges(self, snapshot, desired):
             return
