@@ -532,7 +532,18 @@ def _record_mpc_v2_reid_sample(
     later fit could choke on. Open-contact samples (window or door) are
     recorded on purpose: they never enter a fit but cut segments at the
     right place.
+
+    Sampling is gated to the OPTIMAL rung of the fail-soft ladder: under
+    SENSOR_FALLBACK ``cur_temp`` freezes at the last valid reading while
+    the valve keeps moving, so a recorded sample would pair a frozen
+    temperature with live valve activity and bias the tau/gain fit (the
+    holdout is drawn from the same buffer and cannot catch this). The
+    resulting recording pause leaves a time gap that the segmenter cuts
+    on (``ReidConfig.max_gap_s``), keeping transients on either side of
+    a degraded episode separate.
     """
+    if self.kernel_state.control_mode.mode != ControlMode.OPTIMAL:
+        return
     try:
         t_room = float(self.cur_temp)
     except TypeError, ValueError:

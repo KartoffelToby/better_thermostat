@@ -19,6 +19,8 @@ from custom_components.better_thermostat.trv import Trv
 from custom_components.better_thermostat.utils.calibration.mpc_v2 import (
     MpcV2Input,
     MpcV2Params,
+    ReidConfig,
+    ReidSample,
     compute_mpc_v2,
 )
 from custom_components.better_thermostat.utils.const import (
@@ -217,6 +219,86 @@ def test_dispatch_records_reid_samples_under_auto() -> None:
     sample = runtime.buffer.samples[0]
     assert sample.T_room_C == 19.5
     assert sample.window_open is False
+
+
+def test_dispatch_skips_sampling_when_control_mode_degraded() -> None:
+    """Samples are recorded only on the OPTIMAL rung of the fail-soft ladder.
+
+    Under SENSOR_FALLBACK ``cur_temp`` freezes at the last valid reading
+    while the valve keeps moving; recording such samples would fit the
+    plant against a frozen temperature tail. HOLD has no usable reading
+    at all. Both rungs must leave the buffer untouched.
+    """
+    bt = _make_bt()
+    out, _ = _compute_mpc_v2_balance(bt, "climate.x")
+    assert out is not None
+    key = next(iter(bt.state_mgr._mpc_v2_reid_live))
+    runtime = bt.state_mgr.get_mpc_v2_reid_runtime(key)
+    assert len(runtime.buffer.samples) == 1
+
+    for degraded_mode in (ControlMode.SENSOR_FALLBACK, ControlMode.HOLD):
+        bt.kernel_state.control_mode = SimpleNamespace(mode=degraded_mode)
+        bt.clock.advance(120.0)
+        out, _ = _compute_mpc_v2_balance(bt, "climate.x")
+        assert out is not None
+        assert len(runtime.buffer.samples) == 1
+
+    bt.kernel_state.control_mode = SimpleNamespace(mode=ControlMode.OPTIMAL)
+    bt.clock.advance(120.0)
+    out, _ = _compute_mpc_v2_balance(bt, "climate.x")
+    assert out is not None
+    assert len(runtime.buffer.samples) == 2
+
+
+def test_fallback_episode_gap_splits_reid_segments() -> None:
+    """A sampling pause longer than ``max_gap_s`` cuts the segment there.
+
+    Skipping samples during a degraded episode leaves a time gap in the
+    buffer; the segmenter breaks runs on gaps above ``ReidConfig.max_gap_s``,
+    so the frozen episode can never bridge two transients into one.
+    """
+    from custom_components.better_thermostat.utils.calibration.mpc_v2.reid import (
+        extract_segments,
+    )
+
+    cfg = ReidConfig()
+    spacing = 300.0
+    samples: list[ReidSample] = []
+    # First heat-up run: 10 samples over 2700 s, rising 1.8 K.
+    for i in range(10):
+        samples.append(
+            ReidSample(
+                t_s=i * spacing,
+                T_room_C=19.0 + 0.2 * i,
+                u_frac=0.8,
+                T_outdoor_C=5.0,
+            )
+        )
+    # Degraded episode: no samples for longer than the gap threshold.
+    gap_start = samples[-1].t_s
+    resume = gap_start + cfg.max_gap_s + spacing
+    # Second heat-up run after recovery.
+    for i in range(10):
+        samples.append(
+            ReidSample(
+                t_s=resume + i * spacing,
+                T_room_C=20.0 + 0.2 * i,
+                u_frac=0.8,
+                T_outdoor_C=5.0,
+            )
+        )
+
+    segments = extract_segments(samples, cfg)
+    assert len(segments) == 2
+    assert all(s.kind == "heatup" for s in segments)
+    # Without the gap the same samples form one contiguous run.
+    contiguous = [
+        ReidSample(
+            t_s=i * spacing, T_room_C=19.0 + 0.1 * i, u_frac=0.8, T_outdoor_C=5.0
+        )
+        for i in range(20)
+    ]
+    assert len(extract_segments(contiguous, cfg)) == 1
 
 
 def test_dispatch_skips_sampling_for_explicit_preset() -> None:
