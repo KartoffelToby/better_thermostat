@@ -26,7 +26,9 @@ def _snapshot(**trv_overrides) -> WorldSnapshot:
     )
 
 
-def _desired(setpoint=None, valve=None, mode=HvacMode.HEAT) -> DesiredState:
+def _desired(
+    setpoint=None, valve=None, offset=None, mode=HvacMode.HEAT
+) -> DesiredState:
     return DesiredState(
         call_for_heat=True,
         trvs={
@@ -35,6 +37,7 @@ def _desired(setpoint=None, valve=None, mode=HvacMode.HEAT) -> DesiredState:
                 hvac_mode=mode,
                 setpoint=setpoint,
                 valve_percent=valve,
+                offset=offset,
             )
         },
     )
@@ -198,6 +201,31 @@ def test_offset_is_clamped_to_the_calibration_range():
     )
     out = clamp(desired, snapshot)
     assert out.trvs["climate.trv"].offset == 7.0
+
+
+def test_offset_without_reported_state_falls_back_to_conservative_bounds():
+    """A finite offset for an unknown TRV is capped by the fallback range."""
+    snapshot = WorldSnapshot(
+        now=datetime(2026, 1, 10, tzinfo=UTC), now_monotonic=0.0, trvs={}
+    )
+    out = clamp(_desired(offset=40.0), snapshot)
+    assert out.trvs["climate.trv"].offset == 12.0
+    out = clamp(_desired(offset=-40.0), snapshot)
+    assert out.trvs["climate.trv"].offset == -12.0
+
+
+def test_offset_without_reported_calibration_range_falls_back():
+    """A device without a usable calibration range gets the fallback bounds."""
+    snapshot = _snapshot(local_calibration_min=None, local_calibration_max=None)
+    out = clamp(_desired(offset=25.0), snapshot)
+    assert out.trvs["climate.trv"].offset == 12.0
+
+    # A present bound keeps precedence; only the missing side falls back.
+    snapshot = _snapshot(local_calibration_min=-5.0, local_calibration_max=None)
+    out = clamp(_desired(offset=-9.0), snapshot)
+    assert out.trvs["climate.trv"].offset == -5.0
+    out = clamp(_desired(offset=25.0), snapshot)
+    assert out.trvs["climate.trv"].offset == 12.0
 
 
 def test_offset_inside_the_range_is_untouched():

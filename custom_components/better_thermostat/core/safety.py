@@ -9,7 +9,9 @@ matter what the controller upstream computed:
 * setpoints stay inside the TRV's reported min/max temperature range
   (the min bound doubles as the frost-protection floor); when the TRV
   reports no usable bound, conservative fallback bounds apply,
-* calibration offsets stay inside the device's local calibration range,
+* calibration offsets stay inside the device's local calibration range;
+  when the device reports no usable range, conservative fallback bounds
+  apply,
 * valve percentages stay inside 0..valve_max_opening,
 * optionally, valve changes are rate-limited against the previous
   intent (``max_valve_jump``); this mechanism ships disabled so today's
@@ -29,6 +31,12 @@ from .snapshot import TrvReported, WorldSnapshot
 # stays inside what radiator hardware commonly accepts.
 FALLBACK_MIN_SETPOINT = 4.5
 FALLBACK_MAX_SETPOINT = 35.0
+
+# Fallback calibration-offset bounds for TRVs that report no usable
+# local calibration range, matching the widest span common TRV firmware
+# accepts (typically ±12.7 K).
+FALLBACK_MIN_OFFSET = -12.0
+FALLBACK_MAX_OFFSET = 12.0
 
 
 def _finite_bound(value: float | None) -> float | None:
@@ -90,9 +98,17 @@ def _clamp_trv(
             # A non-finite offset carries no correction at all; the hull
             # withholds the write instead of inventing one.
             offset = None
-        elif reported is not None:
+        else:
+            lower = _finite_bound(
+                reported.local_calibration_min if reported is not None else None
+            )
+            upper = _finite_bound(
+                reported.local_calibration_max if reported is not None else None
+            )
             offset = _clamp_value(
-                offset, reported.local_calibration_min, reported.local_calibration_max
+                offset,
+                lower if lower is not None else FALLBACK_MIN_OFFSET,
+                upper if upper is not None else FALLBACK_MAX_OFFSET,
             )
 
     valve = intent.valve_percent
