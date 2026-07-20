@@ -62,9 +62,12 @@ async def test_critical_entities_unavailable_returns_early(bt):
 @pytest.mark.asyncio
 async def test_availability_check_exception_returns(bt):
     """An exception during the availability check aborts the tick safely."""
-    with patch(
-        f"{_CLIMATE}.check_critical_entities",
-        AsyncMock(side_effect=RuntimeError("boom")),
+    with (
+        patch(
+            f"{_CLIMATE}.check_critical_entities",
+            AsyncMock(side_effect=RuntimeError("boom")),
+        ),
+        patch(f"{_CLIMATE}.check_and_update_degraded_mode", AsyncMock()),
     ):
         await BetterThermostat._maintenance_tick(bt)
     bt.hass.async_create_background_task.assert_not_called()
@@ -269,3 +272,41 @@ async def test_finalize_startup_skips_maintenance_tick_when_disabled():
     callbacks = _registered_callbacks(track_interval)
     assert bt._trigger_time in callbacks
     assert bt._maintenance_tick not in callbacks
+
+
+# ---------------------------------------------------------------------------
+# _finalize_startup: via_device binding
+# ---------------------------------------------------------------------------
+
+
+def _binding_bt(trv_confs):
+    """Build a _finalize_startup mock with a configured all_trvs list."""
+    bt = _startup_bt({})
+    bt.all_trvs = trv_confs
+    bt._unique_id = "bt_uid"
+    bt._config_entry_id = "entry_1"
+    return bt
+
+
+@pytest.mark.asyncio
+async def test_via_device_binding_runs_for_single_trv():
+    """A single-TRV setup binds the BT device via that one valve."""
+    bt = _binding_bt([{"trv": "climate.trv"}])
+    with patch(f"{_CLIMATE}.async_bind_trv_device", AsyncMock()) as bind:
+        await _run_finalize_startup(bt)
+
+    bind.assert_awaited_once_with(bt.hass, "bt_uid", "climate.trv", "entry_1")
+
+
+@pytest.mark.asyncio
+async def test_via_device_binding_skipped_for_multi_trv():
+    """A multi-TRV setup skips via_device binding.
+
+    via_device is single-valued, so binding each TRV would just rewrite the
+    same BT device row and leave it attached to the last valve only.
+    """
+    bt = _binding_bt([{"trv": "climate.trv"}, {"trv": "climate.second_trv"}])
+    with patch(f"{_CLIMATE}.async_bind_trv_device", AsyncMock()) as bind:
+        await _run_finalize_startup(bt)
+
+    bind.assert_not_awaited()
