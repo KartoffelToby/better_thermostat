@@ -249,9 +249,11 @@ def mode_remap(self, entity_id, hvac_mode: str, inbound: bool = False) -> str:
     str
             remapped mode according to device's quirks
     """
-    _heat_auto_swapped = self.real_trvs[entity_id].advanced.get(
-        CONF_HEAT_AUTO_SWAPPED, False
-    )
+    trv = self.real_trvs.get(entity_id)
+    if trv is None:
+        return hvac_mode
+
+    _heat_auto_swapped = (trv.advanced or {}).get(CONF_HEAT_AUTO_SWAPPED, False)
 
     if _heat_auto_swapped:
         if hvac_mode == HVACMode.HEAT and not inbound:
@@ -260,7 +262,9 @@ def mode_remap(self, entity_id, hvac_mode: str, inbound: bool = False) -> str:
             return HVACMode.HEAT
         return hvac_mode
 
-    trv_modes = self.real_trvs[entity_id].hvac_modes
+    trv_modes = trv.hvac_modes
+    if not trv_modes:
+        return hvac_mode
     if HVACMode.HEAT not in trv_modes and HVACMode.HEAT_COOL in trv_modes:
         # entity only supports HEAT_COOL, but not HEAT - need to translate
         if not inbound and hvac_mode == HVACMode.HEAT:

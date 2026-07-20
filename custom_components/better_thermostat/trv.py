@@ -179,8 +179,9 @@ class Trv:
 
         Known keys become typed fields; unknown keys land in ``extra``.
         The explicit ``entity_id`` argument wins over an ``entity_id``
-        key in the dict, and an ``extra`` key is merged into the extra
-        mapping instead of being nested under it.
+        key in the dict, and an ``extra`` dict is merged into the extra
+        mapping instead of being nested under it; a non-dict ``extra``
+        value is kept under the ``extra`` key.
         """
         fields_in = {}
         extra: dict[str, Any] = {}
@@ -188,7 +189,10 @@ class Trv:
             if key == "entity_id":
                 continue
             if key == "extra":
-                extra.update(value)
+                if isinstance(value, dict):
+                    extra.update(value)
+                else:
+                    extra[key] = value
             elif key in cls.__dataclass_fields__:
                 fields_in[key] = value
             else:

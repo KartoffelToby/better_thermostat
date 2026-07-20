@@ -76,6 +76,11 @@ class TestExtraScratchpad:
         )
         assert trv.extra == {"_quirk_scratch": 3, "_other_scratch": 7}
 
+    def test_from_legacy_dict_keeps_non_dict_extra_value(self):
+        """A non-dict legacy ``extra`` value survives under the ``extra`` key."""
+        trv = Trv.from_legacy_dict("climate.trv", {"extra": 42})
+        assert trv.extra == {"extra": 42}
+
     def test_no_dict_protocol(self):
         """Trv does not speak the dict protocol: attribute access only."""
         trv = _make()
