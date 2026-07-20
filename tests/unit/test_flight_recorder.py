@@ -238,6 +238,28 @@ def test_replay_roundtrips_reachability_and_null_window_state():
     assert rebuilt.reachability["climate.t"].online is False
 
 
+def test_state_without_pending_target_field_loads():
+    """Exports predating control_mode.pending_target still reconstruct.
+
+    A None pending target is omitted from the export, so an export
+    without a running window is byte-identical to the pre-field shape;
+    an explicit None in an old hand-edited export loads the same way.
+    """
+    recorder = FlightRecorder()
+    desired, _ = decide(_snapshot(), running_kernel_state())
+    recorder.record(_snapshot(), running_kernel_state(), desired)
+    entry = json.loads(json.dumps(recorder.export()))[0]
+    assert "pending_target" not in entry["state"]["control_mode"]
+    rebuilt = state_from_dict(entry["state"])
+    assert rebuilt.control_mode.pending_target is None
+    matches, _ = replay(entry)
+    assert matches is True
+
+    entry["state"]["control_mode"]["pending_target"] = None
+    rebuilt = state_from_dict(entry["state"])
+    assert rebuilt.control_mode.pending_target is None
+
+
 class TestRoundtripCompleteness:
     """Every field of every recorded type survives export and reconstruct.
 
@@ -331,6 +353,7 @@ class TestRoundtripCompleteness:
                 degraded_since=800.0,
                 down_pending_since=810.0,
                 up_pending_since=820.0,
+                pending_target=ControlMode.HOLD,
             ),
             "reachability": {
                 "climate.trv": ReachabilityState(

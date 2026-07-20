@@ -56,6 +56,10 @@ class ControlModeState:
     down_pending_since: float | None = None
     # Pending upgrade (capability restored, stability window running).
     up_pending_since: float | None = None
+    # Rung the running debounce/stability window is heading toward. A
+    # window only counts for this exact target; when the capability
+    # observation points at a different rung, the window restarts.
+    pending_target: ControlMode | None = None
 
     @property
     def degraded(self) -> bool:
@@ -77,6 +81,7 @@ def step(
             mode=state.mode,
             down_pending_since=state.down_pending_since,
             up_pending_since=state.up_pending_since,
+            pending_target=state.pending_target,
         )
     return ControlModeState(
         mode=state.mode,
@@ -84,6 +89,7 @@ def step(
         degraded_since=state.degraded_since if state.degraded else now,
         down_pending_since=state.down_pending_since,
         up_pending_since=state.up_pending_since,
+        pending_target=state.pending_target,
     )
 
 
@@ -107,27 +113,36 @@ def step_ladder(
 
     Downgrades commit after ``down_debounce_s`` of sustained loss;
     upgrades commit after ``up_stability_s`` of sustained recovery.
+    The window is bound to its target rung: when the observation starts
+    pointing at a different rung, the window restarts, so the new target
+    must itself persist for the full debounce/stability duration.
     """
     target = _target_rung(room_sensor_ok, trv_temp_ok)
 
     if target == state.mode:
-        return _with_pending(state, down=None, up=None)
+        return _with_pending(state, down=None, up=None, target=None)
 
     rung_order = (ControlMode.OPTIMAL, ControlMode.SENSOR_FALLBACK, ControlMode.HOLD)
     degrading = rung_order.index(target) > rung_order.index(state.mode)
 
     if degrading:
         since = (
-            state.down_pending_since if state.down_pending_since is not None else now
+            state.down_pending_since
+            if state.down_pending_since is not None and state.pending_target == target
+            else now
         )
         if now - since >= params.down_debounce_s:
             return _with_mode(state, target, now)
-        return _with_pending(state, down=since, up=None)
+        return _with_pending(state, down=since, up=None, target=target)
 
-    since = state.up_pending_since if state.up_pending_since is not None else now
+    since = (
+        state.up_pending_since
+        if state.up_pending_since is not None and state.pending_target == target
+        else now
+    )
     if now - since >= params.up_stability_s:
         return _with_mode(state, target, now)
-    return _with_pending(state, down=None, up=since)
+    return _with_pending(state, down=None, up=since, target=target)
 
 
 def _with_mode(
@@ -145,9 +160,16 @@ def _with_mode(
 
 
 def _with_pending(
-    state: ControlModeState, down: float | None, up: float | None
+    state: ControlModeState,
+    down: float | None,
+    up: float | None,
+    target: ControlMode | None,
 ) -> ControlModeState:
-    if state.down_pending_since == down and state.up_pending_since == up:
+    if (
+        state.down_pending_since == down
+        and state.up_pending_since == up
+        and state.pending_target == target
+    ):
         return state
     return ControlModeState(
         mode=state.mode,
@@ -155,4 +177,5 @@ def _with_pending(
         degraded_since=state.degraded_since,
         down_pending_since=down,
         up_pending_since=up,
+        pending_target=target,
     )
