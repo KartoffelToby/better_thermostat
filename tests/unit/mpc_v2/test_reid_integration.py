@@ -404,26 +404,73 @@ def test_reid_buffer_is_shared_across_target_buckets() -> None:
     assert len(runtime.buffer.samples) == 2
 
 
-def test_adopt_with_controller_key_splits_result_and_transfer() -> None:
-    """The result lands under the shared key; the bumpless transfer hits the controller key."""
-    mgr = _make_manager()
-    _warm(mgr, "k", MpcV2Params())
-    old = mgr.get_mpc_v2_live("k", MpcV2Params())
-    assert old.controller is not None
-    last_u_before = old.controller._last_u
+def test_adopt_transfers_all_live_controllers_bumplessly() -> None:
+    """Adoption folds and drops every cached live controller, not just one.
 
-    mgr.adopt_mpc_v2_reid("uid:reid", _REID, controller_key="k")
+    The plant prior describes the room, so a controller cached under any
+    target bucket is stale after adoption. Each one must take the
+    bumpless rebuild path on its next activation: observer state carried
+    over from the folded snapshot and the new prior's signature stamped,
+    so ``compute_mpc_v2`` does not force a cold rebuild on the first
+    cycle back in that bucket.
+    """
+    from custom_components.better_thermostat.utils.calibration.mpc_v2.state import (
+        _plant_signature_of,
+    )
+
+    mgr = _make_manager()
+    key_a = "uid:climate.x:t21.0"
+    key_b = "uid:climate.x:t22.5"
+    _warm(mgr, key_a, MpcV2Params())
+    _warm(mgr, key_b, MpcV2Params())
+    old_a = mgr.get_mpc_v2_live(key_a, MpcV2Params())
+    old_b = mgr.get_mpc_v2_live(key_b, MpcV2Params())
+    assert old_a.controller is not None and old_b.controller is not None
+    last_u_a = old_a.controller._last_u
+    last_u_b = old_b.controller._last_u
+
+    mgr.adopt_mpc_v2_reid("uid:reid", _REID)
 
     assert mgr.get_mpc_v2_reid("uid:reid") is _REID
-    assert mgr.get_mpc_v2_reid("k") is None
-    # The controller-keyed live state was folded and dropped for the rebuild.
+    assert mgr.get_mpc_v2_reid(key_a) is None
+
     new_params = MpcV2Params()
     new_params.plant.tau_room_min = _REID.tau_room_min
     new_params.plant.gain_heater = _REID.gain_heater
-    rebuilt = mgr.get_mpc_v2_live("k", new_params)
-    assert rebuilt is not old
-    assert rebuilt.controller is not None
-    assert rebuilt.controller._last_u == last_u_before
+    for key, old, last_u in ((key_a, old_a, last_u_a), (key_b, old_b, last_u_b)):
+        rebuilt = mgr.get_mpc_v2_live(key, new_params)
+        assert rebuilt is not old
+        assert rebuilt.controller is not None
+        assert rebuilt.controller is not old.controller
+        assert rebuilt.controller._last_u == last_u
+        # The new prior's signature is stamped on the rebuilt state, so the
+        # signature guard in compute_mpc_v2 keeps this controller (bumpless)
+        # instead of discarding it for a cold rebuild.
+        assert rebuilt.plant_signature == _plant_signature_of(new_params)
+
+
+def test_adopt_under_shared_key_removes_legacy_bucket_entries() -> None:
+    """Writing the shared key clears this uid's per-bucket result entries.
+
+    The shared key wins every read, so bucket entries are dead weight;
+    left in place they could only resurrect stale data through the
+    legacy fallback if the shared entry ever disappeared. Entries of
+    other uids are untouched.
+    """
+    mgr = _make_manager()
+    legacy = MpcV2ReidData(
+        tau_room_min=600.0, gain_heater=1.0, fitted_ts=100.0, n_segments=3
+    )
+    mgr.adopt_mpc_v2_reid("uid:climate.x:t21.0", legacy)
+    mgr.adopt_mpc_v2_reid("uid:group:t19.0", legacy)
+    mgr.adopt_mpc_v2_reid("other:climate.y:t20.0", legacy)
+
+    mgr.adopt_mpc_v2_reid("uid:reid", _REID)
+
+    assert mgr.get_mpc_v2_reid("uid:reid") is _REID
+    assert mgr.get_mpc_v2_reid("uid:climate.x:t21.0") is None
+    assert mgr.get_mpc_v2_reid("uid:group:t19.0") is None
+    assert mgr.get_mpc_v2_reid("other:climate.y:t20.0") is legacy
 
 
 def test_shared_reid_key_survives_serialization_round_trip() -> None:
