@@ -117,7 +117,16 @@ async def trigger_window_change(self, event) -> None:
             params=_window_params(self),
         ),
     )
-    await self.window_queue_task.put(was_open)
+    try:
+        self.window_queue_task.put_nowait(was_open)
+    except asyncio.QueueFull:
+        # A settle run is already pending; it re-reads the stepped region.
+        # Only the first-ever item seeds the announced state, and a full
+        # queue implies an earlier item already did or will.
+        _LOGGER.debug(
+            "better_thermostat %s: window settle already pending, coalescing",
+            self.device_name,
+        )
 
 
 def _window_params(self) -> WindowParams:
