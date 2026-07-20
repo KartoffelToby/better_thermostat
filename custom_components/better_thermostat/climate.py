@@ -329,8 +329,7 @@ def _arm_degraded_grace(self) -> None:
     self.kernel_state = replace(
         self.kernel_state,
         lifecycle=replace(
-            self.kernel_state.lifecycle,
-            grace_until=self._degraded_grace_until,
+            self.kernel_state.lifecycle, grace_until=self._degraded_grace_until
         ),
     )
 

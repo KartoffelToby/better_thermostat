@@ -159,8 +159,7 @@ async def test_startup_finished_carries_the_deadline_armed_at_startup_begin():
     armed = bt.clock.now() + STARTUP_DEGRADED_GRACE_PERIOD
     bt._degraded_grace_until = armed
     bt.kernel_state = replace(
-        bt.kernel_state,
-        lifecycle=replace(bt.kernel_state.lifecycle, grace_until=armed),
+        bt.kernel_state, lifecycle=replace(bt.kernel_state.lifecycle, grace_until=armed)
     )
     bt.clock.advance(60)
 

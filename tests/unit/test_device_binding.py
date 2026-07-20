@@ -10,9 +10,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from custom_components.better_thermostat.device_binding import (
-    async_unbind_trv_device,
-)
+from custom_components.better_thermostat.device_binding import async_unbind_trv_device
 from custom_components.better_thermostat.utils.const import DOMAIN
 
 _BINDING = "custom_components.better_thermostat.device_binding"
@@ -38,9 +36,7 @@ async def test_unbind_clears_a_stale_via_device_link():
         result = await async_unbind_trv_device(MagicMock(), BT_UID)
 
     assert result is True
-    registry.async_get_device.assert_called_once_with(
-        identifiers={(DOMAIN, BT_UID)}
-    )
+    registry.async_get_device.assert_called_once_with(identifiers={(DOMAIN, BT_UID)})
     registry.async_update_device.assert_called_once_with(
         "bt_device_id", via_device_id=None
     )
