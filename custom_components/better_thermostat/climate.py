@@ -88,7 +88,7 @@ from .core.fsm.mode import (
 )
 from .core.fsm.window import WindowPhase, WindowState
 from .core.recorder import FlightRecorder
-from .device_binding import async_bind_trv_device
+from .device_binding import async_bind_trv_device, async_unbind_trv_device
 from .events.cooler import trigger_cooler_change
 from .events.door import door_queue, trigger_door_change
 from .events.temperature import trigger_temperature_change
@@ -2262,6 +2262,10 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
                     "better_thermostat %s: skipping via_device binding for multi-TRV setup",
                     self.device_name,
                 )
+                # A via_device link written while the setup had (or was
+                # treated as having) a single valve would keep the BT device
+                # attached to one arbitrary TRV; clear it.
+                await async_unbind_trv_device(self.hass, self._unique_id)
 
         _LOGGER.debug("better_thermostat %s: sleeping 15s...", self.device_name)
         await asyncio.sleep(15)
