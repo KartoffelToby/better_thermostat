@@ -122,6 +122,35 @@ class TestTrvCapabilities:
         trv.valve_position_writable = False
         assert trv.capabilities().supports_valve_write is False
 
+    def test_unknown_hvac_modes_disable_off(self):
+        """A TRV that never reported its modes is conservatively no-off.
+
+        BT then sends min temp instead of an OFF the device may not
+        support.
+        """
+        trv = _make()
+        assert trv.hvac_modes is None
+        assert trv.capabilities().supports_off_mode is False
+
+    def test_off_in_hvac_modes_enables_off(self):
+        """A reported mode list containing off keeps the OFF capability."""
+        trv = _make()
+        trv.hvac_modes = ["heat", "off"]
+        assert trv.capabilities().supports_off_mode is True
+
+    def test_hvac_modes_without_off_disable_off(self):
+        """A reported mode list without off yields no OFF capability."""
+        trv = _make()
+        trv.hvac_modes = ["heat", "auto"]
+        assert trv.capabilities().supports_off_mode is False
+
+    def test_no_off_system_mode_config_disables_off(self):
+        """The explicit no_off_system_mode config wins over the mode list."""
+        trv = _make()
+        trv.hvac_modes = ["heat", "off"]
+        trv.advanced = {"no_off_system_mode": True}
+        assert trv.capabilities().supports_off_mode is False
+
     def test_valve_capability_from_quirk_override(self):
         """A quirk-provided override_set_valve enables valve writes."""
 

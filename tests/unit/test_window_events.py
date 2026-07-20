@@ -151,6 +151,40 @@ class TestTriggerWindowChange:
         assert bt.kernel_state.window.pending_since == bt.clock.monotonic()
 
     @pytest.mark.asyncio
+    async def test_rapid_flips_on_bounded_queue_do_not_block(self):
+        """Mid-debounce flips on the production maxsize-1 queue coalesce.
+
+        Extra flips drop their queue item instead of blocking a putter;
+        the settle worker still commits the region and announces once.
+        """
+        bt = _make_bt(sensor_state="on", open_delay=5)
+        bt.window_queue_task = asyncio.Queue(maxsize=1)
+        tasks_before = asyncio.all_tasks()
+        for reading in ("on", "off", "on", "off", "on"):
+            bt.hass.states.get.return_value.state = reading
+            await asyncio.wait_for(
+                trigger_window_change(bt, _event(reading)), timeout=1
+            )
+        assert bt.window_queue_task.qsize() == 1
+        assert asyncio.all_tasks() == tasks_before
+        assert bt.kernel_state.window.phase == WindowPhase.OPENING
+
+        async def fake_sleep(seconds):
+            bt.clock.advance(seconds)
+
+        with (
+            patch(f"{_WINDOW}.asyncio.sleep", side_effect=fake_sleep),
+            patch(_LOGBOOK, new_callable=AsyncMock) as logbook,
+            patch(f"{_WINDOW}.request_control_cycle") as kick,
+        ):
+            await _run_queue_once(bt)
+
+        assert bt.kernel_state.window.phase == WindowPhase.OPEN
+        assert logbook.call_count == 1
+        assert logbook.call_args.args[1] == "window_open"
+        assert kick.call_count == 1
+
+    @pytest.mark.asyncio
     async def test_unrecognized_state_raises_an_issue(self):
         """Garbage sensor values raise a repair issue and queue nothing."""
         bt = _make_bt(sensor_state="banana")

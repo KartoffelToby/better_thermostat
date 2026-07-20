@@ -9,7 +9,7 @@ from __future__ import annotations
 import logging
 
 from homeassistant.components.climate.const import HVACMode
-from homeassistant.core import State, callback
+from homeassistant.core import State
 
 from custom_components.better_thermostat.utils.helpers import convert_to_float
 from custom_components.better_thermostat.utils.scheduler import request_control_cycle
@@ -17,7 +17,6 @@ from custom_components.better_thermostat.utils.scheduler import request_control_
 _LOGGER = logging.getLogger(__name__)
 
 
-@callback
 async def trigger_cooler_change(self, event):
     """Trigger a change in the cooler state."""
     if self.startup_running:

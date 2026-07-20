@@ -119,7 +119,16 @@ async def trigger_door_change(self, event) -> None:
             params=_door_params(self),
         ),
     )
-    await self.door_queue_task.put(was_open)
+    try:
+        self.door_queue_task.put_nowait(was_open)
+    except asyncio.QueueFull:
+        # A settle run is already pending; it re-reads the stepped region.
+        # Only the first-ever item seeds the announced state, and a full
+        # queue implies an earlier item already did or will.
+        _LOGGER.debug(
+            "better_thermostat %s: door settle already pending, coalescing",
+            self.device_name,
+        )
 
 
 def _door_params(self) -> WindowParams:
