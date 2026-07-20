@@ -7,7 +7,7 @@ the queue handler committing or cancelling them, and the control kicks.
 
 import asyncio
 from dataclasses import replace
-from unittest.mock import MagicMock, Mock, patch
+from unittest.mock import AsyncMock, MagicMock, Mock, patch
 
 import pytest
 
@@ -20,6 +20,7 @@ from custom_components.better_thermostat.events.window import (
 )
 
 _WINDOW = "custom_components.better_thermostat.events.window"
+_LOGBOOK = "custom_components.better_thermostat.utils.helpers.async_fire_logbook_entry"
 
 
 def _make_bt(*, sensor_state="off", window_open=False, open_delay=0, close_delay=0):
@@ -118,6 +119,36 @@ class TestTriggerWindowChange:
         await trigger_window_change(bt, _event("on"))
         assert bt.window_queue_task.empty()
         assert bt.kernel_state.window.phase == WindowPhase.OPEN
+
+    @pytest.mark.asyncio
+    async def test_flip_during_open_debounce_cancels_the_region(self):
+        """A close reading during a pending OPENING reaches the region.
+
+        The region cancels the false positive instead of the event being
+        swallowed by the committed-state dedup.
+        """
+        bt = _make_bt(sensor_state="on", open_delay=10)
+        await trigger_window_change(bt, _event("on"))
+        assert bt.kernel_state.window.phase == WindowPhase.OPENING
+
+        bt.hass.states.get.return_value.state = "off"
+        await trigger_window_change(bt, _event("off"))
+        assert bt.kernel_state.window.phase == WindowPhase.CLOSED
+        assert bt.window_queue_task.qsize() == 2
+
+    @pytest.mark.asyncio
+    async def test_reopen_after_flip_restarts_the_debounce(self):
+        """A re-open after a mid-debounce flip starts a fresh pending window."""
+        bt = _make_bt(sensor_state="on", open_delay=10)
+        await trigger_window_change(bt, _event("on"))
+        bt.hass.states.get.return_value.state = "off"
+        await trigger_window_change(bt, _event("off"))
+
+        bt.clock.advance(3)
+        bt.hass.states.get.return_value.state = "on"
+        await trigger_window_change(bt, _event("on"))
+        assert bt.kernel_state.window.phase == WindowPhase.OPENING
+        assert bt.kernel_state.window.pending_since == bt.clock.monotonic()
 
     @pytest.mark.asyncio
     async def test_unrecognized_state_raises_an_issue(self):
@@ -248,6 +279,99 @@ class TestWindowQueue:
 
         assert bt.kernel_state.window.phase == WindowPhase.OPEN
         assert bt.control_queue_task.empty()
+
+    @pytest.mark.asyncio
+    async def test_mid_debounce_flip_restarts_the_debounce(self):
+        """Debounce continuity: open, close, reopen with open_delay=30.
+
+        The window was not continuously open for 30s at t0+30, so the
+        commit happens 30s after the reopen (t0+50), announced exactly
+        once.
+        """
+        bt = _make_bt(sensor_state="on", open_delay=30)
+        await trigger_window_change(bt, _event("on"))
+
+        sleeps = []
+
+        async def fake_sleep(seconds):
+            sleeps.append(seconds)
+            if len(sleeps) == 1:
+                # The sensor flips closed at t0+10 and reopens at t0+20
+                # while the settle worker waits out the first debounce.
+                bt.clock.advance(10)
+                bt.hass.states.get.return_value.state = "off"
+                await trigger_window_change(bt, _event("off"))
+                assert bt.kernel_state.window.phase == WindowPhase.CLOSED
+                bt.clock.advance(10)
+                bt.hass.states.get.return_value.state = "on"
+                await trigger_window_change(bt, _event("on"))
+                bt.clock.advance(10)
+                # At t0+30 the original debounce would have committed.
+                assert bt.kernel_state.window.effective_open is False
+            else:
+                bt.clock.advance(seconds)
+
+        with (
+            patch(f"{_WINDOW}.asyncio.sleep", side_effect=fake_sleep),
+            patch(_LOGBOOK, new_callable=AsyncMock) as logbook,
+            patch(f"{_WINDOW}.request_control_cycle") as kick,
+        ):
+            await _run_queue_once(bt)
+
+        assert sleeps == [30, 20]
+        assert bt.clock.monotonic() == 50
+        assert bt.kernel_state.window.phase == WindowPhase.OPEN
+        assert logbook.call_count == 1
+        assert logbook.call_args.args[1] == "window_open"
+        assert kick.call_count == 1
+
+    @pytest.mark.asyncio
+    async def test_rapid_toggle_announces_the_commit_once(self):
+        """Several queued items sharing one commit announce it exactly once."""
+        bt = _make_bt(sensor_state="on", open_delay=5)
+        await trigger_window_change(bt, _event("on"))
+        bt.hass.states.get.return_value.state = "off"
+        await trigger_window_change(bt, _event("off"))
+        bt.hass.states.get.return_value.state = "on"
+        await trigger_window_change(bt, _event("on"))
+        assert bt.window_queue_task.qsize() == 3
+
+        async def fake_sleep(seconds):
+            bt.clock.advance(seconds)
+
+        with (
+            patch(f"{_WINDOW}.asyncio.sleep", side_effect=fake_sleep),
+            patch(_LOGBOOK, new_callable=AsyncMock) as logbook,
+            patch(f"{_WINDOW}.request_control_cycle") as kick,
+        ):
+            await _run_queue_once(bt)
+
+        assert bt.kernel_state.window.phase == WindowPhase.OPEN
+        assert logbook.call_count == 1
+        assert logbook.call_args.args[1] == "window_open"
+        assert kick.call_count == 1
+
+    @pytest.mark.asyncio
+    async def test_zero_delay_open_close_announces_nothing(self):
+        """A zero-delay open immediately followed by a close nets no flip.
+
+        In particular no orphan 'window_close' logbook entry fires.
+        """
+        bt = _make_bt(sensor_state="on")
+        await trigger_window_change(bt, _event("on"))
+        bt.hass.states.get.return_value.state = "off"
+        await trigger_window_change(bt, _event("off"))
+        assert bt.window_queue_task.qsize() == 2
+
+        with (
+            patch(_LOGBOOK, new_callable=AsyncMock) as logbook,
+            patch(f"{_WINDOW}.request_control_cycle") as kick,
+        ):
+            await _run_queue_once(bt)
+
+        assert bt.kernel_state.window.phase == WindowPhase.CLOSED
+        logbook.assert_not_called()
+        kick.assert_not_called()
 
     @pytest.mark.asyncio
     async def test_pending_control_items_are_replaced(self):

@@ -10,7 +10,6 @@ import asyncio
 from dataclasses import replace
 import logging
 
-from homeassistant.core import callback
 from homeassistant.helpers import issue_registry as ir
 
 from custom_components.better_thermostat import DOMAIN
@@ -24,7 +23,6 @@ from custom_components.better_thermostat.utils.scheduler import request_control_
 _LOGGER = logging.getLogger(__name__)
 
 
-@callback
 async def trigger_window_change(self, event) -> None:
     """Triggered by window sensor event from HA to check if the window is open.
 
@@ -46,8 +44,6 @@ async def trigger_window_change(self, event) -> None:
         return
 
     new_state = new_state.state
-
-    old_window_open = self.window_open
 
     if new_state in ("on", "true", "open"):
         new_window_open = True
@@ -91,8 +87,12 @@ async def trigger_window_change(self, event) -> None:
         )
         return
 
-    # make sure to skip events which do not change the saved window state:
-    if new_window_open == old_window_open:
+    # Skip only readings that confirm the committed state while no
+    # transition is pending. A flip during a pending transition must
+    # reach the region so it can cancel a false positive or restart
+    # the debounce.
+    region = self.kernel_state.window
+    if new_window_open == region.effective_open and region.pending_since is None:
         _LOGGER.debug(
             "better_thermostat %s: Window state did not change, skipping event",
             self.device_name,
@@ -104,11 +104,10 @@ async def trigger_window_change(self, event) -> None:
         self._heating_tracker.start_temp = None
         self.async_write_ha_state()
 
-    # Start the pending transition in the window region; the queued task
-    # settles it (the region owns the timing). The pre-step committed
-    # state travels along so the handler can detect a commit even when a
-    # zero delay commits immediately.
-    was_open = self.kernel_state.window.effective_open
+    # Step the window region; the queued task settles it (the region owns
+    # the timing). The committed state before the step travels along to
+    # seed the queue worker's announced state on its first item.
+    was_open = region.effective_open
     self.kernel_state = replace(
         self.kernel_state,
         window=window_step(
@@ -129,7 +128,7 @@ def _window_params(self) -> WindowParams:
     )
 
 
-async def _settle_window_region(self, was_open: bool) -> None:
+async def _settle_window_region(self) -> None:
     """Drive the window region until no transition is pending.
 
     The region owns the debounce timing: this helper sleeps exactly the
@@ -171,41 +170,52 @@ async def _settle_window_region(self, was_open: bool) -> None:
             ),
         )
 
-    if was_open != self.kernel_state.window.effective_open:
-        from custom_components.better_thermostat.utils.helpers import (
-            async_fire_logbook_entry,
-        )
 
-        if self.kernel_state.window.effective_open:
-            await async_fire_logbook_entry(
-                self, "window_open", "turned off because a window was opened"
-            )
-        else:
-            await async_fire_logbook_entry(
-                self, "window_close", "resumed heating because a window was closed"
-            )
-        self.async_write_ha_state()
-        if getattr(self, "in_maintenance", False):
-            # Keep state up to date during maintenance, but defer control
-            # until maintenance ends.
-            self._control_needed_after_maintenance = True
-        else:
-            request_control_cycle(self, replace_pending=True)
+async def _announce_window_change(self) -> None:
+    """Fire the side effects of a committed window change."""
+    from custom_components.better_thermostat.utils.helpers import (
+        async_fire_logbook_entry,
+    )
+
+    if self.kernel_state.window.effective_open:
+        await async_fire_logbook_entry(
+            self, "window_open", "turned off because a window was opened"
+        )
+    else:
+        await async_fire_logbook_entry(
+            self, "window_close", "resumed heating because a window was closed"
+        )
+    self.async_write_ha_state()
+    if getattr(self, "in_maintenance", False):
+        # Keep state up to date during maintenance, but defer control
+        # until maintenance ends.
+        self._control_needed_after_maintenance = True
+    else:
+        request_control_cycle(self, replace_pending=True)
 
 
 async def window_queue(self):
     """Process queued window-open events.
 
-    Each queued item carries the committed state from before the event;
-    settling the region decides whether the change commits, and a real
-    change kicks the control queue.
+    Each queued item carries the committed state from before its trigger
+    step; the first item seeds the announced state. Side effects derive
+    from the settled region: only a flip of the effective state against
+    the announced state fires the logbook entry and control kick, so
+    several queued items sharing one commit announce it exactly once.
     """
+    announced: bool | None = None
     try:
         while True:
             queued = await self.window_queue_task.get()
             try:
                 if queued is not None:
-                    await _settle_window_region(self, was_open=queued)
+                    if announced is None:
+                        announced = queued
+                    await _settle_window_region(self)
+                    effective = self.kernel_state.window.effective_open
+                    if effective != announced:
+                        await _announce_window_change(self)
+                        announced = effective
             except asyncio.CancelledError:
                 _LOGGER.debug(
                     "better_thermostat %s: Window queue processing cancelled",
