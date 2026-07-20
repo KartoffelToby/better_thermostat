@@ -287,9 +287,10 @@ def _seed_contact_region_at_startup(
     """Seed a contact region (window/door) from the sensor's startup state.
 
     At startup, unavailable/unknown usually means the sensor has not joined
-    HA yet, so heating continues normally (assume closed). At runtime the
-    same states mean a live sensor was lost and count as open (see
-    events/window.py and events/door.py).
+    HA yet, so the region starts closed and heating continues normally. The
+    runtime handlers (events/window.py, events/door.py) treat the same
+    states as closed too, logging the lost sensor so it does not go
+    unnoticed.
     """
     if entity_id is None:
         return WindowState()
