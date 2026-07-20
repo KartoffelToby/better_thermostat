@@ -1376,9 +1376,11 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
 
             # The external room sensor is a required configuration field.
             if self.sensor_entity_id is None:
-                _LOGGER.debug(
-                    "better_thermostat %s: no room temperature sensor configured, "
-                    "aborting startup",
+                _LOGGER.error(
+                    "better_thermostat %s: no room temperature sensor configured "
+                    "(the required 'temperature_sensor' option is missing from "
+                    "the config entry); aborting startup, the entity stays "
+                    "unavailable",
                     self.device_name,
                 )
                 return
@@ -2399,9 +2401,10 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
 
         # The external room sensor is a required configuration field.
         if self.sensor_entity_id is None:
-            _LOGGER.debug(
-                "better_thermostat %s: no room temperature sensor configured, "
-                "skipping listener registration",
+            _LOGGER.error(
+                "better_thermostat %s: no room temperature sensor configured "
+                "(the required 'temperature_sensor' option is missing from "
+                "the config entry); skipping listener registration",
                 self.device_name,
             )
             return
