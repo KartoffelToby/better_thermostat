@@ -88,7 +88,7 @@ from .core.fsm.mode import (
 )
 from .core.fsm.window import WindowPhase, WindowState
 from .core.recorder import FlightRecorder
-from .device_binding import async_bind_trv_device
+from .device_binding import async_bind_trv_device, async_unbind_trv_device
 from .events.cooler import trigger_cooler_change
 from .events.door import door_queue, trigger_door_change
 from .events.temperature import trigger_temperature_change
@@ -313,6 +313,25 @@ def _seed_contact_region_at_startup(
         "Open" if is_open else "Closed",
     )
     return WindowState(phase=WindowPhase.OPEN if is_open else WindowPhase.CLOSED)
+
+
+def _arm_degraded_grace(self) -> None:
+    """Arm the degraded-mode annunciation grace window once.
+
+    Stores the deadline on the entity and mirrors it into the lifecycle
+    region, so every degraded-mode check that runs while startup is still in
+    progress already sees the grace window. A deadline that is already armed
+    is kept unchanged.
+    """
+    if self._degraded_grace_until is not None:
+        return
+    self._degraded_grace_until = self.clock.now() + STARTUP_DEGRADED_GRACE_PERIOD
+    self.kernel_state = replace(
+        self.kernel_state,
+        lifecycle=replace(
+            self.kernel_state.lifecycle, grace_until=self._degraded_grace_until
+        ),
+    )
 
 
 class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
@@ -1340,6 +1359,11 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
         # slow-to-load underlying integration. The window is re-anchored in
         # ``_finalize_startup`` to cover post-startup reconnection blips.
         self._critical_grace_until = self.clock.now() + STARTUP_CRITICAL_GRACE_PERIOD
+        # Arm the degraded-mode grace window before the first degraded check:
+        # the startup loop below and the triggers in _finalize_startup all
+        # call check_and_update_degraded_mode, whose warning suppression
+        # reads the grace deadline from the lifecycle region.
+        _arm_degraded_grace(self)
         while self.startup_running:
             if self.is_removed:
                 return
@@ -1351,9 +1375,11 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
 
             # The external room sensor is a required configuration field.
             if self.sensor_entity_id is None:
-                _LOGGER.debug(
-                    "better_thermostat %s: no room temperature sensor configured, "
-                    "aborting startup",
+                _LOGGER.error(
+                    "better_thermostat %s: no room temperature sensor configured "
+                    "(the required 'temperature_sensor' option is missing from "
+                    "the config entry); aborting startup, the entity stays "
+                    "unavailable",
                     self.device_name,
                 )
                 return
@@ -2165,6 +2191,10 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
 
     async def _finalize_startup(self) -> None:
         """Run post-init tasks: triggers, listeners, periodic jobs."""
+        # The degraded-mode grace window is normally armed at the top of
+        # startup(); arming here as well keeps the deadline in place before
+        # the triggers below run their degraded checks.
+        _arm_degraded_grace(self)
         # Likewise give critical (TRV) entities a short grace before raising
         # ``missing_entity`` repairs; cloud-backed valves (Tado, etc.) can lag
         # behind HA startup and would otherwise produce dismissable noise.
@@ -2203,11 +2233,10 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
         )
         await self._trigger_check_weather(None)
         _LOGGER.debug("better_thermostat %s: startup finishing...", self.device_name)
-        # Arm the degraded-mode grace window together with the transition to
-        # STARTING: the lifecycle region carries the deadline, and the first
-        # control cycle right below already runs a lifecycle tick, which
-        # promotes STARTING to RUNNING as soon as no grace deadline is set.
-        self._degraded_grace_until = self.clock.now() + STARTUP_DEGRADED_GRACE_PERIOD
+        # The transition to STARTING carries the degraded-grace deadline that
+        # was armed when startup began; the first control cycle right below
+        # already runs a lifecycle tick, which promotes STARTING to RUNNING
+        # as soon as no grace deadline is set.
         self.kernel_state = replace(
             self.kernel_state,
             lifecycle=lifecycle_startup_finished(
@@ -2234,6 +2263,10 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
                     "better_thermostat %s: skipping via_device binding for multi-TRV setup",
                     self.device_name,
                 )
+                # A via_device link written while the setup had (or was
+                # treated as having) a single valve would keep the BT device
+                # attached to one arbitrary TRV; clear it.
+                await async_unbind_trv_device(self.hass, self._unique_id)
 
         _LOGGER.debug("better_thermostat %s: sleeping 15s...", self.device_name)
         await asyncio.sleep(15)
@@ -2367,9 +2400,10 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
 
         # The external room sensor is a required configuration field.
         if self.sensor_entity_id is None:
-            _LOGGER.debug(
-                "better_thermostat %s: no room temperature sensor configured, "
-                "skipping listener registration",
+            _LOGGER.error(
+                "better_thermostat %s: no room temperature sensor configured "
+                "(the required 'temperature_sensor' option is missing from "
+                "the config entry); skipping listener registration",
                 self.device_name,
             )
             return

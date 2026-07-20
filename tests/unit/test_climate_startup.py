@@ -48,6 +48,7 @@ def bt():
     mock = MagicMock(spec=BetterThermostat)
     mock.clock = MagicMock()
     mock.kernel_state = KernelState()
+    mock._degraded_grace_until = None
     mock.state_mgr = None
     mock.hass = MagicMock()
     mock.device_name = "Test BT"
