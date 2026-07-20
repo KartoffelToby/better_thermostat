@@ -841,9 +841,14 @@ async def control_trv(self, heater_entity_id=None, cycle=None):
     if not hasattr(self, "task_manager"):
         self.task_manager = TaskManager(hass=self.hass)
 
+    # The suppression flag is owned by the invocation that set it under the
+    # lock; a caller cancelled while still waiting for the lock never set it
+    # and must not clear it for a concurrent holder mid-write.
+    _suppression_owned = False
     try:
         async with self._temp_lock:
             self.real_trvs[heater_entity_id].ignore_trv_states = True
+            _suppression_owned = True
             try:
                 # Preserve old action for change detection if attributes exist
                 if hasattr(self, "attr_hvac_action"):
@@ -1268,7 +1273,8 @@ async def control_trv(self, heater_entity_id=None, cycle=None):
         await asyncio.sleep(3)
         return True
     finally:
-        self.real_trvs[heater_entity_id].ignore_trv_states = False
+        if _suppression_owned:
+            self.real_trvs[heater_entity_id].ignore_trv_states = False
 
 
 async def check_system_mode(self, heater_entity_id=None):
