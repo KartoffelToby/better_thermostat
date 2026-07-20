@@ -18,6 +18,7 @@ from homeassistant.components.climate.const import HVACMode
 
 from custom_components.better_thermostat.calibration import _compute_mpc_v2_balance
 from custom_components.better_thermostat.core.clock import FakeClock
+from custom_components.better_thermostat.core.fsm.control_mode import ControlMode
 from custom_components.better_thermostat.trv import Trv
 from custom_components.better_thermostat.utils.calibration.mpc_v2 import (
     MpcV2Params,
@@ -79,6 +80,10 @@ def _make_bt(*, real_trvs: dict[str, Trv], unique_id: str = "bt_test") -> Any:
         tolerance=0.0,
         temp_slope=None,
         window_open=False,
+        contact_open=False,
+        kernel_state=SimpleNamespace(
+            control_mode=SimpleNamespace(mode=ControlMode.OPTIMAL)
+        ),
         device_name="BT_TEST",
         bt_hvac_mode=HVACMode.HEAT,
         heating_power=0.04,
