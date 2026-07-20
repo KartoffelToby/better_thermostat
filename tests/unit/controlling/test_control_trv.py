@@ -2080,6 +2080,55 @@ class TestGroupedTrvCalibration:
             assert mock_bt_grouped.real_trvs[entity_id].calibration_received is False
 
     @pytest.mark.anyio
+    async def test_missing_reference_calibration_skips_offset_write(
+        self, mock_bt_grouped
+    ):
+        """No reference calibration skips the offset write without aborting.
+
+        With no stored last_calibration and an unparseable device offset
+        there is nothing to compare against; the cycle still performs the
+        setpoint write instead of failing.
+        """
+        entity_id = "climate.trv_1"
+        mock_bt_grouped.real_trvs[entity_id].last_calibration = None
+
+        mock_trv_state = MagicMock()
+        mock_trv_state.state = "heat"
+        mock_trv_state.attributes = {"temperature": 20.0}
+        mock_bt_grouped.hass.states.get.return_value = mock_trv_state
+
+        with (
+            patch(
+                _PATCHES["get_current_offset"], new_callable=AsyncMock
+            ) as mock_get_offset,
+            patch(_PATCHES["convert_outbound_states"]) as mock_convert,
+            patch(_PATCHES["set_offset"], new_callable=AsyncMock) as mock_set_offset,
+            patch(_PATCHES["set_temperature"], new_callable=AsyncMock) as mock_set_temp,
+            patch(_PATCHES["set_hvac_mode"], new_callable=AsyncMock),
+            patch(_PATCHES["set_valve"], new_callable=AsyncMock),
+            patch(
+                _PATCHES["override_set_temperature"], new=AsyncMock(return_value=False)
+            ),
+            patch(
+                _PATCHES["override_set_hvac_mode"], new=AsyncMock(return_value=False)
+            ),
+            patch("asyncio.sleep", new_callable=AsyncMock),
+        ):
+            mock_get_offset.return_value = "not-a-number"
+            mock_convert.return_value = {
+                "temperature": 21.0,
+                "local_temperature_calibration": 3.0,
+                "local_temperature": 20.0,
+                "system_mode": "heat",
+            }
+
+            result = await control_trv(mock_bt_grouped, entity_id)
+
+            assert result is True
+            mock_set_offset.assert_not_called()
+            mock_set_temp.assert_called_once()
+
+    @pytest.mark.anyio
     async def test_calibration_tolerance_within_half_degree(self, mock_bt_grouped):
         """Test that calibration within 0.5 degree tolerance is considered matching."""
         entity_id = "climate.trv_3"

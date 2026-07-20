@@ -1137,7 +1137,13 @@ async def control_trv(self, heater_entity_id=None, cycle=None):
                 _calibration = _through_safety_hull(
                     snapshot, heater_entity_id, offset=_calibration
                 ).offset
-                assert _calibration is not None
+                if _calibration is None:
+                    _LOGGER.debug(
+                        "better_thermostat %s: safety hull yielded no offset for "
+                        "%s, skipping calibration write this cycle",
+                        self.device_name,
+                        heater_entity_id,
+                    )
 
                 _old_calibration = self.real_trvs[heater_entity_id].last_calibration
                 if _old_calibration is None:
@@ -1146,7 +1152,8 @@ async def control_trv(self, heater_entity_id=None, cycle=None):
                 # If current calibration already matches target, reset calibration_received
                 # to avoid it getting stuck at False when the state event was suppressed.
                 if (
-                    self.real_trvs[heater_entity_id].calibration_received is False
+                    _calibration is not None
+                    and self.real_trvs[heater_entity_id].calibration_received is False
                     and _current_calibration is not None
                     and abs(float(_current_calibration) - float(_calibration)) < 0.5
                 ):
@@ -1162,10 +1169,22 @@ async def control_trv(self, heater_entity_id=None, cycle=None):
                 _calibration_received = (
                     self.real_trvs[heater_entity_id].calibration_received is True
                 )
-                if _calibration_received:
-                    assert _old_calibration is not None
-                if _calibration_received and float(_old_calibration) != float(
-                    _calibration
+                if (
+                    _calibration is not None
+                    and _calibration_received
+                    and _old_calibration is None
+                ):
+                    _LOGGER.debug(
+                        "better_thermostat %s: no reference calibration for %s "
+                        "yet, skipping calibration write this cycle",
+                        self.device_name,
+                        heater_entity_id,
+                    )
+                if (
+                    _calibration is not None
+                    and _calibration_received
+                    and _old_calibration is not None
+                    and float(_old_calibration) != float(_calibration)
                 ):
                     # A deferred offset re-derives on the next control cycle
                     # once the slot is free again.
