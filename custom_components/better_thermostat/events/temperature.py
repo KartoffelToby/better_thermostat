@@ -14,7 +14,6 @@ import math
 from time import monotonic
 
 from homeassistant.const import STATE_UNAVAILABLE, STATE_UNKNOWN
-from homeassistant.core import callback
 from homeassistant.helpers import issue_registry as ir
 from homeassistant.helpers.event import async_call_later
 from homeassistant.util import dt as dt_util
@@ -159,7 +158,6 @@ async def _apply_temperature_update(self, new_temp):
     )
 
 
-@callback
 async def trigger_temperature_change(self, event):
     """Handle temperature changes.
 
