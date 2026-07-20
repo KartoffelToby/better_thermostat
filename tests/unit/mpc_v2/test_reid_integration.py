@@ -268,10 +268,7 @@ def test_fallback_episode_gap_splits_reid_segments() -> None:
     for i in range(10):
         samples.append(
             ReidSample(
-                t_s=i * spacing,
-                T_room_C=19.0 + 0.2 * i,
-                u_frac=0.8,
-                T_outdoor_C=5.0,
+                t_s=i * spacing, T_room_C=19.0 + 0.2 * i, u_frac=0.8, T_outdoor_C=5.0
             )
         )
     # Degraded episode: no samples for longer than the gap threshold.
