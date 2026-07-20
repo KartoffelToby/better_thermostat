@@ -315,7 +315,11 @@ def _seed_state_from_siblings(
     ``loss_est``, ``ka_est``) are not touched.
 
     Existing values in *state* are never overwritten — seeding only
-    fills in defaults.
+    fills in defaults. Candidate values are copied only when finite:
+    a sibling holding NaN/inf for a field (e.g. a poisoned state parked
+    under an inactive bucket, which the active-key sanitizer never
+    heals) is skipped for that field and the next-nearest sibling is
+    tried, so seeding cannot re-poison a freshly sanitized state.
     """
     uid, entity, bucket = _split_mpc_key(key)
     if not uid or not entity:
@@ -345,14 +349,16 @@ def _seed_state_from_siblings(
         getattr(params, "enable_min_effective_percent", True)
     ):
         for _, sib in siblings:
-            if sib.min_effective_percent is not None:
+            if sib.min_effective_percent is not None and _all_finite(
+                sib.min_effective_percent
+            ):
                 state.min_effective_percent = sib.min_effective_percent
                 break
 
     # --- Target-independent learned characteristics ---
     if not state.perf_curve:
         for _, sib in siblings:
-            if sib.perf_curve:
+            if sib.perf_curve and _all_finite(sib.perf_curve):
                 state.perf_curve = {
                     label: dict(stats) for label, stats in sib.perf_curve.items()
                 }
@@ -360,7 +366,12 @@ def _seed_state_from_siblings(
 
     if state.trv_profile == "unknown" and state.profile_samples == 0:
         for _, sib in siblings:
-            if sib.trv_profile != "unknown" and sib.profile_samples > 0:
+            if (
+                sib.trv_profile != "unknown"
+                and sib.profile_samples > 0
+                and _all_finite(sib.profile_confidence)
+                and _all_finite(sib.profile_samples)
+            ):
                 state.trv_profile = sib.trv_profile
                 state.profile_confidence = sib.profile_confidence
                 state.profile_samples = sib.profile_samples
@@ -368,7 +379,7 @@ def _seed_state_from_siblings(
 
     if state.solar_gain_est is None:
         for _, sib in siblings:
-            if sib.solar_gain_est is not None:
+            if sib.solar_gain_est is not None and _all_finite(sib.solar_gain_est):
                 state.solar_gain_est = sib.solar_gain_est
                 break
 

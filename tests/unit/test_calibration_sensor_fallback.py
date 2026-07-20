@@ -259,6 +259,8 @@ def test_reid_sample_records_open_door_as_open_contact() -> None:
     """
     state_mgr = _StateStub()
     bt = _make_bt(state_mgr, trv_temp=21.0)
+    # Sampling is gated to the OPTIMAL rung; the door flag is orthogonal.
+    bt.kernel_state.control_mode.mode = ControlMode.OPTIMAL
     bt.cur_temp = 20.5
     bt.window_open = False
     bt.door_open = True

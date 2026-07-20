@@ -532,7 +532,18 @@ def _record_mpc_v2_reid_sample(
     later fit could choke on. Open-contact samples (window or door) are
     recorded on purpose: they never enter a fit but cut segments at the
     right place.
+
+    Sampling is gated to the OPTIMAL rung of the fail-soft ladder: under
+    SENSOR_FALLBACK ``cur_temp`` freezes at the last valid reading while
+    the valve keeps moving, so a recorded sample would pair a frozen
+    temperature with live valve activity and bias the tau/gain fit (the
+    holdout is drawn from the same buffer and cannot catch this). The
+    resulting recording pause leaves a time gap that the segmenter cuts
+    on (``ReidConfig.max_gap_s``), keeping transients on either side of
+    a degraded episode separate.
     """
+    if self.kernel_state.control_mode.mode != ControlMode.OPTIMAL:
+        return
     try:
         t_room = float(self.cur_temp)
     except TypeError, ValueError:
@@ -551,18 +562,16 @@ def _record_mpc_v2_reid_sample(
     )
 
 
-def _maybe_start_mpc_v2_reid_fit(
-    self, reid_key: str, v2_params: MpcV2Params, controller_key: str | None = None
-) -> None:
+def _maybe_start_mpc_v2_reid_fit(self, reid_key: str, v2_params: MpcV2Params) -> None:
     """Kick off an offline re-identification fit in the executor when due.
 
     At most one attempt per key per ``_MPC_V2_REID_INTERVAL_S``, only once
     the buffer plausibly contains full transients, and never concurrently.
     The fit itself is pure CPU work; an accepted result is adopted through
     the state manager's bumpless path on the completion callback, so the
-    event loop never blocks on the optimisation. ``controller_key`` names
-    the live controller that receives the bumpless transfer; the result
-    itself is stored under ``reid_key``.
+    event loop never blocks on the optimisation. Adoption bumplessly
+    transfers every cached live controller; the result itself is stored
+    under ``reid_key``.
     """
     hass = getattr(self, "hass", None)
     if hass is None:
@@ -616,7 +625,6 @@ def _maybe_start_mpc_v2_reid_fit(
                     rmse_fit_K=outcome.rmse_fit_K or 0.0,
                     n_segments=outcome.n_segments,
                 ),
-                controller_key=controller_key,
             )
             if callable(schedule_save):
                 schedule_save()
@@ -785,7 +793,7 @@ def _compute_mpc_v2_balance(self, entity_id: str):
             trv_temp=trv_state.current_temperature,
             outdoor_temp=outdoor_temp,
         )
-        _maybe_start_mpc_v2_reid_fit(self, reid_key, v2_params, controller_key=mpc_key)
+        _maybe_start_mpc_v2_reid_fit(self, reid_key, v2_params)
 
     if mpc_output is None:
         trv_state.calibration_balance = None
