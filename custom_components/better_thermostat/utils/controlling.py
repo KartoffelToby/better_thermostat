@@ -688,7 +688,7 @@ async def control_cooler(self, snapshot=None):
     # reported value beyond the device tolerance.
     last_temp, last_temp_ts = last_sent.get("temperature", (None, None))
     temp_changed_since_last_send = last_temp != desired_temp
-    should_send_temp = False
+    temp_to_send: float | None = None
     if desired_temp is None:
         _LOGGER.debug(
             "better_thermostat %s: cooler %s desired temperature is None, "
@@ -697,8 +697,9 @@ async def control_cooler(self, snapshot=None):
             self.cooler_entity_id,
         )
     elif current_temp is None:
-        should_send_temp = temp_changed_since_last_send
-        if not should_send_temp:
+        if temp_changed_since_last_send:
+            temp_to_send = desired_temp
+        else:
             _LOGGER.debug(
                 "better_thermostat %s: cooler %s current temperature unknown and "
                 "desired temperature unchanged (%s), skipping set_temperature",
@@ -707,11 +708,11 @@ async def control_cooler(self, snapshot=None):
                 desired_temp,
             )
     elif abs(current_temp - desired_temp) > RECONCILE_TOLERANCE_K:
-        should_send_temp = True
+        temp_to_send = desired_temp
 
     # Throttle identical resends when the device's state feedback lags.
     if (
-        should_send_temp
+        temp_to_send is not None
         and not temp_changed_since_last_send
         and last_temp_ts is not None
         and (now_monotonic - last_temp_ts) < COOLER_RESEND_INTERVAL_S
@@ -723,20 +724,20 @@ async def control_cooler(self, snapshot=None):
             self.cooler_entity_id,
             COOLER_RESEND_INTERVAL_S,
         )
-        should_send_temp = False
+        temp_to_send = None
 
-    if should_send_temp:
+    if temp_to_send is not None:
         _LOGGER.debug(
             "better_thermostat %s: TO COOLER set_temperature: %s from: %s to: %s",
             self.device_name,
             self.cooler_entity_id,
             current_temp,
-            desired_temp,
+            temp_to_send,
         )
-        _temp_to_set = desired_temp
+        _temp_to_set = temp_to_send
         if self.hass.config.units.temperature_unit == UnitOfTemperature.FAHRENHEIT:
             _temp_to_set = TemperatureConverter.convert(
-                desired_temp, UnitOfTemperature.CELSIUS, UnitOfTemperature.FAHRENHEIT
+                temp_to_send, UnitOfTemperature.CELSIUS, UnitOfTemperature.FAHRENHEIT
             )
             _temp_to_set = round(_temp_to_set, 1)
         # Only prime the send-cache on success. A failed call must not look
@@ -759,7 +760,7 @@ async def control_cooler(self, snapshot=None):
                 err,
             )
         else:
-            last_sent["temperature"] = (desired_temp, now_monotonic)
+            last_sent["temperature"] = (temp_to_send, now_monotonic)
 
     # Decide whether an hvac_mode command is needed, throttling identical
     # resends the same way as temperature commands.
