@@ -471,7 +471,6 @@ class TestInternalTemperatureChange:
 
         async def pop_entry(bt, entity_id):
             bt.real_trvs.pop(entity_id)
-            return None
 
         with (
             patch(
