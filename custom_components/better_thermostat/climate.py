@@ -1073,10 +1073,12 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
         self.async_on_remove(async_at_started(self.hass, _async_startup))
 
     async def _trigger_check_weather(self, event=None):
+        # The degradation ladder advances first: it must keep stepping (e.g.
+        # room sensor lost) even while an unavailable TRV aborts the trigger.
+        await check_and_update_degraded_mode(self)
         _check = await check_critical_entities(self)
         if _check is False:
             return
-        await check_and_update_degraded_mode(self)
         await check_weather(self)
         if self._last_call_for_heat != self.call_for_heat:
             self._last_call_for_heat = self.call_for_heat
@@ -1086,10 +1088,12 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
                 request_control_cycle(self)
 
     async def _trigger_time(self, event=None):
+        # The degradation ladder advances first: it must keep stepping (e.g.
+        # room sensor lost) even while an unavailable TRV aborts the trigger.
+        await check_and_update_degraded_mode(self)
         _check = await check_critical_entities(self)
         if _check is False:
             return
-        await check_and_update_degraded_mode(self)
         if getattr(self, "in_maintenance", False):
             _LOGGER.debug(
                 "better_thermostat %s: periodic tick skipped (valve maintenance running)",
@@ -1113,10 +1117,12 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
         ``call_for_heat`` actually flips, so frequent outdoor readings that
         stay on the same side of the threshold do not spam the queue.
         """
+        # The degradation ladder advances first: it must keep stepping (e.g.
+        # room sensor lost) even while an unavailable TRV aborts the trigger.
+        await check_and_update_degraded_mode(self)
         _check = await check_critical_entities(self)
         if _check is False:
             return
-        await check_and_update_degraded_mode(self)
         if getattr(self, "in_maintenance", False):
             return
         await check_ambient_air_temperature(self)
@@ -1144,10 +1150,12 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
                 request_control_cycle(self)
 
     async def _trigger_temperature_change(self, event):
+        # The degradation ladder advances first: it must keep stepping (e.g.
+        # room sensor lost) even while an unavailable TRV aborts the trigger.
+        await check_and_update_degraded_mode(self)
         _check = await check_critical_entities(self)
         if _check is False:
             return
-        await check_and_update_degraded_mode(self)
         self.async_set_context(event.context)
         if (event.data.get("new_state")) is None:
             return
@@ -1226,10 +1234,12 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
             )
 
     async def _trigger_humidity_change(self, event):
+        # The degradation ladder advances first: it must keep stepping (e.g.
+        # room sensor lost) even while an unavailable TRV aborts the trigger.
+        await check_and_update_degraded_mode(self)
         _check = await check_critical_entities(self)
         if _check is False:
             return
-        await check_and_update_degraded_mode(self)
         self.async_set_context(event.context)
         if (event.data.get("new_state")) is None:
             return
@@ -1245,10 +1255,12 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
         self.async_write_ha_state()
 
     async def _trigger_trv_change(self, event):
+        # The degradation ladder advances first: it must keep stepping (e.g.
+        # room sensor lost) even while an unavailable TRV aborts the trigger.
+        await check_and_update_degraded_mode(self)
         _check = await check_critical_entities(self)
         if _check is False:
             return
-        await check_and_update_degraded_mode(self)
         if getattr(self, "in_maintenance", False):
             _LOGGER.debug(
                 "better_thermostat %s: TRV change skipped (valve maintenance running)",
@@ -1268,10 +1280,12 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
         )
 
     async def _trigger_contact_change(self, event, trigger_fn, task_label):
+        # The degradation ladder advances first: it must keep stepping (e.g.
+        # room sensor lost) even while an unavailable TRV aborts the trigger.
+        await check_and_update_degraded_mode(self)
         _check = await check_critical_entities(self)
         if _check is False:
             return
-        await check_and_update_degraded_mode(self)
         self.async_set_context(event.context)
         if (event.data.get("new_state")) is None:
             return
@@ -1291,10 +1305,12 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
         await self._trigger_contact_change(event, trigger_door_change, "door")
 
     async def _trigger_cooler_change(self, event):
+        # The degradation ladder advances first: it must keep stepping (e.g.
+        # room sensor lost) even while an unavailable TRV aborts the trigger.
+        await check_and_update_degraded_mode(self)
         _check = await check_critical_entities(self)
         if _check is False:
             return
-        await check_and_update_degraded_mode(self)
         self.async_set_context(event.context)
         if (event.data.get("new_state")) is None:
             return
@@ -2427,10 +2443,12 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
         """Periodic maintenance tick: runs valve exercise when due and enabled."""
         # quick availability check - only critical entities needed for maintenance
         try:
+            # The degradation ladder advances first: it must keep stepping
+            # even while an unavailable TRV aborts the tick.
+            await check_and_update_degraded_mode(self)
             ok = await check_critical_entities(self)
             if ok is False:
                 return
-            await check_and_update_degraded_mode(self)
         except Exception:
             _LOGGER.debug(
                 "better_thermostat %s: maintenance availability check failed; "
