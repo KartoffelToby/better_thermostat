@@ -24,6 +24,13 @@ from .types import CalibrationHost
 
 _LOGGER = logging.getLogger(__name__)
 
+# Upper bound for one integration step. Control cycles nominally run every
+# few minutes; 600 s covers two 5-minute cycles, so a single missed cycle
+# still integrates fully while a stale ``pid_last_time`` (calibrator
+# switched away and back hours later) cannot wind the integrator up in one
+# giant step.
+MAX_DT_S = 600.0
+
 
 class PIDDebugInfo(TypedDict, total=False):
     """Debug information from PID controller."""
@@ -227,11 +234,13 @@ def compute_pid(
     st.previous_abs_error = st.last_abs_error
     st.last_abs_error = abs(delta_T)
 
-    # Zeitdifferenz
+    # Time difference, bounded to [1.0, MAX_DT_S] seconds. A stale
+    # pid_last_time (calibrator switched away and back hours later) would
+    # otherwise produce a huge dt and wind the integrator up in one step.
     dt = now - st.pid_last_time if st.pid_last_time > 0 else 0.0
-    # Fix dt handling: if dt <= 0 or dt < 1.0, treat as 1.0
     if dt <= 0 or dt < 1.0:
         dt = 1.0
+    dt = min(dt, MAX_DT_S)
 
     # Initialize the learned gains once from the passed-in params
     if st.pid_kp is None:
