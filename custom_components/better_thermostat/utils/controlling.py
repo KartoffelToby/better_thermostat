@@ -8,7 +8,6 @@ import logging
 
 from homeassistant.components.climate.const import HVACMode
 from homeassistant.const import STATE_UNAVAILABLE, STATE_UNKNOWN, UnitOfTemperature
-from homeassistant.exceptions import HomeAssistantError
 from homeassistant.util.unit_conversion import TemperatureConverter
 
 from custom_components.better_thermostat.adapters.delegate import (
@@ -780,7 +779,10 @@ async def control_cooler(self, snapshot=None):
             _temp_to_set = round(_temp_to_set, 1)
         # Only prime the send-cache on success. A failed call must not look
         # like a completed send, otherwise the throttle would suppress the
-        # retry.
+        # retry. Any exception from this one service call is isolated
+        # (cloud integrations propagate raw errors such as ConnectionError)
+        # so the hvac_mode command below still runs; CancelledError derives
+        # from BaseException and propagates.
         try:
             await self.hass.services.async_call(
                 "climate",
@@ -789,7 +791,7 @@ async def control_cooler(self, snapshot=None):
                 blocking=True,
                 context=self.context,
             )
-        except HomeAssistantError as err:
+        except Exception as err:
             _LOGGER.warning(
                 "better_thermostat %s: set_temperature for cooler %s failed (%s); "
                 "will retry on the next cycle",
@@ -832,6 +834,8 @@ async def control_cooler(self, snapshot=None):
             current_hvac_mode,
             desired_mode,
         )
+        # Isolated like the temperature call above: one failing channel must
+        # not abort the cooler cycle.
         try:
             await self.hass.services.async_call(
                 "climate",
@@ -840,7 +844,7 @@ async def control_cooler(self, snapshot=None):
                 blocking=True,
                 context=self.context,
             )
-        except HomeAssistantError as err:
+        except Exception as err:
             _LOGGER.warning(
                 "better_thermostat %s: set_hvac_mode for cooler %s failed (%s); "
                 "will retry on the next cycle",

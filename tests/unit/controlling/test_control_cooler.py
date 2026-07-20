@@ -1,5 +1,6 @@
 """Tests for control_cooler function in utils/controlling.py."""
 
+import asyncio
 from unittest.mock import AsyncMock, Mock, patch
 
 from homeassistant.components.climate.const import HVACMode
@@ -508,3 +509,55 @@ class TestControlCoolerSendCache:
         await control_cooler(mock_self)
 
         assert len(_service_calls(mock_hass, "set_temperature")) == 1
+
+    @pytest.mark.asyncio
+    async def test_connection_error_on_set_temperature_still_attempts_hvac_mode(self):
+        """A raw ConnectionError from set_temperature does not skip set_hvac_mode.
+
+        Cloud integrations can propagate non-HomeAssistantError exceptions
+        through the service call; one failing channel must not abort the other.
+        """
+        mock_self, mock_hass, _ = _make_cooler_setup(
+            cooler_state=HVACMode.OFF, cooler_temp_attr=20.0
+        )
+
+        async def _fail_set_temperature(domain, service, *args, **kwargs):
+            if service == "set_temperature":
+                raise ConnectionError("cloud endpoint unreachable")
+
+        mock_hass.services.async_call = AsyncMock(side_effect=_fail_set_temperature)
+
+        await control_cooler(mock_self)
+
+        mode_calls = _service_calls(mock_hass, "set_hvac_mode")
+        assert len(mode_calls) == 1
+        assert mode_calls[0].args[2]["hvac_mode"] == HVACMode.COOL
+
+    @pytest.mark.asyncio
+    async def test_timeout_error_on_hvac_mode_call_does_not_propagate(self):
+        """A raw TimeoutError from set_hvac_mode is logged, not raised."""
+        mock_self, mock_hass, _ = _make_cooler_setup(
+            cooler_state=HVACMode.OFF, cooler_temp_attr=20.0
+        )
+
+        async def _fail_set_hvac_mode(domain, service, *args, **kwargs):
+            if service == "set_hvac_mode":
+                raise TimeoutError("cloud call timed out")
+
+        mock_hass.services.async_call = AsyncMock(side_effect=_fail_set_hvac_mode)
+
+        await control_cooler(mock_self)
+
+        assert len(_service_calls(mock_hass, "set_hvac_mode")) == 1
+
+    @pytest.mark.asyncio
+    async def test_cancellation_during_service_call_propagates(self):
+        """CancelledError is not swallowed by the per-call error isolation."""
+        mock_self, mock_hass, _ = _make_cooler_setup(
+            cooler_state=HVACMode.OFF, cooler_temp_attr=20.0
+        )
+
+        mock_hass.services.async_call = AsyncMock(side_effect=asyncio.CancelledError())
+
+        with pytest.raises(asyncio.CancelledError):
+            await control_cooler(mock_self)
