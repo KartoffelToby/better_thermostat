@@ -188,11 +188,6 @@ class TestReplayValidation:
             replay(entry)
 
         entry = self._entry()
-        entry["snapshot"]["tolerance"] = None
-        with pytest.raises(ValueError, match="number"):
-            replay(entry)
-
-        entry = self._entry()
         entry["state"]["window"]["phase"] = 7
         with pytest.raises(ValueError, match="string"):
             replay(entry)
@@ -217,6 +212,36 @@ class TestReplayValidation:
         entry["state"]["control_mode"]["unavailable_sensors"] = "sensor.x"
         with pytest.raises(ValueError, match="list"):
             replay(entry)
+
+
+def test_non_finite_required_floats_roundtrip_to_neutral_defaults():
+    """An export nulled by the JSON path re-imports with neutral defaults.
+
+    The exporter writes None wherever a recorded float was non-finite;
+    the import path accepts those nulls on the required-float fields
+    and substitutes the documented neutral defaults (now_monotonic 0.0,
+    tolerance 0.0, solar_intensity 0.0) instead of rejecting the entry.
+    """
+    recorder = FlightRecorder()
+    state = replace(
+        running_kernel_state(), window=WindowState(phase=WindowPhase.CLOSED)
+    )
+    desired, _ = decide(_snapshot(), state)
+    snapshot = replace(
+        _snapshot(),
+        now_monotonic=float("inf"),
+        tolerance=float("nan"),
+        solar_intensity=float("nan"),
+    )
+    recorder.record(snapshot, state, desired)
+    entry = json.loads(json.dumps(recorder.export(), allow_nan=False))[0]
+    assert entry["snapshot"]["now_monotonic"] is None
+    assert entry["snapshot"]["tolerance"] is None
+    assert entry["snapshot"]["solar_intensity"] is None
+    rebuilt = snapshot_from_dict(entry["snapshot"])
+    assert rebuilt.now_monotonic == 0.0
+    assert rebuilt.tolerance == 0.0
+    assert rebuilt.solar_intensity == 0.0
 
 
 def test_replay_roundtrips_reachability_and_null_window_state():

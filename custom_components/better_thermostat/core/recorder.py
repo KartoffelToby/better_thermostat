@@ -110,6 +110,18 @@ def _float_of(value: Json) -> float:
     return number
 
 
+def _float_or_default(value: Json, default: float) -> float:
+    """Read a required float, substituting ``default`` for null.
+
+    The export path writes ``None`` wherever a recorded float was
+    non-finite; a required-float field accepts that null on import so
+    every exported entry stays replayable. Genuinely malformed input
+    (strings, bools) still raises.
+    """
+    number = _float_or_none(value)
+    return default if number is None else number
+
+
 def _int_of(value: Json) -> int:
     if isinstance(value, bool) or not isinstance(value, int):
         raise ValueError(f"expected an integer, got {type(value).__name__}")
@@ -236,9 +248,14 @@ def snapshot_from_dict(data: dict[str, Json]) -> WorldSnapshot:
     now = _datetime_or_none(data["now"])
     if now is None:
         raise ValueError("snapshot export lacks a parseable 'now'")
+    # The required floats accept the exporter's non-finite-to-null
+    # mapping with per-field neutral defaults: a nulled monotonic clock
+    # loads as 0.0 (replay does not depend on clock alignment), a
+    # nulled tolerance as 0.0 (no dead-band), a nulled solar intensity
+    # as 0.0 (no solar contribution).
     return WorldSnapshot(
         now=now,
-        now_monotonic=_float_of(data["now_monotonic"]),
+        now_monotonic=_float_or_default(data["now_monotonic"], 0.0),
         target_temp=_float_or_none(data["target_temp"]),
         target_cooltemp=_float_or_none(data["target_cooltemp"]),
         hvac_mode=parse_hvac_mode(_str_or_none(data["hvac_mode"])),
@@ -248,10 +265,10 @@ def snapshot_from_dict(data: dict[str, Json]) -> WorldSnapshot:
         call_for_heat=_bool_of(data["call_for_heat"]),
         window_open=_bool_or_none(data.get("window_open")),
         preset_mode=_str_or_none(data["preset_mode"]),
-        tolerance=_float_of(data["tolerance"]),
+        tolerance=_float_or_default(data["tolerance"], 0.0),
         outdoor_temp=_float_or_none(data["outdoor_temp"]),
         is_day=_bool_of(data["is_day"]),
-        solar_intensity=_float_of(data["solar_intensity"]),
+        solar_intensity=_float_or_default(data["solar_intensity"], 0.0),
         min_temp=_float_or_none(data["min_temp"]),
         max_temp=_float_or_none(data["max_temp"]),
         trvs=trvs,
