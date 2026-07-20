@@ -773,9 +773,19 @@ class StateManager:
                     )
                     pre_save_failed = True
                     self._dirty = True
+            try:
+                self._sync_mpc_v2_live()
+            except Exception:
+                _LOGGER.exception(
+                    "better_thermostat [%s]: MPC v2 live-state sync failed",
+                    self._entry_id,
+                )
+                pre_save_failed = True
+                self._dirty = True
             data = _serialize(self._state)
-            # Keep ``_dirty`` set on pre-save failure so ``save_if_dirty``
-            # retries instead of acknowledging an out-of-sync snapshot.
+            # Keep ``_dirty`` set when pre-save or the live-state sync
+            # failed so ``save_if_dirty`` retries instead of acknowledging
+            # an out-of-sync snapshot.
             if not pre_save_failed:
                 self._dirty = False
             return data
