@@ -140,9 +140,8 @@ def _state_asdict(state: KernelState) -> dict[str, _Recordable]:
     dict
         Mapping of field name to its ``asdict`` representation.
     """
-    # An absent key and an explicit None both reconstruct to "no
-    # pending target"; omitting the None keeps such exports
-    # byte-identical to exports from before the field existed.
+    # A missing key and an explicit None both reconstruct to "no pending
+    # target"; drop the None so that export stays free of the null field.
     control_mode = {
         key: value
         for key, value in asdict(state.control_mode).items()
@@ -280,8 +279,7 @@ def state_from_dict(data: dict[str, Json]) -> KernelState:
     unavailable = control_mode["unavailable_sensors"]
     if not isinstance(unavailable, list):
         raise ValueError("unavailable_sensors must be a list")
-    # Exports predating the field carry no "pending_target" key; they
-    # load with no pending target, matching the pre-field semantics.
+    # A missing "pending_target" key loads as no pending target.
     pending_target = _str_or_none(control_mode.get("pending_target"))
     return KernelState(
         window=WindowState(
