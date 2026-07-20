@@ -94,6 +94,9 @@ class TestReconcileTick:
         bt.kernel_state = replace(
             bt.kernel_state, mode=ModeState(hvac_mode=CoreHvacMode.OFF)
         )
+        # An OFF-capable device: an unreported mode list would count as
+        # no-off and legitimately keep heating under an OFF intent.
+        bt.real_trvs["climate.trv"].hvac_modes = [HVACMode.HEAT, HVACMode.OFF]
         await reconcile_tick(bt)
         bt.control_queue_task.put_nowait.assert_called_once()
 

@@ -164,9 +164,13 @@ class Trv:
                 valve_entity or not declared.valve_needs_entity
             )
 
-        no_off = (self.hvac_modes is not None and "off" not in self.hvac_modes) or (
-            self.advanced or {}
-        ).get("no_off_system_mode", False) is True
+        # An unreported mode list counts as no-off: BT then sends min temp
+        # instead of an OFF the device may not support.
+        no_off = (
+            self.hvac_modes is None
+            or "off" not in self.hvac_modes
+            or (self.advanced or {}).get("no_off_system_mode", False) is True
+        )
         return TrvCapabilities(
             supports_offset_write=offset,
             supports_valve_write=valve or quirk_valve,
