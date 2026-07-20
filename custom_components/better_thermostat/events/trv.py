@@ -11,7 +11,7 @@ import logging
 
 from homeassistant.components.climate.const import HVACMode
 from homeassistant.const import STATE_UNAVAILABLE, STATE_UNKNOWN
-from homeassistant.core import State, callback
+from homeassistant.core import State
 from homeassistant.util import dt as dt_util
 
 from custom_components.better_thermostat.adapters.delegate import get_current_offset
@@ -40,7 +40,6 @@ from custom_components.better_thermostat.utils.scheduler import request_control_
 _LOGGER = logging.getLogger(__name__)
 
 
-@callback
 async def trigger_trv_change(self, event):
     """Trigger a change in the trv state."""
     if self.startup_running:

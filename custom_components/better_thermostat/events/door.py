@@ -13,7 +13,6 @@ import asyncio
 from dataclasses import replace
 import logging
 
-from homeassistant.core import callback
 from homeassistant.helpers import issue_registry as ir
 
 from custom_components.better_thermostat import DOMAIN
@@ -27,7 +26,6 @@ from custom_components.better_thermostat.utils.scheduler import request_control_
 _LOGGER = logging.getLogger(__name__)
 
 
-@callback
 async def trigger_door_change(self, event) -> None:
     """Triggered by door sensor event from HA to check if the door is open.
 
