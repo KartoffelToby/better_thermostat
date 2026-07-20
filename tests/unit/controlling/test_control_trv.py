@@ -987,6 +987,85 @@ class TestControlTrvAvailablePath:
             lock_acquire_mock.assert_awaited()
 
 
+class TestControlTrvIgnoreFlagReset:
+    """The ignore_trv_states flag never survives control_trv.
+
+    While the flag is True, TRV-side user setpoint changes are dropped, so
+    every exit path (return, exception, cancellation) must reset it.
+    """
+
+    @pytest.mark.asyncio
+    async def test_adapter_exception_resets_ignore_trv_states(self):
+        """A failing adapter write propagates but still resets the flag."""
+        mock_self = _make_mock_self(
+            trv_state=HVACMode.HEAT, trv_attrs={"temperature": 20.0}
+        )
+
+        with (
+            patch(_PATCHES["convert_outbound_states"]) as mock_convert,
+            patch(
+                _PATCHES["override_set_hvac_mode"], new=AsyncMock(return_value=False)
+            ),
+            patch(
+                _PATCHES["override_set_temperature"], new=AsyncMock(return_value=False)
+            ),
+            patch(_PATCHES["set_hvac_mode"], new=AsyncMock()),
+            patch(
+                _PATCHES["set_temperature"],
+                new=AsyncMock(side_effect=RuntimeError("adapter failure")),
+            ),
+            patch("asyncio.sleep", new=AsyncMock()),
+        ):
+            mock_convert.return_value = {
+                "temperature": 21.0,
+                "system_mode": HVACMode.HEAT,
+            }
+
+            with pytest.raises(RuntimeError, match="adapter failure"):
+                await control_trv(mock_self, "climate.trv1")
+
+        assert mock_self.real_trvs["climate.trv1"].ignore_trv_states is False
+
+    @pytest.mark.asyncio
+    async def test_cancellation_resets_ignore_trv_states(self):
+        """Cancelling control_trv mid-write resets the flag."""
+        mock_self = _make_mock_self(
+            trv_state=HVACMode.HEAT, trv_attrs={"temperature": 20.0}
+        )
+        entered_write = asyncio.Event()
+        release_write = asyncio.Event()
+
+        async def _blocking_set_temperature(*args, **kwargs):
+            entered_write.set()
+            await release_write.wait()
+
+        with (
+            patch(_PATCHES["convert_outbound_states"]) as mock_convert,
+            patch(
+                _PATCHES["override_set_hvac_mode"], new=AsyncMock(return_value=False)
+            ),
+            patch(
+                _PATCHES["override_set_temperature"], new=AsyncMock(return_value=False)
+            ),
+            patch(_PATCHES["set_hvac_mode"], new=AsyncMock()),
+            patch(_PATCHES["set_temperature"], new=_blocking_set_temperature),
+        ):
+            mock_convert.return_value = {
+                "temperature": 21.0,
+                "system_mode": HVACMode.HEAT,
+            }
+
+            task = asyncio.create_task(control_trv(mock_self, "climate.trv1"))
+            await asyncio.wait_for(entered_write.wait(), timeout=5)
+            assert mock_self.real_trvs["climate.trv1"].ignore_trv_states is True
+
+            task.cancel()
+            with pytest.raises(asyncio.CancelledError):
+                await task
+
+        assert mock_self.real_trvs["climate.trv1"].ignore_trv_states is False
+
+
 # ---------------------------------------------------------------------------
 # Boost mode with safety override (from test_boost_mode.py)
 # ---------------------------------------------------------------------------
