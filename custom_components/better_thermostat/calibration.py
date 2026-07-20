@@ -7,6 +7,7 @@ import math
 
 from homeassistant.components.climate.const import HVACAction, HVACMode
 
+from custom_components.better_thermostat.core.calibrator import CalibratorHealth
 from custom_components.better_thermostat.core.fsm.control_mode import ControlMode
 from custom_components.better_thermostat.model_fixes.model_quirks import (
     fix_local_calibration,
@@ -422,6 +423,11 @@ def _compute_mpc_balance(self, entity_id: str):
         )
         self.state_mgr.set_mpc(mpc_key, mpc_state)
     except (ValueError, TypeError, ZeroDivisionError) as err:
+        # A healed (sanitized) state must reach the store even when the
+        # compute fails, otherwise the poisoned version stays on disk and
+        # is re-healed every cycle.
+        if _mpc_health != CalibratorHealth.HEALTHY:
+            self.state_mgr.set_mpc(mpc_key, mpc_state)
         _LOGGER.debug(
             "better_thermostat %s: MPC calibration compute failed for %s: %s",
             self.device_name,
@@ -876,6 +882,11 @@ def _compute_tpi_balance(self, entity_id: str):
         )
         self.state_mgr.set_tpi(key, tpi_state)
     except (ValueError, TypeError, ZeroDivisionError) as err:
+        # A healed (sanitized) state must reach the store even when the
+        # compute fails, otherwise the poisoned version stays on disk and
+        # is re-healed every cycle.
+        if _tpi_health != CalibratorHealth.HEALTHY:
+            self.state_mgr.set_tpi(key, tpi_state)
         _LOGGER.debug(
             "better_thermostat %s: TPI calibration compute failed for %s: %s",
             self.device_name,
@@ -990,6 +1001,11 @@ def _compute_pid_balance(self, entity_id: str):
         )
         self.state_mgr.set_pid(key, pid_state)
     except (ValueError, TypeError, ZeroDivisionError) as err:
+        # A healed (sanitized) state must reach the store even when the
+        # compute fails, otherwise the poisoned version stays on disk and
+        # is re-healed every cycle.
+        if _pid_health != CalibratorHealth.HEALTHY:
+            self.state_mgr.set_pid(key, pid_state)
         _LOGGER.debug(
             "better_thermostat %s: PID calibration compute failed for %s: %s",
             self.device_name,
