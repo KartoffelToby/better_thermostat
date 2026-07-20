@@ -167,11 +167,7 @@ def test_flapping_shallower_targets_do_not_starve_the_upgrade():
     room_ok = False
     for tick in range(11):
         state = step_ladder(
-            state,
-            room_sensor_ok=room_ok,
-            trv_temp_ok=True,
-            now=tick * 60.0,
-            params=P,
+            state, room_sensor_ok=room_ok, trv_temp_ok=True, now=tick * 60.0, params=P
         )
         room_ok = not room_ok
     assert state.mode == ControlMode.SENSOR_FALLBACK

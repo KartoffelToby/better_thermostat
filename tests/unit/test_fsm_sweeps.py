@@ -123,23 +123,26 @@ class TestLadderSweep:
         depth = order.index
         # The rung only ever moves toward the capability target, never
         # past it and never against the pressure direction.
-        assert min(depth(mode), depth(target)) <= depth(result.mode) <= max(
-            depth(mode), depth(target)
+        assert (
+            min(depth(mode), depth(target))
+            <= depth(result.mode)
+            <= max(depth(mode), depth(target))
         )
 
         degrading = depth(target) > depth(mode)
         # A running window continues only while the prior pending rung
         # sits on the same side of the current rung as the observation.
-        window_continued = (
-            pending_target is not None
-            and (
-                (degrading and down_since is not None and depth(pending_target) > depth(mode))
-                or (
-                    not degrading
-                    and target != mode
-                    and up_since is not None
-                    and depth(pending_target) < depth(mode)
-                )
+        window_continued = pending_target is not None and (
+            (
+                degrading
+                and down_since is not None
+                and depth(pending_target) > depth(mode)
+            )
+            or (
+                not degrading
+                and target != mode
+                and up_since is not None
+                and depth(pending_target) < depth(mode)
             )
         )
         if result.mode != mode:
@@ -172,9 +175,7 @@ class TestLadderSweep:
                 else target
             )
             assert result.pending_target == expected_pending
-            since = (
-                result.down_pending_since if degrading else result.up_pending_since
-            )
+            since = result.down_pending_since if degrading else result.up_pending_since
             assert since is not None
             # A freshly started window begins now.
             if not window_continued:
@@ -182,11 +183,9 @@ class TestLadderSweep:
 
         # A commit short of the instantaneous target immediately opens
         # the follow-up window toward that target.
-        if result.mode != mode and result.mode != target:
+        if result.mode not in (mode, target):
             assert result.pending_target == target
-            since = (
-                result.down_pending_since if degrading else result.up_pending_since
-            )
+            since = result.down_pending_since if degrading else result.up_pending_since
             assert since == NOW
 
         # After a commit, degraded_since exactly mirrors the new rung.
