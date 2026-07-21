@@ -138,41 +138,63 @@ def step_ladder(
     if target == state.mode:
         return _with_pending(state, down=None, up=None, target=None)
 
-    pending = state.pending_target
-    if _depth(target) > _depth(state.mode):
-        if (
-            state.down_pending_since is not None
-            and pending is not None
-            and _depth(pending) > _depth(state.mode)
-        ):
-            since = state.down_pending_since
-            commit_rung = pending if _depth(pending) < _depth(target) else target
-        else:
-            since = now
-            commit_rung = target
-        if now - since >= params.down_debounce_s:
-            committed = _with_mode(state, commit_rung, now)
-            if commit_rung == target:
-                return committed
-            return _with_pending(committed, down=now, up=None, target=target)
-        return _with_pending(state, down=since, up=None, target=commit_rung)
+    deeper = _depth(target) > _depth(state.mode)
+    threshold_s = params.down_debounce_s if deeper else params.up_stability_s
+    return _advance_window(
+        state, target=target, now=now, threshold_s=threshold_s, deeper=deeper
+    )
 
+
+def _toward(deeper: bool, rung: ControlMode, reference: ControlMode) -> bool:
+    """Return whether ``rung`` lies beyond ``reference`` in window direction."""
+    if deeper:
+        return _depth(rung) > _depth(reference)
+    return _depth(rung) < _depth(reference)
+
+
+def _pend_toward(
+    state: ControlModeState, deeper: bool, since: float, target: ControlMode
+) -> ControlModeState:
+    """Store the window start in the direction's pending field."""
+    if deeper:
+        return _with_pending(state, down=since, up=None, target=target)
+    return _with_pending(state, down=None, up=since, target=target)
+
+
+def _advance_window(
+    state: ControlModeState,
+    *,
+    target: ControlMode,
+    now: float,
+    threshold_s: float,
+    deeper: bool,
+) -> ControlModeState:
+    """Run the direction-bound commit window toward ``target``.
+
+    The window keeps its start time while the pending rung stays on the
+    same side of the current mode, tracks the rung nearest the current
+    one that was continuously supported, and commits to that rung once
+    the window elapses. A commit short of the instantaneous target seeds
+    the follow-up window toward the remaining rung.
+    """
+    since_before = state.down_pending_since if deeper else state.up_pending_since
+    pending = state.pending_target
     if (
-        state.up_pending_since is not None
+        since_before is not None
         and pending is not None
-        and _depth(pending) < _depth(state.mode)
+        and _toward(deeper, pending, state.mode)
     ):
-        since = state.up_pending_since
-        commit_rung = pending if _depth(pending) > _depth(target) else target
+        since = since_before
+        commit_rung = pending if _toward(deeper, target, pending) else target
     else:
         since = now
         commit_rung = target
-    if now - since >= params.up_stability_s:
+    if now - since >= threshold_s:
         committed = _with_mode(state, commit_rung, now)
         if commit_rung == target:
             return committed
-        return _with_pending(committed, down=None, up=now, target=target)
-    return _with_pending(state, down=None, up=since, target=commit_rung)
+        return _pend_toward(committed, deeper, now, target)
+    return _pend_toward(state, deeper, since, commit_rung)
 
 
 def _with_mode(
