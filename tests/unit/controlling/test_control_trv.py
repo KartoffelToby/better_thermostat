@@ -1065,6 +1065,62 @@ class TestControlTrvIgnoreFlagReset:
 
         assert mock_self.real_trvs["climate.trv1"].ignore_trv_states is False
 
+    @pytest.mark.asyncio
+    async def test_cancel_while_waiting_for_lock_keeps_holder_flag(self):
+        """Cancelling a caller queued on the lock leaves the holder's flag alone.
+
+        Only the invocation that set ignore_trv_states may clear it. A second
+        invocation cancelled while still waiting for _temp_lock never set the
+        flag, so its cleanup must not clear it for the concurrent holder that
+        is mid-write.
+        """
+        mock_self = _make_mock_self(
+            trv_state=HVACMode.HEAT, trv_attrs={"temperature": 20.0}
+        )
+        entered_write = asyncio.Event()
+        release_write = asyncio.Event()
+
+        async def _blocking_set_temperature(*args, **kwargs):
+            entered_write.set()
+            await release_write.wait()
+
+        with (
+            patch(_PATCHES["convert_outbound_states"]) as mock_convert,
+            patch(
+                _PATCHES["override_set_hvac_mode"], new=AsyncMock(return_value=False)
+            ),
+            patch(
+                _PATCHES["override_set_temperature"], new=AsyncMock(return_value=False)
+            ),
+            patch(_PATCHES["set_hvac_mode"], new=AsyncMock()),
+            patch(_PATCHES["set_temperature"], new=_blocking_set_temperature),
+        ):
+            mock_convert.return_value = {
+                "temperature": 21.0,
+                "system_mode": HVACMode.HEAT,
+            }
+
+            holder = asyncio.create_task(control_trv(mock_self, "climate.trv1"))
+            await asyncio.wait_for(entered_write.wait(), timeout=5)
+            assert mock_self.real_trvs["climate.trv1"].ignore_trv_states is True
+
+            waiter = asyncio.create_task(control_trv(mock_self, "climate.trv1"))
+            # Let the waiter run until it suspends on the held lock.
+            await asyncio.sleep(0)
+            await asyncio.sleep(0)
+            waiter.cancel()
+            with pytest.raises(asyncio.CancelledError):
+                await waiter
+
+            # The holder is still mid-write; its suppression flag must survive.
+            assert mock_self.real_trvs["climate.trv1"].ignore_trv_states is True
+
+            holder.cancel()
+            with pytest.raises(asyncio.CancelledError):
+                await holder
+
+        assert mock_self.real_trvs["climate.trv1"].ignore_trv_states is False
+
 
 # ---------------------------------------------------------------------------
 # Boost mode with safety override (from test_boost_mode.py)

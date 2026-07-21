@@ -586,23 +586,25 @@ class StateManager:
             self._mpc_v2_reid_live[key] = runtime
         return runtime
 
-    def adopt_mpc_v2_reid(
-        self, key: str, data: MpcV2ReidData, *, controller_key: str | None = None
-    ) -> None:
+    def adopt_mpc_v2_reid(self, key: str, data: MpcV2ReidData) -> None:
         """Adopt a validated re-identification result, bumplessly.
 
-        The live controller is exported into the persisted snapshot and then
-        dropped, so the next :meth:`get_mpc_v2_live` rebuilds it with the new
-        plant prior while restoring the observer state (Kalman, DOB, integral,
-        last command) from that snapshot — no cold start. The result is
-        stored under ``key``; ``controller_key`` names the live controller
-        that receives the bumpless transfer when the two are keyed
-        differently (the result key is target-independent, the controller
-        key is per target bucket).
+        The plant prior describes the room, so every cached live controller
+        of this instance is stale after adoption — regardless of which
+        target bucket it is keyed under. Each one is exported into the
+        persisted snapshot and then dropped, so the next
+        :meth:`get_mpc_v2_live` for that key rebuilds the controller with
+        the new plant prior while restoring the observer state (Kalman,
+        DOB, integral, last command) from the snapshot — no cold start.
+        The result is stored under ``key``.
+
+        When ``key`` is the shared, target-independent ``{uid}:reid`` key,
+        this instance's obsolete per-bucket result entries are removed:
+        the shared key wins every read, so they are dead weight that could
+        only resurrect stale data through the legacy fallback lookup.
         """
-        live_key = controller_key or key
-        live = self._mpc_v2_live.pop(live_key, None)
-        if live is not None:
+        for live_key in list(self._mpc_v2_live):
+            live = self._mpc_v2_live.pop(live_key)
             exported = export_mpc_v2_state(live)
             if exported is not None:
                 self._state.mpc_v2[live_key] = deserialize_mpc_v2(exported)
@@ -616,6 +618,14 @@ class StateManager:
                     live_key,
                 )
         self._state.mpc_v2_reid[key] = data
+        if key.endswith(":reid"):
+            uid_prefix = key[: -len("reid")]
+            for legacy_key in [
+                k
+                for k in self._state.mpc_v2_reid
+                if k != key and k.startswith(uid_prefix)
+            ]:
+                del self._state.mpc_v2_reid[legacy_key]
         self._dirty = True
 
     def get_pid(self, key: str) -> PIDState:

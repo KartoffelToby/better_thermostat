@@ -67,6 +67,31 @@ async def async_bind_trv_device(
     return True
 
 
+async def async_unbind_trv_device(hass: HomeAssistant, bt_unique_id: str) -> bool:
+    """Clear a stale ``via_device`` link on the BT device.
+
+    Multi-TRV setups carry no ``via_device`` link (it is single-valued), but
+    a BT device that was once bound to a single valve keeps that link in the
+    device registry until it is cleared explicitly. Passing ``None`` for
+    ``via_device_id`` removes the link; the registry treats the omitted
+    (UNDEFINED) value as "leave unchanged".
+
+    Returns True when a link was cleared, False otherwise.
+    """
+    dr_reg = dr.async_get(hass)
+    bt_device = dr_reg.async_get_device(identifiers={(DOMAIN, bt_unique_id)})
+    if bt_device is None or bt_device.via_device_id is None:
+        return False
+
+    dr_reg.async_update_device(bt_device.id, via_device_id=None)
+    _LOGGER.debug(
+        "better_thermostat %s: cleared stale via_device link on device %s",
+        bt_unique_id,
+        bt_device.id,
+    )
+    return True
+
+
 @callback
 def async_get_config_entry_bindings(
     hass: HomeAssistant, entry: ConfigEntry

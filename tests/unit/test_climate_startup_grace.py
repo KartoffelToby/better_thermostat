@@ -1,16 +1,21 @@
 """Startup grace window for degraded-mode annunciation.
 
-_finalize_startup arms the degraded-mode grace deadline on the lifecycle
-region together with the INITIALISING -> STARTING transition, so the very
+startup() arms the degraded-mode grace deadline on the lifecycle region
+before any degraded-mode check can run, so an optional sensor that is still
+unavailable while startup is in progress stays quiet. The INITIALISING ->
+STARTING transition in _finalize_startup carries that same deadline, and the
 first control cycle (which runs a lifecycle tick) does not promote the
 region straight to RUNNING. While the grace window is active,
 check_and_update_degraded_mode defers the degraded-mode warning and the
 Home Assistant repair issue; both fire once the window has elapsed.
 """
 
+import asyncio
 from contextlib import ExitStack
+from dataclasses import replace
 from unittest.mock import AsyncMock, MagicMock, patch
 
+from homeassistant.core import State
 import pytest
 
 from custom_components.better_thermostat.climate import BetterThermostat
@@ -27,8 +32,10 @@ from custom_components.better_thermostat.utils.watcher import (
 )
 
 _CLIMATE = "custom_components.better_thermostat.climate"
+_WATCHER = "custom_components.better_thermostat.utils.watcher"
 SENSOR_ID = "sensor.room_temp"
 TRV_ID = "climate.test_trv"
+WEATHER_ID = "weather.home"
 
 
 def _startup_bt():
@@ -78,6 +85,105 @@ async def _run_finalize_startup(bt, *, patch_degraded_check=True):
         for p in patches:
             stack.enter_context(p)
         await BetterThermostat._finalize_startup(bt)
+
+
+def _startup_loop_bt():
+    """Build a mock for startup() with an unavailable optional weather entity."""
+    bt = _startup_bt()
+    bt.weather_entity = WEATHER_ID
+    bt.version = "1.0.0"
+    bt._check_entities_ready = MagicMock(return_value=True)
+    bt._collect_trv_states = MagicMock(return_value=[])
+    bt._resolve_temperature_range = MagicMock()
+    bt._initialize_sensors = MagicMock()
+    bt._restore_state = AsyncMock()
+    bt._validate_hvac_mode = MagicMock()
+    bt._initialize_trvs = AsyncMock()
+    bt._finalize_startup = AsyncMock()
+
+    def states_get(entity_id):
+        if entity_id == SENSOR_ID:
+            return State(SENSOR_ID, "21.0")
+        return None
+
+    bt.hass.states.get.side_effect = states_get
+    return bt
+
+
+@pytest.mark.asyncio
+async def test_startup_arms_grace_before_the_first_degraded_check(caplog):
+    """A dead optional sensor stays quiet during startup and warns post-grace.
+
+    startup() runs a degraded-mode check before _finalize_startup arms the
+    STARTING transition; the grace deadline must already be on the lifecycle
+    region at that point, or the warning and the repair issue fire while
+    startup is still in progress.
+    """
+    bt = _startup_loop_bt()
+    start = bt.clock.now()
+
+    with (
+        patch(f"{_WATCHER}.ir.async_create_issue") as create_issue,
+        patch(f"{_WATCHER}.get_battery_status", MagicMock()),
+    ):
+        await asyncio.wait_for(BetterThermostat.startup(bt), timeout=1)
+
+        # The grace deadline is armed on the (still INITIALISING) lifecycle
+        # region, so the in-startup degraded check saw an active window.
+        assert bt._degraded_grace_until == start + STARTUP_DEGRADED_GRACE_PERIOD
+        assert bt.kernel_state.lifecycle.phase == LifecyclePhase.INITIALISING
+        assert bt.kernel_state.lifecycle.grace_until == bt._degraded_grace_until
+        assert bt.kernel_state.control_mode.degraded is True
+        assert not any("Entering degraded mode" in r.message for r in caplog.records)
+        create_issue.assert_not_called()
+        assert bt._degraded_warning_emitted is False
+
+        # The window still expires: with the sensor dead past the deadline,
+        # the warning and the repair issue fire.
+        bt.clock.advance(STARTUP_DEGRADED_GRACE_PERIOD.total_seconds() + 1)
+        with patch(
+            "custom_components.better_thermostat.utils.helpers.async_fire_logbook_entry",
+            AsyncMock(),
+        ):
+            await check_and_update_degraded_mode(bt)
+
+        assert any("Entering degraded mode" in r.message for r in caplog.records)
+        create_issue.assert_called_once()
+        assert bt._degraded_warning_emitted is True
+
+
+@pytest.mark.asyncio
+async def test_startup_finished_carries_the_deadline_armed_at_startup_begin():
+    """_finalize_startup does not restart an already armed grace window."""
+    bt = _startup_bt()
+    armed = bt.clock.now() + STARTUP_DEGRADED_GRACE_PERIOD
+    bt._degraded_grace_until = armed
+    bt.kernel_state = replace(
+        bt.kernel_state, lifecycle=replace(bt.kernel_state.lifecycle, grace_until=armed)
+    )
+    bt.clock.advance(60)
+
+    await _run_finalize_startup(bt)
+
+    assert bt._degraded_grace_until == armed
+    assert bt.kernel_state.lifecycle.phase == LifecyclePhase.STARTING
+    assert bt.kernel_state.lifecycle.grace_until == armed
+
+
+@pytest.mark.asyncio
+async def test_finalize_startup_arms_grace_before_the_startup_triggers():
+    """The startup triggers already see an active grace window."""
+    bt = _startup_bt()
+    seen = {}
+
+    async def capture(_event):
+        seen["in_grace"] = bt.kernel_state.lifecycle.in_grace(bt.clock.now())
+
+    bt._trigger_time = AsyncMock(side_effect=capture)
+
+    await _run_finalize_startup(bt)
+
+    assert seen["in_grace"] is True
 
 
 @pytest.mark.asyncio

@@ -56,9 +56,11 @@ class ControlModeState:
     down_pending_since: float | None = None
     # Pending upgrade (capability restored, stability window running).
     up_pending_since: float | None = None
-    # Rung the running debounce/stability window is heading toward. A
-    # window only counts for this exact target; when the capability
-    # observation points at a different rung, the window restarts.
+    # Rung the running debounce/stability window commits to on elapse:
+    # the shallowest deeper rung (downgrade) or deepest shallower rung
+    # (upgrade) continuously supported since the window started. The
+    # window restarts when the observation returns to the current rung
+    # or crosses to the other side of it.
     pending_target: ControlMode | None = None
 
     @property
@@ -101,6 +103,14 @@ def _target_rung(room_sensor_ok: bool, trv_temp_ok: bool) -> ControlMode:
     return ControlMode.HOLD
 
 
+_RUNG_ORDER = (ControlMode.OPTIMAL, ControlMode.SENSOR_FALLBACK, ControlMode.HOLD)
+
+
+def _depth(mode: ControlMode) -> int:
+    """Return the degradation depth of a rung (OPTIMAL shallowest)."""
+    return _RUNG_ORDER.index(mode)
+
+
 def step_ladder(
     state: ControlModeState,
     *,
@@ -113,36 +123,78 @@ def step_ladder(
 
     Downgrades commit after ``down_debounce_s`` of sustained loss;
     upgrades commit after ``up_stability_s`` of sustained recovery.
-    The window is bound to its target rung: when the observation starts
-    pointing at a different rung, the window restarts, so the new target
-    must itself persist for the full debounce/stability duration.
+    The window is bound to its direction, not to one exact rung: it
+    keeps running as long as the observation stays on the same side of
+    the current rung (deeper while degrading, shallower while
+    recovering) and commits to the rung nearest the current one that
+    was continuously supported for the full window — the shallowest
+    deeper rung while degrading, the deepest shallower rung while
+    recovering. An observation back at the current rung restarts the
+    bookkeeping from scratch; a rung beyond the committed one must earn
+    its own full window afterwards.
     """
     target = _target_rung(room_sensor_ok, trv_temp_ok)
 
     if target == state.mode:
         return _with_pending(state, down=None, up=None, target=None)
 
-    rung_order = (ControlMode.OPTIMAL, ControlMode.SENSOR_FALLBACK, ControlMode.HOLD)
-    degrading = rung_order.index(target) > rung_order.index(state.mode)
-
-    if degrading:
-        since = (
-            state.down_pending_since
-            if state.down_pending_since is not None and state.pending_target == target
-            else now
-        )
-        if now - since >= params.down_debounce_s:
-            return _with_mode(state, target, now)
-        return _with_pending(state, down=since, up=None, target=target)
-
-    since = (
-        state.up_pending_since
-        if state.up_pending_since is not None and state.pending_target == target
-        else now
+    deeper = _depth(target) > _depth(state.mode)
+    threshold_s = params.down_debounce_s if deeper else params.up_stability_s
+    return _advance_window(
+        state, target=target, now=now, threshold_s=threshold_s, deeper=deeper
     )
-    if now - since >= params.up_stability_s:
-        return _with_mode(state, target, now)
+
+
+def _toward(deeper: bool, rung: ControlMode, reference: ControlMode) -> bool:
+    """Return whether ``rung`` lies beyond ``reference`` in window direction."""
+    if deeper:
+        return _depth(rung) > _depth(reference)
+    return _depth(rung) < _depth(reference)
+
+
+def _pend_toward(
+    state: ControlModeState, deeper: bool, since: float, target: ControlMode
+) -> ControlModeState:
+    """Store the window start in the direction's pending field."""
+    if deeper:
+        return _with_pending(state, down=since, up=None, target=target)
     return _with_pending(state, down=None, up=since, target=target)
+
+
+def _advance_window(
+    state: ControlModeState,
+    *,
+    target: ControlMode,
+    now: float,
+    threshold_s: float,
+    deeper: bool,
+) -> ControlModeState:
+    """Run the direction-bound commit window toward ``target``.
+
+    The window keeps its start time while the pending rung stays on the
+    same side of the current mode, tracks the rung nearest the current
+    one that was continuously supported, and commits to that rung once
+    the window elapses. A commit short of the instantaneous target seeds
+    the follow-up window toward the remaining rung.
+    """
+    since_before = state.down_pending_since if deeper else state.up_pending_since
+    pending = state.pending_target
+    if (
+        since_before is not None
+        and pending is not None
+        and _toward(deeper, pending, state.mode)
+    ):
+        since = since_before
+        commit_rung = pending if _toward(deeper, target, pending) else target
+    else:
+        since = now
+        commit_rung = target
+    if now - since >= threshold_s:
+        committed = _with_mode(state, commit_rung, now)
+        if commit_rung == target:
+            return committed
+        return _pend_toward(committed, deeper, now, target)
+    return _pend_toward(state, deeper, since, commit_rung)
 
 
 def _with_mode(

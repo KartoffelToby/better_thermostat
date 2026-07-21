@@ -292,21 +292,30 @@ def _binding_bt(trv_confs):
 async def test_via_device_binding_runs_for_single_trv():
     """A single-TRV setup binds the BT device via that one valve."""
     bt = _binding_bt([{"trv": "climate.trv"}])
-    with patch(f"{_CLIMATE}.async_bind_trv_device", AsyncMock()) as bind:
+    with (
+        patch(f"{_CLIMATE}.async_bind_trv_device", AsyncMock()) as bind,
+        patch(f"{_CLIMATE}.async_unbind_trv_device", AsyncMock()) as unbind,
+    ):
         await _run_finalize_startup(bt)
 
     bind.assert_awaited_once_with(bt.hass, "bt_uid", "climate.trv", "entry_1")
+    unbind.assert_not_awaited()
 
 
 @pytest.mark.asyncio
-async def test_via_device_binding_skipped_for_multi_trv():
-    """A multi-TRV setup skips via_device binding.
+async def test_via_device_binding_skipped_and_cleared_for_multi_trv():
+    """A multi-TRV setup skips via_device binding and clears a stale link.
 
     via_device is single-valued, so binding each TRV would just rewrite the
-    same BT device row and leave it attached to the last valve only.
+    same BT device row and leave it attached to the last valve only. A link
+    that an earlier single-valve binding pass left behind is removed.
     """
     bt = _binding_bt([{"trv": "climate.trv"}, {"trv": "climate.second_trv"}])
-    with patch(f"{_CLIMATE}.async_bind_trv_device", AsyncMock()) as bind:
+    with (
+        patch(f"{_CLIMATE}.async_bind_trv_device", AsyncMock()) as bind,
+        patch(f"{_CLIMATE}.async_unbind_trv_device", AsyncMock()) as unbind,
+    ):
         await _run_finalize_startup(bt)
 
     bind.assert_not_awaited()
+    unbind.assert_awaited_once_with(bt.hass, "bt_uid")

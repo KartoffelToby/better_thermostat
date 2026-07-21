@@ -108,10 +108,26 @@ def test_non_finite_offset_is_withheld():
         assert out.trvs["climate.trv"].offset is None
 
 
-def test_non_finite_valve_is_pinned_to_a_bound():
-    """NaN/inf valve percentages are clamped instead of leaking through."""
-    out = clamp(_desired(valve=float("inf")), _snapshot())
-    assert out.trvs["climate.trv"].valve_percent == 0.0
+def test_non_finite_valve_is_withheld():
+    """NaN/inf valve percentages are withheld, not coerced to a bound.
+
+    A non-finite value carries no opening degree at all; coercing it to
+    the lower bound would issue a spurious close command.
+    """
+    for value in (float("nan"), float("inf"), float("-inf")):
+        out = clamp(_desired(valve=value), _snapshot())
+        assert out.trvs["climate.trv"].valve_percent is None
+
+
+def test_non_finite_valve_is_withheld_under_the_jump_limiter():
+    """The jump limiter passes a withheld valve intent through as None."""
+    out = clamp(
+        _desired(valve=float("nan")),
+        _snapshot(),
+        previous=_desired(valve=50.0),
+        max_valve_jump=20.0,
+    )
+    assert out.trvs["climate.trv"].valve_percent is None
 
 
 def test_unknown_trv_falls_back_to_conservative_bounds():
@@ -156,6 +172,50 @@ def test_inverted_reported_bounds_are_normalized():
     assert out.trvs["climate.trv"].setpoint == 5.0
     out = clamp(_desired(setpoint=21.0), snapshot)
     assert out.trvs["climate.trv"].setpoint == 21.0
+
+
+def test_device_bound_inverted_against_fallback_uses_pure_fallback_bounds():
+    """A device bound that inverts against a fallback bound is distrusted.
+
+    With min_temp=50 and no usable max_temp, pairing the device floor
+    with the fallback cap yields an inverted interval; swapping it would
+    clamp every intent up to at least 35. The hull instead falls back to
+    the pure fallback bounds on both ends.
+    """
+    snapshot = _snapshot(min_temp=50.0, max_temp=float("nan"))
+    out = clamp(_desired(setpoint=21.0), snapshot)
+    assert out.trvs["climate.trv"].setpoint == 21.0
+    out = clamp(_desired(setpoint=42.0), snapshot)
+    assert out.trvs["climate.trv"].setpoint == 35.0
+    out = clamp(_desired(setpoint=2.0), snapshot)
+    assert out.trvs["climate.trv"].setpoint == 4.5
+
+    # Mirror case: a device cap below the fallback floor.
+    snapshot = _snapshot(min_temp=None, max_temp=2.0)
+    out = clamp(_desired(setpoint=21.0), snapshot)
+    assert out.trvs["climate.trv"].setpoint == 21.0
+
+
+def test_offset_device_bound_inverted_against_fallback_uses_pure_fallback():
+    """The offset channel applies the same distrust rule to mixed pairs."""
+    snapshot = _snapshot(local_calibration_min=15.0, local_calibration_max=None)
+    out = clamp(_desired(offset=1.5), snapshot)
+    assert out.trvs["climate.trv"].offset == 1.5
+    out = clamp(_desired(offset=25.0), snapshot)
+    assert out.trvs["climate.trv"].offset == 12.0
+
+    snapshot = _snapshot(local_calibration_min=None, local_calibration_max=-14.0)
+    out = clamp(_desired(offset=-1.5), snapshot)
+    assert out.trvs["climate.trv"].offset == -1.5
+
+
+def test_inverted_device_calibration_range_is_normalized():
+    """A genuinely inverted device calibration range is swapped, not dropped."""
+    snapshot = _snapshot(local_calibration_min=7.0, local_calibration_max=-7.0)
+    out = clamp(_desired(offset=-9.5), snapshot)
+    assert out.trvs["climate.trv"].offset == -7.0
+    out = clamp(_desired(offset=9.5), snapshot)
+    assert out.trvs["climate.trv"].offset == 7.0
 
 
 def test_jump_limit_is_opt_in():

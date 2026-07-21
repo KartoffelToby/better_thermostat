@@ -213,6 +213,18 @@ async def trigger_trv_change(self, event):
             )
             _main_change = False
             if trv.calibration == 0:
+                # The awaits above (model detection, quirk loading) can
+                # outlive the entry: the offset read resolves the adapter
+                # through a raw real_trvs index, so skip it once the TRV
+                # is no longer tracked.
+                if entity_id not in self.real_trvs:
+                    _LOGGER.debug(
+                        "better_thermostat %s: TRV %s is no longer tracked, "
+                        "skipping offset read",
+                        self.device_name,
+                        entity_id,
+                    )
+                    return
                 trv.last_calibration = await get_current_offset(self, entity_id)
 
     if self.ignore_states:

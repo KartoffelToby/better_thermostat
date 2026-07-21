@@ -19,6 +19,8 @@ from custom_components.better_thermostat.trv import Trv
 from custom_components.better_thermostat.utils.calibration.mpc_v2 import (
     MpcV2Input,
     MpcV2Params,
+    ReidConfig,
+    ReidSample,
     compute_mpc_v2,
 )
 from custom_components.better_thermostat.utils.const import (
@@ -219,6 +221,83 @@ def test_dispatch_records_reid_samples_under_auto() -> None:
     assert sample.window_open is False
 
 
+def test_dispatch_skips_sampling_when_control_mode_degraded() -> None:
+    """Samples are recorded only on the OPTIMAL rung of the fail-soft ladder.
+
+    Under SENSOR_FALLBACK ``cur_temp`` freezes at the last valid reading
+    while the valve keeps moving; recording such samples would fit the
+    plant against a frozen temperature tail. HOLD has no usable reading
+    at all. Both rungs must leave the buffer untouched.
+    """
+    bt = _make_bt()
+    out, _ = _compute_mpc_v2_balance(bt, "climate.x")
+    assert out is not None
+    key = next(iter(bt.state_mgr._mpc_v2_reid_live))
+    runtime = bt.state_mgr.get_mpc_v2_reid_runtime(key)
+    assert len(runtime.buffer.samples) == 1
+
+    for degraded_mode in (ControlMode.SENSOR_FALLBACK, ControlMode.HOLD):
+        bt.kernel_state.control_mode = SimpleNamespace(mode=degraded_mode)
+        bt.clock.advance(120.0)
+        out, _ = _compute_mpc_v2_balance(bt, "climate.x")
+        assert out is not None
+        assert len(runtime.buffer.samples) == 1
+
+    bt.kernel_state.control_mode = SimpleNamespace(mode=ControlMode.OPTIMAL)
+    bt.clock.advance(120.0)
+    out, _ = _compute_mpc_v2_balance(bt, "climate.x")
+    assert out is not None
+    assert len(runtime.buffer.samples) == 2
+
+
+def test_fallback_episode_gap_splits_reid_segments() -> None:
+    """A sampling pause longer than ``max_gap_s`` cuts the segment there.
+
+    Skipping samples during a degraded episode leaves a time gap in the
+    buffer; the segmenter breaks runs on gaps above ``ReidConfig.max_gap_s``,
+    so the frozen episode can never bridge two transients into one.
+    """
+    from custom_components.better_thermostat.utils.calibration.mpc_v2.reid import (
+        extract_segments,
+    )
+
+    cfg = ReidConfig()
+    spacing = 300.0
+    samples: list[ReidSample] = []
+    # First heat-up run: 10 samples over 2700 s, rising 1.8 K.
+    for i in range(10):
+        samples.append(
+            ReidSample(
+                t_s=i * spacing, T_room_C=19.0 + 0.2 * i, u_frac=0.8, T_outdoor_C=5.0
+            )
+        )
+    # Degraded episode: no samples for longer than the gap threshold.
+    gap_start = samples[-1].t_s
+    resume = gap_start + cfg.max_gap_s + spacing
+    # Second heat-up run after recovery.
+    for i in range(10):
+        samples.append(
+            ReidSample(
+                t_s=resume + i * spacing,
+                T_room_C=20.0 + 0.2 * i,
+                u_frac=0.8,
+                T_outdoor_C=5.0,
+            )
+        )
+
+    segments = extract_segments(samples, cfg)
+    assert len(segments) == 2
+    assert all(s.kind == "heatup" for s in segments)
+    # Without the gap the same samples form one contiguous run.
+    contiguous = [
+        ReidSample(
+            t_s=i * spacing, T_room_C=19.0 + 0.1 * i, u_frac=0.8, T_outdoor_C=5.0
+        )
+        for i in range(20)
+    ]
+    assert len(extract_segments(contiguous, cfg)) == 1
+
+
 def test_dispatch_skips_sampling_for_explicit_preset() -> None:
     """Preset mode is a re-ID opt-out: no samples are collected."""
     bt = _make_bt(preset=MpcV2PlantPreset.LARGE_ROOM)
@@ -322,26 +401,73 @@ def test_reid_buffer_is_shared_across_target_buckets() -> None:
     assert len(runtime.buffer.samples) == 2
 
 
-def test_adopt_with_controller_key_splits_result_and_transfer() -> None:
-    """The result lands under the shared key; the bumpless transfer hits the controller key."""
-    mgr = _make_manager()
-    _warm(mgr, "k", MpcV2Params())
-    old = mgr.get_mpc_v2_live("k", MpcV2Params())
-    assert old.controller is not None
-    last_u_before = old.controller._last_u
+def test_adopt_transfers_all_live_controllers_bumplessly() -> None:
+    """Adoption folds and drops every cached live controller, not just one.
 
-    mgr.adopt_mpc_v2_reid("uid:reid", _REID, controller_key="k")
+    The plant prior describes the room, so a controller cached under any
+    target bucket is stale after adoption. Each one must take the
+    bumpless rebuild path on its next activation: observer state carried
+    over from the folded snapshot and the new prior's signature stamped,
+    so ``compute_mpc_v2`` does not force a cold rebuild on the first
+    cycle back in that bucket.
+    """
+    from custom_components.better_thermostat.utils.calibration.mpc_v2.state import (
+        _plant_signature_of,
+    )
+
+    mgr = _make_manager()
+    key_a = "uid:climate.x:t21.0"
+    key_b = "uid:climate.x:t22.5"
+    _warm(mgr, key_a, MpcV2Params())
+    _warm(mgr, key_b, MpcV2Params())
+    old_a = mgr.get_mpc_v2_live(key_a, MpcV2Params())
+    old_b = mgr.get_mpc_v2_live(key_b, MpcV2Params())
+    assert old_a.controller is not None and old_b.controller is not None
+    last_u_a = old_a.controller._last_u
+    last_u_b = old_b.controller._last_u
+
+    mgr.adopt_mpc_v2_reid("uid:reid", _REID)
 
     assert mgr.get_mpc_v2_reid("uid:reid") is _REID
-    assert mgr.get_mpc_v2_reid("k") is None
-    # The controller-keyed live state was folded and dropped for the rebuild.
+    assert mgr.get_mpc_v2_reid(key_a) is None
+
     new_params = MpcV2Params()
     new_params.plant.tau_room_min = _REID.tau_room_min
     new_params.plant.gain_heater = _REID.gain_heater
-    rebuilt = mgr.get_mpc_v2_live("k", new_params)
-    assert rebuilt is not old
-    assert rebuilt.controller is not None
-    assert rebuilt.controller._last_u == last_u_before
+    for key, old, last_u in ((key_a, old_a, last_u_a), (key_b, old_b, last_u_b)):
+        rebuilt = mgr.get_mpc_v2_live(key, new_params)
+        assert rebuilt is not old
+        assert rebuilt.controller is not None
+        assert rebuilt.controller is not old.controller
+        assert rebuilt.controller._last_u == last_u
+        # The new prior's signature is stamped on the rebuilt state, so the
+        # signature guard in compute_mpc_v2 keeps this controller (bumpless)
+        # instead of discarding it for a cold rebuild.
+        assert rebuilt.plant_signature == _plant_signature_of(new_params)
+
+
+def test_adopt_under_shared_key_removes_legacy_bucket_entries() -> None:
+    """Writing the shared key clears this uid's per-bucket result entries.
+
+    The shared key wins every read, so bucket entries are dead weight;
+    left in place they could only resurrect stale data through the
+    legacy fallback if the shared entry ever disappeared. Entries of
+    other uids are untouched.
+    """
+    mgr = _make_manager()
+    legacy = MpcV2ReidData(
+        tau_room_min=600.0, gain_heater=1.0, fitted_ts=100.0, n_segments=3
+    )
+    mgr.adopt_mpc_v2_reid("uid:climate.x:t21.0", legacy)
+    mgr.adopt_mpc_v2_reid("uid:group:t19.0", legacy)
+    mgr.adopt_mpc_v2_reid("other:climate.y:t20.0", legacy)
+
+    mgr.adopt_mpc_v2_reid("uid:reid", _REID)
+
+    assert mgr.get_mpc_v2_reid("uid:reid") is _REID
+    assert mgr.get_mpc_v2_reid("uid:climate.x:t21.0") is None
+    assert mgr.get_mpc_v2_reid("uid:group:t19.0") is None
+    assert mgr.get_mpc_v2_reid("other:climate.y:t20.0") is legacy
 
 
 def test_shared_reid_key_survives_serialization_round_trip() -> None:

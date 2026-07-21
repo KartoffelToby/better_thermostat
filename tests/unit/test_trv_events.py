@@ -448,6 +448,48 @@ class TestInternalTemperatureChange:
         assert trv.last_calibration == 2.5
         assert trv.current_temperature == 20.0
 
+    @pytest.mark.asyncio
+    async def test_entry_removed_before_offset_read_skips_it(self, mock_bt):
+        """A removal before the offset read skips it instead of raising.
+
+        The handler awaits model detection before the calibration branch;
+        the entry can vanish there. The unpatched offset read resolves the
+        adapter through a raw ``real_trvs[entity_id]`` index, so reaching
+        it after the removal would raise KeyError.
+        """
+        trv = mock_bt.real_trvs[ENTITY_ID]
+        trv.calibration_received = False
+        trv.calibration = 0
+        trv.model = None
+        trv_state = _make_state(
+            attributes={"current_temperature": 20.0, "model_id": "TRV-X"}
+        )
+        mock_bt.hass.states.get.return_value = trv_state
+        trv.current_temperature = 18.0
+
+        event = _make_event(mock_bt, new_state=trv_state, old_state=trv_state)
+
+        async def pop_entry(bt, entity_id):
+            bt.real_trvs.pop(entity_id)
+
+        with (
+            patch(
+                "custom_components.better_thermostat.events.trv.get_device_model",
+                side_effect=pop_entry,
+            ),
+            patch(
+                "custom_components.better_thermostat.events.trv.convert_inbound_states",
+                return_value=HVACMode.HEAT,
+            ),
+        ):
+            await trigger_trv_change(mock_bt, event)
+
+        assert mock_bt.real_trvs == {}
+        # The offset read was skipped; the flag still flipped on the
+        # detached Trv object.
+        assert trv.calibration_received is True
+        assert trv.last_calibration == 0.0
+
 
 # ---------------------------------------------------------------------------
 # 3. HVAC action and valve position
