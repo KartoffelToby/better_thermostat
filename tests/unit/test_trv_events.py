@@ -879,6 +879,44 @@ class TestTargetTempAdoption:
         assert mock_bt.bt_target_temp == 22.0
 
     @pytest.mark.asyncio
+    async def test_setpoint_falls_back_when_temperature_is_empty(self, mock_bt):
+        """An empty 'temperature' does not hide 'target_temp_low'.
+
+        A TRV running in range mode publishes the key it does not drive as
+        None, so the fallback has to survive a present-but-empty attribute.
+        """
+        old_state = State(
+            ENTITY_ID,
+            "heat",
+            attributes={
+                "temperature": None,
+                "target_temp_low": 19.0,
+                "current_temperature": 18.0,
+            },
+        )
+        new_state = State(
+            ENTITY_ID,
+            "heat",
+            attributes={
+                "temperature": None,
+                "target_temp_low": 22.0,
+                "current_temperature": 18.0,
+            },
+        )
+        mock_bt.hass.states.get.return_value = new_state
+        mock_bt.real_trvs[ENTITY_ID].last_temperature = 19.0
+
+        event = _make_event(mock_bt, new_state=new_state, old_state=old_state)
+
+        with patch(
+            "custom_components.better_thermostat.events.trv.convert_inbound_states",
+            return_value=HVACMode.HEAT,
+        ):
+            await trigger_trv_change(mock_bt, event)
+
+        assert mock_bt.bt_target_temp == 22.0
+
+    @pytest.mark.asyncio
     async def test_cooler_sync_logic_bug(self, mock_bt):
         """Cooler-sync always sets cooltemp to target - step regardless of initial value."""
         mock_bt.cooler_entity_id = "climate.cooler"

@@ -28,11 +28,12 @@ from custom_components.better_thermostat.utils.const import (
     CalibrationType,
 )
 from custom_components.better_thermostat.utils.helpers import (
+    COOLER_SETPOINT_KEYS,
     attr_to_celsius,
     convert_to_float,
-    get_cooler_setpoint,
     get_current_set_temperatures,
     matches_any_setpoint,
+    read_setpoint_celsius,
     supports_single_target_temperature,
     trv_supports_temperature_range,
 )
@@ -282,7 +283,9 @@ async def control_cooler(self):
     # Resolve the cooler's reported setpoint to Celsius before comparing it
     # against the Celsius desired value; on a Fahrenheit system the raw
     # attribute would never match and defeat the redundant-send dedup.
-    current_temp = get_cooler_setpoint(self, cooler_state, "control_cooler()")
+    current_temp = read_setpoint_celsius(
+        self, cooler_state, COOLER_SETPOINT_KEYS, "control_cooler()"
+    )
 
     # A cooler that only advertises the range feature rejects a "temperature"
     # payload with a ServiceValidationError, so it never receives a setpoint.
