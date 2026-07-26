@@ -28,6 +28,7 @@ from custom_components.better_thermostat.utils.const import (
     CalibrationType,
 )
 from custom_components.better_thermostat.utils.helpers import (
+    attr_to_celsius,
     convert_to_float,
     get_cooler_setpoint,
     get_current_set_temperatures,
@@ -285,7 +286,7 @@ async def control_cooler(self):
 
     # A cooler that only advertises the range feature rejects a "temperature"
     # payload with a ServiceValidationError, so it never receives a setpoint.
-    # Devices that advertise neither bit keep the single-setpoint payload.
+    # Devices that advertise neither bit use the single-setpoint payload.
     _write_range = not supports_single_target_temperature(
         cooler_state
     ) and trv_supports_temperature_range(cooler_state)
@@ -295,6 +296,18 @@ async def control_cooler(self):
 
     # Determine desired state based on current conditions
     desired_temp = self.bt_target_cooltemp
+
+    # A range write needs both bounds, and Home Assistant rejects a low bound
+    # above the high one. The heating target is the natural lower bound; it can
+    # only exceed the cooling target while the two are out of sync, so it is
+    # capped at the value being written.
+    _low_to_set = desired_temp
+    if (
+        _write_range
+        and desired_temp is not None
+        and isinstance(self.bt_target_temp, (int, float))
+    ):
+        _low_to_set = min(float(self.bt_target_temp), desired_temp)
 
     if any(
         v is None
@@ -352,6 +365,29 @@ async def control_cooler(self):
     elif current_temp != desired_temp:
         should_send_temp = True
 
+    # A range write carries both bounds, so a lower bound that drifted away
+    # from the heating target needs a send of its own: the cooling target can
+    # stay unchanged for as long as the user only moves the heating side.
+    if _write_range and desired_temp is not None and not should_send_temp:
+        current_low = attr_to_celsius(
+            self, cooler_state, "target_temp_low", None, "control_cooler()"
+        )
+        # The reported bound comes back on convert_to_float's 0.01 grid while
+        # _low_to_set is BT's raw value, so the two are compared with the same
+        # tolerance the TRV write-skip check uses.
+        if current_low is not None and not matches_any_setpoint(
+            current_low, {_low_to_set}
+        ):
+            _LOGGER.debug(
+                "better_thermostat %s: cooler %s lower bound %s differs from %s, "
+                "sending both bounds",
+                self.device_name,
+                self.cooler_entity_id,
+                current_low,
+                _low_to_set,
+            )
+            should_send_temp = True
+
     # Throttle identical resends when the state feedback lags behind.
     if (
         should_send_temp
@@ -378,13 +414,6 @@ async def control_cooler(self):
             desired_temp,
         )
         _temp_to_set = desired_temp
-        # A range write needs both bounds, and Home Assistant rejects a low
-        # bound above the high one. The heating target is the natural lower
-        # bound; it can only exceed the cooling target while the two are out
-        # of sync, so it is capped at the value being written.
-        _low_to_set = desired_temp
-        if _write_range and isinstance(self.bt_target_temp, (int, float)):
-            _low_to_set = min(float(self.bt_target_temp), desired_temp)
         if self.hass.config.units.temperature_unit == UnitOfTemperature.FAHRENHEIT:
             _temp_to_set = round(
                 TemperatureConverter.convert(
