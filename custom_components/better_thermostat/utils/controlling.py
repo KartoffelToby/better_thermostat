@@ -35,12 +35,16 @@ from custom_components.better_thermostat.utils.const import (
     CalibrationType,
 )
 from custom_components.better_thermostat.utils.helpers import (
+    COOLER_SETPOINT_KEYS,
     attr_to_celsius,
     clamp_valve_percent,
     convert_to_float,
     get_current_set_temperatures,
     matches_any_setpoint,
+    read_setpoint_celsius,
     state_temperature_unit,
+    supports_single_target_temperature,
+    trv_supports_temperature_range,
 )
 from custom_components.better_thermostat.utils.scheduler import request_control_cycle
 from custom_components.better_thermostat.utils.snapshot import build_snapshot
@@ -614,6 +618,40 @@ async def control_queue(self):
             self.ignore_states = False
 
 
+def cooler_low_bound(high: float, target_temp: float | None) -> float:
+    """Return the lower bound that travels with ``high`` in a range write.
+
+    A range write needs both bounds, and Home Assistant rejects a low bound
+    above the high one. The heating target is the natural lower bound; it can
+    only exceed the cooling target while the two are out of sync, so it is
+    capped at the value being written.
+    """
+    if target_temp is None:
+        return high
+    return min(float(target_temp), high)
+
+
+def cooler_send_cache(self) -> dict:
+    """Return the cooler send-cache, creating it on first use.
+
+    Holds the last successfully sent command per channel as
+    ``(value, monotonic_timestamp)`` for the resend throttle, plus the settled
+    reading of the temperature channel. Created lazily because only
+    cooler-equipped instances need it.
+    """
+    last_sent = getattr(self, "_cooler_last_sent", None)
+    if not isinstance(last_sent, dict):
+        last_sent = {}
+        self._cooler_last_sent = last_sent
+    return last_sent
+
+
+def last_sent_cooler_temperature(self) -> float | None:
+    """Return the cooling setpoint BT last wrote to the cooler, in °C."""
+    value = cooler_send_cache(self).get("temperature", (None, None))[0]
+    return value if isinstance(value, (int, float)) else None
+
+
 async def control_cooler(self, snapshot=None):
     """Control the cooler entity based on current temperature and cooling setpoint.
 
@@ -636,18 +674,20 @@ async def control_cooler(self, snapshot=None):
 
     current_hvac_mode = cooler_state.state
     # The cooler reports its setpoint in the system unit; resolve it to the
-    # Celsius Better Thermostat works in before any comparison.
-    current_temp = attr_to_celsius(
-        self, cooler_state, "temperature", context="control_cooler()"
+    # Celsius Better Thermostat works in before any comparison. A range-only
+    # cooler publishes it under the upper bound instead of "temperature".
+    current_temp = read_setpoint_celsius(
+        self, cooler_state, COOLER_SETPOINT_KEYS, "control_cooler()"
     )
 
-    # Send-cache: last successfully sent command per channel, with a
-    # monotonic timestamp for the resend throttle. Created lazily because
-    # only cooler-equipped instances need it.
-    last_sent = getattr(self, "_cooler_last_sent", None)
-    if not isinstance(last_sent, dict):
-        last_sent = {}
-        self._cooler_last_sent = last_sent
+    # A cooler that only advertises the range feature rejects a "temperature"
+    # payload with a ServiceValidationError, so it never receives a setpoint.
+    # Devices that advertise neither bit use the single-setpoint payload.
+    _write_range = not supports_single_target_temperature(
+        cooler_state
+    ) and trv_supports_temperature_range(cooler_state)
+
+    last_sent = cooler_send_cache(self)
     now_monotonic = self.clock.monotonic()
 
     # Determine desired state based on the world snapshot of this cycle
@@ -727,11 +767,39 @@ async def control_cooler(self, snapshot=None):
     elif abs(current_temp - desired_temp) > RECONCILE_TOLERANCE_K:
         temp_to_send = desired_temp
 
+    # A range write carries both bounds, so a lower bound that drifted away
+    # from the heating target needs a send of its own: the cooling target can
+    # stay unchanged for as long as the user only moves the heating side.
+    _low_bound_drifted = False
+    if _write_range and desired_temp is not None and temp_to_send is None:
+        _low_to_set = cooler_low_bound(desired_temp, target_temp)
+        current_low = attr_to_celsius(
+            self, cooler_state, "target_temp_low", None, "control_cooler()"
+        )
+        # The reported bound comes back on convert_to_float's 0.01 grid while
+        # _low_to_set is BT's raw value, so the two are compared with the same
+        # tolerance the TRV write-skip check uses.
+        if current_low is not None and not matches_any_setpoint(
+            current_low, {_low_to_set}
+        ):
+            _LOGGER.debug(
+                "better_thermostat %s: cooler %s lower bound %s differs from %s, "
+                "sending both bounds",
+                self.device_name,
+                self.cooler_entity_id,
+                current_low,
+                _low_to_set,
+            )
+            temp_to_send = desired_temp
+            _low_bound_drifted = True
+
     # Device quantization accepted: the reported value still sits on the
     # settled post-send reading, so the residual difference is the device's
-    # own grid, not an unapplied command.
+    # own grid, not an unapplied command. That reading covers the upper bound
+    # only, so a drifted lower bound is a deviation it cannot vouch for.
     if (
         temp_to_send is not None
+        and not _low_bound_drifted
         and not temp_changed_since_last_send
         and settled_temp is not None
         and current_temp is not None
@@ -772,11 +840,30 @@ async def control_cooler(self, snapshot=None):
             temp_to_send,
         )
         _temp_to_set = temp_to_send
+        _low_to_set = cooler_low_bound(temp_to_send, target_temp)
         if self.hass.config.units.temperature_unit == UnitOfTemperature.FAHRENHEIT:
-            _temp_to_set = TemperatureConverter.convert(
-                temp_to_send, UnitOfTemperature.CELSIUS, UnitOfTemperature.FAHRENHEIT
+            _temp_to_set = round(
+                TemperatureConverter.convert(
+                    temp_to_send,
+                    UnitOfTemperature.CELSIUS,
+                    UnitOfTemperature.FAHRENHEIT,
+                ),
+                1,
             )
-            _temp_to_set = round(_temp_to_set, 1)
+            _low_to_set = round(
+                TemperatureConverter.convert(
+                    _low_to_set, UnitOfTemperature.CELSIUS, UnitOfTemperature.FAHRENHEIT
+                ),
+                1,
+            )
+        if _write_range:
+            _payload = {
+                "entity_id": self.cooler_entity_id,
+                "target_temp_high": _temp_to_set,
+                "target_temp_low": _low_to_set,
+            }
+        else:
+            _payload = {"entity_id": self.cooler_entity_id, "temperature": _temp_to_set}
         # Only prime the send-cache on success. A failed call must not look
         # like a completed send, otherwise the throttle would suppress the
         # retry. Any exception from this one service call is isolated
@@ -787,7 +874,7 @@ async def control_cooler(self, snapshot=None):
             await self.hass.services.async_call(
                 "climate",
                 "set_temperature",
-                {"entity_id": self.cooler_entity_id, "temperature": _temp_to_set},
+                _payload,
                 blocking=True,
                 context=self.context,
             )

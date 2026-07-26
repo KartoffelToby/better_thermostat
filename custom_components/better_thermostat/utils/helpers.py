@@ -7,7 +7,7 @@ from datetime import datetime
 import logging
 import math
 import re
-from typing import Any
+from typing import Any, NamedTuple
 
 from homeassistant.components.climate.const import ClimateEntityFeature, HVACMode
 from homeassistant.config_entries import ConfigEntry
@@ -619,6 +619,252 @@ def trv_supports_temperature_range(state: State | None) -> bool:
         return False
     supported_features = state.attributes.get("supported_features", 0)
     return bool(supported_features & ClimateEntityFeature.TARGET_TEMPERATURE_RANGE)
+
+
+def supports_single_target_temperature(state: State | None) -> bool:
+    """Check whether a climate state advertises TARGET_TEMPERATURE.
+
+    The counterpart to :func:`trv_supports_temperature_range`. Home Assistant
+    rejects a ``set_temperature`` call carrying ``temperature`` when the entity
+    does not advertise this feature, so write paths need both bits to pick the
+    payload a device accepts.
+
+    Parameters
+    ----------
+    state : State | None
+            the climate entity state to inspect
+
+    Returns
+    -------
+    bool
+            True if the single-setpoint feature bit is set, False otherwise
+            (including when state is None)
+    """
+    if state is None:
+        return False
+    supported_features = state.attributes.get("supported_features", 0)
+    return bool(supported_features & ClimateEntityFeature.TARGET_TEMPERATURE)
+
+
+# The attribute a device publishes its setpoint under depends on the role it
+# plays: BT drives a TRV towards the lower bound of a range and a cooler
+# towards the upper one. The single-setpoint key comes first in both cases,
+# because a device that offers it is driven through it.
+TRV_SETPOINT_KEYS = ("temperature", "target_temp_low")
+COOLER_SETPOINT_KEYS = ("temperature", "target_temp_high")
+
+
+class InboundSetpoint(NamedTuple):
+    """A setpoint reported by a controlled device, prepared for adoption.
+
+    Attributes
+    ----------
+    raw : float
+            the reported value in °C, before range clamping
+    value : float
+            the reported value in °C after clamping into BT's range
+    clamped : bool
+            whether clamping changed the value
+    is_echo : bool
+            whether the value is BT's own write coming back
+    """
+
+    raw: float
+    value: float
+    clamped: bool
+    is_echo: bool
+
+
+def read_setpoint_celsius(
+    self, state: State | None, keys: tuple[str, ...], log_source: str
+) -> float | None:
+    """Read the first usable setpoint attribute from a state and return it in °C.
+
+    A climate entity that supports both a single target and a target range
+    publishes the key it does not currently drive as None, so a
+    present-but-empty attribute must not stop the next key from being read.
+
+    Parameters
+    ----------
+    self :
+            the Better Thermostat instance, supplying ``hass`` and ``device_name``
+    state : State | None
+            the climate entity state to inspect, or None when unavailable
+    keys : tuple[str, ...]
+            the attribute names to try, in order of precedence
+    log_source : str
+            caller name, forwarded to attr_to_celsius for logging context
+
+    Returns
+    -------
+    float | None
+            the setpoint in Celsius, or None when no key holds a usable value
+    """
+    if state is None:
+        return None
+    for key in keys:
+        if state.attributes.get(key) is None:
+            continue
+        setpoint = attr_to_celsius(self, state, key, None, log_source)
+        if setpoint is not None:
+            return setpoint
+    return None
+
+
+def normalize_step(value: float | int | str | None, fallback: float = 0.5) -> float:
+    """Coerce a reported temperature step to a usable positive float."""
+    if value is None:
+        return fallback
+    try:
+        step = float(value)
+    except TypeError, ValueError:
+        return fallback
+    if step <= 0:
+        return fallback
+    return step
+
+
+def resolve_inbound_setpoint(
+    self,
+    state: State | None,
+    *,
+    keys: tuple[str, ...],
+    known_values: tuple[float | None, ...],
+    step: float,
+    device_label: str,
+    entity_id: str | None,
+    log_source: str,
+) -> InboundSetpoint | None:
+    """Prepare a setpoint reported by a controlled device for adoption.
+
+    The single inbound boundary for setpoints BT does not own: it resolves the
+    value to °C, clamps it into BT's range, and decides whether it is BT's own
+    write coming back. A device settles a written value on its own grid and
+    republishes it, sometimes from a later poll whose context is not BT's, so
+    anything within one device step of a value BT wrote is an echo.
+    User input moves a setpoint by at least one step.
+
+    Parameters
+    ----------
+    self :
+            the Better Thermostat instance, supplying ``hass``, ``device_name``
+            and the configured range
+    state : State | None
+            the device state carrying the reported setpoint
+    keys : tuple[str, ...]
+            the attribute names to try, in order of precedence
+    known_values : tuple[float | None, ...]
+            the values BT itself wrote, in °C; non-numeric entries are ignored
+    step : float
+            the device's setpoint step in °C
+    device_label : str
+            role of the device in log messages, e.g. ``"TRV"`` or ``"Cooler"``
+    entity_id : str | None
+            the reporting entity, for log messages
+    log_source : str
+            caller name, forwarded for logging context
+
+    Returns
+    -------
+    InboundSetpoint | None
+            the resolved setpoint, or None when the state holds no usable value
+    """
+    raw = read_setpoint_celsius(self, state, keys, log_source)
+    if raw is None:
+        return None
+
+    # A bound stays None until a child entity reports one, so each side is
+    # enforced only once it is known.
+    value = raw
+    clamped = False
+    if self.bt_min_temp is not None and value < self.bt_min_temp:
+        value = self.bt_min_temp
+        clamped = True
+    elif self.bt_max_temp is not None and self.bt_max_temp < value:
+        value = self.bt_max_temp
+        clamped = True
+    if clamped:
+        _LOGGER.warning(
+            "better_thermostat %s: New %s %s setpoint outside of range, overwriting it",
+            self.device_name,
+            device_label,
+            entity_id,
+        )
+
+    is_echo = any(
+        isinstance(known, (int, float)) and abs(value - known) < step
+        for known in known_values
+    )
+    return InboundSetpoint(raw=raw, value=value, clamped=clamped, is_echo=is_echo)
+
+
+def resolve_state_change_event(
+    self, event, device_label: str
+) -> tuple[State, State, str] | None:
+    """Return the states of a device event worth acting on, or None.
+
+    Shared prologue of the device event handlers: an event is actionable when
+    it carries both states, both are States with attributes, and it was not
+    caused by BT's own service call — those carry ``self.context``.
+
+    Parameters
+    ----------
+    self :
+            the Better Thermostat instance, supplying ``context`` and ``device_name``
+    event :
+            the state change event to inspect
+    device_label : str
+            role of the device in log messages, e.g. ``"TRV"`` or ``"Cooler"``
+
+    Returns
+    -------
+    tuple[State, State, str] | None
+            (old_state, new_state, entity_id) when actionable, else None
+    """
+    old_state = event.data.get("old_state")
+    new_state = event.data.get("new_state")
+    entity_id = event.data.get("entity_id")
+
+    if new_state is None or old_state is None:
+        _LOGGER.debug(
+            "better_thermostat %s: %s %s update contained not all necessary data "
+            "for processing, skipping",
+            self.device_name,
+            device_label,
+            entity_id,
+        )
+        return None
+
+    if not isinstance(new_state, State) or not isinstance(old_state, State):
+        _LOGGER.debug(
+            "better_thermostat %s: %s %s update contained not a State, skipping",
+            self.device_name,
+            device_label,
+            entity_id,
+        )
+        return None
+
+    if new_state.attributes is None:
+        _LOGGER.debug(
+            "better_thermostat %s: %s %s update had no attributes, skipping",
+            self.device_name,
+            device_label,
+            entity_id,
+        )
+        return None
+
+    if not isinstance(entity_id, str):
+        _LOGGER.debug(
+            "better_thermostat %s: %s update without an entity id, skipping",
+            self.device_name,
+            device_label,
+        )
+        return None
+
+    if self.context == event.context:
+        return None
+
+    return old_state, new_state, entity_id
 
 
 def attr_to_celsius(
