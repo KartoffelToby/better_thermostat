@@ -511,7 +511,7 @@ class TestControlCoolerTargetRange:
 
     @pytest.mark.asyncio
     async def test_cooler_supporting_both_features_keeps_single_setpoint(self):
-        """A cooler that also accepts "temperature" keeps the single payload."""
+        """A cooler that also accepts "temperature" gets the single payload."""
         mock_hass = self._hass()
         mock_hass.states.get.return_value = _make_range_cooler_state(
             target_temp_high=28.0,
@@ -529,7 +529,7 @@ class TestControlCoolerTargetRange:
 
     @pytest.mark.asyncio
     async def test_cooler_without_feature_flags_keeps_single_setpoint(self):
-        """Without advertised features the established payload is used."""
+        """Without advertised features the single-setpoint payload is used."""
         mock_hass = self._hass()
         mock_hass.states.get.return_value = _make_cooler_state(temperature=28.0)
 
@@ -564,6 +564,85 @@ class TestControlCoolerTargetRange:
         mock_hass = self._hass()
         mock_hass.states.get.return_value = _make_range_cooler_state(
             target_temp_high=24.0, target_temp_low=20.0
+        )
+
+        mock_self = _make_mock_self(
+            mock_hass, bt_target_cooltemp=24.0, bt_target_temp=20.0
+        )
+
+        await control_cooler(mock_self)
+
+        assert self._set_temperature_payload(mock_hass) is None
+
+    @pytest.mark.asyncio
+    async def test_changed_lower_bound_alone_triggers_a_send(self):
+        """A heating target that moved is written even when cooling is unchanged.
+
+        Both bounds travel in one call, so a lower bound left behind on the
+        device would persist until the cooling target happens to change.
+        """
+        mock_hass = self._hass()
+        mock_hass.states.get.return_value = _make_range_cooler_state(
+            target_temp_high=24.0, target_temp_low=19.0
+        )
+
+        mock_self = _make_mock_self(
+            mock_hass, bt_target_cooltemp=24.0, bt_target_temp=21.0
+        )
+
+        await control_cooler(mock_self)
+
+        payload = self._set_temperature_payload(mock_hass)
+        assert payload == {
+            "entity_id": "climate.cooler",
+            "target_temp_high": 24.0,
+            "target_temp_low": 21.0,
+        }
+
+    @pytest.mark.asyncio
+    async def test_matching_bounds_are_not_resent(self):
+        """Both bounds in sync means nothing is written."""
+        mock_hass = self._hass()
+        mock_hass.states.get.return_value = _make_range_cooler_state(
+            target_temp_high=24.0, target_temp_low=20.0
+        )
+
+        mock_self = _make_mock_self(
+            mock_hass, bt_target_cooltemp=24.0, bt_target_temp=20.0
+        )
+
+        await control_cooler(mock_self)
+
+        assert self._set_temperature_payload(mock_hass) is None
+
+    @pytest.mark.asyncio
+    async def test_lower_bound_within_read_tolerance_is_not_resent(self):
+        """A bound that only differs by the read-back grid is unchanged.
+
+        The device reports on convert_to_float's 0.01 grid while BT holds the
+        raw value, so exact inequality would resend on every cycle.
+        """
+        mock_hass = self._hass()
+        mock_hass.states.get.return_value = _make_range_cooler_state(
+            target_temp_high=24.0, target_temp_low=20.005
+        )
+
+        mock_self = _make_mock_self(
+            mock_hass, bt_target_cooltemp=24.0, bt_target_temp=20.0
+        )
+
+        await control_cooler(mock_self)
+
+        assert self._set_temperature_payload(mock_hass) is None
+
+    @pytest.mark.asyncio
+    async def test_lower_bound_is_ignored_for_single_setpoint_coolers(self):
+        """A single-setpoint cooler has no lower bound to keep in sync."""
+        mock_hass = self._hass()
+        mock_hass.states.get.return_value = State(
+            "climate.cooler",
+            str(HVACMode.COOL),
+            {"temperature": 24.0, "target_temp_low": 15.0},
         )
 
         mock_self = _make_mock_self(
