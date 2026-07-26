@@ -13,28 +13,12 @@ from homeassistant.const import UnitOfTemperature
 from homeassistant.core import State, callback
 
 from custom_components.better_thermostat.utils.helpers import (
-    attr_to_celsius,
     convert_to_float,
+    get_cooler_setpoint,
     state_temperature_unit,
 )
 
 _LOGGER = logging.getLogger(__name__)
-
-
-def _get_cooling_setpoint(self, state: State) -> float | None:
-    """Read the cooler's setpoint from a state and return it in °C.
-
-    A climate entity that supports both a single target and a target range
-    publishes ``temperature`` as None while it runs in range mode, so a
-    present-but-empty attribute must not stop the range key from being read.
-    """
-    for key in ("temperature", "target_temp_high"):
-        if state.attributes.get(key) is None:
-            continue
-        setpoint = attr_to_celsius(self, state, key, None, "trigger_cooler_change()")
-        if setpoint is not None:
-            return setpoint
-    return None
 
 
 def _get_cooler_step(self, state: State) -> float:
@@ -105,8 +89,12 @@ async def trigger_cooler_change(self, event):
         "better_thermostat %s: Cooler %s update received", self.device_name, entity_id
     )
 
-    _old_cooling_setpoint = _get_cooling_setpoint(self, old_state)
-    _new_cooling_setpoint = _get_cooling_setpoint(self, new_state)
+    _old_cooling_setpoint = get_cooler_setpoint(
+        self, old_state, "trigger_cooler_change()"
+    )
+    _new_cooling_setpoint = get_cooler_setpoint(
+        self, new_state, "trigger_cooler_change()"
+    )
     if (
         _new_cooling_setpoint is not None
         and _old_cooling_setpoint is not None
