@@ -150,7 +150,6 @@ class BetterThermostatChildLockSwitch(SwitchEntity, RestoreEntity):
         self._bt_climate = bt_climate
         self._trv_entity_id = trv_entity_id
         self._attr_unique_id = f"{bt_climate.unique_id}_{trv_entity_id}_child_lock"
-        self._attr_name = "Child Lock"
         if show_trv_name:
             trv_state = bt_climate.hass.states.get(trv_entity_id)
             trv_name = trv_state.name if trv_state and trv_state.name else trv_entity_id

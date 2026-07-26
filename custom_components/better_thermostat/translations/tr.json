@@ -174,6 +174,35 @@
         "sleep": "Uyku",
         "activity": "Aktivite"
       }
+    },
+    "target_temp_step": {
+      "options": {
+        "auto_legacy": "Otomatik (eski)",
+        "auto": "Otomatik",
+        "step_0_1": "0,1 °C",
+        "step_0_2": "0,2 °C",
+        "step_0_25": "0,25 °C",
+        "step_0_5": "0,5 °C",
+        "step_1_0": "1 °C"
+      }
+    },
+    "calibration_mode": {
+      "options": {
+        "heating_power_calibration": "Zamana dayalı yapay zekâ",
+        "default": "Yalnızca harici sensör ofseti (varsayılan)",
+        "mpc_calibration": "MPC öngörülü (beta)",
+        "fix_calibration": "Agresif",
+        "tpi_calibration": "TPI denetleyici",
+        "pid_calibration": "PID denetleyici",
+        "no_calibration": "Kalibrasyon yok"
+      }
+    },
+    "calibration_type": {
+      "options": {
+        "direct_valve_based": "Doğrudan vana kontrolü",
+        "target_temp_based": "Hedef sıcaklığa dayalı",
+        "local_calibration_based": "Ofsete dayalı"
+      }
     }
   },
   "entity": {
@@ -195,6 +224,33 @@
       },
       "pid_kd_no_trv": {
         "name": "PID Kd (türevsel)"
+      },
+      "preset_eco": {
+        "name": "Eko ön ayar sıcaklığı"
+      },
+      "preset_away": {
+        "name": "Dışarıda ön ayar sıcaklığı"
+      },
+      "preset_boost": {
+        "name": "Takviye ön ayar sıcaklığı"
+      },
+      "preset_comfort": {
+        "name": "Konfor ön ayar sıcaklığı"
+      },
+      "preset_home": {
+        "name": "Ev ön ayar sıcaklığı"
+      },
+      "preset_sleep": {
+        "name": "Uyku ön ayar sıcaklığı"
+      },
+      "preset_activity": {
+        "name": "Etkinlik ön ayar sıcaklığı"
+      },
+      "valve_max_opening": {
+        "name": "{trv_name}: maksimum vana açıklığı"
+      },
+      "valve_max_opening_no_trv": {
+        "name": "Maksimum vana açıklığı"
       }
     },
     "switch": {
@@ -209,6 +265,38 @@
       },
       "child_lock_no_trv": {
         "name": "Çocuk kilidi"
+      }
+    },
+    "sensor": {
+      "external_temp_ema": {
+        "name": "Sıcaklık EMA"
+      },
+      "external_temp_ema_1h": {
+        "name": "Sıcaklık EMA (1 saat)"
+      },
+      "temp_slope": {
+        "name": "Sıcaklık değişim hızı"
+      },
+      "heating_power": {
+        "name": "Isıtma gücü"
+      },
+      "heat_loss": {
+        "name": "Isı kaybı"
+      },
+      "virtual_temp": {
+        "name": "Sanal sıcaklık"
+      },
+      "mpc_gain": {
+        "name": "MPC ısıtma kazancı"
+      },
+      "mpc_loss": {
+        "name": "MPC ısı kaybı"
+      },
+      "mpc_ka": {
+        "name": "MPC yalıtımı (Ka)"
+      },
+      "solar_intensity": {
+        "name": "Güneş ısı kazancı"
       }
     }
   },

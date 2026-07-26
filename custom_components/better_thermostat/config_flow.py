@@ -60,20 +60,25 @@ CONFIG_WALKTHROUGH_URL = (
 )
 
 
+_TARGET_TEMP_STEP_SELECTOR_TO_VALUE = {
+    "auto_legacy": "0.0",
+    "auto": "",
+    "step_0_1": "0.1",
+    "step_0_2": "0.2",
+    "step_0_25": "0.25",
+    "step_0_5": "0.5",
+    "step_1_0": "1.0",
+}
+_TARGET_TEMP_STEP_VALUE_TO_SELECTOR = {
+    value: key for key, value in _TARGET_TEMP_STEP_SELECTOR_TO_VALUE.items()
+}
+
 TEMP_STEP_SELECTOR = selector.SelectSelector(
     selector.SelectSelectorConfig(
-        options=[
-            selector.SelectOptionDict(
-                value="0.0", label="Auto"
-            ),  # Keep for backwards compatibility
-            selector.SelectOptionDict(value="", label="Auto (New)"),
-            selector.SelectOptionDict(value="0.1", label="0.1 °C"),
-            selector.SelectOptionDict(value="0.2", label="0.2 °C"),
-            selector.SelectOptionDict(value="0.25", label="0.25 °C"),
-            selector.SelectOptionDict(value="0.5", label="0.5 °C"),
-            selector.SelectOptionDict(value="1.0", label="1 °C"),
-        ],
+        # Stable selector tokens keep labels translatable without changing stored values.
+        options=list(_TARGET_TEMP_STEP_SELECTOR_TO_VALUE),
         mode=selector.SelectSelectorMode.DROPDOWN,
+        translation_key="target_temp_step",
     )
 )
 
@@ -81,30 +86,16 @@ TEMP_STEP_SELECTOR = selector.SelectSelector(
 CALIBRATION_MODE_SELECTOR = selector.SelectSelector(
     selector.SelectSelectorConfig(
         options=[
-            selector.SelectOptionDict(
-                value=CalibrationMode.HEATING_POWER_CALIBRATION, label="(AI) Time Based"
-            ),
-            selector.SelectOptionDict(
-                value=CalibrationMode.DEFAULT,
-                label="External Sensor Offset Only (Default)",
-            ),
-            selector.SelectOptionDict(
-                value=CalibrationMode.MPC_CALIBRATION, label="MPC Predictive (Beta)"
-            ),
-            selector.SelectOptionDict(
-                value=CalibrationMode.AGGRESIVE_CALIBRATION, label="Agressive"
-            ),
-            selector.SelectOptionDict(
-                value=CalibrationMode.TPI_CALIBRATION, label="TPI Controller"
-            ),
-            selector.SelectOptionDict(
-                value=CalibrationMode.PID_CALIBRATION, label="PID Controller"
-            ),
-            selector.SelectOptionDict(
-                value=CalibrationMode.NO_CALIBRATION, label="No Calibration"
-            ),
+            CalibrationMode.HEATING_POWER_CALIBRATION,
+            CalibrationMode.DEFAULT,
+            CalibrationMode.MPC_CALIBRATION,
+            CalibrationMode.AGGRESIVE_CALIBRATION,
+            CalibrationMode.TPI_CALIBRATION,
+            CalibrationMode.PID_CALIBRATION,
+            CalibrationMode.NO_CALIBRATION,
         ],
         mode=selector.SelectSelectorMode.DROPDOWN,
+        translation_key="calibration_mode",
     )
 )
 
@@ -112,13 +103,13 @@ CALIBRATION_MODE_SELECTOR = selector.SelectSelector(
 PRESET_SELECTOR = selector.SelectSelector(
     selector.SelectSelectorConfig(
         options=[
-            selector.SelectOptionDict(value=PRESET_ECO, label="Eco"),
-            selector.SelectOptionDict(value=PRESET_AWAY, label="Away"),
-            selector.SelectOptionDict(value=PRESET_BOOST, label="Boost"),
-            selector.SelectOptionDict(value=PRESET_COMFORT, label="Comfort"),
-            selector.SelectOptionDict(value=PRESET_HOME, label="Home"),
-            selector.SelectOptionDict(value=PRESET_SLEEP, label="Sleep"),
-            selector.SelectOptionDict(value=PRESET_ACTIVITY, label="Activity"),
+            PRESET_ECO,
+            PRESET_AWAY,
+            PRESET_BOOST,
+            PRESET_COMFORT,
+            PRESET_HOME,
+            PRESET_SLEEP,
+            PRESET_ACTIVITY,
         ],
         mode=selector.SelectSelectorMode.DROPDOWN,
         multiple=True,
@@ -244,28 +235,18 @@ def _build_advanced_fields(
 
     options = []
     if support_valve:
-        options.append(
-            selector.SelectOptionDict(
-                value=CalibrationType.DIRECT_VALVE_BASED, label="Direct Valve Based"
-            )
-        )
+        options.append(CalibrationType.DIRECT_VALVE_BASED)
 
-    options.append(
-        selector.SelectOptionDict(
-            value=CalibrationType.TARGET_TEMP_BASED, label="Target Temperature Based"
-        )
-    )
+    options.append(CalibrationType.TARGET_TEMP_BASED)
 
     if support_offset:
-        options.append(
-            selector.SelectOptionDict(
-                value=CalibrationType.LOCAL_BASED, label="Offset Based"
-            )
-        )
+        options.append(CalibrationType.LOCAL_BASED)
 
     calib_selector = selector.SelectSelector(
         selector.SelectSelectorConfig(
-            options=options, mode=selector.SelectSelectorMode.DROPDOWN
+            options=options,
+            mode=selector.SelectSelectorMode.DROPDOWN,
+            translation_key="calibration_type",
         )
     )
     ordered: OrderedDict = OrderedDict()
@@ -517,7 +498,9 @@ def _build_user_fields(
         CONF_TARGET_TEMP_STEP, _USER_FIELD_DEFAULTS[CONF_TARGET_TEMP_STEP]
     )
     if target_step_default is not None:
-        target_step_default = str(target_step_default)
+        target_step_default = _TARGET_TEMP_STEP_VALUE_TO_SELECTOR.get(
+            str(target_step_default), "auto_legacy"
+        )
     add_field(CONF_TARGET_TEMP_STEP, TEMP_STEP_SELECTOR, default=target_step_default)
 
     return fields
@@ -616,6 +599,7 @@ def _normalize_user_submission(
             CONF_TARGET_TEMP_STEP, _USER_FIELD_DEFAULTS[CONF_TARGET_TEMP_STEP]
         ),
     )
+    target_step = _TARGET_TEMP_STEP_SELECTOR_TO_VALUE.get(str(target_step), target_step)
     if target_step in (None, ""):
         target_step = _USER_FIELD_DEFAULTS[CONF_TARGET_TEMP_STEP]
     normalized[CONF_TARGET_TEMP_STEP] = str(target_step)

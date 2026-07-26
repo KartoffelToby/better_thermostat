@@ -174,6 +174,35 @@
         "sleep": "Schlafen",
         "activity": "Aktivität"
       }
+    },
+    "target_temp_step": {
+      "options": {
+        "auto_legacy": "Automatisch (alt)",
+        "auto": "Automatisch",
+        "step_0_1": "0,1 °C",
+        "step_0_2": "0,2 °C",
+        "step_0_25": "0,25 °C",
+        "step_0_5": "0,5 °C",
+        "step_1_0": "1 °C"
+      }
+    },
+    "calibration_mode": {
+      "options": {
+        "heating_power_calibration": "KI zeitbasiert",
+        "default": "Nur externer Sensorversatz (Standard)",
+        "mpc_calibration": "MPC prädiktiv (Beta)",
+        "fix_calibration": "Aggressiv",
+        "tpi_calibration": "TPI-Regler",
+        "pid_calibration": "PID-Regler",
+        "no_calibration": "Keine Kalibrierung"
+      }
+    },
+    "calibration_type": {
+      "options": {
+        "direct_valve_based": "Direkte Ventilsteuerung",
+        "target_temp_based": "Zieltemperaturbasiert",
+        "local_calibration_based": "Versatzbasiert"
+      }
     }
   },
   "entity": {
@@ -195,6 +224,33 @@
       },
       "pid_kd_no_trv": {
         "name": "PID Kd (Differential)"
+      },
+      "preset_eco": {
+        "name": "Temperatur der Voreinstellung Eco"
+      },
+      "preset_away": {
+        "name": "Temperatur der Voreinstellung Abwesend"
+      },
+      "preset_boost": {
+        "name": "Temperatur der Voreinstellung Boost"
+      },
+      "preset_comfort": {
+        "name": "Temperatur der Voreinstellung Komfort"
+      },
+      "preset_home": {
+        "name": "Temperatur der Voreinstellung Zuhause"
+      },
+      "preset_sleep": {
+        "name": "Temperatur der Voreinstellung Schlafen"
+      },
+      "preset_activity": {
+        "name": "Temperatur der Voreinstellung Aktivität"
+      },
+      "valve_max_opening": {
+        "name": "{trv_name}: maximale Ventilöffnung"
+      },
+      "valve_max_opening_no_trv": {
+        "name": "Maximale Ventilöffnung"
       }
     },
     "switch": {
@@ -209,6 +265,38 @@
       },
       "child_lock_no_trv": {
         "name": "Kindersicherung"
+      }
+    },
+    "sensor": {
+      "external_temp_ema": {
+        "name": "Temperatur-EMA"
+      },
+      "external_temp_ema_1h": {
+        "name": "Temperatur-EMA (1 Stunde)"
+      },
+      "temp_slope": {
+        "name": "Temperaturänderung"
+      },
+      "heating_power": {
+        "name": "Heizleistung"
+      },
+      "heat_loss": {
+        "name": "Wärmeverlust"
+      },
+      "virtual_temp": {
+        "name": "Virtuelle Temperatur"
+      },
+      "mpc_gain": {
+        "name": "MPC-Heizverstärkung"
+      },
+      "mpc_loss": {
+        "name": "MPC-Wärmeverlust"
+      },
+      "mpc_ka": {
+        "name": "MPC-Isolierung (Ka)"
+      },
+      "solar_intensity": {
+        "name": "Solare Wärmeaufnahme"
       }
     }
   },

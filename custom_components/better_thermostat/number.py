@@ -2,7 +2,16 @@
 
 import logging
 
-from homeassistant.components.climate.const import PRESET_NONE
+from homeassistant.components.climate.const import (
+    PRESET_ACTIVITY,
+    PRESET_AWAY,
+    PRESET_BOOST,
+    PRESET_COMFORT,
+    PRESET_ECO,
+    PRESET_HOME,
+    PRESET_NONE,
+    PRESET_SLEEP,
+)
 from homeassistant.components.number import NumberDeviceClass, NumberEntity, NumberMode
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import EntityCategory, UnitOfTemperature
@@ -29,6 +38,16 @@ from .utils.helpers import convert_to_float_celsius
 
 _LOGGER = logging.getLogger(__name__)
 DOMAIN = "better_thermostat"
+
+_PRESET_TRANSLATION_KEYS = {
+    PRESET_ECO: "preset_eco",
+    PRESET_AWAY: "preset_away",
+    PRESET_BOOST: "preset_boost",
+    PRESET_COMFORT: "preset_comfort",
+    PRESET_HOME: "preset_home",
+    PRESET_SLEEP: "preset_sleep",
+    PRESET_ACTIVITY: "preset_activity",
+}
 
 
 async def async_setup_entry(
@@ -144,7 +163,7 @@ class BetterThermostatPresetNumber(NumberEntity, RestoreEntity):
         self._bt_climate = bt_climate
         self._preset_mode = preset_mode
         self._attr_unique_id = f"{bt_climate.unique_id}_preset_{preset_mode}"
-        self._attr_name = f"Preset {preset_mode.capitalize()}"
+        self._attr_translation_key = _PRESET_TRANSLATION_KEYS[preset_mode]
 
         # Set min/max/step based on climate entity configuration
         self._attr_native_min_value = bt_climate.min_temp
@@ -303,9 +322,10 @@ class BetterThermostatValveMaxOpeningNumber(NumberEntity, RestoreEntity):
         if show_trv_name:
             trv_state = bt_climate.hass.states.get(trv_entity_id)
             trv_name = trv_state.name if trv_state and trv_state.name else trv_entity_id
-            self._attr_name = f"{trv_name} Valve Max Opening"
+            self._attr_translation_key = "valve_max_opening"
+            self._attr_translation_placeholders = {"trv_name": trv_name}
         else:
-            self._attr_name = "Valve Max Opening"
+            self._attr_translation_key = "valve_max_opening_no_trv"
 
         self._attr_native_min_value = 0.0
         self._attr_native_max_value = 100.0

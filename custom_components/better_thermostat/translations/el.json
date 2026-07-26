@@ -174,6 +174,35 @@
         "sleep": "Ύπνος",
         "activity": "Δραστηριότητα"
       }
+    },
+    "target_temp_step": {
+      "options": {
+        "auto_legacy": "Αυτόματο (παλιό)",
+        "auto": "Αυτόματο",
+        "step_0_1": "0,1 °C",
+        "step_0_2": "0,2 °C",
+        "step_0_25": "0,25 °C",
+        "step_0_5": "0,5 °C",
+        "step_1_0": "1 °C"
+      }
+    },
+    "calibration_mode": {
+      "options": {
+        "heating_power_calibration": "AI βάσει χρόνου",
+        "default": "Μόνο μετατόπιση εξωτερικού αισθητήρα (προεπιλογή)",
+        "mpc_calibration": "Προγνωστικό MPC (beta)",
+        "fix_calibration": "Επιθετικό",
+        "tpi_calibration": "Ελεγκτής TPI",
+        "pid_calibration": "Ελεγκτής PID",
+        "no_calibration": "Χωρίς βαθμονόμηση"
+      }
+    },
+    "calibration_type": {
+      "options": {
+        "direct_valve_based": "Άμεσος έλεγχος βαλβίδας",
+        "target_temp_based": "Βάσει επιθυμητής θερμοκρασίας",
+        "local_calibration_based": "Βάσει μετατόπισης"
+      }
     }
   },
   "entity": {
@@ -195,6 +224,33 @@
       },
       "pid_kd_no_trv": {
         "name": "PID Kd (διαφορικό)"
+      },
+      "preset_eco": {
+        "name": "Θερμοκρασία προρύθμισης Eco"
+      },
+      "preset_away": {
+        "name": "Θερμοκρασία προρύθμισης Απουσία"
+      },
+      "preset_boost": {
+        "name": "Θερμοκρασία προρύθμισης Boost"
+      },
+      "preset_comfort": {
+        "name": "Θερμοκρασία προρύθμισης Άνεση"
+      },
+      "preset_home": {
+        "name": "Θερμοκρασία προρύθμισης Σπίτι"
+      },
+      "preset_sleep": {
+        "name": "Θερμοκρασία προρύθμισης Ύπνος"
+      },
+      "preset_activity": {
+        "name": "Θερμοκρασία προρύθμισης Δραστηριότητα"
+      },
+      "valve_max_opening": {
+        "name": "{trv_name}: μέγιστο άνοιγμα βαλβίδας"
+      },
+      "valve_max_opening_no_trv": {
+        "name": "Μέγιστο άνοιγμα βαλβίδας"
       }
     },
     "switch": {
@@ -209,6 +265,38 @@
       },
       "child_lock_no_trv": {
         "name": "Παιδικό κλείδωμα"
+      }
+    },
+    "sensor": {
+      "external_temp_ema": {
+        "name": "Θερμοκρασία EMA"
+      },
+      "external_temp_ema_1h": {
+        "name": "Θερμοκρασία EMA (1 ώρα)"
+      },
+      "temp_slope": {
+        "name": "Ρυθμός μεταβολής θερμοκρασίας"
+      },
+      "heating_power": {
+        "name": "Ισχύς θέρμανσης"
+      },
+      "heat_loss": {
+        "name": "Απώλεια θερμότητας"
+      },
+      "virtual_temp": {
+        "name": "Εικονική θερμοκρασία"
+      },
+      "mpc_gain": {
+        "name": "Κέρδος θέρμανσης MPC"
+      },
+      "mpc_loss": {
+        "name": "Απώλεια θερμότητας MPC"
+      },
+      "mpc_ka": {
+        "name": "Μόνωση MPC (Ka)"
+      },
+      "solar_intensity": {
+        "name": "Ηλιακό θερμικό κέρδος"
       }
     }
   },
