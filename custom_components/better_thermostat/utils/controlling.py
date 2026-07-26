@@ -28,10 +28,12 @@ from custom_components.better_thermostat.utils.const import (
     CalibrationType,
 )
 from custom_components.better_thermostat.utils.helpers import (
-    attr_to_celsius,
     convert_to_float,
+    get_cooler_setpoint,
     get_current_set_temperatures,
     matches_any_setpoint,
+    supports_single_target_temperature,
+    trv_supports_temperature_range,
 )
 
 _LOGGER = logging.getLogger(__name__)
@@ -279,9 +281,14 @@ async def control_cooler(self):
     # Resolve the cooler's reported setpoint to Celsius before comparing it
     # against the Celsius desired value; on a Fahrenheit system the raw
     # attribute would never match and defeat the redundant-send dedup.
-    current_temp = attr_to_celsius(
-        self, cooler_state, "temperature", None, "control_cooler()"
-    )
+    current_temp = get_cooler_setpoint(self, cooler_state, "control_cooler()")
+
+    # A cooler that only advertises the range feature rejects a "temperature"
+    # payload with a ServiceValidationError, so it never receives a setpoint.
+    # Devices that advertise neither bit keep the single-setpoint payload.
+    _write_range = not supports_single_target_temperature(
+        cooler_state
+    ) and trv_supports_temperature_range(cooler_state)
 
     min_resend_interval_s = self.min_cooler_resend_interval_s
     now_ts = monotonic()
@@ -371,18 +378,43 @@ async def control_cooler(self):
             desired_temp,
         )
         _temp_to_set = desired_temp
+        # A range write needs both bounds, and Home Assistant rejects a low
+        # bound above the high one. The heating target is the natural lower
+        # bound; it can only exceed the cooling target while the two are out
+        # of sync, so it is capped at the value being written.
+        _low_to_set = desired_temp
+        if _write_range and isinstance(self.bt_target_temp, (int, float)):
+            _low_to_set = min(float(self.bt_target_temp), desired_temp)
         if self.hass.config.units.temperature_unit == UnitOfTemperature.FAHRENHEIT:
-            _temp_to_set = TemperatureConverter.convert(
-                desired_temp, UnitOfTemperature.CELSIUS, UnitOfTemperature.FAHRENHEIT
+            _temp_to_set = round(
+                TemperatureConverter.convert(
+                    desired_temp,
+                    UnitOfTemperature.CELSIUS,
+                    UnitOfTemperature.FAHRENHEIT,
+                ),
+                1,
             )
-            _temp_to_set = round(_temp_to_set, 1)
+            _low_to_set = round(
+                TemperatureConverter.convert(
+                    _low_to_set, UnitOfTemperature.CELSIUS, UnitOfTemperature.FAHRENHEIT
+                ),
+                1,
+            )
+        if _write_range:
+            _payload = {
+                "entity_id": self.cooler_entity_id,
+                "target_temp_high": _temp_to_set,
+                "target_temp_low": _low_to_set,
+            }
+        else:
+            _payload = {"entity_id": self.cooler_entity_id, "temperature": _temp_to_set}
         # Only prime the send-cache on success. A failed call must not look like
         # a completed send, otherwise the nil-guard would suppress the retry.
         try:
             await self.hass.services.async_call(
                 "climate",
                 "set_temperature",
-                {"entity_id": self.cooler_entity_id, "temperature": _temp_to_set},
+                _payload,
                 blocking=True,
                 context=self.context,
             )

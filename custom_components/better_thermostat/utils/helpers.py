@@ -582,6 +582,64 @@ def trv_supports_temperature_range(state: State | None) -> bool:
     return bool(supported_features & ClimateEntityFeature.TARGET_TEMPERATURE_RANGE)
 
 
+def supports_single_target_temperature(state: State | None) -> bool:
+    """Check whether a climate state advertises TARGET_TEMPERATURE.
+
+    The counterpart to :func:`trv_supports_temperature_range`. Home Assistant
+    rejects a ``set_temperature`` call carrying ``temperature`` when the entity
+    does not advertise this feature, so write paths need both bits to pick the
+    payload a device accepts.
+
+    Parameters
+    ----------
+    state : State | None
+            the climate entity state to inspect
+
+    Returns
+    -------
+    bool
+            True if the single-setpoint feature bit is set, False otherwise
+            (including when state is None)
+    """
+    if state is None:
+        return False
+    supported_features = state.attributes.get("supported_features", 0)
+    return bool(supported_features & ClimateEntityFeature.TARGET_TEMPERATURE)
+
+
+def get_cooler_setpoint(self, state: State | None, log_source: str) -> float | None:
+    """Read the cooler's setpoint from a state and return it in °C.
+
+    A climate entity that supports both a single target and a target range
+    publishes ``temperature`` as None while it runs in range mode, so a
+    present-but-empty attribute must not stop the range key from being read.
+
+    Parameters
+    ----------
+    self :
+            the Better Thermostat instance, supplying ``hass`` and ``device_name``
+    state : State | None
+            the cooler entity state to inspect, or None when unavailable
+    log_source : str
+            caller name, forwarded to attr_to_celsius for logging context
+
+    Returns
+    -------
+    float | None
+            the cooling setpoint in Celsius, or None when neither key holds a
+            usable value
+    """
+    if state is None:
+        return None
+    for key in ("temperature", "target_temp_high"):
+        if state.attributes.get(key) is None:
+            continue
+        setpoint = attr_to_celsius(self, state, key, None, log_source)
+        if setpoint is not None:
+            return setpoint
+    return None
+
+
 def attr_to_celsius(
     self,
     state: State | None,
