@@ -194,6 +194,9 @@ def get_hvac_bt_mode(self, mode: str) -> str:
         mode = self.map_on_hvac_mode
     elif mode == HVACMode.HEAT_COOL:
         mode = HVACMode.HEAT
+    elif mode == HVACMode.AUTO:
+        # AUTO (auto-changeover) maps to the heat+cool internal mode
+        mode = HVACMode.HEAT
     return mode
 
 

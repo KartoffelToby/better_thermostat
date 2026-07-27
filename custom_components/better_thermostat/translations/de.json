@@ -22,7 +22,8 @@
           "outdoor_sensor": "Wenn ein Außentemperatursensor vorhanden ist, kann dieser anstelle der Wetter-Entität genutzt werden.",
           "weather": "Die Wetter-Entität für die Außentemperatur.",
           "target_temp_step": "Solltemperatur-Schritt",
-          "presets": "Aktivierte Presets"
+          "presets": "Aktivierte Presets",
+          "heat_cool": "Kombinierte Heiz-/Kühl-Geräte (optional)"
         },
         "data_description": {
           "presets": "Wähle die Presets aus, die für dieses Thermostat verfügbar sein sollen."
@@ -56,7 +57,8 @@
       "no_name": "Du musst einen Namen vergeben.",
       "no_off_mode": "Dein Gerät ist ein Sonderfall, es hat keinen OFF Modus :(\nBetter Thermostat wird stattdessen das TRV auf den Minimalwert setzen.",
       "no_outside_temp": "Es kann keine Außentemperatur geladen werden.",
-      "no_data": "Es wurden keine Daten empfangen. Bitte versuchen Sie es erneut."
+      "no_data": "Es wurden keine Daten empfangen. Bitte versuchen Sie es erneut.",
+      "role_overlap": "Eine Klima-Entität darf nicht in mehreren Rollen (Heizen / Kühlen / Kombiniert) verwendet werden. Weisen Sie jede Entität bitte nur einer Rolle zu."
     },
     "abort": {
       "single_instance_allowed": "Es ist nur ein einzelnes BT je realem Thermostat erlaubt.",
@@ -88,7 +90,8 @@
           "calibration": "Die Art der Kalibrierung",
           "heat_auto_swapped": "Wenn das Auto Wärme für Ihr TRV bedeutet und Sie es austauschen möchten.",
           "child_lock": "Ignorieren Sie alle Eingaben am TRV wie eine Kindersicherung.",
-          "homematicip": "Wenn Sie HomematicIP verwenden, sollten Sie dies aktivieren, um die Anfragen zu verlangsamen und den Duty Cycle zu verhindern."
+          "homematicip": "Wenn Sie HomematicIP verwenden, sollten Sie dies aktivieren, um die Anfragen zu verlangsamen und den Duty Cycle zu verhindern.",
+          "heat_cool": "Kombinierte Heiz-/Kühl-Geräte (optional)"
         },
         "data_description": {
           "presets": "Wähle die Presets aus, die für dieses Thermostat verfügbar sein sollen."
@@ -112,6 +115,9 @@
           "calibration": "Wie die Kalibrierung auf das TRV angewendet werden soll.\n\n***Target Temperature Based***: Kalibriert das TRV über die Zieltemperatur.\n\n***Offset Based***: Kalibriert das TRV über eine Offset Funktion im TRV selbst. (Empfohlen)"
         }
       }
+    },
+    "error": {
+      "role_overlap": "Eine Klima-Entität darf nicht in mehreren Rollen (Heizen / Kühlen / Kombiniert) verwendet werden. Weisen Sie jede Entität bitte nur einer Rolle zu."
     }
   },
   "issues": {

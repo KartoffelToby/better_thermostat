@@ -22,7 +22,8 @@
           "outdoor_sensor": "Hvis du har en udeføler, kan du bruge den til at få udetemperaturen",
           "weather": "Din vejrentitet for at få udendørstemperaturen",
           "target_temp_step": "Trin for måltemperatur",
-          "presets": "Aktiverede forudindstillinger"
+          "presets": "Aktiverede forudindstillinger",
+          "heat_cool": "Combined heat/cool devices (optional)"
         },
         "data_description": {
           "presets": "Vælg de forudindstillinger, der skal være tilgængelige for denne termostat."
@@ -56,7 +57,8 @@
       "no_name": "Indtast venligst et navn.",
       "no_off_mode": "Din enhed er meget speciel og har ingen slukket tilstand :(\nDet virker alligevel, men du skal oprette en automatisering, der passer til dine specialer baseret på enhedsbegivenhederne",
       "no_outside_temp": "Du har ingen udetemperaturføler. Better Thermostat vil bruge vejret i stedet.",
-      "no_data": "Ingen data blev modtaget. Prøv venligst igen."
+      "no_data": "Ingen data blev modtaget. Prøv venligst igen.",
+      "role_overlap": "A climate entity cannot be used in more than one role (heating / cooling / heat-cool). Please assign each entity to only one role."
     },
     "abort": {
       "single_instance_allowed": "Kun en enkelt termostat for hver virkelige er tilladt.",
@@ -88,7 +90,8 @@
           "calibration": "Den slags kalibrering",
           "heat_auto_swapped": "Hvis auto betyder varme til din TRV, og du ønsker at bytte den",
           "child_lock": "Ignorer alle input på TRV som en børnesikring",
-          "homematicip": "Hvis du bruger HomematicIP, bør du aktivere dette for at bremse anmodningerne for at forhindre arbejdscyklus"
+          "homematicip": "Hvis du bruger HomematicIP, bør du aktivere dette for at bremse anmodningerne for at forhindre arbejdscyklus",
+          "heat_cool": "Combined heat/cool devices (optional)"
         },
         "data_description": {
           "presets": "Vælg de forudindstillinger, der skal være tilgængelige for denne termostat."
@@ -112,6 +115,9 @@
           "calibration": "Hvordan kalibreringen skal anvendes på TRV (Target temp or offset)\n***Måltemperaturbaseret***: Anvend kalibreringen til måltemperaturen.\n***Offset-baseret***: Anvend kalibreringen til offset."
         }
       }
+    },
+    "error": {
+      "role_overlap": "A climate entity cannot be used in more than one role (heating / cooling / heat-cool). Please assign each entity to only one role."
     }
   },
   "issues": {

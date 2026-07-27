@@ -23,6 +23,7 @@ from custom_components.better_thermostat.model_fixes.model_quirks import (
     override_set_hvac_mode,
     override_set_temperature,
 )
+from custom_components.better_thermostat.trv import Trv
 from custom_components.better_thermostat.utils.const import (
     CalibrationMode,
     CalibrationType,
@@ -874,3 +875,341 @@ async def check_target_temperature(self, heater_entity_id=None):
 
     _real_trv.target_temp_received = True
     return True
+
+
+async def control_combined(self):
+    """Control a combined heat/cool device based on BT's setpoints and mode.
+
+    Combined devices delegate the heat/cool decision to the device itself,
+    so we only sync fan/swing/preset and valve position. Temperature setpoints
+    are always applied (single value, no range).
+    """
+    combined_ids = list(self.combined_trvs.keys())
+    if not combined_ids:
+        return True
+
+    if not hasattr(self, "task_manager"):
+        self.task_manager = TaskManager(hass=self.hass)
+
+    async with self._temp_lock:
+        # Process all combined devices in parallel
+        tasks = []
+        for entity_id in combined_ids:
+            combined_trv = self.combined_trvs.get(entity_id)
+            if combined_trv is None:
+                continue
+
+            _LOGGER.debug(
+                "better_thermostat %s: controlling combined device %s",
+                self.device_name,
+                entity_id,
+            )
+            tasks.append(
+                asyncio.create_task(
+                    _control_single_combined(self, entity_id, combined_trv)
+                )
+            )
+
+        results = await asyncio.gather(*tasks, return_exceptions=True)
+
+        # Any failure -> retry next cycle
+        return all(r is True for r in results)
+
+
+async def _control_single_combined(
+    self, heater_entity_id: str, combined_trv: Trv
+) -> bool:
+    """Control a single combined device."""
+    async with self._temp_lock:
+        _trv_state = self.hass.states.get(heater_entity_id)
+        if _trv_state is None or _trv_state.state in ("unavailable", "unknown"):
+            _LOGGER.debug(
+                "better_thermostat %s: combined device %s unavailable, skipping",
+                self.device_name,
+                heater_entity_id,
+            )
+            return True
+
+        _remapped_states = _convert_outbound_combined_states(
+            self, heater_entity_id, self.bt_hvac_mode
+        )
+        if not isinstance(_remapped_states, dict):
+            _LOGGER.warning(
+                "better_thermostat %s: _convert_outbound_combined_states returned %r for %s — skipping",
+                self.device_name,
+                _remapped_states,
+                heater_entity_id,
+            )
+            return False
+
+        _temperature = _remapped_states.get("temperature")
+        _calibration = _remapped_states.get("local_temperature_calibration", None)
+        _calibration_mode = combined_trv.advanced.get(
+            "calibration_mode", "mpc_calibration"
+        )
+        _calibration_type = combined_trv.advanced.get(
+            "calibration", "target_temp_based"
+        )
+
+        # Optional: set valve position if supported
+        _valve_ok = await _combined_set_valve(self, heater_entity_id, combined_trv)
+
+        # Determine desired hvac_mode: combined devices honour BT's mode directly
+        _desired_hvac = _remapped_states.get("system_mode") or self.bt_hvac_mode
+        _current_hvac = _trv_state.state
+
+        # If contact is open, force OFF
+        if self.contact_open:
+            _desired_hvac = HVACMode.OFF
+
+        # Apply HVAC mode change if needed
+        if _desired_hvac != _current_hvac:
+            _LOGGER.debug(
+                "better_thermostat %s: TO combined %s set_hvac_mode: %s -> %s",
+                self.device_name,
+                heater_entity_id,
+                _current_hvac,
+                _desired_hvac,
+            )
+            combined_trv.last_hvac_mode = _desired_hvac
+
+            _has_quirk = await _override_set_hvac_mode_combined(
+                self, heater_entity_id, _desired_hvac
+            )
+            if not _has_quirk:
+                await set_hvac_mode(self, heater_entity_id, _desired_hvac)
+
+            # Schedule system_mode confirmation check
+            combined_trv.system_mode_received = False
+            self.task_manager.create_task(
+                _check_system_mode_combined(self, heater_entity_id),
+                name=f"bt_check_combined_mode_{heater_entity_id}",
+            )
+
+        # Apply temperature setpoint
+        if _temperature is not None:
+            combined_trv.last_temperature = _temperature
+            _has_quirk = await _override_set_temp_combined(
+                self, heater_entity_id, _temperature
+            )
+            if not _has_quirk:
+                await set_temperature(self, heater_entity_id, _temperature)
+
+            combined_trv.target_temp_received = False
+            self.task_manager.create_task(
+                _check_target_temp_combined(self, heater_entity_id),
+                name=f"bt_check_combined_temp_{heater_entity_id}",
+            )
+
+        # Apply calibration offset if needed
+        if _calibration is not None and _calibration_mode != "no_calibration":
+            _cur_cal = await get_current_offset(self, heater_entity_id)
+            if _cur_cal is not None:
+                _cal = float(str(_calibration))
+                _old_cal = combined_trv.last_calibration or _cur_cal
+                if _old_cal != _cal:
+                    _LOGGER.debug(
+                        "better_thermostat %s: TO combined %s set_offset: %.1f -> %.1f",
+                        self.device_name,
+                        heater_entity_id,
+                        _old_cal,
+                        _cal,
+                    )
+                    await set_offset(self, heater_entity_id, _cal)
+                    combined_trv.calibration_received = False
+
+        # Wait for device to propagate state before accepting next events
+        await asyncio.sleep(2)
+
+        combined_trv.ignore_trv_states = False
+        return True
+
+
+# -----------------------------------------------------------------------------
+# Helper functions for combined device control (mirroring control_trv logic)
+# -----------------------------------------------------------------------------
+
+
+def _convert_outbound_combined_states(
+    self, entity_id: str, hvac_mode: HVACMode
+) -> dict[str, float | HVACMode | None]:
+    """Convert BT outbound setpoints to combined device format.
+
+    Combined devices always use a single temperature setpoint (no range)
+    and their HVAC mode is taken directly from BT (AUTO → device decides).
+    """
+    trv = self.combined_trvs.get(entity_id)
+    if trv is None:
+        return {}
+
+    # Temperature: always use bt_target_temp (combined has no cool target)
+    temperature = trv.temperature or self.bt_target_temp or 20.0
+
+    # HVAC mode: map BT's main mode to what the combined entity expects
+    # AUTO stays AUTO, HEAT becomes HEAT, COOL becomes COOL, OFF stays OFF
+    mode_map = {
+        HVACMode.AUTO: HVACMode.AUTO,
+        HVACMode.HEAT: HVACMode.HEAT,
+        HVACMode.COOL: HVACMode.COOL,
+        HVACMode.OFF: HVACMode.OFF,
+    }
+    system_mode = mode_map.get(hvac_mode, hvac_mode)
+
+    return {
+        "temperature": temperature,
+        "system_mode": system_mode,
+        "local_temperature_calibration": trv.local_temperature_calibration,
+    }
+
+
+async def _combined_set_valve(self, entity_id: str, combined_trv: Trv) -> bool:
+    """Set valve position on a combined device if supported."""
+    _trv_state = self.hass.states.get(entity_id)
+    if _trv_state is None:
+        return False
+
+    _raw_valve = _trv_state.attributes.get("valve_position")
+    if _raw_valve is None:
+        return False
+
+    try:
+        _current_pct = float(_raw_valve)
+    except ValueError, TypeError:
+        return False
+
+    # Determine desired valve: boost→100%, else use control_trv logic
+    if self.preset_mode == "boost":
+        target_pct = int(round(min(100, combined_trv.valve_max_opening or 100)))
+    else:
+        # Reuse _get_valve_control from the module scope (not self-aware)
+        _calib_mode = combined_trv.advanced.get("calibration_mode", "mpc_calibration")
+        _calib_type = combined_trv.advanced.get("calibration", "target_temp_based")
+
+        if self.preset_mode == "boost" and _calib_type == "direct_valve_based":
+            # Boost with direct valve: force max opening
+            max_opening = combined_trv.valve_max_opening or 100
+            target_pct = max(0, min(100, int(round(float(max_opening)))))
+        else:
+            # Use the existing _get_valve_control helper (self is not used)
+            target_pct, _source = _get_valve_control(
+                self, entity_id, _calib_mode, _calib_type
+            )
+            if target_pct is None:
+                return False
+
+    _LOGGER.debug(
+        "better_thermostat %s: TO combined %s set_valve: %d%%",
+        self.device_name,
+        entity_id,
+        target_pct,
+    )
+    ok = await set_valve(self, entity_id, target_pct)
+    return ok
+
+
+async def _override_set_hvac_mode_combined(
+    self, entity_id: str, hvac_mode: HVACMode
+) -> bool:
+    """Try model quirks override for hvac_mode on combined device."""
+    trv = self.combined_trvs.get(entity_id)
+    if trv is None or not hasattr(trv, "model_quirks"):
+        return False
+
+    quirks = trv.model_quirks
+    if not hasattr(quirks, "override_set_hvac_mode"):
+        return False
+
+    try:
+        return await quirks.override_set_hvac_mode(self, entity_id, hvac_mode)
+    except Exception:
+        _LOGGER.debug(
+            "better_thermostat %s: combined override_set_hvac_mode failed for %s",
+            self.device_name,
+            entity_id,
+        )
+        return False
+
+
+async def _override_set_temp_combined(self, entity_id: str, temperature: float) -> bool:
+    """Try model quirks override for temperature on combined device."""
+    trv = self.combined_trvs.get(entity_id)
+    if trv is None or not hasattr(trv, "model_quirks"):
+        return False
+
+    quirks = trv.model_quirks
+    if not hasattr(quirks, "override_set_temperature"):
+        return False
+
+    try:
+        return await quirks.override_set_temperature(self, entity_id, temperature)
+    except Exception:
+        _LOGGER.debug(
+            "better_thermostat %s: combined override_set_temperature failed for %s",
+            self.device_name,
+            entity_id,
+        )
+        return False
+
+
+async def _check_system_mode_combined(self, entity_id: str) -> None:
+    """Wait for combined device to confirm hvac_mode change."""
+    _timeout = 0
+    while True:
+        _trv_state = self.hass.states.get(entity_id)
+        if _trv_state is None or _trv_state.state in ("unavailable", "unknown"):
+            _LOGGER.debug(
+                "better_thermostat %s: combined %s unavailable during mode check",
+                self.device_name,
+                entity_id,
+            )
+            break
+        if _trv_state.state == self.combined_trvs[entity_id].last_hvac_mode:
+            _timeout = 0
+            break
+        if _timeout > 360:
+            _LOGGER.warning(
+                "better_thermostat %s: combined %s did not confirm mode change after 360s",
+                self.device_name,
+                entity_id,
+            )
+            _timeout = 0
+            break
+        await asyncio.sleep(1)
+        _timeout += 1
+    await asyncio.sleep(2)
+    self.combined_trvs[entity_id].system_mode_received = True
+
+
+async def _check_target_temp_combined(self, entity_id: str) -> None:
+    """Wait for combined device to confirm temperature change."""
+    _timeout = 0
+    _combined = self.combined_trvs.get(entity_id)
+    if _combined is None:
+        return
+    while True:
+        _trv_state = self.hass.states.get(entity_id)
+        if _trv_state is None or _trv_state.state in ("unavailable", "unknown"):
+            _LOGGER.debug(
+                "better_thermostat %s: combined %s unavailable during temp check",
+                self.device_name,
+                entity_id,
+            )
+            break
+        _curr_temps = get_current_set_temperatures(self, _trv_state, "combined_check")
+        if not _curr_temps or matches_any_setpoint(
+            _combined.last_temperature, _curr_temps
+        ):
+            _timeout = 0
+            break
+        if _timeout > 360:
+            _LOGGER.warning(
+                "better_thermostat %s: combined %s temp not confirmed after 360s",
+                self.device_name,
+                entity_id,
+            )
+            _timeout = 0
+            break
+        await asyncio.sleep(1)
+        _timeout += 1
+    await asyncio.sleep(2)
+    _combined.target_temp_received = True

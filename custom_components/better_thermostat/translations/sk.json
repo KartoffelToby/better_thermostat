@@ -22,7 +22,8 @@
           "outdoor_sensor": "Ak máte vonkajší snímač, môžete pomocou neho zistiť vonkajšiu teplotu",
           "weather": "Váš meteorologický subjekt na zistenie vonkajšej teploty",
           "target_temp_step": "Krok cieľovej teploty",
-          "presets": "Povolené predvoľby"
+          "presets": "Povolené predvoľby",
+          "heat_cool": "Combined heat/cool devices (optional)"
         },
         "data_description": {
           "presets": "Vyberte predvoľby, ktoré chcete mať k dispozícii pre tento termostat."
@@ -56,7 +57,8 @@
       "no_name": "Zadajte meno.",
       "no_off_mode": "Vaše zariadenie je veľmi špeciálne a nemá režim vypnutia :(\nBetter Thermostat namiesto toho použije minimálnu cieľovú teplotu.",
       "no_outside_temp": "Nemáte snímač vonkajšej teploty. Better Thermostat namiesto toho použije entitu počasie.",
-      "no_data": "Neprijali sa žiadne údaje. Skúste to znova."
+      "no_data": "Neprijali sa žiadne údaje. Skúste to znova.",
+      "role_overlap": "A climate entity cannot be used in more than one role (heating / cooling / heat-cool). Please assign each entity to only one role."
     },
     "abort": {
       "single_instance_allowed": "Pre každý real je povolený len jeden termostat.",
@@ -88,7 +90,8 @@
           "calibration": "Druh kalibrácie",
           "heat_auto_swapped": "Ak auto znamená teplo pre váš TRV a chcete ho vymeniť",
           "child_lock": "Ignorovať všetky vstupy na TRV ako detský zámok",
-          "homematicip": "Ak používate HomematicIP, mali by ste túto funkciu povoliť, aby ste spomalili požiadavky a zabránili tak pracovnému cyklu"
+          "homematicip": "Ak používate HomematicIP, mali by ste túto funkciu povoliť, aby ste spomalili požiadavky a zabránili tak pracovnému cyklu",
+          "heat_cool": "Combined heat/cool devices (optional)"
         },
         "data_description": {
           "presets": "Vyberte predvoľby, ktoré chcete mať k dispozícii pre tento termostat."
@@ -112,6 +115,9 @@
           "calibration": "Ako sa má kalibrácia použiť na TRV (cieľová teplota alebo ofset)\n***Na základe cieľovej teploty***: Použite kalibráciu na cieľovú teplotu.\n***Na základe ofsetu***: Použite kalibráciu na offset."
         }
       }
+    },
+    "error": {
+      "role_overlap": "A climate entity cannot be used in more than one role (heating / cooling / heat-cool). Please assign each entity to only one role."
     }
   },
   "issues": {

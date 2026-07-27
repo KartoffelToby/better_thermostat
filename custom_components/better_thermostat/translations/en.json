@@ -22,7 +22,8 @@
           "outdoor_sensor": "Outdoor temperature sensor",
           "weather": "Weather entity to get the outdoor temperature",
           "target_temp_step": "Target temperature step",
-          "presets": "Enabled Presets"
+          "presets": "Enabled Presets",
+          "heat_cool": "Combined heat/cool devices (optional)"
         },
         "data_description": {
           "presets": "Select the presets you want to be available for this thermostat."
@@ -56,7 +57,8 @@
       "no_name": "Please enter a name.",
       "no_off_mode": "Your device is special and has no off mode :(\nBetter Thermostat will use the minimal target temp instead.",
       "no_outside_temp": "You have no outside temperature sensor. Better Thermostat will use the weather entity instead.",
-      "no_data": "No data was received. Please try again."
+      "no_data": "No data was received. Please try again.",
+      "role_overlap": "A climate entity cannot be used in more than one role (heating / cooling / heat-cool). Please assign each entity to only one role."
     },
     "abort": {
       "single_instance_allowed": "Only a single Better Thermostat is allowed for each real thermostat.",
@@ -88,7 +90,8 @@
           "calibration": "The sort of calibration",
           "heat_auto_swapped": "If 'auto' means 'heat' for your TRV and you want to swap it",
           "child_lock": "Ignore all inputs on the TRV like a child lock",
-          "homematicip": "If you use HomematicIP, you should enable this to slow down the requests to prevent the duty cycle"
+          "homematicip": "If you use HomematicIP, you should enable this to slow down the requests to prevent the duty cycle",
+          "heat_cool": "Combined heat/cool devices (optional)"
         },
         "data_description": {
           "presets": "Select the presets you want to be available for this thermostat."
@@ -112,6 +115,9 @@
           "calibration": "How the calibration is applied on the TRV\n***Target Temperature Based***: Apply the calibration to the target temperature.\n***Offset Based***: Apply the calibration to the temperature offset."
         }
       }
+    },
+    "error": {
+      "role_overlap": "A climate entity cannot be used in more than one role (heating / cooling / heat-cool). Please assign each entity to only one role."
     }
   },
   "issues": {

@@ -31,6 +31,7 @@ from .utils.const import (
     CONF_CALIBRATION,
     CONF_CALIBRATION_MODE,
     CONF_CHILD_LOCK,
+    CONF_COMBINED,
     CONF_COOLER,
     CONF_DOOR_TIMEOUT,
     CONF_DOOR_TIMEOUT_AFTER,
@@ -475,13 +476,13 @@ def _build_user_fields(
                 domain=domain, multiple=multiple
             )
         default = resolve(key)
-        if key == CONF_HEATER and isinstance(default, list):
+        if key in (CONF_HEATER, CONF_COMBINED) and isinstance(default, list):
             default = [
                 item.get("trv")
                 for item in default
                 if isinstance(item, dict) and item.get("trv")
             ]
-        if key == CONF_HEATER and not default:
+        if key in (CONF_HEATER, CONF_COMBINED) and not default:
             default = None
         add_field(
             key,
@@ -494,6 +495,7 @@ def _build_user_fields(
 
     add_entity_selector(CONF_HEATER, domain="climate", multiple=True, required=True)
     add_entity_selector(CONF_COOLER, domain="climate", multiple=False)
+    add_entity_selector(CONF_COMBINED, domain="climate", multiple=True)
 
     # Only relevant once a cooler is configured, so keep it out of heat-only forms.
     if resolve(CONF_COOLER):
@@ -616,6 +618,21 @@ def _normalize_user_submission(
             if isinstance(item, dict) and item.get("trv")
         ]
     normalized[CONF_HEATER] = list(heaters_list)
+
+    combined_value = user_input.get(CONF_COMBINED, normalized.get(CONF_COMBINED, []))
+    if isinstance(combined_value, list):
+        combined_list = combined_value
+    elif combined_value is None:
+        combined_list = []
+    else:
+        combined_list = [combined_value]
+    if combined_list and isinstance(combined_list[0], dict):
+        combined_list = [
+            item.get("trv")
+            for item in combined_list
+            if isinstance(item, dict) and item.get("trv")
+        ]
+    normalized[CONF_COMBINED] = list(combined_list)
 
     optional_keys = (
         CONF_COOLER,
@@ -749,6 +766,7 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         self.model = None
         self.heater_entity_id = None
         self.trv_bundle: list[dict[str, Any]] = []
+        self.combined_bundle: list[dict[str, Any]] = []
         self.integration = None
         self.i = 0
         self._active_trv_config: dict[str, Any] | None = None
@@ -782,6 +800,7 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
 
         # attach current trv bundle
         self.data[CONF_HEATER] = self.trv_bundle
+        self.data[CONF_COMBINED] = self.combined_bundle
         if user_input is not None:
             if self.data is not None:
                 _LOGGER.debug("Confirm: %s", self.data[CONF_HEATER])
@@ -910,7 +929,31 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 errors["base"] = "no_name"
 
             heaters = normalized.get(CONF_HEATER) or []
+            combined = normalized.get(CONF_COMBINED) or []
+            cooler = normalized.get(CONF_COOLER)
             if "base" not in errors:
+                # Validate that no entity is assigned to more than one role
+                heater_set = set(heaters)
+                combined_set = set(combined)
+                overlap_hc = heater_set & combined_set
+                overlap_cooler_h = heater_set & ({cooler} if cooler else set())
+                overlap_cooler_c = combined_set & ({cooler} if cooler else set())
+                if overlap_hc or overlap_cooler_h or overlap_cooler_c:
+                    errors["base"] = "role_overlap"
+                    return self.async_show_form(
+                        step_id="user",
+                        data_schema=vol.Schema(
+                            _build_user_fields(
+                                mode="create",
+                                current=self.data or {},
+                                user_input=user_input,
+                            )
+                        ),
+                        errors=errors,
+                        last_step=False,
+                        description_placeholders={"docs_url": CONFIG_WALKTHROUGH_URL},
+                    )
+
                 self.heater_entity_id = list(heaters)
                 self.trv_bundle = []
                 for trv in self.heater_entity_id:
@@ -927,7 +970,27 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                     "ConfigFlow user step built trv bundle: %s", self.trv_bundle
                 )
                 self.data[CONF_MODEL] = "/".join([x["model"] for x in self.trv_bundle])
-                return await self.async_step_advanced(None, self.trv_bundle[0])
+
+                # Build combined heat/cool device bundles (default advanced config;
+                # these are driven via the unified auto path, not the TRV path)
+                self.combined_bundle = []
+                for trv in combined:
+                    integration = await get_trv_intigration(self, trv)
+                    self.combined_bundle.append(
+                        {
+                            "trv": trv,
+                            "integration": integration,
+                            "model": await get_device_model(self, trv),
+                            "adapter": await load_adapter(self, integration, trv),
+                            "advanced": {},
+                        }
+                    )
+                self.data[CONF_COMBINED] = self.combined_bundle
+
+                if self.trv_bundle:
+                    return await self.async_step_advanced(None, self.trv_bundle[0])
+                # No heater TRVs (e.g. only combined devices): skip advanced step
+                return await self.async_step_confirm()
 
         fields = _build_user_fields(
             mode="create", current=self.data or {}, user_input=user_input
@@ -950,6 +1013,7 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
         self.i = 0
         # Dynamic config structures use Any as they store heterogeneous data
         self.trv_bundle: list[dict[str, Any]] = []
+        self.combined_bundle: list[dict[str, Any]] = []
         self.device_name = ""
         self._last_step = False
         self.updated_config: dict[str, Any] = {}
@@ -1014,6 +1078,7 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
                 )
 
             self.updated_config[CONF_HEATER] = self.trv_bundle
+            self.updated_config[CONF_COMBINED] = self.combined_bundle
             _LOGGER.debug("Updated config: %s", self.updated_config)
             _LOGGER.debug(
                 "OptionsFlow writing heater bundle: %s",
@@ -1073,13 +1138,41 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
             self.updated_config = normalized
             self.trv_bundle = []
 
-            # Get the list of heaters from the normalized input
+            # Get the list of heaters and combined devices from the normalized input
             heaters = normalized.get(CONF_HEATER, [])
+            combined = normalized.get(CONF_COMBINED, [])
+            cooler = normalized.get(CONF_COOLER)
+
+            # Validate that no entity is assigned to more than one role
+            heater_set = set(heaters)
+            combined_set = set(combined)
+            overlap_hc = heater_set & combined_set
+            overlap_cooler_h = heater_set & ({cooler} if cooler else set())
+            overlap_cooler_c = combined_set & ({cooler} if cooler else set())
+            if overlap_hc or overlap_cooler_h or overlap_cooler_c:
+                return self.async_show_form(
+                    step_id="user",
+                    data_schema=vol.Schema(
+                        _build_user_fields(
+                            mode="update",
+                            current=self._config_entry.data,
+                            user_input=user_input,
+                        )
+                    ),
+                    errors={"base": "role_overlap"},
+                    last_step=False,
+                    description_placeholders={"docs_url": CONFIG_WALKTHROUGH_URL},
+                )
 
             # Create a map of existing TRV configs by TRV ID
             existing_trvs = {
                 trv.get("trv"): trv
                 for trv in self._config_entry.data.get(CONF_HEATER, [])
+                if isinstance(trv, dict) and trv.get("trv")
+            }
+            existing_combined = {
+                trv.get("trv"): trv
+                for trv in self._config_entry.data.get(CONF_COMBINED, [])
                 if isinstance(trv, dict) and trv.get("trv")
             }
 
@@ -1109,10 +1202,49 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
                         }
                     )
 
-            _LOGGER.debug("OptionsFlow user step built trv bundle: %s", self.trv_bundle)
+            # Build combined heat/cool device bundles
+            self.combined_bundle = []
+            for combined_item in combined:
+                if isinstance(combined_item, dict):
+                    trv_id = combined_item.get("trv")
+                else:
+                    trv_id = combined_item
 
-            return await self.async_step_advanced(
-                None, self.trv_bundle[0], self.updated_config
+                if not trv_id:
+                    continue
+
+                if trv_id in existing_combined:
+                    trv_copy = copy.deepcopy(existing_combined[trv_id])
+                    trv_copy["adapter"] = None
+                    self.combined_bundle.append(trv_copy)
+                else:
+                    integration = await get_trv_intigration(self, trv_id)
+                    self.combined_bundle.append(
+                        {
+                            "trv": trv_id,
+                            "integration": integration,
+                            "model": await get_device_model(self, trv_id),
+                            "adapter": await load_adapter(self, integration, trv_id),
+                            "advanced": {},
+                        }
+                    )
+
+            _LOGGER.debug("OptionsFlow user step built trv bundle: %s", self.trv_bundle)
+            _LOGGER.debug(
+                "OptionsFlow user step built combined bundle: %s", self.combined_bundle
+            )
+
+            if self.trv_bundle:
+                return await self.async_step_advanced(
+                    None, self.trv_bundle[0], self.updated_config
+                )
+            # No heater TRVs (e.g. only combined devices): finalize directly
+            self.updated_config[CONF_COMBINED] = self.combined_bundle
+            self.hass.config_entries.async_update_entry(
+                self._config_entry, data=self.updated_config
+            )
+            return self.async_create_entry(
+                title=self.updated_config["name"], data=self.updated_config
             )
 
         fields = _build_user_fields(
