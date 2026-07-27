@@ -343,6 +343,9 @@ async def control_cooler(self):
     # Decide whether a temperature command is needed. When the current
     # temperature is unknown, only send if the desired value changed since the
     # last successful command; otherwise send when it differs from current.
+    # The reported value comes back on convert_to_float's 0.01 grid, and on a
+    # Fahrenheit system through a unit conversion on top, so it is compared
+    # with the same tolerance as the lower bound below.
     temp_changed_since_last_send = self.last_sent_cooler_temp != desired_temp
     should_send_temp = False
     if desired_temp is None:
@@ -362,7 +365,7 @@ async def control_cooler(self):
                 self.cooler_entity_id,
                 desired_temp,
             )
-    elif current_temp != desired_temp:
+    elif not matches_any_setpoint(current_temp, {desired_temp}):
         should_send_temp = True
 
     # A range write carries both bounds, so a lower bound that drifted away

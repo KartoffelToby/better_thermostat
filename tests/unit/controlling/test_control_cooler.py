@@ -430,6 +430,35 @@ class TestControlCoolerFahrenheit:
         ]
         assert "set_temperature" not in service_names
 
+    @pytest.mark.asyncio
+    async def test_reported_temp_within_read_tolerance_is_not_resent(self):
+        """A setpoint that only differs by the read-back grid is unchanged.
+
+        The device reports on convert_to_float's 0.01 grid while BT holds the
+        raw value, so exact inequality would resend on every cycle.
+        """
+        mock_hass = Mock()
+        mock_hass.config.units.temperature_unit = UnitOfTemperature.CELSIUS
+        mock_hass.services = Mock()
+        mock_hass.services.async_call = AsyncMock()
+        mock_hass.states.get.return_value = _make_cooler_state(
+            state=HVACMode.COOL, temperature=24.005
+        )
+
+        mock_self = _make_mock_self(
+            mock_hass,
+            bt_hvac_mode=HVACMode.COOL,
+            cur_temp=25.0,
+            bt_target_cooltemp=24.0,
+        )
+
+        await control_cooler(mock_self)
+
+        service_names = [
+            c.args[1] for c in mock_hass.services.async_call.call_args_list
+        ]
+        assert "set_temperature" not in service_names
+
 
 def _make_range_cooler_state(
     state=HVACMode.COOL,
