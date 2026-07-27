@@ -29,6 +29,7 @@ from custom_components.better_thermostat.utils.const import (
     CalibrationType,
 )
 from custom_components.better_thermostat.utils.helpers import (
+    attr_to_celsius,
     convert_to_float,
     get_current_set_temperatures,
     matches_any_setpoint,
@@ -276,7 +277,12 @@ async def control_cooler(self):
         return
 
     current_hvac_mode = cooler_state.state
-    current_temp = cooler_state.attributes.get("temperature")
+    # Resolve the cooler's reported setpoint to Celsius before comparing it
+    # against the Celsius desired value; on a Fahrenheit system the raw
+    # attribute would never match and defeat the redundant-send dedup.
+    current_temp = attr_to_celsius(
+        self, cooler_state, "temperature", None, "control_cooler()"
+    )
 
     min_resend_interval_s = self.min_cooler_resend_interval_s
     now_ts = monotonic()

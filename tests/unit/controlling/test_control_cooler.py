@@ -4,6 +4,7 @@ from time import monotonic
 from unittest.mock import AsyncMock, Mock
 
 from homeassistant.components.climate.const import HVACMode
+from homeassistant.const import UnitOfTemperature
 from homeassistant.core import State
 from homeassistant.exceptions import HomeAssistantError
 import pytest
@@ -393,3 +394,38 @@ class TestControlCoolerSendCache:
         assert mock_self.last_sent_cooler_hvac_mode is None
         assert mock_self.last_sent_cooler_temp_ts is None
         assert mock_self.last_sent_cooler_hvac_mode_ts is None
+
+
+class TestControlCoolerFahrenheit:
+    """Unit handling in the redundant-send dedup on Fahrenheit systems."""
+
+    @pytest.mark.asyncio
+    async def test_reported_temp_matching_target_in_fahrenheit_is_not_resent(self):
+        """A cooler reporting the target in °F triggers no set_temperature.
+
+        The reported setpoint is resolved to Celsius before the dedup
+        comparison; without that, the raw °F value never equals the Celsius
+        desired setpoint and a redundant set_temperature fires every cycle.
+        """
+        mock_hass = Mock()
+        mock_hass.config.units.temperature_unit = UnitOfTemperature.FAHRENHEIT
+        mock_hass.services = Mock()
+        mock_hass.services.async_call = AsyncMock()
+        # 75.2 °F == 24.0 °C, the desired cooling setpoint.
+        mock_hass.states.get.return_value = _make_cooler_state(
+            state=HVACMode.COOL, temperature=75.2
+        )
+
+        mock_self = _make_mock_self(
+            mock_hass,
+            bt_hvac_mode=HVACMode.COOL,
+            cur_temp=25.0,
+            bt_target_cooltemp=24.0,
+        )
+
+        await control_cooler(mock_self)
+
+        service_names = [
+            c.args[1] for c in mock_hass.services.async_call.call_args_list
+        ]
+        assert "set_temperature" not in service_names
