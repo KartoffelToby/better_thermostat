@@ -37,6 +37,7 @@ def bt():
     mock.sensor_entity_id = SENSOR_ID
     mock.humidity_sensor_entity_id = None
     mock.window_id = None
+    mock.door_id = None
     mock.outdoor_sensor = None
     mock.weather_entity = None
     mock.unavailable_sensors = []

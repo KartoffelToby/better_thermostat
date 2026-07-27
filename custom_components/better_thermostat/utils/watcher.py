@@ -160,6 +160,11 @@ def get_optional_sensors(self) -> list:
     Optional sensors are those that can be unavailable without
     blocking thermostat operation (degraded mode).
 
+    The contact sensors (window, door) belong here precisely because a
+    lost one counts as closed: heating continues, so the outage has no
+    other visible symptom and degraded mode is the only thing that
+    surfaces it.
+
     Returns
     -------
     list
@@ -168,6 +173,8 @@ def get_optional_sensors(self) -> list:
     optional = []
     if getattr(self, "window_id", None):
         optional.append(self.window_id)
+    if getattr(self, "door_id", None):
+        optional.append(self.door_id)
     if getattr(self, "humidity_sensor_entity_id", None):
         optional.append(self.humidity_sensor_entity_id)
     if getattr(self, "outdoor_sensor", None):

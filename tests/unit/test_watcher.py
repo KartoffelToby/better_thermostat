@@ -49,6 +49,7 @@ def mock_bt_instance(mock_hass):
     bt.device_name = "Test Thermostat"
     bt.sensor_entity_id = "sensor.room_temp"
     bt.window_id = "binary_sensor.window"
+    bt.door_id = None
     bt.humidity_sensor_entity_id = "sensor.humidity"
     bt.outdoor_sensor = "sensor.outdoor_temp"
     bt.weather_entity = "weather.home"
@@ -186,6 +187,23 @@ class TestGetOptionalSensors:
         result = get_optional_sensors(mock_bt_instance)
 
         assert result == []
+
+    def test_includes_the_door_sensor(self, mock_bt_instance):
+        """A configured door sensor is watched like the window sensor.
+
+        Both contact sensors count as closed while unavailable, so
+        heating simply continues and degraded mode is the only thing
+        that reveals the outage.
+        """
+        from custom_components.better_thermostat.utils.watcher import (
+            get_optional_sensors,
+        )
+
+        mock_bt_instance.door_id = "binary_sensor.door"
+
+        result = get_optional_sensors(mock_bt_instance)
+
+        assert "binary_sensor.door" in result
 
 
 class TestGetCriticalEntities:
@@ -487,6 +505,38 @@ class TestCheckAndUpdateDegradedMode:
         assert result is True
         assert mock_bt_instance.kernel_state.control_mode.degraded is True
         assert "binary_sensor.window" in mock_bt_instance.unavailable_sensors
+
+    @pytest.mark.anyio
+    async def test_sets_degraded_mode_when_door_sensor_unavailable(
+        self, mock_bt_instance
+    ):
+        """A dead door sensor surfaces as degraded mode.
+
+        It counts as closed, so heating continues and nothing else in the
+        system reacts — without the annunciation the outage is invisible.
+        """
+        from custom_components.better_thermostat.utils.watcher import (
+            check_and_update_degraded_mode,
+        )
+
+        mock_bt_instance.door_id = "binary_sensor.door"
+
+        def mock_get(entity_id):
+            state = MagicMock()
+            if entity_id == "binary_sensor.door":
+                state.state = "unavailable"
+            else:
+                state.state = "20.0"
+            return state
+
+        mock_bt_instance.hass.states.get.side_effect = mock_get
+
+        with patch("custom_components.better_thermostat.utils.watcher.ir"):
+            result = await check_and_update_degraded_mode(mock_bt_instance)
+
+        assert result is True
+        assert mock_bt_instance.kernel_state.control_mode.degraded is True
+        assert "binary_sensor.door" in mock_bt_instance.unavailable_sensors
 
     @pytest.mark.anyio
     async def test_ladder_reaches_hold_when_all_trvs_unavailable(
