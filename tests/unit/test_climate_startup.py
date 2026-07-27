@@ -542,6 +542,56 @@ class TestInitializeTrvCurrentTemperature:
         assert bt.real_trvs[TRV_ID].current_temperature is None
 
 
+class TestInitializeTrvTargetTempStep:
+    """The per-TRV step is stored in °C, whatever unit the device reports in.
+
+    Every consumer works in Celsius: the outbound rounding in
+    ``adapters.delegate.set_temperature``, the calibration math, and the
+    inbound echo comparison in ``events.trv``.
+    """
+
+    def _trv_only_bt(self, bt, attrs, unit="°C", cfg_step=None):
+        bt.real_trvs = {TRV_ID: Trv(entity_id=TRV_ID, calibration=1)}
+        bt.hass.config.units.temperature_unit = unit
+        bt.bt_target_temp_step = cfg_step
+        bt.hass.states.get.return_value = _make_trv_state(attrs=attrs)
+        return bt
+
+    async def _run(self, bt):
+        with (
+            patch("custom_components.better_thermostat.climate.init", AsyncMock()),
+            patch(
+                "custom_components.better_thermostat.climate.initial_tweak", AsyncMock()
+            ),
+            patch(
+                "custom_components.better_thermostat.climate.control_trv",
+                AsyncMock(return_value=True),
+            ),
+        ):
+            await BetterThermostat._initialize_trvs(bt)
+
+    @pytest.mark.asyncio
+    async def test_celsius_step_is_taken_as_reported(self, bt):
+        """On a Celsius system the reported step needs no scaling."""
+        bt = self._trv_only_bt(bt, {"target_temp_step": 0.5})
+        await self._run(bt)
+        assert bt.real_trvs[TRV_ID].target_temp_step == 0.5
+
+    @pytest.mark.asyncio
+    async def test_fahrenheit_step_is_scaled_to_a_celsius_delta(self, bt):
+        """A 1 °F step is a 0.5556 °C delta, not a 1 °C one."""
+        bt = self._trv_only_bt(bt, {"target_temp_step": 1.0}, unit="°F")
+        await self._run(bt)
+        assert bt.real_trvs[TRV_ID].target_temp_step == pytest.approx(0.5556, abs=1e-4)
+
+    @pytest.mark.asyncio
+    async def test_configured_step_is_used_unscaled(self, bt):
+        """A configured step is already in °C and is not scaled again."""
+        bt = self._trv_only_bt(bt, {"target_temp_step": 1.0}, unit="°F", cfg_step=0.5)
+        await self._run(bt)
+        assert bt.real_trvs[TRV_ID].target_temp_step == 0.5
+
+
 class TestRestoreState:
     """Tests for _restore_state."""
 

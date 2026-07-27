@@ -1817,11 +1817,23 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
             if cfg_step is not None:
                 trv_data.target_temp_step = cfg_step
             else:
-                trv_data.target_temp_step = convert_to_float(
+                _device_step = convert_to_float(
                     str(_attrs.get("target_temp_step", 0.5)),
                     self.device_name,
                     "startup",
                 )
+                # The device reports its step in its own unit, while every
+                # consumer of target_temp_step works in Celsius. A step is a
+                # delta, so it scales by the ratio alone.
+                if (
+                    _device_step is not None
+                    and state_temperature_unit(
+                        _attrs, self.hass.config.units.temperature_unit
+                    )
+                    == UnitOfTemperature.FAHRENHEIT
+                ):
+                    _device_step = round(_device_step * 5.0 / 9.0, 4)
+                trv_data.target_temp_step = _device_step
             trv_data.temperature = attr_to_celsius(
                 self, _s, "temperature", 5, "startup"
             )
