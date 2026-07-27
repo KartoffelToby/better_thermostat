@@ -188,12 +188,10 @@ class TestLadderSweep:
             since = result.down_pending_since if degrading else result.up_pending_since
             assert since == NOW
 
-        # After a commit, degraded_since exactly mirrors the new rung.
-        if result.mode != mode:
-            if result.mode == cm.ControlMode.OPTIMAL:
-                assert result.degraded_since is None
-            else:
-                assert result.degraded_since is not None
+        # The ladder never authors degraded_since: it belongs to the
+        # annunciation half of the region, which step() maintains from
+        # sensor availability. A rung commit passes it through unchanged.
+        assert result.degraded_since == state.degraded_since
 
 
 class TestReachabilitySweep:

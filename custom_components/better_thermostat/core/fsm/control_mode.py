@@ -51,6 +51,9 @@ class ControlModeState:
 
     mode: ControlMode = ControlMode.OPTIMAL
     unavailable_sensors: tuple[str, ...] = ()
+    # Start of the current annunciated degradation, keyed to sensor
+    # availability and owned solely by step(). The ladder rung is tracked
+    # separately in `mode` and does not write here.
     degraded_since: float | None = None
     # Pending downgrade (capability lost, debounce running).
     down_pending_since: float | None = None
@@ -190,24 +193,26 @@ def _advance_window(
         since = now
         commit_rung = target
     if now - since >= threshold_s:
-        committed = _with_mode(state, commit_rung, now)
+        committed = _with_mode(state, commit_rung)
         if commit_rung == target:
             return committed
         return _pend_toward(committed, deeper, now, target)
     return _pend_toward(state, deeper, since, commit_rung)
 
 
-def _with_mode(
-    state: ControlModeState, mode: ControlMode, now: float
-) -> ControlModeState:
+def _with_mode(state: ControlModeState, mode: ControlMode) -> ControlModeState:
+    """Commit a rung, clearing the pending bookkeeping.
+
+    ``degraded_since`` belongs to the annunciation half of the region and
+    is passed through untouched: :func:`step` owns it, keyed to sensor
+    availability. Deriving it from the rung as well would let a rung
+    commit overwrite a still-valid start time — and once cleared, the
+    annunciation cannot restore it while the sensor stays away.
+    """
     return ControlModeState(
         mode=mode,
         unavailable_sensors=state.unavailable_sensors,
-        degraded_since=(
-            state.degraded_since
-            if state.degraded_since is not None and mode != ControlMode.OPTIMAL
-            else (now if mode != ControlMode.OPTIMAL else None)
-        ),
+        degraded_since=state.degraded_since,
     )
 
 
