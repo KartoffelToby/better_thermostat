@@ -308,7 +308,7 @@ class TestHeatTargetSync:
         assert mock_bt.bt_target_temp == 20.0  # unchanged
 
     @pytest.mark.asyncio
-    async def test_heat_target_sync_not_checked_below_min(self, mock_bt):
+    async def test_heat_target_sync_respects_min_temp(self, mock_bt):
         """Heat-target sync keeps the heat target inside the configured range.
 
         With the cool target clamped to the minimum there is no room for a full
@@ -403,9 +403,7 @@ class TestEdgeCases:
         mock_bt.control_queue_task.put.assert_not_awaited()
 
     @pytest.mark.asyncio
-    async def test_main_key_mismatch_old_has_temp_new_has_target_temp_high(
-        self, mock_bt
-    ):
+    async def test_setpoint_key_is_resolved_per_state(self, mock_bt):
         """Each state picks its own attribute key.
 
         A cooler that switches between single-setpoint and range attributes
@@ -540,15 +538,16 @@ class TestCoolerUnitHandling:
             attributes={"temperature": 70.0, "target_temp_step": 2.0}
         )
         new_state = _make_state(
-            attributes={"temperature": 71.0, "target_temp_step": 2.0}
+            attributes={"temperature": 73.0, "target_temp_step": 2.0}
         )
         event = _make_event(mock_bt, new_state=new_state, old_state=old_state)
 
         await trigger_cooler_change(mock_bt, event)
 
-        # 1 °F is below the 2 °F device step, so this is a rounding echo.
-        assert mock_bt.bt_target_cooltemp == 21.11
-        mock_bt.control_queue_task.put.assert_not_awaited()
+        # 3 °F is 1.67 K, above the converted step of 1.11 K and below the
+        # 2.0 the raw attribute would give, so only a converted step adopts it.
+        assert mock_bt.bt_target_cooltemp == 22.78
+        mock_bt.control_queue_task.put.assert_awaited_once()
 
 
 # ---------------------------------------------------------------------------
