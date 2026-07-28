@@ -44,7 +44,7 @@ from custom_components.better_thermostat.utils.helpers import (
     read_setpoint_celsius,
     state_temperature_unit,
     supports_single_target_temperature,
-    trv_supports_temperature_range,
+    supports_temperature_range,
 )
 from custom_components.better_thermostat.utils.scheduler import request_control_cycle
 from custom_components.better_thermostat.utils.snapshot import build_snapshot
@@ -682,10 +682,16 @@ async def control_cooler(self, snapshot=None):
 
     # A cooler that only advertises the range feature rejects a "temperature"
     # payload with a ServiceValidationError, so it never receives a setpoint.
-    # Devices that advertise neither bit use the single-setpoint payload.
-    _write_range = not supports_single_target_temperature(
-        cooler_state
-    ) and trv_supports_temperature_range(cooler_state)
+    # Devices that advertise neither bit use the single-setpoint payload. A
+    # cooler advertising both publishes the channel it does not drive as None,
+    # so the write follows the channel the reading above came from.
+    _write_range = supports_temperature_range(cooler_state) and (
+        not supports_single_target_temperature(cooler_state)
+        or (
+            cooler_state.attributes.get("temperature") is None
+            and cooler_state.attributes.get("target_temp_high") is not None
+        )
+    )
 
     last_sent = cooler_send_cache(self)
     now_monotonic = self.clock.monotonic()
@@ -771,16 +777,17 @@ async def control_cooler(self, snapshot=None):
     # from the heating target needs a send of its own: the cooling target can
     # stay unchanged for as long as the user only moves the heating side.
     _low_bound_drifted = False
-    if _write_range and desired_temp is not None and temp_to_send is None:
+    if _write_range and desired_temp is not None:
         _low_to_set = cooler_low_bound(desired_temp, target_temp)
         current_low = attr_to_celsius(
             self, cooler_state, "target_temp_low", None, "control_cooler()"
         )
-        # The reported bound comes back on convert_to_float's 0.01 grid while
-        # _low_to_set is BT's raw value, so the two are compared with the same
-        # tolerance the TRV write-skip check uses.
+        # The device answers a written bound on its own grid, so the bound
+        # carries the same per-device tolerance the TRV write-skip check uses.
+        # A coarser answer than half a step is a bound the device did not
+        # apply.
         if current_low is not None and not matches_any_setpoint(
-            current_low, {_low_to_set}
+            current_low, {_low_to_set}, _reconcile_tolerance(self, cooler_state)
         ):
             _LOGGER.debug(
                 "better_thermostat %s: cooler %s lower bound %s differs from %s, "

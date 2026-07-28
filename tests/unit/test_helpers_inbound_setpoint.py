@@ -4,14 +4,17 @@ from unittest.mock import Mock
 
 from homeassistant.const import UnitOfTemperature
 from homeassistant.core import Context, State
+from homeassistant.util.unit_conversion import TemperatureDeltaConverter
 
 from custom_components.better_thermostat.utils.helpers import (
     COOLER_SETPOINT_KEYS,
+    SETPOINT_MATCH_TOLERANCE,
     TRV_SETPOINT_KEYS,
     normalize_step,
     read_setpoint_celsius,
     resolve_inbound_setpoint,
     resolve_state_change_event,
+    setpoint_echo_window,
 )
 
 ENTITY_ID = "climate.device"
@@ -100,6 +103,18 @@ class TestNormalizeStep:
         assert normalize_step(None, fallback=1.0) == 1.0
 
 
+class TestSetpointEchoWindow:
+    """The distance below which a setpoint difference is grid noise."""
+
+    def test_window_is_a_step_less_the_read_grid(self):
+        """A reported value carries the read grid, so the window shrinks by it."""
+        assert setpoint_echo_window(0.5) == 0.5 - SETPOINT_MATCH_TOLERANCE
+
+    def test_window_stays_positive_for_a_tiny_step(self):
+        """A step at or below the read grid still separates two setpoints."""
+        assert setpoint_echo_window(0.005) == SETPOINT_MATCH_TOLERANCE
+
+
 class TestResolveInboundSetpoint:
     """Clamping and echo detection on a reported setpoint."""
 
@@ -113,8 +128,6 @@ class TestResolveInboundSetpoint:
                 keys=TRV_SETPOINT_KEYS,
                 known_values=(),
                 step=0.5,
-                device_label="TRV",
-                entity_id=ENTITY_ID,
                 log_source="t",
             )
             is None
@@ -128,8 +141,6 @@ class TestResolveInboundSetpoint:
             keys=TRV_SETPOINT_KEYS,
             known_values=(),
             step=0.5,
-            device_label="TRV",
-            entity_id=ENTITY_ID,
             log_source="t",
         )
         assert (result.raw, result.value, result.clamped) == (21.0, 21.0, False)
@@ -142,8 +153,6 @@ class TestResolveInboundSetpoint:
             keys=TRV_SETPOINT_KEYS,
             known_values=(),
             step=0.5,
-            device_label="TRV",
-            entity_id=ENTITY_ID,
             log_source="t",
         )
         assert (result.raw, result.value, result.clamped) == (35.0, 30.0, True)
@@ -156,8 +165,6 @@ class TestResolveInboundSetpoint:
             keys=TRV_SETPOINT_KEYS,
             known_values=(),
             step=0.5,
-            device_label="TRV",
-            entity_id=ENTITY_ID,
             log_source="t",
         )
         assert (result.raw, result.value, result.clamped) == (2.0, 5.0, True)
@@ -170,8 +177,6 @@ class TestResolveInboundSetpoint:
             keys=TRV_SETPOINT_KEYS,
             known_values=(None, 21.5),
             step=0.5,
-            device_label="TRV",
-            entity_id=ENTITY_ID,
             log_source="t",
         )
         assert result.is_echo is True
@@ -184,8 +189,6 @@ class TestResolveInboundSetpoint:
             keys=TRV_SETPOINT_KEYS,
             known_values=(21.5,),
             step=0.5,
-            device_label="TRV",
-            entity_id=ENTITY_ID,
             log_source="t",
         )
         assert result.is_echo is False
@@ -198,8 +201,6 @@ class TestResolveInboundSetpoint:
             keys=TRV_SETPOINT_KEYS,
             known_values=(None, "unset"),
             step=0.5,
-            device_label="TRV",
-            entity_id=ENTITY_ID,
             log_source="t",
         )
         assert result.is_echo is False
@@ -215,8 +216,6 @@ class TestResolveInboundSetpoint:
             keys=TRV_SETPOINT_KEYS,
             known_values=(),
             step=0.5,
-            device_label="TRV",
-            entity_id=ENTITY_ID,
             log_source="t",
         )
         assert (result.value, result.clamped) == (21.0, False)
@@ -231,11 +230,40 @@ class TestResolveInboundSetpoint:
             keys=TRV_SETPOINT_KEYS,
             known_values=(),
             step=0.5,
-            device_label="TRV",
-            entity_id=ENTITY_ID,
             log_source="t",
         )
         assert (result.value, result.clamped) == (5.0, True)
+
+    def test_every_fahrenheit_step_is_user_input(self):
+        """On a °F system one press of the up button is never an echo.
+
+        The reported values pass through convert_to_float's 0.01 grid while
+        the step sits on the device grid, so a genuine single-step move can
+        land a hair below one full step.
+        """
+        mock_self = _fake_self(UnitOfTemperature.FAHRENHEIT)
+        step = round(
+            TemperatureDeltaConverter.convert(
+                1.0, UnitOfTemperature.FAHRENHEIT, UnitOfTemperature.CELSIUS
+            ),
+            4,
+        )
+        for fahrenheit in range(60, 86):
+            known = read_setpoint_celsius(
+                mock_self,
+                _state({"temperature": float(fahrenheit)}),
+                TRV_SETPOINT_KEYS,
+                "t",
+            )
+            result = resolve_inbound_setpoint(
+                mock_self,
+                _state({"temperature": float(fahrenheit + 1)}),
+                keys=TRV_SETPOINT_KEYS,
+                known_values=(known,),
+                step=step,
+                log_source="t",
+            )
+            assert result.is_echo is False, f"{fahrenheit} °F -> {fahrenheit + 1} °F"
 
     def test_echo_is_judged_after_clamping(self):
         """A value the clamp pulls onto a known value is an echo, not input."""
@@ -245,8 +273,6 @@ class TestResolveInboundSetpoint:
             keys=TRV_SETPOINT_KEYS,
             known_values=(30.0,),
             step=0.5,
-            device_label="TRV",
-            entity_id=ENTITY_ID,
             log_source="t",
         )
         assert (result.value, result.is_echo) == (30.0, True)

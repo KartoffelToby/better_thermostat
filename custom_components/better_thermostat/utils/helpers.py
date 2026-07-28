@@ -596,13 +596,12 @@ def celsius_to_system_temperature(hass: HomeAssistant, temperature: float) -> fl
     return temperature
 
 
-def trv_supports_temperature_range(state: State | None) -> bool:
+def supports_temperature_range(state: State | None) -> bool:
     """Check whether a climate state advertises TARGET_TEMPERATURE_RANGE.
 
     Centralizes the supported_features bitmask check so write paths
-    (model quirks) and read/confirmation paths (control_trv,
-    check_target_temperature) stay in sync if the detection logic
-    ever needs to change.
+    (model quirks) and read/confirmation paths stay in sync if the
+    detection logic ever needs to change.
 
     Parameters
     ----------
@@ -624,7 +623,7 @@ def trv_supports_temperature_range(state: State | None) -> bool:
 def supports_single_target_temperature(state: State | None) -> bool:
     """Check whether a climate state advertises TARGET_TEMPERATURE.
 
-    The counterpart to :func:`trv_supports_temperature_range`. Home Assistant
+    The counterpart to :func:`supports_temperature_range`. Home Assistant
     rejects a ``set_temperature`` call carrying ``temperature`` when the entity
     does not advertise this feature, so write paths need both bits to pick the
     payload a device accepts.
@@ -724,6 +723,27 @@ def normalize_step(value: float | int | str | None, fallback: float = 0.5) -> fl
     return step
 
 
+def setpoint_echo_window(step: float) -> float:
+    """Return the distance below which a setpoint difference is grid noise.
+
+    A reported value carries the rounding of ``convert_to_float``'s 0.01 grid
+    while the device's step and the values BT wrote sit on the device's own
+    grid, so one full step of movement can land a hair below ``step``. The
+    window shrinks by that noise and stays positive for a tiny step.
+
+    Parameters
+    ----------
+    step : float
+            the device's setpoint step in °C
+
+    Returns
+    -------
+    float
+            the largest difference that still counts as the same setpoint
+    """
+    return max(step - SETPOINT_MATCH_TOLERANCE, SETPOINT_MATCH_TOLERANCE)
+
+
 def resolve_inbound_setpoint(
     self,
     state: State | None,
@@ -731,18 +751,18 @@ def resolve_inbound_setpoint(
     keys: tuple[str, ...],
     known_values: tuple[float | None, ...],
     step: float,
-    device_label: str,
-    entity_id: str | None,
     log_source: str,
 ) -> InboundSetpoint | None:
     """Prepare a setpoint reported by a controlled device for adoption.
 
-    The single inbound boundary for setpoints BT does not own: it resolves the
-    value to °C, clamps it into BT's range, and decides whether it is BT's own
-    write coming back. A device settles a written value on its own grid and
-    republishes it, sometimes from a later poll whose context is not BT's, so
-    anything within one device step of a value BT wrote is an echo.
-    User input moves a setpoint by at least one step.
+    The shared adoption gate for setpoints BT does not own: it resolves the
+    value to °C via :func:`read_setpoint_celsius`, clamps it into BT's range,
+    and decides whether it is BT's own write coming back. A device settles a
+    written value on its own grid and republishes it, sometimes from a later
+    poll whose context is not BT's, so anything within one device step of a
+    value BT wrote is an echo. User input moves a setpoint by at least one
+    step. Answering rather than logging keeps the caller free to decide
+    whether a clamp is worth reporting.
 
     Parameters
     ----------
@@ -757,10 +777,6 @@ def resolve_inbound_setpoint(
             the values BT itself wrote, in °C; non-numeric entries are ignored
     step : float
             the device's setpoint step in °C
-    device_label : str
-            role of the device in log messages, e.g. ``"TRV"`` or ``"Cooler"``
-    entity_id : str | None
-            the reporting entity, for log messages
     log_source : str
             caller name, forwarded for logging context
 
@@ -783,16 +799,9 @@ def resolve_inbound_setpoint(
     elif self.bt_max_temp is not None and self.bt_max_temp < value:
         value = self.bt_max_temp
         clamped = True
-    if clamped:
-        _LOGGER.warning(
-            "better_thermostat %s: New %s %s setpoint outside of range, overwriting it",
-            self.device_name,
-            device_label,
-            entity_id,
-        )
-
+    echo_window = setpoint_echo_window(step)
     is_echo = any(
-        isinstance(known, (int, float)) and abs(value - known) < step
+        isinstance(known, (int, float)) and abs(value - known) < echo_window
         for known in known_values
     )
     return InboundSetpoint(raw=raw, value=value, clamped=clamped, is_echo=is_echo)
@@ -804,8 +813,9 @@ def resolve_state_change_event(
     """Return the states of a device event worth acting on, or None.
 
     Shared prologue of the device event handlers: an event is actionable when
-    it carries both states, both are States with attributes, and it was not
-    caused by BT's own service call — those carry ``self.context``.
+    it carries both states, both are States with attributes, it names an
+    entity, and it was not caused by BT's own service call — those carry
+    ``self.context``.
 
     Parameters
     ----------
@@ -949,7 +959,7 @@ def get_current_set_temperatures(
     single = attr_to_celsius(self, state, "temperature", None, log_source)
     range_low = (
         attr_to_celsius(self, state, "target_temp_low", None, log_source)
-        if trv_supports_temperature_range(state)
+        if supports_temperature_range(state)
         else None
     )
     return {v for v in (single, range_low) if v is not None}
