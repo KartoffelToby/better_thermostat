@@ -759,13 +759,15 @@ def resolve_inbound_setpoint(
         return None
 
     # A bound stays None until a child entity reports one, so each side is
-    # enforced only once it is known.
+    # enforced only once it is known. Non-overlapping heater and cooler ranges
+    # leave bt_min_temp above bt_max_temp, so the two bounds are applied in
+    # sequence rather than exclusively and the upper one decides.
     value = raw
     clamped = False
     if self.bt_min_temp is not None and value < self.bt_min_temp:
         value = self.bt_min_temp
         clamped = True
-    elif self.bt_max_temp is not None and self.bt_max_temp < value:
+    if self.bt_max_temp is not None and self.bt_max_temp < value:
         value = self.bt_max_temp
         clamped = True
 

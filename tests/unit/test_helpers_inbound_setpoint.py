@@ -290,6 +290,26 @@ class TestResolveInboundSetpoint:
         )
         assert (result.value, result.clamped) == (5.0, True)
 
+    def test_inverted_range_never_yields_a_value_above_the_maximum(self):
+        """Non-overlapping heater and cooler ranges still clamp to the maximum.
+
+        A configuration whose members do not overlap leaves bt_min_temp above
+        bt_max_temp, and a value the lower bound raises must not end up above
+        the upper one.
+        """
+        mock_self = _fake_self()
+        mock_self.bt_min_temp = 25.0
+        mock_self.bt_max_temp = 20.0
+        result = resolve_inbound_setpoint(
+            mock_self,
+            _state({"temperature": 18.0}),
+            keys=TRV_SETPOINT_KEYS,
+            known_values=(),
+            step=0.5,
+            log_source="t",
+        )
+        assert (result.value, result.clamped) == (20.0, True)
+
     def test_echo_is_judged_after_clamping(self):
         """A value the clamp pulls onto a known value is an echo, not input."""
         result = resolve_inbound_setpoint(
