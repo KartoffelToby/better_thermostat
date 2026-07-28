@@ -557,7 +557,7 @@ def celsius_to_system_temperature(hass: HomeAssistant, temperature: float) -> fl
     return temperature
 
 
-def trv_supports_temperature_range(state: State | None) -> bool:
+def supports_temperature_range(state: State | None) -> bool:
     """Check whether a climate state advertises TARGET_TEMPERATURE_RANGE.
 
     Centralizes the supported_features bitmask check so write paths
@@ -585,7 +585,7 @@ def trv_supports_temperature_range(state: State | None) -> bool:
 def supports_single_target_temperature(state: State | None) -> bool:
     """Check whether a climate state advertises TARGET_TEMPERATURE.
 
-    The counterpart to :func:`trv_supports_temperature_range`. Home Assistant
+    The counterpart to :func:`supports_temperature_range`. Home Assistant
     rejects a ``set_temperature`` call carrying ``temperature`` when the entity
     does not advertise this feature, so write paths need both bits to pick the
     payload a device accepts.
@@ -722,7 +722,7 @@ def get_current_set_temperatures(
     single = attr_to_celsius(self, state, "temperature", None, log_source)
     range_low = (
         attr_to_celsius(self, state, "target_temp_low", None, log_source)
-        if trv_supports_temperature_range(state)
+        if supports_temperature_range(state)
         else None
     )
     return {v for v in (single, range_low) if v is not None}

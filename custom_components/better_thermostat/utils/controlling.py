@@ -34,7 +34,7 @@ from custom_components.better_thermostat.utils.helpers import (
     get_current_set_temperatures,
     matches_any_setpoint,
     supports_single_target_temperature,
-    trv_supports_temperature_range,
+    supports_temperature_range,
 )
 
 _LOGGER = logging.getLogger(__name__)
@@ -289,7 +289,7 @@ async def control_cooler(self):
     # Devices that advertise neither bit use the single-setpoint payload.
     _write_range = not supports_single_target_temperature(
         cooler_state
-    ) and trv_supports_temperature_range(cooler_state)
+    ) and supports_temperature_range(cooler_state)
 
     min_resend_interval_s = self.min_cooler_resend_interval_s
     now_ts = monotonic()
