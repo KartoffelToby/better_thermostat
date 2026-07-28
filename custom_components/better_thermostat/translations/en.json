@@ -128,7 +128,7 @@
     },
     "degraded_mode": {
       "title": "BT: {name} - sensor error: {sensors} running in degraded mode",
-      "description": "Better Thermostat is running in degraded mode because some sensors are unavailable: {sensors}\n\nThe thermostat will continue to operate with reduced functionality. For example:\n- If the room temperature sensor is unavailable, the TRV's internal sensor will be used instead.\n- If window sensors are unavailable, windows are assumed to be closed.\n- If outdoor/weather sensors are unavailable, heating will always be enabled.\n\nCheck if the affected devices have battery issues or connectivity problems."
+      "description": "Better Thermostat is running in degraded mode because some sensors are unavailable: {sensors}\n\nThe thermostat will continue to operate with reduced functionality. For example:\n- If the room temperature sensor is unavailable, the TRV's internal sensor will be used instead.\n- If a window or door sensor is unavailable, its last known state stays in effect: a contact that was closed keeps heating enabled, a contact that was open keeps heating suppressed until the sensor reports closed again. Only at startup is an unavailable contact sensor treated as closed.\n- If outdoor/weather sensors are unavailable, heating will always be enabled.\n\nCheck if the affected devices have battery issues or connectivity problems."
     },
     "invalid_window_state": {
       "title": "BT: {name} - invalid window sensor state",
