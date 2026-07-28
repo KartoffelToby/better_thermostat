@@ -713,18 +713,18 @@ def resolve_inbound_setpoint(
     keys: tuple[str, ...],
     known_values: tuple[float | None, ...],
     step: float,
-    device_label: str,
-    entity_id: str | None,
     log_source: str,
 ) -> InboundSetpoint | None:
     """Prepare a setpoint reported by a controlled device for adoption.
 
-    The single inbound boundary for setpoints BT does not own: it resolves the
-    value to °C, clamps it into BT's range, and decides whether it is BT's own
-    write coming back. A device settles a written value on its own grid and
-    republishes it, sometimes from a later poll whose context is not BT's, so
-    anything within one device step of a value BT wrote is an echo.
-    User input moves a setpoint by at least one step.
+    The shared adoption gate for setpoints BT does not own: it resolves the
+    value to °C via :func:`read_setpoint_celsius`, clamps it into BT's range,
+    and decides whether it is BT's own write coming back. A device settles a
+    written value on its own grid and republishes it, sometimes from a later
+    poll whose context is not BT's, so anything within one device step of a
+    value BT wrote is an echo. User input moves a setpoint by at least one
+    step. Answering rather than logging keeps the caller free to decide
+    whether a clamp is worth reporting.
 
     Parameters
     ----------
@@ -741,10 +741,6 @@ def resolve_inbound_setpoint(
             the device's setpoint step as a Celsius delta; a step read from a
             device attribute carries that device's unit and has to be converted
             before it is passed
-    device_label : str
-            role of the device in log messages, e.g. ``"TRV"`` or ``"Cooler"``
-    entity_id : str | None
-            the reporting entity, for log messages
     log_source : str
             caller name, forwarded for logging context
 
@@ -767,13 +763,6 @@ def resolve_inbound_setpoint(
     elif self.bt_max_temp is not None and self.bt_max_temp < value:
         value = self.bt_max_temp
         clamped = True
-    if clamped:
-        _LOGGER.warning(
-            "better_thermostat %s: New %s %s setpoint outside of range, overwriting it",
-            self.device_name,
-            device_label,
-            entity_id,
-        )
 
     echo_window = setpoint_echo_window(step)
     is_echo = any(
@@ -789,8 +778,9 @@ def resolve_state_change_event(
     """Return the states of a device event worth acting on, or None.
 
     Shared prologue of the device event handlers: an event is actionable when
-    it carries both states, both are States with attributes, and it was not
-    caused by BT's own service call — those carry ``self.context``.
+    it carries both states, both are States with attributes, it names an
+    entity, and it was not caused by BT's own service call — those carry
+    ``self.context``.
 
     Parameters
     ----------
@@ -804,7 +794,8 @@ def resolve_state_change_event(
     Returns
     -------
     tuple[State, State, str] | None
-            (old_state, new_state, entity_id) when actionable, else None
+            (old_state, new_state, entity_id) when actionable, with the entity
+            id guaranteed to be a string, else None
     """
     old_state = event.data.get("old_state")
     new_state = event.data.get("new_state")

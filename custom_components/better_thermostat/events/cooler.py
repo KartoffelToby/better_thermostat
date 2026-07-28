@@ -77,8 +77,6 @@ async def trigger_cooler_change(self, event):
         keys=COOLER_SETPOINT_KEYS,
         known_values=(self.bt_target_cooltemp, self.last_sent_cooler_temp),
         step=_step,
-        device_label="Cooler",
-        entity_id=entity_id,
         log_source="trigger_cooler_change()",
     )
     if (
@@ -107,6 +105,13 @@ async def trigger_cooler_change(self, event):
             _new_cooling_setpoint.raw - _old_cooling_setpoint
         ) >= setpoint_echo_window(_step)
         if not _new_cooling_setpoint.is_echo and _reported_moved:
+            if _new_cooling_setpoint.clamped:
+                _LOGGER.warning(
+                    "better_thermostat %s: New Cooler %s setpoint outside of range, "
+                    "overwriting it",
+                    self.device_name,
+                    entity_id,
+                )
             self.bt_target_cooltemp = _new_cooling_setpoint.value
             self._enforce_heat_below_cool()
             _main_change = True

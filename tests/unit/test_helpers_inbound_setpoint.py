@@ -128,8 +128,6 @@ class TestResolveInboundSetpoint:
                 keys=TRV_SETPOINT_KEYS,
                 known_values=(),
                 step=0.5,
-                device_label="TRV",
-                entity_id=ENTITY_ID,
                 log_source="t",
             )
             is None
@@ -143,8 +141,6 @@ class TestResolveInboundSetpoint:
             keys=TRV_SETPOINT_KEYS,
             known_values=(),
             step=0.5,
-            device_label="TRV",
-            entity_id=ENTITY_ID,
             log_source="t",
         )
         assert (result.raw, result.value, result.clamped) == (21.0, 21.0, False)
@@ -157,8 +153,6 @@ class TestResolveInboundSetpoint:
             keys=TRV_SETPOINT_KEYS,
             known_values=(),
             step=0.5,
-            device_label="TRV",
-            entity_id=ENTITY_ID,
             log_source="t",
         )
         assert (result.raw, result.value, result.clamped) == (35.0, 30.0, True)
@@ -171,8 +165,6 @@ class TestResolveInboundSetpoint:
             keys=TRV_SETPOINT_KEYS,
             known_values=(),
             step=0.5,
-            device_label="TRV",
-            entity_id=ENTITY_ID,
             log_source="t",
         )
         assert (result.raw, result.value, result.clamped) == (2.0, 5.0, True)
@@ -185,8 +177,6 @@ class TestResolveInboundSetpoint:
             keys=TRV_SETPOINT_KEYS,
             known_values=(None, 21.5),
             step=0.5,
-            device_label="TRV",
-            entity_id=ENTITY_ID,
             log_source="t",
         )
         assert result.is_echo is True
@@ -199,8 +189,6 @@ class TestResolveInboundSetpoint:
             keys=TRV_SETPOINT_KEYS,
             known_values=(21.5,),
             step=0.5,
-            device_label="TRV",
-            entity_id=ENTITY_ID,
             log_source="t",
         )
         assert result.is_echo is False
@@ -217,8 +205,6 @@ class TestResolveInboundSetpoint:
             keys=TRV_SETPOINT_KEYS,
             known_values=(21.11,),
             step=1.1111,
-            device_label="TRV",
-            entity_id=ENTITY_ID,
             log_source="t",
         )
         assert result.is_echo is False
@@ -253,8 +239,6 @@ class TestResolveInboundSetpoint:
                 keys=TRV_SETPOINT_KEYS,
                 known_values=(known,),
                 step=step,
-                device_label="TRV",
-                entity_id=ENTITY_ID,
                 log_source="t",
             )
             assert result.is_echo is False, f"{fahrenheit} °F -> {fahrenheit + 1} °F"
@@ -267,8 +251,6 @@ class TestResolveInboundSetpoint:
             keys=TRV_SETPOINT_KEYS,
             known_values=(None, "unset"),
             step=0.5,
-            device_label="TRV",
-            entity_id=ENTITY_ID,
             log_source="t",
         )
         assert result.is_echo is False
@@ -284,8 +266,6 @@ class TestResolveInboundSetpoint:
             keys=TRV_SETPOINT_KEYS,
             known_values=(),
             step=0.5,
-            device_label="TRV",
-            entity_id=ENTITY_ID,
             log_source="t",
         )
         assert (result.value, result.clamped) == (21.0, False)
@@ -300,8 +280,6 @@ class TestResolveInboundSetpoint:
             keys=TRV_SETPOINT_KEYS,
             known_values=(),
             step=0.5,
-            device_label="TRV",
-            entity_id=ENTITY_ID,
             log_source="t",
         )
         assert (result.value, result.clamped) == (5.0, True)
@@ -314,8 +292,6 @@ class TestResolveInboundSetpoint:
             keys=TRV_SETPOINT_KEYS,
             known_values=(30.0,),
             step=0.5,
-            device_label="TRV",
-            entity_id=ENTITY_ID,
             log_source="t",
         )
         assert (result.value, result.is_echo) == (30.0, True)

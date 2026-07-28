@@ -265,8 +265,6 @@ async def trigger_trv_change(self, event):
         keys=TRV_SETPOINT_KEYS,
         known_values=(self.bt_target_temp, trv.last_temperature),
         step=_step,
-        device_label="TRV",
-        entity_id=entity_id,
         log_source="trigger_trv_change()",
     )
     _is_no_off_device = advanced.get("no_off_system_mode", False)
@@ -298,6 +296,12 @@ async def trigger_trv_change(self, event):
             and not trv.ignore_trv_states
         )
         if _accept_user_setpoint:
+            if _setpoint.clamped:
+                _LOGGER.warning(
+                    "better_thermostat %s: New TRV %s setpoint outside of range, overwriting it",
+                    self.device_name,
+                    entity_id,
+                )
             _LOGGER.debug(
                 "better_thermostat %s: TRV %s decoded TRV target temp changed from %s to %s",
                 self.device_name,
