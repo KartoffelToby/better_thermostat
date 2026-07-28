@@ -391,9 +391,17 @@ class TestControlQueue:
             trv_call_count += 1
             return False
 
-        with patch(
-            "custom_components.better_thermostat.utils.controlling.control_trv",
-            new=AsyncMock(side_effect=_trv_side_effect),
+        with (
+            patch(
+                "custom_components.better_thermostat.utils.controlling.control_trv",
+                new=AsyncMock(side_effect=_trv_side_effect),
+            ),
+            # The failed-cycle backoff is collapsed so the retry lands
+            # inside the window this test waits for.
+            patch(
+                "custom_components.better_thermostat.utils.controlling.FAILED_CYCLE_BACKOFF_S",
+                0,
+            ),
         ):
             queue_task = asyncio.create_task(control_queue(mock_self))
             await asyncio.sleep(0.1)
@@ -425,9 +433,17 @@ class TestControlQueue:
         mock_self.control_queue_task = queue
         await queue.put(mock_self)
 
-        with patch(
-            "custom_components.better_thermostat.utils.controlling.control_trv"
-        ) as mock_control_trv:
+        with (
+            patch(
+                "custom_components.better_thermostat.utils.controlling.control_trv"
+            ) as mock_control_trv,
+            # The failed-cycle backoff is collapsed so the retry lands
+            # inside the window this test waits for.
+            patch(
+                "custom_components.better_thermostat.utils.controlling.FAILED_CYCLE_BACKOFF_S",
+                0,
+            ),
+        ):
             mock_control_trv.return_value = False
 
             queue_task = asyncio.create_task(control_queue(mock_self))
@@ -439,7 +455,12 @@ class TestControlQueue:
             except asyncio.CancelledError:
                 pass
 
-            # Should not crash despite queue being full
+            # control_trv returning False re-requests the cycle, which the
+            # loop consumes again → control_trv is called more than once.
+            assert mock_control_trv.await_count > 1
+            # The single slot never overflows: a pending request coalesces
+            # instead of being enqueued a second time.
+            assert queue.qsize() <= 1
 
     @pytest.mark.asyncio
     async def test_sets_ignore_states_during_processing(self):

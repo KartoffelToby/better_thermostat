@@ -723,20 +723,32 @@ class TestControlTrvAvailablePath:
 
     @pytest.mark.asyncio
     async def test_available_trv_convert_fails_returns_false(self):
-        """Test that convert failure returns False for available TRV."""
+        """Test that convert failure returns False for available TRV.
+
+        The failing worker must not back off under the TRV lock: every
+        other TRV of the cycle contends for it, so a sleep taken here
+        stalls the whole cycle on the one device that failed.
+        """
         mock_self = _make_mock_self(
             trv_state=HVACMode.HEAT, trv_attrs={"temperature": 20.0}
         )
 
+        lock_held_during_sleep = []
+
+        async def record_lock_state(*args, **kwargs):
+            lock_held_during_sleep.append(mock_self._temp_lock.locked())
+
         with (
             patch(_PATCHES["convert_outbound_states"]) as mock_convert,
-            patch("asyncio.sleep", new=AsyncMock()),
+            patch("asyncio.sleep", new=AsyncMock(side_effect=record_lock_state)),
         ):
             mock_convert.return_value = "ERROR"
 
             result = await control_trv(mock_self, "climate.trv1")
 
             assert result is False
+            # No sleep on this path ran while holding the lock.
+            assert not any(lock_held_during_sleep)
 
     @pytest.mark.asyncio
     async def test_boost_mode_sets_valve_in_available_path(self):
@@ -947,6 +959,76 @@ class TestControlTrvAvailablePath:
 
             # Task should be created for check_system_mode
             mock_self.task_manager.create_task.assert_called()
+
+    @pytest.mark.asyncio
+    async def test_dropout_after_valve_write_sends_no_hvac_mode(self):
+        """A TRV that drops offline during the cycle gets no mode write.
+
+        The mode is re-read once the valve write has awaited. An
+        ``unavailable`` reading is not a reported mode: taken as one it
+        makes the unchanged intent look like a change, so BT addresses a
+        device that cannot answer and books the write as settled.
+        """
+        offline_state = Mock()
+        offline_state.state = STATE_UNAVAILABLE
+        offline_state.attributes = {}
+
+        mock_self = _make_mock_self(
+            trv_state=HVACMode.HEAT,
+            trv_attrs={"temperature": 20.0},
+            real_trvs={
+                "climate.trv1": _default_trv_config(
+                    system_mode_received=True,
+                    advanced={
+                        "calibration_mode": CalibrationMode.MPC_CALIBRATION,
+                        "calibration": CalibrationType.DIRECT_VALVE_BASED,
+                        "no_off_system_mode": False,
+                    },
+                )
+            },
+        )
+        # A valve balance gives the cycle a write to await on.
+        mock_self.real_trvs["climate.trv1"].calibration_balance = {
+            "apply_valve": True,
+            "valve_percent": 80,
+        }
+
+        live_state = mock_self.hass.states.get("climate.trv1")
+        mock_self.hass.states.get = Mock(side_effect=lambda *a, **k: live_state)
+
+        async def drop_trv_offline(*args, **kwargs):
+            nonlocal live_state
+            live_state = offline_state
+            return True
+
+        with (
+            patch(_PATCHES["convert_outbound_states"]) as mock_convert,
+            patch(
+                _PATCHES["set_valve"], side_effect=drop_trv_offline
+            ) as mock_set_valve,
+            patch(
+                _PATCHES["override_set_hvac_mode"], new=AsyncMock(return_value=False)
+            ) as mock_override_hvac,
+            patch(_PATCHES["set_hvac_mode"]) as mock_set_hvac,
+            patch(
+                _PATCHES["override_set_temperature"], new=AsyncMock(return_value=False)
+            ),
+            patch(_PATCHES["set_temperature"], new=AsyncMock()),
+            patch("asyncio.sleep", new=AsyncMock()),
+        ):
+            mock_convert.return_value = {
+                "temperature": 20.0,
+                "system_mode": HVACMode.HEAT,
+            }
+
+            result = await control_trv(mock_self, "climate.trv1")
+
+        assert result is True
+        mock_set_valve.assert_awaited_once()
+        # The intent still matches the last mode the TRV reported.
+        mock_override_hvac.assert_not_called()
+        mock_set_hvac.assert_not_called()
+        assert mock_self.real_trvs["climate.trv1"].system_mode_received is True
 
     @pytest.mark.asyncio
     async def test_lock_usage(self):
@@ -1968,6 +2050,63 @@ class TestRaceConditionLockCoverage:
                     f"Operation {operation} ran WITHOUT lock protection! "
                     f"This causes race conditions in parallel execution."
                 )
+
+    @pytest.mark.asyncio
+    async def test_deferred_setpoint_settles_outside_the_lock(self):
+        """A budget-deferred setpoint must not hold the TRV lock while settling.
+
+        Every TRV of a cycle contends for the same _temp_lock, so a
+        settle sleep taken inside it serialises the whole cycle on the
+        slowest deferral instead of overlapping them.
+        """
+        mock_self = _make_mock_self(
+            trv_state=HVACMode.HEAT,
+            trv_attrs={"temperature": 18.0},
+            cur_temp=18.0,
+            bt_target_temp=22.0,
+        )
+        # A setpoint write 10 s ago keeps the budget closed, so the
+        # differing target below is deferred rather than written.
+        mock_self.real_trvs["climate.trv1"].last_write_monotonic = 0.0
+        mock_self.clock.advance(10.0)
+
+        lock_held_during_sleep = []
+
+        async def record_lock_state(*args, **kwargs):
+            lock_held_during_sleep.append(mock_self._temp_lock.locked())
+
+        set_temperature_calls = []
+
+        with (
+            patch(_PATCHES["convert_outbound_states"]) as mock_convert,
+            patch(
+                _PATCHES["override_set_temperature"], new=AsyncMock(return_value=False)
+            ),
+            patch(
+                _PATCHES["set_temperature"],
+                new=AsyncMock(
+                    side_effect=lambda *a, **k: set_temperature_calls.append(a)
+                ),
+            ),
+            patch(
+                _PATCHES["override_set_hvac_mode"], new=AsyncMock(return_value=False)
+            ),
+            patch(_PATCHES["set_hvac_mode"], new=AsyncMock()),
+            patch("asyncio.sleep", new=AsyncMock(side_effect=record_lock_state)),
+        ):
+            mock_convert.return_value = {
+                "temperature": 22.0,
+                "system_mode": HVACMode.HEAT,
+            }
+            result = await control_trv(mock_self, "climate.trv1")
+
+        assert result is True
+        # The write was deferred, not sent.
+        assert set_temperature_calls == []
+        # The settle sleep ran, and never while holding the lock.
+        assert lock_held_during_sleep
+        assert not any(lock_held_during_sleep)
+        assert mock_self._temp_lock.locked() is False
 
 
 # ---------------------------------------------------------------------------

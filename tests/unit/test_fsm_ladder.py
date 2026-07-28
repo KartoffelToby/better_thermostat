@@ -4,6 +4,7 @@ from custom_components.better_thermostat.core.fsm.control_mode import (
     ControlMode,
     ControlModeState,
     LadderParams,
+    step as control_mode_step,
     step_ladder,
 )
 
@@ -33,7 +34,8 @@ def test_downgrade_commits_after_debounce():
     assert state.mode == ControlMode.OPTIMAL
     state = _down(state, now=120.0)
     assert state.mode == ControlMode.SENSOR_FALLBACK
-    assert state.degraded_since == 120.0
+    # The rung commit does not author degraded_since; step() owns it.
+    assert state.degraded_since is None
 
 
 def test_flap_during_debounce_cancels_downgrade():
@@ -66,7 +68,8 @@ def test_upgrade_requires_sustained_recovery():
     assert state.mode == ControlMode.SENSOR_FALLBACK
     state = _up(state, now=1300.0)
     assert state.mode == ControlMode.OPTIMAL
-    assert state.degraded_since is None
+    # Clearing it is step()'s call, once the sensors are actually back.
+    assert state.degraded_since == 0.0
 
 
 def test_flap_during_recovery_restarts_the_window():
@@ -179,4 +182,29 @@ def test_degraded_since_survives_rung_changes():
     state = _down(state, now=1000.0, trv_ok=False)
     state = _down(state, now=1120.0, trv_ok=False)
     assert state.mode == ControlMode.HOLD
+    assert state.degraded_since == 50.0
+
+
+def test_climbing_back_to_optimal_keeps_a_still_degraded_annunciation():
+    """A rung commit must not clear an annunciation that still holds.
+
+    The room sensor returning lets the ladder climb back to OPTIMAL while
+    an unrelated optional sensor (outdoor, weather) is still away. The
+    annunciation belongs to that sensor, not to the rung — and once
+    cleared, step() cannot restore it while the sensor stays gone.
+    """
+    state = ControlModeState(
+        mode=ControlMode.SENSOR_FALLBACK,
+        unavailable_sensors=("sensor.outdoor",),
+        degraded_since=50.0,
+    )
+    state = _up(state, now=1000.0)
+    state = _up(state, now=1400.0)
+    assert state.mode == ControlMode.OPTIMAL
+    assert state.degraded_since == 50.0
+
+    # The next availability check finds the sensor still gone and must
+    # keep reporting the original start time rather than losing it.
+    state = control_mode_step(state, ["sensor.outdoor"], 1500.0)
+    assert state.degraded is True
     assert state.degraded_since == 50.0

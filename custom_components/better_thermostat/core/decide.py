@@ -26,9 +26,11 @@ a tier of it: an unreachable TRV is dropped from the addressed set and
 receives no intent, except while boost heating is active (boost keeps
 commanding so the TRV catches up the moment it returns).
 
-Degraded annunciation (unavailable optional sensors) deliberately does
-not branch anywhere; only the control-mode region's rung affects the
-decision.
+Neither half of the control-mode region branches the cascade: the
+degraded annunciation (unavailable optional sensors) is bookkeeping, and
+the ladder rung is read by the shell, which picks the calibration
+strategy from it. The kernel emits the same heating intent either way —
+under HOLD the shell simply passes the raw target through uncalibrated.
 """
 
 from __future__ import annotations

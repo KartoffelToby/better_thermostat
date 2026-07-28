@@ -3,8 +3,9 @@
 This module contains utility functions to verify entities, check batteries,
 and raise Home Assistant issues if an entity is missing or unavailable.
 
-Supports degraded mode operation where optional sensors (window, humidity,
-outdoor, weather) can be unavailable without blocking thermostat operation.
+Supports degraded mode operation where optional sensors (window, door,
+humidity, outdoor, weather) can be unavailable without blocking thermostat
+operation.
 """
 
 from __future__ import annotations
@@ -160,6 +161,11 @@ def get_optional_sensors(self) -> list:
     Optional sensors are those that can be unavailable without
     blocking thermostat operation (degraded mode).
 
+    The contact sensors (window, door) belong here precisely because a
+    lost one counts as closed: heating continues, so the outage has no
+    other visible symptom and degraded mode is the only thing that
+    surfaces it.
+
     Returns
     -------
     list
@@ -168,6 +174,8 @@ def get_optional_sensors(self) -> list:
     optional = []
     if getattr(self, "window_id", None):
         optional.append(self.window_id)
+    if getattr(self, "door_id", None):
+        optional.append(self.door_id)
     if getattr(self, "humidity_sensor_entity_id", None):
         optional.append(self.humidity_sensor_entity_id)
     if getattr(self, "outdoor_sensor", None):
@@ -289,10 +297,11 @@ async def await_optional_sensors(
 ) -> list[str]:
     """Wait for optional sensors to become available with increasing delays.
 
-    After a reboot, optional sensors (outdoor, weather, window, humidity)
-    frequently need a few seconds to initialise.  This helper retries with
-    increasing intervals so that ``check_and_update_degraded_mode`` is not
-    called while sensors are still starting up.
+    After a reboot, optional sensors (outdoor, weather, window, door,
+    humidity) frequently need a few seconds to initialise.  This helper
+    retries with increasing intervals so that
+    ``check_and_update_degraded_mode`` is not called while sensors are
+    still starting up.
 
     Parameters
     ----------
