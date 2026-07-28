@@ -1142,9 +1142,16 @@ async def control_trv(self, heater_entity_id=None, cycle=None):
                 _temperature = _min_temp
 
             # send new HVAC mode to TRV, if it changed. The mode is re-read
-            # here: the valve and offset writes above awaited, so the state
-            # captured at the top of the cycle may already be superseded.
-            _live_trv = self.hass.states.get(heater_entity_id) or _trv
+            # here: the valve writes above awaited, so the state captured at
+            # the top of the cycle may already be superseded. A device that
+            # dropped out in that window reports no mode at all, so there the
+            # earlier reading stands in.
+            _live_trv = self.hass.states.get(heater_entity_id)
+            if _live_trv is None or _live_trv.state in (
+                STATE_UNAVAILABLE,
+                STATE_UNKNOWN,
+            ):
+                _live_trv = _trv
             _reported_hvac_mode = _live_trv.state
             if (
                 _new_hvac_mode is not None
@@ -1212,7 +1219,8 @@ async def control_trv(self, heater_entity_id=None, cycle=None):
                         heater_entity_id,
                     )
 
-                _old_calibration = self.real_trvs[heater_entity_id].last_calibration
+                trv_entry = self.real_trvs[heater_entity_id]
+                _old_calibration = trv_entry.last_calibration
                 if _old_calibration is None:
                     _old_calibration = _current_calibration
 
@@ -1220,7 +1228,7 @@ async def control_trv(self, heater_entity_id=None, cycle=None):
                 # to avoid it getting stuck at False when the state event was suppressed.
                 if (
                     _calibration is not None
-                    and self.real_trvs[heater_entity_id].calibration_received is False
+                    and trv_entry.calibration_received is False
                     and _current_calibration is not None
                     and abs(float(_current_calibration) - float(_calibration)) < 0.5
                 ):
@@ -1231,11 +1239,9 @@ async def control_trv(self, heater_entity_id=None, cycle=None):
                         heater_entity_id,
                         _calibration,
                     )
-                    self.real_trvs[heater_entity_id].calibration_received = True
+                    trv_entry.calibration_received = True
 
-                _calibration_received = (
-                    self.real_trvs[heater_entity_id].calibration_received is True
-                )
+                _calibration_received = trv_entry.calibration_received is True
                 if _calibration is not None and _calibration_received:
                     if _old_calibration is None:
                         _LOGGER.debug(
@@ -1256,9 +1262,7 @@ async def control_trv(self, heater_entity_id=None, cycle=None):
                                 _calibration,
                             )
                             await set_offset(self, heater_entity_id, _calibration)
-                            self.real_trvs[
-                                heater_entity_id
-                            ].calibration_received = False
+                            trv_entry.calibration_received = False
                         else:
                             _schedule_budget_retry(
                                 self,
@@ -1306,13 +1310,8 @@ async def control_trv(self, heater_entity_id=None, cycle=None):
                         )
                         if _tvr_has_quirk is False:
                             await set_temperature(self, heater_entity_id, _temperature)
-                        if (
-                            self.real_trvs[heater_entity_id].target_temp_received
-                            is True
-                        ):
-                            self.real_trvs[
-                                heater_entity_id
-                            ].target_temp_received = False
+                        if trv_entry.target_temp_received is True:
+                            trv_entry.target_temp_received = False
                             self.task_manager.create_task(
                                 check_target_temperature(self, heater_entity_id),
                                 name=f"bt_check_target_temp_{heater_entity_id}",
