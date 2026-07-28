@@ -3184,6 +3184,34 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
         )
         self.bt_target_cooltemp = adjusted
 
+    def _enforce_heat_below_cool(self) -> None:
+        """Keep the heating target strictly below the cooling target.
+
+        The counterpart to :meth:`_enforce_cool_above_heat`, for the case where
+        the cooling target is the value that was just set: the heating target
+        yields instead, down to one temperature step below the cooling target
+        and never below the configured minimum.
+        """
+        if (
+            self.hvac_mode != HVACMode.HEAT_COOL
+            or self.bt_target_cooltemp is None
+            or self.bt_target_temp is None
+            or self.bt_target_temp < self.bt_target_cooltemp
+        ):
+            return
+        step = self.bt_target_temp_step or 0.5
+        adjusted = self.bt_target_cooltemp - step
+        if self.bt_min_temp is not None:
+            adjusted = max(adjusted, self.bt_min_temp)
+        _LOGGER.warning(
+            "better_thermostat %s: heating target %.2f adjusted to %.2f to stay below cooling target %.2f",
+            self.device_name,
+            self.bt_target_temp,
+            adjusted,
+            self.bt_target_cooltemp,
+        )
+        self.bt_target_temp = adjusted
+
     async def async_set_temperature(self, **kwargs) -> None:
         """Set new target temperature."""
         _LOGGER.debug(

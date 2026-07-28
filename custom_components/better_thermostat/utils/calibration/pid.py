@@ -278,7 +278,9 @@ def compute_pid(
     st.previous_abs_error = st.last_abs_error
     st.last_abs_error = abs(delta_T)
 
-    # Time difference, bounded to [1.0, MAX_DT_S] seconds.
+    # Time difference, bounded to [1.0, MAX_DT_S] seconds. A stale
+    # pid_last_time (calibrator switched away and back hours later) would
+    # otherwise produce a huge dt and wind the integrator up in one step.
     dt = now - st.pid_last_time if st.pid_last_time > 0 else 0.0
     if dt <= 0 or dt < 1.0:
         dt = 1.0

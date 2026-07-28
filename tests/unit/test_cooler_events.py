@@ -1,15 +1,18 @@
 """Tests for events/cooler.py – Cooler event handler.
 
-Covers guard clauses, setpoint adoption, clamping, heat-target sync,
-and control-queue triggering.
+Covers guard clauses, setpoint adoption, echo suppression, unit handling,
+clamping, heat-target sync, and control-queue triggering.
 """
 
+import logging
 from unittest.mock import MagicMock
 
 from homeassistant.components.climate.const import HVACMode
+from homeassistant.const import UnitOfTemperature
 from homeassistant.core import State
 import pytest
 
+from custom_components.better_thermostat.climate import BetterThermostat
 from custom_components.better_thermostat.events.cooler import trigger_cooler_change
 
 ENTITY_ID = "climate.test_cooler"
@@ -25,17 +28,21 @@ def mock_bt():
     """Create a mock BetterThermostat instance with sensible defaults."""
     bt = MagicMock()
     bt.hass = MagicMock()
+    bt.hass.config.units.temperature_unit = UnitOfTemperature.CELSIUS
     bt.device_name = "Test Thermostat"
     bt.bt_hvac_mode = HVACMode.HEAT_COOL
+    bt.hvac_mode = HVACMode.HEAT_COOL
     bt.bt_target_temp = 20.0
     bt.bt_target_cooltemp = 25.0
     bt.bt_target_temp_step = 0.5
     bt.bt_min_temp = 5.0
     bt.bt_max_temp = 30.0
+    bt._cooler_last_sent = None
     bt.startup_running = False
     bt.control_queue_task = MagicMock()
     bt.context = MagicMock()  # unique context so != event.context
     bt.async_write_ha_state = MagicMock()
+    bt._enforce_heat_below_cool = lambda: BetterThermostat._enforce_heat_below_cool(bt)
     return bt
 
 
@@ -252,6 +259,38 @@ class TestCoolerSetpointClamping:
 
         assert mock_bt.bt_target_cooltemp == 30.0
 
+    @pytest.mark.asyncio
+    async def test_clamped_setpoint_that_is_adopted_is_reported(self, mock_bt, caplog):
+        """A clamp that changes BT's target is worth a warning."""
+        old_state = _make_state(attributes={"temperature": 25.0})
+        new_state = _make_state(attributes={"temperature": 35.0})
+        event = _make_event(mock_bt, new_state=new_state, old_state=old_state)
+
+        caplog.set_level(logging.WARNING)
+        await trigger_cooler_change(mock_bt, event)
+
+        assert mock_bt.bt_target_cooltemp == 30.0
+        assert "setpoint outside of range" in caplog.text
+
+    @pytest.mark.asyncio
+    async def test_clamped_setpoint_that_is_discarded_is_silent(self, mock_bt, caplog):
+        """A clamp on a value the handler drops changes nothing to report.
+
+        The clamp pulls the reported value onto the cooling target BT already
+        holds, so it is BT's own write coming back, not a user's out-of-range
+        input.
+        """
+        mock_bt.bt_target_cooltemp = 30.0
+        old_state = _make_state(attributes={"temperature": 25.0})
+        new_state = _make_state(attributes={"temperature": 35.0})
+        event = _make_event(mock_bt, new_state=new_state, old_state=old_state)
+
+        caplog.set_level(logging.WARNING)
+        await trigger_cooler_change(mock_bt, event)
+
+        assert mock_bt.bt_target_cooltemp == 30.0
+        assert "setpoint outside of range" not in caplog.text
+
 
 # ---------------------------------------------------------------------------
 # 4. Heat-target sync (cooltemp pushes heat target down)
@@ -265,6 +304,7 @@ class TestHeatTargetSync:
     async def test_heat_target_pushed_down_when_equal(self, mock_bt):
         """When cooltemp == heat target, heat target is pushed down by step."""
         mock_bt.bt_target_temp = 25.0
+        mock_bt.bt_target_cooltemp = 27.0
         old_state = _make_state(attributes={"temperature": 27.0})
         new_state = _make_state(attributes={"temperature": 25.0})
         event = _make_event(mock_bt, new_state=new_state, old_state=old_state)
@@ -301,12 +341,11 @@ class TestHeatTargetSync:
         assert mock_bt.bt_target_temp == 20.0  # unchanged
 
     @pytest.mark.asyncio
-    async def test_heat_target_sync_not_checked_below_min(self, mock_bt):
-        """Heat-target sync should still work correctly after clamping to min.
+    async def test_heat_target_sync_respects_min_temp(self, mock_bt):
+        """Heat-target sync keeps the heat target inside the configured range.
 
-        If cooltemp is clamped to min (5.0), and heat target is >= 5.0,
-        heat target should be pushed down to 4.5. But 4.5 < bt_min_temp!
-        The code does NOT clamp the heat target — potential invariant violation.
+        With the cool target clamped to the minimum there is no room for a full
+        step below it, so the heat target stops at bt_min_temp.
         """
         mock_bt.bt_target_temp = 6.0
         mock_bt.bt_min_temp = 5.0
@@ -316,19 +355,14 @@ class TestHeatTargetSync:
 
         await trigger_cooler_change(mock_bt, event)
 
-        # cooltemp clamped to 5.0, heat target >= cooltemp → pushed to 4.5
         assert mock_bt.bt_target_cooltemp == 5.0
-        # BUG: heat target pushed below min_temp without clamping
         assert mock_bt.bt_target_temp >= mock_bt.bt_min_temp
 
     @pytest.mark.asyncio
     async def test_heat_target_sync_with_zero_step(self, mock_bt):
-        """When step is 0, heat-target sync produces cooltemp - 0 = cooltemp.
-
-        This means heat target == cooltemp, which violates the invariant
-        that heat < cool. The >= check would trigger again next time.
-        """
+        """A zero step falls back to 0.5 so heat stays below cool."""
         mock_bt.bt_target_temp = 25.0
+        mock_bt.bt_target_cooltemp = 27.0
         mock_bt.bt_target_temp_step = 0.0
         old_state = _make_state(attributes={"temperature": 27.0})
         new_state = _make_state(attributes={"temperature": 25.0})
@@ -336,8 +370,6 @@ class TestHeatTargetSync:
 
         await trigger_cooler_change(mock_bt, event)
 
-        # With step=0: bt_target_temp = cooltemp - 0 = cooltemp
-        # This should maintain heat < cool invariant
         assert mock_bt.bt_target_temp < mock_bt.bt_target_cooltemp
 
 
@@ -404,15 +436,12 @@ class TestEdgeCases:
         mock_bt.control_queue_task.put_nowait.assert_not_called()
 
     @pytest.mark.asyncio
-    async def test_main_key_mismatch_old_has_temp_new_has_target_temp_high(
-        self, mock_bt
-    ):
-        """Key selection uses old_state only to pick the temperature attribute key.
+    async def test_setpoint_key_is_resolved_per_state(self, mock_bt):
+        """Each state picks its own attribute key.
 
-        If old has 'temperature' but new only has 'target_temp_high', the new
-        setpoint reads from the wrong key. The _main_key is determined from
-        old_state.attributes — if the cooler switches attribute schema between
-        events, new_state is read with the wrong key → None → no adoption.
+        A cooler that switches between single-setpoint and range attributes
+        between two events is read correctly, because the key is resolved per
+        state.
         """
         old_state = _make_state(attributes={"temperature": 25.0})
         # new_state has target_temp_high but NOT temperature
@@ -425,7 +454,176 @@ class TestEdgeCases:
 
         await trigger_cooler_change(mock_bt, event)
 
-        # _main_key is "temperature" (from old_state), but new_state has
-        # no "temperature" → convert_to_float("None") → None → no adoption
-        # The 28.0 setpoint is silently lost
         assert mock_bt.bt_target_cooltemp == 28.0
+
+
+# ---------------------------------------------------------------------------
+# 6. Echo suppression
+# ---------------------------------------------------------------------------
+
+
+class TestEchoSuppression:
+    """Only user input on the cooler is adopted, not BT's own writes."""
+
+    @pytest.mark.asyncio
+    async def test_unchanged_setpoint_is_not_re_adopted(self, mock_bt):
+        """A report that did not move is not user intent.
+
+        The cooler republishes its setpoint on every attribute refresh. With a
+        BT-side target that has not reached the device yet, such a report would
+        otherwise revert it.
+        """
+        mock_bt.bt_target_cooltemp = 22.0
+        old_state = _make_state(
+            attributes={"temperature": 25.0, "current_temperature": 26.0}
+        )
+        new_state = _make_state(
+            attributes={"temperature": 25.0, "current_temperature": 26.1}
+        )
+        event = _make_event(mock_bt, new_state=new_state, old_state=old_state)
+
+        await trigger_cooler_change(mock_bt, event)
+
+        assert mock_bt.bt_target_cooltemp == 22.0
+        assert mock_bt.bt_target_temp == 20.0
+        mock_bt.control_queue_task.put_nowait.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_echo_of_last_sent_setpoint_is_not_adopted(self, mock_bt):
+        """A write BT sent is not adopted when it returns with a foreign context.
+
+        Cloud and MQTT backed coolers publish the new setpoint from a later poll
+        or broker message whose context is not BT's, so the context check alone
+        does not catch it.
+        """
+        mock_bt.bt_target_cooltemp = 25.0
+        mock_bt._cooler_last_sent = {"temperature": (22.0, 0.0)}
+        old_state = _make_state(attributes={"temperature": 25.0})
+        new_state = _make_state(attributes={"temperature": 22.0})
+        event = _make_event(mock_bt, new_state=new_state, old_state=old_state)
+
+        await trigger_cooler_change(mock_bt, event)
+
+        assert mock_bt.bt_target_cooltemp == 25.0
+        assert mock_bt.bt_target_temp == 20.0
+        mock_bt.control_queue_task.put_nowait.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_device_rounding_of_own_write_is_not_adopted(self, mock_bt):
+        """A device rounding BT's write to its own grid is not user input."""
+        mock_bt.bt_target_cooltemp = 24.4
+        mock_bt._cooler_last_sent = {"temperature": (24.4, 0.0)}
+        old_state = _make_state(
+            attributes={"temperature": 26.0, "target_temp_step": 1.0}
+        )
+        new_state = _make_state(
+            attributes={"temperature": 24.0, "target_temp_step": 1.0}
+        )
+        event = _make_event(mock_bt, new_state=new_state, old_state=old_state)
+
+        await trigger_cooler_change(mock_bt, event)
+
+        assert mock_bt.bt_target_cooltemp == 24.4
+        mock_bt.control_queue_task.put_nowait.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_user_change_of_one_full_step_is_adopted(self, mock_bt):
+        """A change of at least one device step is user input."""
+        mock_bt.bt_target_cooltemp = 24.0
+        mock_bt._cooler_last_sent = {"temperature": (24.0, 0.0)}
+        old_state = _make_state(
+            attributes={"temperature": 24.0, "target_temp_step": 1.0}
+        )
+        new_state = _make_state(
+            attributes={"temperature": 25.0, "target_temp_step": 1.0}
+        )
+        event = _make_event(mock_bt, new_state=new_state, old_state=old_state)
+
+        await trigger_cooler_change(mock_bt, event)
+
+        assert mock_bt.bt_target_cooltemp == 25.0
+        mock_bt.control_queue_task.put_nowait.assert_called_once()
+
+
+# ---------------------------------------------------------------------------
+# 7. Unit handling
+# ---------------------------------------------------------------------------
+
+
+class TestCoolerUnitHandling:
+    """Setpoints arrive in the system unit and are stored in °C."""
+
+    @pytest.mark.asyncio
+    async def test_fahrenheit_setpoint_is_converted_to_celsius(self, mock_bt):
+        """On a °F system the reported setpoint is converted, not taken as °C."""
+        mock_bt.hass.config.units.temperature_unit = UnitOfTemperature.FAHRENHEIT
+        mock_bt.bt_target_temp = 18.0
+        old_state = _make_state(attributes={"temperature": 75.0})
+        new_state = _make_state(attributes={"temperature": 68.0})
+        event = _make_event(mock_bt, new_state=new_state, old_state=old_state)
+
+        await trigger_cooler_change(mock_bt, event)
+
+        assert mock_bt.bt_target_cooltemp == 20.0
+        mock_bt.control_queue_task.put_nowait.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_fahrenheit_step_is_converted_to_a_celsius_delta(self, mock_bt):
+        """The device step is a °F delta on a °F system and must be scaled.
+
+        One press of the up button on a 2 °F grid moves the setpoint by
+        1.11 °C. Read as if the step were already Celsius, that move sits
+        inside the echo window and the user's input would be swallowed.
+        """
+        mock_bt.hass.config.units.temperature_unit = UnitOfTemperature.FAHRENHEIT
+        mock_bt.bt_target_cooltemp = 21.11  # 70 °F
+        mock_bt._cooler_last_sent = {"temperature": (21.11, 0.0)}
+        old_state = _make_state(
+            attributes={"temperature": 70.0, "target_temp_step": 2.0}
+        )
+        new_state = _make_state(
+            attributes={"temperature": 72.0, "target_temp_step": 2.0}
+        )
+        event = _make_event(mock_bt, new_state=new_state, old_state=old_state)
+
+        await trigger_cooler_change(mock_bt, event)
+
+        assert mock_bt.bt_target_cooltemp == 22.22  # 72 °F
+        mock_bt.control_queue_task.put_nowait.assert_called_once()
+
+
+# ---------------------------------------------------------------------------
+# 8. Range mode
+# ---------------------------------------------------------------------------
+
+
+class TestRangeModeCooler:
+    """Coolers running in range mode publish an empty single setpoint."""
+
+    @pytest.mark.asyncio
+    async def test_empty_temperature_falls_back_to_target_temp_high(self, mock_bt):
+        """A present-but-empty 'temperature' does not hide 'target_temp_high'."""
+        old_state = State(
+            ENTITY_ID,
+            "heat_cool",
+            attributes={
+                "temperature": None,
+                "target_temp_high": 24.0,
+                "target_temp_low": 19.0,
+            },
+        )
+        new_state = State(
+            ENTITY_ID,
+            "heat_cool",
+            attributes={
+                "temperature": None,
+                "target_temp_high": 26.0,
+                "target_temp_low": 19.0,
+            },
+        )
+        event = _make_event(mock_bt, new_state=new_state, old_state=old_state)
+
+        await trigger_cooler_change(mock_bt, event)
+
+        assert mock_bt.bt_target_cooltemp == 26.0
+        mock_bt.control_queue_task.put_nowait.assert_called_once()
