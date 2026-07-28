@@ -685,6 +685,27 @@ def normalize_step(value: float | int | str | None, fallback: float = 0.5) -> fl
     return step
 
 
+def setpoint_echo_window(step: float) -> float:
+    """Return the distance below which a setpoint difference is grid noise.
+
+    A reported value carries the rounding of ``convert_to_float``'s 0.01 grid
+    while the device's step and the values BT wrote sit on the device's own
+    grid, so one full step of movement can land a hair below ``step``. The
+    window shrinks by that noise and stays positive for a tiny step.
+
+    Parameters
+    ----------
+    step : float
+            the device's setpoint step in °C
+
+    Returns
+    -------
+    float
+            the largest difference that still counts as the same setpoint
+    """
+    return max(step - SETPOINT_MATCH_TOLERANCE, SETPOINT_MATCH_TOLERANCE)
+
+
 def resolve_inbound_setpoint(
     self,
     state: State | None,
@@ -717,7 +738,9 @@ def resolve_inbound_setpoint(
     known_values : tuple[float | None, ...]
             the values BT itself wrote, in °C; non-numeric entries are ignored
     step : float
-            the device's setpoint step in °C
+            the device's setpoint step as a Celsius delta; a step read from a
+            device attribute carries that device's unit and has to be converted
+            before it is passed
     device_label : str
             role of the device in log messages, e.g. ``"TRV"`` or ``"Cooler"``
     entity_id : str | None
@@ -752,8 +775,9 @@ def resolve_inbound_setpoint(
             entity_id,
         )
 
+    echo_window = setpoint_echo_window(step)
     is_echo = any(
-        isinstance(known, (int, float)) and abs(value - known) < step
+        isinstance(known, (int, float)) and abs(value - known) < echo_window
         for known in known_values
     )
     return InboundSetpoint(raw=raw, value=value, clamped=clamped, is_echo=is_echo)
