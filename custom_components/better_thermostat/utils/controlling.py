@@ -287,9 +287,16 @@ async def control_cooler(self):
     # A cooler that only advertises the range feature rejects a "temperature"
     # payload with a ServiceValidationError, so it never receives a setpoint.
     # Devices that advertise neither bit use the single-setpoint payload.
-    _write_range = not supports_single_target_temperature(
-        cooler_state
-    ) and supports_temperature_range(cooler_state)
+    # A cooler advertising both publishes the channel it does not drive as
+    # None, so the write follows the channel the reading came from: writing
+    # the other one leaves the two sides permanently out of sync.
+    _write_range = supports_temperature_range(cooler_state) and (
+        not supports_single_target_temperature(cooler_state)
+        or (
+            cooler_state.attributes.get("temperature") is None
+            and cooler_state.attributes.get("target_temp_high") is not None
+        )
+    )
 
     min_resend_interval_s = self.min_cooler_resend_interval_s
     now_ts = monotonic()

@@ -460,22 +460,30 @@ class TestControlCoolerFahrenheit:
         assert "set_temperature" not in service_names
 
 
+_ATTRIBUTE_ABSENT = object()
+
+
 def _make_range_cooler_state(
     state=HVACMode.COOL,
     target_temp_high=None,
     target_temp_low=None,
     supported_features=ClimateEntityFeature.TARGET_TEMPERATURE_RANGE,
+    temperature=_ATTRIBUTE_ABSENT,
 ):
-    """Build a cooler State that advertises a target range."""
-    return State(
-        "climate.cooler",
-        str(state),
-        {
-            "target_temp_high": target_temp_high,
-            "target_temp_low": target_temp_low,
-            "supported_features": int(supported_features),
-        },
-    )
+    """Build a cooler State that advertises a target range.
+
+    ``temperature`` defaults to an absent attribute; pass None to model a
+    dual-feature cooler running in range mode and a value to model one
+    driving its single setpoint.
+    """
+    attributes = {
+        "target_temp_high": target_temp_high,
+        "target_temp_low": target_temp_low,
+        "supported_features": int(supported_features),
+    }
+    if temperature is not _ATTRIBUTE_ABSENT:
+        attributes["temperature"] = temperature
+    return State("climate.cooler", str(state), attributes)
 
 
 class TestControlCoolerTargetRange:
@@ -540,11 +548,12 @@ class TestControlCoolerTargetRange:
 
     @pytest.mark.asyncio
     async def test_cooler_supporting_both_features_keeps_single_setpoint(self):
-        """A cooler that also accepts "temperature" gets the single payload."""
+        """A dual-feature cooler driving "temperature" gets the single payload."""
         mock_hass = self._hass()
         mock_hass.states.get.return_value = _make_range_cooler_state(
-            target_temp_high=28.0,
-            target_temp_low=19.0,
+            temperature=28.0,
+            target_temp_high=None,
+            target_temp_low=None,
             supported_features=ClimateEntityFeature.TARGET_TEMPERATURE
             | ClimateEntityFeature.TARGET_TEMPERATURE_RANGE,
         )
@@ -555,6 +564,36 @@ class TestControlCoolerTargetRange:
 
         payload = self._set_temperature_payload(mock_hass)
         assert payload == {"entity_id": "climate.cooler", "temperature": 24.0}
+
+    @pytest.mark.asyncio
+    async def test_cooler_supporting_both_features_in_range_mode_gets_both_bounds(self):
+        """A dual-feature cooler in range mode is written via both bounds.
+
+        It publishes the channel it does not drive as None, so the setpoint is
+        read from target_temp_high and the write has to follow that channel;
+        writing "temperature" leaves the two sides permanently out of sync.
+        """
+        mock_hass = self._hass()
+        mock_hass.states.get.return_value = _make_range_cooler_state(
+            temperature=None,
+            target_temp_high=28.0,
+            target_temp_low=19.0,
+            supported_features=ClimateEntityFeature.TARGET_TEMPERATURE
+            | ClimateEntityFeature.TARGET_TEMPERATURE_RANGE,
+        )
+
+        mock_self = _make_mock_self(
+            mock_hass, bt_target_cooltemp=24.0, bt_target_temp=20.0
+        )
+
+        await control_cooler(mock_self)
+
+        payload = self._set_temperature_payload(mock_hass)
+        assert payload == {
+            "entity_id": "climate.cooler",
+            "target_temp_high": 24.0,
+            "target_temp_low": 20.0,
+        }
 
     @pytest.mark.asyncio
     async def test_cooler_without_feature_flags_keeps_single_setpoint(self):
