@@ -14,6 +14,7 @@ import asyncio
 from unittest.mock import MagicMock, Mock
 
 from homeassistant.components.climate.const import ClimateEntityFeature, HVACMode
+from homeassistant.const import UnitOfTemperature
 import pytest
 
 from custom_components.better_thermostat.trv import Trv
@@ -22,7 +23,9 @@ from custom_components.better_thermostat.utils.const import (
     CalibrationType,
 )
 from custom_components.better_thermostat.utils.controlling import (
+    RECONCILE_TOLERANCE_K,
     _get_valve_control,
+    _reconcile_tolerance,
     check_system_mode,
     check_target_temperature,
 )
@@ -572,3 +575,48 @@ class TestGetValveControlBoostMaxOpening:
             CalibrationType.DIRECT_VALVE_BASED,
         )
         assert bal == {"valve_percent": 100, "apply_valve": True}
+
+
+class TestReconcileTolerance:
+    """Tests for _reconcile_tolerance()."""
+
+    @staticmethod
+    def _mock_self(system_unit=UnitOfTemperature.CELSIUS):
+        mock_self = MagicMock()
+        mock_self.device_name = "Test"
+        mock_self.hass.config.units.temperature_unit = system_unit
+        return mock_self
+
+    @staticmethod
+    def _state(attributes):
+        state = Mock()
+        state.attributes = attributes
+        return state
+
+    def test_no_reported_step_falls_back_to_the_base_tolerance(self):
+        """Without a usable step there is no grid to derive a tolerance from."""
+        tolerance = _reconcile_tolerance(self._mock_self(), self._state({}))
+        assert tolerance == RECONCILE_TOLERANCE_K
+
+    def test_celsius_step_yields_half_a_step(self):
+        """A snapped value sits at most half a step from the commanded one."""
+        tolerance = _reconcile_tolerance(
+            self._mock_self(), self._state({"target_temp_step": 0.5})
+        )
+        assert tolerance == pytest.approx(0.25, abs=1e-5)
+
+    def test_fahrenheit_step_scales_as_an_interval(self):
+        """A 1 °F step is 0.5556 K, so the tolerance is half of that."""
+        tolerance = _reconcile_tolerance(
+            self._mock_self(UnitOfTemperature.FAHRENHEIT),
+            self._state({"target_temp_step": 1.0}),
+        )
+        assert tolerance == pytest.approx(1.0 * 5.0 / 9.0 / 2.0, abs=1e-5)
+
+    def test_kelvin_step_is_not_scaled(self):
+        """A Kelvin interval equals a Celsius one."""
+        tolerance = _reconcile_tolerance(
+            self._mock_self(UnitOfTemperature.KELVIN),
+            self._state({"target_temp_step": 0.5}),
+        )
+        assert tolerance == pytest.approx(0.25, abs=1e-5)
