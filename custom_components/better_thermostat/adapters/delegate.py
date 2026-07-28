@@ -103,15 +103,16 @@ async def set_temperature(self, entity_id, temperature):
     # Initialize step with default value
     step = 0.5
     try:
-        # Step precedence: per-TRV (usually from config) > global config > device attribute > default 0.5
+        # Step precedence: per-TRV > global config > default 0.5. Both sources
+        # hold a Celsius step, matching the Celsius temperature being rounded;
+        # the device's raw attribute carries the device's unit and is therefore
+        # not a candidate here.
         trv = self.real_trvs.get(entity_id)
         per_trv_step = trv.target_temp_step if trv is not None else None
         global_cfg_step = getattr(self, "bt_target_temp_step", None)
         if global_cfg_step in (0, 0.0):
             global_cfg_step = None
-        state = self.hass.states.get(entity_id)
-        device_step = state.attributes.get("target_temp_step") if state else None
-        step = per_trv_step or global_cfg_step or device_step or 0.5
+        step = per_trv_step or global_cfg_step or 0.5
         rounded = round_by_step(float(t), float(step))
     except Exception:
         rounded = float(t)
