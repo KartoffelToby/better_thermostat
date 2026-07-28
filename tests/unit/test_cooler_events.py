@@ -488,6 +488,29 @@ class TestEchoSuppression:
         mock_bt.control_queue_task.put.assert_not_awaited()
 
     @pytest.mark.asyncio
+    async def test_report_of_an_unchanged_setpoint_does_not_revert_bt(self, mock_bt):
+        """A cooler republishing its old setpoint does not undo a BT-side change.
+
+        The send cache is written only after a successful service call, so
+        between a BT-side target change and that write it still holds the
+        previous value. Only a setpoint the cooler itself moved is user input.
+        """
+        mock_bt.bt_target_cooltemp = 27.0
+        mock_bt.last_sent_cooler_temp = None
+        old_state = _make_state(
+            attributes={"temperature": 25.0, "current_temperature": 26.0}
+        )
+        new_state = _make_state(
+            attributes={"temperature": 25.0, "current_temperature": 26.5}
+        )
+        event = _make_event(mock_bt, new_state=new_state, old_state=old_state)
+
+        await trigger_cooler_change(mock_bt, event)
+
+        assert mock_bt.bt_target_cooltemp == 27.0
+        mock_bt.control_queue_task.put.assert_not_awaited()
+
+    @pytest.mark.asyncio
     async def test_user_change_of_one_full_step_is_adopted(self, mock_bt):
         """A change of at least one device step is user input."""
         mock_bt.bt_target_cooltemp = 24.0

@@ -19,6 +19,7 @@ from custom_components.better_thermostat.utils.helpers import (
     read_setpoint_celsius,
     resolve_inbound_setpoint,
     resolve_state_change_event,
+    setpoint_echo_window,
     state_temperature_unit,
 )
 
@@ -97,7 +98,15 @@ async def trigger_cooler_change(self, event):
             _step,
             _new_cooling_setpoint.is_echo,
         )
-        if not _new_cooling_setpoint.is_echo:
+        # The cooler handler has no device-side gate of its own, so an event
+        # that republishes the same setpoint — an attribute refresh, a mode
+        # change, a temperature push — must not be read as user intent: a
+        # stale report would otherwise revert a BT-side target that has not
+        # been written yet.
+        _reported_moved = abs(
+            _new_cooling_setpoint.raw - _old_cooling_setpoint
+        ) >= setpoint_echo_window(_step)
+        if not _new_cooling_setpoint.is_echo and _reported_moved:
             self.bt_target_cooltemp = _new_cooling_setpoint.value
             self._enforce_heat_below_cool()
             _main_change = True
