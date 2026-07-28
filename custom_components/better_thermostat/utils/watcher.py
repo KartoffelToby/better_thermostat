@@ -3,8 +3,9 @@
 This module contains utility functions to verify entities, check batteries,
 and raise Home Assistant issues if an entity is missing or unavailable.
 
-Supports degraded mode operation where optional sensors (window, humidity,
-outdoor, weather) can be unavailable without blocking thermostat operation.
+Supports degraded mode operation where optional sensors (window, door,
+humidity, outdoor, weather) can be unavailable without blocking thermostat
+operation.
 """
 
 from __future__ import annotations
@@ -296,10 +297,11 @@ async def await_optional_sensors(
 ) -> list[str]:
     """Wait for optional sensors to become available with increasing delays.
 
-    After a reboot, optional sensors (outdoor, weather, window, humidity)
-    frequently need a few seconds to initialise.  This helper retries with
-    increasing intervals so that ``check_and_update_degraded_mode`` is not
-    called while sensors are still starting up.
+    After a reboot, optional sensors (outdoor, weather, window, door,
+    humidity) frequently need a few seconds to initialise.  This helper
+    retries with increasing intervals so that
+    ``check_and_update_degraded_mode`` is not called while sensors are
+    still starting up.
 
     Parameters
     ----------
