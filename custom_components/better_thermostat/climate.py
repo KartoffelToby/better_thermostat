@@ -155,6 +155,7 @@ from .utils.controlling import (
     reconcile_tick,
 )
 from .utils.helpers import (
+    COOLER_SETPOINT_KEYS,
     async_normalize_bt_entity_ids,
     attr_to_celsius,
     convert_to_float,
@@ -164,6 +165,7 @@ from .utils.helpers import (
     get_hvac_bt_mode,
     is_reasonable_temperature,
     normalize_hvac_mode,
+    read_setpoint_celsius,
     state_temperature_unit,
 )
 from .utils.hvac_action import (
@@ -1641,8 +1643,8 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
                 STATE_UNKNOWN,
                 None,
             ):
-                self.bt_target_cooltemp = attr_to_celsius(
-                    self, _cooler_state, "temperature", None, "startup()"
+                self.bt_target_cooltemp = read_setpoint_celsius(
+                    self, _cooler_state, COOLER_SETPOINT_KEYS, "startup()"
                 )
             # else: already logged warning above
 

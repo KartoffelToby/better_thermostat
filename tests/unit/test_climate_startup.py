@@ -9,7 +9,12 @@ import json
 from unittest.mock import AsyncMock, MagicMock, patch
 
 from homeassistant.components.climate.const import HVACMode
-from homeassistant.const import ATTR_TEMPERATURE, STATE_UNAVAILABLE, STATE_UNKNOWN
+from homeassistant.const import (
+    ATTR_TEMPERATURE,
+    STATE_UNAVAILABLE,
+    STATE_UNKNOWN,
+    UnitOfTemperature,
+)
 from homeassistant.core import State
 import pytest
 
@@ -113,6 +118,16 @@ def _make_trv_state(entity_id=TRV_ID, state="heat", attrs=None):
 def _make_sensor_state(temp="21.5", state_val=None):
     """Build a sensor State."""
     return State(SENSOR_ID, state_val or temp)
+
+
+def _make_cooler_state(attrs, state="cool"):
+    """Build a cooler State with the given setpoint attributes."""
+    return State(COOLER_ID, state, attributes=attrs)
+
+
+def _install_states(bt, states):
+    """Route ``bt.hass.states.get`` to a per-entity mapping."""
+    bt.hass.states.get.side_effect = states.get
 
 
 # ---------------------------------------------------------------------------
@@ -482,6 +497,37 @@ class TestInitializeSensors:
         ):
             BetterThermostat._initialize_sensors(bt, sensor)
         assert bt.last_known_external_temp is not None
+
+    def test_single_setpoint_cooler_seeds_cool_target(self, bt):
+        """A cooler driven through a single setpoint is read from temperature."""
+        bt.cooler_entity_id = COOLER_ID
+        bt.hass.config.units.temperature_unit = UnitOfTemperature.CELSIUS
+        _install_states(bt, {COOLER_ID: _make_cooler_state({ATTR_TEMPERATURE: 24.0})})
+        BetterThermostat._initialize_sensors(bt, _make_sensor_state("21.5"))
+        assert bt.bt_target_cooltemp == 24.0
+
+    def test_range_only_cooler_seeds_cool_target_from_range_high(self, bt):
+        """A range-only cooler publishes an empty temperature and a range.
+
+        Its setpoint sits in target_temp_high, so reading only temperature
+        would leave the cool target unset for the whole session.
+        """
+        bt.cooler_entity_id = COOLER_ID
+        bt.hass.config.units.temperature_unit = UnitOfTemperature.CELSIUS
+        _install_states(
+            bt,
+            {
+                COOLER_ID: _make_cooler_state(
+                    {
+                        ATTR_TEMPERATURE: None,
+                        "target_temp_low": 19.0,
+                        "target_temp_high": 25.5,
+                    }
+                )
+            },
+        )
+        BetterThermostat._initialize_sensors(bt, _make_sensor_state("21.5"))
+        assert bt.bt_target_cooltemp == 25.5
 
 
 # ---------------------------------------------------------------------------
