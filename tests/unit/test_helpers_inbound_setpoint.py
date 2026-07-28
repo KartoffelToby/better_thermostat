@@ -102,6 +102,12 @@ class TestNormalizeStep:
         """The caller can supply its own fallback."""
         assert normalize_step(None, fallback=1.0) == 1.0
 
+    def test_non_finite_falls_back(self):
+        """NaN and infinity pass a ``<= 0`` test but cannot separate setpoints."""
+        assert normalize_step(float("nan")) == 0.5
+        assert normalize_step(float("inf")) == 0.5
+        assert normalize_step(float("-inf")) == 0.5
+
 
 class TestSetpointEchoWindow:
     """The distance below which a setpoint difference is grid noise."""

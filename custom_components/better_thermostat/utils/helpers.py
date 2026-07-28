@@ -673,14 +673,19 @@ def read_setpoint_celsius(
 
 
 def normalize_step(value: float | int | str | None, fallback: float = 0.5) -> float:
-    """Coerce a reported temperature step to a usable positive float."""
+    """Coerce a reported temperature step to a usable positive float.
+
+    NaN and infinity survive ``float()`` and pass a ``<= 0`` test, so they are
+    rejected explicitly: a NaN step makes every echo comparison false, an
+    infinite one makes them all true.
+    """
     if value is None:
         return fallback
     try:
         step = float(value)
     except TypeError, ValueError:
         return fallback
-    if step <= 0:
+    if not math.isfinite(step) or step <= 0:
         return fallback
     return step
 
