@@ -13,6 +13,7 @@ from homeassistant.core import State
 from homeassistant.util import dt as dt_util
 import pytest
 
+from custom_components.better_thermostat.climate import BetterThermostat
 from custom_components.better_thermostat.events.trv import (
     convert_inbound_states,
     convert_outbound_states,
@@ -40,6 +41,7 @@ def mock_bt():
     bt.hass = MagicMock()
     bt.device_name = "Test Thermostat"
     bt.bt_hvac_mode = HVACMode.HEAT
+    bt.hvac_mode = HVACMode.HEAT
     bt.bt_target_temp = 19.0
     bt.bt_min_temp = 5.0
     bt.bt_max_temp = 30.0
@@ -57,6 +59,7 @@ def mock_bt():
     bt.context = MagicMock()  # unique context so != event.context
     bt.last_internal_sensor_change = dt_util.now() - timedelta(seconds=60)
     bt.async_write_ha_state = MagicMock()
+    bt._enforce_cool_above_heat = lambda: BetterThermostat._enforce_cool_above_heat(bt)
 
     bt.all_trvs = [{"advanced": {CONF_HOMEMATICIP: False}}]
 
@@ -917,9 +920,10 @@ class TestTargetTempAdoption:
         assert mock_bt.bt_target_temp == 22.0
 
     @pytest.mark.asyncio
-    async def test_cooler_sync_logic_bug(self, mock_bt):
-        """Cooler-sync always sets cooltemp to target - step regardless of initial value."""
+    async def test_cooler_sync_keeps_cooltemp_above_target(self, mock_bt):
+        """A cooltemp already above the new target is left untouched."""
         mock_bt.cooler_entity_id = "climate.cooler"
+        mock_bt.hvac_mode = HVACMode.HEAT_COOL
         mock_bt.bt_target_cooltemp = 25.0
         mock_bt.bt_target_temp_step = 0.5
 
@@ -950,6 +954,7 @@ class TestTargetTempAdoption:
     async def test_cooler_sync_pushes_cooltemp_above_target(self, mock_bt):
         """Cooltemp is pushed to target + step when equal to target."""
         mock_bt.cooler_entity_id = "climate.cooler"
+        mock_bt.hvac_mode = HVACMode.HEAT_COOL
         mock_bt.bt_target_cooltemp = 22.0  # equal to new target
         mock_bt.bt_target_temp_step = 0.5
 
@@ -980,6 +985,7 @@ class TestTargetTempAdoption:
     async def test_cooler_sync_always_overwrites(self, mock_bt):
         """Cooltemp is pushed to target + step even when already below target."""
         mock_bt.cooler_entity_id = "climate.cooler"
+        mock_bt.hvac_mode = HVACMode.HEAT_COOL
         mock_bt.bt_target_cooltemp = 15.0
         mock_bt.bt_target_temp_step = 0.5
 
@@ -1005,6 +1011,40 @@ class TestTargetTempAdoption:
             await trigger_trv_change(mock_bt, event)
 
         assert mock_bt.bt_target_cooltemp == 22.0 + 0.5
+
+    @pytest.mark.asyncio
+    async def test_cooler_sync_with_unknown_cooltemp_adopts_setpoint(self, mock_bt):
+        """An unknown cool target does not abort the heating-setpoint adoption."""
+        mock_bt.cooler_entity_id = "climate.cooler"
+        mock_bt.hvac_mode = HVACMode.HEAT_COOL
+        mock_bt.bt_target_cooltemp = None
+        mock_bt.bt_target_temp_step = 0.5
+
+        old_state = _make_state(
+            attributes={"temperature": 19.0, "current_temperature": 18.0}
+        )
+        new_state = _make_state(
+            attributes={"temperature": 22.0, "current_temperature": 18.0}
+        )
+        trv_state = _make_state(
+            state_str="heat",
+            attributes={"current_temperature": 18.0, "temperature": 22.0},
+        )
+        mock_bt.hass.states.get.return_value = trv_state
+        mock_bt.real_trvs[ENTITY_ID].last_temperature = 19.0
+
+        event = _make_event(mock_bt, new_state=new_state, old_state=old_state)
+
+        with patch(
+            "custom_components.better_thermostat.events.trv.convert_inbound_states",
+            return_value=HVACMode.HEAT,
+        ):
+            await trigger_trv_change(mock_bt, event)
+
+        assert mock_bt.bt_target_temp == 22.0
+        assert mock_bt.bt_target_cooltemp is None
+        mock_bt.async_write_ha_state.assert_called()
+        mock_bt.control_queue_task.put.assert_awaited_with(mock_bt)
 
     @pytest.mark.asyncio
     async def test_no_off_system_mode_sets_off_at_min(self, mock_bt):

@@ -462,6 +462,28 @@ class TestInitializeSensors:
         BetterThermostat._initialize_sensors(bt, sensor)
         assert bt.door_open is False
 
+    def test_single_setpoint_cooler_sets_cooltemp(self, bt):
+        """A cooler exposing ``temperature`` seeds the cool target from it."""
+        bt.cooler_entity_id = COOLER_ID
+        sensor = _make_sensor_state("20.0")
+        bt.hass.states.get.return_value = State(
+            COOLER_ID, "cool", {"temperature": 24.0}
+        )
+        BetterThermostat._initialize_sensors(bt, sensor)
+        assert bt.bt_target_cooltemp == 24.0
+
+    def test_range_only_cooler_sets_cooltemp_from_target_temp_high(self, bt):
+        """A range-only cooler seeds the cool target from ``target_temp_high``."""
+        bt.cooler_entity_id = COOLER_ID
+        sensor = _make_sensor_state("20.0")
+        bt.hass.states.get.return_value = State(
+            COOLER_ID,
+            "cool",
+            {"temperature": None, "target_temp_low": 19.0, "target_temp_high": 26.0},
+        )
+        BetterThermostat._initialize_sensors(bt, sensor)
+        assert bt.bt_target_cooltemp == 26.0
+
     def test_humidity_sensor_initialized(self, bt):
         """Test Humidity sensor initialized."""
         bt.humidity_sensor_entity_id = HUMIDITY_ID
