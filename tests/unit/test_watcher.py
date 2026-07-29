@@ -40,6 +40,9 @@ def mock_bt_instance(mock_hass):
     bt.device_name = "Test Thermostat"
     bt.sensor_entity_id = "sensor.room_temp"
     bt.window_id = "binary_sensor.window"
+    # MagicMock would auto-create a truthy attribute; the default fixture has
+    # no door sensor configured.
+    bt.door_id = None
     bt.humidity_sensor_entity_id = "sensor.humidity"
     bt.outdoor_sensor = "sensor.outdoor_temp"
     bt.weather_entity = "weather.home"
@@ -175,6 +178,36 @@ class TestGetOptionalSensors:
         result = get_optional_sensors(mock_bt_instance)
 
         assert result == []
+
+    def test_includes_door_sensor_when_configured(self, mock_bt_instance):
+        """A configured door sensor is watched like the other optional sensors."""
+        from custom_components.better_thermostat.utils.watcher import (
+            get_optional_sensors,
+        )
+
+        mock_bt_instance.door_id = "binary_sensor.door"
+
+        result = get_optional_sensors(mock_bt_instance)
+
+        assert "binary_sensor.door" in result
+        assert len(result) == 5
+
+    def test_excludes_door_sensor_when_not_configured(self, mock_bt_instance):
+        """Without a door sensor the optional list stays unchanged."""
+        from custom_components.better_thermostat.utils.watcher import (
+            get_optional_sensors,
+        )
+
+        mock_bt_instance.door_id = None
+
+        result = get_optional_sensors(mock_bt_instance)
+
+        assert result == [
+            "binary_sensor.window",
+            "sensor.humidity",
+            "sensor.outdoor_temp",
+            "weather.home",
+        ]
 
 
 class TestGetCriticalEntities:
@@ -478,6 +511,52 @@ class TestCheckAndUpdateDegradedMode:
         assert "binary_sensor.window" in mock_bt_instance.unavailable_sensors
 
     @pytest.mark.anyio
+    async def test_sets_degraded_mode_when_door_sensor_unavailable(
+        self, mock_bt_instance
+    ):
+        """A dead door sensor reaches degraded mode and raises the repair issue."""
+        from custom_components.better_thermostat.utils.watcher import (
+            check_and_update_degraded_mode,
+        )
+
+        mock_bt_instance.door_id = "binary_sensor.door"
+
+        def mock_get(entity_id):
+            state = MagicMock()
+            state.state = "unavailable" if entity_id == "binary_sensor.door" else "20.0"
+            return state
+
+        mock_bt_instance.hass.states.get.side_effect = mock_get
+
+        with patch("custom_components.better_thermostat.utils.watcher.ir") as mock_ir:
+            result = await check_and_update_degraded_mode(mock_bt_instance)
+
+        assert result is True
+        assert mock_bt_instance.degraded_mode is True
+        assert "binary_sensor.door" in mock_bt_instance.unavailable_sensors
+        assert mock_ir.async_create_issue.called
+
+    @pytest.mark.anyio
+    async def test_no_degraded_mode_when_door_sensor_not_configured(
+        self, mock_bt_instance
+    ):
+        """An unconfigured door sensor never counts as unavailable."""
+        from custom_components.better_thermostat.utils.watcher import (
+            check_and_update_degraded_mode,
+        )
+
+        mock_bt_instance.door_id = None
+        mock_state = MagicMock()
+        mock_state.state = "20.0"
+        mock_bt_instance.hass.states.get.return_value = mock_state
+
+        with patch("custom_components.better_thermostat.utils.watcher.ir"):
+            result = await check_and_update_degraded_mode(mock_bt_instance)
+
+        assert result is False
+        assert mock_bt_instance.unavailable_sensors == []
+
+    @pytest.mark.anyio
     async def test_no_degraded_mode_when_all_sensors_available(self, mock_bt_instance):
         """Test that degraded_mode is False when all sensors are available."""
         from custom_components.better_thermostat.utils.watcher import (
@@ -767,6 +846,35 @@ class TestAwaitOptionalSensors:
 
         assert result == []
         assert sleep_calls == []
+
+    def test_waits_for_door_sensor(self, mock_bt_instance):
+        """A door sensor that never comes online is reported as pending."""
+        from custom_components.better_thermostat.utils.watcher import (
+            await_optional_sensors,
+        )
+
+        # Only the door sensor is configured, and it stays unavailable.
+        mock_bt_instance.window_id = None
+        mock_bt_instance.door_id = "binary_sensor.door"
+        mock_bt_instance.humidity_sensor_entity_id = None
+        mock_bt_instance.outdoor_sensor = None
+        mock_bt_instance.weather_entity = None
+
+        mock_state = MagicMock()
+        mock_state.state = "unavailable"
+        mock_bt_instance.hass.states.get.return_value = mock_state
+
+        sleep_calls = []
+
+        async def fake_sleep(seconds):
+            sleep_calls.append(seconds)
+
+        result = self._run(
+            await_optional_sensors(mock_bt_instance, delays=(2, 4), _sleep=fake_sleep)
+        )
+
+        assert result == ["binary_sensor.door"]
+        assert sleep_calls == [2, 4]
 
     def test_retries_until_sensor_comes_online(self, mock_bt_instance):
         """Sensor unavailable on first check, available on second → one sleep."""
