@@ -809,6 +809,105 @@ class TestControlCoolerSendCache:
             await control_cooler(mock_self)
 
 
+class TestControlCoolerModeHysteresis:
+    """The COOL/OFF decision spans a band rather than a single threshold."""
+
+    # target_cooltemp - tolerance for the values _make_cooler_setup uses.
+    SWITCH_ON_AT = 23.5
+
+    @staticmethod
+    def _make_compliant(mock_hass, cooler_state):
+        """Let the fake cooler apply whatever it is commanded."""
+
+        async def apply(domain, service, data, **kwargs):
+            if service == "set_hvac_mode":
+                cooler_state.state = data["hvac_mode"]
+            else:
+                cooler_state.attributes = {"temperature": data["temperature"]}
+
+        mock_hass.services.async_call = AsyncMock(side_effect=apply)
+
+    @pytest.mark.asyncio
+    async def test_room_temp_resting_on_the_threshold_is_not_written_every_cycle(self):
+        """A hundredth of a degree of sensor noise must not drive the cooler.
+
+        A changed desired mode bypasses the resend throttle by design, so a
+        single threshold turns every flip into a write — and a fully
+        compliant device gets commanded at the whole control-cycle rate.
+        """
+        mock_self, mock_hass, cooler_state = _make_cooler_setup(
+            cooler_state=HVACMode.OFF, cooler_temp_attr=24.0, target_cooltemp=24.0
+        )
+        self._make_compliant(mock_hass, cooler_state)
+
+        cycles = 0
+        elapsed = 0.0
+        while elapsed < 3600.0:
+            mock_self.clock.monotonic_value = elapsed
+            mock_self.cur_temp = self.SWITCH_ON_AT + (
+                0.005 if cycles % 2 == 0 else -0.005
+            )
+            await control_cooler(mock_self)
+            elapsed += 5.0
+            cycles += 1
+
+        assert cycles == 720
+        assert len(_service_calls(mock_hass, "set_hvac_mode")) == 1
+
+    @pytest.mark.asyncio
+    async def test_cooling_stops_once_the_room_leaves_the_band(self):
+        """The band delays the switch-off, it does not prevent it."""
+        mock_self, mock_hass, cooler_state = _make_cooler_setup(
+            cooler_state=HVACMode.OFF, cooler_temp_attr=24.0, target_cooltemp=24.0
+        )
+        self._make_compliant(mock_hass, cooler_state)
+
+        await control_cooler(mock_self)
+        assert (
+            _service_calls(mock_hass, "set_hvac_mode")[-1].args[2]["hvac_mode"]
+            == HVACMode.COOL
+        )
+
+        # Just below the switch-on point but still inside the band.
+        mock_self.cur_temp = self.SWITCH_ON_AT - 0.1
+        mock_self.clock.monotonic_value += COOLER_RESEND_INTERVAL_S
+        await control_cooler(mock_self)
+        assert len(_service_calls(mock_hass, "set_hvac_mode")) == 1
+
+        # Below the band.
+        mock_self.cur_temp = self.SWITCH_ON_AT - 0.25
+        mock_self.clock.monotonic_value += COOLER_RESEND_INTERVAL_S
+        await control_cooler(mock_self)
+
+        mode_calls = _service_calls(mock_hass, "set_hvac_mode")
+        assert len(mode_calls) == 2
+        assert mode_calls[-1].args[2]["hvac_mode"] == HVACMode.OFF
+
+    @pytest.mark.asyncio
+    async def test_the_band_follows_the_commanded_mode_not_the_reported_one(self):
+        """An externally switched-off cooler is put back into the band's state.
+
+        The device's reported mode lags a command and can be changed from
+        outside Better Thermostat, so reading the band's state off it would
+        abandon cooling inside the band.
+        """
+        mock_self, mock_hass, cooler_state = _make_cooler_setup(
+            cooler_state=HVACMode.OFF, cooler_temp_attr=24.0, target_cooltemp=24.0
+        )
+        self._make_compliant(mock_hass, cooler_state)
+
+        await control_cooler(mock_self)
+
+        cooler_state.state = HVACMode.OFF
+        mock_self.cur_temp = self.SWITCH_ON_AT - 0.1
+        mock_self.clock.monotonic_value += COOLER_RESEND_INTERVAL_S
+        await control_cooler(mock_self)
+
+        mode_calls = _service_calls(mock_hass, "set_hvac_mode")
+        assert len(mode_calls) == 2
+        assert mode_calls[-1].args[2]["hvac_mode"] == HVACMode.COOL
+
+
 class TestControlCoolerTargetRange:
     """Payload selection for coolers that only accept a target range."""
 

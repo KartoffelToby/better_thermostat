@@ -76,6 +76,12 @@ COOLER_FAILURE_BACKOFF_MAX_S = 300.0
 # or a whole-°F grid). A post-send reading within this distance of the sent
 # value counts as that device-side quantization, not as an unapplied command.
 COOLER_QUANTIZATION_TOLERANCE_K = 0.5
+# Hysteresis band below the cooling switch-on point. Once BT has commanded
+# COOL the room has to fall this far below the switch-on point before OFF is
+# commanded, so a room temperature resting on the threshold does not flip the
+# decision — and produce a write — on every control cycle. Two steps of a
+# 0.1 °C room sensor.
+COOLER_MODE_HYSTERESIS_K = 0.2
 # Valve deviations below this are the device's own business.
 RECONCILE_VALVE_TOLERANCE_PCT = 5.0
 # Pause before re-queueing a cycle in which a TRV reported failure, so a
@@ -779,10 +785,21 @@ async def control_cooler(self, snapshot=None):
         desired_mode = HVACMode.OFF
     elif snapshot.hvac_mode == HVACMode.OFF:
         desired_mode = HVACMode.OFF
-    elif room_temp >= target_cooltemp - tolerance and room_temp > target_temp:
-        desired_mode = HVACMode.COOL
     else:
-        desired_mode = HVACMode.OFF
+        # Hysteresis around the switch-on point, so a room temperature
+        # resting on it does not flip the decision — and with it the write —
+        # on every cycle. The state is the mode BT last commanded: the
+        # device's own reported mode lags a command and can be changed
+        # externally, so it cannot carry the band. The heating target stays a
+        # hard floor; relaxing it would let the cooler run into the band the
+        # heater is working on.
+        _cool_on_at = target_cooltemp - tolerance
+        if last_sent.get("hvac_mode", (None, None))[0] == HVACMode.COOL:
+            _cool_on_at -= COOLER_MODE_HYSTERESIS_K
+        if room_temp >= _cool_on_at and room_temp > target_temp:
+            desired_mode = HVACMode.COOL
+        else:
+            desired_mode = HVACMode.OFF
 
     # Decide whether a temperature command is needed. When the current
     # temperature is unknown, only send if the desired value changed since
