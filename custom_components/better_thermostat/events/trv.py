@@ -311,10 +311,7 @@ async def trigger_trv_change(self, event):
             )
             self.bt_target_temp = _new_heating_setpoint
             if self.cooler_entity_id is not None:
-                if self.bt_target_temp >= self.bt_target_cooltemp:
-                    self.bt_target_cooltemp = self.bt_target_temp + (
-                        self.bt_target_temp_step or 0.5
-                    )
+                self._enforce_cool_above_heat()
 
             _main_change = True
         elif _new_heating_setpoint != _old_heating_setpoint:

@@ -134,6 +134,7 @@ from .utils.const import (
 )
 from .utils.controlling import control_queue, control_trv
 from .utils.helpers import (
+    COOLER_SETPOINT_KEYS,
     async_normalize_bt_entity_ids,
     attr_to_celsius,
     convert_to_float,
@@ -143,6 +144,7 @@ from .utils.helpers import (
     get_hvac_bt_mode,
     is_reasonable_temperature,
     normalize_hvac_mode,
+    read_setpoint_celsius,
     state_temperature_unit,
 )
 from .utils.hvac_action import (
@@ -1413,8 +1415,12 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
                 STATE_UNKNOWN,
                 None,
             ):
-                self.bt_target_cooltemp = attr_to_celsius(
-                    self, _cooler_state, "temperature", None, "startup()"
+                # A cooler that only supports TARGET_TEMPERATURE_RANGE reports
+                # ``temperature: None`` and carries its setpoint in
+                # ``target_temp_high``, so the same key precedence the event
+                # handler and control_cooler() use applies here too.
+                self.bt_target_cooltemp = read_setpoint_celsius(
+                    self, _cooler_state, COOLER_SETPOINT_KEYS, "startup()"
                 )
             # else: already logged warning above
 
