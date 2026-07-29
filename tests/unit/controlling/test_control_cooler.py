@@ -921,7 +921,74 @@ class TestControlCoolerModeHysteresis:
         assert mode_calls[-1].args[2]["hvac_mode"] == HVACMode.OFF
 
     @pytest.mark.asyncio
-    async def test_the_band_follows_the_commanded_mode_not_the_reported_one(self):
+    async def test_the_band_does_not_delay_the_switch_on(self):
+        """The band widens the COOL state, it does not narrow the way into it.
+
+        A band applied in both directions would hold the cooler off until the
+        room had climbed a further band width past the switch-on point, which
+        is not the deadband the tolerance asks for.
+        """
+        mock_self, mock_hass, cooler_state = _make_cooler_setup(
+            cooler_state=HVACMode.OFF, cooler_temp_attr=24.0, target_cooltemp=24.0
+        )
+        self._make_compliant(mock_hass, cooler_state)
+
+        # Well below the band, so the decision the band reads is OFF.
+        mock_self.cur_temp = self.SWITCH_ON_AT - 1.0
+        await control_cooler(mock_self)
+        assert _service_calls(mock_hass, "set_hvac_mode") == []
+
+        # Exactly on the switch-on point.
+        mock_self.cur_temp = self.SWITCH_ON_AT
+        mock_self.clock.monotonic_value += COOLER_RESEND_INTERVAL_S
+        await control_cooler(mock_self)
+
+        mode_calls = _service_calls(mock_hass, "set_hvac_mode")
+        assert len(mode_calls) == 1
+        assert mode_calls[0].args[2]["hvac_mode"] == HVACMode.COOL
+
+    @pytest.mark.asyncio
+    async def test_an_alternating_decision_is_not_written_every_cycle(self):
+        """A cooler in a mode BT never commands must not defeat the band.
+
+        ``dry`` is neither COOL nor OFF, so the device differs from whatever
+        BT decides and every cycle wants to write. A band that read the last
+        successful send would never move on a device that accepts nothing:
+        the room resting on the switch-on point would flip the decision every
+        cycle, and each flip would reach the retry gate as a new command
+        rather than as a retry.
+        """
+        mock_self, mock_hass, _ = _make_cooler_setup(
+            cooler_state="dry", cooler_temp_attr=24.0, target_cooltemp=24.0
+        )
+        attempts: list[float] = []
+
+        async def always_fail(domain, service, data, **kwargs):
+            if service == "set_hvac_mode":
+                attempts.append(mock_self.clock.monotonic_value)
+            raise ConnectionError("cloud rate limit reached")
+
+        mock_hass.services.async_call = AsyncMock(side_effect=always_fail)
+
+        cycles = 0
+        elapsed = 0.0
+        while elapsed < 3600.0:
+            mock_self.clock.monotonic_value = elapsed
+            mock_self.cur_temp = self.SWITCH_ON_AT + (
+                0.005 if cycles % 2 == 0 else -0.005
+            )
+            await control_cooler(mock_self)
+            elapsed += 5.0
+            cycles += 1
+
+        assert cycles == 720
+        # Paced by the failure backoff instead of by the control-cycle rate.
+        assert len(attempts) < 10
+        gaps = [b - a for a, b in zip(attempts, attempts[1:], strict=False)]
+        assert min(gaps) >= COOLER_FAILURE_BACKOFF_BASE_S
+
+    @pytest.mark.asyncio
+    async def test_the_band_follows_the_decided_mode_not_the_reported_one(self):
         """An externally switched-off cooler is put back into the band's state.
 
         The device's reported mode lags a command and can be changed from

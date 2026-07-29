@@ -95,11 +95,13 @@ COOLER_FAILURE_BACKOFF_MAX_S = 1800.0
 # or a whole-°F grid). A post-send reading within this distance of the sent
 # value counts as that device-side quantization, not as an unapplied command.
 COOLER_QUANTIZATION_TOLERANCE_K = 0.5
-# Hysteresis band below the cooling switch-on point. Once BT has commanded
-# COOL the room has to fall this far below the switch-on point before OFF is
-# commanded, so a room temperature resting on the threshold does not flip the
+# Hysteresis band below the cooling switch-on point. Once BT has decided to
+# cool, the room has to fall this far below the switch-on point before OFF is
+# decided, so a room temperature resting on the threshold does not flip the
 # decision — and produce a write — on every control cycle. Two steps of a
-# 0.1 °C room sensor.
+# 0.1 °C room sensor, which is what the flip is made of; and well under the
+# 0.5 °C a cooling setpoint is set in, so the extra run time the band costs
+# is finer than the user can express in the target anyway.
 COOLER_MODE_HYSTERESIS_K = 0.2
 # Valve deviations below this are the device's own business.
 RECONCILE_VALVE_TOLERANCE_PCT = 5.0
@@ -681,9 +683,10 @@ def cooler_send_cache(self) -> dict:
 
     Holds the last successfully sent command per channel as
     ``(value, monotonic_timestamp)`` for the resend throttle, the settled
-    reading of each written channel, and each channel's run of consecutive
-    send failures as ``(count, monotonic_timestamp)``. Created lazily because
-    only cooler-equipped instances need it.
+    reading of each written channel, the mode the last cycle decided on for
+    the hysteresis band, and each channel's run of consecutive send failures
+    as ``(count, monotonic_timestamp, attempted_value)``. Created lazily
+    because only cooler-equipped instances need it.
     """
     last_sent = getattr(self, "_cooler_last_sent", None)
     if not isinstance(last_sent, dict):
@@ -807,18 +810,26 @@ async def control_cooler(self, snapshot=None):
     else:
         # Hysteresis around the switch-on point, so a room temperature
         # resting on it does not flip the decision — and with it the write —
-        # on every cycle. The state is the mode BT last commanded: the
-        # device's own reported mode lags a command and can be changed
-        # externally, so it cannot carry the band. The heating target stays a
+        # on every cycle. The band widens the COOL state only: entering it
+        # stays at the plain switch-on point the tolerance defines. The
+        # device's own reported mode cannot carry the band — it lags a
+        # command and can be changed externally. The heating target stays a
         # hard floor; relaxing it would let the cooler run into the band the
         # heater is working on.
         _cool_on_at = target_cooltemp - tolerance
-        if last_sent.get("hvac_mode", (None, None))[0] == HVACMode.COOL:
+        if last_sent.get("hvac_mode_decided") == HVACMode.COOL:
             _cool_on_at -= COOLER_MODE_HYSTERESIS_K
         if room_temp >= _cool_on_at and room_temp > target_temp:
             desired_mode = HVACMode.COOL
         else:
             desired_mode = HVACMode.OFF
+    # The band's state is the decision, not the send: a device that rejects
+    # every command would never advance a send-stamped state, and the
+    # decision would keep flipping between the two commands the device is
+    # refusing. Recorded for every branch above, so a cycle that fell into a
+    # guard leaves the band where that guard put it instead of on a stale
+    # value.
+    last_sent["hvac_mode_decided"] = desired_mode
 
     # Decide whether a temperature command is needed. When the current
     # temperature is unknown, only send if the desired value changed since
