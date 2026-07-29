@@ -26,7 +26,7 @@ def _fake_self():
     return mock_self
 
 
-class TestTrvSupportsTemperatureRange:
+class TestSupportsTemperatureRange:
     """Feature detection reads the supported_features bitmask."""
 
     def test_none_state_returns_false(self):

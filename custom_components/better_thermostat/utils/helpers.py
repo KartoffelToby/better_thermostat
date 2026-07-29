@@ -456,6 +456,11 @@ def convert_to_float(
 ) -> float | None:
     """Convert value to float or print error message.
 
+    Non-finite readings yield None rather than propagating: a NaN never
+    compares equal to anything downstream and an infinity saturates every
+    comparison. A magnitude so large that dividing it by the step overflows
+    to infinity fails the conversion as well.
+
     Parameters
     ----------
     value : str | int | float | None
@@ -475,7 +480,19 @@ def convert_to_float(
         return None
     try:
         numeric = float(value)
-    except ValueError, TypeError, AttributeError, KeyError:
+        if not math.isfinite(numeric):
+            _LOGGER.debug(
+                "better thermostat %s: Rejected non-finite value '%s' in %s",
+                instance_name,
+                value,
+                context,
+            )
+            return None
+        # Use 0.01 step (2 decimal places) to preserve sensor precision.
+        # Rounding to 0.1 can turn 19.97 into 20.0, leading to incorrect
+        # HVAC action decisions.
+        return round_by_step(numeric, 0.01)
+    except ValueError, TypeError, AttributeError, KeyError, OverflowError:
         _LOGGER.debug(
             "better thermostat %s: Could not convert '%s' to float in %s",
             instance_name,
@@ -483,18 +500,6 @@ def convert_to_float(
             context,
         )
         return None
-    if not math.isfinite(numeric):
-        _LOGGER.debug(
-            "better thermostat %s: Rejected non-finite value '%s' in %s",
-            instance_name,
-            value,
-            context,
-        )
-        return None
-    # Use 0.01 step (2 decimal places) to preserve sensor precision.
-    # Rounding to 0.1 can turn 19.97 into 20.0, leading to incorrect
-    # HVAC action decisions.
-    return round_by_step(numeric, 0.01)
 
 
 def convert_to_float_celsius(
@@ -711,14 +716,19 @@ def read_setpoint_celsius(
 
 
 def normalize_step(value: float | int | str | None, fallback: float = 0.5) -> float:
-    """Coerce a reported temperature step to a usable positive float."""
+    """Coerce a reported temperature step to a usable positive float.
+
+    NaN and infinity survive ``float()`` and pass a ``<= 0`` test, so they are
+    rejected explicitly: a NaN step makes every echo comparison false, an
+    infinite one makes them all true.
+    """
     if value is None:
         return fallback
     try:
         step = float(value)
     except TypeError, ValueError:
         return fallback
-    if step <= 0:
+    if not math.isfinite(step) or step <= 0:
         return fallback
     return step
 
@@ -776,7 +786,9 @@ def resolve_inbound_setpoint(
     known_values : tuple[float | None, ...]
             the values BT itself wrote, in °C; non-numeric entries are ignored
     step : float
-            the device's setpoint step in °C
+            the device's setpoint step as a Celsius delta; a step read from a
+            device attribute carries that device's unit and has to be converted
+            before it is passed
     log_source : str
             caller name, forwarded for logging context
 
@@ -790,15 +802,18 @@ def resolve_inbound_setpoint(
         return None
 
     # A bound stays None until a child entity reports one, so each side is
-    # enforced only once it is known.
+    # enforced only once it is known. Non-overlapping heater and cooler ranges
+    # leave bt_min_temp above bt_max_temp, so the two bounds are applied in
+    # sequence rather than exclusively and the upper one decides.
     value = raw
     clamped = False
     if self.bt_min_temp is not None and value < self.bt_min_temp:
         value = self.bt_min_temp
         clamped = True
-    elif self.bt_max_temp is not None and self.bt_max_temp < value:
+    if self.bt_max_temp is not None and self.bt_max_temp < value:
         value = self.bt_max_temp
         clamped = True
+
     echo_window = setpoint_echo_window(step)
     is_echo = any(
         isinstance(known, (int, float)) and abs(value - known) < echo_window
@@ -829,7 +844,8 @@ def resolve_state_change_event(
     Returns
     -------
     tuple[State, State, str] | None
-            (old_state, new_state, entity_id) when actionable, else None
+            (old_state, new_state, entity_id) when actionable, with the entity
+            id guaranteed to be a string, else None
     """
     old_state = event.data.get("old_state")
     new_state = event.data.get("new_state")
