@@ -29,6 +29,17 @@ def _mock_cooler_state(state=HVACMode.COOL):
     return mock_cooler_state
 
 
+def _mock_bt():
+    """Build a bare Better Thermostat mock with the contact pinned shut.
+
+    An attribute a ``Mock`` was never given is a truthy child mock, so
+    ``contact_open`` has to be pinned or every cycle reads as an airing.
+    """
+    mock_self = Mock()
+    mock_self.contact_open = False
+    return mock_self
+
+
 class TestControlCooler:
     """Test control_cooler function."""
 
@@ -49,7 +60,7 @@ class TestControlCooler:
         mock_cooler_state.attributes = {"temperature": None}
         mock_hass.states.get.return_value = mock_cooler_state
 
-        mock_self = Mock()
+        mock_self = _mock_bt()
         mock_self.hass = mock_hass
         mock_self.real_trvs = {}
         mock_self.clock = FakeClock()
@@ -59,8 +70,6 @@ class TestControlCooler:
         mock_self.cooler_entity_id = "climate.cooler"
         mock_self.bt_target_cooltemp = 24.0
         mock_self.context = None
-        # A bare Mock would hand out a truthy contact_open.
-        mock_self.contact_open = False
 
         await control_cooler(mock_self)
 
@@ -88,13 +97,11 @@ class TestControlCooler:
         mock_cooler_state.attributes = {"temperature": 24.0}
         mock_hass.states.get.return_value = mock_cooler_state
 
-        mock_self = Mock()
+        mock_self = _mock_bt()
         mock_self.hass = mock_hass
         mock_self.cooler_entity_id = "climate.cooler"
         mock_self.tolerance = 0.5
         mock_self.context = None
-        # A bare Mock would hand out a truthy contact_open.
-        mock_self.contact_open = False
 
         snapshot = make_snapshot(
             hvac_mode=CoreHvacMode.OFF, target_cooltemp=24.0, tolerance=0.5
@@ -117,7 +124,7 @@ class TestControlCooler:
         mock_hass.services.async_call = AsyncMock()
         mock_hass.states.get.return_value = _mock_cooler_state(HVACMode.OFF)
 
-        mock_self = Mock()
+        mock_self = _mock_bt()
         mock_self.hass = mock_hass
         mock_self.real_trvs = {}
         mock_self.clock = FakeClock()
@@ -126,8 +133,6 @@ class TestControlCooler:
         mock_self.bt_hvac_mode = HVACMode.COOL
         mock_self.cooler_entity_id = "climate.cooler"
         mock_self.context = None
-        # A bare Mock would hand out a truthy contact_open.
-        mock_self.contact_open = False
         mock_self.cur_temp = 25.0
         mock_self.bt_target_cooltemp = 24.0
         mock_self.bt_target_temp = 20.0
@@ -162,7 +167,7 @@ class TestControlCooler:
         mock_hass.services.async_call = AsyncMock()
         mock_hass.states.get.return_value = _mock_cooler_state()
 
-        mock_self = Mock()
+        mock_self = _mock_bt()
         mock_self.hass = mock_hass
         mock_self.real_trvs = {}
         mock_self.clock = FakeClock()
@@ -171,8 +176,6 @@ class TestControlCooler:
         mock_self.bt_hvac_mode = HVACMode.COOL
         mock_self.cooler_entity_id = "climate.cooler"
         mock_self.context = None
-        # A bare Mock would hand out a truthy contact_open.
-        mock_self.contact_open = False
         mock_self.cur_temp = 20.0  # Equal to bt_target_temp
         mock_self.bt_target_cooltemp = 24.0
         mock_self.bt_target_temp = 20.0
@@ -194,7 +197,7 @@ class TestControlCooler:
         mock_hass.services.async_call = AsyncMock()
         mock_hass.states.get.return_value = _mock_cooler_state()
 
-        mock_self = Mock()
+        mock_self = _mock_bt()
         mock_self.hass = mock_hass
         mock_self.real_trvs = {}
         mock_self.clock = FakeClock()
@@ -203,8 +206,6 @@ class TestControlCooler:
         mock_self.bt_hvac_mode = HVACMode.COOL
         mock_self.cooler_entity_id = "climate.cooler"
         mock_self.context = None
-        # A bare Mock would hand out a truthy contact_open.
-        mock_self.contact_open = False
         mock_self.cur_temp = 23.0  # Below target_cooltemp - tolerance
         mock_self.bt_target_cooltemp = 24.0
         mock_self.bt_target_temp = 20.0
@@ -234,7 +235,7 @@ class TestControlCooler:
         mock_hass.services.async_call = AsyncMock()
         mock_hass.states.get.return_value = _mock_cooler_state(HVACMode.OFF)
 
-        mock_self = Mock()
+        mock_self = _mock_bt()
         mock_self.hass = mock_hass
         mock_self.real_trvs = {}
         mock_self.clock = FakeClock()
@@ -243,8 +244,6 @@ class TestControlCooler:
         mock_self.bt_hvac_mode = HVACMode.COOL
         mock_self.cooler_entity_id = "climate.cooler"
         mock_self.context = None
-        # A bare Mock would hand out a truthy contact_open.
-        mock_self.contact_open = False
         mock_self.bt_target_cooltemp = 24.0
         mock_self.bt_target_temp = 20.0
         mock_self.tolerance = 0.5
@@ -270,7 +269,7 @@ class TestControlCooler:
         mock_context = Mock()
         mock_context.id = "test_context_id"
 
-        mock_self = Mock()
+        mock_self = _mock_bt()
         mock_self.hass = mock_hass
         mock_self.real_trvs = {}
         mock_self.clock = FakeClock()
@@ -294,7 +293,7 @@ class TestControlCooler:
         mock_hass.services.async_call = AsyncMock()
         mock_hass.states.get.return_value = _mock_cooler_state()
 
-        mock_self = Mock()
+        mock_self = _mock_bt()
         mock_self.hass = mock_hass
         mock_self.real_trvs = {}
         mock_self.clock = FakeClock()
@@ -303,8 +302,6 @@ class TestControlCooler:
         mock_self.bt_hvac_mode = HVACMode.COOL
         mock_self.cooler_entity_id = "climate.cooler"
         mock_self.context = None
-        # A bare Mock would hand out a truthy contact_open.
-        mock_self.contact_open = False
         mock_self.cur_temp = 25.0
         mock_self.bt_target_cooltemp = 24.0
         mock_self.bt_target_temp = 20.0
@@ -329,7 +326,7 @@ class TestControlCooler:
         mock_hass.services.async_call = AsyncMock()
         mock_hass.states.get.return_value = _mock_cooler_state(HVACMode.OFF)
 
-        mock_self = Mock()
+        mock_self = _mock_bt()
         mock_self.hass = mock_hass
         mock_self.real_trvs = {}
         mock_self.clock = FakeClock()
@@ -338,8 +335,6 @@ class TestControlCooler:
         mock_self.bt_hvac_mode = HVACMode.COOL
         mock_self.cooler_entity_id = "climate.cooler"
         mock_self.context = None
-        # A bare Mock would hand out a truthy contact_open.
-        mock_self.contact_open = False
         mock_self.bt_target_cooltemp = 24.0
         mock_self.bt_target_temp = 20.0
         mock_self.tolerance = 0.5
@@ -406,7 +401,7 @@ def _make_cooler_setup(
     )
     mock_hass.states.get.return_value = mock_cooler_state
 
-    mock_self = Mock()
+    mock_self = _mock_bt()
     mock_self.hass = mock_hass
     mock_self.real_trvs = {}
     mock_self.clock = FakeClock()
@@ -415,8 +410,6 @@ def _make_cooler_setup(
     mock_self.bt_hvac_mode = HVACMode.COOL
     mock_self.cooler_entity_id = "climate.cooler"
     mock_self.context = None
-    # A bare Mock would hand out a truthy contact_open.
-    mock_self.contact_open = False
     mock_self.cur_temp = cur_temp
     mock_self.bt_target_cooltemp = target_cooltemp
     mock_self.bt_target_temp = target_temp
