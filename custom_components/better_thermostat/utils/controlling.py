@@ -60,8 +60,8 @@ MIN_WRITE_INTERVAL_S = 30.0
 RECONCILE_TOLERANCE_K = 0.05
 # Resend throttle for the cooler path: cooler commands go straight to the
 # service call (no reconciler in between), so an identical command is
-# suppressed while the device's state feedback lags. A changed desired
-# value always sends immediately.
+# suppressed while the device's state feedback lags. A changed desired value
+# passes this throttle untouched; only the failure backoff below can hold it.
 #
 # An air conditioner protects its compressor by ignoring commands for
 # several minutes after a mode change, so re-asserting inside that window
