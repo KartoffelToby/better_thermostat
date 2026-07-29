@@ -65,13 +65,17 @@ RECONCILE_TOLERANCE_K = 0.05
 # An air conditioner protects its compressor by ignoring commands for
 # several minutes after a mode change, so re-asserting inside that window
 # cannot achieve anything: manufacturers state three minutes, and dedicated
-# thermostats hold the compressor off for four to five. The interval sits at
-# the top of that band, and stays below the reconcile and watchdog periods
-# so it never becomes the slowest timer in the system. A device that applies
-# what it is told never reaches it — the timestamp only advances on a send,
-# so a converged cooler leaves the window permanently open and a divergence
-# is still corrected on the next cycle.
-COOLER_RESEND_INTERVAL_S = 300.0
+# thermostats hold the compressor off for four to five. The interval sits in
+# that band and strictly below the periodic ticks that drive a control cycle
+# — the five-minute reconcile and time triggers, the fifteen-minute watchdog
+# — because the throttle compares strictly and the clock is read partway
+# into a cycle: at exactly one tick period, scheduling jitter would decide
+# whether a tick counts, and the pacing would land anywhere between one and
+# two tick periods. A device that applies what it is told never reaches the
+# interval at all — the timestamp only advances on a send, so a converged
+# cooler leaves the window permanently open and a divergence appearing after
+# that convergence is corrected on the next cycle.
+COOLER_RESEND_INTERVAL_S = 240.0
 # A rejected cooler command is not a completed send, so the resend throttle
 # cannot pace its retry. Consecutive failures on one channel are paced by
 # their own backoff instead, starting at this base. The base is deliberately
