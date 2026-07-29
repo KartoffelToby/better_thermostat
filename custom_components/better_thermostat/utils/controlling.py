@@ -837,18 +837,43 @@ async def control_cooler(self, snapshot=None):
         _low_to_set = cooler_low_bound(desired_temp, target_temp)
         # A lower bound BT never wrote at this value is a new payload, not a
         # resend; one it already wrote and the device ignored is a retry.
-        _low_bound_changed = (
-            last_sent.get("target_temp_low", (None, None))[0] != _low_to_set
-        )
+        last_low = last_sent.get("target_temp_low", (None, None))[0]
+        _low_bound_changed = last_low != _low_to_set
         current_low = attr_to_celsius(
             self, cooler_state, "target_temp_low", None, "control_cooler()"
+        )
+        # The bound carries the same quantization latch as the temperature
+        # channel: the first post-send reading close to the written bound is
+        # the device's answer on its own grid, and while it holds and the
+        # wanted bound is unchanged the bound counts as applied. Without it a
+        # device that snaps both bounds is rewritten every resend interval
+        # for as long as it is configured.
+        settled_low = last_sent.get("target_temp_low_settled")
+        if (
+            not _low_bound_changed
+            and last_low is not None
+            and current_low is not None
+            and settled_low is None
+            and abs(current_low - last_low) <= COOLER_QUANTIZATION_TOLERANCE_K
+        ):
+            settled_low = current_low
+            last_sent["target_temp_low_settled"] = settled_low
+        _low_bound_settled = (
+            not _low_bound_changed
+            and settled_low is not None
+            and current_low is not None
+            and abs(current_low - settled_low) <= RECONCILE_TOLERANCE_K
         )
         # The device answers a written bound on its own grid, so the bound
         # carries the same per-device tolerance the TRV write-skip check uses.
         # A coarser answer than half a step is a bound the device did not
         # apply.
-        if current_low is not None and not matches_any_setpoint(
-            current_low, {_low_to_set}, _reconcile_tolerance(self, cooler_state)
+        if (
+            current_low is not None
+            and not _low_bound_settled
+            and not matches_any_setpoint(
+                current_low, {_low_to_set}, _reconcile_tolerance(self, cooler_state)
+            )
         ):
             _LOGGER.debug(
                 "better_thermostat %s: cooler %s lower bound %s differs from %s, "
@@ -992,6 +1017,7 @@ async def control_cooler(self, snapshot=None):
             # A fresh send invalidates the previously settled readings; the
             # device answers anew.
             last_sent.pop("temperature_settled", None)
+            last_sent.pop("target_temp_low_settled", None)
 
     # Decide whether an hvac_mode command is needed, throttling identical
     # resends the same way as temperature commands.

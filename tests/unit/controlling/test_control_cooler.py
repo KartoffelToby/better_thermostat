@@ -1077,6 +1077,74 @@ class TestControlCoolerTargetRange:
         assert self._set_temperature_payload(mock_hass) is None
 
     @pytest.mark.asyncio
+    async def test_quantizing_range_cooler_is_written_as_rarely_as_a_single_one(self):
+        """The lower bound carries the same quantization latch as the setpoint.
+
+        A cooler that snaps what it receives onto its own grid reports no
+        step to derive a tolerance from, so its bound never matches the
+        written one exactly. Without a latch on the bound the whole payload
+        goes out on every resend interval for as long as the cooler is
+        configured, while a single-setpoint cooler quantizing by the same
+        amount is written once.
+        """
+        quantization = 0.3
+        resend_intervals = 20
+
+        async def _writes(cooler_attributes):
+            mock_self, mock_hass, _ = _make_cooler_setup(
+                cooler_attributes=cooler_attributes,
+                target_cooltemp=24.0,
+                target_temp=20.0,
+            )
+            for _ in range(resend_intervals):
+                await control_cooler(mock_self)
+                mock_self.clock.monotonic_value += COOLER_RESEND_INTERVAL_S
+            return len(_service_calls(mock_hass, "set_temperature"))
+
+        single_setpoint = await _writes({"temperature": 24.0 - quantization})
+        target_range = await _writes(
+            _range_attributes(
+                target_temp_high=24.0 - quantization,
+                target_temp_low=20.0 - quantization,
+            )
+        )
+
+        assert single_setpoint == 1
+        assert target_range == single_setpoint
+
+    @pytest.mark.asyncio
+    async def test_settled_lower_bound_does_not_swallow_a_moved_heating_target(self):
+        """The latch answers for the bound BT wrote, not for a new one.
+
+        A heating target the user moved makes the bound a new command, so it
+        reaches the cooler on the next cycle regardless of what the device
+        settled at.
+        """
+        mock_self, mock_hass, _ = _make_cooler_setup(
+            cooler_attributes=_range_attributes(
+                target_temp_high=23.7, target_temp_low=19.7
+            ),
+            target_cooltemp=24.0,
+            target_temp=20.0,
+        )
+
+        await control_cooler(mock_self)
+        mock_self.clock.monotonic_value += COOLER_RESEND_INTERVAL_S
+        await control_cooler(mock_self)
+        assert len(_service_calls(mock_hass, "set_temperature")) == 1
+
+        mock_self.bt_target_temp = 21.0
+        await control_cooler(mock_self)
+
+        temp_calls = _service_calls(mock_hass, "set_temperature")
+        assert len(temp_calls) == 2
+        assert temp_calls[1].args[2] == {
+            "entity_id": "climate.cooler",
+            "target_temp_high": 24.0,
+            "target_temp_low": 21.0,
+        }
+
+    @pytest.mark.asyncio
     async def test_drifted_lower_bound_outlives_quantization_acceptance(self):
         """A settled upper bound does not vouch for the lower one.
 
