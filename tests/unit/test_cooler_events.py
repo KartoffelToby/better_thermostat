@@ -468,17 +468,34 @@ class TestContactOpenAdoption:
     """A setpoint arriving while a contact is open is not adopted."""
 
     @pytest.mark.asyncio
-    async def test_open_contact_refuses_the_reported_setpoint(self, mock_bt):
+    async def test_open_contact_refuses_the_reported_setpoint(self, mock_bt, caplog):
         """Mid-airing the suppression owns the mode, so the target must hold."""
         mock_bt.contact_open = True
         old_state = _make_state(attributes={"temperature": 25.0})
         new_state = _make_state(attributes={"temperature": 27.0})
         event = _make_event(mock_bt, new_state=new_state, old_state=old_state)
 
+        caplog.set_level(logging.DEBUG)
         await trigger_cooler_change(mock_bt, event)
 
         assert mock_bt.bt_target_cooltemp == 25.0
         mock_bt.control_queue_task.put_nowait.assert_not_called()
+        # The handler reached the adoption decision and named the guard that
+        # refused, so the change was weighed rather than missed on the way in.
+        assert "setpoint change 25.0 -> 27.0 NOT adopted" in caplog.text
+        assert "contact_open=True" in caplog.text
+
+    @pytest.mark.asyncio
+    async def test_closed_contact_adopts_the_same_setpoint(self, mock_bt):
+        """The contact is the only thing holding that event back."""
+        old_state = _make_state(attributes={"temperature": 25.0})
+        new_state = _make_state(attributes={"temperature": 27.0})
+        event = _make_event(mock_bt, new_state=new_state, old_state=old_state)
+
+        await trigger_cooler_change(mock_bt, event)
+
+        assert mock_bt.bt_target_cooltemp == 27.0
+        mock_bt.control_queue_task.put_nowait.assert_called_once()
 
 
 class TestEchoSuppression:

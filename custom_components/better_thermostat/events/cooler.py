@@ -94,7 +94,8 @@ async def trigger_cooler_change(self, event):
         _LOGGER.debug(
             "better_thermostat %s: trigger_cooler_change / "
             "_old_cooling_setpoint: %s - _new_cooling_setpoint: %s - "
-            "bt_target_cooltemp: %s - last_sent: %s - step: %s - echo: %s",
+            "bt_target_cooltemp: %s - last_sent: %s - step: %s - echo: %s - "
+            "contact_open: %s",
             self.device_name,
             _old_cooling_setpoint,
             _new_cooling_setpoint.value,
@@ -102,6 +103,7 @@ async def trigger_cooler_change(self, event):
             _last_sent,
             _step,
             _new_cooling_setpoint.is_echo,
+            self.contact_open,
         )
         # The cooler handler has no device-side gate of its own, so an event
         # that republishes the same setpoint — an attribute refresh, a mode
@@ -111,9 +113,10 @@ async def trigger_cooler_change(self, event):
         _reported_moved = abs(
             _new_cooling_setpoint.raw - _old_cooling_setpoint
         ) >= setpoint_echo_window(_step)
-        # The TRV handler refuses a setpoint while a contact is open; the
-        # cooler does the same, so an event arriving mid-airing cannot install
-        # a target the suppression is about to override anyway.
+        # While a contact is open the cooler is held OFF and receives no
+        # setpoint, so nothing BT wrote explains a setpoint the device reports
+        # mid-airing; adopting it would let the airing move the user's cooling
+        # target. The TRV handler draws the same line.
         if (
             not _new_cooling_setpoint.is_echo
             and _reported_moved
@@ -129,6 +132,25 @@ async def trigger_cooler_change(self, event):
             self.bt_target_cooltemp = _new_cooling_setpoint.value
             self._enforce_heat_below_cool()
             _main_change = True
+        elif _reported_moved:
+            # A setpoint change arrived from the cooler but was not adopted as
+            # user intent. Record which guard suppressed it so intermittent
+            # "change ignored" reports can be diagnosed from a debug log
+            # instead of guesswork.
+            _LOGGER.debug(
+                "better_thermostat %s: Cooler %s setpoint change %s -> %s NOT "
+                "adopted (echo=%s contact_open=%s bt_target_cooltemp=%s "
+                "last_sent=%s step=%s)",
+                self.device_name,
+                entity_id,
+                _old_cooling_setpoint,
+                _new_cooling_setpoint.value,
+                _new_cooling_setpoint.is_echo,
+                self.contact_open,
+                self.bt_target_cooltemp,
+                _last_sent,
+                _step,
+            )
 
     if _main_change is True:
         self.async_write_ha_state()

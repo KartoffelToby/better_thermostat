@@ -1015,6 +1015,21 @@ async def control_cooler(self, snapshot=None):
         )
         temp_to_send = None
 
+    # An open contact suppresses the temperature channel alongside the mode,
+    # the way a suppressed TRV receives a mode command and no setpoint. The
+    # unit is held OFF and converges on nothing, so a setpoint written now
+    # would only overwrite whatever the user turned its own dial to. Nothing
+    # is attempted, so the failure backoff below records nothing either, and
+    # the channel resumes on the cycle the contact shuts.
+    if temp_to_send is not None and self.contact_open:
+        _LOGGER.debug(
+            "better_thermostat %s: cooler %s suppressed by an open contact, "
+            "skipping set_temperature",
+            self.device_name,
+            self.cooler_entity_id,
+        )
+        temp_to_send = None
+
     # The command the payload would carry, in °C, as the failure backoff
     # compares it: a rejected send leaves the send cache untouched, so the
     # attempted command is what tells a retry from a new command.

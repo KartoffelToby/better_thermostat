@@ -1030,6 +1030,57 @@ class TestControlCoolerContactSuppression:
         modes = _service_calls(mock_hass, "set_hvac_mode")
         assert [c.args[2]["hvac_mode"] for c in modes] == [HVACMode.COOL]
 
+    @pytest.mark.asyncio
+    async def test_open_contact_writes_no_setpoint(self):
+        """A suppressed cooler receives no setpoint, so a dial turn survives."""
+        mock_self, mock_hass, _ = _make_cooler_setup(
+            cooler_state=HVACMode.COOL, cooler_temp_attr=28.0, target_cooltemp=25.0
+        )
+        mock_self.contact_open = True
+
+        await control_cooler(mock_self)
+
+        assert _service_calls(mock_hass, "set_temperature") == []
+
+    @pytest.mark.asyncio
+    async def test_closed_contact_resumes_the_setpoint_write(self):
+        """The temperature channel comes back on the cycle the contact shuts."""
+        mock_self, mock_hass, _ = _make_cooler_setup(
+            cooler_state=HVACMode.COOL, cooler_temp_attr=28.0, target_cooltemp=25.0
+        )
+        mock_self.contact_open = True
+        await control_cooler(mock_self)
+        assert _service_calls(mock_hass, "set_temperature") == []
+
+        mock_self.contact_open = False
+        await control_cooler(mock_self)
+
+        temps = _service_calls(mock_hass, "set_temperature")
+        assert [c.args[2]["temperature"] for c in temps] == [25.0]
+
+    @pytest.mark.asyncio
+    async def test_a_held_contact_commands_off_once_over_several_cycles(self):
+        """A whole airing is one command, not a write per cycle.
+
+        The clock passes the resend interval between cycles, so the quiet
+        that follows the first command is the suppression's doing and not
+        the throttle's.
+        """
+        mock_self, mock_hass, cooler_state = _make_cooler_setup(
+            cooler_state=HVACMode.COOL, cooler_temp_attr=28.0, target_cooltemp=25.0
+        )
+        mock_self.contact_open = True
+
+        for _ in range(4):
+            await control_cooler(mock_self)
+            # The unit answers the command the way a real one would.
+            cooler_state.state = HVACMode.OFF
+            mock_self.clock.advance(COOLER_RESEND_INTERVAL_S + 1.0)
+
+        modes = _service_calls(mock_hass, "set_hvac_mode")
+        assert [c.args[2]["hvac_mode"] for c in modes] == [HVACMode.OFF]
+        assert _service_calls(mock_hass, "set_temperature") == []
+
 
 class TestControlCoolerModeHysteresis:
     """The COOL/OFF decision spans a band rather than a single threshold."""
