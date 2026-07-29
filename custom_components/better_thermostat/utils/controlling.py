@@ -780,15 +780,23 @@ async def control_cooler(self, snapshot=None):
                 self.cooler_entity_id,
                 desired_temp,
             )
-    elif abs(current_temp - desired_temp) > RECONCILE_TOLERANCE_K:
+    elif not matches_any_setpoint(
+        current_temp, {desired_temp}, _reconcile_tolerance(self, cooler_state)
+    ):
         temp_to_send = desired_temp
 
     # A range write carries both bounds, so a lower bound that drifted away
     # from the heating target needs a send of its own: the cooling target can
     # stay unchanged for as long as the user only moves the heating side.
     _low_bound_drifted = False
+    _low_bound_changed = False
     if _write_range and desired_temp is not None:
         _low_to_set = cooler_low_bound(desired_temp, target_temp)
+        # A lower bound BT never wrote at this value is a new payload, not a
+        # resend; one it already wrote and the device ignored is a retry.
+        _low_bound_changed = (
+            last_sent.get("target_temp_low", (None, None))[0] != _low_to_set
+        )
         current_low = attr_to_celsius(
             self, cooler_state, "target_temp_low", None, "control_cooler()"
         )
@@ -832,9 +840,13 @@ async def control_cooler(self, snapshot=None):
         )
         temp_to_send = None
 
-    # Throttle identical resends when the device's state feedback lags.
+    # Throttle identical resends when the device's state feedback lags. The
+    # cache tracks each channel on its own, so a payload carrying a lower
+    # bound that was never written before is not a resend and goes out at
+    # once; a bound the device merely ignored keeps its retry pacing.
     if (
         temp_to_send is not None
+        and not (_low_bound_drifted and _low_bound_changed)
         and not temp_changed_since_last_send
         and last_temp_ts is not None
         and (now_monotonic - last_temp_ts) < COOLER_RESEND_INTERVAL_S
@@ -905,6 +917,11 @@ async def control_cooler(self, snapshot=None):
             )
         else:
             last_sent["temperature"] = (temp_to_send, now_monotonic)
+            if _write_range:
+                last_sent["target_temp_low"] = (
+                    cooler_low_bound(temp_to_send, target_temp),
+                    now_monotonic,
+                )
             # A fresh send invalidates the previously settled reading; the
             # device answers anew.
             last_sent.pop("temperature_settled", None)

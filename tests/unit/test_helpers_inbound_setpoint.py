@@ -102,6 +102,12 @@ class TestNormalizeStep:
         """The caller can supply its own fallback."""
         assert normalize_step(None, fallback=1.0) == 1.0
 
+    def test_non_finite_falls_back(self):
+        """NaN and infinity pass a ``<= 0`` test but cannot separate setpoints."""
+        assert normalize_step(float("nan")) == 0.5
+        assert normalize_step(float("inf")) == 0.5
+        assert normalize_step(float("-inf")) == 0.5
+
 
 class TestSetpointEchoWindow:
     """The distance below which a setpoint difference is grid noise."""
@@ -193,6 +199,56 @@ class TestResolveInboundSetpoint:
         )
         assert result.is_echo is False
 
+    def test_a_full_step_off_a_non_dyadic_grid_is_user_input(self):
+        """One press on a 2 °F device lands a hair below a full step.
+
+        21.11 °C and 22.22 °C are the read-back values of 70 °F and 72 °F, and
+        their difference is 1.1099999999999994 against a step of 1.1111.
+        """
+        result = resolve_inbound_setpoint(
+            _fake_self(),
+            _state({"temperature": 22.22}),
+            keys=TRV_SETPOINT_KEYS,
+            known_values=(21.11,),
+            step=1.1111,
+            log_source="t",
+        )
+        assert result.is_echo is False
+
+    def test_every_fahrenheit_step_is_user_input(self):
+        """On a °F system one press of the up button is never an echo.
+
+        The reported values pass through convert_to_float's 0.01 grid while
+        the step sits on the device grid, so a genuine single-step move can
+        land a hair below one full step.
+        """
+        mock_self = _fake_self(UnitOfTemperature.FAHRENHEIT)
+        # The whole grid has to stay inside the configured range, so that the
+        # clamp cannot pull a reported value onto the previous one.
+        mock_self.bt_max_temp = 35.0
+        step = round(
+            TemperatureDeltaConverter.convert(
+                1.0, UnitOfTemperature.FAHRENHEIT, UnitOfTemperature.CELSIUS
+            ),
+            4,
+        )
+        for fahrenheit in range(50, 90):
+            known = read_setpoint_celsius(
+                mock_self,
+                _state({"temperature": float(fahrenheit)}),
+                TRV_SETPOINT_KEYS,
+                "t",
+            )
+            result = resolve_inbound_setpoint(
+                mock_self,
+                _state({"temperature": float(fahrenheit + 1)}),
+                keys=TRV_SETPOINT_KEYS,
+                known_values=(known,),
+                step=step,
+                log_source="t",
+            )
+            assert result.is_echo is False, f"{fahrenheit} °F -> {fahrenheit + 1} °F"
+
     def test_non_numeric_known_values_are_ignored(self):
         """Uninitialised known values do not raise."""
         result = resolve_inbound_setpoint(
@@ -234,36 +290,25 @@ class TestResolveInboundSetpoint:
         )
         assert (result.value, result.clamped) == (5.0, True)
 
-    def test_every_fahrenheit_step_is_user_input(self):
-        """On a °F system one press of the up button is never an echo.
+    def test_inverted_range_never_yields_a_value_above_the_maximum(self):
+        """Non-overlapping heater and cooler ranges still clamp to the maximum.
 
-        The reported values pass through convert_to_float's 0.01 grid while
-        the step sits on the device grid, so a genuine single-step move can
-        land a hair below one full step.
+        A configuration whose members do not overlap leaves bt_min_temp above
+        bt_max_temp, and a value the lower bound raises must not end up above
+        the upper one.
         """
-        mock_self = _fake_self(UnitOfTemperature.FAHRENHEIT)
-        step = round(
-            TemperatureDeltaConverter.convert(
-                1.0, UnitOfTemperature.FAHRENHEIT, UnitOfTemperature.CELSIUS
-            ),
-            4,
+        mock_self = _fake_self()
+        mock_self.bt_min_temp = 25.0
+        mock_self.bt_max_temp = 20.0
+        result = resolve_inbound_setpoint(
+            mock_self,
+            _state({"temperature": 18.0}),
+            keys=TRV_SETPOINT_KEYS,
+            known_values=(),
+            step=0.5,
+            log_source="t",
         )
-        for fahrenheit in range(60, 86):
-            known = read_setpoint_celsius(
-                mock_self,
-                _state({"temperature": float(fahrenheit)}),
-                TRV_SETPOINT_KEYS,
-                "t",
-            )
-            result = resolve_inbound_setpoint(
-                mock_self,
-                _state({"temperature": float(fahrenheit + 1)}),
-                keys=TRV_SETPOINT_KEYS,
-                known_values=(known,),
-                step=step,
-                log_source="t",
-            )
-            assert result.is_echo is False, f"{fahrenheit} °F -> {fahrenheit + 1} °F"
+        assert (result.value, result.clamped) == (20.0, True)
 
     def test_echo_is_judged_after_clamping(self):
         """A value the clamp pulls onto a known value is an echo, not input."""

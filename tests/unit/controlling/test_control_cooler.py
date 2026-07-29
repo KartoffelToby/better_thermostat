@@ -427,6 +427,42 @@ class TestControlCoolerSendCache:
         assert _service_calls(mock_hass, "set_temperature") == []
 
     @pytest.mark.asyncio
+    async def test_fahrenheit_reported_temp_within_the_device_step_is_not_resent(self):
+        """A setpoint snapped onto the device's °F step is unchanged.
+
+        The device step is a °F interval worth 0.56 K: 75 °F is 23.89 °C,
+        the grid position the commanded 24.0 °C snaps to and not a setpoint
+        of its own.
+        """
+        mock_self, mock_hass, _ = _make_cooler_setup(
+            cooler_attributes={"temperature": 75.0, "target_temp_step": 1.0},
+            system_unit=UnitOfTemperature.FAHRENHEIT,
+            target_cooltemp=24.0,
+        )
+
+        await control_cooler(mock_self)
+
+        assert _service_calls(mock_hass, "set_temperature") == []
+
+    @pytest.mark.asyncio
+    async def test_fahrenheit_setpoint_beyond_the_device_step_is_written(self):
+        """A setpoint the device cannot be holding is written immediately.
+
+        The step tolerance only absorbs the device's own snapping; a genuine
+        change has to reach the cooler on the first cycle.
+        """
+        mock_self, mock_hass, _ = _make_cooler_setup(
+            cooler_attributes={"temperature": 75.0, "target_temp_step": 1.0},
+            system_unit=UnitOfTemperature.FAHRENHEIT,
+            target_cooltemp=22.0,
+        )
+
+        await control_cooler(mock_self)
+
+        payload = _service_calls(mock_hass, "set_temperature")[0].args[2]
+        assert payload == {"entity_id": "climate.cooler", "temperature": 71.6}
+
+    @pytest.mark.asyncio
     async def test_identical_repeat_within_interval_is_throttled(self):
         """An identical command is not re-sent while feedback lags."""
         # The cooler keeps reporting a stale setpoint, so the naive
@@ -461,6 +497,39 @@ class TestControlCoolerSendCache:
         temp_calls = _service_calls(mock_hass, "set_temperature")
         assert len(temp_calls) == 2
         assert temp_calls[1].args[2]["temperature"] == 23.0
+
+    @pytest.mark.asyncio
+    async def test_unknown_reading_with_an_unchanged_target_sends_nothing(self):
+        """A cooler that reports no setpoint is not commanded again.
+
+        Without a reading there is nothing to compare against, so the send
+        cache alone decides: the desired value is the one already written.
+        """
+        mock_self, mock_hass, _ = _make_cooler_setup(
+            cooler_temp_attr=None, target_cooltemp=24.0
+        )
+        mock_self._cooler_last_sent = {"temperature": (24.0, 0.0)}
+
+        await control_cooler(mock_self)
+
+        assert _service_calls(mock_hass, "set_temperature") == []
+
+    @pytest.mark.asyncio
+    async def test_unknown_reading_with_a_changed_target_is_written(self):
+        """A missing reading does not hold back a new setpoint.
+
+        The send cache holds a different value, so the desired one has never
+        reached the cooler and goes out despite the unreadable state.
+        """
+        mock_self, mock_hass, _ = _make_cooler_setup(
+            cooler_temp_attr=None, target_cooltemp=24.0
+        )
+        mock_self._cooler_last_sent = {"temperature": (23.0, 0.0)}
+
+        await control_cooler(mock_self)
+
+        payload = _service_calls(mock_hass, "set_temperature")[0].args[2]
+        assert payload == {"entity_id": "climate.cooler", "temperature": 24.0}
 
     @pytest.mark.asyncio
     async def test_quantized_device_reading_is_accepted_without_resend(self):
@@ -916,4 +985,68 @@ class TestControlCoolerTargetRange:
             "entity_id": "climate.cooler",
             "target_temp_high": 24.0,
             "target_temp_low": 20.0,
+        }
+
+    @pytest.mark.asyncio
+    async def test_lower_bound_drift_is_not_throttled_as_a_resend(self):
+        """A lower bound outside the send cache is a new payload.
+
+        The cache holds the temperature channel only, so the bound this
+        payload carries was never written. Pacing it as a resend would hold
+        the user's heating-target change back for a whole resend interval.
+        """
+        mock_self, mock_hass, _ = _make_cooler_setup(
+            cooler_attributes=_range_attributes(
+                target_temp_high=24.0, target_temp_low=19.0
+            ),
+            target_cooltemp=24.0,
+            target_temp=21.0,
+        )
+        mock_self._cooler_last_sent = {"temperature": (24.0, 0.0)}
+        mock_self.clock.monotonic_value = 1.0
+
+        await control_cooler(mock_self)
+
+        temp_calls = _service_calls(mock_hass, "set_temperature")
+        assert len(temp_calls) == 1
+        assert temp_calls[0].args[2] == {
+            "entity_id": "climate.cooler",
+            "target_temp_high": 24.0,
+            "target_temp_low": 21.0,
+        }
+
+    @pytest.mark.asyncio
+    async def test_heating_target_change_is_written_inside_the_resend_window(self):
+        """A moved heating target reaches the cooler on the next cycle.
+
+        The cooling target is unchanged and the device answered both bounds,
+        so only the lower bound differs from what the cache holds. That makes
+        the payload new rather than a retry, and the throttle lets it through.
+        """
+        mock_self, mock_hass, mock_cooler_state = _make_cooler_setup(
+            cooler_attributes=_range_attributes(
+                target_temp_high=28.0, target_temp_low=19.0
+            ),
+            target_cooltemp=24.0,
+            target_temp=20.0,
+        )
+
+        await control_cooler(mock_self)
+        assert len(_service_calls(mock_hass, "set_temperature")) == 1
+
+        # The device applied both bounds; the user then raises the heating
+        # target well inside the resend window.
+        mock_cooler_state.attributes = _range_attributes(
+            target_temp_high=24.0, target_temp_low=20.0
+        )
+        mock_self.bt_target_temp = 21.0
+        mock_self.clock.monotonic_value += 1.0
+        await control_cooler(mock_self)
+
+        temp_calls = _service_calls(mock_hass, "set_temperature")
+        assert len(temp_calls) == 2
+        assert temp_calls[1].args[2] == {
+            "entity_id": "climate.cooler",
+            "target_temp_high": 24.0,
+            "target_temp_low": 21.0,
         }

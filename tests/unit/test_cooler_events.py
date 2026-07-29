@@ -568,6 +568,30 @@ class TestCoolerUnitHandling:
         mock_bt.control_queue_task.put_nowait.assert_called_once()
 
     @pytest.mark.asyncio
+    async def test_one_fahrenheit_press_is_adopted(self, mock_bt):
+        """A single press on a 1 °F cooler moves the cool target.
+
+        75 °F and 76 °F read back as 23.89 °C and 24.44 °C, 0.55 apart, while
+        the echo window for the converted 0.5556 step is 0.5456 — a full step
+        of user input clears it by a hair.
+        """
+        mock_bt.hass.config.units.temperature_unit = UnitOfTemperature.FAHRENHEIT
+        mock_bt.bt_target_cooltemp = 23.89
+        mock_bt._cooler_last_sent = {"temperature": (23.89, 0.0)}
+        old_state = _make_state(
+            attributes={"temperature": 75.0, "target_temp_step": 1.0}
+        )
+        new_state = _make_state(
+            attributes={"temperature": 76.0, "target_temp_step": 1.0}
+        )
+        event = _make_event(mock_bt, new_state=new_state, old_state=old_state)
+
+        await trigger_cooler_change(mock_bt, event)
+
+        assert mock_bt.bt_target_cooltemp == 24.44
+        mock_bt.control_queue_task.put_nowait.assert_called_once()
+
+    @pytest.mark.asyncio
     async def test_fahrenheit_step_is_converted_to_a_celsius_delta(self, mock_bt):
         """The device step is a °F delta on a °F system and must be scaled.
 

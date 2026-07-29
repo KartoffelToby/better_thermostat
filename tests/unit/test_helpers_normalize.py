@@ -245,6 +245,17 @@ class TestConvertToFloat:
         result = convert_to_float(value, "test", "temperature")
         assert result is None
 
+    @pytest.mark.parametrize("value", ["1e308", 1e308, -1e308, 10**400])
+    def test_returns_none_for_a_value_that_overflows_the_step_grid(self, value):
+        """A finite value too large for the step rounding degrades to None.
+
+        The 0.01 grid divides before rounding to an integer step count, so a
+        value near the float maximum overflows there rather than failing the
+        finiteness check. An integer beyond the float range overflows one
+        stage earlier, in the float conversion itself.
+        """
+        assert convert_to_float(value, "test", "temperature") is None
+
 
 class TestIsReasonableTemperature:
     """Plausibility bounds for incoming temperature values."""
