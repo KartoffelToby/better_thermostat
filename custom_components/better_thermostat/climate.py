@@ -318,6 +318,27 @@ def _detect_contact_open_at_startup(self, entity_id: str | None, kind: str) -> b
     return is_open
 
 
+def _target_temp_step_celsius(
+    state: State | None, device_name: str, system_unit: str | None
+) -> float | None:
+    """Read a child's own setpoint step and return it as a Celsius delta.
+
+    A child publishes its step in its own unit, so a Fahrenheit child's step is
+    scaled as a temperature difference (5/9) rather than run through the
+    absolute Fahrenheit-to-Celsius conversion.
+    """
+    attributes = state.attributes if state is not None else {}
+    raw_step = attributes.get(ATTR_TARGET_TEMP_STEP)
+    if raw_step is None:
+        return None
+    step = convert_to_float(str(raw_step), device_name, "_target_temp_step_celsius")
+    if step is None:
+        return None
+    if state_temperature_unit(attributes, system_unit) == UnitOfTemperature.FAHRENHEIT:
+        return round(step * 5.0 / 9.0, 4)
+    return step
+
+
 class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
     """Representation of a Better Thermostat device."""
 
@@ -599,6 +620,14 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
             and unit == UnitOfTemperature.FAHRENHEIT
         ):
             self.bt_target_temp_step = round(self.bt_target_temp_step * 5.0 / 9.0, 4)
+        # ``bt_target_temp_step`` also absorbs the step derived from the child
+        # entities, so the explicitly configured value is kept apart: it is the
+        # only step that may override a device's own grid.
+        self._configured_target_temp_step: float | None = (
+            self.bt_target_temp_step
+            if self.bt_target_temp_step and self.bt_target_temp_step > 0.0
+            else None
+        )
         self.bt_min_temp: float | None = DEFAULT_MIN_TEMP
         self.bt_max_temp: float | None = DEFAULT_MAX_TEMP
         self.bt_target_temp = DEFAULT_TARGET_TEMP
@@ -1262,16 +1291,11 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
                 )
                 if _c is not None:
                     max_temps.append(_c)
-            _raw_step = s.attributes.get(ATTR_TARGET_TEMP_STEP)
-            if _raw_step is not None:
-                _sf = convert_to_float(
-                    str(_raw_step), self.device_name, "_resolve_temperature_range(step)"
-                )
-                if _sf is not None:
-                    # Convert step as a temperature delta if child uses °F
-                    if _unit == UnitOfTemperature.FAHRENHEIT:
-                        _sf = round(_sf * 5.0 / 9.0, 4)
-                    steps.append(_sf)
+            _sf = _target_temp_step_celsius(
+                s, self.device_name, self.hass.config.units.temperature_unit
+            )
+            if _sf is not None:
+                steps.append(_sf)
         self.bt_min_temp = max(min_temps) if min_temps else None
         self.bt_max_temp = min(max_temps) if max_temps else None
 
@@ -1814,20 +1838,23 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
             )
             trv_data.max_temp = attr_to_celsius(self, _s, "max_temp", 30, "startup")
             trv_data.min_temp = attr_to_celsius(self, _s, "min_temp", 5, "startup")
-            # Prefer configured step over device-reported step
-            cfg_step = (
-                self.bt_target_temp_step
-                if self.bt_target_temp_step and self.bt_target_temp_step > 0.0
-                else None
+            # This step is the grid the device rounds to: it sizes the echo
+            # window for inbound setpoints and the rounding of outbound ones,
+            # so it must be this device's own step and not the coarsest step
+            # across all children in ``bt_target_temp_step``. An explicitly
+            # configured step still overrides the device, and the aggregate
+            # only fills in for a device that publishes no usable step.
+            _device_step = _target_temp_step_celsius(
+                _s, self.device_name, self.hass.config.units.temperature_unit
             )
-            if cfg_step is not None:
-                trv_data.target_temp_step = cfg_step
+            if self._configured_target_temp_step is not None:
+                trv_data.target_temp_step = self._configured_target_temp_step
+            elif _device_step is not None and _device_step > 0.0:
+                trv_data.target_temp_step = _device_step
+            elif self.bt_target_temp_step and self.bt_target_temp_step > 0.0:
+                trv_data.target_temp_step = self.bt_target_temp_step
             else:
-                trv_data.target_temp_step = convert_to_float(
-                    str(_attrs.get("target_temp_step", 0.5)),
-                    self.device_name,
-                    "startup",
-                )
+                trv_data.target_temp_step = 0.5
             trv_data.temperature = attr_to_celsius(
                 self, _s, "temperature", 5, "startup"
             )

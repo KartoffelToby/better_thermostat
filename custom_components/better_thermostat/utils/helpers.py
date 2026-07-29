@@ -427,6 +427,10 @@ def convert_to_float(
 ) -> float | None:
     """Convert value to float or print error message.
 
+    Non-finite readings fail the conversion and yield None: the step rounding
+    goes through an integer number of steps, so ``inf`` raises ``OverflowError``
+    and ``nan`` raises ``ValueError``.
+
     Parameters
     ----------
     value : str | int | float | None
@@ -448,7 +452,7 @@ def convert_to_float(
         # Rounding to 0.1 can turn 19.97 into 20.0, leading to incorrect
         # HVAC action decisions.
         return round_by_step(float(value), 0.01)
-    except ValueError, TypeError, AttributeError, KeyError:
+    except ValueError, TypeError, AttributeError, KeyError, OverflowError:
         _LOGGER.debug(
             "better thermostat %s: Could not convert '%s' to float in %s",
             instance_name,
