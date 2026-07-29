@@ -22,7 +22,8 @@
           "outdoor_sensor": "Si vous avez un capteur extérieur, vous pouvez l'utiliser pour obtenir la température extérieure",
           "weather": "Votre entité météo pour obtenir la température extérieure",
           "target_temp_step": "Pas de la température cible",
-          "presets": "Préréglages activés"
+          "presets": "Préréglages activés",
+          "heat_cool": "Combined heat/cool devices (optional)"
         },
         "data_description": {
           "presets": "Sélectionnez les préréglages qui doivent être disponibles pour ce thermostat."
@@ -56,7 +57,8 @@
       "no_name": "Veuillez entrer un nom.",
       "no_off_mode": "Votre appareil est très spécial et n'a pas de mode hors tension :(\nBetter Thermostat utilisera plutôt la température cible minimale.",
       "no_outside_temp": "Vous n'avez pas de capteur de température extérieure. Better Thermostat utilisera plutôt l'entité météo.",
-      "no_data": "Aucune donnée n'a été reçue. Veuillez réessayer."
+      "no_data": "Aucune donnée n'a été reçue. Veuillez réessayer.",
+      "role_overlap": "A climate entity cannot be used in more than one role (heating / cooling / heat-cool). Please assign each entity to only one role."
     },
     "abort": {
       "single_instance_allowed": "Seule une instance de thermostat pour chaque vrai thermostat est autorisée.",
@@ -88,7 +90,8 @@
           "calibration": "Le type de calibrage",
           "heat_auto_swapped": "Si le mode automatique signifie chauffage pour votre TRV et que vous voulez le permuter",
           "child_lock": "Ignorer toutes les entrées sur le TRV comme une sécurité enfant",
-          "homematicip": "Si vous utilisez HomematicIP, vous devriez l'activer pour ralentir les demandes et éviter le cycle de fonctionnement excessif"
+          "homematicip": "Si vous utilisez HomematicIP, vous devriez l'activer pour ralentir les demandes et éviter le cycle de fonctionnement excessif",
+          "heat_cool": "Combined heat/cool devices (optional)"
         },
         "data_description": {
           "presets": "Sélectionnez les préréglages qui doivent être disponibles pour ce thermostat."
@@ -112,6 +115,9 @@
           "calibration": "Comment le calibrage doit être appliqué sur le TRV (Température cible ou décalage)\n***Basé sur la température cible*** : Appliquer le calibrage à la température cible.\n***Basé sur le décalage*** : Appliquer le calibrage au décalage."
         }
       }
+    },
+    "error": {
+      "role_overlap": "A climate entity cannot be used in more than one role (heating / cooling / heat-cool). Please assign each entity to only one role."
     }
   },
   "issues": {

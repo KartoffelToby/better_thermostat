@@ -71,6 +71,7 @@ from .adapters.delegate import (
     set_temperature as adapter_set_temperature,
 )
 from .device_binding import async_bind_trv_device
+from .events.combined import trigger_combined_change
 from .events.contact import OPEN_WORDS
 from .events.cooler import trigger_cooler_change
 from .events.door import door_queue, trigger_door_change
@@ -102,6 +103,7 @@ from .utils.const import (
     ATTR_STATE_SAVED_TEMPERATURE,
     ATTR_STATE_WINDOW_OPEN,
     BETTERTHERMOSTAT_RESET_PID_SCHEMA,
+    CONF_COMBINED,
     CONF_COOLER,
     CONF_DOOR_TIMEOUT,
     CONF_DOOR_TIMEOUT_AFTER,
@@ -132,7 +134,7 @@ from .utils.const import (
     CalibrationMode,
     CalibrationType,
 )
-from .utils.controlling import control_queue, control_trv
+from .utils.controlling import control_combined, control_queue, control_trv
 from .utils.helpers import (
     async_normalize_bt_entity_ids,
     attr_to_celsius,
@@ -269,6 +271,7 @@ async def async_setup_entry(hass, entry, async_add_entities):
         entry.data.get(CONF_TARGET_TEMP_STEP, "0.0"),
         entry.data.get(CONF_MODEL, None),
         entry.data.get(CONF_COOLER, None),
+        entry.data.get(CONF_COMBINED, None),
         entry.data.get(CONF_MIN_COOLER_RESEND_INTERVAL, 0),
         entry.data.get(CONF_PRESETS, None),
         hass.config.units.temperature_unit,
@@ -441,6 +444,7 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
         target_temp_step,
         model,
         cooler_entity_id,
+        combined_entity_id,
         min_cooler_resend_interval,
         enabled_presets,
         unit,
@@ -486,6 +490,8 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
             Detected TRV model identifier.
         cooler_entity_id : str | None
             Cooler entity id.
+        combined_entity_id : list[dict] | str | None
+            Combined heat/cool (auto) device configuration.
         min_cooler_resend_interval : int | float | None
             Minimum interval in seconds between identical cooler commands
             (0 disables the throttle).
@@ -503,11 +509,16 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
         self.device_name = name
         self.model = model
         self.real_trvs: dict[str, Trv] = {}
+        self.combined_trvs: dict[str, Trv] = {}
+        self.combined_entity_ids: list[str] = []
         self.entity_ids = []
         self.all_trvs = heater_entity_id
         self.sensor_entity_id = sensor_entity_id
         self.humidity_sensor_entity_id = humidity_sensor_entity_id
         self.cooler_entity_id = cooler_entity_id
+        self.combined_entity_id = combined_entity_id or []
+        self._bt_fan_mode: str | None = None
+        self._bt_swing_mode: str | None = None
         try:
             self.min_cooler_resend_interval_s: float = max(
                 0.0, float(min_cooler_resend_interval or 0)
@@ -662,6 +673,7 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
         self._tolerance_last_action = HVACAction.IDLE
         self._tolerance_hold_active = False
         self._async_unsub_state_changed = None
+        self._async_unsub_combined = None
         self.all_entities = []
         self.devices_states = {}
         self.devices_errors = []
@@ -750,7 +762,7 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
                 door_queue(self), name=f"bt_door_queue_{self.device_name}"
             )
 
-        if self.cooler_entity_id is not None:
+        if self.cooler_entity_id is not None or self.combined_trvs:
             self._hvac_list.remove(HVACMode.HEAT)
             self._hvac_list.append(HVACMode.HEAT_COOL)
             self.map_on_hvac_mode = HVACMode.HEAT_COOL
@@ -828,6 +840,41 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
                 model=resolved_model,
                 advanced=_advanced,
             )
+
+        # Build combined heat/cool (auto) device registry. These devices are
+        # driven via a single unified path (control_combined) that delegates
+        # the heat/cool decision to the device, so they are NOT added to
+        # real_trvs (which would cause a conflicting heater dispatch).
+        for trv in self.combined_entity_id:
+            if isinstance(trv, dict):
+                _trv_id = trv.get("trv")
+            else:
+                _trv_id = trv
+            if not _trv_id:
+                continue
+            _adapter = await load_adapter(self, trv.get("integration"), _trv_id)
+            resolved_model = trv.get("model")
+            try:
+                detected_model = await get_device_model(self, _trv_id)
+                if (
+                    isinstance(detected_model, str)
+                    and detected_model
+                    and detected_model != resolved_model
+                ):
+                    resolved_model = detected_model
+            except AttributeError, TypeError:
+                pass
+            _model_quirks = await load_model_quirks(self, resolved_model, _trv_id)
+            self.combined_trvs[_trv_id] = Trv(
+                entity_id=_trv_id,
+                calibration=1,
+                integration=trv.get("integration"),
+                adapter=_adapter,
+                model_quirks=_model_quirks,
+                model=resolved_model,
+                advanced=trv.get("advanced", {}),
+            )
+            self.combined_entity_ids.append(_trv_id)
 
         def on_remove():
             self.is_removed = True
@@ -1125,6 +1172,20 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
         self.hass.async_create_background_task(
             trigger_cooler_change(self, event),
             name=f"bt_trigger_cooler_change_{self.device_name}",
+        )
+
+    async def _trigger_combined_change(self, event):
+        _check = await check_critical_entities(self)
+        if _check is False:
+            return
+        await check_and_update_degraded_mode(self)
+        self.async_set_context(event.context)
+        if (event.data.get("new_state")) is None:
+            return
+
+        self.hass.async_create_background_task(
+            trigger_combined_change(self, event),
+            name=f"bt_trigger_combined_change_{self.device_name}",
         )
 
     def _set_trv_calibration_defaults(self, trv):
@@ -1883,6 +1944,119 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
                     exc,
                 )
 
+        # --- Initialize combined heat/cool (auto) devices ---
+        # Combined devices are not part of real_trvs; they get a single
+        # unified control path (control_combined). We still need to read
+        # their attributes to populate capability lists and current values.
+        if self.combined_trvs:
+            _LOGGER.debug(
+                "better_thermostat %s: initializing combined devices...",
+                self.device_name,
+            )
+            for entity_id, _trv in self.combined_trvs.items():
+                # Set default calibration (combined devices always use target_temp_based)
+                _trv.last_calibration = 0
+                _trv.local_calibration_min = -7
+                _trv.local_calibration_max = 7
+                _trv.local_calibration_step = 0.5
+
+                _s = self.hass.states.get(entity_id)
+                _attrs = _s.attributes if _s else {}
+                _LOGGER.debug(
+                    "better_thermostat %s: reading combined %s attributes...",
+                    self.device_name,
+                    entity_id,
+                )
+                # Fan modes
+                _fan_modes = _attrs.get("fan_modes")
+                if _fan_modes:
+                    _trv.fan_modes = list(_fan_modes)
+                else:
+                    _trv.fan_modes = []
+
+                # Swing modes
+                _swing_modes = _attrs.get("swing_modes")
+                if _swing_modes:
+                    _trv.swing_modes = list(_swing_modes)
+                else:
+                    _trv.swing_modes = []
+
+                # Preset modes
+                _preset_modes = _attrs.get("preset_modes")
+                if _preset_modes:
+                    _trv.preset_modes = list(_preset_modes)
+                else:
+                    _trv.preset_modes = []
+
+                # Temperature range support
+                _hvac_modes = _attrs.get("hvac_modes")
+                if _hvac_modes is not None:
+                    _trv.hvac_modes = list(_hvac_modes)
+                else:
+                    _trv.hvac_modes = None
+
+                # Current setpoint (combined has single temp, not range)
+                _temp = attr_to_celsius(
+                    self, _s, "temperature", 20.0, "combined_startup"
+                )
+                _trv.temperature = _temp
+                _trv.last_temperature = _temp
+
+                # Current temperature
+                _raw_current = _attrs.get("current_temperature")
+                if _raw_current is not None:
+                    _current = convert_to_float_celsius(
+                        str(_raw_current),
+                        self.device_name,
+                        "combined_startup",
+                        unit_of_measurement=_attrs.get("unit_of_measurement"),
+                    )
+                    if _current is not None and is_reasonable_temperature(_current):
+                        _trv.current_temperature = _current
+
+                # Valve position
+                _valve = _attrs.get("valve_position")
+                if _valve is not None:
+                    try:
+                        _trv.valve_position = float(_valve)
+                    except ValueError, TypeError:
+                        pass
+
+                # Also read min/max temp for validation
+                _trv.max_temp = attr_to_celsius(
+                    self, _s, "max_temp", 30, "combined_startup"
+                )
+                _trv.min_temp = attr_to_celsius(
+                    self, _s, "min_temp", 5, "combined_startup"
+                )
+
+                _LOGGER.debug(
+                    "better_thermostat %s: combined %s initialized: fan_modes=%s, swing_modes=%s, hvac_modes=%s, temp=%s",
+                    self.device_name,
+                    entity_id,
+                    _trv.fan_modes,
+                    _trv.swing_modes,
+                    _trv.hvac_modes,
+                    _trv.temperature,
+                )
+
+                # Initial control sync
+                try:
+                    await asyncio.wait_for(control_combined(self), timeout=15)
+                except TimeoutError:
+                    _LOGGER.error(
+                        "better_thermostat %s: Timeout controlling combined %s",
+                        self.device_name,
+                        entity_id,
+                    )
+                except Exception as exc:
+                    _LOGGER.error(
+                        "better_thermostat %s: Error controlling combined %s: %s",
+                        self.device_name,
+                        entity_id,
+                        exc,
+                    )
+
     async def _post_grace_recheck(
         self,
         grace_until: datetime | None,
@@ -2148,6 +2322,11 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
                     self.hass, [self.cooler_entity_id], self._trigger_cooler_change
                 )
             )
+        if self.combined_entity_ids:
+            self._async_unsub_combined = async_track_state_change_event(
+                self.hass, self.combined_entity_ids, self._trigger_combined_change
+            )
+            self.async_on_remove(self._async_unsub_combined)
         if self.outdoor_sensor is not None:
             self.async_on_remove(
                 async_track_state_change_event(
@@ -2761,14 +2940,14 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
     @property
     def target_temperature_low(self) -> float | None:
         """Return the low target temperature."""
-        if self.cooler_entity_id is None:
+        if self.cooler_entity_id is None and not self.combined_trvs:
             return None
         return self.bt_target_temp
 
     @property
     def target_temperature_high(self) -> float | None:
         """Return the high target temperature."""
-        if self.cooler_entity_id is None:
+        if self.cooler_entity_id is None and not self.combined_trvs:
             return None
         return self.bt_target_cooltemp
 
@@ -2781,7 +2960,12 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
         """
 
         hvac_mode_norm = normalize_hvac_mode(hvac_mode)
-        if hvac_mode_norm in (HVACMode.HEAT, HVACMode.HEAT_COOL, HVACMode.OFF):
+        if hvac_mode_norm in (
+            HVACMode.HEAT,
+            HVACMode.HEAT_COOL,
+            HVACMode.OFF,
+            HVACMode.AUTO,
+        ):
             self.bt_hvac_mode = HVACMode(get_hvac_bt_mode(self, hvac_mode_norm))
         else:
             _LOGGER.error(
@@ -2934,6 +3118,25 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
         # Enforce ordering: cool target should be above heat target in HEAT_COOL.
         self._enforce_cool_above_heat()
 
+        # Combined devices have a unified temperature (no separate cool target).
+        # When setting temperature on a combined device, sync both heat and cool
+        # targets to the same value, respecting the configured cool offset.
+        if self.combined_trvs:
+            combined_temp = _new_setpoint
+            # Ensure cool target is at least the configured offset above heat target
+            if combined_temp is not None and self.bt_target_cooltemp is None:
+                self.bt_target_cooltemp = combined_temp + (
+                    self.bt_target_temp_step or 0.5
+                )
+                self._enforce_cool_above_heat()
+            elif combined_temp is not None:
+                # Clamp combined_temp to stay within [heat, cool]
+                combined_temp = max(
+                    self.bt_target_temp, min(self.bt_target_cooltemp, combined_temp)
+                )
+                self.bt_target_temp = combined_temp
+                self.bt_target_cooltemp = combined_temp
+
         # If a specific preset (Comfort, Eco, …) is active and the user manually
         # changes the target temperature to a value that does not match the
         # preset's stored temperature, deactivate the preset (return to
@@ -3074,13 +3277,18 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
         array
                 Supported features.
         """
-        if self.cooler_entity_id is not None:
-            return (
+        if self.cooler_entity_id is not None or self.combined_trvs:
+            features = (
                 ClimateEntityFeature.TARGET_TEMPERATURE_RANGE
                 | ClimateEntityFeature.PRESET_MODE
                 | ClimateEntityFeature.TURN_OFF
                 | ClimateEntityFeature.TURN_ON
             )
+            if self.fan_modes:
+                features |= ClimateEntityFeature.FAN_MODE
+            if self.swing_modes:
+                features |= ClimateEntityFeature.SWING_MODE
+            return features
         return (
             ClimateEntityFeature.TARGET_TEMPERATURE
             | ClimateEntityFeature.PRESET_MODE
@@ -3195,6 +3403,52 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
     def preset_modes(self):
         """Return the available preset modes."""
         return self.preset_mgr.available_modes
+
+    @property
+    def fan_modes(self) -> list[str]:
+        """Return available fan modes across combined devices."""
+        modes: list[str] = []
+        for trv in self.combined_trvs.values():
+            if trv.fan_modes:
+                for m in trv.fan_modes:
+                    if m not in modes:
+                        modes.append(m)
+        return modes
+
+    @property
+    def fan_mode(self) -> str | None:
+        """Return the current fan mode."""
+        return self._bt_fan_mode
+
+    async def async_set_fan_mode(self, fan_mode: str) -> None:
+        """Set fan mode (passthrough to combined devices)."""
+        self._bt_fan_mode = fan_mode
+        self.async_write_ha_state()
+        if hasattr(self, "control_queue_task") and self.control_queue_task is not None:
+            await self.control_queue_task.put(self)
+
+    @property
+    def swing_modes(self) -> list[str]:
+        """Return available swing modes across combined devices."""
+        modes: list[str] = []
+        for trv in self.combined_trvs.values():
+            if trv.swing_modes:
+                for m in trv.swing_modes:
+                    if m not in modes:
+                        modes.append(m)
+        return modes
+
+    @property
+    def swing_mode(self) -> str | None:
+        """Return the current swing mode."""
+        return self._bt_swing_mode
+
+    async def async_set_swing_mode(self, swing_mode: str) -> None:
+        """Set swing mode (passthrough to combined devices)."""
+        self._bt_swing_mode = swing_mode
+        self.async_write_ha_state()
+        if hasattr(self, "control_queue_task") and self.control_queue_task is not None:
+            await self.control_queue_task.put(self)
 
     async def reset_pid_learnings_service(
         self,

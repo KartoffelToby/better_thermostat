@@ -22,7 +22,8 @@
           "outdoor_sensor": "Датчик наружной температуры",
           "weather": "Сущность погоды",
           "target_temp_step": "Шаг изменения заданной температуры",
-          "presets": "Доступные предустановки"
+          "presets": "Доступные предустановки",
+          "heat_cool": "Combined heat/cool devices (optional)"
         },
         "data_description": {
           "presets": "Выберите предустановки, которые будут доступны для этого термостата."
@@ -56,7 +57,8 @@
       "no_name": "Укажите название.",
       "no_off_mode": "Устройство не поддерживает режим «выкл.» :(\nBetter Thermostat будет использовать минимальную заданную температуру.",
       "no_outside_temp": "Датчик наружной температуры не найден. Будет использоваться сущность погоды.",
-      "no_data": "Данные не получены. Пожалуйста, попробуйте ещё раз."
+      "no_data": "Данные не получены. Пожалуйста, попробуйте ещё раз.",
+      "role_overlap": "A climate entity cannot be used in more than one role (heating / cooling / heat-cool). Please assign each entity to only one role."
     },
     "abort": {
       "single_instance_allowed": "Для каждого физического термостата можно создать только один Better Thermostat.",
@@ -88,7 +90,8 @@
           "calibration": "Тип калибровки",
           "heat_auto_swapped": "Поменять местами режимы «авто» и «обогрев» на термоголовке",
           "child_lock": "Игнорировать все команды на термоголовке (детский замок)",
-          "homematicip": "Замедлить запросы для HomematicIP (предотвращение превышения рабочего цикла)"
+          "homematicip": "Замедлить запросы для HomematicIP (предотвращение превышения рабочего цикла)",
+          "heat_cool": "Combined heat/cool devices (optional)"
         },
         "data_description": {
           "presets": "Выберите предустановки, которые будут доступны для этого термостата."
@@ -112,6 +115,9 @@
           "calibration": "Способ применения калибровки к термоголовке.\n***По целевой температуре***: Калибровка применяется к заданной температуре.\n***По смещению***: Калибровка применяется как смещение."
         }
       }
+    },
+    "error": {
+      "role_overlap": "A climate entity cannot be used in more than one role (heating / cooling / heat-cool). Please assign each entity to only one role."
     }
   },
   "issues": {

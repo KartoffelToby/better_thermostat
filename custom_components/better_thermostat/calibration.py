@@ -11,6 +11,7 @@ from custom_components.better_thermostat.model_fixes.model_quirks import (
     fix_local_calibration,
     fix_target_temperature_calibration,
 )
+from custom_components.better_thermostat.trv import Trv
 from custom_components.better_thermostat.utils.calibration.mpc import (
     MpcInput,
     MpcParams,
@@ -298,6 +299,10 @@ def _compute_mpc_balance(self, entity_id: str):
         mpc_key = build_mpc_group_key(self)
     else:
         mpc_key = build_mpc_key(self, entity_id)
+
+    if self.state_mgr is None:
+        trv_state.calibration_balance = None
+        return None, False
 
     mpc_state = self.state_mgr.get_mpc(mpc_key)
 
@@ -722,7 +727,7 @@ def calculate_calibration_local(self, entity_id) -> float | None:
     """
     _context = "_calculate_calibration_local()"
 
-    def _convert_to_float(value):
+    def convert_to_float(value):
         return convert_to_float(value, self.name, _context)
 
     _calibration_mode = normalize_calibration_mode(
@@ -769,9 +774,9 @@ def calculate_calibration_local(self, entity_id) -> float | None:
 
     _cur_trv_temp_s = self.real_trvs[entity_id].current_temperature
     _calibration_step = self.real_trvs[entity_id].local_calibration_step
-    _calibration_step = _convert_to_float(_calibration_step)
-    _cur_trv_temp_f = _convert_to_float(_cur_trv_temp_s)
-    _current_trv_calibration = _convert_to_float(
+    _calibration_step = convert_to_float(_calibration_step)
+    _cur_trv_temp_f = convert_to_float(_cur_trv_temp_s)
+    _current_trv_calibration = convert_to_float(
         self.real_trvs[entity_id].last_calibration
     )
 
@@ -817,7 +822,7 @@ def calculate_calibration_local(self, entity_id) -> float | None:
         elif _mpc_result is not None:
             _mpc_percent = getattr(_mpc_result, "valve_percent", None)
             if isinstance(_mpc_percent, (int, float)):
-                _max_temp = _convert_to_float(self.real_trvs[entity_id].max_temp)
+                _max_temp = convert_to_float(self.real_trvs[entity_id].max_temp)
                 if _max_temp is not None:
                     _valve_fraction = max(0.0, min(1.0, float(_mpc_percent) / 100.0))
                     _desired_trv_setpoint = _cur_trv_temp_f + (
@@ -846,7 +851,7 @@ def calculate_calibration_local(self, entity_id) -> float | None:
         elif _v2_result is not None:
             _v2_percent = getattr(_v2_result, "valve_percent", None)
             if isinstance(_v2_percent, (int, float)):
-                _max_temp = _convert_to_float(self.real_trvs[entity_id].max_temp)
+                _max_temp = convert_to_float(self.real_trvs[entity_id].max_temp)
                 if _max_temp is not None:
                     _valve_fraction = max(0.0, min(1.0, float(_v2_percent) / 100.0))
                     _desired_trv_setpoint = _cur_trv_temp_f + (
@@ -875,7 +880,7 @@ def calculate_calibration_local(self, entity_id) -> float | None:
         elif _tpi_result is not None:
             _tpi_percent = getattr(_tpi_result, "duty_cycle_pct", None)
             if isinstance(_tpi_percent, (int, float)):
-                _max_temp = _convert_to_float(self.real_trvs[entity_id].max_temp)
+                _max_temp = convert_to_float(self.real_trvs[entity_id].max_temp)
                 if _max_temp is not None:
                     _valve_fraction = max(0.0, min(1.0, float(_tpi_percent) / 100.0))
                     _desired_trv_setpoint = _cur_trv_temp_f + (
@@ -904,7 +909,7 @@ def calculate_calibration_local(self, entity_id) -> float | None:
         elif _pid_result is not None:
             _pid_percent = _pid_result
             if isinstance(_pid_percent, (int, float)):
-                _max_temp = _convert_to_float(self.real_trvs[entity_id].max_temp)
+                _max_temp = convert_to_float(self.real_trvs[entity_id].max_temp)
                 if _max_temp is not None:
                     _valve_fraction = max(0.0, min(1.0, float(_pid_percent) / 100.0))
                     _desired_trv_setpoint = _cur_trv_temp_f + (
@@ -1042,15 +1047,15 @@ def calculate_calibration_local(self, entity_id) -> float | None:
     _new_trv_calibration = _rounded_calibration
 
     # limit new setpoint within min/max of the TRV's range
-    t_min = _convert_to_float(self.real_trvs[entity_id].local_calibration_min)
-    t_max = _convert_to_float(self.real_trvs[entity_id].local_calibration_max)
+    t_min = convert_to_float(self.real_trvs[entity_id].local_calibration_min)
+    t_max = convert_to_float(self.real_trvs[entity_id].local_calibration_max)
     if t_min is None or t_max is None:
         return _new_trv_calibration
     t_min = float(t_min)
     t_max = float(t_max)
     _new_trv_calibration = max(t_min, min(_new_trv_calibration, t_max))
 
-    _new_trv_calibration = _convert_to_float(_new_trv_calibration)
+    _new_trv_calibration = convert_to_float(_new_trv_calibration)
     if _new_trv_calibration is None:
         return None
 
@@ -1101,7 +1106,7 @@ def calculate_calibration_setpoint(self, entity_id) -> float | None:
     """
     _context = "_calculate_calibration_setpoint()"
 
-    def _convert_to_float(value):
+    def convert_to_float(value):
         return convert_to_float(value, self.name, _context)
 
     _calibration_mode = normalize_calibration_mode(
@@ -1120,10 +1125,10 @@ def calculate_calibration_setpoint(self, entity_id) -> float | None:
     _cur_target_temp = float(self.bt_target_temp)
 
     _cur_trv_temp_s = self.real_trvs[entity_id].current_temperature
-    _cur_trv_temp = _convert_to_float(_cur_trv_temp_s)
+    _cur_trv_temp = convert_to_float(_cur_trv_temp_s)
 
     _trv_temp_step_raw = self.real_trvs[entity_id].target_temp_step
-    _trv_temp_step = _convert_to_float(_trv_temp_step_raw)
+    _trv_temp_step = convert_to_float(_trv_temp_step_raw)
     if _trv_temp_step is None or _trv_temp_step <= 0:
         _trv_temp_step = 0.5
 
@@ -1163,7 +1168,7 @@ def calculate_calibration_setpoint(self, entity_id) -> float | None:
         elif not _mpc_use_valve and _mpc_result is not None:
             _mpc_percent = getattr(_mpc_result, "valve_percent", None)
             if isinstance(_mpc_percent, (int, float)):
-                _max_temp = _convert_to_float(self.real_trvs[entity_id].max_temp)
+                _max_temp = convert_to_float(self.real_trvs[entity_id].max_temp)
                 if _max_temp is not None:
                     _valve_fraction = max(0.0, min(1.0, float(_mpc_percent) / 100.0))
                     _calibrated_setpoint = _cur_trv_temp + (
@@ -1198,7 +1203,7 @@ def calculate_calibration_setpoint(self, entity_id) -> float | None:
         elif not _v2_use_valve and _v2_result is not None:
             _v2_percent = getattr(_v2_result, "valve_percent", None)
             if isinstance(_v2_percent, (int, float)):
-                _max_temp = _convert_to_float(self.real_trvs[entity_id].max_temp)
+                _max_temp = convert_to_float(self.real_trvs[entity_id].max_temp)
                 if _max_temp is not None:
                     _v2_fraction = max(0.0, min(1.0, float(_v2_percent) / 100.0))
                     _calibrated_setpoint = _cur_trv_temp + (
@@ -1233,7 +1238,7 @@ def calculate_calibration_setpoint(self, entity_id) -> float | None:
         elif _tpi_result is not None:
             _tpi_percent = getattr(_tpi_result, "duty_cycle_pct", None)
             if isinstance(_tpi_percent, (int, float)):
-                _max_temp = _convert_to_float(self.real_trvs[entity_id].max_temp)
+                _max_temp = convert_to_float(self.real_trvs[entity_id].max_temp)
                 if _max_temp is not None:
                     _tpi_fraction = max(0.0, min(1.0, float(_tpi_percent) / 100.0))
                     _calibrated_setpoint = _cur_trv_temp + (
@@ -1268,7 +1273,7 @@ def calculate_calibration_setpoint(self, entity_id) -> float | None:
         elif _pid_result is not None:
             _pid_percent = _pid_result
             if isinstance(_pid_percent, (int, float)):
-                _max_temp = _convert_to_float(self.real_trvs[entity_id].max_temp)
+                _max_temp = convert_to_float(self.real_trvs[entity_id].max_temp)
                 if _max_temp is not None:
                     _pid_fraction = max(0.0, min(1.0, float(_pid_percent) / 100.0))
                     _calibrated_setpoint = _cur_trv_temp + (
@@ -1337,7 +1342,7 @@ def calculate_calibration_setpoint(self, entity_id) -> float | None:
                     _skip_post_adjustments = True
                 else:
                     # Fallback to legacy behavior
-                    max_temp = _convert_to_float(self.real_trvs[entity_id].max_temp)
+                    max_temp = convert_to_float(self.real_trvs[entity_id].max_temp)
                     if max_temp is not None:
                         _calibrated_setpoint = _cur_trv_temp + (
                             (float(max_temp) - _cur_trv_temp) * _valve_position
@@ -1345,7 +1350,7 @@ def calculate_calibration_setpoint(self, entity_id) -> float | None:
             else:
                 # No direct valve support: compute setpoint as before and clear any stale balance
                 self.real_trvs[entity_id].calibration_balance = None
-                max_temp = _convert_to_float(self.real_trvs[entity_id].max_temp)
+                max_temp = convert_to_float(self.real_trvs[entity_id].max_temp)
                 if max_temp is not None:
                     _calibrated_setpoint = _cur_trv_temp + (
                         (float(max_temp) - _cur_trv_temp) * _valve_position
@@ -1402,8 +1407,8 @@ def calculate_calibration_setpoint(self, entity_id) -> float | None:
     _calibrated_setpoint = _rounded_setpoint
 
     # limit new setpoint within min/max of the TRV's range
-    t_min = _convert_to_float(self.real_trvs[entity_id].min_temp)
-    t_max = _convert_to_float(self.real_trvs[entity_id].max_temp)
+    t_min = convert_to_float(self.real_trvs[entity_id].min_temp)
+    t_max = convert_to_float(self.real_trvs[entity_id].max_temp)
     if t_min is not None:
         _calibrated_setpoint = max(float(t_min), _calibrated_setpoint)
     if t_max is not None:
@@ -1424,4 +1429,236 @@ def calculate_calibration_setpoint(self, entity_id) -> float | None:
         _cur_trv_temp,
     )
 
+    return _calibrated_setpoint
+
+
+def _get_combined_trv(entity_id: str, self) -> Trv | None:
+    """Return the combined TRV data object for the given entity_id."""
+    combined_trvs = getattr(self, "combined_trvs", {})
+    return combined_trvs.get(entity_id)
+
+
+def calculate_calibration_local_combined(self, entity_id: str) -> float | None:
+    """Calculate local calibration offset for a combined heat/cool device.
+
+    Combined devices do not have a separate cooling calibration mode; they
+    always use the same offset for both heating and cooling. This function
+    mirrors ``calculate_calibration_local`` but operates on the combined
+    device registry.
+    """
+    _context = "_calculate_calibration_local_combined()"
+
+    combined_trv = _get_combined_trv(entity_id, self)
+    if combined_trv is None:
+        return None
+
+    _calibration_mode = normalize_calibration_mode(
+        combined_trv.advanced.get("calibration_mode", CalibrationMode.DEFAULT)
+    )
+    if _calibration_mode is None:
+        _calibration_mode = CalibrationMode.DEFAULT
+
+    if self.cur_temp is None or self.bt_target_temp is None:
+        return None
+
+    _cur_external_temp = float(self.cur_temp)
+    _cur_target_temp = float(self.bt_target_temp)
+
+    _cur_trv_temp_s = combined_trv.current_temperature
+    _cur_trv_temp = convert_to_float(_cur_trv_temp_s)
+    if _cur_trv_temp is None:
+        return None
+
+    _calibrated_offset = (
+        _cur_external_temp - _cur_trv_temp
+    ) + combined_trv.last_calibration
+
+    _trv_temp_step_raw = combined_trv.target_temp_step
+    _trv_temp_step = convert_to_float(_trv_temp_step_raw)
+    if _trv_temp_step is None or _trv_temp_step <= 0:
+        _trv_temp_step = 0.5
+
+    _new_offset = _calibrated_offset
+    _skip_mpc = _calibration_mode != CalibrationMode.DEFAULT
+
+    if _skip_mpc and self.hvac_action == HVACAction.IDLE:
+        # In idle, don't push negative offsets further
+        if _new_offset < 0.0:
+            _new_offset += self.tolerance * 2.0
+
+    _new_offset = fix_local_calibration(
+        self, entity_id, _new_offset, combined_trv=combined_trv
+    )
+
+    if _calibration_mode == CalibrationMode.AGGRESIVE_CALIBRATION:
+        if self.hvac_action == HVACAction.HEATING:
+            if _new_offset > -2.5:
+                _new_offset -= 2.5
+
+    if _calibration_mode == CalibrationMode.HEATING_POWER_CALIBRATION:
+        # Combined devices don't use valve-based control, so skip this branch
+        _new_offset = combined_trv.last_calibration
+
+    if not _skip_mpc:
+        if _calibration_mode != CalibrationMode.DEFAULT:
+            if self.hvac_action == HVACAction.IDLE:
+                if _new_offset < 0.0:
+                    _new_offset += self.tolerance * 2.0
+
+    _new_offset = round_by_step(
+        _new_offset,
+        _trv_temp_step,
+        rounding.down if self.hvac_action == HVACAction.IDLE else rounding.nearest,
+    )
+    if _new_offset is None:
+        return None
+    _new_offset = convert_to_float(_new_offset)
+    if _new_offset is None:
+        return None
+
+    combined_trv.local_temperature_calibration = _new_offset
+    _logmsg = (
+        "better_thermostat %s: combined %s - new local calibration offset: %.2f | "
+        "external: %.1f, trv: %.1f, old: %.2f"
+    )
+    _LOGGER.debug(
+        _logmsg,
+        self.device_name,
+        entity_id,
+        _new_offset,
+        round(_cur_external_temp, 1),
+        round(_cur_trv_temp, 1),
+        combined_trv.last_calibration,
+    )
+    return _new_offset
+
+
+def calculate_calibration_setpoint_combined(self, entity_id: str) -> float | None:
+    """Calculate setpoint for a combined heat/cool device.
+
+    Combined devices have a single temperature target that serves both
+    heating and cooling. This function mirrors ``calculate_calibration_setpoint``
+    but operates on the combined registry.
+    """
+    _context = "_calculate_calibration_setpoint_combined()"
+
+    combined_trv = _get_combined_trv(entity_id, self)
+    if combined_trv is None:
+        return None
+
+    _calibration_mode = normalize_calibration_mode(
+        combined_trv.advanced.get("calibration_mode", CalibrationMode.DEFAULT)
+    )
+    if _calibration_mode is None:
+        _calibration_mode = CalibrationMode.DEFAULT
+
+    if self.cur_temp is None or self.bt_target_temp is None:
+        return None
+
+    _cur_external_temp = float(self.cur_temp)
+    _cur_target_temp = float(self.bt_target_temp)
+
+    _cur_trv_temp_s = combined_trv.current_temperature
+    _cur_trv_temp = convert_to_float(_cur_trv_temp_s)
+    if _cur_trv_temp is None:
+        return None
+
+    _trv_temp_step_raw = combined_trv.target_temp_step
+    _trv_temp_step = convert_to_float(_trv_temp_step_raw)
+    if _trv_temp_step is None or _trv_temp_step <= 0:
+        _trv_temp_step = 0.5
+
+    # Base calibrated setpoint: TRV's own temp minus the external-minus-target delta
+    _calibrated_setpoint = _cur_trv_temp - (_cur_external_temp - _cur_target_temp)
+
+    _skip_mpc = _calibration_mode != CalibrationMode.DEFAULT
+    _mpc_use_valve = False
+    _mpc_result = None
+
+    if _skip_mpc:
+        # MPC branches are skipped for combined devices: they never use
+        # valve-based control, so the controller would only emit 0% duty cycle.
+        # We simply return the linearly calibrated setpoint.
+        _calibrated_setpoint = fix_target_temperature_calibration(
+            self, entity_id, _calibrated_setpoint
+        )
+        return _calibrated_setpoint
+
+    # Tolerance check: if room is at or above target, don't heat
+    if self.hvac_action == HVACAction.IDLE:
+        if _cur_external_temp >= _cur_target_temp:
+            return None
+
+    if _calibration_mode == CalibrationMode.TPI_CALIBRATION:
+        _tpi_result, _tpi_use_valve = _compute_tpi_balance(self, entity_id)
+        _mpc_use_valve = _tpi_use_valve
+    elif _calibration_mode == CalibrationMode.PID_CALIBRATION:
+        _pid_result, _pid_use_valve = _compute_pid_balance(self, entity_id)
+        _mpc_use_valve = _pid_use_valve
+
+    if _mpc_use_valve:
+        _calibrated_setpoint = _cur_target_temp
+    elif _mpc_result is not None:
+        _valve_pct = getattr(_mpc_result, "valve_percent", None)
+        _max_temp = convert_to_float(combined_trv.max_temp)
+        if _max_temp is not None:
+            _frac = max(0.0, min(1.0, float(_valve_pct) / 100.0))
+            _calibrated_setpoint = _cur_trv_temp + ((_max_temp - _cur_trv_temp) * _frac)
+            # If valve is effectively closed, push setpoint below current TRV temp
+            if _frac == 0.0 and _calibrated_setpoint >= _cur_trv_temp:
+                _offset = _compute_zero_open_offset(
+                    self,
+                    entity_id,
+                    _cur_trv_temp,
+                    _cur_external_temp,
+                    _cur_target_temp,
+                    _trv_temp_step,
+                )
+                _calibrated_setpoint = _cur_trv_temp - _offset
+
+    _calibrated_setpoint = fix_target_temperature_calibration(
+        self, entity_id, _calibrated_setpoint
+    )
+
+    # Post-adjustments: overheating protection
+    _overheat = combined_trv.advanced.get(CONF_PROTECT_OVERHEATING, False)
+    if _overheat and self.hvac_action == HVACAction.IDLE:
+        _calibrated_setpoint -= (
+            _cur_external_temp - (_cur_target_temp + self.tolerance)
+        ) * 8.0
+
+    # Direction-aware rounding
+    if self.hvac_action == HVACAction.IDLE:
+        _step_round = rounding.down
+    elif self.hvac_action == HVACAction.HEATING:
+        _step_round = rounding.up
+    else:
+        _step_round = rounding.nearest
+
+    _rounded = round_by_step(_calibrated_setpoint, _trv_temp_step, _step_round)
+    if _rounded is None:
+        return None
+    _calibrated_setpoint = _rounded
+
+    # Clamp to TRV min/max
+    t_min = convert_to_float(combined_trv.min_temp)
+    t_max = convert_to_float(combined_trv.max_temp)
+    if t_min is not None:
+        _calibrated_setpoint = max(float(t_min), _calibrated_setpoint)
+    if t_max is not None:
+        _calibrated_setpoint = min(_calibrated_setpoint, float(t_max))
+
+    _logmsg = (
+        "better_thermostat %s: combined %s - new setpoint: %.1f | "
+        "external: %.1f, target: %.1f, trv: %.1f"
+    )
+    _LOGGER.debug(
+        _logmsg,
+        self.device_name,
+        entity_id,
+        _calibrated_setpoint,
+        round(_cur_external_temp, 1),
+        round(_cur_target_temp, 1),
+        round(_cur_trv_temp, 1),
+    )
     return _calibrated_setpoint

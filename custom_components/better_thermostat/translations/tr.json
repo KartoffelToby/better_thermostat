@@ -22,7 +22,8 @@
           "outdoor_sensor": "Dış ortam sensörünüz varsa, dış ortam sıcaklığını almak için kullanabilirsiniz",
           "weather": "Dış ortam sıcaklığını almak için hava durumu varlığı",
           "target_temp_step": "Hedef sıcaklık adımı",
-          "presets": "Etkin ön ayarlar"
+          "presets": "Etkin ön ayarlar",
+          "heat_cool": "Combined heat/cool devices (optional)"
         },
         "data_description": {
           "presets": "Bu termostat için kullanılabilir olmasını istediğiniz ön ayarları seçin."
@@ -56,7 +57,8 @@
       "no_name": "Lütfen bir ad girin.",
       "no_off_mode": "Cihazınız çok özel ve kapalı modu yok :(\nBetter Thermostat bunun yerine minimum hedef sıcaklığı kullanacak.",
       "no_outside_temp": "Dış ortam sıcaklık sensörünüz yok. Better Thermostat bunun yerine hava durumu varlığını kullanacak.",
-      "no_data": "Hiçbir veri alınamadı. Lütfen tekrar deneyin."
+      "no_data": "Hiçbir veri alınamadı. Lütfen tekrar deneyin.",
+      "role_overlap": "A climate entity cannot be used in more than one role (heating / cooling / heat-cool). Please assign each entity to only one role."
     },
     "abort": {
       "single_instance_allowed": "Her gerçek termostat için yalnızca tek bir Termostat'a izin verilir.",
@@ -88,7 +90,8 @@
           "calibration": "Kalibrasyon türü",
           "heat_auto_swapped": "TRV'nizde otomatik mod ısıtma anlamına geliyorsa ve değiştirmek istiyorsanız",
           "child_lock": "TRV üzerindeki tüm girişleri çocuk kilidi gibi yoksay",
-          "homematicip": "HomematicIP kullanıyorsanız, görev döngüsünü önlemek için istekleri yavaşlatmak amacıyla bunu etkinleştirmelisiniz"
+          "homematicip": "HomematicIP kullanıyorsanız, görev döngüsünü önlemek için istekleri yavaşlatmak amacıyla bunu etkinleştirmelisiniz",
+          "heat_cool": "Combined heat/cool devices (optional)"
         },
         "data_description": {
           "presets": "Bu termostat için kullanılabilir olmasını istediğiniz ön ayarları seçin."
@@ -112,6 +115,9 @@
           "calibration": "Kalibrasyonun TRV'ye nasıl uygulanacağı (Hedef sıcaklık veya ofset)\n***Hedef Sıcaklık Tabanlı***: Kalibrasyonu hedef sıcaklığa uygula.\n***Ofset Tabanlı***: Kalibrasyonu ofsete uygula."
         }
       }
+    },
+    "error": {
+      "role_overlap": "A climate entity cannot be used in more than one role (heating / cooling / heat-cool). Please assign each entity to only one role."
     }
   },
   "issues": {

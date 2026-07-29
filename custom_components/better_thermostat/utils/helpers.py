@@ -9,7 +9,11 @@ import math
 import re
 from typing import Any
 
-from homeassistant.components.climate.const import ClimateEntityFeature, HVACMode
+from homeassistant.components.climate.const import (
+    DOMAIN as CLIMATE_DOMAIN,
+    ClimateEntityFeature,
+    HVACMode,
+)
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import (
     CONF_NAME,
@@ -189,6 +193,9 @@ def get_hvac_bt_mode(self, mode: str) -> str:
     if mode == HVACMode.HEAT:
         mode = self.map_on_hvac_mode
     elif mode == HVACMode.HEAT_COOL:
+        mode = HVACMode.HEAT
+    elif mode == HVACMode.AUTO:
+        # AUTO (auto-changeover) maps to the heat+cool internal mode
         mode = HVACMode.HEAT
     return mode
 
@@ -1342,3 +1349,13 @@ async def async_fire_logbook_entry(self, key: str, default_msg: str) -> None:
                 "domain": DOMAIN,
             },
         )
+
+
+def is_bt_climate_entity(entry: er.RegistryEntry) -> bool:
+    """Return True if the registry entry is a Better Thermostat climate entity.
+
+    The device trigger/action/condition entry points use this to filter a
+    device's entities down to the one BT climate entity: it must belong to
+    this integration (platform) and be a climate entity (domain).
+    """
+    return entry.platform == DOMAIN and entry.domain == CLIMATE_DOMAIN

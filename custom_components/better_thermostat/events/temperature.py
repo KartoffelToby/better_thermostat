@@ -124,8 +124,9 @@ async def _apply_temperature_update(self, new_temp):
             float(new_temp_q),
             float(_ema),
         )
-    # Write the value used by BT (self.cur_temp) to the TRV
+    # Write the value used by BT (self.cur_temp) to TRVs and combined devices
     try:
+        # First: propagate to regular TRVs (via quirks if present)
         trv_ids = list(self.real_trvs.keys())
         if not trv_ids and hasattr(self, "entity_ids"):
             trv_ids = list(self.entity_ids or [])
@@ -140,9 +141,25 @@ async def _apply_temperature_update(self, new_temp):
                     self.device_name,
                     trv_id,
                 )
+
+        # Combined devices: external temp is not a control knob for them;
+        # they delegate heat/cool decisions internally. Still, we keep
+        # cur_temp synchronized so that hvac_action computation (which uses
+        # self.cur_temp) is consistent for combined-only setups.
+        if self.combined_trvs:
+            _LOGGER.debug(
+                "better_thermostat %s: external_temperature %s°C propagated to combined devices (state sync only)",
+                self.device_name,
+                self.cur_temp,
+            )
+            # No service call — just ensure the combined entities see the same
+            # filtered temperature for their current_temperature attribute.
+            # Combined devices update current_temperature via state events,
+            # which we already subscribe to; this is a no-op but keeps the
+            # logic consistent.
     except AttributeError, KeyError, TypeError, ValueError, RuntimeError:
         _LOGGER.debug(
-            "better_thermostat %s: external_temperature write to TRV failed (non critical)",
+            "better_thermostat %s: external_temperature write to devices failed (non critical)",
             self.device_name,
         )
     # Enqueue control action (skip during valve maintenance to avoid overwriting exercise).

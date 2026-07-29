@@ -41,6 +41,12 @@ class Trv:
     hvac_modes: list[str] | None = None
     hvac_mode: str | None = None
     hvac_action: str | None = None
+    fan_modes: list[str] | None = None
+    fan_mode: str | None = None
+    swing_modes: list[str] | None = None
+    swing_mode: str | None = None
+    preset_modes: list[str] | None = None
+    preset_mode: str | None = None
     local_temperature_calibration_entity: str | None = None
     local_calibration_min: float = -7
     local_calibration_max: float = 7
@@ -61,6 +67,8 @@ class Trv:
     last_calibration: float | None = None
     last_valve_percent: float | None = None
     last_valve_method: str | None = None
+    last_fan_mode: str | None = None
+    last_swing_mode: str | None = None
 
     # -- Calibration results -----------------------------------------------
     calibration_balance: dict[str, Any] | None = None
