@@ -59,6 +59,8 @@ class TestControlCooler:
         mock_self.cooler_entity_id = "climate.cooler"
         mock_self.bt_target_cooltemp = 24.0
         mock_self.context = None
+        # A bare Mock would hand out a truthy contact_open.
+        mock_self.contact_open = False
 
         await control_cooler(mock_self)
 
@@ -91,6 +93,8 @@ class TestControlCooler:
         mock_self.cooler_entity_id = "climate.cooler"
         mock_self.tolerance = 0.5
         mock_self.context = None
+        # A bare Mock would hand out a truthy contact_open.
+        mock_self.contact_open = False
 
         snapshot = make_snapshot(
             hvac_mode=CoreHvacMode.OFF, target_cooltemp=24.0, tolerance=0.5
@@ -122,6 +126,8 @@ class TestControlCooler:
         mock_self.bt_hvac_mode = HVACMode.COOL
         mock_self.cooler_entity_id = "climate.cooler"
         mock_self.context = None
+        # A bare Mock would hand out a truthy contact_open.
+        mock_self.contact_open = False
         mock_self.cur_temp = 25.0
         mock_self.bt_target_cooltemp = 24.0
         mock_self.bt_target_temp = 20.0
@@ -165,6 +171,8 @@ class TestControlCooler:
         mock_self.bt_hvac_mode = HVACMode.COOL
         mock_self.cooler_entity_id = "climate.cooler"
         mock_self.context = None
+        # A bare Mock would hand out a truthy contact_open.
+        mock_self.contact_open = False
         mock_self.cur_temp = 20.0  # Equal to bt_target_temp
         mock_self.bt_target_cooltemp = 24.0
         mock_self.bt_target_temp = 20.0
@@ -195,6 +203,8 @@ class TestControlCooler:
         mock_self.bt_hvac_mode = HVACMode.COOL
         mock_self.cooler_entity_id = "climate.cooler"
         mock_self.context = None
+        # A bare Mock would hand out a truthy contact_open.
+        mock_self.contact_open = False
         mock_self.cur_temp = 23.0  # Below target_cooltemp - tolerance
         mock_self.bt_target_cooltemp = 24.0
         mock_self.bt_target_temp = 20.0
@@ -233,6 +243,8 @@ class TestControlCooler:
         mock_self.bt_hvac_mode = HVACMode.COOL
         mock_self.cooler_entity_id = "climate.cooler"
         mock_self.context = None
+        # A bare Mock would hand out a truthy contact_open.
+        mock_self.contact_open = False
         mock_self.bt_target_cooltemp = 24.0
         mock_self.bt_target_temp = 20.0
         mock_self.tolerance = 0.5
@@ -291,6 +303,8 @@ class TestControlCooler:
         mock_self.bt_hvac_mode = HVACMode.COOL
         mock_self.cooler_entity_id = "climate.cooler"
         mock_self.context = None
+        # A bare Mock would hand out a truthy contact_open.
+        mock_self.contact_open = False
         mock_self.cur_temp = 25.0
         mock_self.bt_target_cooltemp = 24.0
         mock_self.bt_target_temp = 20.0
@@ -324,6 +338,8 @@ class TestControlCooler:
         mock_self.bt_hvac_mode = HVACMode.COOL
         mock_self.cooler_entity_id = "climate.cooler"
         mock_self.context = None
+        # A bare Mock would hand out a truthy contact_open.
+        mock_self.contact_open = False
         mock_self.bt_target_cooltemp = 24.0
         mock_self.bt_target_temp = 20.0
         mock_self.tolerance = 0.5
@@ -399,6 +415,8 @@ def _make_cooler_setup(
     mock_self.bt_hvac_mode = HVACMode.COOL
     mock_self.cooler_entity_id = "climate.cooler"
     mock_self.context = None
+    # A bare Mock would hand out a truthy contact_open.
+    mock_self.contact_open = False
     mock_self.cur_temp = cur_temp
     mock_self.bt_target_cooltemp = target_cooltemp
     mock_self.bt_target_temp = target_temp
@@ -983,6 +1001,41 @@ class TestControlCoolerSendCache:
 
         with pytest.raises(asyncio.CancelledError):
             await control_cooler(mock_self)
+
+
+class TestControlCoolerContactSuppression:
+    """An open window or door suppresses the cooler as it does the TRVs."""
+
+    @pytest.mark.asyncio
+    async def test_open_contact_turns_a_running_cooler_off(self):
+        """A room that cannot reach its target must not keep the unit running."""
+        mock_self, mock_hass, _ = _make_cooler_setup(cooler_state=HVACMode.COOL)
+        mock_self.contact_open = True
+
+        await control_cooler(mock_self)
+
+        modes = _service_calls(mock_hass, "set_hvac_mode")
+        assert [c.args[2]["hvac_mode"] for c in modes] == [HVACMode.OFF]
+
+    @pytest.mark.asyncio
+    async def test_open_contact_does_not_start_the_cooler(self):
+        """The suppression holds for a unit that is already off."""
+        mock_self, mock_hass, _ = _make_cooler_setup(cooler_state=HVACMode.OFF)
+        mock_self.contact_open = True
+
+        await control_cooler(mock_self)
+
+        assert _service_calls(mock_hass, "set_hvac_mode") == []
+
+    @pytest.mark.asyncio
+    async def test_closed_contact_still_cools(self):
+        """The gate must not swallow the normal demand."""
+        mock_self, mock_hass, _ = _make_cooler_setup(cooler_state=HVACMode.OFF)
+
+        await control_cooler(mock_self)
+
+        modes = _service_calls(mock_hass, "set_hvac_mode")
+        assert [c.args[2]["hvac_mode"] for c in modes] == [HVACMode.COOL]
 
 
 class TestControlCoolerModeHysteresis:

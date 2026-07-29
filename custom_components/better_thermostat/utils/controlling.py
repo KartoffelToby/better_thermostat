@@ -839,6 +839,14 @@ async def control_cooler(self, snapshot=None):
         desired_mode = HVACMode.OFF
     elif snapshot.hvac_mode == HVACMode.OFF:
         desired_mode = HVACMode.OFF
+    elif self.contact_open:
+        # An open window or door suppresses the cooler for the same reason it
+        # suppresses the TRVs: the room cannot reach its target, so the unit
+        # would run against an unbounded load. The kernel's window and door
+        # regions own the decision, debounce included; the cooler reads their
+        # combined verdict because the desired state carries no cooler intent
+        # for the kernel to suppress.
+        desired_mode = HVACMode.OFF
     else:
         # Hysteresis around the switch-on point, so a room temperature
         # resting on it does not flip the decision — and with it the write —

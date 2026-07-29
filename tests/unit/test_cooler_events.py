@@ -41,6 +41,8 @@ def mock_bt():
     bt.startup_running = False
     bt.control_queue_task = MagicMock()
     bt.context = MagicMock()  # unique context so != event.context
+    # A bare MagicMock would hand out a truthy contact_open.
+    bt.contact_open = False
     bt.async_write_ha_state = MagicMock()
     bt._enforce_heat_below_cool = lambda: BetterThermostat._enforce_heat_below_cool(bt)
     return bt
@@ -460,6 +462,23 @@ class TestEdgeCases:
 # ---------------------------------------------------------------------------
 # 6. Echo suppression
 # ---------------------------------------------------------------------------
+
+
+class TestContactOpenAdoption:
+    """A setpoint arriving while a contact is open is not adopted."""
+
+    @pytest.mark.asyncio
+    async def test_open_contact_refuses_the_reported_setpoint(self, mock_bt):
+        """Mid-airing the suppression owns the mode, so the target must hold."""
+        mock_bt.contact_open = True
+        old_state = _make_state(attributes={"temperature": 25.0})
+        new_state = _make_state(attributes={"temperature": 27.0})
+        event = _make_event(mock_bt, new_state=new_state, old_state=old_state)
+
+        await trigger_cooler_change(mock_bt, event)
+
+        assert mock_bt.bt_target_cooltemp == 25.0
+        mock_bt.control_queue_task.put_nowait.assert_not_called()
 
 
 class TestEchoSuppression:

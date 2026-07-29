@@ -111,7 +111,14 @@ async def trigger_cooler_change(self, event):
         _reported_moved = abs(
             _new_cooling_setpoint.raw - _old_cooling_setpoint
         ) >= setpoint_echo_window(_step)
-        if not _new_cooling_setpoint.is_echo and _reported_moved:
+        # The TRV handler refuses a setpoint while a contact is open; the
+        # cooler does the same, so an event arriving mid-airing cannot install
+        # a target the suppression is about to override anyway.
+        if (
+            not _new_cooling_setpoint.is_echo
+            and _reported_moved
+            and self.contact_open is False
+        ):
             if _new_cooling_setpoint.clamped:
                 _LOGGER.warning(
                     "better_thermostat %s: New Cooler %s setpoint outside of range, "
