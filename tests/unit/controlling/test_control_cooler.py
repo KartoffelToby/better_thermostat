@@ -12,6 +12,7 @@ from custom_components.better_thermostat.core.clock import FakeClock
 from custom_components.better_thermostat.core.snapshot import HvacMode as CoreHvacMode
 from custom_components.better_thermostat.utils.controlling import (
     COOLER_FAILURE_BACKOFF_BASE_S,
+    COOLER_FAILURE_BACKOFF_MAX_RUN,
     COOLER_FAILURE_BACKOFF_MAX_S,
     COOLER_RESEND_INTERVAL_S,
     control_cooler,
@@ -760,8 +761,14 @@ class TestControlCoolerSendCache:
         assert mode_calls[0].args[2]["hvac_mode"] == HVACMode.OFF
 
     @pytest.mark.asyncio
-    async def test_a_changed_target_bypasses_the_failure_backoff(self):
-        """A new setpoint is a new command, not a retry, and goes out at once."""
+    async def test_a_changed_target_only_waits_the_backoff_base(self):
+        """A new setpoint is a new command and skips the run's grown wait.
+
+        It does not skip the base, though: a channel whose last attempt was
+        rejected keeps its floor whatever the payload says, so a desired
+        value alternating between two rejected commands cannot buy itself a
+        write on every cycle.
+        """
         mock_self, mock_hass, _ = _make_cooler_setup(cooler_temp_attr=20.0)
 
         mock_hass.services.async_call = AsyncMock(
@@ -771,13 +778,71 @@ class TestControlCoolerSendCache:
             mock_self.clock.monotonic_value += COOLER_FAILURE_BACKOFF_MAX_S
             await control_cooler(mock_self)
 
+        # A run of four: the same setpoint would now wait eight bases.
         mock_hass.services.async_call = AsyncMock()
         mock_self.bt_target_cooltemp = 23.0
+        await control_cooler(mock_self)
+        assert _service_calls(mock_hass, "set_temperature") == []
+
+        mock_self.clock.monotonic_value += COOLER_FAILURE_BACKOFF_BASE_S
         await control_cooler(mock_self)
 
         temp_calls = _service_calls(mock_hass, "set_temperature")
         assert len(temp_calls) == 1
         assert temp_calls[0].args[2]["temperature"] == 23.0
+
+    @pytest.mark.asyncio
+    async def test_a_different_rejected_command_starts_its_own_run(self):
+        """The counter counts the run the gate prices.
+
+        A command replacing the rejected one resets the run: the gate prices
+        the retry of that command as the first of a run, so a counter that
+        kept adding to the run before it would describe something else.
+        """
+        mock_self, mock_hass, _ = _make_cooler_setup(cooler_temp_attr=20.0)
+        mock_hass.services.async_call = AsyncMock(
+            side_effect=HomeAssistantError("device rejected the command")
+        )
+
+        for _ in range(4):
+            mock_self.clock.monotonic_value += COOLER_FAILURE_BACKOFF_MAX_S
+            await control_cooler(mock_self)
+
+        # A different setpoint is rejected once: a run of one, not of five.
+        mock_self.bt_target_cooltemp = 23.0
+        mock_self.clock.monotonic_value += COOLER_FAILURE_BACKOFF_BASE_S
+        await control_cooler(mock_self)
+
+        mock_hass.services.async_call = AsyncMock()
+        mock_self.clock.monotonic_value += COOLER_FAILURE_BACKOFF_BASE_S
+        await control_cooler(mock_self)
+
+        assert len(_service_calls(mock_hass, "set_temperature")) == 1
+
+    @pytest.mark.asyncio
+    async def test_a_long_run_of_failures_cannot_overflow_the_backoff(self):
+        """The run stops counting before the exponent leaves float range.
+
+        The control queue swallows whatever control_cooler raises, so an
+        arithmetic error here would take cooler control out until the next
+        reload — and a device that rejects every write reaches the exponent
+        that overflows in about three weeks.
+        """
+        mock_self, mock_hass, _ = _make_cooler_setup(cooler_temp_attr=20.0)
+        mock_hass.services.async_call = AsyncMock(
+            side_effect=HomeAssistantError("device rejected the command")
+        )
+
+        attempts = 1100
+        for _ in range(attempts):
+            mock_self.clock.monotonic_value += COOLER_FAILURE_BACKOFF_MAX_S
+            await control_cooler(mock_self)
+
+        assert len(_service_calls(mock_hass, "set_temperature")) == attempts
+        assert (
+            mock_self._cooler_last_sent["temperature_failed"][0]
+            == COOLER_FAILURE_BACKOFF_MAX_RUN
+        )
 
     @pytest.mark.asyncio
     async def test_a_successful_send_clears_the_failure_backoff(self):

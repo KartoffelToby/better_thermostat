@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 from dataclasses import replace
 import logging
+import math
 
 from homeassistant.components.climate.const import HVACMode
 from homeassistant.const import STATE_UNAVAILABLE, STATE_UNKNOWN, UnitOfTemperature
@@ -91,6 +92,16 @@ COOLER_FAILURE_BACKOFF_FACTOR = 2.0
 # paced well beyond the resend interval; a device that starts working again
 # is picked up on the following attempt.
 COOLER_FAILURE_BACKOFF_MAX_S = 1800.0
+# Longest run the backoff can tell apart. Past it the wait is pinned at the
+# ceiling anyway, while the exponent would keep growing on a device that
+# rejects every write until the float power overflows and takes the whole
+# cooler cycle down with it.
+COOLER_FAILURE_BACKOFF_MAX_RUN = 1 + math.ceil(
+    math.log(
+        COOLER_FAILURE_BACKOFF_MAX_S / COOLER_FAILURE_BACKOFF_BASE_S,
+        COOLER_FAILURE_BACKOFF_FACTOR,
+    )
+)
 # A cooler may snap a received setpoint onto its own step grid (e.g. 0.5 °C,
 # or a whole-°F grid). A post-send reading within this distance of the sent
 # value counts as that device-side quantization, not as an unapplied command.
@@ -701,36 +712,57 @@ def last_sent_cooler_temperature(self) -> float | None:
     return value if isinstance(value, (int, float)) else None
 
 
-def _cooler_retry_paced(
+def _cooler_retry_deferred(
     last_sent: dict, channel: str, wanted, now_monotonic: float
 ) -> bool:
-    """Whether a channel's backoff still bars the retry of a failed command.
+    """Whether a channel's backoff still holds a command back.
 
     A rejected command leaves no send timestamp behind, so the resend
     throttle cannot pace it; this backoff does. The wait grows with the run
-    of consecutive failures, so a device that rejects every write — a cloud
-    air conditioner over its rate limit, for instance — is not retried harder
-    than one that merely lags. Only the identical command is paced: a value
-    BT has not put on the wire yet is a new command, not a retry.
+    of consecutive failures of that command, so a device that rejects every
+    write — a cloud air conditioner over its rate limit, for instance — is
+    not retried harder than one that merely lags.
+
+    A command other than the rejected one is a new command rather than a
+    retry, and waits the base only: it has to reach the device promptly, but
+    it must not hand a channel that is failing a fresh write budget at the
+    cycle rate either, which is what a desired value alternating between two
+    rejected commands would otherwise do.
     """
     failures, failed_at, failed_wanted = last_sent.get(
         f"{channel}_failed", (0, None, None)
     )
-    if not failures or failed_at is None or failed_wanted != wanted:
+    if not failures or failed_at is None:
         return False
-    wait = min(
-        COOLER_FAILURE_BACKOFF_BASE_S * COOLER_FAILURE_BACKOFF_FACTOR ** (failures - 1),
-        COOLER_FAILURE_BACKOFF_MAX_S,
-    )
+    if failed_wanted != wanted:
+        wait = COOLER_FAILURE_BACKOFF_BASE_S
+    else:
+        wait = min(
+            COOLER_FAILURE_BACKOFF_BASE_S
+            * COOLER_FAILURE_BACKOFF_FACTOR ** (failures - 1),
+            COOLER_FAILURE_BACKOFF_MAX_S,
+        )
     return (now_monotonic - failed_at) < wait
 
 
 def _record_cooler_failure(
     last_sent: dict, channel: str, wanted, now_monotonic: float
 ) -> None:
-    """Extend a channel's run of consecutive send failures."""
-    failures = last_sent.get(f"{channel}_failed", (0, None, None))[0]
-    last_sent[f"{channel}_failed"] = (failures + 1, now_monotonic, wanted)
+    """Extend a channel's run of consecutive failures of one command.
+
+    A run is a run of the same command; a different one that fails starts
+    its own, so the run the counter holds and the run the gate prices always
+    describe the same command. The count stops at the length the backoff can
+    still tell apart.
+    """
+    failures, _, failed_wanted = last_sent.get(f"{channel}_failed", (0, None, None))
+    if failed_wanted != wanted:
+        failures = 0
+    last_sent[f"{channel}_failed"] = (
+        min(failures + 1, COOLER_FAILURE_BACKOFF_MAX_RUN),
+        now_monotonic,
+        wanted,
+    )
 
 
 async def control_cooler(self, snapshot=None):
@@ -984,10 +1016,12 @@ async def control_cooler(self, snapshot=None):
             temp_to_send,
             cooler_low_bound(temp_to_send, target_temp) if _write_range else None,
         )
-        if _cooler_retry_paced(last_sent, "temperature", _temp_wanted, now_monotonic):
+        if _cooler_retry_deferred(
+            last_sent, "temperature", _temp_wanted, now_monotonic
+        ):
             _LOGGER.debug(
-                "better_thermostat %s: cooler %s deferring the set_temperature retry "
-                "after %s consecutive failures",
+                "better_thermostat %s: cooler %s deferring set_temperature at "
+                "failure-backoff step %s",
                 self.device_name,
                 self.cooler_entity_id,
                 last_sent["temperature_failed"][0],
@@ -1089,12 +1123,12 @@ async def control_cooler(self, snapshot=None):
 
     # Same pacing as the temperature channel: a rejected mode command has no
     # send timestamp, so its retry follows the failure backoff.
-    if should_send_mode and _cooler_retry_paced(
+    if should_send_mode and _cooler_retry_deferred(
         last_sent, "hvac_mode", desired_mode, now_monotonic
     ):
         _LOGGER.debug(
-            "better_thermostat %s: cooler %s deferring the set_hvac_mode retry "
-            "after %s consecutive failures",
+            "better_thermostat %s: cooler %s deferring set_hvac_mode at "
+            "failure-backoff step %s",
             self.device_name,
             self.cooler_entity_id,
             last_sent["hvac_mode_failed"][0],
