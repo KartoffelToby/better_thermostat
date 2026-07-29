@@ -3,7 +3,7 @@
 from time import monotonic
 from unittest.mock import AsyncMock, Mock
 
-from homeassistant.components.climate.const import HVACMode
+from homeassistant.components.climate.const import ClimateEntityFeature, HVACMode
 from homeassistant.const import UnitOfTemperature
 from homeassistant.core import State
 from homeassistant.exceptions import HomeAssistantError
@@ -44,9 +44,12 @@ def _make_mock_self(
     return mock_self
 
 
-def _make_cooler_state(state=HVACMode.COOL, temperature=None):
+def _make_cooler_state(state=HVACMode.COOL, temperature=None, target_temp_step=None):
     """Build a Home Assistant State for the cooler entity in control_cooler tests."""
-    return State("climate.cooler", str(state), {"temperature": temperature})
+    attributes = {"temperature": temperature}
+    if target_temp_step is not None:
+        attributes["target_temp_step"] = target_temp_step
+    return State("climate.cooler", str(state), attributes)
 
 
 class TestControlCooler:
@@ -429,3 +432,382 @@ class TestControlCoolerFahrenheit:
             c.args[1] for c in mock_hass.services.async_call.call_args_list
         ]
         assert "set_temperature" not in service_names
+
+    @pytest.mark.asyncio
+    async def test_reported_temp_within_the_device_step_is_not_resent(self):
+        """A setpoint snapped onto the device's °F step is unchanged.
+
+        The device step is a °F interval, so it is worth 0.56 K: 75 °F is
+        23.89 °C, which is the grid position the commanded 24.0 °C snaps to
+        and not a setpoint of its own.
+        """
+        mock_hass = Mock()
+        mock_hass.config.units.temperature_unit = UnitOfTemperature.FAHRENHEIT
+        mock_hass.services = Mock()
+        mock_hass.services.async_call = AsyncMock()
+        mock_hass.states.get.return_value = _make_cooler_state(
+            state=HVACMode.COOL, temperature=75, target_temp_step=1
+        )
+
+        mock_self = _make_mock_self(
+            mock_hass,
+            bt_hvac_mode=HVACMode.COOL,
+            cur_temp=25.0,
+            bt_target_cooltemp=24.0,
+        )
+
+        await control_cooler(mock_self)
+
+        service_names = [
+            c.args[1] for c in mock_hass.services.async_call.call_args_list
+        ]
+        assert "set_temperature" not in service_names
+
+    @pytest.mark.asyncio
+    async def test_setpoint_change_beyond_the_device_step_is_written(self):
+        """A setpoint the device cannot be holding is written immediately.
+
+        The step tolerance only absorbs the device's own snapping; a genuine
+        change has to reach the cooler on the first cycle.
+        """
+        mock_hass = Mock()
+        mock_hass.config.units.temperature_unit = UnitOfTemperature.FAHRENHEIT
+        mock_hass.services = Mock()
+        mock_hass.services.async_call = AsyncMock()
+        mock_hass.states.get.return_value = _make_cooler_state(
+            state=HVACMode.COOL, temperature=75, target_temp_step=1
+        )
+
+        mock_self = _make_mock_self(
+            mock_hass,
+            bt_hvac_mode=HVACMode.COOL,
+            cur_temp=25.0,
+            bt_target_cooltemp=22.0,
+        )
+
+        await control_cooler(mock_self)
+
+        payload = next(
+            c.args[2]
+            for c in mock_hass.services.async_call.call_args_list
+            if c.args[1] == "set_temperature"
+        )
+        assert payload == {"entity_id": "climate.cooler", "temperature": 71.6}
+
+
+_ATTRIBUTE_ABSENT = object()
+
+
+def _make_range_cooler_state(
+    state=HVACMode.COOL,
+    target_temp_high=None,
+    target_temp_low=None,
+    supported_features=ClimateEntityFeature.TARGET_TEMPERATURE_RANGE,
+    temperature=_ATTRIBUTE_ABSENT,
+    target_temp_step=None,
+):
+    """Build a cooler State that advertises a target range.
+
+    ``temperature`` defaults to an absent attribute; pass None to model a
+    dual-feature cooler running in range mode and a value to model one
+    driving its single setpoint.
+    """
+    attributes = {
+        "target_temp_high": target_temp_high,
+        "target_temp_low": target_temp_low,
+        "supported_features": int(supported_features),
+    }
+    if temperature is not _ATTRIBUTE_ABSENT:
+        attributes["temperature"] = temperature
+    if target_temp_step is not None:
+        attributes["target_temp_step"] = target_temp_step
+    return State("climate.cooler", str(state), attributes)
+
+
+class TestControlCoolerTargetRange:
+    """Payload selection for coolers that only accept a target range."""
+
+    @staticmethod
+    def _hass(unit=UnitOfTemperature.CELSIUS):
+        mock_hass = Mock()
+        mock_hass.config.units.temperature_unit = unit
+        mock_hass.services = Mock()
+        mock_hass.services.async_call = AsyncMock()
+        return mock_hass
+
+    @staticmethod
+    def _set_temperature_payload(mock_hass):
+        for call in mock_hass.services.async_call.call_args_list:
+            if call.args[1] == "set_temperature":
+                return call.args[2]
+        return None
+
+    @pytest.mark.asyncio
+    async def test_range_only_cooler_receives_both_bounds(self):
+        """A range-only cooler is written via target_temp_high/low.
+
+        Home Assistant rejects a "temperature" payload for such an entity, so
+        it would never receive a setpoint at all.
+        """
+        mock_hass = self._hass()
+        mock_hass.states.get.return_value = _make_range_cooler_state(
+            target_temp_high=28.0, target_temp_low=19.0
+        )
+
+        mock_self = _make_mock_self(
+            mock_hass, bt_target_cooltemp=24.0, bt_target_temp=20.0
+        )
+
+        await control_cooler(mock_self)
+
+        payload = self._set_temperature_payload(mock_hass)
+        assert payload == {
+            "entity_id": "climate.cooler",
+            "target_temp_high": 24.0,
+            "target_temp_low": 20.0,
+        }
+
+    @pytest.mark.asyncio
+    async def test_low_bound_never_exceeds_the_high_bound(self):
+        """A heating target above the cooling target is capped at it."""
+        mock_hass = self._hass()
+        mock_hass.states.get.return_value = _make_range_cooler_state(
+            target_temp_high=28.0, target_temp_low=19.0
+        )
+
+        mock_self = _make_mock_self(
+            mock_hass, bt_target_cooltemp=24.0, bt_target_temp=26.0
+        )
+
+        await control_cooler(mock_self)
+
+        payload = self._set_temperature_payload(mock_hass)
+        assert payload["target_temp_low"] == payload["target_temp_high"] == 24.0
+
+    @pytest.mark.asyncio
+    async def test_cooler_supporting_both_features_keeps_single_setpoint(self):
+        """A dual-feature cooler driving "temperature" gets the single payload."""
+        mock_hass = self._hass()
+        mock_hass.states.get.return_value = _make_range_cooler_state(
+            temperature=28.0,
+            target_temp_high=None,
+            target_temp_low=None,
+            supported_features=ClimateEntityFeature.TARGET_TEMPERATURE
+            | ClimateEntityFeature.TARGET_TEMPERATURE_RANGE,
+        )
+
+        mock_self = _make_mock_self(mock_hass, bt_target_cooltemp=24.0)
+
+        await control_cooler(mock_self)
+
+        payload = self._set_temperature_payload(mock_hass)
+        assert payload == {"entity_id": "climate.cooler", "temperature": 24.0}
+
+    @pytest.mark.asyncio
+    async def test_cooler_supporting_both_features_in_range_mode_gets_both_bounds(self):
+        """A dual-feature cooler in range mode is written via both bounds.
+
+        It publishes the channel it does not drive as None, so the setpoint is
+        read from target_temp_high and the write has to follow that channel;
+        writing "temperature" leaves the two sides permanently out of sync.
+        """
+        mock_hass = self._hass()
+        mock_hass.states.get.return_value = _make_range_cooler_state(
+            temperature=None,
+            target_temp_high=28.0,
+            target_temp_low=19.0,
+            supported_features=ClimateEntityFeature.TARGET_TEMPERATURE
+            | ClimateEntityFeature.TARGET_TEMPERATURE_RANGE,
+        )
+
+        mock_self = _make_mock_self(
+            mock_hass, bt_target_cooltemp=24.0, bt_target_temp=20.0
+        )
+
+        await control_cooler(mock_self)
+
+        payload = self._set_temperature_payload(mock_hass)
+        assert payload == {
+            "entity_id": "climate.cooler",
+            "target_temp_high": 24.0,
+            "target_temp_low": 20.0,
+        }
+
+    @pytest.mark.asyncio
+    async def test_cooler_without_feature_flags_keeps_single_setpoint(self):
+        """Without advertised features the single-setpoint payload is used."""
+        mock_hass = self._hass()
+        mock_hass.states.get.return_value = _make_cooler_state(temperature=28.0)
+
+        mock_self = _make_mock_self(mock_hass, bt_target_cooltemp=24.0)
+
+        await control_cooler(mock_self)
+
+        payload = self._set_temperature_payload(mock_hass)
+        assert payload == {"entity_id": "climate.cooler", "temperature": 24.0}
+
+    @pytest.mark.asyncio
+    async def test_range_payload_is_converted_to_fahrenheit(self):
+        """Both bounds are converted on a °F system."""
+        mock_hass = self._hass(UnitOfTemperature.FAHRENHEIT)
+        mock_hass.states.get.return_value = _make_range_cooler_state(
+            target_temp_high=82.4, target_temp_low=66.2
+        )
+
+        mock_self = _make_mock_self(
+            mock_hass, bt_target_cooltemp=24.0, bt_target_temp=20.0
+        )
+
+        await control_cooler(mock_self)
+
+        payload = self._set_temperature_payload(mock_hass)
+        assert payload["target_temp_high"] == 75.2  # 24.0 °C
+        assert payload["target_temp_low"] == 68.0  # 20.0 °C
+
+    @pytest.mark.asyncio
+    async def test_matching_range_setpoint_is_not_resent(self):
+        """The dedup reads the range key, so no redundant write is sent."""
+        mock_hass = self._hass()
+        mock_hass.states.get.return_value = _make_range_cooler_state(
+            target_temp_high=24.0, target_temp_low=20.0
+        )
+
+        mock_self = _make_mock_self(
+            mock_hass, bt_target_cooltemp=24.0, bt_target_temp=20.0
+        )
+
+        await control_cooler(mock_self)
+
+        assert self._set_temperature_payload(mock_hass) is None
+
+    @pytest.mark.asyncio
+    async def test_changed_lower_bound_alone_triggers_a_send(self):
+        """A heating target that moved is written even when cooling is unchanged.
+
+        Both bounds travel in one call, so a lower bound left behind on the
+        device would persist until the cooling target happens to change.
+        """
+        mock_hass = self._hass()
+        mock_hass.states.get.return_value = _make_range_cooler_state(
+            target_temp_high=24.0, target_temp_low=19.0
+        )
+
+        mock_self = _make_mock_self(
+            mock_hass, bt_target_cooltemp=24.0, bt_target_temp=21.0
+        )
+
+        await control_cooler(mock_self)
+
+        payload = self._set_temperature_payload(mock_hass)
+        assert payload == {
+            "entity_id": "climate.cooler",
+            "target_temp_high": 24.0,
+            "target_temp_low": 21.0,
+        }
+
+    @pytest.mark.asyncio
+    async def test_matching_bounds_are_not_resent(self):
+        """Both bounds in sync means nothing is written."""
+        mock_hass = self._hass()
+        mock_hass.states.get.return_value = _make_range_cooler_state(
+            target_temp_high=24.0, target_temp_low=20.0
+        )
+
+        mock_self = _make_mock_self(
+            mock_hass, bt_target_cooltemp=24.0, bt_target_temp=20.0
+        )
+
+        await control_cooler(mock_self)
+
+        assert self._set_temperature_payload(mock_hass) is None
+
+    @pytest.mark.asyncio
+    async def test_lower_bound_within_read_tolerance_is_not_resent(self):
+        """A bound that only differs by the read-back grid is unchanged.
+
+        The cooler advertises no step, so the comparison falls back to the
+        base tolerance: the device reports on convert_to_float's 0.01 grid
+        while BT holds the raw value, and exact inequality would resend on
+        every cycle.
+        """
+        mock_hass = self._hass()
+        mock_hass.states.get.return_value = _make_range_cooler_state(
+            target_temp_high=24.0, target_temp_low=19.99
+        )
+
+        mock_self = _make_mock_self(
+            mock_hass, bt_target_cooltemp=24.0, bt_target_temp=20.0
+        )
+
+        await control_cooler(mock_self)
+
+        assert self._set_temperature_payload(mock_hass) is None
+
+    @pytest.mark.asyncio
+    async def test_lower_bound_within_the_device_step_is_not_resent(self):
+        """A lower bound snapped onto the device's step is unchanged.
+
+        The cooler holds its bounds on a 0.5 K grid, so 20.5 is where the
+        commanded 20.3 lands and rewriting it would change nothing.
+        """
+        mock_hass = self._hass()
+        mock_hass.states.get.return_value = _make_range_cooler_state(
+            target_temp_high=24.0, target_temp_low=20.5, target_temp_step=0.5
+        )
+
+        mock_self = _make_mock_self(
+            mock_hass, bt_target_cooltemp=24.0, bt_target_temp=20.3
+        )
+
+        await control_cooler(mock_self)
+
+        assert self._set_temperature_payload(mock_hass) is None
+
+    @pytest.mark.asyncio
+    async def test_lower_bound_drift_is_not_throttled_as_a_resend(self):
+        """A lower bound left behind is written despite the resend interval.
+
+        last_sent_cooler_temp tracks the upper bound alone, so a payload armed
+        by the lower bound is not an identical resend and the interval must
+        not delay the user's heating-target change.
+        """
+        mock_hass = self._hass()
+        mock_hass.states.get.return_value = _make_range_cooler_state(
+            target_temp_high=24.0, target_temp_low=19.0
+        )
+
+        mock_self = _make_mock_self(
+            mock_hass,
+            bt_target_cooltemp=24.0,
+            bt_target_temp=21.0,
+            last_sent_cooler_temp=24.0,
+            last_sent_cooler_temp_ts=monotonic(),
+            min_cooler_resend_interval_s=300,
+        )
+
+        await control_cooler(mock_self)
+
+        payload = self._set_temperature_payload(mock_hass)
+        assert payload == {
+            "entity_id": "climate.cooler",
+            "target_temp_high": 24.0,
+            "target_temp_low": 21.0,
+        }
+
+    @pytest.mark.asyncio
+    async def test_lower_bound_is_ignored_for_single_setpoint_coolers(self):
+        """A single-setpoint cooler has no lower bound to keep in sync."""
+        mock_hass = self._hass()
+        mock_hass.states.get.return_value = State(
+            "climate.cooler",
+            str(HVACMode.COOL),
+            {"temperature": 24.0, "target_temp_low": 15.0},
+        )
+
+        mock_self = _make_mock_self(
+            mock_hass, bt_target_cooltemp=24.0, bt_target_temp=20.0
+        )
+
+        await control_cooler(mock_self)
+
+        assert self._set_temperature_payload(mock_hass) is None

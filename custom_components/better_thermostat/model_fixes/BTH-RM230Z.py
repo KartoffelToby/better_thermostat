@@ -10,7 +10,7 @@ import logging
 
 from custom_components.better_thermostat.utils.helpers import (
     celsius_to_system_temperature,
-    trv_supports_temperature_range,
+    supports_temperature_range,
 )
 
 _LOGGER = logging.getLogger(__name__)
@@ -88,7 +88,7 @@ async def override_set_temperature(self, entity_id, temperature):
         )
         return True
 
-    _supports_range = trv_supports_temperature_range(state)
+    _supports_range = supports_temperature_range(state)
 
     _LOGGER.debug(
         "better_thermostat %s: TRV %s device quirk bth-rm230z "

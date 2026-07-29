@@ -28,10 +28,15 @@ from custom_components.better_thermostat.utils.const import (
     CalibrationType,
 )
 from custom_components.better_thermostat.utils.helpers import (
+    SETPOINT_MATCH_TOLERANCE,
     attr_to_celsius,
     convert_to_float,
+    get_cooler_setpoint,
     get_current_set_temperatures,
     matches_any_setpoint,
+    state_temperature_unit,
+    supports_single_target_temperature,
+    supports_temperature_range,
 )
 
 _LOGGER = logging.getLogger(__name__)
@@ -258,6 +263,33 @@ async def control_queue(self):
             self.ignore_states = False
 
 
+def _device_setpoint_tolerance(self, state) -> float:
+    """Return the tolerance for comparing a commanded setpoint to a reported one.
+
+    A device snaps a written setpoint onto its own step grid, so a snapped
+    value sits at most half a step away from the value that was commanded.
+    SETPOINT_MATCH_TOLERANCE is the floor: it covers the read-back grid for
+    devices that report no usable step.
+    """
+    raw_step = state.attributes.get("target_temp_step")
+    step = (
+        convert_to_float(str(raw_step), self.device_name, "control_cooler()")
+        if raw_step is not None
+        else None
+    )
+    if step is None or step <= 0:
+        return SETPOINT_MATCH_TOLERANCE
+    if (
+        state_temperature_unit(
+            state.attributes, self.hass.config.units.temperature_unit
+        )
+        == UnitOfTemperature.FAHRENHEIT
+    ):
+        step = round(step * 5.0 / 9.0, 4)
+    # Slack against float noise when the difference is exactly half a step.
+    return max(SETPOINT_MATCH_TOLERANCE, step / 2.0 + 1e-6)
+
+
 async def control_cooler(self):
     """Control the cooler entity based on current temperature and cooling setpoint.
 
@@ -279,8 +311,20 @@ async def control_cooler(self):
     # Resolve the cooler's reported setpoint to Celsius before comparing it
     # against the Celsius desired value; on a Fahrenheit system the raw
     # attribute would never match and defeat the redundant-send dedup.
-    current_temp = attr_to_celsius(
-        self, cooler_state, "temperature", None, "control_cooler()"
+    current_temp = get_cooler_setpoint(self, cooler_state, "control_cooler()")
+
+    # A cooler that only advertises the range feature rejects a "temperature"
+    # payload with a ServiceValidationError, so it never receives a setpoint.
+    # Devices that advertise neither bit use the single-setpoint payload.
+    # A cooler advertising both publishes the channel it does not drive as
+    # None, so the write follows the channel the reading came from: writing
+    # the other one leaves the two sides permanently out of sync.
+    _write_range = supports_temperature_range(cooler_state) and (
+        not supports_single_target_temperature(cooler_state)
+        or (
+            cooler_state.attributes.get("temperature") is None
+            and cooler_state.attributes.get("target_temp_high") is not None
+        )
     )
 
     min_resend_interval_s = self.min_cooler_resend_interval_s
@@ -288,6 +332,18 @@ async def control_cooler(self):
 
     # Determine desired state based on current conditions
     desired_temp = self.bt_target_cooltemp
+
+    # A range write needs both bounds, and Home Assistant rejects a low bound
+    # above the high one. The heating target is the natural lower bound; it can
+    # only exceed the cooling target while the two are out of sync, so it is
+    # capped at the value being written.
+    _low_to_set = desired_temp
+    if (
+        _write_range
+        and desired_temp is not None
+        and isinstance(self.bt_target_temp, (int, float))
+    ):
+        _low_to_set = min(float(self.bt_target_temp), desired_temp)
 
     if any(
         v is None
@@ -323,6 +379,11 @@ async def control_cooler(self):
     # Decide whether a temperature command is needed. When the current
     # temperature is unknown, only send if the desired value changed since the
     # last successful command; otherwise send when it differs from current.
+    # The reported value comes back on convert_to_float's 0.01 grid, on a
+    # Fahrenheit system through a unit conversion on top, and snapped onto the
+    # device's own step grid, so both bounds are compared with the tolerance
+    # that grid allows.
+    _match_tolerance = _device_setpoint_tolerance(self, cooler_state)
     temp_changed_since_last_send = self.last_sent_cooler_temp != desired_temp
     should_send_temp = False
     if desired_temp is None:
@@ -342,14 +403,43 @@ async def control_cooler(self):
                 self.cooler_entity_id,
                 desired_temp,
             )
-    elif current_temp != desired_temp:
+    elif not matches_any_setpoint(current_temp, {desired_temp}, _match_tolerance):
         should_send_temp = True
 
+    # A range write carries both bounds, so a lower bound that drifted away
+    # from the heating target needs a send of its own: the cooling target can
+    # stay unchanged for as long as the user only moves the heating side.
+    _low_bound_drifted = False
+    if _write_range and desired_temp is not None and not should_send_temp:
+        current_low = attr_to_celsius(
+            self, cooler_state, "target_temp_low", None, "control_cooler()"
+        )
+        # The reported bound comes back on the device's grid while _low_to_set
+        # is BT's raw value, so the two are compared with the same tolerance
+        # the upper bound uses.
+        if current_low is not None and not matches_any_setpoint(
+            current_low, {_low_to_set}, _match_tolerance
+        ):
+            _LOGGER.debug(
+                "better_thermostat %s: cooler %s lower bound %s differs from %s, "
+                "sending both bounds",
+                self.device_name,
+                self.cooler_entity_id,
+                current_low,
+                _low_to_set,
+            )
+            should_send_temp = True
+            _low_bound_drifted = True
+
     # Throttle identical resends when the state feedback lags behind.
+    # last_sent_cooler_temp tracks the upper bound alone, so a send armed by
+    # the lower bound carries a payload that was never written before and is
+    # not a resend.
     if (
         should_send_temp
         and min_resend_interval_s > 0
         and not temp_changed_since_last_send
+        and not _low_bound_drifted
     ):
         last_temp_ts = self.last_sent_cooler_temp_ts
         if last_temp_ts is not None and (now_ts - last_temp_ts) < min_resend_interval_s:
@@ -372,17 +462,35 @@ async def control_cooler(self):
         )
         _temp_to_set = desired_temp
         if self.hass.config.units.temperature_unit == UnitOfTemperature.FAHRENHEIT:
-            _temp_to_set = TemperatureConverter.convert(
-                desired_temp, UnitOfTemperature.CELSIUS, UnitOfTemperature.FAHRENHEIT
+            _temp_to_set = round(
+                TemperatureConverter.convert(
+                    desired_temp,
+                    UnitOfTemperature.CELSIUS,
+                    UnitOfTemperature.FAHRENHEIT,
+                ),
+                1,
             )
-            _temp_to_set = round(_temp_to_set, 1)
+            _low_to_set = round(
+                TemperatureConverter.convert(
+                    _low_to_set, UnitOfTemperature.CELSIUS, UnitOfTemperature.FAHRENHEIT
+                ),
+                1,
+            )
+        if _write_range:
+            _payload = {
+                "entity_id": self.cooler_entity_id,
+                "target_temp_high": _temp_to_set,
+                "target_temp_low": _low_to_set,
+            }
+        else:
+            _payload = {"entity_id": self.cooler_entity_id, "temperature": _temp_to_set}
         # Only prime the send-cache on success. A failed call must not look like
         # a completed send, otherwise the nil-guard would suppress the retry.
         try:
             await self.hass.services.async_call(
                 "climate",
                 "set_temperature",
-                {"entity_id": self.cooler_entity_id, "temperature": _temp_to_set},
+                _payload,
                 blocking=True,
                 context=self.context,
             )
