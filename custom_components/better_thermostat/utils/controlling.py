@@ -74,8 +74,13 @@ RECONCILE_TOLERANCE_K = 0.05
 COOLER_RESEND_INTERVAL_S = 300.0
 # A rejected cooler command is not a completed send, so the resend throttle
 # cannot pace its retry. Consecutive failures on one channel are paced by
-# their own backoff instead: the first retry waits one resend interval, each
-# further one doubles the wait by this factor.
+# their own backoff instead, starting at this base. The base is deliberately
+# shorter than the resend interval: a rejected command never reached the
+# device, so there is no compressor window to respect, and the wait exists
+# only to keep a rate-limited endpoint from being retried on every cycle.
+COOLER_FAILURE_BACKOFF_BASE_S = 30.0
+# Growth of that backoff: the first retry waits the base, each further one
+# doubles the wait by this factor.
 COOLER_FAILURE_BACKOFF_FACTOR = 2.0
 # Ceiling of that backoff, half an hour. A channel that has been rejected
 # this often is not going to accept the next command either, so the run is
@@ -707,7 +712,7 @@ def _cooler_retry_paced(
     if not failures or failed_at is None or failed_wanted != wanted:
         return False
     wait = min(
-        COOLER_RESEND_INTERVAL_S * COOLER_FAILURE_BACKOFF_FACTOR ** (failures - 1),
+        COOLER_FAILURE_BACKOFF_BASE_S * COOLER_FAILURE_BACKOFF_FACTOR ** (failures - 1),
         COOLER_FAILURE_BACKOFF_MAX_S,
     )
     return (now_monotonic - failed_at) < wait

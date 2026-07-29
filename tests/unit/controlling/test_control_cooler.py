@@ -11,6 +11,7 @@ import pytest
 from custom_components.better_thermostat.core.clock import FakeClock
 from custom_components.better_thermostat.core.snapshot import HvacMode as CoreHvacMode
 from custom_components.better_thermostat.utils.controlling import (
+    COOLER_FAILURE_BACKOFF_BASE_S,
     COOLER_FAILURE_BACKOFF_MAX_S,
     COOLER_RESEND_INTERVAL_S,
     control_cooler,
@@ -621,7 +622,7 @@ class TestControlCoolerSendCache:
         """A failed command leaves the cache empty and is retried once paced.
 
         The retry follows the failure backoff rather than the resend
-        throttle, so it goes out one resend interval later.
+        throttle, so it goes out one backoff base later.
         """
         mock_self, mock_hass, _ = _make_cooler_setup(cooler_temp_attr=20.0)
 
@@ -633,7 +634,11 @@ class TestControlCoolerSendCache:
         assert last_sent_cooler_temperature(mock_self) is None
 
         mock_hass.services.async_call = AsyncMock()
-        mock_self.clock.monotonic_value += COOLER_RESEND_INTERVAL_S
+        mock_self.clock.monotonic_value += COOLER_FAILURE_BACKOFF_BASE_S / 2
+        await control_cooler(mock_self)
+        assert _service_calls(mock_hass, "set_temperature") == []
+
+        mock_self.clock.monotonic_value += COOLER_FAILURE_BACKOFF_BASE_S / 2
         await control_cooler(mock_self)
 
         assert len(_service_calls(mock_hass, "set_temperature")) == 1
@@ -702,37 +707,57 @@ class TestControlCoolerSendCache:
 
         mock_hass.services.async_call = AsyncMock(side_effect=accept_once_then_fail)
 
+        # Two hours: long enough for the backoff to reach its ceiling and hold
+        # there for a full wait, so the ceiling is measured rather than assumed.
         elapsed = 0.0
-        while elapsed < 3600.0:
+        while elapsed < 7200.0:
             mock_self.clock.monotonic_value = elapsed
             await control_cooler(mock_self)
             elapsed += 5.0
 
-        # 720 cycles in the hour; the cooler never applies anything, so every
-        # one of them would otherwise carry both commands.
+        # 1440 cycles in the two hours. The resend throttle alone would pace
+        # the first of them and nothing after that: its timestamp advances on
+        # a successful send only, so once the device starts rejecting it stops
+        # moving and every later cycle finds the window open — 1428 calls per
+        # channel, measured with the backoff disabled.
         for service, stamps in attempts.items():
-            assert len(stamps) <= 20, service
+            assert len(stamps) <= 12, service
             gaps = [b - a for a, b in zip(stamps, stamps[1:], strict=False)]
-            assert min(gaps) >= COOLER_RESEND_INTERVAL_S, service
-            assert max(gaps) <= COOLER_FAILURE_BACKOFF_MAX_S, service
-            # The spacing grows rather than staying at the resend interval.
+            assert min(gaps) >= COOLER_FAILURE_BACKOFF_BASE_S, service
+            # The run is long enough to be pinned at the ceiling.
+            assert max(gaps) == COOLER_FAILURE_BACKOFF_MAX_S, service
+            # The spacing grows rather than staying at the base.
             assert gaps[-1] > gaps[0], service
 
     @pytest.mark.asyncio
-    async def test_a_single_failure_still_retries_within_the_resend_interval(self):
-        """One rejection must not push the retry beyond the normal pacing."""
-        mock_self, mock_hass, _ = _make_cooler_setup(cooler_temp_attr=20.0)
+    async def test_one_transient_failure_does_not_defer_the_cooler_off(self):
+        """A hiccup on the way to OFF is retried well inside a resend interval.
+
+        The resend interval respects the compressor's protection window, and
+        a rejected command never reached the compressor: the backoff paces
+        the retry only so a rate-limited endpoint is not hammered, which is a
+        much shorter wait.
+        """
+        assert COOLER_FAILURE_BACKOFF_BASE_S < COOLER_RESEND_INTERVAL_S
+
+        mock_self, mock_hass, _ = _make_cooler_setup(
+            cooler_state=HVACMode.COOL, cooler_temp_attr=24.0, cur_temp=20.0
+        )
+        mock_self.bt_hvac_mode = HVACMode.OFF
 
         mock_hass.services.async_call = AsyncMock(
             side_effect=HomeAssistantError("device rejected the command")
         )
         await control_cooler(mock_self)
+        assert len(_service_calls(mock_hass, "set_hvac_mode")) == 1
 
         mock_hass.services.async_call = AsyncMock()
-        mock_self.clock.monotonic_value += COOLER_RESEND_INTERVAL_S
+        mock_self.clock.monotonic_value += COOLER_FAILURE_BACKOFF_BASE_S
         await control_cooler(mock_self)
 
-        assert len(_service_calls(mock_hass, "set_temperature")) == 1
+        mode_calls = _service_calls(mock_hass, "set_hvac_mode")
+        assert len(mode_calls) == 1
+        assert mode_calls[0].args[2]["hvac_mode"] == HVACMode.OFF
 
     @pytest.mark.asyncio
     async def test_a_changed_target_bypasses_the_failure_backoff(self):
@@ -790,21 +815,22 @@ class TestControlCoolerSendCache:
 
         mock_hass.services.async_call = AsyncMock(side_effect=fail_mode)
 
-        # Long enough for the backoff to double several times from the resend
-        # interval, and stepped far finer than the shortest wait.
-        window = COOLER_RESEND_INTERVAL_S * 8
-        step = COOLER_RESEND_INTERVAL_S / 10
+        # Long enough for the backoff to double several times from its base,
+        # and stepped far finer than the shortest wait.
+        window = COOLER_FAILURE_BACKOFF_BASE_S * 64
+        step = COOLER_FAILURE_BACKOFF_BASE_S / 5
         elapsed = 0.0
         while elapsed < window:
             mock_self.clock.monotonic_value = elapsed
             await control_cooler(mock_self)
             elapsed += step
 
-        # Without the backoff every one of those cycles would carry a command.
-        assert 1 < len(attempts) < window / COOLER_RESEND_INTERVAL_S
+        # The mode channel never gets a command through, so the resend
+        # throttle never starts: without the backoff every one of those
+        # cycles would carry a command.
+        assert 1 < len(attempts) < window / COOLER_FAILURE_BACKOFF_BASE_S
         gaps = [b - a for a, b in zip(attempts, attempts[1:], strict=False)]
-        assert min(gaps) >= COOLER_RESEND_INTERVAL_S
-        assert max(gaps) <= COOLER_FAILURE_BACKOFF_MAX_S
+        assert min(gaps) >= COOLER_FAILURE_BACKOFF_BASE_S
         assert gaps[-1] > gaps[0]
 
     @pytest.mark.asyncio
