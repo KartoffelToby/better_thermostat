@@ -290,10 +290,9 @@ def _reconcile_tolerance(self, state) -> float:
     unit = state_temperature_unit(
         state.attributes, self.hass.config.units.temperature_unit
     )
-    if unit is not None and unit != UnitOfTemperature.CELSIUS:
-        step = TemperatureConverter.convert_interval(
-            step, unit, UnitOfTemperature.CELSIUS
-        )
+    # A Kelvin interval equals a Celsius one, so only Fahrenheit scales.
+    if unit == UnitOfTemperature.FAHRENHEIT:
+        step = step * 5.0 / 9.0
     # Slack against float noise when the difference is exactly half a step.
     return max(RECONCILE_TOLERANCE_K, step / 2.0 + 1e-6)
 
