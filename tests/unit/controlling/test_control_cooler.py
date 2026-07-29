@@ -29,6 +29,17 @@ def _mock_cooler_state(state=HVACMode.COOL):
     return mock_cooler_state
 
 
+def _mock_bt():
+    """Build a bare Better Thermostat mock with the contact pinned shut.
+
+    An attribute a ``Mock`` was never given is a truthy child mock, so
+    ``contact_open`` has to be pinned or every cycle reads as an airing.
+    """
+    mock_self = Mock()
+    mock_self.contact_open = False
+    return mock_self
+
+
 class TestControlCooler:
     """Test control_cooler function."""
 
@@ -49,7 +60,7 @@ class TestControlCooler:
         mock_cooler_state.attributes = {"temperature": None}
         mock_hass.states.get.return_value = mock_cooler_state
 
-        mock_self = Mock()
+        mock_self = _mock_bt()
         mock_self.hass = mock_hass
         mock_self.real_trvs = {}
         mock_self.clock = FakeClock()
@@ -86,7 +97,7 @@ class TestControlCooler:
         mock_cooler_state.attributes = {"temperature": 24.0}
         mock_hass.states.get.return_value = mock_cooler_state
 
-        mock_self = Mock()
+        mock_self = _mock_bt()
         mock_self.hass = mock_hass
         mock_self.cooler_entity_id = "climate.cooler"
         mock_self.tolerance = 0.5
@@ -113,7 +124,7 @@ class TestControlCooler:
         mock_hass.services.async_call = AsyncMock()
         mock_hass.states.get.return_value = _mock_cooler_state(HVACMode.OFF)
 
-        mock_self = Mock()
+        mock_self = _mock_bt()
         mock_self.hass = mock_hass
         mock_self.real_trvs = {}
         mock_self.clock = FakeClock()
@@ -156,7 +167,7 @@ class TestControlCooler:
         mock_hass.services.async_call = AsyncMock()
         mock_hass.states.get.return_value = _mock_cooler_state()
 
-        mock_self = Mock()
+        mock_self = _mock_bt()
         mock_self.hass = mock_hass
         mock_self.real_trvs = {}
         mock_self.clock = FakeClock()
@@ -186,7 +197,7 @@ class TestControlCooler:
         mock_hass.services.async_call = AsyncMock()
         mock_hass.states.get.return_value = _mock_cooler_state()
 
-        mock_self = Mock()
+        mock_self = _mock_bt()
         mock_self.hass = mock_hass
         mock_self.real_trvs = {}
         mock_self.clock = FakeClock()
@@ -224,7 +235,7 @@ class TestControlCooler:
         mock_hass.services.async_call = AsyncMock()
         mock_hass.states.get.return_value = _mock_cooler_state(HVACMode.OFF)
 
-        mock_self = Mock()
+        mock_self = _mock_bt()
         mock_self.hass = mock_hass
         mock_self.real_trvs = {}
         mock_self.clock = FakeClock()
@@ -258,7 +269,7 @@ class TestControlCooler:
         mock_context = Mock()
         mock_context.id = "test_context_id"
 
-        mock_self = Mock()
+        mock_self = _mock_bt()
         mock_self.hass = mock_hass
         mock_self.real_trvs = {}
         mock_self.clock = FakeClock()
@@ -282,7 +293,7 @@ class TestControlCooler:
         mock_hass.services.async_call = AsyncMock()
         mock_hass.states.get.return_value = _mock_cooler_state()
 
-        mock_self = Mock()
+        mock_self = _mock_bt()
         mock_self.hass = mock_hass
         mock_self.real_trvs = {}
         mock_self.clock = FakeClock()
@@ -315,7 +326,7 @@ class TestControlCooler:
         mock_hass.services.async_call = AsyncMock()
         mock_hass.states.get.return_value = _mock_cooler_state(HVACMode.OFF)
 
-        mock_self = Mock()
+        mock_self = _mock_bt()
         mock_self.hass = mock_hass
         mock_self.real_trvs = {}
         mock_self.clock = FakeClock()
@@ -390,7 +401,7 @@ def _make_cooler_setup(
     )
     mock_hass.states.get.return_value = mock_cooler_state
 
-    mock_self = Mock()
+    mock_self = _mock_bt()
     mock_self.hass = mock_hass
     mock_self.real_trvs = {}
     mock_self.clock = FakeClock()
@@ -983,6 +994,92 @@ class TestControlCoolerSendCache:
 
         with pytest.raises(asyncio.CancelledError):
             await control_cooler(mock_self)
+
+
+class TestControlCoolerContactSuppression:
+    """An open window or door suppresses the cooler as it does the TRVs."""
+
+    @pytest.mark.asyncio
+    async def test_open_contact_turns_a_running_cooler_off(self):
+        """A room that cannot reach its target must not keep the unit running."""
+        mock_self, mock_hass, _ = _make_cooler_setup(cooler_state=HVACMode.COOL)
+        mock_self.contact_open = True
+
+        await control_cooler(mock_self)
+
+        modes = _service_calls(mock_hass, "set_hvac_mode")
+        assert [c.args[2]["hvac_mode"] for c in modes] == [HVACMode.OFF]
+
+    @pytest.mark.asyncio
+    async def test_open_contact_does_not_start_the_cooler(self):
+        """The suppression holds for a unit that is already off."""
+        mock_self, mock_hass, _ = _make_cooler_setup(cooler_state=HVACMode.OFF)
+        mock_self.contact_open = True
+
+        await control_cooler(mock_self)
+
+        assert _service_calls(mock_hass, "set_hvac_mode") == []
+
+    @pytest.mark.asyncio
+    async def test_closed_contact_still_cools(self):
+        """The gate must not swallow the normal demand."""
+        mock_self, mock_hass, _ = _make_cooler_setup(cooler_state=HVACMode.OFF)
+
+        await control_cooler(mock_self)
+
+        modes = _service_calls(mock_hass, "set_hvac_mode")
+        assert [c.args[2]["hvac_mode"] for c in modes] == [HVACMode.COOL]
+
+    @pytest.mark.asyncio
+    async def test_open_contact_writes_no_setpoint(self):
+        """A suppressed cooler receives no setpoint, so a dial turn survives."""
+        mock_self, mock_hass, _ = _make_cooler_setup(
+            cooler_state=HVACMode.COOL, cooler_temp_attr=28.0, target_cooltemp=25.0
+        )
+        mock_self.contact_open = True
+
+        await control_cooler(mock_self)
+
+        assert _service_calls(mock_hass, "set_temperature") == []
+
+    @pytest.mark.asyncio
+    async def test_closed_contact_resumes_the_setpoint_write(self):
+        """The temperature channel comes back on the cycle the contact shuts."""
+        mock_self, mock_hass, _ = _make_cooler_setup(
+            cooler_state=HVACMode.COOL, cooler_temp_attr=28.0, target_cooltemp=25.0
+        )
+        mock_self.contact_open = True
+        await control_cooler(mock_self)
+        assert _service_calls(mock_hass, "set_temperature") == []
+
+        mock_self.contact_open = False
+        await control_cooler(mock_self)
+
+        temps = _service_calls(mock_hass, "set_temperature")
+        assert [c.args[2]["temperature"] for c in temps] == [25.0]
+
+    @pytest.mark.asyncio
+    async def test_a_held_contact_commands_off_once_over_several_cycles(self):
+        """A whole airing is one command, not a write per cycle.
+
+        The clock passes the resend interval between cycles, so the quiet
+        that follows the first command is the suppression's doing and not
+        the throttle's.
+        """
+        mock_self, mock_hass, cooler_state = _make_cooler_setup(
+            cooler_state=HVACMode.COOL, cooler_temp_attr=28.0, target_cooltemp=25.0
+        )
+        mock_self.contact_open = True
+
+        for _ in range(4):
+            await control_cooler(mock_self)
+            # The unit answers the command the way a real one would.
+            cooler_state.state = HVACMode.OFF
+            mock_self.clock.advance(COOLER_RESEND_INTERVAL_S + 1.0)
+
+        modes = _service_calls(mock_hass, "set_hvac_mode")
+        assert [c.args[2]["hvac_mode"] for c in modes] == [HVACMode.OFF]
+        assert _service_calls(mock_hass, "set_temperature") == []
 
 
 class TestControlCoolerModeHysteresis:
