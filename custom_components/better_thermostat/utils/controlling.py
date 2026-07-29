@@ -1090,15 +1090,17 @@ async def control_cooler(self, snapshot=None):
         else:
             last_sent["temperature"] = (temp_to_send, now_monotonic)
             last_sent.pop("temperature_failed", None)
+            # A fresh send invalidates the settled reading of the channels it
+            # carried; the device answers those anew. A single-setpoint
+            # payload carries no lower bound, so it says nothing about the
+            # bound's settled reading.
+            last_sent.pop("temperature_settled", None)
             if _write_range:
                 last_sent["target_temp_low"] = (
                     cooler_low_bound(temp_to_send, target_temp),
                     now_monotonic,
                 )
-            # A fresh send invalidates the previously settled readings; the
-            # device answers anew.
-            last_sent.pop("temperature_settled", None)
-            last_sent.pop("target_temp_low_settled", None)
+                last_sent.pop("target_temp_low_settled", None)
 
     # Decide whether an hvac_mode command is needed, throttling identical
     # resends the same way as temperature commands.
