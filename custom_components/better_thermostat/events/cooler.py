@@ -13,8 +13,13 @@ from homeassistant.const import UnitOfTemperature
 from homeassistant.core import State, callback
 
 from custom_components.better_thermostat.utils.helpers import (
+    COOLER_SETPOINT_KEYS,
     convert_to_float,
-    get_cooler_setpoint,
+    normalize_step,
+    read_setpoint_celsius,
+    resolve_inbound_setpoint,
+    resolve_state_change_event,
+    setpoint_echo_window,
     state_temperature_unit,
 )
 
@@ -38,9 +43,8 @@ def _get_cooler_step(self, state: State) -> float:
     ):
         step = round(step * 5.0 / 9.0, 4)
     if step is None or step <= 0:
-        fallback = self.bt_target_temp_step
-        step = fallback if isinstance(fallback, (int, float)) and fallback > 0 else 0.5
-    return float(step)
+        return normalize_step(self.bt_target_temp_step)
+    return step
 
 
 @callback
@@ -50,98 +54,65 @@ async def trigger_cooler_change(self, event):
         return
     if self.control_queue_task is None:
         return
-    _main_change = False
-    old_state = event.data.get("old_state")
-    new_state = event.data.get("new_state")
-    entity_id = event.data.get("entity_id")
 
-    if new_state is None or old_state is None:
-        _LOGGER.debug(
-            "better_thermostat %s: Cooler %s update contained not all "
-            "necessary data for processing, skipping",
-            self.device_name,
-            entity_id,
-        )
+    resolved_event = resolve_state_change_event(self, event, "Cooler")
+    if resolved_event is None:
         return
-
-    if not isinstance(new_state, State) or not isinstance(old_state, State):
-        _LOGGER.debug(
-            "better_thermostat %s: Cooler %s update contained not a State, skipping",
-            self.device_name,
-            entity_id,
-        )
-        return
-
-    if new_state.attributes is None:
-        _LOGGER.debug(
-            "better_thermostat %s: Cooler %s update had no attributes, skipping",
-            self.device_name,
-            entity_id,
-        )
-        return
-
-    # Skip updates that BT itself triggered: our own service calls carry
-    # self.context, so a matching context means this is an echo of our write.
-    if self.context == event.context:
-        return
+    old_state, new_state, entity_id = resolved_event
 
     _LOGGER.debug(
         "better_thermostat %s: Cooler %s update received", self.device_name, entity_id
     )
 
-    _old_cooling_setpoint = get_cooler_setpoint(
-        self, old_state, "trigger_cooler_change()"
+    _main_change = False
+    _step = _get_cooler_step(self, new_state)
+    # The previous state only answers whether the cooler was publishing a
+    # setpoint at all, so it is read without clamping or echo detection.
+    _old_cooling_setpoint = read_setpoint_celsius(
+        self, old_state, COOLER_SETPOINT_KEYS, "trigger_cooler_change()"
     )
-    _new_cooling_setpoint = get_cooler_setpoint(
-        self, new_state, "trigger_cooler_change()"
+    _new_cooling_setpoint = resolve_inbound_setpoint(
+        self,
+        new_state,
+        keys=COOLER_SETPOINT_KEYS,
+        known_values=(self.bt_target_cooltemp, self.last_sent_cooler_temp),
+        step=_step,
+        log_source="trigger_cooler_change()",
     )
     if (
         _new_cooling_setpoint is not None
         and _old_cooling_setpoint is not None
         and self.bt_hvac_mode != HVACMode.OFF
     ):
-        _step = _get_cooler_step(self, new_state)
-        # Adopt only what a user set on the cooler itself. A value within one
-        # step of a setpoint BT wrote is the device reporting our own write
-        # back: rounded to its own grid, or delayed until a poll that carries a
-        # foreign context and therefore passes the context check above. User
-        # input moves the setpoint by at least one step.
-        _bt_known_values = (self.bt_target_cooltemp, self.last_sent_cooler_temp)
-        _is_echo = any(
-            isinstance(value, (int, float))
-            and abs(_new_cooling_setpoint - value) < _step
-            for value in _bt_known_values
-        )
         _LOGGER.debug(
             "better_thermostat %s: trigger_cooler_change / "
             "_old_cooling_setpoint: %s - _new_cooling_setpoint: %s - "
             "bt_target_cooltemp: %s - last_sent: %s - step: %s - echo: %s",
             self.device_name,
             _old_cooling_setpoint,
-            _new_cooling_setpoint,
+            _new_cooling_setpoint.value,
             self.bt_target_cooltemp,
             self.last_sent_cooler_temp,
             _step,
-            _is_echo,
+            _new_cooling_setpoint.is_echo,
         )
-        if not _is_echo:
-            if (
-                _new_cooling_setpoint < self.bt_min_temp
-                or self.bt_max_temp < _new_cooling_setpoint
-            ):
+        # The cooler handler has no device-side gate of its own, so an event
+        # that republishes the same setpoint — an attribute refresh, a mode
+        # change, a temperature push — must not be read as user intent: a
+        # stale report would otherwise revert a BT-side target that has not
+        # been written yet.
+        _reported_moved = abs(
+            _new_cooling_setpoint.raw - _old_cooling_setpoint
+        ) >= setpoint_echo_window(_step)
+        if not _new_cooling_setpoint.is_echo and _reported_moved:
+            if _new_cooling_setpoint.clamped:
                 _LOGGER.warning(
                     "better_thermostat %s: New Cooler %s setpoint outside of range, "
                     "overwriting it",
                     self.device_name,
                     entity_id,
                 )
-
-                if _new_cooling_setpoint < self.bt_min_temp:
-                    _new_cooling_setpoint = self.bt_min_temp
-                else:
-                    _new_cooling_setpoint = self.bt_max_temp
-
-            self.bt_target_cooltemp = _new_cooling_setpoint
+            self.bt_target_cooltemp = _new_cooling_setpoint.value
             self._enforce_heat_below_cool()
             _main_change = True
 

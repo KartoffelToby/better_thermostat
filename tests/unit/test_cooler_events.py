@@ -488,6 +488,29 @@ class TestEchoSuppression:
         mock_bt.control_queue_task.put.assert_not_awaited()
 
     @pytest.mark.asyncio
+    async def test_report_of_an_unchanged_setpoint_does_not_revert_bt(self, mock_bt):
+        """A cooler republishing its old setpoint does not undo a BT-side change.
+
+        The send cache is written only after a successful service call, so
+        between a BT-side target change and that write it still holds the
+        previous value. Only a setpoint the cooler itself moved is user input.
+        """
+        mock_bt.bt_target_cooltemp = 27.0
+        mock_bt.last_sent_cooler_temp = None
+        old_state = _make_state(
+            attributes={"temperature": 25.0, "current_temperature": 26.0}
+        )
+        new_state = _make_state(
+            attributes={"temperature": 25.0, "current_temperature": 26.5}
+        )
+        event = _make_event(mock_bt, new_state=new_state, old_state=old_state)
+
+        await trigger_cooler_change(mock_bt, event)
+
+        assert mock_bt.bt_target_cooltemp == 27.0
+        mock_bt.control_queue_task.put.assert_not_awaited()
+
+    @pytest.mark.asyncio
     async def test_user_change_of_one_full_step_is_adopted(self, mock_bt):
         """A change of at least one device step is user input."""
         mock_bt.bt_target_cooltemp = 24.0
@@ -526,6 +549,30 @@ class TestCoolerUnitHandling:
         await trigger_cooler_change(mock_bt, event)
 
         assert mock_bt.bt_target_cooltemp == 20.0
+        mock_bt.control_queue_task.put.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    async def test_one_fahrenheit_press_is_adopted(self, mock_bt):
+        """A single press on a 1 °F cooler moves the cool target.
+
+        75 °F and 76 °F read back as 23.89 °C and 24.44 °C, 0.55 apart, while
+        the converted step is 0.5556 — a full step of user input lands below
+        the step itself.
+        """
+        mock_bt.hass.config.units.temperature_unit = UnitOfTemperature.FAHRENHEIT
+        mock_bt.bt_target_cooltemp = 23.89
+        mock_bt.last_sent_cooler_temp = 23.89
+        old_state = _make_state(
+            attributes={"temperature": 75.0, "target_temp_step": 1.0}
+        )
+        new_state = _make_state(
+            attributes={"temperature": 76.0, "target_temp_step": 1.0}
+        )
+        event = _make_event(mock_bt, new_state=new_state, old_state=old_state)
+
+        await trigger_cooler_change(mock_bt, event)
+
+        assert mock_bt.bt_target_cooltemp == 24.44
         mock_bt.control_queue_task.put.assert_awaited_once()
 
     @pytest.mark.asyncio

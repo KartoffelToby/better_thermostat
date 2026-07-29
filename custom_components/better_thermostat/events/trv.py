@@ -28,12 +28,17 @@ from custom_components.better_thermostat.utils.const import (
     CalibrationType,
 )
 from custom_components.better_thermostat.utils.helpers import (
+    TRV_SETPOINT_KEYS,
     attr_to_celsius,
     convert_to_float,
     get_device_model,
     group_all_members_off,
     is_reasonable_temperature,
     mode_remap,
+    normalize_step,
+    read_setpoint_celsius,
+    resolve_inbound_setpoint,
+    resolve_state_change_event,
 )
 
 _LOGGER = logging.getLogger(__name__)
@@ -51,32 +56,10 @@ async def trigger_trv_change(self, event):
     if self.bt_update_lock:
         return
     _main_change = False
-    old_state = event.data.get("old_state")
-    new_state = event.data.get("new_state")
-    entity_id = event.data.get("entity_id")
-
-    if new_state is None or old_state is None or new_state.attributes is None:
-        _LOGGER.debug(
-            "better_thermostat %s: TRV %s update contained not all necessary data for processing, skipping",
-            self.device_name,
-            entity_id,
-        )
+    resolved_event = resolve_state_change_event(self, event, "TRV")
+    if resolved_event is None:
         return
-
-    if not isinstance(new_state, State) or not isinstance(old_state, State):
-        _LOGGER.debug(
-            "better_thermostat %s: TRV %s update contained not a State, skipping",
-            self.device_name,
-            entity_id,
-        )
-        return
-
-    # Skip updates that BT itself triggered: our own service calls carry
-    # self.context, so a matching context means this is an echo of our write.
-    if self.context == event.context:
-        return
-
-    # _LOGGER.debug(f"better_thermostat {self.device_name}: TRV {entity_id} update received")
+    old_state, new_state, entity_id = resolved_event
 
     _org_trv_state = self.hass.states.get(entity_id)
     if _org_trv_state is None:
@@ -267,19 +250,26 @@ async def trigger_trv_change(self, event):
             ):
                 self.bt_hvac_mode = mapped_state
 
-    _main_key = "temperature"
-    if "temperature" not in old_state.attributes:
-        _main_key = "target_temp_low"
-
-    _old_heating_setpoint = attr_to_celsius(
-        self, old_state, _main_key, None, "trigger_trv_change()"
+    # The previous state only answers whether the TRV was publishing a setpoint
+    # at all, so it is read without clamping or echo detection.
+    _old_heating_setpoint = read_setpoint_celsius(
+        self, old_state, TRV_SETPOINT_KEYS, "trigger_trv_change()"
     )
-    _new_heating_setpoint = attr_to_celsius(
-        self, new_state, _main_key, None, "trigger_trv_change()"
+    # Compare only against values BT itself wrote. ``_old_heating_setpoint`` is
+    # the TRV's previously published state and is not necessarily a BT-written
+    # value, so it does not belong in the echo-suppression set.
+    _step = normalize_step(trv.target_temp_step or self.bt_target_temp_step)
+    _setpoint = resolve_inbound_setpoint(
+        self,
+        new_state,
+        keys=TRV_SETPOINT_KEYS,
+        known_values=(self.bt_target_temp, trv.last_temperature),
+        step=_step,
+        log_source="trigger_trv_change()",
     )
     _is_no_off_device = advanced.get("no_off_system_mode", False)
     if (
-        _new_heating_setpoint is not None
+        _setpoint is not None
         and _old_heating_setpoint is not None
         and (self.bt_hvac_mode != HVACMode.OFF or _is_no_off_device)
     ):
@@ -287,47 +277,15 @@ async def trigger_trv_change(self, event):
             "better_thermostat %s: trigger_trv_change / _old_heating_setpoint: %s - _new_heating_setpoint: %s - _last_temperature: %s",
             self.device_name,
             _old_heating_setpoint,
-            _new_heating_setpoint,
+            _setpoint.value,
             trv.last_temperature,
         )
-        # Preserve the device's raw reported setpoint before range clamping;
-        # no_off OFF detection must compare against the device's true min_temp,
-        # not a value the clamp may have raised into [bt_min_temp, bt_max_temp].
-        _raw_heating_setpoint = _new_heating_setpoint
-        if (
-            _new_heating_setpoint < self.bt_min_temp
-            or self.bt_max_temp < _new_heating_setpoint
-        ):
-            _LOGGER.warning(
-                "better_thermostat %s: New TRV %s setpoint outside of range, overwriting it",
-                self.device_name,
-                entity_id,
-            )
-
-            if _new_heating_setpoint < self.bt_min_temp:
-                _new_heating_setpoint = self.bt_min_temp
-            else:
-                _new_heating_setpoint = self.bt_max_temp
-
-        # Step-aware echo detection: changes strictly smaller than the device
-        # step are treated as device-side rounding echoes of a BT-written
-        # value, not as user input. User input on a TRV display moves the
-        # setpoint by at least one step.
-        _step_raw = trv.target_temp_step or self.bt_target_temp_step or 0.5
-        try:
-            _step = float(_step_raw)
-        except TypeError, ValueError:
-            _step = 0.5
-        if _step <= 0:
-            _step = 0.5
-        # Compare only against values BT itself wrote. ``_old_heating_setpoint``
-        # is the TRV's previously published state and is not necessarily a
-        # BT-written value, so it does not belong in the echo-suppression set.
-        _bt_known_values = (self.bt_target_temp, trv.last_temperature)
-        _is_echo = any(
-            v is not None and abs(_new_heating_setpoint - v) < _step
-            for v in _bt_known_values
-        )
+        # The no_off OFF detection compares against the device's true min_temp,
+        # so it uses the reported value, not one the clamp may have raised into
+        # [bt_min_temp, bt_max_temp].
+        _raw_heating_setpoint = _setpoint.raw
+        _new_heating_setpoint = _setpoint.value
+        _is_echo = _setpoint.is_echo
         _accept_user_setpoint = (
             not _is_echo
             and not child_lock
@@ -338,6 +296,12 @@ async def trigger_trv_change(self, event):
             and not trv.ignore_trv_states
         )
         if _accept_user_setpoint:
+            if _setpoint.clamped:
+                _LOGGER.warning(
+                    "better_thermostat %s: New TRV %s setpoint outside of range, overwriting it",
+                    self.device_name,
+                    entity_id,
+                )
             _LOGGER.debug(
                 "better_thermostat %s: TRV %s decoded TRV target temp changed from %s to %s",
                 self.device_name,
