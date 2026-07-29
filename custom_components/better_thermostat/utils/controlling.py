@@ -62,6 +62,16 @@ RECONCILE_TOLERANCE_K = 0.05
 # suppressed while the device's state feedback lags. A changed desired
 # value always sends immediately.
 COOLER_RESEND_INTERVAL_S = 30.0
+# A rejected cooler command is not a completed send, so the resend throttle
+# cannot pace its retry. Consecutive failures on one channel are paced by
+# their own backoff instead: the first retry waits one resend interval, each
+# further one doubles the wait by this factor.
+COOLER_FAILURE_BACKOFF_FACTOR = 2.0
+# Ceiling of that backoff. It matches the slowest cadence at which Better
+# Thermostat re-evaluates on its own, so a device that stops rejecting
+# commands is picked up within one periodic control cycle no matter how long
+# it was failing.
+COOLER_FAILURE_BACKOFF_MAX_S = 300.0
 # A cooler may snap a received setpoint onto its own step grid (e.g. 0.5 °C,
 # or a whole-°F grid). A post-send reading within this distance of the sent
 # value counts as that device-side quantization, not as an unapplied command.
@@ -645,9 +655,10 @@ def cooler_send_cache(self) -> dict:
     """Return the cooler send-cache, creating it on first use.
 
     Holds the last successfully sent command per channel as
-    ``(value, monotonic_timestamp)`` for the resend throttle, plus the settled
-    reading of the temperature channel. Created lazily because only
-    cooler-equipped instances need it.
+    ``(value, monotonic_timestamp)`` for the resend throttle, the settled
+    reading of each written channel, and each channel's run of consecutive
+    send failures as ``(count, monotonic_timestamp)``. Created lazily because
+    only cooler-equipped instances need it.
     """
     last_sent = getattr(self, "_cooler_last_sent", None)
     if not isinstance(last_sent, dict):
@@ -660,6 +671,38 @@ def last_sent_cooler_temperature(self) -> float | None:
     """Return the cooling setpoint BT last wrote to the cooler, in °C."""
     value = cooler_send_cache(self).get("temperature", (None, None))[0]
     return value if isinstance(value, (int, float)) else None
+
+
+def _cooler_retry_paced(
+    last_sent: dict, channel: str, wanted, now_monotonic: float
+) -> bool:
+    """Whether a channel's backoff still bars the retry of a failed command.
+
+    A rejected command leaves no send timestamp behind, so the resend
+    throttle cannot pace it; this backoff does. The wait grows with the run
+    of consecutive failures, so a device that rejects every write — a cloud
+    air conditioner over its rate limit, for instance — is not retried harder
+    than one that merely lags. Only the identical command is paced: a value
+    BT has not put on the wire yet is a new command, not a retry.
+    """
+    failures, failed_at, failed_wanted = last_sent.get(
+        f"{channel}_failed", (0, None, None)
+    )
+    if not failures or failed_at is None or failed_wanted != wanted:
+        return False
+    wait = min(
+        COOLER_RESEND_INTERVAL_S * COOLER_FAILURE_BACKOFF_FACTOR ** (failures - 1),
+        COOLER_FAILURE_BACKOFF_MAX_S,
+    )
+    return (now_monotonic - failed_at) < wait
+
+
+def _record_cooler_failure(
+    last_sent: dict, channel: str, wanted, now_monotonic: float
+) -> None:
+    """Extend a channel's run of consecutive send failures."""
+    failures = last_sent.get(f"{channel}_failed", (0, None, None))[0]
+    last_sent[f"{channel}_failed"] = (failures + 1, now_monotonic, wanted)
 
 
 async def control_cooler(self, snapshot=None):
@@ -860,6 +903,25 @@ async def control_cooler(self, snapshot=None):
         )
         temp_to_send = None
 
+    # The command the payload would carry, in °C, as the failure backoff
+    # compares it: a rejected send leaves the send cache untouched, so the
+    # attempted command is what tells a retry from a new command.
+    _temp_wanted = None
+    if temp_to_send is not None:
+        _temp_wanted = (
+            temp_to_send,
+            cooler_low_bound(temp_to_send, target_temp) if _write_range else None,
+        )
+        if _cooler_retry_paced(last_sent, "temperature", _temp_wanted, now_monotonic):
+            _LOGGER.debug(
+                "better_thermostat %s: cooler %s deferring the set_temperature retry "
+                "after %s consecutive failures",
+                self.device_name,
+                self.cooler_entity_id,
+                last_sent["temperature_failed"][0],
+            )
+            temp_to_send = None
+
     if temp_to_send is not None:
         _LOGGER.debug(
             "better_thermostat %s: TO COOLER set_temperature: %s from: %s to: %s",
@@ -895,10 +957,11 @@ async def control_cooler(self, snapshot=None):
             _payload = {"entity_id": self.cooler_entity_id, "temperature": _temp_to_set}
         # Only prime the send-cache on success. A failed call must not look
         # like a completed send, otherwise the throttle would suppress the
-        # retry. Any exception from this one service call is isolated
-        # (cloud integrations propagate raw errors such as ConnectionError)
-        # so the hvac_mode command below still runs; CancelledError derives
-        # from BaseException and propagates.
+        # retry; its run of failures is recorded instead, which paces the
+        # retry without pretending the command arrived. Any exception from
+        # this one service call is isolated (cloud integrations propagate raw
+        # errors such as ConnectionError) so the hvac_mode command below still
+        # runs; CancelledError derives from BaseException and propagates.
         try:
             await self.hass.services.async_call(
                 "climate",
@@ -908,21 +971,25 @@ async def control_cooler(self, snapshot=None):
                 context=self.context,
             )
         except Exception as err:
+            _record_cooler_failure(
+                last_sent, "temperature", _temp_wanted, now_monotonic
+            )
             _LOGGER.warning(
                 "better_thermostat %s: set_temperature for cooler %s failed (%s); "
-                "will retry on the next cycle",
+                "will retry on a later cycle",
                 self.device_name,
                 self.cooler_entity_id,
                 err,
             )
         else:
             last_sent["temperature"] = (temp_to_send, now_monotonic)
+            last_sent.pop("temperature_failed", None)
             if _write_range:
                 last_sent["target_temp_low"] = (
                     cooler_low_bound(temp_to_send, target_temp),
                     now_monotonic,
                 )
-            # A fresh send invalidates the previously settled reading; the
+            # A fresh send invalidates the previously settled readings; the
             # device answers anew.
             last_sent.pop("temperature_settled", None)
 
@@ -947,6 +1014,20 @@ async def control_cooler(self, snapshot=None):
         )
         should_send_mode = False
 
+    # Same pacing as the temperature channel: a rejected mode command has no
+    # send timestamp, so its retry follows the failure backoff.
+    if should_send_mode and _cooler_retry_paced(
+        last_sent, "hvac_mode", desired_mode, now_monotonic
+    ):
+        _LOGGER.debug(
+            "better_thermostat %s: cooler %s deferring the set_hvac_mode retry "
+            "after %s consecutive failures",
+            self.device_name,
+            self.cooler_entity_id,
+            last_sent["hvac_mode_failed"][0],
+        )
+        should_send_mode = False
+
     if should_send_mode:
         _LOGGER.debug(
             "better_thermostat %s: TO COOLER set_hvac_mode: %s from: %s to: %s",
@@ -966,15 +1047,17 @@ async def control_cooler(self, snapshot=None):
                 context=self.context,
             )
         except Exception as err:
+            _record_cooler_failure(last_sent, "hvac_mode", desired_mode, now_monotonic)
             _LOGGER.warning(
                 "better_thermostat %s: set_hvac_mode for cooler %s failed (%s); "
-                "will retry on the next cycle",
+                "will retry on a later cycle",
                 self.device_name,
                 self.cooler_entity_id,
                 err,
             )
         else:
             last_sent["hvac_mode"] = (desired_mode, now_monotonic)
+            last_sent.pop("hvac_mode_failed", None)
 
 
 async def control_trv(self, heater_entity_id=None, cycle=None):
