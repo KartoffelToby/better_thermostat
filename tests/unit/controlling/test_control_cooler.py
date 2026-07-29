@@ -781,20 +781,31 @@ class TestControlCoolerSendCache:
             cooler_state=HVACMode.OFF, cooler_temp_attr=24.0
         )
 
+        attempts: list[float] = []
+
         async def fail_mode(domain, service, data, **kwargs):
             if service == "set_hvac_mode":
+                attempts.append(mock_self.clock.monotonic_value)
                 raise ConnectionError("cloud rate limit reached")
 
         mock_hass.services.async_call = AsyncMock(side_effect=fail_mode)
 
+        # Long enough for the backoff to double several times from the resend
+        # interval, and stepped far finer than the shortest wait.
+        window = COOLER_RESEND_INTERVAL_S * 8
+        step = COOLER_RESEND_INTERVAL_S / 10
         elapsed = 0.0
-        while elapsed < 300.0:
+        while elapsed < window:
             mock_self.clock.monotonic_value = elapsed
             await control_cooler(mock_self)
-            elapsed += 5.0
+            elapsed += step
 
-        # Attempts at 0, 30, 90, 210 within the first 300 s.
-        assert len(_service_calls(mock_hass, "set_hvac_mode")) == 4
+        # Without the backoff every one of those cycles would carry a command.
+        assert 1 < len(attempts) < window / COOLER_RESEND_INTERVAL_S
+        gaps = [b - a for a, b in zip(attempts, attempts[1:], strict=False)]
+        assert min(gaps) >= COOLER_RESEND_INTERVAL_S
+        assert max(gaps) <= COOLER_FAILURE_BACKOFF_MAX_S
+        assert gaps[-1] > gaps[0]
 
     @pytest.mark.asyncio
     async def test_cancellation_during_service_call_propagates(self):

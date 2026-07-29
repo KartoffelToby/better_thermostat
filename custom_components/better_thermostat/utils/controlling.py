@@ -61,17 +61,27 @@ RECONCILE_TOLERANCE_K = 0.05
 # service call (no reconciler in between), so an identical command is
 # suppressed while the device's state feedback lags. A changed desired
 # value always sends immediately.
-COOLER_RESEND_INTERVAL_S = 30.0
+#
+# An air conditioner protects its compressor by ignoring commands for
+# several minutes after a mode change, so re-asserting inside that window
+# cannot achieve anything: manufacturers state three minutes, and dedicated
+# thermostats hold the compressor off for four to five. The interval sits at
+# the top of that band, and stays below the reconcile and watchdog periods
+# so it never becomes the slowest timer in the system. A device that applies
+# what it is told never reaches it — the timestamp only advances on a send,
+# so a converged cooler leaves the window permanently open and a divergence
+# is still corrected on the next cycle.
+COOLER_RESEND_INTERVAL_S = 300.0
 # A rejected cooler command is not a completed send, so the resend throttle
 # cannot pace its retry. Consecutive failures on one channel are paced by
 # their own backoff instead: the first retry waits one resend interval, each
 # further one doubles the wait by this factor.
 COOLER_FAILURE_BACKOFF_FACTOR = 2.0
-# Ceiling of that backoff. It matches the slowest cadence at which Better
-# Thermostat re-evaluates on its own, so a device that stops rejecting
-# commands is picked up within one periodic control cycle no matter how long
-# it was failing.
-COOLER_FAILURE_BACKOFF_MAX_S = 300.0
+# Ceiling of that backoff, half an hour. A channel that has been rejected
+# this often is not going to accept the next command either, so the run is
+# paced well beyond the resend interval; a device that starts working again
+# is picked up on the following attempt.
+COOLER_FAILURE_BACKOFF_MAX_S = 1800.0
 # A cooler may snap a received setpoint onto its own step grid (e.g. 0.5 °C,
 # or a whole-°F grid). A post-send reading within this distance of the sent
 # value counts as that device-side quantization, not as an unapplied command.
