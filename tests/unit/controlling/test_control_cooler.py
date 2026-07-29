@@ -11,8 +11,12 @@ import pytest
 from custom_components.better_thermostat.core.clock import FakeClock
 from custom_components.better_thermostat.core.snapshot import HvacMode as CoreHvacMode
 from custom_components.better_thermostat.utils.controlling import (
+    COOLER_FAILURE_BACKOFF_BASE_S,
+    COOLER_FAILURE_BACKOFF_MAX_RUN,
+    COOLER_FAILURE_BACKOFF_MAX_S,
     COOLER_RESEND_INTERVAL_S,
     control_cooler,
+    last_sent_cooler_temperature,
 )
 from tests.factories import make_snapshot
 
@@ -616,7 +620,11 @@ class TestControlCoolerSendCache:
 
     @pytest.mark.asyncio
     async def test_failed_send_does_not_prime_the_send_cache(self):
-        """A failed command is retried on the next cycle despite the throttle."""
+        """A failed command leaves the cache empty and is retried once paced.
+
+        The retry follows the failure backoff rather than the resend
+        throttle, so it goes out one backoff base later.
+        """
         mock_self, mock_hass, _ = _make_cooler_setup(cooler_temp_attr=20.0)
 
         mock_hass.services.async_call = AsyncMock(
@@ -624,10 +632,18 @@ class TestControlCoolerSendCache:
         )
         await control_cooler(mock_self)
 
+        assert last_sent_cooler_temperature(mock_self) is None
+
         mock_hass.services.async_call = AsyncMock()
+        mock_self.clock.monotonic_value += COOLER_FAILURE_BACKOFF_BASE_S / 2
+        await control_cooler(mock_self)
+        assert _service_calls(mock_hass, "set_temperature") == []
+
+        mock_self.clock.monotonic_value += COOLER_FAILURE_BACKOFF_BASE_S / 2
         await control_cooler(mock_self)
 
         assert len(_service_calls(mock_hass, "set_temperature")) == 1
+        assert last_sent_cooler_temperature(mock_self) == 24.0
 
     @pytest.mark.asyncio
     async def test_connection_error_on_set_temperature_still_attempts_hvac_mode(self):
@@ -670,6 +686,293 @@ class TestControlCoolerSendCache:
         assert len(_service_calls(mock_hass, "set_hvac_mode")) == 1
 
     @pytest.mark.asyncio
+    async def test_run_of_failures_is_paced_by_an_exponential_backoff(self):
+        """A device rejecting every write is retried ever more slowly.
+
+        A rejected command primes no send timestamp, so the resend throttle
+        cannot pace it. Without a backoff of its own the retry would go out
+        on every control cycle — hammering exactly the cloud device whose
+        rate limit caused the rejection in the first place.
+        """
+        mock_self, mock_hass, _ = _make_cooler_setup(
+            cooler_state=HVACMode.OFF, cooler_temp_attr=20.0
+        )
+        accepted = set()
+        attempts: dict[str, list[float]] = {"set_temperature": [], "set_hvac_mode": []}
+
+        async def accept_once_then_fail(domain, service, data, **kwargs):
+            attempts[service].append(mock_self.clock.monotonic_value)
+            if service in accepted:
+                raise ConnectionError("cloud rate limit reached")
+            accepted.add(service)
+
+        mock_hass.services.async_call = AsyncMock(side_effect=accept_once_then_fail)
+
+        # Two hours: long enough for the backoff to reach its ceiling and hold
+        # there for a full wait, so the ceiling is measured rather than assumed.
+        elapsed = 0.0
+        while elapsed < 7200.0:
+            mock_self.clock.monotonic_value = elapsed
+            await control_cooler(mock_self)
+            elapsed += 5.0
+
+        # 1440 cycles in the two hours. The resend throttle alone would pace
+        # the first of them and nothing after that: its timestamp advances on
+        # a successful send only, so once the device starts rejecting it stops
+        # moving and every later cycle finds the window open — 1393 calls per
+        # channel, measured with the backoff disabled.
+        for service, stamps in attempts.items():
+            assert len(stamps) <= 12, service
+            gaps = [b - a for a, b in zip(stamps, stamps[1:], strict=False)]
+            assert min(gaps) >= COOLER_FAILURE_BACKOFF_BASE_S, service
+            # The run is long enough to be pinned at the ceiling.
+            assert max(gaps) == COOLER_FAILURE_BACKOFF_MAX_S, service
+            # The spacing grows rather than staying at the base.
+            assert gaps[-1] > gaps[0], service
+
+    @pytest.mark.asyncio
+    async def test_one_transient_failure_does_not_defer_the_cooler_off(self):
+        """A hiccup on the way to OFF is retried well inside a resend interval.
+
+        The resend interval respects the compressor's protection window, and
+        a rejected command never reached the compressor: the backoff paces
+        the retry only so a rate-limited endpoint is not hammered, which is a
+        much shorter wait.
+        """
+        assert COOLER_FAILURE_BACKOFF_BASE_S < COOLER_RESEND_INTERVAL_S
+
+        mock_self, mock_hass, _ = _make_cooler_setup(
+            cooler_state=HVACMode.COOL, cooler_temp_attr=24.0, cur_temp=20.0
+        )
+        mock_self.bt_hvac_mode = HVACMode.OFF
+
+        mock_hass.services.async_call = AsyncMock(
+            side_effect=HomeAssistantError("device rejected the command")
+        )
+        await control_cooler(mock_self)
+        assert len(_service_calls(mock_hass, "set_hvac_mode")) == 1
+
+        mock_hass.services.async_call = AsyncMock()
+        mock_self.clock.monotonic_value += COOLER_FAILURE_BACKOFF_BASE_S
+        await control_cooler(mock_self)
+
+        mode_calls = _service_calls(mock_hass, "set_hvac_mode")
+        assert len(mode_calls) == 1
+        assert mode_calls[0].args[2]["hvac_mode"] == HVACMode.OFF
+
+    @pytest.mark.asyncio
+    async def test_a_changed_target_only_waits_the_backoff_base(self):
+        """A new setpoint is a new command and skips the run's grown wait.
+
+        It does not skip the base, though: a channel whose last attempt was
+        rejected keeps its floor whatever the payload says, so a desired
+        value alternating between two rejected commands cannot buy itself a
+        write on every cycle.
+        """
+        mock_self, mock_hass, _ = _make_cooler_setup(cooler_temp_attr=20.0)
+
+        mock_hass.services.async_call = AsyncMock(
+            side_effect=HomeAssistantError("device rejected the command")
+        )
+        for _ in range(4):
+            mock_self.clock.monotonic_value += COOLER_FAILURE_BACKOFF_MAX_S
+            await control_cooler(mock_self)
+
+        # A run of four: the same setpoint would now wait eight bases.
+        mock_hass.services.async_call = AsyncMock()
+        mock_self.bt_target_cooltemp = 23.0
+        await control_cooler(mock_self)
+        assert _service_calls(mock_hass, "set_temperature") == []
+
+        mock_self.clock.monotonic_value += COOLER_FAILURE_BACKOFF_BASE_S
+        await control_cooler(mock_self)
+
+        temp_calls = _service_calls(mock_hass, "set_temperature")
+        assert len(temp_calls) == 1
+        assert temp_calls[0].args[2]["temperature"] == 23.0
+
+    @pytest.mark.asyncio
+    async def test_a_different_rejected_command_starts_its_own_run(self):
+        """The counter counts the run the gate prices.
+
+        A command replacing the rejected one resets the run: the gate prices
+        the retry of that command as the first of a run, so a counter that
+        kept adding to the run before it would describe something else.
+        """
+        mock_self, mock_hass, _ = _make_cooler_setup(cooler_temp_attr=20.0)
+        mock_hass.services.async_call = AsyncMock(
+            side_effect=HomeAssistantError("device rejected the command")
+        )
+
+        for _ in range(4):
+            mock_self.clock.monotonic_value += COOLER_FAILURE_BACKOFF_MAX_S
+            await control_cooler(mock_self)
+
+        # A different setpoint is rejected once: a run of one, not of five.
+        mock_self.bt_target_cooltemp = 23.0
+        mock_self.clock.monotonic_value += COOLER_FAILURE_BACKOFF_BASE_S
+        await control_cooler(mock_self)
+
+        mock_hass.services.async_call = AsyncMock()
+        mock_self.clock.monotonic_value += COOLER_FAILURE_BACKOFF_BASE_S
+        await control_cooler(mock_self)
+
+        assert len(_service_calls(mock_hass, "set_temperature")) == 1
+
+    @pytest.mark.asyncio
+    async def test_a_long_run_of_failures_cannot_overflow_the_backoff(self):
+        """The run stops counting before the exponent leaves float range.
+
+        The control queue swallows whatever control_cooler raises, so an
+        arithmetic error here would take cooler control out until the next
+        reload — and a device that rejects every write reaches the exponent
+        that overflows in about three weeks.
+        """
+        mock_self, mock_hass, _ = _make_cooler_setup(cooler_temp_attr=20.0)
+        mock_hass.services.async_call = AsyncMock(
+            side_effect=HomeAssistantError("device rejected the command")
+        )
+
+        attempts = 1100
+        for _ in range(attempts):
+            mock_self.clock.monotonic_value += COOLER_FAILURE_BACKOFF_MAX_S
+            await control_cooler(mock_self)
+
+        assert len(_service_calls(mock_hass, "set_temperature")) == attempts
+        assert (
+            mock_self._cooler_last_sent["temperature_failed"][0]
+            == COOLER_FAILURE_BACKOFF_MAX_RUN
+        )
+
+    @pytest.mark.asyncio
+    async def test_a_successful_temperature_send_clears_the_failure_run(self):
+        """Recovery makes the next failure the first of a new run.
+
+        A run that survived recovery would price the retry after the next
+        single failure at the wait the old run had grown to, so the fresh run
+        has to be measured while it is still short.
+        """
+        mock_self, mock_hass, _ = _make_cooler_setup(cooler_temp_attr=20.0)
+
+        _fail = AsyncMock(side_effect=HomeAssistantError("device rejected the command"))
+        mock_hass.services.async_call = _fail
+        for _ in range(4):
+            mock_self.clock.monotonic_value += COOLER_FAILURE_BACKOFF_MAX_S
+            await control_cooler(mock_self)
+
+        mock_hass.services.async_call = AsyncMock()
+        mock_self.clock.monotonic_value += COOLER_FAILURE_BACKOFF_MAX_S
+        await control_cooler(mock_self)
+        assert len(_service_calls(mock_hass, "set_temperature")) == 1
+
+        # One rejection after the recovery: a run of one, so the retry waits
+        # a single base rather than the eight the cleared run had reached.
+        mock_hass.services.async_call = _fail
+        mock_self.clock.monotonic_value += COOLER_RESEND_INTERVAL_S
+        await control_cooler(mock_self)
+
+        mock_hass.services.async_call = AsyncMock()
+        mock_self.clock.monotonic_value += COOLER_FAILURE_BACKOFF_BASE_S
+        await control_cooler(mock_self)
+
+        assert len(_service_calls(mock_hass, "set_temperature")) == 1
+
+    @pytest.mark.asyncio
+    async def test_a_successful_mode_send_clears_the_failure_run(self):
+        """The mode channel clears its run the same way the temperature does."""
+        mock_self, mock_hass, _ = _make_cooler_setup(
+            cooler_state=HVACMode.OFF, cooler_temp_attr=24.0
+        )
+
+        _fail = AsyncMock(side_effect=HomeAssistantError("device rejected the command"))
+        mock_hass.services.async_call = _fail
+        for _ in range(4):
+            mock_self.clock.monotonic_value += COOLER_FAILURE_BACKOFF_MAX_S
+            await control_cooler(mock_self)
+
+        mock_hass.services.async_call = AsyncMock()
+        mock_self.clock.monotonic_value += COOLER_FAILURE_BACKOFF_MAX_S
+        await control_cooler(mock_self)
+        assert len(_service_calls(mock_hass, "set_hvac_mode")) == 1
+
+        mock_hass.services.async_call = _fail
+        mock_self.clock.monotonic_value += COOLER_RESEND_INTERVAL_S
+        await control_cooler(mock_self)
+
+        mock_hass.services.async_call = AsyncMock()
+        mock_self.clock.monotonic_value += COOLER_FAILURE_BACKOFF_BASE_S
+        await control_cooler(mock_self)
+
+        assert len(_service_calls(mock_hass, "set_hvac_mode")) == 1
+
+    @pytest.mark.asyncio
+    async def test_the_backoff_keys_on_both_bounds_of_a_range_payload(self):
+        """A range write carries the heating target, so the key must too.
+
+        The payload the device rejected and the payload a moved heating
+        target produces differ in the lower bound alone; a key blind to it
+        would price the second as a retry of the first.
+        """
+        mock_self, mock_hass, _ = _make_cooler_setup(
+            cooler_attributes=_range_attributes(
+                target_temp_high=20.0, target_temp_low=19.0
+            ),
+            target_cooltemp=24.0,
+            target_temp=20.0,
+        )
+
+        mock_hass.services.async_call = AsyncMock(
+            side_effect=HomeAssistantError("device rejected the command")
+        )
+        for _ in range(4):
+            mock_self.clock.monotonic_value += COOLER_FAILURE_BACKOFF_MAX_S
+            await control_cooler(mock_self)
+
+        # A run of four on (24.0, 20.0): that payload would wait eight bases.
+        mock_hass.services.async_call = AsyncMock()
+        mock_self.bt_target_temp = 21.0
+        mock_self.clock.monotonic_value += COOLER_FAILURE_BACKOFF_BASE_S
+        await control_cooler(mock_self)
+
+        temp_calls = _service_calls(mock_hass, "set_temperature")
+        assert len(temp_calls) == 1
+        assert temp_calls[0].args[2]["target_temp_low"] == 21.0
+
+    @pytest.mark.asyncio
+    async def test_failed_mode_command_is_paced_by_its_own_backoff(self):
+        """The mode channel carries the same backoff as the temperature one."""
+        mock_self, mock_hass, _ = _make_cooler_setup(
+            cooler_state=HVACMode.OFF, cooler_temp_attr=24.0
+        )
+
+        attempts: list[float] = []
+
+        async def fail_mode(domain, service, data, **kwargs):
+            if service == "set_hvac_mode":
+                attempts.append(mock_self.clock.monotonic_value)
+                raise ConnectionError("cloud rate limit reached")
+
+        mock_hass.services.async_call = AsyncMock(side_effect=fail_mode)
+
+        # Long enough for the backoff to double several times from its base,
+        # and stepped far finer than the shortest wait.
+        window = COOLER_FAILURE_BACKOFF_BASE_S * 64
+        step = COOLER_FAILURE_BACKOFF_BASE_S / 5
+        elapsed = 0.0
+        while elapsed < window:
+            mock_self.clock.monotonic_value = elapsed
+            await control_cooler(mock_self)
+            elapsed += step
+
+        # The mode channel never gets a command through, so the resend
+        # throttle never starts and every one of the 320 cycles would carry a
+        # command; the backoff brings that down to a handful.
+        assert 1 < len(attempts) < 10
+        gaps = [b - a for a, b in zip(attempts, attempts[1:], strict=False)]
+        assert min(gaps) >= COOLER_FAILURE_BACKOFF_BASE_S
+        assert gaps[-1] > gaps[0]
+
+    @pytest.mark.asyncio
     async def test_cancellation_during_service_call_propagates(self):
         """CancelledError is not swallowed by the per-call error isolation."""
         mock_self, mock_hass, _ = _make_cooler_setup(
@@ -680,6 +983,172 @@ class TestControlCoolerSendCache:
 
         with pytest.raises(asyncio.CancelledError):
             await control_cooler(mock_self)
+
+
+class TestControlCoolerModeHysteresis:
+    """The COOL/OFF decision spans a band rather than a single threshold."""
+
+    # target_cooltemp - tolerance for the values _make_cooler_setup uses.
+    SWITCH_ON_AT = 23.5
+
+    @staticmethod
+    def _make_compliant(mock_hass, cooler_state):
+        """Let the fake cooler apply whatever it is commanded."""
+
+        async def apply(domain, service, data, **kwargs):
+            if service == "set_hvac_mode":
+                cooler_state.state = data["hvac_mode"]
+            else:
+                cooler_state.attributes = {"temperature": data["temperature"]}
+
+        mock_hass.services.async_call = AsyncMock(side_effect=apply)
+
+    @pytest.mark.asyncio
+    async def test_room_temp_resting_on_the_threshold_is_not_written_every_cycle(self):
+        """A hundredth of a degree of sensor noise must not drive the cooler.
+
+        A changed desired mode bypasses the resend throttle by design, so a
+        single threshold turns every flip into a write — and a fully
+        compliant device gets commanded at the whole control-cycle rate.
+        """
+        mock_self, mock_hass, cooler_state = _make_cooler_setup(
+            cooler_state=HVACMode.OFF, cooler_temp_attr=24.0, target_cooltemp=24.0
+        )
+        self._make_compliant(mock_hass, cooler_state)
+
+        cycles = 0
+        elapsed = 0.0
+        while elapsed < 3600.0:
+            mock_self.clock.monotonic_value = elapsed
+            mock_self.cur_temp = self.SWITCH_ON_AT + (
+                0.005 if cycles % 2 == 0 else -0.005
+            )
+            await control_cooler(mock_self)
+            elapsed += 5.0
+            cycles += 1
+
+        assert cycles == 720
+        assert len(_service_calls(mock_hass, "set_hvac_mode")) == 1
+
+    @pytest.mark.asyncio
+    async def test_cooling_stops_once_the_room_leaves_the_band(self):
+        """The band delays the switch-off, it does not prevent it."""
+        mock_self, mock_hass, cooler_state = _make_cooler_setup(
+            cooler_state=HVACMode.OFF, cooler_temp_attr=24.0, target_cooltemp=24.0
+        )
+        self._make_compliant(mock_hass, cooler_state)
+
+        await control_cooler(mock_self)
+        assert (
+            _service_calls(mock_hass, "set_hvac_mode")[-1].args[2]["hvac_mode"]
+            == HVACMode.COOL
+        )
+
+        # Just below the switch-on point but still inside the band.
+        mock_self.cur_temp = self.SWITCH_ON_AT - 0.1
+        mock_self.clock.monotonic_value += COOLER_RESEND_INTERVAL_S
+        await control_cooler(mock_self)
+        assert len(_service_calls(mock_hass, "set_hvac_mode")) == 1
+
+        # Below the band.
+        mock_self.cur_temp = self.SWITCH_ON_AT - 0.25
+        mock_self.clock.monotonic_value += COOLER_RESEND_INTERVAL_S
+        await control_cooler(mock_self)
+
+        mode_calls = _service_calls(mock_hass, "set_hvac_mode")
+        assert len(mode_calls) == 2
+        assert mode_calls[-1].args[2]["hvac_mode"] == HVACMode.OFF
+
+    @pytest.mark.asyncio
+    async def test_the_band_does_not_delay_the_switch_on(self):
+        """The band widens the COOL state, it does not narrow the way into it.
+
+        A band applied in both directions would hold the cooler off until the
+        room had climbed a further band width past the switch-on point, which
+        is not the deadband the tolerance asks for.
+        """
+        mock_self, mock_hass, cooler_state = _make_cooler_setup(
+            cooler_state=HVACMode.OFF, cooler_temp_attr=24.0, target_cooltemp=24.0
+        )
+        self._make_compliant(mock_hass, cooler_state)
+
+        # Well below the band, so the decision the band reads is OFF.
+        mock_self.cur_temp = self.SWITCH_ON_AT - 1.0
+        await control_cooler(mock_self)
+        assert _service_calls(mock_hass, "set_hvac_mode") == []
+
+        # Exactly on the switch-on point.
+        mock_self.cur_temp = self.SWITCH_ON_AT
+        mock_self.clock.monotonic_value += COOLER_RESEND_INTERVAL_S
+        await control_cooler(mock_self)
+
+        mode_calls = _service_calls(mock_hass, "set_hvac_mode")
+        assert len(mode_calls) == 1
+        assert mode_calls[0].args[2]["hvac_mode"] == HVACMode.COOL
+
+    @pytest.mark.asyncio
+    async def test_an_alternating_decision_is_not_written_every_cycle(self):
+        """A cooler in a mode BT never commands must not defeat the band.
+
+        ``dry`` is neither COOL nor OFF, so the device differs from whatever
+        BT decides and every cycle wants to write. A band that read the last
+        successful send would never move on a device that accepts nothing:
+        the room resting on the switch-on point would flip the decision every
+        cycle, and each flip would reach the retry gate as a new command
+        rather than as a retry.
+        """
+        mock_self, mock_hass, _ = _make_cooler_setup(
+            cooler_state="dry", cooler_temp_attr=24.0, target_cooltemp=24.0
+        )
+        attempts: list[float] = []
+
+        async def always_fail(domain, service, data, **kwargs):
+            if service == "set_hvac_mode":
+                attempts.append(mock_self.clock.monotonic_value)
+            raise ConnectionError("cloud rate limit reached")
+
+        mock_hass.services.async_call = AsyncMock(side_effect=always_fail)
+
+        cycles = 0
+        elapsed = 0.0
+        while elapsed < 3600.0:
+            mock_self.clock.monotonic_value = elapsed
+            mock_self.cur_temp = self.SWITCH_ON_AT + (
+                0.005 if cycles % 2 == 0 else -0.005
+            )
+            await control_cooler(mock_self)
+            elapsed += 5.0
+            cycles += 1
+
+        assert cycles == 720
+        # Paced by the failure backoff instead of by the control-cycle rate.
+        assert len(attempts) < 10
+        gaps = [b - a for a, b in zip(attempts, attempts[1:], strict=False)]
+        assert min(gaps) >= COOLER_FAILURE_BACKOFF_BASE_S
+
+    @pytest.mark.asyncio
+    async def test_the_band_follows_the_decided_mode_not_the_reported_one(self):
+        """An externally switched-off cooler is put back into the band's state.
+
+        The device's reported mode lags a command and can be changed from
+        outside Better Thermostat, so reading the band's state off it would
+        abandon cooling inside the band.
+        """
+        mock_self, mock_hass, cooler_state = _make_cooler_setup(
+            cooler_state=HVACMode.OFF, cooler_temp_attr=24.0, target_cooltemp=24.0
+        )
+        self._make_compliant(mock_hass, cooler_state)
+
+        await control_cooler(mock_self)
+
+        cooler_state.state = HVACMode.OFF
+        mock_self.cur_temp = self.SWITCH_ON_AT - 0.1
+        mock_self.clock.monotonic_value += COOLER_RESEND_INTERVAL_S
+        await control_cooler(mock_self)
+
+        mode_calls = _service_calls(mock_hass, "set_hvac_mode")
+        assert len(mode_calls) == 2
+        assert mode_calls[-1].args[2]["hvac_mode"] == HVACMode.COOL
 
 
 class TestControlCoolerTargetRange:
@@ -948,6 +1417,113 @@ class TestControlCoolerTargetRange:
         await control_cooler(mock_self)
 
         assert self._set_temperature_payload(mock_hass) is None
+
+    @pytest.mark.asyncio
+    async def test_quantizing_range_cooler_is_written_as_rarely_as_a_single_one(self):
+        """The lower bound carries the same quantization latch as the setpoint.
+
+        A cooler that snaps what it receives onto its own grid reports no
+        step to derive a tolerance from, so its bound never matches the
+        written one exactly. Without a latch on the bound the whole payload
+        goes out on every resend interval for as long as the cooler is
+        configured, while a single-setpoint cooler quantizing by the same
+        amount is written once.
+        """
+        quantization = 0.3
+        resend_intervals = 20
+
+        async def _writes(cooler_attributes):
+            mock_self, mock_hass, _ = _make_cooler_setup(
+                cooler_attributes=cooler_attributes,
+                target_cooltemp=24.0,
+                target_temp=20.0,
+            )
+            for _ in range(resend_intervals):
+                await control_cooler(mock_self)
+                mock_self.clock.monotonic_value += COOLER_RESEND_INTERVAL_S
+            return len(_service_calls(mock_hass, "set_temperature"))
+
+        single_setpoint = await _writes({"temperature": 24.0 - quantization})
+        target_range = await _writes(
+            _range_attributes(
+                target_temp_high=24.0 - quantization,
+                target_temp_low=20.0 - quantization,
+            )
+        )
+
+        assert single_setpoint == 1
+        assert target_range == single_setpoint
+
+    @pytest.mark.asyncio
+    async def test_settled_lower_bound_does_not_swallow_a_moved_heating_target(self):
+        """The latch answers for the bound BT wrote, not for a new one.
+
+        A heating target the user moved makes the bound a new command, so it
+        reaches the cooler on the next cycle regardless of what the device
+        settled at.
+        """
+        mock_self, mock_hass, _ = _make_cooler_setup(
+            cooler_attributes=_range_attributes(
+                target_temp_high=23.7, target_temp_low=19.7
+            ),
+            target_cooltemp=24.0,
+            target_temp=20.0,
+        )
+
+        await control_cooler(mock_self)
+        mock_self.clock.monotonic_value += COOLER_RESEND_INTERVAL_S
+        await control_cooler(mock_self)
+        assert len(_service_calls(mock_hass, "set_temperature")) == 1
+
+        mock_self.bt_target_temp = 21.0
+        await control_cooler(mock_self)
+
+        temp_calls = _service_calls(mock_hass, "set_temperature")
+        assert len(temp_calls) == 2
+        assert temp_calls[1].args[2] == {
+            "entity_id": "climate.cooler",
+            "target_temp_high": 24.0,
+            "target_temp_low": 21.0,
+        }
+
+    @pytest.mark.asyncio
+    async def test_a_settled_lower_bound_that_moves_is_written_again(self):
+        """The latch answers for the reading it was taken at, not forever.
+
+        A bound that leaves the reading the device settled on was moved by
+        something other than Better Thermostat, so it is a divergence the
+        latch has no answer for.
+        """
+        mock_self, mock_hass, mock_cooler_state = _make_cooler_setup(
+            cooler_attributes=_range_attributes(
+                target_temp_high=23.7, target_temp_low=19.7
+            ),
+            target_cooltemp=24.0,
+            target_temp=20.0,
+        )
+
+        await control_cooler(mock_self)
+        # The device answered both bounds on its own grid; the latch takes.
+        mock_self.clock.monotonic_value += 1.0
+        await control_cooler(mock_self)
+        mock_self.clock.monotonic_value += COOLER_RESEND_INTERVAL_S
+        await control_cooler(mock_self)
+        assert len(_service_calls(mock_hass, "set_temperature")) == 1
+
+        # The lower bound leaves the reading it settled on.
+        mock_cooler_state.attributes = _range_attributes(
+            target_temp_high=23.7, target_temp_low=18.0
+        )
+        mock_self.clock.monotonic_value += COOLER_RESEND_INTERVAL_S
+        await control_cooler(mock_self)
+
+        temp_calls = _service_calls(mock_hass, "set_temperature")
+        assert len(temp_calls) == 2
+        assert temp_calls[1].args[2] == {
+            "entity_id": "climate.cooler",
+            "target_temp_high": 24.0,
+            "target_temp_low": 20.0,
+        }
 
     @pytest.mark.asyncio
     async def test_drifted_lower_bound_outlives_quantization_acceptance(self):

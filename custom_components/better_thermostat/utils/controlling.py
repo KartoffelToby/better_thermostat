@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 from dataclasses import replace
 import logging
+import math
 
 from homeassistant.components.climate.const import HVACMode
 from homeassistant.const import STATE_UNAVAILABLE, STATE_UNKNOWN, UnitOfTemperature
@@ -59,13 +60,60 @@ MIN_WRITE_INTERVAL_S = 30.0
 RECONCILE_TOLERANCE_K = 0.05
 # Resend throttle for the cooler path: cooler commands go straight to the
 # service call (no reconciler in between), so an identical command is
-# suppressed while the device's state feedback lags. A changed desired
-# value always sends immediately.
-COOLER_RESEND_INTERVAL_S = 30.0
+# suppressed while the device's state feedback lags. A changed desired value
+# passes this throttle untouched; only the failure backoff below can hold it.
+#
+# An air conditioner protects its compressor by ignoring commands for
+# several minutes after a mode change, so re-asserting inside that window
+# cannot achieve anything: manufacturers state three minutes, and dedicated
+# thermostats hold the compressor off for four to five. The interval sits in
+# that band and strictly below the periodic ticks that drive a control cycle
+# — the five-minute reconcile and time triggers, the fifteen-minute watchdog
+# — because the throttle compares strictly and the clock is read partway
+# into a cycle: at exactly one tick period, scheduling jitter would decide
+# whether a tick counts, and the pacing would land anywhere between one and
+# two tick periods. A device that applies what it is told never reaches the
+# interval at all — the timestamp only advances on a send, so a converged
+# cooler leaves the window permanently open and a divergence appearing after
+# that convergence is corrected on the next cycle.
+COOLER_RESEND_INTERVAL_S = 240.0
+# A rejected cooler command is not a completed send, so the resend throttle
+# cannot pace its retry. Consecutive failures on one channel are paced by
+# their own backoff instead, starting at this base. The base is deliberately
+# shorter than the resend interval: a rejected command never reached the
+# device, so there is no compressor window to respect, and the wait exists
+# only to keep a rate-limited endpoint from being retried on every cycle.
+COOLER_FAILURE_BACKOFF_BASE_S = 30.0
+# Growth of that backoff: the first retry waits the base, each further one
+# doubles the wait by this factor.
+COOLER_FAILURE_BACKOFF_FACTOR = 2.0
+# Ceiling of that backoff, half an hour. A channel that has been rejected
+# this often is not going to accept the next command either, so the run is
+# paced well beyond the resend interval; a device that starts working again
+# is picked up on the following attempt.
+COOLER_FAILURE_BACKOFF_MAX_S = 1800.0
+# Longest run the backoff can tell apart. Past it the wait is pinned at the
+# ceiling anyway, while the exponent would keep growing on a device that
+# rejects every write until the float power overflows and takes the whole
+# cooler cycle down with it.
+COOLER_FAILURE_BACKOFF_MAX_RUN = 1 + math.ceil(
+    math.log(
+        COOLER_FAILURE_BACKOFF_MAX_S / COOLER_FAILURE_BACKOFF_BASE_S,
+        COOLER_FAILURE_BACKOFF_FACTOR,
+    )
+)
 # A cooler may snap a received setpoint onto its own step grid (e.g. 0.5 °C,
 # or a whole-°F grid). A post-send reading within this distance of the sent
 # value counts as that device-side quantization, not as an unapplied command.
 COOLER_QUANTIZATION_TOLERANCE_K = 0.5
+# Hysteresis band below the cooling switch-on point. Once BT has decided to
+# cool, the room has to fall this far below the switch-on point before OFF is
+# decided, so a room temperature resting on the threshold does not flip the
+# decision — and produce a write — on every control cycle. Two steps of a
+# 0.1 °C room sensor, which is what the flip is made of; and well under the
+# 0.5 °C a cooling setpoint is set in, so the extra run time the band costs
+# is finer than the user can express in the target anyway.
+COOLER_MODE_HYSTERESIS_K = 0.2
 # Valve deviations below this are the device's own business.
 RECONCILE_VALVE_TOLERANCE_PCT = 5.0
 # Pause before re-queueing a cycle in which a TRV reported failure, so a
@@ -645,9 +693,11 @@ def cooler_send_cache(self) -> dict:
     """Return the cooler send-cache, creating it on first use.
 
     Holds the last successfully sent command per channel as
-    ``(value, monotonic_timestamp)`` for the resend throttle, plus the settled
-    reading of the temperature channel. Created lazily because only
-    cooler-equipped instances need it.
+    ``(value, monotonic_timestamp)`` for the resend throttle, the settled
+    reading of each written channel, the mode the last cycle decided on for
+    the hysteresis band, and each channel's run of consecutive send failures
+    as ``(count, monotonic_timestamp, attempted_value)``. Created lazily
+    because only cooler-equipped instances need it.
     """
     last_sent = getattr(self, "_cooler_last_sent", None)
     if not isinstance(last_sent, dict):
@@ -660,6 +710,59 @@ def last_sent_cooler_temperature(self) -> float | None:
     """Return the cooling setpoint BT last wrote to the cooler, in °C."""
     value = cooler_send_cache(self).get("temperature", (None, None))[0]
     return value if isinstance(value, (int, float)) else None
+
+
+def _cooler_retry_deferred(
+    last_sent: dict, channel: str, wanted, now_monotonic: float
+) -> bool:
+    """Whether a channel's backoff still holds a command back.
+
+    A rejected command leaves no send timestamp behind, so the resend
+    throttle cannot pace it; this backoff does. The wait grows with the run
+    of consecutive failures of that command, so a device that rejects every
+    write — a cloud air conditioner over its rate limit, for instance — is
+    not retried harder than one that merely lags.
+
+    A command other than the rejected one is a new command rather than a
+    retry, and waits the base only: it has to reach the device promptly, but
+    it must not hand a channel that is failing a fresh write budget at the
+    cycle rate either, which is what a desired value alternating between two
+    rejected commands would otherwise do.
+    """
+    failures, failed_at, failed_wanted = last_sent.get(
+        f"{channel}_failed", (0, None, None)
+    )
+    if not failures or failed_at is None:
+        return False
+    if failed_wanted != wanted:
+        wait = COOLER_FAILURE_BACKOFF_BASE_S
+    else:
+        wait = min(
+            COOLER_FAILURE_BACKOFF_BASE_S
+            * COOLER_FAILURE_BACKOFF_FACTOR ** (failures - 1),
+            COOLER_FAILURE_BACKOFF_MAX_S,
+        )
+    return (now_monotonic - failed_at) < wait
+
+
+def _record_cooler_failure(
+    last_sent: dict, channel: str, wanted, now_monotonic: float
+) -> None:
+    """Extend a channel's run of consecutive failures of one command.
+
+    A run is a run of the same command; a different one that fails starts
+    its own, so the run the counter holds and the run the gate prices always
+    describe the same command. The count stops at the length the backoff can
+    still tell apart.
+    """
+    failures, _, failed_wanted = last_sent.get(f"{channel}_failed", (0, None, None))
+    if failed_wanted != wanted:
+        failures = 0
+    last_sent[f"{channel}_failed"] = (
+        min(failures + 1, COOLER_FAILURE_BACKOFF_MAX_RUN),
+        now_monotonic,
+        wanted,
+    )
 
 
 async def control_cooler(self, snapshot=None):
@@ -736,10 +839,29 @@ async def control_cooler(self, snapshot=None):
         desired_mode = HVACMode.OFF
     elif snapshot.hvac_mode == HVACMode.OFF:
         desired_mode = HVACMode.OFF
-    elif room_temp >= target_cooltemp - tolerance and room_temp > target_temp:
-        desired_mode = HVACMode.COOL
     else:
-        desired_mode = HVACMode.OFF
+        # Hysteresis around the switch-on point, so a room temperature
+        # resting on it does not flip the decision — and with it the write —
+        # on every cycle. The band widens the COOL state only: entering it
+        # stays at the plain switch-on point the tolerance defines. The
+        # device's own reported mode cannot carry the band — it lags a
+        # command and can be changed externally. The heating target stays a
+        # hard floor; relaxing it would let the cooler run into the band the
+        # heater is working on.
+        _cool_on_at = target_cooltemp - tolerance
+        if last_sent.get("hvac_mode_decided") == HVACMode.COOL:
+            _cool_on_at -= COOLER_MODE_HYSTERESIS_K
+        if room_temp >= _cool_on_at and room_temp > target_temp:
+            desired_mode = HVACMode.COOL
+        else:
+            desired_mode = HVACMode.OFF
+    # The band's state is the decision, not the send: a device that rejects
+    # every command would never advance a send-stamped state, and the
+    # decision would keep flipping between the two commands the device is
+    # refusing. Recorded for every branch above, so a cycle that fell into a
+    # guard leaves the band where that guard put it instead of on a stale
+    # value.
+    last_sent["hvac_mode_decided"] = desired_mode
 
     # Decide whether a temperature command is needed. When the current
     # temperature is unknown, only send if the desired value changed since
@@ -794,18 +916,43 @@ async def control_cooler(self, snapshot=None):
         _low_to_set = cooler_low_bound(desired_temp, target_temp)
         # A lower bound BT never wrote at this value is a new payload, not a
         # resend; one it already wrote and the device ignored is a retry.
-        _low_bound_changed = (
-            last_sent.get("target_temp_low", (None, None))[0] != _low_to_set
-        )
+        last_low = last_sent.get("target_temp_low", (None, None))[0]
+        _low_bound_changed = last_low != _low_to_set
         current_low = attr_to_celsius(
             self, cooler_state, "target_temp_low", None, "control_cooler()"
+        )
+        # The bound carries the same quantization latch as the temperature
+        # channel: the first post-send reading close to the written bound is
+        # the device's answer on its own grid, and while it holds and the
+        # wanted bound is unchanged the bound counts as applied. Without it a
+        # device that snaps both bounds is rewritten every resend interval
+        # for as long as it is configured.
+        settled_low = last_sent.get("target_temp_low_settled")
+        if (
+            not _low_bound_changed
+            and last_low is not None
+            and current_low is not None
+            and settled_low is None
+            and abs(current_low - last_low) <= COOLER_QUANTIZATION_TOLERANCE_K
+        ):
+            settled_low = current_low
+            last_sent["target_temp_low_settled"] = settled_low
+        _low_bound_settled = (
+            not _low_bound_changed
+            and settled_low is not None
+            and current_low is not None
+            and abs(current_low - settled_low) <= RECONCILE_TOLERANCE_K
         )
         # The device answers a written bound on its own grid, so the bound
         # carries the same per-device tolerance the TRV write-skip check uses.
         # A coarser answer than half a step is a bound the device did not
         # apply.
-        if current_low is not None and not matches_any_setpoint(
-            current_low, {_low_to_set}, _reconcile_tolerance(self, cooler_state)
+        if (
+            current_low is not None
+            and not _low_bound_settled
+            and not matches_any_setpoint(
+                current_low, {_low_to_set}, _reconcile_tolerance(self, cooler_state)
+            )
         ):
             _LOGGER.debug(
                 "better_thermostat %s: cooler %s lower bound %s differs from %s, "
@@ -860,6 +1007,27 @@ async def control_cooler(self, snapshot=None):
         )
         temp_to_send = None
 
+    # The command the payload would carry, in °C, as the failure backoff
+    # compares it: a rejected send leaves the send cache untouched, so the
+    # attempted command is what tells a retry from a new command.
+    _temp_wanted = None
+    if temp_to_send is not None:
+        _temp_wanted = (
+            temp_to_send,
+            cooler_low_bound(temp_to_send, target_temp) if _write_range else None,
+        )
+        if _cooler_retry_deferred(
+            last_sent, "temperature", _temp_wanted, now_monotonic
+        ):
+            _LOGGER.debug(
+                "better_thermostat %s: cooler %s deferring set_temperature at "
+                "failure-backoff step %s",
+                self.device_name,
+                self.cooler_entity_id,
+                last_sent["temperature_failed"][0],
+            )
+            temp_to_send = None
+
     if temp_to_send is not None:
         _LOGGER.debug(
             "better_thermostat %s: TO COOLER set_temperature: %s from: %s to: %s",
@@ -895,10 +1063,11 @@ async def control_cooler(self, snapshot=None):
             _payload = {"entity_id": self.cooler_entity_id, "temperature": _temp_to_set}
         # Only prime the send-cache on success. A failed call must not look
         # like a completed send, otherwise the throttle would suppress the
-        # retry. Any exception from this one service call is isolated
-        # (cloud integrations propagate raw errors such as ConnectionError)
-        # so the hvac_mode command below still runs; CancelledError derives
-        # from BaseException and propagates.
+        # retry; its run of failures is recorded instead, which paces the
+        # retry without pretending the command arrived. Any exception from
+        # this one service call is isolated (cloud integrations propagate raw
+        # errors such as ConnectionError) so the hvac_mode command below still
+        # runs; CancelledError derives from BaseException and propagates.
         try:
             await self.hass.services.async_call(
                 "climate",
@@ -908,23 +1077,30 @@ async def control_cooler(self, snapshot=None):
                 context=self.context,
             )
         except Exception as err:
+            _record_cooler_failure(
+                last_sent, "temperature", _temp_wanted, now_monotonic
+            )
             _LOGGER.warning(
                 "better_thermostat %s: set_temperature for cooler %s failed (%s); "
-                "will retry on the next cycle",
+                "will retry on a later cycle",
                 self.device_name,
                 self.cooler_entity_id,
                 err,
             )
         else:
             last_sent["temperature"] = (temp_to_send, now_monotonic)
+            last_sent.pop("temperature_failed", None)
+            # A fresh send invalidates the settled reading of the channels it
+            # carried; the device answers those anew. A single-setpoint
+            # payload carries no lower bound, so it says nothing about the
+            # bound's settled reading.
+            last_sent.pop("temperature_settled", None)
             if _write_range:
                 last_sent["target_temp_low"] = (
                     cooler_low_bound(temp_to_send, target_temp),
                     now_monotonic,
                 )
-            # A fresh send invalidates the previously settled reading; the
-            # device answers anew.
-            last_sent.pop("temperature_settled", None)
+                last_sent.pop("target_temp_low_settled", None)
 
     # Decide whether an hvac_mode command is needed, throttling identical
     # resends the same way as temperature commands.
@@ -947,6 +1123,20 @@ async def control_cooler(self, snapshot=None):
         )
         should_send_mode = False
 
+    # Same pacing as the temperature channel: a rejected mode command has no
+    # send timestamp, so its retry follows the failure backoff.
+    if should_send_mode and _cooler_retry_deferred(
+        last_sent, "hvac_mode", desired_mode, now_monotonic
+    ):
+        _LOGGER.debug(
+            "better_thermostat %s: cooler %s deferring set_hvac_mode at "
+            "failure-backoff step %s",
+            self.device_name,
+            self.cooler_entity_id,
+            last_sent["hvac_mode_failed"][0],
+        )
+        should_send_mode = False
+
     if should_send_mode:
         _LOGGER.debug(
             "better_thermostat %s: TO COOLER set_hvac_mode: %s from: %s to: %s",
@@ -966,15 +1156,17 @@ async def control_cooler(self, snapshot=None):
                 context=self.context,
             )
         except Exception as err:
+            _record_cooler_failure(last_sent, "hvac_mode", desired_mode, now_monotonic)
             _LOGGER.warning(
                 "better_thermostat %s: set_hvac_mode for cooler %s failed (%s); "
-                "will retry on the next cycle",
+                "will retry on a later cycle",
                 self.device_name,
                 self.cooler_entity_id,
                 err,
             )
         else:
             last_sent["hvac_mode"] = (desired_mode, now_monotonic)
+            last_sent.pop("hvac_mode_failed", None)
 
 
 async def control_trv(self, heater_entity_id=None, cycle=None):
