@@ -50,7 +50,7 @@ group:
 
 **The outdoor temperature threshold** This is an optional field. If you have an outdoor sensor or a weather entity, you can set a threshold. If the outdoor temperature is higher than the threshold, the thermostat will be turned off. If the outdoor temperature is lower than the threshold, the thermostat will be turned on. If you don't have an outdoor sensor or a weather entity, this field will be ignored.
 
-**Tolerance** This is an optional field. It helps prevent the thermostat from turning on and off too often. Here is an example of how it works: If you set the target temperature to 20.0 and the tolerance to 0.3 for example. Then BT will heat to 20.0 and then go to idle until the temperature drops again to 19.7 and then it will heat again to 20.0.
+**Tolerance** This is an optional field. It helps prevent the thermostat from turning on and off too often. Here is an example of how it works: If you set the target temperature to 20.0 and the tolerance to 0.3 for example. Then BT will heat to 20.0 and then go to idle until the temperature drops again to 19.7 and then it will heat again to 20.0. If you configured a cooler, the tolerance delays the switch-on instead of advancing it: with a cooling target of 24.0 and a tolerance of 0.3, BT starts cooling once the temperature reaches 24.3 and keeps cooling until it is back below 24.0. The cooling band is never narrower than 0.2, so with a tolerance of 0.1 cooling still starts at 24.1, but it keeps running until the temperature is back below 23.9.
 
 ## Second step
 

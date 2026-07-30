@@ -9,7 +9,11 @@ from homeassistant.core import State
 from homeassistant.exceptions import HomeAssistantError
 import pytest
 
-from custom_components.better_thermostat.utils.controlling import control_cooler
+from custom_components.better_thermostat.climate import BetterThermostat
+from custom_components.better_thermostat.utils.controlling import (
+    COOLER_MODE_HYSTERESIS_K,
+    control_cooler,
+)
 
 
 def _make_mock_self(
@@ -24,6 +28,7 @@ def _make_mock_self(
     last_sent_cooler_hvac_mode=None,
     last_sent_cooler_temp_ts=None,
     last_sent_cooler_hvac_mode_ts=None,
+    last_cooler_mode_decided=None,
     min_cooler_resend_interval_s=0,
 ):
     """Build a minimal mock BetterThermostat instance for control_cooler tests."""
@@ -40,6 +45,9 @@ def _make_mock_self(
     mock_self.last_sent_cooler_hvac_mode = last_sent_cooler_hvac_mode
     mock_self.last_sent_cooler_temp_ts = last_sent_cooler_temp_ts
     mock_self.last_sent_cooler_hvac_mode_ts = last_sent_cooler_hvac_mode_ts
+    # A bare Mock() would never equal HVACMode.COOL, which silently sends every
+    # hold-edge case down the switch-on branch, so the latch is pinned explicitly.
+    mock_self.last_cooler_mode_decided = last_cooler_mode_decided
     mock_self.min_cooler_resend_interval_s = min_cooler_resend_interval_s
     return mock_self
 
@@ -83,7 +91,7 @@ class TestControlCooler:
 
     @pytest.mark.asyncio
     async def test_cooling_needed_above_target(self):
-        """Test cooling turns on when temp >= target_cooltemp - tolerance AND > bt_target_temp."""
+        """Test cooling turns on when temp >= target_cooltemp + tolerance AND > bt_target_temp."""
         mock_hass = Mock()
         mock_hass.services = Mock()
         mock_hass.services.async_call = AsyncMock()
@@ -117,7 +125,7 @@ class TestControlCooler:
     async def test_cooling_not_needed_when_temp_below_bt_target(self):
         """Test cooling doesn't turn on if cur_temp <= bt_target_temp.
 
-        The condition requires BOTH cur_temp >= target_cooltemp - tolerance
+        The condition requires BOTH cur_temp >= target_cooltemp + tolerance
         AND cur_temp > bt_target_temp. If cur_temp <= bt_target_temp, goes to else.
         """
         mock_hass = Mock()
@@ -142,7 +150,7 @@ class TestControlCooler:
 
     @pytest.mark.asyncio
     async def test_stop_cooling_below_threshold(self):
-        """Test cooling stops when temp <= target_cooltemp - tolerance."""
+        """Test cooling stops when temp < target_cooltemp."""
         mock_hass = Mock()
         mock_hass.services = Mock()
         mock_hass.services.async_call = AsyncMock()
@@ -151,9 +159,12 @@ class TestControlCooler:
             state=HVACMode.COOL, temperature=20.0
         )
 
-        # cur_temp (23.0) <= bt_target_cooltemp (24.0) - tolerance (0.5) = 23.5
+        # cur_temp (23.0) < bt_target_cooltemp (24.0), the hold edge
         mock_self = _make_mock_self(
-            mock_hass, bt_hvac_mode=HVACMode.COOL, cur_temp=23.0
+            mock_hass,
+            bt_hvac_mode=HVACMode.COOL,
+            cur_temp=23.0,
+            last_cooler_mode_decided=HVACMode.COOL,
         )
 
         await control_cooler(mock_self)
@@ -168,10 +179,10 @@ class TestControlCooler:
     async def test_hysteresis_behavior(self):
         """Test hysteresis behavior between cooling thresholds.
 
-        Temperature in the zone between (target_cooltemp - tolerance) and
-        target_cooltemp, but still above bt_target_temp. The first condition
-        requires cur_temp >= (target_cooltemp - tolerance), so at 23.7 >= 23.5,
-        AND cur_temp > bt_target_temp (23.7 > 20.0), so it should COOL.
+        Temperature inside the band between target_cooltemp and
+        (target_cooltemp + tolerance) and above bt_target_temp. The cooler
+        reports OFF and BT holds no cooling decision, so the switch-on edge at
+        24.5 has not been reached and the band must not be entered from below.
         """
         mock_hass = Mock()
         mock_hass.services = Mock()
@@ -181,16 +192,21 @@ class TestControlCooler:
             state=HVACMode.OFF, temperature=20.0
         )
 
-        # cur_temp (23.7) >= (24.0 - 0.5 = 23.5) AND cur_temp (23.7) > 20.0
-        # -> first branch: COOL
+        # cur_temp (24.3) < (24.0 + 0.5 = 24.5) -> stays OFF
         mock_self = _make_mock_self(
-            mock_hass, bt_hvac_mode=HVACMode.COOL, cur_temp=23.7
+            mock_hass, bt_hvac_mode=HVACMode.COOL, cur_temp=24.3
         )
 
         await control_cooler(mock_self)
 
-        calls = mock_hass.services.async_call.call_args_list
-        assert calls[-1].args[2]["hvac_mode"] == HVACMode.COOL
+        mode_calls = [
+            c
+            for c in mock_hass.services.async_call.call_args_list
+            if c.args[1] == "set_hvac_mode"
+        ]
+        # The cooler already reports OFF, so a decision of OFF sends nothing.
+        assert mode_calls == []
+        assert mock_self.last_cooler_mode_decided == HVACMode.OFF
 
     @pytest.mark.asyncio
     async def test_context_passed_to_service_calls(self):
@@ -240,8 +256,8 @@ class TestControlCooler:
     async def test_edge_case_exactly_at_threshold(self):
         """Test behavior when temperature is exactly at threshold.
 
-        cur_temp (23.5) >= (24.0 - 0.5 = 23.5) -> True
-        cur_temp (23.5) > bt_target_temp (20.0) -> True
+        cur_temp (24.5) >= (24.0 + 0.5 = 24.5) -> True
+        cur_temp (24.5) > bt_target_temp (20.0) -> True
         -> first branch: COOL
         """
         mock_hass = Mock()
@@ -252,16 +268,591 @@ class TestControlCooler:
             state=HVACMode.OFF, temperature=20.0
         )
 
-        # Exactly at target_cooltemp - tolerance AND above bt_target_temp
+        # Exactly at target_cooltemp + tolerance AND above bt_target_temp
         mock_self = _make_mock_self(
-            mock_hass, bt_hvac_mode=HVACMode.COOL, cur_temp=23.5
+            mock_hass, bt_hvac_mode=HVACMode.COOL, cur_temp=24.5
         )
 
         await control_cooler(mock_self)
 
         calls = mock_hass.services.async_call.call_args_list
-        # cur_temp (23.5) >= 23.5 AND cur_temp (23.5) > 20.0 -> COOL
+        # cur_temp (24.5) >= 24.5 AND cur_temp (24.5) > 20.0 -> COOL
         assert calls[-1].args[2]["hvac_mode"] == HVACMode.COOL
+
+
+class TestControlCoolerToleranceBand:
+    """The cooling band [cool_target, cool_target + tolerance] and its latch."""
+
+    @staticmethod
+    async def _decide(
+        cur_temp,
+        *,
+        tolerance=0.5,
+        last_cooler_mode_decided=None,
+        cooler_mode=HVACMode.OFF,
+    ):
+        """Run control_cooler once and report the decided mode.
+
+        Returns the decided mode together with the mock instance. The reported
+        cooler mode is a parameter because it seeds the hold edge while BT holds
+        no decision; it defaults to OFF so the latch alone drives the band. A
+        decision differing from the reported mode always produces a
+        set_hvac_mode call, and no call means the cooler already reports it.
+        """
+        mock_hass = Mock()
+        mock_hass.services = Mock()
+        mock_hass.services.async_call = AsyncMock()
+        mock_hass.states.get.return_value = _make_cooler_state(
+            state=cooler_mode, temperature=24.0
+        )
+
+        mock_self = _make_mock_self(
+            mock_hass,
+            bt_hvac_mode=HVACMode.COOL,
+            cur_temp=cur_temp,
+            bt_target_cooltemp=24.0,
+            bt_target_temp=20.0,
+            tolerance=tolerance,
+            last_cooler_mode_decided=last_cooler_mode_decided,
+        )
+
+        await control_cooler(mock_self)
+
+        mode_call = next(
+            (
+                c
+                for c in mock_hass.services.async_call.call_args_list
+                if c.args[1] == "set_hvac_mode"
+            ),
+            None,
+        )
+        # No command means the cooler already reports the decided mode.
+        decided = mode_call.args[2]["hvac_mode"] if mode_call else cooler_mode
+        return decided, mock_self
+
+    @pytest.mark.asyncio
+    async def test_enters_band_at_cool_target_plus_tolerance(self):
+        """The tolerance delays the switch-on to cool_target + tolerance."""
+        mode, _ = await self._decide(24.5)
+        assert mode == HVACMode.COOL
+
+    @pytest.mark.asyncio
+    async def test_no_entry_just_below_the_switch_on_edge(self):
+        """Just below the switch-on edge the cooler stays off."""
+        mode, _ = await self._decide(24.49)
+        assert mode == HVACMode.OFF
+
+    @pytest.mark.asyncio
+    async def test_holds_inside_the_band_once_cooling(self):
+        """Once COOL was decided, cooling continues down through the band."""
+        mode, _ = await self._decide(24.2, last_cooler_mode_decided=HVACMode.COOL)
+        assert mode == HVACMode.COOL
+
+    @pytest.mark.asyncio
+    async def test_holds_at_the_cooling_target(self):
+        """The cooling target itself is still inside the hold band."""
+        mode, _ = await self._decide(24.0, last_cooler_mode_decided=HVACMode.COOL)
+        assert mode == HVACMode.COOL
+
+    @pytest.mark.asyncio
+    async def test_releases_below_the_cooling_target(self):
+        """Below the cooling target the cooler is released — never cool past it."""
+        mode, _ = await self._decide(23.9, last_cooler_mode_decided=HVACMode.COOL)
+        assert mode == HVACMode.OFF
+
+    @pytest.mark.asyncio
+    async def test_default_tolerance_switches_on_at_the_cooling_target(self):
+        """With the default tolerance of 0.0 the switch-on edge sits on the target."""
+        mode, _ = await self._decide(24.0, tolerance=0.0)
+        assert mode == HVACMode.COOL
+
+        mode, _ = await self._decide(23.99, tolerance=0.0)
+        assert mode == HVACMode.OFF
+
+    @pytest.mark.asyncio
+    async def test_latch_records_the_decision(self):
+        """A COOL decision arms the latch so the next cycle uses the hold edge."""
+        _, mock_self = await self._decide(24.5)
+        assert mock_self.last_cooler_mode_decided == HVACMode.COOL
+
+    @pytest.mark.asyncio
+    async def test_latch_is_released_by_an_off_decision(self):
+        """An OFF decision clears the latch so the band is re-entered from above."""
+        _, mock_self = await self._decide(23.9, last_cooler_mode_decided=HVACMode.COOL)
+        assert mock_self.last_cooler_mode_decided == HVACMode.OFF
+
+    @pytest.mark.asyncio
+    async def test_running_cooler_seeds_the_hold_edge(self):
+        """A cooler already running keeps running while BT holds no decision.
+
+        This is the state a restart or a config-entry reload leaves behind, and
+        stopping the unit there would cost a compressor cycle and let the room
+        warm back up to the switch-on edge.
+        """
+        mode, mock_self = await self._decide(24.3, cooler_mode=HVACMode.COOL)
+        assert mode == HVACMode.COOL
+        assert mock_self.last_cooler_mode_decided == HVACMode.COOL
+
+    @pytest.mark.asyncio
+    async def test_running_cooler_is_still_released_below_the_hold_edge(self):
+        """Seeding from the reported mode never cools past the cooling target."""
+        mode, _ = await self._decide(23.9, cooler_mode=HVACMode.COOL)
+        assert mode == HVACMode.OFF
+
+    @pytest.mark.asyncio
+    async def test_own_decision_wins_over_the_reported_mode(self):
+        """An externally started cooler does not reopen a band BT decided closed.
+
+        Once the latch holds a decision, the reported mode is ignored: it lags a
+        command by a state update and can be changed behind BT's back.
+        """
+        mode, _ = await self._decide(
+            24.3, last_cooler_mode_decided=HVACMode.OFF, cooler_mode=HVACMode.COOL
+        )
+        assert mode == HVACMode.OFF
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        "reported_mode",
+        [HVACMode.HEAT_COOL, HVACMode.AUTO, HVACMode.DRY, HVACMode.FAN_ONLY],
+    )
+    async def test_only_a_reported_cool_seeds_the_hold_edge(self, reported_mode):
+        """A cooler not reporting cool is not on a run BT could take over.
+
+        heat_cool, auto, dry and fan_only are all modes other than off, and
+        none of them is a cooling run: at 24.1 — inside the band but below the
+        switch-on edge at 24.5 — there is no hold edge to seed, so the band is
+        entered from above like any fresh start.
+        """
+        mode, mock_self = await self._decide(24.1, cooler_mode=reported_mode)
+        assert mode == HVACMode.OFF
+        assert mock_self.last_cooler_mode_decided == HVACMode.OFF
+
+    @pytest.mark.asyncio
+    async def test_a_reported_cool_seeds_the_hold_edge_at_the_same_temperature(self):
+        """The very same room temperature holds once the cooler reports cool.
+
+        The counterpart to the modes above: only cool distinguishes a running
+        unit BT should keep running from one it should leave alone.
+        """
+        mode, mock_self = await self._decide(24.1, cooler_mode=HVACMode.COOL)
+        assert mode == HVACMode.COOL
+        assert mock_self.last_cooler_mode_decided == HVACMode.COOL
+
+    @pytest.mark.asyncio
+    async def test_latch_survives_a_rejected_command(self):
+        """A device rejecting every command must not unlatch the band.
+
+        The latch tracks the decision, not the send, so the hold edge stays
+        reachable while the cooler keeps raising errors.
+        """
+        mock_hass = Mock()
+        mock_hass.services = Mock()
+        mock_hass.services.async_call = AsyncMock(
+            side_effect=HomeAssistantError("cooler offline")
+        )
+        mock_hass.states.get.return_value = _make_cooler_state(
+            state=HVACMode.OFF, temperature=20.0
+        )
+
+        mock_self = _make_mock_self(
+            mock_hass, bt_hvac_mode=HVACMode.COOL, cur_temp=24.5
+        )
+
+        await control_cooler(mock_self)
+
+        assert mock_self.last_sent_cooler_hvac_mode is None
+        assert mock_self.last_cooler_mode_decided == HVACMode.COOL
+
+    @pytest.mark.asyncio
+    async def test_heating_target_stays_a_hard_floor(self):
+        """The heating target overrides the hold edge: cooling never fights the TRVs."""
+        mock_hass = Mock()
+        mock_hass.services = Mock()
+        mock_hass.services.async_call = AsyncMock()
+        mock_hass.states.get.return_value = _make_cooler_state(
+            state=HVACMode.COOL, temperature=20.0
+        )
+
+        mock_self = _make_mock_self(
+            mock_hass,
+            bt_hvac_mode=HVACMode.COOL,
+            cur_temp=24.0,
+            bt_target_cooltemp=24.0,
+            bt_target_temp=24.0,
+            last_cooler_mode_decided=HVACMode.COOL,
+        )
+
+        await control_cooler(mock_self)
+
+        calls = mock_hass.services.async_call.call_args_list
+        assert calls[-1].args[2]["hvac_mode"] == HVACMode.OFF
+
+    @pytest.mark.asyncio
+    async def test_none_value_guard_commands_off_and_clears_the_latch(self):
+        """A missing input ends the run: it commands OFF and drops the hold edge.
+
+        The guard stops the cooler outright, so the run is over and the way
+        back in is the switch-on edge, not the hold edge the interrupted run
+        was using.
+        """
+        mock_hass = Mock()
+        mock_hass.services = Mock()
+        mock_hass.services.async_call = AsyncMock()
+        mock_hass.states.get.return_value = _make_cooler_state(
+            state=HVACMode.COOL, temperature=24.0
+        )
+
+        mock_self = _make_mock_self(
+            mock_hass,
+            bt_hvac_mode=HVACMode.COOL,
+            cur_temp=None,
+            last_cooler_mode_decided=HVACMode.COOL,
+        )
+
+        await control_cooler(mock_self)
+
+        calls = mock_hass.services.async_call.call_args_list
+        assert calls[-1].args[2]["hvac_mode"] == HVACMode.OFF
+        assert mock_self.last_cooler_mode_decided == HVACMode.OFF
+
+    @pytest.mark.asyncio
+    async def test_a_missed_reading_costs_one_band_excursion(self):
+        """A blind cycle ends the run, and the room has to climb back to re-enter.
+
+        The single OFF command the guard sends is the whole cost: the next
+        cycles decide OFF again rather than flapping the cooler back on inside
+        the band, and cooling resumes at the switch-on edge.
+        """
+        _, first = await self._decide(24.5)
+        assert first.last_cooler_mode_decided == HVACMode.COOL
+
+        blind_mode, blind = await self._decide(
+            None,
+            last_cooler_mode_decided=first.last_cooler_mode_decided,
+            cooler_mode=HVACMode.COOL,
+        )
+        assert blind_mode == HVACMode.OFF
+        assert blind.last_cooler_mode_decided == HVACMode.OFF
+
+        # Back inside the band with the readings restored: the run does not
+        # resume, because the hold edge went with the run that the guard ended.
+        not_resumed, still_off = await self._decide(
+            24.2, last_cooler_mode_decided=blind.last_cooler_mode_decided
+        )
+        assert not_resumed == HVACMode.OFF
+        assert still_off.last_cooler_mode_decided == HVACMode.OFF
+
+        # The switch-on edge is what lets it back in.
+        resumed, _ = await self._decide(
+            24.5, last_cooler_mode_decided=still_off.last_cooler_mode_decided
+        )
+        assert resumed == HVACMode.COOL
+
+    @pytest.mark.asyncio
+    async def test_bt_switched_off_clears_the_latch(self):
+        """BT going OFF is a decision of its own, so the next start is a fresh one.
+
+        A deliberate stop leaves the cooler off and the room warming, which is
+        the situation the switch-on edge is written for.
+        """
+        mock_hass = Mock()
+        mock_hass.services = Mock()
+        mock_hass.services.async_call = AsyncMock()
+        mock_hass.states.get.return_value = _make_cooler_state(
+            state=HVACMode.COOL, temperature=24.0
+        )
+
+        mock_self = _make_mock_self(
+            mock_hass,
+            bt_hvac_mode=HVACMode.OFF,
+            cur_temp=24.3,
+            last_cooler_mode_decided=HVACMode.COOL,
+        )
+
+        await control_cooler(mock_self)
+
+        assert mock_self.last_cooler_mode_decided == HVACMode.OFF
+
+        resumed, _ = await self._decide(
+            24.2, last_cooler_mode_decided=mock_self.last_cooler_mode_decided
+        )
+        assert resumed == HVACMode.OFF
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        ("tolerance", "switch_on", "lowest_holding"),
+        [(0.3, 24.3, 24.0), (0.1, 24.1, 23.9)],
+    )
+    async def test_the_documented_example_decides_the_documented_edges(
+        self, tolerance, switch_on, lowest_holding
+    ):
+        """The cooling example in docs/Configuration/configuration.md, executed.
+
+        With a cooling target of 24.0, a tolerance of 0.3 starts cooling at 24.3
+        and keeps cooling until the room is back below 24.0. A tolerance of 0.1
+        is narrower than the minimum band, so the hold edge moves to 23.9 while
+        the switch-on edge stays at 24.1.
+        """
+        entered, _ = await self._decide(switch_on, tolerance=tolerance)
+        assert entered == HVACMode.COOL
+
+        below_edge, _ = await self._decide(
+            round(switch_on - 0.01, 2), tolerance=tolerance
+        )
+        assert below_edge == HVACMode.OFF
+
+        holding, _ = await self._decide(
+            lowest_holding, tolerance=tolerance, last_cooler_mode_decided=HVACMode.COOL
+        )
+        assert holding == HVACMode.COOL
+
+        released, _ = await self._decide(
+            round(lowest_holding - 0.01, 2),
+            tolerance=tolerance,
+            last_cooler_mode_decided=HVACMode.COOL,
+        )
+        assert released == HVACMode.OFF
+
+
+class TestControlCoolerLatchOfAFreshThermostat:
+    """The first cooling decision a newly constructed BetterThermostat makes.
+
+    The tests above hand the latch to control_cooler; these take it from a real
+    BetterThermostat instead, so the value its constructor installs is the one
+    under test. That value decides what happens on the first cycle after a
+    restart or a config-entry reload, when BT has made no decision yet and the
+    only evidence about the cooler is what the cooler itself reports.
+    """
+
+    @staticmethod
+    def _make_thermostat(hass, *, tolerance=0.3):
+        """Build a real BetterThermostat and wire it for a cooling cycle.
+
+        Everything control_cooler reads is set except the cooler latch, which
+        keeps the value the constructor gave it.
+        """
+        thermostat = BetterThermostat(
+            name="cooler band",
+            heater_entity_id=[],
+            sensor_entity_id=None,
+            humidity_sensor_entity_id=None,
+            window_id=None,
+            window_delay=0,
+            window_delay_after=0,
+            door_id=None,
+            door_delay=0,
+            door_delay_after=0,
+            weather_entity=None,
+            outdoor_sensor=None,
+            off_temperature=None,
+            tolerance=tolerance,
+            target_temp_step=None,
+            model="generic",
+            cooler_entity_id="climate.cooler",
+            min_cooler_resend_interval=0,
+            enabled_presets=None,
+            unit=UnitOfTemperature.CELSIUS,
+            unique_id="cooler_band",
+            device_class=None,
+            state_class=None,
+        )
+        thermostat.hass = hass
+        thermostat.bt_hvac_mode = HVACMode.COOL
+        thermostat.bt_target_cooltemp = 24.0
+        thermostat.bt_target_temp = 20.0
+        return thermostat
+
+    @staticmethod
+    def _make_hass(reported_mode):
+        """Build a hass whose cooler reports a mode and BT's own setpoint."""
+        mock_hass = Mock()
+        mock_hass.services = Mock()
+        mock_hass.services.async_call = AsyncMock()
+        mock_hass.states.get.return_value = _make_cooler_state(
+            state=reported_mode, temperature=24.0
+        )
+        return mock_hass
+
+    @staticmethod
+    def _mode_calls(mock_hass):
+        """Return the set_hvac_mode calls the cooler received."""
+        return [
+            call
+            for call in mock_hass.services.async_call.call_args_list
+            if call.args[1] == "set_hvac_mode"
+        ]
+
+    @pytest.mark.asyncio
+    async def test_a_running_cooler_keeps_running_through_the_first_cycle(self):
+        """A reload mid-band leaves a cooling unit cooling.
+
+        At 24.1 the room is inside the band but below the switch-on edge at
+        24.3, so the run only survives because the hold edge is seeded from the
+        reported cool. A constructor that started the latch on a mode would make
+        that first cycle read as a decision of BT's own, stop the unit and let
+        the room warm back up to the switch-on edge.
+        """
+        mock_hass = self._make_hass(HVACMode.COOL)
+        thermostat = self._make_thermostat(mock_hass)
+        thermostat.cur_temp = 24.1
+
+        await control_cooler(thermostat)
+
+        assert thermostat.last_cooler_mode_decided == HVACMode.COOL
+        assert self._mode_calls(mock_hass) == []
+
+    @pytest.mark.asyncio
+    async def test_a_stopped_cooler_stays_stopped_through_the_first_cycle(self):
+        """The same first cycle starts nothing while the cooler reports off.
+
+        Seeding follows the cooler, so at the same 24.1 — short of the switch-on
+        edge — a unit that is not running is left alone until the room reaches
+        it.
+        """
+        mock_hass = self._make_hass(HVACMode.OFF)
+        thermostat = self._make_thermostat(mock_hass)
+        thermostat.cur_temp = 24.1
+
+        await control_cooler(thermostat)
+
+        assert thermostat.last_cooler_mode_decided == HVACMode.OFF
+        assert self._mode_calls(mock_hass) == []
+
+
+class TestControlCoolerMinimumBand:
+    """COOLER_MODE_HYSTERESIS_K keeps the decision band wide enough to be stable."""
+
+    @staticmethod
+    def _setup(*, tolerance, reported=HVACMode.COOL, latch=HVACMode.COOL, target=20.0):
+        """Build a cooler that applies every mode it is commanded.
+
+        The reported mode follows the commands, so a stable decision produces no
+        writes at all and every flip of the decision produces one.
+        """
+        mock_hass = Mock()
+        mock_hass.services = Mock()
+        state = {"mode": reported}
+        mock_hass.states.get.side_effect = lambda _entity_id: _make_cooler_state(
+            state=state["mode"], temperature=24.0
+        )
+
+        async def apply(_domain, service, data, **_kwargs):
+            """Record a commanded mode as the cooler's reported mode."""
+            if service == "set_hvac_mode":
+                state["mode"] = data["hvac_mode"]
+
+        mock_hass.services.async_call = AsyncMock(side_effect=apply)
+
+        mock_self = _make_mock_self(
+            mock_hass,
+            bt_hvac_mode=HVACMode.COOL,
+            cur_temp=24.0,
+            bt_target_cooltemp=24.0,
+            bt_target_temp=target,
+            tolerance=tolerance,
+            last_cooler_mode_decided=latch,
+        )
+        return mock_self, mock_hass
+
+    @staticmethod
+    def _mode_calls(mock_hass):
+        """Return the set_hvac_mode calls the cooler received."""
+        return [
+            call
+            for call in mock_hass.services.async_call.call_args_list
+            if call.args[1] == "set_hvac_mode"
+        ]
+
+    @pytest.mark.asyncio
+    async def test_a_tolerance_under_the_minimum_band_still_holds(self):
+        """A room dithering one sensor step around the target must not be written.
+
+        A changed desired mode bypasses the resend throttle by design, so a band
+        only as wide as the tolerance turns every step across the cooling target
+        into a genuine write, at whatever rate the room sensor updates. The
+        cooling target is exactly where a working air conditioner parks the room.
+        """
+        mock_self, mock_hass = self._setup(tolerance=0.1)
+        assert mock_self.tolerance < COOLER_MODE_HYSTERESIS_K
+
+        for _ in range(5):
+            for room_temp in (24.0, 24.1, 24.0, 23.9):
+                mock_self.cur_temp = room_temp
+                await control_cooler(mock_self)
+
+        assert self._mode_calls(mock_hass) == []
+
+    @pytest.mark.asyncio
+    async def test_a_fahrenheit_tolerance_under_the_minimum_band_still_holds(self):
+        """A tolerance configured in Fahrenheit reaches the band as Celsius.
+
+        A configured 0.1 °F arrives as 0.0556 K, well inside the minimum band.
+        """
+        mock_self, mock_hass = self._setup(tolerance=round(0.1 * 5.0 / 9.0, 4))
+        assert mock_self.tolerance < COOLER_MODE_HYSTERESIS_K
+
+        for _ in range(5):
+            for room_temp in (24.0, 24.1, 24.0, 23.9):
+                mock_self.cur_temp = room_temp
+                await control_cooler(mock_self)
+
+        assert self._mode_calls(mock_hass) == []
+
+    @pytest.mark.asyncio
+    async def test_the_default_tolerance_borrows_the_hold_edge_from_below(self):
+        """Without a configured tolerance the band collapses onto the target.
+
+        The minimum band still applies below the target, so the decision is
+        stable, but it buys decision stability and not a colder room: the
+        switch-on edge stays on the cooling target.
+        """
+        mock_self, mock_hass = self._setup(
+            tolerance=0.0, reported=HVACMode.OFF, latch=None
+        )
+
+        mock_self.cur_temp = 23.99
+        await control_cooler(mock_self)
+        assert self._mode_calls(mock_hass) == []
+
+        mock_self.cur_temp = 24.0
+        await control_cooler(mock_self)
+        assert self._mode_calls(mock_hass)[-1].args[2]["hvac_mode"] == HVACMode.COOL
+
+        # Inside the minimum band the hold edge is borrowed from below the target.
+        mock_self.cur_temp = 23.9
+        await control_cooler(mock_self)
+        assert len(self._mode_calls(mock_hass)) == 1
+
+        mock_self.cur_temp = 23.7
+        await control_cooler(mock_self)
+        mode_calls = self._mode_calls(mock_hass)
+        assert len(mode_calls) == 2
+        assert mode_calls[-1].args[2]["hvac_mode"] == HVACMode.OFF
+
+    @pytest.mark.asyncio
+    async def test_the_heating_target_ends_the_hold_inside_the_borrowed_band(self):
+        """The heating target outranks the borrowed hold edge as well as the entry.
+
+        The borrowed width reaches below the cooling target, so a heat/cool gap
+        narrower than COOLER_MODE_HYSTERESIS_K puts the hold edge inside the
+        range the TRVs are heating towards.
+        """
+        mock_self, mock_hass = self._setup(
+            tolerance=0.0, reported=HVACMode.OFF, latch=None, target=23.9
+        )
+
+        mock_self.cur_temp = 24.0
+        await control_cooler(mock_self)
+        assert self._mode_calls(mock_hass)[-1].args[2]["hvac_mode"] == HVACMode.COOL
+
+        # Still above the borrowed hold edge at 23.8, but no longer above the
+        # heating target.
+        mock_self.cur_temp = 23.85
+        await control_cooler(mock_self)
+        mode_calls = self._mode_calls(mock_hass)
+        assert len(mode_calls) == 2
+        assert mode_calls[-1].args[2]["hvac_mode"] == HVACMode.OFF
 
 
 class TestControlCoolerSendCache:

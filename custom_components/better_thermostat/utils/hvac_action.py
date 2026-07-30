@@ -76,6 +76,28 @@ def should_heat_with_tolerance(
     return cur_temp < heat_on_threshold
 
 
+def should_cool_with_tolerance(
+    cur_temp: float,
+    cool_target: float,
+    tolerance: float,
+    previously_cooling: bool,
+    min_band: float = 0.0,
+) -> bool:
+    """Determine whether cooling should be active based on hysteresis.
+
+    Band: ``[cool_target, cool_target + tolerance]``
+    * Start cooling when ``cur_temp >= cool_target + tolerance``.
+    * Continue cooling (if already cooling) until ``cur_temp < cool_target``.
+    * A band narrower than ``min_band`` takes the missing width from below
+      ``cool_target``, so a room temperature resting on an edge cannot flip
+      the decision on every cycle. The switch-on edge never moves for it.
+    """
+    tolerance = max(0.0, tolerance)
+    if previously_cooling:
+        return cur_temp >= cool_target - max(0.0, min_band - tolerance)
+    return cur_temp >= cool_target + tolerance
+
+
 _VALVE_THRESH = 0.0
 
 
