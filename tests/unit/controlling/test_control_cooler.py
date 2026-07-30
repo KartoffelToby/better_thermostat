@@ -2122,3 +2122,33 @@ class TestControlCoolerTargetRange:
             "target_temp_high": 24.0,
             "target_temp_low": 21.0,
         }
+
+
+class TestControlCoolerUnknownTarget:
+    """A cool target that is not known holds the cooler off."""
+
+    @pytest.mark.asyncio
+    async def test_unknown_cool_target_commands_off_and_writes_no_setpoint(self):
+        """The cycle has nothing to compare the room against.
+
+        Without a cooling target the hysteresis has no switch-on point, so the
+        cooler is commanded off even in a room well above its heating target,
+        and no setpoint is written because there is none to write. A running
+        air conditioner is switched off for as long as the target stays unknown.
+        """
+        mock_self, mock_hass, _ = _make_cooler_setup(
+            cooler_state=HVACMode.COOL, target_cooltemp=None
+        )
+        snapshot = make_snapshot(
+            hvac_mode=CoreHvacMode.HEAT_COOL,
+            target_cooltemp=None,
+            room_temp=26.0,
+            target_temp=20.0,
+            tolerance=0.5,
+        )
+
+        await control_cooler(mock_self, snapshot)
+
+        assert _service_calls(mock_hass, "set_temperature") == []
+        modes = _service_calls(mock_hass, "set_hvac_mode")
+        assert [call.args[2]["hvac_mode"] for call in modes] == [HVACMode.OFF]
