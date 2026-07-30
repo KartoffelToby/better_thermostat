@@ -1298,3 +1298,178 @@ class TestEnforceHeatBelowCool:
         mock_bt.bt_target_cooltemp = 22.0
         self._call(mock_bt)
         assert mock_bt.bt_target_temp is None
+
+
+# ===========================================================================
+# 9. TestClampInboundCoolTarget
+# ===========================================================================
+
+
+class TestClampInboundCoolTarget:
+    """_clamp_inbound_cool_target raises a reported cool setpoint above heat."""
+
+    def _call(self, bt, value):
+        return BetterThermostat._clamp_inbound_cool_target(bt, value)
+
+    def test_without_a_cooler_is_noop(self, mock_bt):
+        """Without a cooling channel there is no second bound."""
+        mock_bt.cooler_entity_id = None
+        mock_bt.bt_target_temp = 22.0
+        assert self._call(mock_bt, 18.0) == 18.0
+
+    def test_none_heat_target_is_noop(self, mock_bt):
+        """An unknown heat target is no bound to clear."""
+        mock_bt.cooler_entity_id = "switch.ac"
+        mock_bt.bt_target_temp = None
+        assert self._call(mock_bt, 18.0) == 18.0
+
+    def test_value_already_above_heat_target_is_kept(self, mock_bt):
+        """A reported setpoint that already clears the heat target is adopted."""
+        mock_bt.cooler_entity_id = "switch.ac"
+        mock_bt.bt_target_temp = 20.0
+        mock_bt.bt_target_temp_step = 0.5
+        assert self._call(mock_bt, 24.0) == 24.0
+
+    def test_value_below_heat_target_is_raised(self, mock_bt):
+        """A reported setpoint below the heat target is raised one step above it."""
+        mock_bt.cooler_entity_id = "switch.ac"
+        mock_bt.bt_target_temp = 20.0
+        mock_bt.bt_target_temp_step = 0.5
+        assert self._call(mock_bt, 18.0) == 20.5
+
+    def test_value_equal_to_heat_target_is_raised(self, mock_bt):
+        """The two targets must not coincide, so an equal report is raised."""
+        mock_bt.cooler_entity_id = "switch.ac"
+        mock_bt.bt_target_temp = 20.0
+        mock_bt.bt_target_temp_step = 0.5
+        assert self._call(mock_bt, 20.0) == 20.5
+
+    def test_step_falls_back_to_half_degree(self, mock_bt):
+        """A missing/zero step falls back to 0.5."""
+        mock_bt.cooler_entity_id = "switch.ac"
+        mock_bt.bt_target_temp = 20.0
+        mock_bt.bt_target_temp_step = 0
+        assert self._call(mock_bt, 20.0) == 20.5
+
+    @pytest.mark.parametrize("step", [-1.0, float("nan"), float("inf")])
+    def test_unusable_step_falls_back_to_half_degree(self, mock_bt, step):
+        """A step that is not a positive finite number falls back to 0.5.
+
+        ``bt_target_temp_step`` carries whatever the child entities report. A
+        negative step would put the floor below the heating target, and a NaN
+        one would lose every comparison and leave the value unbounded, so both
+        would hand back a cooling target at or under the heating target.
+        """
+        mock_bt.cooler_entity_id = "switch.ac"
+        mock_bt.bt_target_temp = 20.0
+        mock_bt.bt_target_temp_step = step
+        adopted = self._call(mock_bt, 18.0)
+        assert adopted == 20.5
+        assert adopted > mock_bt.bt_target_temp
+
+    def test_floor_is_capped_at_max_temp(self, mock_bt):
+        """With the heat target at the maximum the floor stops at the maximum."""
+        mock_bt.cooler_entity_id = "switch.ac"
+        mock_bt.bt_target_temp = 30.0
+        mock_bt.bt_max_temp = 30.0
+        mock_bt.bt_target_temp_step = 0.5
+        assert self._call(mock_bt, 22.0) == 30.0
+
+    def test_bound_holds_while_bt_reads_off(self, mock_bt):
+        """A configured cooling channel bounds the report even while BT is off.
+
+        The two targets have to be ordered whenever the mode resolves, so the
+        bound does not wait for the mode to be HEAT_COOL.
+        """
+        mock_bt.cooler_entity_id = "switch.ac"
+        mock_bt.hvac_mode = HVACMode.OFF
+        mock_bt.bt_target_temp = 20.0
+        mock_bt.bt_target_temp_step = 0.5
+        assert self._call(mock_bt, 18.0) == 20.5
+
+
+# ===========================================================================
+# 10. TestClampInboundHeatTarget
+# ===========================================================================
+
+
+class TestClampInboundHeatTarget:
+    """_clamp_inbound_heat_target lowers a reported heat setpoint below cool."""
+
+    def _call(self, bt, value):
+        return BetterThermostat._clamp_inbound_heat_target(bt, value)
+
+    def test_without_a_cooler_is_noop(self, mock_bt):
+        """Without a cooling channel there is no second bound."""
+        mock_bt.cooler_entity_id = None
+        mock_bt.bt_target_cooltemp = 22.0
+        assert self._call(mock_bt, 26.0) == 26.0
+
+    def test_none_cool_target_is_noop(self, mock_bt):
+        """An unknown cool target is no bound to clear."""
+        mock_bt.cooler_entity_id = "switch.ac"
+        mock_bt.bt_target_cooltemp = None
+        assert self._call(mock_bt, 26.0) == 26.0
+
+    def test_value_already_below_cool_target_is_kept(self, mock_bt):
+        """A reported setpoint that already clears the cool target is adopted."""
+        mock_bt.cooler_entity_id = "switch.ac"
+        mock_bt.bt_target_cooltemp = 24.0
+        mock_bt.bt_target_temp_step = 0.5
+        assert self._call(mock_bt, 20.0) == 20.0
+
+    def test_value_above_cool_target_is_lowered(self, mock_bt):
+        """A reported setpoint above the cool target drops one step below it."""
+        mock_bt.cooler_entity_id = "switch.ac"
+        mock_bt.bt_target_cooltemp = 24.0
+        mock_bt.bt_target_temp_step = 0.5
+        assert self._call(mock_bt, 26.0) == 23.5
+
+    def test_value_equal_to_cool_target_is_lowered(self, mock_bt):
+        """The two targets must not coincide, so an equal report is lowered."""
+        mock_bt.cooler_entity_id = "switch.ac"
+        mock_bt.bt_target_cooltemp = 24.0
+        mock_bt.bt_target_temp_step = 0.5
+        assert self._call(mock_bt, 24.0) == 23.5
+
+    def test_step_falls_back_to_half_degree(self, mock_bt):
+        """A missing/zero step falls back to 0.5."""
+        mock_bt.cooler_entity_id = "switch.ac"
+        mock_bt.bt_target_cooltemp = 24.0
+        mock_bt.bt_target_temp_step = 0
+        assert self._call(mock_bt, 24.0) == 23.5
+
+    @pytest.mark.parametrize("step", [-1.0, float("nan"), float("inf")])
+    def test_unusable_step_falls_back_to_half_degree(self, mock_bt, step):
+        """A step that is not a positive finite number falls back to 0.5.
+
+        The mirror of the cooling case: a negative step would lift the ceiling
+        above the cooling target and a NaN one would drop the bound, so both
+        would hand back a heating target at or over the cooling target.
+        """
+        mock_bt.cooler_entity_id = "switch.ac"
+        mock_bt.bt_target_cooltemp = 24.0
+        mock_bt.bt_target_temp_step = step
+        adopted = self._call(mock_bt, 26.0)
+        assert adopted == 23.5
+        assert adopted < mock_bt.bt_target_cooltemp
+
+    def test_ceiling_is_held_at_min_temp(self, mock_bt):
+        """With the cool target at the minimum the ceiling stops at the minimum."""
+        mock_bt.cooler_entity_id = "switch.ac"
+        mock_bt.bt_target_cooltemp = 5.0
+        mock_bt.bt_min_temp = 5.0
+        mock_bt.bt_target_temp_step = 0.5
+        assert self._call(mock_bt, 22.0) == 5.0
+
+    def test_bound_holds_while_bt_reads_off(self, mock_bt):
+        """A configured cooling channel bounds the report even while BT is off.
+
+        A valve that cannot be switched off reports its knob turn while the mode
+        is still OFF, and the same event resolves the mode to HEAT afterwards.
+        """
+        mock_bt.cooler_entity_id = "switch.ac"
+        mock_bt.hvac_mode = HVACMode.OFF
+        mock_bt.bt_target_cooltemp = 24.0
+        mock_bt.bt_target_temp_step = 0.5
+        assert self._call(mock_bt, 26.0) == 23.5

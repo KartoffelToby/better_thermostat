@@ -302,15 +302,42 @@ async def trigger_trv_change(self, event):
                     self.device_name,
                     entity_id,
                 )
+            # A knob turn on the TRV is authoritative for the heating channel
+            # alone, so a setpoint that would cross the cooling target is
+            # lowered to clear it and the cooling target stays where the user
+            # put it.
+            _adopted_heating_setpoint = self._clamp_inbound_heat_target(
+                _new_heating_setpoint
+            )
+            if _adopted_heating_setpoint != _new_heating_setpoint:
+                # A user turning the knob up reports every intermediate
+                # setpoint, so this is annunciated at info level: the target is
+                # being honoured as far as the cooling channel allows, which is
+                # not the anomaly a warning stands for.
+                _LOGGER.info(
+                    "better_thermostat %s: TRV %s reported setpoint %.2f does not "
+                    "clear the cooling target %.2f, keeping %.2f",
+                    self.device_name,
+                    entity_id,
+                    _new_heating_setpoint,
+                    self.bt_target_cooltemp,
+                    _adopted_heating_setpoint,
+                )
             _LOGGER.debug(
                 "better_thermostat %s: TRV %s decoded TRV target temp changed from %s to %s",
                 self.device_name,
                 entity_id,
                 self.bt_target_temp,
-                _new_heating_setpoint,
+                _adopted_heating_setpoint,
             )
-            self.bt_target_temp = _new_heating_setpoint
+            self.bt_target_temp = _adopted_heating_setpoint
             if self.cooler_entity_id is not None:
+                # Residual tie-break only: the clamp already cleared the
+                # cooling target unless it ran into bt_min_temp, so this moves
+                # the cooling target by at most one step as long as that target
+                # lies inside the configured range, and only when no legal
+                # heating setpoint below it exists. A range the children narrowed
+                # above a target already in place is the exception.
                 self._enforce_cool_above_heat()
 
             _main_change = True
@@ -360,6 +387,16 @@ async def trigger_trv_change(self, event):
                     self.bt_hvac_mode = HVACMode.OFF
             else:
                 self.bt_hvac_mode = HVACMode.HEAT
+                # A valve that was switched off at the knob reports its turn
+                # back up while bt_hvac_mode still reads OFF, so the tie-break
+                # in the setpoint block above was gated out for a heating
+                # target the bound had to pin to the cooling target at
+                # bt_min_temp. Resolving the mode is what puts a group with a
+                # cooler into HEAT_COOL, so that pair is separated here. This
+                # branch also runs on reports that leave the mode as it was,
+                # where the call only acts on a pair that is already crossed —
+                # the one case it exists to settle wherever it is called from.
+                self._enforce_cool_above_heat()
             _main_change = True
 
     if _main_change is True:
