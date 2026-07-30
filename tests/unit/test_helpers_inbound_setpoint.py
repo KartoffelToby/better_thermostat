@@ -5,11 +5,13 @@ from unittest.mock import Mock
 from homeassistant.const import UnitOfTemperature
 from homeassistant.core import Context, State
 from homeassistant.util.unit_conversion import TemperatureDeltaConverter
+import pytest
 
 from custom_components.better_thermostat.utils.helpers import (
     COOLER_SETPOINT_KEYS,
     SETPOINT_MATCH_TOLERANCE,
     TRV_SETPOINT_KEYS,
+    device_setpoint_step,
     normalize_step,
     read_setpoint_celsius,
     resolve_inbound_setpoint,
@@ -107,6 +109,48 @@ class TestNormalizeStep:
         assert normalize_step(float("nan")) == 0.5
         assert normalize_step(float("inf")) == 0.5
         assert normalize_step(float("-inf")) == 0.5
+
+
+class TestDeviceSetpointStep:
+    """Reading a controlled device's own setpoint step as a Celsius delta."""
+
+    def _self(self, unit=UnitOfTemperature.CELSIUS, bt_step=0.5):
+        """Build a BetterThermostat mock with a known configured step."""
+        mock_self = _fake_self(unit)
+        mock_self.bt_target_temp_step = bt_step
+        return mock_self
+
+    def test_celsius_step_is_taken_as_reported(self):
+        """On a Celsius system the reported step already is a Celsius delta."""
+        state = _state({"target_temp_step": 1.0})
+        assert device_setpoint_step(self._self(), state, "test") == 1.0
+
+    def test_fahrenheit_step_is_scaled_to_a_celsius_delta(self):
+        """A step reported by a Fahrenheit device is a °F delta, not a °C one."""
+        state = _state({"target_temp_step": 2.0})
+        step = device_setpoint_step(
+            self._self(UnitOfTemperature.FAHRENHEIT), state, "test"
+        )
+        assert step == round(2.0 * 5.0 / 9.0, 4)
+
+    def test_explicit_unit_attribute_beats_the_system_unit(self):
+        """A device that names its own unit is read in that unit."""
+        state = _state({"target_temp_step": 2.0, "temperature_unit": "°F"})
+        step = device_setpoint_step(
+            self._self(UnitOfTemperature.CELSIUS), state, "test"
+        )
+        assert step == round(2.0 * 5.0 / 9.0, 4)
+
+    def test_missing_step_falls_back_to_the_configured_step(self):
+        """A device that publishes no step leaves only BT's own."""
+        state = _state({"temperature": 21.0})
+        assert device_setpoint_step(self._self(bt_step=0.1), state, "test") == 0.1
+
+    @pytest.mark.parametrize("raw", [0, -1.0, "unavailable"])
+    def test_unusable_step_falls_back_to_the_configured_step(self, raw):
+        """A non-positive or non-numeric step cannot separate two setpoints."""
+        state = _state({"target_temp_step": raw})
+        assert device_setpoint_step(self._self(bt_step=0.1), state, "test") == 0.1
 
 
 class TestSetpointEchoWindow:

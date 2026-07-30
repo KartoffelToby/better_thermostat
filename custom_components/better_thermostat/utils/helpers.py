@@ -694,6 +694,48 @@ def normalize_step(value: float | int | str | None, fallback: float = 0.5) -> fl
     return step
 
 
+def device_setpoint_step(self, state: State, log_source: str) -> float:
+    """Return a controlled device's setpoint step as a °C delta.
+
+    The step belongs to the device that reports it and carries that device's
+    unit, so a Fahrenheit reading is converted to a Celsius delta before it can
+    be compared with a Celsius setpoint. A device that publishes no usable step
+    falls back to Better Thermostat's own step.
+
+    Parameters
+    ----------
+    self :
+            the Better Thermostat instance, supplying ``hass``, ``device_name``
+            and the configured step
+    state : State
+            the device state carrying the reported ``target_temp_step``
+    log_source : str
+            caller name, forwarded for logging context
+
+    Returns
+    -------
+    float
+            the device's setpoint step as a positive Celsius delta
+    """
+    raw_step = state.attributes.get("target_temp_step")
+    step = (
+        convert_to_float(str(raw_step), self.device_name, log_source)
+        if raw_step is not None
+        else None
+    )
+    if (
+        step is not None
+        and state_temperature_unit(
+            state.attributes, self.hass.config.units.temperature_unit
+        )
+        == UnitOfTemperature.FAHRENHEIT
+    ):
+        step = round(step * 5.0 / 9.0, 4)
+    if step is None or step <= 0:
+        return normalize_step(self.bt_target_temp_step)
+    return step
+
+
 def setpoint_echo_window(step: float) -> float:
     """Return the distance below which a setpoint difference is grid noise.
 
