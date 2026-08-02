@@ -27,3 +27,10 @@ def test_missing_target_temperature_step_uses_legacy_default():
     normalized = _normalize_user_submission({}, mode="create")
 
     assert normalized[CONF_TARGET_TEMP_STEP] == "0.0"
+
+
+def test_empty_target_temperature_step_uses_legacy_default():
+    """An explicit empty selector value must use the legacy fallback."""
+    normalized = _normalize_user_submission({CONF_TARGET_TEMP_STEP: ""}, mode="create")
+
+    assert normalized[CONF_TARGET_TEMP_STEP] == "0.0"
