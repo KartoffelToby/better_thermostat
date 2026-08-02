@@ -599,8 +599,11 @@ def _normalize_user_submission(
             CONF_TARGET_TEMP_STEP, _USER_FIELD_DEFAULTS[CONF_TARGET_TEMP_STEP]
         ),
     )
-    target_step = _TARGET_TEMP_STEP_SELECTOR_TO_VALUE.get(str(target_step), target_step)
-    if target_step in (None, ""):
+    target_step_key = str(target_step)
+    target_step_from_selector = target_step_key in _TARGET_TEMP_STEP_SELECTOR_TO_VALUE
+    if target_step_from_selector:
+        target_step = _TARGET_TEMP_STEP_SELECTOR_TO_VALUE[target_step_key]
+    if target_step is None or (target_step == "" and not target_step_from_selector):
         target_step = _USER_FIELD_DEFAULTS[CONF_TARGET_TEMP_STEP]
     normalized[CONF_TARGET_TEMP_STEP] = str(target_step)
 

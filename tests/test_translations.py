@@ -62,11 +62,16 @@ def _flatten(obj: dict, prefix: str = "") -> dict[str, object]:
     flat: dict[str, object] = {}
     for key, value in obj.items():
         path = f"{prefix}.{key}" if prefix else key
-        if isinstance(value, dict):
+        if isinstance(value, dict) and value:
             flat.update(_flatten(value, path))
         else:
             flat[path] = value
     return flat
+
+
+def test_flatten_preserves_empty_object_leaves():
+    """Empty catalog objects must remain visible to value validation."""
+    assert _flatten({"config": {"name": {}}}) == {"config.name": {}}
 
 
 def _load_json(path: Path) -> dict:
