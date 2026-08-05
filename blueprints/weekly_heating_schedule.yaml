@@ -397,9 +397,13 @@ blueprint:
         occupancy. Only evaluated when presence mode is enabled above.
         For multi-person households use a group or a template binary sensor
         that is 'on' when at least one person is home.
-      default: binary_sensor.bt_presence_placeholder
+        Shown as a list selector — select at most one entity, or leave empty
+        to disable — because Home Assistant cannot reliably fall back to a
+        blueprint default for a *cleared* single-entity selector.
+      default: []
       selector:
         entity:
+          multiple: true
           filter:
             - domain: person
             - domain: device_tracker
@@ -444,9 +448,13 @@ blueprint:
       description: >
         An input_boolean helper. Create one under Settings → Helpers → Toggle,
         then select it here. Only used when the pause switch feature is enabled.
-      default: input_boolean.bt_schedule_pause_placeholder
+        Shown as a list selector — select at most one entity, or leave empty
+        to disable — because Home Assistant cannot reliably fall back to a
+        blueprint default for a *cleared* single-entity selector.
+      default: []
       selector:
         entity:
+          multiple: true
           domain: input_boolean
 
     # ── Notifications ──────────────────────────────────────────────────────
@@ -499,10 +507,16 @@ variables:
   slot4_preset_saturday: !input slot4_preset_saturday
   slot4_preset_sunday: !input slot4_preset_sunday
   enable_presence_mode: !input enable_presence_mode
-  presence_entity: !input presence_entity
+  # presence_entity/pause_switch are list selectors (see the `input:` section
+  # for why); reduce to the single entity_id the rest of this blueprint
+  # expects, or '' when nothing was selected.
+  presence_entity_selection: !input presence_entity
+  presence_entity: >
+    {{ presence_entity_selection[0] if presence_entity_selection else '' }}
   vacation_preset: !input vacation_preset
   enable_pause_switch: !input enable_pause_switch
-  pause_switch: !input pause_switch
+  pause_switch_selection: !input pause_switch
+  pause_switch: "{{ pause_switch_selection[0] if pause_switch_selection else '' }}"
   notify_target: !input notify_target
   enable_notify: !input enable_notify
 
@@ -709,7 +723,7 @@ action:
                     - condition: template
                       value_template: "{{ enable_notify and notify_target != '' }}"
                   then:
-                    - service: !input notify_target
+                    - service: "{{ notify_target }}"
                       data:
                         title: "BT Schedule – Slot 1 (nobody home)"
                         message: >
@@ -725,7 +739,7 @@ action:
                 - condition: template
                   value_template: "{{ enable_notify and notify_target != '' }}"
               then:
-                - service: !input notify_target
+                - service: "{{ notify_target }}"
                   data:
                     title: "BT Schedule – Slot 1"
                     message: >
@@ -762,7 +776,7 @@ action:
                     - condition: template
                       value_template: "{{ enable_notify and notify_target != '' }}"
                   then:
-                    - service: !input notify_target
+                    - service: "{{ notify_target }}"
                       data:
                         title: "BT Schedule – Slot 2 (nobody home)"
                         message: >
@@ -777,7 +791,7 @@ action:
                 - condition: template
                   value_template: "{{ enable_notify and notify_target != '' }}"
               then:
-                - service: !input notify_target
+                - service: "{{ notify_target }}"
                   data:
                     title: "BT Schedule – Slot 2"
                     message: >
@@ -814,7 +828,7 @@ action:
                     - condition: template
                       value_template: "{{ enable_notify and notify_target != '' }}"
                   then:
-                    - service: !input notify_target
+                    - service: "{{ notify_target }}"
                       data:
                         title: "BT Schedule – Slot 3 (nobody home)"
                         message: >
@@ -829,7 +843,7 @@ action:
                 - condition: template
                   value_template: "{{ enable_notify and notify_target != '' }}"
               then:
-                - service: !input notify_target
+                - service: "{{ notify_target }}"
                   data:
                     title: "BT Schedule – Slot 3"
                     message: >
@@ -866,7 +880,7 @@ action:
                     - condition: template
                       value_template: "{{ enable_notify and notify_target != '' }}"
                   then:
-                    - service: !input notify_target
+                    - service: "{{ notify_target }}"
                       data:
                         title: "BT Schedule – Slot 4 (nobody home)"
                         message: >
@@ -881,7 +895,7 @@ action:
                 - condition: template
                   value_template: "{{ enable_notify and notify_target != '' }}"
               then:
-                - service: !input notify_target
+                - service: "{{ notify_target }}"
                   data:
                     title: "BT Schedule – Slot 4"
                     message: >
@@ -919,7 +933,7 @@ action:
                     - condition: template
                       value_template: "{{ enable_notify and notify_target != '' }}"
                   then:
-                    - service: !input notify_target
+                    - service: "{{ notify_target }}"
                       data:
                         title: "BT Schedule – Startup recovery (nobody home)"
                         message: >
@@ -934,7 +948,7 @@ action:
                 - condition: template
                   value_template: "{{ enable_notify and notify_target != '' }}"
               then:
-                - service: !input notify_target
+                - service: "{{ notify_target }}"
                   data:
                     title: "BT Schedule – Startup recovery"
                     message: >
@@ -971,7 +985,7 @@ action:
                 - condition: template
                   value_template: "{{ enable_notify and notify_target != '' }}"
               then:
-                - service: !input notify_target
+                - service: "{{ notify_target }}"
                   data:
                     title: "BT Schedule – Resumed"
                     message: >
@@ -995,7 +1009,7 @@ action:
             - condition: template
               value_template: "{{ enable_notify and notify_target != '' }}"
           then:
-            - service: !input notify_target
+            - service: "{{ notify_target }}"
               data:
                 title: "BT Schedule – Welcome home"
                 message: >
@@ -1024,7 +1038,7 @@ action:
             - condition: template
               value_template: "{{ enable_notify and notify_target != '' }}"
           then:
-            - service: !input notify_target
+            - service: "{{ notify_target }}"
               data:
                 title: "BT Schedule – Nobody home"
                 message: >
