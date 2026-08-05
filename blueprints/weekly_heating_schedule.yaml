@@ -509,14 +509,19 @@ variables:
   enable_presence_mode: !input enable_presence_mode
   # presence_entity/pause_switch are list selectors (see the `input:` section
   # for why); reduce to the single entity_id the rest of this blueprint
-  # expects, or '' when nothing was selected.
+  # expects, or '' when nothing was selected. Automations saved before these
+  # inputs became lists still hold a plain entity_id string, so keep those
+  # working instead of indexing into the string.
   presence_entity_selection: !input presence_entity
   presence_entity: >
-    {{ presence_entity_selection[0] if presence_entity_selection else '' }}
+    {{ presence_entity_selection if presence_entity_selection is string
+       else (presence_entity_selection[0] if presence_entity_selection else '') }}
   vacation_preset: !input vacation_preset
   enable_pause_switch: !input enable_pause_switch
   pause_switch_selection: !input pause_switch
-  pause_switch: "{{ pause_switch_selection[0] if pause_switch_selection else '' }}"
+  pause_switch: >
+    {{ pause_switch_selection if pause_switch_selection is string
+       else (pause_switch_selection[0] if pause_switch_selection else '') }}
   notify_target: !input notify_target
   enable_notify: !input enable_notify
 
