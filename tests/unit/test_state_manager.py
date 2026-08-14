@@ -15,8 +15,11 @@ from __future__ import annotations
 
 from collections import deque
 from dataclasses import asdict
+import logging
 from unittest.mock import AsyncMock, MagicMock, patch
 
+from homeassistant.helpers.json import json_bytes, prepare_save_json
+from homeassistant.util.json import json_loads
 import pytest
 
 from custom_components.better_thermostat.utils.calibration.mpc_v2 import MpcV2Params
@@ -30,8 +33,16 @@ from custom_components.better_thermostat.utils.const import (
     MIN_HEATING_POWER,
 )
 from custom_components.better_thermostat.utils.state_manager import (
+    _MAX_STORED_INT,
+    _MIN_STORED_INT,
+    _MPC_NULLABLE_FIELDS,
+    _MPC_V2_NULLABLE_FIELDS,
+    _MPC_V2_REID_NULLABLE_FIELDS,
+    _PID_NULLABLE_FIELDS,
+    _TPI_NULLABLE_FIELDS,
     CURRENT_VERSION,
     MpcState,
+    MpcV2StateData,
     PIDState,
     RuntimeState,
     StateManager,
@@ -41,6 +52,8 @@ from custom_components.better_thermostat.utils.state_manager import (
     _migrate_v0_to_v1,
     _serialize,
     deserialize_mpc,
+    deserialize_mpc_v2,
+    deserialize_mpc_v2_reid,
     deserialize_pid,
     deserialize_tpi,
 )
@@ -331,6 +344,562 @@ class TestDeserializeTpi:
         raw = {"last_percent": "bad"}
         tpi = deserialize_tpi(raw)
         assert tpi.last_percent is None
+
+
+class TestDeserializeMpcV2Reid:
+    """deserialize_mpc_v2_reid should discard entries with corrupt math."""
+
+    def test_happy_path(self):
+        """A plausible payload is restored field by field."""
+        raw = {
+            "tau_room_min": 240.0,
+            "gain_heater": 3.0,
+            "fitted_ts": 1000.0,
+            "rmse_prior_K": 0.4,
+            "rmse_fit_K": 0.1,
+            "n_segments": 4,
+        }
+        reid = deserialize_mpc_v2_reid(raw)
+        assert reid is not None
+        assert reid.tau_room_min == 240.0
+        assert reid.gain_heater == 3.0
+        assert reid.fitted_ts == 1000.0
+        assert reid.rmse_prior_K == 0.4
+        assert reid.rmse_fit_K == 0.1
+        assert reid.n_segments == 4
+
+    def test_nan_tau_room_discards_the_entry(self):
+        """NaN passes every ``<=`` comparison, so the gate cannot catch it."""
+        raw = {"tau_room_min": float("nan"), "gain_heater": 3.0}
+        assert deserialize_mpc_v2_reid(raw) is None
+
+    def test_infinite_gain_discards_the_entry(self):
+        """An infinite heater gain would blow up the plant prior."""
+        raw = {"tau_room_min": 240.0, "gain_heater": float("inf")}
+        assert deserialize_mpc_v2_reid(raw) is None
+
+    def test_non_finite_secondary_field_discards_the_entry(self):
+        """A corrupt validation metric taints the fit it belongs to."""
+        raw = {"tau_room_min": 240.0, "gain_heater": 3.0, "rmse_fit_K": float("-inf")}
+        assert deserialize_mpc_v2_reid(raw) is None
+
+    def test_wrong_type_only_skips_the_field(self):
+        """A wrong type is schema drift, not corrupt math: keep the entry."""
+        raw = {"tau_room_min": 240.0, "gain_heater": 3.0, "rmse_fit_K": "later"}
+        reid = deserialize_mpc_v2_reid(raw)
+        assert reid is not None
+        assert reid.tau_room_min == 240.0
+        assert reid.rmse_fit_K == 0.0
+
+    def test_wrong_type_only_skips_the_segment_count(self):
+        """The count is metadata, so an unreadable one still keeps the entry."""
+        raw = {"tau_room_min": 240.0, "gain_heater": 3.0, "n_segments": "four"}
+        reid = deserialize_mpc_v2_reid(raw)
+        assert reid is not None
+        assert reid.n_segments == 0
+
+    def test_null_fitted_timestamp_discards_the_entry(self):
+        """``fitted_ts`` is typed ``float``, so its null is a saved NaN."""
+        raw = {"tau_room_min": 240.0, "gain_heater": 3.0, "fitted_ts": None}
+        assert deserialize_mpc_v2_reid(raw) is None
+
+    def test_null_validation_metric_discards_the_entry(self):
+        """A null in either RMSE taints the fit those metrics accepted."""
+        base = {"tau_room_min": 240.0, "gain_heater": 3.0}
+        assert deserialize_mpc_v2_reid({**base, "rmse_prior_K": None}) is None
+        assert deserialize_mpc_v2_reid({**base, "rmse_fit_K": None}) is None
+
+    def test_null_segment_count_discards_the_entry(self):
+        """``n_segments`` is typed ``int``; a null is not a tally either."""
+        raw = {"tau_room_min": 240.0, "gain_heater": 3.0, "n_segments": None}
+        assert deserialize_mpc_v2_reid(raw) is None
+
+    def test_null_prior_component_is_refused_as_a_null(self, caplog):
+        """A null is refused on its own terms, not by the positivity gate."""
+        with caplog.at_level(logging.WARNING, logger=_SM):
+            assert deserialize_mpc_v2_reid({"tau_room_min": None}) is None
+        assert "tau_room_min" in caplog.text
+        assert "is null" in caplog.text
+
+    def test_absent_field_is_not_a_null(self):
+        """A field the payload never carried keeps its default, entry intact."""
+        reid = deserialize_mpc_v2_reid({"tau_room_min": 240.0, "gain_heater": 3.0})
+        assert reid is not None
+        assert reid.fitted_ts == 0.0
+        assert reid.rmse_prior_K == 0.0
+        assert reid.rmse_fit_K == 0.0
+        assert reid.n_segments == 0
+
+    def test_null_entry_is_absent_after_a_full_load(self):
+        """A saved NaN comes back as a null and leaves no key behind."""
+        raw = _serialize(RuntimeState())
+        raw["mpc_v2_reid"] = {
+            "good": {"tau_room_min": 240.0, "gain_heater": 3.0},
+            "bad": {"tau_room_min": 240.0, "gain_heater": 3.0, "rmse_fit_K": None},
+        }
+        restored = _deserialize(raw)
+        assert "bad" not in restored.mpc_v2_reid
+        assert restored.mpc_v2_reid["good"].tau_room_min == 240.0
+
+    def test_tiny_positive_time_constant_is_not_rejected(self):
+        """The guards cover finiteness and sign; magnitude is unbounded."""
+        raw = {"tau_room_min": 5e-324, "gain_heater": 3.0}
+        reid = deserialize_mpc_v2_reid(raw)
+        assert reid is not None
+        assert reid.tau_room_min == 5e-324
+
+    def test_infinite_segment_count_falls_back_to_zero(self):
+        """An unconvertible segment count must not abort the whole load."""
+        raw = {"tau_room_min": 240.0, "gain_heater": 3.0, "n_segments": float("inf")}
+        reid = deserialize_mpc_v2_reid(raw)
+        assert reid is not None
+        assert reid.n_segments == 0
+
+    def test_unstorable_segment_count_falls_back_to_zero(self):
+        """A count wider than 64 bits could never be written back."""
+        raw = {"tau_room_min": 240.0, "gain_heater": 3.0, "n_segments": 1e300}
+        reid = deserialize_mpc_v2_reid(raw)
+        assert reid is not None
+        assert reid.n_segments == 0
+
+    def test_negative_segment_count_falls_back_to_zero(self):
+        """Segments are counted, so a negative tally is not a count."""
+        raw = {"tau_room_min": 240.0, "gain_heater": 3.0, "n_segments": -4}
+        reid = deserialize_mpc_v2_reid(raw)
+        assert reid is not None
+        assert reid.n_segments == 0
+
+    def test_largest_storable_segment_count_is_kept(self):
+        """The bound is inclusive: the widest storable count still passes."""
+        raw = {"tau_room_min": 240.0, "gain_heater": 3.0, "n_segments": _MAX_STORED_INT}
+        reid = deserialize_mpc_v2_reid(raw)
+        assert reid is not None
+        assert reid.n_segments == _MAX_STORED_INT
+
+    def test_string_nan_discards_the_entry(self):
+        """A JSON string is the route a real store file can deliver a NaN by."""
+        raw = {"tau_room_min": "NaN", "gain_heater": 3.0}
+        assert deserialize_mpc_v2_reid(raw) is None
+
+    def test_string_infinity_discards_the_entry(self):
+        """``float()`` accepts the spelling ``Infinity``, so the guard must too."""
+        raw = {"tau_room_min": 240.0, "gain_heater": "Infinity"}
+        assert deserialize_mpc_v2_reid(raw) is None
+
+    def test_string_overflowing_exponent_discards_the_entry(self):
+        """``float("1e999")`` is infinity, so the entry is just as corrupt."""
+        raw = {"tau_room_min": 240.0, "gain_heater": 3.0, "rmse_prior_K": "1e999"}
+        assert deserialize_mpc_v2_reid(raw) is None
+
+    def test_non_finite_string_survives_a_real_store_read(self):
+        """The JSON parser keeps ``"NaN"`` a string, so it reaches the guard.
+
+        A bare ``NaN`` literal never gets this far — the parser rejects it
+        and Home Assistant quarantines the file — but a quoted one parses
+        cleanly and only ``float()`` turns it into a non-finite number.
+        """
+        raw = json_loads(
+            '{"version": 1, "mpc_v2_reid": {"bt:reid": '
+            '{"tau_room_min": "NaN", "gain_heater": 3.0}}}'
+        )
+        assert isinstance(raw, dict)
+        assert raw["mpc_v2_reid"]["bt:reid"]["tau_room_min"] == "NaN"
+        assert _deserialize(raw).mpc_v2_reid == {}
+
+    def test_oversized_stored_count_cannot_break_the_next_save(self):
+        """A store file may carry a number that JSON parses as a huge float.
+
+        ``int()`` of it yields an integer the store's encoder refuses, which
+        would abort every later save for this config entry.
+        """
+        raw = json_loads(
+            '{"version": 1, "mpc_v2_reid": {"bt:reid": {"tau_room_min": 240.0, '
+            '"gain_heater": 3.0, "n_segments": ' + "9" * 300 + "}}}"
+        )
+        assert isinstance(raw, dict)
+        assert isinstance(raw["mpc_v2_reid"]["bt:reid"]["n_segments"], float)
+        restored = _deserialize(raw)
+        assert restored.mpc_v2_reid["bt:reid"].n_segments == 0
+        prepare_save_json(_serialize(restored))
+
+    def test_poisoned_entry_is_absent_after_a_full_load(self):
+        """A discarded entry leaves no key behind for the prior lookup."""
+        raw = _serialize(RuntimeState())
+        raw["mpc_v2_reid"] = {
+            "good": {"tau_room_min": 240.0, "gain_heater": 3.0},
+            "bad": {"tau_room_min": float("nan"), "gain_heater": 3.0},
+        }
+        restored = _deserialize(raw)
+        assert "bad" not in restored.mpc_v2_reid
+        assert restored.mpc_v2_reid["good"].tau_room_min == 240.0
+
+
+class TestStorableIntegerBound:
+    """The accepted integer range must be the one the store's encoder writes."""
+
+    def test_bounds_are_exactly_what_the_encoder_accepts(self):
+        """Both bounds are storable and one step past either one is not."""
+        json_bytes({"n": _MIN_STORED_INT})
+        json_bytes({"n": _MAX_STORED_INT})
+        with pytest.raises(TypeError):
+            json_bytes({"n": _MIN_STORED_INT - 1})
+        with pytest.raises(TypeError):
+            json_bytes({"n": _MAX_STORED_INT + 1})
+
+
+class TestStoredIntegerFields:
+    """Restored integer fields must stay writable by the store's encoder."""
+
+    def test_oversized_count_keeps_the_default(self):
+        """An unstorable tally restores as 0, the field's own default."""
+        mpc = deserialize_mpc({"gain_est": 0.5, "dead_zone_hits": float(2**70)})
+        assert mpc.dead_zone_hits == 0
+        assert mpc.gain_est == 0.5
+
+    def test_negative_count_keeps_the_default(self):
+        """Occurrences are tallied upwards, so a negative value is not one."""
+        assert deserialize_mpc({"loss_learn_count": -7}).loss_learn_count == 0
+
+    def test_largest_storable_count_is_kept(self):
+        """The bound is inclusive, so the widest storable tally survives."""
+        raw = {"profile_samples": _MAX_STORED_INT}
+        assert deserialize_mpc(raw).profile_samples == _MAX_STORED_INT
+
+    def test_oversized_sign_keeps_the_default(self):
+        """An unstorable direction is dropped like any other unusable field."""
+        assert (
+            deserialize_pid({"last_error_sign": float(2**70)}).last_error_sign is None
+        )
+
+    def test_negative_sign_is_kept(self):
+        """A direction is signed, so the count rule must not reach it."""
+        assert deserialize_pid({"last_delta_sign": -1}).last_delta_sign == -1
+
+    def test_oversized_count_cannot_break_the_next_save(self):
+        """A store number too wide for JSON must not disable persistence.
+
+        The parser hands it over as a float; ``int()`` of it yields an
+        integer the encoder refuses, and the Store only logs that failure,
+        so the entry's state file would silently stop being written.
+        """
+        raw = json_loads(
+            '{"version": 1, "mpc": {"k": {"dead_zone_hits": '
+            + "9" * 300
+            + '}}, "pid": {"k": {"last_error_sign": '
+            + "9" * 300
+            + "}}}"
+        )
+        assert isinstance(raw, dict)
+        restored = _deserialize(raw)
+        assert restored.mpc["k"].dead_zone_hits == 0
+        assert restored.pid["k"].last_error_sign is None
+        prepare_save_json(_serialize(restored))
+
+
+class TestNonFiniteStringsFromAStore:
+    """``float()`` accepts spellings the JSON parser leaves as strings."""
+
+    def test_mpc_string_nan_resets_the_entry(self):
+        """A quoted NaN reaches the guard and the entry restarts from defaults."""
+        mpc = deserialize_mpc({"gain_est": 0.5, "loss_est": "NaN"})
+        assert mpc == MpcState()
+
+    def test_pid_string_infinity_resets_the_entry(self):
+        """The spelling ``Infinity`` is a float to Python, not a wrong type."""
+        pid = deserialize_pid({"pid_integral": 1.5, "pid_kp": "Infinity"})
+        assert pid == PIDState()
+
+    def test_tpi_string_overflowing_exponent_resets_the_entry(self):
+        """``float("1e999")`` overflows to infinity and poisons the entry."""
+        tpi = deserialize_tpi({"last_percent": "1e999"})
+        assert tpi == TpiState()
+
+    def test_unparsable_string_still_only_skips_the_field(self):
+        """Only strings that parse as non-finite floats reject an entry."""
+        mpc = deserialize_mpc({"gain_est": 0.5, "loss_est": "later"})
+        assert mpc.gain_est == 0.5
+
+
+class TestNullableFieldSets:
+    """Which fields may hold a stored null is read off the dataclasses."""
+
+    def test_fields_declared_with_none_are_nullable(self):
+        """A ``| None`` field keeps its stored null as a value."""
+        assert "gain_est" in _MPC_NULLABLE_FIELDS
+        assert "last_percent" in _MPC_V2_NULLABLE_FIELDS
+        assert "pid_kp" in _PID_NULLABLE_FIELDS
+        assert "last_delta_sign" in _PID_NULLABLE_FIELDS
+        assert "last_percent" in _TPI_NULLABLE_FIELDS
+
+    def test_fields_declared_without_none_are_not_nullable(self):
+        """A field typed ``float``, ``int``, ``str`` or a collection is not."""
+        assert "u_integral" not in _MPC_NULLABLE_FIELDS
+        assert "trv_profile" not in _MPC_NULLABLE_FIELDS
+        assert "perf_curve" not in _MPC_NULLABLE_FIELDS
+        assert "recent_errors" not in _MPC_NULLABLE_FIELDS
+        assert "created_ts" not in _MPC_V2_NULLABLE_FIELDS
+        assert "pid_integral" not in _PID_NULLABLE_FIELDS
+        assert "last_update_ts" not in _TPI_NULLABLE_FIELDS
+
+    def test_the_reid_result_declares_no_nullable_field(self):
+        """Every persisted re-ID field is a plain number, so none takes a null."""
+        assert _MPC_V2_REID_NULLABLE_FIELDS == frozenset()
+
+
+class TestStoredNulls:
+    """A null is a value only where the field's own type allows one.
+
+    The store's encoder writes NaN and infinity as ``null``, so a null in
+    a field typed without ``None`` is a non-finite number coming back and
+    gets the same disposal as one that survived as a string.
+    """
+
+    def test_mpc_null_float_resets_the_entry(self):
+        """``u_integral`` is typed ``float``, so its null is a saved NaN."""
+        mpc = deserialize_mpc({"gain_est": 0.5, "u_integral": None})
+        assert mpc == MpcState()
+
+    def test_mpc_null_profile_resets_the_entry(self):
+        """A null cannot be a profile name either."""
+        assert deserialize_mpc({"gain_est": 0.5, "trv_profile": None}) == MpcState()
+
+    def test_mpc_null_collection_resets_the_entry(self):
+        """The collection fields are not typed to hold a null either."""
+        assert deserialize_mpc({"perf_curve": None}) == MpcState()
+        assert deserialize_mpc({"recent_errors": None}) == MpcState()
+
+    def test_mpc_null_optional_field_is_restored(self):
+        """A ``float | None`` field still restores its stored null."""
+        mpc = deserialize_mpc({"gain_est": None, "u_integral": 3.0})
+        assert mpc.gain_est is None
+        assert mpc.u_integral == 3.0
+
+    def test_pid_null_integral_resets_the_entry(self):
+        """``pid_integral`` is typed ``float``; a null there is corrupt math."""
+        pid = deserialize_pid({"pid_kp": 60.0, "pid_integral": None})
+        assert pid == PIDState()
+
+    def test_pid_null_sign_field_is_restored(self):
+        """``last_delta_sign`` is typed ``int | None``, so its null is a value."""
+        pid = deserialize_pid({"last_delta_sign": None, "pid_integral": 2.0})
+        assert pid.last_delta_sign is None
+        assert pid.pid_integral == 2.0
+
+    def test_tpi_null_timestamp_resets_the_entry(self):
+        """``last_update_ts`` is typed ``float``, so it cannot hold a null."""
+        assert deserialize_tpi({"last_percent": 30.0, "last_update_ts": None}) == (
+            TpiState()
+        )
+
+    def test_tpi_null_percent_is_restored(self):
+        """``last_percent`` is typed ``float | None`` and keeps its null."""
+        tpi = deserialize_tpi({"last_percent": None, "last_update_ts": 5.0})
+        assert tpi.last_percent is None
+        assert tpi.last_update_ts == 5.0
+
+
+class TestStoredCollectionElements:
+    """A collection field's own numbers are guarded like the numeric fields.
+
+    ``perf_curve`` and ``recent_errors`` are restored as collections, so
+    the field guards say nothing about what is inside them. Both are
+    declared to hold numbers, which makes a null among those numbers the
+    same saved NaN a null in a numeric field is.
+    """
+
+    def test_null_error_sample_resets_the_entry(self):
+        """``recent_errors`` is a ``deque[float]``, so a null in it is a NaN."""
+        assert deserialize_mpc({"gain_est": 0.5, "recent_errors": [0.1, None]}) == (
+            MpcState()
+        )
+
+    def test_null_bin_statistic_resets_the_entry(self):
+        """A bin's statistics are declared as numbers, so a null is a NaN."""
+        raw = {"perf_curve": {"p00_05": {"count": 3, "avg_room_rate": None}}}
+        assert deserialize_mpc(raw) == MpcState()
+
+    def test_null_outside_the_deque_window_still_resets_the_entry(self):
+        """Every stored sample is parsed, not only the last twenty kept."""
+        raw = {"recent_errors": [None] + [float(i) for i in range(25)]}
+        assert deserialize_mpc(raw) == MpcState()
+
+    def test_non_finite_error_sample_resets_the_entry(self):
+        """A NaN that reached the file as a string poisons the entry too."""
+        assert deserialize_mpc({"recent_errors": [0.1, "NaN"]}) == MpcState()
+
+    def test_non_finite_bin_statistic_resets_the_entry(self):
+        """An infinite average makes every later average over it useless."""
+        raw = {"perf_curve": {"p00_05": {"avg_percent": float("inf")}}}
+        assert deserialize_mpc(raw) == MpcState()
+
+    def test_unparsable_error_sample_only_skips_the_field(self):
+        """A wrong type is schema drift, so the rest of the entry survives."""
+        mpc = deserialize_mpc({"gain_est": 0.5, "recent_errors": [0.1, "later"]})
+        assert mpc.gain_est == 0.5
+        assert list(mpc.recent_errors) == []
+
+    def test_bin_that_is_not_a_mapping_only_skips_the_field(self):
+        """A curve whose bins are not statistic mappings costs only itself."""
+        mpc = deserialize_mpc({"gain_est": 0.5, "perf_curve": {"p00_05": 3.0}})
+        assert mpc.gain_est == 0.5
+        assert mpc.perf_curve == {}
+
+    def test_finite_collections_are_restored(self):
+        """The element guard must not cost a healthy curve or error series."""
+        raw = {
+            "recent_errors": [0.1, -0.2],
+            "perf_curve": {"p00_05": {"count": 3, "avg_room_rate": 0.05}},
+        }
+        mpc = deserialize_mpc(raw)
+        assert list(mpc.recent_errors) == [0.1, -0.2]
+        assert mpc.perf_curve == {"p00_05": {"count": 3, "avg_room_rate": 0.05}}
+
+    def test_restored_error_series_keeps_its_window(self):
+        """The deque's bound is unchanged by parsing its elements."""
+        mpc = deserialize_mpc({"recent_errors": [float(i) for i in range(30)]})
+        assert mpc.recent_errors.maxlen == 20
+        assert list(mpc.recent_errors) == [float(i) for i in range(10, 30)]
+
+
+class TestLiveNonFiniteRoundTrip:
+    """A non-finite value held at save time must not return as ``None``."""
+
+    async def test_saved_nan_does_not_restore_as_none(self, hass, hass_storage):
+        """Save a live NaN, load it back, and check what the entry holds.
+
+        The encoder writes the NaN as ``null``. Restoring that null into a
+        field typed ``float`` leaves the entry holding ``None`` where the
+        calibrator expects a number, and the first arithmetic on it raises
+        ``TypeError`` — inside ``sanitize_pid_state``, before the guards
+        that would have healed a NaN ever run.
+        """
+        manager = StateManager(hass, "nan_entry")
+        pid = manager.get_pid("k")
+        pid.pid_integral = float("nan")
+        pid.pid_kp = 60.0
+        await manager.save()
+
+        stored = hass_storage["better_thermostat_nan_entry_state"]["data"]
+        assert stored["pid"]["k"]["pid_integral"] is None
+
+        reloaded = StateManager(hass, "nan_entry")
+        await reloaded.load()
+        restored = reloaded.state.pid["k"]
+        assert restored == PIDState()
+        assert restored.pid_integral + 1.0 == 1.0
+
+    async def test_saved_nan_inside_a_collection_does_not_restore_as_none(
+        self, hass, hass_storage
+    ):
+        """The same route reaches the numbers inside an MPC collection.
+
+        The encoder writes them as ``null`` in the stored list and in the
+        stored bin, where no field is null and so no field guard applies.
+        Copied back verbatim they would leave a ``None`` among numbers that
+        ``sanitize_mpc_state`` grades healthy — its finiteness walk has no
+        number to reject — and the first sum over the series raises
+        ``TypeError``.
+        """
+        manager = StateManager(hass, "nan_collection")
+        mpc = manager.get_mpc("k")
+        mpc.gain_est = 0.5
+        mpc.recent_errors = deque([0.1, float("nan")], maxlen=20)
+        mpc.perf_curve = {"p00_05": {"count": 3, "avg_room_rate": float("nan")}}
+        await manager.save()
+
+        stored = hass_storage["better_thermostat_nan_collection_state"]["data"]
+        assert stored["mpc"]["k"]["recent_errors"] == [0.1, None]
+        assert stored["mpc"]["k"]["perf_curve"]["p00_05"]["avg_room_rate"] is None
+
+        reloaded = StateManager(hass, "nan_collection")
+        await reloaded.load()
+        restored = reloaded.state.mpc["k"]
+        assert restored == MpcState()
+        assert sum(restored.recent_errors) == 0.0
+
+
+class TestDeserializeMpcV2:
+    """MPC v2 entries obey the same finiteness contract as their siblings."""
+
+    def test_finite_payload_is_restored(self):
+        """A plausible payload keeps every field, snapshot included."""
+        raw = {
+            "last_percent": 42.0,
+            "last_compute_ts": 100.0,
+            "created_ts": 10.0,
+            "outdoor_fallback_logged": True,
+            "snapshot": {"u_prev": 0.5},
+        }
+        state = deserialize_mpc_v2(raw)
+        assert state.last_percent == 42.0
+        assert state.last_compute_ts == 100.0
+        assert state.created_ts == 10.0
+        assert state.outdoor_fallback_logged is True
+        assert state.snapshot == {"u_prev": 0.5}
+
+    def test_non_finite_strings_from_a_store_discard_the_entry(self):
+        """A stored file delivers non-finite numbers as JSON strings."""
+        raw = json_loads(
+            '{"version":1,"mpc_v2":{"k1":{"last_percent":"NaN",'
+            '"last_compute_ts":"1e999","created_ts":"-1e999"}}}'
+        )
+        assert isinstance(raw, dict)
+        assert "k1" not in _deserialize(raw).mpc_v2
+
+    def test_poisoned_entry_drops_the_snapshot(self):
+        """The snapshot came from the controller whose timestamp went corrupt."""
+        raw = {"last_compute_ts": float("inf"), "snapshot": {"u_prev": 0.5}}
+        assert deserialize_mpc_v2(raw) is None
+
+    def test_null_timestamp_discards_the_entry(self):
+        """``created_ts`` is typed ``float``, so its null is a saved NaN."""
+        raw = {"created_ts": None, "snapshot": {"u_prev": 0.5}}
+        assert deserialize_mpc_v2(raw) is None
+
+    def test_null_percent_is_restored(self):
+        """``last_percent`` is typed ``float | None`` and keeps its null."""
+        state = deserialize_mpc_v2({"last_percent": None, "created_ts": 10.0})
+        assert state is not None
+        assert state.last_percent is None
+        assert state.created_ts == 10.0
+
+    def test_absent_field_keeps_its_default(self):
+        """A field the payload never carried is not a null."""
+        state = deserialize_mpc_v2({"snapshot": {"u_prev": 0.5}})
+        assert state == MpcV2StateData(snapshot={"u_prev": 0.5})
+
+    def test_wrong_type_only_skips_the_field(self):
+        """A wrong type is schema drift, not corrupt math: keep the entry."""
+        state = deserialize_mpc_v2({"created_ts": "later", "last_compute_ts": 100.0})
+        assert state is not None
+        assert state.created_ts == 0.0
+        assert state.last_compute_ts == 100.0
+
+    @pytest.mark.asyncio
+    async def test_a_poisoned_key_comes_back_without_a_controller(self):
+        """Dropping the key is what makes the restart a cold one.
+
+        An entry kept with an empty ``snapshot`` would still be rehydrated
+        into a controller, which then counts as initialised and skips
+        seeding its estimate from the first measurement.
+        """
+        mock_hass = AsyncMock()
+        mock_store = AsyncMock()
+        mock_store.async_load.return_value = {
+            "version": 1,
+            "mpc_v2": {
+                "k1": {
+                    "last_compute_ts": "NaN",
+                    "snapshot": {"v": 1, "x_hat": [18.0, 30.0], "last_u": 0.7},
+                }
+            },
+        }
+        with patch(f"{_SM}.Store", return_value=mock_store):
+            mgr = StateManager(mock_hass, "poisoned_entry")
+        await mgr.load()
+
+        assert mgr.state.mpc_v2 == {}
+        assert mgr.get_mpc_v2_live("k1", MpcV2Params()).controller is None
 
 
 # ---------------------------------------------------------------------------
@@ -676,6 +1245,23 @@ class TestScheduleDelaySave:
         assert data["mpc_v2"]["k1"]["last_percent"] == 55.0
         assert data["mpc_v2"]["k1"]["snapshot"]["last_u"] == 77.0
         assert mgr.dirty is False
+
+    def test_delay_save_keeps_the_last_good_entry_when_the_export_is_corrupt(self):
+        """A live controller gone non-finite must not overwrite what is stored."""
+        mgr, mock_store = self._make_manager_with_store()
+        live = mgr.get_mpc_v2_live("k1", MpcV2Params())
+        live.controller = _StubMpcV2Controller(_make_snapshot(last_u=10.0))
+        live.last_percent = 42.0
+        live.last_compute_ts = 100.0
+        mgr.set_mpc_v2_live("k1", live)
+        mgr.schedule_delay_save()
+        mock_store.async_delay_save.call_args[0][0]()
+
+        live.last_compute_ts = float("nan")
+        mgr.schedule_delay_save()
+        data = mock_store.async_delay_save.call_args[0][0]()
+
+        assert data["mpc_v2"]["k1"]["last_compute_ts"] == 100.0
 
     def test_delay_save_keeps_dirty_when_pre_save_fails(self):
         """A failing pre-save leaves the manager dirty for a retry."""
