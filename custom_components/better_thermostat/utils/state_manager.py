@@ -48,6 +48,7 @@ from .calibration.mpc_v2 import (
     import_mpc_v2_state,
 )
 from .calibration.mpc_v2.reid import ReidBuffer
+from .calibration.mpc_v2_internals.plant import GAIN_HEATER_BOUNDS, TAU_ROOM_BOUNDS_MIN
 from .calibration.pid import PIDState
 from .calibration.tpi import TpiState
 from .const import (
@@ -277,6 +278,15 @@ def _stored_count(value: Any) -> int:
     return max(count, 0)
 
 
+def _within(value: float, bounds: tuple[float, float]) -> bool:
+    """Return whether *value* lies inside *bounds*, inclusive at both ends.
+
+    A NaN answers ``False`` on both comparisons, so it reads as outside.
+    """
+    low, high = bounds
+    return low <= value <= high
+
+
 def _null_or_poison(attr: str, kind: str, nullable: frozenset[str]) -> None:
     """Let a stored null through, unless the declared type forbids one.
 
@@ -468,10 +478,14 @@ def deserialize_mpc_v2_reid(raw: dict[str, Any]) -> MpcV2ReidData | None:
     Three checks reject an entry. A NaN or infinity in one of the five
     float fields; a stored ``null`` in any of the six, since none of them
     is declared to hold one; and a ``tau_room_min`` or ``gain_heater``
-    that is not positive, since those two are the pair that seeds the
-    prior. None of the three bounds magnitude, so a positive but
-    implausibly small ``tau_room_min`` passes and reaches the plant model,
-    whose room dynamics divide by it.
+    outside :data:`TAU_ROOM_BOUNDS_MIN` / :data:`GAIN_HEATER_BOUNDS`,
+    inclusive at both ends, since those two are the pair that seeds the
+    prior and the plant's room dynamics divide by ``tau_room_min``.
+
+    The magnitude check rejects rather than clamps: this deserialiser's
+    contract is that a corrupt entry is left out so the lookup moves on to
+    the heat-loss-derived prior, whereas clamping would present a nonsense
+    stored value as a learned result sitting at the edge of the band.
 
     A float field that does not parse keeps its default, which leaves the
     entry usable as the schema grows. ``n_segments`` is metadata: a value
@@ -495,8 +509,13 @@ def deserialize_mpc_v2_reid(raw: dict[str, Any]) -> MpcV2ReidData | None:
             return None
         except TypeError, ValueError, OverflowError:
             continue
-    # A result without both fitted components cannot seed a plant prior.
-    if state.tau_room_min <= 0.0 or state.gain_heater <= 0.0:
+    # A result whose fitted components lie outside the plausible band cannot
+    # seed a plant prior. The band is two-sided on both: too small a
+    # ``tau_room_min`` and the room dynamics blow up, too large and they
+    # freeze, and either rail pins the commanded valve.
+    if not _within(state.tau_room_min, TAU_ROOM_BOUNDS_MIN):
+        return None
+    if not _within(state.gain_heater, GAIN_HEATER_BOUNDS):
         return None
     return state
 

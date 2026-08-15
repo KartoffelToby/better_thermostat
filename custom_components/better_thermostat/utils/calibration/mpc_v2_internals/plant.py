@@ -18,6 +18,15 @@ import numpy as np
 
 from ._types import FloatArray
 
+# Plausible band for the two identifiable prior components, as
+# ``(lower, upper)`` and inclusive at both ends. ``tau_room_min`` divides the
+# room dynamics below and ``gain_heater`` scales the radiator drive, so a
+# value outside these bands drives the commanded valve to one rail. Every
+# producer and consumer of a prior — the offline fit, the heat-loss
+# derivation, the restore gate — refers to these two tuples.
+TAU_ROOM_BOUNDS_MIN = (60.0, 2000.0)
+GAIN_HEATER_BOUNDS = (0.5, 5.0)
+
 
 @dataclass
 class PlantParams:
