@@ -76,6 +76,9 @@ def bt():
     mock.control_queue_task = MagicMock()
     mock.context = MagicMock()
     mock.last_internal_sensor_change = dt_util.now() - timedelta(seconds=60)
+    mock._clamp_inbound_heat_target = lambda v: (
+        BetterThermostat._clamp_inbound_heat_target(mock, v)
+    )
     mock.all_trvs = [{"advanced": {CONF_HOMEMATICIP: False}}]
     mock.real_trvs = {
         TRV_ID: Trv(

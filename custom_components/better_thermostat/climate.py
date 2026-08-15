@@ -165,6 +165,7 @@ from .utils.helpers import (
     get_hvac_bt_mode,
     is_reasonable_temperature,
     normalize_hvac_mode,
+    normalize_step,
     read_setpoint_celsius,
     state_temperature_unit,
 )
@@ -3244,6 +3245,83 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
             self.bt_target_cooltemp,
         )
         self.bt_target_temp = adjusted
+
+    def _clamp_inbound_cool_target(self, value: float) -> float:
+        """Raise a cooling setpoint reported by the cooler above the heating target.
+
+        A device only ever speaks for its own channel: a press on the air
+        conditioner's remote must not move the radiators' target. So a reported
+        cooling setpoint that would cross the heating target is raised to the
+        nearest value that clears it, instead of pulling the heating target
+        down. The floor stays inside the configured range, so at a heating
+        target within one step of ``bt_max_temp`` the adopted value stops at the
+        maximum and the ordering is settled by
+        :meth:`_enforce_heat_below_cool` moving the heating target one step.
+
+        The bound keys off the configured cooling channel rather than the live
+        mode: the ordering of the two targets is a property of the
+        configuration, so it has to hold whatever mode the group happens to be
+        in. A crossing learned while the group is off is never revisited
+        otherwise.
+
+        A step that is not a positive real number would turn the floor into a
+        ceiling, so it is replaced by the 0.5 fallback.
+
+        Parameters
+        ----------
+        value : float
+            Cooling setpoint in °C, already resolved into BT's range.
+
+        Returns
+        -------
+        float
+            The value to adopt: unchanged unless it had to be raised.
+        """
+        if self.cooler_entity_id is None or self.bt_target_temp is None:
+            return value
+        step = normalize_step(self.bt_target_temp_step)
+        floor = self.bt_target_temp + step
+        if self.bt_max_temp is not None:
+            floor = min(floor, self.bt_max_temp)
+        return max(value, floor)
+
+    def _clamp_inbound_heat_target(self, value: float) -> float:
+        """Lower a heating setpoint reported by a TRV below the cooling target.
+
+        The counterpart to :meth:`_clamp_inbound_cool_target`, for a knob turn
+        on a radiator valve: it may move the heating target only, so a reported
+        setpoint that would cross the cooling target is lowered to the nearest
+        value that clears it rather than pushing the cooling target up. The
+        ceiling stays inside the configured range, so at a cooling target within
+        one step of ``bt_min_temp`` the adopted value stops at the minimum and
+        :meth:`_enforce_cool_above_heat` settles the ordering with a one-step
+        move of the cooling target.
+
+        Like its counterpart the bound keys off the configured cooling channel
+        rather than the live mode, and here that is what makes it hold at all: a
+        valve with ``no_off_system_mode`` reports its knob turn while
+        ``bt_hvac_mode`` is still OFF, and the same event then resolves the mode.
+
+        A step that is not a positive real number would turn the ceiling into a
+        floor, so it is replaced by the 0.5 fallback.
+
+        Parameters
+        ----------
+        value : float
+            Heating setpoint in °C, already resolved into BT's range.
+
+        Returns
+        -------
+        float
+            The value to adopt: unchanged unless it had to be lowered.
+        """
+        if self.cooler_entity_id is None or self.bt_target_cooltemp is None:
+            return value
+        step = normalize_step(self.bt_target_temp_step)
+        ceiling = self.bt_target_cooltemp - step
+        if self.bt_min_temp is not None:
+            ceiling = max(ceiling, self.bt_min_temp)
+        return min(value, ceiling)
 
     async def async_set_temperature(self, **kwargs) -> None:
         """Set new target temperature."""

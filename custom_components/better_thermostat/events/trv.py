@@ -325,14 +325,40 @@ async def trigger_trv_change(self, event):
                     self.device_name,
                     entity_id,
                 )
+            # What the TRV reports speaks for the heating channel alone: a value
+            # that would cross the cooling target is lowered below it, so a knob
+            # turn on a radiator valve cannot move the cooler's target.
+            _adopted_heating_setpoint = self._clamp_inbound_heat_target(
+                _new_heating_setpoint
+            )
+            if _adopted_heating_setpoint != _new_heating_setpoint:
+                # A user turning the knob up step by step would collect one
+                # warning per press, so yielding to the cooling target is an
+                # INFO: the range clamp above and the ordering fallback below
+                # own the WARNING level.
+                _LOGGER.info(
+                    "better_thermostat %s: TRV %s reported setpoint %.2f does not "
+                    "clear the cooling target %.2f, keeping %.2f",
+                    self.device_name,
+                    entity_id,
+                    _new_heating_setpoint,
+                    self.bt_target_cooltemp,
+                    _adopted_heating_setpoint,
+                )
             _LOGGER.debug(
                 "better_thermostat %s: TRV %s decoded TRV target temp changed from %s to %s",
                 self.device_name,
                 entity_id,
                 self.bt_target_temp,
-                _new_heating_setpoint,
+                _adopted_heating_setpoint,
             )
-            self.bt_target_temp = _new_heating_setpoint
+            self.bt_target_temp = _adopted_heating_setpoint
+            # The clamp leaves the cooling target alone, so this only settles the
+            # degenerate case where no heating value below the cooling target
+            # exists inside the range: at a cooling target within one step of
+            # bt_min_temp it lifts that target by one step, and a range the
+            # children narrowed above a target already in place is what moves it
+            # further — that move is what brings it back inside the range.
             self._enforce_cool_above_heat()
 
             _main_change = True
@@ -382,6 +408,11 @@ async def trigger_trv_change(self, event):
                     self.bt_hvac_mode = HVACMode.OFF
             else:
                 self.bt_hvac_mode = HVACMode.HEAT
+                # Leaving OFF is what puts a group with a cooler into HEAT_COOL,
+                # so this is the first moment the ordering of the two targets is
+                # checked at all: a setpoint adopted while the group was still
+                # off has not passed that check yet.
+                self._enforce_cool_above_heat()
             _main_change = True
 
     if _main_change is True:

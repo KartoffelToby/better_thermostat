@@ -110,6 +110,10 @@ async def trigger_cooler_change(self, event):
         # change, a temperature push — must not be read as user intent: a
         # stale report would otherwise revert a BT-side target that has not
         # been written yet.
+        # What the cooler reports also speaks for the cooling channel alone: a
+        # value that would cross the heating target is raised above it, so a
+        # press on the air conditioner's remote cannot move the radiators'
+        # target — potentially below room temperature, stopping the heating.
         _reported_moved = abs(
             _new_cooling_setpoint.raw - _old_cooling_setpoint
         ) >= setpoint_echo_window(_step)
@@ -129,7 +133,31 @@ async def trigger_cooler_change(self, event):
                     self.device_name,
                     entity_id,
                 )
-            self.bt_target_cooltemp = _new_cooling_setpoint.value
+            _adopted_cooling_setpoint = self._clamp_inbound_cool_target(
+                _new_cooling_setpoint.value
+            )
+            if _adopted_cooling_setpoint != _new_cooling_setpoint.value:
+                # A user turning the remote down step by step would collect one
+                # warning per press, so yielding to the heating target is an
+                # INFO: the range clamp above and the ordering fallback below
+                # own the WARNING level.
+                _LOGGER.info(
+                    "better_thermostat %s: Cooler %s reported setpoint %.2f does not "
+                    "clear the heating target %.2f, keeping %.2f",
+                    self.device_name,
+                    entity_id,
+                    _new_cooling_setpoint.value,
+                    self.bt_target_temp,
+                    _adopted_cooling_setpoint,
+                )
+            self.bt_target_cooltemp = _adopted_cooling_setpoint
+            # The clamp leaves the heating target alone, so this only settles
+            # the degenerate case where no cooling value above the heating
+            # target exists inside the range: at a heating target within one
+            # step of bt_max_temp it drops that target by one step, and a range
+            # the children narrowed below a target already in place is what
+            # moves it further — that move is what brings it back inside the
+            # range.
             self._enforce_heat_below_cool()
             _main_change = True
         elif _reported_moved:

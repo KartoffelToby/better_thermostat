@@ -1357,3 +1357,179 @@ class TestEnforceHeatBelowCool:
         mock_bt.bt_target_cooltemp = 22.0
         self._call(mock_bt)
         assert mock_bt.bt_target_temp is None
+
+
+# ===========================================================================
+# 9. TestClampInboundCoolTarget
+# ===========================================================================
+
+
+class TestClampInboundCoolTarget:
+    """_clamp_inbound_cool_target raises a cooler report above the heat target."""
+
+    def _call(self, bt, value):
+        return BetterThermostat._clamp_inbound_cool_target(bt, value)
+
+    def test_without_a_cooler_is_noop(self, mock_bt):
+        """Without a cooling channel there is no second bound."""
+        mock_bt.cooler_entity_id = None
+        mock_bt.bt_target_temp = 22.0
+        assert self._call(mock_bt, 20.0) == 20.0
+
+    def test_a_group_that_is_off_still_keeps_the_targets_apart(self, mock_bt):
+        """The ordering is a property of the configuration, not of the mode.
+
+        A crossing adopted while the group is off is never revisited, because
+        the ordering fallbacks only run inside HEAT_COOL.
+        """
+        mock_bt.cooler_entity_id = "climate.ac"
+        mock_bt.hvac_mode = HVACMode.OFF
+        mock_bt.bt_target_temp = 22.0
+        assert self._call(mock_bt, 20.0) == 22.5
+
+    def test_none_heat_target_is_noop(self, mock_bt):
+        """Without a heating target there is no bound to clamp against."""
+        mock_bt.cooler_entity_id = "climate.ac"
+        mock_bt.hvac_mode = HVACMode.HEAT_COOL
+        mock_bt.bt_target_temp = None
+        assert self._call(mock_bt, 20.0) == 20.0
+
+    def test_value_above_heat_target_is_kept(self, mock_bt):
+        """A value that already clears the heating target is returned unchanged."""
+        mock_bt.cooler_entity_id = "climate.ac"
+        mock_bt.hvac_mode = HVACMode.HEAT_COOL
+        mock_bt.bt_target_temp = 22.0
+        assert self._call(mock_bt, 26.0) == 26.0
+
+    def test_value_below_heat_target_is_raised_by_one_step(self, mock_bt):
+        """A value below the heating target is raised just above it."""
+        mock_bt.cooler_entity_id = "climate.ac"
+        mock_bt.hvac_mode = HVACMode.HEAT_COOL
+        mock_bt.bt_target_temp = 22.0
+        mock_bt.bt_target_temp_step = 0.5
+        assert self._call(mock_bt, 18.0) == 22.5
+
+    def test_value_equal_to_heat_target_is_raised(self, mock_bt):
+        """A value on the heating target still has to clear it."""
+        mock_bt.cooler_entity_id = "climate.ac"
+        mock_bt.hvac_mode = HVACMode.HEAT_COOL
+        mock_bt.bt_target_temp = 22.0
+        mock_bt.bt_target_temp_step = 0.5
+        assert self._call(mock_bt, 22.0) == 22.5
+
+    def test_step_falls_back_to_half_degree(self, mock_bt):
+        """A missing/zero step falls back to 0.5."""
+        mock_bt.cooler_entity_id = "climate.ac"
+        mock_bt.hvac_mode = HVACMode.HEAT_COOL
+        mock_bt.bt_target_temp = 22.0
+        mock_bt.bt_target_temp_step = 0
+        assert self._call(mock_bt, 22.0) == 22.5
+
+    def test_negative_step_falls_back_to_half_degree(self, mock_bt):
+        """A negative step would turn the floor into a ceiling."""
+        mock_bt.cooler_entity_id = "climate.ac"
+        mock_bt.hvac_mode = HVACMode.HEAT_COOL
+        mock_bt.bt_target_temp = 22.0
+        mock_bt.bt_target_temp_step = -0.5
+        assert self._call(mock_bt, 20.0) == 22.5
+
+    def test_floor_stays_inside_the_configured_range(self, mock_bt):
+        """With the heating target at the maximum the floor stops there.
+
+        An unbounded floor would leave the configured range, so the value stops
+        at bt_max_temp and the ordering fallback settles the rest.
+        """
+        mock_bt.cooler_entity_id = "climate.ac"
+        mock_bt.hvac_mode = HVACMode.HEAT_COOL
+        mock_bt.bt_target_temp = 30.0
+        mock_bt.bt_max_temp = 30.0
+        mock_bt.bt_target_temp_step = 0.5
+        assert self._call(mock_bt, 22.0) == 30.0
+
+
+# ===========================================================================
+# 10. TestClampInboundHeatTarget
+# ===========================================================================
+
+
+class TestClampInboundHeatTarget:
+    """_clamp_inbound_heat_target lowers a TRV report below the cool target."""
+
+    def _call(self, bt, value):
+        return BetterThermostat._clamp_inbound_heat_target(bt, value)
+
+    def test_without_a_cooler_is_noop(self, mock_bt):
+        """Without a cooling channel there is no second bound."""
+        mock_bt.cooler_entity_id = None
+        mock_bt.bt_target_cooltemp = 22.0
+        assert self._call(mock_bt, 24.0) == 24.0
+
+    def test_a_group_that_is_off_still_keeps_the_targets_apart(self, mock_bt):
+        """A valve reporting while the group is off must not cross the cool target.
+
+        A valve with ``no_off_system_mode`` reports its knob turn while
+        ``bt_hvac_mode`` is still OFF, and the same event then resolves the mode.
+        """
+        mock_bt.cooler_entity_id = "climate.ac"
+        mock_bt.hvac_mode = HVACMode.OFF
+        mock_bt.bt_target_cooltemp = 22.0
+        assert self._call(mock_bt, 24.0) == 21.5
+
+    def test_none_cool_target_is_noop(self, mock_bt):
+        """Without a cooling target there is no bound to clamp against."""
+        mock_bt.cooler_entity_id = "climate.ac"
+        mock_bt.hvac_mode = HVACMode.HEAT_COOL
+        mock_bt.bt_target_cooltemp = None
+        assert self._call(mock_bt, 24.0) == 24.0
+
+    def test_value_below_cool_target_is_kept(self, mock_bt):
+        """A value that already clears the cooling target is returned unchanged."""
+        mock_bt.cooler_entity_id = "climate.ac"
+        mock_bt.hvac_mode = HVACMode.HEAT_COOL
+        mock_bt.bt_target_cooltemp = 26.0
+        assert self._call(mock_bt, 22.0) == 22.0
+
+    def test_value_above_cool_target_is_lowered_by_one_step(self, mock_bt):
+        """A value above the cooling target is lowered just below it."""
+        mock_bt.cooler_entity_id = "climate.ac"
+        mock_bt.hvac_mode = HVACMode.HEAT_COOL
+        mock_bt.bt_target_cooltemp = 22.0
+        mock_bt.bt_target_temp_step = 0.5
+        assert self._call(mock_bt, 26.0) == 21.5
+
+    def test_value_equal_to_cool_target_is_lowered(self, mock_bt):
+        """A value on the cooling target still has to clear it."""
+        mock_bt.cooler_entity_id = "climate.ac"
+        mock_bt.hvac_mode = HVACMode.HEAT_COOL
+        mock_bt.bt_target_cooltemp = 22.0
+        mock_bt.bt_target_temp_step = 0.5
+        assert self._call(mock_bt, 22.0) == 21.5
+
+    def test_step_falls_back_to_half_degree(self, mock_bt):
+        """A missing/zero step falls back to 0.5."""
+        mock_bt.cooler_entity_id = "climate.ac"
+        mock_bt.hvac_mode = HVACMode.HEAT_COOL
+        mock_bt.bt_target_cooltemp = 22.0
+        mock_bt.bt_target_temp_step = 0
+        assert self._call(mock_bt, 22.0) == 21.5
+
+    def test_negative_step_falls_back_to_half_degree(self, mock_bt):
+        """A negative step would turn the ceiling into a floor."""
+        mock_bt.cooler_entity_id = "climate.ac"
+        mock_bt.hvac_mode = HVACMode.HEAT_COOL
+        mock_bt.bt_target_cooltemp = 22.0
+        mock_bt.bt_target_temp_step = -0.5
+        assert self._call(mock_bt, 24.0) == 21.5
+
+    def test_ceiling_stays_inside_the_configured_range(self, mock_bt):
+        """With the cooling target at the minimum the ceiling stops there.
+
+        An unbounded ceiling would leave the configured range, so the value stops
+        at bt_min_temp and the ordering fallback settles the rest.
+        """
+        mock_bt.cooler_entity_id = "climate.ac"
+        mock_bt.hvac_mode = HVACMode.HEAT_COOL
+        mock_bt.bt_target_cooltemp = 5.0
+        mock_bt.bt_min_temp = 5.0
+        mock_bt.bt_target_temp_step = 0.5
+        assert self._call(mock_bt, 22.0) == 5.0
