@@ -241,7 +241,8 @@ class MpcV2Controller:
         :meth:`ControllerSnapshot.from_mapping`.
         """
         n = self.plant_fine.state_dim
-        if len(snap.x_hat) == n:
+        seeded = len(snap.x_hat) == n
+        if seeded:
             self.kalman.initialise(np.asarray(snap.x_hat, dtype=float))
         if snap.kalman_P:
             P = np.asarray(snap.kalman_P, dtype=float)
@@ -255,7 +256,11 @@ class MpcV2Controller:
         self.governor.restore(snap.rg_v_C)
         self._last_t_s = snap.last_t_s
         self._next_mpc_t_s = snap.next_mpc_t_s
-        self._initialised = True
+        # The controller counts as initialised only when the snapshot carried a
+        # usable estimate. Without one the Kalman filter still holds its
+        # construction default, so the first :meth:`step` has to seed it from
+        # the measurement instead of treating the default as restored state.
+        self._initialised = seeded
 
     def set_applied_u(self, u: float) -> None:
         """Record the valve fraction actually applied to the TRV.

@@ -449,3 +449,56 @@ def test_wrong_shaped_covariance_is_ignored_on_restore() -> None:
     np.testing.assert_array_equal(controller.kalman.P, default_P)
     np.testing.assert_array_equal(controller.kalman.x_hat, default_x)
     assert controller._last_u == 0.4  # scalar fields still restore
+
+
+# Snapshot shapes that carry no state vector of the controller's dimension.
+# ``None`` stands for a stored payload whose ``snapshot`` key is null or not a
+# mapping at all, which ``import_mpc_v2_state`` refuses before it builds a
+# controller.
+_SNAPSHOTS_WITHOUT_ESTIMATE = [
+    {},
+    {"u_prev": 0.5},
+    {"v": SNAPSHOT_VERSION},
+    {"v": SNAPSHOT_VERSION, "x_hat": [18.0]},
+    None,
+]
+
+
+@pytest.mark.parametrize("raw", _SNAPSHOTS_WITHOUT_ESTIMATE[:-1])
+def test_snapshot_without_estimate_leaves_controller_uninitialised(
+    raw: dict[str, object],
+) -> None:
+    """A snapshot with no usable x_hat does not mark the controller initialised."""
+    controller = MpcV2Controller(MpcV2Params())
+    snap = ControllerSnapshot.from_mapping(raw)
+    assert snap is not None
+    controller.restore_snapshot(snap)
+    assert controller._initialised is False
+
+
+@pytest.mark.parametrize("raw", _SNAPSHOTS_WITHOUT_ESTIMATE)
+def test_restore_without_estimate_matches_a_freshly_built_controller(
+    raw: dict[str, object] | None,
+) -> None:
+    """Rehydrating from such a payload behaves like booting without one.
+
+    Every other field these payloads carry already equals the construction
+    default, so the observer estimate after the first cycle is the whole
+    difference: seeded from the measured room and radiator temperatures rather
+    than left on the neutral 20.0 °C guess the filter is built with.
+    """
+    params = MpcV2Params()
+    inp = _baseline_input(current_temp_C=24.0, trv_temp_C=26.5)
+
+    restored = import_mpc_v2_state({"snapshot": raw}, params)
+    out_restored, _ = compute_mpc_v2(inp, params, restored, now=1_700_000_000.0)
+    out_fresh, _ = compute_mpc_v2(inp, params, None, now=1_700_000_000.0)
+
+    assert out_restored is not None and out_fresh is not None
+    assert out_restored.diagnostics.T_rad_hat == pytest.approx(
+        out_fresh.diagnostics.T_rad_hat
+    )
+    assert out_restored.diagnostics.T_room_hat == pytest.approx(
+        out_fresh.diagnostics.T_room_hat
+    )
+    assert out_restored.valve_percent == out_fresh.valve_percent
