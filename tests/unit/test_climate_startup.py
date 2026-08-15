@@ -117,6 +117,9 @@ def bt():
     mock._enforce_cool_above_heat.side_effect = lambda **kwargs: (
         BetterThermostat._enforce_cool_above_heat(mock, **kwargs)
     )
+    mock._bound_target_to_range = lambda value: BetterThermostat._bound_target_to_range(
+        mock, value
+    )
     return mock
 
 
@@ -912,6 +915,104 @@ class TestRestoreState:
 
         assert bt._preset_cool_temperatures["comfort"] == 25.5
         assert bt.bt_target_cooltemp == 25.5
+
+    def _cooling_bt(self, bt, minimum, maximum):
+        """Configure *bt* with a cooling channel and a real ordering method."""
+        bt.cooler_entity_id = COOLER_ID
+        bt.bt_min_temp = minimum
+        bt.bt_max_temp = maximum
+        bt.bt_target_temp_step = 0.5
+        bt.hvac_mode = HVACMode.OFF
+        bt._preset_cool_temperature = None
+        bt._enforce_cool_above_heat = lambda **kwargs: (
+            BetterThermostat._enforce_cool_above_heat(bt, **kwargs)
+        )
+        return bt
+
+    @pytest.mark.asyncio
+    async def test_restored_preset_pair_below_the_minimum_is_bounded_and_ordered(
+        self, bt
+    ):
+        """A stored preset pair under the minimum is bounded, then ordered.
+
+        A preset stored while the cooler was unavailable carries the pair the
+        range in force then allowed. Re-injecting it verbatim publishes two
+        targets the configured range does not contain, and the ordering is not
+        revisited because Better Thermostat comes back OFF.
+        """
+        bt = self._cooling_bt(bt, 20.0, 30.0)
+        bt._preset_cool_temperatures = {"none": 24.0, "comfort": 10.0, "eco": 27.0}
+        bt.preset_mgr.temperatures = {"comfort": 9.0, "eco": 18.0}
+        old = MagicMock()
+        old.state = "heat"
+        old.attributes = {ATTR_TEMPERATURE: 9.0, "preset_mode": "comfort"}
+        bt.async_get_last_state = AsyncMock(return_value=old)
+
+        await BetterThermostat._restore_state(bt, [_make_trv_state()])
+
+        assert bt.bt_target_temp == 20.0
+        assert bt.bt_target_cooltemp == 20.5
+        assert bt.bt_min_temp <= bt.bt_target_temp <= bt.bt_max_temp
+        assert bt.bt_min_temp <= bt.bt_target_cooltemp <= bt.bt_max_temp
+        assert bt.bt_target_cooltemp > bt.bt_target_temp
+
+    @pytest.mark.asyncio
+    async def test_restored_preset_cool_target_above_the_maximum_is_bounded(self, bt):
+        """A stored preset cooling target over the maximum comes back bounded.
+
+        The ordering leaves it alone because it already clears the heating
+        target, so the range bound is the only thing that holds it.
+        """
+        bt = self._cooling_bt(bt, 16.0, 26.0)
+        bt._preset_cool_temperatures = {"none": 24.0, "comfort": 35.0, "eco": 27.0}
+        bt.preset_mgr.temperatures = {"comfort": 20.0, "eco": 18.0}
+        old = MagicMock()
+        old.state = "heat"
+        old.attributes = {ATTR_TEMPERATURE: 20.0, "preset_mode": "comfort"}
+        bt.async_get_last_state = AsyncMock(return_value=old)
+
+        await BetterThermostat._restore_state(bt, [_make_trv_state()])
+
+        assert bt.bt_target_temp == 20.0
+        assert bt.bt_target_cooltemp == 26.0
+        assert bt.bt_min_temp <= bt.bt_target_cooltemp <= bt.bt_max_temp
+        assert bt.bt_target_cooltemp > bt.bt_target_temp
+
+    @pytest.mark.asyncio
+    async def test_restored_preset_heating_target_above_the_maximum_is_bounded(
+        self, bt
+    ):
+        """A stored preset heating target over the maximum comes back bounded."""
+        bt = self._cooling_bt(bt, 16.0, 26.0)
+        bt._preset_cool_temperatures = {"none": 24.0, "comfort": 25.0, "eco": 27.0}
+        bt.preset_mgr.temperatures = {"comfort": 31.0, "eco": 18.0}
+        old = MagicMock()
+        old.state = "heat"
+        old.attributes = {ATTR_TEMPERATURE: 31.0, "preset_mode": "comfort"}
+        bt.async_get_last_state = AsyncMock(return_value=old)
+
+        await BetterThermostat._restore_state(bt, [_make_trv_state()])
+
+        assert bt.bt_target_temp == 26.0
+        assert bt.bt_min_temp <= bt.bt_target_temp <= bt.bt_max_temp
+
+    @pytest.mark.asyncio
+    async def test_restored_preset_pair_is_not_ordered_without_a_cooler(self, bt):
+        """Without a cooling channel there is no pair to order."""
+        bt = self._cooling_bt(bt, 16.0, 26.0)
+        bt.cooler_entity_id = None
+        bt.bt_target_cooltemp = 18.0
+        bt._preset_cool_temperatures = {"none": 24.0, "comfort": 25.0, "eco": 27.0}
+        bt.preset_mgr.temperatures = {"comfort": 22.0, "eco": 18.0}
+        old = MagicMock()
+        old.state = "heat"
+        old.attributes = {ATTR_TEMPERATURE: 22.0, "preset_mode": "comfort"}
+        bt.async_get_last_state = AsyncMock(return_value=old)
+
+        await BetterThermostat._restore_state(bt, [_make_trv_state()])
+
+        assert bt.bt_target_temp == 22.0
+        assert bt.bt_target_cooltemp == 18.0
 
     @pytest.mark.asyncio
     async def test_restores_heating_power_clamped(self, bt):
