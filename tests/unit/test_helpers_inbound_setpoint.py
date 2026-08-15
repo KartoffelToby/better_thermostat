@@ -354,6 +354,22 @@ class TestResolveInboundSetpoint:
         )
         assert (result.value, result.clamped) == (20.0, True)
 
+    def test_report_outside_the_range_matching_a_known_value_is_an_echo(self):
+        """A device parked outside BT's range republishes what BT wrote to it.
+
+        The clamp lifts the report onto the configured minimum and away from
+        the known value, so only the reported value still identifies the write.
+        """
+        result = resolve_inbound_setpoint(
+            _fake_self(),
+            _state({"temperature": 2.0}),
+            keys=TRV_SETPOINT_KEYS,
+            known_values=(21.0, 2.0),
+            step=0.5,
+            log_source="t",
+        )
+        assert (result.raw, result.value, result.is_echo) == (2.0, 5.0, True)
+
     def test_echo_is_judged_after_clamping(self):
         """A value the clamp pulls onto a known value is an echo, not input."""
         result = resolve_inbound_setpoint(
