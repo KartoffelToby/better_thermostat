@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import copy
 from dataclasses import replace
+import json
 
 import numpy as np
 import pytest
@@ -429,6 +430,50 @@ def test_malformed_snapshot_values_are_rejected(caplog) -> None:
     assert any("non-numeric" in r.getMessage() for r in caplog.records)
 
 
+@pytest.mark.parametrize(
+    "raw",
+    [
+        {"v": SNAPSHOT_VERSION, "x_hat": [float("nan"), float("nan")]},
+        {"v": SNAPSHOT_VERSION, "x_hat": [float("inf"), 20.0]},
+        {"v": SNAPSHOT_VERSION, "kalman_P": [[float("nan"), 0.0], [0.0, 1.0]]},
+        {"v": SNAPSHOT_VERSION, "u_history": [0.5, float("nan")]},
+        {"v": SNAPSHOT_VERSION, "D_hat_K_per_min": float("nan")},
+        {"v": SNAPSHOT_VERSION, "last_u": float("nan")},
+        {"v": SNAPSHOT_VERSION, "e_integral_K_min": float("-inf")},
+        {"v": SNAPSHOT_VERSION, "rg_v_C": float("nan")},
+        {"v": SNAPSHOT_VERSION, "last_t_s": float("inf")},
+        {"v": SNAPSHOT_VERSION, "next_mpc_t_s": float("nan")},
+    ],
+)
+def test_non_finite_snapshot_values_are_rejected(
+    raw: dict[str, object], caplog
+) -> None:
+    """A non-finite value in any persisted field drops the whole snapshot.
+
+    The payload is routed through ``json`` because ``NaN`` and ``Infinity``
+    survive a serialise/parse round trip, so a store that once wrote them hands
+    them back to ``from_mapping`` exactly as written here.
+    """
+    with caplog.at_level("WARNING"):
+        snap = ControllerSnapshot.from_mapping(json.loads(json.dumps(raw)))
+    assert snap is None
+    assert any("non-finite" in r.getMessage() for r in caplog.records)
+
+
+def test_null_governor_state_is_accepted() -> None:
+    """A stored null ``rg_v_C`` is a legal value, not a non-finite one."""
+    raw = {"v": SNAPSHOT_VERSION, "x_hat": [21.0, 22.0], "rg_v_C": None}
+    snap = ControllerSnapshot.from_mapping(json.loads(json.dumps(raw)))
+    assert snap is not None
+    assert snap.rg_v_C is None
+    assert snap.x_hat == [21.0, 22.0]
+
+    controller = MpcV2Controller(MpcV2Params())
+    controller.restore_snapshot(snap)
+    assert controller._initialised is True
+    np.testing.assert_array_equal(controller.kalman.x_hat, np.array([21.0, 22.0]))
+
+
 def test_wrong_shaped_covariance_is_ignored_on_restore() -> None:
     """A mis-shaped kalman_P/x_hat must not poison the rebuilt filter."""
     controller = MpcV2Controller(MpcV2Params())
@@ -449,3 +494,81 @@ def test_wrong_shaped_covariance_is_ignored_on_restore() -> None:
     np.testing.assert_array_equal(controller.kalman.P, default_P)
     np.testing.assert_array_equal(controller.kalman.x_hat, default_x)
     assert controller._last_u == 0.4  # scalar fields still restore
+
+
+# Snapshot shapes that carry no usable state vector of the controller's
+# dimension: absent, too short, or the right length but non-finite. ``None``
+# stands for a stored payload whose ``snapshot`` key is null or not a mapping
+# at all, which ``import_mpc_v2_state`` refuses before it builds a controller.
+_SNAPSHOTS_WITHOUT_ESTIMATE = [
+    {},
+    {"u_prev": 0.5},
+    {"v": SNAPSHOT_VERSION},
+    {"v": SNAPSHOT_VERSION, "x_hat": [18.0]},
+    {"v": SNAPSHOT_VERSION, "x_hat": [float("nan"), float("nan")]},
+    {"v": SNAPSHOT_VERSION, "x_hat": [float("inf"), 20.0]},
+    None,
+]
+
+
+def _snapshot_carrying(raw: dict[str, object]) -> ControllerSnapshot:
+    """Build a snapshot object directly from a raw mapping's ``x_hat``.
+
+    ``from_mapping`` drops non-finite payloads, so it cannot deliver the
+    non-finite vectors to ``restore_snapshot``. Constructing the dataclass here
+    exercises the seed condition on its own; every other field is left at the
+    controller's construction default.
+    """
+    vector = raw.get("x_hat", [])
+    return ControllerSnapshot(
+        v=SNAPSHOT_VERSION,
+        x_hat=[float(x) for x in vector] if isinstance(vector, list) else [],
+        kalman_P=[],
+        D_hat_K_per_min=0.0,
+        last_u=0.0,
+        e_integral_K_min=0.0,
+        u_history=[],
+        rg_v_C=None,
+        last_t_s=0.0,
+        next_mpc_t_s=-1.0,
+    )
+
+
+@pytest.mark.parametrize("raw", _SNAPSHOTS_WITHOUT_ESTIMATE[:-1])
+def test_snapshot_without_estimate_leaves_controller_uninitialised(
+    raw: dict[str, object],
+) -> None:
+    """A snapshot with no usable x_hat does not mark the controller initialised."""
+    controller = MpcV2Controller(MpcV2Params())
+    default_x = controller.kalman.x_hat.copy()
+    controller.restore_snapshot(_snapshot_carrying(raw))
+    assert controller._initialised is False
+    np.testing.assert_array_equal(controller.kalman.x_hat, default_x)
+
+
+@pytest.mark.parametrize("raw", _SNAPSHOTS_WITHOUT_ESTIMATE)
+def test_restore_without_estimate_matches_a_freshly_built_controller(
+    raw: dict[str, object] | None,
+) -> None:
+    """Rehydrating from such a payload behaves like booting without one.
+
+    Every other field these payloads carry already equals the construction
+    default, so the observer estimate after the first cycle is the whole
+    difference: seeded from the measured room and radiator temperatures rather
+    than left on the neutral 20.0 °C guess the filter is built with.
+    """
+    params = MpcV2Params()
+    inp = _baseline_input(current_temp_C=24.0, trv_temp_C=26.5)
+
+    restored = import_mpc_v2_state({"snapshot": raw}, params)
+    out_restored, _ = compute_mpc_v2(inp, params, restored, now=1_700_000_000.0)
+    out_fresh, _ = compute_mpc_v2(inp, params, None, now=1_700_000_000.0)
+
+    assert out_restored is not None and out_fresh is not None
+    assert out_restored.diagnostics.T_rad_hat == pytest.approx(
+        out_fresh.diagnostics.T_rad_hat
+    )
+    assert out_restored.diagnostics.T_room_hat == pytest.approx(
+        out_fresh.diagnostics.T_room_hat
+    )
+    assert out_restored.valve_percent == out_fresh.valve_percent
