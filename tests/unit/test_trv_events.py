@@ -10,6 +10,7 @@ import logging
 from unittest.mock import AsyncMock, MagicMock, PropertyMock, patch
 
 from homeassistant.components.climate.const import HVACMode
+from homeassistant.const import UnitOfTemperature
 from homeassistant.core import State
 from homeassistant.util import dt as dt_util
 import pytest
@@ -60,7 +61,9 @@ def mock_bt():
     bt.context = MagicMock()  # unique context so != event.context
     bt.last_internal_sensor_change = dt_util.now() - timedelta(seconds=60)
     bt.async_write_ha_state = MagicMock()
-    bt._enforce_cool_above_heat = lambda: BetterThermostat._enforce_cool_above_heat(bt)
+    bt._enforce_cool_above_heat = lambda **kwargs: (
+        BetterThermostat._enforce_cool_above_heat(bt, **kwargs)
+    )
     bt._clamp_inbound_heat_target = lambda v: (
         BetterThermostat._clamp_inbound_heat_target(bt, v)
     )
@@ -291,8 +294,6 @@ class TestInternalTemperatureChange:
         system-unit fallback it is mistaken for 64 °C, rejected as implausible
         and dropped.
         """
-        from homeassistant.const import UnitOfTemperature
-
         mock_bt.hass.config.units.temperature_unit = UnitOfTemperature.FAHRENHEIT
         trv_state = _make_state(attributes={"current_temperature": 64.0})
         mock_bt.hass.states.get.return_value = trv_state
@@ -1771,6 +1772,9 @@ def _make_group_bt(entity_ids, *, no_off=False, bt_hvac_mode=HVACMode.HEAT):
     """
     bt = MagicMock()
     bt.hass = MagicMock()
+    # Climate entities publish no unit attribute, so every temperature the
+    # handler reads off a group member is interpreted in this system unit.
+    bt.hass.config.units.temperature_unit = UnitOfTemperature.CELSIUS
     bt.device_name = "Grouped Thermostat"
     bt.bt_hvac_mode = bt_hvac_mode
     bt.bt_target_temp = 19.0
@@ -1791,7 +1795,9 @@ def _make_group_bt(entity_ids, *, no_off=False, bt_hvac_mode=HVACMode.HEAT):
     bt.last_internal_sensor_change = dt_util.now() - timedelta(seconds=60)
     bt.async_write_ha_state = MagicMock()
     bt.hvac_mode = bt_hvac_mode
-    bt._enforce_cool_above_heat = lambda: BetterThermostat._enforce_cool_above_heat(bt)
+    bt._enforce_cool_above_heat = lambda **kwargs: (
+        BetterThermostat._enforce_cool_above_heat(bt, **kwargs)
+    )
     bt._clamp_inbound_heat_target = lambda v: (
         BetterThermostat._clamp_inbound_heat_target(bt, v)
     )

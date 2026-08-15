@@ -122,6 +122,37 @@ class TestControlCooler:
         assert calls[1].args[2]["hvac_mode"] == HVACMode.COOL
 
     @pytest.mark.asyncio
+    async def test_unknown_cool_target_only_switches_the_cooler_off(self):
+        """An unknown cool target switches a running cooler off and writes no setpoint.
+
+        Without a cooling setpoint there is no value to send, and the mode
+        decision falls through to OFF regardless of how warm the room is, so a
+        cool target that never becomes known keeps a working air conditioner off.
+        """
+        mock_hass = Mock()
+        mock_hass.services = Mock()
+        mock_hass.services.async_call = AsyncMock()
+
+        mock_hass.states.get.return_value = _make_cooler_state(
+            state=HVACMode.COOL, temperature=24.0
+        )
+
+        mock_self = _make_mock_self(
+            mock_hass,
+            bt_target_cooltemp=None,
+            cur_temp=26.0,
+            bt_target_temp=20.0,
+            bt_hvac_mode=HVACMode.HEAT_COOL,
+        )
+
+        await control_cooler(mock_self)
+
+        calls = mock_hass.services.async_call.call_args_list
+        assert len(calls) == 1
+        assert calls[0].args[1] == "set_hvac_mode"
+        assert calls[0].args[2]["hvac_mode"] == HVACMode.OFF
+
+    @pytest.mark.asyncio
     async def test_cooling_not_needed_when_temp_below_bt_target(self):
         """Test cooling doesn't turn on if cur_temp <= bt_target_temp.
 

@@ -163,13 +163,14 @@ class TestPresetCoolNumber:
         bt_climate.control_queue_task.put.assert_awaited_once_with(bt_climate)
 
     @pytest.mark.asyncio
-    async def test_active_preset_enforces_cool_above_heat_at_max(self):
-        """With the heat target at ``max_temp`` the applied cool target stays above it.
+    async def test_active_preset_keeps_the_cool_target_in_range_at_max(self):
+        """A heat target at ``max_temp`` leaves the cool target resting on it.
 
-        The pre-clamp bump lifts ``cool_value`` to ``heat + step``, but the
-        ``max_temp`` clamp pulls it back down to ``max_temp`` — equal to the heat
-        target. The setter must run ``_enforce_cool_above_heat`` afterwards so the
-        active cool target and the persisted preset both stay strictly above heat.
+        The applied cool target is reported as ``target_temperature_high`` and
+        written to the cooler, so it stays inside the range the entity
+        advertises even though no value above the heat target exists in it.
+        Cooling is gated on the room being warmer than the heat target, so the
+        two targets meeting does not run the cooler against the TRVs.
         """
         from custom_components.better_thermostat.climate import BetterThermostat
 
@@ -178,6 +179,7 @@ class TestPresetCoolNumber:
         bt_climate.device_name = "Test BT"
         bt_climate.min_temp = 5.0
         bt_climate.max_temp = 30.0
+        bt_climate.bt_max_temp = 30.0
         bt_climate.target_temperature_step = 0.5
         bt_climate.bt_target_temp_step = 0.5
         bt_climate.preset_mode = PRESET_HOME
@@ -187,8 +189,8 @@ class TestPresetCoolNumber:
         bt_climate.bt_hvac_mode = HVACMode.HEAT_COOL
         bt_climate._preset_cool_temperatures = {PRESET_HOME: 30.0}
         bt_climate.control_queue_task.put = AsyncMock()
-        bt_climate._enforce_cool_above_heat.side_effect = lambda: (
-            BetterThermostat._enforce_cool_above_heat(bt_climate)
+        bt_climate._enforce_cool_above_heat.side_effect = lambda **kwargs: (
+            BetterThermostat._enforce_cool_above_heat(bt_climate, **kwargs)
         )
 
         entity = BetterThermostatPresetCoolNumber(bt_climate, PRESET_HOME)
@@ -196,8 +198,8 @@ class TestPresetCoolNumber:
 
         await entity.async_set_native_value(20.0)
 
-        assert bt_climate.bt_target_cooltemp == 30.5
-        assert bt_climate._preset_cool_temperatures[PRESET_HOME] == 30.5
+        assert bt_climate.bt_target_cooltemp == 30.0
+        assert bt_climate._preset_cool_temperatures[PRESET_HOME] == 30.0
         bt_climate.control_queue_task.put.assert_awaited_once_with(bt_climate)
 
     @pytest.mark.asyncio

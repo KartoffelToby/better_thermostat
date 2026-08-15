@@ -8,7 +8,7 @@ import logging
 from unittest.mock import AsyncMock, MagicMock
 
 from homeassistant.components.climate.const import HVACMode
-from homeassistant.const import UnitOfTemperature
+from homeassistant.const import STATE_UNAVAILABLE, STATE_UNKNOWN, UnitOfTemperature
 from homeassistant.core import State
 import pytest
 
@@ -46,6 +46,17 @@ def mock_bt():
     bt._enforce_heat_below_cool = lambda: BetterThermostat._enforce_heat_below_cool(bt)
     bt._clamp_inbound_cool_target = lambda v: (
         BetterThermostat._clamp_inbound_cool_target(bt, v)
+    )
+    bt._enforce_cool_above_heat = lambda **kwargs: (
+        BetterThermostat._enforce_cool_above_heat(bt, **kwargs)
+    )
+    # Wrapped in a spy rather than wired directly, so a test can tell which of
+    # the two branches decided an event both of them would store the same
+    # value for.
+    bt._seed_cool_target = MagicMock(
+        side_effect=lambda setpoint, entity_id: BetterThermostat._seed_cool_target(
+            bt, setpoint, entity_id
+        )
     )
     return bt
 
@@ -475,6 +486,40 @@ class TestHeatTargetSync:
         assert mock_bt.bt_target_temp < mock_bt.bt_target_cooltemp
 
     @pytest.mark.asyncio
+    async def test_non_overlapping_child_ranges_leave_the_pair_overlapping(
+        self, mock_bt, caplog
+    ):
+        """Children that share no range put the cool target below the minimum.
+
+        The configured range is the overlap of what the children advertise, so a
+        heater whose maximum is below the cooler's minimum leaves bt_min_temp
+        above bt_max_temp. Both bounds are applied to the report in sequence and
+        the maximum decides, so the cool target lands below the minimum, and the
+        heat target cannot be dropped below that minimum either. The pair keeps
+        the values the range allows and the overlap is annunciated as such.
+        """
+        # The heater advertises 5..25 and the cooler 28..30, so the derived
+        # range is bt_min_temp 28 over bt_max_temp 25.
+        mock_bt.bt_min_temp = 28.0
+        mock_bt.bt_max_temp = 25.0
+        mock_bt.bt_target_temp = 25.0
+        mock_bt.bt_target_cooltemp = 20.0
+        old_state = _make_state(attributes={"temperature": 22.0})
+        new_state = _make_state(attributes={"temperature": 24.0})
+        event = _make_event(mock_bt, new_state=new_state, old_state=old_state)
+
+        caplog.set_level(logging.WARNING)
+        await trigger_cooler_change(mock_bt, event)
+
+        assert mock_bt.bt_target_cooltemp == 25.0
+        assert mock_bt.bt_target_cooltemp < mock_bt.bt_min_temp
+        assert mock_bt.bt_target_temp == 28.0
+        assert (
+            "heating target 25.00 set to the configured minimum 28.00, which is "
+            "not below the cooling target 25.00" in caplog.text
+        )
+
+    @pytest.mark.asyncio
     async def test_zero_step_falls_back_to_half_degree(self, mock_bt):
         """A zero step falls back to 0.5 so the two targets stay apart."""
         mock_bt.bt_target_temp = 25.0
@@ -800,3 +845,248 @@ class TestRangeModeCooler:
 
         assert mock_bt.bt_target_cooltemp == 26.0
         mock_bt.control_queue_task.put.assert_awaited_once()
+
+
+# ---------------------------------------------------------------------------
+# 9. Seeding an unknown cool target
+# ---------------------------------------------------------------------------
+
+
+class TestUnknownCoolTargetSeed:
+    """An unknown cool target is seeded from the cooler's own setpoint."""
+
+    @pytest.mark.asyncio
+    async def test_seed_from_unavailable_to_available_transition(self, mock_bt):
+        """A cooler returning from an outage publishes no previous setpoint."""
+        mock_bt.bt_target_cooltemp = None
+        old_state = State(ENTITY_ID, "unavailable", attributes={})
+        new_state = _make_state(attributes={"temperature": 24.0})
+        event = _make_event(mock_bt, new_state=new_state, old_state=old_state)
+
+        await trigger_cooler_change(mock_bt, event)
+
+        assert mock_bt.bt_target_cooltemp == 24.0
+        mock_bt.control_queue_task.put.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    async def test_seed_from_a_cooler_that_never_moves_its_setpoint(self, mock_bt):
+        """A cooler resting on its own setpoint reports no move to adopt.
+
+        The temperature push is the only event such a cooler produces, and it
+        carries the same setpoint in both states.
+        """
+        mock_bt.bt_target_cooltemp = None
+        old_state = _make_state(
+            attributes={"temperature": 24.0, "current_temperature": 26.0}
+        )
+        new_state = _make_state(
+            attributes={"temperature": 24.0, "current_temperature": 26.5}
+        )
+        event = _make_event(mock_bt, new_state=new_state, old_state=old_state)
+
+        await trigger_cooler_change(mock_bt, event)
+
+        assert mock_bt.bt_target_cooltemp == 24.0
+        mock_bt.control_queue_task.put.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    async def test_seed_while_bt_is_off_runs_no_control_cycle(self, mock_bt):
+        """A BT that is OFF learns the cool target but stays idle."""
+        mock_bt.bt_hvac_mode = HVACMode.OFF
+        mock_bt.bt_target_cooltemp = None
+        old_state = State(ENTITY_ID, "unavailable", attributes={})
+        new_state = _make_state(attributes={"temperature": 24.0})
+        event = _make_event(mock_bt, new_state=new_state, old_state=old_state)
+
+        await trigger_cooler_change(mock_bt, event)
+
+        assert mock_bt.bt_target_cooltemp == 24.0
+        mock_bt.control_queue_task.put.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_clamped_seed_warns_and_stores_the_clamped_value(
+        self, mock_bt, caplog
+    ):
+        """A reported setpoint outside BT's range is reported, not taken silently.
+
+        Coolers come back from an outage on a manufacturer default well below a
+        configured minimum, and the clamped value is written straight back to
+        the device, so the user has to be able to see where it came from: the
+        line names the cooler the event arrived from alongside both values.
+        """
+        mock_bt.bt_target_cooltemp = None
+        mock_bt.bt_min_temp = 18.0
+        mock_bt.bt_target_temp = 15.0
+        old_state = State(ENTITY_ID, "unavailable", attributes={})
+        new_state = _make_state(attributes={"temperature": 16.0})
+        event = _make_event(mock_bt, new_state=new_state, old_state=old_state)
+
+        with caplog.at_level(logging.WARNING):
+            await trigger_cooler_change(mock_bt, event)
+
+        assert mock_bt.bt_target_cooltemp == 18.0
+        assert (
+            f"Cooler {ENTITY_ID} reported setpoint 16.0 outside of range while "
+            "the cool target is unknown, taking 18.0 as the cool target" in caplog.text
+        )
+
+    @pytest.mark.asyncio
+    async def test_seed_colliding_with_heat_target_raises_the_cool_side(self, mock_bt):
+        """The observed value yields to the heating target the user set."""
+        mock_bt.bt_target_cooltemp = None
+        mock_bt.bt_target_temp = 20.0
+        old_state = State(ENTITY_ID, "unavailable", attributes={})
+        new_state = _make_state(attributes={"temperature": 19.0})
+        event = _make_event(mock_bt, new_state=new_state, old_state=old_state)
+
+        await trigger_cooler_change(mock_bt, event)
+
+        assert mock_bt.bt_target_cooltemp == 20.5
+        assert mock_bt.bt_target_temp == 20.0
+
+    @pytest.mark.asyncio
+    async def test_seed_colliding_with_heat_target_is_raised_while_bt_is_off(
+        self, mock_bt
+    ):
+        """A collision is resolved while BT is off, not left for a later cycle.
+
+        A cooler returning from an outage on a manufacturer default below the
+        heating target would otherwise keep that value until BT is switched on,
+        and the first cooling cycle would then run the air conditioner down to it
+        while the TRVs heat towards the heating target.
+        """
+        mock_bt.bt_hvac_mode = HVACMode.OFF
+        mock_bt.hvac_mode = HVACMode.OFF
+        mock_bt.bt_target_cooltemp = None
+        mock_bt.bt_target_temp = 21.0
+        old_state = State(ENTITY_ID, "unavailable", attributes={})
+        new_state = _make_state(attributes={"temperature": 16.0})
+        event = _make_event(mock_bt, new_state=new_state, old_state=old_state)
+
+        await trigger_cooler_change(mock_bt, event)
+
+        assert mock_bt.bt_target_cooltemp == 21.5
+        assert mock_bt.bt_target_temp == 21.0
+        mock_bt.control_queue_task.put.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_seed_decides_an_event_the_adoption_gate_would_take_too(
+        self, mock_bt
+    ):
+        """An unknown cool target is seeded even where the gate would fire.
+
+        This event meets the gate's conditions as well: the previous state
+        publishes a setpoint, Better Thermostat is not off and the reported
+        setpoint moved by more than the echo window. Both branches raise the
+        reported setpoint to clear the heating target and leave that target
+        where the user put it, so the pair they store is identical and only
+        the seed's own call tells them apart.
+        """
+        mock_bt.bt_target_cooltemp = None
+        mock_bt.bt_target_temp = 21.0
+        old_state = _make_state(attributes={"temperature": 25.0})
+        new_state = _make_state(attributes={"temperature": 19.0})
+        event = _make_event(mock_bt, new_state=new_state, old_state=old_state)
+
+        await trigger_cooler_change(mock_bt, event)
+
+        mock_bt._seed_cool_target.assert_called_once()
+        assert mock_bt.bt_target_cooltemp == 21.5
+        assert mock_bt.bt_target_temp == 21.0
+        mock_bt.control_queue_task.put.assert_awaited_once()
+
+    @pytest.mark.parametrize("dead_state", [STATE_UNAVAILABLE, STATE_UNKNOWN])
+    @pytest.mark.asyncio
+    async def test_dead_cooler_does_not_seed_from_its_retained_setpoint(
+        self, mock_bt, dead_state
+    ):
+        """A setpoint carried on a dead state is retained, not reported.
+
+        A climate entity without a mode publishes ``unknown`` together with its
+        full attributes, and one that writes the state machine directly keeps
+        the attributes it last set, so a setpoint can reach this handler off a
+        device that is gone. The reading says nothing about the device now, and
+        the target taken from it would be written back to a device that is not
+        there to confirm it. The startup seed rejects both states, so the event
+        path rejects them too.
+        """
+        mock_bt.bt_target_cooltemp = None
+        old_state = _make_state(attributes={"temperature": 24.0})
+        new_state = State(ENTITY_ID, dead_state, attributes={"temperature": 24.0})
+        event = _make_event(mock_bt, new_state=new_state, old_state=old_state)
+
+        await trigger_cooler_change(mock_bt, event)
+
+        assert mock_bt.bt_target_cooltemp is None
+        mock_bt._seed_cool_target.assert_not_called()
+        mock_bt.control_queue_task.put.assert_not_awaited()
+        mock_bt.async_write_ha_state.assert_called_once()
+
+    @pytest.mark.parametrize("dead_state", [STATE_UNAVAILABLE, STATE_UNKNOWN])
+    @pytest.mark.asyncio
+    async def test_dead_cooler_seed_is_not_handed_to_the_adoption_gate(
+        self, mock_bt, dead_state
+    ):
+        """Declining the seed must not let the gate read the same dead state.
+
+        A previous state carrying a setpoint the retained one differs from
+        satisfies every condition of the adoption gate, which would store that
+        retained value as the cool target, raised to clear the heating target.
+        An unknown cool target keeps the event with the seeding branch, so
+        nothing is stored at all: the cool target still being None is what
+        carries the proof here, since the heating target is left where it is on
+        either path.
+        """
+        mock_bt.bt_target_cooltemp = None
+        mock_bt.bt_target_temp = 20.0
+        old_state = _make_state(attributes={"temperature": 24.0})
+        new_state = State(ENTITY_ID, dead_state, attributes={"temperature": 19.0})
+        event = _make_event(mock_bt, new_state=new_state, old_state=old_state)
+
+        await trigger_cooler_change(mock_bt, event)
+
+        assert mock_bt.bt_target_cooltemp is None
+        assert mock_bt.bt_target_temp == 20.0
+        mock_bt._seed_cool_target.assert_not_called()
+        mock_bt.control_queue_task.put.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_known_cool_target_is_not_re_seeded(self, mock_bt):
+        """With a known cool target the adoption gate keeps deciding alone.
+
+        A transition out of an outage carries no previous setpoint, so the gate
+        does not adopt and the target BT already holds survives.
+        """
+        mock_bt.bt_target_cooltemp = 25.0
+        old_state = State(ENTITY_ID, "unavailable", attributes={})
+        new_state = _make_state(attributes={"temperature": 22.0})
+        event = _make_event(mock_bt, new_state=new_state, old_state=old_state)
+
+        await trigger_cooler_change(mock_bt, event)
+
+        assert mock_bt.bt_target_cooltemp == 25.0
+        mock_bt.control_queue_task.put.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_known_cool_target_still_adopts_a_reported_move(self, mock_bt):
+        """A move reported for a known cool target is decided by the adoption gate.
+
+        The seeding branch takes precedence over that gate, so it has to leave
+        every event it does not own alone: a cool target Better Thermostat
+        already holds still follows what the cooler reports. Both branches
+        would store this reported value, so the stored pair alone does not say
+        which one ran; what separates them is that a target already known is
+        never seeded again.
+        """
+        mock_bt.bt_target_cooltemp = 25.0
+        mock_bt.bt_target_temp = 20.0
+        old_state = _make_state(attributes={"temperature": 25.0})
+        new_state = _make_state(attributes={"temperature": 23.0})
+        event = _make_event(mock_bt, new_state=new_state, old_state=old_state)
+
+        await trigger_cooler_change(mock_bt, event)
+
+        assert mock_bt.bt_target_cooltemp == 23.0
+        assert mock_bt.bt_target_temp == 20.0
+        mock_bt.control_queue_task.put.assert_awaited_once()
+        mock_bt._seed_cool_target.assert_not_called()
