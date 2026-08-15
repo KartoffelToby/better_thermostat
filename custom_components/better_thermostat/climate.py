@@ -3071,13 +3071,15 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
 
         A report from the cooler is authoritative for the cooling channel only.
         Rather than pulling the heating target down to make room, the reported
-        value is raised to the nearest setpoint that clears the heating target
-        by one step, so a press on the air conditioner's own remote can never
-        move the radiators. The floor is capped at the configured maximum
-        because a bound outside the range is not a setpoint BT can hold; the
-        residual :meth:`_enforce_heat_below_cool` then resolves the degenerate
-        case where the heating target rests on the maximum and no legal cooling
-        setpoint above it exists.
+        value is raised onto a floor one step above the heating target, so a
+        press on the air conditioner's own remote leaves the radiators alone.
+        The floor is capped at the configured maximum because a bound outside
+        the range is not a setpoint BT can hold, and that cap is where the
+        separation gives way: a heating target resting on the maximum or above
+        it puts the floor on that target or below it, so the value returned
+        there no longer clears it. The residual
+        :meth:`_enforce_heat_below_cool` settles that degenerate case, and it
+        does so by moving the heating target.
 
         The bound applies whenever a cooling channel is configured rather than
         only while the live mode is HEAT_COOL, matching
@@ -3100,8 +3102,9 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
         Returns
         -------
         float
-                the setpoint to adopt, unchanged unless it had to be raised to
-                clear the heating target
+                the setpoint to adopt, unchanged unless it had to be raised
+                onto the floor the heating target and the configured maximum
+                set
         """
         if self.cooler_entity_id is None or self.bt_target_temp is None:
             return value
@@ -3116,16 +3119,17 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
 
         The counterpart to :meth:`_clamp_inbound_cool_target`: a TRV knob turn
         is authoritative for the heating channel only, so the reported value is
-        lowered to the nearest setpoint that stays one step below the cooling
-        target instead of raising that target. The ceiling is held at the
-        configured minimum, and the residual
-        :meth:`_enforce_cool_above_heat` resolves the degenerate case where the
-        cooling target rests on the minimum and no legal heating setpoint below
-        it exists. Like its counterpart the bound keys off the configured
-        cooling channel rather than the live mode, and here that is what makes
-        it hold at all: a valve with ``no_off_system_mode`` reports its knob
-        turn while ``bt_hvac_mode`` is still OFF, and the same event then
-        resolves the mode to HEAT.
+        lowered onto a ceiling one step below the cooling target instead of
+        raising that target. The ceiling is held at the configured minimum, and
+        that bound is where the separation gives way in the same way: a cooling
+        target resting on the minimum or below it puts the ceiling on that
+        target or above it, so the value returned there no longer clears it.
+        The residual :meth:`_enforce_cool_above_heat` settles that degenerate
+        case, and it does so by moving the cooling target. Like its counterpart
+        the bound keys off the configured cooling channel rather than the live
+        mode, and here that is what makes it hold at all: a valve with
+        ``no_off_system_mode`` reports its knob turn while ``bt_hvac_mode`` is
+        still OFF, and the same event then resolves the mode to HEAT.
 
         The one step of separation comes from :func:`normalize_step` for the
         same reason as in the counterpart: a step a child reports as negative or
@@ -3140,8 +3144,9 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
         Returns
         -------
         float
-                the setpoint to adopt, unchanged unless it had to be lowered to
-                clear the cooling target
+                the setpoint to adopt, unchanged unless it had to be lowered
+                onto the ceiling the cooling target and the configured minimum
+                set
         """
         if self.cooler_entity_id is None or self.bt_target_cooltemp is None:
             return value
