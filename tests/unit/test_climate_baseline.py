@@ -66,6 +66,9 @@ def mock_bt():
     bt.old_attr_hvac_action = None
     bt.attr_hvac_action = None
     bt.outdoor_sensor = None
+    # Cooling channel: off unless a test configures one
+    bt.cooler_entity_id = None
+    bt._preset_cool_temperature = None
     # Thermal tracker property delegates
     type(bt).heating_power = property(
         lambda self: self._heating_tracker.heating_power,
@@ -124,6 +127,9 @@ def mock_bt():
     bt._get_outdoor_temp = lambda: BetterThermostat._get_outdoor_temp(bt)
     bt._enforce_cool_above_heat = lambda **kwargs: (
         BetterThermostat._enforce_cool_above_heat(bt, **kwargs)
+    )
+    bt._bound_target_to_range = lambda value: BetterThermostat._bound_target_to_range(
+        bt, value
     )
     bt._seed_cool_target = lambda setpoint, entity_id: (
         BetterThermostat._seed_cool_target(bt, setpoint, entity_id)
@@ -986,6 +992,67 @@ class TestAsyncSetPresetMode:
         assert mock_bt.bt_target_cooltemp == 26.0
 
     @pytest.mark.asyncio
+    async def test_restored_manual_cool_target_is_ordered_while_off(self, mock_bt):
+        """Returning to PRESET_NONE while off still orders the pair.
+
+        The manual cooling target is re-injected, not chosen: nothing looks at
+        the pair again before the first cooling cycle, because the mode change
+        that enables cooling does not re-enforce the ordering.
+        """
+        mock_bt.preset_modes = [PRESET_NONE, PRESET_COMFORT, PRESET_ECO, PRESET_AWAY]
+        mock_bt.bt_hvac_mode = HVACMode.OFF
+        mock_bt.hvac_mode = HVACMode.OFF
+        mock_bt.cooler_entity_id = "switch.ac"
+        mock_bt.bt_min_temp = 16.0
+        mock_bt.bt_max_temp = 30.0
+        mock_bt.min_temp = 16.0
+        mock_bt.max_temp = 30.0
+        mock_bt.bt_target_temp_step = 0.5
+        mock_bt.preset_mgr.mode = PRESET_COMFORT
+        mock_bt.preset_mgr.saved_temperature = None
+        mock_bt._preset_cool_temperatures = {PRESET_NONE: 24.0, PRESET_COMFORT: 26.0}
+        mock_bt._preset_cool_temperature = 22.0
+        mock_bt.bt_target_temp = 24.0
+        mock_bt.bt_target_cooltemp = 26.0
+
+        await self._call(mock_bt, PRESET_NONE)
+
+        assert mock_bt.bt_target_temp == 24.0
+        assert mock_bt.bt_target_cooltemp == 24.5
+        assert mock_bt.bt_min_temp <= mock_bt.bt_target_temp <= mock_bt.bt_max_temp
+        assert mock_bt.bt_min_temp <= mock_bt.bt_target_cooltemp <= mock_bt.bt_max_temp
+        assert mock_bt.bt_target_cooltemp > mock_bt.bt_target_temp
+
+    @pytest.mark.asyncio
+    async def test_restored_manual_cool_target_above_the_maximum_is_bounded(
+        self, mock_bt
+    ):
+        """A stashed cooling target over the maximum comes back bounded.
+
+        The ordering leaves it alone because it already clears the heating
+        target, so the range bound is the only thing that holds it.
+        """
+        mock_bt.preset_modes = [PRESET_NONE, PRESET_COMFORT, PRESET_ECO, PRESET_AWAY]
+        mock_bt.hvac_mode = HVACMode.HEAT_COOL
+        mock_bt.cooler_entity_id = "switch.ac"
+        mock_bt.bt_min_temp = 16.0
+        mock_bt.bt_max_temp = 26.0
+        mock_bt.min_temp = 16.0
+        mock_bt.max_temp = 26.0
+        mock_bt.preset_mgr.mode = PRESET_COMFORT
+        mock_bt.preset_mgr.saved_temperature = None
+        mock_bt._preset_cool_temperatures = {PRESET_NONE: 24.0, PRESET_COMFORT: 25.0}
+        mock_bt._preset_cool_temperature = 35.0
+        mock_bt.bt_target_temp = 20.0
+        mock_bt.bt_target_cooltemp = 25.0
+
+        await self._call(mock_bt, PRESET_NONE)
+
+        assert mock_bt.bt_target_cooltemp == 26.0
+        assert mock_bt.bt_min_temp <= mock_bt.bt_target_cooltemp <= mock_bt.bt_max_temp
+        assert mock_bt.bt_target_cooltemp > mock_bt.bt_target_temp
+
+    @pytest.mark.asyncio
     async def test_preset_temp_clamped_to_max(self, mock_bt):
         """Preset temp above max → clamped to max_temp."""
         mock_bt.preset_modes = [PRESET_NONE, PRESET_COMFORT, PRESET_ECO, PRESET_AWAY]
@@ -1578,7 +1645,63 @@ class TestEnforceHeatBelowCool:
 
 
 # ===========================================================================
-# 9. TestClampInboundCoolTarget
+# 9. TestBoundTargetToRange
+# ===========================================================================
+
+
+class TestBoundTargetToRange:
+    """_bound_target_to_range holds a re-injected target inside the range."""
+
+    def _call(self, bt, value):
+        return BetterThermostat._bound_target_to_range(bt, value)
+
+    @pytest.mark.parametrize("value", [16.0, 21.0, 26.0])
+    def test_a_target_the_range_contains_is_returned_unchanged(self, mock_bt, value):
+        """Both bounds are inclusive, so only a target outside the range moves."""
+        mock_bt.bt_min_temp = 16.0
+        mock_bt.bt_max_temp = 26.0
+        assert self._call(mock_bt, value) == value
+
+    def test_value_below_the_minimum_is_raised_to_it(self, mock_bt):
+        """A target under the minimum is not a setpoint BT can hold."""
+        mock_bt.bt_min_temp = 20.0
+        mock_bt.bt_max_temp = 30.0
+        assert self._call(mock_bt, 9.0) == 20.0
+
+    def test_value_above_the_maximum_is_lowered_to_it(self, mock_bt):
+        """A target over the maximum is not a setpoint BT can hold either."""
+        mock_bt.bt_min_temp = 16.0
+        mock_bt.bt_max_temp = 26.0
+        assert self._call(mock_bt, 35.0) == 26.0
+
+    def test_an_unknown_minimum_leaves_the_lower_side_unbounded(self, mock_bt):
+        """A bound stays None until a child entity reports one."""
+        mock_bt.bt_min_temp = None
+        mock_bt.bt_max_temp = 26.0
+        assert self._call(mock_bt, 9.0) == 9.0
+
+    def test_an_unknown_maximum_leaves_the_upper_side_unbounded(self, mock_bt):
+        """The upper side is enforced only once it is known."""
+        mock_bt.bt_min_temp = 16.0
+        mock_bt.bt_max_temp = None
+        assert self._call(mock_bt, 35.0) == 35.0
+
+    def test_a_non_overlapping_range_is_decided_by_the_maximum(self, mock_bt):
+        """A minimum above the maximum leaves the upper bound the last word.
+
+        Heater and cooler ranges that do not overlap put bt_min_temp above
+        bt_max_temp, which _resolve_temperature_range permits. Applying the two
+        bounds in sequence rather than exclusively is what makes the outcome
+        defined there.
+        """
+        mock_bt.bt_min_temp = 25.0
+        mock_bt.bt_max_temp = 20.0
+        assert self._call(mock_bt, 10.0) == 20.0
+        assert self._call(mock_bt, 30.0) == 20.0
+
+
+# ===========================================================================
+# 10. TestClampInboundCoolTarget
 # ===========================================================================
 
 
@@ -1666,7 +1789,7 @@ class TestClampInboundCoolTarget:
 
 
 # ===========================================================================
-# 10. TestClampInboundHeatTarget
+# 11. TestClampInboundHeatTarget
 # ===========================================================================
 
 
@@ -1753,7 +1876,7 @@ class TestClampInboundHeatTarget:
 
 
 # ===========================================================================
-# 11. TestSeedCoolTarget
+# 12. TestSeedCoolTarget
 # ===========================================================================
 
 
