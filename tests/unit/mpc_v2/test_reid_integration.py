@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from types import SimpleNamespace
 from typing import Any
 from unittest.mock import AsyncMock, patch
@@ -30,6 +31,7 @@ from custom_components.better_thermostat.utils.const import (
 )
 from custom_components.better_thermostat.utils.state_manager import (
     MpcV2ReidData,
+    RuntimeState,
     StateManager,
     _deserialize,
     _serialize,
@@ -191,6 +193,32 @@ def test_auto_prior_uses_adopted_reid_result() -> None:
     assert live.controller.plant_fine.params.gain_heater == _REID.gain_heater
     debug = bt.real_trvs["climate.x"].calibration_balance["debug"]
     assert debug["reid_tau_room"] == _REID.tau_room_min
+
+
+def test_out_of_band_stored_prior_never_reaches_the_controller() -> None:
+    """A store entry outside the band is dropped, so AUTO keeps its heuristic.
+
+    Restored through the real ``_deserialize`` on a JSON round trip and read
+    back by the dispatcher: the controller must run on the heat-loss-derived
+    prior (15.0 K / 0.02 K per min = 750 min) and the valve must not sit on a
+    rail, which is what a ``tau_room_min`` of 5e-324 commands.
+    """
+    mgr = _make_manager()
+    raw = _serialize(RuntimeState())
+    raw["mpc_v2_reid"] = {
+        "bt:reid": {"tau_room_min": 5e-324, "gain_heater": 3.0, "fitted_ts": 1000.0}
+    }
+    mgr._state = _deserialize(json.loads(json.dumps(raw)))
+    assert "bt:reid" not in mgr.state.mpc_v2_reid
+
+    bt = _make_bt()
+    bt.state_mgr = mgr
+    out, _ = _compute_mpc_v2_balance(bt, "climate.x")
+    assert out is not None
+    live = next(iter(mgr._mpc_v2_live.values()))
+    assert live.controller is not None
+    assert live.controller.plant_fine.params.tau_room_min == 750.0
+    assert 0.0 < bt.real_trvs["climate.x"].calibration_balance["valve_percent"] < 100.0
 
 
 def test_explicit_preset_beats_reid_result() -> None:

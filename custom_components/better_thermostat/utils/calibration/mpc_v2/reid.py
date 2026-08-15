@@ -27,10 +27,11 @@ from collections.abc import Callable
 from dataclasses import dataclass, field, replace
 import math
 
-from ..mpc_v2_internals.plant import PlantParams
-
-TAU_ROOM_BOUNDS_MIN = (60.0, 2000.0)
-GAIN_HEATER_BOUNDS = (0.5, 5.0)
+from ..mpc_v2_internals.plant import (
+    GAIN_HEATER_BOUNDS,
+    TAU_ROOM_BOUNDS_MIN,
+    PlantParams,
+)
 
 
 @dataclass

@@ -26,6 +26,10 @@ from custom_components.better_thermostat.utils.calibration.mpc_v2 import MpcV2Pa
 from custom_components.better_thermostat.utils.calibration.mpc_v2.controller import (
     ControllerSnapshot,
 )
+from custom_components.better_thermostat.utils.calibration.mpc_v2_internals.plant import (
+    GAIN_HEATER_BOUNDS,
+    TAU_ROOM_BOUNDS_MIN,
+)
 from custom_components.better_thermostat.utils.const import (
     MAX_HEAT_LOSS,
     MAX_HEATING_POWER,
@@ -441,12 +445,51 @@ class TestDeserializeMpcV2Reid:
         assert "bad" not in restored.mpc_v2_reid
         assert restored.mpc_v2_reid["good"].tau_room_min == 240.0
 
-    def test_tiny_positive_time_constant_is_not_rejected(self):
-        """The guards cover finiteness and sign; magnitude is unbounded."""
+    def test_tiny_positive_time_constant_is_rejected(self):
+        """A positive time constant this small still divides the room dynamics."""
         raw = {"tau_room_min": 5e-324, "gain_heater": 3.0}
+        assert deserialize_mpc_v2_reid(raw) is None
+
+    def test_time_constant_above_the_band_is_rejected(self):
+        """Too slow an envelope freezes the dynamics as surely as too fast."""
+        raw = {"tau_room_min": 1e300, "gain_heater": 3.0}
+        assert deserialize_mpc_v2_reid(raw) is None
+
+    def test_heater_gain_below_the_band_is_rejected(self):
+        """A gain under the band scales the radiator drive out of the model."""
+        raw = {"tau_room_min": 240.0, "gain_heater": 0.4}
+        assert deserialize_mpc_v2_reid(raw) is None
+
+    def test_heater_gain_above_the_band_is_rejected(self):
+        """A gain over the band is outside what the fit itself can emit."""
+        raw = {"tau_room_min": 240.0, "gain_heater": 5.1}
+        assert deserialize_mpc_v2_reid(raw) is None
+
+    @pytest.mark.parametrize(
+        ("tau_room_min", "gain_heater"),
+        [
+            (TAU_ROOM_BOUNDS_MIN[0], GAIN_HEATER_BOUNDS[0]),
+            (TAU_ROOM_BOUNDS_MIN[1], GAIN_HEATER_BOUNDS[1]),
+        ],
+    )
+    def test_band_edges_are_kept(self, tau_room_min, gain_heater):
+        """The band is inclusive, so a value the fit can emit still restores."""
+        raw = {"tau_room_min": tau_room_min, "gain_heater": gain_heater}
         reid = deserialize_mpc_v2_reid(raw)
         assert reid is not None
-        assert reid.tau_room_min == 5e-324
+        assert reid.tau_room_min == tau_room_min
+        assert reid.gain_heater == gain_heater
+
+    def test_out_of_band_entry_is_absent_after_a_full_load(self):
+        """The rejected entry leaves no key behind and spares its neighbour."""
+        raw = _serialize(RuntimeState())
+        raw["mpc_v2_reid"] = {
+            "good": {"tau_room_min": 240.0, "gain_heater": 3.0},
+            "bad": {"tau_room_min": 5e-324, "gain_heater": 3.0},
+        }
+        restored = _deserialize(raw)
+        assert "bad" not in restored.mpc_v2_reid
+        assert restored.mpc_v2_reid["good"].tau_room_min == 240.0
 
     def test_infinite_segment_count_falls_back_to_zero(self):
         """An unconvertible segment count must not abort the whole load."""

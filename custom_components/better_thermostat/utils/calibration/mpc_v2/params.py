@@ -7,7 +7,7 @@ from dataclasses import dataclass, field, replace
 from ..mpc_v2_internals.dob import DobParams
 from ..mpc_v2_internals.governor import GovernorParams
 from ..mpc_v2_internals.kalman import KalmanParams
-from ..mpc_v2_internals.plant import PlantParams
+from ..mpc_v2_internals.plant import TAU_ROOM_BOUNDS_MIN, PlantParams
 from ..mpc_v2_internals.qp_optimiser import QpParams
 
 
@@ -68,7 +68,8 @@ def make_plant_prior(
         return replace(PLANT_PRESETS[preset])
     params = PlantParams()
     if heat_loss_rate is not None and heat_loss_rate > 0.0:
-        params.tau_room_min = max(60.0, min(2000.0, typical_delta_K / heat_loss_rate))
+        low, high = TAU_ROOM_BOUNDS_MIN
+        params.tau_room_min = max(low, min(high, typical_delta_K / heat_loss_rate))
     # heating_power not mapped yet — the gain stays at the prior default.
     _ = heating_power
     return params

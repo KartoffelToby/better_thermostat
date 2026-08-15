@@ -4,10 +4,37 @@ from __future__ import annotations
 
 import numpy as np
 
+from custom_components.better_thermostat.utils import state_manager as _state_manager
+from custom_components.better_thermostat.utils.calibration.mpc_v2 import (
+    params as _params,
+    reid as _reid,
+)
 from custom_components.better_thermostat.utils.calibration.mpc_v2_internals.plant import (
+    GAIN_HEATER_BOUNDS,
+    TAU_ROOM_BOUNDS_MIN,
     PlantModelRC2,
     PlantParams,
 )
+
+
+class TestPlantPriorBands:
+    """Every producer and consumer of a plant prior reads one band."""
+
+    def test_reid_reads_the_bands_from_plant(self) -> None:
+        """The offline fit clamps its emission against these very tuples."""
+        assert _reid.TAU_ROOM_BOUNDS_MIN is TAU_ROOM_BOUNDS_MIN
+        assert _reid.GAIN_HEATER_BOUNDS is GAIN_HEATER_BOUNDS
+
+    def test_state_manager_reads_the_bands_from_plant(self) -> None:
+        """The restore gate rejects against these very tuples."""
+        assert _state_manager.TAU_ROOM_BOUNDS_MIN is TAU_ROOM_BOUNDS_MIN
+        assert _state_manager.GAIN_HEATER_BOUNDS is GAIN_HEATER_BOUNDS
+
+    def test_heat_loss_derivation_clamps_to_the_band(self) -> None:
+        """The AUTO heuristic lands on the band edges, not on its own numbers."""
+        low, high = TAU_ROOM_BOUNDS_MIN
+        assert _params.make_plant_prior(heat_loss_rate=1.0).tau_room_min == low
+        assert _params.make_plant_prior(heat_loss_rate=0.0001).tau_room_min == high
 
 
 def test_state_dim_is_two() -> None:
