@@ -825,6 +825,30 @@ def resolve_inbound_setpoint(
     return InboundSetpoint(raw=raw, value=value, clamped=clamped, is_echo=is_echo)
 
 
+def state_says_nothing(state: State | None) -> bool:
+    """Answer whether a state carries no statement about its own device.
+
+    A missing state, ``unavailable`` and ``unknown`` all leave the device
+    unaccounted for, while attributes can still be present on every one of
+    them: a climate entity publishes its full attribute set while it reports
+    ``unknown``, and one that writes the state machine directly keeps the
+    attributes it last set. A reading taken from such a state is retained
+    rather than reported, so a caller that would act on it as a live value has
+    to decline it.
+
+    Parameters
+    ----------
+    state : State | None
+            the device state to inspect
+
+    Returns
+    -------
+    bool
+            True when the state is missing, ``unavailable`` or ``unknown``
+    """
+    return state is None or state.state in (STATE_UNAVAILABLE, STATE_UNKNOWN)
+
+
 def resolve_state_change_event(
     self, event, device_label: str
 ) -> tuple[State, State, str] | None:

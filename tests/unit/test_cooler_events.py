@@ -1050,6 +1050,49 @@ class TestUnknownCoolTargetSeed:
         mock_bt._seed_cool_target.assert_not_called()
         mock_bt.control_queue_task.put.assert_not_awaited()
 
+    @pytest.mark.parametrize("dead_state", [STATE_UNAVAILABLE, STATE_UNKNOWN])
+    @pytest.mark.asyncio
+    async def test_dead_cooler_setpoint_does_not_move_a_known_cool_target(
+        self, mock_bt, dead_state
+    ):
+        """A known cool target puts the adoption gate alone on a dead state.
+
+        With the cool target known the seeding branch is out of reach, so the
+        gate decides on its own and only the reported state can stop it: the
+        previous state publishes a setpoint, Better Thermostat is not off, and
+        the reported value differs from the previous one by more than the echo
+        window. The attribute set is the one a climate entity publishes while
+        it reports ``unknown``.
+        """
+        mock_bt.bt_target_cooltemp = 24.0
+        mock_bt.bt_target_temp = 20.0
+        old_state = _make_state(attributes={"temperature": 24.0})
+        new_state = State(
+            ENTITY_ID,
+            dead_state,
+            attributes={
+                "hvac_modes": [HVACMode.OFF, HVACMode.COOL],
+                "min_temp": 16.0,
+                "max_temp": 30.0,
+                "target_temp_step": 0.5,
+                "fan_modes": ["auto", "low", "high"],
+                "swing_modes": ["off", "vertical"],
+                "current_temperature": 26.0,
+                "temperature": 19.0,
+                "fan_mode": "auto",
+                "swing_mode": "off",
+                "friendly_name": "Test Cooler",
+            },
+        )
+        event = _make_event(mock_bt, new_state=new_state, old_state=old_state)
+
+        await trigger_cooler_change(mock_bt, event)
+
+        assert mock_bt.bt_target_cooltemp == 24.0
+        assert mock_bt.bt_target_temp == 20.0
+        mock_bt.control_queue_task.put.assert_not_awaited()
+        mock_bt.async_write_ha_state.assert_called_once()
+
     @pytest.mark.asyncio
     async def test_known_cool_target_is_not_re_seeded(self, mock_bt):
         """With a known cool target the adoption gate keeps deciding alone.
