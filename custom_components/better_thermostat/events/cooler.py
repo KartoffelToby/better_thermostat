@@ -120,9 +120,12 @@ async def trigger_cooler_change(self, event):
         # stale report would otherwise revert a BT-side target that has not
         # been written yet.
         # What the cooler reports also speaks for the cooling channel alone: a
-        # value that would cross the heating target is raised above it, so a
-        # press on the air conditioner's remote cannot move the radiators'
-        # target — potentially below room temperature, stopping the heating.
+        # value that would cross the heating target is raised onto the floor
+        # above it, so a press on the air conditioner's remote does not pull
+        # the radiators' target down — potentially below room temperature,
+        # stopping the heating. Where the range holds no value above that
+        # target the floor stops short of it, and the fallback below is what
+        # moves the heating target then.
         _reported_moved = abs(
             _new_cooling_setpoint.raw - _old_cooling_setpoint
         ) >= setpoint_echo_window(_step)
@@ -162,11 +165,10 @@ async def trigger_cooler_change(self, event):
             self.bt_target_cooltemp = _adopted_cooling_setpoint
             # The clamp leaves the heating target alone, so this only settles
             # the degenerate case where no cooling value above the heating
-            # target exists inside the range: at a heating target within one
-            # step of bt_max_temp it drops that target by one step, and a range
-            # the children narrowed below a target already in place is what
-            # moves it further — that move is what brings it back inside the
-            # range.
+            # target exists inside the range: at a heating target resting on
+            # bt_max_temp it drops that target by one step, and a range the
+            # children narrowed below a target already in place is what moves
+            # it further — that move is what brings it back inside the range.
             self._enforce_heat_below_cool()
             _main_change = True
         elif _reported_moved:

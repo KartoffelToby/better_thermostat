@@ -503,6 +503,27 @@ class TestInboundCoolSetpointClamp:
         assert mock_bt.bt_target_temp < mock_bt.bt_target_cooltemp
 
     @pytest.mark.asyncio
+    async def test_heat_target_under_the_maximum_costs_no_step(self, mock_bt):
+        """Only a heating target on bt_max_temp gives up a step, none below it.
+
+        A heating target closer to the maximum than one step still leaves the
+        capped floor above itself, so the clamp separates the pair on its own,
+        the adopted value stays inside the range and the tie-break finds
+        nothing to move.
+        """
+        mock_bt.bt_target_temp = 29.75
+        mock_bt.bt_target_cooltemp = 30.0
+        mock_bt.bt_max_temp = 30.0
+        old_state = _make_state(attributes={"temperature": 25.0})
+        new_state = _make_state(attributes={"temperature": 22.0})
+        event = _make_event(mock_bt, new_state=new_state, old_state=old_state)
+
+        await trigger_cooler_change(mock_bt, event)
+
+        assert mock_bt.bt_target_cooltemp == 30.0
+        assert mock_bt.bt_target_temp == 29.75
+
+    @pytest.mark.asyncio
     async def test_a_range_narrowed_below_the_heat_target_pulls_it_inside(
         self, mock_bt
     ):
