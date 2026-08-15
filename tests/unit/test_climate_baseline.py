@@ -133,6 +133,11 @@ def mock_bt():
     return bt
 
 
+# A step that is not a positive real number cannot be the distance a target
+# moves, so every ordering helper replaces it with the 0.5 default.
+UNUSABLE_STEPS = (-1.0, -0.5, float("nan"), float("inf"))
+
+
 # ===========================================================================
 # 1. TestShouldHeatWithTolerance
 # ===========================================================================
@@ -1311,25 +1316,30 @@ class TestEnforceCoolAboveHeat:
         self._call(mock_bt)
         assert mock_bt.bt_target_cooltemp == 22.5
 
-    @pytest.mark.parametrize("step", [-1.0, float("nan"), float("inf")])
-    def test_unusable_step_falls_back_instead_of_moving_the_pair(
-        self, mock_bt, caplog, step
-    ):
-        """A step that is not a positive number falls back like a missing one.
+    @pytest.mark.parametrize("step", UNUSABLE_STEPS)
+    def test_unusable_step_falls_back_to_the_default_step(self, mock_bt, caplog, step):
+        """An unusable step falls back to the default before the cool target moves.
 
-        Only a positive step can lift the cool target above the heat target, so
-        a negative or non-finite one is replaced by the fallback, and the
-        annunciation names the value the cool target actually comes to rest on.
+        ``bt_target_temp_step`` carries whatever the child entities report, and
+        only a positive real step can lift the cool target above the heat
+        target, so a negative or non-finite one is replaced by the 0.5 default.
+        The warning names the value the cool target comes to rest on.
         """
         mock_bt.hvac_mode = HVACMode.HEAT_COOL
         mock_bt.bt_max_temp = 30.0
         mock_bt.bt_target_temp = 22.0
         mock_bt.bt_target_temp_step = step
         mock_bt.bt_target_cooltemp = 21.0
-        caplog.set_level(logging.WARNING)
-        self._call(mock_bt)
+
+        with caplog.at_level(logging.WARNING):
+            self._call(mock_bt)
+
         assert mock_bt.bt_target_cooltemp == 22.5
-        assert "adjusted to 22.50 to stay above heating target 22.00" in caplog.text
+        assert mock_bt.bt_target_cooltemp > mock_bt.bt_target_temp
+        assert (
+            "cooling target 21.00 adjusted to 22.50 to stay above heating "
+            "target 22.00" in caplog.text
+        )
 
     def test_none_cool_target_is_noop(self, mock_bt):
         """A None cool target does not raise and stays None."""
@@ -1489,25 +1499,30 @@ class TestEnforceHeatBelowCool:
         self._call(mock_bt)
         assert mock_bt.bt_target_temp == 21.5
 
-    @pytest.mark.parametrize("step", [-0.5, float("nan"), float("inf")])
-    def test_unusable_step_falls_back_instead_of_moving_the_pair(
-        self, mock_bt, caplog, step
-    ):
-        """A step that is not a positive number falls back like a missing one.
+    @pytest.mark.parametrize("step", UNUSABLE_STEPS)
+    def test_unusable_step_falls_back_to_the_default_step(self, mock_bt, caplog, step):
+        """An unusable step falls back to the default before the heat target moves.
 
-        Only a positive step can push the heat target below the cool target, so
-        a negative or non-finite one is replaced by the fallback, and the
-        annunciation names the value the heat target actually comes to rest on.
+        ``bt_target_temp_step`` carries whatever the child entities report, and
+        only a positive real step can push the heat target below the cool
+        target, so a negative or non-finite one is replaced by the 0.5 default.
+        The warning names the value the heat target comes to rest on.
         """
         mock_bt.hvac_mode = HVACMode.HEAT_COOL
         mock_bt.bt_min_temp = 5.0
         mock_bt.bt_target_temp = 22.0
         mock_bt.bt_target_temp_step = step
         mock_bt.bt_target_cooltemp = 22.0
-        caplog.set_level(logging.WARNING)
-        self._call(mock_bt)
+
+        with caplog.at_level(logging.WARNING):
+            self._call(mock_bt)
+
         assert mock_bt.bt_target_temp == 21.5
-        assert "adjusted to 21.50 to stay below cooling target 22.00" in caplog.text
+        assert mock_bt.bt_target_temp < mock_bt.bt_target_cooltemp
+        assert (
+            "heating target 22.00 adjusted to 21.50 to stay below cooling "
+            "target 22.00" in caplog.text
+        )
 
     def test_result_is_clamped_to_min_temp(self, mock_bt, caplog):
         """The heat target never drops below the configured minimum.
@@ -1643,13 +1658,21 @@ class TestClampInboundCoolTarget:
         mock_bt.bt_target_temp_step = 0
         assert self._call(mock_bt, 22.0) == 22.5
 
-    def test_negative_step_falls_back_to_half_degree(self, mock_bt):
-        """A negative step would turn the floor into a ceiling."""
+    @pytest.mark.parametrize("step", UNUSABLE_STEPS)
+    def test_unusable_step_falls_back_to_the_default_step(self, mock_bt, step):
+        """An unusable step falls back to the default before the floor is built.
+
+        ``bt_target_temp_step`` carries whatever the child entities report, and
+        only a positive real step puts the floor above the heating target, so a
+        negative or non-finite one is replaced by the 0.5 default.
+        """
         mock_bt.cooler_entity_id = "climate.ac"
-        mock_bt.hvac_mode = HVACMode.HEAT_COOL
-        mock_bt.bt_target_temp = 22.0
-        mock_bt.bt_target_temp_step = -0.5
-        assert self._call(mock_bt, 20.0) == 22.5
+        mock_bt.bt_max_temp = 30.0
+        mock_bt.bt_target_temp = 20.0
+        mock_bt.bt_target_temp_step = step
+        adopted = self._call(mock_bt, 18.0)
+        assert adopted == 20.5
+        assert adopted > mock_bt.bt_target_temp
 
     def test_floor_stays_inside_the_configured_range(self, mock_bt):
         """With the heating target at the maximum the floor stops there.
@@ -1731,13 +1754,21 @@ class TestClampInboundHeatTarget:
         mock_bt.bt_target_temp_step = 0
         assert self._call(mock_bt, 22.0) == 21.5
 
-    def test_negative_step_falls_back_to_half_degree(self, mock_bt):
-        """A negative step would turn the ceiling into a floor."""
+    @pytest.mark.parametrize("step", UNUSABLE_STEPS)
+    def test_unusable_step_falls_back_to_the_default_step(self, mock_bt, step):
+        """An unusable step falls back to the default before the ceiling is built.
+
+        ``bt_target_temp_step`` carries whatever the child entities report, and
+        only a positive real step puts the ceiling below the cooling target, so
+        a negative or non-finite one is replaced by the 0.5 default.
+        """
         mock_bt.cooler_entity_id = "climate.ac"
-        mock_bt.hvac_mode = HVACMode.HEAT_COOL
-        mock_bt.bt_target_cooltemp = 22.0
-        mock_bt.bt_target_temp_step = -0.5
-        assert self._call(mock_bt, 24.0) == 21.5
+        mock_bt.bt_min_temp = 5.0
+        mock_bt.bt_target_cooltemp = 24.0
+        mock_bt.bt_target_temp_step = step
+        adopted = self._call(mock_bt, 26.0)
+        assert adopted == 23.5
+        assert adopted < mock_bt.bt_target_cooltemp
 
     def test_ceiling_stays_inside_the_configured_range(self, mock_bt):
         """With the cooling target at the minimum the ceiling stops there.
