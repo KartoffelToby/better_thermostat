@@ -881,7 +881,7 @@ class TestCoolerDegradedMode:
 
         return mock_get
 
-    @pytest.mark.anyio
+    @pytest.mark.asyncio
     async def test_dead_cooler_enters_degraded_mode(self, mock_bt_instance, caplog):
         """The outage raises the same WARNING repair as an optional sensor."""
         from datetime import timedelta
@@ -905,7 +905,7 @@ class TestCoolerDegradedMode:
         assert kwargs["issue_id"] == "degraded_mode_Test Thermostat"
         assert kwargs["severity"] is mock_ir.IssueSeverity.WARNING
 
-    @pytest.mark.anyio
+    @pytest.mark.asyncio
     async def test_dead_cooler_is_silent_during_the_grace_window(
         self, mock_bt_instance, caplog
     ):
@@ -930,7 +930,7 @@ class TestCoolerDegradedMode:
         assert not mock_ir.async_create_issue.called
         assert mock_bt_instance._degraded_warning_emitted is False
 
-    @pytest.mark.anyio
+    @pytest.mark.asyncio
     async def test_recovered_cooler_clears_the_repair_issue(
         self, mock_bt_instance, caplog
     ):
@@ -958,7 +958,7 @@ class TestCoolerDegradedMode:
         )
         assert mock_bt_instance._degraded_warning_emitted is False
 
-    @pytest.mark.anyio
+    @pytest.mark.asyncio
     async def test_dead_cooler_is_not_a_critical_entity(self, mock_bt_instance):
         """The cooler stays out of the repair path that reports lost control.
 
