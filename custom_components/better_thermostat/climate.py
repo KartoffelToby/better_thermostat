@@ -21,7 +21,6 @@ from homeassistant.components.climate.const import (
     ATTR_MIN_TEMP,
     ATTR_TARGET_TEMP_HIGH,
     ATTR_TARGET_TEMP_LOW,
-    ATTR_TARGET_TEMP_STEP,
     PRESET_ACTIVITY,
     PRESET_AWAY,
     PRESET_BOOST,
@@ -147,6 +146,7 @@ from .utils.helpers import (
     is_reasonable_temperature,
     normalize_hvac_mode,
     normalize_step,
+    reported_setpoint_step_celsius,
     resolve_inbound_setpoint,
     state_temperature_unit,
 )
@@ -326,20 +326,15 @@ def _target_temp_step_celsius(
 ) -> float | None:
     """Read a child's own setpoint step and return it as a Celsius delta.
 
-    A child publishes its step in its own unit, so a Fahrenheit child's step is
-    scaled as a temperature difference (5/9) rather than run through the
-    absolute Fahrenheit-to-Celsius conversion.
+    ``None`` stays ``None``: a child that publishes no convertible step
+    contributes nothing, which is what lets the callers tell "no child told us
+    anything" apart from a step that was read off a child. The positive-step
+    fallback that ``device_setpoint_step`` applies on top of the same rule is
+    deliberately not applied here.
     """
-    attributes = state.attributes if state is not None else {}
-    raw_step = attributes.get(ATTR_TARGET_TEMP_STEP)
-    if raw_step is None:
-        return None
-    step = convert_to_float(str(raw_step), device_name, "_target_temp_step_celsius")
-    if step is None:
-        return None
-    if state_temperature_unit(attributes, system_unit) == UnitOfTemperature.FAHRENHEIT:
-        return round(step * 5.0 / 9.0, 4)
-    return step
+    return reported_setpoint_step_celsius(
+        state, device_name, system_unit, "_target_temp_step_celsius"
+    )
 
 
 class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
