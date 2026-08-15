@@ -6,6 +6,7 @@ from collections import deque
 from collections.abc import Mapping
 from dataclasses import dataclass, replace
 import logging
+import math
 from typing import Any
 
 import numpy as np
@@ -61,8 +62,11 @@ class ControllerSnapshot:
         This is the single place raw (untyped) persisted data is validated and
         coerced; missing keys fall back to the controller's construction
         defaults, so a partial snapshot degrades gracefully. A snapshot with
-        non-numeric values is dropped entirely — the controller then boots
-        fresh instead of running on half-restored state.
+        non-numeric or non-finite values is dropped entirely — ``float`` accepts
+        ``NaN`` and infinity, and either one spreads through the observer into
+        every later command, so the controller boots fresh instead of running on
+        poisoned state. ``rg_v_C`` is the one nullable field: a stored ``null``
+        means "no governor state" and stays legal.
         """
         try:
             version = int(raw.get("v", 0))
@@ -73,7 +77,7 @@ class ControllerSnapshot:
                     SNAPSHOT_VERSION,
                 )
                 return None
-            return cls(
+            snapshot = cls(
                 v=version,
                 x_hat=[float(x) for x in raw.get("x_hat", [])],
                 kalman_P=[[float(x) for x in row] for row in raw.get("kalman_P", [])],
@@ -88,6 +92,21 @@ class ControllerSnapshot:
         except TypeError, ValueError, OverflowError:
             _LOGGER.warning("MPC v2 snapshot contains non-numeric data; ignoring")
             return None
+        numbers = [
+            *snapshot.x_hat,
+            *(x for row in snapshot.kalman_P for x in row),
+            *snapshot.u_history,
+            snapshot.D_hat_K_per_min,
+            snapshot.last_u,
+            snapshot.e_integral_K_min,
+            snapshot.last_t_s,
+            snapshot.next_mpc_t_s,
+            *([] if snapshot.rg_v_C is None else [snapshot.rg_v_C]),
+        ]
+        if not all(math.isfinite(x) for x in numbers):
+            _LOGGER.warning("MPC v2 snapshot contains non-finite data; ignoring")
+            return None
+        return snapshot
 
 
 class MpcV2Controller:
@@ -234,16 +253,17 @@ class MpcV2Controller:
     def restore_snapshot(self, snap: ControllerSnapshot) -> None:
         """Seed controller state from a snapshot, mutating sub-state in place.
 
-        Empty or wrong-shaped estimate/covariance/history (a partial or
-        corrupted snapshot) leaves the freshly constructed defaults in place —
-        a mis-shaped covariance would otherwise poison every subsequent
-        Kalman update. Version gating lives in
+        An estimate or covariance that is empty, wrong-shaped or non-finite (a
+        partial or corrupted snapshot) leaves the freshly constructed defaults
+        in place — a mis-shaped or ``NaN`` covariance would otherwise poison
+        every subsequent Kalman update. Version gating lives in
         :meth:`ControllerSnapshot.from_mapping`.
         """
         n = self.plant_fine.state_dim
-        seeded = len(snap.x_hat) == n
+        x_hat = np.asarray(snap.x_hat, dtype=float)
+        seeded = x_hat.shape == (n,) and bool(np.all(np.isfinite(x_hat)))
         if seeded:
-            self.kalman.initialise(np.asarray(snap.x_hat, dtype=float))
+            self.kalman.initialise(x_hat)
         if snap.kalman_P:
             P = np.asarray(snap.kalman_P, dtype=float)
             if P.shape == (n, n) and bool(np.all(np.isfinite(P))):
