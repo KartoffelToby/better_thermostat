@@ -635,7 +635,7 @@ class InboundSetpoint(NamedTuple):
     clamped : bool
             whether clamping changed the value
     is_echo : bool
-            whether the value is BT's own write coming back
+            whether the report is BT's own write coming back
     """
 
     raw: float
@@ -820,6 +820,14 @@ def resolve_inbound_setpoint(
     step. Answering rather than logging keeps the caller free to decide
     whether a clamp is worth reporting.
 
+    A write of BT's own comes back in one of two shapes, and both are the same
+    question. The device republishes the written value verbatim, which the
+    reported value answers; or the write was itself the product of a clamp, and
+    the device's out-of-range report maps back onto that written value, which
+    the clamped value answers. Either match means the device is carrying BT's
+    own write, so a report is an echo when either comparison lands inside the
+    window.
+
     Parameters
     ----------
     self :
@@ -862,7 +870,8 @@ def resolve_inbound_setpoint(
 
     echo_window = setpoint_echo_window(step)
     is_echo = any(
-        isinstance(known, (int, float)) and abs(value - known) < echo_window
+        isinstance(known, (int, float))
+        and (abs(raw - known) < echo_window or abs(value - known) < echo_window)
         for known in known_values
     )
     return InboundSetpoint(raw=raw, value=value, clamped=clamped, is_echo=is_echo)
