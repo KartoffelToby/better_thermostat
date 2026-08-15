@@ -47,6 +47,9 @@ from custom_components.better_thermostat.utils.helpers import (
     supports_single_target_temperature,
     supports_temperature_range,
 )
+from custom_components.better_thermostat.utils.hvac_action import (
+    should_cool_with_tolerance,
+)
 from custom_components.better_thermostat.utils.scheduler import request_control_cycle
 from custom_components.better_thermostat.utils.snapshot import build_snapshot
 
@@ -106,13 +109,13 @@ COOLER_FAILURE_BACKOFF_MAX_RUN = 1 + math.ceil(
 # or a whole-°F grid). A post-send reading within this distance of the sent
 # value counts as that device-side quantization, not as an unapplied command.
 COOLER_QUANTIZATION_TOLERANCE_K = 0.5
-# Hysteresis band below the cooling switch-on point. Once BT has decided to
-# cool, the room has to fall this far below the switch-on point before OFF is
-# decided, so a room temperature resting on the threshold does not flip the
-# decision — and produce a write — on every control cycle. Two steps of a
-# 0.1 °C room sensor, which is what the flip is made of; and well under the
-# 0.5 °C a cooling setpoint is set in, so the extra run time the band costs
-# is finer than the user can express in the target anyway.
+# Minimum width of the cooling decision band. A tolerance narrower than this
+# leaves the room temperature resting on an edge, where it flips the decision —
+# and produces a write — on every control cycle; the missing width is taken
+# from below the cooling target to keep the switch-on edge where the tolerance
+# puts it. Two steps of a 0.1 °C room sensor, which is what the flip is made
+# of; and well under the 0.5 °C a cooling setpoint is set in, so the extra run
+# time the band costs is finer than the user can express in the target anyway.
 COOLER_MODE_HYSTERESIS_K = 0.2
 # Valve deviations below this are the device's own business.
 RECONCILE_VALVE_TOLERANCE_PCT = 5.0
@@ -768,9 +771,13 @@ def _record_cooler_failure(
 async def control_cooler(self, snapshot=None):
     """Control the cooler entity based on current temperature and cooling setpoint.
 
-    Activates cooling when current temperature exceeds target cooling temperature
-    minus tolerance and is above heating target. Deactivates cooling when
-    temperature drops below cooling target minus tolerance or when BT HVAC mode is OFF.
+    Activates cooling when the current temperature reaches the cooling target
+    plus tolerance and is above the heating target, so a configured tolerance
+    delays the switch-on instead of running the room below the cooling target.
+    Deactivates cooling when the temperature falls back below the cooling
+    target — or below the cooling target minus the width
+    COOLER_MODE_HYSTERESIS_K borrows from underneath it whenever the tolerance
+    is narrower than that minimum band — or when BT HVAC mode is OFF.
 
     The control queue passes the cycle's snapshot in; a standalone
     invocation observes the world itself.
@@ -848,18 +855,40 @@ async def control_cooler(self, snapshot=None):
         # for the kernel to suppress.
         desired_mode = HVACMode.OFF
     else:
-        # Hysteresis around the switch-on point, so a room temperature
-        # resting on it does not flip the decision — and with it the write —
-        # on every cycle. The band widens the COOL state only: entering it
-        # stays at the plain switch-on point the tolerance defines. The
-        # device's own reported mode cannot carry the band — it lags a
-        # command and can be changed externally. The heating target stays a
-        # hard floor; relaxing it would let the cooler run into the band the
-        # heater is working on.
-        _cool_on_at = target_cooltemp - tolerance
-        if last_sent.get("hvac_mode_decided") == HVACMode.COOL:
-            _cool_on_at -= COOLER_MODE_HYSTERESIS_K
-        if room_temp >= _cool_on_at and room_temp > target_temp:
+        # The tolerance delays the switch-on: cooling starts a tolerance above
+        # the cooling target and holds until the room is back at the target, so
+        # the room settles at or above the target rather than below it. A band
+        # narrower than COOLER_MODE_HYSTERESIS_K takes the missing width from
+        # below the target, because a room temperature resting on an edge would
+        # otherwise flip the decision — and with it the write — on every cycle;
+        # the switch-on edge never moves for that guard, which buys decision
+        # stability and not a colder room. The heating target stays a hard
+        # floor; relaxing it would let the cooler run into the band the heater
+        # is working on.
+        #
+        # The latch carries the band, and it is unset only while BT has not
+        # decided a cooler mode of its own — the state a restart or a
+        # config-entry reload leaves behind. Seeding the hold edge from the
+        # cooler's own reported mode there keeps a unit that is already running
+        # inside the band running, instead of stopping it and letting the room
+        # warm all the way back up to the switch-on edge. As soon as the latch
+        # holds a decision it wins, because the reported mode lags a command by
+        # a state update and can be changed externally, either of which would
+        # drop the hold edge mid-band.
+        _decided_mode = last_sent.get("hvac_mode_decided")
+        _previously_cooling = (
+            _decided_mode == HVACMode.COOL
+            if _decided_mode is not None
+            else current_hvac_mode == HVACMode.COOL
+        )
+        _cool_wanted = should_cool_with_tolerance(
+            room_temp,
+            target_cooltemp,
+            tolerance,
+            _previously_cooling,
+            min_band=COOLER_MODE_HYSTERESIS_K,
+        )
+        if _cool_wanted and room_temp > target_temp:
             desired_mode = HVACMode.COOL
         else:
             desired_mode = HVACMode.OFF
@@ -868,7 +897,11 @@ async def control_cooler(self, snapshot=None):
     # decision would keep flipping between the two commands the device is
     # refusing. Recorded for every branch above, so a cycle that fell into a
     # guard leaves the band where that guard put it instead of on a stale
-    # value.
+    # value. Each of those guards stops the cooler outright, so the run ends
+    # there and the way back in is the switch-on edge — the same contract the
+    # heating hysteresis in compute_hvac_action applies to the same three
+    # guards, where a missing reading, an open contact and a mode of OFF each
+    # return the band to IDLE.
     last_sent["hvac_mode_decided"] = desired_mode
 
     # Decide whether a temperature command is needed. When the current
