@@ -962,6 +962,46 @@ class TestTargetTempAdoption:
         assert "setpoint outside of range" not in caplog.text
 
     @pytest.mark.asyncio
+    async def test_parked_no_off_valve_keeps_the_heating_target(self, mock_bt):
+        """A valve resting on its own minimum republishes BT's own write.
+
+        BT parks a no_off valve on the device minimum while it is OFF and
+        records that write in ``last_temperature``. The report sits below
+        ``bt_min_temp``, so the clamp lifts it onto the configured minimum and
+        only the reported value still identifies the write. The ordered pair
+        the user configured has to survive the report unchanged.
+        """
+        mock_bt.bt_hvac_mode = HVACMode.OFF
+        mock_bt.hvac_mode = HVACMode.OFF
+        mock_bt.bt_min_temp = 20.0
+        mock_bt.bt_target_temp = 21.0
+        mock_bt.bt_target_cooltemp = 24.0
+        mock_bt.cooler_entity_id = "climate.test_cooler"
+        trv = mock_bt.real_trvs[ENTITY_ID]
+        trv.advanced["no_off_system_mode"] = True
+        trv.temperature = 5.0
+        trv.last_temperature = 5.0
+        old_state = _make_state(
+            attributes={"temperature": 5.0, "current_temperature": 18.0}
+        )
+        new_state = _make_state(
+            attributes={"temperature": 5.0, "current_temperature": 18.4}
+        )
+        mock_bt.hass.states.get.return_value = new_state
+
+        event = _make_event(mock_bt, new_state=new_state, old_state=old_state)
+
+        with patch(
+            "custom_components.better_thermostat.events.trv.convert_inbound_states",
+            return_value=HVACMode.HEAT,
+        ):
+            await trigger_trv_change(mock_bt, event)
+
+        assert mock_bt.bt_target_temp == 21.0
+        assert mock_bt.bt_target_cooltemp == 24.0
+        assert mock_bt.bt_hvac_mode == HVACMode.OFF
+
+    @pytest.mark.asyncio
     async def test_setpoint_blocked_when_off(self, mock_bt):
         """No setpoint adoption when bt_hvac_mode is OFF."""
         mock_bt.bt_hvac_mode = HVACMode.OFF
