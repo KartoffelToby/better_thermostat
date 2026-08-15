@@ -48,6 +48,7 @@ from custom_components.better_thermostat.utils.helpers import (
     supports_temperature_range,
 )
 from custom_components.better_thermostat.utils.hvac_action import (
+    COOLER_MODE_HYSTERESIS_K,
     should_cool_with_tolerance,
 )
 from custom_components.better_thermostat.utils.scheduler import request_control_cycle
@@ -109,14 +110,6 @@ COOLER_FAILURE_BACKOFF_MAX_RUN = 1 + math.ceil(
 # or a whole-°F grid). A post-send reading within this distance of the sent
 # value counts as that device-side quantization, not as an unapplied command.
 COOLER_QUANTIZATION_TOLERANCE_K = 0.5
-# Minimum width of the cooling decision band. A tolerance narrower than this
-# leaves the room temperature resting on an edge, where it flips the decision —
-# and produces a write — on every control cycle; the missing width is taken
-# from below the cooling target to keep the switch-on edge where the tolerance
-# puts it. Two steps of a 0.1 °C room sensor, which is what the flip is made
-# of; and well under the 0.5 °C a cooling setpoint is set in, so the extra run
-# time the band costs is finer than the user can express in the target anyway.
-COOLER_MODE_HYSTERESIS_K = 0.2
 # Valve deviations below this are the device's own business.
 RECONCILE_VALVE_TOLERANCE_PCT = 5.0
 # Pause before re-queueing a cycle in which a TRV reported failure, so a
