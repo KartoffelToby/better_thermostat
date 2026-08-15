@@ -5,6 +5,7 @@ restrictive bounds across TRVs, Fahrenheit conversion (with step treated as a
 delta), the non-overlapping-range warning, and the step-already-set guard.
 """
 
+import logging
 from unittest.mock import MagicMock
 
 from homeassistant.components.climate.const import (
@@ -17,6 +18,8 @@ from homeassistant.core import State
 import pytest
 
 from custom_components.better_thermostat.climate import BetterThermostat
+
+HELPERS_LOGGER = "custom_components.better_thermostat.utils.helpers"
 
 
 @pytest.fixture
@@ -104,6 +107,26 @@ def test_existing_step_not_overwritten(bt):
     states = [_trv(step=1.0)]
     BetterThermostat._resolve_temperature_range(bt, states)
     assert bt.bt_target_temp_step == 0.25
+
+
+def test_children_without_a_step_leave_the_aggregate_unset(bt):
+    """A child that publishes no step contributes nothing to the aggregate.
+
+    ``None`` here means "no child told us anything", which the startup path
+    reads differently from a step that was aggregated from the children, so a
+    default step must not be invented at this point.
+    """
+    states = [_trv(min_t=5.0, max_t=30.0, eid="climate.a")]
+    BetterThermostat._resolve_temperature_range(bt, states)
+    assert bt.bt_target_temp_step is None
+
+
+def test_unconvertible_child_step_is_logged_against_the_reader(bt, caplog):
+    """An unreadable step yields no aggregate and names the reading site."""
+    with caplog.at_level(logging.DEBUG, logger=HELPERS_LOGGER):
+        BetterThermostat._resolve_temperature_range(bt, [_trv(step="abc")])
+    assert bt.bt_target_temp_step is None
+    assert "_target_temp_step_celsius" in caplog.text
 
 
 def test_empty_states_yield_none(bt):

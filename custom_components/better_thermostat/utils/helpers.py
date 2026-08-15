@@ -737,6 +737,56 @@ def normalize_step(value: float | int | str | None, fallback: float = 0.5) -> fl
     return step
 
 
+def reported_setpoint_step_celsius(
+    state: State | None, device_name: str, system_unit: str | None, log_source: str
+) -> float | None:
+    """Return the setpoint step a state publishes, as a Celsius delta.
+
+    This is the unit rule and nothing else. A device publishes its step in its
+    own unit, so a Fahrenheit step is scaled as a temperature difference (5/9)
+    rather than run through the absolute Fahrenheit-to-Celsius conversion. The
+    unit is resolved from the same attributes mapping the step was read from,
+    because that is the device the step belongs to.
+
+    ``None`` means the state publishes no convertible step. A missing attribute
+    and an attribute holding ``None`` are the same case and are not logged; a
+    value that fails conversion is logged by ``convert_to_float``. Sign and
+    magnitude are not judged and no fallback is applied, so a caller that needs
+    a usable positive step supplies its own.
+
+    Parameters
+    ----------
+    state : State | None
+            the device state carrying the reported ``target_temp_step``, or
+            None when the state is missing
+    device_name : str
+            the Better Thermostat instance name, for logging context
+    system_unit : str | None
+            the configured system temperature unit, used when the attributes
+            name no unit of their own
+    log_source : str
+            caller name, forwarded to convert_to_float for logging context
+
+    Returns
+    -------
+    float | None
+            the reported step as a Celsius delta, or None when the state
+            publishes no convertible step
+    """
+    attributes = state.attributes if state is not None else {}
+    raw_step = attributes.get(ATTR_TARGET_TEMP_STEP)
+    if raw_step is None:
+        return None
+    # The raw value is stringified before conversion, which is what makes a
+    # boolean fail: ``float(True)`` is 1.0, while ``float("True")`` raises.
+    step = convert_to_float(str(raw_step), device_name, log_source)
+    if step is None:
+        return None
+    if state_temperature_unit(attributes, system_unit) == UnitOfTemperature.FAHRENHEIT:
+        return round(step * 5.0 / 9.0, 4)
+    return step
+
+
 def device_setpoint_step(self, state: State, log_source: str) -> float:
     """Return a controlled device's setpoint step as a °C delta.
 
@@ -760,20 +810,9 @@ def device_setpoint_step(self, state: State, log_source: str) -> float:
     float
             the device's setpoint step as a positive Celsius delta
     """
-    raw_step = state.attributes.get(ATTR_TARGET_TEMP_STEP)
-    step = (
-        convert_to_float(str(raw_step), self.device_name, log_source)
-        if raw_step is not None
-        else None
+    step = reported_setpoint_step_celsius(
+        state, self.device_name, self.hass.config.units.temperature_unit, log_source
     )
-    if (
-        step is not None
-        and state_temperature_unit(
-            state.attributes, self.hass.config.units.temperature_unit
-        )
-        == UnitOfTemperature.FAHRENHEIT
-    ):
-        step = round(step * 5.0 / 9.0, 4)
     if step is None or step <= 0:
         return normalize_step(self.bt_target_temp_step)
     return step
