@@ -62,6 +62,11 @@ _LOGGER = logging.getLogger(__name__)
 # per-cycle dispatch from repeating it when the daqp import keeps failing.
 _MPC_V2_IMPORT_WARNED: set[str] = set()
 
+# Post-adjustment gates that fire because Better Thermostat is not calling for
+# heat take the same arm while the cooler runs: a TRV valve that opens works
+# against the cooler, so cooling is the strongest form of not calling for heat.
+_IDLE_OR_COOLING = (HVACAction.IDLE, HVACAction.COOLING)
+
 
 def _compute_zero_open_offset(
     self,
@@ -1002,9 +1007,11 @@ def calculate_calibration_local(self, entity_id) -> float | None:
 
     # Respecting tolerance in all calibration modes, delaying heat
     # Skip tolerance delay for aggressive mode - it should start heating faster
+    # The delay is sized by the heating tolerance and carries over unchanged
+    # while the cooler runs, where at least as much delay is wanted.
     if not _skip_post_adjustments:
         if _calibration_mode != CalibrationMode.AGGRESIVE_CALIBRATION:
-            if self.hvac_action == HVACAction.IDLE:
+            if self.hvac_action in _IDLE_OR_COOLING:
                 if _new_trv_calibration < 0.0:
                     _new_trv_calibration += self.tolerance * 2.0
 
@@ -1026,9 +1033,9 @@ def calculate_calibration_local(self, entity_id) -> float | None:
     # Calibration offset works inversely to setpoint: a positive offset makes
     # the TRV read a higher temperature (closing the valve), a negative offset
     # makes it read lower (opening the valve).
-    # When IDLE, round offset UP to ensure the valve closes.
+    # Idle and cooling round the offset UP to ensure the valve closes.
     # When HEATING, round offset DOWN to ensure the valve opens.
-    if self.hvac_action == HVACAction.IDLE:
+    if self.hvac_action in _IDLE_OR_COOLING:
         _cal_rounding = rounding.up
     elif self.hvac_action == HVACAction.HEATING:
         _cal_rounding = rounding.down
@@ -1361,9 +1368,11 @@ def calculate_calibration_setpoint(self, entity_id) -> float | None:
 
     # Respecting tolerance in all calibration modes, delaying heat
     # Skip tolerance delay for aggressive mode - it should start heating faster
+    # The delay is sized by the heating tolerance and carries over unchanged
+    # while the cooler runs, where at least as much delay is wanted.
     if not _skip_post_adjustments:
         if _calibration_mode != CalibrationMode.AGGRESIVE_CALIBRATION:
-            if self.hvac_action == HVACAction.IDLE:
+            if self.hvac_action in _IDLE_OR_COOLING:
                 if _calibrated_setpoint - _cur_trv_temp > 0.0:
                     _calibrated_setpoint -= self.tolerance * 2.0
 
@@ -1383,12 +1392,12 @@ def calculate_calibration_setpoint(self, entity_id) -> float | None:
                     _cur_external_temp - (_cur_target_temp + self.tolerance)
                 ) * 8.0  # Reduced from 10.0 since we already subtract 2.0
 
-    # Direction-aware rounding: when IDLE, round setpoint DOWN so the TRV
-    # sees a target below its current temperature and closes the valve.
+    # Direction-aware rounding: idle and cooling round the setpoint DOWN so the
+    # TRV sees a target below its current temperature and closes the valve.
     # When HEATING, round UP so the TRV keeps the valve open.
     # This prevents integer-step TRVs (step=1.0) from rounding a value like
     # 19.7 up to 20.0 which would keep the valve open at the current temp.
-    if self.hvac_action == HVACAction.IDLE:
+    if self.hvac_action in _IDLE_OR_COOLING:
         _step_rounding = rounding.down
     elif self.hvac_action == HVACAction.HEATING:
         _step_rounding = rounding.up
