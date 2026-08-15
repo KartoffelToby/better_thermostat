@@ -2994,6 +2994,8 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
         if maximum is not None and maximum >= self.bt_target_temp:
             adjusted = min(adjusted, maximum)
         if adjusted == self.bt_target_cooltemp:
+            # The maximum and the heating target coincide and the cooling target
+            # already rests on them, so the bump has nowhere to land.
             return
         if adjusted > self.bt_target_temp:
             _LOGGER.warning(
@@ -3042,6 +3044,8 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
         if self.bt_min_temp is not None:
             adjusted = max(adjusted, self.bt_min_temp)
         if adjusted == self.bt_target_temp:
+            # The minimum pins the drop on the heating target itself, so it has
+            # nowhere to land.
             return
         if adjusted < self.bt_target_cooltemp:
             _LOGGER.warning(
@@ -3072,7 +3076,8 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
         move the radiators. The floor is capped at the configured maximum
         because a bound outside the range is not a setpoint BT can hold; the
         residual :meth:`_enforce_heat_below_cool` then resolves the degenerate
-        case where the heating target leaves no legal room below the maximum.
+        case where the heating target rests on the maximum and no legal cooling
+        setpoint above it exists.
 
         The bound applies whenever a cooling channel is configured rather than
         only while the live mode is HEAT_COOL, matching
@@ -3095,7 +3100,8 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
         Returns
         -------
         float
-                the setpoint to adopt, raised to clear the heating target
+                the setpoint to adopt, unchanged unless it had to be raised to
+                clear the heating target
         """
         if self.cooler_entity_id is None or self.bt_target_temp is None:
             return value
@@ -3114,11 +3120,12 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
         target instead of raising that target. The ceiling is held at the
         configured minimum, and the residual
         :meth:`_enforce_cool_above_heat` resolves the degenerate case where the
-        cooling target leaves no legal room above the minimum. Like its
-        counterpart the bound keys off the configured cooling channel rather
-        than the live mode, and here that is what makes it hold at all: a valve
-        with ``no_off_system_mode`` reports its knob turn while ``bt_hvac_mode``
-        is still OFF, and the same event then resolves the mode to HEAT.
+        cooling target rests on the minimum and no legal heating setpoint below
+        it exists. Like its counterpart the bound keys off the configured
+        cooling channel rather than the live mode, and here that is what makes
+        it hold at all: a valve with ``no_off_system_mode`` reports its knob
+        turn while ``bt_hvac_mode`` is still OFF, and the same event then
+        resolves the mode to HEAT.
 
         The one step of separation comes from :func:`normalize_step` for the
         same reason as in the counterpart: a step a child reports as negative or
@@ -3133,7 +3140,8 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
         Returns
         -------
         float
-                the setpoint to adopt, lowered to clear the cooling target
+                the setpoint to adopt, unchanged unless it had to be lowered to
+                clear the cooling target
         """
         if self.cooler_entity_id is None or self.bt_target_cooltemp is None:
             return value
