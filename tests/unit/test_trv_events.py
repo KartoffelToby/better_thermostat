@@ -6,7 +6,8 @@ and the convert_inbound_states / convert_outbound_states helpers.
 """
 
 from datetime import timedelta
-from unittest.mock import AsyncMock, MagicMock, patch
+import logging
+from unittest.mock import AsyncMock, MagicMock, PropertyMock, patch
 
 from homeassistant.components.climate.const import HVACMode
 from homeassistant.core import State
@@ -60,6 +61,9 @@ def mock_bt():
     bt.last_internal_sensor_change = dt_util.now() - timedelta(seconds=60)
     bt.async_write_ha_state = MagicMock()
     bt._enforce_cool_above_heat = lambda: BetterThermostat._enforce_cool_above_heat(bt)
+    bt._clamp_inbound_heat_target = lambda v: (
+        BetterThermostat._clamp_inbound_heat_target(bt, v)
+    )
 
     bt.all_trvs = [{"advanced": {CONF_HOMEMATICIP: False}}]
 
@@ -948,14 +952,19 @@ class TestTargetTempAdoption:
         ):
             await trigger_trv_change(mock_bt, event)
 
+        assert mock_bt.bt_target_temp == 22.0
         assert mock_bt.bt_target_cooltemp == 25.0
 
     @pytest.mark.asyncio
-    async def test_cooler_sync_pushes_cooltemp_above_target(self, mock_bt):
-        """Cooltemp is pushed to target + step when equal to target."""
+    async def test_knob_turn_equal_to_cooltemp_is_lowered(self, mock_bt):
+        """A knob turn onto the cool target is capped one step below it.
+
+        The TRV owns the heating channel alone, so the cool target the user set
+        on the air conditioner stays where it is.
+        """
         mock_bt.cooler_entity_id = "climate.cooler"
         mock_bt.hvac_mode = HVACMode.HEAT_COOL
-        mock_bt.bt_target_cooltemp = 22.0  # equal to new target
+        mock_bt.bt_target_cooltemp = 22.0  # equal to the reported setpoint
         mock_bt.bt_target_temp_step = 0.5
 
         old_state = _make_state(
@@ -979,14 +988,71 @@ class TestTargetTempAdoption:
         ):
             await trigger_trv_change(mock_bt, event)
 
-        assert mock_bt.bt_target_cooltemp == 22.0 + 0.5
+        assert mock_bt.bt_target_temp == 21.5
+        assert mock_bt.bt_target_cooltemp == 22.0
+        assert mock_bt.bt_target_temp < mock_bt.bt_target_cooltemp
 
     @pytest.mark.asyncio
-    async def test_cooler_sync_always_overwrites(self, mock_bt):
-        """Cooltemp is pushed to target + step even when already below target."""
+    async def test_knob_turn_above_cooltemp_is_lowered(self, mock_bt, caplog):
+        """A knob turn past the cool target is capped, not the cool target raised.
+
+        The knob went somewhere the group cannot follow, so the user gets an
+        INFO naming the target that was not cleared and the value kept. Every
+        detent of a turn produces one, which is why it is not a WARNING.
+        """
         mock_bt.cooler_entity_id = "climate.cooler"
         mock_bt.hvac_mode = HVACMode.HEAT_COOL
-        mock_bt.bt_target_cooltemp = 15.0
+        mock_bt.bt_target_cooltemp = 22.5
+        mock_bt.bt_target_temp_step = 0.5
+
+        old_state = _make_state(
+            attributes={"temperature": 19.0, "current_temperature": 18.0}
+        )
+        new_state = _make_state(
+            attributes={"temperature": 24.0, "current_temperature": 18.0}
+        )
+        trv_state = _make_state(
+            state_str="heat",
+            attributes={"current_temperature": 18.0, "temperature": 24.0},
+        )
+        mock_bt.hass.states.get.return_value = trv_state
+        mock_bt.real_trvs[ENTITY_ID].last_temperature = 19.0
+
+        event = _make_event(mock_bt, new_state=new_state, old_state=old_state)
+
+        caplog.set_level(logging.INFO)
+        with patch(
+            "custom_components.better_thermostat.events.trv.convert_inbound_states",
+            return_value=HVACMode.HEAT,
+        ):
+            await trigger_trv_change(mock_bt, event)
+
+        assert mock_bt.bt_target_temp == 22.0
+        assert mock_bt.bt_target_cooltemp == 22.5
+        assert mock_bt.bt_target_temp < mock_bt.bt_target_cooltemp
+        assert (
+            "reported setpoint 24.00 does not clear the cooling target 22.50"
+            in caplog.text
+        )
+        assert "keeping 22.00" in caplog.text
+        levels = {
+            record.levelno
+            for record in caplog.records
+            if "cooling target" in record.getMessage()
+        }
+        assert levels == {logging.INFO}
+
+    @pytest.mark.asyncio
+    async def test_no_legal_setpoint_below_cooltemp_moves_it_one_step(self, mock_bt):
+        """With the cool target at the minimum the cool target yields one step.
+
+        No heating setpoint below bt_min_temp exists, so the heat target stops
+        at the minimum and the cool target gives up exactly one step.
+        """
+        mock_bt.cooler_entity_id = "climate.cooler"
+        mock_bt.hvac_mode = HVACMode.HEAT_COOL
+        mock_bt.bt_target_cooltemp = 5.0
+        mock_bt.bt_min_temp = 5.0
         mock_bt.bt_target_temp_step = 0.5
 
         old_state = _make_state(
@@ -1010,7 +1076,49 @@ class TestTargetTempAdoption:
         ):
             await trigger_trv_change(mock_bt, event)
 
-        assert mock_bt.bt_target_cooltemp == 22.0 + 0.5
+        assert mock_bt.bt_target_temp == 5.0
+        assert mock_bt.bt_target_cooltemp == 5.5
+        assert mock_bt.bt_target_temp < mock_bt.bt_target_cooltemp
+
+    @pytest.mark.asyncio
+    async def test_a_range_narrowed_above_the_cooltemp_moves_it_further(self, mock_bt):
+        """A cool target below the minimum is the one case that moves further.
+
+        The range is recomputed from the children, so it can end up above a
+        target already in place. The clamp holds the heating setpoint at the
+        minimum and the tie-break then lifts the cooling target clear of it,
+        which takes more than one step.
+        """
+        mock_bt.cooler_entity_id = "climate.cooler"
+        mock_bt.hvac_mode = HVACMode.HEAT_COOL
+        mock_bt.bt_target_cooltemp = 10.0
+        mock_bt.bt_min_temp = 20.0
+        mock_bt.bt_target_temp_step = 0.5
+
+        old_state = _make_state(
+            attributes={"temperature": 19.0, "current_temperature": 18.0}
+        )
+        new_state = _make_state(
+            attributes={"temperature": 22.0, "current_temperature": 18.0}
+        )
+        trv_state = _make_state(
+            state_str="heat",
+            attributes={"current_temperature": 18.0, "temperature": 22.0},
+        )
+        mock_bt.hass.states.get.return_value = trv_state
+        mock_bt.real_trvs[ENTITY_ID].last_temperature = 19.0
+
+        event = _make_event(mock_bt, new_state=new_state, old_state=old_state)
+
+        with patch(
+            "custom_components.better_thermostat.events.trv.convert_inbound_states",
+            return_value=HVACMode.HEAT,
+        ):
+            await trigger_trv_change(mock_bt, event)
+
+        assert mock_bt.bt_target_temp == 20.0
+        assert mock_bt.bt_target_cooltemp == 20.5
+        assert mock_bt.bt_target_temp < mock_bt.bt_target_cooltemp
 
     @pytest.mark.asyncio
     async def test_cooler_sync_with_unknown_cooltemp_adopts_setpoint(self, mock_bt):
@@ -1101,6 +1209,113 @@ class TestTargetTempAdoption:
             await trigger_trv_change(mock_bt, event)
 
         assert mock_bt.bt_hvac_mode == HVACMode.HEAT
+
+    @pytest.mark.asyncio
+    async def test_no_off_leaving_off_keeps_the_two_targets_apart(self, mock_bt):
+        """A knob turn that also switches BT on stays below the cool target.
+
+        The same event adopts the setpoint and resolves the mode from OFF to
+        HEAT, so the mode is still OFF while the setpoint is bounded. Keying the
+        bound off the configured cooler rather than the live mode is what keeps
+        the two channels from ending up crossed with nothing left to repair them.
+        """
+        mock_bt.real_trvs[ENTITY_ID].advanced["no_off_system_mode"] = True
+        mock_bt.real_trvs[ENTITY_ID].min_temp = 5.0
+        mock_bt.cooler_entity_id = "climate.cooler"
+        mock_bt.bt_hvac_mode = HVACMode.OFF
+        mock_bt.hvac_mode = HVACMode.OFF
+        mock_bt.bt_target_cooltemp = 22.0
+        mock_bt.bt_target_temp_step = 0.5
+        old_state = _make_state(
+            attributes={"temperature": 5.0, "current_temperature": 18.0}
+        )
+        new_state = _make_state(
+            attributes={"temperature": 24.0, "current_temperature": 18.0}
+        )
+        trv_state = _make_state(
+            state_str="heat",
+            attributes={"current_temperature": 18.0, "temperature": 24.0},
+        )
+        mock_bt.hass.states.get.return_value = trv_state
+        mock_bt.real_trvs[ENTITY_ID].last_temperature = 5.0
+
+        event = _make_event(mock_bt, new_state=new_state, old_state=old_state)
+
+        with patch(
+            "custom_components.better_thermostat.events.trv.convert_inbound_states",
+            return_value=HVACMode.HEAT,
+        ):
+            await trigger_trv_change(mock_bt, event)
+
+        assert mock_bt.bt_hvac_mode == HVACMode.HEAT
+        assert mock_bt.bt_target_temp == 21.5
+        assert mock_bt.bt_target_cooltemp == 22.0
+        assert mock_bt.bt_target_temp < mock_bt.bt_target_cooltemp
+
+    @pytest.mark.asyncio
+    async def test_no_off_leaving_off_separates_targets_stuck_at_the_minimum(
+        self, mock_bt, caplog
+    ):
+        """A knob turn against a cool target at the minimum still ends apart.
+
+        With the cool target sitting on bt_min_temp there is no legal heating
+        setpoint below it, so the clamp pins the heat target to that same value
+        and the tie-break has to resolve the draw. The mode is still OFF while
+        the setpoint is adopted, so only the mode resolution later in the same
+        event puts the group into HEAT_COOL and makes the tie-break effective.
+
+        This is the corner where the kept value equals the target it yielded to,
+        so the annunciation is pinned here as well: it may only claim that the
+        report did not clear the cooling target, never that the kept value ends
+        up on either side of it.
+        """
+        mock_bt.real_trvs[ENTITY_ID].advanced["no_off_system_mode"] = True
+        mock_bt.real_trvs[ENTITY_ID].min_temp = 5.0
+        mock_bt.cooler_entity_id = "climate.cooler"
+        mock_bt.bt_hvac_mode = HVACMode.OFF
+        # A configured cooler drops HEAT from the mode list and reports the
+        # group as HEAT_COOL instead, so the live mode has to be resolved by
+        # the production property rather than pinned to a fixed value.
+        mock_bt.map_on_hvac_mode = HVACMode.HEAT_COOL
+        mock_bt._hvac_list = [HVACMode.OFF, HVACMode.HEAT_COOL]
+        type(mock_bt).hvac_mode = PropertyMock(
+            side_effect=lambda: BetterThermostat.hvac_mode.fget(mock_bt)
+        )
+        mock_bt.bt_min_temp = 5.0
+        mock_bt.bt_target_cooltemp = 5.0
+        mock_bt.bt_target_temp_step = 0.5
+        old_state = _make_state(
+            attributes={"temperature": 5.0, "current_temperature": 18.0}
+        )
+        new_state = _make_state(
+            attributes={"temperature": 24.0, "current_temperature": 18.0}
+        )
+        trv_state = _make_state(
+            state_str="heat",
+            attributes={"current_temperature": 18.0, "temperature": 24.0},
+        )
+        mock_bt.hass.states.get.return_value = trv_state
+        mock_bt.real_trvs[ENTITY_ID].last_temperature = 5.0
+
+        event = _make_event(mock_bt, new_state=new_state, old_state=old_state)
+
+        caplog.set_level(logging.INFO)
+        with patch(
+            "custom_components.better_thermostat.events.trv.convert_inbound_states",
+            return_value=HVACMode.HEAT,
+        ):
+            await trigger_trv_change(mock_bt, event)
+
+        assert mock_bt.bt_hvac_mode == HVACMode.HEAT
+        assert mock_bt.hvac_mode == HVACMode.HEAT_COOL
+        assert mock_bt.bt_target_temp == 5.0
+        assert mock_bt.bt_target_cooltemp == 5.5
+        assert mock_bt.bt_target_temp < mock_bt.bt_target_cooltemp
+        assert (
+            "reported setpoint 24.00 does not clear the cooling target 5.00, "
+            "keeping 5.00" in caplog.text
+        )
+        assert "to stay below cooling target" not in caplog.text
 
 
 class TestTargetTempBasedSync:
@@ -1575,6 +1790,11 @@ def _make_group_bt(entity_ids, *, no_off=False, bt_hvac_mode=HVACMode.HEAT):
     bt.context = MagicMock()
     bt.last_internal_sensor_change = dt_util.now() - timedelta(seconds=60)
     bt.async_write_ha_state = MagicMock()
+    bt.hvac_mode = bt_hvac_mode
+    bt._enforce_cool_above_heat = lambda: BetterThermostat._enforce_cool_above_heat(bt)
+    bt._clamp_inbound_heat_target = lambda v: (
+        BetterThermostat._clamp_inbound_heat_target(bt, v)
+    )
     bt.all_trvs = [{"advanced": {CONF_HOMEMATICIP: False}} for _ in entity_ids]
 
     bt.real_trvs = {
@@ -1726,6 +1946,45 @@ class TestGroupedModeAdoption:
             await trigger_trv_change(bt, event)
 
         assert bt.bt_hvac_mode == HVACMode.OFF
+
+    @pytest.mark.asyncio
+    async def test_group_knob_turn_stays_below_the_cool_target(self):
+        """A knob turn on one member of a group with a cooler stays below cool.
+
+        The cool target sits on ``bt_min_temp``, so the bound has no legal value
+        below it and the residual tie-break has to separate the two targets.
+        """
+        trigger, other1, other2 = GRP_IDS
+        bt = _make_group_bt(GRP_IDS, bt_hvac_mode=HVACMode.HEAT_COOL)
+        bt.cooler_entity_id = "climate.ac"
+        bt.bt_target_cooltemp = 5.0
+        bt.bt_min_temp = 5.0
+        bt.bt_target_temp_step = 0.5
+        _install_states(
+            bt,
+            {
+                trigger: _grp_state(trigger, "heat", temperature=22.0),
+                other1: _grp_state(other1, "heat"),
+                other2: _grp_state(other2, "heat"),
+            },
+        )
+        bt.real_trvs[trigger].hvac_mode = "heat"
+
+        event = _make_event(
+            bt,
+            new_state=_grp_state(trigger, "heat", temperature=22.0),
+            old_state=_grp_state(trigger, "heat", temperature=19.0),
+            entity_id=trigger,
+        )
+        with patch(
+            "custom_components.better_thermostat.events.trv.convert_inbound_states",
+            return_value=None,
+        ):
+            await trigger_trv_change(bt, event)
+
+        assert bt.bt_target_temp == 5.0
+        assert bt.bt_target_cooltemp == 5.5
+        assert bt.bt_target_temp < bt.bt_target_cooltemp
 
 
 class TestGroupedNoOffAdoption:

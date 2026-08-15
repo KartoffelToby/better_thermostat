@@ -144,6 +144,7 @@ from .utils.helpers import (
     get_hvac_bt_mode,
     is_reasonable_temperature,
     normalize_hvac_mode,
+    normalize_step,
     read_setpoint_celsius,
     state_temperature_unit,
 )
@@ -2886,6 +2887,87 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
             self.bt_target_cooltemp,
         )
         self.bt_target_temp = adjusted
+
+    def _clamp_inbound_cool_target(self, value: float) -> float:
+        """Clamp a device-reported cooling setpoint above the heating target.
+
+        A report from the cooler is authoritative for the cooling channel only.
+        Rather than pulling the heating target down to make room, the reported
+        value is raised to the nearest setpoint that clears the heating target
+        by one step, so a press on the air conditioner's own remote can never
+        move the radiators. The floor is capped at the configured maximum
+        because a bound outside the range is not a setpoint BT can hold; the
+        residual :meth:`_enforce_heat_below_cool` then resolves the degenerate
+        case where the heating target leaves no legal room below the maximum.
+
+        The bound applies whenever a cooling channel is configured rather than
+        only while the live mode is HEAT_COOL, matching
+        :meth:`_clamp_inbound_heat_target`: the ordering of the two targets is a
+        property of the configuration, so it has to hold whatever mode the group
+        happens to be in.
+
+        The one step of separation comes from :func:`normalize_step`, because
+        ``bt_target_temp_step`` can carry whatever a child entity reports: a
+        negative step would put the floor below the heating target and invert
+        the pair this bound exists to order, and a NaN one would make the
+        comparison against it false and drop the bound altogether.
+
+        Parameters
+        ----------
+        value : float
+                the reported cooling setpoint in °C, already clamped into the
+                configured range
+
+        Returns
+        -------
+        float
+                the setpoint to adopt, raised to clear the heating target
+        """
+        if self.cooler_entity_id is None or self.bt_target_temp is None:
+            return value
+        step = normalize_step(self.bt_target_temp_step)
+        floor = self.bt_target_temp + step
+        if self.bt_max_temp is not None:
+            floor = min(floor, self.bt_max_temp)
+        return max(value, floor)
+
+    def _clamp_inbound_heat_target(self, value: float) -> float:
+        """Clamp a device-reported heating setpoint below the cooling target.
+
+        The counterpart to :meth:`_clamp_inbound_cool_target`: a TRV knob turn
+        is authoritative for the heating channel only, so the reported value is
+        lowered to the nearest setpoint that stays one step below the cooling
+        target instead of raising that target. The ceiling is held at the
+        configured minimum, and the residual
+        :meth:`_enforce_cool_above_heat` resolves the degenerate case where the
+        cooling target leaves no legal room above the minimum. Like its
+        counterpart the bound keys off the configured cooling channel rather
+        than the live mode, and here that is what makes it hold at all: a valve
+        with ``no_off_system_mode`` reports its knob turn while ``bt_hvac_mode``
+        is still OFF, and the same event then resolves the mode to HEAT.
+
+        The one step of separation comes from :func:`normalize_step` for the
+        same reason as in the counterpart: a step a child reports as negative or
+        non-finite would either invert the pair or drop the bound.
+
+        Parameters
+        ----------
+        value : float
+                the reported heating setpoint in °C, already clamped into the
+                configured range
+
+        Returns
+        -------
+        float
+                the setpoint to adopt, lowered to clear the cooling target
+        """
+        if self.cooler_entity_id is None or self.bt_target_cooltemp is None:
+            return value
+        step = normalize_step(self.bt_target_temp_step)
+        ceiling = self.bt_target_cooltemp - step
+        if self.bt_min_temp is not None:
+            ceiling = max(ceiling, self.bt_min_temp)
+        return min(value, ceiling)
 
     async def async_set_temperature(self, **kwargs) -> None:
         """Set new target temperature."""

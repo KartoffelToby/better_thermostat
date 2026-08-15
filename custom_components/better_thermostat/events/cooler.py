@@ -100,7 +100,10 @@ async def trigger_cooler_change(self, event):
         # that republishes the same setpoint — an attribute refresh, a mode
         # change, a temperature push — must not be read as user intent: a
         # stale report would otherwise revert a BT-side target that has not
-        # been written yet.
+        # been written yet. What the cooler reports is authoritative for the
+        # cooling channel alone, so a setpoint that would cross the heating
+        # target is raised to clear it and the heating target stays where the
+        # user put it.
         _reported_moved = abs(
             _new_cooling_setpoint.raw - _old_cooling_setpoint
         ) >= setpoint_echo_window(_step)
@@ -112,7 +115,31 @@ async def trigger_cooler_change(self, event):
                     self.device_name,
                     entity_id,
                 )
-            self.bt_target_cooltemp = _new_cooling_setpoint.value
+            _adopted_cooling_setpoint = self._clamp_inbound_cool_target(
+                _new_cooling_setpoint.value
+            )
+            if _adopted_cooling_setpoint != _new_cooling_setpoint.value:
+                # A user holding the remote's down button reports every
+                # intermediate setpoint, so this is annunciated at info level:
+                # the target is being honoured as far as the heating channel
+                # allows, which is not the anomaly a warning stands for.
+                _LOGGER.info(
+                    "better_thermostat %s: Cooler %s reported setpoint %.2f does not "
+                    "clear the heating target %.2f, keeping %.2f",
+                    self.device_name,
+                    entity_id,
+                    _new_cooling_setpoint.value,
+                    self.bt_target_temp,
+                    _adopted_cooling_setpoint,
+                )
+            self.bt_target_cooltemp = _adopted_cooling_setpoint
+            # Residual tie-break only: the clamp already cleared the heating
+            # target unless it ran into bt_max_temp, so this moves the heating
+            # target by at most one step as long as that target lies inside the
+            # configured range, and only when no legal cooling setpoint above it
+            # exists. A range the children narrowed below a target already in
+            # place is the exception, and there this is also what pulls the
+            # target back inside.
             self._enforce_heat_below_cool()
             _main_change = True
 
