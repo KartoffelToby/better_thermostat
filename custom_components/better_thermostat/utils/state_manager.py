@@ -35,7 +35,7 @@ from collections.abc import Mapping
 from dataclasses import asdict, dataclass, field
 import logging
 import math
-from typing import Any
+from typing import Any, get_args, get_type_hints
 
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.storage import Store
@@ -161,18 +161,21 @@ class RuntimeState:
 
 # Serialization helpers
 
-# Fields that should be coerced to int during deserialization.
-_INT_FIELDS = frozenset(
+# Integer fields that tally occurrences, so a stored value is only usable
+# when it is a non-negative integer the store can write back.
+_COUNT_FIELDS = frozenset(
     {
         "dead_zone_hits",
         "loss_learn_count",
         "gain_learn_count",
         "profile_samples",
         "consecutive_insufficient_heat",
-        "last_delta_sign",
-        "last_error_sign",
     }
 )
+
+# Integer fields that record which way a quantity last moved, so a negative
+# value is meaningful and only the storable range applies.
+_SIGN_FIELDS = frozenset({"last_delta_sign", "last_error_sign"})
 
 # Fields that should be coerced to bool during deserialization.
 _BOOL_FIELDS = frozenset(
@@ -186,6 +189,25 @@ _BOOL_FIELDS = frozenset(
 
 # Fields that should be coerced to str during deserialization.
 _STR_FIELDS = frozenset({"trv_profile"})
+
+
+def _nullable_fields(cls: Any) -> frozenset[str]:
+    """Return the names of *cls*'s fields whose declared type admits ``None``.
+
+    Read off the declarations rather than listed by hand, so the set
+    still matches once a field's type changes.
+    """
+    hints = get_type_hints(cls)
+    return frozenset(
+        name for name in cls.__dataclass_fields__ if type(None) in get_args(hints[name])
+    )
+
+
+_MPC_NULLABLE_FIELDS = _nullable_fields(MpcState)
+_MPC_V2_NULLABLE_FIELDS = _nullable_fields(MpcV2StateData)
+_MPC_V2_REID_NULLABLE_FIELDS = _nullable_fields(MpcV2ReidData)
+_PID_NULLABLE_FIELDS = _nullable_fields(PIDState)
+_TPI_NULLABLE_FIELDS = _nullable_fields(TpiState)
 
 
 def _make_json_safe(obj: Any) -> Any:
@@ -218,19 +240,80 @@ class _PoisonedState(ValueError):
     """A stored entry carries a mathematical anomaly (NaN/inf)."""
 
 
+# Home Assistant's JSON encoder writes an integer only inside the 64-bit
+# range orjson supports and raises TypeError on anything wider. The Store's
+# write path turns that TypeError into a SerializationError, which the Store
+# catches and only logs, so a single unstorable integer anywhere in the
+# state leaves the config entry's file unwritten without failing the save.
+_MIN_STORED_INT = -(2**63)
+_MAX_STORED_INT = 2**64 - 1
+
+
+def _stored_int(value: Any) -> int:
+    """Return *value* as an integer the store can write back.
+
+    A JSON number wider than 64 bits is parsed as a float, and ``int()``
+    turns it into an arbitrary-precision integer that the encoder refuses.
+    Those raise ``ValueError`` here, so a caller handles them like any
+    other field ``int()`` cannot make sense of.
+    """
+    number = int(value)
+    if not _MIN_STORED_INT <= number <= _MAX_STORED_INT:
+        raise ValueError("integer outside the storable range")
+    return number
+
+
+def _stored_count(value: Any) -> int:
+    """Return *value* as a storable, non-negative tally.
+
+    A tally cannot be negative, so a negative value is as unusable as one
+    the store could not write back or one that is not an integer at all;
+    all three restore as 0.
+    """
+    try:
+        count = _stored_int(value)
+    except TypeError, ValueError, OverflowError:
+        return 0
+    return max(count, 0)
+
+
+def _null_or_poison(attr: str, kind: str, nullable: frozenset[str]) -> None:
+    """Let a stored null through, unless the declared type forbids one.
+
+    A null where a number is declared is how a non-finite value gets back
+    out of a file this module wrote: the store's encoder writes NaN and
+    infinity as ``null``. Where anything else is declared it is simply a
+    value that cannot be held. Neither leaves anything usable, so the
+    entry gets the disposal :func:`_finite_or_poison` gives corrupt math.
+
+    *nullable* names the fields whose declared type admits a ``None``. An
+    empty set means the caller is parsing a place no ``None`` may reach at
+    all, such as an element of a collection declared to hold numbers.
+    """
+    if attr in nullable:
+        return
+    _LOGGER.warning(
+        "better_thermostat: %s in stored %s state is null, which its declared "
+        "type cannot hold; discarding that entry's stored values",
+        attr,
+        kind,
+    )
+    raise _PoisonedState(attr)
+
+
 def _finite_or_poison(value: Any, attr: str, kind: str) -> float:
-    """Parse one float field; a non-finite number poisons the entry.
+    """Parse one stored float; a non-finite number poisons the entry.
 
     Wrong types merely skip the field (schema evolution), but NaN or
-    infinity means the entry's math is corrupt — the rest of it cannot
-    be trusted either, so the whole entry resets to defaults and the
-    learning restarts.
+    infinity means the entry's math is corrupt — the rest of it cannot be
+    trusted either, so the caller keeps none of the entry's stored values
+    and the learning they carried starts over.
     """
     number = float(value)
     if not math.isfinite(number):
         _LOGGER.warning(
             "better_thermostat: non-finite %s in stored %s state; "
-            "resetting that entry to defaults",
+            "discarding that entry's stored values",
             attr,
             kind,
         )
@@ -238,30 +321,88 @@ def _finite_or_poison(value: Any, attr: str, kind: str) -> float:
     return number
 
 
+def _finite_element(value: Any, attr: str, kind: str) -> float:
+    """Parse one number stored inside a collection field.
+
+    ``recent_errors`` and the bins of ``perf_curve`` are declared to hold
+    plain numbers, and the field guards rule only on the collection
+    itself. A null among its numbers is the same saved NaN a null in a
+    numeric field is — the store's encoder writes both that way — and
+    costs the entry its stored values just as one does.
+    """
+    if value is None:
+        _null_or_poison(attr, kind, frozenset())
+    return _finite_or_poison(value, attr, kind)
+
+
+def _finite_perf_curve(
+    value: Mapping[Any, Any], kind: str
+) -> dict[str, dict[str, float]]:
+    """Copy a stored performance curve, parsing every statistic in it.
+
+    What the offending value is decides what it costs. A bin that is not a
+    mapping of statistics, or a statistic ``float()`` refuses outright such
+    as ``"later"``, raises one of the errors the caller skips a field on:
+    the curve is lost and the rest of the entry survives. A statistic that
+    is null or parses as a non-finite number raises :class:`_PoisonedState`
+    instead — the bins are declared to hold plain numbers, so either one is
+    corrupt math, and the entry keeps none of its stored values.
+    """
+    curve: dict[str, dict[str, float]] = {}
+    for label, stats in value.items():
+        if not isinstance(stats, Mapping):
+            raise TypeError("perf_curve bin is not a mapping of statistics")
+        curve[label] = {
+            name: _finite_element(stat, "perf_curve statistic", kind)
+            for name, stat in stats.items()
+        }
+    return curve
+
+
 def deserialize_mpc(raw: dict[str, Any]) -> MpcState:
     """Deserialize a single MPC state dict into an MpcState dataclass.
 
-    A non-finite numeric field rejects the whole entry: learning
-    restarts from defaults rather than continuing on corrupt math.
+    A non-finite number in a float field rejects the whole entry: learning
+    restarts from defaults rather than continuing on corrupt math. That
+    covers the numbers inside ``perf_curve`` and ``recent_errors`` as well
+    as the float fields themselves. This state's integer fields are all
+    tallies and are read as counts instead, so a value ``int()`` cannot
+    make sense of — ``"NaN"`` and ``"Infinity"`` among them, the spellings
+    a stored file delivers a non-finite number in — restores as 0 and
+    leaves the rest of the entry standing.
+
+    A stored ``null`` rejects the entry wherever the declared type has no
+    ``None``, the tallies included, because that is the shape a saved NaN
+    comes back in.
     """
     state = MpcState()
     for attr in MpcState.__dataclass_fields__:
         if attr not in raw:
             continue
         value = raw[attr]
-        if value is None:
-            setattr(state, attr, None)
-            continue
-        if attr == "perf_curve" and isinstance(value, Mapping):
-            setattr(state, attr, dict(value))
-            continue
-        if attr == "recent_errors" and isinstance(value, (list, tuple)):
-            # MpcState.recent_errors is a deque(maxlen=20).
-            setattr(state, attr, deque(value, maxlen=20))
-            continue
         try:
-            if attr in _INT_FIELDS:
-                setattr(state, attr, int(value))
+            if value is None:
+                _null_or_poison(attr, "mpc", _MPC_NULLABLE_FIELDS)
+                setattr(state, attr, None)
+            elif attr == "perf_curve" and isinstance(value, Mapping):
+                setattr(state, attr, _finite_perf_curve(value, "mpc"))
+            elif attr == "recent_errors" and isinstance(value, (list, tuple)):
+                # MpcState.recent_errors is a deque(maxlen=20).
+                setattr(
+                    state,
+                    attr,
+                    deque(
+                        (
+                            _finite_element(item, "recent_errors element", "mpc")
+                            for item in value
+                        ),
+                        maxlen=20,
+                    ),
+                )
+            elif attr in _COUNT_FIELDS:
+                setattr(state, attr, _stored_count(value))
+            elif attr in _SIGN_FIELDS:
+                setattr(state, attr, _stored_int(value))
             elif attr in _BOOL_FIELDS:
                 setattr(state, attr, bool(value))
             elif attr in _STR_FIELDS:
@@ -275,15 +416,39 @@ def deserialize_mpc(raw: dict[str, Any]) -> MpcState:
     return state
 
 
-def deserialize_mpc_v2(raw: dict[str, Any]) -> MpcV2StateData:
-    """Deserialize a single MPC v2 state dict into MpcV2StateData."""
+def deserialize_mpc_v2(raw: dict[str, Any]) -> MpcV2StateData | None:
+    """Deserialize a single MPC v2 state dict; ``None`` if the entry is corrupt.
+
+    A non-finite float in ``last_percent``, ``last_compute_ts`` or
+    ``created_ts`` rejects the whole entry, ``snapshot`` included: the
+    observer state in it was exported by the same controller whose command
+    or timestamp went corrupt. Returning ``None`` keeps the key out of the
+    restored state, which is what makes the restart a cold one: an entry
+    left in place with an empty ``snapshot`` would still rehydrate into a
+    controller and count as initialised, so its Kalman estimate would stay
+    at the construction default rather than being seeded from the first
+    measurement.
+
+    Those three are the only fields parsed; ``outdoor_fallback_logged`` and
+    ``snapshot`` are read past that loop and reach no guard. A ``snapshot``
+    that is null or not a mapping therefore keeps the entry and leaves the
+    empty default in its place — the very shape described above. Only a
+    store this integration did not write can hold one: what it saves is
+    always a mapping.
+    """
     state = MpcV2StateData()
     for attr in ("last_percent", "last_compute_ts", "created_ts"):
-        value = raw.get(attr)
-        if value is None:
+        if attr not in raw:
             continue
+        value = raw[attr]
         try:
-            setattr(state, attr, float(value))
+            if value is None:
+                _null_or_poison(attr, "mpc_v2", _MPC_V2_NULLABLE_FIELDS)
+                setattr(state, attr, None)
+            else:
+                setattr(state, attr, _finite_or_poison(value, attr, "mpc_v2"))
+        except _PoisonedState:
+            return None
         except TypeError, ValueError, OverflowError:
             continue
     state.outdoor_fallback_logged = bool(raw.get("outdoor_fallback_logged", False))
@@ -294,26 +459,42 @@ def deserialize_mpc_v2(raw: dict[str, Any]) -> MpcV2StateData:
 
 
 def deserialize_mpc_v2_reid(raw: dict[str, Any]) -> MpcV2ReidData | None:
-    """Deserialize a persisted re-identification result; None if malformed."""
+    """Deserialize a persisted re-identification result; None if malformed.
+
+    Returning ``None`` leaves the entry out of the restored state, so the
+    plant-prior lookup moves on: to another stored result sharing this
+    entity's key prefix, and failing that to the heat-loss-derived prior.
+
+    Three checks reject an entry. A NaN or infinity in one of the five
+    float fields; a stored ``null`` in any of the six, since none of them
+    is declared to hold one; and a ``tau_room_min`` or ``gain_heater``
+    that is not positive, since those two are the pair that seeds the
+    prior. None of the three bounds magnitude, so a positive but
+    implausibly small ``tau_room_min`` passes and reaches the plant model,
+    whose room dynamics divide by it.
+
+    A float field that does not parse keeps its default, which leaves the
+    entry usable as the schema grows. ``n_segments`` is metadata: a value
+    that is not a storable count falls back to 0 and the entry survives —
+    except a null, which is refused there as in every other field.
+    """
     state = MpcV2ReidData()
-    for attr in (
-        "tau_room_min",
-        "gain_heater",
-        "fitted_ts",
-        "rmse_prior_K",
-        "rmse_fit_K",
-    ):
-        value = raw.get(attr)
-        if value is None:
+    for attr in MpcV2ReidData.__dataclass_fields__:
+        if attr not in raw:
             continue
+        value = raw[attr]
         try:
-            setattr(state, attr, float(value))
+            if value is None:
+                _null_or_poison(attr, "mpc_v2_reid", _MPC_V2_REID_NULLABLE_FIELDS)
+                setattr(state, attr, None)
+            elif attr == "n_segments":
+                setattr(state, attr, _stored_count(value))
+            else:
+                setattr(state, attr, _finite_or_poison(value, attr, "mpc_v2_reid"))
+        except _PoisonedState:
+            return None
         except TypeError, ValueError, OverflowError:
             continue
-    try:
-        state.n_segments = int(raw.get("n_segments", 0))
-    except TypeError, ValueError:
-        state.n_segments = 0
     # A result without both fitted components cannot seed a plant prior.
     if state.tau_room_min <= 0.0 or state.gain_heater <= 0.0:
         return None
@@ -323,20 +504,31 @@ def deserialize_mpc_v2_reid(raw: dict[str, Any]) -> MpcV2ReidData | None:
 def deserialize_pid(raw: dict[str, Any]) -> PIDState:
     """Deserialize a single PID state dict into a PIDState dataclass.
 
-    A non-finite numeric field rejects the whole entry: learning
-    restarts from defaults rather than continuing on corrupt math.
+    A non-finite number in a float field rejects the whole entry: learning
+    restarts from defaults rather than continuing on corrupt math. This
+    state's two integer fields record a direction and are read as integers
+    instead, so a value ``int()`` cannot make sense of — ``"NaN"`` and
+    ``"Infinity"`` among them, the spellings a stored file delivers a
+    non-finite number in — keeps its default and leaves the rest of the
+    entry standing.
+
+    A stored ``null`` rejects the entry wherever the field's type has no
+    ``None``, because that is the shape a saved NaN comes back in; both
+    direction fields are declared ``int | None`` and keep theirs.
     """
     state = PIDState()
     for attr in PIDState.__dataclass_fields__:
         if attr not in raw:
             continue
         value = raw[attr]
-        if value is None:
-            setattr(state, attr, None)
-            continue
         try:
-            if attr in _INT_FIELDS:
-                setattr(state, attr, int(value))
+            if value is None:
+                _null_or_poison(attr, "pid", _PID_NULLABLE_FIELDS)
+                setattr(state, attr, None)
+            elif attr in _COUNT_FIELDS:
+                setattr(state, attr, _stored_count(value))
+            elif attr in _SIGN_FIELDS:
+                setattr(state, attr, _stored_int(value))
             elif attr in _BOOL_FIELDS:
                 setattr(state, attr, bool(value))
             else:
@@ -352,18 +544,21 @@ def deserialize_tpi(raw: dict[str, Any]) -> TpiState:
     """Deserialize a single TPI state dict into a TpiState dataclass.
 
     A non-finite numeric field rejects the whole entry: learning
-    restarts from defaults rather than continuing on corrupt math.
+    restarts from defaults rather than continuing on corrupt math. A
+    stored ``null`` counts as one wherever the field's type has no
+    ``None``, because that is the shape a saved NaN comes back in.
     """
     state = TpiState()
     for attr in TpiState.__dataclass_fields__:
         if attr not in raw:
             continue
         value = raw[attr]
-        if value is None:
-            setattr(state, attr, None)
-            continue
         try:
-            setattr(state, attr, _finite_or_poison(value, attr, "tpi"))
+            if value is None:
+                _null_or_poison(attr, "tpi", _TPI_NULLABLE_FIELDS)
+                setattr(state, attr, None)
+            else:
+                setattr(state, attr, _finite_or_poison(value, attr, "tpi"))
         except _PoisonedState:
             return TpiState()
         except TypeError, ValueError, OverflowError:
@@ -385,7 +580,9 @@ def _deserialize(raw: dict[str, Any]) -> RuntimeState:
     if isinstance(mpc_v2_raw, Mapping):
         for key, state_dict in mpc_v2_raw.items():
             if isinstance(state_dict, dict):
-                state.mpc_v2[key] = deserialize_mpc_v2(state_dict)
+                mpc_v2 = deserialize_mpc_v2(state_dict)
+                if mpc_v2 is not None:
+                    state.mpc_v2[key] = mpc_v2
 
     mpc_v2_reid_raw = raw.get("mpc_v2_reid", {})
     if isinstance(mpc_v2_reid_raw, Mapping):
@@ -567,12 +764,20 @@ class StateManager:
         """Fold live MPC v2 controllers into the persistable snapshot.
 
         Runs at save time only; the per-cycle path keeps the live controller in
-        memory and never serialises it.
+        memory and never serialises it. An export the deserialiser rejects
+        leaves the key's stored entry as it was, so a corrupt ``last_percent``,
+        ``last_compute_ts`` or ``created_ts`` does not overwrite the entry
+        already stored. That is all the rejection buys: ``snapshot`` is
+        copied verbatim, so a non-finite number in the observer state does
+        reach the file, where the encoder writes it as ``null``.
         """
         for key, live in self._mpc_v2_live.items():
             exported = export_mpc_v2_state(live)
-            if exported is not None:
-                self._state.mpc_v2[key] = deserialize_mpc_v2(exported)
+            if exported is None:
+                continue
+            persistable = deserialize_mpc_v2(exported)
+            if persistable is not None:
+                self._state.mpc_v2[key] = persistable
 
     def get_mpc_v2_reid(self, key: str) -> MpcV2ReidData | None:
         """Return the persisted re-identification result for a key, if any."""
@@ -606,15 +811,18 @@ class StateManager:
         for live_key in list(self._mpc_v2_live):
             live = self._mpc_v2_live.pop(live_key)
             exported = export_mpc_v2_state(live)
-            if exported is not None:
-                self._state.mpc_v2[live_key] = deserialize_mpc_v2(exported)
+            persistable = deserialize_mpc_v2(exported) if exported is not None else None
+            if persistable is not None:
+                self._state.mpc_v2[live_key] = persistable
             else:
-                # No exportable observer state to carry over; the rebuild with
-                # the new prior falls back to the last snapshot (or a cold
-                # start). Rare, but log it so a lost transfer is diagnosable.
+                # No observer state to carry over: the controller had none to
+                # export, or what it exported was rejected. The rebuild with
+                # the new prior falls back to the last stored snapshot (or a
+                # cold start). Rare, but log it so a lost transfer is
+                # diagnosable.
                 _LOGGER.debug(
                     "MPC v2 re-identification adopt for %s: live controller had "
-                    "no exportable state; rebuild will not be bumpless",
+                    "no usable state to carry over; rebuild will not be bumpless",
                     live_key,
                 )
         self._state.mpc_v2_reid[key] = data
