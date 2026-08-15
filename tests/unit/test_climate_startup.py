@@ -6,6 +6,7 @@ _initialize_sensors, _restore_state, _validate_hvac_mode.
 
 import asyncio
 import json
+import logging
 from unittest.mock import AsyncMock, MagicMock, patch
 
 from homeassistant.components.climate.const import HVACMode
@@ -29,9 +30,11 @@ from custom_components.better_thermostat.utils.const import (
     ATTR_STATE_HEAT_LOSS,
     ATTR_STATE_HEATING_POWER,
     ATTR_STATE_PRESET_COOL_TEMPERATURES,
+    DEFAULT_TARGET_TEMP,
     MAX_HEAT_LOSS,
     MAX_HEATING_POWER,
 )
+from custom_components.better_thermostat.utils.helpers import resolve_inbound_setpoint
 
 SENSOR_ID = "sensor.room_temp"
 TRV_ID = "climate.test_trv"
@@ -56,6 +59,9 @@ def bt():
     mock._degraded_grace_until = None
     mock.state_mgr = None
     mock.hass = MagicMock()
+    # climate entities publish no unit attribute, so every temperature read off
+    # a child state resolves through the system unit.
+    mock.hass.config.units.temperature_unit = UnitOfTemperature.CELSIUS
     mock.device_name = "Test BT"
     mock.sensor_entity_id = SENSOR_ID
     mock.real_trvs = {TRV_ID: {"calibration": 1}}
@@ -99,6 +105,18 @@ def bt():
     mock.preset_modes = ["none", "comfort", "eco"]
     mock.version = "1.0.0"
     mock.startup_running = True
+    # The seed is the one collaborator whose effect on the instance the cooler
+    # assertions read back, so it runs for real while staying observable, and so
+    # do the two rules it delegates to.
+    mock._seed_cool_target_from_cooler.side_effect = lambda log_source: (
+        BetterThermostat._seed_cool_target_from_cooler(mock, log_source)
+    )
+    mock._seed_cool_target.side_effect = lambda setpoint, entity_id: (
+        BetterThermostat._seed_cool_target(mock, setpoint, entity_id)
+    )
+    mock._enforce_cool_above_heat.side_effect = lambda **kwargs: (
+        BetterThermostat._enforce_cool_above_heat(mock, **kwargs)
+    )
     return mock
 
 
@@ -499,22 +517,54 @@ class TestInitializeSensors:
             BetterThermostat._initialize_sensors(bt, sensor)
         assert bt.last_known_external_temp is not None
 
-    def test_single_setpoint_cooler_seeds_cool_target(self, bt):
+
+# ---------------------------------------------------------------------------
+# 5. Cooling target seeded from the cooler
+# ---------------------------------------------------------------------------
+
+
+async def _run_startup(bt, restored_target, restored_cool_target=None):
+    """Run startup() with a restore step that installs the restored targets."""
+    bt.is_removed = False
+    bt._check_entities_ready.return_value = True
+
+    async def _restore(_states):
+        bt.bt_target_temp = restored_target
+        if restored_cool_target is not None:
+            bt.bt_target_cooltemp = restored_cool_target
+
+    bt._restore_state.side_effect = _restore
+    with patch(f"{_CLIMATE}.check_and_update_degraded_mode", AsyncMock()):
+        await asyncio.wait_for(BetterThermostat.startup(bt), timeout=1)
+
+
+class TestStartupCoolTargetSeed:
+    """startup() takes a cooling target off the cooler once the restore is done.
+
+    The cooler's own setpoint is the only value that can fill a cooling target
+    nothing else supplies, and it is read where both the temperature range and
+    the heating target are final: the range is what the value is clamped into,
+    the heating target what it is ordered against.
+    """
+
+    @pytest.mark.asyncio
+    async def test_single_setpoint_cooler_seeds_the_cool_target(self, bt):
         """A cooler driven through a single setpoint is read from temperature."""
         bt.cooler_entity_id = COOLER_ID
-        bt.hass.config.units.temperature_unit = UnitOfTemperature.CELSIUS
         _install_states(bt, {COOLER_ID: _make_cooler_state({ATTR_TEMPERATURE: 24.0})})
-        BetterThermostat._initialize_sensors(bt, _make_sensor_state("21.5"))
+
+        await _run_startup(bt, restored_target=21.0)
+
         assert bt.bt_target_cooltemp == 24.0
 
-    def test_range_only_cooler_seeds_cool_target_from_range_high(self, bt):
+    @pytest.mark.asyncio
+    async def test_range_only_cooler_seeds_from_target_temp_high(self, bt):
         """A range-only cooler publishes an empty temperature and a range.
 
         Its setpoint sits in target_temp_high, so reading only temperature
         would leave the cool target unset for the whole session.
         """
         bt.cooler_entity_id = COOLER_ID
-        bt.hass.config.units.temperature_unit = UnitOfTemperature.CELSIUS
         _install_states(
             bt,
             {
@@ -527,12 +577,175 @@ class TestInitializeSensors:
                 )
             },
         )
-        BetterThermostat._initialize_sensors(bt, _make_sensor_state("21.5"))
+
+        await _run_startup(bt, restored_target=21.0)
+
         assert bt.bt_target_cooltemp == 25.5
+
+    @pytest.mark.asyncio
+    async def test_unavailable_cooler_leaves_the_cool_target_unknown(self, bt):
+        """An unavailable cooler contributes no setpoint to this read.
+
+        The device may not have reported in yet, or it may have dropped off
+        again; either way there is nothing to take, and the cool target stays
+        unknown for the re-read at the end of startup to pick up.
+        """
+        bt.cooler_entity_id = COOLER_ID
+        _install_states(
+            bt,
+            {
+                COOLER_ID: _make_cooler_state(
+                    {ATTR_TEMPERATURE: 24.0}, state=STATE_UNAVAILABLE
+                )
+            },
+        )
+
+        await _run_startup(bt, restored_target=21.0)
+
+        assert bt.bt_target_cooltemp is None
+
+    @pytest.mark.asyncio
+    async def test_setpoint_inside_the_configured_range_is_taken_unchanged(
+        self, bt, caplog
+    ):
+        """A setpoint clearing both bounds and the heating target is adopted as is.
+
+        Nothing about such a value has to be corrected, so it reaches the
+        cooling channel exactly as the device reports it and no correction is
+        annunciated.
+        """
+        bt.cooler_entity_id = COOLER_ID
+        bt.bt_target_temp_step = 0.5
+        _install_states(bt, {COOLER_ID: _make_cooler_state({ATTR_TEMPERATURE: 24.0})})
+
+        caplog.set_level(logging.WARNING)
+        await _run_startup(bt, restored_target=21.0)
+
+        assert bt.bt_target_cooltemp == 24.0
+        assert bt.bt_target_temp == 21.0
+        assert caplog.text == ""
+
+    @pytest.mark.asyncio
+    async def test_setpoint_outside_the_configured_range_is_clamped(self, bt, caplog):
+        """A cooler reporting below the configured minimum is brought into range.
+
+        Better Thermostat advertises the overlap of the ranges its devices
+        advertise, and a cooler that was unreachable while that overlap was
+        derived contributed no bounds to it. The heating target is well clear of
+        the value, so the clamp is the only correction, and it is annunciated
+        because the clamped value is written back to the device.
+        """
+        bt.cooler_entity_id = COOLER_ID
+        bt.bt_min_temp = 18.0
+        bt.bt_target_temp_step = 0.5
+        _install_states(bt, {COOLER_ID: _make_cooler_state({ATTR_TEMPERATURE: 16.0})})
+
+        caplog.set_level(logging.WARNING)
+        await _run_startup(bt, restored_target=15.0)
+
+        assert bt.bt_target_cooltemp == 18.0
+        assert (
+            "reported setpoint 16.0 outside of range while the cool target is "
+            "unknown, taking 18.0 as the cool target" in caplog.text
+        )
+
+    @pytest.mark.asyncio
+    async def test_setpoint_is_ordered_against_the_restored_heating_target(self, bt):
+        """The heating target the restore installs is the one that bounds the seed.
+
+        Reading the cooler before the restore would order the value against the
+        construction default instead, and the pair Better Thermostat ends up
+        holding would have the cooling target below the heating one.
+        """
+        bt.cooler_entity_id = COOLER_ID
+        bt.bt_target_temp = DEFAULT_TARGET_TEMP
+        bt.bt_target_temp_step = 0.5
+        _install_states(bt, {COOLER_ID: _make_cooler_state({ATTR_TEMPERATURE: 20.0})})
+
+        await _run_startup(bt, restored_target=21.0)
+
+        assert bt.bt_target_cooltemp == 21.5
+        assert bt.bt_target_temp == 21.0
+
+    @pytest.mark.asyncio
+    async def test_restored_preset_cool_target_is_not_overwritten(self, bt):
+        """A preset carries a cooling target the user chose, so it is kept.
+
+        The device is only asked for a target nothing else supplies, and a
+        restored preset supplies one.
+        """
+        bt.cooler_entity_id = COOLER_ID
+        bt.bt_target_temp_step = 0.5
+        _install_states(bt, {COOLER_ID: _make_cooler_state({ATTR_TEMPERATURE: 24.0})})
+
+        await _run_startup(bt, restored_target=21.0, restored_cool_target=26.0)
+
+        assert bt.bt_target_cooltemp == 26.0
+
+    @pytest.mark.asyncio
+    async def test_no_cooler_configured_leaves_the_cool_target_unknown(self, bt):
+        """Without a cooling channel there is no device to take a target from.
+
+        Every state lookup answers with a readable setpoint here, so the absent
+        cooling channel is the only thing that can leave the target unknown: a
+        read that went ahead without one would find a value and store it.
+        """
+        bt.cooler_entity_id = None
+        bt.hass.states.get.return_value = _make_cooler_state({ATTR_TEMPERATURE: 24.0})
+
+        await _run_startup(bt, restored_target=21.0)
+
+        assert bt.bt_target_cooltemp is None
+        bt._seed_cool_target.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_unreadable_step_is_logged_against_this_read(self, bt, caplog):
+        """The read names itself when the cooler's step cannot be converted.
+
+        The second startup read, at the cooler's listener registration, resolves
+        the step through the same helper. Naming this one after the method it
+        runs in is what keeps an entry the two could both have produced
+        attributable to one of them.
+        """
+        bt.cooler_entity_id = COOLER_ID
+        bt.bt_target_temp_step = 0.5
+        _install_states(
+            bt,
+            {
+                COOLER_ID: _make_cooler_state(
+                    {ATTR_TEMPERATURE: 24.0, "target_temp_step": "unavailable"}
+                )
+            },
+        )
+
+        caplog.set_level(logging.DEBUG)
+        await _run_startup(bt, restored_target=21.0)
+
+        assert "Could not convert 'unavailable' to float in startup()" in caplog.text
+        assert bt.bt_target_cooltemp == 24.0
+
+    @pytest.mark.asyncio
+    async def test_unreadable_setpoint_is_logged_against_this_read(self, bt, caplog):
+        """The read names itself when the cooler's setpoint cannot be converted.
+
+        The step and the setpoint are resolved through two separate helpers,
+        and this read hands its own name to both of them, so whichever of the
+        two attributes a cooler publishes unreadably is reported against the
+        read that asked for it.
+        """
+        bt.cooler_entity_id = COOLER_ID
+        bt.bt_target_temp_step = 0.5
+        _install_states(bt, {COOLER_ID: _make_cooler_state({ATTR_TEMPERATURE: "n/a"})})
+
+        caplog.set_level(logging.DEBUG)
+        await _run_startup(bt, restored_target=21.0)
+
+        assert "Could not convert 'n/a' to float in startup()" in caplog.text
+        assert bt.bt_target_cooltemp is None
 
 
 # ---------------------------------------------------------------------------
-# 5. _restore_state
+# 6. TRV attribute initialization (_initialize_trvs)
 # ---------------------------------------------------------------------------
 
 
@@ -584,6 +797,11 @@ class TestInitializeTrvCurrentTemperature:
         bt = self._trv_only_bt(bt, {"current_temperature": marker_temp})
         await self._run(bt)
         assert bt.real_trvs[TRV_ID].current_temperature is None
+
+
+# ---------------------------------------------------------------------------
+# 7. _restore_state
+# ---------------------------------------------------------------------------
 
 
 class TestRestoreState:
@@ -804,12 +1022,7 @@ class TestRestoreState:
 
 
 # ---------------------------------------------------------------------------
-# 6. TRV attribute initialization (_initialize_trvs)
-# ---------------------------------------------------------------------------
-
-
-# ---------------------------------------------------------------------------
-# 7. Initial TRV sync (_finalize_startup / _startup_control_trvs)
+# 8. Initial TRV sync (_finalize_startup / _startup_control_trvs)
 # ---------------------------------------------------------------------------
 
 
@@ -882,8 +1095,299 @@ class TestStartupControlSync:
         assert ctl.call_count == 2
 
 
+async def _run_finalize_startup(bt):
+    """Run _finalize_startup with its external hooks patched out."""
+    bt.is_removed = False
+    bt.all_trvs = None
+    bt.entity_ids = [TRV_ID]
+    bt.outdoor_sensor = None
+    bt._async_unsub_state_changed = None
+    # Background jobs are handed to a mocked task factory that never awaits
+    # them, so they hand out plain values instead of orphaned coroutines.
+    bt._post_grace_recheck = MagicMock()
+    bt._external_temperature_keepalive = MagicMock()
+    bt.control_queue_task = asyncio.Queue(maxsize=1)
+    with (
+        patch(f"{_CLIMATE}.await_critical_entities", AsyncMock()),
+        patch(f"{_CLIMATE}.check_critical_entities", AsyncMock()),
+        patch(f"{_CLIMATE}.await_optional_sensors", AsyncMock()),
+        patch(f"{_CLIMATE}.check_and_update_degraded_mode", AsyncMock()),
+        patch(f"{_CLIMATE}.async_track_state_change_event", MagicMock()),
+        patch(f"{_CLIMATE}.async_track_time_interval", MagicMock()),
+        patch(f"{_CLIMATE}.asyncio.sleep", AsyncMock()),
+    ):
+        await BetterThermostat._finalize_startup(bt)
+
+
+class TestCoolerTargetReadAtListenerRegistration:
+    """The cool target is re-read once the cooler subscription is live.
+
+    A cooler that joins Home Assistant after the startup seed and then never
+    changes state again produces no event, so the registration of its listener
+    is the last point at which its setpoint can still be read.
+    An unknown cool target holds the cooler off on every control cycle.
+    """
+
+    @pytest.mark.asyncio
+    async def test_cooler_online_by_now_seeds_the_cool_target(self, bt):
+        """The state the startup seed could not see is read here."""
+        bt.cooler_entity_id = COOLER_ID
+        bt.bt_hvac_mode = HVACMode.HEAT_COOL
+        _install_states(bt, {COOLER_ID: _make_cooler_state({ATTR_TEMPERATURE: 24.0})})
+
+        await _run_finalize_startup(bt)
+
+        assert bt.bt_target_cooltemp == 24.0
+        bt._seed_cool_target.assert_called_once()
+        assert bt.control_queue_task.qsize() == 1
+
+    @pytest.mark.asyncio
+    async def test_seed_while_off_requests_no_control_cycle(self, bt):
+        """An off thermostat still needs the field, but no cycle to use it.
+
+        A cycle would command the cooler off whatever the target says, and
+        switching the thermostat back on requests a cycle of its own.
+        """
+        bt.cooler_entity_id = COOLER_ID
+        bt.bt_hvac_mode = HVACMode.OFF
+        _install_states(bt, {COOLER_ID: _make_cooler_state({ATTR_TEMPERATURE: 24.0})})
+
+        await _run_finalize_startup(bt)
+
+        assert bt.bt_target_cooltemp == 24.0
+        assert bt.control_queue_task.empty()
+
+    @pytest.mark.asyncio
+    async def test_setpoint_outside_the_range_is_clamped_and_reported(self, bt, caplog):
+        """A cooler absent from the range derivation can report outside it.
+
+        The temperature range comes from the devices that were reachable, and an
+        offline cooler contributed no bounds of its own, so the setpoint it
+        reports once it joins can sit above the advertised maximum. Storing it
+        unclamped would put the published target outside the range and write a
+        value the cooler may reject.
+        """
+        bt.cooler_entity_id = COOLER_ID
+        bt.bt_max_temp = 30.0
+        _install_states(bt, {COOLER_ID: _make_cooler_state({ATTR_TEMPERATURE: 31.0})})
+
+        caplog.set_level(logging.WARNING)
+        await _run_finalize_startup(bt)
+
+        assert bt.bt_target_cooltemp == 30.0
+        assert "reported setpoint 31.0 outside of range" in caplog.text
+
+    @pytest.mark.asyncio
+    async def test_setpoint_colliding_with_the_heat_target_is_lifted(self, bt):
+        """The observed value yields, the restored heating target stays.
+
+        A setpoint read off the device carries no user intent, so a collision
+        between the two targets of the published range is resolved on the
+        cooling side.
+        """
+        bt.cooler_entity_id = COOLER_ID
+        bt.bt_target_temp = 21.0
+        _install_states(bt, {COOLER_ID: _make_cooler_state({ATTR_TEMPERATURE: 19.0})})
+
+        await _run_finalize_startup(bt)
+
+        assert bt.bt_target_cooltemp == 21.5
+        assert bt.bt_target_temp == 21.0
+
+    @pytest.mark.asyncio
+    async def test_cooler_reporting_off_seeds_the_cool_target(self, bt):
+        """An air conditioner at rest reports off and still carries a setpoint.
+
+        Off is where an idle cooler sits and the only state a cooler that never
+        switches on will ever publish, so it is the state this read exists for.
+        The read asks whether a setpoint can be obtained, not whether the device
+        is currently cooling.
+        """
+        bt.cooler_entity_id = COOLER_ID
+        bt.bt_hvac_mode = HVACMode.HEAT_COOL
+        _install_states(
+            bt,
+            {
+                COOLER_ID: _make_cooler_state(
+                    {ATTR_TEMPERATURE: 24.0}, state=HVACMode.OFF
+                )
+            },
+        )
+
+        await _run_finalize_startup(bt)
+
+        assert bt.bt_target_cooltemp == 24.0
+        bt._seed_cool_target.assert_called_once()
+        assert bt.control_queue_task.qsize() == 1
+
+    @pytest.mark.asyncio
+    async def test_unavailable_cooler_leaves_the_cool_target_unknown(self, bt):
+        """Attributes an unavailable cooler carries are not a reading.
+
+        The state tells whether the device can be reached, and attributes can
+        survive alongside an unavailable one. Seeding from them would store a
+        value no reachable device stands behind, while the listener registered
+        just above delivers the real one as soon as the cooler returns.
+        """
+        bt.cooler_entity_id = COOLER_ID
+        _install_states(
+            bt,
+            {
+                COOLER_ID: _make_cooler_state(
+                    {ATTR_TEMPERATURE: 24.0}, state=STATE_UNAVAILABLE
+                )
+            },
+        )
+
+        await _run_finalize_startup(bt)
+
+        assert bt.bt_target_cooltemp is None
+        bt._seed_cool_target.assert_not_called()
+        assert bt.control_queue_task.empty()
+
+    @pytest.mark.asyncio
+    async def test_unknown_cooler_leaves_the_cool_target_unknown(self, bt):
+        """A cooler that has joined without reporting yet has nothing to offer.
+
+        An entity registered but not yet updated holds the unknown state, and
+        an attribute standing next to it is no value the device has confirmed.
+        """
+        bt.cooler_entity_id = COOLER_ID
+        _install_states(
+            bt,
+            {
+                COOLER_ID: _make_cooler_state(
+                    {ATTR_TEMPERATURE: 24.0}, state=STATE_UNKNOWN
+                )
+            },
+        )
+
+        await _run_finalize_startup(bt)
+
+        assert bt.bt_target_cooltemp is None
+        bt._seed_cool_target.assert_not_called()
+        assert bt.control_queue_task.empty()
+
+    @pytest.mark.asyncio
+    async def test_cooler_without_a_state_leaves_the_cool_target_unknown(self, bt):
+        """An entity that does not exist yet returns no state at all."""
+        bt.cooler_entity_id = COOLER_ID
+        _install_states(bt, {})
+
+        await _run_finalize_startup(bt)
+
+        assert bt.bt_target_cooltemp is None
+        bt._seed_cool_target.assert_not_called()
+        assert bt.control_queue_task.empty()
+
+    @pytest.mark.asyncio
+    async def test_cooler_publishing_no_setpoint_requests_no_cycle(self, bt):
+        """An available cooler may still carry no setpoint in its attributes."""
+        bt.cooler_entity_id = COOLER_ID
+        _install_states(bt, {COOLER_ID: _make_cooler_state({ATTR_TEMPERATURE: None})})
+
+        await _run_finalize_startup(bt)
+
+        assert bt.bt_target_cooltemp is None
+        bt._seed_cool_target.assert_not_called()
+        assert bt.control_queue_task.empty()
+
+    @pytest.mark.asyncio
+    async def test_known_cool_target_is_not_re_read(self, bt):
+        """A target the startup seed or a restore already filled is not re-read.
+
+        The device is asked again only for a target that is still unknown, so a
+        cooler that has moved on since the startup seed cannot overwrite a value
+        Better Thermostat already holds.
+        """
+        bt.cooler_entity_id = COOLER_ID
+        bt.bt_target_cooltemp = 26.0
+        _install_states(bt, {COOLER_ID: _make_cooler_state({ATTR_TEMPERATURE: 24.0})})
+
+        await _run_finalize_startup(bt)
+
+        assert bt.bt_target_cooltemp == 26.0
+        bt._seed_cool_target.assert_not_called()
+        assert bt.control_queue_task.empty()
+
+    @pytest.mark.asyncio
+    async def test_fahrenheit_cooler_is_read_with_its_own_converted_step(self, bt):
+        """The device's step reaches the adoption gate as a Celsius delta.
+
+        A Fahrenheit cooler publishes its step as a °F delta, so the 2 °F grid
+        it advertises is 1.11 °C wide, and the setpoint it reports is converted
+        along with it.
+        """
+        bt.cooler_entity_id = COOLER_ID
+        bt.bt_target_temp_step = 0.5
+        bt.hass.config.units.temperature_unit = UnitOfTemperature.FAHRENHEIT
+        _install_states(
+            bt,
+            {
+                COOLER_ID: _make_cooler_state(
+                    {ATTR_TEMPERATURE: 75.0, "target_temp_step": 2.0}
+                )
+            },
+        )
+        spy = MagicMock(side_effect=resolve_inbound_setpoint)
+
+        with patch(f"{_CLIMATE}.resolve_inbound_setpoint", spy):
+            await _run_finalize_startup(bt)
+
+        assert spy.call_args.kwargs["step"] == 1.1111
+        assert bt.bt_target_cooltemp == 23.89
+
+    @pytest.mark.asyncio
+    async def test_unreadable_step_is_logged_against_this_read(self, bt, caplog):
+        """The read names itself when the cooler's step cannot be converted.
+
+        Three reads resolve a cooler's step through the same helper: the seed
+        under startup(), this one, and the event handler. The caller each names
+        is what tells a reader which of them produced the entry, so this one
+        names the method it runs in rather than the startup around it.
+        """
+        bt.cooler_entity_id = COOLER_ID
+        bt.bt_target_temp_step = 0.5
+        _install_states(
+            bt,
+            {
+                COOLER_ID: _make_cooler_state(
+                    {ATTR_TEMPERATURE: 24.0, "target_temp_step": "unavailable"}
+                )
+            },
+        )
+
+        caplog.set_level(logging.DEBUG)
+        await _run_finalize_startup(bt)
+
+        assert (
+            "Could not convert 'unavailable' to float in _finalize_startup()"
+            in caplog.text
+        )
+        assert bt.bt_target_cooltemp == 24.0
+
+    @pytest.mark.asyncio
+    async def test_unreadable_setpoint_is_logged_against_this_read(self, bt, caplog):
+        """The read names itself when the cooler's setpoint cannot be converted.
+
+        The step and the setpoint are resolved through two separate helpers,
+        and this read hands its own name to both of them, so a setpoint this
+        read cannot convert is not reported against the read under startup()
+        that stumbles over the same attribute.
+        """
+        bt.cooler_entity_id = COOLER_ID
+        bt.bt_target_temp_step = 0.5
+        _install_states(bt, {COOLER_ID: _make_cooler_state({ATTR_TEMPERATURE: "n/a"})})
+
+        caplog.set_level(logging.DEBUG)
+        await _run_finalize_startup(bt)
+
+        assert "Could not convert 'n/a' to float in _finalize_startup()" in caplog.text
+        assert bt.bt_target_cooltemp is None
+
+
 # ---------------------------------------------------------------------------
-# 7. _validate_hvac_mode
+# 9. _validate_hvac_mode
 # ---------------------------------------------------------------------------
 
 
