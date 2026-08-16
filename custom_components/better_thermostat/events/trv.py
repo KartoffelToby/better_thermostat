@@ -29,8 +29,10 @@ from custom_components.better_thermostat.utils.const import (
 )
 from custom_components.better_thermostat.utils.helpers import (
     TRV_SETPOINT_KEYS,
+    adopt_reported_hvac_modes,
     attr_to_celsius,
     convert_to_float,
+    device_offers_mode,
     get_device_model,
     group_all_members_off,
     is_reasonable_temperature,
@@ -189,6 +191,16 @@ async def trigger_trv_change(self, event):
 
     if self.ignore_states:
         return
+
+    # The offered HVAC modes change at runtime on devices whose heating /
+    # cooling changeover is driven centrally, so every mode is judged against
+    # the currently reported list rather than the startup snapshot. The
+    # adoption precedes the inbound remapping below because the state carried
+    # by this event is a state of the capabilities it reports: remapping it
+    # against the previous list decodes it into a mode of a device that no
+    # longer exists, and the entity mode that follows from it is emitted
+    # before any later cache update could correct it.
+    adopt_reported_hvac_modes(trv, _org_trv_state.attributes.get("hvac_modes"))
 
     try:
         mapped_state = convert_inbound_states(self, entity_id, _org_trv_state)
@@ -512,8 +524,13 @@ def convert_outbound_states(self, entity_id, hvac_mode) -> dict | None:
                 self.device_name,
                 entity_id,
             )
+        # The cache holds the device's own spelling, so whether it offers OFF is
+        # decided on the normalized list, like every other capability check.
         if hvac_mode == HVACMode.OFF and (
-            (_system_modes is not None and HVACMode.OFF not in _system_modes)
+            (
+                _system_modes is not None
+                and not device_offers_mode(_system_modes, HVACMode.OFF)
+            )
             or advanced.get("no_off_system_mode")
         ):
             _min_temp = self.real_trvs[entity_id].min_temp

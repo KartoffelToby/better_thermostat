@@ -61,6 +61,10 @@ class Trv:
     last_calibration: float | None = None
     last_valve_percent: float | None = None
     last_valve_method: str | None = None
+    # HVAC modes already annunciated as unsupported, so the control loop
+    # reports each one once instead of on every cycle. Cleared whenever the
+    # device reports a different mode list.
+    unsupported_modes_logged: set[str] = field(default_factory=set)
 
     # -- Calibration results -----------------------------------------------
     calibration_balance: dict[str, Any] | None = None
