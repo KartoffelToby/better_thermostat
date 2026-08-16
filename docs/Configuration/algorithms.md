@@ -56,11 +56,12 @@ Once settled it balances comfort against energy use, keeps overshoot down and co
 
 ### MPC Predictive
 
-MPC (Model Predictive Control) predicts how your room temperature will change over the next hour, from three inputs:
+MPC (Model Predictive Control) predicts how your room temperature will change over the next hour. It reads several inputs, among them:
 
-- Current valve position
-- Temperature trends
+- Room temperature, its trend and your target
 - Learned thermal properties of your room (how fast it heats and cools)
+- Outdoor temperature, daylight and solar intensity
+- Window state, and the valve opening it last asked for
 
 From that prediction it picks the correction that reaches your target smoothly instead of driving hard and correcting afterward, and it keeps updating the model as the room behaves. With direct valve control that correction is a valve opening; without it, the correction reaches the valve through the setpoint the TRV sees.
 
