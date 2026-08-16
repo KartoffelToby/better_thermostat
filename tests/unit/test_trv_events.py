@@ -27,6 +27,7 @@ from custom_components.better_thermostat.utils.const import (
     CalibrationMode,
     CalibrationType,
 )
+from custom_components.better_thermostat.utils.helpers import mode_remap
 
 ENTITY_ID = "climate.test_trv"
 
@@ -627,6 +628,74 @@ class TestHvacModesCache:
             await trigger_trv_change(mock_bt, event)
 
         assert mock_bt.real_trvs[ENTITY_ID].unsupported_modes_logged == {"heat_cool"}
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        "republished",
+        [
+            ["cool", "off", "auto"],
+            [HVACMode.AUTO, HVACMode.COOL, HVACMode.OFF],
+            ["HVACMode.AUTO", "HVACMode.COOL", "HVACMode.OFF"],
+            ["AUTO", "Cool", "OFF"],
+        ],
+        ids=["reordered", "enum_members", "prefixed", "mixed_case"],
+    )
+    async def test_same_capabilities_keep_the_annunciated_modes(
+        self, mock_bt, republished
+    ):
+        """The same offered modes in another spelling are not a change."""
+        mock_bt.real_trvs[ENTITY_ID].hvac_modes = ["auto", "cool", "off"]
+        mock_bt.real_trvs[ENTITY_ID].unsupported_modes_logged = {"heat_cool"}
+        trv_state = _make_state(attributes={"hvac_modes": republished})
+        mock_bt.hass.states.get.return_value = trv_state
+
+        event = _make_event(mock_bt, new_state=trv_state, old_state=trv_state)
+
+        with patch(
+            "custom_components.better_thermostat.events.trv.convert_inbound_states",
+            return_value=HVACMode.HEAT,
+        ):
+            await trigger_trv_change(mock_bt, event)
+
+        assert mock_bt.real_trvs[ENTITY_ID].unsupported_modes_logged == {"heat_cool"}
+
+    @pytest.mark.asyncio
+    async def test_reordered_republication_does_not_repeat_the_error(
+        self, mock_bt, caplog
+    ):
+        """A flapping mode list keeps the annunciation at once per mode."""
+        helpers_logger = "custom_components.better_thermostat.utils.helpers"
+        mock_bt.real_trvs[ENTITY_ID].hvac_modes = ["auto", "cool", "off"]
+
+        def _errors():
+            return [
+                record
+                for record in caplog.records
+                if "does not offer HVAC mode" in record.getMessage()
+            ]
+
+        trv_state = _make_state(attributes={"hvac_modes": ["cool", "off", "auto"]})
+        mock_bt.hass.states.get.return_value = trv_state
+        event = _make_event(mock_bt, new_state=trv_state, old_state=trv_state)
+
+        with caplog.at_level(logging.ERROR, logger=helpers_logger):
+            assert (
+                mode_remap(mock_bt, ENTITY_ID, HVACMode.HEAT_COOL, inbound=False)
+                is None
+            )
+            assert len(_errors()) == 1
+
+            with patch(
+                "custom_components.better_thermostat.events.trv.convert_inbound_states",
+                return_value=HVACMode.HEAT,
+            ):
+                await trigger_trv_change(mock_bt, event)
+
+            assert (
+                mode_remap(mock_bt, ENTITY_ID, HVACMode.HEAT_COOL, inbound=False)
+                is None
+            )
+            assert len(_errors()) == 1
 
 
 # ---------------------------------------------------------------------------
