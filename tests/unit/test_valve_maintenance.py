@@ -12,6 +12,7 @@ Covers:
 
 from __future__ import annotations
 
+import asyncio
 from datetime import datetime
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
@@ -628,6 +629,64 @@ class TestRunValveMaintenance:
         # Both are still restored to their pre-maintenance mode.
         assert ("trv1", "off") in [c.args for c in mode_mock.await_args_list]
         assert ("trv2", "heat") in [c.args for c in mode_mock.await_args_list]
+
+    @pytest.mark.asyncio
+    async def test_no_cycle_waits_when_nothing_can_be_exercised(self, monkeypatch):
+        """With an empty cycle set the run restores without sitting out sleeps."""
+        slept: list[float] = []
+
+        async def _record_sleep(seconds):
+            slept.append(seconds)
+
+        monkeypatch.setattr(asyncio, "sleep", _record_sleep)
+
+        temp_fn = AsyncMock()
+        mode_mock = AsyncMock(
+            side_effect=HomeAssistantError("device did not accept the mode")
+        )
+        infos = [
+            _info(
+                entity_id="trv1",
+                cur_mode="off",
+                use_direct_valve=False,
+                cur_temp=20.0,
+                wake_mode="heat",
+            )
+        ]
+
+        await run_valve_maintenance(
+            infos,
+            set_valve_fn=AsyncMock(),
+            set_temperature_fn=temp_fn,
+            set_hvac_mode_fn=mode_mock,
+            device_name="Test",
+            cycle_sleep=30,
+        )
+
+        assert slept == []
+        # The restore still runs for the TRV that could not be woken.
+        temp_fn.assert_awaited_once_with("trv1", 20.0)
+
+    @pytest.mark.asyncio
+    async def test_no_cycle_waits_without_any_trv(self, monkeypatch):
+        """An empty snapshot list is the same case and must not wait either."""
+        slept: list[float] = []
+
+        async def _record_sleep(seconds):
+            slept.append(seconds)
+
+        monkeypatch.setattr(asyncio, "sleep", _record_sleep)
+
+        await run_valve_maintenance(
+            [],
+            set_valve_fn=AsyncMock(),
+            set_temperature_fn=AsyncMock(),
+            set_hvac_mode_fn=AsyncMock(),
+            device_name="Test",
+            cycle_sleep=30,
+        )
+
+        assert slept == []
 
     @pytest.mark.asyncio
     async def test_off_trv_on_direct_valve_is_not_woken(self):
