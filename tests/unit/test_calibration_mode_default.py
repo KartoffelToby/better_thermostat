@@ -11,8 +11,10 @@ from __future__ import annotations
 
 import inspect
 
-from custom_components.better_thermostat import calibration as calibration_module
-from custom_components.better_thermostat import config_flow as config_flow_module
+from custom_components.better_thermostat import (
+    calibration as calibration_module,
+    config_flow as config_flow_module,
+)
 from custom_components.better_thermostat.utils import controlling as controlling_module
 from custom_components.better_thermostat.utils.const import (
     DEFAULT_CALIBRATION_MODE,
