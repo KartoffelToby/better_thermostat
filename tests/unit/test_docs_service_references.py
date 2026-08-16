@@ -125,9 +125,9 @@ def test_scanner_finds_a_declared_service_reference():
     )
 
 
-def test_schedule_page_is_gone_and_redirected():
+def test_schedule_page_is_absent_and_redirected():
     assert not SCHEDULE_DOC.exists(), (
-        f"{_rel(SCHEDULE_DOC)} duplicates {_rel(MIGRATION_DOC)} and must stay deleted"
+        f"{_rel(SCHEDULE_DOC)} must not exist; {_rel(MIGRATION_DOC)} covers this topic"
     )
     config = ASTRO_CONFIG.read_text(encoding="utf-8")
     assert '"/schedule": "/deep-explanations/schedule-and-night-mode"' in config, (
