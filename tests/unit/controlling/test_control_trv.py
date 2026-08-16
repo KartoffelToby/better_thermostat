@@ -484,157 +484,6 @@ class TestControlTrvUnavailablePath:
             mock_set_valve.assert_not_called()
 
     @pytest.mark.asyncio
-    async def test_window_open_sets_mode_to_off(self):
-        """Test that window open sets HVAC mode to OFF."""
-        mock_self = _make_mock_self(
-            trv_state=HVACMode.HEAT,
-            trv_attrs={"temperature": 20.0},
-            window_open=True,
-            real_trvs={"climate.trv1": _default_trv_config()},
-        )
-
-        with (
-            patch(_PATCHES["convert_outbound_states"]) as mock_convert,
-            patch(_PATCHES["set_hvac_mode"]) as mock_set_hvac,
-            patch(_PATCHES["override_set_hvac_mode"]) as mock_override,
-            patch(
-                _PATCHES["override_set_temperature"], new=AsyncMock(return_value=False)
-            ),
-            patch(_PATCHES["set_temperature"], new=AsyncMock()),
-            patch("asyncio.sleep", new=AsyncMock()),
-        ):
-            mock_convert.return_value = {
-                "temperature": 20.0,
-                "system_mode": HVACMode.HEAT,
-            }
-            mock_set_hvac.return_value = None
-            mock_override.return_value = False
-
-            result = await control_trv(mock_self, "climate.trv1")
-
-            assert result is True
-            # set_hvac_mode should be called with OFF
-            mock_set_hvac.assert_called_once()
-            assert mock_set_hvac.call_args[0][2] == HVACMode.OFF
-
-    @pytest.mark.asyncio
-    async def test_no_off_mode_sends_min_temp_when_off_requested(self):
-        """Test that TRV without OFF mode sends min_temp when OFF is requested."""
-        mock_self = _make_mock_self(
-            trv_state=HVACMode.HEAT,
-            trv_attrs={"temperature": 20.0},
-            call_for_heat=False,  # No heat needed -> OFF
-            real_trvs={
-                "climate.trv1": _default_trv_config(
-                    hvac_modes=[HVACMode.HEAT]  # No OFF mode!
-                )
-            },
-        )
-
-        with (
-            patch(_PATCHES["convert_outbound_states"]) as mock_convert,
-            patch(_PATCHES["set_temperature"]) as mock_set_temp,
-            patch(
-                _PATCHES["override_set_hvac_mode"], new=AsyncMock(return_value=False)
-            ),
-            patch(
-                _PATCHES["override_set_temperature"], new=AsyncMock(return_value=False)
-            ),
-            patch(_PATCHES["set_hvac_mode"], new=AsyncMock()),
-            patch("asyncio.sleep", new=AsyncMock()),
-        ):
-            mock_convert.return_value = {
-                "temperature": 20.0,
-                "system_mode": HVACMode.HEAT,
-            }
-            mock_set_temp.return_value = None
-
-            await control_trv(mock_self, "climate.trv1")
-
-            # Should set temperature to min_temp (5.0) because OFF is not available
-            mock_set_temp.assert_called_once()
-            args = mock_set_temp.call_args[0]
-            assert args[2] == 5.0  # min_temp
-
-    @pytest.mark.asyncio
-    async def test_off_offered_in_the_device_spelling_switches_the_device_off(self):
-        """A list naming its modes ``HVACMode.OFF`` still offers OFF.
-
-        The cached list holds the device's own spelling, so the min_temp
-        substitution must not fire for a device that does offer OFF.
-        """
-        mock_self = _make_mock_self(
-            trv_state=HVACMode.HEAT,
-            trv_attrs={"temperature": 20.0},
-            call_for_heat=False,
-            real_trvs={
-                "climate.trv1": _default_trv_config(
-                    hvac_modes=["HVACMode.OFF", "HVACMode.HEAT"]
-                )
-            },
-        )
-
-        with (
-            patch(_PATCHES["convert_outbound_states"]) as mock_convert,
-            patch(_PATCHES["set_temperature"]) as mock_set_temp,
-            patch(
-                _PATCHES["override_set_hvac_mode"], new=AsyncMock(return_value=False)
-            ),
-            patch(
-                _PATCHES["override_set_temperature"], new=AsyncMock(return_value=False)
-            ),
-            patch(_PATCHES["set_hvac_mode"], new=AsyncMock()) as mock_set_hvac,
-            patch("asyncio.sleep", new=AsyncMock()),
-        ):
-            mock_convert.return_value = {
-                "temperature": 20.0,
-                "system_mode": HVACMode.HEAT,
-            }
-            mock_set_temp.return_value = None
-
-            await control_trv(mock_self, "climate.trv1")
-
-            mock_set_hvac.assert_awaited_once()
-            assert mock_set_hvac.await_args[0][2] == HVACMode.OFF
-            for call in mock_set_temp.call_args_list:
-                assert call[0][2] != 5.0
-
-    @pytest.mark.asyncio
-    async def test_no_off_in_the_device_spelling_still_sends_min_temp(self):
-        """A device genuinely without OFF keeps taking the min_temp path."""
-        mock_self = _make_mock_self(
-            trv_state=HVACMode.HEAT,
-            trv_attrs={"temperature": 20.0},
-            call_for_heat=False,
-            real_trvs={
-                "climate.trv1": _default_trv_config(hvac_modes=["HVACMode.HEAT"])
-            },
-        )
-
-        with (
-            patch(_PATCHES["convert_outbound_states"]) as mock_convert,
-            patch(_PATCHES["set_temperature"]) as mock_set_temp,
-            patch(
-                _PATCHES["override_set_hvac_mode"], new=AsyncMock(return_value=False)
-            ),
-            patch(
-                _PATCHES["override_set_temperature"], new=AsyncMock(return_value=False)
-            ),
-            patch(_PATCHES["set_hvac_mode"], new=AsyncMock()),
-            patch("asyncio.sleep", new=AsyncMock()),
-        ):
-            mock_convert.return_value = {
-                "temperature": 20.0,
-                "system_mode": HVACMode.HEAT,
-            }
-            mock_set_temp.return_value = None
-
-            await control_trv(mock_self, "climate.trv1")
-
-            mock_set_temp.assert_called_once()
-            assert mock_set_temp.call_args[0][2] == 5.0
-
-    @pytest.mark.asyncio
     async def test_ignore_trv_states_flag_set_and_reset(self):
         """Test that ignore_trv_states flag is set during processing and reset after."""
         mock_self = _make_mock_self(trv_state=STATE_UNAVAILABLE)
@@ -1228,6 +1077,159 @@ class TestControlTrvAvailablePath:
 
             # Lock should have been acquired
             lock_acquire_mock.assert_awaited()
+
+    @pytest.mark.asyncio
+    async def test_window_open_sets_mode_to_off(self):
+        """Test that window open sets HVAC mode to OFF."""
+        mock_self = _make_mock_self(
+            trv_state=HVACMode.HEAT,
+            trv_attrs={"temperature": 20.0},
+            window_open=True,
+            real_trvs={"climate.trv1": _default_trv_config()},
+        )
+
+        with (
+            patch(_PATCHES["convert_outbound_states"]) as mock_convert,
+            patch(_PATCHES["set_hvac_mode"]) as mock_set_hvac,
+            patch(_PATCHES["override_set_hvac_mode"]) as mock_override,
+            patch(
+                _PATCHES["override_set_temperature"], new=AsyncMock(return_value=False)
+            ),
+            patch(_PATCHES["set_temperature"], new=AsyncMock()),
+            patch("asyncio.sleep", new=AsyncMock()),
+        ):
+            mock_convert.return_value = {
+                "temperature": 20.0,
+                "system_mode": HVACMode.HEAT,
+            }
+            mock_set_hvac.return_value = None
+            mock_override.return_value = False
+
+            result = await control_trv(mock_self, "climate.trv1")
+
+            assert result is True
+            # set_hvac_mode should be called with OFF
+            mock_set_hvac.assert_called_once()
+            assert mock_set_hvac.call_args[0][2] == HVACMode.OFF
+
+    @pytest.mark.asyncio
+    async def test_no_off_mode_sends_min_temp_when_off_requested(self):
+        """Test that TRV without OFF mode sends min_temp when OFF is requested."""
+        mock_self = _make_mock_self(
+            trv_state=HVACMode.HEAT,
+            trv_attrs={"temperature": 20.0},
+            call_for_heat=False,  # No heat needed -> OFF
+            real_trvs={
+                "climate.trv1": _default_trv_config(
+                    hvac_modes=[HVACMode.HEAT]  # No OFF mode!
+                )
+            },
+        )
+
+        with (
+            patch(_PATCHES["convert_outbound_states"]) as mock_convert,
+            patch(_PATCHES["set_temperature"]) as mock_set_temp,
+            patch(
+                _PATCHES["override_set_hvac_mode"], new=AsyncMock(return_value=False)
+            ),
+            patch(
+                _PATCHES["override_set_temperature"], new=AsyncMock(return_value=False)
+            ),
+            patch(_PATCHES["set_hvac_mode"], new=AsyncMock()) as mock_set_hvac,
+            patch("asyncio.sleep", new=AsyncMock()),
+        ):
+            mock_convert.return_value = {
+                "temperature": 20.0,
+                "system_mode": HVACMode.HEAT,
+            }
+            mock_set_temp.return_value = None
+
+            await control_trv(mock_self, "climate.trv1")
+
+            # Should set temperature to min_temp (5.0) because OFF is not available
+            mock_set_temp.assert_called_once()
+            args = mock_set_temp.call_args[0]
+            assert args[2] == 5.0  # min_temp
+            mock_set_hvac.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_off_offered_in_the_device_spelling_switches_the_device_off(self):
+        """A list naming its modes ``HVACMode.OFF`` still offers OFF.
+
+        The cached list holds the device's own spelling, so the min_temp
+        substitution must not fire for a device that does offer OFF.
+        """
+        mock_self = _make_mock_self(
+            trv_state=HVACMode.HEAT,
+            trv_attrs={"temperature": 20.0},
+            call_for_heat=False,
+            real_trvs={
+                "climate.trv1": _default_trv_config(
+                    hvac_modes=["HVACMode.OFF", "HVACMode.HEAT"]
+                )
+            },
+        )
+
+        with (
+            patch(_PATCHES["convert_outbound_states"]) as mock_convert,
+            patch(_PATCHES["set_temperature"]) as mock_set_temp,
+            patch(
+                _PATCHES["override_set_hvac_mode"], new=AsyncMock(return_value=False)
+            ),
+            patch(
+                _PATCHES["override_set_temperature"], new=AsyncMock(return_value=False)
+            ),
+            patch(_PATCHES["set_hvac_mode"], new=AsyncMock()) as mock_set_hvac,
+            patch("asyncio.sleep", new=AsyncMock()),
+        ):
+            mock_convert.return_value = {
+                "temperature": 20.0,
+                "system_mode": HVACMode.HEAT,
+            }
+            mock_set_temp.return_value = None
+
+            await control_trv(mock_self, "climate.trv1")
+
+            mock_set_hvac.assert_awaited_once()
+            assert mock_set_hvac.await_args[0][2] == HVACMode.OFF
+            for call in mock_set_temp.call_args_list:
+                assert call[0][2] != 5.0
+
+    @pytest.mark.asyncio
+    async def test_no_off_in_the_device_spelling_still_sends_min_temp(self):
+        """A device genuinely without OFF keeps taking the min_temp path."""
+        mock_self = _make_mock_self(
+            trv_state=HVACMode.HEAT,
+            trv_attrs={"temperature": 20.0},
+            call_for_heat=False,
+            real_trvs={
+                "climate.trv1": _default_trv_config(hvac_modes=["HVACMode.HEAT"])
+            },
+        )
+
+        with (
+            patch(_PATCHES["convert_outbound_states"]) as mock_convert,
+            patch(_PATCHES["set_temperature"]) as mock_set_temp,
+            patch(
+                _PATCHES["override_set_hvac_mode"], new=AsyncMock(return_value=False)
+            ),
+            patch(
+                _PATCHES["override_set_temperature"], new=AsyncMock(return_value=False)
+            ),
+            patch(_PATCHES["set_hvac_mode"], new=AsyncMock()) as mock_set_hvac,
+            patch("asyncio.sleep", new=AsyncMock()),
+        ):
+            mock_convert.return_value = {
+                "temperature": 20.0,
+                "system_mode": HVACMode.HEAT,
+            }
+            mock_set_temp.return_value = None
+
+            await control_trv(mock_self, "climate.trv1")
+
+            mock_set_temp.assert_called_once()
+            assert mock_set_temp.call_args[0][2] == 5.0
+            mock_set_hvac.assert_not_awaited()
 
 
 class TestControlTrvIgnoreFlagReset:

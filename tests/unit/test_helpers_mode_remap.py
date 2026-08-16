@@ -461,19 +461,18 @@ class TestModeRemapUnsupportedOutboundMode:
         assert result == HVACMode.HEAT
 
     def test_auto_branch_wins_over_the_clamp(self, caplog):
-        """AUTO keeps returning OFF and its own error even when offered."""
+        """AUTO reports OFF and names the heat auto swapped option."""
         mock_bt = MockThermostat()
         mock_bt.add_trv(
             "climate.test", hvac_modes=[HVACMode.AUTO, HVACMode.COOL, HVACMode.OFF]
         )
 
-        with caplog.at_level(logging.ERROR):
+        with caplog.at_level(logging.ERROR, logger=HELPERS_LOGGER):
             result = mode_remap(mock_bt, "climate.test", HVACMode.AUTO, inbound=False)
 
         assert result == HVACMode.OFF
-        errors = [rec for rec in caplog.records if rec.levelno == logging.ERROR]
-        assert len(errors) == 1
-        assert "heat auto swapped option" in errors[0].getMessage()
+        assert len(_forgotten_swap_records(caplog)) == 1
+        assert _unsupported_records(caplog) == []
 
     def test_the_auto_error_is_annunciated_once(self, caplog):
         """Every outbound AUTO cycle keeps reporting OFF, but logs once."""
@@ -513,23 +512,28 @@ class TestModeRemapUnsupportedOutboundMode:
         assert len(_forgotten_swap_records(caplog)) == 2
 
     def test_error_is_logged_once_per_mode(self, caplog):
-        """Repeated cycles annunciate each unsupported mode exactly once."""
+        """Repeated cycles annunciate each unsupported mode a single time."""
         mock_bt = MockThermostat()
         mock_bt.add_trv(
             "climate.test", hvac_modes=[HVACMode.AUTO, HVACMode.COOL, HVACMode.OFF]
         )
 
-        with caplog.at_level(logging.ERROR):
+        with caplog.at_level(logging.ERROR, logger=HELPERS_LOGGER):
             for _ in range(5):
-                mode_remap(mock_bt, "climate.test", HVACMode.HEAT_COOL, inbound=False)
+                assert (
+                    mode_remap(
+                        mock_bt, "climate.test", HVACMode.HEAT_COOL, inbound=False
+                    )
+                    is None
+                )
 
-            errors = [rec for rec in caplog.records if rec.levelno == logging.ERROR]
-            assert len(errors) == 1
+            assert len(_unsupported_records(caplog)) == 1
 
-            mode_remap(mock_bt, "climate.test", HVACMode.HEAT, inbound=False)
-
-            errors = [rec for rec in caplog.records if rec.levelno == logging.ERROR]
-            assert len(errors) == 2
+            assert (
+                mode_remap(mock_bt, "climate.test", HVACMode.HEAT, inbound=False)
+                is None
+            )
+            assert len(_unsupported_records(caplog)) == 2
 
     def test_hint_names_disabling_the_swap_when_it_is_on(self, caplog):
         """A swapped device offering neither AUTO nor HEAT names the swap."""

@@ -638,6 +638,10 @@ class TestHvacActionAndValvePosition:
 
         assert mock_bt.real_trvs[ENTITY_ID].valve_position == 75.0
 
+
+class TestHvacModesCache:
+    """Tests for the cached list of HVAC modes the device offers."""
+
     @pytest.mark.asyncio
     async def test_hvac_modes_cached_from_attribute(self, mock_bt):
         """Cache the offered mode list so a runtime change is picked up."""
