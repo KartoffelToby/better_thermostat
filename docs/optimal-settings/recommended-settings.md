@@ -13,20 +13,14 @@ Use this profile as your starting point for each room.
 - **Window delay**: 2-5 minutes
 - **Overheating protection**: Off by default; enable only if needed
 
-## When to change this profile
+## When to change it
 
-- Room heats very slowly → switch to **Aggressive**.
-- Room frequently overshoots target → switch to **MPC Predictive**.
-- Room has strong disturbances (sun, drafts, doors) → try **PID**.
+Switch to Aggressive if the room heats very slowly, to MPC Predictive if it overshoots the target regularly, and to PID if it faces strong disturbances such as sun, draughts or an often-opened door.
 
-## Sensor placement tips
+## Sensor placement
 
-- Place room sensor away from radiator and direct sun.
-- Avoid drafts and exterior doors.
-- Keep sensor position stable for at least a few days while learning.
+Put the room sensor away from the radiator and out of direct sun, clear of draughts and exterior doors. Then leave it where it is for a few days: the learning modes treat a moved sensor as a change in the room.
 
-## Expectations after setup
+## What to expect
 
-- AI Time Based needs a short learning phase.
-- MPC and PID perform best with clean, regular sensor updates.
-- Avoid changing multiple tuning values at once.
+AI Time Based needs a short learning phase before its results settle. MPC and PID both depend on clean, regular sensor updates, so an infrequently reporting sensor costs them more than it costs the simpler modes. Change one tuning value at a time, or you will not know which one did what.
