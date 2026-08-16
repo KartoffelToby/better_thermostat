@@ -842,6 +842,90 @@ class TestCheckCalibration:
         assert mock_self.real_trvs["climate.trv1"].calibration_received is True
 
 
+class TestCheckCalibrationGeneration:
+    """Only the watchdog of the command in flight may open the write gate."""
+
+    @pytest.mark.asyncio
+    async def test_superseded_watchdog_leaves_the_gate_closed(self, caplog):
+        """A newer command in flight keeps the channel closed."""
+        mock_self = TestCheckCalibration._mock_self(
+            last_calibration=-3.0, calibration_write_generation=2
+        )
+        durations, sleep_patch = _sleep_recorder()
+
+        with (
+            caplog.at_level(logging.WARNING, logger=_CTRL),
+            patch(f"{_CTRL}.get_current_offset", new=AsyncMock(return_value=-3.0)),
+            sleep_patch,
+        ):
+            result = await check_calibration(mock_self, "climate.trv1", 1)
+
+        assert result is True
+        assert mock_self.real_trvs["climate.trv1"].calibration_received is False
+        assert caplog.records == []
+        assert durations == []
+
+    @pytest.mark.asyncio
+    async def test_superseded_watchdog_leaves_the_gate_closed_on_an_error(self):
+        """An adapter error in a superseded watchdog opens nothing either."""
+        mock_self = TestCheckCalibration._mock_self(
+            last_calibration=-3.0, calibration_write_generation=1
+        )
+
+        async def _supersede_then_raise(_self, _entity_id):
+            """Overtake this watchdog inside the poll it then fails on."""
+            mock_self.real_trvs["climate.trv1"].calibration_write_generation = 2
+            raise RuntimeError("adapter unavailable")
+
+        with (
+            patch(f"{_CTRL}.get_current_offset", new=_supersede_then_raise),
+            pytest.raises(RuntimeError),
+        ):
+            await check_calibration(mock_self, "climate.trv1", 1)
+
+        assert mock_self.real_trvs["climate.trv1"].calibration_received is False
+
+    @pytest.mark.asyncio
+    async def test_owning_watchdog_still_releases_the_gate(self):
+        """The watchdog of the command in flight releases as before."""
+        mock_self = TestCheckCalibration._mock_self(
+            last_calibration=-3.0, calibration_write_generation=2
+        )
+        _, sleep_patch = _sleep_recorder()
+
+        with (
+            patch(f"{_CTRL}.get_current_offset", new=AsyncMock(return_value=-3.0)),
+            sleep_patch,
+        ):
+            result = await check_calibration(mock_self, "climate.trv1", 2)
+
+        assert result is True
+        assert mock_self.real_trvs["climate.trv1"].calibration_received is True
+
+    @pytest.mark.asyncio
+    async def test_superseded_mid_wait_stops_polling(self):
+        """A watchdog overtaken while waiting stops instead of timing out."""
+        mock_self = TestCheckCalibration._mock_self(
+            last_calibration=-3.0, calibration_write_generation=1
+        )
+        durations, sleep_patch = _sleep_recorder()
+        polls = []
+
+        async def _get_offset(_self, _entity_id):
+            polls.append(len(polls))
+            if len(polls) == 3:
+                mock_self.real_trvs["climate.trv1"].calibration_write_generation = 2
+            return 0.0
+
+        with patch(f"{_CTRL}.get_current_offset", new=_get_offset), sleep_patch:
+            result = await check_calibration(mock_self, "climate.trv1", 1)
+
+        assert result is True
+        assert len(polls) == 3
+        assert durations.count(1) == 3
+        assert mock_self.real_trvs["climate.trv1"].calibration_received is False
+
+
 class TestCalibrationMatchTolerance:
     """Tests for _calibration_match_tolerance()."""
 

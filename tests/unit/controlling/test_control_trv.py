@@ -38,7 +38,10 @@ from custom_components.better_thermostat.utils.const import (
     CalibrationMode,
     CalibrationType,
 )
-from custom_components.better_thermostat.utils.controlling import control_trv
+from custom_components.better_thermostat.utils.controlling import (
+    check_calibration,
+    control_trv,
+)
 
 # All delegate / helper functions that control_trv calls.  We patch them at the
 # *controlling* module level because that is where they are imported.
@@ -2768,3 +2771,55 @@ class TestOffsetWriteGate:
             mock_self.clock.advance(31.0)
 
         assert set_offset.await_count == 1
+
+    @pytest.mark.asyncio
+    async def test_each_write_arms_a_watchdog_for_its_own_command(self):
+        """Every accepted write takes the next generation."""
+        mock_self = _make_offset_self(
+            calibration_received=True,
+            last_calibration=0.0,
+            last_calibration_requested=0.0,
+        )
+        watchdog = Mock(return_value=None)
+
+        with patch(f"{_CTRL}.check_calibration", new=watchdog):
+            for _ in range(3):
+                mock_self.real_trvs["climate.trv1"].calibration_received = True
+                await _run_offset_cycle(
+                    mock_self, desired_offset=-2.0, reported_offset=0.0
+                )
+                mock_self.clock.advance(31.0)
+
+        assert [call.args[2] for call in watchdog.call_args_list] == [1, 2, 3]
+        assert mock_self.real_trvs["climate.trv1"].calibration_write_generation == 3
+
+    @pytest.mark.asyncio
+    async def test_a_superseded_watchdog_does_not_reopen_the_gate(self):
+        """The gate stays closed while the newest command is unconfirmed.
+
+        A control cycle can confirm a command in-cycle and immediately
+        write a newer one, leaving the earlier watchdog winding down. Its
+        release must not open the channel for the write still in flight.
+        """
+        mock_self = _make_offset_self(
+            calibration_received=False,
+            last_calibration=-2.0,
+            last_calibration_requested=-2.0,
+        )
+        trv = mock_self.real_trvs["climate.trv1"]
+        trv.calibration_write_generation = 1
+        earlier_watchdog = check_calibration(mock_self, "climate.trv1", 1)
+
+        # The cycle confirms -2.0 and writes -3.0, arming the newer watchdog.
+        set_offset, _ = await _run_offset_cycle(
+            mock_self, desired_offset=-3.0, reported_offset=-2.0
+        )
+
+        set_offset.assert_awaited_once_with(mock_self, "climate.trv1", -3.0)
+        assert trv.calibration_received is False
+        assert trv.calibration_write_generation == 2
+
+        with patch(f"{_CTRL}.get_current_offset", new=AsyncMock(return_value=-2.0)):
+            assert await earlier_watchdog is True
+
+        assert trv.calibration_received is False
