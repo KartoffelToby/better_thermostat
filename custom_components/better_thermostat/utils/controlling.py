@@ -372,6 +372,18 @@ def _calibration_match_tolerance(self, entity_id) -> float:
     OFFSET_MATCH_TOLERANCE_K is the floor: it covers devices that report
     no usable step and those whose declared step is finer than the grid
     they actually report on.
+
+    Parameters
+    ----------
+    self : BetterThermostat
+        The Better Thermostat climate entity instance
+    entity_id : str
+        Entity ID of the TRV whose offset step decides the tolerance
+
+    Returns
+    -------
+    float
+        Tolerance in Kelvin for an offset comparison
     """
     step = convert_to_float(
         str(self.real_trvs[entity_id].local_calibration_step),

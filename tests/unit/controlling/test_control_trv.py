@@ -2509,7 +2509,7 @@ class TestOffsetWriteGate:
 
     @pytest.mark.asyncio
     async def test_unconfirmed_offset_is_written_once_the_report_confirms(self):
-        """An unacknowledged write no longer wedges the channel.
+        """An unacknowledged write leaves the channel open.
 
         The device reports exactly what it was last told, so nothing is
         in flight; the pending intent must reach it.
