@@ -21,6 +21,7 @@ class TestTypedAccess:
         assert trv.calibration_received is True
         assert trv.ignore_trv_states is False
         assert trv.current_temperature is None
+        assert trv.last_calibration_requested is None
         assert trv.advanced == {}
         assert trv.extra == {}
 
@@ -59,6 +60,16 @@ class TestExtraScratchpad:
         assert trv.current_temperature == 21.0
         assert trv.advanced == {"child_lock": True}
         assert trv.extra == {"_quirk_scratch": 3}
+
+    def test_from_legacy_dict_maps_requested_calibration_onto_the_field(self):
+        """``last_calibration_requested`` is a typed field, not an extra."""
+        trv = Trv.from_legacy_dict(
+            "climate.trv",
+            {"last_calibration": -3.0, "last_calibration_requested": -5.0},
+        )
+        assert trv.last_calibration == -3.0
+        assert trv.last_calibration_requested == -5.0
+        assert trv.extra == {}
 
     def test_from_legacy_dict_ignores_entity_id_key(self):
         """A legacy ``entity_id`` key never collides with the argument."""
