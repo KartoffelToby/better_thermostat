@@ -191,6 +191,16 @@ async def trigger_trv_change(self, event):
     if self.ignore_states:
         return
 
+    # The offered HVAC modes change at runtime on devices whose heating /
+    # cooling changeover is driven centrally, so every mode is judged against
+    # the currently reported list rather than the startup snapshot. The
+    # adoption precedes the inbound remapping below because the state carried
+    # by this event is a state of the capabilities it reports: remapping it
+    # against the previous list decodes it into a mode of a device that no
+    # longer exists, and the entity mode that follows from it is emitted
+    # before any later cache update could correct it.
+    adopt_reported_hvac_modes(trv, _org_trv_state.attributes.get("hvac_modes"))
+
     try:
         mapped_state = convert_inbound_states(self, entity_id, _org_trv_state)
     except TypeError:
@@ -200,11 +210,6 @@ async def trigger_trv_change(self, event):
             entity_id,
         )
         return
-
-    # The offered HVAC modes change at runtime on devices whose heating /
-    # cooling changeover is driven centrally, so the outbound mode is judged
-    # against the currently reported list rather than the startup snapshot.
-    adopt_reported_hvac_modes(trv, _org_trv_state.attributes.get("hvac_modes"))
 
     # Always cache hvac_action from the TRV state so it stays current
     try:

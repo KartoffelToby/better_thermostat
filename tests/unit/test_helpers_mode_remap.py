@@ -8,9 +8,11 @@ heat_auto_swapped devices and TRVs that only support HEAT_COOL but not HEAT.
 import logging
 
 from homeassistant.components.climate.const import HVACMode
+import pytest
 
 from custom_components.better_thermostat.trv import Trv
 from custom_components.better_thermostat.utils.helpers import (
+    adopt_reported_hvac_modes,
     get_hvac_bt_mode,
     mode_remap,
 )
@@ -24,6 +26,15 @@ def _unsupported_records(caplog):
         record
         for record in caplog.records
         if "does not offer HVAC mode" in record.getMessage()
+    ]
+
+
+def _forgotten_swap_records(caplog):
+    """Return the log records naming the heat auto swapped option as unset."""
+    return [
+        record
+        for record in caplog.records
+        if "forgot to set the heat auto swapped option" in record.getMessage()
     ]
 
 
@@ -163,6 +174,85 @@ class TestModeRemapHeatCoolTranslation:
 
         result = mode_remap(mock_bt, "climate.test", HVACMode.HEAT_COOL, inbound=False)
         assert result == HVACMode.HEAT_COOL
+
+
+class TestModeRemapTranslationOnAReportedSpelling:
+    """The HEAT / HEAT_COOL translation reads the device's own spelling.
+
+    The mode list is cached exactly as the device reports it, so a device
+    naming its modes ``HVACMode.HEAT`` or ``Heat`` is translated like one
+    naming them ``heat``.
+    """
+
+    HEAT_ONLY = [
+        pytest.param(["HVACMode.OFF", "HVACMode.HEAT"], id="prefixed"),
+        pytest.param(["OFF", "Heat"], id="mixed_case"),
+    ]
+    HEAT_COOL_ONLY = [
+        pytest.param(["HVACMode.OFF", "HVACMode.HEAT_COOL"], id="prefixed"),
+        pytest.param(["OFF", "Heat_Cool"], id="mixed_case"),
+    ]
+
+    @pytest.mark.parametrize("hvac_modes", HEAT_ONLY)
+    def test_outbound_heat_cool_becomes_heat(self, hvac_modes, caplog):
+        """A heat-only device receives HEAT rather than no mode at all."""
+        mock_bt = MockThermostat()
+        mock_bt.add_trv("climate.test", hvac_modes=hvac_modes)
+
+        with caplog.at_level(logging.ERROR, logger=HELPERS_LOGGER):
+            result = mode_remap(
+                mock_bt, "climate.test", HVACMode.HEAT_COOL, inbound=False
+            )
+
+        assert result == HVACMode.HEAT
+        assert _unsupported_records(caplog) == []
+
+    @pytest.mark.parametrize("hvac_modes", HEAT_ONLY)
+    def test_inbound_heat_becomes_heat_cool(self, hvac_modes):
+        """A heat-only device's HEAT is decoded as HEAT_COOL."""
+        mock_bt = MockThermostat()
+        mock_bt.add_trv("climate.test", hvac_modes=hvac_modes)
+
+        result = mode_remap(mock_bt, "climate.test", HVACMode.HEAT, inbound=True)
+        assert result == HVACMode.HEAT_COOL
+
+    @pytest.mark.parametrize("hvac_modes", HEAT_COOL_ONLY)
+    def test_outbound_heat_becomes_heat_cool(self, hvac_modes, caplog):
+        """A HEAT_COOL-only device receives HEAT_COOL rather than no mode."""
+        mock_bt = MockThermostat()
+        mock_bt.add_trv("climate.test", hvac_modes=hvac_modes)
+
+        with caplog.at_level(logging.ERROR, logger=HELPERS_LOGGER):
+            result = mode_remap(mock_bt, "climate.test", HVACMode.HEAT, inbound=False)
+
+        assert result == HVACMode.HEAT_COOL
+        assert _unsupported_records(caplog) == []
+
+    @pytest.mark.parametrize("hvac_modes", HEAT_COOL_ONLY)
+    def test_inbound_heat_cool_becomes_heat(self, hvac_modes):
+        """A HEAT_COOL-only device's HEAT_COOL is decoded as HEAT."""
+        mock_bt = MockThermostat()
+        mock_bt.add_trv("climate.test", hvac_modes=hvac_modes)
+
+        result = mode_remap(mock_bt, "climate.test", HVACMode.HEAT_COOL, inbound=True)
+        assert result == HVACMode.HEAT
+
+    def test_a_device_offering_both_is_not_translated(self):
+        """Offering both spellings of the heating mode translates neither."""
+        mock_bt = MockThermostat()
+        mock_bt.add_trv(
+            "climate.test",
+            hvac_modes=["HVACMode.OFF", "HVACMode.HEAT", "HVACMode.HEAT_COOL"],
+        )
+
+        assert (
+            mode_remap(mock_bt, "climate.test", HVACMode.HEAT, inbound=False)
+            == HVACMode.HEAT
+        )
+        assert (
+            mode_remap(mock_bt, "climate.test", HVACMode.HEAT_COOL, inbound=False)
+            == HVACMode.HEAT_COOL
+        )
 
 
 class TestModeRemapEdgeCases:
@@ -308,6 +398,39 @@ class TestModeRemapUnsupportedOutboundMode:
             if "heat auto swapped" in record.getMessage()
         ]
         assert len(swap_hints) == 1
+
+    def test_the_auto_error_is_annunciated_once(self, caplog):
+        """Every outbound AUTO cycle keeps reporting OFF, but logs once."""
+        mock_bt = MockThermostat()
+        mock_bt.add_trv("climate.test", hvac_modes=self.CHANGEOVER_MODES)
+
+        with caplog.at_level(logging.ERROR, logger=HELPERS_LOGGER):
+            for _ in range(5):
+                assert (
+                    mode_remap(mock_bt, "climate.test", HVACMode.AUTO, inbound=False)
+                    == HVACMode.OFF
+                )
+
+        assert len(_forgotten_swap_records(caplog)) == 1
+
+    def test_a_changed_offered_set_annunciates_auto_again(self, caplog):
+        """A genuine capability change re-arms the AUTO annunciation."""
+        mock_bt = MockThermostat()
+        mock_bt.add_trv("climate.test", hvac_modes=self.CHANGEOVER_MODES)
+        trv = mock_bt.real_trvs["climate.test"]
+
+        with caplog.at_level(logging.ERROR, logger=HELPERS_LOGGER):
+            assert (
+                mode_remap(mock_bt, "climate.test", HVACMode.AUTO, inbound=False)
+                == HVACMode.OFF
+            )
+            adopt_reported_hvac_modes(trv, [HVACMode.OFF, HVACMode.COOL])
+            assert (
+                mode_remap(mock_bt, "climate.test", HVACMode.AUTO, inbound=False)
+                == HVACMode.OFF
+            )
+
+        assert len(_forgotten_swap_records(caplog)) == 2
 
     def test_error_is_logged_once_per_mode(self, caplog):
         """Repeated cycles annunciate each unsupported mode a single time."""
