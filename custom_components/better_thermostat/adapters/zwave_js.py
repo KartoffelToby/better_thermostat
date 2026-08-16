@@ -178,10 +178,26 @@ async def set_hvac_mode(self, entity_id, hvac_mode):
     return await generic_set_hvac_mode(self, entity_id, hvac_mode)
 
 
-async def set_offset(self, entity_id, offset):
-    """Set new target offset."""
+async def set_offset(self, entity_id, offset) -> bool:
+    """Write a calibration offset to the discovered calibration entity.
+
+    Parameters
+    ----------
+    self : BetterThermostat
+        The Better Thermostat climate entity instance
+    entity_id : str
+        Entity ID of the TRV to write to
+    offset : float
+        Calibration offset in Kelvin, clamped to the device's declared range
+
+    Returns
+    -------
+    bool
+        True once the write went out, False when no calibration entity was
+        discovered for this TRV and there is nothing to write to.
+    """
     if self.real_trvs[entity_id].local_temperature_calibration_entity is None:
-        return  # Not supported
+        return False
 
     max_calibration = await get_max_offset(self, entity_id)
     min_calibration = await get_min_offset(self, entity_id)
@@ -205,10 +221,10 @@ async def set_offset(self, entity_id, offset):
         and self.real_trvs[entity_id].last_hvac_mode != "off"
     ):
         await asyncio.sleep(3)
-        return await generic_set_hvac_mode(
+        await generic_set_hvac_mode(
             self, entity_id, self.real_trvs[entity_id].last_hvac_mode
         )
-    return offset
+    return True
 
 
 async def set_valve(self, entity_id, valve):

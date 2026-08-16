@@ -177,9 +177,16 @@ async def set_hvac_mode(self, entity_id, hvac_mode):
 async def set_offset(self, entity_id, offset) -> bool:
     """Set new target offset.
 
-    The requested value is recorded on success only, so a write that never
-    left the house neither counts as an issued command nor suppresses the
-    retry on the next control cycle.
+    An adapter answers ``True`` once the offset write went out and ``False``
+    when the device has no offset channel to write to. Only ``True`` counts
+    as a command in flight: it is what records the requested value and what
+    tells the caller to arm the confirmation watchdog. The written offset
+    itself is not a usable answer, because the legitimate value 0.0 reads
+    the same as a device that wrote nothing.
+
+    The requested value is recorded on a write only, so a command that never
+    left the house neither counts as issued nor suppresses the retry on the
+    next control cycle.
 
     Parameters
     ----------
@@ -194,8 +201,8 @@ async def set_offset(self, entity_id, offset) -> bool:
     Returns
     -------
     bool
-        True when the adapter accepted the write, False when every retry
-        raised.
+        True when the adapter put the offset on the wire, False when the
+        device has no offset channel or every retry raised.
     """
 
     @async_retry(retries=5)
@@ -205,11 +212,19 @@ async def set_offset(self, entity_id, offset) -> bool:
         )
 
     try:
-        await inner()
+        wrote = await inner()
     except Exception:
         _LOGGER.warning(
             "better_thermostat %s: set_local_temperature_calibration for %s failed; "
             "will retry on the next cycle",
+            getattr(self, "device_name", "unknown"),
+            entity_id,
+        )
+        return False
+    if wrote is not True:
+        _LOGGER.debug(
+            "better_thermostat %s: %s has no calibration offset channel, "
+            "nothing was written",
             getattr(self, "device_name", "unknown"),
             entity_id,
         )
