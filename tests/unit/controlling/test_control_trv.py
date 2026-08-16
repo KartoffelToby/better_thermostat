@@ -1833,7 +1833,7 @@ class TestGroupedTrvCalibration:
 
 
 # ---------------------------------------------------------------------------
-# Calibration write gate (issue #2174)
+# Calibration write gate: intent, command and the device's report
 # ---------------------------------------------------------------------------
 
 
@@ -1913,9 +1913,10 @@ def _watchdog_names(mock_self):
 class TestCalibrationWriteGate:
     """The offset write gate compares the device report against the command.
 
-    Issue #2174: an offset computed for a local-calibration TRV was never
-    written because the gate compared BT's intent against the value BT had
-    last sent, so an unconfirmed write left the channel wedged.
+    The intent this cycle computed is compared against the value last
+    requested, and the device's report against the command that was put on
+    the wire, so an unconfirmed write is re-asserted rather than leaving
+    the channel wedged.
     """
 
     @pytest.mark.asyncio
