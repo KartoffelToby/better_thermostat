@@ -887,7 +887,7 @@ class TestCheckCalibrationGeneration:
 
     @pytest.mark.asyncio
     async def test_owning_watchdog_still_releases_the_gate(self):
-        """The watchdog of the command in flight releases as before."""
+        """The watchdog whose generation is still current releases the gate."""
         mock_self = TestCheckCalibration._mock_self(
             last_calibration=-3.0, calibration_write_generation=2
         )
