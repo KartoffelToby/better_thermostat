@@ -144,6 +144,22 @@ class TestTrvCapabilities:
         trv.hvac_modes = ["heat", "auto"]
         assert trv.capabilities().supports_off_mode is False
 
+    def test_off_offered_in_the_device_spelling_enables_off(self):
+        """A list naming its modes ``HVACMode.OFF`` still offers OFF.
+
+        The cached list holds the device's own spelling, so the capability
+        is decided on the normalized list.
+        """
+        trv = _make()
+        trv.hvac_modes = ["HVACMode.HEAT", "HVACMode.OFF"]
+        assert trv.capabilities().supports_off_mode is True
+
+    def test_no_off_in_the_device_spelling_disables_off(self):
+        """A device genuinely without OFF still yields no OFF capability."""
+        trv = _make()
+        trv.hvac_modes = ["HVACMode.HEAT", "HVACMode.AUTO"]
+        assert trv.capabilities().supports_off_mode is False
+
     def test_no_off_system_mode_config_disables_off(self):
         """The explicit no_off_system_mode config wins over the mode list."""
         trv = _make()
