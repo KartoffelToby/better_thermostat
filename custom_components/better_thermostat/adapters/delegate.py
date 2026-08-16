@@ -174,8 +174,29 @@ async def set_hvac_mode(self, entity_id, hvac_mode):
     )
 
 
-async def set_offset(self, entity_id, offset):
-    """Set new target offset."""
+async def set_offset(self, entity_id, offset) -> bool:
+    """Set new target offset.
+
+    The requested value is recorded on success only, so a write that never
+    left the house neither counts as an issued command nor suppresses the
+    retry on the next control cycle.
+
+    Parameters
+    ----------
+    self : BetterThermostat
+        The Better Thermostat climate entity instance.
+    entity_id : str
+        Entity id of the TRV to write the offset to.
+    offset : float
+        Calibration offset to request, before the adapter's own clamp to the
+        device's declared offset range.
+
+    Returns
+    -------
+    bool
+        True when the adapter accepted the write, False when every retry
+        raised.
+    """
 
     @async_retry(retries=5)
     async def inner():
@@ -184,9 +205,17 @@ async def set_offset(self, entity_id, offset):
         )
 
     try:
-        return await inner()
+        await inner()
     except Exception:
-        return None
+        _LOGGER.warning(
+            "better_thermostat %s: set_local_temperature_calibration for %s failed; "
+            "will retry on the next cycle",
+            getattr(self, "device_name", "unknown"),
+            entity_id,
+        )
+        return False
+    self.real_trvs[entity_id].last_calibration_requested = float(offset)
+    return True
 
 
 @async_retry(retries=5)

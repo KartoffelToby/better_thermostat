@@ -4,13 +4,15 @@ Tests for:
 - handle_contact_open()
 - check_system_mode()
 - check_target_temperature()
+- check_calibration()
 
 Absorbed tests from:
 - tests/test_window_no_off_mode.py (TestHandleWindowOpen, TestWindowCloseRestoresHeating)
 """
 
 import asyncio
-from unittest.mock import MagicMock, Mock
+from contextlib import contextmanager
+from unittest.mock import AsyncMock, MagicMock, Mock, patch
 
 from homeassistant.components.climate.const import ClimateEntityFeature, HVACMode
 import pytest
@@ -21,7 +23,9 @@ from custom_components.better_thermostat.utils.const import (
     CalibrationType,
 )
 from custom_components.better_thermostat.utils.controlling import (
+    WRITE_CONFIRM_TIMEOUT_S,
     _get_valve_control,
+    check_calibration,
     check_system_mode,
     check_target_temperature,
     handle_contact_open,
@@ -716,3 +720,259 @@ class TestGetValveControlBoostMaxOpening:
             CalibrationType.DIRECT_VALVE_BASED,
         )
         assert bal == {"valve_percent": 100, "apply_valve": True}
+
+
+# ---------------------------------------------------------------------------
+# check_calibration
+# ---------------------------------------------------------------------------
+
+_CTRL = "custom_components.better_thermostat.utils.controlling"
+
+
+@contextmanager
+def _instant_sleep():
+    """Run a watchdog poll loop without spending wall-clock time.
+
+    Yields the list of sleep durations the loop asked for.
+    """
+    import custom_components.better_thermostat.utils.controlling as controlling_module
+
+    durations = []
+
+    async def _sleep(duration):
+        durations.append(duration)
+
+    original = controlling_module.asyncio.sleep
+    controlling_module.asyncio.sleep = _sleep
+    try:
+        yield durations
+    finally:
+        controlling_module.asyncio.sleep = original
+
+
+def _calibration_mock_self(live_state, last_calibration, step=0.5):
+    """Build a mock BetterThermostat with a live TRV state and one Trv."""
+    mock_state = Mock()
+    mock_state.state = live_state
+
+    mock_hass = Mock()
+    mock_hass.states.get.return_value = mock_state if live_state is not None else None
+
+    mock_self = Mock()
+    mock_self.device_name = "test_thermostat"
+    mock_self.hass = mock_hass
+    mock_self.real_trvs = {
+        "climate.trv1": Trv.from_legacy_dict(
+            "climate.trv1",
+            {
+                "last_calibration": last_calibration,
+                "local_calibration_step": step,
+                "calibration_received": False,
+            },
+        )
+    }
+    return mock_self
+
+
+class TestCheckCalibration:
+    """Test check_calibration function."""
+
+    @pytest.mark.asyncio
+    async def test_offset_matches_immediately(self, caplog):
+        """A report equal to the command confirms without a warning."""
+        mock_self = _calibration_mock_self(HVACMode.HEAT, last_calibration=-2.0)
+
+        with (
+            patch(f"{_CTRL}.get_current_offset", new=AsyncMock(return_value=-2.0)),
+            _instant_sleep(),
+        ):
+            result = await check_calibration(mock_self, "climate.trv1")
+
+        assert result is True
+        assert mock_self.real_trvs["climate.trv1"].calibration_received is True
+        assert "did not confirm the calibration offset" not in caplog.text
+
+    @pytest.mark.asyncio
+    async def test_half_step_snap_confirms(self, caplog):
+        """A report half a step off the command is the device's own grid."""
+        mock_self = _calibration_mock_self(
+            HVACMode.HEAT, last_calibration=-2.0, step=1.0
+        )
+
+        with (
+            patch(f"{_CTRL}.get_current_offset", new=AsyncMock(return_value=-2.5)),
+            _instant_sleep(),
+        ):
+            result = await check_calibration(mock_self, "climate.trv1")
+
+        assert result is True
+        assert mock_self.real_trvs["climate.trv1"].calibration_received is True
+        assert "did not confirm the calibration offset" not in caplog.text
+
+    @pytest.mark.asyncio
+    async def test_offset_matches_after_delay(self, caplog):
+        """A report that arrives late still confirms without a warning."""
+        mock_self = _calibration_mock_self(HVACMode.HEAT, last_calibration=-2.0)
+        reported = [0.0]
+
+        async def _get_offset(_self, _entity_id):
+            return reported[0]
+
+        async def _apply_offset():
+            await asyncio.sleep(0.1)
+            reported[0] = -2.0
+
+        update_task = asyncio.create_task(_apply_offset())
+
+        with patch(f"{_CTRL}.get_current_offset", new=_get_offset):
+            result = await check_calibration(mock_self, "climate.trv1")
+
+        await update_task
+        assert result is True
+        assert mock_self.real_trvs["climate.trv1"].calibration_received is True
+        assert "did not confirm the calibration offset" not in caplog.text
+
+    @pytest.mark.asyncio
+    async def test_offset_never_confirmed_times_out(self, caplog):
+        """A report that never converges warns and still releases the flag."""
+        mock_self = _calibration_mock_self(HVACMode.HEAT, last_calibration=-2.0)
+
+        with (
+            patch(f"{_CTRL}.get_current_offset", new=AsyncMock(return_value=-1.0)),
+            _instant_sleep(),
+        ):
+            result = await check_calibration(mock_self, "climate.trv1")
+
+        assert result is True
+        assert mock_self.real_trvs["climate.trv1"].calibration_received is True
+        assert "did not confirm the calibration offset" in caplog.text
+
+    @pytest.mark.asyncio
+    async def test_unparseable_report_is_not_a_confirmation(self, caplog):
+        """An unreadable report is not treated as an acknowledgment."""
+        mock_self = _calibration_mock_self(HVACMode.HEAT, last_calibration=-2.0)
+
+        with (
+            patch(
+                f"{_CTRL}.get_current_offset",
+                new=AsyncMock(return_value="not-a-number"),
+            ),
+            _instant_sleep(),
+        ):
+            result = await check_calibration(mock_self, "climate.trv1")
+
+        assert result is True
+        assert mock_self.real_trvs["climate.trv1"].calibration_received is True
+        assert "did not confirm the calibration offset" in caplog.text
+
+    @pytest.mark.asyncio
+    async def test_unavailable_state_treated_as_done(self):
+        """An unavailable TRV ends the wait and still sets the flag."""
+        mock_self = _calibration_mock_self("unavailable", last_calibration=-2.0)
+
+        with (
+            patch(f"{_CTRL}.get_current_offset", new=AsyncMock(return_value=0.0)),
+            _instant_sleep(),
+        ):
+            result = await check_calibration(mock_self, "climate.trv1")
+
+        assert result is True
+        assert mock_self.real_trvs["climate.trv1"].calibration_received is True
+
+    @pytest.mark.asyncio
+    async def test_missing_state_treated_as_done(self):
+        """A missing TRV state ends the wait and still sets the flag."""
+        mock_self = _calibration_mock_self(None, last_calibration=-2.0)
+
+        with (
+            patch(f"{_CTRL}.get_current_offset", new=AsyncMock(return_value=0.0)),
+            _instant_sleep(),
+        ):
+            result = await check_calibration(mock_self, "climate.trv1")
+
+        assert result is True
+        assert mock_self.real_trvs["climate.trv1"].calibration_received is True
+
+    @pytest.mark.asyncio
+    async def test_no_command_to_confirm_ends_immediately(self):
+        """Without a recorded command there is nothing to wait for."""
+        mock_self = _calibration_mock_self(HVACMode.HEAT, last_calibration=None)
+
+        with (
+            patch(f"{_CTRL}.get_current_offset", new=AsyncMock(return_value=0.0)),
+            _instant_sleep(),
+        ):
+            result = await check_calibration(mock_self, "climate.trv1")
+
+        assert result is True
+        assert mock_self.real_trvs["climate.trv1"].calibration_received is True
+
+
+# ---------------------------------------------------------------------------
+# All three write watchdogs share one confirmation window
+# ---------------------------------------------------------------------------
+
+
+class TestWriteConfirmTimeout:
+    """Every write channel polls for WRITE_CONFIRM_TIMEOUT_S before giving up."""
+
+    @pytest.mark.asyncio
+    async def test_system_mode_polls_for_the_shared_window(self):
+        """check_system_mode polls one second at a time up to the window."""
+        mock_state = Mock()
+        mock_state.state = HVACMode.OFF
+
+        mock_hass = Mock()
+        mock_hass.states.get.return_value = mock_state
+
+        mock_self = Mock()
+        mock_self.device_name = "test_thermostat"
+        mock_self.hass = mock_hass
+        mock_self.real_trvs = {
+            "climate.trv1": Trv.from_legacy_dict(
+                "climate.trv1",
+                {"last_hvac_mode": HVACMode.HEAT, "system_mode_received": False},
+            )
+        }
+
+        with _instant_sleep() as durations:
+            await check_system_mode(mock_self, "climate.trv1")
+
+        assert durations.count(1) == WRITE_CONFIRM_TIMEOUT_S + 1
+
+    @pytest.mark.asyncio
+    async def test_target_temperature_polls_for_the_shared_window(self):
+        """check_target_temperature polls one second at a time up to the window."""
+        mock_state = Mock()
+        mock_state.attributes = {"temperature": 20.0}
+
+        mock_hass = Mock()
+        mock_hass.states.get.return_value = mock_state
+
+        mock_self = Mock()
+        mock_self.device_name = "test_thermostat"
+        mock_self.hass = mock_hass
+        mock_self.real_trvs = {
+            "climate.trv1": Trv.from_legacy_dict(
+                "climate.trv1",
+                {"last_temperature": 21.0, "target_temp_received": False},
+            )
+        }
+
+        with _instant_sleep() as durations:
+            await check_target_temperature(mock_self, "climate.trv1")
+
+        assert durations.count(1) == WRITE_CONFIRM_TIMEOUT_S + 1
+
+    @pytest.mark.asyncio
+    async def test_calibration_polls_for_the_shared_window(self):
+        """check_calibration polls one second at a time up to the window."""
+        mock_self = _calibration_mock_self(HVACMode.HEAT, last_calibration=-2.0)
+
+        with (
+            patch(f"{_CTRL}.get_current_offset", new=AsyncMock(return_value=-1.0)),
+            _instant_sleep() as durations,
+        ):
+            await check_calibration(mock_self, "climate.trv1")
+
+        assert durations.count(1) == WRITE_CONFIRM_TIMEOUT_S + 1

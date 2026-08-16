@@ -58,7 +58,11 @@ class Trv:
     last_valve_position: float | None = None
     last_hvac_mode: str | None = None
     last_current_temperature: float | None = None
+    # ``last_calibration`` is the command the adapter actually wrote after its
+    # own clamp to the declared offset range; ``last_calibration_requested`` is
+    # the value that was asked for before that clamp.
     last_calibration: float | None = None
+    last_calibration_requested: float | None = None
     last_valve_percent: float | None = None
     last_valve_method: str | None = None
 

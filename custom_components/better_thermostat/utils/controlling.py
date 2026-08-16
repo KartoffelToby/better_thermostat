@@ -54,6 +54,12 @@ _LOGGER = logging.getLogger(__name__)
 # time the band costs is finer than the user can express in the target anyway.
 COOLER_MODE_HYSTERESIS_K = 0.2
 
+# How long a write channel waits for the device to confirm a command before it
+# releases the in-flight flag and accepts the next write. Shared by the system
+# mode, target temperature and calibration watchdogs so all three channels give
+# a slow device the same window.
+WRITE_CONFIRM_TIMEOUT_S = 360
+
 
 def _is_boost_heating_active(self) -> bool:
     """Check if boost mode is active and heating is needed.
@@ -299,6 +305,37 @@ def _device_setpoint_tolerance(self, state) -> float:
         == UnitOfTemperature.FAHRENHEIT
     ):
         step = round(step * 5.0 / 9.0, 4)
+    # Slack against float noise when the difference is exactly half a step.
+    return max(SETPOINT_MATCH_TOLERANCE, step / 2.0 + 1e-6)
+
+
+def _calibration_match_tolerance(self, entity_id) -> float:
+    """Return the tolerance for comparing a written offset to a reported one.
+
+    A device snaps a written offset onto its own step grid, so a snapped value
+    sits at most half a step away from the value that was commanded.
+    SETPOINT_MATCH_TOLERANCE is the floor: it covers the read-back grid for
+    devices that report no usable step.
+
+    Parameters
+    ----------
+    self : BetterThermostat
+        The Better Thermostat climate entity instance
+    entity_id : str
+        Entity ID of the TRV whose offset step decides the tolerance
+
+    Returns
+    -------
+    float
+        Tolerance in Kelvin for an offset comparison
+    """
+    step = convert_to_float(
+        str(self.real_trvs[entity_id].local_calibration_step),
+        self.device_name,
+        "controlling()",
+    )
+    if step is None or step <= 0:
+        return SETPOINT_MATCH_TOLERANCE
     # Slack against float noise when the difference is exactly half a step.
     return max(SETPOINT_MATCH_TOLERANCE, step / 2.0 + 1e-6)
 
@@ -835,40 +872,74 @@ async def control_trv(self, heater_entity_id=None):
 
                 _calibration = float(str(_calibration))
 
-                _old_calibration = self.real_trvs[heater_entity_id].last_calibration
-                if _old_calibration is None:
-                    _old_calibration = _current_calibration
+                trv_entry = self.real_trvs[heater_entity_id]
+                _offset_tolerance = _calibration_match_tolerance(self, heater_entity_id)
 
-                # If current calibration already matches target, reset calibration_received
-                # to avoid it getting stuck at False when the state event was suppressed.
-                if (
-                    self.real_trvs[heater_entity_id].calibration_received is False
-                    and _current_calibration is not None
-                    and abs(float(_current_calibration) - float(_calibration)) < 0.5
-                ):
+                # The offset channel carries three values: the INTENT this
+                # cycle computed (_calibration), the COMMAND the adapter put on
+                # the wire after its own clamp (last_calibration), and the
+                # REPORT the device publishes (_current_calibration). A write
+                # goes out when the intent moved away from the last requested
+                # value, or when the report diverged from the command. A report
+                # that equals a clamped command means the device sits at a limit
+                # it declared, and that is not a reason to write.
+                _last_sent = trv_entry.last_calibration
+                if _last_sent is None:
+                    _last_sent = _current_calibration
+
+                # An unreadable report neither confirms nor diverges.
+                _report_readable = (
+                    _current_calibration is not None and _last_sent is not None
+                )
+                _command_diverged = _report_readable and (
+                    abs(float(_current_calibration) - float(_last_sent))
+                    > _offset_tolerance
+                )
+                _command_confirmed = _report_readable and not _command_diverged
+
+                if trv_entry.calibration_received is False and _command_confirmed:
                     _LOGGER.debug(
-                        "better_thermostat %s: TRV %s calibration already at target (%s), "
-                        "resetting calibration_received flag",
+                        "better_thermostat %s: TRV %s device confirms the last "
+                        "calibration command (%s), resetting calibration_received flag",
                         self.device_name,
                         heater_entity_id,
-                        _calibration,
+                        _last_sent,
                     )
-                    self.real_trvs[heater_entity_id].calibration_received = True
+                    trv_entry.calibration_received = True
 
-                if self.real_trvs[
-                    heater_entity_id
-                ].calibration_received is True and float(_old_calibration) != float(
-                    _calibration
-                ):
-                    _LOGGER.debug(
-                        "better_thermostat %s: TO TRV set_local_temperature_calibration: %s from: %s to: %s",
-                        self.device_name,
-                        heater_entity_id,
-                        _old_calibration,
-                        _calibration,
-                    )
-                    await set_offset(self, heater_entity_id, _calibration)
-                    self.real_trvs[heater_entity_id].calibration_received = False
+                if trv_entry.calibration_received is True:
+                    if _last_sent is None:
+                        _LOGGER.debug(
+                            "better_thermostat %s: no reference calibration for %s yet, "
+                            "skipping calibration write this cycle",
+                            self.device_name,
+                            heater_entity_id,
+                        )
+                    else:
+                        # Intent and last requested value come off the same
+                        # step grid, so they compare exactly; the tolerance
+                        # belongs where the two different grids of command and
+                        # report meet.
+                        _last_requested = trv_entry.last_calibration_requested
+                        if _last_requested is None:
+                            _last_requested = _last_sent
+                        if float(_last_requested) != _calibration or _command_diverged:
+                            _LOGGER.debug(
+                                "better_thermostat %s: TO TRV "
+                                "set_local_temperature_calibration: %s from: %s to: %s "
+                                "(device reports %s)",
+                                self.device_name,
+                                heater_entity_id,
+                                _last_sent,
+                                _calibration,
+                                _current_calibration,
+                            )
+                            if await set_offset(self, heater_entity_id, _calibration):
+                                trv_entry.calibration_received = False
+                                self.task_manager.create_task(
+                                    check_calibration(self, heater_entity_id),
+                                    name=f"bt_check_calibration_{heater_entity_id}",
+                                )
 
             # set new target temperature
             if _temperature is not None and (
@@ -962,12 +1033,13 @@ async def check_system_mode(self, heater_entity_id=None):
         if _trv_state.state == _real_trv.last_hvac_mode:
             _timeout = 0
             break
-        if _timeout > 360:
+        if _timeout > WRITE_CONFIRM_TIMEOUT_S:
             _LOGGER.warning(
                 "better_thermostat %s: TRV %s did not confirm the system mode change "
-                "after 360s (wrote=%s, last reported=%s); giving up and assuming applied",
+                "after %ss (wrote=%s, last reported=%s); giving up and assuming applied",
                 self.device_name,
                 heater_entity_id,
+                WRITE_CONFIRM_TIMEOUT_S,
                 _real_trv.last_hvac_mode,
                 _trv_state.state,
             )
@@ -1032,12 +1104,13 @@ async def check_target_temperature(self, heater_entity_id=None):
         ):
             _timeout = 0
             break
-        if _timeout > 360:
+        if _timeout > WRITE_CONFIRM_TIMEOUT_S:
             _LOGGER.warning(
                 "better_thermostat %s: TRV %s did not confirm the target temperature "
-                "after 360s (wrote=%s, last reported=%s); giving up and assuming applied",
+                "after %ss (wrote=%s, last reported=%s); giving up and assuming applied",
                 self.device_name,
                 heater_entity_id,
+                WRITE_CONFIRM_TIMEOUT_S,
                 _real_trv.last_temperature,
                 _current_set_temperatures,
             )
@@ -1048,4 +1121,72 @@ async def check_target_temperature(self, heater_entity_id=None):
     await asyncio.sleep(2)
 
     _real_trv.target_temp_received = True
+    return True
+
+
+async def check_calibration(self, heater_entity_id=None):
+    """Wait for TRV to confirm the calibration offset, timeout after 6 minutes.
+
+    Polls the TRV's reported offset every second until it matches
+    last_calibration within the tolerance the device's own offset step allows,
+    or the timeout is reached. Sets calibration_received when complete, which
+    is what releases the write gate for the next offset command; without it a
+    device that never acknowledges an offset wedges the channel.
+
+    The reported value is deliberately not adopted into last_calibration on
+    timeout: last_calibration is the reference the local calibration integrates
+    from, and adopting a dropped write's report would make the next cycle treat
+    it as confirmed.
+
+    Parameters
+    ----------
+    self : BetterThermostat
+        The Better Thermostat climate entity instance
+    heater_entity_id : str, optional
+        Entity ID of the TRV to check
+
+    Returns
+    -------
+    bool
+        Always returns True
+    """
+    _timeout = 0
+    _real_trv = self.real_trvs[heater_entity_id]
+    _tolerance = _calibration_match_tolerance(self, heater_entity_id)
+    while True:
+        _trv_state = self.hass.states.get(heater_entity_id)
+        if _trv_state is None or _trv_state.state in (STATE_UNAVAILABLE, STATE_UNKNOWN):
+            _LOGGER.debug(
+                "better_thermostat %s: %s became unavailable during check_calibration",
+                self.device_name,
+                heater_entity_id,
+            )
+            break
+        _reported = convert_to_float(
+            str(await get_current_offset(self, heater_entity_id)),
+            self.device_name,
+            "check_calibration()",
+        )
+        if _real_trv.last_calibration is None or (
+            _reported is not None
+            and abs(_reported - float(_real_trv.last_calibration)) <= _tolerance
+        ):
+            _timeout = 0
+            break
+        if _timeout > WRITE_CONFIRM_TIMEOUT_S:
+            _LOGGER.warning(
+                "better_thermostat %s: TRV %s did not confirm the calibration offset "
+                "after %ss (wrote=%s, last reported=%s); giving up and assuming applied",
+                self.device_name,
+                heater_entity_id,
+                WRITE_CONFIRM_TIMEOUT_S,
+                _real_trv.last_calibration,
+                _reported,
+            )
+            _timeout = 0
+            break
+        await asyncio.sleep(1)
+        _timeout += 1
+    await asyncio.sleep(2)
+    _real_trv.calibration_received = True
     return True
