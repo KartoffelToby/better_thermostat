@@ -618,6 +618,21 @@ async def control_cooler(self):
             )
             should_send_temp = False
 
+    # An open contact suppresses the temperature channel alongside the mode,
+    # the way a suppressed TRV receives a mode command and no setpoint. The
+    # unit is held OFF and converges on nothing, so a setpoint written now
+    # would only overwrite whatever the user turned its own dial to. Nothing
+    # is attempted, so the send cache records nothing either, and the channel
+    # resumes on the cycle the contact shuts.
+    if should_send_temp and self.contact_open:
+        _LOGGER.debug(
+            "better_thermostat %s: cooler %s suppressed by an open contact, "
+            "skipping set_temperature",
+            self.device_name,
+            self.cooler_entity_id,
+        )
+        should_send_temp = False
+
     if should_send_temp:
         _LOGGER.debug(
             "better_thermostat %s: TO COOLER set_temperature: %s from: %s to: %s",

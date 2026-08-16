@@ -1675,6 +1675,60 @@ class TestControlCoolerOpenContact:
         assert mock_self.last_cooler_mode_decided == HVACMode.OFF
 
     @pytest.mark.asyncio
+    async def test_an_open_contact_leaves_the_units_own_setpoint_alone(self):
+        """The unit is held OFF, so a setpoint would only overwrite its dial."""
+        mock_hass = Mock()
+        mock_hass.config.units.temperature_unit = UnitOfTemperature.CELSIUS
+        mock_hass.services = Mock()
+        mock_hass.services.async_call = AsyncMock()
+        # The unit's own dial sits at 18.0 while the cooling target is 24.0, so
+        # a cycle without the contact would write the difference out.
+        mock_hass.states.get.return_value = _make_cooler_state(
+            state=HVACMode.COOL, temperature=18.0
+        )
+
+        mock_self = _make_mock_self(
+            mock_hass,
+            bt_hvac_mode=HVACMode.HEAT_COOL,
+            cur_temp=26.0,
+            bt_target_temp=20.0,
+            bt_target_cooltemp=24.0,
+            contact_open=True,
+        )
+
+        await control_cooler(mock_self)
+
+        calls = mock_hass.services.async_call.call_args_list
+        assert [call.args[1] for call in calls] == ["set_hvac_mode"]
+        assert mock_self.last_sent_cooler_temp is None
+
+    @pytest.mark.asyncio
+    async def test_a_shut_contact_still_writes_the_cooling_setpoint(self):
+        """The suppression lifts on the cycle the contact shuts."""
+        mock_hass = Mock()
+        mock_hass.config.units.temperature_unit = UnitOfTemperature.CELSIUS
+        mock_hass.services = Mock()
+        mock_hass.services.async_call = AsyncMock()
+        mock_hass.states.get.return_value = _make_cooler_state(
+            state=HVACMode.COOL, temperature=18.0
+        )
+
+        mock_self = _make_mock_self(
+            mock_hass,
+            bt_hvac_mode=HVACMode.HEAT_COOL,
+            cur_temp=26.0,
+            bt_target_temp=20.0,
+            bt_target_cooltemp=24.0,
+            contact_open=False,
+        )
+
+        await control_cooler(mock_self)
+
+        calls = mock_hass.services.async_call.call_args_list
+        assert [call.args[1] for call in calls] == ["set_temperature"]
+        assert calls[0].args[2]["temperature"] == 24.0
+
+    @pytest.mark.asyncio
     async def test_an_open_contact_leaves_a_shared_device_to_the_heating_channel(self):
         """The channel that switches a device off for an airing keeps it.
 
