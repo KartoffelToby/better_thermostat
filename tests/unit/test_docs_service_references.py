@@ -7,7 +7,9 @@ page or a bundled blueprint has to name a service the integration registers.
 
 ``RETIRED`` holds the names the integration does not register any more. They are
 allowed in exactly one file, the migration guide that tells readers what to call
-instead, and nowhere in anything the integration ships.
+instead, and nowhere in anything the integration ships. That guide is also the
+only place a reader can look a retired name up, so every name in ``RETIRED`` has
+to appear there.
 """
 
 from pathlib import Path
@@ -82,6 +84,16 @@ def test_retired_service_names_appear_only_in_the_migration_doc():
     assert not offenders, (
         "retired service names belong only in "
         f"{_rel(MIGRATION_DOC)}, but were found in: {offenders}"
+    )
+
+
+def test_every_retired_service_name_is_covered_by_the_migration_doc():
+    text = MIGRATION_DOC.read_text(encoding="utf-8")
+    uncovered = sorted(name for name in RETIRED if name not in text)
+    assert not uncovered, (
+        f"{_rel(MIGRATION_DOC)} is the only page allowed to name a retired "
+        "service, so a reader looking one up finds nothing unless every name in "
+        f"RETIRED is covered there; missing: {uncovered}"
     )
 
 
