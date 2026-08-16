@@ -2034,6 +2034,7 @@ class TestRaceConditionLockCoverage:
                 execution_log.append(f"set_valve_start_{args[1]}")
                 await asyncio.sleep(0.01)
                 execution_log.append(f"set_valve_end_{args[1]}")
+                return True
 
             async def delayed_set_hvac_mode(*args, **kwargs):
                 execution_log.append(f"set_hvac_mode_start_{args[1]}")
@@ -2044,6 +2045,7 @@ class TestRaceConditionLockCoverage:
                 execution_log.append(f"set_offset_start_{args[1]}")
                 await asyncio.sleep(0.01)
                 execution_log.append(f"set_offset_end_{args[1]}")
+                return True
 
             async def delayed_set_temp(*args, **kwargs):
                 execution_log.append(f"set_temp_start_{args[1]}")
@@ -2312,6 +2314,7 @@ class TestRaceConditionLockCoverage:
                 lock_state_during_operations.append(
                     ("set_valve", mock_self._temp_lock.locked())
                 )
+                return True
 
             async def check_lock_on_set_hvac_mode(*args, **kwargs):
                 lock_state_during_operations.append(
@@ -2322,6 +2325,7 @@ class TestRaceConditionLockCoverage:
                 lock_state_during_operations.append(
                     ("set_offset", mock_self._temp_lock.locked())
                 )
+                return True
 
             async def check_lock_on_set_temp(*args, **kwargs):
                 lock_state_during_operations.append(
