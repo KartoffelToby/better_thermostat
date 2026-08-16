@@ -1626,6 +1626,20 @@ async def get_device_model(self, entity_id: str) -> str:
     """Determine the device model from the Device Registry entry.
 
     Priority: model_id > model (before parens) > model > config > "generic"
+
+    Parameters
+    ----------
+    self :
+            any object exposing ``hass`` and ``device_name``. A ``model``
+            attribute is optional and only consulted as a fallback; callers
+            without one fall through to ``"generic"``.
+    entity_id :
+            entity id of the TRV to look up
+
+    Returns
+    -------
+    str
+            the detected model, or ``"generic"`` when nothing is known
     """
     selected: str | None = None
     source: str = "none"
@@ -1680,8 +1694,13 @@ async def get_device_model(self, entity_id: str) -> str:
         pass
 
     # Final fallback: configured model, then generic
-    if not selected and isinstance(self.model, str) and len(self.model.strip()) >= 2:
-        selected = self.model.strip()
+    configured_model = getattr(self, "model", None)
+    if (
+        not selected
+        and isinstance(configured_model, str)
+        and len(configured_model.strip()) >= 2
+    ):
+        selected = configured_model.strip()
         source = "config.model"
     if not selected:
         selected = "generic"
