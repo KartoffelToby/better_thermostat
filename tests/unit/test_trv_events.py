@@ -2285,3 +2285,141 @@ class TestGroupedNoOffAdoption:
             await trigger_trv_change(mock_bt, event)
 
         assert mock_bt.bt_hvac_mode == HVACMode.OFF
+
+
+class TestDualRoleEntityReports:
+    """Reports from a device named as both the thermostat and the cooler.
+
+    Such a device publishes one setpoint for two targets. The mode it reports
+    is the statement about which target a press on its own controls meant, and
+    what either channel wrote is not a press at all.
+    """
+
+    @pytest.fixture
+    def shared_bt(self, mock_bt):
+        """Make the tracked thermostat the configured cooler as well."""
+        mock_bt.cooler_entity_id = ENTITY_ID
+        mock_bt.bt_hvac_mode = HVACMode.HEAT_COOL
+        mock_bt.hvac_mode = HVACMode.HEAT_COOL
+        mock_bt.bt_target_temp = 20.0
+        mock_bt.bt_target_cooltemp = 24.0
+        mock_bt._cooler_last_sent = {"temperature": (24.0, 0.0)}
+        mock_bt.real_trvs[ENTITY_ID].hvac_modes = [
+            HVACMode.OFF,
+            HVACMode.HEAT,
+            HVACMode.COOL,
+            HVACMode.HEAT_COOL,
+        ]
+        mock_bt.real_trvs[ENTITY_ID].last_temperature = 20.0
+        mock_bt._clamp_inbound_cool_target = lambda v: (
+            BetterThermostat._clamp_inbound_cool_target(mock_bt, v)
+        )
+        mock_bt._enforce_heat_below_cool = lambda: (
+            BetterThermostat._enforce_heat_below_cool(mock_bt)
+        )
+        return mock_bt
+
+    @staticmethod
+    async def _report(bt, *, device_mode, reported_temp, previous_temp):
+        """Drive one device report through the real TRV handler."""
+        old_state = _make_state(
+            state_str=device_mode,
+            attributes={"temperature": previous_temp, "current_temperature": 22.0},
+        )
+        new_state = _make_state(
+            state_str=device_mode,
+            attributes={"temperature": reported_temp, "current_temperature": 22.0},
+        )
+        # trigger_trv_change reads the state machine rather than the event's
+        # new_state for the device's own mode, so both carry the report.
+        bt.hass.states.get.return_value = new_state
+        event = _make_event(bt, new_state=new_state, old_state=old_state)
+        with patch(
+            "custom_components.better_thermostat.events.trv.convert_inbound_states",
+            return_value=HVACMode.HEAT,
+        ):
+            await trigger_trv_change(bt, event)
+
+    @pytest.mark.asyncio
+    async def test_shared_entity_reads_the_cooling_channel_write_as_an_echo(
+        self, shared_bt
+    ):
+        """The cooling channel's own setpoint read back moves no target.
+
+        The device reports the cooling target the cooling channel just wrote to
+        it. Read as a press, it would drag the heating target up to just below
+        the cooling one, which is the heating setpoint moving on its own the
+        moment the room switches to cooling.
+        """
+        await self._report(
+            shared_bt, device_mode="cool", reported_temp=24.0, previous_temp=20.0
+        )
+
+        assert shared_bt.bt_target_temp == 20.0
+        assert shared_bt.bt_target_cooltemp == 24.0
+
+    @pytest.mark.asyncio
+    async def test_shared_entity_files_a_press_under_the_cooling_channel_while_it_cools(
+        self, shared_bt
+    ):
+        """A press on the remote while the unit cools names the cool target."""
+        await self._report(
+            shared_bt, device_mode="cool", reported_temp=26.0, previous_temp=24.0
+        )
+
+        assert shared_bt.bt_target_cooltemp == 26.0
+        assert shared_bt.bt_target_temp == 20.0
+
+    @pytest.mark.asyncio
+    async def test_shared_entity_files_a_press_under_the_heating_channel_while_it_heats(
+        self, shared_bt
+    ):
+        """A press on the remote while the unit heats names the heat target."""
+        await self._report(
+            shared_bt, device_mode="heat", reported_temp=21.0, previous_temp=20.0
+        )
+
+        assert shared_bt.bt_target_temp == 21.0
+        assert shared_bt.bt_target_cooltemp == 24.0
+
+    @pytest.mark.asyncio
+    async def test_shared_entity_follows_the_latch_while_the_reported_mode_lags(
+        self, shared_bt
+    ):
+        """A cooling setpoint written before its mode is still cooling's.
+
+        The cooling channel writes the setpoint first and the mode second, so
+        the report of that setpoint arrives while the device still names the
+        mode it is leaving.
+        """
+        shared_bt._cooler_last_sent = {"hvac_mode_decided": HVACMode.COOL}
+
+        await self._report(
+            shared_bt, device_mode="heat", reported_temp=26.0, previous_temp=20.0
+        )
+
+        assert shared_bt.bt_target_cooltemp == 26.0
+        assert shared_bt.bt_target_temp == 20.0
+
+    @pytest.mark.asyncio
+    async def test_a_distinct_trv_setpoint_matching_the_cool_target_is_still_adopted(
+        self, mock_bt
+    ):
+        """A radiator that is not the cooler keeps the narrow echo set.
+
+        Its setpoint is never written by the cooling channel, so a knob turn
+        that lands on the cooling target is a press like any other.
+        """
+        mock_bt.cooler_entity_id = "climate.split_unit"
+        mock_bt.bt_target_temp = 19.0
+        mock_bt.bt_target_cooltemp = 24.0
+        mock_bt._cooler_last_sent = {"temperature": (24.0, 0.0)}
+        mock_bt.bt_max_temp = 30.0
+        mock_bt.real_trvs[ENTITY_ID].last_temperature = 19.0
+        mock_bt.real_trvs[ENTITY_ID].max_temp = 30.0
+
+        await self._report(
+            mock_bt, device_mode="heat", reported_temp=24.0, previous_temp=19.0
+        )
+
+        assert mock_bt.bt_target_temp == 23.5
