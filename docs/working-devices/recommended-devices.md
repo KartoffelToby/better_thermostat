@@ -9,7 +9,7 @@ When choosing a Smart Radiator Valve (TRV) or temperature sensor for Better Ther
 
 The best TRVs for Better Thermostat have the following features:
 1. **Local Temperature Calibration**: Allows Better Thermostat to send an offset to the TRV, making the TRV's internal logic work with your external room sensor.
-2. **Direct Valve Control**: Allows Better Thermostat to directly set the valve opening percentage (e.g., 0-100%). MPC Predictive and PID Controller need this to work at their best.
+2. **Direct Valve Control**: Allows Better Thermostat to directly set the valve opening percentage (e.g., 0-100%). Every algorithm runs without it, but MPC Predictive and PID Controller gain the most from it.
 3. **Fast Reporting**: Sends temperature and state updates frequently without aggressive battery-saving sleep modes that delay commands.
 
 ## Recommended TRVs
@@ -62,7 +62,7 @@ A window sensor lets Better Thermostat pause the heating as soon as a window ope
 
 For these devices we recommend **Zigbee2MQTT (Z2M)**. It provides the most granular control over TRV entities, exposing calibration and valve control entities that other integrations (like ZHA or deCONZ) sometimes hide or don't support fully.
 
-if you looking for a good Zigbee coordinator, the [SONOFF Zigbee 3.0 USB Dongle Plus](https://amzn.to/4rt9aWt) is a popular choice that works well with Zigbee2MQTT and supports a wide range of devices. But, if you want to support even HomeAssistant itself, you better get the [ZBT-2](https://www.home-assistant.io/connect/zbt-2/) its a bit more expensive but it has better performance and reliability, and it's also supported by HomeAssistant itself as a native Zigbee coordinator.
+If you are looking for a good Zigbee coordinator, the [SONOFF Zigbee 3.0 USB Dongle Plus](https://amzn.to/4rt9aWt) is a popular choice that works well with Zigbee2MQTT and supports a wide range of devices. If you also want to support Home Assistant itself, consider the [ZBT-2](https://www.home-assistant.io/connect/zbt-2/): it is a bit more expensive, but it performs better, is more reliable, and Home Assistant supports it as a native Zigbee coordinator.
 
 ## Tested setups
 

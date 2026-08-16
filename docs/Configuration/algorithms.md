@@ -18,7 +18,7 @@ Start here if you are unsure:
 | --- | --- |
 | Setting up for the first time | AI Time Based (default) |
 | Room heats too slowly | Aggressive |
-| Temperature overshoots often | MPC Predictive |
+| Temperature often overshoots | MPC Predictive |
 | You want fine control and know PID tuning | PID Controller |
 | You want something simple | Normal or TPI Controller |
 
@@ -62,7 +62,7 @@ MPC (Model Predictive Control) predicts how your room temperature will change ov
 - Temperature trends
 - Learned thermal properties of your room (how fast it heats and cools)
 
-From that prediction it picks the valve opening that reaches your target smoothly instead of driving hard and correcting afterwards, and it keeps updating the model as the room behaves.
+From that prediction it picks the valve opening that reaches your target smoothly instead of driving hard and correcting afterward, and it keeps updating the model as the room behaves.
 
 Of all the modes it is the best at avoiding overshoot and the most economical with energy. It is also the most complex, and it reacts deliberately rather than quickly, which can read as sluggish at first. Give it about a day of operation before judging it.
 
@@ -250,7 +250,7 @@ For MQTT/Zigbee2MQTT users, you can also check if your TRV exposes entities like
 
 ### What it buys you
 
-The algorithm sets heating power exactly rather than asking the TRV's own logic for it, so the response arrives without a detour and the room's reaction is a cleaner signal to learn from. Finer control over heating intensity also means less overshoot. MPC and PID are the two modes that gain the most.
+The algorithm sets the valve opening itself rather than asking the TRV's own logic for it, so the response arrives without a detour and the room's reaction is a cleaner signal to learn from. Valve position is not heat output — flow temperature and the valve's own authority still sit in between — but it is the finest handle Better Thermostat can get, and a finer handle leaves less room for overshoot. MPC and PID gain the most from it; every mode runs without it.
 
 ### If you are buying new TRVs
 
