@@ -19,6 +19,7 @@ from homeassistant.util import dt as dt_util
 
 from ..trv import Trv
 from .const import CONF_VALVE_MAINTENANCE, CalibrationType
+from .helpers import device_offers_mode
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -72,6 +73,8 @@ def pick_wake_mode(
         Whether the TRV is driven by writing a valve percentage.
     hvac_modes : object
         The modes the TRV reports, as read from its state attributes.
+        Any spelling: ``HVACMode`` members, plain strings or
+        ``"HVACMode.HEAT"``.
 
     Returns
     -------
@@ -83,9 +86,8 @@ def pick_wake_mode(
         return None
     if not isinstance(hvac_modes, (list, tuple, set)):
         return None
-    available = {str(mode) for mode in hvac_modes}
     for candidate in _WAKE_MODE_PREFERENCE:
-        if candidate in available:
+        if device_offers_mode(hvac_modes, candidate):
             return candidate
     return None
 
