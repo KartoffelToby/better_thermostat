@@ -392,12 +392,8 @@ class TestModeRemapUnsupportedOutboundMode:
             result = mode_remap(mock_bt, "climate.test", HVACMode.AUTO, inbound=False)
 
         assert result == HVACMode.OFF
-        swap_hints = [
-            record
-            for record in caplog.records
-            if "heat auto swapped" in record.getMessage()
-        ]
-        assert len(swap_hints) == 1
+        assert len(_forgotten_swap_records(caplog)) == 1
+        assert _unsupported_records(caplog) == []
 
     def test_the_auto_error_is_annunciated_once(self, caplog):
         """Every outbound AUTO cycle keeps reporting OFF, but logs once."""

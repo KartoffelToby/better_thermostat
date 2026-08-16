@@ -7,7 +7,7 @@ from datetime import datetime
 import logging
 import math
 import re
-from typing import Any, NamedTuple
+from typing import TYPE_CHECKING, Any, NamedTuple
 
 from homeassistant.components.climate.const import (
     ATTR_TARGET_TEMP_STEP,
@@ -42,6 +42,9 @@ from custom_components.better_thermostat.utils.const import (
     VALVE_MIN_THRESHOLD_TEMP_DIFF,
     CalibrationMode,
 )
+
+if TYPE_CHECKING:
+    from custom_components.better_thermostat.trv import Trv
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -275,7 +278,7 @@ def offered_mode_signature(trv_modes: Iterable[Any] | None) -> frozenset[str]:
     return frozenset(str(normalize_hvac_mode(mode)) for mode in trv_modes)
 
 
-def adopt_reported_hvac_modes(trv, reported_modes: Any) -> None:
+def adopt_reported_hvac_modes(trv: Trv, reported_modes: Any) -> None:
     """Cache the HVAC modes a device reports on its state.
 
     An absent or empty list keeps the cached one: it means the device
@@ -298,7 +301,7 @@ def adopt_reported_hvac_modes(trv, reported_modes: Any) -> None:
     trv.hvac_modes = reported_modes
 
 
-def _unsupported_mode_hint(trv) -> str:
+def _unsupported_mode_hint(trv: Trv) -> str:
     """Name the remedy for a device that does not offer the mode BT wants.
 
     The heat auto swapped option is what decides whether BT writes ``heat``
@@ -328,7 +331,12 @@ def _unsupported_mode_hint(trv) -> str:
 
 
 def _clamp_to_offered_mode(
-    self, trv, entity_id, hvac_mode: str, inbound: bool, fallbacks: Sequence[str] = ()
+    self,
+    trv: Trv,
+    entity_id: str,
+    hvac_mode: str,
+    inbound: bool,
+    fallbacks: Sequence[str] = (),
 ) -> str | None:
     """Drop an outbound HVAC mode the device does not offer.
 
@@ -410,14 +418,16 @@ def _clamp_to_offered_mode(
     return None
 
 
-def mode_remap(self, entity_id, hvac_mode: str, inbound: bool = False) -> str | None:
+def mode_remap(
+    self, entity_id: str, hvac_mode: str, inbound: bool = False
+) -> str | None:
     """Remap HVAC mode to correct mode if nessesary.
 
     Parameters
     ----------
     self :
             self instance of better_thermostat
-    entity_id :
+    entity_id : str
             entity id of the TRV whose mode is being remapped
     hvac_mode : str
             HVAC mode to be remapped
