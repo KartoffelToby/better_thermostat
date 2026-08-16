@@ -573,7 +573,8 @@ def advance_hvac_action(self) -> None:
     control cycle. Every dispatched device advances them, and a cycle that
     dispatches none advances them itself, so the band never rests on the state
     an earlier cycle left it in. The recompute is non-critical: a cycle that
-    cannot take it goes on to the device writes rather than failing.
+    cannot take it goes on to the device writes rather than failing, so the
+    traceback is the only trace a band that stops advancing leaves behind.
 
     Parameters
     ----------
@@ -593,6 +594,7 @@ def advance_hvac_action(self) -> None:
         _LOGGER.debug(
             "better_thermostat %s: hvac action recompute failed (non critical)",
             getattr(self, "device_name", "unknown"),
+            exc_info=True,
         )
 
 
