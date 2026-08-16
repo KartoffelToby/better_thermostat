@@ -16,6 +16,7 @@ from datetime import datetime
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
+from homeassistant.components.climate.const import HVACMode
 import pytest
 
 from custom_components.better_thermostat.trv import Trv
@@ -255,6 +256,16 @@ class TestBuildTrvSnapshots:
         }
         result = build_trv_snapshots(trvs, ["trv1"], lambda _: _ha_state(), "Test")
         assert result[0].use_direct_valve is True
+
+    def test_wake_mode_from_enum_repr_capabilities(self):
+        """An off TRV spelling its capabilities as ``HVACMode.*`` still wakes."""
+        trvs = {"trv1": _trv(maintenance=True)}
+
+        def get_state(_):
+            return _ha_state("off", 21.0, ["HVACMode.OFF", "HVACMode.HEAT"])
+
+        result = build_trv_snapshots(trvs, ["trv1"], get_state, "Test")
+        assert result[0].wake_mode == HVACMode.HEAT
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -642,6 +653,33 @@ class TestPickWakeMode:
     def test_missing_hvac_modes_attribute(self):
         """A device that reports no mode list stays untouched."""
         assert pick_wake_mode("off", False, None) is None
+
+    def test_enum_members_are_matched(self):
+        """A device reporting HVACMode members is understood."""
+        assert (
+            pick_wake_mode("off", False, [HVACMode.OFF, HVACMode.HEAT]) == HVACMode.HEAT
+        )
+
+    def test_enum_repr_spelling_is_matched(self):
+        """``HVACMode.HEAT`` spelled out as a string still wakes the TRV."""
+        assert (
+            pick_wake_mode("off", False, ["HVACMode.OFF", "HVACMode.HEAT"])
+            == HVACMode.HEAT
+        )
+
+    def test_enum_repr_spelling_keeps_the_preference_order(self):
+        """Preference is read on normalized values, not on the raw spelling."""
+        assert (
+            pick_wake_mode("off", False, ["HVACMode.AUTO", "HVACMode.HEAT"])
+            == HVACMode.HEAT
+        )
+
+    def test_enum_repr_spelling_falls_back(self):
+        """A spelled-out list without HEAT falls through to the next candidate."""
+        assert (
+            pick_wake_mode("off", False, ["HVACMode.OFF", "HVACMode.HEAT_COOL"])
+            == HVACMode.HEAT_COOL
+        )
 
 
 class TestWakeStep:
