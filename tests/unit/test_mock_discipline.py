@@ -13,12 +13,12 @@ Independent hazards live at this seam, and they need different answers:
   ``return_value=`` given at the call, so a callback that falls off its
   end takes the stated answer back and hands the shell ``None``.
 
-Both halves are derived rather than listed: the seam comes from the
+Both halves are derived rather than listed. The seam comes from the
 production modules, so a new delegate or quirk function is covered the
-day it is written, and the patch spellings come from the module's own
-imports, so an alias or a ``patch.object`` cannot slip past. The one
-spelling this cannot read, ``patch.multiple``, is rejected outright
-instead of being passed over.
+day it is written. The patch spellings are matched on the dotted call
+itself and on the module's own import names, so neither an alias nor a
+``mock.patch.object`` can slip past. The one spelling this cannot read,
+``patch.multiple``, is rejected outright instead of being passed over.
 """
 
 from __future__ import annotations
@@ -75,6 +75,7 @@ class PatchSite(NamedTuple):
     keywords: dict[str, ast.expr]
     positional_new: bool
     async_defs: dict[str, list[ast.AsyncFunctionDef]]
+    scoped_async_defs: dict[tuple[int, str], list[ast.AsyncFunctionDef]]
     bound_name: str | None
     late_side_effects: dict[tuple[int, str], list[str]]
     scope: int
@@ -141,6 +142,17 @@ def _patch_aliases(tree: ast.Module) -> set[str]:
     return aliases
 
 
+def _names_patch(expression: str, aliases: set[str]) -> bool:
+    """Whether a dotted expression names ``unittest.mock.patch``.
+
+    Either it is one of the module's own names for it, or it ends in
+    ``.patch`` — which covers ``mock.patch``, ``unittest.mock.patch``
+    and any other spelling of the module, without the rule having to
+    resolve every import form.
+    """
+    return expression in aliases or expression.rpartition(".")[2] == "patch"
+
+
 def _patch_form(node: ast.Call, aliases: set[str]) -> str | None:
     """Which ``patch`` spelling a call uses, or ``None`` if it is not one.
 
@@ -148,15 +160,25 @@ def _patch_form(node: ast.Call, aliases: set[str]) -> str | None:
     where the target is the first argument. ``object`` covers
     ``patch.object(obj, "name")``, where it is the second. ``multiple``
     covers ``patch.multiple(obj, name=…)``, where the targets are the
-    keywords.
+    keywords. Each is recognised however the module reaches ``patch``,
+    so ``mock.patch.object`` counts the same as ``patch.object``.
     """
     func = node.func
     if isinstance(func, ast.Attribute):
-        owner = func.value.id if isinstance(func.value, ast.Name) else None
-        if func.attr in ("object", "multiple") and owner in aliases:
-            return func.attr
-        return "plain" if func.attr == "patch" else None
-    return "plain" if getattr(func, "id", None) in aliases else None
+        tail = func.attr
+    elif isinstance(func, ast.Name):
+        tail = func.id
+    else:
+        return None
+    # Cheap gate: every spelling ends in one of these, and unparsing the
+    # rest of a large test file's call nodes is not worth the certainty.
+    if tail not in ("patch", "object", "multiple") and tail not in aliases:
+        return None
+    source = ast.unparse(func)
+    head, _, last = source.rpartition(".")
+    if last in ("object", "multiple") and head and _names_patch(head, aliases):
+        return last
+    return "plain" if _names_patch(source, aliases) else None
 
 
 def _bound_names(tree: ast.Module) -> dict[int, str]:
@@ -240,9 +262,12 @@ def _iter_patch_sites() -> Iterator[PatchSite]:
         scopes = _scopes(tree)
         late = _late_side_effects(tree, scopes)
         async_defs: dict[str, list[ast.AsyncFunctionDef]] = {}
+        scoped_async_defs: dict[tuple[int, str], list[ast.AsyncFunctionDef]] = {}
         for node in ast.walk(tree):
             if isinstance(node, ast.AsyncFunctionDef):
                 async_defs.setdefault(node.name, []).append(node)
+                key = (scopes.get(id(node), 0), node.name)
+                scoped_async_defs.setdefault(key, []).append(node)
         for node in ast.walk(tree):
             if not isinstance(node, ast.Call):
                 continue
@@ -265,6 +290,7 @@ def _iter_patch_sites() -> Iterator[PatchSite]:
                 keywords={kw.arg: kw.value for kw in node.keywords if kw.arg},
                 positional_new=len(node.args) > target_index + 1,
                 async_defs=async_defs,
+                scoped_async_defs=scoped_async_defs,
                 bound_name=bound.get(id(node)),
                 late_side_effects=late,
                 scope=scopes.get(id(node), 0),
@@ -353,7 +379,11 @@ def _late_side_effects_without_an_answer(site: PatchSite) -> list[str]:
         return []
     silent: list[str] = []
     for callback in site.late_side_effects.get((site.scope, site.bound_name), []):
-        definitions = site.async_defs.get(callback)
+        # The callback belonging to *this* test, not a same-named one from
+        # a neighbouring test that happens to answer.
+        definitions = site.scoped_async_defs.get(
+            (site.scope, callback)
+        ) or site.async_defs.get(callback)
         if definitions and not any(_returns_a_value(d) for d in definitions):
             silent.append(callback)
     return silent
