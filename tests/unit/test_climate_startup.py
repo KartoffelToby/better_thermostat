@@ -10,7 +10,7 @@ import json
 import logging
 from unittest.mock import AsyncMock, MagicMock, patch
 
-from homeassistant.components.climate.const import HVACMode
+from homeassistant.components.climate.const import PRESET_NONE, HVACMode
 from homeassistant.const import (
     ATTR_TEMPERATURE,
     STATE_UNAVAILABLE,
@@ -1523,3 +1523,86 @@ class TestValidateHvacMode:
         states = [_make_trv_state()]
         BetterThermostat._validate_hvac_mode(bt, states)
         assert bt._current_humidity == 0
+
+
+class TestFinalizeStartupOnADualRoleEntity:
+    """A cooler that is also one of the controlled thermostats.
+
+    Such a device is already tracked as a thermostat, and one device reporting
+    into two handlers means each handler reads the other channel's write as a
+    user press.
+    """
+
+    @staticmethod
+    def _make_shared_bt():
+        bt = _make_finalize_bt()
+        bt.cooler_entity_id = TRV_ID
+        bt.preset_mgr = MagicMock()
+        bt.preset_mgr.mode = PRESET_NONE
+        bt._preset_cool_temperatures = {PRESET_NONE: 24.0}
+        return bt
+
+    @staticmethod
+    async def _run_capturing_subscriptions(bt):
+        """Run _finalize_startup and return the (entity ids, handler) pairs."""
+        climate = "custom_components.better_thermostat.climate"
+        with (
+            patch(f"{climate}.await_critical_entities", AsyncMock()),
+            patch(f"{climate}.check_critical_entities", AsyncMock(return_value=True)),
+            patch(f"{climate}.await_optional_sensors", AsyncMock()),
+            patch(f"{climate}.check_and_update_degraded_mode", AsyncMock()),
+            patch(f"{climate}.asyncio.sleep", AsyncMock()),
+            patch(f"{climate}.async_track_time_interval"),
+            patch(f"{climate}.async_track_time_change"),
+            patch(f"{climate}.async_track_state_change_event") as track,
+        ):
+            await BetterThermostat._finalize_startup(bt)
+        return [(call.args[1], call.args[2]) for call in track.call_args_list]
+
+    @pytest.mark.asyncio
+    async def test_a_shared_entity_registers_only_the_trv_subscription(self):
+        """The device is tracked once, and by the handler that survives."""
+        bt = self._make_shared_bt()
+        bt.hass.states.get.return_value = State(TRV_ID, "heat", {"temperature": 21.0})
+
+        tracked = await self._run_capturing_subscriptions(bt)
+
+        assert (bt.entity_ids, bt._trigger_trv_change) in tracked
+        assert bt._trigger_cooler_change not in [handler for _, handler in tracked]
+
+    @pytest.mark.asyncio
+    async def test_a_distinct_cooler_still_registers_its_own_subscription(self):
+        """A cooler of its own keeps the handler written for it."""
+        bt = _make_finalize_bt()
+        bt.hass.states.get.return_value = State(
+            COOLER_ID, "cool", {"temperature": 24.0}
+        )
+
+        tracked = await self._run_capturing_subscriptions(bt)
+
+        assert ([COOLER_ID], bt._trigger_cooler_change) in tracked
+
+    @pytest.mark.asyncio
+    async def test_a_shared_entity_seeds_the_cool_target_from_the_preset(self):
+        """The cooling target comes from the preset, not off the device.
+
+        The setpoint a shared device reports belongs to whichever channel last
+        wrote it, and at startup that is the heating one.
+        """
+        bt = self._make_shared_bt()
+        bt.hass.states.get.return_value = State(TRV_ID, "heat", {"temperature": 21.0})
+
+        await self._run_capturing_subscriptions(bt)
+
+        assert bt.bt_target_cooltemp == 24.0
+
+    @pytest.mark.asyncio
+    async def test_a_shared_entity_leaves_a_restored_cool_target_alone(self):
+        """A cooling target the user already chose is never overwritten."""
+        bt = self._make_shared_bt()
+        bt.bt_target_cooltemp = 26.0
+        bt.hass.states.get.return_value = State(TRV_ID, "heat", {"temperature": 21.0})
+
+        await self._run_capturing_subscriptions(bt)
+
+        assert bt.bt_target_cooltemp == 26.0
