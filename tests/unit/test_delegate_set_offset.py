@@ -10,7 +10,7 @@ Both records, and the True the caller arms its confirmation watchdog on, follow
 the adapter's boolean answer: only a write that went out counts.
 """
 
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
@@ -18,6 +18,10 @@ from custom_components.better_thermostat.adapters.delegate import set_offset
 from custom_components.better_thermostat.trv import Trv
 
 ENTITY_ID = "climate.trv"
+# The retry decorator doubles a one-second base delay per attempt.
+RETRY_BACKOFF_S = [1.0, 2.0, 4.0, 8.0, 16.0]
+# The decorator spreads each delay by up to 20 % in either direction.
+RETRY_JITTER = 0.2
 
 
 @pytest.fixture
@@ -46,16 +50,32 @@ async def test_successful_write_records_the_requested_offset(bt):
 
 @pytest.mark.asyncio
 async def test_failed_write_leaves_the_requested_offset_untouched(bt):
-    """A write that raised on every retry records nothing and reports failure."""
+    """A write that raised on every retry records nothing and reports failure.
+
+    The backoff between the attempts is recorded rather than slept through,
+    so the retry schedule is asserted without spending it.
+    """
     bt.real_trvs[ENTITY_ID].last_calibration_requested = -1.0
     bt.real_trvs[ENTITY_ID].adapter.set_offset = AsyncMock(
         side_effect=RuntimeError("device refused")
     )
+    delays = []
 
-    result = await set_offset(bt, ENTITY_ID, -2.0)
+    async def _record_delay(seconds):
+        delays.append(seconds)
+
+    with patch("asyncio.sleep", new=_record_delay):
+        result = await set_offset(bt, ENTITY_ID, -2.0)
 
     assert result is False
     assert bt.real_trvs[ENTITY_ID].last_calibration_requested == -1.0
+    assert (
+        bt.real_trvs[ENTITY_ID].adapter.set_offset.await_count
+        == len(RETRY_BACKOFF_S) + 1
+    )
+    assert len(delays) == len(RETRY_BACKOFF_S)
+    for actual, base in zip(delays, RETRY_BACKOFF_S, strict=True):
+        assert base * (1 - RETRY_JITTER) <= actual <= base * (1 + RETRY_JITTER)
 
 
 @pytest.mark.asyncio
