@@ -624,6 +624,37 @@ class TestControlTrvAvailablePath:
             assert result is True
 
     @pytest.mark.asyncio
+    async def test_suppressed_system_mode_writes_only_the_setpoint(self):
+        """A payload without a system mode sends the setpoint and nothing else.
+
+        This is what a device that offers none of BT's heating modes gets:
+        its own mode stays untouched while the setpoint keeps flowing.
+        """
+        mock_self = _make_mock_self(
+            trv_state=HVACMode.HEAT, trv_attrs={"temperature": 20.0}
+        )
+
+        with (
+            patch(_PATCHES["convert_outbound_states"]) as mock_convert,
+            patch(
+                _PATCHES["override_set_hvac_mode"], new=AsyncMock(return_value=False)
+            ) as mock_override_mode,
+            patch(
+                _PATCHES["override_set_temperature"], new=AsyncMock(return_value=False)
+            ),
+            patch(_PATCHES["set_hvac_mode"], new=AsyncMock()) as mock_set_mode,
+            patch(_PATCHES["set_temperature"], new=AsyncMock()) as mock_set_temp,
+            patch("asyncio.sleep", new=AsyncMock()),
+        ):
+            mock_convert.return_value = {"temperature": 21.0, "system_mode": None}
+
+            await control_trv(mock_self, "climate.trv1")
+
+            mock_override_mode.assert_not_awaited()
+            mock_set_mode.assert_not_awaited()
+            mock_set_temp.assert_awaited_once_with(mock_self, "climate.trv1", 21.0)
+
+    @pytest.mark.asyncio
     async def test_set_temperature_quirk_skips_generic_adapter(self):
         """A model quirk that handles the write suppresses the adapter call."""
         mock_self = _make_mock_self(

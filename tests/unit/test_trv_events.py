@@ -637,6 +637,72 @@ class TestHvacActionAndValvePosition:
 
         assert mock_bt.real_trvs[ENTITY_ID].valve_position == 75.0
 
+    @pytest.mark.asyncio
+    async def test_hvac_modes_cached_from_attribute(self, mock_bt):
+        """Cache the offered mode list so a runtime change is picked up."""
+        trv_state = _make_state(
+            attributes={
+                "current_temperature": 18.0,
+                "temperature": 19.0,
+                "hvac_modes": ["off", "heat"],
+            }
+        )
+        mock_bt.hass.states.get.return_value = trv_state
+        mock_bt.real_trvs[ENTITY_ID].hvac_modes = [HVACMode.OFF, HVACMode.AUTO]
+
+        event = _make_event(mock_bt, new_state=trv_state, old_state=trv_state)
+
+        with patch(
+            "custom_components.better_thermostat.events.trv.convert_inbound_states",
+            return_value=HVACMode.HEAT,
+        ):
+            await trigger_trv_change(mock_bt, event)
+
+        assert mock_bt.real_trvs[ENTITY_ID].hvac_modes == ["off", "heat"]
+
+    @pytest.mark.asyncio
+    async def test_missing_hvac_modes_keeps_the_cached_list(self, mock_bt):
+        """A state without the attribute leaves the cached mode list intact."""
+        trv_state = _make_state(
+            attributes={"current_temperature": 18.0, "temperature": 19.0}
+        )
+        mock_bt.hass.states.get.return_value = trv_state
+        mock_bt.real_trvs[ENTITY_ID].hvac_modes = [HVACMode.OFF, HVACMode.HEAT]
+
+        event = _make_event(mock_bt, new_state=trv_state, old_state=trv_state)
+
+        with patch(
+            "custom_components.better_thermostat.events.trv.convert_inbound_states",
+            return_value=HVACMode.HEAT,
+        ):
+            await trigger_trv_change(mock_bt, event)
+
+        assert mock_bt.real_trvs[ENTITY_ID].hvac_modes == [HVACMode.OFF, HVACMode.HEAT]
+
+    @pytest.mark.asyncio
+    async def test_changed_mode_list_clears_the_annunciation_set(self, mock_bt):
+        """A genuine capability change lets the unsupported-mode error re-fire."""
+        trv_state = _make_state(
+            attributes={
+                "current_temperature": 18.0,
+                "temperature": 19.0,
+                "hvac_modes": ["off", "heat"],
+            }
+        )
+        mock_bt.hass.states.get.return_value = trv_state
+        mock_bt.real_trvs[ENTITY_ID].hvac_modes = [HVACMode.OFF, HVACMode.AUTO]
+        mock_bt.real_trvs[ENTITY_ID].unsupported_modes_logged = {"heat"}
+
+        event = _make_event(mock_bt, new_state=trv_state, old_state=trv_state)
+
+        with patch(
+            "custom_components.better_thermostat.events.trv.convert_inbound_states",
+            return_value=HVACMode.HEAT,
+        ):
+            await trigger_trv_change(mock_bt, event)
+
+        assert mock_bt.real_trvs[ENTITY_ID].unsupported_modes_logged == set()
+
 
 # ---------------------------------------------------------------------------
 # 4. HVAC mode update
@@ -1923,6 +1989,63 @@ class TestConvertOutboundStates:
                 "custom_components.better_thermostat.events.trv.mode_remap",
                 return_value=HVACMode.OFF,
             ),
+        ):
+            result = convert_outbound_states(mock_bt, ENTITY_ID, HVACMode.OFF)
+
+        assert result is not None
+        assert result["temperature"] == 5.0
+        assert result["system_mode"] is None
+
+    def test_unsupported_mode_suppresses_system_mode_but_keeps_setpoint(self, mock_bt):
+        """A mode the device does not offer drops out of the payload.
+
+        The real mode_remap runs here; the setpoint must survive the
+        suppressed mode write.
+        """
+        mock_bt.real_trvs[ENTITY_ID].hvac_modes = [
+            HVACMode.AUTO,
+            HVACMode.COOL,
+            HVACMode.OFF,
+        ]
+        mock_bt.real_trvs[ENTITY_ID].current_temperature = 18.0
+
+        with patch(
+            "custom_components.better_thermostat.events.trv.calculate_calibration_local",
+            return_value=0.0,
+        ):
+            result = convert_outbound_states(mock_bt, ENTITY_ID, HVACMode.HEAT_COOL)
+
+        assert result is not None
+        assert result["system_mode"] is None
+        assert result["temperature"] == mock_bt.bt_target_temp
+
+    def test_off_without_off_in_mode_list_still_substitutes_min_temp(self, mock_bt):
+        """OFF stays exempt from the clamp so the min-temp branch fires."""
+        mock_bt.real_trvs[ENTITY_ID].hvac_modes = [HVACMode.AUTO, HVACMode.HEAT]
+        mock_bt.real_trvs[ENTITY_ID].current_temperature = 18.0
+
+        with patch(
+            "custom_components.better_thermostat.events.trv.calculate_calibration_local",
+            return_value=0.0,
+        ):
+            result = convert_outbound_states(mock_bt, ENTITY_ID, HVACMode.OFF)
+
+        assert result == {
+            "temperature": 5.0,
+            "local_temperature": 18.0,
+            "system_mode": None,
+            "local_temperature_calibration": 0.0,
+        }
+
+    def test_off_with_no_off_system_mode_flag_still_substitutes_min_temp(self, mock_bt):
+        """The no_off_system_mode path is unaffected by the clamp."""
+        mock_bt.real_trvs[ENTITY_ID].hvac_modes = [HVACMode.OFF, HVACMode.HEAT]
+        mock_bt.real_trvs[ENTITY_ID].advanced["no_off_system_mode"] = True
+        mock_bt.real_trvs[ENTITY_ID].current_temperature = 18.0
+
+        with patch(
+            "custom_components.better_thermostat.events.trv.calculate_calibration_local",
+            return_value=0.0,
         ):
             result = convert_outbound_states(mock_bt, ENTITY_ID, HVACMode.OFF)
 

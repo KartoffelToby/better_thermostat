@@ -111,6 +111,9 @@ class Trv:
     # Whether a follow-up control cycle is already scheduled for this
     # TRV's next reachability-retry window.
     reachability_retry_pending: bool = False
+    # Outbound HVAC modes already annunciated as not offered by this
+    # device, so the error is logged once per mode instead of per cycle.
+    unsupported_modes_logged: set[str] = field(default_factory=set)
 
     # -- Calibration results -----------------------------------------------
     calibration_balance: dict[str, Any] | None = None
