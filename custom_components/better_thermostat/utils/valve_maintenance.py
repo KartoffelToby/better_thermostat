@@ -38,9 +38,56 @@ class MaintenanceTrvInfo:
     use_direct_valve: bool
     max_temp: float
     min_temp: float
+    wake_mode: str | None = None
+    """Device-native mode to switch into for the exercise, or ``None``.
+
+    Only set for a TRV that is ``off`` and driven through temperature
+    extremes: such a device ignores setpoint writes, so the cycle would
+    move nothing. Valve-driven TRVs are written through a number entity
+    that works while the device is off, so they are never woken.
+    """
+
+
+# Modes a TRV can be woken into for the exercise, most preferred first.
+_WAKE_MODE_PREFERENCE: tuple[str, ...] = (
+    HVACMode.HEAT,
+    HVACMode.AUTO,
+    HVACMode.HEAT_COOL,
+)
 
 
 # Pure helpers
+
+
+def pick_wake_mode(
+    cur_mode: str, use_direct_valve: bool, hvac_modes: object
+) -> str | None:
+    """Return the mode to exercise an ``off`` TRV in, or ``None``.
+
+    Parameters
+    ----------
+    cur_mode : str
+        The TRV's current device-native HVAC mode.
+    use_direct_valve : bool
+        Whether the TRV is driven by writing a valve percentage.
+    hvac_modes : object
+        The modes the TRV reports, as read from its state attributes.
+
+    Returns
+    -------
+    str | None
+        The first supported mode from ``_WAKE_MODE_PREFERENCE``, or
+        ``None`` when the TRV needs no wake or offers no usable mode.
+    """
+    if use_direct_valve or cur_mode != HVACMode.OFF:
+        return None
+    if not isinstance(hvac_modes, (list, tuple, set)):
+        return None
+    available = {str(mode) for mode in hvac_modes}
+    for candidate in _WAKE_MODE_PREFERENCE:
+        if candidate in available:
+            return candidate
+    return None
 
 
 def _get_advanced(info: Trv) -> dict[str, object]:
@@ -154,6 +201,9 @@ def build_trv_snapshots(
                 use_direct_valve=use_direct,
                 max_temp=float(raw_max) if isinstance(raw_max, (int, float)) else 30.0,
                 min_temp=float(raw_min) if isinstance(raw_min, (int, float)) else 5.0,
+                wake_mode=pick_wake_mode(
+                    trv_state.state, use_direct, trv_state.attributes.get("hvac_modes")
+                ),
             )
         )
     return infos
@@ -174,6 +224,28 @@ async def _set_valve_pct(trv_id: str, pct: int, set_valve_fn: SetValveFn) -> boo
         return False
 
 
+def _temp_cycle_reaches_valve(info: MaintenanceTrvInfo) -> bool:
+    """Whether writing a setpoint moves this TRV's valve.
+
+    An ``off`` TRV ignores setpoint writes, so the cycle only reaches it
+    once ``wake_step`` has switched it into ``wake_mode``.
+    """
+    return info.cur_mode != HVACMode.OFF or info.wake_mode is not None
+
+
+async def wake_step(
+    info: MaintenanceTrvInfo, *, set_hvac_mode_fn: SetHvacModeFn
+) -> None:
+    """Switch an ``off`` TRV into its exercise mode.
+
+    ``restore_one`` puts ``cur_mode`` back at the end of the run, so the
+    TRV returns to ``off`` afterwards.
+    """
+    if info.wake_mode is None:
+        return
+    await set_hvac_mode_fn(info.entity_id, info.wake_mode)
+
+
 async def open_step(
     info: MaintenanceTrvInfo,
     *,
@@ -184,8 +256,7 @@ async def open_step(
     if info.use_direct_valve:
         await _set_valve_pct(info.entity_id, 100, set_valve_fn)
         return
-    # Temp-extremes fallback: only when TRV is not OFF (OFF TRVs ignore temp changes)
-    if info.cur_mode != HVACMode.OFF:
+    if _temp_cycle_reaches_valve(info):
         await set_temperature_fn(info.entity_id, info.max_temp)
 
 
@@ -199,8 +270,7 @@ async def close_step(
     if info.use_direct_valve:
         await _set_valve_pct(info.entity_id, 0, set_valve_fn)
         return
-    # Temp-extremes fallback: only when TRV is not OFF (OFF TRVs ignore temp changes)
-    if info.cur_mode != HVACMode.OFF:
+    if _temp_cycle_reaches_valve(info):
         await set_temperature_fn(info.entity_id, info.min_temp)
 
 
@@ -244,6 +314,13 @@ async def run_valve_maintenance(
         "better_thermostat %s: starting valve maintenance for %d TRV(s)",
         device_name,
         len(infos),
+    )
+
+    # Wake TRVs that are off, otherwise the temperature cycle below moves
+    # nothing on them. restore_one puts them back to off at the end.
+    await asyncio.gather(
+        *(wake_step(info, set_hvac_mode_fn=set_hvac_mode_fn) for info in infos),
+        return_exceptions=True,
     )
 
     # Execute in synchronized steps across all TRVs (much faster than sequential).

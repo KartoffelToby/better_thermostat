@@ -51,18 +51,17 @@ class MaintenanceState:
 
 
 def evaluate_tick(
-    state: MaintenanceState,
-    now: datetime,
-    *,
-    window_open: bool,
-    hvac_off: bool,
-    has_enabled_trvs: bool,
+    state: MaintenanceState, now: datetime, *, window_open: bool, has_enabled_trvs: bool
 ) -> MaintenanceState:
     """Advance the region on a scheduler tick.
 
-    Postpone rules mirror the shell behavior: an open window or OFF mode
-    pushes the schedule out an hour; without any maintenance-enabled TRV
+    An open window pushes the schedule out an hour, which terminates
+    because a window closes again. Without any maintenance-enabled TRV
     the next check moves a week out. Otherwise a due schedule arms DUE.
+
+    HVAC mode is deliberately not a postpone reason. A valve held shut
+    across a heating-off summer is the one that seizes, so an off
+    thermostat is when the exercise matters most.
 
     Parameters
     ----------
@@ -72,8 +71,6 @@ def evaluate_tick(
         Current time used to evaluate the schedule.
     window_open : bool
         Whether a window is currently open.
-    hvac_off : bool
-        Whether the thermostat is in OFF mode.
     has_enabled_trvs : bool
         Whether any TRV has valve maintenance enabled.
 
@@ -86,7 +83,7 @@ def evaluate_tick(
         return state
     if state.next_due is not None and now < state.next_due:
         return state
-    if window_open or hvac_off:
+    if window_open:
         return MaintenanceState(next_due=now + timedelta(hours=1))
     if not has_enabled_trvs:
         return MaintenanceState(next_due=now + timedelta(days=7))

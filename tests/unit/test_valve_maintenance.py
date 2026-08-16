@@ -27,8 +27,10 @@ from custom_components.better_thermostat.utils.valve_maintenance import (
     compute_initial_maintenance,
     compute_next_maintenance,
     open_step,
+    pick_wake_mode,
     restore_one,
     run_valve_maintenance,
+    wake_step,
 )
 
 # ── Helpers ────────────────────────────────────────────────────────────────
@@ -65,6 +67,7 @@ def _info(
     use_direct_valve: bool = False,
     max_temp: float = 30,
     min_temp: float = 5,
+    wake_mode: str | None = None,
 ) -> MaintenanceTrvInfo:
     """Create a MaintenanceTrvInfo with sensible defaults."""
     return MaintenanceTrvInfo(
@@ -74,12 +77,21 @@ def _info(
         use_direct_valve=use_direct_valve,
         max_temp=max_temp,
         min_temp=min_temp,
+        wake_mode=wake_mode,
     )
 
 
-def _ha_state(state: str = "heat", temperature: float = 21.0):
+def _ha_state(
+    state: str = "heat", temperature: float = 21.0, hvac_modes: list[str] | None = None
+):
     """Mimic a HA State object."""
-    return SimpleNamespace(state=state, attributes={"temperature": temperature})
+    return SimpleNamespace(
+        state=state,
+        attributes={
+            "temperature": temperature,
+            "hvac_modes": ["off", "heat"] if hvac_modes is None else hvac_modes,
+        },
+    )
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -480,14 +492,18 @@ class TestRunValveMaintenance:
         mode_fn.assert_not_awaited()
 
     @pytest.mark.asyncio
-    async def test_off_trvs_skipped_in_temp_mode(self):
-        """TRVs in OFF mode with temp-based control should not get open/close calls."""
+    async def test_off_trv_without_wake_mode_is_skipped_in_temp_mode(self):
+        """An OFF TRV offering no usable wake mode still gets no open/close calls."""
         valve_fn = AsyncMock()
         temp_fn = AsyncMock()
         mode_fn = AsyncMock()
         infos = [
             _info(
-                entity_id="trv1", cur_mode="off", use_direct_valve=False, cur_temp=20.0
+                entity_id="trv1",
+                cur_mode="off",
+                use_direct_valve=False,
+                cur_temp=20.0,
+                wake_mode=None,
             )
         ]
 
@@ -500,8 +516,78 @@ class TestRunValveMaintenance:
             cycle_sleep=0,
         )
 
-        # open/close skipped for OFF, but restore still sets temp + mode
+        # open/close skipped, but restore still sets temp + mode
         assert temp_fn.await_count == 1  # only restore
+        mode_fn.assert_awaited_once_with("trv1", "off")
+
+    @pytest.mark.asyncio
+    async def test_off_trv_is_woken_exercised_and_switched_back_off(self):
+        """An OFF TRV with a wake mode runs the full cycle and ends up off again."""
+        valve_fn = AsyncMock()
+        temp_fn = AsyncMock()
+        mode_fn = AsyncMock()
+        infos = [
+            _info(
+                entity_id="trv1",
+                cur_mode="off",
+                use_direct_valve=False,
+                cur_temp=20.0,
+                max_temp=30.0,
+                min_temp=5.0,
+                wake_mode="heat",
+            )
+        ]
+
+        await run_valve_maintenance(
+            infos,
+            set_valve_fn=valve_fn,
+            set_temperature_fn=temp_fn,
+            set_hvac_mode_fn=mode_fn,
+            device_name="Test",
+            cycle_sleep=0,
+        )
+
+        # Woken first, restored to off last.
+        assert [c.args for c in mode_fn.await_args_list] == [
+            ("trv1", "heat"),
+            ("trv1", "off"),
+        ]
+        # 2 cycles x (open + close) + restore
+        assert temp_fn.await_count == 5
+        assert [c.args[1] for c in temp_fn.await_args_list] == [
+            30.0,
+            5.0,
+            30.0,
+            5.0,
+            20.0,
+        ]
+
+    @pytest.mark.asyncio
+    async def test_off_trv_on_direct_valve_is_not_woken(self):
+        """A valve-driven TRV is exercised through the valve without being woken."""
+        valve_fn = AsyncMock(return_value=True)
+        temp_fn = AsyncMock()
+        mode_fn = AsyncMock()
+        infos = [
+            _info(
+                entity_id="trv1",
+                cur_mode="off",
+                use_direct_valve=True,
+                cur_temp=20.0,
+                wake_mode=None,
+            )
+        ]
+
+        await run_valve_maintenance(
+            infos,
+            set_valve_fn=valve_fn,
+            set_temperature_fn=temp_fn,
+            set_hvac_mode_fn=mode_fn,
+            device_name="Test",
+            cycle_sleep=0,
+        )
+
+        assert [c.args[1] for c in valve_fn.await_args_list] == [100, 0, 100, 0]
         mode_fn.assert_awaited_once_with("trv1", "off")
 
     @pytest.mark.asyncio
@@ -521,3 +607,62 @@ class TestRunValveMaintenance:
             device_name="Test",
             cycle_sleep=0,
         )
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# pick_wake_mode / wake_step
+# ═══════════════════════════════════════════════════════════════════════════
+
+
+class TestPickWakeMode:
+    """Tests for choosing the mode an off TRV is exercised in."""
+
+    def test_running_trv_needs_no_wake(self):
+        """A TRV that is not off is already reachable through setpoints."""
+        assert pick_wake_mode("heat", False, ["off", "heat"]) is None
+
+    def test_direct_valve_trv_is_never_woken(self):
+        """Valve writes reach the device while it is off."""
+        assert pick_wake_mode("off", True, ["off", "heat"]) is None
+
+    def test_prefers_heat(self):
+        """HEAT wins when the device offers several usable modes."""
+        assert pick_wake_mode("off", False, ["off", "auto", "heat"]) == "heat"
+
+    def test_falls_back_to_auto(self):
+        """AUTO is used by devices that report no HEAT mode."""
+        assert pick_wake_mode("off", False, ["off", "auto"]) == "auto"
+
+    def test_falls_back_to_heat_cool(self):
+        """HEAT_COOL is the last usable candidate."""
+        assert pick_wake_mode("off", False, ["off", "heat_cool"]) == "heat_cool"
+
+    def test_no_usable_mode(self):
+        """A device offering nothing to wake into stays untouched."""
+        assert pick_wake_mode("off", False, ["off", "fan_only"]) is None
+
+    def test_missing_hvac_modes_attribute(self):
+        """A device that reports no mode list stays untouched."""
+        assert pick_wake_mode("off", False, None) is None
+
+
+class TestWakeStep:
+    """Tests for the wake step itself."""
+
+    @pytest.mark.asyncio
+    async def test_sets_wake_mode(self):
+        """The step switches the device into its wake mode."""
+        mode_fn = AsyncMock()
+        await wake_step(
+            _info(entity_id="trv1", wake_mode="heat"), set_hvac_mode_fn=mode_fn
+        )
+        mode_fn.assert_awaited_once_with("trv1", "heat")
+
+    @pytest.mark.asyncio
+    async def test_noop_without_wake_mode(self):
+        """No wake mode means no mode write."""
+        mode_fn = AsyncMock()
+        await wake_step(
+            _info(entity_id="trv1", wake_mode=None), set_hvac_mode_fn=mode_fn
+        )
+        mode_fn.assert_not_awaited()

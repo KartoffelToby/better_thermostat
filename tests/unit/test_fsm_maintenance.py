@@ -23,48 +23,37 @@ def test_initial_state_idle_not_blocking():
 def test_not_due_stays_idle():
     """Before the schedule, ticks change nothing."""
     state = MaintenanceState(next_due=NOW + timedelta(hours=2))
-    out = evaluate_tick(
-        state, NOW, window_open=False, hvac_off=False, has_enabled_trvs=True
-    )
+    out = evaluate_tick(state, NOW, window_open=False, has_enabled_trvs=True)
     assert out == state
 
 
 def test_due_arms_the_region():
     """A due schedule moves the region to DUE."""
     state = MaintenanceState(next_due=NOW - timedelta(minutes=1))
-    out = evaluate_tick(
-        state, NOW, window_open=False, hvac_off=False, has_enabled_trvs=True
-    )
+    out = evaluate_tick(state, NOW, window_open=False, has_enabled_trvs=True)
     assert out.phase == MaintenancePhase.DUE
 
 
 def test_window_open_postpones_an_hour():
     """An open window postpones by one hour instead of arming."""
     state = MaintenanceState(next_due=NOW - timedelta(minutes=1))
-    out = evaluate_tick(
-        state, NOW, window_open=True, hvac_off=False, has_enabled_trvs=True
-    )
+    out = evaluate_tick(state, NOW, window_open=True, has_enabled_trvs=True)
     assert out.phase == MaintenancePhase.IDLE
     assert out.next_due == NOW + timedelta(hours=1)
 
 
-def test_hvac_off_postpones_an_hour():
-    """OFF mode postpones by one hour instead of arming."""
+def test_hvac_off_does_not_postpone():
+    """OFF mode arms the region: that is when a valve is most likely to seize."""
     out = evaluate_tick(
-        MaintenanceState(), NOW, window_open=False, hvac_off=True, has_enabled_trvs=True
+        MaintenanceState(), NOW, window_open=False, has_enabled_trvs=True
     )
-    assert out.phase == MaintenancePhase.IDLE
-    assert out.next_due == NOW + timedelta(hours=1)
+    assert out.phase == MaintenancePhase.DUE
 
 
 def test_no_enabled_trvs_schedules_a_week_out():
     """Without maintenance-enabled TRVs the next check moves a week out."""
     out = evaluate_tick(
-        MaintenanceState(),
-        NOW,
-        window_open=False,
-        hvac_off=False,
-        has_enabled_trvs=False,
+        MaintenanceState(), NOW, window_open=False, has_enabled_trvs=False
     )
     assert out.phase == MaintenancePhase.IDLE
     assert out.next_due == NOW + timedelta(days=7)
@@ -119,13 +108,9 @@ def test_running_without_timestamp_does_not_block():
 def test_tick_leaves_non_idle_phases_alone():
     """evaluate_tick never advances a DUE or RUNNING region."""
     due = MaintenanceState(phase=MaintenancePhase.DUE)
-    out = evaluate_tick(
-        due, NOW, window_open=True, hvac_off=True, has_enabled_trvs=False
-    )
+    out = evaluate_tick(due, NOW, window_open=True, has_enabled_trvs=False)
     assert out == due
 
     running = start_run(MaintenanceState(phase=MaintenancePhase.DUE), 100.0)
-    out = evaluate_tick(
-        running, NOW, window_open=False, hvac_off=False, has_enabled_trvs=True
-    )
+    out = evaluate_tick(running, NOW, window_open=False, has_enabled_trvs=True)
     assert out == running
