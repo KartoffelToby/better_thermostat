@@ -20,8 +20,10 @@ from unittest.mock import AsyncMock, MagicMock, Mock, patch
 
 from homeassistant.components.climate.const import PRESET_BOOST, HVACMode
 from homeassistant.const import STATE_UNAVAILABLE, STATE_UNKNOWN
+from homeassistant.core import State
 import pytest
 
+from custom_components.better_thermostat.adapters import delegate, generic
 from custom_components.better_thermostat.trv import Trv
 from custom_components.better_thermostat.utils.const import (
     CalibrationMode,
@@ -2321,3 +2323,134 @@ class TestCalibrationWriteGate:
         assert result is True
         mocks.set_offset.assert_not_awaited()
         mocks.set_temperature.assert_awaited_once_with(mock_self, "climate.trv1", 21.0)
+
+
+SELECT_CALIBRATION_ENTITY = "select.trv1_calibration"
+# A calibration select on a 3 K grid: an offset between two options reaches
+# the device as the nearer one.
+SELECT_OPTIONS = ["-6.0k", "-3.0k", "0.0k", "3.0k", "6.0k"]
+
+
+class _SnappingSelect:
+    """A calibration select that holds exactly the option it was handed."""
+
+    def __init__(self, selected="0.0k"):
+        """Start the entity on the option it currently holds.
+
+        Parameters
+        ----------
+        selected : str
+            Option the entity holds before the first write.
+        """
+        self.selected = selected
+        self.written = []
+
+    @property
+    def reported(self):
+        """Return the offset in Kelvin the entity publishes."""
+        return float(self.selected.replace("k", ""))
+
+    def state(self):
+        """Return the entity state the adapter reads its options off."""
+        return State(
+            SELECT_CALIBRATION_ENTITY, self.selected, {"options": list(SELECT_OPTIONS)}
+        )
+
+    async def async_call(self, domain, service, data, **kwargs):
+        """Apply a select_option call and ignore every other service.
+
+        Parameters
+        ----------
+        domain : str
+            Service domain of the call.
+        service : str
+            Service name within that domain.
+        data : dict
+            Service data; carries the option for a select_option call.
+        **kwargs : dict
+            Blocking and context arguments the caller passes on.
+        """
+        if domain == "select" and service == "select_option":
+            self.written.append(data["option"])
+            self.selected = data["option"]
+
+
+class TestSnappingSelectOffsetConverges:
+    """A device that snaps the offset onto its own option list settles.
+
+    The adapter, not the device, decides which option carries the offset,
+    so the command the gate confirms against is the option's value. The
+    intent stays what the cycle asked for, so an unchanged intent does not
+    re-arm the write once the device holds the snapped option.
+    """
+
+    def _wire(self, device):
+        """Return a thermostat whose calibration entity is ``device``.
+
+        Parameters
+        ----------
+        device : _SnappingSelect
+            The calibration select standing in for the TRV's offset channel.
+
+        Returns
+        -------
+        Mock
+            A stand-in for the Better Thermostat climate entity instance.
+        """
+        trv = _offset_trv(
+            last_calibration=0.0,
+            last_calibration_requested=0.0,
+            calibration_received=True,
+            local_temperature_calibration_entity=SELECT_CALIBRATION_ENTITY,
+            # A select publishes no step, so discovery falls back to 1.0.
+            local_calibration_step=1.0,
+        )
+        trv.adapter = generic
+        mock_self = _make_mock_self(
+            trv_state=HVACMode.HEAT,
+            trv_attrs={"temperature": 20.0},
+            real_trvs={"climate.trv1": trv},
+        )
+        trv_state = mock_self.hass.states.get.return_value
+        mock_self.hass.states.get.side_effect = lambda entity_id: (
+            device.state() if entity_id == SELECT_CALIBRATION_ENTITY else trv_state
+        )
+        mock_self.hass.services.async_call = AsyncMock(side_effect=device.async_call)
+        return mock_self
+
+    @pytest.mark.asyncio
+    async def test_the_snapped_option_is_written_once(self):
+        """Five cycles against a device holding the snapped option write once."""
+        device = _SnappingSelect()
+        mock_self = self._wire(device)
+        trv = mock_self.real_trvs["climate.trv1"]
+
+        for _ in range(5):
+            # The watchdog releases the gate at the end of its window.
+            trv.calibration_received = True
+            with _offset_cycle(reported=device.reported, desired_offset=-2.0) as mocks:
+                # The real write path: the delegate records the intent and
+                # the adapter the command.
+                mocks.set_offset.side_effect = delegate.set_offset
+                await control_trv(mock_self, "climate.trv1")
+
+        assert device.written == ["-3.0k"]
+        assert trv.last_calibration == -3.0
+        assert trv.last_calibration_requested == -2.0
+
+    @pytest.mark.asyncio
+    async def test_a_new_intent_still_reaches_the_device(self):
+        """A cycle asking for another option writes it."""
+        device = _SnappingSelect()
+        mock_self = self._wire(device)
+        trv = mock_self.real_trvs["climate.trv1"]
+
+        for desired in (-2.0, 2.0):
+            trv.calibration_received = True
+            with _offset_cycle(
+                reported=device.reported, desired_offset=desired
+            ) as mocks:
+                mocks.set_offset.side_effect = delegate.set_offset
+                await control_trv(mock_self, "climate.trv1")
+
+        assert device.written == ["-3.0k", "3.0k"]

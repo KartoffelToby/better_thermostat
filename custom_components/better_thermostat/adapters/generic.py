@@ -22,6 +22,26 @@ from .base import wait_for_calibration_entity_or_timeout
 _LOGGER = logging.getLogger(__name__)
 
 
+def _option_to_offset(option) -> float | None:
+    """Read the offset an option of a select-backed calibration entity carries.
+
+    Parameters
+    ----------
+    option : str
+        Option as the entity publishes it, with or without the Kelvin
+        suffix (e.g. ``"-1.5k"``).
+
+    Returns
+    -------
+    float or None
+        Offset in Kelvin, or None when the option carries no number.
+    """
+    try:
+        return float(str(option).replace("k", ""))
+    except ValueError, TypeError:
+        return None
+
+
 async def get_info(self, entity_id):
     """Get info from TRV."""
     support_offset = False
@@ -250,25 +270,28 @@ async def set_offset(self, entity_id, offset) -> bool:
             # Validate and snap to closest matching option if needed
             if options:
                 if option_value not in options:
-                    try:
-                        # Parse all options and find the closest match
-                        parsed_options = {}
-                        for opt in options:
-                            try:
-                                parsed_options[opt] = float(str(opt).replace("k", ""))
-                            except ValueError, TypeError:
-                                continue
+                    # Parse all options and find the closest match
+                    parsed_options = {}
+                    for opt in options:
+                        parsed = _option_to_offset(opt)
+                        if parsed is not None:
+                            parsed_options[opt] = parsed
 
-                        if parsed_options:
-                            # Find option with minimum distance to target offset
-                            closest_option = min(
-                                parsed_options,
-                                key=lambda opt: abs(parsed_options[opt] - offset),
-                            )
-                            option_value = closest_option
-                    except ValueError, TypeError:
-                        # If parsing fails, keep original option_value and hope for the best
-                        pass
+                    if parsed_options:
+                        # Find option with minimum distance to target offset
+                        closest_option = min(
+                            parsed_options,
+                            key=lambda opt: abs(parsed_options[opt] - offset),
+                        )
+                        option_value = closest_option
+
+            # The option carries the value that goes on the wire, and the
+            # confirmation compares the device's report against it. Both the
+            # snap onto the option list and the one-decimal format move the
+            # value, so the command is read back off the option itself.
+            commanded = _option_to_offset(option_value)
+            if commanded is not None:
+                offset = commanded
 
             await self.hass.services.async_call(
                 "select",
