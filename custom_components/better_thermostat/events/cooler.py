@@ -10,12 +10,10 @@ import logging
 
 from homeassistant.components.climate.const import HVACMode
 
-from custom_components.better_thermostat.utils.controlling import (
-    last_sent_cooler_temperature,
-)
 from custom_components.better_thermostat.utils.helpers import (
     COOLER_SETPOINT_KEYS,
     device_setpoint_step,
+    last_sent_cooler_temperature,
     read_setpoint_celsius,
     resolve_inbound_setpoint,
     resolve_state_change_event,

@@ -40,6 +40,7 @@ from custom_components.better_thermostat.utils.helpers import (
     attr_to_celsius,
     clamp_valve_percent,
     convert_to_float,
+    cooler_send_cache,
     get_current_set_temperatures,
     matches_any_setpoint,
     read_setpoint_celsius,
@@ -690,29 +691,6 @@ def cooler_low_bound(high: float, target_temp: float | None) -> float:
     if target_temp is None:
         return high
     return min(float(target_temp), high)
-
-
-def cooler_send_cache(self) -> dict:
-    """Return the cooler send-cache, creating it on first use.
-
-    Holds the last successfully sent command per channel as
-    ``(value, monotonic_timestamp)`` for the resend throttle, the settled
-    reading of each written channel, the mode the last cycle decided on for
-    the hysteresis band, and each channel's run of consecutive send failures
-    as ``(count, monotonic_timestamp, attempted_value)``. Created lazily
-    because only cooler-equipped instances need it.
-    """
-    last_sent = getattr(self, "_cooler_last_sent", None)
-    if not isinstance(last_sent, dict):
-        last_sent = {}
-        self._cooler_last_sent = last_sent
-    return last_sent
-
-
-def last_sent_cooler_temperature(self) -> float | None:
-    """Return the cooling setpoint BT last wrote to the cooler, in °C."""
-    value = cooler_send_cache(self).get("temperature", (None, None))[0]
-    return value if isinstance(value, (int, float)) else None
 
 
 def _cooler_retry_deferred(

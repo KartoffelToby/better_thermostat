@@ -17,6 +17,8 @@ from custom_components.better_thermostat.utils.controlling import (
     COOLER_MODE_HYSTERESIS_K,
     COOLER_RESEND_INTERVAL_S,
     control_cooler,
+)
+from custom_components.better_thermostat.utils.helpers import (
     last_sent_cooler_temperature,
 )
 from tests.factories import make_snapshot
@@ -38,6 +40,9 @@ def _mock_bt():
     """
     mock_self = Mock()
     mock_self.contact_open = False
+    # The cooler of these cases is a device of its own, so the set of
+    # controlled thermostats does not contain it.
+    mock_self.real_trvs = {}
     return mock_self
 
 
