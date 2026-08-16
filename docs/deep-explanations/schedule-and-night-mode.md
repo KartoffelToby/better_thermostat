@@ -14,6 +14,7 @@ entity starts, so it survives a Home Assistant restart.
 
 | Removed action | Replacement |
 | --- | --- |
+| `better_thermostat.save_current_target_temperature` | Nothing to call: `climate.set_preset_mode` stores the current target as it enters a preset |
 | `better_thermostat.set_temp_target_temperature` | `climate.set_preset_mode` with the preset you want, optionally preceded by `number.set_value` on that preset's temperature entity |
 | `better_thermostat.restore_saved_target_temperature` | `climate.set_preset_mode` with `preset_mode: none` |
 
@@ -23,8 +24,10 @@ Presets are opt-in per thermostat. Open **Settings → Devices & Services → Be
 Configure** and tick the preset you want under **Enabled Presets**. The available choices are
 `eco`, `away`, `boost`, `comfort`, `home`, `sleep` and `activity`.
 
-A thermostat only accepts presets that are enabled for it. Calling one that is not enabled logs
-`Unsupported preset mode` and leaves the thermostat untouched, so this step is not optional.
+A thermostat only accepts presets that are enabled for it. Home Assistant checks the preset name
+before Better Thermostat sees it and rejects anything else with `Preset mode <name> is not valid.
+Valid preset modes are: …`. The action fails, the thermostat is left untouched and the rest of the
+automation does not run, so this step is not optional.
 
 ## Step 2: set the preset temperature
 
