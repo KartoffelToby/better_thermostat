@@ -10,6 +10,7 @@ from homeassistant.exceptions import HomeAssistantError
 import pytest
 
 from custom_components.better_thermostat.climate import BetterThermostat
+from custom_components.better_thermostat.trv import Trv
 from custom_components.better_thermostat.utils.controlling import (
     COOLER_MODE_HYSTERESIS_K,
     control_cooler,
@@ -1436,3 +1437,201 @@ class TestControlCoolerTargetRange:
         await control_cooler(mock_self)
 
         assert self._set_temperature_payload(mock_hass) is None
+
+
+class TestControlCoolerOnADualRoleEntity:
+    """A cooler that is also one of the controlled thermostats.
+
+    A reversible air conditioner named as both holds one HVAC mode and one
+    setpoint for both channels, so a cycle that drives it from both leaves the
+    last write standing. The cooling channel writes only while it wants to
+    cool, and every other cycle belongs to the heating channel.
+    """
+
+    SHARED_ID = "climate.reversible_ac"
+
+    @staticmethod
+    def _hass():
+        mock_hass = Mock()
+        mock_hass.config.units.temperature_unit = UnitOfTemperature.CELSIUS
+        mock_hass.services = Mock()
+        mock_hass.services.async_call = AsyncMock()
+        return mock_hass
+
+    @classmethod
+    def _make_shared_self(cls, hass, **kwargs):
+        """Build a mock whose cooler is also a controlled thermostat."""
+        mock_self = _make_mock_self(hass, **kwargs)
+        mock_self.cooler_entity_id = cls.SHARED_ID
+        mock_self.real_trvs = {
+            cls.SHARED_ID: Trv.from_legacy_dict(
+                cls.SHARED_ID,
+                {
+                    "hvac_modes": [
+                        HVACMode.OFF,
+                        HVACMode.HEAT,
+                        HVACMode.COOL,
+                        HVACMode.HEAT_COOL,
+                    ],
+                    "min_temp": 16.0,
+                    "max_temp": 30.0,
+                    "target_temp_received": True,
+                    "system_mode_received": True,
+                },
+            )
+        }
+        return mock_self
+
+    @classmethod
+    def _make_device_state(cls, state, temperature):
+        return State(cls.SHARED_ID, str(state), {"temperature": temperature})
+
+    @pytest.mark.asyncio
+    async def test_shared_entity_writes_nothing_while_the_heating_channel_owns(self):
+        """A heating cycle on a shared device produces no cooling write.
+
+        The room is cold, so the cooling decision is OFF and the heating
+        channel drives the device through control_trv(). A cooling write here
+        would set the device to the cooling target and switch it off, which
+        the heating channel then overwrites — the mode and setpoint
+        oscillation a shared device shows on every cycle.
+        """
+        mock_hass = self._hass()
+        mock_hass.states.get.return_value = self._make_device_state(HVACMode.HEAT, 30.0)
+
+        mock_self = self._make_shared_self(
+            mock_hass,
+            bt_hvac_mode=HVACMode.HEAT_COOL,
+            cur_temp=18.0,
+            bt_target_temp=30.0,
+            bt_target_cooltemp=24.0,
+        )
+
+        await control_cooler(mock_self)
+
+        assert mock_hass.services.async_call.call_args_list == []
+
+    @pytest.mark.asyncio
+    async def test_shared_entity_still_records_the_decision_when_it_stands_down(self):
+        """Standing down still latches the decision that made it stand down.
+
+        The latch carries the cooling hysteresis band, so a cycle the cooling
+        channel sits out must leave the band where the decision put it.
+        """
+        mock_hass = self._hass()
+        mock_hass.states.get.return_value = self._make_device_state(HVACMode.HEAT, 30.0)
+
+        mock_self = self._make_shared_self(
+            mock_hass,
+            bt_hvac_mode=HVACMode.HEAT_COOL,
+            cur_temp=18.0,
+            bt_target_temp=30.0,
+            bt_target_cooltemp=24.0,
+            last_cooler_mode_decided=HVACMode.COOL,
+        )
+
+        await control_cooler(mock_self)
+
+        assert mock_self.last_cooler_mode_decided == HVACMode.OFF
+
+    @pytest.mark.asyncio
+    async def test_shared_entity_drops_the_resend_timestamps_when_it_stands_down(self):
+        """The send cache stops describing a device the heating channel took.
+
+        Keeping the timestamps would let the resend throttle suppress the first
+        write of the next cooling period as a repeat of one the heating channel
+        has since replaced.
+        """
+        mock_hass = self._hass()
+        mock_hass.states.get.return_value = self._make_device_state(HVACMode.HEAT, 30.0)
+
+        mock_self = self._make_shared_self(
+            mock_hass,
+            bt_hvac_mode=HVACMode.HEAT_COOL,
+            cur_temp=18.0,
+            bt_target_temp=30.0,
+            bt_target_cooltemp=24.0,
+            last_sent_cooler_temp=24.0,
+            last_sent_cooler_hvac_mode=HVACMode.COOL,
+            last_sent_cooler_temp_ts=monotonic(),
+            last_sent_cooler_hvac_mode_ts=monotonic(),
+        )
+
+        await control_cooler(mock_self)
+
+        assert mock_self.last_sent_cooler_temp_ts is None
+        assert mock_self.last_sent_cooler_hvac_mode_ts is None
+
+    @pytest.mark.asyncio
+    async def test_shared_entity_writes_as_a_cooler_when_the_cooling_channel_owns(self):
+        """A cooling cycle on a shared device writes the cooling channel."""
+        mock_hass = self._hass()
+        mock_hass.states.get.return_value = self._make_device_state(HVACMode.HEAT, 30.0)
+
+        mock_self = self._make_shared_self(
+            mock_hass,
+            bt_hvac_mode=HVACMode.HEAT_COOL,
+            cur_temp=26.0,
+            bt_target_temp=20.0,
+            bt_target_cooltemp=24.0,
+        )
+
+        await control_cooler(mock_self)
+
+        calls = mock_hass.services.async_call.call_args_list
+        assert [call.args[1] for call in calls] == ["set_temperature", "set_hvac_mode"]
+        assert calls[0].args[2]["temperature"] == 24.0
+        assert calls[1].args[2]["hvac_mode"] == HVACMode.COOL
+        assert mock_self.last_cooler_mode_decided == HVACMode.COOL
+
+    @pytest.mark.asyncio
+    async def test_shared_entity_releases_the_heating_watchdogs_when_cooling_takes_over(
+        self,
+    ):
+        """Taking the device over releases the heating channel's confirmations.
+
+        Those watchdogs wait on a setpoint and a mode this write supersedes,
+        and while they are outstanding the inbound handler declines every
+        reported setpoint as unconfirmed.
+        """
+        mock_hass = self._hass()
+        mock_hass.states.get.return_value = self._make_device_state(HVACMode.HEAT, 30.0)
+
+        mock_self = self._make_shared_self(
+            mock_hass,
+            bt_hvac_mode=HVACMode.HEAT_COOL,
+            cur_temp=26.0,
+            bt_target_temp=20.0,
+            bt_target_cooltemp=24.0,
+        )
+        shared_trv = mock_self.real_trvs[self.SHARED_ID]
+        shared_trv.target_temp_received = False
+        shared_trv.system_mode_received = False
+
+        await control_cooler(mock_self)
+
+        assert shared_trv.target_temp_received is True
+        assert shared_trv.system_mode_received is True
+
+    @pytest.mark.asyncio
+    async def test_a_distinct_cooler_writes_exactly_as_before(self):
+        """A cooler of its own is untouched by the dual-role handling."""
+        mock_hass = self._hass()
+        mock_hass.states.get.return_value = _make_cooler_state(
+            state=HVACMode.COOL, temperature=30.0
+        )
+
+        mock_self = _make_mock_self(
+            mock_hass,
+            bt_hvac_mode=HVACMode.HEAT_COOL,
+            cur_temp=18.0,
+            bt_target_temp=30.0,
+            bt_target_cooltemp=24.0,
+        )
+        mock_self.real_trvs = {"climate.radiator": Mock()}
+
+        await control_cooler(mock_self)
+
+        calls = mock_hass.services.async_call.call_args_list
+        assert [call.args[1] for call in calls] == ["set_temperature", "set_hvac_mode"]
+        assert calls[1].args[2]["hvac_mode"] == HVACMode.OFF
