@@ -732,7 +732,7 @@ def calculate_calibration_local(self, entity_id) -> float | None:
         )
     )
     if _calibration_mode is None:
-        _calibration_mode = CalibrationMode.MPC_CALIBRATION
+        _calibration_mode = DEFAULT_CALIBRATION_MODE
 
     # DEFAULT: compute a pure offset from external sensor vs TRV temperature.
     # No predictive/controller modes, no tolerance/overheating heuristics.
@@ -1111,7 +1111,7 @@ def calculate_calibration_setpoint(self, entity_id) -> float | None:
         )
     )
     if _calibration_mode is None:
-        _calibration_mode = CalibrationMode.MPC_CALIBRATION
+        _calibration_mode = DEFAULT_CALIBRATION_MODE
 
     if self.cur_temp is None or self.bt_target_temp is None:
         return None

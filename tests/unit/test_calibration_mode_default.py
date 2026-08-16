@@ -10,11 +10,16 @@ offered as the default.
 from __future__ import annotations
 
 import inspect
+from unittest.mock import MagicMock
+
+import pytest
 
 from custom_components.better_thermostat import (
     calibration as calibration_module,
     config_flow as config_flow_module,
 )
+from custom_components.better_thermostat.calibration import calculate_calibration_local
+from custom_components.better_thermostat.trv import Trv
 from custom_components.better_thermostat.utils import controlling as controlling_module
 from custom_components.better_thermostat.utils.const import (
     DEFAULT_CALIBRATION_MODE,
@@ -22,6 +27,46 @@ from custom_components.better_thermostat.utils.const import (
 )
 
 _RUNTIME_MODULES = (calibration_module, controlling_module)
+
+
+def _thermostat_without_target(stored_mode: object) -> MagicMock:
+    """A thermostat carrying *stored_mode* and no target temperature.
+
+    Without a target, only a mode that needs none produces a value, which
+    makes the resolved mode observable from the return value alone.
+    """
+    bt = MagicMock()
+    bt.name = "better_thermostat"
+    bt.device_name = "Test BT"
+    bt.tolerance = 0.5
+    bt.attr_hvac_action = None
+    bt.hvac_action = None
+    bt.cur_temp = 20.0
+    bt.bt_target_temp = None
+
+    quirks = MagicMock()
+    quirks.fix_local_calibration.side_effect = lambda _self, _entity_id, offset: float(
+        offset
+    )
+
+    bt.real_trvs = {
+        "climate.trv": Trv.from_legacy_dict(
+            "climate.trv",
+            {
+                "advanced": {"calibration_mode": stored_mode},
+                "current_temperature": 22.0,
+                "last_calibration": 2.0,
+                "local_calibration_step": 0.1,
+                "local_calibration_min": -5.0,
+                "local_calibration_max": 5.0,
+                "target_temp_step": 0.5,
+                "min_temp": 5.0,
+                "max_temp": 30.0,
+                "model_quirks": quirks,
+            },
+        )
+    }
+    return bt
 
 
 def test_default_is_a_known_mode():
@@ -45,6 +90,28 @@ def test_no_runtime_fallback_hardcodes_a_mode():
             f"{module.__name__} hardcodes a calibration-mode fallback"
         )
         assert '"calibration_mode", DEFAULT_CALIBRATION_MODE' in source
+        assert "_calibration_mode = CalibrationMode." not in source, (
+            f"{module.__name__} rewrites an unresolved mode to a named one "
+            "instead of the shared default"
+        )
+
+
+@pytest.mark.parametrize("stored_mode", [None, 3], ids=["null", "unmappable-number"])
+def test_unresolvable_stored_mode_falls_back_to_the_shared_default(
+    monkeypatch, stored_mode
+):
+    """A stored mode that normalizes to ``None`` resolves to the shared default.
+
+    The default is swapped for a mode that works without a target, so a
+    returned value proves the fallback read the constant rather than
+    naming a mode of its own.
+    """
+    monkeypatch.setattr(
+        calibration_module, "DEFAULT_CALIBRATION_MODE", CalibrationMode.DEFAULT
+    )
+    thermostat = _thermostat_without_target(stored_mode)
+
+    assert calculate_calibration_local(thermostat, "climate.trv") == 0.0
 
 
 def test_config_flow_uses_the_shared_default():
