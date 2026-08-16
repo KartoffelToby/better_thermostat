@@ -100,7 +100,17 @@ class Trv:
     last_valve_position: float | None = None
     last_hvac_mode: str | None = None
     last_current_temperature: float | None = None
+    # ``last_calibration`` is the command the adapter actually put on the
+    # wire, after its own clamp to the device's declared offset range;
+    # ``last_calibration_requested`` is the value asked for before that
+    # clamp. Keeping them apart lets a device resting at a limit it
+    # declared be recognised as converged instead of rewritten.
     last_calibration: float | None = None
+    last_calibration_requested: float | None = None
+    # Identity of the offset command currently in flight. Each accepted write
+    # takes the next number, and only the watchdog holding that number may
+    # release ``calibration_received``.
+    calibration_write_generation: int = 0
     last_valve_percent: float | None = None
     last_valve_method: str | None = None
     # Per-channel write-budget stamps (setpoint, offset, valve) so one
