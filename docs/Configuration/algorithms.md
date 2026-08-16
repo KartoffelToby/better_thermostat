@@ -58,7 +58,7 @@ MPC (Model Predictive Control) predicts how your room temperature will change ov
 - Temperature trends
 - Learned thermal properties of your room (how fast it heats and cools)
 
-From that prediction it picks the valve opening that reaches your target smoothly instead of driving hard and correcting afterward, and it keeps updating the model as the room behaves.
+From that prediction it picks the correction that reaches your target smoothly instead of driving hard and correcting afterward, and it keeps updating the model as the room behaves. With direct valve control that correction is a valve opening; without it, the correction reaches the valve through the setpoint the TRV sees.
 
 Of all the modes it is the best at avoiding overshoot and the most economical with energy. It is also the most complex, and it reacts deliberately rather than quickly, which can read as sluggish at first. Give it about a day of operation before judging it.
 
