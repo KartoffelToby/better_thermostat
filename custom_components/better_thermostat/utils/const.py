@@ -152,6 +152,12 @@ class CalibrationMode(StrEnum):
     PID_CALIBRATION = "pid_calibration"
 
 
+# The calibration mode a TRV runs in when its config carries none. Read by
+# the config flow (form default and normalisation) and by every runtime
+# fallback, so a stored config without the key behaves like a fresh one.
+DEFAULT_CALIBRATION_MODE: Final = CalibrationMode.HEATING_POWER_CALIBRATION
+
+
 # Plausibility bounds for incoming temperature readings (Celsius).
 # Values outside this window are treated as marker / garbage readings
 # (for example, AVM Fritz!DECT exposes 126.5 / 127 °C when the thermostat
