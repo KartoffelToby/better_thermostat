@@ -10,6 +10,11 @@ allowed in exactly one file, the migration guide that tells readers what to call
 instead, and nowhere in anything the integration ships. That guide is also the
 only place a reader can look a retired name up, so every name in ``RETIRED`` has
 to appear there.
+
+The general scan matches domain-prefixed tokens only. Bare names are matched for
+``RETIRED`` alone, where the list of names is known; a general bare-identifier
+scan would match every snake_case word in the prose — entity ids, option keys,
+blueprint inputs — and report hundreds of them that are not service names.
 """
 
 from pathlib import Path
@@ -107,13 +112,16 @@ def test_retired_service_names_are_not_shipped():
     assert not offenders, f"retired service names are still shipped in: {offenders}"
 
 
-def test_scanner_finds_service_references():
+def test_scanner_finds_a_declared_service_reference():
+    declared = _declared_services()
     found: set[str] = set()
     for path in _documentation_files():
         found |= _referenced_services(path)
-    assert found, (
-        "the scan matched no service reference at all, so the other checks in "
-        "this module would pass vacuously"
+    assert found & declared, (
+        "no documentation page names a service that services.yaml declares, so "
+        "test_docs_reference_only_declared_services compares the documentation "
+        "against an allow-list that nothing exercises and passes vacuously; "
+        f"declared: {sorted(declared)}, found in the docs: {sorted(found)}"
     )
 
 
