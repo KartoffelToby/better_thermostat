@@ -1970,6 +1970,52 @@ class TestConvertOutboundStates:
         assert result["temperature"] == 5.0
         assert result["system_mode"] is None
 
+    def test_off_offered_in_the_device_spelling_switches_the_device_off(self, mock_bt):
+        """A list naming its modes ``HVACMode.OFF`` still offers OFF.
+
+        The cache holds the device's own spelling, so the min_temp
+        substitution must not fire for a device that does offer OFF.
+        """
+        mock_bt.real_trvs[ENTITY_ID].hvac_modes = ["HVACMode.OFF", "HVACMode.HEAT"]
+        mock_bt.real_trvs[ENTITY_ID].current_temperature = 18.0
+
+        with (
+            patch(
+                "custom_components.better_thermostat.events.trv.calculate_calibration_local",
+                return_value=0.0,
+            ),
+            patch(
+                "custom_components.better_thermostat.events.trv.mode_remap",
+                return_value=HVACMode.OFF,
+            ),
+        ):
+            result = convert_outbound_states(mock_bt, ENTITY_ID, HVACMode.OFF)
+
+        assert result is not None
+        assert result["system_mode"] == HVACMode.OFF
+        assert result["temperature"] == 19.0
+
+    def test_no_off_in_the_device_spelling_still_uses_min_temp(self, mock_bt):
+        """A device genuinely without OFF keeps taking the min_temp path."""
+        mock_bt.real_trvs[ENTITY_ID].hvac_modes = ["HVACMode.HEAT"]
+        mock_bt.real_trvs[ENTITY_ID].current_temperature = 18.0
+
+        with (
+            patch(
+                "custom_components.better_thermostat.events.trv.calculate_calibration_local",
+                return_value=0.0,
+            ),
+            patch(
+                "custom_components.better_thermostat.events.trv.mode_remap",
+                return_value=HVACMode.OFF,
+            ),
+        ):
+            result = convert_outbound_states(mock_bt, ENTITY_ID, HVACMode.OFF)
+
+        assert result is not None
+        assert result["temperature"] == 5.0
+        assert result["system_mode"] is None
+
     def test_unsupported_mode_writes_only_the_setpoint(self, mock_bt):
         """A device without a heating mode gets the setpoint and no mode."""
         mock_bt.real_trvs[ENTITY_ID].hvac_modes = [

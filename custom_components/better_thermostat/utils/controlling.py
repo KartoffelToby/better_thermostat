@@ -32,6 +32,7 @@ from custom_components.better_thermostat.utils.helpers import (
     SETPOINT_MATCH_TOLERANCE,
     attr_to_celsius,
     convert_to_float,
+    device_offers_mode,
     get_current_set_temperatures,
     matches_any_setpoint,
     read_setpoint_celsius,
@@ -766,8 +767,12 @@ async def control_trv(self, heater_entity_id=None):
                 await set_valve(self, heater_entity_id, 0)
 
             # Manage TRVs with no HVACMode.OFF
+            # The cache holds the device's own spelling, so whether it offers OFF
+            # is decided on the normalized list, like every other capability
+            # check. An unreported list counts as no-off.
             _hvac_modes = self.real_trvs[heater_entity_id].hvac_modes or []
-            _no_off_system_mode = (HVACMode.OFF not in _hvac_modes) or (
+            _offers_off = device_offers_mode(_hvac_modes, HVACMode.OFF)
+            _no_off_system_mode = not _offers_off or (
                 self.real_trvs[heater_entity_id].advanced.get(
                     "no_off_system_mode", False
                 )

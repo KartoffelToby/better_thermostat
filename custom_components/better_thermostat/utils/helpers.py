@@ -233,7 +233,7 @@ def normalize_hvac_mode(value: HVACMode | str) -> HVACMode | str:
     return value
 
 
-def _device_offers_mode(trv_modes: Iterable[Any], hvac_mode: str) -> bool:
+def device_offers_mode(trv_modes: Iterable[Any], hvac_mode: str) -> bool:
     """Whether a device's reported mode list contains a given HVAC mode.
 
     Both sides are normalized so a list carrying ``HVACMode`` members,
@@ -370,14 +370,14 @@ def _clamp_to_offered_mode(
     trv_modes = trv.hvac_modes
     if inbound or not trv_modes:
         return hvac_mode
-    if normalize_hvac_mode(hvac_mode) == HVACMode.OFF or _device_offers_mode(
+    if normalize_hvac_mode(hvac_mode) == HVACMode.OFF or device_offers_mode(
         trv_modes, hvac_mode
     ):
         return hvac_mode
 
     _mode_key = str(normalize_hvac_mode(hvac_mode))
     _fallback = next(
-        (mode for mode in fallbacks if _device_offers_mode(trv_modes, mode)), None
+        (mode for mode in fallbacks if device_offers_mode(trv_modes, mode)), None
     )
 
     if _fallback is not None:
@@ -470,8 +470,8 @@ def mode_remap(self, entity_id, hvac_mode: str, inbound: bool = False) -> str | 
         return hvac_mode
     # The cache holds the device's own spelling, so the two translations are
     # decided on the normalized list like the clamp below is.
-    _offers_heat = _device_offers_mode(trv_modes, HVACMode.HEAT)
-    _offers_heat_cool = _device_offers_mode(trv_modes, HVACMode.HEAT_COOL)
+    _offers_heat = device_offers_mode(trv_modes, HVACMode.HEAT)
+    _offers_heat_cool = device_offers_mode(trv_modes, HVACMode.HEAT_COOL)
     if not _offers_heat and _offers_heat_cool:
         # entity only supports HEAT_COOL, but not HEAT - need to translate
         if not inbound and hvac_mode == HVACMode.HEAT:

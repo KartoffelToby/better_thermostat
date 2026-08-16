@@ -32,6 +32,7 @@ from custom_components.better_thermostat.utils.helpers import (
     adopt_reported_hvac_modes,
     attr_to_celsius,
     convert_to_float,
+    device_offers_mode,
     get_device_model,
     group_all_members_off,
     is_reasonable_temperature,
@@ -523,8 +524,13 @@ def convert_outbound_states(self, entity_id, hvac_mode) -> dict | None:
                 self.device_name,
                 entity_id,
             )
+        # The cache holds the device's own spelling, so whether it offers OFF is
+        # decided on the normalized list, like every other capability check.
         if hvac_mode == HVACMode.OFF and (
-            (_system_modes is not None and HVACMode.OFF not in _system_modes)
+            (
+                _system_modes is not None
+                and not device_offers_mode(_system_modes, HVACMode.OFF)
+            )
             or advanced.get("no_off_system_mode")
         ):
             _min_temp = self.real_trvs[entity_id].min_temp
