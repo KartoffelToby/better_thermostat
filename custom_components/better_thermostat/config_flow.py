@@ -58,7 +58,7 @@ from .utils.const import (
     CalibrationType,
     MpcV2PlantPreset,
 )
-from .utils.helpers import get_device_model, get_trv_intigration
+from .utils.helpers import device_offers_mode, get_device_model, get_trv_intigration
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -227,7 +227,7 @@ def _trv_supports_auto(
     if not trv_state or not hasattr(trv_state, "attributes"):
         return False
     hvac_modes = trv_state.attributes.get("hvac_modes") or []
-    return HVACMode.AUTO in hvac_modes
+    return device_offers_mode(hvac_modes, HVACMode.AUTO)
 
 
 def _build_advanced_fields(
@@ -820,7 +820,7 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 hvac_modes: list[str] = []
                 if state_obj and hasattr(state_obj, "attributes"):
                     hvac_modes = state_obj.attributes.get("hvac_modes", []) or []
-                if HVACMode.OFF not in hvac_modes:
+                if not device_offers_mode(hvac_modes, HVACMode.OFF):
                     _has_off_mode = False
 
             if not _has_off_mode:

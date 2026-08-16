@@ -15,7 +15,10 @@ from dataclasses import dataclass, field
 from types import ModuleType
 from typing import Any, Protocol, runtime_checkable
 
+from homeassistant.components.climate.const import HVACMode
+
 from custom_components.better_thermostat.core.calibrator import CalibratorHealth
+from custom_components.better_thermostat.utils.helpers import device_offers_mode
 
 
 @runtime_checkable
@@ -168,10 +171,12 @@ class Trv:
             )
 
         # An unreported mode list counts as no-off: BT then sends min temp
-        # instead of an OFF the device may not support.
+        # instead of an OFF the device may not support. The cached list holds
+        # the device's own spelling, so membership is decided on the normalized
+        # list, like every other capability check.
         no_off = (
             self.hvac_modes is None
-            or "off" not in self.hvac_modes
+            or not device_offers_mode(self.hvac_modes, HVACMode.OFF)
             or (self.advanced or {}).get("no_off_system_mode", False) is True
         )
         return TrvCapabilities(
