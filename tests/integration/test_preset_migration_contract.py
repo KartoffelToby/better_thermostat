@@ -73,6 +73,7 @@ def _restore_point(hass):
     return hass.states.get(BT_ENTITY).attributes.get("preset_temperature")
 
 
+@pytest.mark.asyncio
 async def test_entering_a_preset_stores_the_current_target(hass, fake_trv):
     await _setup(hass)
     await _set_target(hass, 21.0)
@@ -84,6 +85,7 @@ async def test_entering_a_preset_stores_the_current_target(hass, fake_trv):
     assert _restore_point(hass) == 21.0
 
 
+@pytest.mark.asyncio
 async def test_switching_between_presets_keeps_the_first_stored_target(hass, fake_trv):
     await _setup(hass)
     await _set_target(hass, 21.0)
@@ -98,6 +100,7 @@ async def test_switching_between_presets_keeps_the_first_stored_target(hass, fak
     assert _target(hass) == 21.0
 
 
+@pytest.mark.asyncio
 async def test_returning_to_none_restores_the_target_and_clears_the_store(
     hass, fake_trv
 ):
@@ -112,6 +115,7 @@ async def test_returning_to_none_restores_the_target_and_clears_the_store(
     assert _restore_point(hass) is None
 
 
+@pytest.mark.asyncio
 async def test_a_second_none_call_leaves_the_target_alone(hass, fake_trv):
     await _setup(hass)
     await _set_target(hass, 21.0)
@@ -124,6 +128,7 @@ async def test_a_second_none_call_leaves_the_target_alone(hass, fake_trv):
     assert _restore_point(hass) is None
 
 
+@pytest.mark.asyncio
 async def test_a_manual_target_change_cancels_the_preset_and_drops_the_store(
     hass, fake_trv
 ):
@@ -143,6 +148,7 @@ async def test_a_manual_target_change_cancels_the_preset_and_drops_the_store(
     assert _target(hass) == 16.5
 
 
+@pytest.mark.asyncio
 async def test_writing_the_preset_number_retargets_without_touching_the_store(
     hass, fake_trv
 ):
@@ -160,6 +166,7 @@ async def test_writing_the_preset_number_retargets_without_touching_the_store(
     assert _target(hass) == 21.0
 
 
+@pytest.mark.asyncio
 async def test_a_preset_that_is_not_enabled_is_rejected_by_the_service_call(
     hass, fake_trv
 ):
@@ -173,6 +180,7 @@ async def test_a_preset_that_is_not_enabled_is_rejected_by_the_service_call(
     assert _target(hass) == 21.0
 
 
+@pytest.mark.asyncio
 async def test_the_restore_point_survives_a_restart(hass, fake_trv):
     mock_restore_cache(
         hass,

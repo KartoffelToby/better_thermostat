@@ -99,7 +99,7 @@ leaves the stored restore point untouched, so a schedule may adjust the value mi
 
 ## When you do not need a restore
 
-If nothing has to be put back afterwards, skip the presets and set the target directly:
+If nothing has to be put back afterward, skip the presets and set the target directly:
 
 ```yaml
 - action: climate.set_temperature
