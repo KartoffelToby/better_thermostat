@@ -15,6 +15,9 @@ from custom_components.better_thermostat.utils.controlling import (
     COOLER_MODE_HYSTERESIS_K,
     control_cooler,
 )
+from custom_components.better_thermostat.utils.helpers import (
+    cooling_owns_dual_role_device,
+)
 
 
 def _make_mock_self(
@@ -31,6 +34,7 @@ def _make_mock_self(
     last_sent_cooler_hvac_mode_ts=None,
     last_cooler_mode_decided=None,
     min_cooler_resend_interval_s=0,
+    contact_open=False,
 ):
     """Build a minimal mock BetterThermostat instance for control_cooler tests."""
     mock_self = Mock()
@@ -40,6 +44,9 @@ def _make_mock_self(
     # The cooler of these cases is a device of its own, so the set of
     # controlled thermostats does not contain it.
     mock_self.real_trvs = {}
+    # An attribute a Mock was never given is a truthy child mock, so
+    # contact_open has to be pinned or every cycle reads as an airing.
+    mock_self.contact_open = contact_open
     mock_self.context = None
     mock_self.cur_temp = cur_temp
     mock_self.bt_target_cooltemp = bt_target_cooltemp
@@ -1635,3 +1642,67 @@ class TestControlCoolerOnADualRoleEntity:
         calls = mock_hass.services.async_call.call_args_list
         assert [call.args[1] for call in calls] == ["set_temperature", "set_hvac_mode"]
         assert calls[1].args[2]["hvac_mode"] == HVACMode.OFF
+
+
+class TestControlCoolerOpenContact:
+    """An open window or door stops the cooler the way it stops the TRVs."""
+
+    @pytest.mark.asyncio
+    async def test_an_open_contact_stops_a_cooler_that_would_otherwise_run(self):
+        """The room cannot reach its target, so the unit is switched off."""
+        mock_hass = Mock()
+        mock_hass.config.units.temperature_unit = UnitOfTemperature.CELSIUS
+        mock_hass.services = Mock()
+        mock_hass.services.async_call = AsyncMock()
+        mock_hass.states.get.return_value = _make_cooler_state(
+            state=HVACMode.COOL, temperature=24.0
+        )
+
+        mock_self = _make_mock_self(
+            mock_hass,
+            bt_hvac_mode=HVACMode.HEAT_COOL,
+            cur_temp=26.0,
+            bt_target_temp=20.0,
+            bt_target_cooltemp=24.0,
+            contact_open=True,
+        )
+
+        await control_cooler(mock_self)
+
+        calls = mock_hass.services.async_call.call_args_list
+        assert [call.args[1] for call in calls] == ["set_hvac_mode"]
+        assert calls[0].args[2]["hvac_mode"] == HVACMode.OFF
+        assert mock_self.last_cooler_mode_decided == HVACMode.OFF
+
+    @pytest.mark.asyncio
+    async def test_an_open_contact_leaves_a_shared_device_to_the_heating_channel(self):
+        """The channel that switches a device off for an airing keeps it.
+
+        A shared device is handed over by the cooling decision, so a cooling
+        channel that kept running would also keep the heating channel — the
+        only one that reads the contact — out of the cycle, and the unit would
+        cool into an open window for as long as the room stayed warm.
+        """
+        mock_hass = Mock()
+        mock_hass.config.units.temperature_unit = UnitOfTemperature.CELSIUS
+        mock_hass.services = Mock()
+        mock_hass.services.async_call = AsyncMock()
+        shared_id = TestControlCoolerOnADualRoleEntity.SHARED_ID
+        mock_hass.states.get.return_value = State(
+            shared_id, str(HVACMode.COOL), {"temperature": 24.0}
+        )
+
+        mock_self = TestControlCoolerOnADualRoleEntity._make_shared_self(
+            mock_hass,
+            bt_hvac_mode=HVACMode.HEAT_COOL,
+            cur_temp=26.0,
+            bt_target_temp=20.0,
+            bt_target_cooltemp=24.0,
+            contact_open=True,
+        )
+
+        await control_cooler(mock_self)
+
+        assert mock_hass.services.async_call.call_args_list == []
+        assert mock_self.last_cooler_mode_decided == HVACMode.OFF
+        assert cooling_owns_dual_role_device(mock_self, shared_id) is False

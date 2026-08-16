@@ -375,7 +375,7 @@ async def control_cooler(self):
     cooling when the temperature falls back below the cooling target — or below the
     cooling target minus the width ``COOLER_MODE_HYSTERESIS_K`` borrows from
     underneath it whenever the tolerance is narrower than that minimum band — or
-    when BT HVAC mode is OFF.
+    when BT HVAC mode is OFF, or while a window or door contact is open.
     """
     # Get current cooler state to avoid sending redundant commands
     cooler_state = self.hass.states.get(self.cooler_entity_id)
@@ -450,6 +450,14 @@ async def control_cooler(self):
         desired_mode = HVACMode.OFF
     elif self.bt_hvac_mode == HVACMode.OFF:
         desired_mode = HVACMode.OFF
+    elif self.contact_open:
+        # An open window or door suppresses the cooler for the same reason it
+        # suppresses the TRVs: the room cannot reach its target, so the unit
+        # would run against an unbounded load. On a device that carries both
+        # roles the decision is what hands it over, so a cooler left running
+        # here would also keep the heating channel — the only channel that
+        # switches a device off for an open contact — out of the cycle.
+        desired_mode = HVACMode.OFF
     else:
         # The tolerance delays the switch-on instead of advancing it: cooling
         # starts only once the room reaches cool_target + tolerance and then
@@ -496,8 +504,8 @@ async def control_cooler(self):
     # guard put it instead of on a stale value. Each of those guards stops the
     # cooler outright, so the run ends there and the way back in is the
     # switch-on edge — the same contract the heating hysteresis in
-    # compute_hvac_action applies to its own guards, where a missing reading and
-    # a mode of OFF each return the band to IDLE.
+    # compute_hvac_action applies to the same three guards, where a missing
+    # reading, an open contact and a mode of OFF each return the band to IDLE.
     self.last_cooler_mode_decided = desired_mode
 
     # A device that is also a controlled thermostat holds one mode and one
