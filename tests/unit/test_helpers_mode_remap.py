@@ -381,3 +381,41 @@ class TestModeRemapUnsupportedOutboundMode:
 
         result = mode_remap(mock_bt, "climate.test", HVACMode.HEAT, inbound=False)
         assert result == HVACMode.HEAT
+
+    def test_hint_names_disabling_the_swap_when_it_is_on(self, caplog):
+        """A swapped device without AUTO is told to turn the swap off."""
+        mock_bt = MockThermostat()
+        mock_bt.add_trv(
+            "climate.test",
+            heat_auto_swapped=True,
+            hvac_modes=[HVACMode.OFF, HVACMode.HEAT],
+        )
+
+        with caplog.at_level(logging.ERROR, logger=HELPERS_LOGGER):
+            assert (
+                mode_remap(mock_bt, "climate.test", HVACMode.HEAT, inbound=False)
+                is None
+            )
+
+        records = _unsupported_records(caplog)
+        assert len(records) == 1
+        message = records[0].getMessage()
+        assert "Disable the heat auto swapped option" in message
+        assert "enable the heat auto swapped" not in message
+
+    def test_hint_names_enabling_the_swap_when_it_is_off(self, caplog):
+        """An unswapped device is told about the option it has not set."""
+        mock_bt = MockThermostat()
+        mock_bt.add_trv("climate.test", hvac_modes=self.CHANGEOVER_MODES)
+
+        with caplog.at_level(logging.ERROR, logger=HELPERS_LOGGER):
+            assert (
+                mode_remap(mock_bt, "climate.test", HVACMode.HEAT, inbound=False)
+                is None
+            )
+
+        records = _unsupported_records(caplog)
+        assert len(records) == 1
+        message = records[0].getMessage()
+        assert "enable the heat auto swapped option" in message
+        assert "Disable the heat auto swapped option" not in message

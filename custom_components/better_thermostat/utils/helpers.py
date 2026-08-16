@@ -255,6 +255,35 @@ def _device_offers_mode(trv_modes: Iterable[str], hvac_mode: str) -> bool:
     return any(normalize_hvac_mode(mode) == target for mode in trv_modes)
 
 
+def _unsupported_mode_hint(trv) -> str:
+    """Name the remedy for a device that does not offer the mode BT wants.
+
+    The heat auto swapped option is what decides whether BT writes ``heat``
+    or ``auto``, so which way to turn it depends on its current setting: a
+    device without ``auto`` is only asked for ``auto`` because the option is
+    already on.
+
+    Parameters
+    ----------
+    trv : Trv
+        Per-TRV state carrying the advanced configuration.
+
+    Returns
+    -------
+    str
+        A sentence naming the setting that resolves the situation.
+    """
+    if (trv.advanced or {}).get(CONF_HEAT_AUTO_SWAPPED, False):
+        return (
+            "Disable the heat auto swapped option unless 'auto' really is this "
+            "device's heating mode."
+        )
+    return (
+        "Switch the device to its heating mode, or enable the heat auto swapped "
+        "option if 'auto' means 'heat' on this device."
+    )
+
+
 def _clamp_to_offered_mode(
     self, trv, entity_id, hvac_mode: str, inbound: bool
 ) -> str | None:
@@ -299,13 +328,12 @@ def _clamp_to_offered_mode(
         trv.unsupported_modes_logged.add(_mode_key)
         _LOGGER.error(
             "better_thermostat %s: %s does not offer HVAC mode %s, it offers %s. "
-            "The device mode is left untouched and only the setpoint is written. "
-            "Switch the device to its heating mode, or enable the heat auto "
-            "swapped option if 'auto' means 'heat' on this device.",
+            "The device mode is left untouched and only the setpoint is written. %s",
             self.device_name,
             entity_id,
             hvac_mode,
             trv_modes,
+            _unsupported_mode_hint(trv),
         )
     return None
 
