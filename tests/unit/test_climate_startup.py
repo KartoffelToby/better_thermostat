@@ -509,6 +509,10 @@ def _make_startup_bt():
     mock.startup_running = True
     mock.sensor_entity_id = SENSOR_ID
     mock.cooler_entity_id = COOLER_ID
+    # A spec'd mock carries no instance attributes, and the cooler of this
+    # case is a device of its own, so the set of controlled thermostats is
+    # stated explicitly and does not contain it.
+    mock.real_trvs = {}
     mock.bt_target_cooltemp = None
     # The heating target carries its construction default until the restore
     # step replaces it, which is what makes the ordering of the two steps

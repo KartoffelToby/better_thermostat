@@ -877,6 +877,97 @@ def resolve_inbound_setpoint(
     return InboundSetpoint(raw=raw, value=value, clamped=clamped, is_echo=is_echo)
 
 
+def dual_role_entity_id(self) -> str | None:
+    """Return the entity that carries both the heating and the cooling role.
+
+    A configuration may name the same climate entity as a controlled
+    thermostat and as the cooler, which is what a reversible air conditioner
+    is. Such a device holds one HVAC mode and one setpoint for both channels,
+    so a cycle that drives it from both leaves the last write standing and the
+    other channel's intent lost, and a report of either channel's write reads
+    as user input to the other. Recognising the overlap is what lets exactly
+    one channel own the device at a time.
+
+    Parameters
+    ----------
+    self :
+            self instance of better_thermostat, supplying ``cooler_entity_id``
+            and ``real_trvs``
+
+    Returns
+    -------
+    str | None
+            the shared entity id, or None when the cooler is a device of its
+            own and when no cooler is configured
+    """
+    cooler = self.cooler_entity_id
+    if cooler is not None and cooler in self.real_trvs:
+        return cooler
+    return None
+
+
+def cooling_owns_dual_role_device(self, entity_id: str) -> bool:
+    """Answer whether the cooling channel drives a shared device right now.
+
+    The ownership question the control cycle asks before it dispatches the
+    heating channel. It reads the decision :func:`control_cooler` latched for
+    this cycle and falls back to the device's own reported mode while no
+    decision has been taken yet — the state a restart leaves behind, and the
+    same seed the cooling hysteresis uses for its hold edge.
+
+    Parameters
+    ----------
+    self :
+            self instance of better_thermostat, supplying the cooling decision
+            latch and ``hass``
+    entity_id : str
+            entity id the question is asked about
+
+    Returns
+    -------
+    bool
+            True while the cooling channel owns the device; False for every
+            entity that does not carry both roles
+    """
+    if entity_id != dual_role_entity_id(self):
+        return False
+    if self.last_cooler_mode_decided is not None:
+        return self.last_cooler_mode_decided == HVACMode.COOL
+    state = self.hass.states.get(entity_id)
+    return state is not None and state.state == HVACMode.COOL
+
+
+def cooling_owns_dual_role_report(self, entity_id: str, reported_mode) -> bool:
+    """Answer whether a report from a shared device names the cooling channel.
+
+    A shared device publishes one setpoint for two targets, so the mode it
+    reports is the statement about which target a press on its own controls
+    meant. The latched decision covers the window in which the cooling channel
+    has written its setpoint but not yet its mode.
+
+    Parameters
+    ----------
+    self :
+            self instance of better_thermostat, supplying the cooling decision
+            latch
+    entity_id : str
+            entity id the report came from
+    reported_mode :
+            HVAC mode that entity reports right now
+
+    Returns
+    -------
+    bool
+            True when the report belongs to the cooling channel; False for
+            every entity that does not carry both roles
+    """
+    if entity_id != dual_role_entity_id(self):
+        return False
+    if reported_mode == HVACMode.COOL:
+        return True
+    return self.last_cooler_mode_decided == HVACMode.COOL
+
+
 def state_says_nothing(state: State | None) -> bool:
     """Answer whether a state carries no statement about its own device.
 

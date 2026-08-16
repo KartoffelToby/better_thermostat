@@ -36,6 +36,9 @@ def _make_mock_self(
     mock_self.hass = hass
     mock_self.bt_hvac_mode = bt_hvac_mode
     mock_self.cooler_entity_id = "climate.cooler"
+    # The cooler of these cases is a device of its own, so the set of
+    # controlled thermostats does not contain it.
+    mock_self.real_trvs = {}
     mock_self.context = None
     mock_self.cur_temp = cur_temp
     mock_self.bt_target_cooltemp = bt_target_cooltemp
