@@ -55,6 +55,7 @@ from .utils.const import (
     CONF_WEATHER,
     CONF_WINDOW_TIMEOUT,
     CONF_WINDOW_TIMEOUT_AFTER,
+    DEFAULT_CALIBRATION_MODE,
     CalibrationMode,
     CalibrationType,
     MpcV2PlantPreset,
@@ -90,11 +91,11 @@ CALIBRATION_MODE_SELECTOR = selector.SelectSelector(
     selector.SelectSelectorConfig(
         options=[
             selector.SelectOptionDict(
-                value=CalibrationMode.HEATING_POWER_CALIBRATION, label="(AI) Time Based"
+                value=CalibrationMode.HEATING_POWER_CALIBRATION,
+                label="(AI) Time Based (Default)",
             ),
             selector.SelectOptionDict(
-                value=CalibrationMode.DEFAULT,
-                label="External Sensor Offset Only (Default)",
+                value=CalibrationMode.DEFAULT, label="External Sensor Offset Only"
             ),
             selector.SelectOptionDict(
                 value=CalibrationMode.MPC_CALIBRATION, label="MPC Predictive (Beta)"
@@ -104,7 +105,7 @@ CALIBRATION_MODE_SELECTOR = selector.SelectSelector(
                 label="(AI) MPC v2 (QP + Kalman, experimental)",
             ),
             selector.SelectOptionDict(
-                value=CalibrationMode.AGGRESIVE_CALIBRATION, label="Agressive"
+                value=CalibrationMode.AGGRESIVE_CALIBRATION, label="Aggressive"
             ),
             selector.SelectOptionDict(
                 value=CalibrationMode.TPI_CALIBRATION, label="TPI Controller"
@@ -254,7 +255,7 @@ def _build_advanced_fields(
             elif balance_mode in ("heuristic", "none"):
                 # For other balance modes, set calibration_mode to default if not set
                 if "calibration_mode" not in source:
-                    source["calibration_mode"] = CalibrationMode.MPC_CALIBRATION.value
+                    source["calibration_mode"] = DEFAULT_CALIBRATION_MODE.value
                 # Remove old balance_mode
                 source.pop("balance_mode", None)
 
@@ -308,9 +309,7 @@ def _build_advanced_fields(
     ordered[
         vol.Required(
             CONF_CALIBRATION_MODE,
-            default=get_value(
-                CONF_CALIBRATION_MODE, CalibrationMode.HEATING_POWER_CALIBRATION
-            ),
+            default=get_value(CONF_CALIBRATION_MODE, DEFAULT_CALIBRATION_MODE),
         )
     ] = CALIBRATION_MODE_SELECTOR
 
@@ -357,7 +356,7 @@ def _normalize_advanced_submission(
     normalized: dict[str, Any] = dict(data)
     normalized[CONF_CALIBRATION] = normalized.get(CONF_CALIBRATION, default_calibration)
     normalized[CONF_CALIBRATION_MODE] = normalized.get(
-        CONF_CALIBRATION_MODE, CalibrationMode.HEATING_POWER_CALIBRATION
+        CONF_CALIBRATION_MODE, DEFAULT_CALIBRATION_MODE
     )
     normalized[CONF_PROTECT_OVERHEATING] = _as_bool(
         normalized.get(CONF_PROTECT_OVERHEATING), False

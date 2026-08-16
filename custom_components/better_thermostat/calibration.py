@@ -43,6 +43,7 @@ from custom_components.better_thermostat.utils.calibration.tpi import (
 from custom_components.better_thermostat.utils.const import (
     CONF_MPC_V2_PLANT_PRESET,
     CONF_PROTECT_OVERHEATING,
+    DEFAULT_CALIBRATION_MODE,
     CalibrationMode,
     CalibrationType,
     MpcV2PlantPreset,
@@ -727,7 +728,7 @@ def calculate_calibration_local(self, entity_id) -> float | None:
 
     _calibration_mode = normalize_calibration_mode(
         self.real_trvs[entity_id].advanced.get(
-            "calibration_mode", CalibrationMode.MPC_CALIBRATION
+            "calibration_mode", DEFAULT_CALIBRATION_MODE
         )
     )
     if _calibration_mode is None:
@@ -1106,7 +1107,7 @@ def calculate_calibration_setpoint(self, entity_id) -> float | None:
 
     _calibration_mode = normalize_calibration_mode(
         self.real_trvs[entity_id].advanced.get(
-            "calibration_mode", CalibrationMode.MPC_CALIBRATION
+            "calibration_mode", DEFAULT_CALIBRATION_MODE
         )
     )
     if _calibration_mode is None:
