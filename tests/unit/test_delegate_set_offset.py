@@ -16,6 +16,10 @@ from custom_components.better_thermostat.adapters.delegate import set_offset
 from custom_components.better_thermostat.trv import Trv
 
 ENTITY_ID = "climate.trv"
+# The retry decorator doubles a one-second base delay per attempt.
+RETRY_BACKOFF_S = [1.0, 2.0, 4.0, 8.0, 16.0]
+# The decorator spreads each delay by up to 20 % in either direction.
+RETRY_JITTER = 0.2
 
 
 @pytest.fixture
@@ -45,17 +49,30 @@ async def test_failed_write_records_nothing(bt):
     """An adapter raising on every retry leaves the intent unrecorded.
 
     A recorded intent would suppress the retry on the next cycle for a
-    write that never left the house.
+    write that never left the house. The backoff between the attempts is
+    recorded rather than slept through, so the retry schedule is asserted
+    without spending it.
     """
     bt.real_trvs[ENTITY_ID].adapter.set_offset = AsyncMock(
         side_effect=ConnectionError("boom")
     )
+    delays = []
 
-    with patch("asyncio.sleep", new=AsyncMock()):
+    async def _record_delay(seconds):
+        delays.append(seconds)
+
+    with patch("asyncio.sleep", new=_record_delay):
         result = await set_offset(bt, ENTITY_ID, -2.0)
 
     assert result is False
     assert bt.real_trvs[ENTITY_ID].last_calibration_requested is None
+    assert (
+        bt.real_trvs[ENTITY_ID].adapter.set_offset.await_count
+        == len(RETRY_BACKOFF_S) + 1
+    )
+    assert len(delays) == len(RETRY_BACKOFF_S)
+    for actual, base in zip(delays, RETRY_BACKOFF_S, strict=True):
+        assert base * (1 - RETRY_JITTER) <= actual <= base * (1 + RETRY_JITTER)
 
 
 @pytest.mark.asyncio
