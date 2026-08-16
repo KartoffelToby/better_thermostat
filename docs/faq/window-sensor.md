@@ -19,7 +19,7 @@ Better Thermostat expects a binary sensor:
   not stop heating. The frost floor still applies and the unavailability
   is still reported.
 
-Any other state raises a repair issue — normalize the entity to one of
+Any other state raises a repair issue. Normalize the entity to one of
 the values above, for example with a
 [group helper](https://www.home-assistant.io/integrations/group/) or a
 [template binary sensor](https://www.home-assistant.io/integrations/template/).
@@ -33,7 +33,7 @@ Two options debounce the sensor:
 
 A state change only takes effect after it has persisted for the whole
 delay. A window that closes again within the open delay (or reopens
-within the close delay) changes nothing — short flaps, such as a door
+within the close delay) changes nothing: short flaps, such as a door
 slamming or a quick airing check, are filtered out.
 
 - With a delay of `0` the change takes effect immediately with the event.

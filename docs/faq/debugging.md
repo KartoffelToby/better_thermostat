@@ -5,7 +5,7 @@ description: Download diagnostics, enable debug logs, and verify Better Thermost
 
 ## Download diagnostics
 
-For bug reports, the diagnostics download is the most useful artifact —
+For bug reports, the diagnostics download is the most useful artifact;
 attach it before reaching for debug logs.
 
 Go to **Settings → Devices & services → Better Thermostat**, open the
