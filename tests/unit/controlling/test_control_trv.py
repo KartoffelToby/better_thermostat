@@ -2227,10 +2227,11 @@ class TestGroupedTrvCalibration:
             patch(_PATCHES["set_valve"], new_callable=AsyncMock),
             patch("asyncio.sleep", new_callable=AsyncMock),
         ):
-            mock_get_offset.return_value = 2.0
+            mock_get_offset.return_value = 2.0  # confirms last_calibration
+            mock_set_offset.return_value = True
             mock_convert.return_value = {
                 "temperature": 21.0,
-                "local_temperature_calibration": 3.0,  # Different from current!
+                "local_temperature_calibration": 3.0,  # the intent moved
                 "local_temperature": 20.0,
                 "system_mode": "heat",
             }
@@ -2240,6 +2241,7 @@ class TestGroupedTrvCalibration:
             await control_trv(mock_bt_grouped, entity_id)
 
             mock_set_offset.assert_awaited_once_with(mock_bt_grouped, entity_id, 3.0)
+            assert mock_bt_grouped.real_trvs[entity_id].calibration_received is False
 
     @pytest.mark.anyio
     async def test_calibration_sent_when_received_true_and_differs(
