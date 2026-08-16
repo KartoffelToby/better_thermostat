@@ -233,7 +233,7 @@ def normalize_hvac_mode(value: HVACMode | str) -> HVACMode | str:
     return value
 
 
-def _device_offers_mode(trv_modes: Iterable[str], hvac_mode: str) -> bool:
+def _device_offers_mode(trv_modes: Iterable[Any], hvac_mode: str) -> bool:
     """Whether a device's reported mode list contains a given HVAC mode.
 
     Both sides are normalized so a list carrying ``HVACMode`` members,
@@ -241,8 +241,8 @@ def _device_offers_mode(trv_modes: Iterable[str], hvac_mode: str) -> bool:
 
     Parameters
     ----------
-    trv_modes : Iterable[str]
-        HVAC modes the device reports.
+    trv_modes : Iterable[Any]
+        HVAC modes the device reports, in any spelling.
     hvac_mode : str
         HVAC mode to look for.
 
