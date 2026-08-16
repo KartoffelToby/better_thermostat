@@ -107,13 +107,25 @@ class TestModeRemapHeatAutoSwapped:
         result = mode_remap(mock_bt, "climate.test", HVACMode.COOL, inbound=False)
         assert result == HVACMode.COOL
 
-    def test_swapped_heat_dropped_when_device_has_no_auto(self):
-        """A swapped device without AUTO gets no mode written at all."""
+    def test_swapped_heat_falls_back_when_device_has_no_auto(self):
+        """A swapped device without AUTO receives the unswapped HEAT."""
         mock_bt = MockThermostat()
         mock_bt.add_trv(
             "climate.test",
             heat_auto_swapped=True,
             hvac_modes=[HVACMode.OFF, HVACMode.HEAT],
+        )
+
+        result = mode_remap(mock_bt, "climate.test", HVACMode.HEAT, inbound=False)
+        assert result == HVACMode.HEAT
+
+    def test_swapped_heat_dropped_when_device_offers_neither(self):
+        """A swapped device with neither AUTO nor HEAT gets no mode written."""
+        mock_bt = MockThermostat()
+        mock_bt.add_trv(
+            "climate.test",
+            heat_auto_swapped=True,
+            hvac_modes=[HVACMode.OFF, HVACMode.COOL],
         )
 
         result = mode_remap(mock_bt, "climate.test", HVACMode.HEAT, inbound=False)
@@ -390,12 +402,12 @@ class TestModeRemapUnsupportedOutboundMode:
             assert len(errors) == 2
 
     def test_hint_names_disabling_the_swap_when_it_is_on(self, caplog):
-        """A swapped device without AUTO is told to turn the swap off."""
+        """A swapped device offering neither AUTO nor HEAT names the swap."""
         mock_bt = MockThermostat()
         mock_bt.add_trv(
             "climate.test",
             heat_auto_swapped=True,
-            hvac_modes=[HVACMode.OFF, HVACMode.HEAT],
+            hvac_modes=[HVACMode.OFF, HVACMode.COOL],
         )
 
         with caplog.at_level(logging.ERROR, logger=HELPERS_LOGGER):
@@ -428,3 +440,110 @@ class TestModeRemapUnsupportedOutboundMode:
         message = records[0].getMessage()
         assert "enable the heat auto swapped option" in message
         assert "Disable the heat auto swapped option" not in message
+
+
+def _fallback_records(caplog):
+    """Return the log records announcing the unswapped fallback."""
+    return [
+        record
+        for record in caplog.records
+        if "Writing heat instead" in record.getMessage()
+    ]
+
+
+class TestModeRemapSwapFallback:
+    """A swapped device without AUTO still receives the mode BT wants."""
+
+    def test_heat_is_written_when_auto_is_missing(self):
+        """The swap's output is unwritable, so the original HEAT is written."""
+        mock_bt = MockThermostat()
+        mock_bt.add_trv(
+            "climate.test",
+            heat_auto_swapped=True,
+            hvac_modes=[HVACMode.OFF, HVACMode.HEAT],
+        )
+
+        result = mode_remap(mock_bt, "climate.test", HVACMode.HEAT, inbound=False)
+        assert result == HVACMode.HEAT
+
+    def test_auto_still_wins_when_the_device_offers_it(self):
+        """The swap keeps its effect on the devices it was meant for."""
+        mock_bt = MockThermostat()
+        mock_bt.add_trv(
+            "climate.test",
+            heat_auto_swapped=True,
+            hvac_modes=[HVACMode.OFF, HVACMode.HEAT, HVACMode.AUTO],
+        )
+
+        result = mode_remap(mock_bt, "climate.test", HVACMode.HEAT, inbound=False)
+        assert result == HVACMode.AUTO
+
+    def test_no_fallback_when_heat_is_not_offered_either(self):
+        """The fallback never resurrects a mode the device does not offer."""
+        mock_bt = MockThermostat()
+        mock_bt.add_trv(
+            "climate.test",
+            heat_auto_swapped=True,
+            hvac_modes=[HVACMode.OFF, HVACMode.COOL],
+        )
+
+        result = mode_remap(mock_bt, "climate.test", HVACMode.HEAT, inbound=False)
+        assert result is None
+
+    def test_fallback_matches_a_prefixed_mode_spelling(self):
+        """A mode list spelled "HVACMode.HEAT" is recognised as offering HEAT."""
+        mock_bt = MockThermostat()
+        mock_bt.add_trv(
+            "climate.test",
+            heat_auto_swapped=True,
+            hvac_modes=["HVACMode.OFF", "HVACMode.HEAT"],
+        )
+
+        result = mode_remap(mock_bt, "climate.test", HVACMode.HEAT, inbound=False)
+        assert result == HVACMode.HEAT
+
+    def test_fallback_does_not_fire_inbound(self):
+        """An inbound AUTO keeps becoming HEAT without consulting the list."""
+        mock_bt = MockThermostat()
+        mock_bt.add_trv(
+            "climate.test",
+            heat_auto_swapped=True,
+            hvac_modes=[HVACMode.OFF, HVACMode.COOL],
+        )
+
+        assert (
+            mode_remap(mock_bt, "climate.test", HVACMode.AUTO, inbound=True)
+            == HVACMode.HEAT
+        )
+        assert mode_remap(mock_bt, "climate.test", "dry", inbound=True) == "dry"
+
+    def test_fallback_leaves_the_auto_error_branch_alone(self, caplog):
+        """An unswapped device still answers AUTO with OFF and its own error."""
+        mock_bt = MockThermostat()
+        mock_bt.add_trv("climate.test", hvac_modes=[HVACMode.OFF, HVACMode.HEAT])
+
+        with caplog.at_level(logging.ERROR, logger=HELPERS_LOGGER):
+            result = mode_remap(mock_bt, "climate.test", HVACMode.AUTO, inbound=False)
+
+        assert result == HVACMode.OFF
+        assert not _fallback_records(caplog)
+
+    def test_fallback_is_announced_once(self, caplog):
+        """Repeated cycles announce the substitution a single time."""
+        mock_bt = MockThermostat()
+        mock_bt.add_trv(
+            "climate.test",
+            heat_auto_swapped=True,
+            hvac_modes=[HVACMode.OFF, HVACMode.HEAT],
+        )
+
+        with caplog.at_level(logging.WARNING, logger=HELPERS_LOGGER):
+            for _ in range(5):
+                assert (
+                    mode_remap(mock_bt, "climate.test", HVACMode.HEAT, inbound=False)
+                    == HVACMode.HEAT
+                )
+
+        records = _fallback_records(caplog)
+        assert len(records) == 1
+        assert "Disable the heat auto swapped option" in records[0].getMessage()

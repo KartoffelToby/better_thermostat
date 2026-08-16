@@ -29,6 +29,7 @@ from custom_components.better_thermostat.utils.const import (
 )
 from custom_components.better_thermostat.utils.helpers import (
     TRV_SETPOINT_KEYS,
+    adopt_reported_hvac_modes,
     attr_to_celsius,
     convert_to_float,
     get_device_model,
@@ -250,14 +251,10 @@ async def trigger_trv_change(self, event):
             )
 
         # The offered mode list changes at runtime on devices whose
-        # heating/cooling changeover is driven centrally. An unavailable
-        # entity reports no attributes at all, so only a non-empty list
-        # replaces the cache.
-        _modes = _org_trv_state.attributes.get("hvac_modes")
-        if isinstance(_modes, list) and _modes:
-            if _modes != trv.hvac_modes:
-                trv.unsupported_modes_logged.clear()
-            trv.hvac_modes = _modes
+        # heating/cooling changeover is driven centrally, so the outbound
+        # mode is judged against the currently reported list rather than
+        # the startup snapshot.
+        adopt_reported_hvac_modes(trv, _org_trv_state.attributes.get("hvac_modes"))
 
     except Exception:
         pass
