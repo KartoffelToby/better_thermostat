@@ -5,16 +5,18 @@ sidebar:
   order: 6
 ---
 
-Only state with learning value persists. Everything that can be
-re-derived from live observations is rebuilt after a restart instead of
-restored, because a persisted conclusion could only pin stale knowledge
-whose inputs are gone.
+Of what Better Thermostat stores itself, only state with learning value
+persists. Everything that can be re-derived from live observations is
+rebuilt after a restart instead of restored, because a persisted
+conclusion could only pin stale knowledge whose inputs are gone. The
+user inputs Home Assistant restores on its own sit outside that line.
 
 | Data | Lifecycle | Home |
 |---|---|---|
 | Configuration (sensors, delays, tolerances) | set once at setup | config entry → `BtConfig` |
-| Live operating values (temperatures, targets, flags) | rebuilt per observation | `BtRuntime` + the regions |
+| Live operating values (temperatures, computed setpoints, flags) | rebuilt per observation | `BtRuntime` + the regions |
 | Controller state (PID/MPC/TPI), thermal stats, filters | learned, persists | `StateManager` (HA Store) |
+| Climate target and HVAC mode | persists | `RestoreEntity` (HA-owned) |
 | User inputs on helper entities (presets) | persists | `RestoreEntity` (HA-owned) |
 
 The discrete mode flags (window open, startup, maintenance, degraded)

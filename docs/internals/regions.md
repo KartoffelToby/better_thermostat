@@ -7,7 +7,7 @@ sidebar:
 
 Seven small, orthogonal state machines built from `core/fsm/` hold the
 discrete concerns: is a window open, is maintenance running, which
-fail-soft rung rules. Together they form the **regions** of the
+fail-soft rung applies. Together they form the **regions** of the
 `KernelState`, and the door region is a second instance of the window
 machine. Two rules hold everywhere:
 
