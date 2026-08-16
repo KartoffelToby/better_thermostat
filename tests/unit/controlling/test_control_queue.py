@@ -589,6 +589,32 @@ class TestControlQueue:
         assert mock_self.ignore_states is True
 
 
+async def _wait_until(predicate, timeout=5.0):
+    """Yield to the event loop until a predicate holds.
+
+    Parameters
+    ----------
+    predicate : Callable[[], bool]
+        the condition the caller is waiting for. It is re-read on every loop
+        iteration, so the wait ends on the first pass through the loop that
+        satisfies it rather than after a fixed budget.
+    timeout : float
+        the wall-clock ceiling the wait may not exceed, in seconds. Reaching
+        it means the condition never came true, which is a failure rather than
+        a slow machine.
+
+    Returns
+    -------
+    None
+    """
+    loop = asyncio.get_running_loop()
+    deadline = loop.time() + timeout
+    while not predicate():
+        if loop.time() >= deadline:
+            raise AssertionError(f"condition not met within {timeout}s")
+        await asyncio.sleep(0)
+
+
 class TestControlQueueOnADualRoleEntity:
     """Dispatch of a device named as both a controlled thermostat and the cooler.
 
@@ -622,16 +648,41 @@ class TestControlQueueOnADualRoleEntity:
         return mock_self
 
     @classmethod
-    async def _run_one_cycle(cls, mock_self):
+    async def _run_one_cycle(cls, mock_self, until=None):
+        """Run one queued control cycle and stop the loop again.
+
+        Parameters
+        ----------
+        mock_self : Mock
+            the stand-in entity the cycle is queued on and run against
+        until : Callable[[], bool] or None
+            what marks the cycle under test as finished. A cycle whose TRV
+            controls all succeed marks the queued item done and puts nothing
+            back, so ``Queue.join`` returns exactly when it completes and None
+            selects that wait. A cycle that re-queues itself for a retry keeps
+            the queue permanently unfinished, so those cases pass a predicate
+            over what the assertions read instead.
+
+        Returns
+        -------
+        None
+        """
         await mock_self.control_queue_task.put(mock_self)
         with patch(f"{cls._CTRL}.compute_control_cycle", return_value=(Mock(), Mock())):
             queue_task = asyncio.create_task(control_queue(mock_self))
-            await asyncio.sleep(0.05)
-            queue_task.cancel()
             try:
-                await queue_task
-            except asyncio.CancelledError:
-                pass
+                if until is None:
+                    await asyncio.wait_for(
+                        mock_self.control_queue_task.join(), timeout=5
+                    )
+                else:
+                    await _wait_until(until)
+            finally:
+                queue_task.cancel()
+                try:
+                    await queue_task
+                except asyncio.CancelledError:
+                    pass
 
     @pytest.mark.asyncio
     async def test_the_heating_channel_stands_down_while_cooling_owns_the_device(self):
@@ -705,6 +756,9 @@ class TestControlQueueOnADualRoleEntity:
             real_trvs={self.SHARED_ID: Mock(), radiator: Mock()},
         )
 
+        def _errors():
+            return [r.getMessage() for r in caplog.records if r.levelname == "ERROR"]
+
         with (
             patch(f"{self._CTRL}.control_cooler", new=AsyncMock()),
             patch(
@@ -713,9 +767,13 @@ class TestControlQueueOnADualRoleEntity:
             ),
             caplog.at_level("ERROR"),
         ):
-            await self._run_one_cycle(mock_self)
+            # The cycle fails its only dispatched control, then backs off and
+            # re-queues itself before it marks the taken item done, so the
+            # queue never drains and the first pass is what the assertions
+            # below are about.
+            await self._run_one_cycle(mock_self, until=lambda: bool(_errors()))
 
-        errors = [r.getMessage() for r in caplog.records if r.levelname == "ERROR"]
+        errors = _errors()
         assert any(radiator in message for message in errors)
         assert not any(self.SHARED_ID in message for message in errors)
 
