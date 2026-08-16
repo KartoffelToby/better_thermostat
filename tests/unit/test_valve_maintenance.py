@@ -666,6 +666,42 @@ class TestRunValveMaintenance:
         temp_fn.assert_awaited_once_with("trv1", 20.0)
 
     @pytest.mark.asyncio
+    async def test_no_cycle_waits_for_an_unreachable_off_trv(self, monkeypatch):
+        """An off TRV that offered no wake mode is not worth waiting for."""
+        slept: list[float] = []
+
+        async def _record_sleep(seconds):
+            slept.append(seconds)
+
+        monkeypatch.setattr(asyncio, "sleep", _record_sleep)
+
+        temp_fn = AsyncMock()
+        mode_fn = AsyncMock()
+        infos = [
+            _info(
+                entity_id="trv1",
+                cur_mode="off",
+                use_direct_valve=False,
+                cur_temp=20.0,
+                wake_mode=None,
+            )
+        ]
+
+        await run_valve_maintenance(
+            infos,
+            set_valve_fn=AsyncMock(),
+            set_temperature_fn=temp_fn,
+            set_hvac_mode_fn=mode_fn,
+            device_name="Test",
+            cycle_sleep=30,
+        )
+
+        assert slept == []
+        # Never woken, never cycled, but still restored.
+        temp_fn.assert_awaited_once_with("trv1", 20.0)
+        mode_fn.assert_awaited_once_with("trv1", "off")
+
+    @pytest.mark.asyncio
     async def test_no_cycle_waits_without_any_trv(self, monkeypatch):
         """An empty snapshot list is the same case and must not wait either."""
         slept: list[float] = []
