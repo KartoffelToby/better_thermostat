@@ -11,10 +11,11 @@ applied in control_trv (see test_control_trv.py).
 """
 
 import asyncio
-from unittest.mock import MagicMock, Mock
+import logging
+from unittest.mock import AsyncMock, MagicMock, Mock, patch
 
 from homeassistant.components.climate.const import ClimateEntityFeature, HVACMode
-from homeassistant.const import UnitOfTemperature
+from homeassistant.const import STATE_UNAVAILABLE, STATE_UNKNOWN, UnitOfTemperature
 import pytest
 
 from custom_components.better_thermostat.trv import Trv
@@ -24,12 +25,17 @@ from custom_components.better_thermostat.utils.const import (
 )
 from custom_components.better_thermostat.utils.controlling import (
     RECONCILE_TOLERANCE_K,
+    WRITE_CONFIRM_TIMEOUT_S,
+    _calibration_match_tolerance,
     _get_valve_control,
     _reconcile_tolerance,
+    check_calibration,
     check_system_mode,
     check_target_temperature,
 )
 from tests.factories import make_snapshot
+
+_CTRL = "custom_components.better_thermostat.utils.controlling"
 
 
 def _boost_snapshot():
@@ -620,3 +626,212 @@ class TestReconcileTolerance:
             self._state({"target_temp_step": 0.5}),
         )
         assert tolerance == pytest.approx(0.25, abs=1e-5)
+
+
+# ---------------------------------------------------------------------------
+# check_calibration
+# ---------------------------------------------------------------------------
+
+
+def _sleep_recorder():
+    """Patch asyncio.sleep to a no-op that records requested durations."""
+    durations = []
+
+    async def _sleep(duration):
+        durations.append(duration)
+
+    return durations, patch("asyncio.sleep", new=AsyncMock(side_effect=_sleep))
+
+
+class TestCheckCalibration:
+    """The calibration watchdog always releases the offset write gate.
+
+    Without it, an offset the device never acknowledges leaves
+    calibration_received False for the lifetime of the entity and no
+    further offset is ever written.
+    """
+
+    @staticmethod
+    def _mock_self(live_state=HVACMode.HEAT, **trv_overrides):
+        """Build a mock BetterThermostat around one offset-writing TRV."""
+        mock_state = Mock()
+        mock_state.state = live_state
+
+        mock_hass = Mock()
+        mock_hass.states.get.return_value = (
+            mock_state if live_state is not None else None
+        )
+
+        cfg = {
+            "last_calibration": -2.0,
+            "local_calibration_step": 0.5,
+            "calibration_received": False,
+        }
+        cfg.update(trv_overrides)
+
+        mock_self = Mock()
+        mock_self.device_name = "test_thermostat"
+        mock_self.hass = mock_hass
+        mock_self.real_trvs = {
+            "climate.trv1": Trv.from_legacy_dict("climate.trv1", cfg)
+        }
+        return mock_self
+
+    @pytest.mark.asyncio
+    async def test_matching_offset_confirms_immediately(self, caplog):
+        """A device already holding the written offset confirms at once."""
+        mock_self = self._mock_self()
+        durations, sleep_patch = _sleep_recorder()
+
+        with (
+            caplog.at_level(logging.WARNING, logger=_CTRL),
+            patch(f"{_CTRL}.get_current_offset", new=AsyncMock(return_value=-2.0)),
+            sleep_patch,
+        ):
+            result = await check_calibration(mock_self, "climate.trv1")
+
+        assert result is True
+        assert mock_self.real_trvs["climate.trv1"].calibration_received is True
+        assert 1 not in durations
+        assert caplog.records == []
+
+    @pytest.mark.asyncio
+    async def test_half_a_step_away_confirms(self):
+        """The device's own grid snap is a confirmation, not a miss."""
+        mock_self = self._mock_self(local_calibration_step=1.0)
+        durations, sleep_patch = _sleep_recorder()
+
+        with (
+            patch(f"{_CTRL}.get_current_offset", new=AsyncMock(return_value=-2.5)),
+            sleep_patch,
+        ):
+            await check_calibration(mock_self, "climate.trv1")
+
+        assert mock_self.real_trvs["climate.trv1"].calibration_received is True
+        assert 1 not in durations
+
+    @pytest.mark.asyncio
+    async def test_offset_confirmed_after_a_delay_logs_no_warning(self, caplog):
+        """A late confirmation ends the wait without an annunciation."""
+        mock_self = self._mock_self()
+        reports = [-1.0, -1.0, -1.0, -2.0]
+        durations, sleep_patch = _sleep_recorder()
+
+        with (
+            caplog.at_level(logging.WARNING, logger=_CTRL),
+            patch(
+                f"{_CTRL}.get_current_offset",
+                new=AsyncMock(side_effect=lambda *_: reports.pop(0)),
+            ),
+            sleep_patch,
+        ):
+            await check_calibration(mock_self, "climate.trv1")
+
+        assert mock_self.real_trvs["climate.trv1"].calibration_received is True
+        assert durations.count(1) == 3
+        assert caplog.records == []
+
+    @pytest.mark.asyncio
+    async def test_unconfirmed_offset_times_out_and_still_releases(self, caplog):
+        """A device that never takes the offset releases the gate anyway.
+
+        The release is what paces the re-assert: the write gate only
+        re-sends once the flag is back, so an unacknowledged offset is
+        retried once per confirmation window, not once per cycle.
+        """
+        mock_self = self._mock_self()
+        durations, sleep_patch = _sleep_recorder()
+
+        with (
+            caplog.at_level(logging.WARNING, logger=_CTRL),
+            patch(f"{_CTRL}.get_current_offset", new=AsyncMock(return_value=-1.0)),
+            sleep_patch,
+        ):
+            result = await check_calibration(mock_self, "climate.trv1")
+
+        assert result is True
+        assert mock_self.real_trvs["climate.trv1"].calibration_received is True
+        assert durations.count(1) == WRITE_CONFIRM_TIMEOUT_S + 1
+        assert "did not confirm the calibration offset" in caplog.text
+
+    @pytest.mark.asyncio
+    async def test_unparseable_report_is_not_a_confirmation(self, caplog):
+        """A garbage reading confirms nothing and runs into the timeout."""
+        mock_self = self._mock_self()
+        durations, sleep_patch = _sleep_recorder()
+
+        with (
+            caplog.at_level(logging.WARNING, logger=_CTRL),
+            patch(
+                f"{_CTRL}.get_current_offset",
+                new=AsyncMock(return_value="not-a-number"),
+            ),
+            sleep_patch,
+        ):
+            await check_calibration(mock_self, "climate.trv1")
+
+        assert mock_self.real_trvs["climate.trv1"].calibration_received is True
+        assert durations.count(1) == WRITE_CONFIRM_TIMEOUT_S + 1
+        assert "did not confirm the calibration offset" in caplog.text
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("live_state", [None, STATE_UNAVAILABLE, STATE_UNKNOWN])
+    async def test_unreachable_trv_ends_the_wait(self, live_state):
+        """A TRV that dropped out cannot confirm; the gate opens regardless."""
+        mock_self = self._mock_self(live_state=live_state)
+        durations, sleep_patch = _sleep_recorder()
+
+        with (
+            patch(f"{_CTRL}.get_current_offset", new=AsyncMock(return_value=-1.0)),
+            sleep_patch,
+        ):
+            result = await check_calibration(mock_self, "climate.trv1")
+
+        assert result is True
+        assert mock_self.real_trvs["climate.trv1"].calibration_received is True
+        assert 1 not in durations
+
+    @pytest.mark.asyncio
+    async def test_without_a_written_offset_the_wait_ends_at_once(self):
+        """Nothing was commanded, so there is nothing to confirm."""
+        mock_self = self._mock_self(last_calibration=None)
+        durations, sleep_patch = _sleep_recorder()
+
+        with (
+            patch(f"{_CTRL}.get_current_offset", new=AsyncMock(return_value=-1.0)),
+            sleep_patch,
+        ):
+            await check_calibration(mock_self, "climate.trv1")
+
+        assert mock_self.real_trvs["climate.trv1"].calibration_received is True
+        assert 1 not in durations
+
+
+class TestCalibrationMatchTolerance:
+    """Tests for _calibration_match_tolerance()."""
+
+    @staticmethod
+    def _mock_self(step):
+        mock_self = MagicMock()
+        mock_self.device_name = "Test"
+        mock_self.real_trvs = {
+            "climate.trv1": Trv.from_legacy_dict(
+                "climate.trv1", {"local_calibration_step": step}
+            )
+        }
+        return mock_self
+
+    def test_step_yields_half_a_step(self):
+        """A snapped offset sits at most half a step from the command."""
+        tolerance = _calibration_match_tolerance(self._mock_self(1.0), "climate.trv1")
+        assert tolerance == pytest.approx(0.5, abs=1e-5)
+
+    def test_unusable_step_falls_back_to_the_base_tolerance(self):
+        """Without a usable step there is no grid to derive a tolerance from."""
+        tolerance = _calibration_match_tolerance(self._mock_self(0), "climate.trv1")
+        assert tolerance == RECONCILE_TOLERANCE_K
+
+    def test_step_below_the_base_tolerance_does_not_narrow_it(self):
+        """The read-back grid stays the floor for very fine offset steps."""
+        tolerance = _calibration_match_tolerance(self._mock_self(0.01), "climate.trv1")
+        assert tolerance == RECONCILE_TOLERANCE_K

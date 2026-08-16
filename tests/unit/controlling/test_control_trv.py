@@ -2143,6 +2143,7 @@ def mock_bt_grouped():
     bt.calculate_heating_power = AsyncMock()
 
     bt.kernel_state = _kernel_state_for(bt)
+    bt.task_manager = Mock(create_task=Mock(side_effect=_close_coro))
     bt.real_trvs = {
         "climate.trv_1": Trv.from_legacy_dict(
             "climate.trv_1",
@@ -2199,10 +2200,15 @@ class TestGroupedTrvCalibration:
     """
 
     @pytest.mark.anyio
-    async def test_calibration_received_stays_false_when_mismatch(
+    async def test_confirmed_command_releases_the_gate_and_writes_the_new_intent(
         self, mock_bt_grouped
     ):
-        """Test that calibration_received stays False when calibration differs."""
+        """A device holding its last command accepts a changed intent.
+
+        The report equals the value last written, so the unacknowledged
+        write is confirmed; the gate opens and the new intent goes out
+        instead of the channel stalling on a flag nobody clears.
+        """
         entity_id = "climate.trv_3"
 
         mock_trv_state = MagicMock()
@@ -2233,8 +2239,7 @@ class TestGroupedTrvCalibration:
 
             await control_trv(mock_bt_grouped, entity_id)
 
-            assert mock_bt_grouped.real_trvs[entity_id].calibration_received is False
-            mock_set_offset.assert_not_called()
+            mock_set_offset.assert_awaited_once_with(mock_bt_grouped, entity_id, 3.0)
 
     @pytest.mark.anyio
     async def test_calibration_sent_when_received_true_and_differs(
@@ -2324,9 +2329,21 @@ class TestGroupedTrvCalibration:
             mock_set_temp.assert_called_once()
 
     @pytest.mark.anyio
-    async def test_calibration_tolerance_within_half_degree(self, mock_bt_grouped):
-        """Test that calibration within 0.5 degree tolerance is considered matching."""
+    @pytest.mark.parametrize(
+        ("step", "reported", "released"),
+        [(0.5, 2.2, True), (0.5, 2.3, False), (1.0, 2.5, True)],
+    )
+    async def test_confirmation_window_is_half_the_device_step(
+        self, mock_bt_grouped, step, reported, released
+    ):
+        """A report within half the device's own offset step confirms.
+
+        That is the distance a device can move a written value by
+        snapping it onto its own grid, so it is the width of the window
+        in which the report still counts as the command.
+        """
         entity_id = "climate.trv_3"
+        mock_bt_grouped.real_trvs[entity_id].local_calibration_step = step
 
         mock_trv_state = MagicMock()
         mock_trv_state.state = "heat"
@@ -2344,7 +2361,7 @@ class TestGroupedTrvCalibration:
             patch(_PATCHES["set_valve"], new_callable=AsyncMock),
             patch("asyncio.sleep", new_callable=AsyncMock),
         ):
-            mock_get_offset.return_value = 2.3
+            mock_get_offset.return_value = reported
             mock_convert.return_value = {
                 "temperature": 21.0,
                 "local_temperature_calibration": 2.0,
@@ -2356,7 +2373,7 @@ class TestGroupedTrvCalibration:
 
             await control_trv(mock_bt_grouped, entity_id)
 
-            assert mock_bt_grouped.real_trvs[entity_id].calibration_received is True
+            assert mock_bt_grouped.real_trvs[entity_id].calibration_received is released
 
     @pytest.mark.anyio
     async def test_calibration_tolerance_outside_half_degree(self, mock_bt_grouped):
@@ -2392,3 +2409,322 @@ class TestGroupedTrvCalibration:
             await control_trv(mock_bt_grouped, entity_id)
 
             assert mock_bt_grouped.real_trvs[entity_id].calibration_received is False
+
+
+# ---------------------------------------------------------------------------
+# Offset write gate: intent, command and the device's report
+# ---------------------------------------------------------------------------
+
+
+def _offset_trv_config(**overrides):
+    """Return a Trv configured for offset (LOCAL_BASED) calibration."""
+    cfg = {
+        "ignore_trv_states": False,
+        "hvac_modes": [HVACMode.HEAT, HVACMode.OFF],
+        "min_temp": 5.0,
+        "max_temp": 30.0,
+        "temperature": 20.0,
+        "last_temperature": 20.0,
+        "last_hvac_mode": HVACMode.HEAT,
+        "hvac_mode": HVACMode.HEAT,
+        "system_mode_received": False,
+        "target_temp_received": False,
+        "calibration_received": True,
+        "last_calibration": 0.0,
+        "local_calibration_min": -7.0,
+        "local_calibration_max": 7.0,
+        "local_calibration_step": 0.5,
+        "local_temperature_calibration_entity": "number.trv1_offset",
+        "advanced": {
+            "calibration_mode": CalibrationMode.DEFAULT,
+            "calibration": CalibrationType.LOCAL_BASED,
+            "no_off_system_mode": False,
+        },
+    }
+    cfg.update(overrides)
+    return Trv.from_legacy_dict("climate.trv1", cfg)
+
+
+def _make_offset_self(**overrides):
+    """Mock BetterThermostat driving one offset-calibrated TRV."""
+    return _make_mock_self(
+        trv_state=HVACMode.HEAT,
+        trv_attrs={"temperature": 20.0},
+        real_trvs={"climate.trv1": _offset_trv_config(**overrides)},
+    )
+
+
+async def _run_offset_cycle(
+    mock_self, desired_offset, reported_offset, set_offset=None, system_mode=None
+):
+    """Run one control_trv cycle for the offset-calibrated TRV."""
+    if set_offset is None:
+        set_offset = AsyncMock(return_value=True)
+    with (
+        patch(_PATCHES["convert_outbound_states"]) as mock_convert,
+        patch(
+            _PATCHES["get_current_offset"], new=AsyncMock(return_value=reported_offset)
+        ) as mock_get_offset,
+        patch(_PATCHES["set_offset"], new=set_offset),
+        patch(_PATCHES["set_temperature"], new=AsyncMock()),
+        patch(_PATCHES["set_hvac_mode"], new=AsyncMock()),
+        patch(_PATCHES["set_valve"], new=AsyncMock()),
+        patch(_PATCHES["override_set_hvac_mode"], new=AsyncMock(return_value=False)),
+        patch(_PATCHES["override_set_temperature"], new=AsyncMock(return_value=False)),
+        patch("asyncio.sleep", new=AsyncMock()),
+    ):
+        mock_convert.return_value = {
+            "temperature": 20.0,
+            "local_temperature_calibration": desired_offset,
+            "local_temperature": 20.0,
+            "system_mode": system_mode or HVACMode.HEAT,
+        }
+        await control_trv(mock_self, "climate.trv1")
+    return set_offset, mock_get_offset
+
+
+def _accepted_write(mock_self):
+    """Bookkeeping of an accepted write: the command and the intent.
+
+    The adapter records the value it put on the wire and the delegate
+    the value asked for, both before the device has said anything.
+    """
+
+    async def _set_offset(_self, entity_id, offset):
+        trv = mock_self.real_trvs[entity_id]
+        trv.last_calibration = offset
+        trv.last_calibration_requested = offset
+        return True
+
+    return AsyncMock(side_effect=_set_offset)
+
+
+class TestOffsetWriteGate:
+    """The offset channel re-asserts what the device did not take."""
+
+    @pytest.mark.asyncio
+    async def test_unconfirmed_offset_is_written_once_the_report_confirms(self):
+        """An unacknowledged write no longer wedges the channel.
+
+        The device reports exactly what it was last told, so nothing is
+        in flight; the pending intent must reach it.
+        """
+        mock_self = _make_offset_self(calibration_received=False, last_calibration=0.0)
+
+        set_offset, _ = await _run_offset_cycle(
+            mock_self, desired_offset=-2.0, reported_offset=0.0
+        )
+
+        set_offset.assert_awaited_once_with(mock_self, "climate.trv1", -2.0)
+
+    @pytest.mark.asyncio
+    async def test_write_arms_the_confirmation_watchdog(self):
+        """A write closes the gate and schedules the release that reopens it."""
+        mock_self = _make_offset_self(calibration_received=False, last_calibration=0.0)
+        tasks = []
+        mock_self.task_manager.create_task = Mock(
+            side_effect=lambda coro, name=None: (
+                (coro.close(), tasks.append(name)) and Mock()
+            )
+        )
+
+        await _run_offset_cycle(mock_self, desired_offset=-2.0, reported_offset=0.0)
+
+        assert mock_self.real_trvs["climate.trv1"].calibration_received is False
+        assert "bt_check_calibration_climate.trv1" in tasks
+
+    @pytest.mark.asyncio
+    async def test_silently_dropped_write_is_reasserted_every_released_cycle(self):
+        """A device that keeps reporting the old offset is written to again.
+
+        The divergence arm never wedges: each cycle that finds the gate
+        open and the report away from the command re-sends the command.
+        """
+        mock_self = _make_offset_self(calibration_received=True, last_calibration=0.0)
+        set_offset = _accepted_write(mock_self)
+
+        for _ in range(3):
+            mock_self.real_trvs["climate.trv1"].calibration_received = True
+            await _run_offset_cycle(
+                mock_self,
+                desired_offset=-2.0,
+                reported_offset=0.0,
+                set_offset=set_offset,
+            )
+            mock_self.clock.advance(31.0)
+
+        assert set_offset.await_count == 3
+
+    @pytest.mark.asyncio
+    async def test_converged_offset_is_not_rewritten(self):
+        """Intent, command and report agreeing produces no write."""
+        mock_self = _make_offset_self(
+            calibration_received=True,
+            last_calibration=-2.0,
+            last_calibration_requested=-2.0,
+        )
+
+        set_offset, _ = await _run_offset_cycle(
+            mock_self, desired_offset=-2.0, reported_offset=-2.0
+        )
+
+        set_offset.assert_not_awaited()
+        assert mock_self.real_trvs["climate.trv1"].calibration_received is True
+
+    @pytest.mark.asyncio
+    async def test_declared_clamp_is_not_rewritten(self):
+        """An adapter clamp the device honours is convergence, not a miss.
+
+        The device holds the clamped command it was given, so the intent
+        that exceeded its range must not be re-sent on every cycle.
+        """
+        mock_self = _make_offset_self(
+            calibration_received=True,
+            last_calibration=-3.0,
+            last_calibration_requested=-5.0,
+        )
+        set_offset = AsyncMock(return_value=True)
+
+        for _ in range(5):
+            await _run_offset_cycle(
+                mock_self,
+                desired_offset=-5.0,
+                reported_offset=-3.0,
+                set_offset=set_offset,
+            )
+            mock_self.clock.advance(31.0)
+
+        set_offset.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_new_intent_past_a_clamp_is_written_once(self):
+        """A changed intent still reaches a device resting at its clamp."""
+        mock_self = _make_offset_self(
+            calibration_received=True,
+            last_calibration=-3.0,
+            last_calibration_requested=-5.0,
+        )
+
+        set_offset, _ = await _run_offset_cycle(
+            mock_self, desired_offset=-6.0, reported_offset=-3.0
+        )
+
+        set_offset.assert_awaited_once_with(mock_self, "climate.trv1", -6.0)
+
+    @pytest.mark.asyncio
+    async def test_dropped_write_is_reasserted_against_an_unchanged_intent(self):
+        """The report, not the intent, decides whether the command arrived."""
+        mock_self = _make_offset_self(
+            calibration_received=True,
+            last_calibration=-2.0,
+            last_calibration_requested=-2.0,
+        )
+
+        set_offset, _ = await _run_offset_cycle(
+            mock_self, desired_offset=-2.0, reported_offset=0.0
+        )
+
+        set_offset.assert_awaited_once_with(mock_self, "climate.trv1", -2.0)
+
+    @pytest.mark.asyncio
+    async def test_report_beyond_half_a_step_counts_as_diverged(self):
+        """On a fine grid a small deviation is already a lost write."""
+        mock_self = _make_offset_self(
+            calibration_received=True,
+            last_calibration=-2.0,
+            last_calibration_requested=-2.0,
+            local_calibration_step=0.1,
+        )
+
+        set_offset, _ = await _run_offset_cycle(
+            mock_self, desired_offset=-2.0, reported_offset=-1.7
+        )
+
+        set_offset.assert_awaited_once_with(mock_self, "climate.trv1", -2.0)
+
+    @pytest.mark.asyncio
+    async def test_report_within_half_a_step_counts_as_confirmed(self):
+        """On a coarse grid the same deviation is the device's own snap."""
+        mock_self = _make_offset_self(
+            calibration_received=True,
+            last_calibration=-2.0,
+            last_calibration_requested=-2.0,
+            local_calibration_step=1.0,
+        )
+
+        set_offset, _ = await _run_offset_cycle(
+            mock_self, desired_offset=-2.0, reported_offset=-2.5
+        )
+
+        set_offset.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_failed_write_keeps_the_gate_open_and_retries(self):
+        """A write the adapter refused arms nothing and is retried."""
+        mock_self = _make_offset_self(calibration_received=True, last_calibration=0.0)
+        tasks = []
+        mock_self.task_manager.create_task = Mock(
+            side_effect=lambda coro, name=None: (
+                (coro.close(), tasks.append(name)) and Mock()
+            )
+        )
+        set_offset = AsyncMock(return_value=False)
+
+        await _run_offset_cycle(
+            mock_self, desired_offset=-2.0, reported_offset=0.0, set_offset=set_offset
+        )
+
+        assert mock_self.real_trvs["climate.trv1"].calibration_received is True
+        assert not [name for name in tasks if name.startswith("bt_check_calibration")]
+
+        mock_self.clock.advance(31.0)
+        await _run_offset_cycle(
+            mock_self, desired_offset=-2.0, reported_offset=0.0, set_offset=set_offset
+        )
+
+        assert set_offset.await_count == 2
+
+    @pytest.mark.asyncio
+    async def test_no_calibration_mode_leaves_the_channel_alone(self):
+        """NO_CALIBRATION reads no offset, writes none and arms nothing."""
+        mock_self = _make_offset_self(
+            calibration_received=False,
+            last_calibration=0.0,
+            advanced={
+                "calibration_mode": CalibrationMode.NO_CALIBRATION,
+                "calibration": CalibrationType.LOCAL_BASED,
+                "no_off_system_mode": False,
+            },
+        )
+        tasks = []
+        mock_self.task_manager.create_task = Mock(
+            side_effect=lambda coro, name=None: (
+                (coro.close(), tasks.append(name)) and Mock()
+            )
+        )
+
+        set_offset, get_offset = await _run_offset_cycle(
+            mock_self, desired_offset=-2.0, reported_offset=0.0
+        )
+
+        set_offset.assert_not_awaited()
+        get_offset.assert_not_awaited()
+        assert not [name for name in tasks if name.startswith("bt_check_calibration")]
+
+    @pytest.mark.asyncio
+    async def test_off_mode_leaves_the_channel_alone(self):
+        """An OFF TRV keeps its offset even when the report diverged."""
+        mock_self = _make_offset_self(
+            calibration_received=True,
+            last_calibration=-2.0,
+            last_calibration_requested=-2.0,
+        )
+
+        set_offset, _ = await _run_offset_cycle(
+            mock_self,
+            desired_offset=-2.0,
+            reported_offset=0.0,
+            system_mode=HVACMode.OFF,
+        )
+
+        set_offset.assert_not_awaited()
