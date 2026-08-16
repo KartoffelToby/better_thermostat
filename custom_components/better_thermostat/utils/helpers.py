@@ -2,12 +2,12 @@
 
 from __future__ import annotations
 
-from collections.abc import Callable, Iterable, Mapping
+from collections.abc import Callable, Iterable, Mapping, Sequence
 from datetime import datetime
 import logging
 import math
 import re
-from typing import Any, NamedTuple
+from typing import TYPE_CHECKING, Any, NamedTuple
 
 from homeassistant.components.climate.const import (
     ATTR_TARGET_TEMP_STEP,
@@ -42,6 +42,9 @@ from custom_components.better_thermostat.utils.const import (
     VALVE_MIN_THRESHOLD_TEMP_DIFF,
     CalibrationMode,
 )
+
+if TYPE_CHECKING:
+    from custom_components.better_thermostat.trv import Trv
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -233,14 +236,198 @@ def normalize_hvac_mode(value: HVACMode | str) -> HVACMode | str:
     return value
 
 
-def mode_remap(self, entity_id, hvac_mode: str, inbound: bool = False) -> str:
+def device_offers_mode(trv_modes: Iterable[Any], hvac_mode: str) -> bool:
+    """Whether a device's reported mode list contains a given HVAC mode.
+
+    Both sides are normalized so a list carrying ``HVACMode`` members,
+    plain strings or ``"HVACMode.HEAT"`` spellings compares equal.
+
+    Parameters
+    ----------
+    trv_modes : Iterable[Any]
+        HVAC modes the device reports, in any spelling.
+    hvac_mode : str
+        HVAC mode to look for.
+
+    Returns
+    -------
+    bool
+        ``True`` when the device offers ``hvac_mode``.
+    """
+    target = normalize_hvac_mode(hvac_mode)
+    return any(normalize_hvac_mode(mode) == target for mode in trv_modes)
+
+
+def offered_mode_signature(trv_modes: Iterable[Any] | None) -> frozenset[str]:
+    """Reduce a reported mode list to the set of modes it offers.
+
+    Parameters
+    ----------
+    trv_modes : Iterable[Any] | None
+        HVAC modes a device reports, in any spelling.
+
+    Returns
+    -------
+    frozenset[str]
+        Normalized mode names, so two lists that differ only in order, in
+        capitalization or in ``HVACMode`` versus ``"HVACMode.HEAT"``
+        spelling reduce to the same value.
+    """
+    if not trv_modes:
+        return frozenset()
+    return frozenset(str(normalize_hvac_mode(mode)) for mode in trv_modes)
+
+
+def adopt_reported_hvac_modes(trv: Trv, reported_modes: Any) -> None:
+    """Cache the HVAC modes a device reports on its state.
+
+    An absent or empty list keeps the cached one: it means the device
+    published no capabilities in this event, not that it lost them. The
+    modes already annunciated as not offered are forgotten only when the
+    offered set really changes, so a republication in a different order or
+    a different spelling does not repeat the annunciation.
+
+    Parameters
+    ----------
+    trv : Trv
+        Per-TRV state holding the cached mode list.
+    reported_modes : Any
+        Value of the device's ``hvac_modes`` attribute.
+    """
+    if not isinstance(reported_modes, list) or not reported_modes:
+        return
+    if offered_mode_signature(reported_modes) != offered_mode_signature(trv.hvac_modes):
+        trv.unsupported_modes_logged.clear()
+    trv.hvac_modes = reported_modes
+
+
+def _unsupported_mode_hint(trv: Trv) -> str:
+    """Name the remedy for a device that does not offer the mode BT wants.
+
+    The heat auto swapped option is what decides whether BT writes ``heat``
+    or ``auto``, so which way to turn it depends on its current setting: a
+    device without ``auto`` is only asked for ``auto`` because the option is
+    already on.
+
+    Parameters
+    ----------
+    trv : Trv
+        Per-TRV state carrying the advanced configuration.
+
+    Returns
+    -------
+    str
+        A sentence naming the setting that resolves the situation.
+    """
+    if (trv.advanced or {}).get(CONF_HEAT_AUTO_SWAPPED, False):
+        return (
+            "Disable the heat auto swapped option unless 'auto' really is this "
+            "device's heating mode."
+        )
+    return (
+        "Switch the device to its heating mode, or enable the heat auto swapped "
+        "option if 'auto' means 'heat' on this device."
+    )
+
+
+def _clamp_to_offered_mode(
+    self,
+    trv: Trv,
+    entity_id: str,
+    hvac_mode: str,
+    inbound: bool,
+    fallbacks: Sequence[str] = (),
+) -> str | None:
+    """Drop an outbound HVAC mode the device does not offer.
+
+    Writing a mode outside the device's own list makes
+    ``climate.set_hvac_mode`` fail, which aborts the whole control cycle
+    and leaves the setpoint unwritten as well. Returning ``None`` means
+    "write no mode this cycle", so the setpoint still reaches the device.
+    ``OFF`` is exempt because the no-off handling downstream substitutes
+    the minimum temperature for it.
+
+    The ``fallbacks`` are the modes a quirk translation started from, most
+    preferred first. When the translated mode is unwritable but one of them
+    is offered, writing that one still puts the device into the state BT
+    asked for.
+
+    Parameters
+    ----------
+    self :
+        self instance of better_thermostat
+    trv : Trv
+        Per-TRV state of the device the mode is written to.
+    entity_id : str
+        Entity id of that TRV, used for the log message.
+    hvac_mode : str
+        HVAC mode about to be written.
+    inbound : bool
+        True if the mode is coming from the device, False if it is coming from the HA.
+    fallbacks : Sequence[str]
+        Modes to write instead when the device offers one of them but not
+        ``hvac_mode``, in descending order of preference.
+
+    Returns
+    -------
+    str | None
+        ``hvac_mode`` when it may be written, the first offered fallback
+        when only such a one is offered, ``None`` when the device offers
+        none of them.
+    """
+    trv_modes = trv.hvac_modes
+    if inbound or not trv_modes:
+        return hvac_mode
+    if normalize_hvac_mode(hvac_mode) == HVACMode.OFF or device_offers_mode(
+        trv_modes, hvac_mode
+    ):
+        return hvac_mode
+
+    _mode_key = str(normalize_hvac_mode(hvac_mode))
+    _fallback = next(
+        (mode for mode in fallbacks if device_offers_mode(trv_modes, mode)), None
+    )
+
+    if _fallback is not None:
+        _fallback_key = f"{_mode_key}->{normalize_hvac_mode(_fallback)}"
+        if _fallback_key not in trv.unsupported_modes_logged:
+            trv.unsupported_modes_logged.add(_fallback_key)
+            _LOGGER.warning(
+                "better_thermostat %s: %s does not offer HVAC mode %s, it offers %s. "
+                "Writing %s instead. %s",
+                self.device_name,
+                entity_id,
+                hvac_mode,
+                trv_modes,
+                _fallback,
+                _unsupported_mode_hint(trv),
+            )
+        return _fallback
+
+    if _mode_key not in trv.unsupported_modes_logged:
+        trv.unsupported_modes_logged.add(_mode_key)
+        _LOGGER.error(
+            "better_thermostat %s: %s does not offer HVAC mode %s, it offers %s. "
+            "The device mode is left untouched and only the setpoint is written. %s",
+            self.device_name,
+            entity_id,
+            hvac_mode,
+            trv_modes,
+            _unsupported_mode_hint(trv),
+        )
+    return None
+
+
+def mode_remap(
+    self, entity_id: str, hvac_mode: str, inbound: bool = False
+) -> str | None:
     """Remap HVAC mode to correct mode if nessesary.
 
     Parameters
     ----------
     self :
             self instance of better_thermostat
-    entity_id :
+    entity_id : str
             entity id of the TRV whose mode is being remapped
     hvac_mode : str
             HVAC mode to be remapped
@@ -250,8 +437,10 @@ def mode_remap(self, entity_id, hvac_mode: str, inbound: bool = False) -> str:
 
     Returns
     -------
-    str
-            remapped mode according to device's quirks
+    str | None
+            remapped mode according to device's quirks, or None for an
+            outbound mode the device does not offer, meaning the device's
+            mode is left untouched
     """
     trv = self.real_trvs.get(entity_id)
     if trv is None:
@@ -260,39 +449,69 @@ def mode_remap(self, entity_id, hvac_mode: str, inbound: bool = False) -> str:
     _heat_auto_swapped = (trv.advanced or {}).get(CONF_HEAT_AUTO_SWAPPED, False)
 
     if _heat_auto_swapped:
-        if hvac_mode == HVACMode.HEAT and not inbound:
-            return HVACMode.AUTO
+        # HEAT and HEAT_COOL are the same demand seen from two instances: a
+        # room with a cooler carries its heat demand as HEAT_COOL, because
+        # that is the mode such an instance offers instead of HEAT. Both name
+        # the device's heating mode, which is what the swap calls AUTO, and
+        # both fall back the same way, so which of the two arrives makes no
+        # difference to what the device receives. HEAT is preferred over
+        # HEAT_COOL as a fallback for the same reason the unswapped path
+        # prefers it: HEAT_COOL is the heating mode only of a device that
+        # offers nothing narrower.
+        if not inbound and hvac_mode in (HVACMode.HEAT, HVACMode.HEAT_COOL):
+            return _clamp_to_offered_mode(
+                self,
+                trv,
+                entity_id,
+                HVACMode.AUTO,
+                inbound,
+                fallbacks=(HVACMode.HEAT, HVACMode.HEAT_COOL),
+            )
+        # HEAT is the instance-level spelling of that demand in both cases:
+        # get_hvac_bt_mode() re-expresses it as HEAT_COOL for a room with a
+        # cooler, so the reported mode reaches the entity as HEAT_COOL there
+        # and as HEAT everywhere else.
         if hvac_mode == HVACMode.AUTO and inbound:
             return HVACMode.HEAT
-        return hvac_mode
+        return _clamp_to_offered_mode(self, trv, entity_id, hvac_mode, inbound)
 
     trv_modes = trv.hvac_modes
     if not trv_modes:
         return hvac_mode
-    if HVACMode.HEAT not in trv_modes and HVACMode.HEAT_COOL in trv_modes:
+    # The cache holds the device's own spelling, so the two translations are
+    # decided on the normalized list like the clamp below is.
+    _offers_heat = device_offers_mode(trv_modes, HVACMode.HEAT)
+    _offers_heat_cool = device_offers_mode(trv_modes, HVACMode.HEAT_COOL)
+    if not _offers_heat and _offers_heat_cool:
         # entity only supports HEAT_COOL, but not HEAT - need to translate
         if not inbound and hvac_mode == HVACMode.HEAT:
             return HVACMode.HEAT_COOL
         if inbound and hvac_mode == HVACMode.HEAT_COOL:
             return HVACMode.HEAT
-    if HVACMode.HEAT_COOL not in trv_modes and HVACMode.HEAT in trv_modes:
+    if not _offers_heat_cool and _offers_heat:
         # entity only supports HEAT, but not HEAT_COOL - need to translate
         if not inbound and hvac_mode == HVACMode.HEAT_COOL:
             return HVACMode.HEAT
         if inbound and hvac_mode == HVACMode.HEAT:
             return HVACMode.HEAT_COOL
 
-    if hvac_mode != HVACMode.AUTO:
-        return hvac_mode
+    if hvac_mode == HVACMode.AUTO:
+        # The mode is annunciated once per offered set, like the clamp does it,
+        # so an unswapped instance asked for AUTO every cycle says so once.
+        _auto_key = str(normalize_hvac_mode(hvac_mode))
+        if _auto_key not in trv.unsupported_modes_logged:
+            trv.unsupported_modes_logged.add(_auto_key)
+            _LOGGER.error(
+                "better_thermostat %s: %s HVAC mode %s is not supported by this "
+                "device, is it possible that you forgot to set the heat auto "
+                "swapped option?",
+                self.device_name,
+                entity_id,
+                hvac_mode,
+            )
+        return HVACMode.OFF
 
-    _LOGGER.error(
-        "better_thermostat %s: %s HVAC mode %s is not supported by this device, "
-        "is it possible that you forgot to set the heat auto swapped option?",
-        self.device_name,
-        entity_id,
-        hvac_mode,
-    )
-    return HVACMode.OFF
+    return _clamp_to_offered_mode(self, trv, entity_id, hvac_mode, inbound)
 
 
 def group_all_members_off(self) -> bool:
@@ -1626,6 +1845,20 @@ async def get_device_model(self, entity_id: str) -> str:
     """Determine the device model from the Device Registry entry.
 
     Priority: model_id > model (before parens) > model > config > "generic"
+
+    Parameters
+    ----------
+    self :
+            any object exposing ``hass`` and ``device_name``. A ``model``
+            attribute is optional and only consulted as a fallback; callers
+            without one fall through to ``"generic"``.
+    entity_id :
+            entity id of the TRV to look up
+
+    Returns
+    -------
+    str
+            the detected model, or ``"generic"`` when nothing is known
     """
     selected: str | None = None
     source: str = "none"
@@ -1680,8 +1913,13 @@ async def get_device_model(self, entity_id: str) -> str:
         pass
 
     # Final fallback: configured model, then generic
-    if not selected and isinstance(self.model, str) and len(self.model.strip()) >= 2:
-        selected = self.model.strip()
+    configured_model = getattr(self, "model", None)
+    if (
+        not selected
+        and isinstance(configured_model, str)
+        and len(configured_model.strip()) >= 2
+    ):
+        selected = configured_model.strip()
         source = "config.model"
     if not selected:
         selected = "generic"
