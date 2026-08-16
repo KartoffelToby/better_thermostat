@@ -533,6 +533,9 @@ def _make_startup_bt():
     mock._seed_cool_target_from_cooler = lambda log_source: (
         BetterThermostat._seed_cool_target_from_cooler(mock, log_source)
     )
+    mock._bound_target_to_range = lambda value: BetterThermostat._bound_target_to_range(
+        mock, value
+    )
     return mock
 
 
@@ -781,6 +784,9 @@ def _make_finalize_bt():
     )
     mock._seed_cool_target_from_cooler = lambda log_source: (
         BetterThermostat._seed_cool_target_from_cooler(mock, log_source)
+    )
+    mock._bound_target_to_range = lambda value: BetterThermostat._bound_target_to_range(
+        mock, value
     )
     return mock
 
@@ -1606,3 +1612,19 @@ class TestFinalizeStartupOnADualRoleEntity:
         await self._run_capturing_subscriptions(bt)
 
         assert bt.bt_target_cooltemp == 26.0
+
+    @pytest.mark.asyncio
+    async def test_a_shared_entity_bounds_a_preset_outside_the_configured_range(self):
+        """A preset stored under a wider range is seeded inside this one.
+
+        The seeded value is published as ``target_temperature_high`` and
+        written to the device, so a preset the configured range does not
+        contain is not a setpoint the group can hold.
+        """
+        bt = self._make_shared_bt()
+        bt._preset_cool_temperatures = {PRESET_NONE: 35.0}
+        bt.hass.states.get.return_value = State(TRV_ID, "heat", {"temperature": 21.0})
+
+        await self._run_capturing_subscriptions(bt)
+
+        assert bt.bt_target_cooltemp == bt.bt_max_temp

@@ -2912,15 +2912,9 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
             )
             if not isinstance(cool_temp, (int, float)):
                 return False
-            # The bounds are applied in sequence rather than exclusively, so a
-            # range whose lower bound sits above its upper one leaves the upper
-            # one deciding.
-            cool_target = float(cool_temp)
-            if self.bt_min_temp is not None and cool_target < self.bt_min_temp:
-                cool_target = self.bt_min_temp
-            if self.bt_max_temp is not None and self.bt_max_temp < cool_target:
-                cool_target = self.bt_max_temp
-            self.bt_target_cooltemp = cool_target
+            # A stored preset pair is re-injected verbatim, so the value takes
+            # the same bound every other re-injected target takes.
+            self.bt_target_cooltemp = self._bound_target_to_range(float(cool_temp))
             _LOGGER.info(
                 "better_thermostat %s: %s drives both channels, taking the "
                 "preset cooling temperature %s as the cool target",
