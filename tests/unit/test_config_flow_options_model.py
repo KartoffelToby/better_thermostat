@@ -105,7 +105,8 @@ async def test_options_flow_swap_to_generic_thermostat_resolves_generic_model():
         patch_dr,
         patch(
             "custom_components.better_thermostat.config_flow.load_adapter",
-            AsyncMock(return_value=_make_adapter()),
+            autospec=True,
+            return_value=_make_adapter(),
         ),
     ):
         result = await flow.async_step_user(_submission())
@@ -128,7 +129,8 @@ async def test_config_flow_swap_to_generic_thermostat_resolves_generic_model():
         patch_dr,
         patch(
             "custom_components.better_thermostat.config_flow.load_adapter",
-            AsyncMock(return_value=_make_adapter()),
+            autospec=True,
+            return_value=_make_adapter(),
         ),
     ):
         result = await flow.async_step_user(_submission())

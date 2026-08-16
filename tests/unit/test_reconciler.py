@@ -324,9 +324,9 @@ async def _run_setpoint_cycle(bt, target):
     """Run one control_trv cycle that wants ``target`` written."""
     with (
         patch(f"{_CTRL}.convert_outbound_states") as conv,
-        patch(f"{_CTRL}.set_temperature", new=AsyncMock()) as set_temp,
-        patch(f"{_CTRL}.set_hvac_mode", new=AsyncMock()),
-        patch(f"{_CTRL}.override_set_hvac_mode", new=AsyncMock(return_value=False)),
+        patch(f"{_CTRL}.set_temperature", autospec=True) as set_temp,
+        patch(f"{_CTRL}.set_hvac_mode", autospec=True),
+        patch(f"{_CTRL}.override_set_hvac_mode", autospec=True, return_value=False),
         patch("asyncio.sleep", new=AsyncMock()),
     ):
         conv.return_value = {"temperature": target, "system_mode": HVACMode.HEAT}
@@ -407,9 +407,9 @@ class TestWatchdogHeartbeat:
     async def _run_setpoint(self, bt, target):
         with (
             patch(f"{_CTRL}.convert_outbound_states") as conv,
-            patch(f"{_CTRL}.set_temperature", new=AsyncMock()) as set_temp,
-            patch(f"{_CTRL}.set_hvac_mode", new=AsyncMock()),
-            patch(f"{_CTRL}.override_set_hvac_mode", new=AsyncMock(return_value=False)),
+            patch(f"{_CTRL}.set_temperature", autospec=True) as set_temp,
+            patch(f"{_CTRL}.set_hvac_mode", autospec=True),
+            patch(f"{_CTRL}.override_set_hvac_mode", autospec=True, return_value=False),
             patch("asyncio.sleep", new=AsyncMock()),
         ):
             conv.return_value = {"temperature": target, "system_mode": HVACMode.HEAT}
@@ -439,9 +439,9 @@ class TestWatchdogHeartbeat:
         with (
             patch(f"{_CTRL}.convert_outbound_states") as conv,
             patch(f"{_CTRL}._get_valve_control", return_value=(None, None)),
-            patch(f"{_CTRL}.get_current_offset", new=AsyncMock(return_value=None)),
-            patch(f"{_CTRL}.set_hvac_mode", new=AsyncMock()),
-            patch(f"{_CTRL}.override_set_hvac_mode", new=AsyncMock(return_value=False)),
+            patch(f"{_CTRL}.get_current_offset", autospec=True, return_value=None),
+            patch(f"{_CTRL}.set_hvac_mode", autospec=True),
+            patch(f"{_CTRL}.override_set_hvac_mode", autospec=True, return_value=False),
             patch("asyncio.sleep", new=AsyncMock()),
         ):
             conv.return_value = {
@@ -459,9 +459,9 @@ class TestWriteBudget:
     async def _run(self, bt, target):
         with (
             patch(f"{_CTRL}.convert_outbound_states") as conv,
-            patch(f"{_CTRL}.set_temperature", new=AsyncMock()) as set_temp,
-            patch(f"{_CTRL}.set_hvac_mode", new=AsyncMock()),
-            patch(f"{_CTRL}.override_set_hvac_mode", new=AsyncMock(return_value=False)),
+            patch(f"{_CTRL}.set_temperature", autospec=True) as set_temp,
+            patch(f"{_CTRL}.set_hvac_mode", autospec=True),
+            patch(f"{_CTRL}.override_set_hvac_mode", autospec=True, return_value=False),
             patch("asyncio.sleep", new=AsyncMock()),
         ):
             conv.return_value = {"temperature": target, "system_mode": HVACMode.HEAT}
@@ -529,10 +529,10 @@ class TestOffsetWriteBudget:
         with (
             patch(f"{_CTRL}.convert_outbound_states") as conv,
             patch(f"{_CTRL}._get_valve_control", return_value=(None, None)),
-            patch(f"{_CTRL}.get_current_offset", new=AsyncMock(return_value=0.0)),
-            patch(f"{_CTRL}.set_offset", new=AsyncMock()) as set_off,
-            patch(f"{_CTRL}.set_hvac_mode", new=AsyncMock()),
-            patch(f"{_CTRL}.override_set_hvac_mode", new=AsyncMock(return_value=False)),
+            patch(f"{_CTRL}.get_current_offset", autospec=True, return_value=0.0),
+            patch(f"{_CTRL}.set_offset", autospec=True, return_value=True) as set_off,
+            patch(f"{_CTRL}.set_hvac_mode", autospec=True),
+            patch(f"{_CTRL}.override_set_hvac_mode", autospec=True, return_value=False),
             patch("asyncio.sleep", new=AsyncMock()),
         ):
             conv.return_value = {
@@ -592,9 +592,9 @@ class TestValveWriteBudget:
                 f"{_CTRL}._get_valve_control",
                 return_value=({"valve_percent": percent}, "test"),
             ),
-            patch(f"{_CTRL}.set_valve", new=AsyncMock(return_value=True)) as set_valve,
-            patch(f"{_CTRL}.set_hvac_mode", new=AsyncMock()),
-            patch(f"{_CTRL}.override_set_hvac_mode", new=AsyncMock(return_value=False)),
+            patch(f"{_CTRL}.set_valve", autospec=True, return_value=True) as set_valve,
+            patch(f"{_CTRL}.set_hvac_mode", autospec=True),
+            patch(f"{_CTRL}.override_set_hvac_mode", autospec=True, return_value=False),
             patch("asyncio.sleep", new=AsyncMock()),
         ):
             conv.return_value = {"system_mode": HVACMode.HEAT}
@@ -685,13 +685,13 @@ class TestOffsetReconcileHandoff:
         with (
             patch(f"{_CTRL}.convert_outbound_states") as conv,
             patch(f"{_CTRL}._get_valve_control", return_value=(None, None)),
-            patch(f"{_CTRL}.get_current_offset", new=AsyncMock(return_value=0.0)),
-            patch(f"{_CTRL}.set_offset", new=AsyncMock(return_value=True)) as set_off,
-            patch(f"{_CTRL}.set_temperature", new=AsyncMock()),
-            patch(f"{_CTRL}.set_hvac_mode", new=AsyncMock()),
-            patch(f"{_CTRL}.override_set_hvac_mode", new=AsyncMock(return_value=False)),
+            patch(f"{_CTRL}.get_current_offset", autospec=True, return_value=0.0),
+            patch(f"{_CTRL}.set_offset", autospec=True, return_value=True) as set_off,
+            patch(f"{_CTRL}.set_temperature", autospec=True),
+            patch(f"{_CTRL}.set_hvac_mode", autospec=True),
+            patch(f"{_CTRL}.override_set_hvac_mode", autospec=True, return_value=False),
             patch(
-                f"{_CTRL}.override_set_temperature", new=AsyncMock(return_value=False)
+                f"{_CTRL}.override_set_temperature", autospec=True, return_value=False
             ),
             patch("asyncio.sleep", new=AsyncMock()),
         ):

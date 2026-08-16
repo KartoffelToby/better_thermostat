@@ -190,13 +190,13 @@ class TestControlTrvUnavailablePath:
         with (
             patch(_PATCHES["convert_outbound_states"]) as mock_convert,
             patch(
-                _PATCHES["override_set_hvac_mode"], new=AsyncMock(return_value=False)
+                _PATCHES["override_set_hvac_mode"], autospec=True, return_value=False
             ),
             patch(
-                _PATCHES["override_set_temperature"], new=AsyncMock(return_value=False)
+                _PATCHES["override_set_temperature"], autospec=True, return_value=False
             ),
-            patch(_PATCHES["set_hvac_mode"], new=AsyncMock()),
-            patch(_PATCHES["set_temperature"], new=AsyncMock()),
+            patch(_PATCHES["set_hvac_mode"], autospec=True),
+            patch(_PATCHES["set_temperature"], autospec=True),
             patch("asyncio.sleep", new=AsyncMock()),
         ):
             mock_convert.return_value = {
@@ -220,13 +220,13 @@ class TestControlTrvUnavailablePath:
         with (
             patch(_PATCHES["convert_outbound_states"]) as mock_convert,
             patch(
-                _PATCHES["override_set_hvac_mode"], new=AsyncMock(return_value=False)
+                _PATCHES["override_set_hvac_mode"], autospec=True, return_value=False
             ),
             patch(
-                _PATCHES["override_set_temperature"], new=AsyncMock(return_value=False)
+                _PATCHES["override_set_temperature"], autospec=True, return_value=False
             ),
-            patch(_PATCHES["set_hvac_mode"], new=AsyncMock()),
-            patch(_PATCHES["set_temperature"], new=AsyncMock()),
+            patch(_PATCHES["set_hvac_mode"], autospec=True),
+            patch(_PATCHES["set_temperature"], autospec=True),
             patch("asyncio.sleep", new=AsyncMock()),
         ):
             mock_convert.return_value = {
@@ -259,10 +259,10 @@ class TestControlTrvUnavailablePath:
         with (
             patch(_PATCHES["convert_outbound_states"]) as mock_convert,
             patch(
-                _PATCHES["override_set_hvac_mode"], new=AsyncMock(return_value=False)
+                _PATCHES["override_set_hvac_mode"], autospec=True, return_value=False
             ),
-            patch(_PATCHES["set_hvac_mode"], new=AsyncMock()),
-            patch(_PATCHES["set_temperature"], new=AsyncMock()),
+            patch(_PATCHES["set_hvac_mode"], autospec=True),
+            patch(_PATCHES["set_temperature"], autospec=True),
             patch("asyncio.sleep", new=AsyncMock()),
         ):
             mock_convert.return_value = {
@@ -285,9 +285,11 @@ class TestControlTrvUnavailablePath:
 
         with (
             patch(_PATCHES["convert_outbound_states"]) as mock_convert,
-            patch(_PATCHES["set_hvac_mode"]) as mock_set_hvac,
-            patch(_PATCHES["set_temperature"]) as mock_set_temp,
-            patch(_PATCHES["set_valve"]) as mock_set_valve,
+            patch(_PATCHES["set_hvac_mode"], autospec=True) as mock_set_hvac,
+            patch(_PATCHES["set_temperature"], autospec=True) as mock_set_temp,
+            patch(
+                _PATCHES["set_valve"], autospec=True, return_value=True
+            ) as mock_set_valve,
             patch("asyncio.sleep", new=AsyncMock()),
         ):
             result = await control_trv(mock_self, "climate.trv1")
@@ -306,13 +308,13 @@ class TestControlTrvUnavailablePath:
         with (
             patch(_PATCHES["convert_outbound_states"]) as mock_convert,
             patch(
-                _PATCHES["override_set_hvac_mode"], new=AsyncMock(return_value=False)
+                _PATCHES["override_set_hvac_mode"], autospec=True, return_value=False
             ),
             patch(
-                _PATCHES["override_set_temperature"], new=AsyncMock(return_value=False)
+                _PATCHES["override_set_temperature"], autospec=True, return_value=False
             ),
-            patch(_PATCHES["set_hvac_mode"], new=AsyncMock()),
-            patch(_PATCHES["set_temperature"], new=AsyncMock()),
+            patch(_PATCHES["set_hvac_mode"], autospec=True),
+            patch(_PATCHES["set_temperature"], autospec=True),
             patch("asyncio.sleep", new=AsyncMock()),
         ):
             mock_convert.return_value = {
@@ -367,16 +369,16 @@ class TestControlTrvUnavailablePath:
 
         with (
             patch(_PATCHES["convert_outbound_states"]) as mock_convert,
-            patch(_PATCHES["set_temperature"]) as mock_set_temp,
+            patch(_PATCHES["set_temperature"], autospec=True) as mock_set_temp,
             patch(
-                _PATCHES["override_set_hvac_mode"], new=AsyncMock(return_value=False)
+                _PATCHES["override_set_hvac_mode"], autospec=True, return_value=False
             ),
             patch(
-                _PATCHES["override_set_temperature"], new=AsyncMock(return_value=False)
+                _PATCHES["override_set_temperature"], autospec=True, return_value=False
             ),
-            patch(_PATCHES["set_hvac_mode"], new=AsyncMock()),
-            patch(_PATCHES["get_current_offset"], new=AsyncMock(return_value=0.0)),
-            patch(_PATCHES["set_offset"], new=AsyncMock()),
+            patch(_PATCHES["set_hvac_mode"], autospec=True),
+            patch(_PATCHES["get_current_offset"], autospec=True, return_value=0.0),
+            patch(_PATCHES["set_offset"], autospec=True, return_value=True),
             patch("asyncio.sleep", new=AsyncMock()),
         ):
             mock_convert.return_value = {
@@ -415,16 +417,16 @@ class TestControlTrvUnavailablePath:
 
         with (
             patch(_PATCHES["convert_outbound_states"]) as mock_convert,
-            patch(_PATCHES["set_temperature"]) as mock_set_temp,
+            patch(_PATCHES["set_temperature"], autospec=True) as mock_set_temp,
             patch(
-                _PATCHES["override_set_hvac_mode"], new=AsyncMock(return_value=False)
+                _PATCHES["override_set_hvac_mode"], autospec=True, return_value=False
             ),
             patch(
-                _PATCHES["override_set_temperature"], new=AsyncMock(return_value=False)
+                _PATCHES["override_set_temperature"], autospec=True, return_value=False
             ),
-            patch(_PATCHES["set_hvac_mode"], new=AsyncMock()),
-            patch(_PATCHES["get_current_offset"], new=AsyncMock(return_value=0.0)),
-            patch(_PATCHES["set_offset"], new=AsyncMock()),
+            patch(_PATCHES["set_hvac_mode"], autospec=True),
+            patch(_PATCHES["get_current_offset"], autospec=True, return_value=0.0),
+            patch(_PATCHES["set_offset"], autospec=True, return_value=True),
             patch("asyncio.sleep", new=AsyncMock()),
         ):
             mock_convert.return_value = {
@@ -461,17 +463,19 @@ class TestControlTrvUnavailablePath:
 
         with (
             patch(_PATCHES["convert_outbound_states"]) as mock_convert,
-            patch(_PATCHES["set_temperature"]) as mock_set_temp,
-            patch(_PATCHES["set_valve"]) as mock_set_valve,
+            patch(_PATCHES["set_temperature"], autospec=True) as mock_set_temp,
             patch(
-                _PATCHES["override_set_hvac_mode"], new=AsyncMock(return_value=False)
+                _PATCHES["set_valve"], autospec=True, return_value=True
+            ) as mock_set_valve,
+            patch(
+                _PATCHES["override_set_hvac_mode"], autospec=True, return_value=False
             ),
             patch(
-                _PATCHES["override_set_temperature"], new=AsyncMock(return_value=False)
+                _PATCHES["override_set_temperature"], autospec=True, return_value=False
             ),
-            patch(_PATCHES["set_hvac_mode"], new=AsyncMock()),
-            patch(_PATCHES["get_current_offset"], new=AsyncMock(return_value=0.0)),
-            patch(_PATCHES["set_offset"], new=AsyncMock()),
+            patch(_PATCHES["set_hvac_mode"], autospec=True),
+            patch(_PATCHES["get_current_offset"], autospec=True, return_value=0.0),
+            patch(_PATCHES["set_offset"], autospec=True, return_value=True),
             patch("asyncio.sleep", new=AsyncMock()),
         ):
             mock_convert.return_value = {
@@ -496,13 +500,13 @@ class TestControlTrvUnavailablePath:
         with (
             patch(_PATCHES["convert_outbound_states"]) as mock_convert,
             patch(
-                _PATCHES["override_set_hvac_mode"], new=AsyncMock(return_value=False)
+                _PATCHES["override_set_hvac_mode"], autospec=True, return_value=False
             ),
             patch(
-                _PATCHES["override_set_temperature"], new=AsyncMock(return_value=False)
+                _PATCHES["override_set_temperature"], autospec=True, return_value=False
             ),
-            patch(_PATCHES["set_hvac_mode"], new=AsyncMock()),
-            patch(_PATCHES["set_temperature"], new=AsyncMock()),
+            patch(_PATCHES["set_hvac_mode"], autospec=True),
+            patch(_PATCHES["set_temperature"], autospec=True),
             patch("asyncio.sleep", new=AsyncMock()),
         ):
             mock_convert.return_value = {
@@ -537,13 +541,13 @@ class TestControlTrvAvailablePath:
         with (
             patch(_PATCHES["convert_outbound_states"]) as mock_convert,
             patch(
-                _PATCHES["override_set_hvac_mode"], new=AsyncMock(return_value=False)
+                _PATCHES["override_set_hvac_mode"], autospec=True, return_value=False
             ),
             patch(
-                _PATCHES["override_set_temperature"], new=AsyncMock(return_value=False)
+                _PATCHES["override_set_temperature"], autospec=True, return_value=False
             ),
-            patch(_PATCHES["set_hvac_mode"], new=AsyncMock()),
-            patch(_PATCHES["set_temperature"], new=AsyncMock()),
+            patch(_PATCHES["set_hvac_mode"], autospec=True),
+            patch(_PATCHES["set_temperature"], autospec=True),
             patch("asyncio.sleep", new=AsyncMock()),
         ):
             mock_convert.return_value = {
@@ -578,13 +582,13 @@ class TestControlTrvAvailablePath:
 
         with (
             patch(
-                _PATCHES["override_set_hvac_mode"], new=AsyncMock(return_value=False)
+                _PATCHES["override_set_hvac_mode"], autospec=True, return_value=False
             ) as mock_override_mode,
             patch(
-                _PATCHES["override_set_temperature"], new=AsyncMock(return_value=False)
+                _PATCHES["override_set_temperature"], autospec=True, return_value=False
             ),
-            patch(_PATCHES["set_hvac_mode"], new=AsyncMock()) as mock_set_mode,
-            patch(_PATCHES["set_temperature"], new=AsyncMock()) as mock_set_temp,
+            patch(_PATCHES["set_hvac_mode"], autospec=True) as mock_set_mode,
+            patch(_PATCHES["set_temperature"], autospec=True) as mock_set_temp,
             patch("asyncio.sleep", new=AsyncMock()),
         ):
             await control_trv(mock_self, "climate.trv1")
@@ -622,13 +626,13 @@ class TestControlTrvAvailablePath:
 
         with (
             patch(
-                _PATCHES["override_set_hvac_mode"], new=AsyncMock(return_value=False)
+                _PATCHES["override_set_hvac_mode"], autospec=True, return_value=False
             ),
             patch(
-                _PATCHES["override_set_temperature"], new=AsyncMock(return_value=False)
+                _PATCHES["override_set_temperature"], autospec=True, return_value=False
             ),
-            patch(_PATCHES["set_hvac_mode"], new=AsyncMock()) as mock_set_mode,
-            patch(_PATCHES["set_temperature"], new=AsyncMock()) as mock_set_temp,
+            patch(_PATCHES["set_hvac_mode"], autospec=True) as mock_set_mode,
+            patch(_PATCHES["set_temperature"], autospec=True) as mock_set_temp,
             patch("asyncio.sleep", new=AsyncMock()),
         ):
             await control_trv(mock_self, "climate.trv1")
@@ -648,13 +652,13 @@ class TestControlTrvAvailablePath:
         with (
             patch(_PATCHES["convert_outbound_states"]) as mock_convert,
             patch(
-                _PATCHES["override_set_hvac_mode"], new=AsyncMock(return_value=False)
+                _PATCHES["override_set_hvac_mode"], autospec=True, return_value=False
             ),
             patch(
-                _PATCHES["override_set_temperature"], new=AsyncMock(return_value=True)
+                _PATCHES["override_set_temperature"], autospec=True, return_value=True
             ) as mock_override,
-            patch(_PATCHES["set_hvac_mode"], new=AsyncMock()),
-            patch(_PATCHES["set_temperature"]) as mock_set_temp,
+            patch(_PATCHES["set_hvac_mode"], autospec=True),
+            patch(_PATCHES["set_temperature"], autospec=True) as mock_set_temp,
             patch("asyncio.sleep", new=AsyncMock()),
         ):
             mock_convert.return_value = {
@@ -688,13 +692,13 @@ class TestControlTrvAvailablePath:
         with (
             patch(_PATCHES["convert_outbound_states"]) as mock_convert,
             patch(
-                _PATCHES["override_set_hvac_mode"], new=AsyncMock(return_value=False)
+                _PATCHES["override_set_hvac_mode"], autospec=True, return_value=False
             ),
             patch(
-                _PATCHES["override_set_temperature"], new=AsyncMock(return_value=False)
+                _PATCHES["override_set_temperature"], autospec=True, return_value=False
             ) as mock_override,
-            patch(_PATCHES["set_hvac_mode"], new=AsyncMock()),
-            patch(_PATCHES["set_temperature"]) as mock_set_temp,
+            patch(_PATCHES["set_hvac_mode"], autospec=True),
+            patch(_PATCHES["set_temperature"], autospec=True) as mock_set_temp,
             patch("asyncio.sleep", new=AsyncMock()),
         ):
             mock_convert.return_value = {
@@ -717,13 +721,13 @@ class TestControlTrvAvailablePath:
         with (
             patch(_PATCHES["convert_outbound_states"]) as mock_convert,
             patch(
-                _PATCHES["override_set_hvac_mode"], new=AsyncMock(return_value=False)
+                _PATCHES["override_set_hvac_mode"], autospec=True, return_value=False
             ),
             patch(
-                _PATCHES["override_set_temperature"], new=AsyncMock(return_value=False)
+                _PATCHES["override_set_temperature"], autospec=True, return_value=False
             ) as mock_override,
-            patch(_PATCHES["set_hvac_mode"], new=AsyncMock()),
-            patch(_PATCHES["set_temperature"]) as mock_set_temp,
+            patch(_PATCHES["set_hvac_mode"], autospec=True),
+            patch(_PATCHES["set_temperature"], autospec=True) as mock_set_temp,
             patch("asyncio.sleep", new=AsyncMock()),
         ):
             mock_convert.return_value = {
@@ -787,15 +791,17 @@ class TestControlTrvAvailablePath:
 
         with (
             patch(_PATCHES["convert_outbound_states"]) as mock_convert,
-            patch(_PATCHES["set_valve"]) as mock_set_valve,
             patch(
-                _PATCHES["override_set_hvac_mode"], new=AsyncMock(return_value=False)
+                _PATCHES["set_valve"], autospec=True, return_value=True
+            ) as mock_set_valve,
+            patch(
+                _PATCHES["override_set_hvac_mode"], autospec=True, return_value=False
             ),
             patch(
-                _PATCHES["override_set_temperature"], new=AsyncMock(return_value=False)
+                _PATCHES["override_set_temperature"], autospec=True, return_value=False
             ),
-            patch(_PATCHES["set_hvac_mode"], new=AsyncMock()),
-            patch(_PATCHES["set_temperature"], new=AsyncMock()),
+            patch(_PATCHES["set_hvac_mode"], autospec=True),
+            patch(_PATCHES["set_temperature"], autospec=True),
             patch("asyncio.sleep", new=AsyncMock()),
         ):
             mock_convert.return_value = {
@@ -836,15 +842,17 @@ class TestControlTrvAvailablePath:
 
         with (
             patch(_PATCHES["convert_outbound_states"]) as mock_convert,
-            patch(_PATCHES["get_current_offset"]) as mock_get_offset,
             patch(
-                _PATCHES["override_set_hvac_mode"], new=AsyncMock(return_value=False)
+                _PATCHES["get_current_offset"], autospec=True, return_value=0.0
+            ) as mock_get_offset,
+            patch(
+                _PATCHES["override_set_hvac_mode"], autospec=True, return_value=False
             ),
             patch(
-                _PATCHES["override_set_temperature"], new=AsyncMock(return_value=False)
+                _PATCHES["override_set_temperature"], autospec=True, return_value=False
             ),
-            patch(_PATCHES["set_hvac_mode"], new=AsyncMock()),
-            patch(_PATCHES["set_temperature"], new=AsyncMock()),
+            patch(_PATCHES["set_hvac_mode"], autospec=True),
+            patch(_PATCHES["set_temperature"], autospec=True),
             patch("asyncio.sleep", new=AsyncMock()),
         ):
             mock_convert.return_value = {
@@ -881,15 +889,17 @@ class TestControlTrvAvailablePath:
 
         with (
             patch(_PATCHES["convert_outbound_states"]) as mock_convert,
-            patch(_PATCHES["get_current_offset"]) as mock_get_offset,
             patch(
-                _PATCHES["override_set_hvac_mode"], new=AsyncMock(return_value=False)
+                _PATCHES["get_current_offset"], autospec=True, return_value=0.0
+            ) as mock_get_offset,
+            patch(
+                _PATCHES["override_set_hvac_mode"], autospec=True, return_value=False
             ),
             patch(
-                _PATCHES["override_set_temperature"], new=AsyncMock(return_value=False)
+                _PATCHES["override_set_temperature"], autospec=True, return_value=False
             ),
-            patch(_PATCHES["set_hvac_mode"], new=AsyncMock()),
-            patch(_PATCHES["set_temperature"], new=AsyncMock()),
+            patch(_PATCHES["set_hvac_mode"], autospec=True),
+            patch(_PATCHES["set_temperature"], autospec=True),
             patch("asyncio.sleep", new=AsyncMock()),
         ):
             mock_convert.return_value = {
@@ -917,12 +927,14 @@ class TestControlTrvAvailablePath:
 
         with (
             patch(_PATCHES["convert_outbound_states"]) as mock_convert,
-            patch(_PATCHES["set_hvac_mode"]) as mock_set_hvac,
-            patch(_PATCHES["override_set_hvac_mode"]) as mock_override,
+            patch(_PATCHES["set_hvac_mode"], autospec=True) as mock_set_hvac,
             patch(
-                _PATCHES["override_set_temperature"], new=AsyncMock(return_value=False)
+                _PATCHES["override_set_hvac_mode"], autospec=True, return_value=False
+            ) as mock_override,
+            patch(
+                _PATCHES["override_set_temperature"], autospec=True, return_value=False
             ),
-            patch(_PATCHES["set_temperature"], new=AsyncMock()),
+            patch(_PATCHES["set_temperature"], autospec=True),
             patch("asyncio.sleep", new=AsyncMock()),
         ):
             mock_convert.return_value = {
@@ -955,12 +967,14 @@ class TestControlTrvAvailablePath:
 
         with (
             patch(_PATCHES["convert_outbound_states"]) as mock_convert,
-            patch(_PATCHES["set_hvac_mode"]) as mock_set_hvac,
-            patch(_PATCHES["override_set_hvac_mode"]) as mock_override,
+            patch(_PATCHES["set_hvac_mode"], autospec=True) as mock_set_hvac,
             patch(
-                _PATCHES["override_set_temperature"], new=AsyncMock(return_value=False)
+                _PATCHES["override_set_hvac_mode"], autospec=True, return_value=False
+            ) as mock_override,
+            patch(
+                _PATCHES["override_set_temperature"], autospec=True, return_value=False
             ),
-            patch(_PATCHES["set_temperature"], new=AsyncMock()),
+            patch(_PATCHES["set_temperature"], autospec=True),
             patch("asyncio.sleep", new=AsyncMock()),
         ):
             mock_convert.return_value = {
@@ -1019,16 +1033,16 @@ class TestControlTrvAvailablePath:
         with (
             patch(_PATCHES["convert_outbound_states"]) as mock_convert,
             patch(
-                _PATCHES["set_valve"], side_effect=drop_trv_offline
+                _PATCHES["set_valve"], autospec=True, side_effect=drop_trv_offline
             ) as mock_set_valve,
             patch(
-                _PATCHES["override_set_hvac_mode"], new=AsyncMock(return_value=False)
+                _PATCHES["override_set_hvac_mode"], autospec=True, return_value=False
             ) as mock_override_hvac,
-            patch(_PATCHES["set_hvac_mode"]) as mock_set_hvac,
+            patch(_PATCHES["set_hvac_mode"], autospec=True) as mock_set_hvac,
             patch(
-                _PATCHES["override_set_temperature"], new=AsyncMock(return_value=False)
+                _PATCHES["override_set_temperature"], autospec=True, return_value=False
             ),
-            patch(_PATCHES["set_temperature"], new=AsyncMock()),
+            patch(_PATCHES["set_temperature"], autospec=True),
             patch("asyncio.sleep", new=AsyncMock()),
         ):
             mock_convert.return_value = {
@@ -1064,13 +1078,13 @@ class TestControlTrvAvailablePath:
         with (
             patch(_PATCHES["convert_outbound_states"]) as mock_convert,
             patch(
-                _PATCHES["override_set_hvac_mode"], new=AsyncMock(return_value=False)
+                _PATCHES["override_set_hvac_mode"], autospec=True, return_value=False
             ),
             patch(
-                _PATCHES["override_set_temperature"], new=AsyncMock(return_value=False)
+                _PATCHES["override_set_temperature"], autospec=True, return_value=False
             ),
-            patch(_PATCHES["set_hvac_mode"], new=AsyncMock()),
-            patch(_PATCHES["set_temperature"], new=AsyncMock()),
+            patch(_PATCHES["set_hvac_mode"], autospec=True),
+            patch(_PATCHES["set_temperature"], autospec=True),
             patch("asyncio.sleep", new=AsyncMock()),
         ):
             mock_convert.return_value = {
@@ -1095,12 +1109,14 @@ class TestControlTrvAvailablePath:
 
         with (
             patch(_PATCHES["convert_outbound_states"]) as mock_convert,
-            patch(_PATCHES["set_hvac_mode"]) as mock_set_hvac,
-            patch(_PATCHES["override_set_hvac_mode"]) as mock_override,
+            patch(_PATCHES["set_hvac_mode"], autospec=True) as mock_set_hvac,
             patch(
-                _PATCHES["override_set_temperature"], new=AsyncMock(return_value=False)
+                _PATCHES["override_set_hvac_mode"], autospec=True, return_value=False
+            ) as mock_override,
+            patch(
+                _PATCHES["override_set_temperature"], autospec=True, return_value=False
             ),
-            patch(_PATCHES["set_temperature"], new=AsyncMock()),
+            patch(_PATCHES["set_temperature"], autospec=True),
             patch("asyncio.sleep", new=AsyncMock()),
         ):
             mock_convert.return_value = {
@@ -1133,14 +1149,14 @@ class TestControlTrvAvailablePath:
 
         with (
             patch(_PATCHES["convert_outbound_states"]) as mock_convert,
-            patch(_PATCHES["set_temperature"]) as mock_set_temp,
+            patch(_PATCHES["set_temperature"], autospec=True) as mock_set_temp,
             patch(
-                _PATCHES["override_set_hvac_mode"], new=AsyncMock(return_value=False)
+                _PATCHES["override_set_hvac_mode"], autospec=True, return_value=False
             ),
             patch(
-                _PATCHES["override_set_temperature"], new=AsyncMock(return_value=False)
+                _PATCHES["override_set_temperature"], autospec=True, return_value=False
             ),
-            patch(_PATCHES["set_hvac_mode"], new=AsyncMock()) as mock_set_hvac,
+            patch(_PATCHES["set_hvac_mode"], autospec=True) as mock_set_hvac,
             patch("asyncio.sleep", new=AsyncMock()),
         ):
             mock_convert.return_value = {
@@ -1177,14 +1193,14 @@ class TestControlTrvAvailablePath:
 
         with (
             patch(_PATCHES["convert_outbound_states"]) as mock_convert,
-            patch(_PATCHES["set_temperature"]) as mock_set_temp,
+            patch(_PATCHES["set_temperature"], autospec=True) as mock_set_temp,
             patch(
-                _PATCHES["override_set_hvac_mode"], new=AsyncMock(return_value=False)
+                _PATCHES["override_set_hvac_mode"], autospec=True, return_value=False
             ),
             patch(
-                _PATCHES["override_set_temperature"], new=AsyncMock(return_value=False)
+                _PATCHES["override_set_temperature"], autospec=True, return_value=False
             ),
-            patch(_PATCHES["set_hvac_mode"], new=AsyncMock()) as mock_set_hvac,
+            patch(_PATCHES["set_hvac_mode"], autospec=True) as mock_set_hvac,
             patch("asyncio.sleep", new=AsyncMock()),
         ):
             mock_convert.return_value = {
@@ -1214,14 +1230,14 @@ class TestControlTrvAvailablePath:
 
         with (
             patch(_PATCHES["convert_outbound_states"]) as mock_convert,
-            patch(_PATCHES["set_temperature"]) as mock_set_temp,
+            patch(_PATCHES["set_temperature"], autospec=True) as mock_set_temp,
             patch(
-                _PATCHES["override_set_hvac_mode"], new=AsyncMock(return_value=False)
+                _PATCHES["override_set_hvac_mode"], autospec=True, return_value=False
             ),
             patch(
-                _PATCHES["override_set_temperature"], new=AsyncMock(return_value=False)
+                _PATCHES["override_set_temperature"], autospec=True, return_value=False
             ),
-            patch(_PATCHES["set_hvac_mode"], new=AsyncMock()) as mock_set_hvac,
+            patch(_PATCHES["set_hvac_mode"], autospec=True) as mock_set_hvac,
             patch("asyncio.sleep", new=AsyncMock()),
         ):
             mock_convert.return_value = {
@@ -1254,15 +1270,16 @@ class TestControlTrvIgnoreFlagReset:
         with (
             patch(_PATCHES["convert_outbound_states"]) as mock_convert,
             patch(
-                _PATCHES["override_set_hvac_mode"], new=AsyncMock(return_value=False)
+                _PATCHES["override_set_hvac_mode"], autospec=True, return_value=False
             ),
             patch(
-                _PATCHES["override_set_temperature"], new=AsyncMock(return_value=False)
+                _PATCHES["override_set_temperature"], autospec=True, return_value=False
             ),
-            patch(_PATCHES["set_hvac_mode"], new=AsyncMock()),
+            patch(_PATCHES["set_hvac_mode"], autospec=True),
             patch(
                 _PATCHES["set_temperature"],
-                new=AsyncMock(side_effect=RuntimeError("adapter failure")),
+                autospec=True,
+                side_effect=RuntimeError("adapter failure"),
             ),
             patch("asyncio.sleep", new=AsyncMock()),
         ):
@@ -1292,13 +1309,17 @@ class TestControlTrvIgnoreFlagReset:
         with (
             patch(_PATCHES["convert_outbound_states"]) as mock_convert,
             patch(
-                _PATCHES["override_set_hvac_mode"], new=AsyncMock(return_value=False)
+                _PATCHES["override_set_hvac_mode"], autospec=True, return_value=False
             ),
             patch(
-                _PATCHES["override_set_temperature"], new=AsyncMock(return_value=False)
+                _PATCHES["override_set_temperature"], autospec=True, return_value=False
             ),
-            patch(_PATCHES["set_hvac_mode"], new=AsyncMock()),
-            patch(_PATCHES["set_temperature"], new=_blocking_set_temperature),
+            patch(_PATCHES["set_hvac_mode"], autospec=True),
+            patch(
+                _PATCHES["set_temperature"],
+                autospec=True,
+                side_effect=_blocking_set_temperature,
+            ),
         ):
             mock_convert.return_value = {
                 "temperature": 21.0,
@@ -1337,13 +1358,17 @@ class TestControlTrvIgnoreFlagReset:
         with (
             patch(_PATCHES["convert_outbound_states"]) as mock_convert,
             patch(
-                _PATCHES["override_set_hvac_mode"], new=AsyncMock(return_value=False)
+                _PATCHES["override_set_hvac_mode"], autospec=True, return_value=False
             ),
             patch(
-                _PATCHES["override_set_temperature"], new=AsyncMock(return_value=False)
+                _PATCHES["override_set_temperature"], autospec=True, return_value=False
             ),
-            patch(_PATCHES["set_hvac_mode"], new=AsyncMock()),
-            patch(_PATCHES["set_temperature"], new=_blocking_set_temperature),
+            patch(_PATCHES["set_hvac_mode"], autospec=True),
+            patch(
+                _PATCHES["set_temperature"],
+                autospec=True,
+                side_effect=_blocking_set_temperature,
+            ),
         ):
             mock_convert.return_value = {
                 "temperature": 21.0,
@@ -1463,8 +1488,8 @@ class TestBoostModeSafetyOverride:
 
         with (
             patch(_PATCHES["convert_outbound_states"]) as mock_convert,
-            patch(_PATCHES["set_valve"], side_effect=track_set_valve),
-            patch(_PATCHES["set_hvac_mode"]),
+            patch(_PATCHES["set_valve"], autospec=True, side_effect=track_set_valve),
+            patch(_PATCHES["set_hvac_mode"], autospec=True),
         ):
             mock_convert.return_value = {
                 "temperature": 20.0,
@@ -1511,15 +1536,17 @@ class TestBoostModeSafetyOverride:
 
         with (
             patch(_PATCHES["convert_outbound_states"]) as mock_convert,
-            patch(_PATCHES["set_temperature"], new=AsyncMock()) as mock_set_temp,
-            patch(_PATCHES["set_valve"], new=AsyncMock()) as mock_set_valve,
+            patch(_PATCHES["set_temperature"], autospec=True) as mock_set_temp,
             patch(
-                _PATCHES["override_set_hvac_mode"], new=AsyncMock(return_value=False)
+                _PATCHES["set_valve"], autospec=True, return_value=True
+            ) as mock_set_valve,
+            patch(
+                _PATCHES["override_set_hvac_mode"], autospec=True, return_value=False
             ),
             patch(
-                _PATCHES["override_set_temperature"], new=AsyncMock(return_value=False)
+                _PATCHES["override_set_temperature"], autospec=True, return_value=False
             ),
-            patch(_PATCHES["set_hvac_mode"], new=AsyncMock()),
+            patch(_PATCHES["set_hvac_mode"], autospec=True),
             patch("asyncio.sleep", new=AsyncMock()),
         ):
             mock_convert.return_value = {
@@ -1571,11 +1598,11 @@ class TestBoostModeSafetyOverride:
 
         with (
             patch(_PATCHES["convert_outbound_states"]) as mock_convert,
-            patch(_PATCHES["set_valve"], side_effect=track_set_valve),
+            patch(_PATCHES["set_valve"], autospec=True, side_effect=track_set_valve),
             patch(
-                _PATCHES["override_set_hvac_mode"], new=AsyncMock(return_value=False)
+                _PATCHES["override_set_hvac_mode"], autospec=True, return_value=False
             ),
-            patch(_PATCHES["set_hvac_mode"], new=AsyncMock()),
+            patch(_PATCHES["set_hvac_mode"], autospec=True),
             patch("asyncio.sleep", new=AsyncMock()),
         ):
             mock_convert.return_value = {
@@ -1628,11 +1655,11 @@ class TestBoostModeSafetyOverride:
 
         with (
             patch(_PATCHES["convert_outbound_states"]) as mock_convert,
-            patch(_PATCHES["set_valve"], side_effect=failing_set_valve),
+            patch(_PATCHES["set_valve"], autospec=True, side_effect=failing_set_valve),
             patch(
-                _PATCHES["override_set_hvac_mode"], new=AsyncMock(return_value=False)
+                _PATCHES["override_set_hvac_mode"], autospec=True, return_value=False
             ),
-            patch(_PATCHES["set_hvac_mode"], new=AsyncMock()),
+            patch(_PATCHES["set_hvac_mode"], autospec=True),
             patch("asyncio.sleep", new=AsyncMock()),
         ):
             mock_convert.return_value = {
@@ -1739,8 +1766,8 @@ class TestBoostModeSafetyOverride:
 
         with (
             patch(_PATCHES["convert_outbound_states"]) as mock_convert,
-            patch(_PATCHES["set_valve"], side_effect=track_set_valve),
-            patch(_PATCHES["set_hvac_mode"]),
+            patch(_PATCHES["set_valve"], autospec=True, side_effect=track_set_valve),
+            patch(_PATCHES["set_hvac_mode"], autospec=True),
         ):
             mock_convert.return_value = {
                 "temperature": 20.0,
@@ -1892,17 +1919,21 @@ class TestRaceConditionLockCoverage:
 
         with (
             patch(_PATCHES["convert_outbound_states"]) as mock_convert,
-            patch(_PATCHES["set_valve"]) as mock_set_valve,
-            patch(_PATCHES["set_hvac_mode"]) as mock_set_hvac_mode,
-            patch(_PATCHES["set_offset"]) as mock_set_offset,
-            patch(_PATCHES["set_temperature"]) as mock_set_temp,
             patch(
-                _PATCHES["override_set_hvac_mode"], new=AsyncMock(return_value=False)
+                _PATCHES["set_valve"], autospec=True, return_value=True
+            ) as mock_set_valve,
+            patch(_PATCHES["set_hvac_mode"], autospec=True) as mock_set_hvac_mode,
+            patch(
+                _PATCHES["set_offset"], autospec=True, return_value=True
+            ) as mock_set_offset,
+            patch(_PATCHES["set_temperature"], autospec=True) as mock_set_temp,
+            patch(
+                _PATCHES["override_set_hvac_mode"], autospec=True, return_value=False
             ),
             patch(
-                _PATCHES["override_set_temperature"], new=AsyncMock(return_value=False)
+                _PATCHES["override_set_temperature"], autospec=True, return_value=False
             ),
-            patch(_PATCHES["get_current_offset"], new=AsyncMock(return_value=0.0)),
+            patch(_PATCHES["get_current_offset"], autospec=True, return_value=0.0),
         ):
             mock_convert.return_value = {
                 "temperature": 22.0,
@@ -2070,14 +2101,14 @@ class TestRaceConditionLockCoverage:
 
         with (
             patch(_PATCHES["convert_outbound_states"]) as mock_convert,
-            patch(_PATCHES["set_temperature"]),
+            patch(_PATCHES["set_temperature"], autospec=True),
             patch(
-                _PATCHES["override_set_hvac_mode"], new=AsyncMock(return_value=False)
+                _PATCHES["override_set_hvac_mode"], autospec=True, return_value=False
             ),
             patch(
-                _PATCHES["override_set_temperature"], new=AsyncMock(return_value=False)
+                _PATCHES["override_set_temperature"], autospec=True, return_value=False
             ),
-            patch(_PATCHES["get_current_offset"], new=AsyncMock(return_value=0.0)),
+            patch(_PATCHES["get_current_offset"], autospec=True, return_value=0.0),
         ):
             mock_convert.return_value = {
                 "temperature": 22.0,
@@ -2166,17 +2197,21 @@ class TestRaceConditionLockCoverage:
 
         with (
             patch(_PATCHES["convert_outbound_states"]) as mock_convert,
-            patch(_PATCHES["set_valve"]) as mock_set_valve,
-            patch(_PATCHES["set_hvac_mode"]) as mock_set_hvac_mode,
-            patch(_PATCHES["set_offset"]) as mock_set_offset,
-            patch(_PATCHES["set_temperature"]) as mock_set_temp,
             patch(
-                _PATCHES["override_set_hvac_mode"], new=AsyncMock(return_value=False)
+                _PATCHES["set_valve"], autospec=True, return_value=True
+            ) as mock_set_valve,
+            patch(_PATCHES["set_hvac_mode"], autospec=True) as mock_set_hvac_mode,
+            patch(
+                _PATCHES["set_offset"], autospec=True, return_value=True
+            ) as mock_set_offset,
+            patch(_PATCHES["set_temperature"], autospec=True) as mock_set_temp,
+            patch(
+                _PATCHES["override_set_hvac_mode"], autospec=True, return_value=False
             ),
             patch(
-                _PATCHES["override_set_temperature"], new=AsyncMock(return_value=False)
+                _PATCHES["override_set_temperature"], autospec=True, return_value=False
             ),
-            patch(_PATCHES["get_current_offset"], new=AsyncMock(return_value=0.0)),
+            patch(_PATCHES["get_current_offset"], autospec=True, return_value=0.0),
         ):
             mock_convert.return_value = {
                 "temperature": 22.0,
@@ -2248,18 +2283,17 @@ class TestRaceConditionLockCoverage:
         with (
             patch(_PATCHES["convert_outbound_states"]) as mock_convert,
             patch(
-                _PATCHES["override_set_temperature"], new=AsyncMock(return_value=False)
+                _PATCHES["override_set_temperature"], autospec=True, return_value=False
             ),
             patch(
                 _PATCHES["set_temperature"],
-                new=AsyncMock(
-                    side_effect=lambda *a, **k: set_temperature_calls.append(a)
-                ),
+                autospec=True,
+                side_effect=lambda *a, **k: set_temperature_calls.append(a),
             ),
             patch(
-                _PATCHES["override_set_hvac_mode"], new=AsyncMock(return_value=False)
+                _PATCHES["override_set_hvac_mode"], autospec=True, return_value=False
             ),
-            patch(_PATCHES["set_hvac_mode"], new=AsyncMock()),
+            patch(_PATCHES["set_hvac_mode"], autospec=True),
             patch("asyncio.sleep", new=AsyncMock(side_effect=record_lock_state)),
         ):
             mock_convert.return_value = {
@@ -2386,13 +2420,15 @@ class TestGroupedTrvCalibration:
 
         with (
             patch(
-                _PATCHES["get_current_offset"], new_callable=AsyncMock
+                _PATCHES["get_current_offset"], autospec=True, return_value=0.0
             ) as mock_get_offset,
             patch(_PATCHES["convert_outbound_states"]) as mock_convert,
-            patch(_PATCHES["set_offset"], new_callable=AsyncMock) as mock_set_offset,
-            patch(_PATCHES["set_temperature"], new_callable=AsyncMock),
-            patch(_PATCHES["set_hvac_mode"], new_callable=AsyncMock),
-            patch(_PATCHES["set_valve"], new_callable=AsyncMock),
+            patch(
+                _PATCHES["set_offset"], autospec=True, return_value=True
+            ) as mock_set_offset,
+            patch(_PATCHES["set_temperature"], autospec=True),
+            patch(_PATCHES["set_hvac_mode"], autospec=True),
+            patch(_PATCHES["set_valve"], autospec=True, return_value=True),
             patch("asyncio.sleep", new_callable=AsyncMock),
         ):
             mock_get_offset.return_value = 2.0  # confirms last_calibration
@@ -2425,13 +2461,15 @@ class TestGroupedTrvCalibration:
 
         with (
             patch(
-                _PATCHES["get_current_offset"], new_callable=AsyncMock
+                _PATCHES["get_current_offset"], autospec=True, return_value=0.0
             ) as mock_get_offset,
             patch(_PATCHES["convert_outbound_states"]) as mock_convert,
-            patch(_PATCHES["set_offset"], new_callable=AsyncMock) as mock_set_offset,
-            patch(_PATCHES["set_temperature"], new_callable=AsyncMock),
-            patch(_PATCHES["set_hvac_mode"], new_callable=AsyncMock),
-            patch(_PATCHES["set_valve"], new_callable=AsyncMock),
+            patch(
+                _PATCHES["set_offset"], autospec=True, return_value=True
+            ) as mock_set_offset,
+            patch(_PATCHES["set_temperature"], autospec=True),
+            patch(_PATCHES["set_hvac_mode"], autospec=True),
+            patch(_PATCHES["set_valve"], autospec=True, return_value=True),
             patch("asyncio.sleep", new_callable=AsyncMock),
         ):
             mock_get_offset.return_value = 2.0
@@ -2469,18 +2507,20 @@ class TestGroupedTrvCalibration:
 
         with (
             patch(
-                _PATCHES["get_current_offset"], new_callable=AsyncMock
+                _PATCHES["get_current_offset"], autospec=True, return_value=0.0
             ) as mock_get_offset,
             patch(_PATCHES["convert_outbound_states"]) as mock_convert,
-            patch(_PATCHES["set_offset"], new_callable=AsyncMock) as mock_set_offset,
-            patch(_PATCHES["set_temperature"], new_callable=AsyncMock) as mock_set_temp,
-            patch(_PATCHES["set_hvac_mode"], new_callable=AsyncMock),
-            patch(_PATCHES["set_valve"], new_callable=AsyncMock),
             patch(
-                _PATCHES["override_set_temperature"], new=AsyncMock(return_value=False)
+                _PATCHES["set_offset"], autospec=True, return_value=True
+            ) as mock_set_offset,
+            patch(_PATCHES["set_temperature"], autospec=True) as mock_set_temp,
+            patch(_PATCHES["set_hvac_mode"], autospec=True),
+            patch(_PATCHES["set_valve"], autospec=True, return_value=True),
+            patch(
+                _PATCHES["override_set_temperature"], autospec=True, return_value=False
             ),
             patch(
-                _PATCHES["override_set_hvac_mode"], new=AsyncMock(return_value=False)
+                _PATCHES["override_set_hvac_mode"], autospec=True, return_value=False
             ),
             patch("asyncio.sleep", new_callable=AsyncMock),
         ):
@@ -2522,13 +2562,13 @@ class TestGroupedTrvCalibration:
 
         with (
             patch(
-                _PATCHES["get_current_offset"], new_callable=AsyncMock
+                _PATCHES["get_current_offset"], autospec=True, return_value=0.0
             ) as mock_get_offset,
             patch(_PATCHES["convert_outbound_states"]) as mock_convert,
-            patch(_PATCHES["set_offset"], new_callable=AsyncMock),
-            patch(_PATCHES["set_temperature"], new_callable=AsyncMock),
-            patch(_PATCHES["set_hvac_mode"], new_callable=AsyncMock),
-            patch(_PATCHES["set_valve"], new_callable=AsyncMock),
+            patch(_PATCHES["set_offset"], autospec=True, return_value=True),
+            patch(_PATCHES["set_temperature"], autospec=True),
+            patch(_PATCHES["set_hvac_mode"], autospec=True),
+            patch(_PATCHES["set_valve"], autospec=True, return_value=True),
             patch("asyncio.sleep", new_callable=AsyncMock),
         ):
             mock_get_offset.return_value = reported
@@ -2557,13 +2597,13 @@ class TestGroupedTrvCalibration:
 
         with (
             patch(
-                _PATCHES["get_current_offset"], new_callable=AsyncMock
+                _PATCHES["get_current_offset"], autospec=True, return_value=0.0
             ) as mock_get_offset,
             patch(_PATCHES["convert_outbound_states"]) as mock_convert,
-            patch(_PATCHES["set_offset"], new_callable=AsyncMock),
-            patch(_PATCHES["set_temperature"], new_callable=AsyncMock),
-            patch(_PATCHES["set_hvac_mode"], new_callable=AsyncMock),
-            patch(_PATCHES["set_valve"], new_callable=AsyncMock),
+            patch(_PATCHES["set_offset"], autospec=True, return_value=True),
+            patch(_PATCHES["set_temperature"], autospec=True),
+            patch(_PATCHES["set_hvac_mode"], autospec=True),
+            patch(_PATCHES["set_valve"], autospec=True, return_value=True),
             patch("asyncio.sleep", new_callable=AsyncMock),
         ):
             mock_get_offset.return_value = 2.6
@@ -2633,14 +2673,14 @@ async def _run_offset_cycle(
     with (
         patch(_PATCHES["convert_outbound_states"]) as mock_convert,
         patch(
-            _PATCHES["get_current_offset"], new=AsyncMock(return_value=reported_offset)
+            _PATCHES["get_current_offset"], autospec=True, return_value=reported_offset
         ) as mock_get_offset,
-        patch(_PATCHES["set_offset"], new=set_offset),
-        patch(_PATCHES["set_temperature"], new=AsyncMock()),
-        patch(_PATCHES["set_hvac_mode"], new=AsyncMock()),
-        patch(_PATCHES["set_valve"], new=AsyncMock()),
-        patch(_PATCHES["override_set_hvac_mode"], new=AsyncMock(return_value=False)),
-        patch(_PATCHES["override_set_temperature"], new=AsyncMock(return_value=False)),
+        patch(_PATCHES["set_offset"], autospec=True, side_effect=set_offset),
+        patch(_PATCHES["set_temperature"], autospec=True),
+        patch(_PATCHES["set_hvac_mode"], autospec=True),
+        patch(_PATCHES["set_valve"], autospec=True, return_value=True),
+        patch(_PATCHES["override_set_hvac_mode"], autospec=True, return_value=False),
+        patch(_PATCHES["override_set_temperature"], autospec=True, return_value=False),
         patch("asyncio.sleep", new=AsyncMock()),
     ):
         mock_convert.return_value = {
@@ -2984,7 +3024,7 @@ class TestOffsetWriteGate:
         assert trv.calibration_received is False
         assert trv.calibration_write_generation == 2
 
-        with patch(f"{_CTRL}.get_current_offset", new=AsyncMock(return_value=-2.0)):
+        with patch(f"{_CTRL}.get_current_offset", autospec=True, return_value=-2.0):
             assert await earlier_watchdog is True
 
         assert trv.calibration_received is False
