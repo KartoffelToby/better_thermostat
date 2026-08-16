@@ -1914,7 +1914,7 @@ class TestControlTrvOnADualRoleEntity:
 
     @pytest.mark.asyncio
     async def test_a_distinct_trv_still_receives_the_raw_mode(self):
-        """A radiator that is not the cooler takes no new branch."""
+        """A radiator that is not the cooler receives the mode BT holds."""
         mock_self = self._make_shared_self(
             [HVACMode.OFF, HVACMode.HEAT, HVACMode.COOL, HVACMode.HEAT_COOL]
         )

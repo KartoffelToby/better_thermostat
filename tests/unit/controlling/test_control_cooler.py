@@ -1621,7 +1621,7 @@ class TestControlCoolerOnADualRoleEntity:
         assert shared_trv.system_mode_received is True
 
     @pytest.mark.asyncio
-    async def test_a_distinct_cooler_writes_exactly_as_before(self):
+    async def test_a_distinct_cooler_writes_the_setpoint_and_the_off_mode(self):
         """A cooler of its own is untouched by the dual-role handling."""
         mock_hass = self._hass()
         mock_hass.states.get.return_value = _make_cooler_state(
