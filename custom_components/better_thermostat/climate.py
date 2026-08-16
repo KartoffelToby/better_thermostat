@@ -3207,14 +3207,14 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
     def _seed_cool_target_from_cooler(self, log_source: str) -> bool:
         """Fill a cooling target that is still unknown from the cooler's state.
 
-        The single place a cooling target is taken off the device, so every
-        such value passes the same resolution: it is read with the key
-        precedence a cooler is driven through — a device that only supports
-        TARGET_TEMPERATURE_RANGE reports ``temperature: None`` and carries its
-        setpoint in ``target_temp_high`` — clamped into the configured range,
-        and ordered above the heating target. A cooler that was unavailable
-        while that range was derived contributed no bounds to it, so the
-        setpoint it reports can sit outside the range and is clamped into it
+        The startup path for a cooling target read off the device;
+        ``trigger_cooler_change`` is the runtime one. Here the value is read
+        with the key precedence a cooler is driven through — a device that only
+        supports TARGET_TEMPERATURE_RANGE reports ``temperature: None`` and
+        carries its setpoint in ``target_temp_high`` — then clamped into the
+        configured range and ordered above the heating target. A cooler that was
+        unavailable while that range was derived contributed no bounds to it, so
+        the setpoint it reports can sit outside the range and is clamped into it
         exactly like a reported one. Echo detection has nothing to compare
         against, because no setpoint is written to a cooler whose target is
         unknown.
