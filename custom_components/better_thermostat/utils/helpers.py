@@ -457,13 +457,17 @@ def mode_remap(self, entity_id, hvac_mode: str, inbound: bool = False) -> str | 
     trv_modes = trv.hvac_modes
     if not trv_modes:
         return hvac_mode
-    if HVACMode.HEAT not in trv_modes and HVACMode.HEAT_COOL in trv_modes:
+    # The cache holds the device's own spelling, so the two translations are
+    # decided on the normalized list like the clamp below is.
+    offers_heat = _device_offers_mode(trv_modes, HVACMode.HEAT)
+    offers_heat_cool = _device_offers_mode(trv_modes, HVACMode.HEAT_COOL)
+    if not offers_heat and offers_heat_cool:
         # entity only supports HEAT_COOL, but not HEAT - need to translate
         if not inbound and hvac_mode == HVACMode.HEAT:
             return HVACMode.HEAT_COOL
         if inbound and hvac_mode == HVACMode.HEAT_COOL:
             return HVACMode.HEAT
-    if HVACMode.HEAT_COOL not in trv_modes and HVACMode.HEAT in trv_modes:
+    if not offers_heat_cool and offers_heat:
         # entity only supports HEAT, but not HEAT_COOL - need to translate
         if not inbound and hvac_mode == HVACMode.HEAT_COOL:
             return HVACMode.HEAT
@@ -471,13 +475,19 @@ def mode_remap(self, entity_id, hvac_mode: str, inbound: bool = False) -> str | 
             return HVACMode.HEAT_COOL
 
     if hvac_mode == HVACMode.AUTO:
-        _LOGGER.error(
-            "better_thermostat %s: %s HVAC mode %s is not supported by this device, "
-            "is it possible that you forgot to set the heat auto swapped option?",
-            self.device_name,
-            entity_id,
-            hvac_mode,
-        )
+        # The mode is annunciated once per offered set, like the clamp does it,
+        # so an unswapped instance asked for AUTO every cycle says so once.
+        auto_key = str(normalize_hvac_mode(hvac_mode))
+        if auto_key not in trv.unsupported_modes_logged:
+            trv.unsupported_modes_logged.add(auto_key)
+            _LOGGER.error(
+                "better_thermostat %s: %s HVAC mode %s is not supported by this "
+                "device, is it possible that you forgot to set the heat auto "
+                "swapped option?",
+                self.device_name,
+                entity_id,
+                hvac_mode,
+            )
         return HVACMode.OFF
 
     return _clamp_to_offered_mode(self, trv, entity_id, hvac_mode, inbound)

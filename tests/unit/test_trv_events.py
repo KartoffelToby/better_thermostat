@@ -831,6 +831,60 @@ class TestHvacActionAndValvePosition:
             )
             assert len(_errors()) == 1
 
+    @pytest.mark.asyncio
+    async def test_a_capability_change_decodes_the_state_that_carried_it(self, mock_bt):
+        """A device switching to HEAT_COOL is decoded against its new list.
+
+        The reported state belongs to the capabilities reported alongside it,
+        so the mode the entity takes over is the one the new list translates
+        to and not the one the previous list would have produced.
+        """
+        mock_bt.bt_hvac_mode = HVACMode.OFF
+        trv_state = _make_state(
+            state_str="heat_cool",
+            attributes={
+                "current_temperature": 18.0,
+                "temperature": 19.0,
+                "hvac_modes": [HVACMode.OFF, HVACMode.HEAT_COOL],
+            },
+        )
+        mock_bt.hass.states.get.return_value = trv_state
+
+        event = _make_event(mock_bt, new_state=trv_state, old_state=_make_state())
+
+        await trigger_trv_change(mock_bt, event)
+
+        assert mock_bt.real_trvs[ENTITY_ID].hvac_modes == [
+            HVACMode.OFF,
+            HVACMode.HEAT_COOL,
+        ]
+        assert mock_bt.bt_hvac_mode == HVACMode.HEAT
+
+    @pytest.mark.asyncio
+    async def test_modes_cached_in_the_device_spelling_still_translate(self, mock_bt):
+        """A mode list reported as ``HVACMode.HEAT`` reaches the translation."""
+        trv_state = _make_state(
+            attributes={
+                "current_temperature": 18.0,
+                "temperature": 19.0,
+                "hvac_modes": ["HVACMode.OFF", "HVACMode.HEAT"],
+            }
+        )
+        mock_bt.hass.states.get.return_value = trv_state
+
+        event = _make_event(mock_bt, new_state=trv_state, old_state=trv_state)
+
+        await trigger_trv_change(mock_bt, event)
+
+        assert mock_bt.real_trvs[ENTITY_ID].hvac_modes == [
+            "HVACMode.OFF",
+            "HVACMode.HEAT",
+        ]
+        assert (
+            mode_remap(mock_bt, ENTITY_ID, HVACMode.HEAT_COOL, inbound=False)
+            == HVACMode.HEAT
+        )
+
 
 # ---------------------------------------------------------------------------
 # 4. HVAC mode update
