@@ -16,15 +16,22 @@ from pytest_homeassistant_custom_component.common import (
     mock_restore_cache,
 )
 
-from .conftest import DOMAIN, SENSOR_ID, make_entry, setup_entry, wait_for_startup
+from .conftest import (
+    BT_ENTITY,
+    DOMAIN,
+    make_entry,
+    set_room_sensor,
+    setup_entry,
+    wait_for_startup,
+)
+from .device_profiles import GENERIC_HEAT_TRV
 
-BT_ENTITY = "climate.bt_test"
 SLEEP_NUMBER = "number.bt_test_sleep"
 
 
 async def _setup(hass, presets=("sleep", "eco")):
-    hass.states.async_set(SENSOR_ID, "18.0", {"unit_of_measurement": "°C"})
-    data = dict(make_entry().data)
+    set_room_sensor(hass, 18.0)
+    data = dict(make_entry(GENERIC_HEAT_TRV).data)
     data["presets"] = list(presets)
     entry = MockConfigEntry(domain=DOMAIN, version=18, data=data, title=data["name"])
     await setup_entry(hass, entry)

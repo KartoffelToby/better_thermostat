@@ -22,6 +22,7 @@ from .conftest import (
     BT_ENTITY,
     DOMAIN,
     WINDOW_ID,
+    WRITE_BUDGET,
     assert_on_device_grid,
     assert_profile_adopted,
     make_entry,
@@ -49,7 +50,7 @@ from .device_profiles import (
 async def test_setup_creates_the_entity_and_syncs_the_trv(hass, fake_trv):
     """Startup ends with a real setpoint write on the device's own grid."""
     set_room_sensor(hass, 18.0)
-    entry = make_entry()
+    entry = make_entry(fake_trv.profile)
     await setup_entry(hass, entry)
     bt = await wait_for_startup(hass, entry)
     assert_profile_adopted(bt, fake_trv.profile)
@@ -78,7 +79,7 @@ async def test_window_open_turns_the_trv_off(hass, fake_trv):
     """
     set_room_sensor(hass, 18.0)
     hass.states.async_set(WINDOW_ID, "off")
-    entry = make_entry(with_window=True)
+    entry = make_entry(fake_trv.profile, with_window=True)
     await setup_entry(hass, entry)
     bt = await wait_for_startup(hass, entry)
     assert_profile_adopted(bt, fake_trv.profile)
@@ -109,7 +110,7 @@ async def test_restored_target_temperature_survives_a_restart(hass, fake_trv):
         [State(BT_ENTITY, "heat", {ATTR_TEMPERATURE: 23.5, ATTR_HVAC_ACTION: "idle"})],
     )
     set_room_sensor(hass, 18.0)
-    entry = make_entry()
+    entry = make_entry(fake_trv.profile)
     await setup_entry(hass, entry)
     bt = await wait_for_startup(hass, entry)
     assert_profile_adopted(bt, fake_trv.profile)
@@ -132,7 +133,7 @@ async def test_unload_and_reload_the_entry(hass, fake_trv):
     from homeassistant.config_entries import ConfigEntryState
 
     set_room_sensor(hass, 18.0)
-    entry = make_entry()
+    entry = make_entry(fake_trv.profile)
     await setup_entry(hass, entry)
     await wait_for_startup(hass, entry)
 
@@ -159,15 +160,37 @@ async def test_unload_and_reload_the_entry(hass, fake_trv):
     assert await wait_for(hass, lambda: fake_trv.set_temperature_calls)
 
 
-@pytest.mark.parametrize(
-    ("device_role", "scenario"),
-    [(role, role) for role in ROLE_SCENARIOS],
-    indirect=["device_role"],
-    ids=[role.name for role in ROLE_SCENARIOS],
-)
-async def test_climate_entity_id_follows_device_name_after_rename(
-    hass, device_role, scenario
-):
+@pytest.mark.parametrize("device_role", ROLE_SCENARIOS, indirect=True, ids=profile_id)
+async def test_the_role_scenario_decides_what_the_entry_controls(hass, device_role):
+    """The entry wires exactly the devices and channels its role names.
+
+    A room with a cooler trades plain heat for heat_cool, a heat-only room
+    keeps heat and never offers heat_cool, and a dual-role room points both
+    channels at the one entity it built — the same entity is the thermostat
+    and the cooler, which is the wiring the cooling path has to survive.
+    """
+    scenario = device_role.scenario
+    set_room_sensor(hass, 18.0)
+    entry = make_entry(scenario)
+    await setup_entry(hass, entry)
+    bt = await wait_for_startup(hass, entry)
+
+    assert len(device_role.entities) == (1 if scenario.cooler is None else 2)
+    assert entry.data.get("cooler") == scenario.cooler_entity_id
+    assert bt.cooler_entity_id == scenario.cooler_entity_id
+    assert list(bt.real_trvs) == [scenario.trv.entity_id]
+    assert (bt.cooler_entity_id in bt.real_trvs) is (scenario is DUAL_ROLE)
+    assert_profile_adopted(bt, scenario.trv)
+    if scenario.cooler_entity_id is None:
+        assert HVACMode.HEAT in bt.hvac_modes
+        assert HVACMode.HEAT_COOL not in bt.hvac_modes
+    else:
+        assert HVACMode.HEAT_COOL in bt.hvac_modes
+        assert HVACMode.HEAT not in bt.hvac_modes
+
+
+@pytest.mark.parametrize("device_role", ROLE_SCENARIOS, indirect=True, ids=profile_id)
+async def test_climate_entity_id_follows_device_name_after_rename(hass, device_role):
     """Renaming the device renames the climate (and sensor) entity_id to match.
 
     HA's entity registry reuses the existing entry on reload (unique id ==
@@ -180,25 +203,9 @@ async def test_climate_entity_id_follows_device_name_after_rename(
     rebuilt from the entry on every reload, whatever the entry controls.
     """
     set_room_sensor(hass, 18.0)
-    entry = make_entry(name="Livingroom")
+    entry = make_entry(device_role.scenario, name="Livingroom")
     await setup_entry(hass, entry)
-    bt = await wait_for_startup(hass, entry)
-
-    # The entry controls exactly what the scenario wired: a room with a cooler
-    # trades plain heat for heat_cool, and a dual-role room points both
-    # channels at the one entity it built.
-    assert len(device_role) == (1 if scenario.cooler is None else 2)
-    assert entry.data.get("cooler") == scenario.cooler_entity_id
-    assert bt.cooler_entity_id == scenario.cooler_entity_id
-    assert list(bt.real_trvs) == [scenario.trv.entity_id]
-    assert (bt.cooler_entity_id in bt.real_trvs) is (scenario is DUAL_ROLE)
-    assert_profile_adopted(bt, scenario.trv)
-    if scenario.cooler_entity_id is None:
-        assert HVACMode.HEAT in bt.hvac_modes
-        assert HVACMode.HEAT_COOL not in bt.hvac_modes
-    else:
-        assert HVACMode.HEAT_COOL in bt.hvac_modes
-        assert HVACMode.HEAT not in bt.hvac_modes
+    await wait_for_startup(hass, entry)
 
     registry = er.async_get(hass)
     climate_key = ("climate", DOMAIN, entry.entry_id)
@@ -245,16 +252,13 @@ async def test_reconcile_tick_heals_a_lost_setpoint_write(hass, fake_trv):
     from pytest_homeassistant_custom_component.common import async_fire_time_changed
 
     set_room_sensor(hass, 18.0)
-    entry = make_entry()
+    entry = make_entry(fake_trv.profile)
     await setup_entry(hass, entry)
     bt = await wait_for_startup(hass, entry)
     assert_profile_adopted(bt, fake_trv.profile)
     assert await wait_for(hass, lambda: fake_trv.set_temperature_calls)
 
-    with patch(
-        "custom_components.better_thermostat.utils.controlling.MIN_WRITE_INTERVAL_S",
-        0.0,
-    ):
+    with patch(WRITE_BUDGET, 0.0):
         # The device drops the write for the new target.
         fake_trv.drop_next_setpoint_write = True
         baseline_calls = len(fake_trv.set_temperature_calls)

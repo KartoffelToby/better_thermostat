@@ -7,8 +7,8 @@ exercised end to end.
 
 The simulated devices are built from the profiles in ``device_profiles``:
 ``fake_trv`` and ``device_role`` are parametrized indirectly to move the
-whole harness onto another device form, and ``make_entry`` derives the
-matching config entry from the same profile.
+whole harness onto another device form, and every test names the devices its
+config entry is built for, so an axis cannot be flattened by accident.
 """
 
 import asyncio
@@ -51,14 +51,14 @@ from homeassistant.util.unit_conversion import TemperatureConverter
 from homeassistant.util.unit_system import US_CUSTOMARY_SYSTEM
 
 from .device_profiles import (
-    COOLER_ID,
     GENERIC_HEAT_TRV,
     HEAT_ONLY,
     OFFSET_NUMBER_ID,
-    TRV_ID,
+    VALVE_NUMBER_ID,
     DeviceProfile,
     OffsetChannel,
     RoleScenario,
+    ValveChannel,
 )
 
 DOMAIN = "better_thermostat"
@@ -73,32 +73,15 @@ BT_ENTITY = "climate.bt_test"
 DEVICE_INTEGRATION = "test"
 DEVICE_IDENTIFIERS = {(DEVICE_INTEGRATION, "fake_device")}
 
-# What the test modules import from the harness. The entity ids and the
-# profile types are re-exported so a test needs one import, not two.
-__all__ = [
-    "BT_ENTITY",
-    "COOLER_ID",
-    "DEVICE_INTEGRATION",
-    "DOMAIN",
-    "OFFSET_NUMBER_ID",
-    "SENSOR_ID",
-    "TRV_ID",
-    "WINDOW_ID",
-    "DeviceProfile",
-    "OffsetChannel",
-    "RoleScenario",
-    "SimulatedClimate",
-    "SimulatedOffsetNumber",
-    "assert_on_device_grid",
-    "assert_profile_adopted",
-    "build_devices",
-    "make_entry",
-    "profile_id",
-    "set_room_sensor",
-    "setup_entry",
-    "wait_for",
-    "wait_for_startup",
-]
+# Production pacing constants a test patches to run a control cycle without
+# waiting out wall-clock time. They live here because a rename in production
+# has to break every patch site at once, not one of them.
+WRITE_BUDGET = (
+    "custom_components.better_thermostat.utils.controlling.MIN_WRITE_INTERVAL_S"
+)
+COOLER_RESEND = (
+    "custom_components.better_thermostat.utils.controlling.COOLER_RESEND_INTERVAL_S"
+)
 
 
 @pytest.fixture(autouse=True)
@@ -135,42 +118,24 @@ def _compressed_sleeps():
         yield
 
 
-@dataclass
-class _ActiveDevices:
-    """The devices a bare ``make_entry()`` builds its entry for.
-
-    A test that parametrizes its fixture and then calls ``make_entry()``
-    without arguments would otherwise get an entry for the default device,
-    which silently flattens the axis it parametrized. ``build_devices`` and
-    ``device_role`` point this holder at the devices they registered;
-    ``_reset_active_devices`` bounds it to one test.
-    """
-
-    profile: DeviceProfile = GENERIC_HEAT_TRV
-    cooler_entity_id: str | None = None
-
-
-_ACTIVE = _ActiveDevices()
-
-
-@pytest.fixture(autouse=True)
-def _reset_active_devices():
-    """Point the ambient device state back at the default profile."""
-    _ACTIVE.profile = GENERIC_HEAT_TRV
-    _ACTIVE.cooler_entity_id = None
-
-
 class SimulatedClimate(ClimateEntity):
     """A simulated climate device, built from a device profile.
 
     Commands arrive through the real climate services and are confirmed
     into the entity state, like a device that applies every write. The
     recorded calls are the assertion surface. Nothing here rejects a
-    command: a device only refuses what Home Assistant's own validation
-    refuses on the strength of the published capabilities.
+    command outright: a device only refuses what Home Assistant's own
+    validation refuses on the strength of the published capabilities.
 
-    ``offset_number`` is the calibration entity of a device whose offset
-    channel is a number entity, and ``None`` for every other device.
+    What it can do is lose one: with ``drop_next_setpoint_write`` set, a
+    command is recorded and then swallowed, which is how a channel is
+    driven into the divergence the write gate and the reconciler exist to
+    resolve. The calibration and valve numbers carry the same switch under
+    the name ``drop_next_write``.
+
+    ``offset_number`` and ``valve_number`` are the calibration and valve
+    entities of a device that exposes those channels, and ``None`` for a
+    device that does not.
     """
 
     _attr_should_poll = False
@@ -179,6 +144,7 @@ class SimulatedClimate(ClimateEntity):
         """Publish the profile's capabilities and open the assertion surface."""
         self.profile = profile
         self.offset_number: SimulatedOffsetNumber | None = None
+        self.valve_number: SimulatedValveNumber | None = None
         self._attr_name = profile.entity_name
         self._attr_temperature_unit = profile.temperature_unit
         self._attr_hvac_modes = list(profile.hvac_modes)
@@ -189,6 +155,8 @@ class SimulatedClimate(ClimateEntity):
         self._attr_hvac_mode = profile.hvac_mode
         self._attr_current_temperature = profile.current_temperature
         self._attr_target_temperature = profile.target_temperature
+        self._attr_target_temperature_low = profile.target_temperature_low
+        self._attr_target_temperature_high = profile.target_temperature_high
         if profile.precision is not None:
             self._attr_precision = profile.precision
         if profile.has_device_registry_entry:
@@ -200,8 +168,6 @@ class SimulatedClimate(ClimateEntity):
             self._attr_extra_state_attributes = {"offset_celsius": 0.0}
         self.set_temperature_calls: list[float | dict[str, float]] = []
         self.set_hvac_mode_calls: list[str] = []
-        # Radio loss simulation: the next setpoint write is recorded but
-        # neither applied nor confirmed.
         self.drop_next_setpoint_write = False
 
     async def async_set_temperature(self, **kwargs) -> None:
@@ -240,37 +206,85 @@ class SimulatedClimate(ClimateEntity):
         self.async_write_ha_state()
 
 
-class SimulatedOffsetNumber(NumberEntity):
-    """The calibration number a device exposes next to its climate entity.
+class _SimulatedNumber(NumberEntity):
+    """A number entity on the same device as a simulated climate entity.
 
-    It sits on the same device as the climate entity and carries the
-    translation key calibration discovery looks for. It publishes no device
-    class on purpose: a temperature device class would make Home Assistant
-    convert the native value, so a read back would not be what was written.
+    Sitting on that device is what makes it discoverable: Better Thermostat
+    finds the calibration and valve channels by walking the entity registry
+    from the device the climate entity belongs to. Like the climate entity it
+    confirms every write into its state and can be told to lose one.
+
+    It publishes no device class on purpose: a temperature device class would
+    make Home Assistant convert the native value, so a read back would not be
+    what was written.
     """
 
     _attr_should_poll = False
+    _attr_mode = NumberMode.BOX
+
+    def __init__(self, profile: DeviceProfile, suffix: str):
+        """Attach the entity to the profile's device."""
+        self._attr_unique_id = f"{_object_id(profile.entity_id)}_{suffix}"
+        self._attr_device_info = DeviceInfo(identifiers=DEVICE_IDENTIFIERS)
+        self.set_value_calls: list[float] = []
+        self.drop_next_write = False
+
+    async def async_set_native_value(self, value: float) -> None:
+        """Apply and confirm a write, unless this one is to be lost."""
+        self.set_value_calls.append(value)
+        if self.drop_next_write:
+            self.drop_next_write = False
+            return
+        self._attr_native_value = value
+        self.async_write_ha_state()
+
+
+class SimulatedOffsetNumber(_SimulatedNumber):
+    """The calibration number a device exposes next to its climate entity."""
+
     _attr_name = "local temperature calibration"
     _attr_translation_key = "local_temperature_calibration"
     _attr_native_min_value = -12.0
     _attr_native_max_value = 12.0
     _attr_native_step = 0.5
-    _attr_mode = NumberMode.BOX
 
     def __init__(self, profile: DeviceProfile):
-        """Attach the calibration entity to the profile's device."""
-        self._attr_unique_id = (
-            f"{_object_id(profile.entity_id)}_local_temperature_calibration"
-        )
-        self._attr_device_info = DeviceInfo(identifiers=DEVICE_IDENTIFIERS)
+        """Start the device out uncalibrated."""
+        super().__init__(profile, "local_temperature_calibration")
         self._attr_native_value = 0.0
-        self.set_value_calls: list[float] = []
 
-    async def async_set_native_value(self, value: float) -> None:
-        """Apply and confirm an offset write."""
-        self.set_value_calls.append(value)
-        self._attr_native_value = value
-        self.async_write_ha_state()
+
+class SimulatedValveNumber(_SimulatedNumber):
+    """The valve position a device exposes next to its climate entity."""
+
+    _attr_name = "valve position"
+    _attr_translation_key = "valve_position"
+    _attr_native_min_value = 0.0
+    _attr_native_max_value = 100.0
+    _attr_native_step = 1.0
+
+    def __init__(self, profile: DeviceProfile):
+        """Start the device out with a closed valve."""
+        super().__init__(profile, "valve_position")
+        self._attr_native_value = 0.0
+
+
+@dataclass(frozen=True)
+class WiredRoom:
+    """The devices one role scenario wired, and the scenario that named them."""
+
+    scenario: RoleScenario
+    entities: list[SimulatedClimate]
+
+    @property
+    def thermostat(self) -> SimulatedClimate:
+        """The device the entry drives as its thermostat."""
+        return self.entities[0]
+
+    @property
+    def cooler(self) -> SimulatedClimate:
+        """The device that cools: a separate one, or the thermostat itself."""
+        return self.entities[-1]
 
 
 def _object_id(entity_id: str) -> str:
@@ -281,9 +295,8 @@ def _object_id(entity_id: str) -> str:
 async def build_devices(hass, *profiles: DeviceProfile) -> list[SimulatedClimate]:
     """Register one simulated device per profile and return the entities.
 
-    The first profile becomes the ambient one a bare ``make_entry()`` builds
-    its entry for. Profiles must agree on ``has_device_registry_entry``: the
-    two registration routes are mutually exclusive.
+    Profiles must agree on ``has_device_registry_entry``: the two
+    registration routes are mutually exclusive.
     """
     if not profiles:
         raise ValueError("build_devices needs at least one profile")
@@ -292,8 +305,8 @@ async def build_devices(hass, *profiles: DeviceProfile) -> list[SimulatedClimate
         raise ValueError("profiles must agree on has_device_registry_entry")
     if sum(p.offset_channel is OffsetChannel.NUMBER_ENTITY for p in profiles) > 1:
         raise ValueError("only one device may carry a calibration number entity")
-
-    _ACTIVE.profile = profiles[0]
+    if sum(p.valve_channel is ValveChannel.NUMBER_ENTITY for p in profiles) > 1:
+        raise ValueError("only one device may carry a valve number entity")
 
     # The system unit is captured into the entity at entry setup and is the
     # fallback behind every unit resolution, so it has to be in place before
@@ -310,10 +323,15 @@ async def build_devices(hass, *profiles: DeviceProfile) -> list[SimulatedClimate
         # registered under an id derived from the device name.
         entity.entity_id = profile.entity_id
         if profile.offset_channel is OffsetChannel.NUMBER_ENTITY:
-            number = SimulatedOffsetNumber(profile)
-            number.entity_id = OFFSET_NUMBER_ID
-            entity.offset_number = number
-            numbers.append(number)
+            offset = SimulatedOffsetNumber(profile)
+            offset.entity_id = OFFSET_NUMBER_ID
+            entity.offset_number = offset
+            numbers.append(offset)
+        if profile.valve_channel is ValveChannel.NUMBER_ENTITY:
+            valve = SimulatedValveNumber(profile)
+            valve.entity_id = VALVE_NUMBER_ID
+            entity.valve_number = valve
+            numbers.append(valve)
         entities.append(entity)
 
     if with_device:
@@ -369,11 +387,12 @@ async def _add_devices_from_config_entry(hass, entities, numbers) -> None:
 
 
 @pytest.fixture
-async def fake_trv(hass, request, _reset_active_devices):
+async def fake_trv(hass, request):
     """Register a fake TRV with the real climate component.
 
     Parametrize indirectly with a ``DeviceProfile`` to move the test onto
-    another device form.
+    another device form; the profile is on the returned entity, so the test
+    builds its entry for the device it was given.
     """
     profile = getattr(request, "param", GENERIC_HEAT_TRV)
     (entity,) = await build_devices(hass, profile)
@@ -381,39 +400,36 @@ async def fake_trv(hass, request, _reset_active_devices):
 
 
 @pytest.fixture
-async def device_role(hass, request, _reset_active_devices):
-    """Register the devices of a role scenario and wire the entry to them.
+async def device_role(hass, request) -> WiredRoom:
+    """Register the devices of a role scenario.
 
-    Parametrize indirectly with a ``RoleScenario``. The returned entities are
-    the thermostat first, then a separate cooler if the scenario has one; a
+    Parametrize indirectly with a ``RoleScenario``. The entities are the
+    thermostat first, then a separate cooler if the scenario has one; a
     dual-role device yields a single entity that the entry names twice.
     """
     scenario: RoleScenario = getattr(request, "param", HEAT_ONLY)
     profiles = [scenario.trv]
     if scenario.cooler is not None:
         profiles.append(scenario.cooler)
-    entities = await build_devices(hass, *profiles)
-    _ACTIVE.cooler_entity_id = scenario.cooler_entity_id
-    return entities
+    return WiredRoom(scenario, await build_devices(hass, *profiles))
 
 
 def make_entry(
+    devices: DeviceProfile | RoleScenario,
     *,
-    profile: DeviceProfile | None = None,
     with_window: bool = False,
     name: str = "BT Test",
-    cooler: str | None = None,
     heat_auto_swapped: bool = False,
 ) -> MockConfigEntry:
-    """Build a config entry matching the current entry schema.
+    """Build a config entry for ``devices``, matching the current entry schema.
 
-    ``profile`` and ``cooler`` default to the devices most recently built,
-    so a test that parametrizes its fixture gets the matching entry without
-    naming the device twice.
+    ``devices`` is the profile of the single device the entry controls, or
+    the role scenario that says which devices it wires to which channel.
     """
-    profile = profile or _ACTIVE.profile
-    if cooler is None:
-        cooler = _ACTIVE.cooler_entity_id
+    if isinstance(devices, RoleScenario):
+        profile, cooler = devices.trv, devices.cooler_entity_id
+    else:
+        profile, cooler = devices, None
     data = {
         "name": name,
         "thermostat": [
@@ -423,7 +439,7 @@ def make_entry(
                 "model": "Generic",
                 "advanced": {
                     "calibration": profile.calibration,
-                    "calibration_mode": "default",
+                    "calibration_mode": profile.calibration_mode,
                     "no_off_system_mode": False,
                     "heat_auto_swapped": heat_auto_swapped,
                 },
@@ -488,6 +504,17 @@ def set_room_sensor(hass, value, unit=UnitOfTemperature.CELSIUS) -> None:
     hass.states.async_set(SENSOR_ID, str(value), {"unit_of_measurement": unit})
 
 
+def cooling_setpoint(call: float | dict[str, float]) -> float:
+    """Return the cooling setpoint a recorded setpoint write carries.
+
+    A cooler that publishes a band takes its cooling setpoint as the upper
+    bound of that band; one that publishes a single setpoint takes it plain.
+    """
+    if isinstance(call, dict):
+        return call[ATTR_TARGET_TEMP_HIGH]
+    return call
+
+
 def assert_on_device_grid(value: float, profile: DeviceProfile) -> None:
     """Fail unless ``value`` is a multiple of the device's setpoint step.
 
@@ -520,6 +547,14 @@ def assert_profile_adopted(bt, profile: DeviceProfile) -> None:
         _celsius(profile.max_temp, profile.temperature_unit), abs=1e-2
     )
     assert trv.capabilities().supports_off_mode is (HVACMode.OFF in profile.hvac_modes)
+    assert trv.capabilities().supports_offset_write is (
+        profile.offset_channel is not OffsetChannel.NONE
+    )
+    # The discovered valve surface, not the capability: every model carries a
+    # quirk-driven valve override, so the capability is true for devices that
+    # publish no valve entity at all.
+    valve_entity = bool(trv.valve_position_entity and trv.valve_position_writable)
+    assert valve_entity is (profile.valve_channel is ValveChannel.NUMBER_ENTITY)
 
 
 def _celsius(value: float, unit: UnitOfTemperature) -> float:
