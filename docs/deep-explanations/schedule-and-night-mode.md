@@ -7,6 +7,10 @@ Better Thermostat has no save, set-temporary or restore actions of its own. Temp
 schedules run on the standard Home Assistant action `climate.set_preset_mode`: entering a preset
 stores the current target temperature, returning to `preset_mode: none` puts it back.
 
+The actions Better Thermostat does register are maintenance calls:
+`better_thermostat.run_valve_maintenance`, `better_thermostat.reset_heating_power` and
+`better_thermostat.reset_pid_learnings`. None of them sets a target temperature.
+
 The stored value is published as the `preset_temperature` state attribute and read back when the
 entity starts, so it survives a Home Assistant restart.
 
