@@ -1654,3 +1654,21 @@ class TestFinalizeStartupOnADualRoleEntity:
         await self._run_capturing_subscriptions(bt)
 
         assert bt.bt_target_cooltemp == 26.0
+
+    @pytest.mark.asyncio
+    async def test_a_shared_entity_bounds_a_preset_outside_the_configured_range(
+        self, bt
+    ):
+        """A preset stored under a wider range is seeded inside this one.
+
+        The seeded value is published as ``target_temperature_high`` and
+        written to the device, so a preset the configured range does not
+        contain is not a setpoint the group can hold.
+        """
+        self._make_shared_bt(bt)
+        bt._preset_cool_temperatures = {PRESET_NONE: 35.0}
+        _install_states(bt, {TRV_ID: _make_trv_state()})
+
+        await self._run_capturing_subscriptions(bt)
+
+        assert bt.bt_target_cooltemp == bt.bt_max_temp
