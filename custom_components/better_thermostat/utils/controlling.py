@@ -948,8 +948,13 @@ async def control_trv(self, heater_entity_id=None):
                             )
                             if await set_offset(self, heater_entity_id, _calibration):
                                 trv_entry.calibration_received = False
+                                trv_entry.calibration_write_generation += 1
                                 self.task_manager.create_task(
-                                    check_calibration(self, heater_entity_id),
+                                    check_calibration(
+                                        self,
+                                        heater_entity_id,
+                                        trv_entry.calibration_write_generation,
+                                    ),
                                     name=f"bt_check_calibration_{heater_entity_id}",
                                 )
 
@@ -1136,7 +1141,7 @@ async def check_target_temperature(self, heater_entity_id=None):
     return True
 
 
-async def check_calibration(self, heater_entity_id=None):
+async def check_calibration(self, heater_entity_id=None, generation=0):
     """Wait for TRV to confirm the calibration offset, timeout after 6 minutes.
 
     Polls the TRV's reported offset every second until it matches
@@ -1155,12 +1160,21 @@ async def check_calibration(self, heater_entity_id=None):
     offset write only happens while calibration_received is True, so a watchdog
     that ended without releasing it would wedge the channel for good.
 
+    Only the watchdog whose generation is still the TRV's current one releases
+    the flag. A control cycle can confirm a command in-cycle and write a newer
+    offset while an earlier watchdog is still winding down; releasing the gate
+    from that earlier watchdog would open the channel for a command that is
+    still in flight and turn one re-assert per confirmation window into one per
+    control cycle.
+
     Parameters
     ----------
     self : BetterThermostat
         The Better Thermostat climate entity instance
     heater_entity_id : str, optional
         Entity ID of the TRV to check
+    generation : int, optional
+        Identity of the offset command this watchdog was armed for
 
     Returns
     -------
@@ -1172,6 +1186,15 @@ async def check_calibration(self, heater_entity_id=None):
     _tolerance = _calibration_match_tolerance(self, heater_entity_id)
     try:
         while True:
+            if _real_trv.calibration_write_generation != generation:
+                _LOGGER.debug(
+                    "better_thermostat %s: a newer calibration command superseded "
+                    "the one %s was being watched for, leaving the write gate to "
+                    "its watchdog",
+                    self.device_name,
+                    heater_entity_id,
+                )
+                return True
             _trv_state = self.hass.states.get(heater_entity_id)
             if _trv_state is None or _trv_state.state in (
                 STATE_UNAVAILABLE,
@@ -1210,5 +1233,6 @@ async def check_calibration(self, heater_entity_id=None):
             _timeout += 1
         await asyncio.sleep(2)
     finally:
-        _real_trv.calibration_received = True
+        if _real_trv.calibration_write_generation == generation:
+            _real_trv.calibration_received = True
     return True

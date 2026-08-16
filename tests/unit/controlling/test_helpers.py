@@ -752,7 +752,7 @@ def _instant_sleep():
         controlling_module.asyncio.sleep = original
 
 
-def _calibration_mock_self(live_state, last_calibration, step=0.5):
+def _calibration_mock_self(live_state, last_calibration, step=0.5, generation=0):
     """Build a mock BetterThermostat with a live TRV state and one Trv."""
     mock_state = Mock()
     mock_state.state = live_state
@@ -770,6 +770,7 @@ def _calibration_mock_self(live_state, last_calibration, step=0.5):
                 "last_calibration": last_calibration,
                 "local_calibration_step": step,
                 "calibration_received": False,
+                "calibration_write_generation": generation,
             },
         )
     }
@@ -942,6 +943,85 @@ class TestCheckCalibration:
                 await task
 
         assert mock_self.real_trvs["climate.trv1"].calibration_received is True
+
+
+class TestCheckCalibrationGeneration:
+    """Only the watchdog of the command in flight may open the write gate."""
+
+    @pytest.mark.asyncio
+    async def test_superseded_watchdog_leaves_the_gate_closed(self, caplog):
+        """A newer command in flight keeps the channel closed."""
+        mock_self = _calibration_mock_self(
+            HVACMode.HEAT, last_calibration=-3.0, generation=2
+        )
+
+        with (
+            patch(f"{_CTRL}.get_current_offset", new=AsyncMock(return_value=-3.0)),
+            _instant_sleep(),
+        ):
+            result = await check_calibration(mock_self, "climate.trv1", 1)
+
+        assert result is True
+        assert mock_self.real_trvs["climate.trv1"].calibration_received is False
+        assert "did not confirm the calibration offset" not in caplog.text
+
+    @pytest.mark.asyncio
+    async def test_superseded_watchdog_leaves_the_gate_closed_on_an_error(self):
+        """An adapter error in a superseded watchdog opens nothing either."""
+        mock_self = _calibration_mock_self(
+            HVACMode.HEAT, last_calibration=-3.0, generation=1
+        )
+
+        async def _supersede_then_raise(_self, _entity_id):
+            """Overtake this watchdog inside the poll it then fails on."""
+            mock_self.real_trvs["climate.trv1"].calibration_write_generation = 2
+            raise RuntimeError("adapter unavailable")
+
+        with (
+            patch(f"{_CTRL}.get_current_offset", new=_supersede_then_raise),
+            _instant_sleep(),
+            pytest.raises(RuntimeError),
+        ):
+            await check_calibration(mock_self, "climate.trv1", 1)
+
+        assert mock_self.real_trvs["climate.trv1"].calibration_received is False
+
+    @pytest.mark.asyncio
+    async def test_owning_watchdog_still_releases_the_gate(self):
+        """The watchdog of the command in flight releases as before."""
+        mock_self = _calibration_mock_self(
+            HVACMode.HEAT, last_calibration=-3.0, generation=2
+        )
+
+        with (
+            patch(f"{_CTRL}.get_current_offset", new=AsyncMock(return_value=-3.0)),
+            _instant_sleep(),
+        ):
+            result = await check_calibration(mock_self, "climate.trv1", 2)
+
+        assert result is True
+        assert mock_self.real_trvs["climate.trv1"].calibration_received is True
+
+    @pytest.mark.asyncio
+    async def test_superseded_mid_wait_stops_polling(self):
+        """A watchdog overtaken while waiting stops instead of timing out."""
+        mock_self = _calibration_mock_self(
+            HVACMode.HEAT, last_calibration=-3.0, generation=1
+        )
+        polls = []
+
+        async def _get_offset(_self, _entity_id):
+            polls.append(len(polls))
+            if len(polls) == 3:
+                mock_self.real_trvs["climate.trv1"].calibration_write_generation = 2
+            return 0.0
+
+        with patch(f"{_CTRL}.get_current_offset", new=_get_offset), _instant_sleep():
+            result = await check_calibration(mock_self, "climate.trv1", 1)
+
+        assert result is True
+        assert len(polls) == 3
+        assert mock_self.real_trvs["climate.trv1"].calibration_received is False
 
 
 class TestCalibrationMatchTolerance:
