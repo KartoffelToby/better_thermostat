@@ -2333,6 +2333,11 @@ class TestDualRoleEntityReports:
         # trigger_trv_change reads the state machine rather than the event's
         # new_state for the device's own mode, so both carry the report.
         bt.hass.states.get.return_value = new_state
+        # BT already holds the mode and the internal temperature the device
+        # reports, so the report under test carries a setpoint and nothing
+        # else, and a requested control cycle is the setpoint's doing.
+        bt.real_trvs[ENTITY_ID].hvac_mode = device_mode
+        bt.real_trvs[ENTITY_ID].current_temperature = 22.0
         event = _make_event(bt, new_state=new_state, old_state=old_state)
         with patch(
             "custom_components.better_thermostat.events.trv.convert_inbound_states",
@@ -2357,6 +2362,7 @@ class TestDualRoleEntityReports:
 
         assert shared_bt.bt_target_temp == 20.0
         assert shared_bt.bt_target_cooltemp == 24.0
+        shared_bt.control_queue_task.put_nowait.assert_not_called()
 
     @pytest.mark.asyncio
     async def test_shared_entity_files_a_press_under_the_cooling_channel_while_it_cools(
@@ -2369,6 +2375,7 @@ class TestDualRoleEntityReports:
 
         assert shared_bt.bt_target_cooltemp == 26.0
         assert shared_bt.bt_target_temp == 20.0
+        shared_bt.control_queue_task.put_nowait.assert_called_once()
 
     @pytest.mark.asyncio
     async def test_shared_entity_files_a_press_under_the_heating_channel_while_it_heats(
@@ -2381,6 +2388,7 @@ class TestDualRoleEntityReports:
 
         assert shared_bt.bt_target_temp == 21.0
         assert shared_bt.bt_target_cooltemp == 24.0
+        shared_bt.control_queue_task.put_nowait.assert_called_once()
 
     @pytest.mark.asyncio
     async def test_shared_entity_follows_the_latch_while_the_reported_mode_lags(
@@ -2400,6 +2408,7 @@ class TestDualRoleEntityReports:
 
         assert shared_bt.bt_target_cooltemp == 26.0
         assert shared_bt.bt_target_temp == 20.0
+        shared_bt.control_queue_task.put_nowait.assert_called_once()
 
     @pytest.mark.asyncio
     async def test_a_distinct_trv_setpoint_matching_the_cool_target_is_still_adopted(
@@ -2423,3 +2432,4 @@ class TestDualRoleEntityReports:
         )
 
         assert mock_bt.bt_target_temp == 23.5
+        mock_bt.control_queue_task.put_nowait.assert_called_once()
