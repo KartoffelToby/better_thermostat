@@ -320,10 +320,27 @@ async def run_valve_maintenance(
 
     # Wake TRVs that are off, otherwise the temperature cycle below moves
     # nothing on them. restore_one puts them back to off at the end.
-    await asyncio.gather(
+    wake_results = await asyncio.gather(
         *(wake_step(info, set_hvac_mode_fn=set_hvac_mode_fn) for info in infos),
         return_exceptions=True,
     )
+
+    # A TRV whose wake failed is still off, so a setpoint write would either
+    # move nothing or, on a device that reads a setpoint as "turn on", heat
+    # it without the cycle asking for it. Leave it out of the cycle; it is
+    # still restored below.
+    cycled: list[MaintenanceTrvInfo] = []
+    for info, result in zip(infos, wake_results):
+        if isinstance(result, BaseException):
+            _LOGGER.warning(
+                "better_thermostat %s: could not wake %s for maintenance (%s), "
+                "skipping its temperature cycle",
+                device_name,
+                info.entity_id,
+                result,
+            )
+            continue
+        cycled.append(info)
 
     # Execute in synchronized steps across all TRVs (much faster than sequential).
     # Open all → wait → close all → wait (repeat twice).
@@ -332,7 +349,7 @@ async def run_valve_maintenance(
             "better_thermostat %s: valve maintenance cycle %d/2 starting for %d TRV(s)",
             device_name,
             i + 1,
-            len(infos),
+            len(cycled),
         )
         await asyncio.gather(
             *(
@@ -341,7 +358,7 @@ async def run_valve_maintenance(
                     set_valve_fn=set_valve_fn,
                     set_temperature_fn=set_temperature_fn,
                 )
-                for info in infos
+                for info in cycled
             ),
             return_exceptions=True,
         )
@@ -353,7 +370,7 @@ async def run_valve_maintenance(
                     set_valve_fn=set_valve_fn,
                     set_temperature_fn=set_temperature_fn,
                 )
-                for info in infos
+                for info in cycled
             ),
             return_exceptions=True,
         )

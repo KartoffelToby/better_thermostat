@@ -17,6 +17,7 @@ from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
 from homeassistant.components.climate.const import HVACMode
+from homeassistant.exceptions import HomeAssistantError
 import pytest
 
 from custom_components.better_thermostat.trv import Trv
@@ -572,6 +573,61 @@ class TestRunValveMaintenance:
             5.0,
             20.0,
         ]
+
+    @pytest.mark.asyncio
+    async def test_failed_wake_skips_the_temperature_cycle(self):
+        """A TRV that would not wake is left out of the cycle, not written to."""
+        valve_fn = AsyncMock()
+        temp_fn = AsyncMock()
+
+        async def mode_fn(entity_id, mode):
+            if entity_id == "trv1" and mode == "heat":
+                raise HomeAssistantError("device did not accept the mode")
+
+        mode_mock = AsyncMock(side_effect=mode_fn)
+        infos = [
+            _info(
+                entity_id="trv1",
+                cur_mode="off",
+                use_direct_valve=False,
+                cur_temp=20.0,
+                max_temp=30.0,
+                min_temp=5.0,
+                wake_mode="heat",
+            ),
+            _info(
+                entity_id="trv2",
+                cur_mode="heat",
+                use_direct_valve=False,
+                cur_temp=21.0,
+                max_temp=30.0,
+                min_temp=5.0,
+            ),
+        ]
+
+        await run_valve_maintenance(
+            infos,
+            set_valve_fn=valve_fn,
+            set_temperature_fn=temp_fn,
+            set_hvac_mode_fn=mode_mock,
+            device_name="Test",
+            cycle_sleep=0,
+        )
+
+        by_entity = [c.args for c in temp_fn.await_args_list]
+        # trv1 sees its restore write only, never a cycle extreme.
+        assert [args[1] for args in by_entity if args[0] == "trv1"] == [20.0]
+        # trv2 is unaffected and runs both cycles plus its restore.
+        assert [args[1] for args in by_entity if args[0] == "trv2"] == [
+            30.0,
+            5.0,
+            30.0,
+            5.0,
+            21.0,
+        ]
+        # Both are still restored to their pre-maintenance mode.
+        assert ("trv1", "off") in [c.args for c in mode_mock.await_args_list]
+        assert ("trv2", "heat") in [c.args for c in mode_mock.await_args_list]
 
     @pytest.mark.asyncio
     async def test_off_trv_on_direct_valve_is_not_woken(self):
