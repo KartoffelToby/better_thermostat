@@ -1046,10 +1046,19 @@ class TestControlCoolerContactSuppression:
             cooler_state=HVACMode.COOL, cooler_temp_attr=28.0, target_cooltemp=25.0
         )
         mock_self.contact_open = True
+        # A cooling period ran before the airing, one full resend interval
+        # back, so the send cache holds the setpoint that reached the unit and
+        # the throttle cannot be what holds this cycle's write.
+        mock_self._cooler_last_sent = {"temperature": (22.0, 0.0)}
+        mock_self.clock.advance(COOLER_RESEND_INTERVAL_S + 1.0)
 
         await control_cooler(mock_self)
 
         assert _service_calls(mock_hass, "set_temperature") == []
+        # A cycle that attempted nothing recorded nothing, so the cache still
+        # describes the last setpoint the unit actually received and the
+        # resend throttle keeps pacing the channel the suppression resumes.
+        assert mock_self._cooler_last_sent["temperature"] == (22.0, 0.0)
 
     @pytest.mark.asyncio
     async def test_closed_contact_resumes_the_setpoint_write(self):
