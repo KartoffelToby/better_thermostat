@@ -12,6 +12,7 @@ Absorbed tests from:
 
 import asyncio
 import logging
+import traceback
 from unittest.mock import MagicMock, Mock
 
 from homeassistant.components.climate.const import ClimateEntityFeature, HVACMode
@@ -744,12 +745,14 @@ class TestAdvanceHvacAction:
         return mock_self
 
     def test_a_failing_recompute_carries_its_traceback_into_the_log(self, caplog):
-        """The swallowed exception reaches the record it is reported on.
+        """The swallowed exception and its frames reach the reporting record.
 
         The cycle goes on to the device writes, so a band that stops advancing
         shows up as a heating action that no longer moves and nothing else. The
         entry that reports the failure is the only place the cause can still be
-        read, and a message without the exception names none.
+        read, and the frames are the half of it that names where the recompute
+        broke. An exception carried without its traceback still renders its own
+        message, so the type and the message alone do not pin them.
         """
         mock_self = self._mock_self()
 
@@ -762,6 +765,12 @@ class TestAdvanceHvacAction:
             if "hvac action recompute failed" in record.getMessage()
         ]
         assert len(records) == 1
-        assert records[0].exc_info is not None
-        assert isinstance(records[0].exc_info[1], ValueError)
+        record = records[0]
+        assert record.exc_info is not None
+        assert isinstance(record.exc_info[1], ValueError)
+        assert record.exc_info[2] is not None
+        assert "advance_hvac_action" in [
+            frame.name for frame in traceback.extract_tb(record.exc_info[2])
+        ]
+        assert "Traceback (most recent call last)" in caplog.text
         assert "no snapshot" in caplog.text
