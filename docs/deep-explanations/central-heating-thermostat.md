@@ -38,6 +38,8 @@ actions:
 
 Swap the two temperatures for whatever your central thermostat treats as "run" and "stand down".
 
+This only works while the central thermostat is in a heating mode. `climate.set_temperature` leaves the current mode alone, so a thermostat sitting at `off` takes the new setpoint and still does not fire the boiler. Either leave it in `heat` permanently and let the setpoint do the switching, as above, or drive the mode as well with a separate `climate.set_hvac_mode` action ahead of the setpoint — not through `hvac_mode` inside `set_temperature`, which many integrations ignore.
+
 The start trigger covers the restart. A state trigger only fires on a change it is listening for, and there is no guarantee the automation is attached by the time the room entities come back, so without it the central thermostat can sit on its pre-restart target until the next room transition.
 
 ### One attribute to stay away from

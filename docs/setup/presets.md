@@ -3,7 +3,7 @@ title: Presets
 description: What each Better Thermostat preset does, what it defaults to and how to change it.
 ---
 
-A preset is a named target temperature. Switching from `none` into a preset applies that preset's temperature and remembers the target you had; switching back to `none` puts that target back. No preset name carries a schedule, a timer or any other logic behind it, so `away` and `sleep` differ only in the number attached to them.
+A preset is a named target temperature. Switching from `none` into a preset applies that preset's temperature and remembers the target you had; switching back to `none` puts that target back. No preset name carries a schedule or a timer behind it, so `away` and `sleep` differ only in the number attached to them. Boost is the one preset that does more than carry a temperature, and only on one calibration type; see [Boost is the one exception](#boost-is-the-one-exception).
 
 ## The shipped defaults
 
