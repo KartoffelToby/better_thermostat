@@ -233,7 +233,84 @@ def normalize_hvac_mode(value: HVACMode | str) -> HVACMode | str:
     return value
 
 
-def mode_remap(self, entity_id, hvac_mode: str, inbound: bool = False) -> str:
+def _device_offers_mode(trv_modes: Iterable[str], hvac_mode: str) -> bool:
+    """Whether a device's reported mode list contains a given HVAC mode.
+
+    Both sides are normalized so a list carrying ``HVACMode`` members,
+    plain strings or ``"HVACMode.HEAT"`` spellings compares equal.
+
+    Parameters
+    ----------
+    trv_modes : Iterable[str]
+        HVAC modes the device reports.
+    hvac_mode : str
+        HVAC mode to look for.
+
+    Returns
+    -------
+    bool
+        ``True`` when the device offers ``hvac_mode``.
+    """
+    target = normalize_hvac_mode(hvac_mode)
+    return any(normalize_hvac_mode(mode) == target for mode in trv_modes)
+
+
+def _clamp_to_offered_mode(
+    self, trv, entity_id, hvac_mode: str, inbound: bool
+) -> str | None:
+    """Drop an outbound HVAC mode the device does not offer.
+
+    Writing a mode outside the device's own list makes
+    ``climate.set_hvac_mode`` fail, which aborts the whole control cycle
+    and leaves the setpoint unwritten as well. Returning ``None`` means
+    "write no mode this cycle", so the setpoint still reaches the device.
+    ``OFF`` is exempt because the no-off handling downstream substitutes
+    the minimum temperature for it.
+
+    Parameters
+    ----------
+    self :
+        self instance of better_thermostat
+    trv : Trv
+        Per-TRV state of the device the mode is written to.
+    entity_id : str
+        Entity id of that TRV, used for the log message.
+    hvac_mode : str
+        HVAC mode about to be written.
+    inbound : bool
+        True if the mode is coming from the device, False if it is coming from the HA.
+
+    Returns
+    -------
+    str | None
+        ``hvac_mode`` when it may be written, ``None`` when the device
+        does not offer it.
+    """
+    trv_modes = trv.hvac_modes
+    if inbound or not trv_modes:
+        return hvac_mode
+    if normalize_hvac_mode(hvac_mode) == HVACMode.OFF or _device_offers_mode(
+        trv_modes, hvac_mode
+    ):
+        return hvac_mode
+
+    _mode_key = str(normalize_hvac_mode(hvac_mode))
+    if _mode_key not in trv.unsupported_modes_logged:
+        trv.unsupported_modes_logged.add(_mode_key)
+        _LOGGER.error(
+            "better_thermostat %s: %s does not offer HVAC mode %s, it offers %s. "
+            "The device mode is left untouched and only the setpoint is written. "
+            "Switch the device to its heating mode, or enable the heat auto "
+            "swapped option if 'auto' means 'heat' on this device.",
+            self.device_name,
+            entity_id,
+            hvac_mode,
+            trv_modes,
+        )
+    return None
+
+
+def mode_remap(self, entity_id, hvac_mode: str, inbound: bool = False) -> str | None:
     """Remap HVAC mode to correct mode if nessesary.
 
     Parameters
@@ -250,8 +327,10 @@ def mode_remap(self, entity_id, hvac_mode: str, inbound: bool = False) -> str:
 
     Returns
     -------
-    str
-            remapped mode according to device's quirks
+    str | None
+            remapped mode according to device's quirks, or None for an
+            outbound mode the device does not offer, meaning the device's
+            mode is left untouched
     """
     trv = self.real_trvs.get(entity_id)
     if trv is None:
@@ -261,10 +340,10 @@ def mode_remap(self, entity_id, hvac_mode: str, inbound: bool = False) -> str:
 
     if _heat_auto_swapped:
         if hvac_mode == HVACMode.HEAT and not inbound:
-            return HVACMode.AUTO
+            return _clamp_to_offered_mode(self, trv, entity_id, HVACMode.AUTO, inbound)
         if hvac_mode == HVACMode.AUTO and inbound:
             return HVACMode.HEAT
-        return hvac_mode
+        return _clamp_to_offered_mode(self, trv, entity_id, hvac_mode, inbound)
 
     trv_modes = trv.hvac_modes
     if not trv_modes:
@@ -282,17 +361,17 @@ def mode_remap(self, entity_id, hvac_mode: str, inbound: bool = False) -> str:
         if inbound and hvac_mode == HVACMode.HEAT:
             return HVACMode.HEAT_COOL
 
-    if hvac_mode != HVACMode.AUTO:
-        return hvac_mode
+    if hvac_mode == HVACMode.AUTO:
+        _LOGGER.error(
+            "better_thermostat %s: %s HVAC mode %s is not supported by this device, "
+            "is it possible that you forgot to set the heat auto swapped option?",
+            self.device_name,
+            entity_id,
+            hvac_mode,
+        )
+        return HVACMode.OFF
 
-    _LOGGER.error(
-        "better_thermostat %s: %s HVAC mode %s is not supported by this device, "
-        "is it possible that you forgot to set the heat auto swapped option?",
-        self.device_name,
-        entity_id,
-        hvac_mode,
-    )
-    return HVACMode.OFF
+    return _clamp_to_offered_mode(self, trv, entity_id, hvac_mode, inbound)
 
 
 def group_all_members_off(self) -> bool:

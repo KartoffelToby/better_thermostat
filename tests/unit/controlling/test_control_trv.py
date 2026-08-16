@@ -992,6 +992,43 @@ class TestControlTrvAvailablePath:
             # Lock should have been acquired
             lock_acquire_mock.assert_awaited()
 
+    @pytest.mark.asyncio
+    async def test_unsupported_heat_mode_writes_only_the_setpoint(self):
+        """A device offering no heating mode keeps its mode and gets the setpoint.
+
+        The full outbound conversion runs so the payload really is the one a
+        wall thermostat with ``[auto, cool, off]`` produces for a heat demand.
+        """
+        mock_self = _make_mock_self(
+            trv_state=HVACMode.AUTO,
+            trv_attrs={"temperature": 20.0},
+            call_for_heat=True,
+            bt_target_temp=22.0,
+            real_trvs={
+                "climate.trv1": _default_trv_config(
+                    hvac_modes=[HVACMode.AUTO, HVACMode.COOL, HVACMode.OFF],
+                    hvac_mode=HVACMode.AUTO,
+                    last_hvac_mode=HVACMode.AUTO,
+                )
+            },
+        )
+
+        with (
+            patch(
+                _PATCHES["override_set_hvac_mode"], new=AsyncMock(return_value=False)
+            ),
+            patch(
+                _PATCHES["override_set_temperature"], new=AsyncMock(return_value=False)
+            ),
+            patch(_PATCHES["set_hvac_mode"], new=AsyncMock()) as mock_set_hvac,
+            patch(_PATCHES["set_temperature"], new=AsyncMock()) as mock_set_temp,
+            patch("asyncio.sleep", new=AsyncMock()),
+        ):
+            await control_trv(mock_self, "climate.trv1")
+
+            mock_set_hvac.assert_not_awaited()
+            mock_set_temp.assert_awaited_once_with(mock_self, "climate.trv1", 22.0)
+
 
 # ---------------------------------------------------------------------------
 # Boost mode with safety override (from test_boost_mode.py)

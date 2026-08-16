@@ -200,6 +200,17 @@ async def trigger_trv_change(self, event):
         )
         return
 
+    # The offered HVAC modes change at runtime on devices whose heating /
+    # cooling changeover is driven centrally, so the outbound mode is judged
+    # against the currently reported list rather than the startup snapshot.
+    # An empty or missing list keeps the cached one: it means the device
+    # published no capabilities in this event, not that it lost them.
+    _reported_modes = _org_trv_state.attributes.get("hvac_modes")
+    if isinstance(_reported_modes, list) and _reported_modes:
+        if _reported_modes != trv.hvac_modes:
+            trv.unsupported_modes_logged.clear()
+        trv.hvac_modes = _reported_modes
+
     # Always cache hvac_action from the TRV state so it stays current
     try:
         hvac_action_attr = _org_trv_state.attributes.get("hvac_action")
