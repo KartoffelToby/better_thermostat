@@ -61,6 +61,16 @@ _LOGGER = logging.getLogger(__name__)
 MIN_WRITE_INTERVAL_S = 30.0
 # Device tolerance when comparing commanded vs reported setpoints.
 RECONCILE_TOLERANCE_K = 0.05
+# Floor for the commanded-vs-reported offset comparison. Half the declared
+# offset step is the right window only while that step describes the grid the
+# device reports on; an adapter declaring a nominal 0.01 K step describes a
+# continuous range instead, and any report rounded coarser than that then reads
+# as a divergence the write gate re-asserts on every control cycle. The floor
+# covers those roundings and stays below the 0.1 K resolution a TRV reports its
+# own temperature at, so no calibration error the room can feel hides beneath
+# it. The setpoint channel's read-back tolerance describes a different
+# comparison, so the offset channel carries its own floor.
+OFFSET_MATCH_TOLERANCE_K = 0.05
 # Resend throttle for the cooler path: cooler commands go straight to the
 # service call (no reconciler in between), so an identical command is
 # suppressed while the device's state feedback lags. A changed desired value
@@ -358,8 +368,10 @@ def _calibration_match_tolerance(self, entity_id) -> float:
     """Per-device tolerance for the commanded-vs-reported offset comparison.
 
     Devices snap a written offset onto their own step grid; a snapped
-    value sits at most half a step away from the commanded one. The base
-    tolerance covers devices that report no usable step.
+    value sits at most half a step away from the commanded one.
+    OFFSET_MATCH_TOLERANCE_K is the floor: it covers devices that report
+    no usable step and those whose declared step is finer than the grid
+    they actually report on.
     """
     step = convert_to_float(
         str(self.real_trvs[entity_id].local_calibration_step),
@@ -367,9 +379,9 @@ def _calibration_match_tolerance(self, entity_id) -> float:
         "controlling()",
     )
     if step is None or step <= 0:
-        return RECONCILE_TOLERANCE_K
+        return OFFSET_MATCH_TOLERANCE_K
     # Slack against float noise when the difference is exactly half a step.
-    return max(RECONCILE_TOLERANCE_K, step / 2.0 + 1e-6)
+    return max(OFFSET_MATCH_TOLERANCE_K, step / 2.0 + 1e-6)
 
 
 def _offset_diverges(self, trv) -> bool:

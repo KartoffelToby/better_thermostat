@@ -24,6 +24,7 @@ from custom_components.better_thermostat.utils.const import (
     CalibrationType,
 )
 from custom_components.better_thermostat.utils.controlling import (
+    OFFSET_MATCH_TOLERANCE_K,
     RECONCILE_TOLERANCE_K,
     WRITE_CONFIRM_TIMEOUT_S,
     _calibration_match_tolerance,
@@ -860,12 +861,21 @@ class TestCalibrationMatchTolerance:
         tolerance = _calibration_match_tolerance(self._mock_self(1.0), "climate.trv1")
         assert tolerance == pytest.approx(0.5, abs=1e-5)
 
-    def test_unusable_step_falls_back_to_the_base_tolerance(self):
+    def test_unusable_step_falls_back_to_the_floor(self):
         """Without a usable step there is no grid to derive a tolerance from."""
         tolerance = _calibration_match_tolerance(self._mock_self(0), "climate.trv1")
-        assert tolerance == RECONCILE_TOLERANCE_K
+        assert tolerance == OFFSET_MATCH_TOLERANCE_K
 
-    def test_step_below_the_base_tolerance_does_not_narrow_it(self):
-        """The read-back grid stays the floor for very fine offset steps."""
+    def test_step_below_the_floor_does_not_narrow_it(self):
+        """A declared step finer than the reported grid does not narrow it."""
         tolerance = _calibration_match_tolerance(self._mock_self(0.01), "climate.trv1")
-        assert tolerance == RECONCILE_TOLERANCE_K
+        assert tolerance == OFFSET_MATCH_TOLERANCE_K
+
+    def test_the_floor_is_the_offset_channel_s_own(self):
+        """The offset floor is pinned; the setpoint channel keeps its own."""
+        from custom_components.better_thermostat.utils.helpers import (
+            SETPOINT_MATCH_TOLERANCE,
+        )
+
+        assert OFFSET_MATCH_TOLERANCE_K == 0.05
+        assert SETPOINT_MATCH_TOLERANCE == 0.01

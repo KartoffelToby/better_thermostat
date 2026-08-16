@@ -2730,3 +2730,41 @@ class TestOffsetWriteGate:
         )
 
         set_offset.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_declared_step_finer_than_the_reported_grid_converges(self):
+        """A device rounding coarser than it declares is written once.
+
+        The device declares a 0.01 K offset step but publishes its offset
+        on a 0.05 K grid. Half the declared step is narrower than that
+        grid, so without the floor every cycle would read the rounding as
+        a divergence and re-assert the same command forever.
+        """
+        mock_self = _make_offset_self(
+            calibration_received=True,
+            last_calibration=0.0,
+            last_calibration_requested=0.0,
+            local_calibration_step=0.01,
+        )
+        reported = {"value": 0.0}
+
+        async def _write_and_round(_self, entity_id, offset):
+            """Take the command and publish it on the device's own grid."""
+            trv = mock_self.real_trvs[entity_id]
+            trv.last_calibration = offset
+            trv.last_calibration_requested = offset
+            reported["value"] = round(round(offset / 0.05) * 0.05, 6)
+            return True
+
+        set_offset = AsyncMock(side_effect=_write_and_round)
+        for _ in range(20):
+            mock_self.real_trvs["climate.trv1"].calibration_received = True
+            await _run_offset_cycle(
+                mock_self,
+                desired_offset=-2.32,
+                reported_offset=reported["value"],
+                set_offset=set_offset,
+            )
+            mock_self.clock.advance(31.0)
+
+        assert set_offset.await_count == 1
