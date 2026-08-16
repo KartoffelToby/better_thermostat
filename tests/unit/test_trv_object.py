@@ -21,6 +21,8 @@ class TestTypedAccess:
         assert trv.calibration_received is True
         assert trv.ignore_trv_states is False
         assert trv.current_temperature is None
+        assert trv.last_calibration is None
+        assert trv.last_calibration_requested is None
         assert trv.advanced == {}
         assert trv.extra == {}
 
@@ -59,6 +61,16 @@ class TestExtraScratchpad:
         assert trv.current_temperature == 21.0
         assert trv.advanced == {"child_lock": True}
         assert trv.extra == {"_quirk_scratch": 3}
+
+    def test_from_legacy_dict_maps_the_requested_calibration(self):
+        """The pre-clamp offset intent is a typed field, not a scratch key."""
+        trv = Trv.from_legacy_dict(
+            "climate.trv",
+            {"last_calibration": -3.0, "last_calibration_requested": -5.0},
+        )
+        assert trv.last_calibration == -3.0
+        assert trv.last_calibration_requested == -5.0
+        assert trv.extra == {}
 
     def test_from_legacy_dict_explicit_entity_id_wins(self):
         """An ``entity_id`` key in the dict yields to the explicit argument."""
@@ -142,6 +154,22 @@ class TestTrvCapabilities:
         """A reported mode list without off yields no OFF capability."""
         trv = _make()
         trv.hvac_modes = ["heat", "auto"]
+        assert trv.capabilities().supports_off_mode is False
+
+    def test_off_offered_in_the_device_spelling_enables_off(self):
+        """A list naming its modes ``HVACMode.OFF`` still offers OFF.
+
+        The cached list holds the device's own spelling, so the capability
+        is decided on the normalized list.
+        """
+        trv = _make()
+        trv.hvac_modes = ["HVACMode.HEAT", "HVACMode.OFF"]
+        assert trv.capabilities().supports_off_mode is True
+
+    def test_no_off_in_the_device_spelling_disables_off(self):
+        """A device genuinely without OFF still yields no OFF capability."""
+        trv = _make()
+        trv.hvac_modes = ["HVACMode.HEAT", "HVACMode.AUTO"]
         assert trv.capabilities().supports_off_mode is False
 
     def test_no_off_system_mode_config_disables_off(self):
