@@ -25,6 +25,7 @@ from .conftest import (
     WRITE_BUDGET,
     assert_on_device_grid,
     assert_profile_adopted,
+    assert_write_is,
     make_entry,
     profile_id,
     set_room_sensor,
@@ -118,7 +119,10 @@ async def test_restored_target_temperature_survives_a_restart(hass, fake_trv):
     assert await wait_for(hass, lambda: fake_trv.set_temperature_calls)
     state = hass.states.get(BT_ENTITY)
     assert state.attributes.get(ATTR_TEMPERATURE) == 23.5
-    assert_on_device_grid(fake_trv.set_temperature_calls[-1], fake_trv.profile)
+    # target_temp_based does not send the target itself: it sends the target
+    # corrected by how far the device's own reading sits from the room sensor.
+    corrected = 23.5 - 18.0 + fake_trv.profile.current_temperature
+    assert_write_is(fake_trv.set_temperature_calls[-1], corrected, fake_trv.profile)
 
 
 async def test_unload_and_reload_the_entry(hass, fake_trv):

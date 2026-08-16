@@ -296,23 +296,37 @@ async def build_devices(hass, *profiles: DeviceProfile) -> list[SimulatedClimate
     """Register one simulated device per profile and return the entities.
 
     Profiles must agree on ``has_device_registry_entry``: the two
-    registration routes are mutually exclusive.
+    registration routes are mutually exclusive. They must agree on
+    ``temperature_unit`` too, because the unit is a property of the
+    Home Assistant instance the devices share, not of one device.
     """
     if not profiles:
         raise ValueError("build_devices needs at least one profile")
     with_device = profiles[0].has_device_registry_entry
     if any(p.has_device_registry_entry is not with_device for p in profiles):
         raise ValueError("profiles must agree on has_device_registry_entry")
+    unit = profiles[0].temperature_unit
+    if any(p.temperature_unit is not unit for p in profiles):
+        raise ValueError("profiles must agree on temperature_unit")
     if sum(p.offset_channel is OffsetChannel.NUMBER_ENTITY for p in profiles) > 1:
         raise ValueError("only one device may carry a calibration number entity")
     if sum(p.valve_channel is ValveChannel.NUMBER_ENTITY for p in profiles) > 1:
         raise ValueError("only one device may carry a valve number entity")
+    # A number entity is discovered through the device registry entry and is
+    # registered along the config-entry route only, so the combination below
+    # would build a device whose channel is silently absent.
+    if not with_device and any(
+        p.offset_channel is OffsetChannel.NUMBER_ENTITY
+        or p.valve_channel is ValveChannel.NUMBER_ENTITY
+        for p in profiles
+    ):
+        raise ValueError("a number channel needs has_device_registry_entry=True")
 
     # The system unit is captured into the entity at entry setup and is the
     # fallback behind every unit resolution, so it has to be in place before
     # the devices exist — a device unit alone changes nothing Better
     # Thermostat can observe, because a climate entity publishes no unit.
-    if profiles[0].temperature_unit is UnitOfTemperature.FAHRENHEIT:
+    if unit is UnitOfTemperature.FAHRENHEIT:
         hass.config.units = US_CUSTOMARY_SYSTEM
 
     entities = []
@@ -524,7 +538,22 @@ def assert_on_device_grid(value: float, profile: DeviceProfile) -> None:
     unit, like the step it is checked against.
     """
     step = profile.target_temperature_step
+    assert step > 0, f"{profile.name} publishes no setpoint grid to check against"
     assert value == pytest.approx(round(value / step) * step, abs=1e-6)
+
+
+def assert_write_is(value: float, expected: float, profile: DeviceProfile) -> None:
+    """Fail unless ``value`` is ``expected`` as this device can express it.
+
+    Both are in the device's own unit. ``assert_on_device_grid`` alone
+    accepts any point on the grid, so it also passes for a write that
+    carries an entirely different temperature; this pins the value as
+    well, within the half step the grid costs, and without assuming
+    which way the integration breaks a tie.
+    """
+    assert_on_device_grid(value, profile)
+    half_step = profile.target_temperature_step / 2 + 1e-6
+    assert value == pytest.approx(expected, abs=half_step)
 
 
 def assert_profile_adopted(bt, profile: DeviceProfile) -> None:
