@@ -914,6 +914,7 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
         # Dynamic config structures use Any as they store heterogeneous data
         self.trv_bundle: list[dict[str, Any]] = []
         self.device_name = ""
+        self.model: str | None = None
         self._last_step = False
         self.updated_config: dict[str, Any] = {}
         self._active_trv_config: dict[str, Any] | None = None
