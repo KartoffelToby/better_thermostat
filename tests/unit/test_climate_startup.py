@@ -1593,7 +1593,8 @@ class TestFinalizeStartupOnADualRoleEntity:
         """The cooling target comes from the preset, not off the device.
 
         The setpoint a shared device reports belongs to whichever channel last
-        wrote it, and at startup that is the heating one.
+        wrote it, and at startup that is the heating one. The seeded value only
+        reaches the device through a control cycle, so the seed requests one.
         """
         bt = self._make_shared_bt()
         bt.hass.states.get.return_value = State(TRV_ID, "heat", {"temperature": 21.0})
@@ -1601,10 +1602,14 @@ class TestFinalizeStartupOnADualRoleEntity:
         await self._run_capturing_subscriptions(bt)
 
         assert bt.bt_target_cooltemp == 24.0
+        bt.control_queue_task.put.assert_awaited_once_with(bt)
 
     @pytest.mark.asyncio
     async def test_a_shared_entity_leaves_a_restored_cool_target_alone(self):
-        """A cooling target the user already chose is never overwritten."""
+        """A cooling target the user already chose is never overwritten.
+
+        Nothing was seeded, so there is no new value for a cycle to carry.
+        """
         bt = self._make_shared_bt()
         bt.bt_target_cooltemp = 26.0
         bt.hass.states.get.return_value = State(TRV_ID, "heat", {"temperature": 21.0})
@@ -1612,6 +1617,7 @@ class TestFinalizeStartupOnADualRoleEntity:
         await self._run_capturing_subscriptions(bt)
 
         assert bt.bt_target_cooltemp == 26.0
+        bt.control_queue_task.put.assert_not_awaited()
 
     @pytest.mark.asyncio
     async def test_a_shared_entity_bounds_a_preset_outside_the_configured_range(self):
@@ -1628,3 +1634,4 @@ class TestFinalizeStartupOnADualRoleEntity:
         await self._run_capturing_subscriptions(bt)
 
         assert bt.bt_target_cooltemp == bt.bt_max_temp
+        bt.control_queue_task.put.assert_awaited_once_with(bt)
