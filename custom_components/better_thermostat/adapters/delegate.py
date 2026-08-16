@@ -177,10 +177,16 @@ async def set_hvac_mode(self, entity_id, hvac_mode):
 async def set_offset(self, entity_id, offset) -> bool:
     """Set new target offset and record the value that was asked for.
 
-    ``last_calibration_requested`` is written only when the adapter
-    accepted the write: a swallowed failure would otherwise look like a
-    command in flight, and the caller keys its confirmation watchdog on
-    the return value.
+    An adapter answers ``True`` once the offset write went out and
+    ``False`` when the device has no offset channel to write to. Only
+    ``True`` counts as a command in flight: it is what records
+    ``last_calibration_requested`` and what tells the caller to arm the
+    confirmation watchdog. The written offset itself is not a usable
+    answer, because the legitimate value 0.0 reads the same as a device
+    that wrote nothing.
+
+    ``last_calibration_requested`` is written on a write only: a
+    swallowed failure would otherwise look like a command in flight.
 
     Parameters
     ----------
@@ -194,7 +200,8 @@ async def set_offset(self, entity_id, offset) -> bool:
     Returns
     -------
     bool
-        True when the adapter accepted the write, False when every retry raised
+        True when the adapter put the offset on the wire, False when the
+        device has no offset channel or every retry raised
     """
 
     @async_retry(retries=5)
@@ -204,11 +211,19 @@ async def set_offset(self, entity_id, offset) -> bool:
         )
 
     try:
-        await inner()
+        wrote = await inner()
     except Exception:
         _LOGGER.warning(
             "better_thermostat %s: set_local_temperature_calibration for %s failed; "
             "will retry on the next cycle",
+            getattr(self, "device_name", "unknown"),
+            entity_id,
+        )
+        return False
+    if wrote is not True:
+        _LOGGER.debug(
+            "better_thermostat %s: %s has no calibration offset channel, "
+            "nothing was written",
             getattr(self, "device_name", "unknown"),
             entity_id,
         )
