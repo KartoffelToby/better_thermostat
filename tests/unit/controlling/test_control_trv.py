@@ -2190,6 +2190,50 @@ class TestCalibrationWriteGate:
         mocks.set_offset.assert_not_awaited()
 
     @pytest.mark.asyncio
+    async def test_declared_step_finer_than_the_reported_grid_converges(self):
+        """A device rounding coarser than it declares is written once.
+
+        The device declares a 0.01 K offset step but publishes its offset
+        on a 0.05 K grid. Half the declared step is narrower than that
+        grid, so without the floor every cycle would read the rounding as
+        a divergence and re-assert the same command forever.
+        """
+        mock_self = _make_mock_self(
+            trv_state=HVACMode.HEAT,
+            trv_attrs={"temperature": 20.0},
+            real_trvs={
+                "climate.trv1": _offset_trv(
+                    last_calibration=0.0,
+                    last_calibration_requested=0.0,
+                    local_calibration_step=0.01,
+                    calibration_received=True,
+                )
+            },
+        )
+        reported = {"value": 0.0}
+
+        async def _write_and_round(_self, entity_id, offset):
+            """Take the command and publish it on the device's own grid."""
+            trv = _self.real_trvs[entity_id]
+            trv.last_calibration = offset
+            trv.last_calibration_requested = offset
+            reported["value"] = round(round(offset / 0.05) * 0.05, 6)
+            return True
+
+        writes = 0
+        for _ in range(20):
+            with _offset_cycle(
+                reported=reported["value"], desired_offset=-2.32
+            ) as mocks:
+                mocks.set_offset.side_effect = _write_and_round
+                # The watchdog releases the gate at the end of its window.
+                mock_self.real_trvs["climate.trv1"].calibration_received = True
+                await control_trv(mock_self, "climate.trv1")
+                writes += mocks.set_offset.await_count
+
+        assert writes == 1
+
+    @pytest.mark.asyncio
     async def test_unreadable_report_without_reference_skips_the_write(self):
         """No reference and no readable report skips the offset, not the cycle."""
         mock_self = _make_mock_self(

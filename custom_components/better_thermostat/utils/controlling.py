@@ -60,6 +60,17 @@ COOLER_MODE_HYSTERESIS_K = 0.2
 # a slow device the same window.
 WRITE_CONFIRM_TIMEOUT_S = 360
 
+# Floor for the commanded-vs-reported offset comparison. Half the declared
+# offset step is the right window only while that step describes the grid the
+# device reports on; an adapter declaring a nominal 0.01 K step describes a
+# continuous range instead, and any report rounded coarser than that then reads
+# as a divergence the write gate re-asserts on every control cycle. The floor
+# covers those roundings and stays below the 0.1 K resolution a TRV reports its
+# own temperature at, so no calibration error the room can feel hides beneath
+# it. The setpoint channel's read-back tolerance describes a different
+# comparison, so the offset channel carries its own floor.
+OFFSET_MATCH_TOLERANCE_K = 0.05
+
 
 def _is_boost_heating_active(self) -> bool:
     """Check if boost mode is active and heating is needed.
@@ -314,8 +325,9 @@ def _calibration_match_tolerance(self, entity_id) -> float:
 
     A device snaps a written offset onto its own step grid, so a snapped value
     sits at most half a step away from the value that was commanded.
-    SETPOINT_MATCH_TOLERANCE is the floor: it covers the read-back grid for
-    devices that report no usable step.
+    OFFSET_MATCH_TOLERANCE_K is the floor: it covers devices that report no
+    usable step and those whose declared step is finer than the grid they
+    actually report on.
 
     Parameters
     ----------
@@ -335,9 +347,9 @@ def _calibration_match_tolerance(self, entity_id) -> float:
         "controlling()",
     )
     if step is None or step <= 0:
-        return SETPOINT_MATCH_TOLERANCE
+        return OFFSET_MATCH_TOLERANCE_K
     # Slack against float noise when the difference is exactly half a step.
-    return max(SETPOINT_MATCH_TOLERANCE, step / 2.0 + 1e-6)
+    return max(OFFSET_MATCH_TOLERANCE_K, step / 2.0 + 1e-6)
 
 
 async def control_cooler(self):
