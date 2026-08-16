@@ -2147,6 +2147,23 @@ class TestConvertOutboundStates:
         assert result["system_mode"] is None
         assert result["temperature"] == mock_bt.bt_target_temp
 
+    def test_swapped_device_in_a_cooler_room_is_switched_on(self, mock_bt):
+        """A room-level HEAT_COOL reaches a swapped radiator as its own mode."""
+        mock_bt.cooler_entity_id = "climate.the_ac"
+        mock_bt.real_trvs[ENTITY_ID].hvac_modes = [HVACMode.OFF, HVACMode.AUTO]
+        mock_bt.real_trvs[ENTITY_ID].advanced["heat_auto_swapped"] = True
+        mock_bt.real_trvs[ENTITY_ID].current_temperature = 18.0
+
+        with patch(
+            "custom_components.better_thermostat.events.trv.calculate_calibration_local",
+            return_value=0.0,
+        ):
+            result = convert_outbound_states(mock_bt, ENTITY_ID, HVACMode.HEAT_COOL)
+
+        assert result is not None
+        assert result["system_mode"] == HVACMode.AUTO
+        assert result["temperature"] == mock_bt.bt_target_temp
+
     def test_off_without_off_in_mode_list_still_substitutes_min_temp(self, mock_bt):
         """OFF stays exempt from the clamp so the min-temp branch fires."""
         mock_bt.real_trvs[ENTITY_ID].hvac_modes = [HVACMode.AUTO, HVACMode.HEAT]

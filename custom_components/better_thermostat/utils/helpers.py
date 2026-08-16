@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Callable, Iterable, Mapping
+from collections.abc import Callable, Iterable, Mapping, Sequence
 from datetime import datetime
 import logging
 import math
@@ -325,7 +325,7 @@ def _unsupported_mode_hint(trv) -> str:
 
 
 def _clamp_to_offered_mode(
-    self, trv, entity_id, hvac_mode: str, inbound: bool, fallback: str | None = None
+    self, trv, entity_id, hvac_mode: str, inbound: bool, fallbacks: Sequence[str] = ()
 ) -> str | None:
     """Drop an outbound mode the device does not offer.
 
@@ -343,17 +343,18 @@ def _clamp_to_offered_mode(
     inbound : bool
             True if the mode is coming from the device, False if it is
             coming from HA.
-    fallback : str | None
-            The mode a quirk translation started from. When the translated
-            mode is unwritable but the original one is offered, writing the
-            original still puts the device into the state BT asked for.
+    fallbacks : Sequence[str]
+            The modes a quirk translation started from, most preferred
+            first. When the translated mode is unwritable but one of them is
+            offered, writing that one still puts the device into the state
+            BT asked for.
 
     Returns
     -------
     str | None
-            The mode itself when it may be written, ``fallback`` when only
-            that one is offered, ``None`` when the device offers neither
-            and its mode is to be left untouched.
+            The mode itself when it may be written, the first offered
+            fallback when only such a one is offered, ``None`` when the
+            device offers none of them and its mode is to be left untouched.
     """
     trv_modes = trv.hvac_modes
     if inbound or not trv_modes:
@@ -364,8 +365,11 @@ def _clamp_to_offered_mode(
         return hvac_mode
 
     key = str(normalize_hvac_mode(hvac_mode))
+    fallback = next(
+        (mode for mode in fallbacks if _device_offers_mode(trv_modes, mode)), None
+    )
 
-    if fallback is not None and _device_offers_mode(trv_modes, fallback):
+    if fallback is not None:
         fallback_key = f"{key}->{normalize_hvac_mode(fallback)}"
         if fallback_key not in trv.unsupported_modes_logged:
             trv.unsupported_modes_logged.add(fallback_key)
@@ -424,10 +428,28 @@ def mode_remap(self, entity_id, hvac_mode: str, inbound: bool = False) -> str | 
     _heat_auto_swapped = (trv.advanced or {}).get(CONF_HEAT_AUTO_SWAPPED, False)
 
     if _heat_auto_swapped:
-        if hvac_mode == HVACMode.HEAT and not inbound:
+        # HEAT and HEAT_COOL are the same demand seen from two instances: a
+        # room with a cooler carries its heat demand as HEAT_COOL, because
+        # that is the mode such an instance offers instead of HEAT. Both name
+        # the device's heating mode, which is what the swap calls AUTO, and
+        # both fall back the same way, so which of the two arrives makes no
+        # difference to what the device receives. HEAT is preferred over
+        # HEAT_COOL as a fallback for the same reason the unswapped path
+        # prefers it: HEAT_COOL is the heating mode only of a device that
+        # offers nothing narrower.
+        if not inbound and hvac_mode in (HVACMode.HEAT, HVACMode.HEAT_COOL):
             return _clamp_to_offered_mode(
-                self, trv, entity_id, HVACMode.AUTO, inbound, fallback=HVACMode.HEAT
+                self,
+                trv,
+                entity_id,
+                HVACMode.AUTO,
+                inbound,
+                fallbacks=(HVACMode.HEAT, HVACMode.HEAT_COOL),
             )
+        # HEAT is the instance-level spelling of that demand in both cases:
+        # get_hvac_bt_mode() re-expresses it as HEAT_COOL for a room with a
+        # cooler, so the reported mode reaches the entity as HEAT_COOL there
+        # and as HEAT everywhere else.
         if hvac_mode == HVACMode.AUTO and inbound:
             return HVACMode.HEAT
         return _clamp_to_offered_mode(self, trv, entity_id, hvac_mode, inbound)
