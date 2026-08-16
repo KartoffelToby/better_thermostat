@@ -25,6 +25,10 @@ from custom_components.better_thermostat.utils.const import (
     DEFAULT_CALIBRATION_MODE,
     CalibrationMode,
 )
+from custom_components.better_thermostat.utils.helpers import (
+    is_calibration_mode,
+    normalize_calibration_mode,
+)
 
 _RUNTIME_MODULES = (calibration_module, controlling_module)
 
@@ -112,6 +116,30 @@ def test_unresolvable_stored_mode_falls_back_to_the_shared_default(
     thermostat = _thermostat_without_target(stored_mode)
 
     assert calculate_calibration_local(thermostat, "climate.trv") == 0.0
+
+
+def test_a_named_but_unknown_mode_does_not_become_the_default(monkeypatch):
+    """A string naming a mode this version does not know stays unresolved.
+
+    ``normalize_calibration_mode`` hands an unrecognized string back
+    unchanged instead of returning ``None``, and that is the answer the
+    rest of the code reads: ``is_calibration_mode`` reports ``False`` for
+    it against every mode. A config that names something is not a config
+    that names nothing, so it does not take the shared default.
+    """
+    assert normalize_calibration_mode("a mode from another version") == (
+        "a mode from another version"
+    )
+    assert not is_calibration_mode(
+        "a mode from another version", DEFAULT_CALIBRATION_MODE
+    )
+
+    monkeypatch.setattr(
+        calibration_module, "DEFAULT_CALIBRATION_MODE", CalibrationMode.DEFAULT
+    )
+    thermostat = _thermostat_without_target("a mode from another version")
+
+    assert calculate_calibration_local(thermostat, "climate.trv") is None
 
 
 def test_config_flow_uses_the_shared_default():
