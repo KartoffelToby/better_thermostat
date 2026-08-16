@@ -15,7 +15,10 @@ from dataclasses import dataclass, field
 from types import ModuleType
 from typing import Any, Protocol, runtime_checkable
 
+from homeassistant.components.climate.const import HVACMode
+
 from custom_components.better_thermostat.core.calibrator import CalibratorHealth
+from custom_components.better_thermostat.utils.helpers import device_offers_mode
 
 
 @runtime_checkable
@@ -97,7 +100,17 @@ class Trv:
     last_valve_position: float | None = None
     last_hvac_mode: str | None = None
     last_current_temperature: float | None = None
+    # ``last_calibration`` is the command the adapter actually put on the
+    # wire, after its own clamp to the device's declared offset range;
+    # ``last_calibration_requested`` is the value asked for before that
+    # clamp. Keeping them apart lets a device resting at a limit it
+    # declared be recognised as converged instead of rewritten.
     last_calibration: float | None = None
+    last_calibration_requested: float | None = None
+    # Identity of the offset command currently in flight. Each accepted write
+    # takes the next number, and only the watchdog holding that number may
+    # release ``calibration_received``.
+    calibration_write_generation: int = 0
     last_valve_percent: float | None = None
     last_valve_method: str | None = None
     # Per-channel write-budget stamps (setpoint, offset, valve) so one
@@ -111,6 +124,9 @@ class Trv:
     # Whether a follow-up control cycle is already scheduled for this
     # TRV's next reachability-retry window.
     reachability_retry_pending: bool = False
+    # Outbound HVAC modes already annunciated as not offered by this
+    # device, so the error is logged once per mode instead of per cycle.
+    unsupported_modes_logged: set[str] = field(default_factory=set)
 
     # -- Calibration results -----------------------------------------------
     calibration_balance: dict[str, Any] | None = None
@@ -165,10 +181,12 @@ class Trv:
             )
 
         # An unreported mode list counts as no-off: BT then sends min temp
-        # instead of an OFF the device may not support.
+        # instead of an OFF the device may not support. The cached list holds
+        # the device's own spelling, so membership is decided on the normalized
+        # list, like every other capability check.
         no_off = (
             self.hvac_modes is None
-            or "off" not in self.hvac_modes
+            or not device_offers_mode(self.hvac_modes, HVACMode.OFF)
             or (self.advanced or {}).get("no_off_system_mode", False) is True
         )
         return TrvCapabilities(

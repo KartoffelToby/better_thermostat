@@ -699,3 +699,68 @@ class TestReconcileOnADualRoleEntity:
         await reconcile_tick(bt)
 
         bt.control_queue_task.put_nowait.assert_called_once()
+
+
+class TestOffsetReconcileHandoff:
+    """What the reconciler calls a divergence, the write path re-asserts.
+
+    Both sides compare the device's report against the value last
+    written, with the same tolerance, so a queued cycle is not a no-op
+    that leaves the tick re-queueing forever.
+    """
+
+    def _diverged_offset_bt(self):
+        bt = _control_bt()
+        trv = bt.real_trvs["climate.trv"]
+        trv.advanced = {
+            "calibration_mode": CalibrationMode.DEFAULT,
+            "calibration": CalibrationType.LOCAL_BASED,
+            "no_off_system_mode": False,
+        }
+        trv.local_temperature_calibration_entity = "number.offset"
+        trv.local_calibration_step = 0.5
+        trv.last_calibration = 2.0
+        trv.last_calibration_requested = 2.0
+        trv.calibration_received = True
+
+        trv_state = bt.hass.states.get.return_value
+        offset_state = Mock()
+        offset_state.state = "0.0"
+        offset_state.attributes = {}
+        bt.hass.states.get.side_effect = lambda entity_id: (
+            offset_state if entity_id == "number.offset" else trv_state
+        )
+        return bt
+
+    @pytest.mark.asyncio
+    async def test_diverged_offset_queues_a_cycle(self):
+        """A confirmed offset the device dropped is a divergence."""
+        bt = self._diverged_offset_bt()
+        await reconcile_tick(bt)
+        bt.control_queue_task.put_nowait.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_the_queued_cycle_rewrites_the_offset(self):
+        """The cycle the tick asks for actually re-sends the offset."""
+        bt = self._diverged_offset_bt()
+        with (
+            patch(f"{_CTRL}.convert_outbound_states") as conv,
+            patch(f"{_CTRL}._get_valve_control", return_value=(None, None)),
+            patch(f"{_CTRL}.get_current_offset", new=AsyncMock(return_value=0.0)),
+            patch(f"{_CTRL}.set_offset", new=AsyncMock(return_value=True)) as set_off,
+            patch(f"{_CTRL}.set_temperature", new=AsyncMock()),
+            patch(f"{_CTRL}.set_hvac_mode", new=AsyncMock()),
+            patch(f"{_CTRL}.override_set_hvac_mode", new=AsyncMock(return_value=False)),
+            patch(
+                f"{_CTRL}.override_set_temperature", new=AsyncMock(return_value=False)
+            ),
+            patch("asyncio.sleep", new=AsyncMock()),
+        ):
+            conv.return_value = {
+                "temperature": 21.0,
+                "local_temperature_calibration": 2.0,
+                "system_mode": HVACMode.HEAT,
+            }
+            await control_trv(bt, "climate.trv")
+
+        set_off.assert_awaited_once_with(bt, "climate.trv", 2.0)

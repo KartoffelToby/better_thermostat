@@ -85,8 +85,24 @@ async def get_max_offset(self, entity_id):
     return 6
 
 
-async def set_offset(self, entity_id, offset):
-    """Set new target offset."""
+async def set_offset(self, entity_id, offset) -> bool:
+    """Write a calibration offset through the deCONZ configure service.
+
+    Parameters
+    ----------
+    self : BetterThermostat
+        The Better Thermostat climate entity instance
+    entity_id : str
+        Entity ID of the TRV to write to
+    offset : float
+        Calibration offset in Kelvin
+
+    Returns
+    -------
+    bool
+        True once the write went out. The offset rides on the TRV's own
+        service call, so every deCONZ TRV has the channel.
+    """
     await self.hass.services.async_call(
         "deconz",
         "configure",
@@ -95,6 +111,7 @@ async def set_offset(self, entity_id, offset):
         context=self.context,
     )
     self.real_trvs[entity_id].last_calibration = offset
+    return True
 
 
 async def set_valve(self, entity_id, valve):
