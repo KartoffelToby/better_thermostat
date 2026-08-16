@@ -1785,6 +1785,95 @@ class TestBoostModeSafetyOverride:
             assert set_valve_calls[1][2] == 0  # Safety reset: 0%
 
 
+class TestValveWriteResult:
+    """The valve channel acts on what the delegate answers.
+
+    A write the delegate refused still stamped the budget slot, so the
+    next cycle has to be requested explicitly. Without it the valve keeps
+    the position the device never took until an unrelated event triggers
+    control.
+    """
+
+    @staticmethod
+    def _boost_valve_self():
+        """Mock BetterThermostat whose boost drives a 100 % valve write."""
+        return _make_mock_self(
+            trv_state=HVACMode.HEAT,
+            trv_attrs={"temperature": 20.0},
+            preset_mode=PRESET_BOOST,
+            cur_temp=18.0,
+            bt_target_temp=22.0,
+            real_trvs={
+                "climate.trv1": _default_trv_config(
+                    advanced={
+                        "calibration_mode": CalibrationMode.MPC_CALIBRATION,
+                        "calibration": CalibrationType.DIRECT_VALVE_BASED,
+                        "no_off_system_mode": False,
+                    }
+                )
+            },
+        )
+
+    @staticmethod
+    async def _run_cycle(mock_self, valve_result):
+        """Run one control cycle with the delegate answering ``valve_result``.
+
+        Returns the valve mock and the names of the tasks the cycle
+        created.
+        """
+        captured = []
+        mock_self.task_manager.create_task = Mock(
+            side_effect=lambda coro, name=None: captured.append((coro, name)) or Mock()
+        )
+
+        with (
+            patch(_PATCHES["convert_outbound_states"]) as mock_convert,
+            patch(
+                _PATCHES["set_valve"], autospec=True, return_value=valve_result
+            ) as mock_set_valve,
+            patch(
+                _PATCHES["override_set_hvac_mode"], autospec=True, return_value=False
+            ),
+            patch(
+                _PATCHES["override_set_temperature"], autospec=True, return_value=False
+            ),
+            patch(_PATCHES["set_hvac_mode"], autospec=True),
+            patch(_PATCHES["set_temperature"], autospec=True),
+            patch("asyncio.sleep", new=AsyncMock()),
+        ):
+            mock_convert.return_value = {
+                "temperature": 20.0,
+                "system_mode": HVACMode.HEAT,
+            }
+            await control_trv(mock_self, "climate.trv1")
+
+        for coro, _name in captured:
+            coro.close()
+        return mock_set_valve, [name for _coro, name in captured]
+
+    @pytest.mark.asyncio
+    async def test_a_refused_valve_write_schedules_a_retry_cycle(self):
+        """A delegate answering False leaves a follow-up cycle queued."""
+        mock_self = self._boost_valve_self()
+
+        mock_set_valve, task_names = await self._run_cycle(mock_self, False)
+
+        assert mock_set_valve.call_args[0][2] == 100
+        assert "bt_budget_retry_climate.trv1" in task_names
+        assert mock_self.real_trvs["climate.trv1"].budget_retry_pending is True
+
+    @pytest.mark.asyncio
+    async def test_an_accepted_valve_write_schedules_nothing(self):
+        """A delegate answering True needs no catch-up cycle."""
+        mock_self = self._boost_valve_self()
+
+        mock_set_valve, task_names = await self._run_cycle(mock_self, True)
+
+        assert mock_set_valve.call_args[0][2] == 100
+        assert "bt_budget_retry_climate.trv1" not in task_names
+        assert mock_self.real_trvs["climate.trv1"].budget_retry_pending is False
+
+
 # ---------------------------------------------------------------------------
 # Race condition / lock coverage (from test_race_condition_lock_coverage.py)
 # ---------------------------------------------------------------------------
