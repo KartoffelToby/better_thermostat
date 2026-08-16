@@ -1138,6 +1138,11 @@ async def check_calibration(self, heater_entity_id=None):
     from, and adopting a dropped write's report would make the next cycle treat
     it as confirmed.
 
+    The flag is released in a finally block. Unlike the system mode and target
+    temperature channels, whose writes go out regardless of their flag, the
+    offset write only happens while calibration_received is True, so a watchdog
+    that ended without releasing it would wedge the channel for good.
+
     Parameters
     ----------
     self : BetterThermostat
@@ -1153,40 +1158,45 @@ async def check_calibration(self, heater_entity_id=None):
     _timeout = 0
     _real_trv = self.real_trvs[heater_entity_id]
     _tolerance = _calibration_match_tolerance(self, heater_entity_id)
-    while True:
-        _trv_state = self.hass.states.get(heater_entity_id)
-        if _trv_state is None or _trv_state.state in (STATE_UNAVAILABLE, STATE_UNKNOWN):
-            _LOGGER.debug(
-                "better_thermostat %s: %s became unavailable during check_calibration",
+    try:
+        while True:
+            _trv_state = self.hass.states.get(heater_entity_id)
+            if _trv_state is None or _trv_state.state in (
+                STATE_UNAVAILABLE,
+                STATE_UNKNOWN,
+            ):
+                _LOGGER.debug(
+                    "better_thermostat %s: %s became unavailable during check_calibration",
+                    self.device_name,
+                    heater_entity_id,
+                )
+                break
+            _reported = convert_to_float(
+                str(await get_current_offset(self, heater_entity_id)),
                 self.device_name,
-                heater_entity_id,
+                "check_calibration()",
             )
-            break
-        _reported = convert_to_float(
-            str(await get_current_offset(self, heater_entity_id)),
-            self.device_name,
-            "check_calibration()",
-        )
-        if _real_trv.last_calibration is None or (
-            _reported is not None
-            and abs(_reported - float(_real_trv.last_calibration)) <= _tolerance
-        ):
-            _timeout = 0
-            break
-        if _timeout > WRITE_CONFIRM_TIMEOUT_S:
-            _LOGGER.warning(
-                "better_thermostat %s: TRV %s did not confirm the calibration offset "
-                "after %ss (wrote=%s, last reported=%s); giving up and assuming applied",
-                self.device_name,
-                heater_entity_id,
-                WRITE_CONFIRM_TIMEOUT_S,
-                _real_trv.last_calibration,
-                _reported,
-            )
-            _timeout = 0
-            break
-        await asyncio.sleep(1)
-        _timeout += 1
-    await asyncio.sleep(2)
-    _real_trv.calibration_received = True
+            if _real_trv.last_calibration is None or (
+                _reported is not None
+                and abs(_reported - float(_real_trv.last_calibration)) <= _tolerance
+            ):
+                _timeout = 0
+                break
+            if _timeout > WRITE_CONFIRM_TIMEOUT_S:
+                _LOGGER.warning(
+                    "better_thermostat %s: TRV %s did not confirm the calibration offset "
+                    "after %ss (wrote=%s, last reported=%s); giving up and assuming applied",
+                    self.device_name,
+                    heater_entity_id,
+                    WRITE_CONFIRM_TIMEOUT_S,
+                    _real_trv.last_calibration,
+                    _reported,
+                )
+                _timeout = 0
+                break
+            await asyncio.sleep(1)
+            _timeout += 1
+        await asyncio.sleep(2)
+    finally:
+        _real_trv.calibration_received = True
     return True

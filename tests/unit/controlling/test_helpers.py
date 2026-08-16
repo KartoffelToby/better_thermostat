@@ -907,6 +907,40 @@ class TestCheckCalibration:
         assert result is True
         assert mock_self.real_trvs["climate.trv1"].calibration_received is True
 
+    @pytest.mark.asyncio
+    async def test_adapter_error_still_releases_the_write_gate(self):
+        """An adapter that raises mid-poll does not wedge the offset channel.
+
+        The offset write only goes out while calibration_received is True, so a
+        watchdog that ended without releasing it would silence the channel for
+        good.
+        """
+        mock_self = _calibration_mock_self(HVACMode.HEAT, last_calibration=-2.0)
+
+        async def _raise(_self, _entity_id):
+            raise RuntimeError("adapter unavailable")
+
+        with patch(f"{_CTRL}.get_current_offset", new=_raise):
+            with pytest.raises(RuntimeError):
+                await check_calibration(mock_self, "climate.trv1")
+
+        assert mock_self.real_trvs["climate.trv1"].calibration_received is True
+
+    @pytest.mark.asyncio
+    async def test_cancellation_still_releases_the_write_gate(self):
+        """A cancelled watchdog leaves the offset channel writable."""
+        mock_self = _calibration_mock_self(HVACMode.HEAT, last_calibration=-2.0)
+
+        with patch(f"{_CTRL}.get_current_offset", new=AsyncMock(return_value=0.0)):
+            task = asyncio.create_task(check_calibration(mock_self, "climate.trv1"))
+            await asyncio.sleep(0)
+            await asyncio.sleep(0)
+            task.cancel()
+            with pytest.raises(asyncio.CancelledError):
+                await task
+
+        assert mock_self.real_trvs["climate.trv1"].calibration_received is True
+
 
 # ---------------------------------------------------------------------------
 # All three write watchdogs share one confirmation window
