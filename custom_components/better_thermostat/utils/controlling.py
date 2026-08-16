@@ -429,6 +429,14 @@ def desired_diverges(self, snapshot, desired) -> bool:
         state = self.hass.states.get(entity_id)
         if state is None or state.state in (STATE_UNAVAILABLE, STATE_UNKNOWN):
             continue
+        if cooling_owns_dual_role_device(self, entity_id):
+            # The cooling channel drives this device, so the mode and setpoint
+            # it reports are that channel's write and not a heating write that
+            # went missing. The heating intent it would be compared against is
+            # one no control cycle applies while the handover stands, so the
+            # divergence would be permanent and the tick would queue a cycle
+            # for the whole length of every cooling period.
+            continue
 
         if intent.hvac_mode is not None:
             if intent.hvac_mode == HVACMode.OFF:
