@@ -1687,6 +1687,8 @@ class TestControlCoolerOpenContact:
             state=HVACMode.COOL, temperature=18.0
         )
 
+        # A cooling period ran before the airing, so the send cache holds the
+        # setpoint that reached the unit and the moment it did.
         mock_self = _make_mock_self(
             mock_hass,
             bt_hvac_mode=HVACMode.HEAT_COOL,
@@ -1694,13 +1696,19 @@ class TestControlCoolerOpenContact:
             bt_target_temp=20.0,
             bt_target_cooltemp=24.0,
             contact_open=True,
+            last_sent_cooler_temp=22.0,
+            last_sent_cooler_temp_ts=1000.0,
         )
 
         await control_cooler(mock_self)
 
         calls = mock_hass.services.async_call.call_args_list
         assert [call.args[1] for call in calls] == ["set_hvac_mode"]
-        assert mock_self.last_sent_cooler_temp is None
+        # A cycle that attempted nothing recorded nothing, so the cache still
+        # describes the last setpoint the unit actually received and the
+        # resend throttle keeps pacing the channel the suppression resumes.
+        assert mock_self.last_sent_cooler_temp == 22.0
+        assert mock_self.last_sent_cooler_temp_ts == 1000.0
 
     @pytest.mark.asyncio
     async def test_a_shut_contact_still_writes_the_cooling_setpoint(self):
