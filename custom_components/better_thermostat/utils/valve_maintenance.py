@@ -325,10 +325,11 @@ async def run_valve_maintenance(
         return_exceptions=True,
     )
 
-    # A TRV whose wake failed is still off, so a setpoint write would either
-    # move nothing or, on a device that reads a setpoint as "turn on", heat
-    # it without the cycle asking for it. Leave it out of the cycle; it is
-    # still restored below.
+    # Which TRVs the cycle below actually moves. A failed wake leaves a TRV
+    # off, so a setpoint write would either move nothing or, on a device that
+    # reads a setpoint as "turn on", heat it without the cycle asking for it.
+    # A TRV that offered no wake mode at all is unreachable for the same
+    # reason. Both are still restored below.
     cycled: list[MaintenanceTrvInfo] = []
     for info, result in zip(infos, wake_results):
         if isinstance(result, BaseException):
@@ -340,7 +341,8 @@ async def run_valve_maintenance(
                 result,
             )
             continue
-        cycled.append(info)
+        if info.use_direct_valve or _temp_cycle_reaches_valve(info):
+            cycled.append(info)
 
     if not cycled:
         # Nothing to open or close, so the four cycle sleeps would be waits
