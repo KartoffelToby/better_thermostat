@@ -1177,7 +1177,7 @@ def calculate_calibration_local(self, entity_id) -> float | None:
         )
     )
     if _calibration_mode is None:
-        _calibration_mode = CalibrationMode.MPC_CALIBRATION
+        _calibration_mode = DEFAULT_CALIBRATION_MODE
     traits = _traits_for(_calibration_mode)
 
     _cur_external_temp = effective_room_temp(self)
@@ -1407,7 +1407,7 @@ def calculate_calibration_setpoint(self, entity_id) -> float | None:
         )
     )
     if _calibration_mode is None:
-        _calibration_mode = CalibrationMode.MPC_CALIBRATION
+        _calibration_mode = DEFAULT_CALIBRATION_MODE
     traits = _traits_for(_calibration_mode)
 
     if self.bt_target_temp is None:
