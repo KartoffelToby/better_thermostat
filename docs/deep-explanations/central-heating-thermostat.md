@@ -22,6 +22,8 @@ triggers:
       - climate.living_room
       - climate.bedroom
     attribute: hvac_action
+  - trigger: homeassistant
+    event: start
 actions:
   - action: climate.set_temperature
     target:
@@ -36,6 +38,8 @@ actions:
 
 Swap the two temperatures for whatever your central thermostat treats as "run" and "stand down".
 
+The start trigger covers the restart. A state trigger only fires on a change it is listening for, and there is no guarantee the automation is attached by the time the room entities come back, so without it the central thermostat can sit on its pre-restart target until the next room transition.
+
 ### One attribute to stay away from
 
 `call_for_heat` looks like the right signal and is not. It is the weather-based shutdown flag: it says the outdoor temperature is below the cut-off, not that this room wants heat. It is identical across every room served by the same weather entity.
@@ -44,9 +48,9 @@ Swap the two temperatures for whatever your central thermostat treats as "run" a
 
 Leaving the boiler thermostat on its own schedule produces a failure that is easy to misread as a Better Thermostat problem.
 
-While the central thermostat is satisfied, no flow reaches the radiators. The rooms keep missing their targets, so Better Thermostat opens their valves further, which is the correct response to a room that will not warm up. When the central thermostat calls for heat again, every valve is wide open and the rooms overshoot together. The symptom shows up as overshoot; the cause is the ceiling above the valves.
+While the central thermostat is satisfied, no flow reaches the radiators. The rooms keep missing their targets, so Better Thermostat opens their valves further, which is the correct response to a room that will not warm up. When the central thermostat calls for heat again, those valves are open wider than the rooms now need, and the ones that opened furthest overshoot. The symptom shows up as overshoot; the cause is the ceiling above the valves.
 
-Wiring the central thermostat to the rooms removes the mismatch, because the boiler runs when a room asks and stands down when none does.
+Wiring the central thermostat to the rooms removes that ceiling, because the boiler runs when a room asks and stands down when none does.
 
 ## A note on flow temperature
 
