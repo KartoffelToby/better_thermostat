@@ -346,39 +346,48 @@ async def run_valve_maintenance(
             continue
         cycled.append(info)
 
-    # Execute in synchronized steps across all TRVs (much faster than sequential).
-    # Open all → wait → close all → wait (repeat twice).
-    for i in range(2):
-        _LOGGER.debug(
-            "better_thermostat %s: valve maintenance cycle %d/2 starting for %d TRV(s)",
+    if not cycled:
+        # Nothing to open or close, so the four cycle sleeps would be waits
+        # around no work at all. Drop straight through to the restore.
+        _LOGGER.info(
+            "better_thermostat %s: no TRV reachable for the cycle, restoring directly",
             device_name,
-            i + 1,
-            len(cycled),
         )
-        await asyncio.gather(
-            *(
-                open_step(
-                    info,
-                    set_valve_fn=set_valve_fn,
-                    set_temperature_fn=set_temperature_fn,
-                )
-                for info in cycled
-            ),
-            return_exceptions=True,
-        )
-        await asyncio.sleep(cycle_sleep)
-        await asyncio.gather(
-            *(
-                close_step(
-                    info,
-                    set_valve_fn=set_valve_fn,
-                    set_temperature_fn=set_temperature_fn,
-                )
-                for info in cycled
-            ),
-            return_exceptions=True,
-        )
-        await asyncio.sleep(cycle_sleep)
+    else:
+        # Execute in synchronized steps across all TRVs (much faster than
+        # sequential). Open all → wait → close all → wait (repeat twice).
+        for i in range(2):
+            _LOGGER.debug(
+                "better_thermostat %s: valve maintenance cycle %d/2 starting "
+                "for %d TRV(s)",
+                device_name,
+                i + 1,
+                len(cycled),
+            )
+            await asyncio.gather(
+                *(
+                    open_step(
+                        info,
+                        set_valve_fn=set_valve_fn,
+                        set_temperature_fn=set_temperature_fn,
+                    )
+                    for info in cycled
+                ),
+                return_exceptions=True,
+            )
+            await asyncio.sleep(cycle_sleep)
+            await asyncio.gather(
+                *(
+                    close_step(
+                        info,
+                        set_valve_fn=set_valve_fn,
+                        set_temperature_fn=set_temperature_fn,
+                    )
+                    for info in cycled
+                ),
+                return_exceptions=True,
+            )
+            await asyncio.sleep(cycle_sleep)
 
     # Restore
     await asyncio.gather(
