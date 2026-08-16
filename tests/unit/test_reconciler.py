@@ -679,7 +679,7 @@ class TestReconcileOnADualRoleEntity:
 
     @pytest.mark.asyncio
     async def test_a_lost_write_is_still_found_while_the_heating_channel_drives(self):
-        """Every cycle the cooling channel sits out is reconciled as before."""
+        """Every cycle the cooling channel sits out is reconciled like any other."""
         bt = self._make_shared_bt(
             hvac_mode_decided=HVACMode.OFF, reported_target=18.0, commanded=21.0
         )

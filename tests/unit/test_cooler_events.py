@@ -1314,7 +1314,7 @@ class TestDualRoleEntityReports:
         mock_bt._seed_cool_target.assert_not_called()
 
     @pytest.mark.asyncio
-    async def test_a_distinct_cooler_report_is_adopted_as_before(self, mock_bt):
+    async def test_a_distinct_cooler_report_is_adopted(self, mock_bt):
         """A cooler of its own is untouched by the dual-role handling."""
         mock_bt.bt_target_cooltemp = 25.0
         mock_bt.bt_target_temp = 20.0

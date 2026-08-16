@@ -2331,7 +2331,7 @@ class TestControlCoolerOnADualRoleEntity:
         assert mock_hass.services.async_call.call_args_list == []
 
     @pytest.mark.asyncio
-    async def test_a_distinct_cooler_writes_exactly_as_before(self):
+    async def test_a_distinct_cooler_writes_the_setpoint_and_the_off_mode(self):
         """A cooler of its own is untouched by the dual-role handling."""
         mock_self, mock_hass, _ = _make_cooler_setup(
             cooler_state=HVACMode.COOL, cooler_temp_attr=30.0

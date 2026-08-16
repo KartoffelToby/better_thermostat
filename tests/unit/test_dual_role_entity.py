@@ -90,7 +90,7 @@ class TestCoolingOwnsDualRoleDevice:
         assert cooling_owns_dual_role_device(bt, SHARED_ID) is True
 
     def test_cooling_owns_dual_role_device_is_false_for_a_distinct_cooler(self):
-        """An installation without the overlap takes no new branch."""
+        """No entity carries both roles, so the cooling channel owns no device."""
         bt = _make_bt(
             cooler_entity_id="climate.split_unit",
             real_trvs={"climate.radiator": MagicMock()},

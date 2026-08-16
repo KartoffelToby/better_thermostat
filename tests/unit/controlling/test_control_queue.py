@@ -779,7 +779,7 @@ class TestControlQueueOnADualRoleEntity:
 
     @pytest.mark.asyncio
     async def test_a_distinct_cooler_leaves_every_trv_dispatched(self):
-        """An installation without the overlap takes no new branch."""
+        """An installation without the overlap dispatches every thermostat."""
         mock_self = self._make_self(
             hvac_mode_decided="cool", real_trvs={"climate.radiator": Mock()}
         )
