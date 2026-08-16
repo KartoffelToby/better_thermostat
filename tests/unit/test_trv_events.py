@@ -703,6 +703,53 @@ class TestHvacActionAndValvePosition:
 
         assert mock_bt.real_trvs[ENTITY_ID].unsupported_modes_logged == set()
 
+    @pytest.mark.asyncio
+    async def test_empty_hvac_modes_keeps_the_cached_list(self, mock_bt):
+        """An empty list means "nothing reported", not "no modes offered"."""
+        trv_state = _make_state(
+            attributes={
+                "current_temperature": 18.0,
+                "temperature": 19.0,
+                "hvac_modes": [],
+            }
+        )
+        mock_bt.hass.states.get.return_value = trv_state
+        mock_bt.real_trvs[ENTITY_ID].hvac_modes = [HVACMode.OFF, HVACMode.HEAT]
+
+        event = _make_event(mock_bt, new_state=trv_state, old_state=trv_state)
+
+        with patch(
+            "custom_components.better_thermostat.events.trv.convert_inbound_states",
+            return_value=HVACMode.HEAT,
+        ):
+            await trigger_trv_change(mock_bt, event)
+
+        assert mock_bt.real_trvs[ENTITY_ID].hvac_modes == [HVACMode.OFF, HVACMode.HEAT]
+
+    @pytest.mark.asyncio
+    async def test_unchanged_mode_list_keeps_the_annunciation_set(self, mock_bt):
+        """Repeating the same list keeps the error suppressed across cycles."""
+        trv_state = _make_state(
+            attributes={
+                "current_temperature": 18.0,
+                "temperature": 19.0,
+                "hvac_modes": ["off", "heat"],
+            }
+        )
+        mock_bt.hass.states.get.return_value = trv_state
+        mock_bt.real_trvs[ENTITY_ID].hvac_modes = ["off", "heat"]
+        mock_bt.real_trvs[ENTITY_ID].unsupported_modes_logged = {"heat_cool"}
+
+        event = _make_event(mock_bt, new_state=trv_state, old_state=trv_state)
+
+        with patch(
+            "custom_components.better_thermostat.events.trv.convert_inbound_states",
+            return_value=HVACMode.HEAT,
+        ):
+            await trigger_trv_change(mock_bt, event)
+
+        assert mock_bt.real_trvs[ENTITY_ID].unsupported_modes_logged == {"heat_cool"}
+
 
 # ---------------------------------------------------------------------------
 # 4. HVAC mode update

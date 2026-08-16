@@ -624,18 +624,27 @@ class TestControlTrvAvailablePath:
             assert result is True
 
     @pytest.mark.asyncio
-    async def test_suppressed_system_mode_writes_only_the_setpoint(self):
-        """A payload without a system mode sends the setpoint and nothing else.
+    async def test_unsupported_heat_mode_writes_only_the_setpoint(self):
+        """A device offering no heating mode keeps its mode and gets the setpoint.
 
-        This is what a device that offers none of BT's heating modes gets:
-        its own mode stays untouched while the setpoint keeps flowing.
+        The full outbound conversion runs so the payload really is the one a
+        wall thermostat with ``[auto, cool, off]`` produces for a heat demand.
         """
         mock_self = _make_mock_self(
-            trv_state=HVACMode.HEAT, trv_attrs={"temperature": 20.0}
+            trv_state=HVACMode.AUTO,
+            trv_attrs={"temperature": 20.0},
+            call_for_heat=True,
+            bt_target_temp=22.0,
+            real_trvs={
+                "climate.trv1": _default_trv_config(
+                    hvac_modes=[HVACMode.AUTO, HVACMode.COOL, HVACMode.OFF],
+                    hvac_mode=HVACMode.AUTO,
+                    last_hvac_mode=HVACMode.AUTO,
+                )
+            },
         )
 
         with (
-            patch(_PATCHES["convert_outbound_states"]) as mock_convert,
             patch(
                 _PATCHES["override_set_hvac_mode"], new=AsyncMock(return_value=False)
             ) as mock_override_mode,
@@ -646,13 +655,11 @@ class TestControlTrvAvailablePath:
             patch(_PATCHES["set_temperature"], new=AsyncMock()) as mock_set_temp,
             patch("asyncio.sleep", new=AsyncMock()),
         ):
-            mock_convert.return_value = {"temperature": 21.0, "system_mode": None}
-
             await control_trv(mock_self, "climate.trv1")
 
             mock_override_mode.assert_not_awaited()
             mock_set_mode.assert_not_awaited()
-            mock_set_temp.assert_awaited_once_with(mock_self, "climate.trv1", 21.0)
+            mock_set_temp.assert_awaited_once_with(mock_self, "climate.trv1", 22.0)
 
     @pytest.mark.asyncio
     async def test_set_temperature_quirk_skips_generic_adapter(self):
