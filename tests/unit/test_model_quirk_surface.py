@@ -181,6 +181,8 @@ def _self_attributes_read(path):
 QUIRK_ATTRIBUTE = "model_quirks"
 QUIRK_LOADER = "load_model_quirks"
 QUIRK_PACKAGE = "model_fixes"
+# Past every source position, for asking what a scope ends up holding.
+END_OF_SCOPE = (float("inf"), 0)
 
 
 def _is_a_quirk_module(node, holders=frozenset()):
@@ -254,18 +256,26 @@ def _quirk_holding_names(scope):
         for target in targets:
             for inner in ast.walk(target):
                 if isinstance(inner, ast.Name):
-                    bound_to_a_quirk.add((inner.lineno, inner.id))
+                    bound_to_a_quirk.add((_position(inner), inner.id))
 
     events = [
-        (node.lineno, node.id, (node.lineno, node.id) in bound_to_a_quirk)
+        (_position(node), node.id, (_position(node), node.id) in bound_to_a_quirk)
         for node in _within_scope(scope)
         if isinstance(node, ast.Name) and isinstance(node.ctx, ast.Store)
     ]
-    events += [
-        (getattr(scope, "lineno", 0), name, False) for name in _parameter_names(scope)
-    ]
+    events += [(_position(scope), name, False) for name in _parameter_names(scope)]
     events.sort()
     return events
+
+
+def _position(node):
+    """Where a node sits in the source, ordered as it is written.
+
+    A line is not a position: ``quirks = trv.model_quirks; quirks = other``
+    binds the same name twice on one, and only the column separates the
+    binding that holds a module from the one that replaces it.
+    """
+    return (getattr(node, "lineno", 0), getattr(node, "col_offset", 0))
 
 
 def _parameter_names(scope):
@@ -300,16 +310,16 @@ def _names_reached_for_in(scope, inherited, names):
     # whatever that one held.
     holders = {name for name in inherited if name not in bound_here}
 
-    def holds_a_quirk(name, line):
+    def holds_a_quirk(name, position):
         if name in bound_here:
             reached = [
-                event for event in events if event[1] == name and event[0] <= line
+                event for event in events if event[1] == name and event[0] <= position
             ]
             return bool(reached) and reached[-1][2]
         return name in holders
 
     def reaches(node):
-        line = getattr(node, "lineno", 0)
+        line = _position(node)
         visible = frozenset(
             name for name in bound_here | holders if holds_a_quirk(name, line)
         )
@@ -336,7 +346,7 @@ def _names_reached_for_in(scope, inherited, names):
     # What a nested scope closes over is the state at the end of this one,
     # since it runs after the bindings here have executed.
     at_the_end = holders | {
-        name for name in bound_here if holds_a_quirk(name, float("inf"))
+        name for name in bound_here if holds_a_quirk(name, END_OF_SCOPE)
     }
     for inner in _scopes_inside(scope):
         # A method does not see the class body's locals, but does still see
@@ -533,6 +543,15 @@ def rebinds(trv, other):
     return answer, quirks.leaked()
 """,
         {"real"},
+    ),
+    (
+        "a name bound twice on one line",
+        """
+def rebinds_on_one_line(trv, other):
+    quirks = trv.model_quirks; quirks = other.unrelated
+    return quirks.leaked()
+""",
+        set(),
     ),
     (
         "a parameter shadowing the enclosing binding",
