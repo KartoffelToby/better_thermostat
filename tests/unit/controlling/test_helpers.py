@@ -742,7 +742,7 @@ class TestCheckCalibration:
 
         with (
             caplog.at_level(logging.WARNING, logger=_CTRL),
-            patch(f"{_CTRL}.get_current_offset", new=AsyncMock(return_value=-2.0)),
+            patch(f"{_CTRL}.get_current_offset", autospec=True, return_value=-2.0),
             sleep_patch,
         ):
             result = await check_calibration(mock_self, "climate.trv1")
@@ -759,7 +759,7 @@ class TestCheckCalibration:
         durations, sleep_patch = _sleep_recorder()
 
         with (
-            patch(f"{_CTRL}.get_current_offset", new=AsyncMock(return_value=-2.5)),
+            patch(f"{_CTRL}.get_current_offset", autospec=True, return_value=-2.5),
             sleep_patch,
         ):
             await check_calibration(mock_self, "climate.trv1")
@@ -778,7 +778,8 @@ class TestCheckCalibration:
             caplog.at_level(logging.WARNING, logger=_CTRL),
             patch(
                 f"{_CTRL}.get_current_offset",
-                new=AsyncMock(side_effect=lambda *_: reports.pop(0)),
+                autospec=True,
+                side_effect=lambda *_: reports.pop(0),
             ),
             sleep_patch,
         ):
@@ -801,7 +802,7 @@ class TestCheckCalibration:
 
         with (
             caplog.at_level(logging.WARNING, logger=_CTRL),
-            patch(f"{_CTRL}.get_current_offset", new=AsyncMock(return_value=-1.0)),
+            patch(f"{_CTRL}.get_current_offset", autospec=True, return_value=-1.0),
             sleep_patch,
         ):
             result = await check_calibration(mock_self, "climate.trv1")
@@ -821,7 +822,8 @@ class TestCheckCalibration:
             caplog.at_level(logging.WARNING, logger=_CTRL),
             patch(
                 f"{_CTRL}.get_current_offset",
-                new=AsyncMock(return_value="not-a-number"),
+                autospec=True,
+                return_value="not-a-number",
             ),
             sleep_patch,
         ):
@@ -839,7 +841,7 @@ class TestCheckCalibration:
         durations, sleep_patch = _sleep_recorder()
 
         with (
-            patch(f"{_CTRL}.get_current_offset", new=AsyncMock(return_value=-1.0)),
+            patch(f"{_CTRL}.get_current_offset", autospec=True, return_value=-1.0),
             sleep_patch,
         ):
             result = await check_calibration(mock_self, "climate.trv1")
@@ -855,7 +857,7 @@ class TestCheckCalibration:
         durations, sleep_patch = _sleep_recorder()
 
         with (
-            patch(f"{_CTRL}.get_current_offset", new=AsyncMock(return_value=-1.0)),
+            patch(f"{_CTRL}.get_current_offset", autospec=True, return_value=-1.0),
             sleep_patch,
         ):
             await check_calibration(mock_self, "climate.trv1")
@@ -887,7 +889,7 @@ class TestCheckCalibration:
         """A cancelled watchdog leaves the offset channel writable."""
         mock_self = self._mock_self()
 
-        with patch(f"{_CTRL}.get_current_offset", new=AsyncMock(return_value=0.0)):
+        with patch(f"{_CTRL}.get_current_offset", autospec=True, return_value=0.0):
             task = asyncio.create_task(check_calibration(mock_self, "climate.trv1"))
             await asyncio.sleep(0)
             await asyncio.sleep(0)
@@ -911,7 +913,7 @@ class TestCheckCalibrationGeneration:
 
         with (
             caplog.at_level(logging.WARNING, logger=_CTRL),
-            patch(f"{_CTRL}.get_current_offset", new=AsyncMock(return_value=-3.0)),
+            patch(f"{_CTRL}.get_current_offset", autospec=True, return_value=-3.0),
             sleep_patch,
         ):
             result = await check_calibration(mock_self, "climate.trv1", 1)
@@ -950,7 +952,7 @@ class TestCheckCalibrationGeneration:
         _, sleep_patch = _sleep_recorder()
 
         with (
-            patch(f"{_CTRL}.get_current_offset", new=AsyncMock(return_value=-3.0)),
+            patch(f"{_CTRL}.get_current_offset", autospec=True, return_value=-3.0),
             sleep_patch,
         ):
             result = await check_calibration(mock_self, "climate.trv1", 2)

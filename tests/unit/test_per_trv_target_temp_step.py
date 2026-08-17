@@ -107,8 +107,10 @@ async def _run_startup(bt, trv_state):
     )
     bt.hass.states.get.return_value = trv_state
     with (
-        patch("custom_components.better_thermostat.climate.init", AsyncMock()),
-        patch("custom_components.better_thermostat.climate.initial_tweak", AsyncMock()),
+        patch("custom_components.better_thermostat.climate.init", autospec=True),
+        patch(
+            "custom_components.better_thermostat.climate.initial_tweak", autospec=True
+        ),
         patch(
             "custom_components.better_thermostat.climate.control_trv",
             AsyncMock(return_value=True),

@@ -768,9 +768,10 @@ class TestInitializeTrvCurrentTemperature:
 
     async def _run(self, bt):
         with (
-            patch("custom_components.better_thermostat.climate.init", AsyncMock()),
+            patch("custom_components.better_thermostat.climate.init", autospec=True),
             patch(
-                "custom_components.better_thermostat.climate.initial_tweak", AsyncMock()
+                "custom_components.better_thermostat.climate.initial_tweak",
+                autospec=True,
             ),
             patch(
                 "custom_components.better_thermostat.climate.control_trv",
