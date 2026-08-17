@@ -1154,3 +1154,67 @@ class TestUnknownCoolTargetSeed:
         assert mock_bt.bt_target_temp == 20.0
         mock_bt.control_queue_task.put.assert_awaited_once()
         mock_bt._seed_cool_target.assert_not_called()
+
+
+class TestDualRoleEntityReports:
+    """Reports from a cooler that is also one of the controlled thermostats.
+
+    Such a device reports into the TRV handler, which owns every reading this
+    one takes. Adopting here as well would read the heating channel's own
+    write as a press on the cooler's controls.
+    """
+
+    @pytest.mark.asyncio
+    async def test_a_shared_entity_report_is_declined_by_the_cooler_handler(
+        self, mock_bt
+    ):
+        """The heating channel's write does not pull the cool target down.
+
+        The device is holding the minimum setpoint the heating channel wrote to
+        switch it off. Read as a cooling press, that value drags the cooling
+        target down to one step above the heating one, which is the cooling
+        target sliding towards the minimum by itself.
+        """
+        mock_bt.real_trvs = {ENTITY_ID: MagicMock()}
+        mock_bt.bt_target_cooltemp = 23.0
+        mock_bt.bt_target_temp = 20.0
+        old_state = _make_state(attributes={"temperature": 23.0})
+        new_state = _make_state(state_str="heat", attributes={"temperature": 5.0})
+        event = _make_event(mock_bt, new_state=new_state, old_state=old_state)
+
+        await trigger_cooler_change(mock_bt, event)
+
+        assert mock_bt.bt_target_cooltemp == 23.0
+        assert mock_bt.bt_target_temp == 20.0
+        mock_bt.control_queue_task.put.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_a_shared_entity_report_does_not_seed_the_cool_target_either(
+        self, mock_bt
+    ):
+        """An unknown cool target is not filled from the heating channel's write."""
+        mock_bt.real_trvs = {ENTITY_ID: MagicMock()}
+        mock_bt.bt_target_cooltemp = None
+        mock_bt.bt_target_temp = 20.0
+        new_state = _make_state(state_str="heat", attributes={"temperature": 5.0})
+        event = _make_event(mock_bt, new_state=new_state, old_state=new_state)
+
+        await trigger_cooler_change(mock_bt, event)
+
+        assert mock_bt.bt_target_cooltemp is None
+        mock_bt._seed_cool_target.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_a_distinct_cooler_report_is_adopted(self, mock_bt):
+        """A cooler of its own is untouched by the dual-role handling."""
+        mock_bt.real_trvs = {"climate.radiator": MagicMock()}
+        mock_bt.bt_target_cooltemp = 25.0
+        mock_bt.bt_target_temp = 20.0
+        old_state = _make_state(attributes={"temperature": 25.0})
+        new_state = _make_state(attributes={"temperature": 23.0})
+        event = _make_event(mock_bt, new_state=new_state, old_state=old_state)
+
+        await trigger_cooler_change(mock_bt, event)
+
+        assert mock_bt.bt_target_cooltemp == 23.0
+        mock_bt.control_queue_task.put.assert_awaited_once()

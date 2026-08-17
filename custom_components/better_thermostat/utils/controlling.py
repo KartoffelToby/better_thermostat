@@ -32,7 +32,9 @@ from custom_components.better_thermostat.utils.helpers import (
     SETPOINT_MATCH_TOLERANCE,
     attr_to_celsius,
     convert_to_float,
+    cooling_owns_dual_role_device,
     device_offers_mode,
+    dual_role_entity_id,
     get_current_set_temperatures,
     matches_any_setpoint,
     read_setpoint_celsius,
@@ -173,6 +175,38 @@ class TaskManager:
         return task
 
 
+def advance_hvac_action(self) -> None:
+    """Recompute the heating action and commit its hysteresis state.
+
+    The heating action and the hysteresis band behind it advance once per
+    control cycle. Every dispatched device advances them, and a cycle that
+    dispatches none advances them itself, so the band never rests on the state
+    an earlier cycle left it in. The recompute is non-critical: a cycle that
+    cannot take it goes on to the device writes rather than failing, so the
+    traceback is the only trace a band that stops advancing leaves behind.
+
+    Parameters
+    ----------
+    self : BetterThermostat
+        The Better Thermostat climate entity instance
+    """
+    try:
+        # Preserve old action for change detection if attributes exist
+        if hasattr(self, "attr_hvac_action"):
+            self.old_attr_hvac_action = getattr(self, "attr_hvac_action", None)
+        # Recompute current hvac action (uses internal climate logic)
+        if hasattr(self, "_compute_hvac_action_pure"):
+            result = self._compute_hvac_action_pure()
+            self._commit_hvac_action(result)
+            self.attr_hvac_action = result.action
+    except Exception:
+        _LOGGER.debug(
+            "better_thermostat %s: hvac action recompute failed (non critical)",
+            getattr(self, "device_name", "unknown"),
+            exc_info=True,
+        )
+
+
 async def control_queue(self):
     """Process control commands from the queue and coordinate TRV control.
 
@@ -229,6 +263,7 @@ async def control_queue(self):
                         )
 
                     # Handle cooler logic once per cycle
+                    _cooler_pass_completed = False
                     if self.cooler_entity_id is not None:
                         try:
                             await control_cooler(self)
@@ -237,11 +272,41 @@ async def control_queue(self):
                                 "better_thermostat %s: ERROR controlling cooler",
                                 self.device_name,
                             )
+                        else:
+                            _cooler_pass_completed = True
 
-                    # Create tasks for all TRVs to run in parallel
+                    # Create tasks for all TRVs to run in parallel. A device
+                    # that carries both roles takes one mode and one setpoint,
+                    # so the heating channel stands down for the cycles the
+                    # cooling channel drives it. A cooling pass that raised left
+                    # no decision to read, and the permissive default is the
+                    # heating channel keeping the device.
+                    _shared_entity_id = dual_role_entity_id(self)
+                    _cooling_owns_shared = (
+                        _shared_entity_id is not None
+                        and _cooler_pass_completed
+                        and cooling_owns_dual_role_device(self, _shared_entity_id)
+                    )
                     tasks = []
+                    controlled_trvs = []
                     for trv in self.real_trvs.keys():
+                        if _cooling_owns_shared and trv == _shared_entity_id:
+                            _LOGGER.debug(
+                                "better_thermostat %s: %s is driven by the cooling "
+                                "channel this cycle, leaving the heating channel out",
+                                self.device_name,
+                                trv,
+                            )
+                            continue
+                        controlled_trvs.append(trv)
                         tasks.append(control_trv(self, trv))
+
+                    if _cooling_owns_shared and not tasks:
+                        # The heating action and its hysteresis are advanced
+                        # inside control_trv, so a cycle whose only device went
+                        # to the cooling channel advances them here instead of
+                        # leaving the band on the state the previous cycle left.
+                        advance_hvac_action(self)
 
                     # Run all TRV controls in parallel
                     results = await asyncio.gather(*tasks, return_exceptions=True)
@@ -249,7 +314,7 @@ async def control_queue(self):
                     result = True
                     for i, res in enumerate(results):
                         if isinstance(res, Exception):
-                            trv_id = list(self.real_trvs.keys())[i]
+                            trv_id = controlled_trvs[i]
                             _LOGGER.error(
                                 "better_thermostat %s: ERROR controlling TRV %s: %s",
                                 self.device_name,
@@ -354,7 +419,7 @@ async def control_cooler(self):
     cooling when the temperature falls back below the cooling target — or below the
     cooling target minus the width ``COOLER_MODE_HYSTERESIS_K`` borrows from
     underneath it whenever the tolerance is narrower than that minimum band — or
-    when BT HVAC mode is OFF.
+    when BT HVAC mode is OFF, or while a window or door contact is open.
     """
     # Get current cooler state to avoid sending redundant commands
     cooler_state = self.hass.states.get(self.cooler_entity_id)
@@ -429,6 +494,14 @@ async def control_cooler(self):
         desired_mode = HVACMode.OFF
     elif self.bt_hvac_mode == HVACMode.OFF:
         desired_mode = HVACMode.OFF
+    elif self.contact_open:
+        # An open window or door suppresses the cooler for the same reason it
+        # suppresses the TRVs: the room cannot reach its target, so the unit
+        # would run against an unbounded load. On a device that carries both
+        # roles the decision is what hands it over, so a cooler left running
+        # here would also keep the heating channel — the only channel that
+        # switches a device off for an open contact — out of the cycle.
+        desired_mode = HVACMode.OFF
     else:
         # The tolerance delays the switch-on instead of advancing it: cooling
         # starts only once the room reaches cool_target + tolerance and then
@@ -475,9 +548,43 @@ async def control_cooler(self):
     # guard put it instead of on a stale value. Each of those guards stops the
     # cooler outright, so the run ends there and the way back in is the
     # switch-on edge — the same contract the heating hysteresis in
-    # compute_hvac_action applies to its own guards, where a missing reading and
-    # a mode of OFF each return the band to IDLE.
+    # compute_hvac_action applies to the same three guards, where a missing
+    # reading, an open contact and a mode of OFF each return the band to IDLE.
     self.last_cooler_mode_decided = desired_mode
+
+    # A device that is also a controlled thermostat holds one mode and one
+    # setpoint for both channels. The decision above is what hands it over: the
+    # cooling channel writes it only while it wants to cool, and every other
+    # cycle belongs to the heating channel, which reaches the device through
+    # control_trv(). Standing down before the writes rather than sending OFF is
+    # what keeps the heating channel's mode and setpoint standing; the latch
+    # above is set first, so the band keeps both of its edges across the cycles
+    # the cooling channel sits out.
+    _shared_entity_id = dual_role_entity_id(self)
+    if _shared_entity_id is not None and desired_mode != HVACMode.COOL:
+        _LOGGER.debug(
+            "better_thermostat %s: %s is driven by the heating channel this "
+            "cycle, leaving the cooling channel out",
+            self.device_name,
+            _shared_entity_id,
+        )
+        # The heating channel overwrites the mode and the setpoint this cycle,
+        # so the send-cache no longer describes what the device holds. Dropping
+        # the timestamps keeps the resend throttle from suppressing the first
+        # write of the next cooling period as a repeat of one the heating
+        # channel has since replaced.
+        self.last_sent_cooler_temp_ts = None
+        self.last_sent_cooler_hvac_mode_ts = None
+        return
+
+    if _shared_entity_id is not None:
+        # The heating channel's pending confirmations wait on a setpoint and a
+        # mode this cycle supersedes, and while they are outstanding the
+        # inbound handler declines every reported setpoint as unconfirmed.
+        # Taking the device over releases them.
+        _shared_trv = self.real_trvs[_shared_entity_id]
+        _shared_trv.target_temp_received = True
+        _shared_trv.system_mode_received = True
 
     # Decide whether a temperature command is needed. When the current
     # temperature is unknown, only send if the desired value changed since the
@@ -554,6 +661,21 @@ async def control_cooler(self):
                 min_resend_interval_s,
             )
             should_send_temp = False
+
+    # An open contact suppresses the temperature channel alongside the mode,
+    # the way a suppressed TRV receives a mode command and no setpoint. The
+    # unit is held OFF and converges on nothing, so a setpoint written now
+    # would only overwrite whatever the user turned its own dial to. Nothing
+    # is attempted, so the send cache records nothing either, and the channel
+    # resumes on the cycle the contact shuts.
+    if should_send_temp and self.contact_open:
+        _LOGGER.debug(
+            "better_thermostat %s: cooler %s suppressed by an open contact, "
+            "skipping set_temperature",
+            self.device_name,
+            self.cooler_entity_id,
+        )
+        should_send_temp = False
 
     if should_send_temp:
         _LOGGER.debug(
@@ -689,20 +811,7 @@ async def control_trv(self, heater_entity_id=None):
     async with self._temp_lock:
         self.real_trvs[heater_entity_id].ignore_trv_states = True
         try:
-            try:
-                # Preserve old action for change detection if attributes exist
-                if hasattr(self, "attr_hvac_action"):
-                    self.old_attr_hvac_action = getattr(self, "attr_hvac_action", None)
-                # Recompute current hvac action (uses internal climate logic)
-                if hasattr(self, "_compute_hvac_action_pure"):
-                    result = self._compute_hvac_action_pure()
-                    self._commit_hvac_action(result)
-                    self.attr_hvac_action = result.action
-            except Exception:
-                _LOGGER.debug(
-                    "better_thermostat %s: hvac action recompute failed (non critical)",
-                    getattr(self, "device_name", "unknown"),
-                )
+            advance_hvac_action(self)
             _trv = self.hass.states.get(heater_entity_id)
 
             # Check if TRV is available before attempting to control it
@@ -724,8 +833,22 @@ async def control_trv(self, heater_entity_id=None):
                 self, _trv, "controlling()"
             )
 
+            # HEAT_COOL is the mode a room with a cooler runs in, and it names
+            # a pair of targets Better Thermostat holds. A device that carries
+            # both roles and advertises heat_cool would take it as an
+            # instruction to run its own thermostat against its own pair, so
+            # the cycle in which the heating channel drives it names the
+            # heating role alone. Devices that advertise heat_cool without heat
+            # keep receiving heat_cool, because that is what mode_remap()
+            # translates HEAT into for them.
+            _outbound_mode = self.bt_hvac_mode
+            if (
+                _outbound_mode == HVACMode.HEAT_COOL
+                and heater_entity_id == dual_role_entity_id(self)
+            ):
+                _outbound_mode = HVACMode.HEAT
             _remapped_states = convert_outbound_states(
-                self, heater_entity_id, self.bt_hvac_mode
+                self, heater_entity_id, _outbound_mode
             )
             if not isinstance(_remapped_states, dict):
                 _LOGGER.warning(

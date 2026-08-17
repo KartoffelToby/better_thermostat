@@ -2001,6 +2001,123 @@ class TestGroupedTrvCalibration:
             assert mock_bt_grouped.real_trvs[entity_id].calibration_received is False
 
 
+class TestControlTrvOnADualRoleEntity:
+    """The outbound mode a device that carries both roles receives.
+
+    HEAT_COOL is the mode a room with a cooler runs in, and it names a pair of
+    targets Better Thermostat holds. Handing that mode to a device that can act
+    on both sides of it hands the room to that device's own thermostat.
+    """
+
+    SHARED_ID = "climate.reversible_ac"
+
+    @classmethod
+    def _make_shared_self(cls, device_modes, *, heat_auto_swapped=False):
+        """Build a mock whose cooler is also the controlled thermostat."""
+        trv = Trv.from_legacy_dict(
+            cls.SHARED_ID,
+            {
+                "ignore_trv_states": False,
+                "hvac_modes": device_modes,
+                "min_temp": 16.0,
+                "max_temp": 30.0,
+                "temperature": 21.0,
+                "last_temperature": 21.0,
+                "last_hvac_mode": HVACMode.HEAT,
+                "current_temperature": 19.0,
+                "hvac_mode": HVACMode.HEAT,
+                "advanced": {
+                    "calibration_mode": CalibrationMode.NO_CALIBRATION,
+                    "calibration": CalibrationType.TARGET_TEMP_BASED,
+                    "no_off_system_mode": False,
+                    "heat_auto_swapped": heat_auto_swapped,
+                },
+            },
+        )
+        # The device reports OFF, so every candidate outbound mode differs
+        # from it and reaches set_hvac_mode where the test can read it.
+        mock_self = _make_mock_self(
+            trv_state=HVACMode.OFF,
+            trv_attrs={"temperature": 21.0},
+            real_trvs={cls.SHARED_ID: trv},
+            bt_hvac_mode=HVACMode.HEAT_COOL,
+            cooler_entity_id=cls.SHARED_ID,
+            bt_target_temp=21.0,
+        )
+        return mock_self
+
+    @staticmethod
+    async def _outbound_system_mode(mock_self, entity_id):
+        """Run one control_trv cycle and return the mode it wrote out."""
+        with (
+            patch(
+                _PATCHES["handle_contact_open"],
+                side_effect=lambda _s, r: r.get("system_mode"),
+            ),
+            patch(
+                _PATCHES["override_set_hvac_mode"], new=AsyncMock(return_value=False)
+            ),
+            patch(
+                _PATCHES["override_set_temperature"], new=AsyncMock(return_value=False)
+            ),
+            patch(_PATCHES["set_hvac_mode"], new=AsyncMock()) as mock_set_hvac,
+            patch(_PATCHES["set_temperature"], new=AsyncMock()),
+            patch(_PATCHES["set_valve"], new=AsyncMock()),
+            patch("asyncio.sleep", new=AsyncMock()),
+        ):
+            await control_trv(mock_self, entity_id)
+            if not mock_set_hvac.await_args_list:
+                return None
+            return mock_set_hvac.await_args_list[-1].args[2]
+
+    @pytest.mark.asyncio
+    async def test_dual_role_entity_is_sent_heat_not_heat_cool(self):
+        """An air conditioner that advertises heat_cool receives heat.
+
+        Its own thermostat would otherwise run the room against its own pair of
+        setpoints for the whole cycle the heating channel owns it.
+        """
+        mock_self = self._make_shared_self(
+            [HVACMode.OFF, HVACMode.HEAT, HVACMode.COOL, HVACMode.HEAT_COOL]
+        )
+
+        assert await self._outbound_system_mode(mock_self, self.SHARED_ID) == (
+            HVACMode.HEAT
+        )
+
+    @pytest.mark.asyncio
+    async def test_a_heat_cool_only_device_is_still_sent_heat_cool(self):
+        """A device without a heat mode keeps the translation it depends on."""
+        mock_self = self._make_shared_self([HVACMode.OFF, HVACMode.HEAT_COOL])
+
+        assert await self._outbound_system_mode(mock_self, self.SHARED_ID) == (
+            HVACMode.HEAT_COOL
+        )
+
+    @pytest.mark.asyncio
+    async def test_heat_auto_swapped_is_still_honoured_for_a_dual_role_entity(self):
+        """The quirk that maps heat onto auto still reaches the device."""
+        mock_self = self._make_shared_self(
+            [HVACMode.OFF, HVACMode.AUTO], heat_auto_swapped=True
+        )
+
+        assert await self._outbound_system_mode(mock_self, self.SHARED_ID) == (
+            HVACMode.AUTO
+        )
+
+    @pytest.mark.asyncio
+    async def test_a_distinct_trv_still_receives_the_raw_mode(self):
+        """A radiator that is not the cooler receives the mode BT holds."""
+        mock_self = self._make_shared_self(
+            [HVACMode.OFF, HVACMode.HEAT, HVACMode.COOL, HVACMode.HEAT_COOL]
+        )
+        mock_self.cooler_entity_id = "climate.split_unit"
+
+        assert await self._outbound_system_mode(mock_self, self.SHARED_ID) == (
+            HVACMode.HEAT_COOL
+        )
+
+
 # ---------------------------------------------------------------------------
 # Calibration write gate: intent, command and the device's report
 # ---------------------------------------------------------------------------

@@ -4,6 +4,7 @@ Tests for:
 - handle_contact_open()
 - check_system_mode()
 - check_target_temperature()
+- advance_hvac_action()
 - check_calibration()
 
 Absorbed tests from:
@@ -12,6 +13,8 @@ Absorbed tests from:
 
 import asyncio
 from contextlib import contextmanager
+import logging
+import traceback
 from unittest.mock import AsyncMock, MagicMock, Mock, patch
 
 from homeassistant.components.climate.const import ClimateEntityFeature, HVACMode
@@ -27,6 +30,7 @@ from custom_components.better_thermostat.utils.controlling import (
     WRITE_CONFIRM_TIMEOUT_S,
     _calibration_match_tolerance,
     _get_valve_control,
+    advance_hvac_action,
     check_calibration,
     check_system_mode,
     check_target_temperature,
@@ -725,6 +729,59 @@ class TestGetValveControlBoostMaxOpening:
 
 
 # ---------------------------------------------------------------------------
+# advance_hvac_action
+# ---------------------------------------------------------------------------
+
+
+class TestAdvanceHvacAction:
+    """The per-cycle advance of the heating action and its hysteresis band."""
+
+    @staticmethod
+    def _mock_self():
+        """Build a stand-in entity whose recompute raises.
+
+        Returns
+        -------
+        Mock
+            an entity whose ``_compute_hvac_action_pure`` raises a ValueError
+        """
+        mock_self = Mock()
+        mock_self.device_name = "test_thermostat"
+        mock_self._compute_hvac_action_pure.side_effect = ValueError("no snapshot")
+        return mock_self
+
+    def test_a_failing_recompute_carries_its_traceback_into_the_log(self, caplog):
+        """The swallowed exception and its frames reach the reporting record.
+
+        The cycle goes on to the device writes, so a band that stops advancing
+        shows up as a heating action that no longer moves and nothing else. The
+        entry that reports the failure is the only place the cause can still be
+        read, and the frames are the half of it that names where the recompute
+        broke. An exception carried without its traceback still renders its own
+        message, so the type and the message alone do not pin them.
+        """
+        mock_self = self._mock_self()
+
+        with caplog.at_level(logging.DEBUG):
+            advance_hvac_action(mock_self)
+
+        records = [
+            record
+            for record in caplog.records
+            if "hvac action recompute failed" in record.getMessage()
+        ]
+        assert len(records) == 1
+        record = records[0]
+        assert record.exc_info is not None
+        assert isinstance(record.exc_info[1], ValueError)
+        assert record.exc_info[2] is not None
+        assert "advance_hvac_action" in [
+            frame.name for frame in traceback.extract_tb(record.exc_info[2])
+        ]
+        assert "Traceback (most recent call last)" in caplog.text
+        assert "no snapshot" in caplog.text
+
+
 # check_calibration
 # ---------------------------------------------------------------------------
 

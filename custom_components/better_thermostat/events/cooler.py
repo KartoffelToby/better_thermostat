@@ -14,6 +14,7 @@ from homeassistant.core import callback
 from custom_components.better_thermostat.utils.helpers import (
     COOLER_SETPOINT_KEYS,
     device_setpoint_step,
+    dual_role_entity_id,
     read_setpoint_celsius,
     resolve_inbound_setpoint,
     resolve_state_change_event,
@@ -40,6 +41,21 @@ async def trigger_cooler_change(self, event):
     _LOGGER.debug(
         "better_thermostat %s: Cooler %s update received", self.device_name, entity_id
     )
+
+    if entity_id == dual_role_entity_id(self):
+        # A device that carries both roles reports into the TRV handler, which
+        # takes every reading this one takes and files a reported setpoint
+        # under the channel that drives the device. Adopting here as well would
+        # read the heating channel's own write as a press on the cooler's
+        # controls.
+        _LOGGER.debug(
+            "better_thermostat %s: Cooler %s carries the heating channel as "
+            "well, its reports are handled there",
+            self.device_name,
+            entity_id,
+        )
+        self.async_write_ha_state()
+        return
 
     _main_change = False
     _step = device_setpoint_step(self, new_state, "trigger_cooler_change()")
