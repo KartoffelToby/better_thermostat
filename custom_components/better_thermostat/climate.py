@@ -2770,6 +2770,20 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
         self._commit_hvac_action(result)
         return result.action
 
+    def _cooler_previously_active(self) -> bool:
+        """Whether the cooling hysteresis band currently holds its hold edge.
+
+        Seeded the way ``control_cooler`` seeds it: the latched decision wins,
+        and the cooler's own reported mode stands in while Better Thermostat
+        has not decided a cooler mode of its own.
+        """
+        if self.cooler_entity_id is None:
+            return False
+        if self.last_cooler_mode_decided is not None:
+            return self.last_cooler_mode_decided == HVACMode.COOL
+        cooler_state = self.hass.states.get(self.cooler_entity_id)
+        return cooler_state is not None and cooler_state.state == HVACMode.COOL
+
     def _compute_hvac_action_pure(self):
         """Compute current HVAC action."""
         return compute_hvac_action(
@@ -2783,6 +2797,7 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
             tolerance=self.tolerance or 0.0,
             ignore_states=self.ignore_states,
             trv_snapshots=self._build_trv_snapshots(),
+            cool_previously_active=self._cooler_previously_active(),
             device_name=self.device_name,
         )
 

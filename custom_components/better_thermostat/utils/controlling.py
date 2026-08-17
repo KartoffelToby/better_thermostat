@@ -41,19 +41,11 @@ from custom_components.better_thermostat.utils.helpers import (
     supports_temperature_range,
 )
 from custom_components.better_thermostat.utils.hvac_action import (
+    COOLER_MODE_HYSTERESIS_K,
     should_cool_with_tolerance,
 )
 
 _LOGGER = logging.getLogger(__name__)
-
-# Minimum width of the cooling decision band. A tolerance narrower than this
-# leaves the room temperature resting on an edge, where it flips the decision —
-# and produces a write — on every control cycle; the missing width is taken
-# from below the cooling target to keep the switch-on edge where the tolerance
-# puts it. Two steps of a 0.1 °C room sensor, which is what the flip is made
-# of; and well under the 0.5 °C a cooling setpoint is set in, so the extra run
-# time the band costs is finer than the user can express in the target anyway.
-COOLER_MODE_HYSTERESIS_K = 0.2
 
 # How long a write channel waits for the device to confirm a command before it
 # releases the in-flight flag and accepts the next write. Shared by the system
