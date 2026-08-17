@@ -28,7 +28,7 @@ Or click this button to start directly:
 Before setting up a room, make sure you have these devices ready in Home Assistant:
 
 - **A smart radiator valve or thermostat** (required)
-- **A separate room temperature sensor** (strongly recommended: the sensor inside the radiator valve sits too close to the heat source to read the room)
+- **A separate room temperature sensor** (required: the sensor inside the radiator valve sits too close to the heat source to read the room, and the setup form will not let you finish without one)
 - *Optional:* A window sensor (to automatically pause heating when you air out the room)
 - *Optional:* A weather integration or outdoor temperature sensor (to stop heating when it's warm outside)
 

@@ -8,7 +8,7 @@ description: Pick the right control algorithm for your room behavior.
 - AI Time Based: the first choice for most homes.
 - Normal: stable and simple fallback.
 - Aggressive: faster warm-up, at the price of more overshoot.
-- MPC Predictive: lowest overshoot and lowest energy use.
+- MPC Predictive: aims at a steady arrival rather than a fast one.
 - PID Controller: responsive control with auto-tuning.
 - TPI Controller: simple proportional-time behaviour.
 

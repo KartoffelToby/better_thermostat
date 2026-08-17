@@ -22,7 +22,7 @@ Start here if you are unsure:
 
 ### Normal
 
-Normal mode uses your external temperature sensor to correct the TRV's internal sensor. The TRV reads the actual room temperature from your external sensor and adjusts accordingly.
+Normal mode uses your external temperature sensor to correct the TRV's internal one. Better Thermostat compares the two readings and sends the TRV an offset, or a setpoint that already carries the difference; the TRV keeps running on its own sensor and never sees yours.
 
 It is simple, reliable, works with most TRVs and costs almost nothing to run. In exchange it does not optimise for efficiency and does not adapt to the room.
 
@@ -61,7 +61,7 @@ MPC (Model Predictive Control) predicts how your room temperature will change ov
 
 From that prediction it picks the correction that reaches your target smoothly instead of driving hard and correcting afterward, and it keeps updating the model as the room behaves. With direct valve control that correction is a valve opening; without it, the correction reaches the valve through the setpoint the TRV sees.
 
-Of all the modes it is the best at avoiding overshoot and the most economical with energy. It is also the most complex, and it reacts deliberately rather than quickly, which can read as sluggish at first. Give it about a day of operation before judging it.
+It aims at arriving at the target rather than at arriving quickly, which is the whole point of predicting ahead. It is the most complex of the modes and it reacts deliberately rather than fast, which can read as sluggish at first. Give it about a day of operation before judging it.
 
 Pick it when you overshoot regularly, when efficiency matters more to you than reaction speed, and when your heating system itself is reasonably stable.
 
