@@ -16,18 +16,18 @@ through one of two **channels** depending on what the device supports:
   *target* it sends so the device's internal logic lands on the real
   room target.
 
-Both channels share one cascade — base value, controller contribution,
-per-mode adjustments, direction-aware rounding — and differ only in
+Both channels share one cascade (base value, controller contribution,
+per-mode adjustments, direction-aware rounding) and differ only in
 direction and reference values.
 
 ## The traits table
 
-Everything mode-specific is data, not branches: `MODE_TRAITS` maps each
-calibration mode to its traits — whether a controller (balance
-strategy) contributes, whether the tolerance band applies, whether
-post-adjustments run, and an optional per-mode adjustment hook that
-serves both channels through a `ChannelAdjustment` (direction, neutral
-reference, hold value, legacy fallback).
+Mode-specific behavior lives in data rather than branches.
+`MODE_TRAITS` maps each calibration mode to its traits: whether a
+controller (balance strategy) contributes, whether the tolerance band
+applies, whether post-adjustments run, and an optional per-mode
+adjustment hook that serves both channels through a `ChannelAdjustment`
+(direction, neutral reference, hold value, legacy fallback).
 
 | Mode | Controller | Tolerance band | Post-adjustments |
 |---|---|---|---|
@@ -39,16 +39,16 @@ reference, hold value, legacy fallback).
 
 Within the tolerance band (room between target − tolerance and target)
 the calibration holds its last value, but a controller keeps its valve
-data fresh — so leaving the band resumes from a current model, not a
-stale one.
+data fresh, so leaving the band resumes from a current model instead of
+a stale one.
 
 ## The controllers
 
 MPC, TPI, and PID are deterministic, state-threading helpers in
 `utils/calibration/`: `compute_*(input, params, state) -> (output,
 state')`, and standby paths such as `observe_standby()` update the
-passed state in place. Each strategy
-owns its state; the `StateManager` is the only persistence authority.
+passed state in place. Each strategy owns its state; the `StateManager`
+is the only persistence authority.
 The strategy layer (`BalanceStrategy`) wraps each computation behind
 the core `Calibrator` contract (observe / actuate / capability /
 health) for the eventual move into the core.
@@ -58,30 +58,31 @@ health) for the eventual move into the core.
 While heating is suppressed (open window, OFF, HOLD), **observe means
 tracking, never learning**:
 
-- the *entity-level* estimates (temperature EMA, slope) keep converging
-  — sensor events are processed regardless of window state,
+- the *entity-level* estimates (temperature EMA, slope) keep converging,
+  since sensor events are processed regardless of window state,
 - the controllers do not integrate error (no windup on the growing
   error of a cooling room: PID and TPI simply do not step),
-- MPC drops its in-flight learning interval — a half-heated interval
-  would teach the model that heating does not work — while the learned
+- MPC drops its in-flight learning interval (a half-heated interval
+  would teach the model that heating does not work) while the learned
   parameters survive,
 - re-entry resumes from held controller state plus fresh estimates,
   which is what makes the transfer bumpless.
 
 This contract is pinned as a named test
-(`tests/unit/test_standby_contract.py`); a regression in any layer
-reads as a standby-contract break, not as an unrelated unit failure.
+(`tests/unit/test_standby_contract.py`), so a regression in any layer
+reads as a standby-contract break rather than an unrelated unit failure.
 
-There is deliberately **no external readiness gate** in front of
-actuation: closed-loop learners bootstrap *through* actuation — an
-external "only actuate when ready" gate would prevent them from ever
-warming up. The controllers gate themselves (standby skips, gap resets,
+There is **no external readiness gate** in front of actuation:
+closed-loop learners bootstrap *through* actuation, and an external
+"only actuate when ready" gate would prevent them from ever warming
+up. The controllers gate themselves (standby skips, gap resets,
 warmup bootstrapping), and capability/health reporting is annunciation.
 
 ## Verifying changes
 
 Calibration is the most behavior-sensitive code in the project. Two
 nets pin it: the per-mode unit suites, and the seeded calibration
-benchmark — a pure thermal simulation across all controllers and ~37
-scenarios whose output is deterministic and therefore diffable. A refactoring of this code is
-proven by a byte-identical benchmark before and after.
+benchmark, a pure thermal simulation across all controllers and ~37
+scenarios whose output is deterministic and therefore diffable. A
+refactoring of this code is proven by a byte-identical benchmark before
+and after.

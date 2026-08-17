@@ -30,8 +30,9 @@ of the last 50 decision tuples; the **diagnostics download**
 diagnostics) exports it alongside the configuration and device states.
 
 `replay()` feeds an exported tuple back through the kernel and compares
-— a bug report's diagnostics file answers *why* Better Thermostat did
-what it did, deterministically, on the developer's machine. A
+the result, so a bug report's diagnostics file answers *why* Better
+Thermostat did what it did, deterministically, on the developer's
+machine. A
 completeness test forces every new field of the recorded types through
 the export/reconstruct round-trip, so the replay side cannot silently
 drift from the dataclasses.
@@ -43,10 +44,10 @@ Four nets with distinct failure modes they catch:
 1. **Pure unit tests** (`tests/unit/`, the bulk) — the core is HA-free,
    so the kernel, the regions, the safety hull, and the recorder are
    tested without mocks; the shell is tested against `MagicMock`
-   entities. The core is covered exhaustively — every branch of the
+   entities. The core is covered exhaustively: every branch of the
    decision path and every region transition has a test.
-2. **Integration tests** (`tests/integration/`) — a real config entry
-   against a real (simulated) climate entity in a real Home Assistant
+2. **Integration tests** (`tests/integration/`) — a config entry driving
+   a simulated climate entity inside a running Home Assistant
    instance. They exist because a control path that silently writes
    nothing keeps every unit test green: the assertions are the service
    calls that arrive at the device. Covered end to end: startup sync,
@@ -62,7 +63,6 @@ Four nets with distinct failure modes they catch:
    kernel change regenerates them (`BT_REGEN_GOLDENS=1`) and the diff
    shows exactly which decisions changed.
 
-Named contracts deserve named tests: the standby contract, the
-no-raw-dict-access guard, and the controller state-threading contract
-each live in their own file, so a regression reads as a broken contract
-rather than an incidental unit failure.
+The standby contract, the no-raw-dict-access guard, and the controller
+state-threading contract each live in their own file, so a regression
+reads as a broken contract rather than an incidental unit failure.

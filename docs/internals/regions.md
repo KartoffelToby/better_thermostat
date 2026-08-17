@@ -5,18 +5,17 @@ sidebar:
   order: 2
 ---
 
-Discrete concerns — is a window open, is maintenance running, which
-fail-soft rung rules — live in seven small, orthogonal state machines
-built from `core/fsm/`, collectively the **regions** of the
-`KernelState` (the door region is a second instance of the window
-machine).
-Two rules hold everywhere:
+Seven small, orthogonal state machines built from `core/fsm/` hold the
+discrete concerns: is a window open, is maintenance running, which
+fail-soft rung applies. Together they form the **regions** of the
+`KernelState`, and the door region is a second instance of the window
+machine. Two rules hold everywhere:
 
 1. **Regions gate, controllers compute.** A region decides *whether*
    heating may happen; the continuous controllers (PID/MPC/TPI) decide
    *how much*. The two never mix.
 2. **Regions never read each other's internals.** They compose through
-   their inputs and through the decision cascade's precedence — data
+   their inputs and through the decision cascade's precedence: data
    influence is allowed, state peeking is not.
 
 All regions are plain frozen dataclasses with pure transition
@@ -41,9 +40,9 @@ The *committed* phase rules the control law while a change is pending
 (`effective_open` is true in OPEN and CLOSING). The region owns the
 debounce timing: the queue handler sleeps exactly the remaining delay
 the region asks for, re-reads the sensor, and re-steps until no
-transition is pending — a delay reconfigured mid-flight changes the
-next sleep, and a sensor that reverted cancels the transition. With a
-delay of zero, the transition commits at the event itself.
+transition is pending. A delay reconfigured mid-flight changes the next
+sleep, and a sensor that reverted cancels the transition. With a delay
+of zero, the transition commits at the event itself.
 
 ## Door: a second window machine
 
@@ -62,8 +61,8 @@ stateDiagram-v2
     RUNNING --> IDLE: finished (reschedules)
 ```
 
-The invariant that motivated the region: **a maintenance run must never
-block control permanently.** `is_blocking()` stops honoring a RUNNING
+The region exists to guarantee one invariant: a maintenance run must
+never block control permanently. `is_blocking()` stops honoring a RUNNING
 phase once it exceeds the maximum runtime (one hour), and finishing a
 run always returns to IDLE. An open window or OFF mode postpones the
 schedule by an hour; without any maintenance-enabled TRV the next check
@@ -72,7 +71,7 @@ moves a week out.
 ## Lifecycle: startup, running, stopped
 
 INITIALISING → STARTING (grace) → RUNNING → STOPPING. While startup
-runs, `decide()` addresses no TRVs — the initial device sync happens
+runs, `decide()` addresses no TRVs; the initial device sync happens
 right after the startup-finished transition. The grace window also
 defers the degraded-mode warning so slow cloud integrations get time to
 come online before the user sees a repair issue.
@@ -87,18 +86,19 @@ cascade reads it; setting the mode on the entity advances the region.
 
 OPTIMAL → SENSOR_FALLBACK → HOLD. Downgrades commit after ~2 minutes of
 sustained capability loss; upgrades only after ~5 minutes of sustained
-recovery — hysteresis against flapping sensors. What each rung does is
-described under [Safety and degradation](/internals/safety-and-degradation/).
+recovery. The asymmetry is hysteresis against flapping sensors. What
+each rung does is described under
+[Safety and degradation](/internals/safety-and-degradation/).
 
 ## Reachability: per-TRV online/offline
 
 Tracks per TRV when it went offline and how often a retry was
-considered. Deliberately **diagnosis only**: in Home Assistant,
-availability is push-based — writing to an unavailable entity does
+considered. The region is diagnosis only. In Home Assistant,
+availability is push-based: writing to an unavailable entity does
 nothing, and the device's return triggers state events that resume
 control naturally. The region's value is the flight-recorder trail
-(`offline_since`, `retry_count`) when analyzing an outage. The actual
-effect is an address filter, not a cascade tier: unreachable TRVs are
-dropped from the commanded set and receive no intent (except while boost
+(`offline_since`, `retry_count`) when analyzing an outage. The effect on
+control is an address filter rather than a cascade tier: unreachable TRVs
+are dropped from the commanded set and receive no intent (except while boost
 heating is active, which keeps commanding so the TRV catches up the
 moment it returns).

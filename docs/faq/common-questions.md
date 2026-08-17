@@ -36,7 +36,7 @@ and radio-constrained devices; bursts of writes drain batteries and
 congest the radio network.
 
 A change that arrives inside that window is sent automatically as soon
-as the slot is free — at most 30 seconds later. Safety-relevant writes
+as the slot is free, at most 30 seconds later. Safety-relevant writes
 (frost protection, turning off, closing the valve) are sent immediately.
 
 If a write gets lost on the radio anyway, the periodic reconciliation

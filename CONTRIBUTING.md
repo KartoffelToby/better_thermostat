@@ -37,7 +37,7 @@ Assistant and performs the device writes.
 ### The core (`custom_components/better_thermostat/core/`)
 
 The core imports no Home Assistant code, performs no IO, and reads no
-clocks — time arrives inside its inputs. Its heart is one function:
+clocks; time arrives inside its inputs. Its heart is one function:
 
 ```text
 decide(snapshot, state) -> (desired, state')
@@ -48,10 +48,10 @@ decide(snapshot, state) -> (desired, state')
 - `desired.py` — `DesiredState` / `TrvDesired`: the intent per TRV
   (mode, setpoint, valve percent, offset). Intent, not commands.
 - `decide.py` — the precedence cascade: lifecycle & maintenance gate →
-  mode OFF → open window or door → call-for-heat → heating. Reachability is an address
-  filter applied across it (unreachable TRVs are dropped from the
-  commanded set), not a cascade tier. `decide()` never mutates its input
-  state; it returns a successor state.
+  mode OFF → open window or door → call-for-heat → heating. Reachability
+  is an address filter applied across it rather than a cascade tier;
+  unreachable TRVs are dropped from the commanded set. `decide()` never
+  mutates its input state, it returns a successor state.
 - `fsm/` — one small state machine per concern (*region*): `window`
   (debounced open/closed; instantiated twice, as the window and the door
   region), `maintenance` (valve exercise with a liveness
@@ -90,8 +90,8 @@ decide(snapshot, state) -> (desired, state')
 ### Control cycles: pulled, not polled
 
 A control cycle is one pass of `build_snapshot() → decide() → apply`.
-The snapshot is not a maintained cache — it is built fresh per cycle,
-so a decision always sees one coherent world; reactivity comes from
+The snapshot is built fresh per cycle rather than kept as a maintained
+cache, so a decision always sees one coherent world; reactivity comes from
 events, user actions, and the five-minute ticks each *requesting* a
 cycle (requests coalesce). A cycle writes only differences;
 safety-relevant writes go out immediately, everything else is spaced by
@@ -105,7 +105,7 @@ documented in depth under [docs/internals/](docs/internals/architecture.md)
 A new rule about *what should happen* (a gate, a precedence, a mode)
 belongs in the core: extend `decide()` or a region, with pure unit tests.
 New *device interaction* belongs in the shell behind the existing
-boundaries — writes go through the safety hull and the write budget, and
+boundaries. Writes go through the safety hull and the write budget, and
 cycles are requested through the scheduler. The shell applies intent; it
 does not second-guess the kernel after `decide()` ran.
 
