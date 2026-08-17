@@ -21,13 +21,17 @@ from ..utils.helpers import (
     find_valve_entity,
     get_device_model,
 )
-from .base import wait_for_calibration_entity_or_timeout
+from .base import AdapterCapabilities, wait_for_calibration_entity_or_timeout
 from .generic import (
     set_hvac_mode as generic_set_hvac_mode,
     set_temperature as generic_set_temperature,
 )
 
 _LOGGER = logging.getLogger(__name__)
+
+# Z-Wave JS: both channels ride on a discovered number entity, so each is
+# offered only for devices that expose one.
+CAPABILITIES = AdapterCapabilities(offset_write=True, valve_write=True)
 
 # Models whose valve is driven through a model quirk (Multilevel Switch command
 # class while in manufacturer-specific mode) rather than a writable number
@@ -245,22 +249,33 @@ async def set_valve(self, entity_id, valve):
         return
 
     valve_entity_id = self.real_trvs[entity_id].valve_position_entity
-    if valve_entity_id is None:
+    if not valve_entity_id:
         return
 
     # Scale the 0-100 % request onto the number entity's own min/max/step,
     # clamping both the incoming percentage and the quantized result so a
     # rounding step or an out-of-range input never leaves the entity's bounds.
+    # The step grid starts at the entity's minimum rather than at zero, so a
+    # non-zero minimum still yields a value the entity itself offers.
     valve_entity = self.hass.states.get(valve_entity_id)
-    if valve_entity is not None:
-        min_valve = float(str(valve_entity.attributes.get("min", 0)))
-        max_valve = float(str(valve_entity.attributes.get("max", 100)))
-        pct = max(0.0, min(100.0, valve))
-        valve = min_valve + (pct / 100.0) * (max_valve - min_valve)
-        step = float(str(valve_entity.attributes.get("step", 1)))
-        if step > 0:
-            valve = round(valve / step) * step
-        valve = max(min_valve, min(max_valve, valve))
+    if valve_entity is None:
+        _LOGGER.debug(
+            "better_thermostat %s: valve entity %s for %s reports no state, "
+            "so its bounds are unknown, skip adapter write",
+            self.device_name,
+            valve_entity_id,
+            entity_id,
+        )
+        return
+
+    min_valve = float(str(valve_entity.attributes.get("min", 0)))
+    max_valve = float(str(valve_entity.attributes.get("max", 100)))
+    pct = max(0.0, min(100.0, valve))
+    valve = min_valve + (pct / 100.0) * (max_valve - min_valve)
+    step = float(str(valve_entity.attributes.get("step", 1)))
+    if step > 0:
+        valve = min_valve + round((valve - min_valve) / step) * step
+    valve = max(min_valve, min(max_valve, valve))
 
     await self.hass.services.async_call(
         "number",
