@@ -103,11 +103,15 @@ def _thermostat(
     thermostat.hass = MagicMock()
     thermostat.hass.services.async_call = AsyncMock()
     thermostat.hass.config.units.temperature_unit = unit
-    thermostat.hass.states.get = lambda requested: (
-        State(VALVE_ENTITY, "0", {"min": minimum, "max": maximum, "step": step})
-        if requested == VALVE_ENTITY
-        else State(ENTITY_ID, "heat", {})
-    )
+    states = {
+        VALVE_ENTITY: State(
+            VALVE_ENTITY, "0", {"min": minimum, "max": maximum, "step": step}
+        ),
+        ENTITY_ID: State(ENTITY_ID, "heat", {}),
+    }
+    # Anything else is an entity the state machine does not know, which is
+    # what a stale discovery result looks like from in here.
+    thermostat.hass.states.get = states.get
     trv = Trv(entity_id=ENTITY_ID)
     trv.valve_position_entity = valve_entity
     trv.valve_position_writable = valve_writable
@@ -263,6 +267,21 @@ class TestTheValveWriteStaysInsideTheDeclaredBounds:
         address the empty string.
         """
         thermostat = _thermostat(valve_entity=valve_entity)
+
+        await ADAPTERS[name].set_valve(thermostat, ENTITY_ID, 50)
+
+        assert _calls(thermostat) == []
+
+    @pytest.mark.parametrize("name", VALVE_ADAPTERS)
+    @pytest.mark.asyncio
+    async def test_a_valve_entity_without_a_state_writes_nothing(self, name):
+        """An entity that reports nothing declares no bounds either.
+
+        Discovery can outlive the entity it found. The bounds come from
+        the state, so without one there is no range to land the write in
+        and the percentage would go out unscaled.
+        """
+        thermostat = _thermostat(valve_entity="number.no_longer_there")
 
         await ADAPTERS[name].set_valve(thermostat, ENTITY_ID, 50)
 
