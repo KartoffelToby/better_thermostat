@@ -215,23 +215,91 @@ def _is_a_quirk_module(node, holders=frozenset()):
     return False
 
 
-def _quirk_holding_names(tree):
-    """Local names in one file that hold a quirk module.
+NESTS_A_SCOPE = (ast.FunctionDef, ast.AsyncFunctionDef, ast.Lambda, ast.ClassDef)
+
+
+def _within_scope(node):
+    """Every node belonging to one scope, nested scopes excluded."""
+    for child in ast.iter_child_nodes(node):
+        if isinstance(child, NESTS_A_SCOPE):
+            continue
+        yield child
+        yield from _within_scope(child)
+
+
+def _scopes_inside(node):
+    """The scopes opened directly within one scope."""
+    for child in ast.iter_child_nodes(node):
+        if isinstance(child, NESTS_A_SCOPE):
+            yield child
+        else:
+            yield from _scopes_inside(child)
+
+
+def _quirk_holding_names(scope):
+    """Names bound to a quirk module in one scope, and where.
 
     The shell rarely dispatches on the module expression directly: it
     binds ``<trv>.model_quirks`` to a local first. A local bound from
     another local is not followed, so nothing derived from a dispatch's
     result is mistaken for the module.
     """
-    holders = set()
-    for node in ast.walk(tree):
+    holders = {}
+    for node in _within_scope(scope):
         if not isinstance(node, (ast.Assign, ast.AnnAssign)) or node.value is None:
             continue
         if not _is_a_quirk_module(node.value):
             continue
         targets = node.targets if isinstance(node, ast.Assign) else [node.target]
-        holders.update(target.id for target in targets if isinstance(target, ast.Name))
-    return frozenset(holders)
+        for target in targets:
+            if isinstance(target, ast.Name):
+                holders[target.id] = min(
+                    holders.get(target.id, node.lineno), node.lineno
+                )
+    return holders
+
+
+def _names_reached_for_in(scope, inherited, names):
+    """Collect one scope's quirk-module lookups, then its inner scopes.
+
+    Holders are resolved per scope rather than per file: ``quirks`` is an
+    ordinary local name, and one function's binding says nothing about
+    another's. An enclosing scope's binding stays visible, since a nested
+    function runs after it; a binding below the reference does not, since
+    the name does not hold a module yet where it is read.
+    """
+    holders = {**inherited, **_quirk_holding_names(scope)}
+
+    def reaches(node):
+        visible = frozenset(
+            name
+            for name, line in holders.items()
+            if line <= getattr(node, "lineno", 0) or name in inherited
+        )
+        return _is_a_quirk_module(node, visible)
+
+    for node in _within_scope(scope):
+        if isinstance(node, ast.Attribute):
+            if reaches(node.value):
+                names.add(node.attr)
+        elif isinstance(node, ast.ImportFrom):
+            if QUIRK_PACKAGE in (node.module or "").split("."):
+                names.update(alias.asname or alias.name for alias in node.names)
+        elif (
+            isinstance(node, ast.Call)
+            and isinstance(node.func, ast.Name)
+            and node.func.id in ("hasattr", "getattr")
+            and len(node.args) > 1
+            and isinstance(node.args[1], ast.Constant)
+            and isinstance(node.args[1].value, str)
+            and reaches(node.args[0])
+        ):
+            names.add(node.args[1].value)
+
+    for inner in _scopes_inside(scope):
+        # Line 0: an enclosing binding is in place wherever the nested
+        # scope runs, whatever line the reference sits on.
+        _names_reached_for_in(inner, dict.fromkeys(holders, 0), names)
 
 
 def _names_reached_for(path):
@@ -245,26 +313,8 @@ def _names_reached_for(path):
     module*: an attribute of one, the string a ``hasattr``/``getattr``
     looks up on one, or a name imported straight out of the package.
     """
-    tree = ast.parse(path.read_text())
-    holders = _quirk_holding_names(tree)
     names = set()
-    for node in ast.walk(tree):
-        if isinstance(node, ast.Attribute):
-            if _is_a_quirk_module(node.value, holders):
-                names.add(node.attr)
-        elif isinstance(node, ast.ImportFrom):
-            if QUIRK_PACKAGE in (node.module or "").split("."):
-                names.update(alias.asname or alias.name for alias in node.names)
-        elif (
-            isinstance(node, ast.Call)
-            and isinstance(node.func, ast.Name)
-            and node.func.id in ("hasattr", "getattr")
-            and len(node.args) > 1
-            and isinstance(node.args[1], ast.Constant)
-            and isinstance(node.args[1].value, str)
-            and _is_a_quirk_module(node.args[0], holders)
-        ):
-            names.add(node.args[1].value)
+    _names_reached_for_in(ast.parse(path.read_text()), {}, names)
     return names
 
 
