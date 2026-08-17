@@ -40,6 +40,7 @@ def bt():
     mock.door_id = None
     mock.outdoor_sensor = None
     mock.weather_entity = None
+    mock.cooler_entity_id = None
     mock.unavailable_sensors = []
     mock._degraded_warning_emitted = False
     mock.in_maintenance = False

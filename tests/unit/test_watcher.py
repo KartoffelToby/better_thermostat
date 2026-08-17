@@ -52,6 +52,8 @@ def mock_bt_instance(mock_hass):
     # MagicMock would auto-create a truthy attribute; the default fixture has
     # no door sensor configured.
     bt.door_id = None
+    # Same reason as door_id: the default fixture has no cooler configured.
+    bt.cooler_entity_id = None
     bt.humidity_sensor_entity_id = "sensor.humidity"
     bt.outdoor_sensor = "sensor.outdoor_temp"
     bt.weather_entity = "weather.home"
@@ -207,6 +209,40 @@ class TestGetOptionalSensors:
 
         assert "binary_sensor.door" in result
         assert len(result) == 5
+
+    def test_includes_the_cooler_when_configured(self, mock_bt_instance):
+        """A configured cooler is watched like the optional sensors.
+
+        The heating side keeps running while the cooler is gone, so
+        degraded mode is the only thing that surfaces the outage.
+        """
+        from custom_components.better_thermostat.utils.watcher import (
+            get_optional_sensors,
+        )
+
+        mock_bt_instance.cooler_entity_id = "climate.ac"
+
+        result = get_optional_sensors(mock_bt_instance)
+
+        assert "climate.ac" in result
+        assert len(result) == 5
+
+    def test_excludes_the_cooler_when_not_configured(self, mock_bt_instance):
+        """Without a cooler the optional list stays unchanged."""
+        from custom_components.better_thermostat.utils.watcher import (
+            get_optional_sensors,
+        )
+
+        mock_bt_instance.cooler_entity_id = None
+
+        result = get_optional_sensors(mock_bt_instance)
+
+        assert result == [
+            "binary_sensor.window",
+            "sensor.humidity",
+            "sensor.outdoor_temp",
+            "weather.home",
+        ]
 
 
 class TestGetCriticalEntities:
@@ -812,6 +848,137 @@ class TestDegradedModeGracePeriod:
                 await check_and_update_degraded_mode(mock_bt_instance)
 
         assert not any("Entering degraded mode" in r.message for r in caplog.records)
+        assert not mock_ir.async_create_issue.called
+
+
+class TestCoolerDegradedMode:
+    """A cooler that goes unavailable is annunciated as degraded mode.
+
+    Losing the cooler leaves the heating side running, so nothing else in
+    the system reacts to the outage.
+    """
+
+    COOLER = "climate.ac"
+
+    @staticmethod
+    def _arm_grace(bt, delta):
+        """Set the degraded-mode grace deadline to ``now + delta``."""
+        bt.kernel_state = replace(
+            bt.kernel_state,
+            lifecycle=LifecycleState(
+                phase=LifecyclePhase.STARTING, grace_until=bt.clock.now() + delta
+            ),
+        )
+
+    @staticmethod
+    def _only_dead(unavailable_id):
+        """Build a states.get side effect where one entity is unavailable."""
+
+        def mock_get(entity_id):
+            state = MagicMock()
+            state.state = "unavailable" if entity_id == unavailable_id else "20.0"
+            return state
+
+        return mock_get
+
+    @pytest.mark.asyncio
+    async def test_dead_cooler_enters_degraded_mode(self, mock_bt_instance, caplog):
+        """The outage raises the same WARNING repair as an optional sensor."""
+        from datetime import timedelta
+
+        from custom_components.better_thermostat.utils.watcher import (
+            check_and_update_degraded_mode,
+        )
+
+        mock_bt_instance.cooler_entity_id = self.COOLER
+        mock_bt_instance.hass.states.get.side_effect = self._only_dead(self.COOLER)
+        self._arm_grace(mock_bt_instance, timedelta(minutes=-1))
+
+        with patch("custom_components.better_thermostat.utils.watcher.ir") as mock_ir:
+            with caplog.at_level("WARNING"):
+                result = await check_and_update_degraded_mode(mock_bt_instance)
+
+        assert result is True
+        assert self.COOLER in mock_bt_instance.unavailable_sensors
+        assert any("Entering degraded mode" in r.message for r in caplog.records)
+        kwargs = mock_ir.async_create_issue.call_args.kwargs
+        assert kwargs["issue_id"] == "degraded_mode_Test Thermostat"
+        assert kwargs["severity"] is mock_ir.IssueSeverity.WARNING
+
+    @pytest.mark.asyncio
+    async def test_dead_cooler_is_silent_during_the_grace_window(
+        self, mock_bt_instance, caplog
+    ):
+        """The startup grace window defers the annunciation, as for the sensors."""
+        from datetime import timedelta
+
+        from custom_components.better_thermostat.utils.watcher import (
+            check_and_update_degraded_mode,
+        )
+
+        mock_bt_instance.cooler_entity_id = self.COOLER
+        mock_bt_instance.hass.states.get.side_effect = self._only_dead(self.COOLER)
+        self._arm_grace(mock_bt_instance, timedelta(minutes=5))
+
+        with patch("custom_components.better_thermostat.utils.watcher.ir") as mock_ir:
+            with caplog.at_level("WARNING"):
+                result = await check_and_update_degraded_mode(mock_bt_instance)
+
+        assert result is True
+        assert self.COOLER in mock_bt_instance.unavailable_sensors
+        assert not any("Entering degraded mode" in r.message for r in caplog.records)
+        assert not mock_ir.async_create_issue.called
+        assert mock_bt_instance._degraded_warning_emitted is False
+
+    @pytest.mark.asyncio
+    async def test_recovered_cooler_clears_the_repair_issue(
+        self, mock_bt_instance, caplog
+    ):
+        """A cooler that comes back leaves degraded mode and deletes the issue."""
+        from custom_components.better_thermostat.utils.watcher import (
+            check_and_update_degraded_mode,
+        )
+
+        mock_bt_instance.cooler_entity_id = self.COOLER
+        available = MagicMock()
+        available.state = "cool"
+        mock_bt_instance.hass.states.get.return_value = available
+        mock_bt_instance._degraded_warning_emitted = True
+
+        with patch("custom_components.better_thermostat.utils.watcher.ir") as mock_ir:
+            with caplog.at_level("INFO"):
+                result = await check_and_update_degraded_mode(mock_bt_instance)
+
+        assert result is False
+        assert mock_bt_instance.unavailable_sensors == []
+        assert any("Exiting degraded mode" in r.message for r in caplog.records)
+        assert (
+            mock_ir.async_delete_issue.call_args.args[-1]
+            == "degraded_mode_Test Thermostat"
+        )
+        assert mock_bt_instance._degraded_warning_emitted is False
+
+    @pytest.mark.asyncio
+    async def test_dead_cooler_is_not_a_critical_entity(self, mock_bt_instance):
+        """The cooler stays out of the repair path that reports lost control.
+
+        ``check_critical_entities`` reads the TRVs only; a dead cooler
+        neither fails that check nor raises a ``missing_entity`` repair.
+        """
+        from custom_components.better_thermostat.utils.watcher import (
+            check_critical_entities,
+            get_critical_entities,
+        )
+
+        mock_bt_instance.cooler_entity_id = self.COOLER
+        mock_bt_instance.hass.states.get.side_effect = self._only_dead(self.COOLER)
+
+        assert self.COOLER not in get_critical_entities(mock_bt_instance)
+
+        with patch("custom_components.better_thermostat.utils.watcher.ir") as mock_ir:
+            result = await check_critical_entities(mock_bt_instance)
+
+        assert result is True
         assert not mock_ir.async_create_issue.called
 
 
