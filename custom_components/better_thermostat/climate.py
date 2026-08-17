@@ -21,7 +21,6 @@ from homeassistant.components.climate.const import (
     ATTR_MIN_TEMP,
     ATTR_TARGET_TEMP_HIGH,
     ATTR_TARGET_TEMP_LOW,
-    ATTR_TARGET_TEMP_STEP,
     PRESET_ACTIVITY,
     PRESET_AWAY,
     PRESET_BOOST,
@@ -147,6 +146,7 @@ from .utils.helpers import (
     is_reasonable_temperature,
     normalize_hvac_mode,
     normalize_step,
+    reported_setpoint_step_celsius,
     resolve_inbound_setpoint,
     state_temperature_unit,
 )
@@ -326,20 +326,15 @@ def _target_temp_step_celsius(
 ) -> float | None:
     """Read a child's own setpoint step and return it as a Celsius delta.
 
-    A child publishes its step in its own unit, so a Fahrenheit child's step is
-    scaled as a temperature difference (5/9) rather than run through the
-    absolute Fahrenheit-to-Celsius conversion.
+    ``None`` stays ``None``: a child that publishes no convertible step
+    contributes nothing, which is what lets the callers tell "no child told us
+    anything" apart from a step that was read off a child. The positive-step
+    fallback that ``device_setpoint_step`` applies on top of the same rule is
+    deliberately not applied here.
     """
-    attributes = state.attributes if state is not None else {}
-    raw_step = attributes.get(ATTR_TARGET_TEMP_STEP)
-    if raw_step is None:
-        return None
-    step = convert_to_float(str(raw_step), device_name, "_target_temp_step_celsius")
-    if step is None:
-        return None
-    if state_temperature_unit(attributes, system_unit) == UnitOfTemperature.FAHRENHEIT:
-        return round(step * 5.0 / 9.0, 4)
-    return step
+    return reported_setpoint_step_celsius(
+        state, device_name, system_unit, "_target_temp_step_celsius"
+    )
 
 
 class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
@@ -1584,14 +1579,20 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
                         self.preset_mgr.mode,
                         preset_temp,
                     )
-                    self.bt_target_temp = preset_temp
+                    self.bt_target_temp = self._bound_target_to_range(preset_temp)
                 if (
                     self.cooler_entity_id is not None
                     and self.preset_mgr.mode in self._preset_cool_temperatures
                 ):
                     cool_temp = self._preset_cool_temperatures[self.preset_mgr.mode]
                     if isinstance(cool_temp, (int, float)):
-                        self.bt_target_cooltemp = cool_temp
+                        self.bt_target_cooltemp = self._bound_target_to_range(cool_temp)
+                # A target that is re-injected rather than chosen is ordered the
+                # moment it is stored: the HVAC mode can change without the pair
+                # being looked at again, and async_set_hvac_mode does not
+                # re-enforce the ordering.
+                if self.cooler_entity_id is not None:
+                    self._enforce_cool_above_heat(regardless_of_hvac_mode=True)
             _LOGGER.debug(
                 "better_thermostat %s: restored preset temperature applied",
                 self.device_name,
@@ -3077,6 +3078,46 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
             )
         self.bt_target_temp = adjusted
 
+    def _bound_target_to_range(self, value: float) -> float:
+        """Bound a re-injected target into the configured range.
+
+        Stored targets come back into the entity without passing the range
+        check the value they replace went through: a preset pair written while
+        a cooler was unavailable, or a manual cooling target stashed under a
+        different range, is re-injected verbatim. Both targets are published as
+        ``target_temperature_low`` / ``target_temperature_high`` and written to
+        the devices, so a value the configured range does not contain is not a
+        setpoint BT can hold.
+
+        The lower bound is applied first and the upper bound second, each only
+        when it is known. The order is load-bearing:
+        :meth:`_resolve_temperature_range` permits a non-overlapping range
+        where ``bt_min_temp`` is above ``bt_max_temp``, and applying the two in
+        sequence rather than exclusively lets the upper bound decide there.
+        This is the sequencing :func:`resolve_inbound_setpoint` uses for the
+        same reason.
+
+        The bound is silent. The stored heating target and the active preset's
+        temperature are normally the same number, so a warning here would
+        repeat the one :func:`restore_target_temperature` already emitted for
+        that value.
+
+        Parameters
+        ----------
+        value : float
+                the target being re-injected, in °C
+
+        Returns
+        -------
+        float
+                the target bounded into the configured range
+        """
+        if self.bt_min_temp is not None and value < self.bt_min_temp:
+            value = self.bt_min_temp
+        if self.bt_max_temp is not None and self.bt_max_temp < value:
+            value = self.bt_max_temp
+        return value
+
     def _clamp_inbound_cool_target(self, value: float) -> float:
         """Clamp a device-reported cooling setpoint above the heating target.
 
@@ -3458,10 +3499,16 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
                 and self.cooler_entity_id is not None
                 and self._preset_cool_temperature is not None
             ):
-                self.bt_target_cooltemp = self._preset_cool_temperature
+                self.bt_target_cooltemp = self._bound_target_to_range(
+                    self._preset_cool_temperature
+                )
                 self._preset_cool_temperature = None
 
-            self._enforce_cool_above_heat()
+            # Both targets a preset change writes are re-injected rather than
+            # chosen, so the pair is ordered the moment it is stored: the HVAC
+            # mode can change without it being looked at again, and
+            # async_set_hvac_mode does not re-enforce the ordering.
+            self._enforce_cool_above_heat(regardless_of_hvac_mode=True)
 
             _LOGGER.debug(
                 "better_thermostat %s: After preset change %s -> %s, bt_target_temp=%s, bt_hvac_mode=%s",

@@ -9,7 +9,6 @@ from __future__ import annotations
 import logging
 
 from homeassistant.components.climate.const import HVACMode
-from homeassistant.const import STATE_UNAVAILABLE, STATE_UNKNOWN
 from homeassistant.core import callback
 
 from custom_components.better_thermostat.utils.helpers import (
@@ -19,6 +18,7 @@ from custom_components.better_thermostat.utils.helpers import (
     resolve_inbound_setpoint,
     resolve_state_change_event,
     setpoint_echo_window,
+    state_says_nothing,
 )
 
 _LOGGER = logging.getLogger(__name__)
@@ -56,6 +56,31 @@ async def trigger_cooler_change(self, event):
         step=_step,
         log_source="trigger_cooler_change()",
     )
+    if state_says_nothing(new_state):
+        # A cooler that is unavailable or has no mode yet can still carry a
+        # setpoint: an entity reports "unknown" while publishing its full
+        # attributes, and one that writes the state machine directly keeps the
+        # attributes it last set. Such a value is retained rather than reported
+        # and says nothing about the device now, so neither the seed nor the
+        # adoption gate below may take it: whatever either of them stores is
+        # written straight back to that same device.
+        # _seed_cool_target_from_cooler() declines the two states at startup.
+        # The guard sits ahead of both branches so that declining ends the
+        # event: falling through would let the gate read that same retained
+        # setpoint and store it as the cool target, raised to clear the heating
+        # target, which is exactly what declining refuses. The setpoint being
+        # passed over is logged because it is the diagnostic — it is what a
+        # later report has to differ from before anything is adopted.
+        _LOGGER.debug(
+            "better_thermostat %s: Cooler %s is %s, not adopting its retained "
+            "setpoint %s",
+            self.device_name,
+            entity_id,
+            new_state.state,
+            None if _new_cooling_setpoint is None else _new_cooling_setpoint.raw,
+        )
+        self.async_write_ha_state()
+        return
     if _new_cooling_setpoint is not None and self.bt_target_cooltemp is None:
         # An unknown cool target holds the cooler OFF on every control cycle,
         # and the gate below cannot lift it: that gate needs a setpoint in the
@@ -65,31 +90,9 @@ async def trigger_cooler_change(self, event):
         # there is; taking it loses no user intent because the field carries
         # none, and it cannot be an echo either, because no setpoint is written
         # to the cooler while the target is unknown.
-        if new_state.state in (STATE_UNAVAILABLE, STATE_UNKNOWN):
-            # A cooler that is unavailable or has no mode yet can still carry a
-            # setpoint: an entity reports "unknown" while publishing its full
-            # attributes, and one that writes the state machine directly keeps
-            # the attributes it last set. Such a value is retained rather than
-            # reported and says nothing about the device now, so it must not
-            # become the cool target, which is written straight back to it.
-            # _seed_cool_target_from_cooler() declines the same two states at
-            # startup. This check sits inside the branch rather than in its
-            # condition, so declining ends the event here: the gate below would
-            # otherwise read that same retained setpoint and store it as the
-            # cool target, raised to clear the heating target, which is exactly
-            # what declining refuses.
-            _LOGGER.debug(
-                "better_thermostat %s: Cooler %s is %s, not seeding the cool "
-                "target from its retained setpoint %s",
-                self.device_name,
-                entity_id,
-                new_state.state,
-                _new_cooling_setpoint.raw,
-            )
-        else:
-            self._seed_cool_target(_new_cooling_setpoint, entity_id)
-            if self.bt_hvac_mode != HVACMode.OFF:
-                _main_change = True
+        self._seed_cool_target(_new_cooling_setpoint, entity_id)
+        if self.bt_hvac_mode != HVACMode.OFF:
+            _main_change = True
     elif (
         _new_cooling_setpoint is not None
         and _old_cooling_setpoint is not None
