@@ -288,23 +288,30 @@ def _quirk_holding_names(scope):
     another local is not followed, so nothing derived from a dispatch's
     result is mistaken for the module.
     """
-    bound_to_a_quirk = set()
+    bound_to_a_quirk = {}
     for node in _within_scope(scope):
         if not isinstance(node, (ast.Assign, ast.AnnAssign)) or node.value is None:
             continue
-        if not _is_a_quirk_module(node.value):
-            continue
+        # An assignment takes effect only once its right-hand side has been
+        # read, so ``quirks = quirks.real()`` still reaches the old binding.
+        takes_effect = (
+            getattr(node.value, "end_lineno", node.value.lineno),
+            getattr(node.value, "end_col_offset", node.value.col_offset),
+        )
+        holds_one = _is_a_quirk_module(node.value)
         targets = node.targets if isinstance(node, ast.Assign) else [node.target]
         for target in targets:
             for inner in ast.walk(target):
                 if isinstance(inner, ast.Name):
-                    bound_to_a_quirk.add((_position(inner), inner.id))
+                    bound_to_a_quirk[id(inner)] = (takes_effect, holds_one)
 
-    events = [
-        (_position(node), node.id, (_position(node), node.id) in bound_to_a_quirk)
-        for node in _within_scope(scope)
-        if isinstance(node, ast.Name) and isinstance(node.ctx, ast.Store)
-    ]
+    events = []
+    for node in _within_scope(scope):
+        if isinstance(node, ast.Name) and isinstance(node.ctx, ast.Store):
+            position, holds_one = bound_to_a_quirk.get(
+                id(node), (_position(node), False)
+            )
+            events.append((position, node.id, holds_one))
     events += [
         (_position(node), name, False)
         for node in _within_scope(scope)
@@ -596,6 +603,16 @@ def rebinds(trv, other):
     answer = quirks.real()
     quirks = other.unrelated
     return answer, quirks.leaked()
+""",
+        {"real"},
+    ),
+    (
+        "a name rebound from a dispatch on itself",
+        """
+def rebinds_from_itself(trv):
+    quirks = trv.model_quirks
+    quirks = quirks.real()
+    return quirks
 """,
         {"real"},
     ),
