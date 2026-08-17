@@ -17,18 +17,22 @@ The best TRVs for Better Thermostat have the following features:
 Based on community feedback and what the integrations expose:
 
 ### 1. Sonoff TRVZB
+
 - Good Zigbee2MQTT support, fast response times and reliable local temperature calibration. It also has specific model fixes built into Better Thermostat to ensure smooth operation.
 - Suggested algorithm: AI Time Based or Aggressive or MPC.
 
 ### 2. Eurotronic Spirit Zigbee (SPZB0001)
-- One of the few TRVs that reliably supports **Direct Valve Control**. That makes it the strongest option if you want to run MPC Predictive or PID Controller.
+
+- One of the few TRVs that reliably supports **Direct Valve Control**, which is the capability MPC Predictive and PID Controller gain the most from.
 - Suggested algorithm: MPC Predictive or PID Controller.
 
 ### 3. Moes / Tuya TS0601 Series
+
 - Very affordable and widely available. Better Thermostat includes extensive model fixes for these devices to correct their often-quirky default behaviors and make them reliable.
 - Suggested algorithm: AI Time Based or MPC.
 
 ### 4. Tado Smart Radiator Thermostats
+
 - Solid build quality and native integration support for local calibration.
 - Suggested algorithm: AI Time Based.
 
@@ -37,10 +41,12 @@ Based on community feedback and what the integrations expose:
 Better Thermostat relies heavily on accurate room temperature readings. The internal sensor of a TRV is too close to the radiator to be accurate. **You must use an external room sensor for the best experience.**
 
 ### What makes a good external sensor
+
 - **Frequent Updates**: The sensor should report temperature changes of 0.1°C or 0.2°C immediately.
 - **Placement**: Place it at eye level, away from direct sunlight, drafts, and the radiator itself.
 
 ### Suggestions
+
 - **Aqara Temperature and Humidity Sensor**: Affordable, reliable, and updates frequently enough for most rooms.
 - **Xiaomi Mijia Bluetooth/Zigbee Sensors**: Very accurate and easy to place anywhere.
 - **Shelly Temperature Sensor**: long battery life and good precision.
@@ -50,25 +56,28 @@ Better Thermostat relies heavily on accurate room temperature readings. The inte
 A window sensor lets Better Thermostat pause the heating as soon as a window opens, instead of letting the TRV heat the outside.
 
 ### What makes a good window sensor
+
 - **Instant Reporting**: The sensor must report its state change (open/closed) immediately without delay.
 - **Reliability**: It shouldn't drop off the network or miss state changes.
 
 ### Suggestions
+
 - **Aqara Door and Window Sensor**: reliable, reports instantly, small.
 - **Sonoff SNZB-04**: Affordable, uses standard Zigbee, and reports instantly.
 - **Shelly Door/Window 2**: a Wi-Fi option if you have no Zigbee network; includes tilt and temperature sensors.
 
 ## Integrations
 
-For these devices we recommend **Zigbee2MQTT (Z2M)**. It provides the most granular control over TRV entities, exposing calibration and valve control entities that other integrations (like ZHA or deCONZ) sometimes hide or don't support fully.
+For these devices we recommend **Zigbee2MQTT (Z2M)**. It exposes the local-calibration and valve-position entities Better Thermostat writes to; ZHA and deCONZ do not always expose them, and without them the calibration falls back to the setpoint.
 
-If you are looking for a good Zigbee coordinator, the [SONOFF Zigbee 3.0 USB Dongle Plus](https://amzn.to/4rt9aWt) is a popular choice that works well with Zigbee2MQTT and supports a wide range of devices. If you also want to support Home Assistant itself, consider the [ZBT-2](https://www.home-assistant.io/connect/zbt-2/): it is a bit more expensive, but it performs better, is more reliable, and Home Assistant supports it as a native Zigbee coordinator.
+If you are looking for a good Zigbee coordinator, the [SONOFF Zigbee 3.0 USB Dongle Plus](https://amzn.to/4rt9aWt) is a popular choice that works well with Zigbee2MQTT and supports a wide range of devices. If you also want to support Home Assistant itself, consider the [ZBT-2](https://www.home-assistant.io/connect/zbt-2/): it costs a little more and Home Assistant maintains it as a first-party Zigbee coordinator.
 
 ## Tested setups
 
 Complete setups that people run successfully.
 
 ### Setup 1: The "SEA801/SEA802" Setup
+
 An affordable setup built from widely available Zigbee devices.
 
 - **TRV**: SEA801-Zigbee / SEA802-Zigbee (TS0601) [Buying Link](https://amzn.to/4aDFMW3)
@@ -90,6 +99,7 @@ An affordable setup built from widely available Zigbee devices.
 - Does not support direct valve control
 
 ### Setup 2: The "Eurotronic Spirit" Setup
+
 This setup uses the powerful Eurotronic Spirit TRV, which supports both local offset and direct valve control.
 
 - **TRV**: Eurotronic Spirit Zigbee (SPZB0001) [Buying Link](https://amzn.to/40mKByg)
