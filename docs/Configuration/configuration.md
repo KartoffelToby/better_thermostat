@@ -30,7 +30,7 @@ or click on the button below:
 
 **Window Sensor** This is an optional field. If you have a window sensor you can use it to turn off the thermostat if the window is open and turn it on again when the window is closed. If you have more than one window in a room, you can also select window groups (see the GitHub page for more info).
 
-### Example Window/Door - Sensor config
+### Example window/door sensor config
 
 ```yaml
 group:
@@ -101,11 +101,11 @@ Better Thermostat offers several algorithms to control your heating:
 
 **Quick guide:**
 
-- First-time user? → Start with **AI Time Based** (default)
-- Room heats slowly? → Try **Aggressive**
-- Temperature overshoots? → Try **MPC Predictive**
-- Want fine control? → Try **PID Controller**
-- **Using HomeMatic IP/CCU?** → Offset-based calibration now supports SELECT entities automatically
+- Start with AI Time Based, the default
+- Switch to Aggressive if the room heats slowly
+- Switch to MPC Predictive if the temperature overshoots
+- Switch to PID Controller if you want fine control
+- On HomeMatic IP/CCU, offset-based calibration handles SELECT entities automatically
 
 **Overheating protection** This should only be checked if you have any problems with strong overheating.
 

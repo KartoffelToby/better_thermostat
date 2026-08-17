@@ -5,7 +5,7 @@ sidebar:
 description: Install Better Thermostat and create your first room in a few minutes.
 ---
 
-Welcome to Better Thermostat! Let's get your smart heating set up in just a few minutes.
+Installing Better Thermostat and setting up your first room takes a few minutes.
 
 ## 1) Install the integration
 
@@ -28,14 +28,14 @@ Or click this button to start directly:
 Before setting up a room, make sure you have these devices ready in Home Assistant:
 
 - **A smart radiator valve or thermostat** (required)
-- **A separate room temperature sensor** (highly recommended! The sensor on the radiator is often inaccurate because it's too close to the heat source)
+- **A separate room temperature sensor** (required: the sensor inside the radiator valve sits too close to the heat source to read the room, and the setup form will not let you finish without one)
 - *Optional:* A window sensor (to automatically pause heating when you air out the room)
 - *Optional:* A weather integration or outdoor temperature sensor (to stop heating when it's warm outside)
 
 ## 4) Follow the configuration walkthrough
 
-Ready to set up your first room? Follow our simple, step-by-step [Configuration walkthrough](/setup/configuration-walkthrough/) to understand all the options.
+The [Configuration walkthrough](/setup/configuration-walkthrough/) goes through every option in the setup form.
 
 ## 5) Apply recommended defaults
 
-Not sure which settings to choose? Start with our [Recommended settings](/optimal-settings/recommended-settings/) for a setup that works great for most homes.
+If you are unsure what to pick, start from [Recommended settings](/optimal-settings/recommended-settings/) and adjust from there.
