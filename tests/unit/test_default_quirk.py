@@ -251,11 +251,10 @@ class TestCalibrationStartsFromZero:
             thermostat, calibration=CALIBRATION_ENTITY, child_lock=CHILD_LOCK_SWITCH
         )
 
-        assert _calls(thermostat)[-1] == (
-            "switch",
-            "turn_on",
-            {"entity_id": CHILD_LOCK_SWITCH},
-        )
+        assert _calls(thermostat) == [
+            ("number", "set_value", {"entity_id": CALIBRATION_ENTITY, "value": 0}),
+            ("switch", "turn_on", {"entity_id": CHILD_LOCK_SWITCH}),
+        ]
 
 
 class TestTheChildLockFollowsTheConfiguration:
@@ -364,11 +363,10 @@ class TestTheChildLockFollowsTheConfiguration:
 
         await _run_tweak(thermostat, child_lock=CHILD_LOCK_SWITCH, window=WINDOW_SWITCH)
 
-        assert _calls(thermostat)[-1] == (
-            "switch",
-            "turn_off",
-            {"entity_id": WINDOW_SWITCH},
-        )
+        assert _calls(thermostat) == [
+            ("switch", "turn_on", {"entity_id": CHILD_LOCK_SWITCH}),
+            ("switch", "turn_off", {"entity_id": WINDOW_SWITCH}),
+        ]
 
 
 class TestTheDeviceStopsDetectingOnItsOwn:
@@ -422,11 +420,10 @@ class TestTheDeviceStopsDetectingOnItsOwn:
 
         await _run_tweak(thermostat, window=WINDOW_SWITCH, away=AWAY_SWITCH)
 
-        assert _calls(thermostat)[-1] == (
-            "switch",
-            "turn_off",
-            {"entity_id": AWAY_SWITCH},
-        )
+        assert _calls(thermostat) == [
+            ("switch", "turn_off", {"entity_id": WINDOW_SWITCH}),
+            ("switch", "turn_off", {"entity_id": AWAY_SWITCH}),
+        ]
 
     @pytest.mark.asyncio
     async def test_a_failing_away_write_is_swallowed(self):
@@ -438,7 +435,9 @@ class TestTheDeviceStopsDetectingOnItsOwn:
 
         await _run_tweak(thermostat, away=AWAY_SWITCH)
 
-        assert len(_calls(thermostat)) == 1
+        assert _calls(thermostat) == [
+            ("switch", "turn_off", {"entity_id": AWAY_SWITCH})
+        ]
 
 
 class TestAdoptionRunsEveryStep:
