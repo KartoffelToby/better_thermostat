@@ -25,6 +25,7 @@ from __future__ import annotations
 
 import ast
 import asyncio
+import functools
 import importlib
 import inspect
 from pathlib import Path
@@ -167,13 +168,51 @@ def _self_attributes_read(path):
     return names
 
 
+def _names_reached_for(path):
+    """Every name a file's code reaches for, in any dispatch spelling.
+
+    Read as source text a name also "appears" in the comment that
+    explains a dispatch, in the docstring above it and in an unrelated
+    string literal — so removing the dispatch itself would go unnoticed.
+    Only these four node kinds are a name actually being reached for:
+    an attribute on a module, a bare reference, an import, and the
+    string a ``hasattr``/``getattr`` guard looks up.
+    """
+    tree = ast.parse(path.read_text())
+    names = set()
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Attribute):
+            names.add(node.attr)
+        elif isinstance(node, ast.Name):
+            names.add(node.id)
+        elif isinstance(node, ast.alias):
+            names.add(node.asname or node.name.rsplit(".", 1)[-1])
+        elif (
+            isinstance(node, ast.Call)
+            and isinstance(node.func, ast.Name)
+            and node.func.id in ("hasattr", "getattr")
+            and len(node.args) > 1
+            and isinstance(node.args[1], ast.Constant)
+            and isinstance(node.args[1].value, str)
+        ):
+            names.add(node.args[1].value)
+    return names
+
+
+@functools.cache
+def _shell_dispatch_surface():
+    """Every name the production code outside the quirk modules reaches."""
+    names = set()
+    for path in PRODUCTION_ROOT.rglob("*.py"):
+        if path.parent == QUIRKS_DIR:
+            continue
+        names |= _names_reached_for(path)
+    return names
+
+
 def _dispatched_from_the_shell(name):
     """Whether production code outside the quirk modules reaches for it."""
-    return any(
-        name in path.read_text()
-        for path in PRODUCTION_ROOT.rglob("*.py")
-        if path.parent != QUIRKS_DIR
-    )
+    return name in _shell_dispatch_surface()
 
 
 def _called_within(path, name):
