@@ -238,15 +238,24 @@ async def set_valve(self, entity_id, valve):
     # The step grid starts at the entity's minimum rather than at zero, so a
     # non-zero minimum still yields a value the entity itself offers.
     valve_entity = self.hass.states.get(valve_entity_id)
-    if valve_entity is not None:
-        min_valve = float(str(valve_entity.attributes.get("min", 0)))
-        max_valve = float(str(valve_entity.attributes.get("max", 100)))
-        pct = max(0.0, min(100.0, valve))
-        valve = min_valve + (pct / 100.0) * (max_valve - min_valve)
-        step = float(str(valve_entity.attributes.get("step", 1)))
-        if step > 0:
-            valve = min_valve + round((valve - min_valve) / step) * step
-        valve = max(min_valve, min(max_valve, valve))
+    if valve_entity is None:
+        _LOGGER.debug(
+            "better_thermostat %s: valve entity %s for %s reports no state, "
+            "so its bounds are unknown, skip adapter write",
+            self.device_name,
+            valve_entity_id,
+            entity_id,
+        )
+        return
+
+    min_valve = float(str(valve_entity.attributes.get("min", 0)))
+    max_valve = float(str(valve_entity.attributes.get("max", 100)))
+    pct = max(0.0, min(100.0, valve))
+    valve = min_valve + (pct / 100.0) * (max_valve - min_valve)
+    step = float(str(valve_entity.attributes.get("step", 1)))
+    if step > 0:
+        valve = min_valve + round((valve - min_valve) / step) * step
+    valve = max(min_valve, min(max_valve, valve))
 
     await self.hass.services.async_call(
         "number",
