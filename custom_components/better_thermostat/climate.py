@@ -3215,16 +3215,17 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
     def _seed_cool_target_from_cooler(self, log_source: str) -> bool:
         """Fill a cooling target that is still unknown from the cooler's state.
 
-        The single place a cooling target is taken off the device, so every such
-        value passes the same resolution: it is read with the key precedence a
-        cooler is driven through — a device that only supports
-        TARGET_TEMPERATURE_RANGE reports ``temperature: None`` and carries its
-        setpoint in ``target_temp_high`` — clamped into the configured range, and
-        ordered above the heating target. A cooler that was unavailable while
-        that range was derived contributed no bounds to it, so the setpoint it
-        reports can sit outside the range and is clamped into it exactly like a
-        reported one. Echo detection has nothing to compare against, because no
-        setpoint is written to a cooler whose target is unknown.
+        The startup path for a cooling target read off the device;
+        ``trigger_cooler_change`` is the runtime one. Here the value is read
+        with the key precedence a cooler is driven through — a device that only
+        supports TARGET_TEMPERATURE_RANGE reports ``temperature: None`` and
+        carries its setpoint in ``target_temp_high`` — then clamped into the
+        configured range and ordered above the heating target. A cooler that was
+        unavailable while that range was derived contributed no bounds to it, so
+        the setpoint it reports can sit outside the range and is clamped into it
+        exactly like a reported one. Echo detection has nothing to compare
+        against, because no setpoint is written to a cooler whose target is
+        unknown.
 
         A target that is already known is left alone: it is either the value a
         restored preset carries, which is the user's own choice, or one this
@@ -3233,7 +3234,10 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
         Parameters
         ----------
         log_source : str
-            caller name, forwarded for logging context
+            the reading site's own name, forwarded for logging context; the
+            startup sequence reads twice, and the line that reports an
+            attribute the resolution could not read names this value, so each
+            caller passes the name of the site it reads from
 
         Returns
         -------
@@ -3471,35 +3475,44 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
         return value
 
     def _clamp_inbound_cool_target(self, value: float) -> float:
-        """Raise a cooling setpoint reported by the cooler above the heating target.
+        """Clamp a device-reported cooling setpoint above the heating target.
 
-        A device only ever speaks for its own channel: a press on the air
-        conditioner's remote must not move the radiators' target. So a reported
-        cooling setpoint that would cross the heating target is raised to the
-        nearest value that clears it, instead of pulling the heating target
-        down. The floor stays inside the configured range, so at a heating
-        target within one step of ``bt_max_temp`` the adopted value stops at the
-        maximum and the ordering is settled by
-        :meth:`_enforce_heat_below_cool` moving the heating target one step.
+        A report from the cooler is authoritative for the cooling channel only.
+        Rather than pulling the heating target down to make room, the reported
+        value is raised onto a floor one step above the heating target, so a
+        press on the air conditioner's own remote leaves the radiators alone.
+        The floor is capped at the configured maximum because a bound outside
+        the range is not a setpoint BT can hold, and that cap is where the
+        separation gives way: a heating target resting on the maximum or above
+        it puts the floor on that target or below it, so the value returned
+        there no longer clears it. The residual
+        :meth:`_enforce_heat_below_cool` settles that degenerate case, and it
+        does so by moving the heating target.
 
-        The bound keys off the configured cooling channel rather than the live
-        mode: the ordering of the two targets is a property of the
-        configuration, so it has to hold whatever mode the group happens to be
-        in. A crossing learned while the group is off is never revisited
-        otherwise.
+        The bound applies whenever a cooling channel is configured rather than
+        only while the live mode is HEAT_COOL, matching
+        :meth:`_clamp_inbound_heat_target`: the ordering of the two targets is a
+        property of the configuration, so it has to hold whatever mode the group
+        happens to be in.
 
-        A step that is not a positive real number would turn the floor into a
-        ceiling, so it is replaced by the 0.5 fallback.
+        The one step of separation comes from :func:`normalize_step`, because
+        ``bt_target_temp_step`` can carry whatever a child entity reports: a
+        negative step would put the floor below the heating target and invert
+        the pair this bound exists to order, and a NaN one would make the
+        comparison against it false and drop the bound altogether.
 
         Parameters
         ----------
         value : float
-            Cooling setpoint in °C, already resolved into BT's range.
+                the reported cooling setpoint in °C, already clamped into the
+                configured range
 
         Returns
         -------
         float
-            The value to adopt: unchanged unless it had to be raised.
+                the setpoint to adopt, unchanged unless it had to be raised
+                onto the floor the heating target and the configured maximum
+                set
         """
         if self.cooler_entity_id is None or self.bt_target_temp is None:
             return value
@@ -3510,34 +3523,38 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
         return max(value, floor)
 
     def _clamp_inbound_heat_target(self, value: float) -> float:
-        """Lower a heating setpoint reported by a TRV below the cooling target.
+        """Clamp a device-reported heating setpoint below the cooling target.
 
-        The counterpart to :meth:`_clamp_inbound_cool_target`, for a knob turn
-        on a radiator valve: it may move the heating target only, so a reported
-        setpoint that would cross the cooling target is lowered to the nearest
-        value that clears it rather than pushing the cooling target up. The
-        ceiling stays inside the configured range, so at a cooling target within
-        one step of ``bt_min_temp`` the adopted value stops at the minimum and
-        :meth:`_enforce_cool_above_heat` settles the ordering with a one-step
-        move of the cooling target.
+        The counterpart to :meth:`_clamp_inbound_cool_target`: a TRV knob turn
+        is authoritative for the heating channel only, so the reported value is
+        lowered onto a ceiling one step below the cooling target instead of
+        raising that target. The ceiling is held at the configured minimum, and
+        that bound is where the separation gives way in the same way: a cooling
+        target resting on the minimum or below it puts the ceiling on that
+        target or above it, so the value returned there no longer clears it.
+        The residual :meth:`_enforce_cool_above_heat` settles that degenerate
+        case, and it does so by moving the cooling target. Like its counterpart
+        the bound keys off the configured cooling channel rather than the live
+        mode, and here that is what makes it hold at all: a valve with
+        ``no_off_system_mode`` reports its knob turn while ``bt_hvac_mode`` is
+        still OFF, and the same event then resolves the mode to HEAT.
 
-        Like its counterpart the bound keys off the configured cooling channel
-        rather than the live mode, and here that is what makes it hold at all: a
-        valve with ``no_off_system_mode`` reports its knob turn while
-        ``bt_hvac_mode`` is still OFF, and the same event then resolves the mode.
-
-        A step that is not a positive real number would turn the ceiling into a
-        floor, so it is replaced by the 0.5 fallback.
+        The one step of separation comes from :func:`normalize_step` for the
+        same reason as in the counterpart: a step a child reports as negative or
+        non-finite would either invert the pair or drop the bound.
 
         Parameters
         ----------
         value : float
-            Heating setpoint in °C, already resolved into BT's range.
+                the reported heating setpoint in °C, already clamped into the
+                configured range
 
         Returns
         -------
         float
-            The value to adopt: unchanged unless it had to be lowered.
+                the setpoint to adopt, unchanged unless it had to be lowered
+                onto the ceiling the cooling target and the configured minimum
+                set
         """
         if self.cooler_entity_id is None or self.bt_target_cooltemp is None:
             return value
