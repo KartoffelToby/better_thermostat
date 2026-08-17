@@ -655,6 +655,15 @@ def iterates(trv, values):
         {"real"},
     ),
     (
+        "a comprehension whose leftmost iterable reads the shadowed binding",
+        """
+def iterates(trv):
+    quirks = trv.model_quirks
+    return [value for quirks in quirks.real()]
+""",
+        {"real"},
+    ),
+    (
         "an import shadowing the binding",
         """
 def imports(trv):
