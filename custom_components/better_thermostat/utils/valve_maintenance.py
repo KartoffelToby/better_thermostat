@@ -19,6 +19,7 @@ from homeassistant.util import dt as dt_util
 
 from ..trv import Trv
 from .const import CONF_VALVE_MAINTENANCE, CalibrationType
+from .helpers import device_offers_mode
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -38,9 +39,57 @@ class MaintenanceTrvInfo:
     use_direct_valve: bool
     max_temp: float
     min_temp: float
+    wake_mode: str | None = None
+    """Device-native mode to switch into for the exercise, or ``None``.
+
+    Only set for a TRV that is ``off`` and driven through temperature
+    extremes: such a device ignores setpoint writes, so the cycle would
+    move nothing. Valve-driven TRVs are written through a number entity
+    that works while the device is off, so they are never woken.
+    """
+
+
+# Modes a TRV can be woken into for the exercise, most preferred first.
+_WAKE_MODE_PREFERENCE: tuple[str, ...] = (
+    HVACMode.HEAT,
+    HVACMode.AUTO,
+    HVACMode.HEAT_COOL,
+)
 
 
 # Pure helpers
+
+
+def pick_wake_mode(
+    cur_mode: str, use_direct_valve: bool, hvac_modes: object
+) -> str | None:
+    """Return the mode to exercise an ``off`` TRV in, or ``None``.
+
+    Parameters
+    ----------
+    cur_mode : str
+        The TRV's current device-native HVAC mode.
+    use_direct_valve : bool
+        Whether the TRV is driven by writing a valve percentage.
+    hvac_modes : object
+        The modes the TRV reports, as read from its state attributes.
+        Any spelling: ``HVACMode`` members, plain strings or
+        ``"HVACMode.HEAT"``.
+
+    Returns
+    -------
+    str | None
+        The first supported mode from ``_WAKE_MODE_PREFERENCE``, or
+        ``None`` when the TRV needs no wake or offers no usable mode.
+    """
+    if use_direct_valve or cur_mode != HVACMode.OFF:
+        return None
+    if not isinstance(hvac_modes, (list, tuple, set)):
+        return None
+    for candidate in _WAKE_MODE_PREFERENCE:
+        if device_offers_mode(hvac_modes, candidate):
+            return candidate
+    return None
 
 
 def _get_advanced(info: Trv) -> dict[str, object]:
@@ -158,6 +207,9 @@ def build_trv_snapshots(
                 use_direct_valve=use_direct,
                 max_temp=float(raw_max) if isinstance(raw_max, (int, float)) else 30.0,
                 min_temp=float(raw_min) if isinstance(raw_min, (int, float)) else 5.0,
+                wake_mode=pick_wake_mode(
+                    trv_state.state, use_direct, trv_state.attributes.get("hvac_modes")
+                ),
             )
         )
     return infos
@@ -178,6 +230,28 @@ async def _set_valve_pct(trv_id: str, pct: int, set_valve_fn: SetValveFn) -> boo
         return False
 
 
+def _temp_cycle_reaches_valve(info: MaintenanceTrvInfo) -> bool:
+    """Whether writing a setpoint moves this TRV's valve.
+
+    An ``off`` TRV ignores setpoint writes, so the cycle only reaches it
+    once ``wake_step`` has switched it into ``wake_mode``.
+    """
+    return info.cur_mode != HVACMode.OFF or info.wake_mode is not None
+
+
+async def wake_step(
+    info: MaintenanceTrvInfo, *, set_hvac_mode_fn: SetHvacModeFn
+) -> None:
+    """Switch an ``off`` TRV into its exercise mode.
+
+    ``restore_one`` puts ``cur_mode`` back at the end of the run, so the
+    TRV returns to ``off`` afterwards.
+    """
+    if info.wake_mode is None:
+        return
+    await set_hvac_mode_fn(info.entity_id, info.wake_mode)
+
+
 async def open_step(
     info: MaintenanceTrvInfo,
     *,
@@ -188,8 +262,7 @@ async def open_step(
     if info.use_direct_valve:
         await _set_valve_pct(info.entity_id, 100, set_valve_fn)
         return
-    # Temp-extremes fallback: only when TRV is not OFF (OFF TRVs ignore temp changes)
-    if info.cur_mode != HVACMode.OFF:
+    if _temp_cycle_reaches_valve(info):
         await set_temperature_fn(info.entity_id, info.max_temp)
 
 
@@ -203,8 +276,7 @@ async def close_step(
     if info.use_direct_valve:
         await _set_valve_pct(info.entity_id, 0, set_valve_fn)
         return
-    # Temp-extremes fallback: only when TRV is not OFF (OFF TRVs ignore temp changes)
-    if info.cur_mode != HVACMode.OFF:
+    if _temp_cycle_reaches_valve(info):
         await set_temperature_fn(info.entity_id, info.min_temp)
 
 
@@ -250,39 +322,74 @@ async def run_valve_maintenance(
         len(infos),
     )
 
-    # Execute in synchronized steps across all TRVs (much faster than sequential).
-    # Open all → wait → close all → wait (repeat twice).
-    for i in range(2):
-        _LOGGER.debug(
-            "better_thermostat %s: valve maintenance cycle %d/2 starting for %d TRV(s)",
+    # Wake TRVs that are off, otherwise the temperature cycle below moves
+    # nothing on them. restore_one puts them back to off at the end.
+    wake_results = await asyncio.gather(
+        *(wake_step(info, set_hvac_mode_fn=set_hvac_mode_fn) for info in infos),
+        return_exceptions=True,
+    )
+
+    # Which TRVs the cycle below actually moves. A failed wake leaves a TRV
+    # off, so a setpoint write would either move nothing or, on a device that
+    # reads a setpoint as "turn on", heat it without the cycle asking for it.
+    # A TRV that offered no wake mode at all is unreachable for the same
+    # reason. Both are still restored below.
+    cycled: list[MaintenanceTrvInfo] = []
+    for info, result in zip(infos, wake_results):
+        if isinstance(result, BaseException):
+            _LOGGER.warning(
+                "better_thermostat %s: could not wake %s for maintenance (%s), "
+                "skipping its temperature cycle",
+                device_name,
+                info.entity_id,
+                result,
+            )
+            continue
+        if info.use_direct_valve or _temp_cycle_reaches_valve(info):
+            cycled.append(info)
+
+    if not cycled:
+        # Nothing to open or close, so the four cycle sleeps would be waits
+        # around no work at all. Drop straight through to the restore.
+        _LOGGER.info(
+            "better_thermostat %s: no TRV reachable for the cycle, restoring directly",
             device_name,
-            i + 1,
-            len(infos),
         )
-        await asyncio.gather(
-            *(
-                open_step(
-                    info,
-                    set_valve_fn=set_valve_fn,
-                    set_temperature_fn=set_temperature_fn,
-                )
-                for info in infos
-            ),
-            return_exceptions=True,
-        )
-        await asyncio.sleep(cycle_sleep)
-        await asyncio.gather(
-            *(
-                close_step(
-                    info,
-                    set_valve_fn=set_valve_fn,
-                    set_temperature_fn=set_temperature_fn,
-                )
-                for info in infos
-            ),
-            return_exceptions=True,
-        )
-        await asyncio.sleep(cycle_sleep)
+    else:
+        # Execute in synchronized steps across all TRVs (much faster than
+        # sequential). Open all → wait → close all → wait (repeat twice).
+        for i in range(2):
+            _LOGGER.debug(
+                "better_thermostat %s: valve maintenance cycle %d/2 starting "
+                "for %d TRV(s)",
+                device_name,
+                i + 1,
+                len(cycled),
+            )
+            await asyncio.gather(
+                *(
+                    open_step(
+                        info,
+                        set_valve_fn=set_valve_fn,
+                        set_temperature_fn=set_temperature_fn,
+                    )
+                    for info in cycled
+                ),
+                return_exceptions=True,
+            )
+            await asyncio.sleep(cycle_sleep)
+            await asyncio.gather(
+                *(
+                    close_step(
+                        info,
+                        set_valve_fn=set_valve_fn,
+                        set_temperature_fn=set_temperature_fn,
+                    )
+                    for info in cycled
+                ),
+                return_exceptions=True,
+            )
+            await asyncio.sleep(cycle_sleep)
 
     # Restore
     await asyncio.gather(

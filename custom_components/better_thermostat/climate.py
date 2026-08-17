@@ -2280,19 +2280,15 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
             # let this tick re-evaluate the schedule.
             pass
 
-        # Skip when device is OFF or a window/door contact is open
+        # Skip while a window/door contact is open. A contact closes again
+        # within hours, so postponing terminates. OFF is deliberately not a
+        # reason to skip: a valve left shut over a heating-off summer is the
+        # one that seizes, which is what the exercise exists to prevent.
         if self.contact_open:
             # postpone by an hour to avoid hammering
             self.next_valve_maintenance = now + timedelta(hours=1)
             _LOGGER.debug(
                 "better_thermostat %s: valve maintenance postponed (window or door open)",
-                self.device_name,
-            )
-            return
-        if HVACMode.OFF in (self.hvac_mode, self.bt_hvac_mode):
-            self.next_valve_maintenance = now + timedelta(hours=1)
-            _LOGGER.debug(
-                "better_thermostat %s: valve maintenance postponed (HVAC OFF)",
                 self.device_name,
             )
             return
