@@ -162,6 +162,7 @@ from .utils.helpers import (
     convert_to_float,
     convert_to_float_celsius,
     device_setpoint_step,
+    dual_role_entity_id,
     find_battery_entity,
     get_device_model,
     get_hvac_bt_mode,
@@ -2473,11 +2474,28 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
                 )
             )
         if self.cooler_entity_id is not None:
-            self.async_on_remove(
-                async_track_state_change_event(
-                    self.hass, [self.cooler_entity_id], self._trigger_cooler_change
+            _shared_entity_id = dual_role_entity_id(self)
+            if _shared_entity_id is None:
+                self.async_on_remove(
+                    async_track_state_change_event(
+                        self.hass, [self.cooler_entity_id], self._trigger_cooler_change
+                    )
                 )
-            )
+            else:
+                # A device that carries both roles is already tracked as a
+                # thermostat, and one device reporting into two handlers means
+                # each handler reads the other channel's write as a user press.
+                # The TRV handler is the one that survives: it is the only
+                # reader of the device's internal temperature, its model
+                # quirks, its valve and its mode, and it files a reported
+                # setpoint under whichever channel drives the device.
+                _LOGGER.info(
+                    "better_thermostat %s: %s is configured as both the "
+                    "thermostat and the cooler; one channel drives it per "
+                    "cycle and its reports are handled as a thermostat's",
+                    self.device_name,
+                    _shared_entity_id,
+                )
             # A cool target still unknown here means the earlier read of the
             # cooler setpoint yielded nothing: the cooler published no state
             # yet, or the state it published carried no readable setpoint. An
@@ -3247,6 +3265,12 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
         restored preset carries, which is the user's own choice, or one this
         method took earlier.
 
+        A device that carries both roles is the exception: the setpoint it
+        reports belongs to whichever channel last wrote it, and at startup that
+        is the heating one, so it says nothing about cooling. The preset's own
+        cooling temperature is taken instead, which is a value the user can see
+        and change and a heating setpoint read off the device is not.
+
         Parameters
         ----------
         log_source : str
@@ -3264,6 +3288,25 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
         """
         if self.cooler_entity_id is None or self.bt_target_cooltemp is not None:
             return False
+        _shared_entity_id = dual_role_entity_id(self)
+        if _shared_entity_id is not None:
+            cool_temp = self._preset_cool_temperatures.get(
+                self.preset_mgr.mode or PRESET_NONE
+            )
+            if not isinstance(cool_temp, (int, float)):
+                return False
+            # A stored preset pair is re-injected verbatim, so the value takes
+            # the same bound every other re-injected target takes.
+            self.bt_target_cooltemp = self._bound_target_to_range(float(cool_temp))
+            _LOGGER.info(
+                "better_thermostat %s: %s drives both channels, taking the "
+                "preset cooling temperature %s as the cool target",
+                self.device_name,
+                _shared_entity_id,
+                self.bt_target_cooltemp,
+            )
+            self._enforce_cool_above_heat(regardless_of_hvac_mode=True)
+            return True
         cooler_state = self.hass.states.get(self.cooler_entity_id)
         if cooler_state is None or cooler_state.state in (
             STATE_UNAVAILABLE,

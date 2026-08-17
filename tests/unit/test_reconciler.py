@@ -640,6 +640,67 @@ class TestValveWriteBudget:
         set_valve.assert_called_once()
 
 
+class TestReconcileOnADualRoleEntity:
+    """A device named as both a controlled thermostat and the cooler.
+
+    Exactly one channel drives such a device per cycle, so the setpoint and
+    mode it reports while the cooling channel has it belong to that channel.
+    """
+
+    SHARED_ID = "climate.trv"
+
+    @classmethod
+    def _make_shared_bt(cls, *, hvac_mode_decided, **kwargs):
+        bt = _make_bt(**kwargs)
+        bt.cooler_entity_id = cls.SHARED_ID
+        bt.bt_target_cooltemp = 24.0
+        bt.cur_temp = 26.0
+        bt._cooler_last_sent = {"hvac_mode_decided": hvac_mode_decided}
+        return bt
+
+    @pytest.mark.asyncio
+    async def test_a_device_the_cooling_channel_drives_is_not_read_as_diverged(self):
+        """The handover is not a lost write, and no cycle can close it.
+
+        The device holds the cooling setpoint while the heating channel's
+        commanded value stands unapplied, so the comparison would report a
+        divergence for the whole length of every cooling period.
+        """
+        bt = self._make_shared_bt(
+            hvac_mode_decided=HVACMode.COOL,
+            reported_target=24.0,
+            commanded=21.0,
+            trv_mode=HVACMode.COOL,
+        )
+
+        await reconcile_tick(bt)
+
+        bt.control_queue_task.put_nowait.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_a_lost_write_is_still_found_while_the_heating_channel_drives(self):
+        """Every cycle the cooling channel sits out is reconciled like any other."""
+        bt = self._make_shared_bt(
+            hvac_mode_decided=HVACMode.OFF, reported_target=18.0, commanded=21.0
+        )
+
+        await reconcile_tick(bt)
+
+        bt.control_queue_task.put_nowait.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_a_distinct_cooler_leaves_every_thermostat_reconciled(self):
+        """A cooler of its own never shields a thermostat from the tick."""
+        bt = _make_bt(reported_target=18.0, commanded=21.0)
+        bt.cooler_entity_id = "climate.split_unit"
+        bt.bt_target_cooltemp = 24.0
+        bt._cooler_last_sent = {"hvac_mode_decided": HVACMode.COOL}
+
+        await reconcile_tick(bt)
+
+        bt.control_queue_task.put_nowait.assert_called_once()
+
+
 class TestOffsetReconcileHandoff:
     """What the reconciler calls a divergence, the write path re-asserts.
 

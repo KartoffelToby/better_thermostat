@@ -9,7 +9,7 @@ import json
 import logging
 from unittest.mock import AsyncMock, MagicMock, patch
 
-from homeassistant.components.climate.const import HVACMode
+from homeassistant.components.climate.const import PRESET_NONE, HVACMode
 from homeassistant.const import (
     ATTR_TEMPERATURE,
     STATE_UNAVAILABLE,
@@ -1629,3 +1629,115 @@ class TestValidateHvacMode:
         states = [_make_trv_state()]
         BetterThermostat._validate_hvac_mode(bt, states)
         assert bt._current_humidity == 0
+
+
+class TestFinalizeStartupOnADualRoleEntity:
+    """A cooler that is also one of the controlled thermostats.
+
+    Such a device is already tracked as a thermostat, and one device reporting
+    into two handlers means each handler reads the other channel's write as a
+    user press.
+    """
+
+    @staticmethod
+    def _make_shared_bt(bt):
+        """Name the tracked thermostat as the cooler as well."""
+        bt.cooler_entity_id = TRV_ID
+        bt.bt_hvac_mode = HVACMode.HEAT_COOL
+        bt._preset_cool_temperatures = {PRESET_NONE: 24.0}
+        return bt
+
+    @staticmethod
+    async def _run_capturing_subscriptions(bt):
+        """Run _finalize_startup and return the (entity ids, handler) pairs."""
+        bt.is_removed = False
+        bt.all_trvs = None
+        bt.entity_ids = [TRV_ID]
+        bt.outdoor_sensor = None
+        bt._async_unsub_state_changed = None
+        bt._post_grace_recheck = MagicMock()
+        bt._external_temperature_keepalive = MagicMock()
+        bt.control_queue_task = asyncio.Queue(maxsize=1)
+        with (
+            patch(f"{_CLIMATE}.await_critical_entities", AsyncMock()),
+            patch(f"{_CLIMATE}.check_critical_entities", AsyncMock()),
+            patch(f"{_CLIMATE}.await_optional_sensors", AsyncMock()),
+            patch(f"{_CLIMATE}.check_and_update_degraded_mode", AsyncMock()),
+            patch(f"{_CLIMATE}.async_track_time_interval", MagicMock()),
+            patch(f"{_CLIMATE}.asyncio.sleep", AsyncMock()),
+            patch(f"{_CLIMATE}.async_track_state_change_event") as track,
+        ):
+            await BetterThermostat._finalize_startup(bt)
+        return [(call.args[1], call.args[2]) for call in track.call_args_list]
+
+    @pytest.mark.asyncio
+    async def test_a_shared_entity_registers_only_the_trv_subscription(self, bt):
+        """The device is tracked once, and by the handler that survives."""
+        self._make_shared_bt(bt)
+        _install_states(bt, {TRV_ID: _make_trv_state()})
+
+        tracked = await self._run_capturing_subscriptions(bt)
+
+        assert (bt.entity_ids, bt._trigger_trv_change) in tracked
+        assert bt._trigger_cooler_change not in [handler for _, handler in tracked]
+
+    @pytest.mark.asyncio
+    async def test_a_distinct_cooler_still_registers_its_own_subscription(self, bt):
+        """A cooler of its own keeps the handler written for it."""
+        bt.cooler_entity_id = COOLER_ID
+        bt.bt_hvac_mode = HVACMode.HEAT_COOL
+        _install_states(bt, {COOLER_ID: _make_cooler_state({ATTR_TEMPERATURE: 24.0})})
+
+        tracked = await self._run_capturing_subscriptions(bt)
+
+        assert ([COOLER_ID], bt._trigger_cooler_change) in tracked
+
+    @pytest.mark.asyncio
+    async def test_a_shared_entity_seeds_the_cool_target_from_the_preset(self, bt):
+        """The cooling target comes from the preset, not off the device.
+
+        The setpoint a shared device reports belongs to whichever channel last
+        wrote it, and at startup that is the heating one. The seeded value only
+        reaches the device through a control cycle, so the seed requests one.
+        """
+        self._make_shared_bt(bt)
+        _install_states(bt, {TRV_ID: _make_trv_state()})
+
+        await self._run_capturing_subscriptions(bt)
+
+        assert bt.bt_target_cooltemp == 24.0
+        assert bt.control_queue_task.qsize() == 1
+
+    @pytest.mark.asyncio
+    async def test_a_shared_entity_leaves_a_restored_cool_target_alone(self, bt):
+        """A cooling target the user already chose is never overwritten.
+
+        Nothing was seeded, so there is no new value for a cycle to carry.
+        """
+        self._make_shared_bt(bt)
+        bt.bt_target_cooltemp = 26.0
+        _install_states(bt, {TRV_ID: _make_trv_state()})
+
+        await self._run_capturing_subscriptions(bt)
+
+        assert bt.bt_target_cooltemp == 26.0
+        assert bt.control_queue_task.empty()
+
+    @pytest.mark.asyncio
+    async def test_a_shared_entity_bounds_a_preset_outside_the_configured_range(
+        self, bt
+    ):
+        """A preset stored under a wider range is seeded inside this one.
+
+        The seeded value is published as ``target_temperature_high`` and
+        written to the device, so a preset the configured range does not
+        contain is not a setpoint the group can hold.
+        """
+        self._make_shared_bt(bt)
+        bt._preset_cool_temperatures = {PRESET_NONE: 35.0}
+        _install_states(bt, {TRV_ID: _make_trv_state()})
+
+        await self._run_capturing_subscriptions(bt)
+
+        assert bt.bt_target_cooltemp == bt.bt_max_temp
+        assert bt.control_queue_task.qsize() == 1

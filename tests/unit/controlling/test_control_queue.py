@@ -5,6 +5,8 @@ from unittest.mock import AsyncMock, Mock, patch
 
 import pytest
 
+from custom_components.better_thermostat.core.clock import FakeClock
+from custom_components.better_thermostat.core.decide import running_kernel_state
 from custom_components.better_thermostat.utils.controlling import control_queue
 
 
@@ -585,3 +587,253 @@ class TestControlQueue:
         # ignore_states should NOT be reset because in_maintenance is True
         # Note: This tests the finally block behavior (lines 135-137)
         assert mock_self.ignore_states is True
+
+
+async def _wait_until(predicate, timeout=5.0):
+    """Yield to the event loop until a predicate holds.
+
+    Parameters
+    ----------
+    predicate : Callable[[], bool]
+        the condition the caller is waiting for. It is re-read on every loop
+        iteration, so the wait ends on the first pass through the loop that
+        satisfies it rather than after a fixed budget.
+    timeout : float
+        the wall-clock ceiling the wait may not exceed, in seconds. Reaching
+        it means the condition never came true, which is a failure rather than
+        a slow machine.
+
+    Returns
+    -------
+    None
+    """
+    loop = asyncio.get_running_loop()
+    deadline = loop.time() + timeout
+    while not predicate():
+        if loop.time() >= deadline:
+            raise AssertionError(f"condition not met within {timeout}s")
+        await asyncio.sleep(0)
+
+
+class TestControlQueueOnADualRoleEntity:
+    """Dispatch of a device named as both a controlled thermostat and the cooler.
+
+    Such a device takes one mode and one setpoint, so exactly one channel
+    drives it per cycle. The cooling decision control_cooler latched is what
+    says which.
+    """
+
+    SHARED_ID = "climate.reversible_ac"
+    _CTRL = "custom_components.better_thermostat.utils.controlling"
+
+    @classmethod
+    def _make_self(cls, *, hvac_mode_decided, real_trvs=None):
+        mock_self = Mock()
+        mock_self.device_name = "test_thermostat"
+        mock_self.in_maintenance = False
+        mock_self.ignore_states = False
+        mock_self.startup_running = False
+        mock_self.calculate_heating_power = AsyncMock()
+        mock_self.calculate_heat_loss = AsyncMock()
+        mock_self.cooler_entity_id = cls.SHARED_ID
+        mock_self.real_trvs = (
+            {cls.SHARED_ID: Mock()} if real_trvs is None else real_trvs
+        )
+        mock_self._cooler_last_sent = {"hvac_mode_decided": hvac_mode_decided}
+        mock_self.control_queue_task = asyncio.Queue()
+        # The heartbeat the cycle stamps replaces a field of the kernel state,
+        # so it has to be the real immutable value, not a stand-in.
+        mock_self.kernel_state = running_kernel_state()
+        mock_self.clock = FakeClock()
+        return mock_self
+
+    @classmethod
+    async def _run_one_cycle(cls, mock_self, until=None):
+        """Run one queued control cycle and stop the loop again.
+
+        Parameters
+        ----------
+        mock_self : Mock
+            the stand-in entity the cycle is queued on and run against
+        until : Callable[[], bool] or None
+            what marks the cycle under test as finished. A cycle whose TRV
+            controls all succeed marks the queued item done and puts nothing
+            back, so ``Queue.join`` returns exactly when it completes and None
+            selects that wait. A cycle that re-queues itself for a retry keeps
+            the queue permanently unfinished, so those cases pass a predicate
+            over what the assertions read instead.
+
+        Returns
+        -------
+        None
+        """
+        await mock_self.control_queue_task.put(mock_self)
+        with patch(f"{cls._CTRL}.compute_control_cycle", return_value=(Mock(), Mock())):
+            queue_task = asyncio.create_task(control_queue(mock_self))
+            try:
+                if until is None:
+                    await asyncio.wait_for(
+                        mock_self.control_queue_task.join(), timeout=5
+                    )
+                else:
+                    await _wait_until(until)
+            finally:
+                queue_task.cancel()
+                try:
+                    await queue_task
+                except asyncio.CancelledError:
+                    pass
+
+    @pytest.mark.asyncio
+    async def test_the_heating_channel_stands_down_while_cooling_owns_the_device(self):
+        """A cycle the cooling channel drives dispatches no heating control."""
+        mock_self = self._make_self(hvac_mode_decided="cool")
+
+        with (
+            patch(f"{self._CTRL}.control_cooler", new=AsyncMock()),
+            patch(
+                f"{self._CTRL}.control_trv", new=AsyncMock(return_value=True)
+            ) as mock_control_trv,
+        ):
+            await self._run_one_cycle(mock_self)
+
+        mock_control_trv.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_the_heating_channel_drives_the_device_on_every_other_cycle(self):
+        """A cooling decision of OFF leaves the device to the heating channel."""
+        mock_self = self._make_self(hvac_mode_decided="off")
+
+        with (
+            patch(f"{self._CTRL}.control_cooler", new=AsyncMock()),
+            patch(
+                f"{self._CTRL}.control_trv", new=AsyncMock(return_value=True)
+            ) as mock_control_trv,
+        ):
+            await self._run_one_cycle(mock_self)
+
+        assert mock_control_trv.call_count == 1
+        assert mock_control_trv.call_args_list[0][0][1] == self.SHARED_ID
+
+    @pytest.mark.asyncio
+    async def test_a_cooling_pass_that_raised_leaves_the_device_to_the_heating_channel(
+        self,
+    ):
+        """A latch no cycle wrote is not read as a handover.
+
+        The cooling pass raised before it decided, so the decision standing
+        there belongs to an earlier cycle and says nothing about this one.
+        """
+        mock_self = self._make_self(hvac_mode_decided="cool")
+
+        with (
+            patch(
+                f"{self._CTRL}.control_cooler",
+                new=AsyncMock(side_effect=ValueError("cooler unreachable")),
+            ),
+            patch(
+                f"{self._CTRL}.control_trv", new=AsyncMock(return_value=True)
+            ) as mock_control_trv,
+        ):
+            await self._run_one_cycle(mock_self)
+
+        assert mock_control_trv.call_count == 1
+        assert mock_control_trv.call_args_list[0][0][1] == self.SHARED_ID
+
+    @pytest.mark.asyncio
+    async def test_a_failing_trv_is_named_correctly_when_a_device_was_skipped(
+        self, caplog
+    ):
+        """The error names the device that failed, not the one left out.
+
+        The results of the dispatched controls line up with the devices that
+        were dispatched, which is a shorter list than the configured ones as
+        soon as one of them goes to the cooling channel.
+        """
+        radiator = "climate.radiator"
+        mock_self = self._make_self(
+            hvac_mode_decided="cool",
+            real_trvs={self.SHARED_ID: Mock(), radiator: Mock()},
+        )
+
+        def _errors():
+            return [r.getMessage() for r in caplog.records if r.levelname == "ERROR"]
+
+        with (
+            patch(f"{self._CTRL}.control_cooler", new=AsyncMock()),
+            patch(
+                f"{self._CTRL}.control_trv",
+                new=AsyncMock(side_effect=ValueError("valve unreachable")),
+            ),
+            caplog.at_level("ERROR"),
+        ):
+            # The cycle fails its only dispatched control, then backs off and
+            # re-queues itself before it marks the taken item done, so the
+            # queue never drains and the first pass is what the assertions
+            # below are about.
+            await self._run_one_cycle(mock_self, until=lambda: bool(_errors()))
+
+        errors = _errors()
+        assert any(radiator in message for message in errors)
+        assert not any(self.SHARED_ID in message for message in errors)
+
+    @pytest.mark.asyncio
+    async def test_a_distinct_cooler_leaves_every_trv_dispatched(self):
+        """An installation without the overlap dispatches every thermostat."""
+        mock_self = self._make_self(
+            hvac_mode_decided="cool", real_trvs={"climate.radiator": Mock()}
+        )
+        mock_self.cooler_entity_id = "climate.split_unit"
+
+        with (
+            patch(f"{self._CTRL}.control_cooler", new=AsyncMock()),
+            patch(
+                f"{self._CTRL}.control_trv", new=AsyncMock(return_value=True)
+            ) as mock_control_trv,
+        ):
+            await self._run_one_cycle(mock_self)
+
+        assert mock_control_trv.call_count == 1
+        assert mock_control_trv.call_args_list[0][0][1] == "climate.radiator"
+
+    @pytest.mark.asyncio
+    async def test_the_heating_band_still_advances_on_a_cycle_that_dispatches_nothing(
+        self,
+    ):
+        """The hysteresis band is advanced by the cycle, not by a device.
+
+        With the shared device as the room's only one, a cooling cycle
+        dispatches no heating control at all, and the band would otherwise rest
+        on the state the last heating cycle left it in.
+        """
+        mock_self = self._make_self(hvac_mode_decided="cool")
+
+        with (
+            patch(f"{self._CTRL}.control_cooler", new=AsyncMock()),
+            patch(f"{self._CTRL}.control_trv", new=AsyncMock(return_value=True)),
+        ):
+            await self._run_one_cycle(mock_self)
+
+        mock_self._commit_hvac_action.assert_called_once_with(
+            mock_self._compute_hvac_action_pure.return_value
+        )
+
+    @pytest.mark.asyncio
+    async def test_a_cycle_that_dispatches_nothing_still_counts_as_a_control_cycle(
+        self,
+    ):
+        """The control watchdog reads a cooling run as a running loop.
+
+        Leaving the room's only device to the cooling channel is a decision the
+        cycle reached, and a cooling run outlasts the watchdog window easily.
+        """
+        mock_self = self._make_self(hvac_mode_decided="cool")
+        mock_self.clock.advance(1234.0)
+
+        with (
+            patch(f"{self._CTRL}.control_cooler", new=AsyncMock()),
+            patch(f"{self._CTRL}.control_trv", new=AsyncMock(return_value=True)),
+        ):
+            await self._run_one_cycle(mock_self)
+
+        assert mock_self.kernel_state.last_control_monotonic == 1234.0
