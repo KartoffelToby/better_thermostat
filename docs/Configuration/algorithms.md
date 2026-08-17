@@ -189,7 +189,7 @@ Not all TRVs support offset-based calibration. Better Thermostat will automatica
 
 ## Direct valve control
 
-Some TRV devices support **direct valve control**, where Better Thermostat can directly set the valve opening percentage (0-100%) instead of only adjusting target temperatures or offsets. That gives the algorithms finer control, which matters most for MPC and PID.
+Some TRV devices support **direct valve control**, where Better Thermostat can directly set the valve opening percentage (0-100%) instead of only adjusting target temperatures or offsets. That sends the selected algorithm's valve decision straight to the TRV, instead of letting the TRV's own controller decide what to do with a setpoint.
 
 ### What direct valve control is
 
@@ -214,9 +214,9 @@ Better Thermostat automatically detects if your TRV supports direct valve contro
 
 When direct valve control is available:
 
-- **MPC Predictive**: Calculates optimal valve opening based on predicted temperature changes. This is where direct valve control shines - the algorithm can precisely control heating power.
+- **MPC Predictive**: Calculates a valve opening from its prediction of where the room is heading, and that opening is written as it stands.
 
-- **PID Controller**: Directly outputs valve position based on temperature error and trends. Very effective with direct valve control.
+- **PID Controller**: Directly outputs valve position based on temperature error and trends.
 
 - **TPI Controller**: Sets valve opening based on heating duty cycle calculations.
 
