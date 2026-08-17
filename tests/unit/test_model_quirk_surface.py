@@ -141,9 +141,19 @@ def _host():
 
 
 def _signature(func):
-    """Parameter names and whether the function is a coroutine."""
+    """Each parameter's name, kind and default, and the coroutine flag.
+
+    Names alone would let a model change a parameter's kind or drop a
+    default and still match, neither of which the positional dispatch
+    would survive. Annotations are deliberately left out: the dispatch
+    never reads them, and the modules carry them unevenly, so comparing
+    them would report typing coverage as a signature mismatch.
+    """
     return (
-        tuple(inspect.signature(func).parameters),
+        tuple(
+            (parameter.name, parameter.kind, parameter.default)
+            for parameter in inspect.signature(func).parameters.values()
+        ),
         inspect.iscoroutinefunction(func),
     )
 
@@ -168,25 +178,83 @@ def _self_attributes_read(path):
     return names
 
 
+QUIRK_ATTRIBUTE = "model_quirks"
+QUIRK_LOADER = "load_model_quirks"
+QUIRK_PACKAGE = "model_fixes"
+
+
+def _is_a_quirk_module(node, holders=frozenset()):
+    """Whether an expression evaluates to a quirk module itself.
+
+    Only the wrappers the shell actually puts around one are unwrapped:
+    an ``await``, a guard against a missing TRV, a fallback chain. What
+    a quirk function *returns* is not a quirk module, so a call only
+    counts when it is the loader, and a bare name only when it was bound
+    from one of these in the first place.
+    """
+    if isinstance(node, ast.Await):
+        return _is_a_quirk_module(node.value, holders)
+    if isinstance(node, ast.IfExp):
+        return _is_a_quirk_module(node.body, holders) or _is_a_quirk_module(
+            node.orelse, holders
+        )
+    if isinstance(node, ast.BoolOp):
+        return any(_is_a_quirk_module(value, holders) for value in node.values)
+    if isinstance(node, ast.Attribute):
+        return node.attr == QUIRK_ATTRIBUTE
+    if isinstance(node, ast.Name):
+        return node.id in holders
+    if isinstance(node, ast.Call):
+        called = node.func
+        name = (
+            called.attr
+            if isinstance(called, ast.Attribute)
+            else getattr(called, "id", None)
+        )
+        return name == QUIRK_LOADER
+    return False
+
+
+def _quirk_holding_names(tree):
+    """Local names in one file that hold a quirk module.
+
+    The shell rarely dispatches on the module expression directly: it
+    binds ``<trv>.model_quirks`` to a local first. A local bound from
+    another local is not followed, so nothing derived from a dispatch's
+    result is mistaken for the module.
+    """
+    holders = set()
+    for node in ast.walk(tree):
+        if not isinstance(node, (ast.Assign, ast.AnnAssign)) or node.value is None:
+            continue
+        if not _is_a_quirk_module(node.value):
+            continue
+        targets = node.targets if isinstance(node, ast.Assign) else [node.target]
+        holders.update(target.id for target in targets if isinstance(target, ast.Name))
+    return frozenset(holders)
+
+
 def _names_reached_for(path):
-    """Every name a file's code reaches for, in any dispatch spelling.
+    """Every quirk-module name a file's code reaches for.
 
     Read as source text a name also "appears" in the comment that
     explains a dispatch, in the docstring above it and in an unrelated
     string literal — so removing the dispatch itself would go unnoticed.
-    Only these four node kinds are a name actually being reached for:
-    an attribute on a module, a bare reference, an import, and the
-    string a ``hasattr``/``getattr`` guard looks up.
+    Read as any AST name it also matches an unrelated symbol that happens
+    to share the spelling. What is left is a name reached for *on a quirk
+    module*: an attribute of one, the string a ``hasattr``/``getattr``
+    looks up on one, or a name imported straight out of the package.
     """
     tree = ast.parse(path.read_text())
+    holders = _quirk_holding_names(tree)
     names = set()
     for node in ast.walk(tree):
         if isinstance(node, ast.Attribute):
-            names.add(node.attr)
-        elif isinstance(node, ast.Name):
-            names.add(node.id)
-        elif isinstance(node, ast.alias):
-            names.add(node.asname or node.name.rsplit(".", 1)[-1])
+            if _is_a_quirk_module(node.value, holders):
+                names.add(node.attr)
+        elif isinstance(node, ast.ImportFrom):
+            if QUIRK_PACKAGE in (node.module or "").split("."):
+                names.update(alias.asname or alias.name for alias in node.names)
         elif (
             isinstance(node, ast.Call)
             and isinstance(node.func, ast.Name)
@@ -194,6 +262,7 @@ def _names_reached_for(path):
             and len(node.args) > 1
             and isinstance(node.args[1], ast.Constant)
             and isinstance(node.args[1].value, str)
+            and _is_a_quirk_module(node.args[0], holders)
         ):
             names.add(node.args[1].value)
     return names
