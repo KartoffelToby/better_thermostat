@@ -154,6 +154,10 @@ def get_optional_sensors(self) -> list:
     Optional sensors are those that can be unavailable without
     blocking thermostat operation (degraded mode).
 
+    The cooler belongs here too: while it is unavailable the heating
+    side keeps running, so the outage has no other visible symptom and
+    degraded mode is the only thing that surfaces it.
+
     Returns
     -------
     list
@@ -170,6 +174,10 @@ def get_optional_sensors(self) -> list:
         optional.append(self.outdoor_sensor)
     if getattr(self, "weather_entity", None):
         optional.append(self.weather_entity)
+    # An actuator rather than a sensor, watched on the same terms because
+    # its loss leaves the thermostat running.
+    if getattr(self, "cooler_entity_id", None):
+        optional.append(self.cooler_entity_id)
     return optional
 
 

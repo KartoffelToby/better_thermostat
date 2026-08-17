@@ -2019,6 +2019,14 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
             "better_thermostat %s: finding battery entities...", self.device_name
         )
 
+        # The battery scan below reads all_entities, so every configured
+        # device has to be registered before it runs. The cooler and the
+        # outdoor sensor are the two that no earlier init step registers.
+        if self.cooler_entity_id is not None:
+            self.all_entities.append(self.cooler_entity_id)
+        if self.outdoor_sensor is not None:
+            self.all_entities.append(self.outdoor_sensor)
+
         # try to find battery entities for all related entities
         for entity in self.all_entities:
             if entity is not None:
@@ -2034,7 +2042,6 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
 
         # Add listener
         if self.outdoor_sensor is not None:
-            self.all_entities.append(self.outdoor_sensor)
             self.async_on_remove(
                 async_track_time_change(self.hass, self._trigger_time, 5, 0, 0)
             )
