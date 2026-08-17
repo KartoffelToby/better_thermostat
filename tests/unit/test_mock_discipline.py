@@ -212,8 +212,10 @@ def _scopes(tree: ast.Module) -> dict[int, int]:
             owner[id(child)] = current
             descend(child, inner)
 
-    owner[id(tree)] = id(tree)
-    descend(tree, id(tree))
+    # Module scope is 0 rather than the tree's own id, so a lookup for a
+    # module-level definition needs no second handle on the tree.
+    owner[id(tree)] = 0
+    descend(tree, 0)
     return owner
 
 
@@ -379,11 +381,12 @@ def _late_side_effects_without_an_answer(site: PatchSite) -> list[str]:
         return []
     silent: list[str] = []
     for callback in site.late_side_effects.get((site.scope, site.bound_name), []):
-        # The callback belonging to *this* test, not a same-named one from
-        # a neighbouring test that happens to answer.
+        # The callback belonging to *this* test, or — when the test assigns
+        # one defined at module level — that one. Never the file-wide index:
+        # a same-named callback in a neighbouring test would answer for it.
         definitions = site.scoped_async_defs.get(
             (site.scope, callback)
-        ) or site.async_defs.get(callback)
+        ) or site.scoped_async_defs.get((0, callback))
         if definitions and not any(_returns_a_value(d) for d in definitions):
             silent.append(callback)
     return silent
