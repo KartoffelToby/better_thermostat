@@ -60,13 +60,6 @@ from .device_profiles import (
     DeviceProfile,
 )
 
-_DUAL_ROLE_TRV_WRITE_LANDS_LAST = (
-    "one entity configured as both thermostat and cooler receives cool from the "
-    "cooler channel and heat from the TRV channel in the same control cycle; the "
-    "TRV write lands last, so the device is left in heat at the calibrated heat "
-    "setpoint while the entity reports cooling"
-)
-
 
 def _switched_off(profile: DeviceProfile) -> DeviceProfile:
     """Return the profile with the device sitting in off.
@@ -462,13 +455,7 @@ async def test_options_flow_swaps_the_thermostat_to_a_device_less_entity(hass):
     [
         pytest.param(SEPARATE_COOLER, id="separate_cooler"),
         pytest.param(RANGED_COOLER, id="ranged_cooler"),
-        pytest.param(
-            DUAL_ROLE,
-            id="dual_role",
-            marks=pytest.mark.xfail(
-                strict=True, reason=_DUAL_ROLE_TRV_WRITE_LANDS_LAST
-            ),
-        ),
+        pytest.param(DUAL_ROLE, id="dual_role"),
     ],
     indirect=True,
 )
