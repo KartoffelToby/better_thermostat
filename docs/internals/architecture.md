@@ -18,13 +18,13 @@ decide(snapshot, state) -> (desired, state')
   temperatures, modes, environment, and the reported state of every TRV.
 - The `KernelState` aggregates the discrete state machines (the
   [regions](/internals/regions/)) that persist between cycles.
-- A `DesiredState` expresses intent per TRV — mode, setpoint, valve
-  percent, offset, and *why* heating is suppressed. Intent, not
-  commands: the shell translates it into device writes.
+- A `DesiredState` expresses intent per TRV: mode, setpoint, valve
+  percent, offset, and *why* heating is suppressed. The shell translates
+  that intent into device writes.
 
 `decide()` imports no Home Assistant code, performs no IO, reads no
 clocks (time arrives inside the snapshot), and never mutates its input
-state. The same inputs always produce the same decision — which is what
+state. The same inputs always produce the same decision, which is what
 makes the [flight recorder](/internals/observability-and-testing/)
 replayable.
 
@@ -52,7 +52,7 @@ flowchart LR
 
 The snapshot is **pulled, not maintained**: it is built fresh at the
 start of each cycle and discarded afterwards, so a decision always sees
-one coherent world. Reactivity comes from the push side — every trigger
+one coherent world. Reactivity comes from the push side: every trigger
 requests a cycle, and the queue holds at most one pending request. A
 pending cycle automatically covers any state change that arrives before
 it runs, so bursts of events coalesce into one decision instead of many.
@@ -69,8 +69,8 @@ A cycle runs on:
 - **the follow-up** a budget-deferred write schedules for itself.
 
 Only one cycle runs at a time. The worst-case latency from event to
-decision is the remainder of the cycle currently running — a few
-seconds, dominated by device writes and their propagation wait.
+decision is the remainder of the cycle currently running: a few seconds,
+dominated by device writes and their propagation wait.
 
 ## The decision cascade
 
@@ -94,12 +94,12 @@ flowchart TD
 
 OFF intents carry their **suppression reason** so the shell can choose
 between a literal OFF (window, no heat demand) and the device-specific
-remap of the user's OFF mode — without reading the kernel's internals.
+remap of the user's OFF mode, without reading the kernel's internals.
 Reachability is an address filter rather than a cascade tier: an
 unreachable TRV is dropped from the commanded set and receives no intent
-at all (its native thermostat keeps controlling at the last commanded
-state), and one dead TRV never drags the others down: intents are
-strictly per TRV.
+at all, and its native thermostat keeps controlling at the last
+commanded state. Intents are strictly per TRV, so one dead TRV never
+drags the others down.
 
 ## Where things live
 
@@ -115,7 +115,7 @@ strictly per TRV.
 
 The placement rule for new code: a new rule about *what should happen*
 belongs in the core, with pure unit tests. New *device interaction*
-belongs in the shell behind the existing boundaries — writes go through
+belongs in the shell behind the existing boundaries. Writes go through
 the safety hull and the write budget, cycles are requested through the
 scheduler, and the shell applies intent without second-guessing the
 kernel after `decide()` ran.

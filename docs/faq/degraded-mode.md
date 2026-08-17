@@ -5,7 +5,7 @@ slug: qanda/degraded_mode
 ---
 
 Better Thermostat raises a **degraded mode** repair issue when one of the
-sensors it was configured with becomes unavailable — the room temperature
+sensors it was configured with becomes unavailable: the room temperature
 sensor, the window sensor, the humidity sensor, the outdoor sensor, or the
 weather entity. The thermostat keeps running; the issue tells you that it
 is working with less information than you configured.
@@ -23,8 +23,8 @@ quality steps down a ladder, one rung at a time:
 2. **Sensor fallback** — the room temperature sensor is unavailable, but
    at least one TRV reports its internal temperature. Better Thermostat
    then controls on the average of the TRV-internal temperatures. TRVs
-   measure next to the hot valve, so expect less accuracy — but it is
-   strictly better than controlling on a frozen last reading.
+   measure next to the hot valve, so expect less accuracy, but it is
+   still better than controlling on a frozen last reading.
 3. **Hold** — neither the room sensor nor any TRV temperature is usable
    (for example during a Zigbee outage). The controller stops adjusting
    and the TRVs keep their last commanded state. Frost protection stays
@@ -32,7 +32,7 @@ quality steps down a ladder, one rung at a time:
 
 A rung steps down after the loss has persisted for about two minutes, and
 climbs back up after the sensors have been stable again for about five
-minutes — short sensor flaps do not flip the behavior back and forth.
+minutes, so short sensor flaps do not flip the behavior back and forth.
 
 ## How to see the current rung
 

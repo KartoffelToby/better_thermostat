@@ -24,7 +24,7 @@ This page explains the two setup screens in plain language and gives practical d
 - **Name**: A friendly name for this room's thermostat (e.g., "Living Room Heating").
 - **The real thermostat**: Select the smart radiator valves or thermostats in this room.
 - **The cooling device (optional)**: If you have an AC or cooler, select it here to control it alongside your heating.
-- **Temperature sensor**: Your separate room temperature sensor. This is crucial for accurate heating!
+- **Temperature sensor**: Your separate room temperature sensor. Accurate control depends on this one.
 - **Humidity sensor**: Currently just displays the humidity on your dashboard.
 - **If you have an outdoor sensor, you can use it to get the outdoor temperature**: Select your outdoor sensor to let the system know when it's warm outside.
 - **Window sensor**: Select your window sensor so the heating pauses automatically when you open a window.
@@ -92,7 +92,7 @@ Use [Algorithm selection](/optimal-settings/algorithm-selection/) for decision h
 
 ### Other important toggles
 
-- **Overheating protection?**: Turn this on if your room keeps getting too hot even after reaching the target temperature (often happens if radiators stay hot for a long time).
+- **Overheating protection**: Turn this on if your room keeps getting too hot even after reaching the target temperature (often happens if radiators stay hot for a long time).
 - **If your TRV can't handle the off mode, you can enable this to use target temperature 5°C instead**: Some devices don't have a proper "Off" switch. This sets them to 5°C instead to keep them off safely.
 - **If the auto means heat for your TRV and you want to swap it**: Fixes a quirk with some specific thermostat brands where the modes are mixed up in Home Assistant.
 - **If your thermostat has no own maintenance mode, you can use this one**: Adds a maintenance mode (like opening the valve fully to prevent it from getting stuck in summer) if your device lacks one.

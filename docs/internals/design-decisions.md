@@ -1,15 +1,15 @@
 ---
 title: Design decisions
-description: The structural decisions and the chosen constants — what anchors each value, and what would change it.
+description: The structural decisions and the chosen constants, with the anchor and revisit trigger for each value.
 sidebar:
   order: 8
 ---
 
-Two kinds of decisions live in this codebase, and they deserve
+Two kinds of decisions live in this codebase, and the two need
 different scrutiny. **Anchored thresholds** derive from a physical or
-device-given limit — challenging them means challenging the anchor.
+device-given limit; challenging them means challenging the anchor.
 **Chosen constants** are engineering trade-offs between two named
-pressures — they are legitimate to revisit, and this page names the
+pressures. They are legitimate to revisit, and this page names the
 pressures so a revisit argues against the right thing.
 
 ## Structural decisions
@@ -36,8 +36,9 @@ estimates is what makes the transfer bumpless.
 annunciation-only.** Non-finite state, runaway gains, and wound-up
 integrators have crisp definitions and safe resets. An oscillation
 detector with an automatic gain backoff would thrash the controller on
-a false positive — worse than the oscillation it reacts to. Backoff
-stays manual until the detector is validated against the benchmark.
+a false positive, which is worse than the oscillation it reacts to.
+Backoff stays manual until the detector is validated against the
+benchmark.
 
 **No external readiness gate in front of actuation.** Closed-loop
 learners bootstrap *through* actuation; an external "only actuate when
@@ -61,25 +62,25 @@ naturally: it receives no intent and its native thermostat continues.
 **`unknown`/`unavailable` window readings count as closed.** Windows are
 usually closed, and a lost sensor (e.g. a dead battery) must not stop
 heating and leave the room cold; the frost floor still applies, and the
-unavailability is surfaced separately. The reverse — treating an absent
-reading as open — heats the street only when a window is actually open,
+unavailability is surfaced separately. The reverse, treating an absent
+reading as open, heats the street only when a window is actually open
 but freezes the occupant on every dead battery.
 
 ## Chosen constants
 
 | Value | What | The two pressures | Anchor / revisit trigger |
 |---|---|---|---|
-| **30 s** | write budget per TRV and channel | battery & radio load ↔ worst-case latency of a fine-tuning write | TRVs are battery devices on contended radio; write bursts are a real failure cause. 30 s caps a channel at ~120 writes/h while keeping deferred writes promptly delivered (safety writes bypass entirely). Faster budgets mainly buy more radio traffic, not better control — room dynamics are far slower. |
-| **5 min** | calibration tick (controller modes) | control freshness without events ↔ pointless wake-ups | Room thermal time constants are tens of minutes; 5 min samples the plant several times per time constant. A faster tick could not act faster anyway — actuation is bounded by the 30 s budget. |
+| **30 s** | write budget per TRV and channel | battery & radio load ↔ worst-case latency of a fine-tuning write | TRVs are battery devices on contended radio; write bursts are a real failure cause. 30 s caps a channel at ~120 writes/h while keeping deferred writes promptly delivered (safety writes bypass entirely). Faster budgets mainly buy more radio traffic rather than better control; room dynamics are far slower. |
+| **5 min** | calibration tick (controller modes) | control freshness without events ↔ pointless wake-ups | Room thermal time constants are tens of minutes; 5 min samples the plant several times per time constant. A faster tick could not act faster anyway, since actuation is bounded by the 30 s budget. |
 | **5 min** | reconciler tick | healing latency for lost writes ↔ cost of observe+decide per tick | Lost writes are rare and not safety-relevant (those bypass and confirm); healing within minutes suffices. |
-| **2 min / 5 min** | ladder down-debounce / up-stability | reacting to real outages ↔ flapping on sensor blips | Asymmetric on purpose: degrade quickly enough to matter, re-promote only after sustained recovery — classic reversionary-mode hysteresis. |
+| **2 min / 5 min** | ladder down-debounce / up-stability | reacting to real outages ↔ flapping on sensor blips | Asymmetric on purpose: degrade quickly enough to matter, re-promote only after sustained recovery, which is classic reversionary-mode hysteresis. |
 | **15 min** | watchdog stall threshold | catching a silent hang ↔ false alarms | Anchored: the 5-minute ticks guarantee a cycle at least every 5 minutes, so 15 minutes = three missed ticks = a real hang, not jitter. |
 | **1 h** | maintenance max runtime | letting a slow valve exercise finish ↔ a dead run blocking control forever | A valve exercise takes minutes per TRV; an hour means the run died. The bound exists so maintenance can never block control permanently. |
 | **3 s** | post-write propagation wait | reading the device echo as confirmation ↔ misreading it as an external change | Typical Zigbee/MQTT echo latency; without the wait, BT would treat its own write's echo as a user action. |
 | **0.05 K + half device step** | reconcile setpoint tolerance | detecting lost writes ↔ fighting device quantization | Anchored: a device snapping a value onto its own grid moves it at most half a step; below that is float noise. Fighting quantization would re-send every 5 minutes and drain batteries. |
 | **5 points** | reconcile valve tolerance | detecting lost valve writes ↔ fighting device-side modulation | Real lost writes look like 0 vs 80, not 77 vs 80. |
-| **4 reversals / ≥20-point swings / 10 samples** | oscillation detector | catching thrash ↔ false positives | Deliberately biased toward quiet (annunciation-only makes a miss cheap and a false alarm noisy). To be tightened against benchmark data. |
-| **Per-gain plausibility bands** | runaway-gain reset (PID auto-tune) | never clipping a legitimate tune ↔ catching divergence | Each gain has a fixed min–max band (`PIDParams` in `utils/calibration/pid.py`) — the same limits the auto-tuner clamps its own steps to, so a legitimate tune cannot leave them; a stored gain outside its band resets the gains to defaults. Deliberately generous — tighten once benchmark/telemetry data justifies it. |
+| **4 reversals / ≥20-point swings / 10 samples** | oscillation detector | catching thrash ↔ false positives | Biased toward quiet (annunciation-only makes a miss cheap and a false alarm noisy). To be tightened against benchmark data. |
+| **Per-gain plausibility bands** | runaway-gain reset (PID auto-tune) | never clipping a legitimate tune ↔ catching divergence | Each gain has a fixed min–max band (`PIDParams` in `utils/calibration/pid.py`), the same limits the auto-tuner clamps its own steps to, so a legitimate tune cannot leave them; a stored gain outside its band resets the gains to defaults. The bands are generous; tighten them once benchmark/telemetry data justifies it. |
 | **5 min** | startup degraded-mode grace | alarming on real outages ↔ alarming on slow cloud integrations at boot | Weather/cloud entities routinely need minutes to come online after a restart. |
 | **50 entries** | flight-recorder ring | covering the window around an incident ↔ diagnostics download size | With background ticks every 5 minutes, 50 tuples span hours around the moment a user hits "download diagnostics". |
 

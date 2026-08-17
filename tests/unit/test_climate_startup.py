@@ -43,6 +43,7 @@ COOLER_ID = "climate.cooler"
 WINDOW_ID = "binary_sensor.window"
 DOOR_ID = "binary_sensor.door"
 HUMIDITY_ID = "sensor.humidity"
+OUTDOOR_ID = "sensor.outdoor_temp"
 
 
 # ---------------------------------------------------------------------------
@@ -66,6 +67,7 @@ def bt():
     mock.sensor_entity_id = SENSOR_ID
     mock.real_trvs = {TRV_ID: {"calibration": 1}}
     mock.cooler_entity_id = None
+    mock.outdoor_sensor = None
     mock.humidity_sensor_entity_id = None
     mock.window_id = None
     mock.door_id = None
@@ -1202,7 +1204,6 @@ async def _run_finalize_startup(bt):
     bt.is_removed = False
     bt.all_trvs = None
     bt.entity_ids = [TRV_ID]
-    bt.outdoor_sensor = None
     bt._async_unsub_state_changed = None
     # Background jobs are handed to a mocked task factory that never awaits
     # them, so they hand out plain values instead of orphaned coroutines.
@@ -1216,6 +1217,7 @@ async def _run_finalize_startup(bt):
         patch(f"{_CLIMATE}.check_and_update_degraded_mode", AsyncMock()),
         patch(f"{_CLIMATE}.async_track_state_change_event", MagicMock()),
         patch(f"{_CLIMATE}.async_track_time_interval", MagicMock()),
+        patch(f"{_CLIMATE}.async_track_time_change", MagicMock()),
         patch(f"{_CLIMATE}.asyncio.sleep", AsyncMock()),
     ):
         await BetterThermostat._finalize_startup(bt)
@@ -1486,6 +1488,65 @@ class TestCoolerTargetReadAtListenerRegistration:
 
         assert "Could not convert 'n/a' to float in _finalize_startup()" in caplog.text
         assert bt.bt_target_cooltemp is None
+
+
+class TestFinalizeStartupBatteryScan:
+    """The battery scan covers every configured device.
+
+    It reads ``all_entities``, so a device registered after the scan is
+    never asked for a battery entity at all.
+    """
+
+    @staticmethod
+    async def _scan(bt):
+        """Run _finalize_startup and return the entity IDs the scan visited."""
+        scanned: list[str] = []
+
+        async def spy(_self, entity_id, _visited=None):
+            scanned.append(entity_id)
+            return f"sensor.{entity_id.split('.')[-1]}_battery"
+
+        with patch(f"{_CLIMATE}.find_battery_entity", new=spy):
+            await _run_finalize_startup(bt)
+        return scanned
+
+    @pytest.mark.asyncio
+    async def test_scan_reaches_the_cooler(self, bt):
+        """A configured cooler is asked for its battery entity."""
+        bt.cooler_entity_id = COOLER_ID
+        bt.devices_states = {}
+        _install_states(bt, {COOLER_ID: _make_cooler_state({ATTR_TEMPERATURE: 24.0})})
+
+        scanned = await self._scan(bt)
+
+        assert COOLER_ID in scanned
+        assert bt.devices_states[COOLER_ID]["battery_id"] == "sensor.cooler_battery"
+
+    @pytest.mark.asyncio
+    async def test_scan_reaches_the_outdoor_sensor(self, bt):
+        """A configured outdoor sensor is asked for its battery entity."""
+        bt.cooler_entity_id = None
+        bt.outdoor_sensor = OUTDOOR_ID
+        bt.devices_states = {}
+
+        scanned = await self._scan(bt)
+
+        assert OUTDOOR_ID in scanned
+        assert (
+            bt.devices_states[OUTDOOR_ID]["battery_id"] == "sensor.outdoor_temp_battery"
+        )
+
+    @pytest.mark.asyncio
+    async def test_unconfigured_devices_are_not_scanned(self, bt):
+        """Nothing is registered for a cooler or outdoor sensor that is absent."""
+        bt.cooler_entity_id = None
+        bt.outdoor_sensor = None
+        bt.devices_states = {}
+
+        scanned = await self._scan(bt)
+
+        assert scanned == []
+        assert bt.all_entities == []
 
 
 # ---------------------------------------------------------------------------

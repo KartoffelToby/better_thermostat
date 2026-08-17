@@ -15,7 +15,7 @@ Local calibration support depends on adapter support and TRV capabilities. Curre
 
 For device-level details, see [Working devices](/working-devices/compatibility/).
 
-## Local calibration vs target temperature calibration — what is the difference?
+## Local calibration vs target temperature calibration
 
 - **Local calibration (offset based)**: BT adjusts TRV offset so TRV reading matches room sensor.
 - **Target temperature based**: BT adjusts requested target temperature to compensate internally.
@@ -36,7 +36,7 @@ and radio-constrained devices; bursts of writes drain batteries and
 congest the radio network.
 
 A change that arrives inside that window is sent automatically as soon
-as the slot is free — at most 30 seconds later. Safety-relevant writes
+as the slot is free, at most 30 seconds later. Safety-relevant writes
 (frost protection, turning off, closing the valve) are sent immediately.
 
 If a write gets lost on the radio anyway, the periodic reconciliation
