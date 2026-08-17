@@ -217,15 +217,37 @@ def _is_a_quirk_module(node, holders=frozenset()):
     return False
 
 
-NESTS_A_SCOPE = (ast.FunctionDef, ast.AsyncFunctionDef, ast.Lambda, ast.ClassDef)
+NESTS_A_SCOPE = (
+    ast.FunctionDef,
+    ast.AsyncFunctionDef,
+    ast.Lambda,
+    ast.ClassDef,
+    # A comprehension's target is local to it, whether or not the
+    # comprehension itself is inlined into the enclosing frame.
+    ast.ListComp,
+    ast.SetComp,
+    ast.DictComp,
+    ast.GeneratorExp,
+)
+COMPREHENSIONS = (ast.ListComp, ast.SetComp, ast.DictComp, ast.GeneratorExp)
 
 
 def _within_scope(node):
-    """Every node belonging to one scope, nested scopes excluded."""
+    """Every node belonging to one scope.
+
+    A nested scope is yielded but not entered: its own name binds out
+    here, while everything inside it belongs to that scope. The one
+    exception is the leftmost iterable of a comprehension, which Python
+    evaluates in the enclosing scope before the comprehension runs.
+    """
     for child in ast.iter_child_nodes(node):
-        if isinstance(child, NESTS_A_SCOPE):
-            continue
         yield child
+        if isinstance(child, NESTS_A_SCOPE):
+            if isinstance(child, COMPREHENSIONS) and child.generators:
+                outermost = child.generators[0].iter
+                yield outermost
+                yield from _within_scope(outermost)
+            continue
         yield from _within_scope(child)
 
 
@@ -236,6 +258,26 @@ def _scopes_inside(node):
             yield child
         else:
             yield from _scopes_inside(child)
+
+
+def _names_bound_by(node):
+    """Names a statement binds without an ``ast.Name`` store node.
+
+    An import, an ``except ... as``, a ``match`` capture and a nested
+    ``def`` or ``class`` all put a name in the scope, and any of them can
+    shadow a quirk holder.
+    """
+    if isinstance(node, (ast.Import, ast.ImportFrom)):
+        return [alias.asname or alias.name.split(".", 1)[0] for alias in node.names]
+    if isinstance(node, ast.ExceptHandler):
+        return [node.name] if node.name else []
+    if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+        return [node.name]
+    if isinstance(node, (ast.MatchAs, ast.MatchStar)):
+        return [node.name] if node.name else []
+    if isinstance(node, ast.MatchMapping):
+        return [node.rest] if node.rest else []
+    return []
 
 
 def _quirk_holding_names(scope):
@@ -263,7 +305,20 @@ def _quirk_holding_names(scope):
         for node in _within_scope(scope)
         if isinstance(node, ast.Name) and isinstance(node.ctx, ast.Store)
     ]
+    events += [
+        (_position(node), name, False)
+        for node in _within_scope(scope)
+        for name in _names_bound_by(node)
+    ]
     events += [(_position(scope), name, False) for name in _parameter_names(scope)]
+    # A comprehension's targets are bound inside it, before anything is read.
+    if isinstance(scope, COMPREHENSIONS):
+        events += [
+            (_position(scope), inner.id, False)
+            for generator in scope.generators
+            for inner in ast.walk(generator.target)
+            if isinstance(inner, ast.Name)
+        ]
     events.sort()
     return events
 
@@ -561,6 +616,68 @@ def shadows(trv):
     def inner(quirks):
         return quirks.leaked()
     return inner
+""",
+        set(),
+    ),
+    (
+        "a comprehension target of the same name",
+        """
+def iterates(trv, values):
+    quirks = trv.model_quirks
+    return [quirks.leaked() for quirks in values]
+""",
+        set(),
+    ),
+    (
+        "a comprehension that only reads the binding",
+        """
+def iterates(trv, values):
+    quirks = trv.model_quirks
+    return [quirks.real() for value in values]
+""",
+        {"real"},
+    ),
+    (
+        "an import shadowing the binding",
+        """
+def imports(trv):
+    quirks = trv.model_quirks
+    import quirks
+    return quirks.leaked()
+""",
+        set(),
+    ),
+    (
+        "an except alias shadowing the binding",
+        """
+def catches(trv):
+    quirks = trv.model_quirks
+    try:
+        pass
+    except ValueError as quirks:
+        return quirks.leaked()
+""",
+        set(),
+    ),
+    (
+        "a nested def shadowing the binding",
+        """
+def redefines(trv):
+    quirks = trv.model_quirks
+    def quirks():
+        pass
+    return quirks.leaked()
+""",
+        set(),
+    ),
+    (
+        "a match capture shadowing the binding",
+        """
+def matches(trv, value):
+    quirks = trv.model_quirks
+    match value:
+        case {"key": quirks}:
+            return quirks.leaked()
 """,
         set(),
     ),
