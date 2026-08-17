@@ -29,8 +29,12 @@ from custom_components.better_thermostat.utils.const import (
 )
 from custom_components.better_thermostat.utils.helpers import (
     TRV_SETPOINT_KEYS,
+    adopt_reported_hvac_modes,
     attr_to_celsius,
     convert_to_float,
+    cooling_owns_dual_role_report,
+    device_offers_mode,
+    dual_role_entity_id,
     get_device_model,
     group_all_members_off,
     is_reasonable_temperature,
@@ -190,6 +194,16 @@ async def trigger_trv_change(self, event):
     if self.ignore_states:
         return
 
+    # The offered HVAC modes change at runtime on devices whose heating /
+    # cooling changeover is driven centrally, so every mode is judged against
+    # the currently reported list rather than the startup snapshot. The
+    # adoption precedes the inbound remapping below because the state carried
+    # by this event is a state of the capabilities it reports: remapping it
+    # against the previous list decodes it into a mode of a device that no
+    # longer exists, and the entity mode that follows from it is emitted
+    # before any later cache update could correct it.
+    adopt_reported_hvac_modes(trv, _org_trv_state.attributes.get("hvac_modes"))
+
     try:
         mapped_state = convert_inbound_states(self, entity_id, _org_trv_state)
     except TypeError:
@@ -259,11 +273,27 @@ async def trigger_trv_change(self, event):
     # the TRV's previously published state and is not necessarily a BT-written
     # value, so it does not belong in the echo-suppression set.
     _step = normalize_step(trv.target_temp_step or self.bt_target_temp_step)
+    # A device that carries both the heating and the cooling role reports one
+    # setpoint for two targets, so the set of values BT itself wrote holds what
+    # either channel wrote: the cooling channel's own write is no more a user
+    # press than the heating channel's is. Both cooling values are needed —
+    # the send cache is primed only once the service call returns, while the
+    # cooling target already holds the value the call is carrying.
+    _cooling_owns = cooling_owns_dual_role_report(self, entity_id, _org_trv_state.state)
+    if entity_id == dual_role_entity_id(self):
+        _known_values = (
+            self.bt_target_temp,
+            trv.last_temperature,
+            self.bt_target_cooltemp,
+            self.last_sent_cooler_temp,
+        )
+    else:
+        _known_values = (self.bt_target_temp, trv.last_temperature)
     _setpoint = resolve_inbound_setpoint(
         self,
         new_state,
         keys=TRV_SETPOINT_KEYS,
-        known_values=(self.bt_target_temp, trv.last_temperature),
+        known_values=_known_values,
         step=_step,
         log_source="trigger_trv_change()",
     )
@@ -302,16 +332,75 @@ async def trigger_trv_change(self, event):
                     self.device_name,
                     entity_id,
                 )
-            _LOGGER.debug(
-                "better_thermostat %s: TRV %s decoded TRV target temp changed from %s to %s",
-                self.device_name,
-                entity_id,
-                self.bt_target_temp,
-                _new_heating_setpoint,
-            )
-            self.bt_target_temp = _new_heating_setpoint
-            if self.cooler_entity_id is not None:
-                self._enforce_cool_above_heat()
+            if _cooling_owns:
+                # The device is running as the cooler, so a press on its own
+                # remote names a cooling setpoint. It is filed under the
+                # cooling channel with the same bound the cooler handler
+                # applies: the value is raised to clear the heating target
+                # rather than pulling that target down.
+                _adopted_cooling_setpoint = self._clamp_inbound_cool_target(
+                    _new_heating_setpoint
+                )
+                if _adopted_cooling_setpoint != _new_heating_setpoint:
+                    _LOGGER.info(
+                        "better_thermostat %s: TRV %s reported setpoint %.2f does "
+                        "not clear the heating target %.2f, keeping %.2f",
+                        self.device_name,
+                        entity_id,
+                        _new_heating_setpoint,
+                        self.bt_target_temp,
+                        _adopted_cooling_setpoint,
+                    )
+                _LOGGER.debug(
+                    "better_thermostat %s: TRV %s decoded cooling target changed "
+                    "from %s to %s",
+                    self.device_name,
+                    entity_id,
+                    self.bt_target_cooltemp,
+                    _adopted_cooling_setpoint,
+                )
+                self.bt_target_cooltemp = _adopted_cooling_setpoint
+                # Residual tie-break only, the counterpart of the one below.
+                self._enforce_heat_below_cool()
+            else:
+                # A knob turn on the TRV is authoritative for the heating
+                # channel alone, so a setpoint that would cross the cooling
+                # target is lowered to clear it and the cooling target stays
+                # where the user put it.
+                _adopted_heating_setpoint = self._clamp_inbound_heat_target(
+                    _new_heating_setpoint
+                )
+                if _adopted_heating_setpoint != _new_heating_setpoint:
+                    # A user turning the knob up reports every intermediate
+                    # setpoint, so this is annunciated at info level: the target
+                    # is being honoured as far as the cooling channel allows,
+                    # which is not the anomaly a warning stands for.
+                    _LOGGER.info(
+                        "better_thermostat %s: TRV %s reported setpoint %.2f does not "
+                        "clear the cooling target %.2f, keeping %.2f",
+                        self.device_name,
+                        entity_id,
+                        _new_heating_setpoint,
+                        self.bt_target_cooltemp,
+                        _adopted_heating_setpoint,
+                    )
+                _LOGGER.debug(
+                    "better_thermostat %s: TRV %s decoded TRV target temp changed from %s to %s",
+                    self.device_name,
+                    entity_id,
+                    self.bt_target_temp,
+                    _adopted_heating_setpoint,
+                )
+                self.bt_target_temp = _adopted_heating_setpoint
+                if self.cooler_entity_id is not None:
+                    # Residual tie-break only: the clamp already cleared the
+                    # cooling target unless it ran into bt_min_temp, so this
+                    # moves the cooling target by at most one step as long as
+                    # that target lies inside the configured range, and only
+                    # when no legal heating setpoint below it exists. A range
+                    # the children narrowed above a target already in place is
+                    # the exception.
+                    self._enforce_cool_above_heat()
 
             _main_change = True
         elif _new_heating_setpoint != _old_heating_setpoint:
@@ -360,6 +449,16 @@ async def trigger_trv_change(self, event):
                     self.bt_hvac_mode = HVACMode.OFF
             else:
                 self.bt_hvac_mode = HVACMode.HEAT
+                # A valve that was switched off at the knob reports its turn
+                # back up while bt_hvac_mode still reads OFF, so the tie-break
+                # in the setpoint block above was gated out for a heating
+                # target the bound had to pin to the cooling target at
+                # bt_min_temp. Resolving the mode is what puts a group with a
+                # cooler into HEAT_COOL, so that pair is separated here. This
+                # branch also runs on reports that leave the mode as it was,
+                # where the call only acts on a pair that is already crossed —
+                # the one case it exists to settle wherever it is called from.
+                self._enforce_cool_above_heat()
             _main_change = True
 
     if _main_change is True:
@@ -475,8 +574,13 @@ def convert_outbound_states(self, entity_id, hvac_mode) -> dict | None:
                 self.device_name,
                 entity_id,
             )
+        # The cache holds the device's own spelling, so whether it offers OFF is
+        # decided on the normalized list, like every other capability check.
         if hvac_mode == HVACMode.OFF and (
-            (_system_modes is not None and HVACMode.OFF not in _system_modes)
+            (
+                _system_modes is not None
+                and not device_offers_mode(_system_modes, HVACMode.OFF)
+            )
             or advanced.get("no_off_system_mode")
         ):
             _min_temp = self.real_trvs[entity_id].min_temp

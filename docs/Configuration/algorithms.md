@@ -6,117 +6,64 @@ slug: calibration_algorithms
 
 Better Thermostat offers several calibration algorithms (also called "Calibration Modes") that control how your TRV (Thermostatic Radiator Valve) is adjusted to maintain your desired temperature. Each algorithm has different characteristics and is suited for different situations.
 
-## Choosing the Right Algorithm
+## Choosing an algorithm
 
-If you're unsure which algorithm to use, here's a quick guide:
+Start here if you are unsure:
 
-- **Just starting out?** Try **AI Time Based** (default) - it works well for most situations
-- **Room heats too slowly?** Try **Aggressive**
-- **Temperature overshoots often?** Try **MPC Predictive** (⚠️ beta)
-- **Have technical knowledge and want fine control?** Try **PID Controller** 
-- **Want something simple and reliable?** Try **Normal** or **TPI Controller**
+| Your situation | Algorithm |
+| --- | --- |
+| Setting up for the first time | AI Time Based (default) |
+| Room heats too slowly | Aggressive |
+| Temperature often overshoots | MPC Predictive |
+| You want fine control and know PID tuning | PID Controller |
+| You want something simple | Normal or TPI Controller |
 
-## Algorithm Descriptions
+## The algorithms
 
 ### Normal
 
-**Best for:** Simple, straightforward temperature control
+Normal mode uses your external temperature sensor to correct the TRV's internal one. Better Thermostat compares the two readings and sends the TRV an offset, or a setpoint that already carries the difference; the TRV keeps running on its own sensor and never sees yours.
 
-**How it works:** Normal mode uses your external temperature sensor to correct the TRV's internal sensor. The TRV reads the actual room temperature from your external sensor and adjusts accordingly.
+It is simple, reliable, works with most TRVs and costs almost nothing to run. In exchange it does not optimise for efficiency and does not adapt to the room.
 
-**Pros:**
-
-- Simple and reliable
-- Works well with most TRVs
-- Low computational overhead
-
-**Cons:**
-
-- May not optimize for efficiency
-- Doesn't adapt to room characteristics
-
-**When to use:** This is a good starting point if you want reliable temperature control without any complexity.
+Use it as a starting point when you want reliable control and no complexity.
 
 ---
 
 ### Aggressive
 
-**Best for:** Rooms that heat slowly or need faster temperature changes
+Aggressive works like Normal but pushes the TRV harder: it reports the internal temperature much lower than it is while heating, and higher while cooling, so the TRV runs at full power until the target is reached.
 
-**How it works:** Similar to Normal mode, but it pushes the TRV harder by setting the internal temperature sensor reading much lower (when heating) or higher (when cooling) than actual. This makes the TRV work at full power to reach your target faster.
+That gets a slow or poorly insulated room warm quickly. The cost is overshoot, wasted energy when the speed was not needed, and more valve movement.
 
-**Pros:**
-
-- Reaches target temperature quickly
-- Good for poorly insulated rooms
-- Effective for rapid warmup
-
-**Cons:**
-
-- May overshoot the target temperature
-- Can waste energy if not needed
-- More frequent valve adjustments
-
-**When to use:** Your room takes a long time to heat up, or you need to quickly change temperature (e.g., coming home to a cold house).
+Use it when the room takes a long time to warm up, or when you need a fast change, such as coming home to a cold house.
 
 ---
 
 ### AI Time Based
 
-**Best for:** Most users - balances comfort and efficiency (Default)
+This is the default, and the right choice for most rooms.
 
-**How it works:** This algorithm learns your room's heating characteristics over time. It uses your external temperature sensor but calculates calibration values using a custom algorithm that improves on the TRV's built-in logic. It adapts to your room's thermal properties.
+It learns your room's heating characteristics over time. It still reads your external temperature sensor, but derives the calibration from its own model rather than leaving the decision to the TRV's built-in logic, so it adapts to how fast your room actually heats and cools.
 
-**Pros:**
-
-- Automatically adapts to your room
-- Balances comfort and energy efficiency
-- Reduces temperature overshooting
-- Works well in varying conditions
-
-**Cons:**
-
-- Takes a few days to fully learn your room
-- May not be optimal during the learning period
-
-**When to use:** This is the recommended default for most users. Expect good results after 2-3 days as it learns your room's behavior.
+Once settled it balances comfort against energy use, keeps overshoot down and copes with changing conditions. The trade-off is the learning phase: expect two to three days before the results are good, and accept that behaviour in that window is not yet tuned.
 
 ---
 
 ### MPC Predictive
 
-**Best for:** Stable, efficient heating with minimal overshooting
+MPC (Model Predictive Control) predicts how your room temperature will change over the next hour. It reads several inputs, among them:
 
-**How it works:** MPC (Model Predictive Control) is an advanced algorithm that predicts how your room temperature will change over the next hour based on:
+- Room temperature, its trend and your target
+- Learned thermal properties of your room (how fast it heats and cools)
+- Outdoor temperature, daylight and solar intensity
+- Window state, and the valve opening it last asked for
 
-- Current valve position
-- Temperature trends
-- Learned thermal properties of your room (how fast it heats/cools)
+From that prediction it picks the correction that reaches your target smoothly instead of driving hard and correcting afterward, and it keeps updating the model as the room behaves. With direct valve control that correction is a valve opening; without it, the correction reaches the valve through the setpoint the TRV sees.
 
-It calculates the optimal valve opening to reach your target temperature smoothly without overshooting. It continuously learns and adapts to your room's behavior.
+It aims at arriving at the target rather than at arriving quickly, which is the whole point of predicting ahead. It is the most complex of the modes and it reacts deliberately rather than fast, which can read as sluggish at first. Give it about a day of operation before judging it.
 
-**Pros:**
-
-- Excellent at preventing temperature overshoot
-- Very energy efficient
-- Smooth temperature control
-- Learns room heating/cooling characteristics
-- Predictive - anticipates temperature changes
-
-**Cons:**
-
-- Most complex algorithm
-- Requires a short learning period (typically 1 day for fine-tuned performance)
-- May seem slow to react initially (by design)
-
-**When to use:**
-
-- You experience frequent temperature overshoots
-- Energy efficiency is a priority
-- You want the most sophisticated control
-- Your heating system is relatively stable
-
-**Note:** MPC learns quickly - expect fine-tuned performance after just 1 day of operation. Initial behavior may seem conservative as it gathers data, but it rapidly adapts to your room's thermal characteristics. **This algorithm is considered stable and production-ready.**
+Pick it when you overshoot regularly, when efficiency matters more to you than reaction speed, and when your heating system itself is reasonably stable.
 
 ---
 
@@ -124,42 +71,23 @@ It calculates the optimal valve opening to reach your target temperature smoothl
 
 ⚠️ **Beta Status:** The PID Controller is currently in beta and may require further fine-tuning in the algorithm. While it's functional and includes auto-tuning capabilities, you may experience some edge cases that need optimization. Feedback and real-world testing are appreciated.
 
-**Best for:** Systems with varying heating power or external disturbances
+PID (Proportional-Integral-Derivative) is the classic industrial control method. It sets the valve position from three terms:
 
-**How it works:** PID (Proportional-Integral-Derivative) is a classic control method used in industrial applications. It adjusts the valve position based on:
+- P (Proportional): how far you are from the target temperature
+- I (Integral): how long you have been away from it
+- D (Derivative): how fast the temperature is moving
 
-- **P (Proportional):** How far you are from target temperature
-- **I (Integral):** How long you've been away from target
-- **D (Derivative):** How fast the temperature is changing
+It tunes those three itself over time.
 
-The algorithm automatically tunes these parameters over time for optimal performance.
+PID reacts fast and handles disturbances well, which is what makes it a good fit for a room with sun through the windows, draughts or a heat source whose output varies. Early on it can be aggressive and oscillate a little while it tunes, and getting the most out of it means understanding roughly what the three parameters do.
 
-**Pros:**
+Pick it when your heating power varies, when outside influences keep moving the room temperature, and when you want a responsive controller and are comfortable with the parameters.
 
-- Proven industrial control method
-- Handles disturbances well (e.g., opening windows, sun through windows)
-- Self-tuning capability
-- Fast response to temperature changes
-- Good for varying heating conditions
+#### Auto-tuning and manual tuning
 
-**Cons:**
+Auto-tuning is on by default.
 
-- PID can be aggressive initially
-- May oscillate slightly during self-tuning
-- More technical - understanding the parameters helps
-
-**When to use:**
-
-- Your heating system power varies
-- You have external factors affecting room temperature (sun, drafts, etc.)
-- You want responsive temperature control
-- You have some technical knowledge
-
-#### PID Auto-Tuning and Manual Tuning
-
-The PID Controller includes an **auto-tuning feature** that is enabled by default. Here's what you need to know:
-
-**Auto-Tuning Timeline:**
+**Timeline:**
 
 - **Initial period (Days 1-3):** The controller starts with default values (Kp=20, Ki=0.02, Kd=400) and begins learning your room's behavior. You may notice slight temperature oscillations as it adjusts.
 
@@ -170,7 +98,7 @@ The PID Controller includes an **auto-tuning feature** that is enabled by defaul
 
 - **Settled phase (Week 2+):** After about 1-2 weeks, the parameters should stabilize and provide smooth temperature control with minimal overshooting.
 
-**What to Expect:**
+**What to expect:**
 
 - Adjustments happen at least 5 minutes apart (300 seconds) to avoid over-tuning
 - Parameters are constrained to safe ranges:
@@ -179,7 +107,7 @@ The PID Controller includes an **auto-tuning feature** that is enabled by defaul
   - Kd: 100-10,000
 - Auto-tuning is conservative - it makes small changes and learns gradually
 
-**Manual Tuning (Advanced Users):**
+**Manual tuning:**
 
 If you want to tune PID parameters manually or understand what the auto-tuning is doing:
 
@@ -198,7 +126,7 @@ If you want to tune PID parameters manually or understand what the auto-tuning i
    - Too low: Overshoot, slow damping
    - Default: 400
 
-**Monitoring Auto-Tuning:**
+**Monitoring the learned values:**
 
 You can monitor the learned PID values in Home Assistant:
 
@@ -206,15 +134,15 @@ You can monitor the learned PID values in Home Assistant:
 2. Find your Better Thermostat entity
 3. Look for attributes containing PID debug info showing current Kp, Ki, Kd values
 
-**Tips for Best PID Performance:**
+**Getting the best out of PID:**
 
-- **Be patient:** Give auto-tuning at least 1-2 weeks to fully settle
-- **Stable conditions:** Auto-tuning works best when you maintain consistent target temperatures
-- **Avoid manual interference:** During the learning phase, avoid frequently changing target temperatures
-- **Temperature sensor placement:** Ensure your external sensor is well-placed (away from heat sources, drafts)
-- **Direct valve control:** PID works best with devices that support direct valve control (see [Direct Valve Control](#direct-valve-control) section)
+- Give auto-tuning one to two weeks to settle
+- Keep target temperatures consistent; auto-tuning reads a moving target as a disturbance
+- Avoid changing the target often during the learning phase
+- Place the external sensor away from heat sources and draughts
+- Prefer a device with direct valve control (see [Direct valve control](#direct-valve-control))
 
-**Disabling Auto-Tuning:**
+**Turning auto-tuning off:**
 
 While not recommended for most users, auto-tuning can be disabled through the advanced configuration if you prefer fixed PID parameters. This is only useful if you have specific PID values you want to maintain.
 
@@ -222,33 +150,15 @@ While not recommended for most users, auto-tuning can be disabled through the ad
 
 ### TPI Controller
 
-**Best for:** Simple, consistent heating patterns
+TPI (Time Proportional Integral) turns the distance from your target into a duty cycle: what share of the time the valve should be open. At 60 % demand it might hold the valve fully open for six minutes, then closed for four.
 
-**How it works:** TPI (Time Proportional Integral) calculates heating duty cycles based on how far your current temperature is from your target. It determines what percentage of time the valve should be open. For example, if you need 60% heating, it might open the valve fully for 6 minutes, then close for 4 minutes.
+The model is easy to follow and suits a radiator with real thermal inertia, where a slow on/off rhythm is closer to how the heat actually arrives. It does less than MPC or PID, and it adapts less readily when conditions change.
 
-**Pros:**
-
-- Simple and effective
-- Good for consistent heating patterns
-- Easy to understand
-- Works well with radiators that have thermal inertia
-
-**Cons:**
-
-- Less sophisticated than MPC or PID
-- May not adapt to changing conditions as well
-- Simpler algorithm with fewer optimizations
-
-**When to use:**
-
-- You want simple, predictable behavior
-- Your heating system is consistent
-- You don't need advanced features
-- You're looking for a straightforward alternative to Normal mode
+Pick it when your heating system is consistent and you want predictable behaviour without the machinery of the learning modes.
 
 ---
 
-## Comparison Table
+## Comparison
 
 | Feature | Normal | Aggressive | AI Time Based | MPC Predictive | PID Controller | TPI Controller |
 | --------- | -------- | ------------ | --------------- | ---------------- | ---------------- | ---------------- |
@@ -259,16 +169,15 @@ While not recommended for most users, auto-tuning can be disabled through the ad
 | **Response Speed** | Medium | Fast | Medium | Measured | Fast | Medium |
 | **Adaptation** | None | None | Good | Excellent | Good | None |
 | **Direct Valve Benefit** | Low | Low | Medium | **High** | **High** | Medium |
-| **Status** | Stable | Stable | Stable | **Tested & Stable** | **Beta** | Stable |
+| **Status** | Stable | Stable | Stable | Stable | Beta | Stable |
 | **Best For** | Simple setups | Fast heating | Most users | Optimization | Variable systems | Simple control |
 
 **Notes:**
 
-- "Direct Valve Benefit" indicates how much the algorithm benefits from direct valve control (see [Direct Valve Control](#direct-valve-control) section below)
-- **MPC Predictive** is stable and production-ready
+- "Direct Valve Benefit" indicates how much the algorithm gains from direct valve control (see [Direct valve control](#direct-valve-control) below)
 - **PID Controller** is in beta and may require further algorithm fine-tuning
 
-## Advanced: How the Algorithms Work Together with Calibration Types
+## How algorithms and calibration types combine
 
 The **Calibration Mode** (algorithm) works together with the **Calibration Type**:
 
@@ -278,11 +187,11 @@ The **Calibration Mode** (algorithm) works together with the **Calibration Type*
 
 Not all TRVs support offset-based calibration. Better Thermostat will automatically detect your TRV's capabilities and offer appropriate options.
 
-## Direct Valve Control
+## Direct valve control
 
-Some TRV devices support **direct valve control**, where Better Thermostat can directly set the valve opening percentage (0-100%) instead of only adjusting target temperatures or offsets. This provides more precise control and is particularly beneficial with advanced algorithms.
+Some TRV devices support **direct valve control**, where Better Thermostat can directly set the valve opening percentage (0-100%) instead of only adjusting target temperatures or offsets. That sends the selected algorithm's valve decision straight to the TRV, instead of letting the TRV's own controller decide what to do with a setpoint.
 
-### What is Direct Valve Control?
+### What direct valve control is
 
 With direct valve control, Better Thermostat can:
 
@@ -291,7 +200,7 @@ With direct valve control, Better Thermostat can:
 - Achieve more precise and responsive heating control
 - Better implement advanced algorithms like MPC and PID
 
-### Which Devices Support It?
+### Devices that support it
 
 Direct valve control is available for TRVs that expose valve position as a controllable entity, including:
 
@@ -301,19 +210,19 @@ Direct valve control is available for TRVs that expose valve position as a contr
 
 Better Thermostat automatically detects if your TRV supports direct valve control.
 
-### How Algorithms Use Direct Valve Control
+### How the algorithms use it
 
 When direct valve control is available:
 
-- **MPC Predictive**: Calculates optimal valve opening based on predicted temperature changes. This is where direct valve control shines - the algorithm can precisely control heating power.
+- **MPC Predictive**: Calculates a valve opening from its prediction of where the room is heading, and that opening is written as it stands.
 
-- **PID Controller**: Directly outputs valve position based on temperature error and trends. Very effective with direct valve control.
+- **PID Controller**: Directly outputs valve position based on temperature error and trends.
 
 - **TPI Controller**: Sets valve opening based on heating duty cycle calculations.
 
 - **AI Time Based, Normal, Aggressive**: These algorithms will still work but convert their output to valve positions when direct control is available.
 
-### Without Direct Valve Control
+### Without direct valve control
 
 If your TRV doesn't support direct valve control, Better Thermostat uses **setpoint manipulation**:
 
@@ -323,7 +232,7 @@ If your TRV doesn't support direct valve control, Better Thermostat uses **setpo
 
 This still works well but gives the TRV's internal algorithm more influence over the final valve position.
 
-### Checking If You Have Direct Valve Control
+### Checking whether you have it
 
 1. Go to your Better Thermostat device in Home Assistant
 2. Check the device attributes for entries like:
@@ -336,19 +245,15 @@ For MQTT/Zigbee2MQTT users, you can also check if your TRV exposes entities like
 - `number.your_trv_valve_position`
 - `number.your_trv_valve_opening_degree`
 
-### Benefits of Direct Valve Control
+### What it buys you
 
-✅ **More precise control** - Algorithms can set exact heating power
-✅ **Faster response** - No waiting for TRV's internal logic
-✅ **Better learning** - Algorithms can better understand room behavior
-✅ **Reduced overshooting** - Finer control over heating intensity
-✅ **Algorithm effectiveness** - MPC and PID work best with direct control
+The algorithm sets the valve opening itself rather than asking the TRV's own logic for it, so the response arrives without a detour and the room's reaction is a cleaner signal to learn from. Valve position is not heat output — flow temperature and the valve's own authority still sit in between — but it is the most direct handle Better Thermostat can get on the device. Every mode runs without it.
 
-### Recommendation
+### If you are buying new TRVs
 
 If you're purchasing new TRVs and want the best performance from Better Thermostat's advanced algorithms (especially MPC Predictive or PID Controller), consider devices that support direct valve control through Zigbee2MQTT or similar integrations.
 
-## Tips for Best Results
+## Getting good results
 
 1. **Give it time:** Algorithms with learning need time to learn your room:
    - **MPC Predictive**: 1 day for fine-tuned performance
@@ -390,14 +295,14 @@ If you're purchasing new TRVs and want the best performance from Better Thermost
 - Verify TRV is working correctly
 - Try a different algorithm
 
-## Technical Details
+## Technical details
 
 For developers and advanced users who want to understand the implementation details, see:
 
 - [Hydraulic Balance Design Document](../../hydraulic_balance_design.md) - Deep technical documentation
 - Source code in `custom_components/better_thermostat/utils/calibration/` directory
 
-## Need More Help?
+## Further reading
 
 If you're still unsure which algorithm to use or experiencing issues:
 

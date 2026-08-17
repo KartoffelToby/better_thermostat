@@ -24,6 +24,7 @@ from custom_components.better_thermostat.model_fixes.model_quirks import (
     override_set_temperature,
 )
 from custom_components.better_thermostat.utils.const import (
+    DEFAULT_CALIBRATION_MODE,
     CalibrationMode,
     CalibrationType,
 )
@@ -32,6 +33,9 @@ from custom_components.better_thermostat.utils.helpers import (
     SETPOINT_MATCH_TOLERANCE,
     attr_to_celsius,
     convert_to_float,
+    cooling_owns_dual_role_device,
+    device_offers_mode,
+    dual_role_entity_id,
     get_current_set_temperatures,
     matches_any_setpoint,
     read_setpoint_celsius,
@@ -39,8 +43,29 @@ from custom_components.better_thermostat.utils.helpers import (
     supports_single_target_temperature,
     supports_temperature_range,
 )
+from custom_components.better_thermostat.utils.hvac_action import (
+    COOLER_MODE_HYSTERESIS_K,
+    should_cool_with_tolerance,
+)
 
 _LOGGER = logging.getLogger(__name__)
+
+# How long a write channel waits for the device to confirm a command before it
+# releases the in-flight flag and accepts the next write. Shared by the system
+# mode, target temperature and calibration watchdogs so all three channels give
+# a slow device the same window.
+WRITE_CONFIRM_TIMEOUT_S = 360
+
+# Floor for the commanded-vs-reported offset comparison. Half the declared
+# offset step is the right window only while that step describes the grid the
+# device reports on; an adapter declaring a nominal 0.01 K step describes a
+# continuous range instead, and any report rounded coarser than that then reads
+# as a divergence the write gate re-asserts on every control cycle. The floor
+# covers those roundings and stays below the 0.1 K resolution a TRV reports its
+# own temperature at, so no calibration error the room can feel hides beneath
+# it. The setpoint channel's read-back tolerance describes a different
+# comparison, so the offset channel carries its own floor.
+OFFSET_MATCH_TOLERANCE_K = 0.05
 
 
 def _is_boost_heating_active(self) -> bool:
@@ -151,6 +176,38 @@ class TaskManager:
         return task
 
 
+def advance_hvac_action(self) -> None:
+    """Recompute the heating action and commit its hysteresis state.
+
+    The heating action and the hysteresis band behind it advance once per
+    control cycle. Every dispatched device advances them, and a cycle that
+    dispatches none advances them itself, so the band never rests on the state
+    an earlier cycle left it in. The recompute is non-critical: a cycle that
+    cannot take it goes on to the device writes rather than failing, so the
+    traceback is the only trace a band that stops advancing leaves behind.
+
+    Parameters
+    ----------
+    self : BetterThermostat
+        The Better Thermostat climate entity instance
+    """
+    try:
+        # Preserve old action for change detection if attributes exist
+        if hasattr(self, "attr_hvac_action"):
+            self.old_attr_hvac_action = getattr(self, "attr_hvac_action", None)
+        # Recompute current hvac action (uses internal climate logic)
+        if hasattr(self, "_compute_hvac_action_pure"):
+            result = self._compute_hvac_action_pure()
+            self._commit_hvac_action(result)
+            self.attr_hvac_action = result.action
+    except Exception:
+        _LOGGER.debug(
+            "better_thermostat %s: hvac action recompute failed (non critical)",
+            getattr(self, "device_name", "unknown"),
+            exc_info=True,
+        )
+
+
 async def control_queue(self):
     """Process control commands from the queue and coordinate TRV control.
 
@@ -207,6 +264,7 @@ async def control_queue(self):
                         )
 
                     # Handle cooler logic once per cycle
+                    _cooler_pass_completed = False
                     if self.cooler_entity_id is not None:
                         try:
                             await control_cooler(self)
@@ -215,11 +273,41 @@ async def control_queue(self):
                                 "better_thermostat %s: ERROR controlling cooler",
                                 self.device_name,
                             )
+                        else:
+                            _cooler_pass_completed = True
 
-                    # Create tasks for all TRVs to run in parallel
+                    # Create tasks for all TRVs to run in parallel. A device
+                    # that carries both roles takes one mode and one setpoint,
+                    # so the heating channel stands down for the cycles the
+                    # cooling channel drives it. A cooling pass that raised left
+                    # no decision to read, and the permissive default is the
+                    # heating channel keeping the device.
+                    _shared_entity_id = dual_role_entity_id(self)
+                    _cooling_owns_shared = (
+                        _shared_entity_id is not None
+                        and _cooler_pass_completed
+                        and cooling_owns_dual_role_device(self, _shared_entity_id)
+                    )
                     tasks = []
+                    controlled_trvs = []
                     for trv in self.real_trvs.keys():
+                        if _cooling_owns_shared and trv == _shared_entity_id:
+                            _LOGGER.debug(
+                                "better_thermostat %s: %s is driven by the cooling "
+                                "channel this cycle, leaving the heating channel out",
+                                self.device_name,
+                                trv,
+                            )
+                            continue
+                        controlled_trvs.append(trv)
                         tasks.append(control_trv(self, trv))
+
+                    if _cooling_owns_shared and not tasks:
+                        # The heating action and its hysteresis are advanced
+                        # inside control_trv, so a cycle whose only device went
+                        # to the cooling channel advances them here instead of
+                        # leaving the band on the state the previous cycle left.
+                        advance_hvac_action(self)
 
                     # Run all TRV controls in parallel
                     results = await asyncio.gather(*tasks, return_exceptions=True)
@@ -227,7 +315,7 @@ async def control_queue(self):
                     result = True
                     for i, res in enumerate(results):
                         if isinstance(res, Exception):
-                            trv_id = list(self.real_trvs.keys())[i]
+                            trv_id = controlled_trvs[i]
                             _LOGGER.error(
                                 "better_thermostat %s: ERROR controlling TRV %s: %s",
                                 self.device_name,
@@ -291,12 +379,48 @@ def _device_setpoint_tolerance(self, state) -> float:
     return max(SETPOINT_MATCH_TOLERANCE, step / 2.0 + 1e-6)
 
 
+def _calibration_match_tolerance(self, entity_id) -> float:
+    """Return the tolerance for comparing a written offset to a reported one.
+
+    A device snaps a written offset onto its own step grid, so a snapped value
+    sits at most half a step away from the value that was commanded.
+    OFFSET_MATCH_TOLERANCE_K is the floor: it covers devices that report no
+    usable step and those whose declared step is finer than the grid they
+    actually report on.
+
+    Parameters
+    ----------
+    self : BetterThermostat
+        The Better Thermostat climate entity instance
+    entity_id : str
+        Entity ID of the TRV whose offset step decides the tolerance
+
+    Returns
+    -------
+    float
+        Tolerance in Kelvin for an offset comparison
+    """
+    step = convert_to_float(
+        str(self.real_trvs[entity_id].local_calibration_step),
+        self.device_name,
+        "controlling()",
+    )
+    if step is None or step <= 0:
+        return OFFSET_MATCH_TOLERANCE_K
+    # Slack against float noise when the difference is exactly half a step.
+    return max(OFFSET_MATCH_TOLERANCE_K, step / 2.0 + 1e-6)
+
+
 async def control_cooler(self):
     """Control the cooler entity based on current temperature and cooling setpoint.
 
-    Activates cooling when current temperature exceeds target cooling temperature
-    minus tolerance and is above heating target. Deactivates cooling when
-    temperature drops below cooling target minus tolerance or when BT HVAC mode is OFF.
+    Activates cooling when the current temperature reaches the cooling target plus
+    tolerance and is above the heating target, so a configured tolerance delays the
+    switch-on instead of running the room below the cooling target. Deactivates
+    cooling when the temperature falls back below the cooling target — or below the
+    cooling target minus the width ``COOLER_MODE_HYSTERESIS_K`` borrows from
+    underneath it whenever the tolerance is narrower than that minimum band — or
+    when BT HVAC mode is OFF, or while a window or door contact is open.
     """
     # Get current cooler state to avoid sending redundant commands
     cooler_state = self.hass.states.get(self.cooler_entity_id)
@@ -371,13 +495,97 @@ async def control_cooler(self):
         desired_mode = HVACMode.OFF
     elif self.bt_hvac_mode == HVACMode.OFF:
         desired_mode = HVACMode.OFF
-    elif (
-        self.cur_temp >= self.bt_target_cooltemp - self.tolerance
-        and self.cur_temp > self.bt_target_temp
-    ):
-        desired_mode = HVACMode.COOL
-    else:
+    elif self.contact_open:
+        # An open window or door suppresses the cooler for the same reason it
+        # suppresses the TRVs: the room cannot reach its target, so the unit
+        # would run against an unbounded load. On a device that carries both
+        # roles the decision is what hands it over, so a cooler left running
+        # here would also keep the heating channel — the only channel that
+        # switches a device off for an open contact — out of the cycle.
         desired_mode = HVACMode.OFF
+    else:
+        # The tolerance delays the switch-on instead of advancing it: cooling
+        # starts only once the room reaches cool_target + tolerance and then
+        # runs down to cool_target, so the room settles at or above the cooling
+        # target rather than below it. A band narrower than
+        # COOLER_MODE_HYSTERESIS_K takes the missing width from below the
+        # target, because a room resting on an edge would otherwise flip the
+        # decision — and with it the write — on every cycle; the switch-on edge
+        # never moves for that guard, which buys decision stability and not a
+        # colder room. The heating target stays a hard floor: cooling below it
+        # would fight the TRVs.
+        #
+        # The latch carries the band, and it is unset only while BT has not
+        # decided a cooler mode of its own — the state a restart or a
+        # config-entry reload leaves behind. Seeding the hold edge from the
+        # cooler's own reported mode there keeps a unit that is already running
+        # inside the band running, instead of stopping it and letting the room
+        # warm all the way back up to the switch-on edge. As soon as the latch
+        # holds a decision it wins, because the reported mode lags a command by
+        # a state update and can be changed externally, either of which would
+        # drop the hold edge mid-band.
+        _previously_cooling = (
+            self.last_cooler_mode_decided == HVACMode.COOL
+            if self.last_cooler_mode_decided is not None
+            else current_hvac_mode == HVACMode.COOL
+        )
+        _cool_wanted = should_cool_with_tolerance(
+            self.cur_temp,
+            self.bt_target_cooltemp,
+            self.tolerance,
+            _previously_cooling,
+            min_band=COOLER_MODE_HYSTERESIS_K,
+        )
+        if _cool_wanted and self.cur_temp > self.bt_target_temp:
+            desired_mode = HVACMode.COOL
+        else:
+            desired_mode = HVACMode.OFF
+
+    # The band's state is the decision, not the send: last_sent_cooler_hvac_mode
+    # is written only after a successful service call, so a device that rejects
+    # every command would keep the hold edge unreachable and make the decision
+    # flap between the two commands the device is refusing. Recorded for every
+    # branch above, so a cycle that fell into a guard leaves the band where that
+    # guard put it instead of on a stale value. Each of those guards stops the
+    # cooler outright, so the run ends there and the way back in is the
+    # switch-on edge — the same contract the heating hysteresis in
+    # compute_hvac_action applies to the same three guards, where a missing
+    # reading, an open contact and a mode of OFF each return the band to IDLE.
+    self.last_cooler_mode_decided = desired_mode
+
+    # A device that is also a controlled thermostat holds one mode and one
+    # setpoint for both channels. The decision above is what hands it over: the
+    # cooling channel writes it only while it wants to cool, and every other
+    # cycle belongs to the heating channel, which reaches the device through
+    # control_trv(). Standing down before the writes rather than sending OFF is
+    # what keeps the heating channel's mode and setpoint standing; the latch
+    # above is set first, so the band keeps both of its edges across the cycles
+    # the cooling channel sits out.
+    _shared_entity_id = dual_role_entity_id(self)
+    if _shared_entity_id is not None and desired_mode != HVACMode.COOL:
+        _LOGGER.debug(
+            "better_thermostat %s: %s is driven by the heating channel this "
+            "cycle, leaving the cooling channel out",
+            self.device_name,
+            _shared_entity_id,
+        )
+        # The heating channel overwrites the mode and the setpoint this cycle,
+        # so the send-cache no longer describes what the device holds. Dropping
+        # the timestamps keeps the resend throttle from suppressing the first
+        # write of the next cooling period as a repeat of one the heating
+        # channel has since replaced.
+        self.last_sent_cooler_temp_ts = None
+        self.last_sent_cooler_hvac_mode_ts = None
+        return
+
+    if _shared_entity_id is not None:
+        # The heating channel's pending confirmations wait on a setpoint and a
+        # mode this cycle supersedes, and while they are outstanding the
+        # inbound handler declines every reported setpoint as unconfirmed.
+        # Taking the device over releases them.
+        _shared_trv = self.real_trvs[_shared_entity_id]
+        _shared_trv.target_temp_received = True
+        _shared_trv.system_mode_received = True
 
     # Decide whether a temperature command is needed. When the current
     # temperature is unknown, only send if the desired value changed since the
@@ -454,6 +662,21 @@ async def control_cooler(self):
                 min_resend_interval_s,
             )
             should_send_temp = False
+
+    # An open contact suppresses the temperature channel alongside the mode,
+    # the way a suppressed TRV receives a mode command and no setpoint. The
+    # unit is held OFF and converges on nothing, so a setpoint written now
+    # would only overwrite whatever the user turned its own dial to. Nothing
+    # is attempted, so the send cache records nothing either, and the channel
+    # resumes on the cycle the contact shuts.
+    if should_send_temp and self.contact_open:
+        _LOGGER.debug(
+            "better_thermostat %s: cooler %s suppressed by an open contact, "
+            "skipping set_temperature",
+            self.device_name,
+            self.cooler_entity_id,
+        )
+        should_send_temp = False
 
     if should_send_temp:
         _LOGGER.debug(
@@ -589,20 +812,7 @@ async def control_trv(self, heater_entity_id=None):
     async with self._temp_lock:
         self.real_trvs[heater_entity_id].ignore_trv_states = True
         try:
-            try:
-                # Preserve old action for change detection if attributes exist
-                if hasattr(self, "attr_hvac_action"):
-                    self.old_attr_hvac_action = getattr(self, "attr_hvac_action", None)
-                # Recompute current hvac action (uses internal climate logic)
-                if hasattr(self, "_compute_hvac_action_pure"):
-                    result = self._compute_hvac_action_pure()
-                    self._commit_hvac_action(result)
-                    self.attr_hvac_action = result.action
-            except Exception:
-                _LOGGER.debug(
-                    "better_thermostat %s: hvac action recompute failed (non critical)",
-                    getattr(self, "device_name", "unknown"),
-                )
+            advance_hvac_action(self)
             _trv = self.hass.states.get(heater_entity_id)
 
             # Check if TRV is available before attempting to control it
@@ -624,8 +834,22 @@ async def control_trv(self, heater_entity_id=None):
                 self, _trv, "controlling()"
             )
 
+            # HEAT_COOL is the mode a room with a cooler runs in, and it names
+            # a pair of targets Better Thermostat holds. A device that carries
+            # both roles and advertises heat_cool would take it as an
+            # instruction to run its own thermostat against its own pair, so
+            # the cycle in which the heating channel drives it names the
+            # heating role alone. Devices that advertise heat_cool without heat
+            # keep receiving heat_cool, because that is what mode_remap()
+            # translates HEAT into for them.
+            _outbound_mode = self.bt_hvac_mode
+            if (
+                _outbound_mode == HVACMode.HEAT_COOL
+                and heater_entity_id == dual_role_entity_id(self)
+            ):
+                _outbound_mode = HVACMode.HEAT
             _remapped_states = convert_outbound_states(
-                self, heater_entity_id, self.bt_hvac_mode
+                self, heater_entity_id, _outbound_mode
             )
             if not isinstance(_remapped_states, dict):
                 _LOGGER.warning(
@@ -641,7 +865,7 @@ async def control_trv(self, heater_entity_id=None):
             _temperature = _remapped_states.get("temperature", None)
             _calibration = _remapped_states.get("local_temperature_calibration", None)
             _calibration_mode = self.real_trvs[heater_entity_id].advanced.get(
-                "calibration_mode", CalibrationMode.MPC_CALIBRATION
+                "calibration_mode", DEFAULT_CALIBRATION_MODE
             )
             _calibration_type = self.real_trvs[heater_entity_id].advanced.get(
                 "calibration", CalibrationType.TARGET_TEMP_BASED
@@ -708,8 +932,12 @@ async def control_trv(self, heater_entity_id=None):
                 await set_valve(self, heater_entity_id, 0)
 
             # Manage TRVs with no HVACMode.OFF
+            # The cache holds the device's own spelling, so whether it offers OFF
+            # is decided on the normalized list, like every other capability
+            # check. An unreported list counts as no-off.
             _hvac_modes = self.real_trvs[heater_entity_id].hvac_modes or []
-            _no_off_system_mode = (HVACMode.OFF not in _hvac_modes) or (
+            _offers_off = device_offers_mode(_hvac_modes, HVACMode.OFF)
+            _no_off_system_mode = not _offers_off or (
                 self.real_trvs[heater_entity_id].advanced.get(
                     "no_off_system_mode", False
                 )
@@ -777,40 +1005,79 @@ async def control_trv(self, heater_entity_id=None):
 
                 _calibration = float(str(_calibration))
 
-                _old_calibration = self.real_trvs[heater_entity_id].last_calibration
-                if _old_calibration is None:
-                    _old_calibration = _current_calibration
+                trv_entry = self.real_trvs[heater_entity_id]
+                _offset_tolerance = _calibration_match_tolerance(self, heater_entity_id)
 
-                # If current calibration already matches target, reset calibration_received
-                # to avoid it getting stuck at False when the state event was suppressed.
-                if (
-                    self.real_trvs[heater_entity_id].calibration_received is False
-                    and _current_calibration is not None
-                    and abs(float(_current_calibration) - float(_calibration)) < 0.5
-                ):
+                # The offset channel carries three values: the INTENT this
+                # cycle computed (_calibration), the COMMAND the adapter put on
+                # the wire after its own clamp (last_calibration), and the
+                # REPORT the device publishes (_current_calibration). A write
+                # goes out when the intent moved away from the last requested
+                # value, or when the report diverged from the command. A report
+                # that equals a clamped command means the device sits at a limit
+                # it declared, and that is not a reason to write.
+                _last_sent = trv_entry.last_calibration
+                if _last_sent is None:
+                    _last_sent = _current_calibration
+
+                # An unreadable report neither confirms nor diverges.
+                _report_readable = (
+                    _current_calibration is not None and _last_sent is not None
+                )
+                _command_diverged = _report_readable and (
+                    abs(float(_current_calibration) - float(_last_sent))
+                    > _offset_tolerance
+                )
+                _command_confirmed = _report_readable and not _command_diverged
+
+                if trv_entry.calibration_received is False and _command_confirmed:
                     _LOGGER.debug(
-                        "better_thermostat %s: TRV %s calibration already at target (%s), "
-                        "resetting calibration_received flag",
+                        "better_thermostat %s: TRV %s device confirms the last "
+                        "calibration command (%s), resetting calibration_received flag",
                         self.device_name,
                         heater_entity_id,
-                        _calibration,
+                        _last_sent,
                     )
-                    self.real_trvs[heater_entity_id].calibration_received = True
+                    trv_entry.calibration_received = True
 
-                if self.real_trvs[
-                    heater_entity_id
-                ].calibration_received is True and float(_old_calibration) != float(
-                    _calibration
-                ):
-                    _LOGGER.debug(
-                        "better_thermostat %s: TO TRV set_local_temperature_calibration: %s from: %s to: %s",
-                        self.device_name,
-                        heater_entity_id,
-                        _old_calibration,
-                        _calibration,
-                    )
-                    await set_offset(self, heater_entity_id, _calibration)
-                    self.real_trvs[heater_entity_id].calibration_received = False
+                if trv_entry.calibration_received is True:
+                    if _last_sent is None:
+                        _LOGGER.debug(
+                            "better_thermostat %s: no reference calibration for %s yet, "
+                            "skipping calibration write this cycle",
+                            self.device_name,
+                            heater_entity_id,
+                        )
+                    else:
+                        # Intent and last requested value come off the same
+                        # step grid, so they compare exactly; the tolerance
+                        # belongs where the two different grids of command and
+                        # report meet.
+                        _last_requested = trv_entry.last_calibration_requested
+                        if _last_requested is None:
+                            _last_requested = _last_sent
+                        if float(_last_requested) != _calibration or _command_diverged:
+                            _LOGGER.debug(
+                                "better_thermostat %s: TO TRV "
+                                "set_local_temperature_calibration: %s from: %s to: %s "
+                                "(device reports %s)",
+                                self.device_name,
+                                heater_entity_id,
+                                _last_sent,
+                                _calibration,
+                                _current_calibration,
+                            )
+                            if await set_offset(self, heater_entity_id, _calibration):
+                                trv_entry.calibration_received = False
+                                trv_entry.calibration_write_generation += 1
+                                self.task_manager.create_task(
+                                    check_calibration(
+                                        self,
+                                        heater_entity_id,
+                                        trv_entry.calibration_write_generation,
+                                    ),
+                                    name=f"bt_check_calibration_{heater_entity_id}",
+                                )
 
             # set new target temperature
             if _temperature is not None and (
@@ -904,12 +1171,13 @@ async def check_system_mode(self, heater_entity_id=None):
         if _trv_state.state == _real_trv.last_hvac_mode:
             _timeout = 0
             break
-        if _timeout > 360:
+        if _timeout > WRITE_CONFIRM_TIMEOUT_S:
             _LOGGER.warning(
                 "better_thermostat %s: TRV %s did not confirm the system mode change "
-                "after 360s (wrote=%s, last reported=%s); giving up and assuming applied",
+                "after %ss (wrote=%s, last reported=%s); giving up and assuming applied",
                 self.device_name,
                 heater_entity_id,
+                WRITE_CONFIRM_TIMEOUT_S,
                 _real_trv.last_hvac_mode,
                 _trv_state.state,
             )
@@ -974,12 +1242,13 @@ async def check_target_temperature(self, heater_entity_id=None):
         ):
             _timeout = 0
             break
-        if _timeout > 360:
+        if _timeout > WRITE_CONFIRM_TIMEOUT_S:
             _LOGGER.warning(
                 "better_thermostat %s: TRV %s did not confirm the target temperature "
-                "after 360s (wrote=%s, last reported=%s); giving up and assuming applied",
+                "after %ss (wrote=%s, last reported=%s); giving up and assuming applied",
                 self.device_name,
                 heater_entity_id,
+                WRITE_CONFIRM_TIMEOUT_S,
                 _real_trv.last_temperature,
                 _current_set_temperatures,
             )
@@ -990,4 +1259,101 @@ async def check_target_temperature(self, heater_entity_id=None):
     await asyncio.sleep(2)
 
     _real_trv.target_temp_received = True
+    return True
+
+
+async def check_calibration(self, heater_entity_id=None, generation=0):
+    """Wait for TRV to confirm the calibration offset, timeout after 6 minutes.
+
+    Polls the TRV's reported offset every second until it matches
+    last_calibration within the tolerance the device's own offset step allows,
+    or the timeout is reached. Sets calibration_received when complete, which
+    is what releases the write gate for the next offset command; without it a
+    device that never acknowledges an offset wedges the channel.
+
+    The reported value is deliberately not adopted into last_calibration on
+    timeout: last_calibration is the reference the local calibration integrates
+    from, and adopting a dropped write's report would make the next cycle treat
+    it as confirmed.
+
+    The flag is released in a finally block. Unlike the system mode and target
+    temperature channels, whose writes go out regardless of their flag, the
+    offset write only happens while calibration_received is True, so a watchdog
+    that ended without releasing it would wedge the channel for good.
+
+    Only the watchdog whose generation is still the TRV's current one releases
+    the flag. A control cycle can confirm a command in-cycle and write a newer
+    offset while an earlier watchdog is still winding down; releasing the gate
+    from that earlier watchdog would open the channel for a command that is
+    still in flight and turn one re-assert per confirmation window into one per
+    control cycle.
+
+    Parameters
+    ----------
+    self : BetterThermostat
+        The Better Thermostat climate entity instance
+    heater_entity_id : str, optional
+        Entity ID of the TRV to check
+    generation : int, optional
+        Identity of the offset command this watchdog was armed for
+
+    Returns
+    -------
+    bool
+        Always returns True
+    """
+    _timeout = 0
+    _real_trv = self.real_trvs[heater_entity_id]
+    _tolerance = _calibration_match_tolerance(self, heater_entity_id)
+    try:
+        while True:
+            if _real_trv.calibration_write_generation != generation:
+                _LOGGER.debug(
+                    "better_thermostat %s: a newer calibration command superseded "
+                    "the one %s was being watched for, leaving the write gate to "
+                    "its watchdog",
+                    self.device_name,
+                    heater_entity_id,
+                )
+                return True
+            _trv_state = self.hass.states.get(heater_entity_id)
+            if _trv_state is None or _trv_state.state in (
+                STATE_UNAVAILABLE,
+                STATE_UNKNOWN,
+            ):
+                _LOGGER.debug(
+                    "better_thermostat %s: %s became unavailable during check_calibration",
+                    self.device_name,
+                    heater_entity_id,
+                )
+                break
+            _reported = convert_to_float(
+                str(await get_current_offset(self, heater_entity_id)),
+                self.device_name,
+                "check_calibration()",
+            )
+            if _real_trv.last_calibration is None or (
+                _reported is not None
+                and abs(_reported - float(_real_trv.last_calibration)) <= _tolerance
+            ):
+                _timeout = 0
+                break
+            if _timeout > WRITE_CONFIRM_TIMEOUT_S:
+                _LOGGER.warning(
+                    "better_thermostat %s: TRV %s did not confirm the calibration offset "
+                    "after %ss (wrote=%s, last reported=%s); giving up and assuming applied",
+                    self.device_name,
+                    heater_entity_id,
+                    WRITE_CONFIRM_TIMEOUT_S,
+                    _real_trv.last_calibration,
+                    _reported,
+                )
+                _timeout = 0
+                break
+            await asyncio.sleep(1)
+            _timeout += 1
+        await asyncio.sleep(2)
+    finally:
+        if _real_trv.calibration_write_generation == generation:
+            _real_trv.calibration_received = True
     return True

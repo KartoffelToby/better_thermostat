@@ -102,9 +102,29 @@ async def test_window_open_postpones_one_hour(bt):
 
 
 @pytest.mark.asyncio
-async def test_hvac_off_postpones_one_hour(bt):
-    """HVAC OFF (on either mode) postpones maintenance by one hour."""
+@pytest.mark.parametrize("mode_attr", ["hvac_mode", "bt_hvac_mode"])
+async def test_hvac_off_still_runs_maintenance(bt, mode_attr):
+    """HVAC OFF does not postpone: a valve left shut over summer is the one that seizes."""
+    setattr(bt, mode_attr, HVACMode.OFF)
+    with (
+        patch(f"{_CLIMATE}.check_critical_entities", AsyncMock(return_value=True)),
+        patch(f"{_CLIMATE}.check_and_update_degraded_mode", AsyncMock()),
+        patch(
+            f"{_CLIMATE}.collect_maintenance_trvs",
+            MagicMock(return_value=["climate.trv"]),
+        ),
+        patch(f"{_CLIMATE}.dt_util") as dt,
+    ):
+        dt.now.return_value = _NOW
+        await BetterThermostat._maintenance_tick(bt)
+    bt.hass.async_create_background_task.assert_called_once()
+
+
+@pytest.mark.asyncio
+async def test_window_open_still_postpones_while_off(bt):
+    """An open contact keeps postponing even now that OFF no longer does."""
     bt.bt_hvac_mode = HVACMode.OFF
+    bt.contact_open = True
     with (
         patch(f"{_CLIMATE}.check_critical_entities", AsyncMock(return_value=True)),
         patch(f"{_CLIMATE}.check_and_update_degraded_mode", AsyncMock()),

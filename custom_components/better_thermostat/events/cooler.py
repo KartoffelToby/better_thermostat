@@ -9,42 +9,20 @@ from __future__ import annotations
 import logging
 
 from homeassistant.components.climate.const import HVACMode
-from homeassistant.const import UnitOfTemperature
-from homeassistant.core import State, callback
+from homeassistant.core import callback
 
 from custom_components.better_thermostat.utils.helpers import (
     COOLER_SETPOINT_KEYS,
-    convert_to_float,
-    normalize_step,
+    device_setpoint_step,
+    dual_role_entity_id,
     read_setpoint_celsius,
     resolve_inbound_setpoint,
     resolve_state_change_event,
     setpoint_echo_window,
-    state_temperature_unit,
+    state_says_nothing,
 )
 
 _LOGGER = logging.getLogger(__name__)
-
-
-def _get_cooler_step(self, state: State) -> float:
-    """Return the cooler's setpoint step as a °C delta."""
-    raw_step = state.attributes.get("target_temp_step")
-    step = (
-        convert_to_float(str(raw_step), self.device_name, "trigger_cooler_change()")
-        if raw_step is not None
-        else None
-    )
-    if (
-        step is not None
-        and state_temperature_unit(
-            state.attributes, self.hass.config.units.temperature_unit
-        )
-        == UnitOfTemperature.FAHRENHEIT
-    ):
-        step = round(step * 5.0 / 9.0, 4)
-    if step is None or step <= 0:
-        return normalize_step(self.bt_target_temp_step)
-    return step
 
 
 @callback
@@ -64,8 +42,23 @@ async def trigger_cooler_change(self, event):
         "better_thermostat %s: Cooler %s update received", self.device_name, entity_id
     )
 
+    if entity_id == dual_role_entity_id(self):
+        # A device that carries both roles reports into the TRV handler, which
+        # takes every reading this one takes and files a reported setpoint
+        # under the channel that drives the device. Adopting here as well would
+        # read the heating channel's own write as a press on the cooler's
+        # controls.
+        _LOGGER.debug(
+            "better_thermostat %s: Cooler %s carries the heating channel as "
+            "well, its reports are handled there",
+            self.device_name,
+            entity_id,
+        )
+        self.async_write_ha_state()
+        return
+
     _main_change = False
-    _step = _get_cooler_step(self, new_state)
+    _step = device_setpoint_step(self, new_state, "trigger_cooler_change()")
     # The previous state only answers whether the cooler was publishing a
     # setpoint at all, so it is read without clamping or echo detection.
     _old_cooling_setpoint = read_setpoint_celsius(
@@ -79,7 +72,44 @@ async def trigger_cooler_change(self, event):
         step=_step,
         log_source="trigger_cooler_change()",
     )
-    if (
+    if state_says_nothing(new_state):
+        # A cooler that is unavailable or has no mode yet can still carry a
+        # setpoint: an entity reports "unknown" while publishing its full
+        # attributes, and one that writes the state machine directly keeps the
+        # attributes it last set. Such a value is retained rather than reported
+        # and says nothing about the device now, so neither the seed nor the
+        # adoption gate below may take it: whatever either of them stores is
+        # written straight back to that same device.
+        # _seed_cool_target_from_cooler() declines the two states at startup.
+        # The guard sits ahead of both branches so that declining ends the
+        # event: falling through would let the gate read that same retained
+        # setpoint and store it as the cool target, raised to clear the heating
+        # target, which is exactly what declining refuses. The setpoint being
+        # passed over is logged because it is the diagnostic — it is what a
+        # later report has to differ from before anything is adopted.
+        _LOGGER.debug(
+            "better_thermostat %s: Cooler %s is %s, not adopting its retained "
+            "setpoint %s",
+            self.device_name,
+            entity_id,
+            new_state.state,
+            None if _new_cooling_setpoint is None else _new_cooling_setpoint.raw,
+        )
+        self.async_write_ha_state()
+        return
+    if _new_cooling_setpoint is not None and self.bt_target_cooltemp is None:
+        # An unknown cool target holds the cooler OFF on every control cycle,
+        # and the gate below cannot lift it: that gate needs a setpoint in the
+        # previous state, which a cooler that was away usually no longer
+        # publishes, and a reported move, which a cooler resting on its own
+        # setpoint never reports. The device's own setpoint is the only value
+        # there is; taking it loses no user intent because the field carries
+        # none, and it cannot be an echo either, because no setpoint is written
+        # to the cooler while the target is unknown.
+        self._seed_cool_target(_new_cooling_setpoint, entity_id)
+        if self.bt_hvac_mode != HVACMode.OFF:
+            _main_change = True
+    elif (
         _new_cooling_setpoint is not None
         and _old_cooling_setpoint is not None
         and self.bt_hvac_mode != HVACMode.OFF
@@ -101,6 +131,13 @@ async def trigger_cooler_change(self, event):
         # change, a temperature push — must not be read as user intent: a
         # stale report would otherwise revert a BT-side target that has not
         # been written yet.
+        # What the cooler reports also speaks for the cooling channel alone: a
+        # value that would cross the heating target is raised onto the floor
+        # above it, so a press on the air conditioner's remote does not pull
+        # the radiators' target down — potentially below room temperature,
+        # stopping the heating. Where the range holds no value above that
+        # target the floor stops short of it, and the fallback below is what
+        # moves the heating target then.
         _reported_moved = abs(
             _new_cooling_setpoint.raw - _old_cooling_setpoint
         ) >= setpoint_echo_window(_step)
@@ -112,7 +149,30 @@ async def trigger_cooler_change(self, event):
                     self.device_name,
                     entity_id,
                 )
-            self.bt_target_cooltemp = _new_cooling_setpoint.value
+            _adopted_cooling_setpoint = self._clamp_inbound_cool_target(
+                _new_cooling_setpoint.value
+            )
+            if _adopted_cooling_setpoint != _new_cooling_setpoint.value:
+                # A user turning the remote down step by step would collect one
+                # warning per press, so yielding to the heating target is an
+                # INFO: the range clamp above and the ordering fallback below
+                # own the WARNING level.
+                _LOGGER.info(
+                    "better_thermostat %s: Cooler %s reported setpoint %.2f does not "
+                    "clear the heating target %.2f, keeping %.2f",
+                    self.device_name,
+                    entity_id,
+                    _new_cooling_setpoint.value,
+                    self.bt_target_temp,
+                    _adopted_cooling_setpoint,
+                )
+            self.bt_target_cooltemp = _adopted_cooling_setpoint
+            # The clamp leaves the heating target alone, so this only settles
+            # the degenerate case where no cooling value above the heating
+            # target exists inside the range: at a heating target resting on
+            # bt_max_temp it drops that target by one step, and a range the
+            # children narrowed below a target already in place is what moves
+            # it further — that move is what brings it back inside the range.
             self._enforce_heat_below_cool()
             _main_change = True
 

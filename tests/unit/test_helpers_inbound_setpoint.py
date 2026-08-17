@@ -1,23 +1,29 @@
 """Tests for the shared inbound-setpoint boundary in utils/helpers.py."""
 
+from decimal import Decimal
+import logging
 from unittest.mock import Mock
 
 from homeassistant.const import UnitOfTemperature
 from homeassistant.core import Context, State
 from homeassistant.util.unit_conversion import TemperatureDeltaConverter
+import pytest
 
 from custom_components.better_thermostat.utils.helpers import (
     COOLER_SETPOINT_KEYS,
     SETPOINT_MATCH_TOLERANCE,
     TRV_SETPOINT_KEYS,
+    device_setpoint_step,
     normalize_step,
     read_setpoint_celsius,
+    reported_setpoint_step_celsius,
     resolve_inbound_setpoint,
     resolve_state_change_event,
     setpoint_echo_window,
 )
 
 ENTITY_ID = "climate.device"
+HELPERS_LOGGER = "custom_components.better_thermostat.utils.helpers"
 
 
 def _fake_self(unit=UnitOfTemperature.CELSIUS):
@@ -107,6 +113,107 @@ class TestNormalizeStep:
         assert normalize_step(float("nan")) == 0.5
         assert normalize_step(float("inf")) == 0.5
         assert normalize_step(float("-inf")) == 0.5
+
+
+class TestReportedSetpointStepCelsius:
+    """The shared unit rule behind both setpoint-step readers."""
+
+    def test_missing_attribute_and_explicit_none_are_the_same_case(self, caplog):
+        """Neither shape publishes a step, and neither is worth logging."""
+        with caplog.at_level(logging.DEBUG, logger=HELPERS_LOGGER):
+            missing = reported_setpoint_step_celsius(_state({}), "bt", "°C", "t")
+            explicit = reported_setpoint_step_celsius(
+                _state({"target_temp_step": None}), "bt", "°C", "t"
+            )
+        assert missing is None
+        assert explicit is None
+        assert caplog.records == []
+
+    def test_non_positive_step_is_returned_unjudged(self):
+        """The rule reads the unit only; sign belongs to the caller."""
+        assert reported_setpoint_step_celsius(
+            _state({"target_temp_step": 0}), "bt", "°C", "t"
+        ) == pytest.approx(0.0)
+        assert reported_setpoint_step_celsius(
+            _state({"target_temp_step": -1}), "bt", "°C", "t"
+        ) == pytest.approx(-1.0)
+
+    def test_fahrenheit_step_is_scaled_as_a_delta(self):
+        """A °F step is a temperature difference, not an absolute reading."""
+        step = reported_setpoint_step_celsius(
+            _state({"target_temp_step": 2.0}), "bt", UnitOfTemperature.FAHRENHEIT, "t"
+        )
+        assert step == round(2.0 * 5.0 / 9.0, 4)
+
+    def test_unit_is_read_from_the_same_attributes_as_the_step(self):
+        """A state that names its own unit is read in that unit."""
+        state = _state({"target_temp_step": 2.0, "temperature_unit": "°F"})
+        step = reported_setpoint_step_celsius(
+            state, "bt", UnitOfTemperature.CELSIUS, "t"
+        )
+        assert step == round(2.0 * 5.0 / 9.0, 4)
+
+    def test_boolean_does_not_convert(self):
+        """A boolean is not a step; stringifying it keeps it out."""
+        for raw in (True, False):
+            state = _state({"target_temp_step": raw})
+            assert reported_setpoint_step_celsius(state, "bt", "°C", "t") is None
+
+    def test_decimal_converts(self):
+        """A Decimal published by an integration is a usable step."""
+        state = _state({"target_temp_step": Decimal("0.5")})
+        assert reported_setpoint_step_celsius(state, "bt", "°C", "t") == 0.5
+
+    def test_log_source_names_the_caller(self, caplog):
+        """An unconvertible step is logged against the site that read it."""
+        with caplog.at_level(logging.DEBUG, logger=HELPERS_LOGGER):
+            result = reported_setpoint_step_celsius(
+                _state({"target_temp_step": "abc"}), "bt", "°C", "my_caller()"
+            )
+        assert result is None
+        assert "my_caller()" in caplog.text
+
+
+class TestDeviceSetpointStep:
+    """Reading a controlled device's own setpoint step as a Celsius delta."""
+
+    def _self(self, unit=UnitOfTemperature.CELSIUS, bt_step=0.5):
+        """Build a BetterThermostat mock with a known configured step."""
+        mock_self = _fake_self(unit)
+        mock_self.bt_target_temp_step = bt_step
+        return mock_self
+
+    def test_celsius_step_is_taken_as_reported(self):
+        """On a Celsius system the reported step already is a Celsius delta."""
+        state = _state({"target_temp_step": 1.0})
+        assert device_setpoint_step(self._self(), state, "test") == 1.0
+
+    def test_fahrenheit_step_is_scaled_to_a_celsius_delta(self):
+        """A step reported by a Fahrenheit device is a °F delta, not a °C one."""
+        state = _state({"target_temp_step": 2.0})
+        step = device_setpoint_step(
+            self._self(UnitOfTemperature.FAHRENHEIT), state, "test"
+        )
+        assert step == round(2.0 * 5.0 / 9.0, 4)
+
+    def test_explicit_unit_attribute_beats_the_system_unit(self):
+        """A device that names its own unit is read in that unit."""
+        state = _state({"target_temp_step": 2.0, "temperature_unit": "°F"})
+        step = device_setpoint_step(
+            self._self(UnitOfTemperature.CELSIUS), state, "test"
+        )
+        assert step == round(2.0 * 5.0 / 9.0, 4)
+
+    def test_missing_step_falls_back_to_the_configured_step(self):
+        """A device that publishes no step leaves only BT's own."""
+        state = _state({"temperature": 21.0})
+        assert device_setpoint_step(self._self(bt_step=0.1), state, "test") == 0.1
+
+    @pytest.mark.parametrize("raw", [0, -1.0, "unavailable"])
+    def test_unusable_step_falls_back_to_the_configured_step(self, raw):
+        """A non-positive or non-numeric step cannot separate two setpoints."""
+        state = _state({"target_temp_step": raw})
+        assert device_setpoint_step(self._self(bt_step=0.1), state, "test") == 0.1
 
 
 class TestSetpointEchoWindow:
@@ -309,6 +416,22 @@ class TestResolveInboundSetpoint:
             log_source="t",
         )
         assert (result.value, result.clamped) == (20.0, True)
+
+    def test_report_outside_the_range_matching_a_known_value_is_an_echo(self):
+        """A device parked outside BT's range republishes what BT wrote to it.
+
+        The clamp lifts the report onto the configured minimum and away from
+        the known value, so only the reported value still identifies the write.
+        """
+        result = resolve_inbound_setpoint(
+            _fake_self(),
+            _state({"temperature": 2.0}),
+            keys=TRV_SETPOINT_KEYS,
+            known_values=(21.0, 2.0),
+            step=0.5,
+            log_source="t",
+        )
+        assert (result.raw, result.value, result.is_echo) == (2.0, 5.0, True)
 
     def test_echo_is_judged_after_clamping(self):
         """A value the clamp pulls onto a known value is an echo, not input."""

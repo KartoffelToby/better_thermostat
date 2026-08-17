@@ -6,9 +6,11 @@ and the convert_inbound_states / convert_outbound_states helpers.
 """
 
 from datetime import timedelta
-from unittest.mock import AsyncMock, MagicMock, patch
+import logging
+from unittest.mock import AsyncMock, MagicMock, PropertyMock, patch
 
 from homeassistant.components.climate.const import HVACMode
+from homeassistant.const import UnitOfTemperature
 from homeassistant.core import State
 from homeassistant.util import dt as dt_util
 import pytest
@@ -25,6 +27,7 @@ from custom_components.better_thermostat.utils.const import (
     CalibrationMode,
     CalibrationType,
 )
+from custom_components.better_thermostat.utils.helpers import mode_remap
 
 ENTITY_ID = "climate.test_trv"
 
@@ -59,7 +62,12 @@ def mock_bt():
     bt.context = MagicMock()  # unique context so != event.context
     bt.last_internal_sensor_change = dt_util.now() - timedelta(seconds=60)
     bt.async_write_ha_state = MagicMock()
-    bt._enforce_cool_above_heat = lambda: BetterThermostat._enforce_cool_above_heat(bt)
+    bt._enforce_cool_above_heat = lambda **kwargs: (
+        BetterThermostat._enforce_cool_above_heat(bt, **kwargs)
+    )
+    bt._clamp_inbound_heat_target = lambda v: (
+        BetterThermostat._clamp_inbound_heat_target(bt, v)
+    )
 
     bt.all_trvs = [{"advanced": {CONF_HOMEMATICIP: False}}]
 
@@ -287,8 +295,6 @@ class TestInternalTemperatureChange:
         system-unit fallback it is mistaken for 64 °C, rejected as implausible
         and dropped.
         """
-        from homeassistant.const import UnitOfTemperature
-
         mock_bt.hass.config.units.temperature_unit = UnitOfTemperature.FAHRENHEIT
         trv_state = _make_state(attributes={"current_temperature": 64.0})
         mock_bt.hass.states.get.return_value = trv_state
@@ -534,6 +540,208 @@ class TestHvacActionAndValvePosition:
             await trigger_trv_change(mock_bt, event)
 
         assert mock_bt.real_trvs[ENTITY_ID].valve_position == 75.0
+
+
+class TestHvacModesCache:
+    """Tests for the cached list of HVAC modes the device offers."""
+
+    @pytest.mark.asyncio
+    async def test_reported_modes_replace_the_cached_list(self, mock_bt):
+        """The offered modes are taken from the TRV state on every event."""
+        mock_bt.real_trvs[ENTITY_ID].hvac_modes = [HVACMode.OFF, HVACMode.COOL]
+        trv_state = _make_state(attributes={"hvac_modes": ["off", "heat"]})
+        mock_bt.hass.states.get.return_value = trv_state
+
+        event = _make_event(mock_bt, new_state=trv_state, old_state=trv_state)
+
+        with patch(
+            "custom_components.better_thermostat.events.trv.convert_inbound_states",
+            return_value=HVACMode.HEAT,
+        ):
+            await trigger_trv_change(mock_bt, event)
+
+        assert mock_bt.real_trvs[ENTITY_ID].hvac_modes == ["off", "heat"]
+
+    @pytest.mark.asyncio
+    async def test_absent_modes_attribute_keeps_the_cached_list(self, mock_bt):
+        """An event without the attribute does not wipe the known capabilities."""
+        trv_state = _make_state()
+        mock_bt.hass.states.get.return_value = trv_state
+
+        event = _make_event(mock_bt, new_state=trv_state, old_state=trv_state)
+
+        with patch(
+            "custom_components.better_thermostat.events.trv.convert_inbound_states",
+            return_value=HVACMode.HEAT,
+        ):
+            await trigger_trv_change(mock_bt, event)
+
+        assert mock_bt.real_trvs[ENTITY_ID].hvac_modes == [HVACMode.OFF, HVACMode.HEAT]
+
+    @pytest.mark.asyncio
+    async def test_empty_modes_attribute_keeps_the_cached_list(self, mock_bt):
+        """An empty list is treated as "nothing reported", not as "no modes"."""
+        trv_state = _make_state(attributes={"hvac_modes": []})
+        mock_bt.hass.states.get.return_value = trv_state
+
+        event = _make_event(mock_bt, new_state=trv_state, old_state=trv_state)
+
+        with patch(
+            "custom_components.better_thermostat.events.trv.convert_inbound_states",
+            return_value=HVACMode.HEAT,
+        ):
+            await trigger_trv_change(mock_bt, event)
+
+        assert mock_bt.real_trvs[ENTITY_ID].hvac_modes == [HVACMode.OFF, HVACMode.HEAT]
+
+    @pytest.mark.asyncio
+    async def test_changed_mode_list_clears_the_annunciated_modes(self, mock_bt):
+        """A genuine capability change lets the unsupported-mode error fire again."""
+        mock_bt.real_trvs[ENTITY_ID].hvac_modes = [HVACMode.OFF, HVACMode.COOL]
+        mock_bt.real_trvs[ENTITY_ID].unsupported_modes_logged = {"heat"}
+        trv_state = _make_state(attributes={"hvac_modes": ["off", "heat"]})
+        mock_bt.hass.states.get.return_value = trv_state
+
+        event = _make_event(mock_bt, new_state=trv_state, old_state=trv_state)
+
+        with patch(
+            "custom_components.better_thermostat.events.trv.convert_inbound_states",
+            return_value=HVACMode.HEAT,
+        ):
+            await trigger_trv_change(mock_bt, event)
+
+        assert mock_bt.real_trvs[ENTITY_ID].unsupported_modes_logged == set()
+
+    @pytest.mark.asyncio
+    async def test_unchanged_mode_list_keeps_the_annunciated_modes(self, mock_bt):
+        """Repeating the same list keeps the error suppressed across cycles."""
+        mock_bt.real_trvs[ENTITY_ID].unsupported_modes_logged = {"heat_cool"}
+        trv_state = _make_state(attributes={"hvac_modes": ["off", "heat"]})
+        mock_bt.hass.states.get.return_value = trv_state
+
+        event = _make_event(mock_bt, new_state=trv_state, old_state=trv_state)
+
+        with patch(
+            "custom_components.better_thermostat.events.trv.convert_inbound_states",
+            return_value=HVACMode.HEAT,
+        ):
+            await trigger_trv_change(mock_bt, event)
+
+        assert mock_bt.real_trvs[ENTITY_ID].unsupported_modes_logged == {"heat_cool"}
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        "republished",
+        [
+            ["cool", "off", "auto"],
+            [HVACMode.AUTO, HVACMode.COOL, HVACMode.OFF],
+            ["HVACMode.AUTO", "HVACMode.COOL", "HVACMode.OFF"],
+            ["AUTO", "Cool", "OFF"],
+        ],
+        ids=["reordered", "enum_members", "prefixed", "mixed_case"],
+    )
+    async def test_same_capabilities_keep_the_annunciated_modes(
+        self, mock_bt, republished
+    ):
+        """The same offered modes in another spelling are not a change."""
+        mock_bt.real_trvs[ENTITY_ID].hvac_modes = ["auto", "cool", "off"]
+        mock_bt.real_trvs[ENTITY_ID].unsupported_modes_logged = {"heat_cool"}
+        trv_state = _make_state(attributes={"hvac_modes": republished})
+        mock_bt.hass.states.get.return_value = trv_state
+
+        event = _make_event(mock_bt, new_state=trv_state, old_state=trv_state)
+
+        with patch(
+            "custom_components.better_thermostat.events.trv.convert_inbound_states",
+            return_value=HVACMode.HEAT,
+        ):
+            await trigger_trv_change(mock_bt, event)
+
+        assert mock_bt.real_trvs[ENTITY_ID].unsupported_modes_logged == {"heat_cool"}
+
+    @pytest.mark.asyncio
+    async def test_reordered_republication_does_not_repeat_the_error(
+        self, mock_bt, caplog
+    ):
+        """A flapping mode list keeps the annunciation at once per mode."""
+        helpers_logger = "custom_components.better_thermostat.utils.helpers"
+        mock_bt.real_trvs[ENTITY_ID].hvac_modes = ["auto", "cool", "off"]
+
+        def _errors():
+            return [
+                record
+                for record in caplog.records
+                if "does not offer HVAC mode" in record.getMessage()
+            ]
+
+        trv_state = _make_state(attributes={"hvac_modes": ["cool", "off", "auto"]})
+        mock_bt.hass.states.get.return_value = trv_state
+        event = _make_event(mock_bt, new_state=trv_state, old_state=trv_state)
+
+        with caplog.at_level(logging.ERROR, logger=helpers_logger):
+            assert (
+                mode_remap(mock_bt, ENTITY_ID, HVACMode.HEAT_COOL, inbound=False)
+                is None
+            )
+            assert len(_errors()) == 1
+
+            with patch(
+                "custom_components.better_thermostat.events.trv.convert_inbound_states",
+                return_value=HVACMode.HEAT,
+            ):
+                await trigger_trv_change(mock_bt, event)
+
+            assert (
+                mode_remap(mock_bt, ENTITY_ID, HVACMode.HEAT_COOL, inbound=False)
+                is None
+            )
+            assert len(_errors()) == 1
+
+    @pytest.mark.asyncio
+    async def test_a_capability_change_decodes_the_state_that_carried_it(self, mock_bt):
+        """A device switching to HEAT_COOL is decoded against its new list.
+
+        The reported state belongs to the capabilities reported alongside it,
+        so the mode the entity takes over is the one the new list translates
+        to and not the one the previous list would have produced.
+        """
+        mock_bt.bt_hvac_mode = HVACMode.OFF
+        trv_state = _make_state(
+            state_str="heat_cool",
+            attributes={"hvac_modes": [HVACMode.OFF, HVACMode.HEAT_COOL]},
+        )
+        mock_bt.hass.states.get.return_value = trv_state
+
+        event = _make_event(mock_bt, new_state=trv_state, old_state=_make_state())
+
+        await trigger_trv_change(mock_bt, event)
+
+        assert mock_bt.real_trvs[ENTITY_ID].hvac_modes == [
+            HVACMode.OFF,
+            HVACMode.HEAT_COOL,
+        ]
+        assert mock_bt.bt_hvac_mode == HVACMode.HEAT
+
+    @pytest.mark.asyncio
+    async def test_modes_cached_in_the_device_spelling_still_translate(self, mock_bt):
+        """A mode list reported as ``HVACMode.HEAT`` reaches the translation."""
+        trv_state = _make_state(
+            attributes={"hvac_modes": ["HVACMode.OFF", "HVACMode.HEAT"]}
+        )
+        mock_bt.hass.states.get.return_value = trv_state
+
+        event = _make_event(mock_bt, new_state=trv_state, old_state=trv_state)
+
+        await trigger_trv_change(mock_bt, event)
+
+        assert mock_bt.real_trvs[ENTITY_ID].hvac_modes == [
+            "HVACMode.OFF",
+            "HVACMode.HEAT",
+        ]
+        assert (
+            mode_remap(mock_bt, ENTITY_ID, HVACMode.HEAT_COOL, inbound=False)
+            == HVACMode.HEAT
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -798,6 +1006,46 @@ class TestTargetTempAdoption:
         assert mock_bt.bt_target_temp == 30.0
 
     @pytest.mark.asyncio
+    async def test_parked_no_off_valve_keeps_the_heating_target(self, mock_bt):
+        """A valve resting on its own minimum republishes BT's own write.
+
+        BT parks a no_off valve on the device minimum while it is OFF and
+        records that write in ``last_temperature``. The report sits below
+        ``bt_min_temp``, so the clamp lifts it onto the configured minimum and
+        only the reported value still identifies the write. The ordered pair
+        the user configured has to survive the report unchanged.
+        """
+        mock_bt.bt_hvac_mode = HVACMode.OFF
+        mock_bt.hvac_mode = HVACMode.OFF
+        mock_bt.bt_min_temp = 20.0
+        mock_bt.bt_target_temp = 21.0
+        mock_bt.bt_target_cooltemp = 24.0
+        mock_bt.cooler_entity_id = "climate.test_cooler"
+        trv = mock_bt.real_trvs[ENTITY_ID]
+        trv.advanced["no_off_system_mode"] = True
+        trv.temperature = 5.0
+        trv.last_temperature = 5.0
+        old_state = _make_state(
+            attributes={"temperature": 5.0, "current_temperature": 18.0}
+        )
+        new_state = _make_state(
+            attributes={"temperature": 5.0, "current_temperature": 18.4}
+        )
+        mock_bt.hass.states.get.return_value = new_state
+
+        event = _make_event(mock_bt, new_state=new_state, old_state=old_state)
+
+        with patch(
+            "custom_components.better_thermostat.events.trv.convert_inbound_states",
+            return_value=HVACMode.HEAT,
+        ):
+            await trigger_trv_change(mock_bt, event)
+
+        assert mock_bt.bt_target_temp == 21.0
+        assert mock_bt.bt_target_cooltemp == 24.0
+        assert mock_bt.bt_hvac_mode == HVACMode.OFF
+
+    @pytest.mark.asyncio
     async def test_setpoint_blocked_when_off(self, mock_bt):
         """No setpoint adoption when bt_hvac_mode is OFF."""
         mock_bt.bt_hvac_mode = HVACMode.OFF
@@ -948,14 +1196,19 @@ class TestTargetTempAdoption:
         ):
             await trigger_trv_change(mock_bt, event)
 
+        assert mock_bt.bt_target_temp == 22.0
         assert mock_bt.bt_target_cooltemp == 25.0
 
     @pytest.mark.asyncio
-    async def test_cooler_sync_pushes_cooltemp_above_target(self, mock_bt):
-        """Cooltemp is pushed to target + step when equal to target."""
+    async def test_knob_turn_equal_to_cooltemp_is_lowered(self, mock_bt):
+        """A knob turn onto the cool target is capped one step below it.
+
+        The TRV owns the heating channel alone, so the cool target the user set
+        on the air conditioner stays where it is.
+        """
         mock_bt.cooler_entity_id = "climate.cooler"
         mock_bt.hvac_mode = HVACMode.HEAT_COOL
-        mock_bt.bt_target_cooltemp = 22.0  # equal to new target
+        mock_bt.bt_target_cooltemp = 22.0  # equal to the reported setpoint
         mock_bt.bt_target_temp_step = 0.5
 
         old_state = _make_state(
@@ -979,14 +1232,71 @@ class TestTargetTempAdoption:
         ):
             await trigger_trv_change(mock_bt, event)
 
-        assert mock_bt.bt_target_cooltemp == 22.0 + 0.5
+        assert mock_bt.bt_target_temp == 21.5
+        assert mock_bt.bt_target_cooltemp == 22.0
+        assert mock_bt.bt_target_temp < mock_bt.bt_target_cooltemp
 
     @pytest.mark.asyncio
-    async def test_cooler_sync_always_overwrites(self, mock_bt):
-        """Cooltemp is pushed to target + step even when already below target."""
+    async def test_knob_turn_above_cooltemp_is_lowered(self, mock_bt, caplog):
+        """A knob turn past the cool target is capped, not the cool target raised.
+
+        The knob went somewhere the group cannot follow, so the user gets an
+        INFO naming the target that was not cleared and the value kept. Every
+        detent of a turn produces one, which is why it is not a WARNING.
+        """
         mock_bt.cooler_entity_id = "climate.cooler"
         mock_bt.hvac_mode = HVACMode.HEAT_COOL
-        mock_bt.bt_target_cooltemp = 15.0
+        mock_bt.bt_target_cooltemp = 22.5
+        mock_bt.bt_target_temp_step = 0.5
+
+        old_state = _make_state(
+            attributes={"temperature": 19.0, "current_temperature": 18.0}
+        )
+        new_state = _make_state(
+            attributes={"temperature": 24.0, "current_temperature": 18.0}
+        )
+        trv_state = _make_state(
+            state_str="heat",
+            attributes={"current_temperature": 18.0, "temperature": 24.0},
+        )
+        mock_bt.hass.states.get.return_value = trv_state
+        mock_bt.real_trvs[ENTITY_ID].last_temperature = 19.0
+
+        event = _make_event(mock_bt, new_state=new_state, old_state=old_state)
+
+        caplog.set_level(logging.INFO)
+        with patch(
+            "custom_components.better_thermostat.events.trv.convert_inbound_states",
+            return_value=HVACMode.HEAT,
+        ):
+            await trigger_trv_change(mock_bt, event)
+
+        assert mock_bt.bt_target_temp == 22.0
+        assert mock_bt.bt_target_cooltemp == 22.5
+        assert mock_bt.bt_target_temp < mock_bt.bt_target_cooltemp
+        assert (
+            "reported setpoint 24.00 does not clear the cooling target 22.50"
+            in caplog.text
+        )
+        assert "keeping 22.00" in caplog.text
+        levels = {
+            record.levelno
+            for record in caplog.records
+            if "cooling target" in record.getMessage()
+        }
+        assert levels == {logging.INFO}
+
+    @pytest.mark.asyncio
+    async def test_no_legal_setpoint_below_cooltemp_moves_it_one_step(self, mock_bt):
+        """With the cool target at the minimum the cool target yields one step.
+
+        No heating setpoint below bt_min_temp exists, so the heat target stops
+        at the minimum and the cool target gives up exactly one step.
+        """
+        mock_bt.cooler_entity_id = "climate.cooler"
+        mock_bt.hvac_mode = HVACMode.HEAT_COOL
+        mock_bt.bt_target_cooltemp = 5.0
+        mock_bt.bt_min_temp = 5.0
         mock_bt.bt_target_temp_step = 0.5
 
         old_state = _make_state(
@@ -1010,7 +1320,49 @@ class TestTargetTempAdoption:
         ):
             await trigger_trv_change(mock_bt, event)
 
-        assert mock_bt.bt_target_cooltemp == 22.0 + 0.5
+        assert mock_bt.bt_target_temp == 5.0
+        assert mock_bt.bt_target_cooltemp == 5.5
+        assert mock_bt.bt_target_temp < mock_bt.bt_target_cooltemp
+
+    @pytest.mark.asyncio
+    async def test_a_range_narrowed_above_the_cooltemp_moves_it_further(self, mock_bt):
+        """A cool target below the minimum is the one case that moves further.
+
+        The range is recomputed from the children, so it can end up above a
+        target already in place. The clamp holds the heating setpoint at the
+        minimum and the tie-break then lifts the cooling target clear of it,
+        which takes more than one step.
+        """
+        mock_bt.cooler_entity_id = "climate.cooler"
+        mock_bt.hvac_mode = HVACMode.HEAT_COOL
+        mock_bt.bt_target_cooltemp = 10.0
+        mock_bt.bt_min_temp = 20.0
+        mock_bt.bt_target_temp_step = 0.5
+
+        old_state = _make_state(
+            attributes={"temperature": 19.0, "current_temperature": 18.0}
+        )
+        new_state = _make_state(
+            attributes={"temperature": 22.0, "current_temperature": 18.0}
+        )
+        trv_state = _make_state(
+            state_str="heat",
+            attributes={"current_temperature": 18.0, "temperature": 22.0},
+        )
+        mock_bt.hass.states.get.return_value = trv_state
+        mock_bt.real_trvs[ENTITY_ID].last_temperature = 19.0
+
+        event = _make_event(mock_bt, new_state=new_state, old_state=old_state)
+
+        with patch(
+            "custom_components.better_thermostat.events.trv.convert_inbound_states",
+            return_value=HVACMode.HEAT,
+        ):
+            await trigger_trv_change(mock_bt, event)
+
+        assert mock_bt.bt_target_temp == 20.0
+        assert mock_bt.bt_target_cooltemp == 20.5
+        assert mock_bt.bt_target_temp < mock_bt.bt_target_cooltemp
 
     @pytest.mark.asyncio
     async def test_cooler_sync_with_unknown_cooltemp_adopts_setpoint(self, mock_bt):
@@ -1101,6 +1453,113 @@ class TestTargetTempAdoption:
             await trigger_trv_change(mock_bt, event)
 
         assert mock_bt.bt_hvac_mode == HVACMode.HEAT
+
+    @pytest.mark.asyncio
+    async def test_no_off_leaving_off_keeps_the_two_targets_apart(self, mock_bt):
+        """A knob turn that also switches BT on stays below the cool target.
+
+        The same event adopts the setpoint and resolves the mode from OFF to
+        HEAT, so the mode is still OFF while the setpoint is bounded. Keying the
+        bound off the configured cooler rather than the live mode is what keeps
+        the two channels from ending up crossed with nothing left to repair them.
+        """
+        mock_bt.real_trvs[ENTITY_ID].advanced["no_off_system_mode"] = True
+        mock_bt.real_trvs[ENTITY_ID].min_temp = 5.0
+        mock_bt.cooler_entity_id = "climate.cooler"
+        mock_bt.bt_hvac_mode = HVACMode.OFF
+        mock_bt.hvac_mode = HVACMode.OFF
+        mock_bt.bt_target_cooltemp = 22.0
+        mock_bt.bt_target_temp_step = 0.5
+        old_state = _make_state(
+            attributes={"temperature": 5.0, "current_temperature": 18.0}
+        )
+        new_state = _make_state(
+            attributes={"temperature": 24.0, "current_temperature": 18.0}
+        )
+        trv_state = _make_state(
+            state_str="heat",
+            attributes={"current_temperature": 18.0, "temperature": 24.0},
+        )
+        mock_bt.hass.states.get.return_value = trv_state
+        mock_bt.real_trvs[ENTITY_ID].last_temperature = 5.0
+
+        event = _make_event(mock_bt, new_state=new_state, old_state=old_state)
+
+        with patch(
+            "custom_components.better_thermostat.events.trv.convert_inbound_states",
+            return_value=HVACMode.HEAT,
+        ):
+            await trigger_trv_change(mock_bt, event)
+
+        assert mock_bt.bt_hvac_mode == HVACMode.HEAT
+        assert mock_bt.bt_target_temp == 21.5
+        assert mock_bt.bt_target_cooltemp == 22.0
+        assert mock_bt.bt_target_temp < mock_bt.bt_target_cooltemp
+
+    @pytest.mark.asyncio
+    async def test_no_off_leaving_off_separates_targets_stuck_at_the_minimum(
+        self, mock_bt, caplog
+    ):
+        """A knob turn against a cool target at the minimum still ends apart.
+
+        With the cool target sitting on bt_min_temp there is no legal heating
+        setpoint below it, so the clamp pins the heat target to that same value
+        and the tie-break has to resolve the draw. The mode is still OFF while
+        the setpoint is adopted, so only the mode resolution later in the same
+        event puts the group into HEAT_COOL and makes the tie-break effective.
+
+        This is the corner where the kept value equals the target it yielded to,
+        so the annunciation is pinned here as well: it may only claim that the
+        report did not clear the cooling target, never that the kept value ends
+        up on either side of it.
+        """
+        mock_bt.real_trvs[ENTITY_ID].advanced["no_off_system_mode"] = True
+        mock_bt.real_trvs[ENTITY_ID].min_temp = 5.0
+        mock_bt.cooler_entity_id = "climate.cooler"
+        mock_bt.bt_hvac_mode = HVACMode.OFF
+        # A configured cooler drops HEAT from the mode list and reports the
+        # group as HEAT_COOL instead, so the live mode has to be resolved by
+        # the production property rather than pinned to a fixed value.
+        mock_bt.map_on_hvac_mode = HVACMode.HEAT_COOL
+        mock_bt._hvac_list = [HVACMode.OFF, HVACMode.HEAT_COOL]
+        type(mock_bt).hvac_mode = PropertyMock(
+            side_effect=lambda: BetterThermostat.hvac_mode.fget(mock_bt)
+        )
+        mock_bt.bt_min_temp = 5.0
+        mock_bt.bt_target_cooltemp = 5.0
+        mock_bt.bt_target_temp_step = 0.5
+        old_state = _make_state(
+            attributes={"temperature": 5.0, "current_temperature": 18.0}
+        )
+        new_state = _make_state(
+            attributes={"temperature": 24.0, "current_temperature": 18.0}
+        )
+        trv_state = _make_state(
+            state_str="heat",
+            attributes={"current_temperature": 18.0, "temperature": 24.0},
+        )
+        mock_bt.hass.states.get.return_value = trv_state
+        mock_bt.real_trvs[ENTITY_ID].last_temperature = 5.0
+
+        event = _make_event(mock_bt, new_state=new_state, old_state=old_state)
+
+        caplog.set_level(logging.INFO)
+        with patch(
+            "custom_components.better_thermostat.events.trv.convert_inbound_states",
+            return_value=HVACMode.HEAT,
+        ):
+            await trigger_trv_change(mock_bt, event)
+
+        assert mock_bt.bt_hvac_mode == HVACMode.HEAT
+        assert mock_bt.hvac_mode == HVACMode.HEAT_COOL
+        assert mock_bt.bt_target_temp == 5.0
+        assert mock_bt.bt_target_cooltemp == 5.5
+        assert mock_bt.bt_target_temp < mock_bt.bt_target_cooltemp
+        assert (
+            "reported setpoint 24.00 does not clear the cooling target 5.00, "
+            "keeping 5.00" in caplog.text
+        )
+        assert "to stay below cooling target" not in caplog.text
 
 
 class TestTargetTempBasedSync:
@@ -1511,6 +1970,121 @@ class TestConvertOutboundStates:
         assert result["temperature"] == 5.0
         assert result["system_mode"] is None
 
+    def test_off_offered_in_the_device_spelling_switches_the_device_off(self, mock_bt):
+        """A list naming its modes ``HVACMode.OFF`` still offers OFF.
+
+        The cache holds the device's own spelling, so the min_temp
+        substitution must not fire for a device that does offer OFF.
+        """
+        mock_bt.real_trvs[ENTITY_ID].hvac_modes = ["HVACMode.OFF", "HVACMode.HEAT"]
+        mock_bt.real_trvs[ENTITY_ID].current_temperature = 18.0
+
+        with (
+            patch(
+                "custom_components.better_thermostat.events.trv.calculate_calibration_local",
+                return_value=0.0,
+            ),
+            patch(
+                "custom_components.better_thermostat.events.trv.mode_remap",
+                return_value=HVACMode.OFF,
+            ),
+        ):
+            result = convert_outbound_states(mock_bt, ENTITY_ID, HVACMode.OFF)
+
+        assert result is not None
+        assert result["system_mode"] == HVACMode.OFF
+        assert result["temperature"] == 19.0
+
+    def test_no_off_in_the_device_spelling_still_uses_min_temp(self, mock_bt):
+        """A device genuinely without OFF keeps taking the min_temp path."""
+        mock_bt.real_trvs[ENTITY_ID].hvac_modes = ["HVACMode.HEAT"]
+        mock_bt.real_trvs[ENTITY_ID].current_temperature = 18.0
+
+        with (
+            patch(
+                "custom_components.better_thermostat.events.trv.calculate_calibration_local",
+                return_value=0.0,
+            ),
+            patch(
+                "custom_components.better_thermostat.events.trv.mode_remap",
+                return_value=HVACMode.OFF,
+            ),
+        ):
+            result = convert_outbound_states(mock_bt, ENTITY_ID, HVACMode.OFF)
+
+        assert result is not None
+        assert result["temperature"] == 5.0
+        assert result["system_mode"] is None
+
+    def test_unsupported_mode_writes_only_the_setpoint(self, mock_bt):
+        """A device without a heating mode gets the setpoint and no mode."""
+        mock_bt.real_trvs[ENTITY_ID].hvac_modes = [
+            HVACMode.AUTO,
+            HVACMode.COOL,
+            HVACMode.OFF,
+        ]
+        mock_bt.real_trvs[ENTITY_ID].current_temperature = 18.0
+
+        with patch(
+            "custom_components.better_thermostat.events.trv.calculate_calibration_local",
+            return_value=0.0,
+        ):
+            result = convert_outbound_states(mock_bt, ENTITY_ID, HVACMode.HEAT_COOL)
+
+        assert result is not None
+        assert result["system_mode"] is None
+        assert result["temperature"] == mock_bt.bt_target_temp
+
+    def test_swapped_device_in_a_cooler_room_is_switched_on(self, mock_bt):
+        """A room-level HEAT_COOL reaches a swapped radiator as its own mode."""
+        mock_bt.cooler_entity_id = "climate.the_ac"
+        mock_bt.real_trvs[ENTITY_ID].hvac_modes = [HVACMode.OFF, HVACMode.AUTO]
+        mock_bt.real_trvs[ENTITY_ID].advanced["heat_auto_swapped"] = True
+        mock_bt.real_trvs[ENTITY_ID].current_temperature = 18.0
+
+        with patch(
+            "custom_components.better_thermostat.events.trv.calculate_calibration_local",
+            return_value=0.0,
+        ):
+            result = convert_outbound_states(mock_bt, ENTITY_ID, HVACMode.HEAT_COOL)
+
+        assert result is not None
+        assert result["system_mode"] == HVACMode.AUTO
+        assert result["temperature"] == mock_bt.bt_target_temp
+
+    def test_off_without_off_mode_still_falls_back_to_min_temp(self, mock_bt):
+        """OFF escapes the clamp so the min_temp substitution keeps working."""
+        mock_bt.real_trvs[ENTITY_ID].hvac_modes = [HVACMode.AUTO, HVACMode.HEAT]
+        mock_bt.real_trvs[ENTITY_ID].current_temperature = 18.0
+
+        with patch(
+            "custom_components.better_thermostat.events.trv.calculate_calibration_local",
+            return_value=None,
+        ):
+            result = convert_outbound_states(mock_bt, ENTITY_ID, HVACMode.OFF)
+
+        assert result == {
+            "temperature": 5.0,
+            "local_temperature": 18.0,
+            "system_mode": None,
+        }
+
+    def test_no_off_system_mode_device_still_parks_at_min_temp(self, mock_bt):
+        """The no_off_system_mode substitution survives the clamp."""
+        mock_bt.real_trvs[ENTITY_ID].hvac_modes = [HVACMode.OFF, HVACMode.HEAT]
+        mock_bt.real_trvs[ENTITY_ID].advanced["no_off_system_mode"] = True
+        mock_bt.real_trvs[ENTITY_ID].current_temperature = 18.0
+
+        with patch(
+            "custom_components.better_thermostat.events.trv.calculate_calibration_local",
+            return_value=0.0,
+        ):
+            result = convert_outbound_states(mock_bt, ENTITY_ID, HVACMode.OFF)
+
+        assert result is not None
+        assert result["temperature"] == 5.0
+        assert result["system_mode"] is None
+
     def test_exception_returns_none(self, mock_bt):
         """Internal exception → None returned."""
         mock_bt.real_trvs[ENTITY_ID].advanced["calibration"] = (
@@ -1556,6 +2130,9 @@ def _make_group_bt(entity_ids, *, no_off=False, bt_hvac_mode=HVACMode.HEAT):
     """
     bt = MagicMock()
     bt.hass = MagicMock()
+    # Climate entities publish no unit attribute, so every temperature the
+    # handler reads off a group member is interpreted in this system unit.
+    bt.hass.config.units.temperature_unit = UnitOfTemperature.CELSIUS
     bt.device_name = "Grouped Thermostat"
     bt.bt_hvac_mode = bt_hvac_mode
     bt.bt_target_temp = 19.0
@@ -1575,6 +2152,13 @@ def _make_group_bt(entity_ids, *, no_off=False, bt_hvac_mode=HVACMode.HEAT):
     bt.context = MagicMock()
     bt.last_internal_sensor_change = dt_util.now() - timedelta(seconds=60)
     bt.async_write_ha_state = MagicMock()
+    bt.hvac_mode = bt_hvac_mode
+    bt._enforce_cool_above_heat = lambda **kwargs: (
+        BetterThermostat._enforce_cool_above_heat(bt, **kwargs)
+    )
+    bt._clamp_inbound_heat_target = lambda v: (
+        BetterThermostat._clamp_inbound_heat_target(bt, v)
+    )
     bt.all_trvs = [{"advanced": {CONF_HOMEMATICIP: False}} for _ in entity_ids]
 
     bt.real_trvs = {
@@ -1727,6 +2311,45 @@ class TestGroupedModeAdoption:
 
         assert bt.bt_hvac_mode == HVACMode.OFF
 
+    @pytest.mark.asyncio
+    async def test_group_knob_turn_stays_below_the_cool_target(self):
+        """A knob turn on one member of a group with a cooler stays below cool.
+
+        The cool target sits on ``bt_min_temp``, so the bound has no legal value
+        below it and the residual tie-break has to separate the two targets.
+        """
+        trigger, other1, other2 = GRP_IDS
+        bt = _make_group_bt(GRP_IDS, bt_hvac_mode=HVACMode.HEAT_COOL)
+        bt.cooler_entity_id = "climate.ac"
+        bt.bt_target_cooltemp = 5.0
+        bt.bt_min_temp = 5.0
+        bt.bt_target_temp_step = 0.5
+        _install_states(
+            bt,
+            {
+                trigger: _grp_state(trigger, "heat", temperature=22.0),
+                other1: _grp_state(other1, "heat"),
+                other2: _grp_state(other2, "heat"),
+            },
+        )
+        bt.real_trvs[trigger].hvac_mode = "heat"
+
+        event = _make_event(
+            bt,
+            new_state=_grp_state(trigger, "heat", temperature=22.0),
+            old_state=_grp_state(trigger, "heat", temperature=19.0),
+            entity_id=trigger,
+        )
+        with patch(
+            "custom_components.better_thermostat.events.trv.convert_inbound_states",
+            return_value=None,
+        ):
+            await trigger_trv_change(bt, event)
+
+        assert bt.bt_target_temp == 5.0
+        assert bt.bt_target_cooltemp == 5.5
+        assert bt.bt_target_temp < bt.bt_target_cooltemp
+
 
 class TestGroupedNoOffAdoption:
     """Quorum-gated OFF for no_off_system_mode groups (min_temp means off)."""
@@ -1817,3 +2440,153 @@ class TestGroupedNoOffAdoption:
             await trigger_trv_change(mock_bt, event)
 
         assert mock_bt.bt_hvac_mode == HVACMode.OFF
+
+
+class TestDualRoleEntityReports:
+    """Reports from a device named as both the thermostat and the cooler.
+
+    Such a device publishes one setpoint for two targets. The mode it reports
+    is the statement about which target a press on its own controls meant, and
+    what either channel wrote is not a press at all.
+    """
+
+    @pytest.fixture
+    def shared_bt(self, mock_bt):
+        """Make the tracked thermostat the configured cooler as well."""
+        mock_bt.cooler_entity_id = ENTITY_ID
+        mock_bt.bt_hvac_mode = HVACMode.HEAT_COOL
+        mock_bt.hvac_mode = HVACMode.HEAT_COOL
+        mock_bt.bt_target_temp = 20.0
+        mock_bt.bt_target_cooltemp = 24.0
+        mock_bt.last_sent_cooler_temp = 24.0
+        mock_bt.last_cooler_mode_decided = None
+        mock_bt.real_trvs[ENTITY_ID].hvac_modes = [
+            HVACMode.OFF,
+            HVACMode.HEAT,
+            HVACMode.COOL,
+            HVACMode.HEAT_COOL,
+        ]
+        mock_bt.real_trvs[ENTITY_ID].last_temperature = 20.0
+        mock_bt._clamp_inbound_cool_target = lambda v: (
+            BetterThermostat._clamp_inbound_cool_target(mock_bt, v)
+        )
+        mock_bt._enforce_heat_below_cool = lambda: (
+            BetterThermostat._enforce_heat_below_cool(mock_bt)
+        )
+        return mock_bt
+
+    @staticmethod
+    async def _report(bt, *, device_mode, reported_temp, previous_temp):
+        """Drive one device report through the real TRV handler."""
+        old_state = _make_state(
+            state_str=device_mode,
+            attributes={"temperature": previous_temp, "current_temperature": 22.0},
+        )
+        new_state = _make_state(
+            state_str=device_mode,
+            attributes={"temperature": reported_temp, "current_temperature": 22.0},
+        )
+        # trigger_trv_change reads the state machine rather than the event's
+        # new_state for the device's own mode, so both carry the report.
+        bt.hass.states.get.return_value = new_state
+        # BT already holds the mode and the internal temperature the device
+        # reports, so the report under test carries a setpoint and nothing
+        # else, and a queued control cycle is the setpoint's doing.
+        bt.real_trvs[ENTITY_ID].hvac_mode = device_mode
+        bt.real_trvs[ENTITY_ID].current_temperature = 22.0
+        event = _make_event(bt, new_state=new_state, old_state=old_state)
+        with patch(
+            "custom_components.better_thermostat.events.trv.convert_inbound_states",
+            return_value=HVACMode.HEAT,
+        ):
+            await trigger_trv_change(bt, event)
+
+    @pytest.mark.asyncio
+    async def test_shared_entity_reads_the_cooling_channel_write_as_an_echo(
+        self, shared_bt
+    ):
+        """The cooling channel's own setpoint read back moves no target.
+
+        The device reports the cooling target the cooling channel just wrote to
+        it. Read as a press, it would drag the heating target up to just below
+        the cooling one, which is the heating setpoint moving on its own the
+        moment the room switches to cooling.
+        """
+        await self._report(
+            shared_bt, device_mode="cool", reported_temp=24.0, previous_temp=20.0
+        )
+
+        assert shared_bt.bt_target_temp == 20.0
+        assert shared_bt.bt_target_cooltemp == 24.0
+        shared_bt.control_queue_task.put.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_shared_entity_files_a_press_under_the_cooling_channel_while_it_cools(
+        self, shared_bt
+    ):
+        """A press on the remote while the unit cools names the cool target."""
+        await self._report(
+            shared_bt, device_mode="cool", reported_temp=26.0, previous_temp=24.0
+        )
+
+        assert shared_bt.bt_target_cooltemp == 26.0
+        assert shared_bt.bt_target_temp == 20.0
+        shared_bt.control_queue_task.put.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    async def test_shared_entity_files_a_press_under_the_heating_channel_while_it_heats(
+        self, shared_bt
+    ):
+        """A press on the remote while the unit heats names the heat target."""
+        await self._report(
+            shared_bt, device_mode="heat", reported_temp=21.0, previous_temp=20.0
+        )
+
+        assert shared_bt.bt_target_temp == 21.0
+        assert shared_bt.bt_target_cooltemp == 24.0
+        shared_bt.control_queue_task.put.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    async def test_shared_entity_follows_the_latch_while_the_reported_mode_lags(
+        self, shared_bt
+    ):
+        """A cooling setpoint written before its mode is still cooling's.
+
+        The cooling channel writes the setpoint first and the mode second, so
+        the report of that setpoint arrives while the device still names the
+        mode it is leaving.
+        """
+        shared_bt.last_cooler_mode_decided = HVACMode.COOL
+        shared_bt.last_sent_cooler_temp = None
+
+        await self._report(
+            shared_bt, device_mode="heat", reported_temp=26.0, previous_temp=20.0
+        )
+
+        assert shared_bt.bt_target_cooltemp == 26.0
+        assert shared_bt.bt_target_temp == 20.0
+        shared_bt.control_queue_task.put.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    async def test_a_distinct_trv_setpoint_matching_the_cool_target_is_still_adopted(
+        self, mock_bt
+    ):
+        """A radiator that is not the cooler keeps the narrow echo set.
+
+        Its setpoint is never written by the cooling channel, so a knob turn
+        that lands on the cooling target is a press like any other.
+        """
+        mock_bt.cooler_entity_id = "climate.split_unit"
+        mock_bt.bt_target_temp = 19.0
+        mock_bt.bt_target_cooltemp = 24.0
+        mock_bt.last_sent_cooler_temp = 24.0
+        mock_bt.bt_max_temp = 30.0
+        mock_bt.real_trvs[ENTITY_ID].last_temperature = 19.0
+        mock_bt.real_trvs[ENTITY_ID].max_temp = 30.0
+
+        await self._report(
+            mock_bt, device_mode="heat", reported_temp=24.0, previous_temp=19.0
+        )
+
+        assert mock_bt.bt_target_temp == 23.5
+        mock_bt.control_queue_task.put.assert_awaited_once()

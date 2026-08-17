@@ -55,11 +55,12 @@ from .utils.const import (
     CONF_WEATHER,
     CONF_WINDOW_TIMEOUT,
     CONF_WINDOW_TIMEOUT_AFTER,
+    DEFAULT_CALIBRATION_MODE,
     CalibrationMode,
     CalibrationType,
     MpcV2PlantPreset,
 )
-from .utils.helpers import get_device_model, get_trv_intigration
+from .utils.helpers import device_offers_mode, get_device_model, get_trv_intigration
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -90,11 +91,11 @@ CALIBRATION_MODE_SELECTOR = selector.SelectSelector(
     selector.SelectSelectorConfig(
         options=[
             selector.SelectOptionDict(
-                value=CalibrationMode.HEATING_POWER_CALIBRATION, label="(AI) Time Based"
+                value=CalibrationMode.HEATING_POWER_CALIBRATION,
+                label="(AI) Time Based (Default)",
             ),
             selector.SelectOptionDict(
-                value=CalibrationMode.DEFAULT,
-                label="External Sensor Offset Only (Default)",
+                value=CalibrationMode.DEFAULT, label="External Sensor Offset Only"
             ),
             selector.SelectOptionDict(
                 value=CalibrationMode.MPC_CALIBRATION, label="MPC Predictive (Beta)"
@@ -104,7 +105,7 @@ CALIBRATION_MODE_SELECTOR = selector.SelectSelector(
                 label="(AI) MPC v2 (QP + Kalman, experimental)",
             ),
             selector.SelectOptionDict(
-                value=CalibrationMode.AGGRESIVE_CALIBRATION, label="Agressive"
+                value=CalibrationMode.AGGRESIVE_CALIBRATION, label="Aggressive"
             ),
             selector.SelectOptionDict(
                 value=CalibrationMode.TPI_CALIBRATION, label="TPI Controller"
@@ -229,7 +230,7 @@ def _trv_supports_auto(
     if not trv_state or not hasattr(trv_state, "attributes"):
         return False
     hvac_modes = trv_state.attributes.get("hvac_modes") or []
-    return HVACMode.AUTO in hvac_modes
+    return device_offers_mode(hvac_modes, HVACMode.AUTO)
 
 
 def _build_advanced_fields(
@@ -254,7 +255,7 @@ def _build_advanced_fields(
             elif balance_mode in ("heuristic", "none"):
                 # For other balance modes, set calibration_mode to default if not set
                 if "calibration_mode" not in source:
-                    source["calibration_mode"] = CalibrationMode.MPC_CALIBRATION.value
+                    source["calibration_mode"] = DEFAULT_CALIBRATION_MODE.value
                 # Remove old balance_mode
                 source.pop("balance_mode", None)
 
@@ -308,9 +309,7 @@ def _build_advanced_fields(
     ordered[
         vol.Required(
             CONF_CALIBRATION_MODE,
-            default=get_value(
-                CONF_CALIBRATION_MODE, CalibrationMode.HEATING_POWER_CALIBRATION
-            ),
+            default=get_value(CONF_CALIBRATION_MODE, DEFAULT_CALIBRATION_MODE),
         )
     ] = CALIBRATION_MODE_SELECTOR
 
@@ -357,7 +356,7 @@ def _normalize_advanced_submission(
     normalized: dict[str, Any] = dict(data)
     normalized[CONF_CALIBRATION] = normalized.get(CONF_CALIBRATION, default_calibration)
     normalized[CONF_CALIBRATION_MODE] = normalized.get(
-        CONF_CALIBRATION_MODE, CalibrationMode.HEATING_POWER_CALIBRATION
+        CONF_CALIBRATION_MODE, DEFAULT_CALIBRATION_MODE
     )
     normalized[CONF_PROTECT_OVERHEATING] = _as_bool(
         normalized.get(CONF_PROTECT_OVERHEATING), False
@@ -857,7 +856,7 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 hvac_modes: list[str] = []
                 if state_obj and hasattr(state_obj, "attributes"):
                     hvac_modes = state_obj.attributes.get("hvac_modes", []) or []
-                if HVACMode.OFF not in hvac_modes:
+                if not device_offers_mode(hvac_modes, HVACMode.OFF):
                     _has_off_mode = False
 
             if not _has_off_mode:
@@ -951,6 +950,7 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
         # Dynamic config structures use Any as they store heterogeneous data
         self.trv_bundle: list[dict[str, Any]] = []
         self.device_name = ""
+        self.model: str | None = None
         self._last_step = False
         self.updated_config: dict[str, Any] = {}
         self._active_trv_config: dict[str, Any] | None = None
