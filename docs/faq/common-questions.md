@@ -15,7 +15,7 @@ Local calibration support depends on adapter support and TRV capabilities. Curre
 
 For device-level details, see [Working devices](/working-devices/compatibility/).
 
-## Local calibration vs target temperature calibration — what is the difference?
+## Local calibration vs target temperature calibration
 
 - **Local calibration (offset based)**: BT adjusts TRV offset so TRV reading matches room sensor.
 - **Target temperature based**: BT adjusts requested target temperature to compensate internally.

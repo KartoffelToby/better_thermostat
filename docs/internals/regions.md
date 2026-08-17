@@ -25,7 +25,7 @@ from live observations: lifecycle through the startup sequence,
 window/door/maintenance/mode from the first events, the ladder and
 reachability within one debounce window.
 
-## Window — debounced open/closed
+## Window: debounced open/closed
 
 ```mermaid
 stateDiagram-v2
@@ -45,7 +45,7 @@ transition is pending — a delay reconfigured mid-flight changes the
 next sleep, and a sensor that reverted cancels the transition. With a
 delay of zero, the transition commits at the event itself.
 
-## Door — a second window machine
+## Door: a second window machine
 
 The `door` region is a second instance of the window state machine,
 fed by the door sensors with its own open/close delays. Window and
@@ -53,7 +53,7 @@ door gate independently: either region being effectively open turns
 every TRV off without touching the mode. When both are open, the
 window suppression reason wins the annunciation.
 
-## Maintenance — valve exercise with a liveness bound
+## Maintenance: valve exercise with a liveness bound
 
 ```mermaid
 stateDiagram-v2
@@ -69,7 +69,7 @@ run always returns to IDLE. An open window or OFF mode postpones the
 schedule by an hour; without any maintenance-enabled TRV the next check
 moves a week out.
 
-## Lifecycle — startup, running, stopped
+## Lifecycle: startup, running, stopped
 
 INITIALISING → STARTING (grace) → RUNNING → STOPPING. While startup
 runs, `decide()` addresses no TRVs — the initial device sync happens
@@ -77,20 +77,20 @@ right after the startup-finished transition. The grace window also
 defers the degraded-mode warning so slow cloud integrations get time to
 come online before the user sees a repair issue.
 
-## Mode — the user's HVAC mode
+## Mode: the user's HVAC mode
 
 A validated mirror of the user's selected mode (off / heat / cool /
 heat-cool), with the preset axis orthogonal to it. The mode tier of the
 cascade reads it; setting the mode on the entity advances the region.
 
-## Control mode — the fail-soft ladder
+## Control mode: the fail-soft ladder
 
 OPTIMAL → SENSOR_FALLBACK → HOLD. Downgrades commit after ~2 minutes of
 sustained capability loss; upgrades only after ~5 minutes of sustained
 recovery — hysteresis against flapping sensors. What each rung does is
 described under [Safety and degradation](/internals/safety-and-degradation/).
 
-## Reachability — per-TRV online/offline
+## Reachability: per-TRV online/offline
 
 Tracks per TRV when it went offline and how often a retry was
 considered. Deliberately **diagnosis only**: in Home Assistant,

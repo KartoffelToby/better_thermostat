@@ -5,12 +5,12 @@ description: Pick the right control algorithm for your room behavior.
 
 ## Quick decision guide
 
-- **AI Time Based**: Best first choice for most homes.
-- **Normal**: Stable and simple fallback.
-- **Aggressive**: Faster warm-up, potentially more overshoot.
-- **MPC Predictive**: Best efficiency and overshoot prevention.
-- **PID Controller**: Advanced control with auto-tuning.
-- **TPI Controller**: Simple proportional-time behavior.
+- AI Time Based: the first choice for most homes.
+- Normal: stable and simple fallback.
+- Aggressive: faster warm-up, at the price of more overshoot.
+- MPC Predictive: aims at a steady arrival rather than a fast one.
+- PID Controller: responsive control with auto-tuning.
+- TPI Controller: simple proportional-time behaviour.
 
 ## Decision matrix
 
@@ -24,6 +24,6 @@ description: Pick the right control algorithm for your room behavior.
 
 ## Advanced note
 
-MPC and PID benefit strongly from direct valve control capable devices.
+MPC and PID both gain a lot from a device that supports direct valve control.
 
 For deeper technical details of balancing behavior and control signals, see [Hydraulic balance](/deep-explanations/hydraulic-balance/).
