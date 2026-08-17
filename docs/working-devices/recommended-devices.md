@@ -9,7 +9,7 @@ When choosing a Smart Radiator Valve (TRV) or temperature sensor for Better Ther
 
 The best TRVs for Better Thermostat have the following features:
 1. **Local Temperature Calibration**: Allows Better Thermostat to send an offset to the TRV, making the TRV's internal logic work with your external room sensor.
-2. **Direct Valve Control**: Allows Better Thermostat to directly set the valve opening percentage (e.g., 0-100%). Every algorithm runs without it, but MPC Predictive and PID Controller gain the most from it.
+2. **Direct Valve Control**: Allows Better Thermostat to directly set the valve opening percentage (e.g., 0-100%). Every algorithm runs without it; with it, the algorithm's decision reaches the valve without the TRV's own controller in between.
 3. **Fast Reporting**: Sends temperature and state updates frequently without aggressive battery-saving sleep modes that delay commands.
 
 ## Recommended TRVs
@@ -23,7 +23,7 @@ Based on community feedback and what the integrations expose:
 
 ### 2. Eurotronic Spirit Zigbee (SPZB0001)
 
-- One of the few TRVs that reliably supports **Direct Valve Control**, which is the capability MPC Predictive and PID Controller gain the most from.
+- One of the few TRVs that reliably supports **Direct Valve Control**, so Better Thermostat's decision reaches the valve without the TRV's own controller in between.
 - Suggested algorithms: MPC Predictive or PID Controller.
 
 ### 3. Moes / Tuya TS0601 Series
