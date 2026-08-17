@@ -24,6 +24,7 @@ from custom_components.better_thermostat.model_fixes.model_quirks import (
     override_set_temperature,
 )
 from custom_components.better_thermostat.utils.const import (
+    DEFAULT_CALIBRATION_MODE,
     CalibrationMode,
     CalibrationType,
 )
@@ -864,7 +865,7 @@ async def control_trv(self, heater_entity_id=None):
             _temperature = _remapped_states.get("temperature", None)
             _calibration = _remapped_states.get("local_temperature_calibration", None)
             _calibration_mode = self.real_trvs[heater_entity_id].advanced.get(
-                "calibration_mode", CalibrationMode.MPC_CALIBRATION
+                "calibration_mode", DEFAULT_CALIBRATION_MODE
             )
             _calibration_type = self.real_trvs[heater_entity_id].advanced.get(
                 "calibration", CalibrationType.TARGET_TEMP_BASED
