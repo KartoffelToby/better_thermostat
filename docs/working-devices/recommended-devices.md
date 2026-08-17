@@ -68,7 +68,7 @@ A window sensor lets Better Thermostat pause the heating as soon as a window ope
 
 ## Integrations
 
-For these devices we recommend **Zigbee2MQTT (Z2M)**. It exposes the local-calibration and valve-position entities Better Thermostat writes to; ZHA and deCONZ do not always expose them, and without them the calibration falls back to the setpoint.
+For the Zigbee TRVs above we recommend **Zigbee2MQTT (Z2M)**: it exposes the local-calibration and valve-position entities Better Thermostat writes to, where ZHA and deCONZ do not always expose them. Which of the two exists depends on the TRV as much as on the integration. Where neither does, the setup form preselects the **Target Temperature Based** calibration type and Better Thermostat steers the device through its setpoint instead. Tado is the exception in the list above: it runs on its own native integration.
 
 If you are looking for a good Zigbee coordinator, the [SONOFF Zigbee 3.0 USB Dongle Plus](https://amzn.to/4rt9aWt) is a popular choice that works well with Zigbee2MQTT and supports a wide range of devices. If you also want to support Home Assistant itself, consider the [ZBT-2](https://www.home-assistant.io/connect/zbt-2/): it costs a little more and Home Assistant maintains it as a first-party Zigbee coordinator.
 
