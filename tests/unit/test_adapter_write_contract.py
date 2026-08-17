@@ -193,6 +193,8 @@ VALVE_GRIDS = [
     (0.0, 100.0, 3.0),
     (5.0, 100.0, 1.0),
     (5.0, 100.0, 2.0),
+    # A grid whose maximum is on it too, so nothing there is exempt.
+    (0.25, 100.25, 0.5),
     (0.0, 100.0, 0.0),
 ]
 # The grids above that publish a step at all; the last one publishes none,
