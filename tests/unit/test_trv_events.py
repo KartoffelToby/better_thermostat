@@ -444,7 +444,7 @@ class TestInternalTemperatureChange:
         with (
             patch(
                 "custom_components.better_thermostat.events.trv.get_current_offset",
-                new_callable=AsyncMock,
+                autospec=True,
                 return_value=2.5,
             ) as mock_offset,
             patch(
@@ -481,6 +481,7 @@ class TestInternalTemperatureChange:
         with (
             patch(
                 "custom_components.better_thermostat.events.trv.get_current_offset",
+                autospec=True,
                 side_effect=pop_entry_and_return_offset,
             ),
             patch(
