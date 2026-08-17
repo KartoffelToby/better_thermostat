@@ -7,8 +7,8 @@ Home Assistant.
 
 from __future__ import annotations
 
-from collections.abc import Mapping
-from typing import Protocol
+from collections.abc import Coroutine, Mapping
+from typing import Any, Protocol
 
 
 class _StateLike(Protocol):
@@ -28,6 +28,21 @@ class _StatesLike(Protocol):
         ...
 
 
+class _ServicesLike(Protocol):
+    """Minimal ``hass.services`` surface the model fixes call into."""
+
+    async def async_call(
+        self,
+        domain: str,
+        service: str,
+        service_data: Mapping[str, Any] | None = ...,
+        *args: Any,
+        **kwargs: Any,
+    ) -> Any:
+        """Call a Home Assistant service."""
+        ...
+
+
 class _HassLike(Protocol):
     """Minimal Home Assistant core surface read by the model fixes."""
 
@@ -36,14 +51,40 @@ class _HassLike(Protocol):
         """State registry exposing per-entity state lookups."""
         ...
 
+    @property
+    def services(self) -> _ServicesLike:
+        """Service registry the quirks write through."""
+        ...
+
+    def async_create_background_task(
+        self, target: Coroutine[Any, Any, Any], name: str, *args: Any, **kwargs: Any
+    ) -> Any:
+        """Schedule a coroutine that outlives the calling handler."""
+        ...
+
+
+class _TrvLike(Protocol):
+    """Minimal per-TRV record the model fixes read."""
+
+    advanced: Mapping[str, Any] | None
+    model: str | None
+
 
 class ModelFixHost(Protocol):
     """Minimal BetterThermostat surface the model-fix quirks read."""
 
     cur_temp: float
     bt_target_temp: float
+    device_name: str
+    # Passed straight back into service calls so a command the quirk issues
+    # is attributed to the same origin as the rest of the cycle.
+    context: Any
+    real_trvs: Mapping[str, _TrvLike]
 
     @property
     def hass(self) -> _HassLike:
         """Home Assistant core the BetterThermostat instance is attached to."""
         ...
+
+
+__all__ = ["ModelFixHost"]
