@@ -251,7 +251,7 @@ For MQTT/Zigbee2MQTT users, you can also check if your TRV exposes entities like
 
 ### What it buys you
 
-The algorithm sets the valve opening itself rather than asking the TRV's own logic for it, so the response arrives without a detour and the room's reaction is a cleaner signal to learn from. Valve position is not heat output — flow temperature and the valve's own authority still sit in between — but it is the finest handle Better Thermostat can get, and a finer handle leaves less room for overshoot. MPC and PID gain the most from it; every mode runs without it.
+The algorithm sets the valve opening itself rather than asking the TRV's own logic for it, so the response arrives without a detour and the room's reaction is a cleaner signal to learn from. Valve position is not heat output — flow temperature and the valve's own authority still sit in between — but it is the finest handle Better Thermostat can get, and a finer handle leaves less room for overshoot. Every mode runs without it.
 
 ### If you are buying new TRVs
 
