@@ -244,7 +244,7 @@ def _quirk_holding_names(scope):
     another local is not followed, so nothing derived from a dispatch's
     result is mistaken for the module.
     """
-    holders = {}
+    bound_to_a_quirk = set()
     for node in _within_scope(scope):
         if not isinstance(node, (ast.Assign, ast.AnnAssign)) or node.value is None:
             continue
@@ -252,11 +252,34 @@ def _quirk_holding_names(scope):
             continue
         targets = node.targets if isinstance(node, ast.Assign) else [node.target]
         for target in targets:
-            if isinstance(target, ast.Name):
-                holders[target.id] = min(
-                    holders.get(target.id, node.lineno), node.lineno
-                )
-    return holders
+            for inner in ast.walk(target):
+                if isinstance(inner, ast.Name):
+                    bound_to_a_quirk.add((inner.lineno, inner.id))
+
+    events = [
+        (node.lineno, node.id, (node.lineno, node.id) in bound_to_a_quirk)
+        for node in _within_scope(scope)
+        if isinstance(node, ast.Name) and isinstance(node.ctx, ast.Store)
+    ]
+    events += [
+        (getattr(scope, "lineno", 0), name, False) for name in _parameter_names(scope)
+    ]
+    events.sort()
+    return events
+
+
+def _parameter_names(scope):
+    """Every name a callable scope binds through its own parameters."""
+    arguments = getattr(scope, "args", None)
+    if not isinstance(arguments, ast.arguments):
+        return []
+    slots = (
+        arguments.posonlyargs
+        + arguments.args
+        + arguments.kwonlyargs
+        + [arguments.vararg, arguments.kwarg]
+    )
+    return [slot.arg for slot in slots if slot is not None]
 
 
 def _names_reached_for_in(scope, inherited, names):
@@ -264,17 +287,31 @@ def _names_reached_for_in(scope, inherited, names):
 
     Holders are resolved per scope rather than per file: ``quirks`` is an
     ordinary local name, and one function's binding says nothing about
-    another's. An enclosing scope's binding stays visible, since a nested
-    function runs after it; a binding below the reference does not, since
-    the name does not hold a module yet where it is read.
+    another's. Within a scope the latest binding at or above the
+    reference decides, so rebinding the name to something else revokes
+    it, and a parameter of that name never held a module to begin with.
+    An enclosing scope's binding stays visible, since a nested function
+    runs after it — except across a class body, whose locals methods do
+    not close over.
     """
-    holders = {**inherited, **_quirk_holding_names(scope)}
+    events = _quirk_holding_names(scope)
+    bound_here = {name for _, name, _ in events}
+    # Anything bound in this scope shadows the enclosing binding entirely,
+    # whatever that one held.
+    holders = {name for name in inherited if name not in bound_here}
+
+    def holds_a_quirk(name, line):
+        if name in bound_here:
+            reached = [
+                event for event in events if event[1] == name and event[0] <= line
+            ]
+            return bool(reached) and reached[-1][2]
+        return name in holders
 
     def reaches(node):
+        line = getattr(node, "lineno", 0)
         visible = frozenset(
-            name
-            for name, line in holders.items()
-            if line <= getattr(node, "lineno", 0) or name in inherited
+            name for name in bound_here | holders if holds_a_quirk(name, line)
         )
         return _is_a_quirk_module(node, visible)
 
@@ -296,10 +333,17 @@ def _names_reached_for_in(scope, inherited, names):
         ):
             names.add(node.args[1].value)
 
+    # What a nested scope closes over is the state at the end of this one,
+    # since it runs after the bindings here have executed.
+    at_the_end = holders | {
+        name for name in bound_here if holds_a_quirk(name, float("inf"))
+    }
     for inner in _scopes_inside(scope):
-        # Line 0: an enclosing binding is in place wherever the nested
-        # scope runs, whatever line the reference sits on.
-        _names_reached_for_in(inner, dict.fromkeys(holders, 0), names)
+        # A method does not see the class body's locals, but does still see
+        # whatever the class was defined inside.
+        _names_reached_for_in(
+            inner, holders if isinstance(scope, ast.ClassDef) else at_the_end, names
+        )
 
 
 def _names_reached_for(path):
@@ -450,3 +494,123 @@ class TestEveryImplementationSurvivesBeingCalled:
         else:
             assert isinstance(answer, expected)
             assert not isinstance(answer, bool) or expected is bool
+
+
+# What the scan must make of each way a name can or cannot hold a quirk
+# module. ``real`` is a name it has to find; ``leaked`` is one it must
+# not, because at that point the name holds something else or nothing.
+SCOPE_CASES = [
+    (
+        "a sibling function's local of the same name",
+        """
+def dispatches(trv):
+    quirks = trv.model_quirks
+    return quirks.real()
+
+def does_not(other):
+    quirks = other.unrelated
+    return quirks.leaked()
+""",
+        {"real"},
+    ),
+    (
+        "a reference above the binding",
+        """
+def reads_too_early(trv):
+    answer = quirks.leaked()
+    quirks = trv.model_quirks
+    return answer
+""",
+        set(),
+    ),
+    (
+        "a name rebound to something else",
+        """
+def rebinds(trv, other):
+    quirks = trv.model_quirks
+    answer = quirks.real()
+    quirks = other.unrelated
+    return answer, quirks.leaked()
+""",
+        {"real"},
+    ),
+    (
+        "a parameter shadowing the enclosing binding",
+        """
+def shadows(trv):
+    quirks = trv.model_quirks
+    def inner(quirks):
+        return quirks.leaked()
+    return inner
+""",
+        set(),
+    ),
+    (
+        "a class body's local read in its method",
+        """
+def encloses(trv):
+    class Holder:
+        quirks = trv.model_quirks
+        def method(self):
+            return quirks.leaked()
+    return Holder
+""",
+        set(),
+    ),
+    (
+        "a closure over the enclosing binding",
+        """
+def encloses(trv):
+    quirks = trv.model_quirks
+    def inner():
+        return quirks.real()
+    return inner
+""",
+        {"real"},
+    ),
+    (
+        "a method closing over the function the class sits in",
+        """
+def encloses(trv):
+    quirks = trv.model_quirks
+    class Holder:
+        def method(self):
+            return quirks.real()
+    return Holder
+""",
+        {"real"},
+    ),
+    (
+        "a nested function defined above the binding it closes over",
+        """
+def encloses(trv):
+    def inner():
+        return quirks.real()
+    quirks = trv.model_quirks
+    return inner
+""",
+        {"real"},
+    ),
+]
+
+
+class TestTheScanReadsPythonsOwnScoping:
+    """``quirks`` is an ordinary local name, so the scan has to scope it.
+
+    Enough of Python's binding rules live in ``_names_reached_for`` now
+    that they are worth pinning here directly: every case below is one
+    the shell could grow, and getting any of them wrong makes the two
+    tests above pass without a dispatch behind them.
+    """
+
+    @pytest.mark.parametrize(
+        ("source", "expected"),
+        [(source, expected) for _label, source, expected in SCOPE_CASES],
+        ids=[label for label, _source, _expected in SCOPE_CASES],
+    )
+    def test_only_a_lookup_on_a_quirk_module_counts(self, tmp_path, source, expected):
+        """A name reached where it holds no module is not a dispatch."""
+        probe = tmp_path / "probe.py"
+        probe.write_text(source)
+
+        assert _names_reached_for(probe) == expected
