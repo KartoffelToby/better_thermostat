@@ -19,17 +19,17 @@ Based on community feedback and what the integrations expose:
 ### 1. Sonoff TRVZB
 
 - Good Zigbee2MQTT support, fast response times and reliable local temperature calibration. It also has specific model fixes built into Better Thermostat to ensure smooth operation.
-- Suggested algorithm: AI Time Based or Aggressive or MPC.
+- Suggested algorithms: AI Time Based, Aggressive or MPC Predictive.
 
 ### 2. Eurotronic Spirit Zigbee (SPZB0001)
 
 - One of the few TRVs that reliably supports **Direct Valve Control**, which is the capability MPC Predictive and PID Controller gain the most from.
-- Suggested algorithm: MPC Predictive or PID Controller.
+- Suggested algorithms: MPC Predictive or PID Controller.
 
 ### 3. Moes / Tuya TS0601 Series
 
 - Very affordable and widely available. Better Thermostat includes extensive model fixes for these devices to correct their often-quirky default behaviors and make them reliable.
-- Suggested algorithm: AI Time Based or MPC.
+- Suggested algorithms: AI Time Based or MPC Predictive.
 
 ### 4. Tado Smart Radiator Thermostats
 
