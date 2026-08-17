@@ -60,8 +60,8 @@ def _thermostat(
     Parameters
     ----------
     valve_entity : str or None
-        Entity ID of the discovered valve number entity, or None to model
-        a TRV for which discovery found none.
+        Entity ID of the discovered valve number entity, or None or the
+        empty string to model a TRV for which discovery found none.
     valve_writable : bool or None
         What discovery concluded about that entity.
     valve_bounds : tuple of float
@@ -111,8 +111,12 @@ VALVE_GRIDS = [
     (0.0, 254.0, 5.0),
     (0.0, 100.0, 3.0),
     (5.0, 100.0, 1.0),
+    (5.0, 100.0, 2.0),
     (0.0, 100.0, 0.0),
 ]
+# The grids above that publish a step at all; the last one publishes none,
+# so there is no grid to land on.
+STEPPED_GRIDS = [grid for grid in VALVE_GRIDS if grid[2] > 0]
 
 
 class TestTheValveWriteStaysInsideTheDeclaredBounds:
@@ -133,6 +137,27 @@ class TestTheValveWriteStaysInsideTheDeclaredBounds:
         assert minimum <= payload["value"] <= maximum
 
     @pytest.mark.parametrize("name", VALVE_ADAPTERS)
+    @pytest.mark.parametrize("grid", STEPPED_GRIDS, ids=repr)
+    @pytest.mark.parametrize("percent", [1, 50, 99])
+    @pytest.mark.asyncio
+    async def test_a_scaled_request_lands_on_the_published_step_grid(
+        self, name, grid, percent
+    ):
+        """A number entity offers ``min + n * step``, not ``n * step``.
+
+        The maximum is the one value off that grid the entity always
+        accepts, because clamping to it is what keeps the write in range.
+        """
+        minimum, maximum, step = grid
+        thermostat = _thermostat(valve_bounds=grid)
+
+        await ADAPTERS[name].set_valve(thermostat, ENTITY_ID, percent)
+
+        (_domain, _service, payload) = _calls(thermostat)[0]
+        steps = (payload["value"] - minimum) / step
+        assert payload["value"] == maximum or steps == round(steps)
+
+    @pytest.mark.parametrize("name", VALVE_ADAPTERS)
     @pytest.mark.parametrize("percent", [-10, 150])
     @pytest.mark.asyncio
     async def test_a_request_outside_nought_to_hundred_is_clamped(self, name, percent):
@@ -145,10 +170,16 @@ class TestTheValveWriteStaysInsideTheDeclaredBounds:
         assert payload["value"] == (0.0 if percent < 0 else 255.0)
 
     @pytest.mark.parametrize("name", VALVE_ADAPTERS)
+    @pytest.mark.parametrize("valve_entity", [None, ""], ids=["none", "empty"])
     @pytest.mark.asyncio
-    async def test_a_missing_valve_entity_writes_nothing(self, name):
-        """Without a discovered entity there is nothing to address."""
-        thermostat = _thermostat(valve_entity=None)
+    async def test_a_missing_valve_entity_writes_nothing(self, name, valve_entity):
+        """Without a discovered entity there is nothing to address.
+
+        Discovery spells absence two ways, and the delegate already reads
+        both as absent, so an adapter that only knows one of them would
+        address the empty string.
+        """
+        thermostat = _thermostat(valve_entity=valve_entity)
 
         await ADAPTERS[name].set_valve(thermostat, ENTITY_ID, 50)
 
