@@ -335,20 +335,17 @@ class TestMaintenanceSweep:
     DUES = (None, NOW_DT - timedelta(minutes=1), NOW_DT + timedelta(days=1))
 
     @pytest.mark.parametrize(
-        ("phase", "due", "window_open", "hvac_off", "has_trvs"),
+        ("phase", "due", "window_open", "has_trvs"),
         list(
             itertools.product(
                 tuple(mt.MaintenancePhase),
                 (None, NOW_DT - timedelta(minutes=1), NOW_DT + timedelta(days=1)),
                 (False, True),
                 (False, True),
-                (False, True),
             )
         ),
     )
-    def test_evaluate_tick_invariants(
-        self, phase, due, window_open, hvac_off, has_trvs
-    ):
+    def test_evaluate_tick_invariants(self, phase, due, window_open, has_trvs):
         """DUE only arms from an unblocked, due, idle schedule."""
         state = mt.MaintenanceState(
             phase=phase,
@@ -356,11 +353,7 @@ class TestMaintenanceSweep:
             running_since=NOW - 5.0 if phase == mt.MaintenancePhase.RUNNING else None,
         )
         result = mt.evaluate_tick(
-            state,
-            NOW_DT,
-            window_open=window_open,
-            hvac_off=hvac_off,
-            has_enabled_trvs=has_trvs,
+            state, NOW_DT, window_open=window_open, has_enabled_trvs=has_trvs
         )
 
         # Only the IDLE phase reacts to the scheduler tick.
@@ -372,7 +365,7 @@ class TestMaintenanceSweep:
             assert result == state
             return
         # Blocked or TRV-less ticks postpone instead of arming.
-        if window_open or hvac_off or not has_trvs:
+        if window_open or not has_trvs:
             assert result.phase == mt.MaintenancePhase.IDLE
             assert result.next_due is not None and result.next_due > NOW_DT
         else:

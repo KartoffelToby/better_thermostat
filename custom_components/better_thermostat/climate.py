@@ -2586,7 +2586,6 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
             region,
             now,
             window_open=bool(self.contact_open),
-            hvac_off=HVACMode.OFF in (self.hvac_mode, self.bt_hvac_mode),
             has_enabled_trvs=bool(trvs_to_service),
         )
         self.kernel_state = replace(self.kernel_state, maintenance=region)
