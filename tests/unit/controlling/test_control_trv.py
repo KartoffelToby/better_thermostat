@@ -2630,14 +2630,14 @@ class TestControlTrvOnADualRoleEntity:
         """Run one control_trv cycle and return the mode it wrote out."""
         with (
             patch(
-                _PATCHES["override_set_hvac_mode"], new=AsyncMock(return_value=False)
+                _PATCHES["override_set_hvac_mode"], autospec=True, return_value=False
             ),
             patch(
-                _PATCHES["override_set_temperature"], new=AsyncMock(return_value=False)
+                _PATCHES["override_set_temperature"], autospec=True, return_value=False
             ),
-            patch(_PATCHES["set_hvac_mode"], new=AsyncMock()) as mock_set_hvac,
-            patch(_PATCHES["set_temperature"], new=AsyncMock()),
-            patch(_PATCHES["set_valve"], new=AsyncMock()),
+            patch(_PATCHES["set_hvac_mode"], autospec=True) as mock_set_hvac,
+            patch(_PATCHES["set_temperature"], autospec=True),
+            patch(_PATCHES["set_valve"], autospec=True, return_value=True),
             patch("asyncio.sleep", new=AsyncMock()),
         ):
             await control_trv(mock_self, entity_id)
