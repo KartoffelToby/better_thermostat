@@ -30,6 +30,7 @@ from custom_components.better_thermostat.events.trv import convert_outbound_stat
 from custom_components.better_thermostat.model_fixes.model_quirks import (
     override_set_hvac_mode,
     override_set_temperature,
+    trv_state_unknown_as_available,
 )
 from custom_components.better_thermostat.utils.const import (
     DEFAULT_CALIBRATION_MODE,
@@ -469,7 +470,12 @@ def desired_diverges(self, snapshot, desired) -> bool:
         if trv is None:
             continue
         state = self.hass.states.get(entity_id)
-        if state is None or state.state in (STATE_UNAVAILABLE, STATE_UNKNOWN):
+        state_unknown_as_available = trv_state_unknown_as_available(self, entity_id)
+        if (
+            state is None
+            or state.state == STATE_UNAVAILABLE
+            or ((not state_unknown_as_available) and state.state == STATE_UNKNOWN)
+        ):
             continue
         if cooling_owns_dual_role_device(self, entity_id):
             # The cooling channel drives this device, so the mode and setpoint
@@ -484,10 +490,9 @@ def desired_diverges(self, snapshot, desired) -> bool:
             if intent.hvac_mode == HVACMode.OFF:
                 # A device that cannot switch off converges on its min
                 # temp instead; the setpoint comparison below covers it.
-                if not _no_off_system_mode(trv) and state.state not in (
-                    HVACMode.OFF,
-                    STATE_UNAVAILABLE,
-                    STATE_UNKNOWN,
+                if not _no_off_system_mode(trv) and (
+                    state.state not in (HVACMode.OFF, STATE_UNAVAILABLE)
+                    and (state_unknown_as_available or state.state != STATE_UNKNOWN)
                 ):
                     return True
             elif state.state == HVACMode.OFF:
@@ -1640,10 +1645,18 @@ async def control_trv(self, heater_entity_id=None, cycle=None):
             # the top of the cycle may already be superseded. A device that
             # dropped out in that window reports no mode at all, so there the
             # earlier reading stands in.
+
+            state_unknown_as_available = trv_state_unknown_as_available(
+                self, heater_entity_id
+            )
             _live_trv = self.hass.states.get(heater_entity_id)
-            if _live_trv is None or _live_trv.state in (
-                STATE_UNAVAILABLE,
-                STATE_UNKNOWN,
+            if (
+                _live_trv is None
+                or _live_trv.state == STATE_UNAVAILABLE
+                or (
+                    (not state_unknown_as_available)
+                    and _live_trv.state == STATE_UNKNOWN
+                )
             ):
                 _live_trv = _trv
             _reported_hvac_mode = _live_trv.state
@@ -1888,9 +1901,14 @@ async def check_system_mode(self, heater_entity_id=None):
     """
     _timeout = 0
     _real_trv = self.real_trvs[heater_entity_id]
+    state_unknown_as_available = trv_state_unknown_as_available(self, heater_entity_id)
     while True:
         _trv_state = self.hass.states.get(heater_entity_id)
-        if _trv_state is None or _trv_state.state in (STATE_UNAVAILABLE, STATE_UNKNOWN):
+        if (
+            _trv_state is None
+            or _trv_state.state == STATE_UNAVAILABLE
+            or ((not state_unknown_as_available) and _trv_state.state == STATE_UNKNOWN)
+        ):
             _LOGGER.debug(
                 "better_thermostat %s: %s became unavailable during check_system_mode",
                 self.device_name,
@@ -1941,9 +1959,14 @@ async def check_target_temperature(self, heater_entity_id=None):
     """
     _timeout = 0
     _real_trv = self.real_trvs[heater_entity_id]
+    state_unknown_as_available = trv_state_unknown_as_available(self, heater_entity_id)
     while True:
         _trv_state = self.hass.states.get(heater_entity_id)
-        if _trv_state is None or _trv_state.state in (STATE_UNAVAILABLE, STATE_UNKNOWN):
+        if (
+            _trv_state is None
+            or _trv_state.state == STATE_UNAVAILABLE
+            or ((not state_unknown_as_available) and _trv_state.state == STATE_UNKNOWN)
+        ):
             _LOGGER.debug(
                 "better_thermostat %s: %s became unavailable during check_target_temperature",
                 self.device_name,
